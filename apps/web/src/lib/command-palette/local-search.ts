@@ -7,6 +7,7 @@ import {
 	type SpaceRecordCacheRecord,
 } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
+import { getSpacePublicProfile } from "$lib/space-profile";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { commandItemKey } from "./merge-results";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
@@ -59,6 +60,7 @@ function spaceToItem(
 		excerpt: compactText(space.description, 220),
 		spaceName: space.name ?? null,
 		ownerProfile: space.ownerProfile ?? null,
+		spaceProfile: getSpacePublicProfile(space),
 		sessionTitle: null,
 		matchedField,
 		href: `/spaces/${space.id}`,

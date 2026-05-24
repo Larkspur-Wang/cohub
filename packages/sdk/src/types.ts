@@ -210,10 +210,14 @@ export type SpaceConfig = {
   sandbox?: SpaceSandboxConfig;
 };
 
+export type SpacePublicProfile = {
+  avatarUrl: string | null;
+};
+
 export type SpaceMeta = JsonObject & {
   config?: SpaceConfig;
   extraEnv?: SpaceEnvInput[];
-  publicProfile?: { avatarUrl?: string | null };
+  publicProfile?: Partial<SpacePublicProfile> | null;
 };
 
 export type SpaceGitInfo = {
@@ -233,6 +237,7 @@ export type SpaceRecord = {
   title: string | null;
   status: string | null;
   meta: SpaceMeta | null;
+  publicProfile?: SpacePublicProfile;
   createdAt: string;
   updatedAt: string;
   channels?: {
@@ -417,6 +422,7 @@ export type GlobalSearchResult = {
   sequence: number | null;
   title: string;
   ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
+  spaceProfile?: SpacePublicProfile | null;
   matchedField: "userText" | "title" | "name" | "description";
   href: string;
   score: number;

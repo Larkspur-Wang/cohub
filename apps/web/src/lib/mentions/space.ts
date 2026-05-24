@@ -1,4 +1,4 @@
-import type { UserProfile } from "@neta-art/cohub";
+import type { SpacePublicProfile, UserProfile } from "@neta-art/cohub";
 
 export type SpaceMention = {
 	type: "space";
@@ -19,6 +19,7 @@ export type SpaceMentionSuggestion = {
 		UserProfile,
 		"userUuid" | "displayName" | "avatarUrl"
 	> | null;
+	spaceProfile: SpacePublicProfile;
 	href: string;
 	uri: string;
 	updatedAt: string | null;

@@ -32,6 +32,7 @@ import {
 	typeLabelFor,
 } from "$lib/command-palette/scope";
 import type { CommandPaletteItem } from "$lib/command-palette/types";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
@@ -798,9 +799,13 @@ onMount(() => {
 								role="option"
 								aria-selected={index === activeIndex}
 							>
-								<div class={`command-type-mark ${meta.className}`} aria-label={item.type}>
-									<Icon class="h-3.5 w-3.5" />
-								</div>
+								{#if item.type === "space"}
+									<SpaceAvatar name={item.title || item.spaceName || item.spaceId} profile={item.spaceProfile} size="sm" />
+								{:else}
+									<div class={`command-type-mark ${meta.className}`} aria-label={item.type}>
+										<Icon class="h-3.5 w-3.5" />
+									</div>
+								{/if}
 								<div class="min-w-0 flex-1 text-left">
 									<div class="flex min-w-0 items-center gap-2">
 										<span class="truncate text-[13px] font-medium text-text-primary">{item.title}</span>

@@ -1,4 +1,5 @@
 import type { SpaceMarkListItem } from "@neta-art/cohub";
+import { getSpacePublicProfile } from "$lib/space-profile";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { getCachedSpacePins } from "$lib/stores/space-marks-cache";
 import {
@@ -97,6 +98,7 @@ function markToPinnedItem(
 			excerpt: compactText(mark.resource?.subtitle ?? space?.description, 220),
 			spaceName: title,
 			ownerProfile: space?.ownerProfile ?? null,
+			spaceProfile: space ? getSpacePublicProfile(space) : { avatarUrl: null },
 			sessionTitle: null,
 			matchedField: "name",
 			href: mark.href,

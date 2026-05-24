@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { sql, and, gte, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as schema from "@cohub/db";
+import { getSpacePublicProfile } from "../lib/middleware.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 
 const router = new Hono();
@@ -51,12 +52,14 @@ router.get("/spaces", async (c) => {
       id: schema.spaces.id,
       name: schema.spaces.name,
       userUuid: schema.spaces.userUuid,
+      meta: schema.spaces.meta,
     })
     .from(schema.spaces)
     .where(sql`${schema.spaces.id} IN (${sql.join(spaceIds, sql`, `)})`);
 
   const nameMap = new Map(spaces.map((s) => [s.id, s.name]));
   const userMap = new Map(spaces.map((s) => [s.id, s.userUuid]));
+  const spaceProfileMap = new Map(spaces.map((s) => [s.id, getSpacePublicProfile(s)]));
   const profileMap = await getProfilesByUuids(spaces.map((s) => s.userUuid));
 
   const result = rows.map((r, i) => {
@@ -69,6 +72,7 @@ router.get("/spaces", async (c) => {
       userId: uid,
       userDisplay: userProfile.displayName,
       userProfile,
+      spaceProfile: spaceProfileMap.get(r.spaceId as string) ?? { avatarUrl: null },
       totalTokens: r.totalTokens ?? 0,
       costTotal: Number(r.costTotal ?? 0),
       sessionCount: Number(r.sessionCount),

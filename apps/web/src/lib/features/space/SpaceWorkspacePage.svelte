@@ -81,6 +81,7 @@ import PageHeader from "$lib/components/PageHeader.svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
@@ -5317,9 +5318,9 @@ $effect(() => {
       {#if routeView === "session" && activeSessionState?.session}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] min-w-0 select-none text-left hover:text-text-secondary transition-colors"
+          class="inline-flex min-w-0 max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
           title="Space details"
-        >{space?.name || space?.title || spaceId}</button>
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <div class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
           {#if sessionRenaming}
@@ -5383,48 +5384,48 @@ $effect(() => {
       {:else if routeView === "checkpoint" && checkpointDetail}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
           title="Space details"
-        >{space?.name || space?.title || spaceId}</button>
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
       {:else if routeView === "checkpoint-new"}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
           title="Space details"
-        >{space?.name || space?.title || spaceId}</button>
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">New save</span>
       {:else if routeView === "cronjob" && cronjobDetail}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
           title="Space details"
-        >{space?.name || space?.title || spaceId}</button>
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">{cronjobDetail.title}</span>
       {:else if routeView === "cronjob-new"}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
           title="Space details"
-        >{space?.name || space?.title || spaceId}</button>
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">New cronjob</span>
       {:else if routeView === "task" && taskRunDetail}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate max-w-[35%] select-none text-left hover:text-text-secondary transition-colors"
+          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
           title="Space details"
-        >{space?.name || space?.title || spaceId}</button>
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">Task run</span>
       {:else}
         <button
           type="button"
-          class="text-[13px] text-text-primary truncate select-none text-left hover:text-text-secondary transition-colors"
-        >{space?.name || space?.title || spaceId}</button>
+          class="inline-flex min-w-0 items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
       {/if}
     </div>
   {/snippet}
@@ -6286,7 +6287,8 @@ $effect(() => {
           {/if}
           <!-- Space Header -->
           <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0 space-y-1.5">
+            <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" />
+            <div class="min-w-0 flex-1 space-y-1.5">
               <div class="text-[11px] uppercase tracking-[0.18em] text-text-placeholder">Space</div>
               <div class="flex items-center gap-1.5 group">
                 {#if renamingSpace}

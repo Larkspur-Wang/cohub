@@ -1,5 +1,6 @@
 <script lang="ts">
 import { CornerDownLeft, Loader2, SearchSlash } from "lucide-svelte";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import type { SpaceMentionSuggestion } from "$lib/mentions/space";
 
 type Props = {
@@ -121,13 +122,7 @@ $effect(() => {
 								{@const active = index === selectedIndex}
 								<button id={itemId(index)} type="button" role="option" aria-selected={active} class={`group relative flex w-full items-center gap-3 rounded-[11px] px-2.5 py-2 text-left transition-colors duration-100 ${active ? 'bg-brand/7 text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`} onpointerenter={() => onhighlight?.(index)} onpointerdown={(event) => event.preventDefault()} onclick={() => onselect?.(item)}>
 									<span class={`absolute left-0 top-2 bottom-2 w-0.5 rounded-full transition-opacity ${active ? 'bg-brand opacity-100' : 'opacity-0'}`}></span>
-									<span class="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border border-border-subtle bg-bg-primary text-[11px] font-semibold text-text-tertiary">
-										{#if item.ownerProfile?.avatarUrl}
-											<img src={item.ownerProfile.avatarUrl} alt="" class="h-full w-full object-cover" />
-										{:else}
-											{initials(ownerLabel(item))}
-										{/if}
-									</span>
+									<SpaceAvatar name={item.name} profile={item.spaceProfile} size="md" />
 									<span class="min-w-0 flex-1">
 										<span class="flex min-w-0 items-baseline gap-2">
 											<span class="truncate text-[13px] font-medium leading-5">{#each highlightParts(item.name) as part}<span class={part.match ? 'text-brand' : ''}>{part.text}</span>{/each}</span>
@@ -169,9 +164,7 @@ $effect(() => {
 					{#each items as item, index (item.spaceId)}
 						{@const active = index === selectedIndex}
 						<button id={itemId(index)} type="button" class={`flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-bg-hover ${active ? 'bg-brand/7' : ''}`} onpointerdown={(event) => event.preventDefault()} onclick={() => onselect?.(item)}>
-							<span class="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-[9px] border border-border-subtle bg-bg-primary text-[11px] font-semibold text-text-tertiary">
-								{#if item.ownerProfile?.avatarUrl}<img src={item.ownerProfile.avatarUrl} alt="" class="h-full w-full object-cover" />{:else}{initials(ownerLabel(item))}{/if}
-							</span>
+							<SpaceAvatar name={item.name} profile={item.spaceProfile} size="md" />
 							<span class="min-w-0 flex-1"><span class="block truncate text-[13px] font-medium text-text-primary">{item.name}</span><span class="mt-0.5 block truncate text-[11px] text-text-tertiary">{hasOwnerProfile(item) ? `by ${ownerLabel(item)}` : 'Creator unavailable'}</span></span>
 						</button>
 					{/each}

@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
-import { useAuth } from "../lib/middleware.js";
+import { normalizePublicAvatarUrl, useAuth } from "../lib/middleware.js";
 
 const router = new Hono();
 const MIN_QUERY_LENGTH = 2;
@@ -28,6 +28,7 @@ type SearchResultRow = {
   excerpt: string | null;
   spaceName: string | null;
   ownerUserUuid: string | null;
+  spaceProfile: { avatarUrl: string | null } | null;
   sessionTitle: string | null;
   matchedField: SearchMatchedField;
   updatedAt: Date | string | null;
@@ -92,6 +93,9 @@ function mapRow(row: SearchResultRow, profiles?: Awaited<ReturnType<typeof getPr
   const ownerProfile = row.ownerUserUuid
     ? (profiles?.get(row.ownerUserUuid) ?? fallbackPublicUserProfile(row.ownerUserUuid))
     : null;
+  const spaceProfile = {
+    avatarUrl: normalizePublicAvatarUrl(row.spaceProfile?.avatarUrl),
+  };
   return {
     type: row.type,
     id: row.id,
@@ -103,6 +107,7 @@ function mapRow(row: SearchResultRow, profiles?: Awaited<ReturnType<typeof getPr
     excerpt: row.excerpt,
     spaceName: row.spaceName,
     ownerProfile: row.type === "space" ? ownerProfile : null,
+    spaceProfile,
     sessionTitle: row.sessionTitle,
     matchedField: row.matchedField,
     href: hrefFor(row),
@@ -160,7 +165,12 @@ router.get("/", async (c) => {
         AND (${spaceId}::uuid IS NULL OR s.id = ${spaceId}::uuid)
     ),
     visible_sessions AS (
-      SELECT sess.*, sp.name AS space_name, sp.user_uuid AS owner_user_uuid, sp.membership_priority_score
+      SELECT
+        sess.*,
+        sp.name AS space_name,
+        sp.user_uuid AS owner_user_uuid,
+        jsonb_build_object('avatarUrl', nullif(trim(coalesce(sp.meta #>> '{publicProfile,avatarUrl}', '')), '')) AS space_profile,
+        sp.membership_priority_score
       FROM v2.space_sessions sess
       JOIN visible_spaces sp ON sp.id = sess.space_id
       LEFT JOIN v2.space_members sm
@@ -190,6 +200,7 @@ router.get("/", async (c) => {
         END AS excerpt,
         s.name AS space_name,
         s.user_uuid AS owner_user_uuid,
+        jsonb_build_object('avatarUrl', nullif(trim(coalesce(s.meta #>> '{publicProfile,avatarUrl}', '')), '')) AS space_profile,
         NULL::text AS session_title,
         CASE
           WHEN scores.name_text_score >= scores.description_text_score THEN 'name'::text
@@ -236,6 +247,7 @@ router.get("/", async (c) => {
         NULL::text AS excerpt,
         sess.space_name AS space_name,
         sess.owner_user_uuid AS owner_user_uuid,
+        sess.space_profile AS space_profile,
         sess.title AS session_title,
         'title'::text AS matched_field,
         coalesce(sess.last_message_at, sess.updated_at, sess.created_at) AS updated_at,
@@ -267,6 +279,7 @@ router.get("/", async (c) => {
         left(regexp_replace(coalesce(t.user_text, ''), '\\s+', ' ', 'g'), 260) AS excerpt,
         sess.space_name AS space_name,
         sess.owner_user_uuid AS owner_user_uuid,
+        sess.space_profile AS space_profile,
         sess.title AS session_title,
         'userText'::text AS matched_field,
         coalesce(t.updated_at, t.created_at) AS updated_at,
@@ -312,6 +325,7 @@ router.get("/", async (c) => {
       excerpt,
       space_name AS "spaceName",
       owner_user_uuid AS "ownerUserUuid",
+      space_profile AS "spaceProfile",
       session_title AS "sessionTitle",
       matched_field AS "matchedField",
       updated_at AS "updatedAt",

@@ -11,7 +11,7 @@ import {
   userProfiles,
 } from "@cohub/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
@@ -77,6 +77,7 @@ const DEFAULT_SPACE_SANDBOX_AUTO_DESTROY: SpaceSandboxAutoDestroyPolicy = {
 
 const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;
 const MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 30 * 24 * 60 * 60;
+const MAX_SPACE_DESCRIPTION_LENGTH = 10_000;
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -549,7 +550,8 @@ router.post("/", async (c) => {
     .where(eq(spaces.id, space.id))
     .returning();
 
-  return c.json({ space: spaceWithJob ?? space, taskRunId });
+  const createdSpace = spaceWithJob ?? space;
+  return c.json({ space: { ...createdSpace, publicProfile: getSpacePublicProfile(createdSpace) }, taskRunId });
 });
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────
@@ -576,6 +578,7 @@ async function serializeSpaceForResponse(space: typeof spaces.$inferSelect, user
   return {
     ...space,
     meta: sanitizeSpaceMeta(space.meta),
+    publicProfile: getSpacePublicProfile(space),
     sandboxStatus: sandbox?.status ?? null,
     sandbox: attachSandboxPublicEndpoints(sandbox),
     access,
@@ -739,7 +742,9 @@ router.patch("/:id", async (c) => {
     if (slug !== space.slug) updates.slug = slug;
   }
 
-  if (updates.name === undefined && updates.slug === undefined) return c.json({ space });
+  if (updates.name === undefined && updates.slug === undefined) {
+    return c.json({ space: { ...space, publicProfile: getSpacePublicProfile(space) } });
+  }
 
   try {
     const [updated] = await db
@@ -748,7 +753,8 @@ router.patch("/:id", async (c) => {
       .where(eq(spaces.id, spaceId))
       .returning();
 
-    return c.json({ space: updated ?? space });
+    const result = updated ?? space;
+    return c.json({ space: { ...result, publicProfile: getSpacePublicProfile(result) } });
   } catch (error) {
     const constraint = uniqueViolationConstraint(error);
     if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
@@ -767,29 +773,49 @@ router.patch("/:id/profile", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ description?: string | null; avatarUrl?: string | null }>().catch(() => null);
-  if (!body) return c.json({ message: "invalid body" }, 400);
+  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+  if (!body || !isRecord(body)) return c.json({ message: "invalid body" }, 400);
+
+  let nextDescription = space.description;
+  if ("description" in body) {
+    if (body.description !== null && typeof body.description !== "string") {
+      return c.json({ message: "description must be a string or null" }, 400);
+    }
+    if (typeof body.description === "string" && body.description.length > MAX_SPACE_DESCRIPTION_LENGTH) {
+      return c.json({ message: `description must be at most ${MAX_SPACE_DESCRIPTION_LENGTH} characters` }, 400);
+    }
+    nextDescription = body.description;
+  }
 
   const existingMeta = (space.meta as Record<string, unknown> | null) ?? {};
   const existingProfile = typeof existingMeta.publicProfile === "object" && existingMeta.publicProfile !== null && !Array.isArray(existingMeta.publicProfile)
     ? existingMeta.publicProfile as Record<string, unknown>
     : {};
-  const nextProfile: Record<string, unknown> = body.avatarUrl !== undefined
-    ? { ...existingProfile, avatarUrl: body.avatarUrl?.trim() || null }
-    : { ...existingProfile };
-  if (body.avatarUrl !== undefined) delete nextProfile.pictureUrl;
+  const nextProfile: Record<string, unknown> = { ...existingProfile };
+  if ("avatarUrl" in body) {
+    if (body.avatarUrl !== null && typeof body.avatarUrl !== "string") {
+      return c.json({ message: "avatarUrl must be a URL string or null" }, 400);
+    }
+    const avatarUrl = body.avatarUrl === null ? null : normalizePublicAvatarUrl(body.avatarUrl);
+    if (body.avatarUrl !== null && !avatarUrl) {
+      return c.json({ message: "avatarUrl must be a valid http(s) URL under 2048 characters" }, 400);
+    }
+    nextProfile.avatarUrl = avatarUrl;
+    delete nextProfile.pictureUrl;
+  }
 
   const [updated] = await db
     .update(spaces)
     .set({
-      description: body.description !== undefined ? body.description : space.description,
+      description: nextDescription,
       meta: { ...existingMeta, publicProfile: nextProfile },
       updatedAt: new Date(),
     })
     .where(eq(spaces.id, spaceId))
     .returning();
 
-  return c.json({ space: updated ?? space });
+  const result = updated ?? space;
+  return c.json({ space: { ...result, publicProfile: getSpacePublicProfile(result) } });
 });
 
 // ── Checkpoints ──────────────────────────────────────────────────────────────
@@ -1026,7 +1052,7 @@ router.patch("/:id/config", async (c) => {
   const baseAt = sandbox?.lastActivityAt ?? sandbox?.lastHeartbeatAt ?? sandbox?.createdAt ?? updated.createdAt ?? new Date();
   await scheduleSandboxAutoDestroy({ spaceId, policy: nextAutoDestroy, baseAt: baseAt ? new Date(baseAt) : null }).catch(console.error);
 
-  return c.json({ space: updated });
+  return c.json({ space: { ...updated, publicProfile: getSpacePublicProfile(updated) } });
 });
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────

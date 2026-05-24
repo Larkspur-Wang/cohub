@@ -1,4 +1,8 @@
-import type { GlobalSearchType, UserProfile } from "@neta-art/cohub";
+import type {
+	GlobalSearchType,
+	SpacePublicProfile,
+	UserProfile,
+} from "@neta-art/cohub";
 
 export type CommandPaletteItemType = GlobalSearchType | "command";
 export type CommandPaletteResourceType = CommandPaletteItemType;
@@ -32,6 +36,7 @@ export type CommandPaletteItem = {
 		UserProfile,
 		"userUuid" | "displayName" | "avatarUrl"
 	> | null;
+	spaceProfile?: SpacePublicProfile | null;
 	sessionTitle: string | null;
 	matchedField: "userText" | "title" | "name" | "description" | "command";
 	href: string;

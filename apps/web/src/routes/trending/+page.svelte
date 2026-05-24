@@ -1,4 +1,5 @@
 <script lang="ts">
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import type { ModelRow, SpaceRow, UserProfile, UserRow } from "$lib/trending";
 import { fetchModels, fetchSpaces, fetchUsers } from "$lib/trending";
 
@@ -202,7 +203,9 @@ const hasData = $derived(
 						<!-- Name + subline -->
 						<div class="min-w-0 py-2.5 sm:py-3">
 							<div class="flex min-w-0 items-center gap-2">
-								{#if activeTab === 'users' && userProfile}
+								{#if activeTab === 'spaces'}
+									<SpaceAvatar name={(row as SpaceRow).spaceName} profile={(row as SpaceRow).spaceProfile} size="sm" />
+								{:else if activeTab === 'users' && userProfile}
 									<div class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-[10px] font-semibold text-text-tertiary">
 										{#if userProfile.avatarUrl}
 											<img src={userProfile.avatarUrl} alt="" class="h-full w-full object-cover" />

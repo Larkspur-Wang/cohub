@@ -44,6 +44,7 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { downloadCohubDebugBundle } from "$lib/debugger";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
@@ -1096,6 +1097,7 @@ $effect(() => {
         onclick={openSpacePalette}
       >
         {#if currentSpace}
+          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
           <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
         {:else}
           <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>

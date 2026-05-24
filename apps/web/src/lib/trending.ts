@@ -6,6 +6,10 @@ export type UserProfile = {
 	avatarUrl: string | null;
 };
 
+export type SpacePublicProfile = {
+	avatarUrl: string | null;
+};
+
 export type TrendingRow = {
 	rank: number;
 	totalTokens: number;
@@ -20,6 +24,7 @@ export type SpaceRow = TrendingRow & {
 	userId: string;
 	userDisplay: string;
 	userProfile: UserProfile;
+	spaceProfile: SpacePublicProfile;
 };
 
 export type UserRow = TrendingRow & {

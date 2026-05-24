@@ -134,10 +134,35 @@ export const ensureInternalRequest = (c: Context) => {
 
 // ── Space helpers ────────────────────────────────────────────────────────────
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const MAX_PUBLIC_AVATAR_URL_LENGTH = 2048;
+
+export const normalizePublicAvatarUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_PUBLIC_AVATAR_URL_LENGTH) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+};
+
+export const getSpacePublicProfile = (space: Pick<typeof spaces.$inferSelect, "meta">) => {
+  const meta = isRecord(space.meta) ? space.meta : {};
+  const profile = isRecord(meta.publicProfile) ? meta.publicProfile : {};
+  return { avatarUrl: normalizePublicAvatarUrl(profile.avatarUrl) };
+};
+
 export const buildSpaceListItem = async (space: typeof spaces.$inferSelect) => {
   const sandbox = await getSpaceSandboxBySpaceId(space.id);
   return {
     ...space,
+    publicProfile: getSpacePublicProfile(space),
     sandboxStatus: sandbox?.status ?? null,
   };
 };
@@ -159,6 +184,7 @@ export const buildSpaceListItems = async (spaceList: typeof spaces.$inferSelect[
 
   return spaceList.map((space) => ({
     ...space,
+    publicProfile: getSpacePublicProfile(space),
     sandboxStatus: statusBySpaceId.get(space.id) ?? null,
     ownerProfile: profileByUserUuid.get(space.userUuid) ?? null,
   }));

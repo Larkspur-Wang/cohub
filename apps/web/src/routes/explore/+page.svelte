@@ -10,6 +10,7 @@ import {
 	Sparkles,
 } from "lucide-svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { sdk } from "$lib/sdk";
 
 let sections = $state<ExploreSection[]>([]);
@@ -129,13 +130,7 @@ $effect(() => {
 										>
 											<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
 												<div class="flex min-w-0 flex-1 items-start gap-3">
-													<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-border-subtle bg-bg-elevated text-[13px] font-semibold text-text-secondary">
-														{#if owner?.avatarUrl}
-															<img src={owner.avatarUrl} alt="" class="h-full w-full object-cover" />
-														{:else}
-															{getInitials(owner?.displayName ?? item.space.name ?? item.space.id)}
-														{/if}
-													</div>
+													<SpaceAvatar name={item.space.name ?? item.space.id} profile={item.space.publicProfile} size="lg" />
 													<div class="min-w-0 flex-1">
 														<div class="flex flex-wrap items-center gap-2">
 															<h3 class="truncate text-[16px] font-semibold tracking-tight text-text-primary sm:text-[17px]">{item.space.name ?? item.space.id}</h3>

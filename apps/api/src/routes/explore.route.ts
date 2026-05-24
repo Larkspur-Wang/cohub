@@ -17,6 +17,7 @@ import { accessPolicies, checkpoints, spaces } from "@cohub/db";
 import { config } from "../config.js";
 import { db } from "../db/index.js";
 import { redisCommandClient } from "../redis.js";
+import { getSpacePublicProfile } from "../lib/middleware.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
 import { fallbackPublicUserProfile, getProfilesByUuids, type PublicUserProfile } from "../user-profiles.js";
 
@@ -24,7 +25,10 @@ const PLATFORM_EXPLORE_PATH = join(config.platformConfigRoot, "platform", ".cohu
 const inflightByKey = new Map<string, Promise<ExploreConfig | null>>();
 
 type ExploreSpaceItem = {
-  space: typeof spaces.$inferSelect & { ownerProfile: PublicUserProfile | null };
+  space: typeof spaces.$inferSelect & {
+    publicProfile: ReturnType<typeof getSpacePublicProfile>;
+    ownerProfile: PublicUserProfile | null;
+  };
   ownerProfile: PublicUserProfile | null;
   accessAudience: "anonymous" | "signed_in";
   explore: {
@@ -263,6 +267,7 @@ router.get("/spaces", async (c) => {
       return {
         space: {
           ...space,
+          publicProfile: getSpacePublicProfile(space),
           ownerProfile: normalizedOwner,
         },
         ownerProfile: normalizedOwner,

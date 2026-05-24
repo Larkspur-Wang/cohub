@@ -7,6 +7,10 @@ import {
 import { getCacheUserKey } from "$lib/cache/keys";
 import { recencyScore, textMatchScore } from "$lib/command-palette/score";
 import { sdk } from "$lib/sdk";
+import {
+	getSpacePublicProfile,
+	normalizeSpacePublicProfile,
+} from "$lib/space-profile";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import {
 	buildSpaceMentionHref,
@@ -66,6 +70,7 @@ function localSpaceToSuggestion(
 		name: spaceName(space),
 		description: compactText(space.description, 180),
 		ownerProfile: space.ownerProfile ?? null,
+		spaceProfile: getSpacePublicProfile(space),
 		href: buildSpaceMentionHref(space.id),
 		uri: buildSpaceMentionUri(space.id),
 		updatedAt,
@@ -79,6 +84,7 @@ function remoteSpaceToSuggestion(
 ): SpaceMentionSuggestion | null {
 	if (item.type !== "space") return null;
 	const ownerProfile = "ownerProfile" in item ? item.ownerProfile : null;
+	const spaceProfile = "spaceProfile" in item ? item.spaceProfile : null;
 	return {
 		type: "space",
 		id: item.spaceId,
@@ -86,6 +92,7 @@ function remoteSpaceToSuggestion(
 		name: item.title || item.spaceName || `space:${item.spaceId.slice(0, 8)}`,
 		description: compactText(item.excerpt, 180),
 		ownerProfile: ownerProfile ?? null,
+		spaceProfile: normalizeSpacePublicProfile(spaceProfile),
 		href: item.href || buildSpaceMentionHref(item.spaceId),
 		uri: buildSpaceMentionUri(item.spaceId),
 		updatedAt: item.updatedAt,
@@ -179,6 +186,9 @@ export function mergeSpaceMentionSuggestions(input: {
 			...existing,
 			...item,
 			ownerProfile: item.ownerProfile ?? existing.ownerProfile,
+			spaceProfile: normalizeSpacePublicProfile(
+				item.spaceProfile ?? existing.spaceProfile,
+			),
 			description: item.description ?? existing.description,
 			source: "local+remote",
 			score: Math.max(existing.score, item.score),

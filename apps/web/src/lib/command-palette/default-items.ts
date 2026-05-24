@@ -7,6 +7,7 @@ import {
 	type SpaceRecordCacheRecord,
 } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
+import { getSpacePublicProfile } from "$lib/space-profile";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { getDefaultCommandItems } from "./commands";
@@ -86,6 +87,7 @@ function spaceToDefaultItem(
 		excerpt: compactText(space.description, 220),
 		spaceName: space.name ?? null,
 		ownerProfile: space.ownerProfile ?? null,
+		spaceProfile: getSpacePublicProfile(space),
 		sessionTitle: null,
 		matchedField: "name",
 		href: `/spaces/${space.id}`,
