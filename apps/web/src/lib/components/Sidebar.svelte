@@ -1153,7 +1153,7 @@ $effect(() => {
         onclick={openSpacePalette}
       >
         {#if currentSpace}
-          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="xxs" />
+          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
           <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
         {:else}
           <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
