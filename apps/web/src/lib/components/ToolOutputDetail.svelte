@@ -35,7 +35,7 @@ const bodyId = $derived(`${idPrefix}-${failed ? "err" : "out"}-body`);
 
 	<pre
 		id={bodyId}
-		class={`whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] max-sm:text-[12px] ${failed ? 'text-status-error' : 'text-text-secondary'} ${collapsed ? 'max-h-56 overflow-hidden' : ''}`}
+		class={`whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] max-sm:text-[12px] ${failed ? 'text-status-error' : 'text-text-secondary'} ${collapsed ? 'max-h-[calc(var(--leading-snug)*12em)] overflow-hidden' : ''}`}
 	>{value}</pre>
 
 	{#if collapsible}
