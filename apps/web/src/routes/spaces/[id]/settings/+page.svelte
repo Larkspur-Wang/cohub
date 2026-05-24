@@ -793,19 +793,23 @@ $effect(() => {
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
 					<div class="flex items-center gap-2"><User class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Profile</div><div class="text-[15px] font-medium text-text-primary">Public space details</div></div></div>
 					<div class="flex items-center gap-3 rounded-[7px] border border-border-subtle bg-bg-input/40 p-3">
-						<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-text-tertiary">
+						<label class="group relative flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-text-tertiary transition-colors hover:border-brand/50" title={avatarUrl ? "Change space avatar" : "Upload space avatar"} aria-label={avatarUrl ? "Change space avatar" : "Upload space avatar"}>
 							{#if avatarUrl}
 								<img src={avatarUrl} alt="" class="h-full w-full object-cover" />
 							{:else}
-								<User class="w-4 h-4" />
+								<User class="h-4 w-4" />
 							{/if}
-						</div>
+							<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+								{#if uploadingAvatar}<Loader2 class="h-3.5 w-3.5 animate-spin text-overlay-control-text" />{:else}<Upload class="h-3.5 w-3.5 text-overlay-control-text" />{/if}
+							</span>
+							<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleSpaceAvatarFileChange} />
+						</label>
 						<div class="min-w-0 flex-1">
 							<div class="text-[12px] font-medium text-text-secondary">Space avatar</div>
-							<div class="mt-0.5 truncate text-[11px] text-text-tertiary">JPEG, PNG, or WebP · 1024×1024</div>
+							<div class="mt-0.5 truncate text-[11px] text-text-tertiary">Drop in a JPEG, PNG, or WebP.</div>
 						</div>
-						<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] border border-border-subtle px-2.5 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover">
-							{#if uploadingAvatar}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Upload class="w-3.5 h-3.5" />{/if}
+						<label class="hidden cursor-pointer items-center gap-1.5 rounded-[5px] border border-border-subtle px-2.5 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover sm:inline-flex">
+							{#if uploadingAvatar}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Upload class="h-3.5 w-3.5" />{/if}
 							<span>{avatarUrl ? "Replace" : "Upload"}</span>
 							<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleSpaceAvatarFileChange} />
 						</label>
