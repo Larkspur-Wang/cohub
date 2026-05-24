@@ -28,9 +28,14 @@ vim secrets.yaml
 - `LITELLM_API_KEY` - LiteLLM API key
 - `GITEA_TOKEN` - Gitea 管理员 API token（用于自动创建托管 Git 账号）
 - `APP_ENCRYPTION_KEY` - 应用级加密密钥（用于加密存储影子账号密码和 access token）
+- `WORKER_SECRET` - Worker 通信密钥
+- `TURN_OBJECT_S3_ACCESS_KEY_ID` / `TURN_OBJECT_S3_SECRET_ACCESS_KEY` - Turn 中间消息 OSS 写入凭证
+- `PUBLIC_ASSET_OSS_ACCESS_KEY_ID` / `PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY` - 公开资产 OSS 写入凭证（用于用户 / Space 头像上传）
+- `LOGTO_M2M_APP_ID` / `LOGTO_M2M_APP_SECRET` - Logto M2M 应用凭证
 
 同时请确认 `values.yaml` 中已填写：
 - `GITEA_MANAGED_EMAIL_DOMAIN` - 托管 Gitea 影子账号使用的邮箱域名后缀
+- `PUBLIC_ASSET_OSS_ENDPOINT` / `PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT` / `PUBLIC_ASSET_OSS_REGION` / `PUBLIC_ASSET_OSS_BUCKET` / `PUBLIC_ASSET_CDN_BASE_URL` - 公开资产上传与访问配置
 
 ### 2. 运行数据库迁移
 
