@@ -26,6 +26,13 @@ export type AppConfig = {
   turnObjectS3AccessKeyId?: string;
   turnObjectS3SecretAccessKey?: string;
   turnObjectCdnBaseUrl: string;
+  publicAssetOssEndpoint?: string;
+  publicAssetOssPublicEndpoint?: string;
+  publicAssetOssRegion: string;
+  publicAssetOssBucket?: string;
+  publicAssetOssAccessKeyId?: string;
+  publicAssetOssSecretAccessKey?: string;
+  publicAssetCdnBaseUrl?: string;
 };
 
 const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
@@ -70,6 +77,13 @@ export const config: AppConfig = {
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
   turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
+  publicAssetOssEndpoint: process.env.PUBLIC_ASSET_OSS_ENDPOINT,
+  publicAssetOssPublicEndpoint: process.env.PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT,
+  publicAssetOssRegion: process.env.PUBLIC_ASSET_OSS_REGION ?? "us-west-1",
+  publicAssetOssBucket: process.env.PUBLIC_ASSET_OSS_BUCKET,
+  publicAssetOssAccessKeyId: process.env.PUBLIC_ASSET_OSS_ACCESS_KEY_ID,
+  publicAssetOssSecretAccessKey: process.env.PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY,
+  publicAssetCdnBaseUrl: process.env.PUBLIC_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);

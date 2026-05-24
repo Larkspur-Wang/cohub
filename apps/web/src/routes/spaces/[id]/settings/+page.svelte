@@ -27,12 +27,14 @@ import {
 	Settings,
 	Terminal,
 	Trash2,
+	Upload,
 	User,
 	Users,
 	X,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 
@@ -67,7 +69,8 @@ let loading = $state(true);
 let error = $state("");
 let saving = $state(false);
 let description = $state("");
-let pictureUrl = $state("");
+let avatarUrl = $state("");
+let uploadingAvatar = $state(false);
 let envName = $state("");
 let envValue = $state("");
 let selectedChannelId = $state("");
@@ -116,13 +119,15 @@ onDestroy(() => {
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
 });
 
-function getPictureUrl(record: SpaceRecord | null): string {
+function getSpaceAvatarUrl(record: SpaceRecord | null): string {
 	const meta = record?.meta;
 	if (!meta || typeof meta !== "object" || Array.isArray(meta)) return "";
 	const profile = (meta as Record<string, unknown>).publicProfile;
 	if (!profile || typeof profile !== "object" || Array.isArray(profile))
 		return "";
-	const raw = (profile as Record<string, unknown>).pictureUrl;
+	const raw =
+		(profile as Record<string, unknown>).avatarUrl ??
+		(profile as Record<string, unknown>).pictureUrl;
 	return typeof raw === "string" ? raw : "";
 }
 
@@ -385,7 +390,7 @@ async function loadPage() {
 		sandbox = sandboxResult?.sandbox ?? null;
 		invitations = invitationResult.items;
 		description = spaceResult.description ?? "";
-		pictureUrl = getPictureUrl(spaceResult);
+		avatarUrl = getSpaceAvatarUrl(spaceResult);
 		applySandboxConfigFromSpace(spaceResult);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to load settings";
@@ -397,13 +402,52 @@ async function loadPage() {
 async function saveProfile() {
 	saving = true;
 	try {
-		const result = await sdk
-			.space(spaceId)
-			.profile({ description, pictureUrl });
+		const result = await sdk.space(spaceId).profile({ description, avatarUrl });
 		space = result.space;
 	} finally {
 		saving = false;
 	}
+}
+
+async function uploadSpaceAvatar(file: File) {
+	if (uploadingAvatar) return;
+	uploadingAvatar = true;
+	error = "";
+	try {
+		const avatarFile = await normalizeAvatarToWebp(file);
+		const plan = await sdk.publicAssets.createUpload({
+			purpose: "space_avatar",
+			spaceId,
+			file: {
+				size: avatarFile.size,
+				mimeType: "image/webp",
+			},
+		});
+		const formData = new FormData();
+		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
+			formData.append(key, value);
+		}
+		formData.append("file", avatarFile);
+		const response = await fetch(plan.asset.uploadUrl, {
+			method: plan.asset.uploadMethod,
+			body: formData,
+		});
+		if (!response.ok) throw new Error("Failed to upload space avatar.");
+		avatarUrl = plan.asset.publicUrl;
+		await saveProfile();
+	} catch (err) {
+		error =
+			err instanceof Error ? err.message : "Failed to upload space avatar";
+	} finally {
+		uploadingAvatar = false;
+	}
+}
+
+function handleSpaceAvatarFileChange(event: Event) {
+	const input = event.currentTarget as HTMLInputElement;
+	const file = input.files?.[0];
+	input.value = "";
+	if (file) void uploadSpaceAvatar(file);
 }
 
 async function setAccess(body: {
@@ -748,9 +792,26 @@ $effect(() => {
 			{:else}
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-3">
 					<div class="flex items-center gap-2"><User class="w-4 h-4 text-text-tertiary" /><div><div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Profile</div><div class="text-[15px] font-medium text-text-primary">Public space details</div></div></div>
-					<input bind:value={pictureUrl} placeholder="Picture URL" class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+					<div class="flex items-center gap-3 rounded-[7px] border border-border-subtle bg-bg-input/40 p-3">
+						<div class="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-text-tertiary">
+							{#if avatarUrl}
+								<img src={avatarUrl} alt="" class="h-full w-full object-cover" />
+							{:else}
+								<User class="w-4 h-4" />
+							{/if}
+						</div>
+						<div class="min-w-0 flex-1">
+							<div class="text-[12px] font-medium text-text-secondary">Space avatar</div>
+							<div class="mt-0.5 truncate text-[11px] text-text-tertiary">JPEG, PNG, or WebP · 1024×1024</div>
+						</div>
+						<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] border border-border-subtle px-2.5 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover">
+							{#if uploadingAvatar}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Upload class="w-3.5 h-3.5" />{/if}
+							<span>{avatarUrl ? "Replace" : "Upload"}</span>
+							<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleSpaceAvatarFileChange} />
+						</label>
+					</div>
 					<textarea bind:value={description} rows="4" placeholder="Description" class="w-full px-3 py-2 rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none resize-y"></textarea>
-					<div class="flex justify-end"><button type="button" onclick={saveProfile} disabled={saving} class="px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium disabled:opacity-50">Save profile</button></div>
+					<div class="flex justify-end"><button type="button" onclick={saveProfile} disabled={saving || uploadingAvatar} class="px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium disabled:opacity-50">Save profile</button></div>
 				</section>
 
 				<section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 space-y-4">

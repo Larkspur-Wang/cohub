@@ -7,6 +7,7 @@ import {
 	Moon,
 	Pencil,
 	Sun,
+	Upload,
 	User,
 	X,
 } from "lucide-svelte";
@@ -14,7 +15,9 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
 	getResolvedTheme,
@@ -28,7 +31,7 @@ const resolved = $derived(getResolvedTheme());
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-type EditableField = "displayName" | "username" | "avatarUrl";
+type EditableField = "displayName" | "username";
 
 let userUuid = $state("");
 let displayName = $state("");
@@ -41,6 +44,7 @@ let profileLoading = $state(true);
 let editingField = $state<EditableField | null>(null);
 let draftValue = $state("");
 let savingField = $state<EditableField | null>(null);
+let uploadingAvatar = $state(false);
 let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 
 const profileTitle = $derived(displayName || username || "User");
@@ -92,7 +96,7 @@ function formatUuid(uuid: string): string {
 function getFieldValue(field: EditableField): string {
 	if (field === "displayName") return displayName;
 	if (field === "username") return username;
-	return avatarUrl;
+	return displayName;
 }
 
 function beginEdit(field: EditableField) {
@@ -156,8 +160,6 @@ async function saveEditingField() {
 		field === "displayName" ? draftValue.trim() : displayName.trim();
 	const nextUsername =
 		field === "username" ? draftValue.trim() : username.trim();
-	const nextAvatarUrl =
-		field === "avatarUrl" ? draftValue.trim() : avatarUrl.trim();
 
 	inlineError = "";
 	if (!nextDisplayName) {
@@ -169,7 +171,7 @@ async function saveEditingField() {
 	try {
 		const profile = await authStore.updateProfile({
 			displayName: nextDisplayName,
-			avatarUrl: nextAvatarUrl || null,
+			avatarUrl: avatarUrl.trim() || null,
 			username: nextUsername || null,
 		});
 		displayName = profile.displayName;
@@ -183,6 +185,48 @@ async function saveEditingField() {
 	} finally {
 		savingField = null;
 	}
+}
+
+async function uploadAvatar(file: File) {
+	if (uploadingAvatar) return;
+	inlineError = "";
+	uploadingAvatar = true;
+	try {
+		const avatarFile = await normalizeAvatarToWebp(file);
+		const plan = await sdk.publicAssets.createUpload({
+			purpose: "user_avatar",
+			file: {
+				size: avatarFile.size,
+				mimeType: "image/webp",
+			},
+		});
+		const formData = new FormData();
+		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
+			formData.append(key, value);
+		}
+		formData.append("file", avatarFile);
+		const response = await fetch(plan.asset.uploadUrl, {
+			method: plan.asset.uploadMethod,
+			body: formData,
+		});
+		if (!response.ok) throw new Error("Failed to upload avatar image.");
+		const profile = await authStore.updateProfile({
+			avatarUrl: plan.asset.publicUrl,
+		});
+		avatarUrl = profile.avatarUrl ?? "";
+	} catch (error) {
+		inlineError =
+			error instanceof Error ? error.message : "Failed to upload avatar";
+	} finally {
+		uploadingAvatar = false;
+	}
+}
+
+function handleAvatarFileChange(event: Event) {
+	const input = event.currentTarget as HTMLInputElement;
+	const file = input.files?.[0];
+	input.value = "";
+	if (file) void uploadAvatar(file);
 }
 
 async function copyUuid() {
@@ -318,24 +362,18 @@ onMount(() => {
 						</div>
 
 						<div class="grid min-h-11 grid-cols-[96px_minmax(0,1fr)] items-center gap-3 py-2">
-							<div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Avatar URL</div>
+							<div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Avatar</div>
 							{#if profileLoading}
-								<div class="h-3.5 w-56 rounded bg-bg-hover-strong" aria-hidden="true"></div>
-							{:else if editingField === "avatarUrl"}
-								<div class="flex min-w-0 items-center gap-2">
-									<input bind:value={draftValue} placeholder="https://..." onkeydown={handleEditKeydown} disabled={savingField === "avatarUrl"} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5 text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:outline-none" />
-									<button type="button" onclick={() => void saveEditingField()} disabled={savingField === "avatarUrl"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save avatar URL">
-										{#if savingField === "avatarUrl"}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Check class="w-3.5 h-3.5" />{/if}
-									</button>
-									<button type="button" onclick={cancelEdit} disabled={savingField === "avatarUrl"} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
-										<X class="w-3.5 h-3.5" />
-									</button>
-								</div>
+								<div class="h-3.5 w-32 rounded bg-bg-hover-strong" aria-hidden="true"></div>
 							{:else}
-								<button type="button" onclick={() => beginEdit("avatarUrl")} class="flex min-w-0 items-center justify-between gap-3 rounded-[5px] px-1 py-1 text-left transition-colors hover:bg-bg-hover">
-									<span class="min-w-0 truncate text-[13px] {avatarUrl ? 'text-text-primary' : 'text-text-placeholder'}">{avatarUrl || "Not set"}</span>
-									<Pencil class="w-3 h-3 shrink-0 text-text-tertiary" />
-								</button>
+								<div class="flex min-w-0 items-center gap-2">
+									<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] border border-border-subtle px-2.5 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover disabled:opacity-50">
+										{#if uploadingAvatar}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Upload class="w-3.5 h-3.5" />{/if}
+										<span>{avatarUrl ? "Replace" : "Upload"}</span>
+										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={uploadingAvatar} onchange={handleAvatarFileChange} />
+									</label>
+									<span class="min-w-0 truncate text-[11px] text-text-tertiary">JPEG, PNG, or WebP · 1024×1024</span>
+								</div>
 							{/if}
 						</div>
 					</div>

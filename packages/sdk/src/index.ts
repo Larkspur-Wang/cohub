@@ -39,3 +39,4 @@ export type {
 } from "./session-generation-stream.js";
 export * from "./types.js";
 export type { SessionEventName, SessionSubscriptionHandlers, SpaceChannelBindingRecord, SpaceEventName, WebSocketConnectionState } from "./apis/spaces.js";
+export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetPurpose } from "./apis/public-assets.js";

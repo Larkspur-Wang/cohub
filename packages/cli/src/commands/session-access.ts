@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+import { table, json as outJson, handleHttp } from "../output.js";
 
 export function registerSessionAccess(program: Command): void {
   const cmd = program
@@ -37,7 +37,7 @@ export function registerSessionAccess(program: Command): void {
           anonymous_user: (opts.anonymous ?? null) as never,
         });
         if (opts.json) return outJson(policy);
-        ok("Session access updated");
+        console.log("Session access updated");
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },
           { key: "anonymous_user", label: "Anonymous" },
@@ -54,7 +54,7 @@ export function registerSessionAccess(program: Command): void {
       const client = createClient();
       try {
         await client.sessionAccess.remove(id);
-        ok(`Session access override removed: ${id}`);
+        console.log(`Session access override removed: ${id}`);
       } catch (e: unknown) {
         handleHttp(e);
       }

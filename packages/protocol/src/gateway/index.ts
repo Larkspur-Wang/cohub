@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord } from "../model/session.js";
-import type { ChannelConfig, DiscordChannelConfig, FeishuChannelConfig } from "./types.js";
 export type { ChannelConfig, DiscordChannelConfig, FeishuChannelConfig } from "./types.js";
 
 export type ChannelProvider = "web" | "websocket" | "discord" | "feishu" | "telegram" | "slack";

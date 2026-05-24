@@ -2,7 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, error, handleHttp, type Row } from "../output.js";
+import { json as outJson, ok, handleHttp } from "../output.js";
 
 type GenerationContentBlock =
   | { type: "text"; text: string; _meta?: Record<string, unknown> }
@@ -99,7 +99,7 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
 
 function outputName(type: string, url: string | undefined, index: number): string {
   const fromUrl = url ? basename(new URL(url).pathname) : "";
-  if (fromUrl && fromUrl.includes(".")) return `generation-${index + 1}-${fromUrl}`;
+  if (fromUrl?.includes(".")) return `generation-${index + 1}-${fromUrl}`;
   const ext = type === "video" ? "mp4" : type === "audio" ? "bin" : "png";
   return `generation-${index + 1}.${ext}`;
 }

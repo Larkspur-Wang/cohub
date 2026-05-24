@@ -667,16 +667,17 @@ router.patch("/:id/profile", async (c) => {
   if (!space) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ description?: string | null; pictureUrl?: string | null }>().catch(() => null);
+  const body = await c.req.json<{ description?: string | null; avatarUrl?: string | null }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
 
   const existingMeta = (space.meta as Record<string, unknown> | null) ?? {};
   const existingProfile = typeof existingMeta.publicProfile === "object" && existingMeta.publicProfile !== null && !Array.isArray(existingMeta.publicProfile)
     ? existingMeta.publicProfile as Record<string, unknown>
     : {};
-  const nextProfile = body.pictureUrl !== undefined
-    ? { ...existingProfile, pictureUrl: body.pictureUrl?.trim() || null }
-    : existingProfile;
+  const nextProfile: Record<string, unknown> = body.avatarUrl !== undefined
+    ? { ...existingProfile, avatarUrl: body.avatarUrl?.trim() || null }
+    : { ...existingProfile };
+  if (body.avatarUrl !== undefined) delete nextProfile.pictureUrl;
 
   const [updated] = await db
     .update(spaces)

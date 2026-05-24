@@ -18,7 +18,8 @@
   },
   "dependencies": {
     "@neta-art/cohub": "workspace:*",
-    "commander": "^13.1.0"
+    "commander": "^13.1.0",
+    "sharp": "^0.34.5"
   },
   "publishConfig": {
     "access": "public"

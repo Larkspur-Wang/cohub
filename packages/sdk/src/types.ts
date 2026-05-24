@@ -213,7 +213,7 @@ export type SpaceConfig = {
 export type SpaceMeta = JsonObject & {
   config?: SpaceConfig;
   extraEnv?: SpaceEnvInput[];
-  publicProfile?: { pictureUrl?: string | null };
+  publicProfile?: { avatarUrl?: string | null };
 };
 
 export type SpaceGitInfo = {

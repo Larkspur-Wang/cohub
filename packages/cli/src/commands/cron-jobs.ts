@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+import { table, json as outJson, ok, handleHttp } from "../output.js";
 
 export function registerCronJobs(program: Command): void {
   const cmd = program.command("cron-jobs", { hidden: true }).description("Scheduled prompt jobs");

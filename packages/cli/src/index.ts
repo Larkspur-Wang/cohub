@@ -6,6 +6,7 @@ import { registerChannels } from "./commands/channels.js";
 import { registerCronJobs } from "./commands/cron-jobs.js";
 import { registerGenerations } from "./commands/generations.js";
 import { registerModels } from "./commands/models.js";
+import { registerProfile } from "./commands/profile.js";
 import { registerSearch } from "./commands/search.js";
 import { registerPrompt, registerSpaces } from "./commands/spaces.js";
 import { registerTasks } from "./commands/tasks.js";
@@ -34,6 +35,7 @@ program
 
 Common commands:
   cohub auth login
+  cohub profile avatar ./avatar.png
   cohub spaces ls
   cohub -s <space-id> prompt "Fix the failing tests"
   cohub search "release notes"
@@ -49,6 +51,7 @@ Environment:
 `);
 
 registerAuth(program);
+registerProfile(program);
 registerPrompt(program);
 registerSpaces(program);
 registerChannels(program);

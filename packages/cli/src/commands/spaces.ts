@@ -4,6 +4,7 @@ import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
+import { uploadAvatarAsset } from "../avatar.js";
 import { table, json as outJson, ok, error, handleHttp } from "../output.js";
 
 function requireSpace(program: Command): string {
@@ -314,6 +315,24 @@ export function registerSpaces(program: Command): void {
       try {
         await client.space(id).rename(name);
         ok(`Space renamed to "${name}"`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  // ── spaces avatar ──
+  spacesCmd
+    .command("avatar <path>")
+    .description("Upload the space avatar")
+    .option("--json", "Output as JSON")
+    .action(async (path: string, opts: { json?: boolean }) => {
+      const spaceId = requireSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const asset = await uploadAvatarAsset({ client, purpose: "space_avatar", spaceId, path });
+        const result = await client.space(spaceId).profile({ avatarUrl: asset.publicUrl });
+        if (opts.json) return outJson({ ...result, asset });
+        ok("Space avatar updated");
       } catch (e: unknown) {
         handleHttp(e);
       }

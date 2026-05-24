@@ -1176,7 +1176,7 @@ export class SpaceClient {
     });
   }
 
-  profile(body: { description?: string | null; pictureUrl?: string | null }) {
+  profile(body: { description?: string | null; avatarUrl?: string | null }) {
     return this.transport.request<{ space: SpaceRecord }>(
       `/api/spaces/${this.id}/profile`,
       {
