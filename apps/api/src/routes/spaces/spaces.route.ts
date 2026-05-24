@@ -433,6 +433,13 @@ router.post("/", async (c) => {
     updatedBy: user.uuid,
   });
 
+  // Keep the runtime env cache in sync at creation time. The agent reads
+  // user-provided space env from Redis (not directly from DB meta), so spaces
+  // created with extraEnv must populate Redis before the sandbox/session starts.
+  // Later env panel writes already go through persistSpaceEnv(), which does the
+  // same cache update.
+  await setSpaceEnv(space.id, normalizedExtraEnv);
+
   if (normalizedChannelBindings.length > 0) {
     const insertedChannels = await db
       .insert(spaceChannels)
