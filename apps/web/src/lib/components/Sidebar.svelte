@@ -124,6 +124,7 @@ let sessionForks = $state<SessionForkSidebarRecord[]>([]);
 let checkpoints = $state<CheckpointRecord[]>([]);
 let pinnedMarks = $state<SpaceMarkListItem[]>([]);
 let loadingSessions = $state(false);
+let loadingSessionsSpaceId = $state<string | null>(null);
 let loadingMoreSessions = $state(false);
 let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 	hasMore: false,
@@ -131,6 +132,7 @@ let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 });
 let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
+let loadingCheckpointsSpaceId = $state<string | null>(null);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
@@ -148,7 +150,9 @@ let renameInputElement: HTMLInputElement | null = $state(null);
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
 let loadingCronjobs = $state(false);
+let loadingCronjobsSpaceId = $state<string | null>(null);
 let loadingTasks = $state(false);
+let loadingTasksSpaceId = $state<string | null>(null);
 
 const currentPath = $derived(page.url.pathname);
 const activeSession = $derived.by(() => {
@@ -307,10 +311,11 @@ async function loadSpaces(force = false) {
 }
 
 async function loadSessionsForSpace(spaceId: string, force = false) {
-	if (!force && loadingSessions) return;
+	if (!force && loadingSessions && loadingSessionsSpaceId === spaceId) return;
 
 	if (!force) {
 		const cached = await getCachedSessionListSnapshot(spaceId);
+		if (spaceId !== currentSpaceId) return;
 		if (cached && cached.sessions.length > 0) {
 			sessions = cached.sessions;
 			sessionForks = cached.forks ?? [];
@@ -321,12 +326,23 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 	const shouldShowLoading = sessions.length === 0;
 	if (shouldShowLoading) {
 		loadingSessions = true;
+		loadingSessionsSpaceId = spaceId;
 	}
 
 	const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
+	if (spaceId !== currentSpaceId) {
+		if (loadingSessionsSpaceId === spaceId) {
+			loadingSessions = false;
+			loadingSessionsSpaceId = null;
+		}
+		return;
+	}
 	const shouldFetch = force || !cachedSnapshot || cachedSnapshot.stale;
 	if (!shouldFetch) {
-		loadingSessions = false;
+		if (loadingSessionsSpaceId === spaceId) {
+			loadingSessions = false;
+			loadingSessionsSpaceId = null;
+		}
 		return;
 	}
 
@@ -335,23 +351,29 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			limit: SESSION_PAGE_SIZE,
 			includeForks: true,
 		});
+		if (spaceId !== currentSpaceId) return;
 		const nextSessions = result.sessions ?? [];
 		const nextPageInfo = result.pageInfo ?? {
 			hasMore: false,
 			nextCursor: null,
 		};
-		sessionForks = result.forks ?? [];
+		const nextForks = result.forks ?? [];
+		sessionForks = nextForks;
 		sessions = await setCachedSessionList(
 			spaceId,
 			nextSessions,
 			nextPageInfo,
-			sessionForks,
+			nextForks,
 		);
+		if (spaceId !== currentSpaceId) return;
 		sessionsPageInfo = nextPageInfo;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load sessions", { spaceId, error });
 	} finally {
-		loadingSessions = false;
+		if (loadingSessionsSpaceId === spaceId) {
+			loadingSessions = false;
+			loadingSessionsSpaceId = null;
+		}
 	}
 }
 
@@ -397,6 +419,7 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 async function loadPinsForSpace(spaceId: string, force = false) {
 	if (!force) {
 		const cached = getCachedSpacePins(spaceId);
+		if (spaceId !== currentSpaceId) return;
 		if (cached) pinnedMarks = cached;
 	}
 	try {
@@ -408,57 +431,71 @@ async function loadPinsForSpace(spaceId: string, force = false) {
 			},
 			{ force },
 		);
-		pinnedMarks = marks;
+		if (spaceId === currentSpaceId) pinnedMarks = marks;
 	} catch {
-		if (!getCachedSpacePins(spaceId)) pinnedMarks = [];
+		if (spaceId === currentSpaceId && !getCachedSpacePins(spaceId))
+			pinnedMarks = [];
 	}
 }
 
 async function loadCheckpointsForSpace(spaceId: string, force = false) {
-	if (!force && loadingCheckpoints) return;
+	if (!force && loadingCheckpoints && loadingCheckpointsSpaceId === spaceId)
+		return;
 	const shouldShowLoading = checkpoints.length === 0;
 	if (shouldShowLoading) {
 		loadingCheckpoints = true;
+		loadingCheckpointsSpaceId = spaceId;
 	}
 	try {
 		const result = await sdk.space(spaceId).checkpoints.list();
-		checkpoints = result.checkpoints ?? [];
+		if (spaceId === currentSpaceId) checkpoints = result.checkpoints ?? [];
 	} catch (error) {
 		console.warn("[sidebar] Failed to load checkpoints", { spaceId, error });
 	} finally {
-		loadingCheckpoints = false;
+		if (loadingCheckpointsSpaceId === spaceId) {
+			loadingCheckpoints = false;
+			loadingCheckpointsSpaceId = null;
+		}
 	}
 }
 
 async function loadCronjobsForSpace(spaceId: string, force = false) {
-	if (!force && loadingCronjobs) return;
+	if (!force && loadingCronjobs && loadingCronjobsSpaceId === spaceId) return;
 	const shouldShowLoading = cronjobs.length === 0;
 	if (shouldShowLoading) {
 		loadingCronjobs = true;
+		loadingCronjobsSpaceId = spaceId;
 	}
 	try {
 		const result = await sdk.cronJobs.list(spaceId);
-		cronjobs = result.jobs ?? [];
+		if (spaceId === currentSpaceId) cronjobs = result.jobs ?? [];
 	} catch (error) {
 		console.warn("[sidebar] Failed to load cronjobs", { spaceId, error });
 	} finally {
-		loadingCronjobs = false;
+		if (loadingCronjobsSpaceId === spaceId) {
+			loadingCronjobs = false;
+			loadingCronjobsSpaceId = null;
+		}
 	}
 }
 
 async function loadTasksForSpace(spaceId: string, force = false) {
-	if (!force && loadingTasks) return;
+	if (!force && loadingTasks && loadingTasksSpaceId === spaceId) return;
 	const shouldShowLoading = tasks.length === 0;
 	if (shouldShowLoading) {
 		loadingTasks = true;
+		loadingTasksSpaceId = spaceId;
 	}
 	try {
 		const result = await sdk.tasks.list({ spaceId });
-		tasks = result.runs ?? [];
+		if (spaceId === currentSpaceId) tasks = result.runs ?? [];
 	} catch (error) {
 		console.warn("[sidebar] Failed to load tasks", { spaceId, error });
 	} finally {
-		loadingTasks = false;
+		if (loadingTasksSpaceId === spaceId) {
+			loadingTasks = false;
+			loadingTasksSpaceId = null;
+		}
 	}
 }
 
@@ -1034,8 +1071,19 @@ $effect(() => {
 		sessions = [];
 		sessionForks = [];
 		pinnedMarks = [];
+		checkpoints = [];
+		cronjobs = [];
+		tasks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
+		loadingSessions = false;
+		loadingSessionsSpaceId = null;
+		loadingCheckpoints = false;
+		loadingCheckpointsSpaceId = null;
+		loadingCronjobs = false;
+		loadingCronjobsSpaceId = null;
+		loadingTasks = false;
+		loadingTasksSpaceId = null;
 		untrack(() => {
 			void loadSessionsForSpace(id);
 			void loadPinsForSpace(id);
@@ -1052,6 +1100,14 @@ $effect(() => {
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
+		loadingSessions = false;
+		loadingSessionsSpaceId = null;
+		loadingCheckpoints = false;
+		loadingCheckpointsSpaceId = null;
+		loadingCronjobs = false;
+		loadingCronjobsSpaceId = null;
+		loadingTasks = false;
+		loadingTasksSpaceId = null;
 	}
 });
 
