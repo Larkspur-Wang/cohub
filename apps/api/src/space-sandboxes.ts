@@ -1,6 +1,5 @@
 import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "./db/index.js";
-import { listEnabledSpaceMods, getSpaceModMountSignature } from "@cohub/core/space-mods";
 import { spaceSandboxes, spaces } from "@cohub/db";
 import { sessionsNamespace, config } from "./config.js";
 import { k8sCoreApi } from "./k8s.js";
@@ -350,20 +349,8 @@ export const reconcileSpaceSandbox = async (input: {
     CONFIGS_SUBPATH: config.configsSubpath,
   }) as V1Pod;
 
-  const enabledMods = await listEnabledSpaceMods(db, input.spaceId);
-  const modMountSignature = getSpaceModMountSignature(enabledMods);
-
   if (pod.spec?.containers?.[0]) {
     const container = pod.spec.containers[0];
-    container.volumeMounts = [
-      ...(container.volumeMounts ?? []),
-      ...enabledMods.map((mod) => ({
-        name: "space-storage",
-        mountPath: mod.mountPath,
-        subPath: `${config.spaceStorageSubpath}/${mod.modSpaceId}/workspace`,
-        readOnly: true,
-      })),
-    ];
     container.env = [
       { name: "COHUB_SPACE_ID", value: input.spaceId },
       ...(config.env === "dev" ? [{ name: "ENV", value: "dev" }] : []),
@@ -400,13 +387,6 @@ export const reconcileSpaceSandbox = async (input: {
     desiredImage: toSandboxImageVersion(config.sandboxImage),
     meta: {
       ...provisioningMeta,
-      modMountSignature,
-      modMounts: enabledMods.map((mod) => ({
-        modSpaceId: mod.modSpaceId,
-        mountSlug: mod.mountSlug,
-        mountPath: mod.mountPath,
-        name: mod.name ?? mod.modSpaceName,
-      })),
       lastProvisionedAt: new Date().toISOString(),
     },
   });

@@ -925,8 +925,8 @@ export class SpaceModsApi {
     );
   }
 
-  create(input: { modSpaceId: string; name?: string | null; mountSlug?: string | null }) {
-    return this.transport.request<{ item: SpaceModListItem; sandboxRestarting: boolean }>(
+  create(input: { modSpaceId: string; enabled?: boolean }) {
+    return this.transport.request<{ item: SpaceModListItem }>(
       `/api/spaces/${this.spaceId}/mods`,
       {
         method: "POST",
@@ -936,8 +936,8 @@ export class SpaceModsApi {
     );
   }
 
-  update(modId: string, input: { name?: string | null; mountSlug?: string; enabled?: boolean; sortOrder?: number }) {
-    return this.transport.request<{ item: SpaceModListItem; sandboxRestarting: boolean }>(
+  update(modId: string, input: { enabled?: boolean; sortOrder?: number }) {
+    return this.transport.request<{ item: SpaceModListItem }>(
       `/api/spaces/${this.spaceId}/mods/${modId}`,
       {
         method: "PATCH",
@@ -948,14 +948,14 @@ export class SpaceModsApi {
   }
 
   remove(modId: string) {
-    return this.transport.request<{ ok: true; sandboxRestarting: boolean }>(
+    return this.transport.request<{ ok: true }>(
       `/api/spaces/${this.spaceId}/mods/${modId}`,
       { method: "DELETE" },
     );
   }
 
   reorder(ids: string[]) {
-    return this.transport.request<{ items: SpaceModListItem[]; sandboxRestarting: boolean }>(
+    return this.transport.request<{ items: SpaceModListItem[] }>(
       `/api/spaces/${this.spaceId}/mods/reorder`,
       {
         method: "POST",

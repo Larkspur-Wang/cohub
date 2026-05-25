@@ -69,13 +69,9 @@ let envName = $state("");
 let envValue = $state("");
 let selectedChannelId = $state("");
 let modSpaceId = $state("");
-let modName = $state("");
-let modMountSlug = $state("");
 let modError = $state("");
 let modSaving = $state(false);
 let modUpdatingId = $state<string | null>(null);
-let modRestartMessage = $state("");
-let modRestartTimer: ReturnType<typeof setTimeout> | null = null;
 let revealedEnvNames = $state<Set<string>>(new Set());
 let copiedMemberUserId = $state<string | null>(null);
 let copiedMemberTimer: ReturnType<typeof setTimeout> | null = null;
@@ -272,21 +268,6 @@ async function loadSandbox() {
 		.sandbox.get()
 		.catch(() => null);
 	sandbox = result?.sandbox ?? null;
-}
-
-function confirmModRestart(): boolean {
-	return window.confirm(
-		"Changing Space Mods will restart the Sandbox and may interrupt running commands or agent turns. Continue?",
-	);
-}
-
-function noteModRestart() {
-	modRestartMessage =
-		"Sandbox restart queued. Mods will be mounted when it comes back online.";
-	if (modRestartTimer) clearTimeout(modRestartTimer);
-	modRestartTimer = setTimeout(() => {
-		modRestartMessage = "";
-	}, 6000);
 }
 
 async function loadMods() {
@@ -622,23 +603,16 @@ async function unbindChannel(channelId: string) {
 async function addMod() {
 	const target = modSpaceId.trim();
 	if (!target || modSaving) return;
-	if (!confirmModRestart()) return;
 	modSaving = true;
 	modError = "";
 	try {
 		const result = await sdk.space(spaceId).mods.create({
 			modSpaceId: target,
-			name: modName.trim() || null,
-			mountSlug: modMountSlug.trim() || null,
 		});
 		mods = result.item
 			? [...mods, result.item].sort((a, b) => a.sortOrder - b.sortOrder)
 			: (await sdk.space(spaceId).mods.list()).items;
 		modSpaceId = "";
-		modName = "";
-		modMountSlug = "";
-		noteModRestart();
-		await loadSandbox();
 	} catch (err) {
 		modError = err instanceof Error ? err.message : "Failed to add mod";
 	} finally {
@@ -647,7 +621,6 @@ async function addMod() {
 }
 
 async function toggleMod(mod: SpaceModListItem) {
-	if (!confirmModRestart()) return;
 	modUpdatingId = mod.id;
 	modError = "";
 	try {
@@ -655,26 +628,6 @@ async function toggleMod(mod: SpaceModListItem) {
 			.space(spaceId)
 			.mods.update(mod.id, { enabled: !mod.enabled });
 		mods = mods.map((item) => (item.id === mod.id ? result.item : item));
-		noteModRestart();
-		await loadSandbox();
-	} catch (err) {
-		modError = err instanceof Error ? err.message : "Failed to update mod";
-	} finally {
-		modUpdatingId = null;
-	}
-}
-
-async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
-	if (!confirmModRestart()) return;
-	modUpdatingId = mod.id;
-	modError = "";
-	try {
-		const result = await sdk
-			.space(spaceId)
-			.mods.update(mod.id, { mountSlug: mountSlug || null });
-		mods = mods.map((item) => (item.id === mod.id ? result.item : item));
-		noteModRestart();
-		await loadSandbox();
 	} catch (err) {
 		modError = err instanceof Error ? err.message : "Failed to update mod";
 	} finally {
@@ -683,14 +636,11 @@ async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
 }
 
 async function removeMod(mod: SpaceModListItem) {
-	if (!confirmModRestart()) return;
 	modUpdatingId = mod.id;
 	modError = "";
 	try {
 		await sdk.space(spaceId).mods.remove(mod.id);
 		mods = mods.filter((item) => item.id !== mod.id);
-		noteModRestart();
-		await loadSandbox();
 	} catch (err) {
 		modError = err instanceof Error ? err.message : "Failed to remove mod";
 	} finally {
@@ -830,7 +780,7 @@ $effect(() => {
 				{/if}
 
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<div class="border-b border-border-subtle px-4 py-3 sm:px-5"><div class="flex items-center gap-2.5"><Terminal class="h-4 w-4 text-text-tertiary" /><div><div class="text-[15px] font-medium text-text-primary">Runtime inputs</div><div class="text-[12px] text-text-tertiary">Env vars and mounted spaces.</div></div></div></div>
+					<div class="border-b border-border-subtle px-4 py-3 sm:px-5"><div class="flex items-center gap-2.5"><Terminal class="h-4 w-4 text-text-tertiary" /><div><div class="text-[15px] font-medium text-text-primary">Runtime inputs</div><div class="text-[12px] text-text-tertiary">Env vars and space mods.</div></div></div></div>
 					<div class="space-y-6 p-4 sm:p-5">
 						<div class="space-y-3">
 							<div class="text-[12px] font-medium text-text-secondary">Environment</div>
@@ -839,11 +789,11 @@ $effect(() => {
 						</div>
 
 						<div class="border-t border-border-subtle pt-5 space-y-3">
-							<div class="flex items-center gap-2 text-[12px] font-medium text-text-secondary"><PackagePlus class="h-3.5 w-3.5 text-text-tertiary" /> Mounted spaces</div>
-							<p class="max-w-2xl text-[11px] leading-relaxed text-text-tertiary">Mounted spaces are read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Prompts and skills are available to the agent. Changes restart the sandbox.</p>
-							<div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]"><input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={modName} placeholder="Display name" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={modMountSlug} placeholder="Mount slug" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
-							{#if modError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}{#if modRestartMessage}<div class="rounded-[6px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
-							<div class="space-y-1.5">{#each mods as mod (mod.id)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 md:grid-cols-[1fr_auto]"><div class="min-w-0"><div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div><div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div><input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-2 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /></div><div class="flex items-center justify-end gap-2 md:justify-start"><span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span><button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button><button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No mounted spaces.</div>{/each}</div>
+							<div class="flex items-center gap-2 text-[12px] font-medium text-text-secondary"><PackagePlus class="h-3.5 w-3.5 text-text-tertiary" /> Space mods</div>
+							<p class="max-w-2xl text-[11px] leading-relaxed text-text-tertiary">Space mods provide read-only instructions and files to the agent.</p>
+							<div class="grid gap-2 lg:grid-cols-[1fr_auto]"><input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
+							{#if modError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}
+							<div class="space-y-1.5">{#each mods as mod (mod.id)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 md:grid-cols-[1fr_auto]"><div class="min-w-0"><div class="truncate text-[12px] font-medium text-text-secondary">{mod.modSpaceName ?? mod.modSpaceId}</div><div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.modSpaceId}</div></div><div class="flex items-center justify-end gap-2 md:justify-start"><span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span><button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button><button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No space mods.</div>{/each}</div>
 						</div>
 					</div>
 				</section>
