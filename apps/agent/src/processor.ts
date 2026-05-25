@@ -440,6 +440,8 @@ async function runDirectShellCommandTurn(input: {
     const entryId = handle.sessionManager.appendMessage(assistantMessage);
     (assistantMessage as unknown as Record<string, unknown>).sessionEntryId = entryId;
 
+    const completedAt = new Date().toISOString();
+
     await persistAssistantMessage({
       spaceId: input.spaceId,
       spaceSessionId: input.sessionId,
@@ -459,6 +461,7 @@ async function runDirectShellCommandTurn(input: {
       userId: input.actorUserId,
       turnId: user.turnId,
       startedAt: toolStartedAt,
+      completedAt,
     });
 
     input.turnMetrics.toolCallCount += 1;
@@ -617,6 +620,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       const ownerUserMessageId = batch.executionBatch.anchorUserMessageId ?? turnUserMessages.at(-1)?.userMessageId ?? null;
       const executionToken = executionAuth?.token?.trim() || null;
       const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
+      const assistantMessageTiming = { startedAt: null as string | null };
       const abortController = new AbortController();
       activeTurn = { id: batch.ownerTurn.id, controller: abortController };
       setActiveAbortController(batch.ownerTurn.id, abortController);
@@ -661,6 +665,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             executionToken,
             requestId,
             metrics: turnMetrics,
+            assistantMessageTiming,
           }, async () => {
             logger.debug(`[Agent] shell-command:start sessionId=${data.sessionId}`);
             await runDirectShellCommandTurn({
@@ -722,6 +727,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           executionToken,
           requestId,
           metrics: turnMetrics,
+          assistantMessageTiming,
         }, async () => {
           try {
             if (abortController.signal.aborted) throw new Error("aborted");

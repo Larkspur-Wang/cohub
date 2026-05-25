@@ -608,6 +608,7 @@ export async function persistAssistantMessage(input: {
   userId?: string | null;
   turnId?: string | null;
   startedAt?: string | null;
+  completedAt?: string | null;
 }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults)
@@ -625,7 +626,10 @@ export async function persistAssistantMessage(input: {
 
   const stopReason = typeof assistant.stopReason === "string" ? assistant.stopReason : null;
   const errorMessage = typeof assistant.errorMessage === "string" ? assistant.errorMessage : null;
-  const timing = completeMessageTiming({ startedAt: input.startedAt });
+  const timing = completeMessageTiming({
+    startedAt: input.startedAt,
+    completedAt: input.completedAt,
+  });
   const hasAssistantError = stopReason === "error" || stopReason === "aborted" || Boolean(errorMessage);
   const isEmptySuccessfulAssistant = content.length === 0 && !hasAssistantError;
   const effectiveStopReason = isEmptySuccessfulAssistant ? "error" : stopReason;

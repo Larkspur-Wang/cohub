@@ -319,6 +319,9 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
 
     return context.with(llmRound.context, async () => {
       try {
+        if (toolCtx?.assistantMessageTiming && !toolCtx.assistantMessageTiming.startedAt) {
+          toolCtx.assistantMessageTiming.startedAt = new Date().toISOString();
+        }
         const headers = modelRegistry.getHeaders(model.provider, model.id);
         const streamHeaders = headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers;
         const stream = await streamSimple(model, ctx, {

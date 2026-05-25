@@ -5,6 +5,10 @@ export type TurnTelemetryMetrics = {
   toolCallCount: number;
 };
 
+export type AssistantMessageTimingContext = {
+  startedAt?: string | null;
+};
+
 export type ToolExecutionContext = {
   spaceId: string;
   sessionId: string;
@@ -16,6 +20,7 @@ export type ToolExecutionContext = {
   executionToken?: string | null;
   requestId?: string | null;
   metrics?: TurnTelemetryMetrics;
+  assistantMessageTiming?: AssistantMessageTimingContext;
 };
 
 const storage = new AsyncLocalStorage<ToolExecutionContext>();

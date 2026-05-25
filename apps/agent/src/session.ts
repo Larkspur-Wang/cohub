@@ -15,6 +15,7 @@ import {
   getAgentWorkspacePath,
 } from "./runtime/paths.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
+import { getCurrentToolExecutionContext } from "./tool-context.js";
 import { listEnabledSpaceMods } from "@cohub/core/space-mods";
 import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
@@ -88,6 +89,7 @@ type AssistantMessageContext = {
   assistantOrdinal: number;
   streamMessageId: string | null;
   patchSeq: number;
+  streamStartedAt: string;
   startedAt: string;
 };
 
@@ -420,6 +422,15 @@ export function resetStreamState(handle: SessionHandle) {
   };
 }
 
+function resolveAssistantMessageStartedAt(fallback: string) {
+  return getCurrentToolExecutionContext()?.assistantMessageTiming?.startedAt ?? fallback;
+}
+
+function clearAssistantMessageTiming() {
+  const timing = getCurrentToolExecutionContext()?.assistantMessageTiming;
+  if (timing) timing.startedAt = null;
+}
+
 function resolvePersistedAssistantContent(handle: SessionHandle, message: Record<string, unknown>) {
   const stopReason = typeof message.stopReason === "string" ? message.stopReason : null;
   const rawContent = Array.isArray(message.content) ? message.content : [];
@@ -623,6 +634,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       const message = event.message as unknown as Record<string, unknown>;
       if (message.role === "assistant") {
         const ordinal = (handle.currentAssistantMessageOrdinal ?? -1) + 1;
+        const streamStartedAt = new Date().toISOString();
         handle.currentAssistantMessageOrdinal = ordinal;
         handle.currentStreamMessageId = buildStreamMessageId(handle, ordinal);
         handle.activeAssistantContext = {
@@ -633,7 +645,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           assistantOrdinal: ordinal,
           streamMessageId: handle.currentStreamMessageId,
           patchSeq: 0,
-          startedAt: new Date().toISOString(),
+          streamStartedAt,
+          startedAt: resolveAssistantMessageStartedAt(streamStartedAt),
         };
       }
       logger.debug(`[Session] message:start role=${message.role} sessionId=${handle.sessionId}`);
@@ -799,6 +812,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       addLifecycleEvent("session.turn_end", {
         "agent.tool_count": toolCount,
       });
+      const completedAt = new Date().toISOString();
       const assistantContext = handle.activeAssistantContext;
       const currentUserMessageId = assistantContext?.userMessageId ?? handle.currentUserMessageId;
       if (!currentUserMessageId) return;
@@ -809,6 +823,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       if (handle.session.shouldDeferErrorPersistence(rawMessage)) {
         await drainStreamStateBeforeReset(handle);
         resetStreamState(handle);
+        if (handle.activeAssistantContext === assistantContext) handle.activeAssistantContext = null;
+        clearAssistantMessageTiming();
         removePendingUserMessage(handle, currentUserMessageId);
         return;
       }
@@ -841,6 +857,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             userId: ((assistantContext?.userMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
             turnId: typeof assistantContext?.userMeta?.turnId === "string" ? assistantContext.userMeta.turnId : assistantContext?.turnId ?? handle.currentTurnId ?? null,
             startedAt: assistantContext?.startedAt ?? null,
+            completedAt,
           });
         } catch (error) {
           if (error instanceof Error) span.recordException(error);
@@ -853,6 +870,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       await drainStreamStateBeforeReset(handle);
       resetStreamState(handle);
       if (handle.activeAssistantContext === assistantContext) handle.activeAssistantContext = null;
+      clearAssistantMessageTiming();
       removePendingUserMessage(handle, currentUserMessageId);
     }
 
