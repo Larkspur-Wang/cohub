@@ -1,6 +1,6 @@
 import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
-import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
+import { createAssistantMessageEventStream, streamSimple, type Api, type AssistantMessageEvent, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { context, trace, type Span } from "@opentelemetry/api";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import { logger } from "../logger.js";
@@ -41,6 +41,44 @@ type ToolLike = {
 const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
+
+// Debug-only stream chunk telemetry for the current streaming stall investigation; remove after the investigation is complete.
+const PROVIDER_STREAM_DEBUG_FIRST_EVENTS = 5;
+const PROVIDER_STREAM_DEBUG_SAMPLE_EVERY = 20;
+
+function getProviderStreamDebugAttributes(event: AssistantMessageEvent, index: number, startedAt: number) {
+  const elapsedMs = Math.round(performance.now() - startedAt);
+  const base = {
+    "agent.stream.chunk_index": index,
+    "agent.stream.event_type": event.type,
+    "agent.stream.elapsed_ms": elapsedMs,
+    "agent.stream.is_thinking": event.type.startsWith("thinking"),
+    "agent.stream.is_text": event.type.startsWith("text"),
+    "agent.stream.is_tool_call": event.type.startsWith("toolcall"),
+  };
+
+  if ("delta" in event) {
+    return {
+      ...base,
+      "agent.stream.delta_chars": event.delta.length,
+      "agent.stream.delta_bytes": Buffer.byteLength(event.delta),
+    };
+  }
+
+  if ("content" in event) {
+    return {
+      ...base,
+      "agent.stream.content_chars": event.content.length,
+      "agent.stream.content_bytes": Buffer.byteLength(event.content),
+    };
+  }
+
+  return base;
+}
+
+function shouldRecordProviderStreamDebugEvent(index: number) {
+  return index <= PROVIDER_STREAM_DEBUG_FIRST_EVENTS || index % PROVIDER_STREAM_DEBUG_SAMPLE_EVERY === 0;
+}
 
 function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
   if (!message || message.stopReason !== "error" || !message.errorMessage) return false;
@@ -340,10 +378,25 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
 
         const wrapped = createAssistantMessageEventStream();
         void context.with(llmRound.context, async () => {
+          let streamEventIndex = 0;
+          const streamStartedAt = performance.now();
           try {
             for await (const event of stream) {
+              streamEventIndex += 1;
               if (event.type !== "start") {
                 llmRound.markFirstToken();
+              }
+
+              // Debug-only stream chunk telemetry for the current streaming stall investigation; remove after the investigation is complete.
+              const streamDebugAttributes = getProviderStreamDebugAttributes(event, streamEventIndex, streamStartedAt);
+              llmRound.span.setAttribute("agent.stream.last_chunk_index", streamEventIndex);
+              llmRound.span.setAttribute("agent.stream.last_event_type", event.type);
+              llmRound.span.setAttribute("agent.stream.last_elapsed_ms", streamDebugAttributes["agent.stream.elapsed_ms"]);
+              if ("agent.stream.delta_chars" in streamDebugAttributes) {
+                llmRound.span.setAttribute("agent.stream.last_delta_chars", streamDebugAttributes["agent.stream.delta_chars"]);
+              }
+              if (shouldRecordProviderStreamDebugEvent(streamEventIndex)) {
+                llmRound.span.addEvent("agent.stream.provider_chunk", streamDebugAttributes);
               }
 
               wrapped.push(event);

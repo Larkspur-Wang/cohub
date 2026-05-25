@@ -214,6 +214,12 @@ type StreamTelemetryMetrics = {
   expiresAt: number;
 };
 
+type StreamPublishDebugDetails = {
+  opsCount: number;
+  envelopeBytes: number;
+  publishLatencyMs: number;
+};
+
 const getStreamTelemetry = (span: Span) => {
   pruneExpiredStreamTelemetry();
   const key = span.spanContext().spanId;
@@ -240,20 +246,30 @@ const pruneExpiredStreamTelemetry = () => {
   }
 };
 
-const recordStreamPublishSuccess = (span: Span, event: SessionStreamEvent | SessionStreamError, envelopeBytes = 0) => {
+const recordStreamPublishSuccess = (
+  span: Span,
+  event: SessionStreamEvent | SessionStreamError,
+  details: StreamPublishDebugDetails = { opsCount: 0, envelopeBytes: 0, publishLatencyMs: 0 },
+) => {
   const { metrics } = getStreamTelemetry(span);
   if (event.type === "stream_update") {
     metrics.patchCount += 1;
-    metrics.bytesTotal += envelopeBytes;
+    metrics.bytesTotal += details.envelopeBytes;
     span.setAttribute("agent.output.patch_count", metrics.patchCount);
     span.setAttribute("agent.output.bytes_total", metrics.bytesTotal);
     span.setAttribute("agent.output.last_seq", event.seq);
+    span.setAttribute("agent.output.last_ops_count", details.opsCount);
+    span.setAttribute("agent.output.last_bytes", details.envelopeBytes);
+    span.setAttribute("agent.output.last_publish_latency_ms", details.publishLatencyMs);
     if (metrics.patchCount === 1) {
       span.addEvent("agent.output.first_publish", {
         "cohub.space_id": event.spaceId,
         "cohub.session_id": event.sessionId,
         "agent.turn_id": event.turnId ?? "",
         "agent.output.seq": event.seq,
+        "agent.output.ops_count": details.opsCount,
+        "agent.output.bytes": details.envelopeBytes,
+        "agent.output.publish_latency_ms": details.publishLatencyMs,
       });
     } else if (event.turnEnd) {
       span.addEvent("agent.output.final_publish", {
@@ -263,12 +279,18 @@ const recordStreamPublishSuccess = (span: Span, event: SessionStreamEvent | Sess
         "agent.output.seq": event.seq,
         "agent.output.patch_count": metrics.patchCount,
         "agent.output.bytes_total": metrics.bytesTotal,
+        "agent.output.ops_count": details.opsCount,
+        "agent.output.bytes": details.envelopeBytes,
+        "agent.output.publish_latency_ms": details.publishLatencyMs,
       });
       streamTelemetryBySpanId.delete(span.spanContext().spanId);
     } else if (metrics.patchCount % STREAM_PUBLISH_SAMPLE_EVERY === 0) {
       span.addEvent("agent.output.publish_sampled", {
         "agent.output.seq": event.seq,
         "agent.output.patch_count": metrics.patchCount,
+        "agent.output.ops_count": details.opsCount,
+        "agent.output.bytes": details.envelopeBytes,
+        "agent.output.publish_latency_ms": details.publishLatencyMs,
       });
     }
   } else {
@@ -290,6 +312,7 @@ const recordStreamPublishFailure = (span: Span, error: unknown) => {
 
 const STREAM_TELEMETRY_TTL_MS = Math.max(60_000, Number(process.env.AGENT_STREAM_TELEMETRY_TTL_MS ?? 10 * 60_000));
 const STREAM_TELEMETRY_PRUNE_INTERVAL_MS = Math.max(10_000, Number(process.env.AGENT_STREAM_TELEMETRY_PRUNE_INTERVAL_MS ?? 60_000));
+// Debug-only frontend patch publish telemetry for the current streaming stall investigation; remove after the investigation is complete.
 const STREAM_PUBLISH_SAMPLE_EVERY = Math.max(1, Number(process.env.AGENT_STREAM_TELEMETRY_SAMPLE_EVERY ?? 20));
 const streamTelemetryBySpanId = new Map<string, StreamTelemetryMetrics>();
 let lastStreamTelemetryPruneAt = 0;
@@ -356,10 +379,12 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   try {
     const traceCarrier = injectTrace();
     let envelope: RealtimeEnvelope;
+    let opsCount = 0;
 
     if (event.type === "stream_update") {
       const streamEvent = event as SessionStreamEvent;
       const ops = buildPatchOpsForContentDelta(streamEvent);
+      opsCount = ops.length;
       await cacheSessionStreamSnapshot(streamEvent).catch((error) => {
         console.warn("[SessionStreamSnapshot] failed to cache snapshot:", error);
       });
@@ -400,12 +425,20 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
 
     const payload = JSON.stringify({ ...envelope, ...traceCarrier });
     const span = trace.getActiveSpan();
+    const publishStartedAt = performance.now();
     await redis.publish(AGENT_REALTIME_PATCH_CHANNEL, payload).catch((err) => {
       if (span) recordStreamPublishFailure(span, err);
       console.error("[Redis] Failed to publish realtime output:", err);
       throw err;
     });
-    if (span) recordStreamPublishSuccess(span, event, Buffer.byteLength(payload));
+    const publishLatencyMs = Math.round(performance.now() - publishStartedAt);
+    if (span) {
+      recordStreamPublishSuccess(span, event, {
+        opsCount,
+        envelopeBytes: Buffer.byteLength(payload),
+        publishLatencyMs,
+      });
+    }
   } catch (error) {
     if (error instanceof Error) activeSpan?.recordException(error);
     throw error;
