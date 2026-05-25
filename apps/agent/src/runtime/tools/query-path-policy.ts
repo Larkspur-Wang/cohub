@@ -1,7 +1,7 @@
 import { normalize as normalizePosix } from "node:path/posix";
 
 const WORKSPACE_ROOT = "/workspace";
-const CROSS_SPACE_PATH_ERROR = "Cross-space path must stay within /workspace.";
+const CROSS_SPACE_PATH_ERROR = "Path must stay within /workspace.";
 
 function normalizeCrossSpacePath(path: string) {
   const normalized = normalizePosix(path.startsWith("/") ? path : `${WORKSPACE_ROOT}/${path}`);

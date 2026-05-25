@@ -5,6 +5,7 @@ import { getAgentWorkspacePath } from "./paths.js";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHORT_UUID_REGEX = /^[0-9a-f]{32}$/i;
+const WORKSPACE_PATH = "/workspace";
 
 export type WorkspaceScope = {
   spaceId: string;
@@ -20,6 +21,14 @@ export function assertValidSpaceId(spaceId: string) {
   return value;
 }
 
+export function assertInsideRoot(target: string, root: string, message = "Path outside workspace is not allowed.") {
+  const normalizedTarget = resolve(target);
+  const normalizedRoot = resolve(root);
+  const rootWithSep = normalizedRoot.endsWith(sep) ? normalizedRoot : `${normalizedRoot}${sep}`;
+  if (normalizedTarget === normalizedRoot || normalizedTarget.startsWith(rootWithSep)) return;
+  throw new Error(message);
+}
+
 export async function createWorkspaceScope(spaceId: string): Promise<WorkspaceScope> {
   const validSpaceId = assertValidSpaceId(spaceId);
   const root = getAgentWorkspacePath(validSpaceId);
@@ -33,15 +42,16 @@ export async function createWorkspaceScope(spaceId: string): Promise<WorkspaceSc
 }
 
 export function normalizeWorkspaceInputPath(input?: string): string {
-  const raw = (input?.trim() || ".").replace(/\\/g, "/");
+  const raw = input?.trim() || ".";
   if (raw.includes("\0")) throw new Error("Path contains invalid characters.");
+  if (raw.includes("\\")) throw new Error("Path cannot contain backslashes.");
 
   let relativePath: string;
   if (raw.startsWith("/")) {
-    if (raw !== "/workspace" && !raw.startsWith("/workspace/")) {
-      throw new Error("Cross-space queries only support relative paths or /workspace paths.");
+    if (raw !== WORKSPACE_PATH && !raw.startsWith(`${WORKSPACE_PATH}/`)) {
+      throw new Error("Only relative paths or /workspace paths are supported.");
     }
-    relativePath = raw === "/workspace" ? "." : raw.slice("/workspace/".length);
+    relativePath = raw === WORKSPACE_PATH ? "." : raw.slice(WORKSPACE_PATH.length + 1);
   } else {
     relativePath = raw;
   }
@@ -51,23 +61,15 @@ export function normalizeWorkspaceInputPath(input?: string): string {
   return parts.join("/") || ".";
 }
 
-export function assertInsideRoot(target: string, root: string, message = "Path outside workspace is not allowed.") {
-  const normalizedTarget = resolve(target);
-  const normalizedRoot = resolve(root);
-  const rootWithSep = normalizedRoot.endsWith(sep) ? normalizedRoot : `${normalizedRoot}${sep}`;
-  if (normalizedTarget === normalizedRoot || normalizedTarget.startsWith(rootWithSep)) return;
-  throw new Error(message);
-}
-
 export async function resolveExistingWorkspacePath(scope: WorkspaceScope, inputPath?: string) {
   const relativePath = normalizeWorkspaceInputPath(inputPath);
   const lexicalTarget = resolve(scope.rootReal, relativePath === "." ? "" : relativePath);
   assertInsideRoot(lexicalTarget, scope.rootReal);
 
-  const targetReal = await realpath(lexicalTarget).catch(() => null);
-  if (!targetReal) throw new Error(`Path not found: ${toWorkspaceDisplayPath(relativePath)}`);
-  assertInsideRoot(targetReal, scope.rootReal);
-  return { absolutePath: lexicalTarget, realPath: targetReal, relativePath };
+  const realPath = await realpath(lexicalTarget).catch(() => null);
+  if (!realPath) throw new Error(`Path not found: ${toWorkspaceDisplayPath(relativePath)}`);
+  assertInsideRoot(realPath, scope.rootReal);
+  return { absolutePath: lexicalTarget, realPath, relativePath };
 }
 
 export async function assertResolvedOutputInsideWorkspace(scope: WorkspaceScope, absolutePath: string) {
@@ -86,7 +88,7 @@ export function toWorkspaceRelative(scope: WorkspaceScope, absolutePath: string)
 }
 
 export function toWorkspaceDisplayPath(relativePath: string) {
-  return relativePath === "." ? "/workspace" : `/workspace/${relativePath}`;
+  return relativePath === "." ? WORKSPACE_PATH : `${WORKSPACE_PATH}/${relativePath}`;
 }
 
 export async function safeLstatWorkspacePath(scope: WorkspaceScope, inputPath?: string) {
@@ -99,8 +101,4 @@ export async function safeStatWorkspacePath(scope: WorkspaceScope, inputPath?: s
   const resolved = await resolveExistingWorkspacePath(scope, inputPath);
   const info = await stat(resolved.realPath);
   return { ...resolved, info };
-}
-
-export function pathSeparator() {
-  return sep;
 }

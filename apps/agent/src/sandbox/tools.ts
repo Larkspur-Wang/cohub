@@ -12,18 +12,24 @@ import {
   type BashExecutionResult,
   type EditOperations,
   type FindOperations,
-  type GrepToolDetails,
   type GrepToolInput,
   type LsOperations,
   type ReadOperations,
   type WriteOperations,
-  DEFAULT_MAX_BYTES,
-  formatSize,
-  truncateHead,
-  truncateLine,
 } from "../runtime/tools/index.js";
+import {
+  detectUnsupportedReadImageMimeType,
+  isSupportedReadImageMimeType,
+  unsupportedReadImageMimeTypeMessage,
+} from "../runtime/tools/read-file-types.js";
+import {
+  createLocalCrossSpaceFindTool,
+  createLocalCrossSpaceGrepTool,
+  createLocalCrossSpaceLsTool,
+  createLocalCrossSpaceReadTool,
+} from "../runtime/tools/local-cross-space-query-tools.js";
+import { formatRgJsonGrepResult } from "../runtime/tools/grep-json-format.js";
 
-const GREP_MAX_LINE_LENGTH = 500;
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
@@ -235,24 +241,6 @@ async function tracedRpc<M extends RpcMethod>(
   }
 }
 
-const SUPPORTED_READ_IMAGE_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
-
-const SUPPORTED_READ_IMAGE_MIME_TYPE_LABEL = "image/jpeg, image/png, image/gif, image/webp";
-
-function isSupportedReadImageMimeType(mimeType: string | null | undefined): boolean {
-  return mimeType != null && SUPPORTED_READ_IMAGE_MIME_TYPES.has(mimeType);
-}
-
-function detectUnsupportedReadImageMimeType(mimeType: string | null | undefined): string | null {
-  if (!mimeType?.startsWith("image/")) return null;
-  return isSupportedReadImageMimeType(mimeType) ? null : mimeType;
-}
-
 function createRemoteReadOperations(): ReadOperations {
   const tracer = getAgentTracer();
   return {
@@ -301,9 +289,7 @@ function createRemoteReadOperations(): ReadOperations {
       const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
       return detectUnsupportedReadImageMimeType(mimeType);
     },
-    unsupportedImageMimeTypeMessage(mimeType) {
-      return `Unsupported image type: ${mimeType}. Supported image types: ${SUPPORTED_READ_IMAGE_MIME_TYPE_LABEL}.`;
-    },
+    unsupportedImageMimeTypeMessage: unsupportedReadImageMimeTypeMessage,
   };
 }
 
@@ -611,7 +597,6 @@ function createRemoteGrepTool() {
         throw new Error("Operation aborted");
       }
 
-      const contextValue = grepInput.context && grepInput.context > 0 ? grepInput.context : 0;
       const effectiveLimit = Math.max(1, grepInput.limit ?? 100);
 
       // Set up abort handling.
@@ -662,121 +647,7 @@ function createRemoteGrepTool() {
           throw new Error("Operation aborted");
         }
 
-        // Phase 1: Parse all matches from rg JSON output.
-        const matches: Array<{
-          filePath: string;
-          lineNumber: number;
-          lineText?: string;
-        }> = [];
-        for (const rawLine of result.lines) {
-          if (!rawLine.trim()) continue;
-          let rgEvent: {
-            type: string;
-            data?: {
-              path?: { text?: string };
-              line_number?: number;
-              lines?: { text?: string };
-            };
-          };
-          try {
-            rgEvent = JSON.parse(rawLine);
-          } catch {
-            continue;
-          }
-          if (rgEvent.type === "match") {
-            const filePath = rgEvent.data?.path?.text;
-            const lineNumber = rgEvent.data?.line_number;
-            const lineText = rgEvent.data?.lines?.text;
-            if (filePath && typeof lineNumber === "number") {
-              matches.push({ filePath, lineNumber, lineText });
-            }
-            if (matches.length >= effectiveLimit) break;
-          }
-        }
-
-        if (matches.length === 0) {
-          return {
-            content: [{ type: "text", text: "No matches found" }],
-            details: undefined,
-          };
-        }
-
-        const matchLimitReached = matches.length >= effectiveLimit;
-
-        // Phase 2: If context mode, pre-fetch all needed files in parallel with caching.
-        const fileCache = new Map<string, string[]>();
-        if (contextValue > 0) {
-          // Collect unique file paths.
-          const filePaths = [...new Set(matches.map((m) => m.filePath))];
-          // Fetch all files in parallel.
-          const fetchResults = await Promise.all(
-            filePaths.map(async (filePath) => {
-              const connection = await getCurrentConnection();
-              const fileResult = await tracedRpc(connection, "fs.read", { path: filePath });
-              return { filePath, lines: fileResult.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n") };
-            }),
-          );
-          for (const r of fetchResults) {
-            fileCache.set(r.filePath, r.lines);
-          }
-        }
-
-        // Phase 3: Format output lines from parsed matches (with cache hits for context).
-        const outputLines: string[] = [];
-        let linesTruncated = false;
-
-        for (const match of matches) {
-          const relativePath = formatRelativePath(match.filePath, grepInput.path);
-
-          if (contextValue === 0 && match.lineText !== undefined) {
-            // No context: format directly from rg line text (native behavior).
-            const sanitized = match.lineText.replace(/\r\n/g, "\n").replace(/\r/g, "").replace(/\n$/, "");
-            const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
-            if (wasTruncated) linesTruncated = true;
-            outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
-          } else {
-            // Context mode: use pre-fetched file content from cache.
-            const cachedLines = fileCache.get(match.filePath);
-            if (cachedLines) {
-              const block = formatContextBlockFromCache(match.filePath, match.lineNumber, contextValue, cachedLines);
-              if (block.anyTruncated) linesTruncated = true;
-              outputLines.push(...block.lines);
-            } else {
-              // Fallback: shouldn't happen after parallel fetch, but handle gracefully.
-              const relativePathFallback = match.filePath.includes("/") ? match.filePath.split("/").pop() ?? match.filePath : match.filePath;
-              outputLines.push(`${relativePathFallback}:${match.lineNumber}: (unable to read file)`);
-            }
-          }
-        }
-
-        // Apply byte truncation (matching native behavior).
-        const rawOutput = outputLines.join("\n");
-        const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
-        let output = truncation.content;
-
-        // Build details (matching native behavior).
-        const details: GrepToolDetails = {};
-        const notices: string[] = [];
-        if (matchLimitReached) {
-          notices.push(`${effectiveLimit} matches limit reached. Use limit=${effectiveLimit * 2} for more, or refine pattern`);
-          details.matchLimitReached = effectiveLimit;
-        }
-        if (truncation.truncated) {
-          notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
-          details.truncation = truncation;
-        }
-        if (linesTruncated) {
-          notices.push(`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`);
-          details.linesTruncated = true;
-        }
-        if (notices.length > 0) {
-          output += `\n\n[${notices.join(". ")}]`;
-        }
-
-        return {
-          content: [{ type: "text", text: output }],
-          details: Object.keys(details).length > 0 ? details : undefined,
-        };
+          return formatRgJsonGrepResult({ lines: result.lines, searchPath: grepInput.path, limit: effectiveLimit });
       } finally {
         if (signal) signal.removeEventListener("abort", onAbort);
       }
@@ -788,51 +659,6 @@ function createRemoteGrepTool() {
     ...definition,
     execute: definition.execute,
   };
-}
-
-/** Format a file path as relative, matching native grep behavior. */
-function formatRelativePath(absolutePath: string, searchPath: string | undefined): string {
-  // Reconstruct the sandbox-internal search path to compute relative output.
-  let sandboxSearchDir: string;
-  if (!searchPath || searchPath === ".") {
-    sandboxSearchDir = SANDBOX_WORKSPACE_PATH;
-  } else if (!searchPath.startsWith("/")) {
-    sandboxSearchDir = `${SANDBOX_WORKSPACE_PATH}/${searchPath}`;
-  } else {
-    sandboxSearchDir = searchPath;
-  }
-
-  if (absolutePath.startsWith(`${sandboxSearchDir}/`)) {
-    return absolutePath.slice(sandboxSearchDir.length + 1);
-  }
-  // Fallback: just the filename.
-  const parts = absolutePath.split("/");
-  return parts[parts.length - 1] ?? absolutePath;
-}
-
-/** Format context lines from cached file content. Pure/sync, no RPC. */
-function formatContextBlockFromCache(
-  filePath: string,
-  lineNumber: number,
-  contextValue: number,
-  fileLines: string[],
-): { lines: string[]; anyTruncated: boolean } {
-  const relativePath = filePath.includes("/") ? filePath.split("/").pop() ?? filePath : filePath;
-  const block: string[] = [];
-  let anyTruncated = false;
-  const start = contextValue > 0 ? Math.max(1, lineNumber - contextValue) : lineNumber;
-  const end = contextValue > 0 ? Math.min(fileLines.length, lineNumber + contextValue) : lineNumber;
-
-  for (let current = start; current <= end; current++) {
-    const lineText = fileLines[current - 1] ?? "";
-    const sanitized = lineText.replace(/\r/g, "");
-    const isMatchLine = current === lineNumber;
-    const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
-    if (wasTruncated) anyTruncated = true;
-    if (isMatchLine) block.push(`${relativePath}:${current}: ${truncatedText}`);
-    else block.push(`${relativePath}-${current}- ${truncatedText}`);
-  }
-  return { lines: block, anyTruncated };
 }
 
 /** Abort a running process via sandbox RPC. */
@@ -854,7 +680,7 @@ function getCurrentActorUserId() {
 
 async function assertCurrentActorCanViewSpaceFiles(spaceId: string) {
   const actorUserId = getCurrentActorUserId();
-  if (!actorUserId?.trim()) throw new Error("Access denied: cross-space queries require an authenticated user.");
+  if (!actorUserId?.trim()) throw new Error("Access denied: an authenticated user is required.");
   await assertSpaceFileViewAccess({ actorUserId: actorUserId.trim(), spaceId });
 }
 
@@ -885,14 +711,34 @@ export function createSandboxCodingTools() {
   const sandboxLsTool = createLsTool(toolCwd, { operations: createRemoteLsOperations() });
   const sandboxFindTool = createFindTool(toolCwd, { operations: createRemoteFindOperations() });
   const sandboxGrepTool = createRemoteGrepTool();
+  const crossSpaceReadTool = createLocalCrossSpaceReadTool();
+  const crossSpaceLsTool = createLocalCrossSpaceLsTool();
+  const crossSpaceFindTool = createLocalCrossSpaceFindTool();
+  const crossSpaceGrepTool = createLocalCrossSpaceGrepTool();
 
   return [
-    withSandboxFailureResult(createSpaceAwareReadTool(sandboxReadTool, assertCurrentActorCanViewSpaceFiles)),
+    withSandboxFailureResult(createSpaceAwareReadTool({
+      sandboxTool: sandboxReadTool,
+      crossSpaceTool: crossSpaceReadTool,
+      checkAccess: assertCurrentActorCanViewSpaceFiles,
+    })),
     withSandboxFailureResult(createBashTool(toolCwd, { operations: createRemoteBashOperations() })),
     withSandboxFailureResult(createEditTool(toolCwd, { operations: createRemoteEditOperations() })),
     withSandboxFailureResult(createWriteTool(toolCwd, { operations: createRemoteWriteOperations() })),
-    withSandboxFailureResult(createSpaceAwareLsTool(sandboxLsTool, assertCurrentActorCanViewSpaceFiles)),
-    withSandboxFailureResult(createSpaceAwareFindTool(sandboxFindTool, assertCurrentActorCanViewSpaceFiles)),
-    withSandboxFailureResult(createSpaceAwareGrepTool(sandboxGrepTool, assertCurrentActorCanViewSpaceFiles)),
+    withSandboxFailureResult(createSpaceAwareLsTool({
+      sandboxTool: sandboxLsTool,
+      crossSpaceTool: crossSpaceLsTool,
+      checkAccess: assertCurrentActorCanViewSpaceFiles,
+    })),
+    withSandboxFailureResult(createSpaceAwareFindTool({
+      sandboxTool: sandboxFindTool,
+      crossSpaceTool: crossSpaceFindTool,
+      checkAccess: assertCurrentActorCanViewSpaceFiles,
+    })),
+    withSandboxFailureResult(createSpaceAwareGrepTool({
+      sandboxTool: sandboxGrepTool,
+      crossSpaceTool: crossSpaceGrepTool,
+      checkAccess: assertCurrentActorCanViewSpaceFiles,
+    })),
   ];
 }

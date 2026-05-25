@@ -7,6 +7,12 @@ const SPACE_ID_DESCRIPTION = "Only set when querying another space by id";
 
 type AccessCheck = (spaceId: string) => Promise<void>;
 
+type SpaceAwareToolOptions = {
+  sandboxTool: AgentTool;
+  crossSpaceTool: AgentTool;
+  checkAccess: AccessCheck;
+};
+
 function getRequestedSpaceId(params: unknown) {
   if (!params || typeof params !== "object") return null;
   const value = (params as Record<string, unknown>).space_id;
@@ -24,7 +30,7 @@ function withoutSpaceId(input: unknown) {
   return rest;
 }
 
-function routeExecute(sandboxTool: AgentTool, checkAccess: AccessCheck) {
+function routeExecute({ sandboxTool, crossSpaceTool, checkAccess }: SpaceAwareToolOptions) {
   return async (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<unknown>) => {
     const ctx = getCurrentToolExecutionContext();
     if (!ctx?.spaceId) {
@@ -33,6 +39,7 @@ function routeExecute(sandboxTool: AgentTool, checkAccess: AccessCheck) {
 
     const requestedSpaceId = getRequestedSpaceId(params);
     const targetSpaceId = requestedSpaceId ?? ctx.spaceId;
+    const tool = targetSpaceId === ctx.spaceId ? sandboxTool : crossSpaceTool;
     if (targetSpaceId !== ctx.spaceId) {
       assertCrossSpaceQueryPathAllowed(getQueryPath(params));
       await checkAccess(targetSpaceId);
@@ -41,51 +48,51 @@ function routeExecute(sandboxTool: AgentTool, checkAccess: AccessCheck) {
     return runWithToolExecutionContext({
       ...ctx,
       spaceId: targetSpaceId,
-    }, () => sandboxTool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate));
+    }, () => tool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate));
   };
 }
 
-export function createSpaceAwareReadTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
+export function createSpaceAwareReadTool(options: SpaceAwareToolOptions): AgentTool {
   return {
-    ...sandboxTool,
+    ...options.sandboxTool,
     parameters: Type.Object({
       path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
       offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, checkAccess),
+    execute: routeExecute(options),
   };
 }
 
-export function createSpaceAwareLsTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
+export function createSpaceAwareLsTool(options: SpaceAwareToolOptions): AgentTool {
   return {
-    ...sandboxTool,
+    ...options.sandboxTool,
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, checkAccess),
+    execute: routeExecute(options),
   };
 }
 
-export function createSpaceAwareFindTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
+export function createSpaceAwareFindTool(options: SpaceAwareToolOptions): AgentTool {
   return {
-    ...sandboxTool,
+    ...options.sandboxTool,
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
       pattern: Type.String({ description: "Glob pattern to match files" }),
       limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, checkAccess),
+    execute: routeExecute(options),
   };
 }
 
-export function createSpaceAwareGrepTool(sandboxTool: AgentTool, checkAccess: AccessCheck): AgentTool {
+export function createSpaceAwareGrepTool(options: SpaceAwareToolOptions): AgentTool {
   return {
-    ...sandboxTool,
+    ...options.sandboxTool,
     parameters: Type.Object({
       pattern: Type.String({ description: "Search pattern" }),
       path: Type.Optional(Type.String({ description: "Directory or file to search" })),
@@ -96,6 +103,6 @@ export function createSpaceAwareGrepTool(sandboxTool: AgentTool, checkAccess: Ac
       limit: Type.Optional(Type.Number({ description: "Maximum number of matches" })),
       space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
     }),
-    execute: routeExecute(sandboxTool, checkAccess),
+    execute: routeExecute(options),
   };
 }
