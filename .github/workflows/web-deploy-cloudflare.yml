@@ -73,11 +73,12 @@ jobs:
       - name: Setup web environment
         working-directory: apps/web
         run: |
+          echo "PUBLIC_COHUB_ENV=${{ steps.env.outputs.env }}" > .env
           if [[ "${{ steps.env.outputs.env }}" == "prod" ]]; then
-            echo "PUBLIC_API_ORIGIN=https://api.cohub.run" > .env
+            echo "PUBLIC_API_ORIGIN=https://api.cohub.run" >> .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway.cohub.run" >> .env
           else
-            echo "PUBLIC_API_ORIGIN=https://api-dev.cohub.run" > .env
+            echo "PUBLIC_API_ORIGIN=https://api-dev.cohub.run" >> .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway-dev.cohub.run" >> .env
           fi
 
