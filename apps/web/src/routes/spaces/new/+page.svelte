@@ -1,17 +1,23 @@
 <script lang="ts">
 import {
+	getDefaultSpaceModsForEnv,
+	normalizeCohubRuntimeEnv,
+} from "@cohub/protocol/platform/default-space-mods";
+import {
 	type Channel,
 	type ChannelConfig,
+	type CreateSpaceModInput,
 	type DiscordChannelConfig,
 	HttpError,
 	type SpaceChannelBindingInput,
 	type SpaceEnvInput,
 } from "@neta-art/cohub";
-import { ArrowLeft, Loader2, Plus } from "lucide-svelte";
+import { ArrowLeft, Loader2, PackagePlus, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
@@ -37,6 +43,15 @@ let gitRepoUrl = $state("");
 let gitRepoRef = $state("");
 let gitToken = $state("");
 let checkpointId = $state("");
+let mods = $state<CreateSpaceModInput[]>(
+	getDefaultSpaceModsForEnv(
+		normalizeCohubRuntimeEnv(import.meta.env.PROD ? "prod" : "dev"),
+	),
+);
+let modSpaceId = $state("");
+let modName = $state("");
+let modMountSlug = $state("");
+let modError = $state("");
 
 const getDefaultChannelConfig = (channel: Channel): ChannelConfig => {
 	if (channel.provider === "discord") {
@@ -114,6 +129,57 @@ function updateDiscordConfig(
 	};
 }
 
+function getModDisplayName(mod: CreateSpaceModInput): string {
+	return mod.name?.trim() || mod.modSpaceId;
+}
+
+function getModMountPath(mod: CreateSpaceModInput): string {
+	const slug = mod.mountSlug?.trim();
+	return slug ? `/mods/${slug}` : "/mods/<auto>";
+}
+
+function addMod() {
+	const target = modSpaceId.trim();
+	if (!target) return;
+	modError = "";
+	if (mods.some((mod) => mod.modSpaceId === target)) {
+		modError = "Mod space is already mounted";
+		return;
+	}
+	mods = [
+		...mods,
+		{
+			modSpaceId: target,
+			name: modName.trim() || null,
+			mountSlug: modMountSlug.trim() || null,
+			enabled: true,
+		},
+	];
+	modSpaceId = "";
+	modName = "";
+	modMountSlug = "";
+}
+
+function toggleMod(modSpaceId: string) {
+	mods = mods.map((mod) =>
+		mod.modSpaceId === modSpaceId
+			? { ...mod, enabled: !(mod.enabled ?? true) }
+			: mod,
+	);
+}
+
+function updateModMountSlug(modSpaceId: string, mountSlug: string) {
+	mods = mods.map((mod) =>
+		mod.modSpaceId === modSpaceId
+			? { ...mod, mountSlug: mountSlug.trim() || null }
+			: mod,
+	);
+}
+
+function removeMod(modSpaceId: string) {
+	mods = mods.filter((mod) => mod.modSpaceId !== modSpaceId);
+}
+
 async function handleSubmit(event: SubmitEvent) {
 	event.preventDefault();
 	if (!name.trim() || isSubmitting) return;
@@ -140,6 +206,7 @@ async function handleSubmit(event: SubmitEvent) {
 				source: "web",
 				extraEnv: normalizedExtraEnv,
 				channelBindings,
+				mods,
 				bootstrapSource:
 					selectedBootstrapType === "git_repo"
 						? {
@@ -290,6 +357,40 @@ async function handleSubmit(event: SubmitEvent) {
                 required
               />
             {/if}
+          </div>
+        </div>
+
+        <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
+          <div>
+            <div class="flex items-center gap-2 text-[10px] uppercase tracking-wider text-text-placeholder font-medium"><PackagePlus class="h-3.5 w-3.5" /> Mounted spaces</div>
+            <p class="text-[13px] text-text-tertiary mt-1">Mounted spaces are read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Prompts and skills are available to the agent.</p>
+          </div>
+
+          <div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+            <input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+            <input bind:value={modName} placeholder="Display name" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+            <input bind:value={modMountSlug} placeholder="Mount slug" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+            <button type="button" onclick={addMod} disabled={!modSpaceId.trim()} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> Add</button>
+          </div>
+          {#if modError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}
+
+          <div class="space-y-1.5">
+            {#each mods as mod (mod.modSpaceId)}
+              <div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 md:grid-cols-[1fr_auto]">
+                <div class="min-w-0">
+                  <div class="truncate text-[12px] font-medium text-text-secondary">{getModDisplayName(mod)}</div>
+                  <div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{getModMountPath(mod)} · {mod.modSpaceId}</div>
+                  <input value={mod.mountSlug ?? ""} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== (mod.mountSlug ?? "")) updateModMountSlug(mod.modSpaceId, slug); }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== (mod.mountSlug ?? "")) updateModMountSlug(mod.modSpaceId, slug); } }} placeholder="Mount slug" class="mt-2 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+                </div>
+                <div class="flex items-center justify-end gap-2 md:justify-start">
+                  <span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {(mod.enabled ?? true) ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{(mod.enabled ?? true) ? 'enabled' : 'disabled'}</span>
+                  <button type="button" onclick={() => toggleMod(mod.modSpaceId)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{(mod.enabled ?? true) ? 'Disable' : 'Enable'}</button>
+                  <button type="button" onclick={() => removeMod(mod.modSpaceId)} class="text-[11px] text-text-placeholder hover:text-error-soft">Remove</button>
+                </div>
+              </div>
+            {:else}
+              <div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No mounted spaces.</div>
+            {/each}
           </div>
         </div>
 

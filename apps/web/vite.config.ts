@@ -63,6 +63,10 @@ export default defineConfig({
 				find: /^@cohub\/protocol\/generation$/,
 				replacement: `${protocolDir}/generation/index.ts`,
 			},
+			{
+				find: /^@cohub\/protocol\/platform\/default-space-mods$/,
+				replacement: `${protocolDir}/platform/default-space-mods.ts`,
+			},
 			// protocol bare import — must be last to avoid prefix-matching subpaths
 			{
 				find: /^@cohub\/protocol$/,

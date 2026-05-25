@@ -261,6 +261,13 @@ export type SpaceConfigInput = {
   };
 };
 
+export type CreateSpaceModInput = {
+  modSpaceId: string;
+  name?: string | null;
+  mountSlug?: string | null;
+  enabled?: boolean;
+};
+
 export type CreateSpaceInput = {
   name?: string;
   slug?: string | null;
@@ -268,6 +275,7 @@ export type CreateSpaceInput = {
   source?: string;
   extraEnv?: SpaceEnvInput[];
   channelBindings?: SpaceChannelBindingInput[];
+  mods?: CreateSpaceModInput[];
   bootstrapSource?: SpaceBootstrapSource;
   config?: SpaceConfigInput;
 };

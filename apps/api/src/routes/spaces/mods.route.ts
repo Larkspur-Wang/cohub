@@ -1,54 +1,16 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
-import { createDefaultMountSlug, listSpaceMods, assertValidMountSlug } from "@cohub/core/space-mods";
-import { spaceMods, spaces } from "@cohub/db";
+import { listSpaceMods } from "@cohub/core/space-mods";
+import { spaceMods } from "@cohub/db";
 import { db } from "../../db/index.js";
 import { getOptionalAuth, requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
-import { getSpaceById } from "../../space-sessions.js";
-import { recoverSpaceSandbox } from "../../space-sandboxes.js";
+import { createSpaceMod, getSpaceModUniqueViolationMessage, normalizeSpaceModName, parseSpaceModMountSlug, restartSandboxForMods, spaceModErrorResponse } from "../../space-mods.js";
 
 const router = new Hono();
 
 function getValidParam(value: string | undefined): string | null {
   return value && requireValidId(value) ? value : null;
-}
-
-function normalizeName(value: unknown) {
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 255) : null;
-}
-
-function parseMountSlug(value: string | null | undefined) {
-  if (!value) return { ok: true as const, value: null };
-  try {
-    return { ok: true as const, value: assertValidMountSlug(value) };
-  } catch {
-    return { ok: false as const, message: "invalid mount slug" };
-  }
-}
-
-function getUniqueViolationMessage(error: unknown): string | null {
-  const record = error as { code?: string; constraint_name?: string; constraint?: string };
-  if (record.code !== "23505") return null;
-  const constraint = record.constraint_name ?? record.constraint ?? "";
-  if (constraint.includes("space_mod")) return "mod space is already mounted";
-  if (constraint.includes("mount_slug")) return "mountSlug is already used in this space";
-  return "space mod already exists";
-}
-
-async function restartSandboxForMods(spaceId: string) {
-  const space = await getSpaceById(spaceId);
-  if (!space) return;
-  void recoverSpaceSandbox({
-    spaceId,
-    userUuid: space.userUuid,
-    ownerUserUuid: space.userUuid,
-    reason: "space_mods_changed",
-    source: "space_mods",
-    verify: true,
-  }).catch((error) => {
-    console.error(`[SpaceMods] failed to restart sandbox spaceId=${spaceId}`, error);
-  });
 }
 
 router.get("/", async (c) => {
@@ -66,37 +28,17 @@ router.post("/", async (c) => {
   if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
   const body = await c.req.json<{ modSpaceId?: string; name?: string | null; mountSlug?: string | null }>().catch(() => null);
-  const modSpaceId = getValidParam(body?.modSpaceId?.trim());
-  if (!modSpaceId) return c.json({ message: "modSpaceId is required" }, 400);
-  if (modSpaceId === spaceId) return c.json({ message: "space cannot mount itself as a mod" }, 400);
-  if (!(await hasPermission(user, "file.view", { spaceId: modSpaceId }))) return c.json({ message: "missing file.view permission for mod space" }, 403);
-
-  const slug = parseMountSlug(body?.mountSlug);
-  if (!slug.ok) return c.json({ message: slug.message }, 400);
-
-  const [target] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, modSpaceId)).limit(1);
-  if (!target) return c.json({ message: "mod space not found" }, 404);
-
-  const existing = await listSpaceMods(db, spaceId);
-  const mountSlug = slug.value ?? createDefaultMountSlug(modSpaceId, existing.map((mod) => mod.mountSlug));
-  const nextSortOrder = existing.reduce((max, mod) => Math.max(max, mod.sortOrder), -1) + 1;
-
   try {
-    const [created] = await db.insert(spaceMods).values({
+    const result = await createSpaceMod({
+      actor: user,
       spaceId,
-      modSpaceId,
-      name: normalizeName(body?.name),
-      mountSlug,
-      sortOrder: nextSortOrder,
-      createdBy: user.uuid,
-    }).returning();
-    if (!created) return c.json({ message: "failed to create mod" }, 500);
-
-    await restartSandboxForMods(spaceId);
-    return c.json({ item: (await listSpaceMods(db, spaceId)).find((mod) => mod.id === created.id), sandboxRestarting: true }, 201);
+      mod: { modSpaceId: body?.modSpaceId ?? "", name: body?.name, mountSlug: body?.mountSlug },
+      restartSandbox: true,
+    });
+    return c.json(result, 201);
   } catch (error) {
-    const message = getUniqueViolationMessage(error);
-    if (message) return c.json({ message }, 409);
+    const response = spaceModErrorResponse(error);
+    if (response) return c.json({ message: response.message }, response.status);
     throw error;
   }
 });
@@ -138,9 +80,9 @@ router.patch("/:modId", async (c) => {
   const body = await c.req.json<{ name?: string | null; mountSlug?: string; enabled?: boolean; sortOrder?: number }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
   const patch: Partial<typeof spaceMods.$inferInsert> = { updatedAt: new Date() };
-  if ("name" in body) patch.name = normalizeName(body.name);
+  if ("name" in body) patch.name = normalizeSpaceModName(body.name);
   if (typeof body.mountSlug === "string") {
-    const slug = parseMountSlug(body.mountSlug);
+    const slug = parseSpaceModMountSlug(body.mountSlug);
     if (!slug.ok) return c.json({ message: slug.message }, 400);
     patch.mountSlug = slug.value ?? undefined;
   }
@@ -154,7 +96,7 @@ router.patch("/:modId", async (c) => {
     await restartSandboxForMods(spaceId);
     return c.json({ item: (await listSpaceMods(db, spaceId)).find((mod) => mod.id === modId), sandboxRestarting: true });
   } catch (error) {
-    const message = getUniqueViolationMessage(error);
+    const message = getSpaceModUniqueViolationMessage(error);
     if (message) return c.json({ message }, 409);
     throw error;
   }

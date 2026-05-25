@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
+import { getDefaultSpaceModsForEnv } from "@cohub/protocol/platform/default-space-mods";
 import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
 import {
   userChannels,
   spaceChannels,
+  spaceMods,
   spaces,
   spaceMembers,
   userGitAccounts,
@@ -38,6 +40,7 @@ import { submitSessionPrompt } from "../../session-prompts.js";
 import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
+import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput } from "../../space-mods.js";
 
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 
@@ -278,6 +281,7 @@ router.post("/", async (c) => {
       meta?: Record<string, unknown>;
       extraEnv?: Array<{ name: string; value: string }>;
       channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
+      mods?: CreateSpaceModInput[];
       bootstrapSource?:
         | { type: "blank" }
         | { type: "git_repo"; repoUrl?: string; ref?: string | null }
@@ -294,6 +298,7 @@ router.post("/", async (c) => {
     meta?: Record<string, unknown>;
     extraEnv?: Array<{ name: string; value: string }>;
     channelBindings?: Array<{ channelId: string; config?: Record<string, unknown> | null }>;
+    mods?: CreateSpaceModInput[];
     bootstrapSource?:
       | { type: "blank" }
       | { type: "git_repo"; repoUrl?: string; ref?: string | null }
@@ -383,56 +388,96 @@ router.post("/", async (c) => {
   const spaceId = crypto.randomUUID();
   const storageRepoName = buildStorageRepoName(spaceId);
 
+  const createMods = Array.isArray(body.mods) ? body.mods : getDefaultSpaceModsForEnv(config.env);
+  const preparedModValues = await prepareSpaceModInserts({
+    actor: user,
+    spaceId,
+    mods: createMods,
+    existing: [],
+  }).catch((error) => {
+    const response = spaceModErrorResponse(error);
+    if (response) return response;
+    throw error;
+  });
+  if (!Array.isArray(preparedModValues)) return c.json({ message: preparedModValues.message }, preparedModValues.status);
+
   let space: typeof spaces.$inferSelect | undefined;
+  let insertedChannels: Array<typeof spaceChannels.$inferSelect> = [];
   try {
-    [space] = await db
-      .insert(spaces)
-      .values({
-        id: spaceId,
-        userUuid: user.uuid,
-        name,
-        slug,
-        description: body.description ?? null,
-        storageRepoName,
-        baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
-        headCheckpointId: null,
-        meta: {
-          ...(body.meta ?? {}),
-          config: {
-            ...(isRecord(body.meta?.config) ? body.meta.config : {}),
-            sandbox: {
-              ...((isRecord(body.meta?.config) && isRecord((body.meta.config as Record<string, unknown>).sandbox) ? (body.meta.config as Record<string, unknown>).sandbox : {}) as Record<string, unknown>),
-              autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+    const result = await db.transaction(async (tx) => {
+      const [createdSpace] = await tx
+        .insert(spaces)
+        .values({
+          id: spaceId,
+          userUuid: user.uuid,
+          name,
+          slug,
+          description: body.description ?? null,
+          storageRepoName,
+          baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
+          headCheckpointId: null,
+          meta: {
+            ...(body.meta ?? {}),
+            config: {
+              ...(isRecord(body.meta?.config) ? body.meta.config : {}),
+              sandbox: {
+                ...((isRecord(body.meta?.config) && isRecord((body.meta.config as Record<string, unknown>).sandbox) ? (body.meta.config as Record<string, unknown>).sandbox : {}) as Record<string, unknown>),
+                autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+              },
+            },
+            extraEnv: normalizedExtraEnv,
+            bootstrap: {
+              status: "pending",
+              stage: null,
+              taskRunId: null,
+              errorMessage: null,
+              source: normalizedBootstrapSource,
+              startedAt: null,
+              finishedAt: null,
             },
           },
-          extraEnv: normalizedExtraEnv,
-          bootstrap: {
-            status: "pending",
-            stage: null,
-            taskRunId: null,
-            errorMessage: null,
-            source: normalizedBootstrapSource,
-            startedAt: null,
-            finishedAt: null,
-          },
-        },
-      })
-      .returning();
+        })
+        .returning();
+      if (!createdSpace) throw new Error("failed to create space");
+
+      await tx.insert(spaceMembers).values({
+        spaceId: createdSpace.id,
+        userId: user.uuid,
+        role: "host",
+        createdBy: user.uuid,
+        updatedBy: user.uuid,
+      });
+
+      if (preparedModValues.length > 0) {
+        await tx.insert(spaceMods).values(preparedModValues);
+      }
+
+      const createdChannels = normalizedChannelBindings.length > 0
+        ? await tx
+            .insert(spaceChannels)
+            .values(
+              normalizedChannelBindings.map((binding) => ({
+                spaceId: createdSpace.id,
+                channelId: binding.channelId,
+                config: binding.config,
+              })),
+            )
+            .returning()
+        : [];
+
+      return { space: createdSpace, insertedChannels: createdChannels };
+    });
+    space = result.space;
+    insertedChannels = result.insertedChannels;
   } catch (error) {
     const constraint = uniqueViolationConstraint(error);
     if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
+    const modResponse = spaceModErrorResponse(error);
+    if (modResponse) return c.json({ message: modResponse.message }, modResponse.status);
     throw error;
   }
 
   if (!space) return c.json({ message: "failed to create space" }, 500);
-
-  await db.insert(spaceMembers).values({
-    spaceId: space.id,
-    userId: user.uuid,
-    role: "host",
-    createdBy: user.uuid,
-    updatedBy: user.uuid,
-  });
 
   // Keep the runtime env cache in sync at creation time. The agent reads
   // user-provided space env from Redis (not directly from DB meta), so spaces
@@ -441,17 +486,7 @@ router.post("/", async (c) => {
   // same cache update.
   await setSpaceEnv(space.id, normalizedExtraEnv);
 
-  if (normalizedChannelBindings.length > 0) {
-    const insertedChannels = await db
-      .insert(spaceChannels)
-      .values(
-        normalizedChannelBindings.map((binding) => ({
-          spaceId: space.id,
-          channelId: binding.channelId,
-          config: binding.config,
-        })),
-      )
-      .returning();
+  if (insertedChannels.length > 0) {
     await Promise.all(
       insertedChannels.map((channel) =>
         syncSpaceChannelConfigCache({
