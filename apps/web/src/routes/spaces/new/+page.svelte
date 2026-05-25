@@ -16,7 +16,7 @@ import { ArrowLeft, Loader2, PackagePlus, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { env as publicEnv } from "$env/dynamic/public";
+import { PUBLIC_COHUB_ENV } from "$env/static/public";
 import { ensureAuth } from "$lib/auth";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
@@ -45,9 +45,7 @@ let gitRepoRef = $state("");
 let gitToken = $state("");
 let checkpointId = $state("");
 let mods = $state<CreateSpaceModInput[]>(
-	getDefaultSpaceModsForEnv(
-		normalizeCohubRuntimeEnv(publicEnv.PUBLIC_COHUB_ENV),
-	),
+	getDefaultSpaceModsForEnv(normalizeCohubRuntimeEnv(PUBLIC_COHUB_ENV)),
 );
 let modSpaceId = $state("");
 let modName = $state("");
