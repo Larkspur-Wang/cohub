@@ -42,26 +42,9 @@ const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
 
-// Debug-only stream telemetry for the current streaming stall investigation; remove after the investigation is complete.
+// Debug-only stream chunk telemetry for the current streaming stall investigation; remove after the investigation is complete.
 const PROVIDER_STREAM_DEBUG_FIRST_EVENTS = 5;
 const PROVIDER_STREAM_DEBUG_SAMPLE_EVERY = 20;
-
-const RAW_SSE_DEBUG_FETCH_STATE = Symbol.for("cohub.agent.rawSseDebugFetchState");
-
-type RawSseDebugFetchState = {
-  originalFetch: typeof fetch;
-  recorders: RawSseDebugRecorder[];
-};
-
-type RawSseDebugRecorder = {
-  id: string;
-  span: Span;
-  spaceId?: string;
-  sessionId?: string;
-  startedAt: number;
-  chunkIndex: number;
-  bytesTotal: number;
-};
 
 function getProviderStreamDebugAttributes(event: AssistantMessageEvent, index: number, startedAt: number) {
   const elapsedMs = Math.round(performance.now() - startedAt);
@@ -95,120 +78,6 @@ function getProviderStreamDebugAttributes(event: AssistantMessageEvent, index: n
 
 function shouldRecordProviderStreamDebugEvent(index: number) {
   return index <= PROVIDER_STREAM_DEBUG_FIRST_EVENTS || index % PROVIDER_STREAM_DEBUG_SAMPLE_EVERY === 0;
-}
-
-function getRawSseDebugFetchState(): RawSseDebugFetchState {
-  const globalWithState = globalThis as typeof globalThis & { [RAW_SSE_DEBUG_FETCH_STATE]?: RawSseDebugFetchState };
-  if (globalWithState[RAW_SSE_DEBUG_FETCH_STATE]) return globalWithState[RAW_SSE_DEBUG_FETCH_STATE];
-
-  const state: RawSseDebugFetchState = {
-    originalFetch: globalThis.fetch.bind(globalThis),
-    recorders: [],
-  };
-
-  globalWithState[RAW_SSE_DEBUG_FETCH_STATE] = state;
-  globalThis.fetch = async (input, init) => {
-    const response = await state.originalFetch(input, init);
-    const recorder = state.recorders.find((candidate) => shouldRecordRawSseResponse(candidate, input, init, response));
-    if (!recorder || !response.body) return response;
-
-    const contentType = response.headers.get("content-type") ?? "";
-    const wrappedBody = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        recordRawSseChunk(recorder, chunk, response, input, contentType);
-        controller.enqueue(chunk);
-      },
-    }));
-
-    return new Response(wrappedBody, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-  };
-
-  return state;
-}
-
-function installRawSseDebugFetch(options: { span: Span; spaceId?: string; sessionId?: string }) {
-  const state = getRawSseDebugFetchState();
-  const recorder: RawSseDebugRecorder = {
-    id: `${Date.now()}:${Math.random().toString(36).slice(2)}`,
-    span: options.span,
-    spaceId: options.spaceId,
-    sessionId: options.sessionId,
-    startedAt: performance.now(),
-    chunkIndex: 0,
-    bytesTotal: 0,
-  };
-  state.recorders.push(recorder);
-
-  return () => {
-    const index = state.recorders.findIndex((candidate) => candidate.id === recorder.id);
-    if (index >= 0) state.recorders.splice(index, 1);
-  };
-}
-
-function shouldRecordRawSseResponse(
-  recorder: RawSseDebugRecorder,
-  input: Parameters<typeof fetch>[0],
-  init: Parameters<typeof fetch>[1],
-  response: Response,
-) {
-  if (!response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) return false;
-
-  const trackExtra = getFetchHeader(input, init, "x-litellm-track-extra");
-  if (!trackExtra) return false;
-
-  try {
-    const parsed = JSON.parse(trackExtra) as { cohub_space_uuid?: string | null; cohub_session_uuid?: string | null };
-    return (!recorder.spaceId || parsed.cohub_space_uuid === recorder.spaceId) && (!recorder.sessionId || parsed.cohub_session_uuid === recorder.sessionId);
-  } catch {
-    return false;
-  }
-}
-
-function getFetchHeader(input: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1], name: string) {
-  const lowerName = name.toLowerCase();
-  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
-  return headers.get(lowerName);
-}
-
-function getFetchUrl(input: Parameters<typeof fetch>[0]) {
-  if (typeof input === "string") return input;
-  if (input instanceof URL) return input.toString();
-  return input.url;
-}
-
-function recordRawSseChunk(
-  recorder: RawSseDebugRecorder,
-  chunk: Uint8Array,
-  response: Response,
-  input: Parameters<typeof fetch>[0],
-  contentType: string,
-) {
-  recorder.chunkIndex += 1;
-  recorder.bytesTotal += chunk.byteLength;
-  const elapsedMs = Math.round(performance.now() - recorder.startedAt);
-  const url = new URL(getFetchUrl(input));
-
-  recorder.span.setAttribute("agent.stream.raw_sse.last_chunk_index", recorder.chunkIndex);
-  recorder.span.setAttribute("agent.stream.raw_sse.last_elapsed_ms", elapsedMs);
-  recorder.span.setAttribute("agent.stream.raw_sse.last_chunk_bytes", chunk.byteLength);
-  recorder.span.setAttribute("agent.stream.raw_sse.bytes_total", recorder.bytesTotal);
-
-  if (!shouldRecordProviderStreamDebugEvent(recorder.chunkIndex)) return;
-
-  recorder.span.addEvent("agent.stream.raw_sse_chunk", {
-    "agent.stream.raw_sse.chunk_index": recorder.chunkIndex,
-    "agent.stream.raw_sse.elapsed_ms": elapsedMs,
-    "agent.stream.raw_sse.chunk_bytes": chunk.byteLength,
-    "agent.stream.raw_sse.bytes_total": recorder.bytesTotal,
-    "agent.stream.raw_sse.content_type": contentType,
-    "http.response.status_code": response.status,
-    "url.full": url.toString(),
-    "url.path": url.pathname,
-  });
 }
 
 function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
@@ -487,18 +356,12 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
     });
 
     return context.with(llmRound.context, async () => {
-      let uninstallRawSseDebugFetch: (() => void) | null = null;
       try {
         if (toolCtx?.assistantMessageTiming && !toolCtx.assistantMessageTiming.startedAt) {
           toolCtx.assistantMessageTiming.startedAt = new Date().toISOString();
         }
         const headers = modelRegistry.getHeaders(model.provider, model.id);
         const streamHeaders = headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers;
-        uninstallRawSseDebugFetch = installRawSseDebugFetch({
-          span: llmRound.span,
-          spaceId: toolCtx?.spaceId,
-          sessionId: toolCtx?.sessionId,
-        });
         const stream = await streamSimple(model, ctx, {
           ...options,
           headers: model.provider === "cohub"
@@ -564,8 +427,6 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
             llmRound.fail(error);
             wrapped.end();
           } finally {
-            uninstallRawSseDebugFetch?.();
-            uninstallRawSseDebugFetch = null;
             if (toolCtx) {
               toolCtx.llmRound = round - 1;
             }
@@ -577,7 +438,6 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
 
         return wrapped;
       } catch (error) {
-        uninstallRawSseDebugFetch?.();
         llmRound.fail(error);
         throw error;
       }
