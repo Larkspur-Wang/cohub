@@ -1,5 +1,6 @@
 import type { SpaceRecord } from "@neta-art/cohub";
 import { createLocalListCache } from "$lib/stores/create-local-list-cache";
+import { cacheSpaceRecordsSoon } from "$lib/stores/space-record-cache";
 
 const SPACE_LIST_SCOPE = "all";
 
@@ -39,13 +40,17 @@ export function getCachedSpaceListMeta() {
 }
 
 export function setCachedSpaceList(spaces: SpaceRecord[]): SpaceRecord[] {
-	return cache.setCached(SPACE_LIST_SCOPE, spaces);
+	const next = cache.setCached(SPACE_LIST_SCOPE, spaces);
+	cacheSpaceRecordsSoon(next);
+	return next;
 }
 
 export function patchCachedSpaceList(
 	updater: (spaces: SpaceRecord[]) => SpaceRecord[],
 ): SpaceRecord[] {
-	return cache.patchCached(SPACE_LIST_SCOPE, updater);
+	const next = cache.patchCached(SPACE_LIST_SCOPE, updater);
+	cacheSpaceRecordsSoon(next);
+	return next;
 }
 
 export function clearCachedSpaceList() {
@@ -68,5 +73,7 @@ export async function fetchSpaceListWithCache(
 	fetcher: () => Promise<SpaceRecord[]>,
 	options?: { force?: boolean },
 ): Promise<SpaceRecord[]> {
-	return cache.fetchWithCache(SPACE_LIST_SCOPE, fetcher, options);
+	const spaces = await cache.fetchWithCache(SPACE_LIST_SCOPE, fetcher, options);
+	cacheSpaceRecordsSoon(spaces);
+	return spaces;
 }

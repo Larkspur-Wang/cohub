@@ -133,7 +133,7 @@ async function loadProfile() {
 		return;
 	}
 	try {
-		await authStore.ensureLoaded(true);
+		await authStore.ensureLoaded();
 		userUuid = authStore.userUuid ?? "";
 		displayName = authStore.profile?.displayName ?? "";
 		avatarUrl = authStore.profile?.avatarUrl ?? "";

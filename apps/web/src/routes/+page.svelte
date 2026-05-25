@@ -5,6 +5,7 @@ import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
+import { setCachedSpaceList } from "$lib/stores/space-list-cache";
 
 let isLoading = $state(true);
 let isAuthenticated = $state(false);
@@ -28,7 +29,7 @@ onMount(async () => {
 		return;
 	}
 	try {
-		const spaces = await sdk.spaces.list();
+		const spaces = setCachedSpaceList(await sdk.spaces.list());
 		spaceCount = spaces.length;
 		if (spaces.length > 0) {
 			const firstSpace = spaces[0];

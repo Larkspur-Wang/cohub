@@ -12,6 +12,7 @@ import {
 	normalizeSpacePublicProfile,
 } from "$lib/space-profile";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
+import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	buildSpaceMentionHref,
 	buildSpaceMentionUri,
@@ -271,6 +272,7 @@ export async function resolveSpaceMentionLabels(
 					.get((input, init) =>
 						fetch(input, { ...init, signal: options?.signal }),
 					);
+				cacheSpaceRecordSoon(space);
 				const name = space.name ?? space.title;
 				if (name) resolved.set(spaceId, name);
 			} catch (error) {

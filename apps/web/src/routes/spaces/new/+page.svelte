@@ -13,6 +13,7 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { sdk } from "$lib/sdk";
+import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -156,6 +157,7 @@ async function handleSubmit(event: SubmitEvent) {
 			gitToken.trim() ? { "X-Git-Token": gitToken.trim() } : undefined,
 		);
 
+		cacheSpaceRecordSoon(result.space);
 		window.dispatchEvent(new CustomEvent("cohub:space-created"));
 
 		await goto(`/spaces/${result.space.id}`);

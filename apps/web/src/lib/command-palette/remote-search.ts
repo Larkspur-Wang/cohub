@@ -1,5 +1,26 @@
-import type { GlobalSearchType } from "@neta-art/cohub";
+import type { GlobalSearchResult, GlobalSearchType } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
+import { patchCachedSpaceRecordSoon } from "$lib/stores/space-record-cache";
+
+function cacheRemoteSpaceResult(item: GlobalSearchResult) {
+	if (item.type !== "space") return;
+	const result = item as GlobalSearchResult & {
+		spaceName?: string | null;
+		excerpt?: string | null;
+	};
+	patchCachedSpaceRecordSoon({
+		id: item.spaceId,
+		...(item.ownerProfile?.userUuid
+			? { userUuid: item.ownerProfile.userUuid }
+			: {}),
+		name: result.spaceName ?? item.title ?? null,
+		description: result.excerpt ?? null,
+		title: item.title ?? null,
+		publicProfile: item.spaceProfile ?? undefined,
+		ownerProfile: item.ownerProfile ?? null,
+		updatedAt: item.updatedAt ?? new Date(0).toISOString(),
+	});
+}
 
 export async function searchRemoteCommandItems(
 	query: string,
@@ -23,5 +44,6 @@ export async function searchRemoteCommandItems(
 		},
 		fetcher,
 	);
+	for (const item of result.items) cacheRemoteSpaceResult(item);
 	return result.items;
 }

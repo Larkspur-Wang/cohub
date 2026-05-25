@@ -34,6 +34,7 @@ import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
+import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 type SandboxInfo = {
 	status: string | null;
@@ -151,6 +152,7 @@ async function saveSandboxConfig() {
 			.space(spaceId)
 			.updateConfig({ sandbox: { autoDestroy } });
 		space = result.space;
+		cacheSpaceRecordSoon(result.space);
 		applySandboxConfigFromSpace(result.space);
 		sandboxConfigMessage = "Sandbox auto-destroy policy saved.";
 	} catch (err) {
@@ -362,6 +364,7 @@ async function loadPage() {
 				.catch(() => ({ items: [] })),
 		]);
 		space = spaceResult;
+		cacheSpaceRecordSoon(spaceResult);
 		access = accessResult;
 		members = memberResult.items;
 		env = envResult.env;

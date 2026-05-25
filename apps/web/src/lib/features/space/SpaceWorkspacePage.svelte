@@ -166,6 +166,7 @@ import {
 	isSpacePin,
 	toggleSpacePin,
 } from "$lib/stores/space-pins";
+import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
 	loadMessageToolCalls,
@@ -1811,7 +1812,7 @@ async function loadSpace() {
 		const nextSpace = await sdk.space(spaceId).get();
 		space = nextSpace;
 		previewEndpoints = extractPublicEndpoints(nextSpace);
-		void spaceRecordRepo.set(spaceId, nextSpace).catch(() => undefined);
+		cacheSpaceRecordSoon(nextSpace);
 	} catch (error) {
 		spaceLoadError =
 			error instanceof Error ? error.message : "Failed to load space";
@@ -1844,7 +1845,7 @@ async function refreshSpaceStatus() {
 		const previousBootstrapStatus = bootstrapStatus;
 		space = nextSpace;
 		previewEndpoints = extractPublicEndpoints(nextSpace);
-		void spaceRecordRepo.set(spaceId, nextSpace).catch(() => undefined);
+		cacheSpaceRecordSoon(nextSpace);
 		const nextBootstrap = (() => {
 			const raw = nextSpace.meta;
 			if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -2111,7 +2112,7 @@ async function handleRenameSpace(newName: string) {
 	try {
 		const result = await sdk.space(spaceId).rename(newName);
 		space = result.space;
-		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+		cacheSpaceRecordSoon(result.space);
 		renamingSpace = false;
 	} catch (error) {
 		renameError =
@@ -2197,7 +2198,7 @@ async function saveSpaceSlug() {
 	try {
 		const result = await sdk.space(spaceId).update({ slug: nextSlug });
 		space = result.space;
-		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+		cacheSpaceRecordSoon(result.space);
 		patchCachedSpaceList((items) =>
 			items.map((item) => (item.id === spaceId ? result.space : item)),
 		);
@@ -2275,7 +2276,7 @@ async function saveSpaceProfileField() {
 			description: spaceProfileDraft.trim() || null,
 		});
 		space = result.space;
-		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+		cacheSpaceRecordSoon(result.space);
 		spaceProfileEditingField = null;
 		spaceProfileDraft = "";
 	} catch (error) {
@@ -2314,7 +2315,7 @@ async function uploadSpaceAvatar(file: File) {
 			avatarUrl: plan.asset.publicUrl,
 		});
 		space = result.space;
-		void spaceRecordRepo.set(spaceId, result.space).catch(() => undefined);
+		cacheSpaceRecordSoon(result.space);
 	} catch (error) {
 		spaceProfileError =
 			error instanceof Error ? error.message : "Failed to upload space avatar";

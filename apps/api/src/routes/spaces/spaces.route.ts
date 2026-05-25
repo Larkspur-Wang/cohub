@@ -551,7 +551,7 @@ router.post("/", async (c) => {
     .returning();
 
   const createdSpace = spaceWithJob ?? space;
-  return c.json({ space: { ...createdSpace, publicProfile: getSpacePublicProfile(createdSpace) }, taskRunId });
+  return c.json({ space: await serializeSpaceForResponse(createdSpace, user), taskRunId });
 });
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────
@@ -662,7 +662,7 @@ router.get("/:id", async (c) => {
     return c.json(await serializeSpaceForResponse(space, user));
   }
 
-  // Fallback: only session-level access — return minimal space info.
+  // Fallback: only session-level access — keep the response intentionally tiny.
   // Access is omitted here because effective permissions depend on a concrete session policy.
   return c.json({
     id: space.id,
@@ -743,7 +743,7 @@ router.patch("/:id", async (c) => {
   }
 
   if (updates.name === undefined && updates.slug === undefined) {
-    return c.json({ space: { ...space, publicProfile: getSpacePublicProfile(space) } });
+    return c.json({ space: await serializeSpaceForResponse(space, user) });
   }
 
   try {
@@ -754,7 +754,7 @@ router.patch("/:id", async (c) => {
       .returning();
 
     const result = updated ?? space;
-    return c.json({ space: { ...result, publicProfile: getSpacePublicProfile(result) } });
+    return c.json({ space: await serializeSpaceForResponse(result, user) });
   } catch (error) {
     const constraint = uniqueViolationConstraint(error);
     if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
@@ -815,7 +815,7 @@ router.patch("/:id/profile", async (c) => {
     .returning();
 
   const result = updated ?? space;
-  return c.json({ space: { ...result, publicProfile: getSpacePublicProfile(result) } });
+  return c.json({ space: await serializeSpaceForResponse(result, user) });
 });
 
 // ── Checkpoints ──────────────────────────────────────────────────────────────
@@ -1052,7 +1052,7 @@ router.patch("/:id/config", async (c) => {
   const baseAt = sandbox?.lastActivityAt ?? sandbox?.lastHeartbeatAt ?? sandbox?.createdAt ?? updated.createdAt ?? new Date();
   await scheduleSandboxAutoDestroy({ spaceId, policy: nextAutoDestroy, baseAt: baseAt ? new Date(baseAt) : null }).catch(console.error);
 
-  return c.json({ space: { ...updated, publicProfile: getSpacePublicProfile(updated) } });
+  return c.json({ space: await serializeSpaceForResponse(updated, user) });
 });
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────

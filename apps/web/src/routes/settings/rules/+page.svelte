@@ -15,6 +15,9 @@ import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { sdk } from "$lib/sdk";
+import { authStore } from "$lib/stores/auth.svelte";
+import { setCachedSpaceList } from "$lib/stores/space-list-cache";
+import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -57,12 +60,13 @@ async function loadRulesPage() {
 	loadError = "";
 	actionMessage = "";
 	try {
-		const me = await sdk.user.getMe();
-		userUuid = me.uuid ?? "";
-		const [rules, spaces] = await Promise.all([
+		await authStore.ensureLoaded();
+		userUuid = authStore.userUuid ?? "";
+		const [rules, spacesResult] = await Promise.all([
 			sdk.user.getRules(),
 			sdk.spaces.list(),
 		]);
+		const spaces = setCachedSpaceList(spacesResult);
 		rulesContent = rules.content;
 		updatedAt = rules.updatedAt;
 		configSpace = userUuid ? findConfigSpace(spaces, userUuid) : null;
@@ -89,6 +93,7 @@ async function createConfigSpace() {
 			description:
 				"Personal Cohub configuration. Edit AGENTS.md here, then create a Save to publish user rules.",
 		});
+		cacheSpaceRecordSoon(result.space);
 		configSpace = result.space;
 		actionMessage = "Config Space created";
 		await goto(`/spaces/${result.space.id}`);
