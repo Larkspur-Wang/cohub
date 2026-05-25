@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { getDefaultSpaceModsForEnv } from "@cohub/protocol/platform/default-space-mods";
+import { getDefaultSpaceModsForEnv } from "@cohub/protocol";
 import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
 import {

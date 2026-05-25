@@ -2,7 +2,7 @@
 import {
 	getDefaultSpaceModsForEnv,
 	normalizeCohubRuntimeEnv,
-} from "@cohub/protocol/platform/default-space-mods";
+} from "@cohub/protocol";
 import {
 	type Channel,
 	type ChannelConfig,
