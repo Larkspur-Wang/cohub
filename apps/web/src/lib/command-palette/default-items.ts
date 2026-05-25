@@ -196,8 +196,6 @@ export async function getCommandPaletteDefaultItems(
 	shouldAbort(plan.signal);
 	const userKey = getCacheUserKey();
 	const spacesById = new Map<string, SpaceRecord>();
-	for (const space of getCachedSpaceList() ?? [])
-		spacesById.set(space.id, space);
 
 	const spaceRecords = await idbGetAllByIndex<SpaceRecordCacheRecord>(
 		"space_records",
@@ -209,6 +207,11 @@ export async function getCommandPaletteDefaultItems(
 		if (record.userKey === userKey)
 			spacesById.set(record.spaceId, record.space);
 	}
+
+	// Prefer the list cache when present: it is refreshed in the background when
+	// the palette opens, while per-space IndexedDB records may lag behind briefly.
+	for (const space of getCachedSpaceList() ?? [])
+		spacesById.set(space.id, space);
 
 	const items: CommandPaletteItem[] = [];
 	let userSessionLists: SessionListCacheRecord[] | null = null;

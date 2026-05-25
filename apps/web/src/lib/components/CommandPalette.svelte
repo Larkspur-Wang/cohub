@@ -36,6 +36,10 @@ import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
+import {
+	fetchSpaceListWithCache,
+	getCachedSpaceListMeta,
+} from "$lib/stores/space-list-cache";
 import { toggleSpacePin } from "$lib/stores/space-pins";
 
 const MIN_QUERY_LENGTH = 2;
@@ -75,6 +79,7 @@ let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
+let spaceListRefreshToken = 0;
 let pinError = $state("");
 let pinErrorTimer: number | null = null;
 let pendingPinKeys = $state<Set<string>>(new Set());
@@ -308,6 +313,22 @@ function resetSearch() {
 	activeIndex = 0;
 }
 
+async function refreshSpaceListForDefaultItems(token: number) {
+	const cacheMeta = getCachedSpaceListMeta();
+	if (cacheMeta && !cacheMeta.isStale) return;
+
+	try {
+		await fetchSpaceListWithCache(async () => await sdk.spaces.list());
+	} catch (error) {
+		console.warn("[command-palette] space list refresh failed", error);
+		return;
+	}
+
+	if (token !== searchToken || !open || runMode) return;
+	if (trimmedQuery.length >= MIN_QUERY_LENGTH || searchPlan.pinnedOnly) return;
+	spaceListRefreshToken += 1;
+}
+
 function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	const q = plan.query.trim();
 	resetSearch();
@@ -354,6 +375,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	if (q.length < MIN_QUERY_LENGTH) {
 		defaultDone = false;
 		localController = new AbortController();
+		void refreshSpaceListForDefaultItems(token);
 		void getCommandPaletteDefaultItems({
 			...plan,
 			currentSpaceId: spaceId,
@@ -676,6 +698,7 @@ function handleOpenPaletteEvent(event: Event) {
 
 $effect(() => {
 	if (!open || runMode) return;
+	spaceListRefreshToken;
 	scheduleSearch(searchPlan, currentSpaceId);
 });
 
