@@ -36,6 +36,8 @@ vim secrets.yaml
 可选字段：
 - `TALESOFAI_BILLING_BASE_URL` / `TALESOFAI_BILLING_BUSINESS_KEY` / `TALESOFAI_BILLING_ADMIN_API_KEY` - Talesofai Billing 插件配置，三项全部非空时启用；任意一项留空时禁用。Dev billing 地址通常是 `https://dev-billing.neta.art/v1`。
 
+Billing 启用后，Cohub 使用 `usd_micro_cent` credit type：`1 usd_micro_cent = $0.00000001`，`100_000_000` 单位等于 `$1`。free plan 每月赠送 `$10` 时，billing grant amount 应为 `1_000_000_000`。
+
 同时请确认 `values.yaml` 中已填写：
 - `GITEA_MANAGED_EMAIL_DOMAIN` - 托管 Gitea 影子账号使用的邮箱域名后缀
 - `PUBLIC_ASSET_OSS_ENDPOINT` / `PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT` / `PUBLIC_ASSET_OSS_REGION` / `PUBLIC_ASSET_OSS_BUCKET` / `PUBLIC_ASSET_CDN_BASE_URL` - 公开资产上传与访问配置

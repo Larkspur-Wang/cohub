@@ -1,5 +1,6 @@
 <script lang="ts">
 import type {
+	BillingCreditStatus,
 	CheckpointRecord,
 	CronJobRecord,
 	SessionForkRecord,
@@ -16,6 +17,7 @@ import {
 	ChevronDown,
 	Clock,
 	Compass,
+	CreditCard,
 	Download,
 	FileText,
 	FolderKanban,
@@ -137,6 +139,12 @@ let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
 let loadingCheckpointsSpaceId = $state<string | null>(null);
+let billingCredit = $state<BillingCreditStatus | null>(null);
+let billingCreditVisible = $state(false);
+let billingCreditExpanded = $state(false);
+let billingCreditLoading = $state(false);
+let billingCreditError = $state<string | null>(null);
+let billingCreditUserId = $state<string | null>(null);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
@@ -207,6 +215,77 @@ const currentSpace = $derived(
 const userDisplayName = $derived(
 	authStore.profile?.displayName?.trim() || "User",
 );
+
+let billingCreditRequest: Promise<boolean> | null = null;
+
+function clearBillingCredit() {
+	billingCredit = null;
+	billingCreditVisible = false;
+	billingCreditExpanded = false;
+	billingCreditLoading = false;
+	billingCreditError = null;
+	billingCreditUserId = null;
+}
+
+function formatUsdAmount(value: number | null | undefined) {
+	const amount =
+		typeof value === "number" && Number.isFinite(value) ? value : 0;
+	const sign = amount < 0 ? "-" : "";
+	return `${sign}$${Math.abs(amount).toFixed(8)}`;
+}
+
+function billingOverageLabel(credit: BillingCreditStatus | null) {
+	if (!credit) return "No open overage";
+	if (!credit.overage.hasOpenOverage) return "No open overage";
+	return `${formatUsdAmount(credit.overage.openAmountUsd)} open overage`;
+}
+
+async function refreshBillingCredit() {
+	if (billingCreditRequest) return billingCreditRequest;
+	billingCreditLoading = true;
+	billingCreditError = null;
+	billingCreditRequest = (async () => {
+		try {
+			const { credit } = await sdk.billing.getCredits();
+			if (!credit.billing.configured) {
+				clearBillingCredit();
+				return false;
+			}
+			billingCredit = credit;
+			billingCreditUserId = authStore.userUuid;
+			billingCreditVisible = true;
+			return true;
+		} catch (error) {
+			if (await handleUnauthorizedError(error)) {
+				clearBillingCredit();
+				return false;
+			}
+			console.warn("[sidebar] Failed to load billing credit", error);
+			billingCreditError = "Failed to refresh";
+			if (!billingCredit) {
+				billingCreditVisible = false;
+				billingCreditExpanded = false;
+			}
+			return false;
+		} finally {
+			billingCreditLoading = false;
+			billingCreditRequest = null;
+		}
+	})();
+	return billingCreditRequest;
+}
+
+function toggleBillingCredit() {
+	if (billingCreditExpanded) {
+		billingCreditExpanded = false;
+		return;
+	}
+	billingCreditExpanded = true;
+	void (async () => {
+		const available = await refreshBillingCredit();
+		if (!available && !billingCredit) billingCreditExpanded = false;
+	})();
+}
 
 const settingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
@@ -1098,6 +1177,21 @@ onMount(() => {
 // Always load the space addressed by the current URL directly. The global
 // space list is only a switcher data source and may omit guest-access spaces.
 $effect(() => {
+	const userId = authStore.userUuid;
+	if (!authStore.isAuthenticated || !userId) {
+		clearBillingCredit();
+		return;
+	}
+	if (billingCreditUserId && billingCreditUserId !== userId) {
+		clearBillingCredit();
+	}
+	if (!showUserMenu) return;
+	untrack(() => {
+		void refreshBillingCredit();
+	});
+});
+
+$effect(() => {
 	if (mode !== "space") return;
 	const id = currentSpaceId;
 	if (!id) return;
@@ -1831,6 +1925,45 @@ $effect(() => {
         data-user-menu
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
+        {#if billingCreditVisible}
+          <div class="border-b border-border-subtle">
+            <button
+              type="button"
+              class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+              onclick={toggleBillingCredit}
+            >
+              <CreditCard class="w-3.5 h-3.5" />
+              <span>Balance</span>
+              <span class="ml-auto font-mono text-[11px] text-text-secondary">
+                {#if billingCreditLoading}
+                  <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+                {:else}
+                  {formatUsdAmount(billingCredit?.balance.availableUsd)}
+                {/if}
+              </span>
+              <ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {billingCreditExpanded ? 'rotate-180' : ''}" />
+            </button>
+            {#if billingCreditExpanded && billingCredit}
+              <div class="space-y-1 px-2.5 pb-2 text-[11px]">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-text-placeholder">Available</span>
+                  <span class="font-mono text-text-secondary">{formatUsdAmount(billingCredit.balance.availableUsd)}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-text-placeholder">Net</span>
+                  <span class="font-mono {billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">{formatUsdAmount(billingCredit.balance.netUsd)}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-text-placeholder">Overage</span>
+                  <span class="font-mono {billingCredit.overage.hasOpenOverage ? 'text-error-soft' : 'text-text-secondary'}">{billingOverageLabel(billingCredit)}</span>
+                </div>
+                {#if billingCreditError}
+                  <div class="pt-1 text-text-placeholder">{billingCreditError}</div>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
         {#if mode === "space"}
           <a
             href="/settings"

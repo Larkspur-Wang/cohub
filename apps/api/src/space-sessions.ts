@@ -26,6 +26,7 @@ import { finalizeSessionTurnFromMessage } from "./session-turns.js";
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
+import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "./billing/index.js";
 
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
@@ -104,6 +105,59 @@ const resolveActorUserId = async (input: {
   ).limit(1);
   const userId = (anchorMessage?.meta as Record<string, unknown> | null | undefined)?.userId;
   return typeof userId === "string" && userId.trim() ? userId.trim() : null;
+};
+
+const getUsageCostTotal = (usage: Usage | null | undefined) => {
+  const total = usage?.cost?.total;
+  return typeof total === "number" && Number.isFinite(total) && total > 0
+    ? Number(total.toFixed(8))
+    : 0;
+};
+
+const recordLlmUsageBilling = async (input: {
+  messageId: string;
+  userId: string | null;
+  provider: string | null;
+  model: string | null;
+  usage: Usage | null;
+  stopReason: string | null;
+  errorMessage: string | null;
+}) => {
+  if (!billingOperations.status.configured) return;
+  if (!input.userId) return;
+  if (input.errorMessage || input.stopReason === "error" || input.stopReason === "aborted") return;
+  const amountUsd = getUsageCostTotal(input.usage);
+  if (amountUsd <= 0) return;
+
+  try {
+    const result = await billingOperations.recordUsage({
+      userId: input.userId,
+      amountUsd,
+      tokenType: COHUB_BILLING_TOKEN_TYPES.usdMicroCent,
+      usageType: COHUB_BILLING_USAGE_TYPES.generationLlm,
+      sourceId: input.messageId,
+      operationId: `llm:${input.messageId}`,
+      reason: `LLM usage ${input.provider ?? "unknown"}/${input.model ?? "unknown"}`,
+    });
+    if (result.status === "overage") {
+      console.warn("[Billing] LLM usage recorded as overage", {
+        userId: input.userId,
+        messageId: input.messageId,
+        amountUsd,
+        provider: input.provider,
+        model: input.model,
+      });
+    }
+  } catch (error) {
+    console.warn("[Billing] failed to record LLM usage", {
+      userId: input.userId,
+      messageId: input.messageId,
+      amountUsd,
+      provider: input.provider,
+      model: input.model,
+      error,
+    });
+  }
 };
 
 const updateTokenUsageStatsHourly = async (input: {
@@ -383,7 +437,30 @@ const updateSessionAfterAppend = async (sessionId: string, message: typeof sessi
 
 export const persistMessageNode = async (input: PersistMessageInput & { message: PersistMessageInput["message"] & { id?: string } }) => {
   const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.role === "assistant") {
+      const session = await getSpaceSessionById(input.sessionId);
+      if (session && session.spaceId === input.spaceId) {
+        const meta = normalizeRecord(existing.meta);
+        const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
+        const actorUserId = await resolveActorUserId({
+          sessionId: input.sessionId,
+          anchorUserMessageId,
+          userId: input.userId ?? null,
+        });
+        await recordLlmUsageBilling({
+          messageId: existing.id,
+          userId: actorUserId,
+          provider: existing.provider,
+          model: existing.model,
+          usage: existing.usage as Usage | null,
+          stopReason: existing.stopReason,
+          errorMessage: existing.errorMessage,
+        });
+      }
+    }
+    return existing;
+  }
 
   const session = await getSpaceSessionById(input.sessionId);
   if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
@@ -418,6 +495,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
   const durationMs = normalizeDurationMs(input.message.durationMs, durationBetweenMs(startedAt, completedAt));
+  let assistantActorUserId: string | null = null;
 
   const [messageNode] = await db.insert(sessionMessages).values({
     id: input.message.id?.trim() || undefined,
@@ -450,6 +528,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       anchorUserMessageId,
       userId,
     });
+    assistantActorUserId = actorUserId;
     await updateTokenUsageStatsHourly({
       bucketStartAt: toUtcHourBucket(messageNode.createdAt ?? new Date()),
       userId: actorUserId,
@@ -526,6 +605,18 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     message: realtimeMessage,
   });
   await dispatchSessionOutputs(outputs).catch(console.error);
+
+  if (messageRole === "assistant") {
+    await recordLlmUsageBilling({
+      messageId: messageNode.id,
+      userId: assistantActorUserId,
+      provider: input.message.provider ?? null,
+      model: input.message.model ?? null,
+      usage: normalizedUsage,
+      stopReason: input.message.stopReason ?? null,
+      errorMessage: displayErrorMessage,
+    });
+  }
 
   return messageNode;
 };

@@ -45,6 +45,78 @@ export type MeResponse = {
   email: string | null;
 };
 
+export type BillingPluginStatus = {
+  provider: "disabled" | "talesofai";
+  configured: boolean;
+  reason?: string;
+};
+
+export type BillingCreditUnit = {
+  tokenType: string;
+  displayCurrency: "USD";
+  displayUnit: string;
+  unitToUsd: number;
+  unitsPerUsd: number;
+  usdDecimalPlaces: number;
+};
+
+export type BillingCreditGrantStatus = {
+  id: string;
+  tokenType: string;
+  benefitKey: string | null;
+  grantKind: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  status: string;
+  remainingAmount: number;
+  remainingAmountUsd: number;
+  originalAmount: number | null;
+  originalAmountUsd: number | null;
+  effectiveAt: string | null;
+  expiresAt: string | null;
+  daysRemaining: number | null;
+};
+
+export type BillingCreditExpiryGroup = {
+  key: "expired" | "lt_7d" | "lt_30d" | "gte_30d" | "never";
+  label: string;
+  remainingAmountUsd: number;
+  grants: BillingCreditGrantStatus[];
+};
+
+export type BillingOpenOverageStatus = {
+  id: string;
+  tokenType: string;
+  usageType: string | null;
+  sourceType: string;
+  sourceId: string;
+  operationId: string;
+  originalAmountUsd: number;
+  remainingAmountUsd: number;
+  settledAmountUsd: number;
+  status: string;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type BillingCreditStatus = {
+  userId: string;
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  balance: {
+    availableUsd: number;
+    openOverageUsd: number;
+    netUsd: number;
+  };
+  overage: {
+    hasOpenOverage: boolean;
+    openAmountUsd: number;
+    items: BillingOpenOverageStatus[];
+  };
+  groups: BillingCreditExpiryGroup[];
+};
+
 export type UserRulesResponse = {
   content: string;
   updatedAt: string | null;
