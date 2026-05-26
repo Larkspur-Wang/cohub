@@ -13,7 +13,6 @@ import { verifyUserAccessToken } from "@cohub/identity";
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
 import { UnauthorizedError } from "./lib/middleware.js";
 import { assertRequiredConfig, config } from "./config.js";
-import { BillingPreflightError } from "./session-prompts.js";
 
 import router from "./routes/index.js";
 
@@ -119,15 +118,6 @@ app.onError((error, c) => {
 
   if (error instanceof UnauthorizedError) {
     return c.json({ message: error.message, requestId, traceId: ids.traceId }, 401);
-  }
-  if (error instanceof BillingPreflightError) {
-    return c.json({
-      message: error.message,
-      code: "billing_insufficient_balance",
-      billing: error.preflight,
-      requestId,
-      traceId: ids.traceId,
-    }, 402);
   }
   const path = c.req.path;
   const method = c.req.method;
