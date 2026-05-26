@@ -1,4 +1,5 @@
 import { ChannelsApi } from "./apis/channels.js";
+import { BillingApi } from "./apis/billing.js";
 import { CronJobsApi } from "./apis/cron-jobs.js";
 import { ExploreApi } from "./apis/explore.js";
 import { GenerationsApi } from "./apis/generations.js";
@@ -18,6 +19,7 @@ import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 export class CohubClient {
   readonly spaces: SpacesApi;
   readonly channels: ChannelsApi;
+  readonly billing: BillingApi;
   readonly user: UserApi;
   readonly generations: GenerationsApi;
   readonly models: ModelsApi;
@@ -46,6 +48,7 @@ export class CohubClient {
     });
     this.spaces = new SpacesApi(this.transport);
     this.channels = new ChannelsApi(this.transport);
+    this.billing = new BillingApi(this.transport);
     this.user = new UserApi(
       this.transport,
       apiBaseUrl,

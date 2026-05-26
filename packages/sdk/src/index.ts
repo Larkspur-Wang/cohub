@@ -1,4 +1,5 @@
 export { CohubHttpClient, createHttpClient } from "./http.js";
+export { BillingApi } from "./apis/billing.js";
 export { CohubClient, createCohubClient } from "./client.js";
 export { WebsocketClient, createWebsocketClient } from "./websocket.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";

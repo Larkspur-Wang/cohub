@@ -84,4 +84,12 @@ API 支持可插拔 Talesofai Billing。`secrets.yaml` 中以下三项全部非�
 - `TALESOFAI_BILLING_BUSINESS_KEY`
 - `TALESOFAI_BILLING_ADMIN_API_KEY`
 
-禁用时 API 仍可启动，billing preflight 默认放行，usage record 会返回 disabled 状态且不会写入 billing。
+禁用时 API 仍可启动，业务侧会跳过 LLM billing preflight 和 usage record，前端余额入口会隐藏。
+
+Cohub 当前使用的 credit type 是 `usd_micro_cent`，语义为美元的 micro-cent 最小单位：
+
+- `1 usd_micro_cent = $0.00000001`
+- `100_000_000 usd_micro_cent = $1`
+- free plan 每月赠送 `$10` 时，billing grant amount 应为 `1_000_000_000`
+
+API 会把余额和透支状态按美元展示给前端，但写入 billing 的 usage amount 使用 `usd_micro_cent` 原始单位。

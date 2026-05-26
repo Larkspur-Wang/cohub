@@ -11,6 +11,10 @@ export type { BillingClientConfig } from "./client.js";
 export type {
   BillingAccountState,
   BillingCreditBalance,
+  BillingCreditExpiryGroup,
+  BillingCreditGrantStatus,
+  BillingCreditStatus,
+  BillingCreditUnit,
   BillingFeatureEntitlement,
   BillingFeatureEntitlementInput,
   BillingFeatureLimitCheck,
@@ -23,11 +27,13 @@ export type {
   BillingUsageRecordInput,
   BillingUsageRecordResult,
   BillingUserRef,
+  BillingOpenOverageStatus,
   CohubBillingFeatureKey,
   CohubBillingTokenType,
   CohubBillingUsageType,
 } from "./interfaces.js";
 export {
+  COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_FEATURES,
   COHUB_BILLING_TOKEN_TYPES,
   COHUB_BILLING_USAGE_TYPES,
