@@ -145,7 +145,6 @@ let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
 let loadingCheckpointsSpaceId = $state<string | null>(null);
 let billingCredit = $state<BillingCreditStatus | null>(null);
-let billingCreditVisible = $state(false);
 let billingCreditLoading = $state(false);
 let billingCreditError = $state<string | null>(null);
 let billingCreditUserId = $state<string | null>(null);
@@ -224,7 +223,6 @@ let billingCreditRequest: Promise<boolean> | null = null;
 
 function clearBillingCredit() {
 	billingCredit = null;
-	billingCreditVisible = false;
 	billingCreditLoading = false;
 	billingCreditError = null;
 	billingCreditUserId = null;
@@ -250,7 +248,6 @@ async function refreshBillingCredit() {
 			}
 			billingCredit = credit;
 			billingCreditUserId = authStore.userUuid;
-			billingCreditVisible = true;
 			return true;
 		} catch (error) {
 			if (await handleUnauthorizedError(error)) {
@@ -259,9 +256,6 @@ async function refreshBillingCredit() {
 			}
 			console.warn("[sidebar] Failed to load billing credit", error);
 			billingCreditError = "Failed to refresh";
-			if (!billingCredit) {
-				billingCreditVisible = false;
-			}
 			return false;
 		} finally {
 			billingCreditLoading = false;
@@ -1377,6 +1371,24 @@ $effect(() => {
       <div class="relative mt-auto w-full pt-2">
         {#if showUserMenu}
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
+            <div class="border-b border-border-subtle pb-1">
+              <div class="rail-menu-item" title="Net balance">
+                <CreditCard class="h-3.5 w-3.5" />
+                <span>Balance</span>
+                <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                  {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
+                    <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+                  {:else if billingCredit}
+                    {formatUsdAmount(billingCredit.balance.netUsd)}
+                  {:else}
+                    <span class="text-text-placeholder">—</span>
+                  {/if}
+                </span>
+              </div>
+              {#if billingCreditError}
+                <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
+              {/if}
+            </div>
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
             {:else}
@@ -2085,27 +2097,27 @@ $effect(() => {
         data-user-menu
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
-        {#if billingCreditVisible}
-          <div class="border-b border-border-subtle">
-            <div
-              class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary"
-              title="Net balance"
-            >
-              <CreditCard class="w-3.5 h-3.5" />
-              <span>Balance</span>
-              <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
-                {#if billingCreditLoading}
-                  <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
-                {:else}
-                  {formatUsdAmount(billingCredit?.balance.netUsd)}
-                {/if}
-              </span>
-            </div>
-            {#if billingCreditError}
-              <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
-            {/if}
+        <div class="border-b border-border-subtle">
+          <div
+            class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary"
+            title="Net balance"
+          >
+            <CreditCard class="w-3.5 h-3.5" />
+            <span>Balance</span>
+            <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+              {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
+                <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+              {:else if billingCredit}
+                {formatUsdAmount(billingCredit.balance.netUsd)}
+              {:else}
+                <span class="text-text-placeholder">—</span>
+              {/if}
+            </span>
           </div>
-        {/if}
+          {#if billingCreditError}
+            <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
+          {/if}
+        </div>
         {#if mode === "space"}
           <a
             href="/settings"
