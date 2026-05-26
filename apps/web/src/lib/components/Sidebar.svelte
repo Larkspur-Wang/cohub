@@ -29,6 +29,8 @@ import {
 	LogOut,
 	Network,
 	NotebookPen,
+	PanelLeftClose,
+	PanelLeftOpen,
 	Pencil,
 	Pin,
 	PinOff,
@@ -89,15 +91,18 @@ import {
 	cacheSpaceRecordSoon,
 	getCachedSpaceRecord,
 } from "$lib/stores/space-record-cache";
+import { uiState } from "$lib/stores/ui.svelte";
 
 const {
 	isMobile = false,
 	onClose,
 	mode = "space",
+	collapsed = false,
 }: {
 	isMobile?: boolean;
 	onClose?: () => void;
 	mode?: "space" | "settings";
+	collapsed?: boolean;
 } = $props();
 
 const SESSION_PAGE_SIZE = 20;
@@ -1239,24 +1244,201 @@ $effect(() => {
 });
 </script>
 
+{#if collapsed && !isMobile}
+  <aside class="h-screen w-[52px] shrink-0 bg-bg-primary">
+    <div class="flex h-full flex-col items-center border-r border-border-subtle/70 px-2 py-2">
+      <a
+        href="/"
+        class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors duration-100 hover:bg-brand-hover"
+        aria-label="Cohub home"
+        title="Home"
+      >
+        C
+      </a>
+      <button
+        type="button"
+        class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={() => uiState.setLeftSidebarCollapsed(false)}
+        aria-label="Expand sidebar"
+        title="Expand sidebar"
+      >
+        <PanelLeftOpen class="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={openCommandPalette}
+        aria-label="Search everywhere"
+        title="Search everywhere (⌘K / Ctrl K)"
+      >
+        <Search class="h-4 w-4" />
+      </button>
+
+      <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
+
+      {#if mode === "space"}
+        <div class="mt-2 flex w-full flex-col items-center gap-1">
+          <button
+            type="button"
+            class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+            onclick={openSpacePalette}
+            aria-label={currentSpace ? `Switch space: ${currentSpace.name || currentSpace.title || currentSpace.id}` : "Select a space"}
+            title={currentSpace ? currentSpace.name || currentSpace.title || currentSpace.id : "Select a space"}
+          >
+            {#if currentSpace}
+              <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
+            {:else}
+              <FolderKanban class="h-4 w-4" />
+            {/if}
+          </button>
+          {#if currentSpace}
+            <button
+              type="button"
+              class="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-brand transition-colors duration-100 hover:bg-brand-muted hover:text-brand"
+              onclick={() => { void handleCreateNewSession(); }}
+              disabled={creatingSession}
+              aria-label="New chat"
+              title="New chat (⌘O / Ctrl O)"
+            >
+              {#if creatingSession}
+                <Loader2 class="h-4 w-4 animate-spin" />
+              {:else}
+                <Plus class="h-4 w-4" />
+              {/if}
+            </button>
+            <button
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {currentPath === buildSpaceDetailRoute(currentSpaceId!) ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+              onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
+              aria-label="Space details"
+              title="Space details"
+            >
+              <LayoutDashboard class="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              class="flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+              onclick={handleNavigateToNewCheckpoint}
+              aria-label="New save"
+              title="New save"
+            >
+              <History class="h-4 w-4" />
+            </button>
+          {/if}
+        </div>
+
+        {#if currentSpace}
+          <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
+          <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
+            <button type="button" class="rail-button text-text-tertiary" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Pinned" title="Pinned">
+              <Pin class="h-4 w-4" />
+            </button>
+            <button type="button" class="rail-button {activeSession ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Chats" title="Chats">
+              <NotebookPen class="h-4 w-4" />
+              {#if activeSession && sessionIsStreaming(activeSession)}
+                <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-status-running animate-pulse"></span>
+              {:else if activeSession && unreadTracker.isUnread(activeSession, activeSession.lastMessageId)}
+                <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand"></span>
+              {/if}
+            </button>
+            <button type="button" class="rail-button {activeCheckpointId ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Saves" title="Saves">
+              <History class="h-4 w-4" />
+            </button>
+            <button type="button" class="rail-button {activeCronjobId ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Scheduled" title="Scheduled">
+              <Clock class="h-4 w-4" />
+            </button>
+            <button type="button" class="rail-button {activeTaskId ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Tasks" title="Tasks">
+              <Activity class="h-4 w-4" />
+            </button>
+          </nav>
+        {:else}
+          <div class="flex-1"></div>
+        {/if}
+      {:else}
+        <nav class="mt-3 flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
+          <button type="button" class="rail-button text-text-tertiary" onclick={returnFromSettings} aria-label="Back" title="Back">
+            <ArrowLeft class="h-4 w-4" />
+          </button>
+          {#each settingsTabs as tab (tab.id)}
+            {@const isActive = activeSettingsTab === tab.id}
+            <a
+              href={tab.href}
+              class="rail-button {isActive ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}"
+              title={tab.label}
+              aria-label={tab.label}
+              onclick={(e) => { e.preventDefault(); handleNavigate(tab.href, { keepSettingsReturn: true }); }}
+            >
+              <tab.icon class="h-4 w-4" />
+            </a>
+          {/each}
+        </nav>
+      {/if}
+
+      <div class="relative mt-auto w-full pt-2">
+        {#if showUserMenu}
+          <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
+            {#if mode === "space"}
+              <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
+            {:else}
+              <a href="/" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
+            {/if}
+            <a href="/explore" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore'); }}><Compass class="h-3.5 w-3.5" /><span>Explore</span></a>
+            <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
+            <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
+            <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
+            <button type="button" class="rail-menu-item w-full hover:text-error-soft" onclick={() => { showUserMenu = false; void handleLogout(); }}><LogOut class="h-3.5 w-3.5" /><span>Sign out</span></button>
+          </div>
+        {/if}
+        <button
+          type="button"
+          data-user-menu
+          class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-bg-hover-strong transition-colors duration-100 hover:bg-bg-hover"
+          onclick={() => { showUserMenu = !showUserMenu; }}
+          aria-label={userDisplayName}
+          title={userDisplayName}
+        >
+          {#if authStore.profile?.avatarUrl}
+            <img src={authStore.profile.avatarUrl} alt="" class="h-full w-full object-cover" />
+          {:else}
+            <User class="h-4 w-4 text-text-tertiary" />
+          {/if}
+        </button>
+      </div>
+    </div>
+  </aside>
+{:else}
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Brand Header -->
-  <div class="h-[48px] flex items-center justify-between gap-2 px-3 border-b border-border-subtle shrink-0">
-    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
-      <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
-        C
-      </div>
-      <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
-    </a>
+  <div class="shrink-0 px-3 pb-2 pt-2">
+    <div class="flex h-8 items-center justify-between gap-2">
+      <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
+        <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
+          C
+        </div>
+        <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
+      </a>
+      {#if !isMobile}
+        <button
+          type="button"
+          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+          onclick={() => uiState.setLeftSidebarCollapsed(true)}
+          title="Collapse sidebar"
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeftClose class="h-4 w-4" />
+        </button>
+      {/if}
+    </div>
     <button
       type="button"
-      class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-primary px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:border-brand/35 hover:bg-bg-hover hover:text-text-primary"
+      class="group/search mt-1.5 flex h-8 w-full items-center gap-2 rounded-[7px] bg-bg-surface px-2.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
       onclick={openCommandPalette}
       title="Search everywhere (⌘K / Ctrl K)"
       aria-label="Search everywhere"
     >
       <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
-      <span class="hidden sm:inline font-mono tracking-[0.02em]">⌘K</span>
+      <span class="min-w-0 flex-1 truncate text-left">Search everywhere</span>
+      <span class="rounded-[4px] bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] tracking-[0.02em] text-text-placeholder">⌘K</span>
     </button>
   </div>
 
@@ -2012,8 +2194,44 @@ $effect(() => {
     </button>
   </div>
 </aside>
+{/if}
 
 <style>
+	.rail-button {
+		position: relative;
+		display: flex;
+		height: 2rem;
+		width: 2rem;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0.375rem;
+		transition:
+			background-color 100ms ease,
+			color 100ms ease;
+	}
+
+	.rail-button:hover {
+		background: var(--color-bg-hover);
+		color: var(--color-text-secondary);
+	}
+
+	.rail-menu-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.4375rem 0.625rem;
+		font-size: 0.75rem;
+		color: var(--color-text-tertiary);
+		transition:
+			background-color 100ms ease,
+			color 100ms ease;
+	}
+
+	.rail-menu-item:hover {
+		background: var(--color-bg-hover);
+		color: var(--color-text-secondary);
+	}
+
 	.session-fork-row {
 		padding-left: calc(0.5rem + var(--fork-indent, 0px));
 	}

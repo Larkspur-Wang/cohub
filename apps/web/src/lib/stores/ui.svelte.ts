@@ -5,6 +5,7 @@ const STORAGE_KEYS = {
 	leftSidebarWidth: "cohub:layout:left-sidebar-width",
 	rightSidebarWidth: "cohub:layout:right-sidebar-width",
 	rightSidebarCollapsed: "cohub:layout:right-sidebar-collapsed",
+	leftSidebarCollapsed: "cohub:layout:left-sidebar-collapsed",
 } as const;
 
 const LEFT_SIDEBAR_MIN = 220;
@@ -48,6 +49,7 @@ class UIState {
 	settingsOverlayOpen = $state(false);
 	leftSidebarWidth = $state(LEFT_SIDEBAR_DEFAULT);
 	rightSidebarWidth = $state(RIGHT_SIDEBAR_DEFAULT);
+	leftSidebarCollapsed = $state(false);
 	rightSidebarCollapsed = $state(false);
 	private layoutPrefsLoaded = false;
 
@@ -57,6 +59,7 @@ class UIState {
 
 		const rawLeftWidth = readStorage(STORAGE_KEYS.leftSidebarWidth);
 		const rawRightWidth = readStorage(STORAGE_KEYS.rightSidebarWidth);
+		const rawLeftCollapsed = readStorage(STORAGE_KEYS.leftSidebarCollapsed);
 		const rawRightCollapsed = readStorage(STORAGE_KEYS.rightSidebarCollapsed);
 
 		if (rawLeftWidth) {
@@ -81,6 +84,10 @@ class UIState {
 			}
 		}
 
+		if (rawLeftCollapsed === "true" || rawLeftCollapsed === "false") {
+			this.leftSidebarCollapsed = rawLeftCollapsed === "true";
+		}
+
 		if (rawRightCollapsed === "true" || rawRightCollapsed === "false") {
 			this.rightSidebarCollapsed = rawRightCollapsed === "true";
 		}
@@ -98,9 +105,18 @@ class UIState {
 		writeStorage(STORAGE_KEYS.rightSidebarWidth, String(next));
 	}
 
+	setLeftSidebarCollapsed(collapsed: boolean) {
+		this.leftSidebarCollapsed = collapsed;
+		writeStorage(STORAGE_KEYS.leftSidebarCollapsed, String(collapsed));
+	}
+
 	setRightSidebarCollapsed(collapsed: boolean) {
 		this.rightSidebarCollapsed = collapsed;
 		writeStorage(STORAGE_KEYS.rightSidebarCollapsed, String(collapsed));
+	}
+
+	toggleLeftSidebarCollapsed() {
+		this.setLeftSidebarCollapsed(!this.leftSidebarCollapsed);
 	}
 
 	toggleRightSidebarCollapsed() {

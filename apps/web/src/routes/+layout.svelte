@@ -488,17 +488,19 @@ onMount(() => {
 {:else}
   <div class="h-screen flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
-    <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarWidth}px`}>
-      <div class="min-w-0 flex-1 border-r border-border-subtle">
-        <Sidebar mode={sidebarMode} />
+    <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarCollapsed ? 52 : uiState.leftSidebarWidth}px`}>
+      <div class="min-w-0 flex-1 {uiState.leftSidebarCollapsed ? '' : 'border-r border-border-subtle'}">
+        <Sidebar mode={sidebarMode} collapsed={uiState.leftSidebarCollapsed} />
       </div>
-      <button
-        type="button"
-        class="sidebar-resize-handle"
-        aria-label="Resize navigation sidebar"
-        title="Resize navigation sidebar"
-        onpointerdown={beginLeftSidebarResize}
-      ></button>
+      {#if !uiState.leftSidebarCollapsed}
+        <button
+          type="button"
+          class="sidebar-resize-handle"
+          aria-label="Resize navigation sidebar"
+          title="Resize navigation sidebar"
+          onpointerdown={beginLeftSidebarResize}
+        ></button>
+      {/if}
     </div>
 
     <!-- Main content area -->
