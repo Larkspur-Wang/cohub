@@ -52,7 +52,7 @@ import {
 } from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
-import { SandboxRpcError, isSandboxRpcError } from "./rpc-error.js";
+import { SandboxRpcError, isSandboxRpcError, type SandboxRpcDiagnostics } from "./rpc-error.js";
 
 import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
 import { recoverSpaceSandbox } from "../api.js";
@@ -79,6 +79,28 @@ function getCurrentTraceContext() {
 function incrementToolCallCount(metrics: TurnTelemetryMetrics | undefined) {
   if (!metrics) return;
   metrics.toolCallCount += 1;
+}
+
+function truncateLogValue(value: string, limit = 500) {
+  return value.length <= limit ? value : `${value.slice(0, limit)}…`;
+}
+
+function formatDiagnostics(diagnostics: SandboxRpcDiagnostics | undefined) {
+  if (!diagnostics) return "";
+  const entries = Object.entries(diagnostics).filter(([, value]) => value != null);
+  if (entries.length === 0) return "";
+  return entries.map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(" ");
+}
+
+function formatTraceContextForLog() {
+  const ctx = getCurrentTraceContext();
+  return [
+    ctx.spaceId ? `spaceId=${ctx.spaceId}` : null,
+    ctx.sessionId ? `sessionId=${ctx.sessionId}` : null,
+    ctx.turnId ? `turnId=${ctx.turnId}` : null,
+    ctx.toolCallId ? `toolCallId=${ctx.toolCallId}` : null,
+    ctx.requestId ? `requestId=${ctx.requestId}` : null,
+  ].filter(Boolean).join(" ");
 }
 
 function getCurrentSpaceId() {
@@ -690,7 +712,10 @@ function withSandboxFailureResult<T extends AgentTool>(tool: T): T {
       return await tool.execute(...args);
     } catch (error) {
       if (!isSandboxRpcError(error)) throw error;
-      logger.warn(`[Tool:${tool.name}] sandbox unavailable method=${error.method} rpcErrorCode=${error.rpcErrorCode}`);
+      const traceContext = formatTraceContextForLog();
+      const diagnostics = formatDiagnostics(error.diagnostics);
+      const transportReason = error.transportReason ? ` transportReason=${JSON.stringify(truncateLogValue(error.transportReason))}` : "";
+      logger.warn(`[Tool:${tool.name}] sandbox unavailable method=${error.method} rpcErrorCode=${error.rpcErrorCode} retryable=${error.retryable} infrastructure=${error.infrastructure}${transportReason}${traceContext ? ` ${traceContext}` : ""}${diagnostics ? ` ${diagnostics}` : ""}`);
       return {
         content: [{ type: "text", text: SANDBOX_UNAVAILABLE_MESSAGE }],
         details: createToolFailure(SANDBOX_UNAVAILABLE_MESSAGE, {

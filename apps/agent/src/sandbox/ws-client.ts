@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import WebSocket, { type RawData } from "ws";
 import type {
@@ -15,19 +15,66 @@ import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
 import { logger } from "../logger.js";
-import { SandboxRpcError } from "./rpc-error.js";
+import { SandboxRpcError, type SandboxRpcDiagnostics } from "./rpc-error.js";
 
 const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const SANDBOX_UNAVAILABLE_MESSAGE = "Sandbox unavailable.";
+const LOG_VALUE_LIMIT = 500;
 
 function getUserFacingFailureMessage(_method: string) {
   return SANDBOX_UNAVAILABLE_MESSAGE;
 }
 
+function truncateLogValue(value: string, limit = LOG_VALUE_LIMIT) {
+  return value.length <= limit ? value : `${value.slice(0, limit)}…`;
+}
+
+function hashString(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function sanitizeRpcDiagnostics(method: string, params: unknown): SandboxRpcDiagnostics {
+  const diagnostics: SandboxRpcDiagnostics = {};
+  if (!params || typeof params !== "object") return diagnostics;
+  const record = params as Record<string, unknown>;
+
+  if (typeof record.path === "string") diagnostics.path = truncateLogValue(record.path, 240);
+  if (typeof record.cwd === "string") diagnostics.cwd = truncateLogValue(record.cwd, 240);
+  if (typeof record.glob === "string") diagnostics.glob = truncateLogValue(record.glob, 240);
+  if (typeof record.limit === "number") diagnostics.limit = record.limit;
+  if (typeof record.maxResults === "number") diagnostics.maxResults = record.maxResults;
+  if (typeof record.maxCount === "number") diagnostics.maxCount = record.maxCount;
+  if (typeof record.ignoreCase === "boolean") diagnostics.ignoreCase = record.ignoreCase;
+  if (typeof record.literal === "boolean") diagnostics.literal = record.literal;
+  if (typeof record.context === "number") diagnostics.context = record.context;
+
+  if (typeof record.pattern === "string") {
+    diagnostics.patternLength = record.pattern.length;
+    diagnostics.patternHash = hashString(record.pattern);
+  }
+  if (method === "process.start" && typeof record.command === "string") {
+    const command = record.command.trim();
+    diagnostics.commandLength = command.length;
+    diagnostics.commandPreview = truncateLogValue(command, 160);
+  }
+  if (typeof record.processId === "string") diagnostics.processId = record.processId;
+  return diagnostics;
+}
+
+function formatDiagnostics(diagnostics: SandboxRpcDiagnostics | undefined) {
+  if (!diagnostics) return "";
+  const entries = Object.entries(diagnostics).filter(([, value]) => value != null);
+  if (entries.length === 0) return "";
+  return entries
+    .map(([key, value]) => `${key}=${JSON.stringify(value)}`)
+    .join(" ");
+}
+
 type PendingOperation = {
   requestId: string;
   method: string;
+  diagnostics: SandboxRpcDiagnostics;
   opId?: string;
   accepted: boolean;
   detached?: boolean;
@@ -87,6 +134,7 @@ export class SandboxConnection {
       const pending = {
         requestId,
         method,
+        diagnostics: sanitizeRpcDiagnostics(method, params),
         accepted: false,
         resolve,
         reject,
@@ -114,6 +162,7 @@ export class SandboxConnection {
           rpcErrorCode: "IO_ERROR",
           retryable: false,
           transportReason: error instanceof Error ? error.message : String(error),
+          diagnostics: pending.diagnostics,
         }));
       }
     });
@@ -159,12 +208,15 @@ export class SandboxConnection {
       const pending = this.registration.pendingByRequestId.get(requestId);
       if (!pending) return;
       this.clearPending(requestId, pending, message.opId);
-      logger.warn(`[SandboxWS] rpc:failed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)} rpcErrorCode=${message.error.code} retryable=${message.error.retryable ?? false}`);
+      const errorMessage = truncateLogValue(message.error.message);
+      const diagnosticText = formatDiagnostics(pending.diagnostics);
+      logger.warn(`[SandboxWS] rpc:failed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)} rpcErrorCode=${message.error.code} retryable=${message.error.retryable ?? false} errorMessage=${JSON.stringify(errorMessage)}${diagnosticText ? ` ${diagnosticText}` : ""}`);
       pending.reject(new SandboxRpcError(message.error.message, {
         method: pending.method,
         rpcErrorCode: message.error.code,
         retryable: message.error.retryable ?? false,
         transportReason: message.error.message,
+        diagnostics: pending.diagnostics,
       }));
     }
   }
@@ -188,6 +240,7 @@ export class SandboxConnection {
           rpcErrorCode: "IO_ERROR",
           retryable: false,
           transportReason: error?.message ?? "connection closed",
+          diagnostics: pending.diagnostics,
         }));
         continue;
       }
@@ -204,6 +257,7 @@ export class SandboxConnection {
           rpcErrorCode: "IO_ERROR",
           retryable: false,
           transportReason: error?.message ?? "connection closed",
+          diagnostics: pending.diagnostics,
         }));
       }, ACCEPTED_RPC_DISCONNECT_GRACE_MS);
     }

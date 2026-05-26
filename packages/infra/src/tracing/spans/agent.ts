@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { context, trace, type Span, SpanStatusCode, type Tracer } from "@opentelemetry/api";
 
 // ---------------------------------------------------------------------------
@@ -24,6 +25,69 @@ type AgentContextAttributes = {
   requestId?: string;
 };
 
+const ATTRIBUTE_VALUE_LIMIT = 500;
+
+type SandboxRpcErrorLike = {
+  method?: string;
+  rpcErrorCode: string;
+  retryable?: boolean;
+  transportReason?: string;
+  diagnostics?: Record<string, string | number | boolean | null | undefined>;
+};
+
+function truncateAttribute(value: string, limit = ATTRIBUTE_VALUE_LIMIT) {
+  return value.length <= limit ? value : `${value.slice(0, limit)}…`;
+}
+
+function hashAttribute(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function getStringProperty(record: Record<string, unknown>, key: string) {
+  return typeof record[key] === "string" ? record[key] : undefined;
+}
+
+function getSandboxRpcErrorLike(error: unknown): SandboxRpcErrorLike | null {
+  if (!error || typeof error !== "object") return null;
+  const record = error as Record<string, unknown>;
+  const rpcErrorCode = getStringProperty(record, "rpcErrorCode");
+  if (!rpcErrorCode) return null;
+  const diagnostics = record.diagnostics && typeof record.diagnostics === "object"
+    ? record.diagnostics as SandboxRpcErrorLike["diagnostics"]
+    : undefined;
+  return {
+    method: getStringProperty(record, "method"),
+    rpcErrorCode,
+    retryable: typeof record.retryable === "boolean" ? record.retryable : undefined,
+    transportReason: getStringProperty(record, "transportReason"),
+    diagnostics,
+  };
+}
+
+function buildRpcParamAttributes(method: string, params?: Record<string, unknown>) {
+  if (!params) return {};
+  const attributes: Record<string, string | number | boolean> = {};
+  if (typeof params.path === "string") attributes["sandbox.rpc.params.path"] = truncateAttribute(params.path, 240);
+  if (typeof params.cwd === "string") attributes["sandbox.rpc.params.cwd"] = truncateAttribute(params.cwd, 240);
+  if (typeof params.glob === "string") attributes["sandbox.rpc.params.glob"] = truncateAttribute(params.glob, 240);
+  if (typeof params.limit === "number") attributes["sandbox.rpc.params.limit"] = params.limit;
+  if (typeof params.maxResults === "number") attributes["sandbox.rpc.params.max_results"] = params.maxResults;
+  if (typeof params.maxCount === "number") attributes["sandbox.rpc.params.max_count"] = params.maxCount;
+  if (typeof params.ignoreCase === "boolean") attributes["sandbox.rpc.params.ignore_case"] = params.ignoreCase;
+  if (typeof params.literal === "boolean") attributes["sandbox.rpc.params.literal"] = params.literal;
+  if (typeof params.context === "number") attributes["sandbox.rpc.params.context"] = params.context;
+  if (typeof params.pattern === "string") {
+    attributes["sandbox.rpc.params.pattern_length"] = params.pattern.length;
+    attributes["sandbox.rpc.params.pattern_hash"] = hashAttribute(params.pattern);
+  }
+  if (method === "process.start" && typeof params.command === "string") {
+    const command = params.command.trim();
+    attributes["sandbox.rpc.params.command_length"] = command.length;
+    attributes["sandbox.rpc.params.command_preview"] = truncateAttribute(command, 160);
+  }
+  return attributes;
+}
+
 function buildAgentContextAttributes(options: AgentContextAttributes) {
   return {
     ...(options.spaceId ? { "cohub.space_id": options.spaceId } : {}),
@@ -40,7 +104,18 @@ function markSpanError(span: Span, error: unknown) {
   if (error instanceof Error) {
     span.recordException(error);
   }
-  span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
+  const rpcError = getSandboxRpcErrorLike(error);
+  if (rpcError) {
+    if (rpcError.method) span.setAttribute("sandbox.rpc.error_method", rpcError.method);
+    span.setAttribute("sandbox.rpc.error_code", rpcError.rpcErrorCode);
+    if (rpcError.retryable != null) span.setAttribute("sandbox.rpc.retryable", rpcError.retryable);
+    if (rpcError.transportReason) span.setAttribute("sandbox.rpc.transport_reason", truncateAttribute(rpcError.transportReason));
+    for (const [key, value] of Object.entries(rpcError.diagnostics ?? {})) {
+      if (value == null) continue;
+      span.setAttribute(`sandbox.rpc.diagnostics.${key}`, typeof value === "string" ? truncateAttribute(value) : value);
+    }
+  }
+  span.setStatus({ code: SpanStatusCode.ERROR, message: truncateAttribute(String(error)) });
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +308,7 @@ export async function wrapSandboxRpc<T>(
     attributes: {
       "sandbox.rpc.method": options.method,
       "sandbox.rpc.params.summary": paramsSummary,
+      ...buildRpcParamAttributes(options.method, options.params),
       ...(options.sandboxId ? { "sandbox.id": options.sandboxId } : {}),
       ...buildAgentContextAttributes(options),
     },

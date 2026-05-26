@@ -1,5 +1,7 @@
 import type { RpcErrorCode, RpcMethod } from "@cohub/protocol/sandbox";
 
+export type SandboxRpcDiagnostics = Record<string, string | number | boolean | null | undefined>;
+
 const INFRA_RPC_ERROR_CODES: ReadonlySet<RpcErrorCode> = new Set([
   "TIMEOUT",
   "PROCESS_SPAWN_FAILED",
@@ -24,6 +26,7 @@ export class SandboxRpcError extends Error {
       rpcErrorCode: RpcErrorCode;
       retryable: boolean;
       transportReason?: string;
+      diagnostics?: SandboxRpcDiagnostics;
     },
   ) {
     super(message);
@@ -45,6 +48,10 @@ export class SandboxRpcError extends Error {
 
   get transportReason() {
     return this.options.transportReason;
+  }
+
+  get diagnostics() {
+    return this.options.diagnostics;
   }
 }
 
