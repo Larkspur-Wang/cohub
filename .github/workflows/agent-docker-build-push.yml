@@ -33,6 +33,8 @@ jobs:
   build-and-push:
     if: ${{ github.event_name != 'release' || (startsWith(github.event.release.tag_name, 'v') && !contains(github.event.release.tag_name, '@') && !github.event.release.prerelease && !github.event.release.draft) }}
     runs-on: ubuntu-latest
+    env:
+      GITEA_NPM_TOKEN: ${{ secrets.GITEA_NPM_TOKEN }}
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
       image_version: ${{ steps.meta.outputs.version }}
@@ -58,6 +60,14 @@ jobs:
         with:
           node-version: '24'
           cache: 'pnpm'
+
+      - name: Configure Talesofai npm auth
+        run: |
+          if [ -z "$GITEA_NPM_TOKEN" ]; then
+            echo "Missing required CI secret: GITEA_NPM_TOKEN"
+            exit 1
+          fi
+          printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> ~/.npmrc
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -103,6 +113,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64
+          secrets: |
+            gitea_npm_token=${{ secrets.GITEA_NPM_TOKEN }}
 
   deploy-dev:
     needs: build-and-push
