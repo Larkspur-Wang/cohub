@@ -2,7 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { json as outJson, ok, handleHttp } from "../output.js";
+import { json as outJson, jsonRequested, ok, handleHttp } from "../output.js";
 
 type GenerationContentBlock =
   | { type: "text"; text: string; _meta?: Record<string, unknown> }
@@ -157,7 +157,7 @@ Examples:
           metadata: opts.metadata ? JSON.parse(opts.metadata) as Record<string, unknown> : undefined,
         });
         const savedPaths = opts.output && generation.output ? await saveOutputs(generation.output, opts.output) : [];
-        if (opts.json) return outJson(savedPaths.length > 0 ? { ...generation, savedPaths } : generation);
+        if (jsonRequested(opts)) return outJson(savedPaths.length > 0 ? { ...generation, savedPaths } : generation);
         printGeneration(generation.output ?? []);
         if (savedPaths.length > 0) ok(`Saved to ${savedPaths.join(", ")}`);
       } catch (e: unknown) {

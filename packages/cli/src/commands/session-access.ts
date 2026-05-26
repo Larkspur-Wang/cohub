@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, handleHttp } from "../output.js";
 
 export function registerSessionAccess(program: Command): void {
   const cmd = program
@@ -15,7 +15,7 @@ export function registerSessionAccess(program: Command): void {
       const client = createClient();
       try {
         const policy = await client.sessionAccess.get(id);
-        if (opts.json) return outJson(policy);
+        if (jsonRequested(opts)) return outJson(policy);
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },
           { key: "anonymous_user", label: "Anonymous" },
@@ -36,7 +36,7 @@ export function registerSessionAccess(program: Command): void {
         const policy = await client.sessionAccess.set(id, {
           anonymous_user: (opts.anonymous ?? null) as never,
         });
-        if (opts.json) return outJson(policy);
+        if (jsonRequested(opts)) return outJson(policy);
         console.log("Session access updated");
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },

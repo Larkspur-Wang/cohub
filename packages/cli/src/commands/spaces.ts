@@ -5,7 +5,7 @@ import { basename, dirname, relative, resolve, sep } from "node:path";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { uploadAvatarAsset } from "../avatar.js";
-import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
 
 function requireSpace(program: Command): string {
   let current: Command | null = program;
@@ -150,7 +150,7 @@ async function uploadFiles(command: Command, paths: string[], opts: UploadOption
     const result = await client.space(spaceId).files.completeUpload(plan.uploadId, {
       entries: plan.entries.map((entry) => ({ id: entry.id })),
     });
-    if (opts.json) return outJson({ ...result, uploadId: plan.uploadId, files: files.length });
+    if (jsonRequested(opts)) return outJson({ ...result, uploadId: plan.uploadId, files: files.length });
     ok(`Uploaded ${files.length} file${files.length === 1 ? "" : "s"}`);
   } catch (e: unknown) {
     handleHttp(e);
@@ -205,7 +205,7 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
       provider: opts.provider,
       schedule,
     });
-    if (opts.json) return outJson(result);
+    if (jsonRequested(opts)) return outJson(result);
     if (result.mode === "immediate") return ok(`Prompt sent — sessionId: ${result.sessionId}, turnId: ${result.turnId}`);
     if (result.mode === "repeat") return ok(`Prompt scheduled — cronJobId: ${result.cronJobId}, nextRunAt: ${result.nextRunAt}`);
     return ok(`Prompt scheduled — taskRunId: ${result.taskRunId}, scheduledAt: ${result.scheduledAt}`);
@@ -243,7 +243,7 @@ export function registerSpaces(program: Command): void {
       const client = createClient();
       try {
         const items = await client.spaces.list();
-        if (opts.json) return outJson(items);
+        if (jsonRequested(opts)) return outJson(items);
         table(items, [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
@@ -263,7 +263,7 @@ export function registerSpaces(program: Command): void {
       const client = createClient();
       try {
         const space = await client.spaces.get(id);
-        if (opts.json) return outJson(space);
+        if (jsonRequested(opts)) return outJson(space);
         table([space], [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
@@ -294,7 +294,7 @@ export function registerSpaces(program: Command): void {
           description: opts.description,
           ...(autoDestroy ? { config: { sandbox: { autoDestroy } } } : {}),
         });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok(`Space created: ${result.space.id}`);
         table([result.space], [
           { key: "id", label: "ID" },
@@ -331,7 +331,7 @@ export function registerSpaces(program: Command): void {
       try {
         const asset = await uploadAvatarAsset({ client, purpose: "space_avatar", spaceId, path });
         const result = await client.space(spaceId).profile({ avatarUrl: asset.publicUrl });
-        if (opts.json) return outJson({ ...result, asset });
+        if (jsonRequested(opts)) return outJson({ ...result, asset });
         ok("Space avatar updated");
       } catch (e: unknown) {
         handleHttp(e);
@@ -351,12 +351,12 @@ export function registerSpaces(program: Command): void {
         const autoDestroy = parseAutoDestroy(opts);
         if (autoDestroy) {
           const result = await client.space(id).updateConfig({ sandbox: { autoDestroy } });
-          if (opts.json) return outJson(result);
+          if (jsonRequested(opts)) return outJson(result);
           ok(`Space config updated — sandbox auto destroy: ${formatAutoDestroy(autoDestroy)}`);
           return;
         }
         const result = await client.space(id).getConfig();
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         table([{ key: "sandbox.autoDestroy", value: formatAutoDestroy(result.config.sandbox.autoDestroy) }], [
           { key: "key", label: "Key" },
           { key: "value", label: "Value" },
@@ -410,7 +410,7 @@ export function registerSpaces(program: Command): void {
       const client = createClient();
       try {
         const usage = await client.space(spaceId).usage.get(Number.parseInt(days ?? "30", 10));
-        if (opts.json) return outJson(usage);
+        if (jsonRequested(opts)) return outJson(usage);
         console.log("\n  Summary:");
         table([usage.summary], [
           { key: "totalTokens", label: "Tokens" },
@@ -441,7 +441,7 @@ function registerMods(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.list();
-        if (opts.json) return outJson(result.items);
+        if (jsonRequested(opts)) return outJson(result.items);
         table(result.items, [
           { key: "id", label: "ID" },
           { key: "modSpaceName", label: "Name" },
@@ -466,7 +466,7 @@ function registerMods(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.create({ modSpaceId, name: opts.name, mountSlug: opts.slug });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok(`Mod added — ${result.item.mountPath}; sandbox restarting`);
       } catch (e: unknown) {
         handleHttp(e);
@@ -484,7 +484,7 @@ function registerMods(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.update(modId, { enabled: true });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok("Mod enabled; sandbox restarting");
       } catch (e: unknown) {
         handleHttp(e);
@@ -502,7 +502,7 @@ function registerMods(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.update(modId, { enabled: false });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok("Mod disabled; sandbox restarting");
       } catch (e: unknown) {
         handleHttp(e);
@@ -521,7 +521,7 @@ function registerMods(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.remove(modId);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok("Mod removed; sandbox restarting");
       } catch (e: unknown) {
         handleHttp(e);
@@ -547,7 +547,7 @@ function registerFiles(spacesCmd: Command): void {
       const client = createClient();
       try {
         const tree = await client.space(spaceId).files.list(path ?? "");
-        if (opts.json) return outJson(tree);
+        if (jsonRequested(opts)) return outJson(tree);
         if (tree.entries.length === 0) {
           console.log("  (empty)");
           return;
@@ -678,7 +678,7 @@ function registerSessions(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).sessions.list();
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.sessions.length === 0) {
           console.log("  (empty)");
           return;
@@ -703,7 +703,7 @@ function registerSessions(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).sessions.create({ title });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok(`Session created: ${result.session.id}`);
         table([result.session], [
           { key: "id", label: "ID" },
@@ -723,7 +723,7 @@ function registerSessions(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(id).get();
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         table([result.session], [
           { key: "id", label: "ID" },
           { key: "title", label: "Title" },
@@ -764,7 +764,7 @@ function registerSessions(spacesCmd: Command): void {
 
       let lastAppendPath: string | null = null;
       session.on("turn.patch", (e: { payload?: Record<string, unknown> }) => {
-        if (opts.json) {
+        if (jsonRequested(opts)) {
           console.log(JSON.stringify(e));
         } else {
           const ops = e.payload?.ops as Array<{ o?: string; p?: string; v?: unknown }> | undefined;
@@ -792,7 +792,7 @@ function registerSessions(spacesCmd: Command): void {
 
       session.on("turn.error", (e: unknown) => {
         process.stderr.write(`\n  ✗ Error\n`);
-        if (opts.json) process.stderr.write(`${JSON.stringify(e)}\n`);
+        if (jsonRequested(opts)) process.stderr.write(`${JSON.stringify(e)}\n`);
         process.exit(1);
       });
     });
@@ -826,7 +826,7 @@ function registerTurns(sessionsCmd: Command): void {
           direction: opts.direction as "older" | "newer",
           limit: Number.parseInt(opts.limit ?? "30", 10),
         });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.turns.length === 0) return console.log("  No turns found");
         table(result.turns, [
           { key: "sequence", label: "Seq" },
@@ -851,7 +851,7 @@ function registerTurns(sessionsCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.get(turnId);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         table([result.turn], [
           { key: "sequence", label: "Seq" },
           { key: "id", label: "ID" },
@@ -882,7 +882,7 @@ function registerTurns(sessionsCmd: Command): void {
           cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
           limit: Number.parseInt(opts.limit ?? "100", 10),
         });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.turns.length === 0) return console.log("  No turns found");
         table(result.turns, [
           { key: "sequence", label: "Seq" },
@@ -916,7 +916,7 @@ function registerTurns(sessionsCmd: Command): void {
           before: Number.parseInt(opts.before ?? "10", 10),
           after: Number.parseInt(opts.after ?? "20", 10),
         });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.turns.length === 0) return console.log("  No turns found");
         table(result.turns, [
           { key: "sequence", label: "Seq" },
@@ -945,7 +945,7 @@ function registerSessionAccess(sessionsCmd: Command): void {
       const client = createClient();
       try {
         const policy = await client.sessionAccess.get(id);
-        if (opts.json) return outJson(policy);
+        if (jsonRequested(opts)) return outJson(policy);
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },
           { key: "anonymous_user", label: "Anonymous" },
@@ -966,7 +966,7 @@ function registerSessionAccess(sessionsCmd: Command): void {
         const policy = await client.sessionAccess.set(id, {
           anonymous_user: (opts.anonymous ?? null) as never,
         });
-        if (opts.json) return outJson(policy);
+        if (jsonRequested(opts)) return outJson(policy);
         ok("Session access updated");
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },
@@ -1009,7 +1009,7 @@ function registerMembers(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).members.list();
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.items.length === 0) {
           console.log("  (empty)");
           return;
@@ -1070,7 +1070,7 @@ function registerAccess(spacesCmd: Command): void {
       const client = createClient();
       try {
         const policy = await client.space(spaceId).access.get();
-        if (opts.json) return outJson(policy);
+        if (jsonRequested(opts)) return outJson(policy);
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },
           { key: "anonymous_user", label: "Anonymous" },
@@ -1094,7 +1094,7 @@ function registerAccess(spacesCmd: Command): void {
           signed_in_user: (opts.signedIn ?? null) as never,
           anonymous_user: (opts.anonymous ?? null) as never,
         });
-        if (opts.json) return outJson(policy);
+        if (jsonRequested(opts)) return outJson(policy);
         ok("Access policy updated");
         table([policy], [
           { key: "signed_in_user", label: "Signed-in" },
@@ -1124,7 +1124,7 @@ function registerCheckpoints(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.list();
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.checkpoints.length === 0) {
           console.log("  (empty)");
           return;
@@ -1149,7 +1149,7 @@ function registerCheckpoints(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.get(id);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         table([result.checkpoint], [
           { key: "id", label: "ID" },
           { key: "commitHash", label: "Commit" },
@@ -1171,7 +1171,7 @@ function registerCheckpoints(spacesCmd: Command): void {
       const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.create(description ?? null);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok(`Checkpoint created — taskRunId: ${result.taskRunId}`);
       } catch (e: unknown) {
         handleHttp(e);

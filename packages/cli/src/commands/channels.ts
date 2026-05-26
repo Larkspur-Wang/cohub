@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, error, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
 
 export function registerChannels(program: Command): void {
   const cmd = program.command("channels", { hidden: true }).description("Channel integrations");
@@ -14,7 +14,7 @@ export function registerChannels(program: Command): void {
       const client = createClient();
       try {
         const items = await client.channels.list();
-        if (opts.json) return outJson(items);
+        if (jsonRequested(opts)) return outJson(items);
         if (items.length === 0) return console.log("  (empty)");
         table(items, [
           { key: "id", label: "ID" },
@@ -51,7 +51,7 @@ export function registerChannels(program: Command): void {
           name: opts.name,
           credentials,
         });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         ok("Channel created");
       } catch (e: unknown) {
         handleHttp(e);

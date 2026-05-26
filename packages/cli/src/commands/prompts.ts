@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, handleHttp } from "../output.js";
 
 export function registerPrompts(program: Command): void {
   const cmd = program.command("prompts").description("Prompt template management");
@@ -15,7 +15,7 @@ export function registerPrompts(program: Command): void {
       const client = createClient();
       try {
         const result = await client.prompts.list({ spaceId: opts.space });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.prompts.length === 0) return console.log("  (empty)");
         table(result.prompts, [
           { key: "name", label: "Name" },

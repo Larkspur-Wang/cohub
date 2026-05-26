@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, ok, handleHttp } from "../output.js";
 
 export function registerCronJobs(program: Command): void {
   const cmd = program.command("cron-jobs", { hidden: true }).description("Scheduled prompt jobs");
@@ -14,7 +14,7 @@ export function registerCronJobs(program: Command): void {
       const client = createClient();
       try {
         const result = await client.cronJobs.list(spaceId);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.jobs.length === 0) return console.log("  (empty)");
         table(result.jobs, [
           { key: "id", label: "ID" },
@@ -64,7 +64,7 @@ export function registerCronJobs(program: Command): void {
       const client = createClient();
       try {
         const result = await client.cronJobs.runs(id);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.runs.length === 0) return console.log("  (empty)");
         table(result.runs, [
           { key: "id", label: "ID" },

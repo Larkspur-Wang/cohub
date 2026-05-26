@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, error, handleHttp, type Row } from "../output.js";
+import { table, json as outJson, jsonRequested, error, handleHttp, type Row } from "../output.js";
 
 export function registerModels(program: Command): void {
   const cmd = program
@@ -25,7 +25,7 @@ Examples:
       try {
         if (opts.modelType === "multimodal") {
           const response = await client.models.listMultimodal();
-          if (opts.json) return outJson(response);
+          if (jsonRequested(opts)) return outJson(response);
           table(response.models as unknown as Row[], [
             { key: "model", label: "Model" },
             { key: "title", label: "Title" },
@@ -39,7 +39,7 @@ Examples:
         }
 
         const catalog = await client.models.list();
-        if (opts.json) return outJson(catalog);
+        if (jsonRequested(opts)) return outJson(catalog);
 
         // catalog is Record<provider, ModelCatalogEntry[]>
         for (const [provider, entries] of Object.entries(catalog)) {

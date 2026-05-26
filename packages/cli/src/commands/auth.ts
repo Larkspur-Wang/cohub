@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { authSource, loginWithDeviceFlow, readAuthSession, refreshAccessToken, requestDeviceCode, revokeAndClearAuthSession, verifyDeviceCode } from "../auth.js";
 import { createClient } from "../client.js";
-import { table, json as outJson, ok, error, spinner, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, ok, error, spinner, handleHttp } from "../output.js";
 
 type LoginOptions = {
   requestCode?: boolean;
@@ -19,7 +19,7 @@ export function registerAuth(program: Command): void {
     .option("--verify-code", "Exchange a previously requested device code")
     .option("--json", "Output as JSON")
     .action(async (opts: LoginOptions, command: Command) => {
-      const asJson = Boolean(opts.json || command.parent?.optsWithGlobals<{ json?: boolean }>().json);
+      const asJson = jsonRequested(opts);
       if (opts.requestCode && opts.verifyCode) {
         return error("Conflicting options", "Use only one of --request-code or --verify-code");
       }
@@ -55,7 +55,7 @@ export function registerAuth(program: Command): void {
     .description("Show current user info")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }, command: Command) => {
-      const asJson = Boolean(opts.json || command.parent?.optsWithGlobals<{ json?: boolean }>().json);
+      const asJson = jsonRequested(opts);
       return showSignedIn(asJson);
     });
 

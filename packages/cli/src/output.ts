@@ -48,6 +48,10 @@ export function json(data: unknown): void {
   console.log(JSON.stringify(data, null, 2));
 }
 
+export function jsonRequested(opts?: { json?: boolean }): boolean {
+  return Boolean(opts?.json || process.argv.includes("--json"));
+}
+
 export function ok(msg: string): void {
   console.log(`\n  ✓ ${msg}\n`);
 }

@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, handleHttp } from "../output.js";
 
 export function registerTasks(program: Command): void {
   const cmd = program.command("tasks", { hidden: true }).description("Task runs");
@@ -20,7 +20,7 @@ export function registerTasks(program: Command): void {
         if (opts.space) filters.spaceId = opts.space;
 
         const result = await client.tasks.list(filters);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         if (result.runs.length === 0) return console.log("  (empty)");
         table(result.runs, [
           { key: "id", label: "ID" },
@@ -41,7 +41,7 @@ export function registerTasks(program: Command): void {
       const client = createClient();
       try {
         const result = await client.tasks.get(id);
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
         table([result.run], [
           { key: "id", label: "ID" },
           { key: "taskType", label: "Type" },

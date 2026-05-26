@@ -1,7 +1,7 @@
 import type { GlobalSearchResult, GlobalSearchType } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, error, handleHttp, type Row } from "../output.js";
+import { table, json as outJson, jsonRequested, error, handleHttp, type Row } from "../output.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_TITLE_LENGTH = 72;
@@ -92,7 +92,7 @@ Examples:
           types: input.types,
           spaceId: input.spaceId,
         });
-        if (opts.json) return outJson(result);
+        if (jsonRequested(opts)) return outJson(result);
 
         if (result.degraded) {
           process.stderr.write("  Search is temporarily degraded; results may be incomplete.\n");
