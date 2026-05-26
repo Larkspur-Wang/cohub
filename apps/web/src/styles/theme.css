@@ -24,6 +24,7 @@
 
 	/* Text */
 	--color-text-primary: var(--text-primary);
+	--color-text-reading: var(--text-reading);
 	--color-text-secondary: var(--text-secondary);
 	--color-text-tertiary: var(--text-tertiary);
 	--color-text-placeholder: var(--text-placeholder);

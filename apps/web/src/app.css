@@ -37,11 +37,6 @@ body.sidebar-resizing iframe {
 	pointer-events: none;
 }
 
-/* Dark mode: reduce font weight slightly for readability */
-[data-theme="dark"] body {
-	font-weight: 350;
-}
-
 *::-webkit-scrollbar {
 	width: 6px;
 	height: 6px;
@@ -140,9 +135,9 @@ body.drawer-open {
 }
 
 .markdown-content {
-	color: var(--text-primary);
+	color: var(--text-reading);
 	font-size: 14px;
-	line-height: 1.7;
+	line-height: 1.68;
 	word-break: break-word;
 	overflow-wrap: anywhere;
 	min-width: 0;

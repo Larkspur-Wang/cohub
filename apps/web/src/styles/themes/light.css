@@ -63,6 +63,7 @@
 
 	/* Text */
 	--text-primary: var(--neutral-0);
+	--text-reading: var(--neutral-5);
 	--text-secondary: var(--neutral-10);
 	--text-tertiary: var(--neutral-20);
 	--text-placeholder: var(--neutral-30);
