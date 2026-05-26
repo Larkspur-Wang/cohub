@@ -105,6 +105,7 @@ let sandboxConfigError = $state("");
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
+	if (modRestartTimer) clearTimeout(modRestartTimer);
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
 });
 
