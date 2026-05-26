@@ -8,7 +8,7 @@ import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttri
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
-import { getSpace, abortSessionTurn, persistAssistantMessage, persistUserMessage } from "./api.js";
+import { getSpace, abortSessionTurn, failSessionTurn, persistAssistantMessage, persistUserMessage } from "./api.js";
 import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
@@ -511,6 +511,30 @@ function resolveActorUserId(ownerMeta: Record<string, unknown>) {
   return typeof ownerMeta.userId === "string" && ownerMeta.userId.trim() ? ownerMeta.userId.trim() : null;
 }
 
+function formatTurnFailureMessage(error: unknown) {
+  if (error instanceof Error) return error.message || error.name;
+  return String(error);
+}
+
+async function failActiveTurn(input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  error: unknown;
+}) {
+  const errorMessage = formatTurnFailureMessage(input.error).slice(0, 2000) || "Agent turn failed.";
+  try {
+    await failSessionTurn({
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      errorMessage,
+    });
+  } catch (failError) {
+    logger.error(`[Agent] failed to mark turn failed sessionId=${input.sessionId} turnId=${input.turnId}:`, failError);
+  }
+}
+
 type PostReleaseDrain = { spaceId: string; sessionId: string; reason: string } | null;
 
 function getQueueWaitMs(job: Pick<Job<unknown>, "timestamp" | "processedOn">) {
@@ -624,6 +648,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       const abortController = new AbortController();
       activeTurn = { id: batch.ownerTurn.id, controller: abortController };
       setActiveAbortController(batch.ownerTurn.id, abortController);
+      if (await getAbortEvent(batch.ownerTurn.id)) abortController.abort();
 
       setActiveTurnContext(handle, {
         turnId: batch.ownerTurn.id,
@@ -688,7 +713,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           turnSpan.setAttribute("agent.outcome", "ok");
         });
 
-        await handle.persistenceChain.catch(() => undefined);
+        await handle.persistenceChain;
         await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
         await refreshSessionHandleFileSignature(handle);
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "direct_shell_complete" };
@@ -769,7 +794,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         turnSpan.setAttribute("agent.outcome", "ok");
       });
 
-      await handle.persistenceChain.catch(() => undefined);
+      await handle.persistenceChain;
       await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
       await refreshSessionHandleFileSignature(handle);
       drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_complete" };
@@ -779,6 +804,18 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         mergedTurnIds: batch.mergedTurns.map((turn) => turn.id),
         userMessageCount: turnUserMessages.length,
       };
+    } catch (error) {
+      if (activeTurn) {
+        logger.error(`[Agent] turn failed sessionId=${data.sessionId} turnId=${activeTurn.id}:`, error);
+        await failActiveTurn({
+          spaceId: data.spaceId,
+          sessionId: data.sessionId,
+          turnId: activeTurn.id,
+          error,
+        });
+        drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_failed" };
+      }
+      throw error;
     } finally {
       if (activeTurn) clearActiveAbortController(activeTurn.id, activeTurn.controller);
       await lock.release();

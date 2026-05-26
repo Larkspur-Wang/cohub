@@ -18,6 +18,7 @@ import { getActiveAbortController } from "./active-turns.js";
 import { closeDb } from "./db.js";
 import { closeOwnershipRedis } from "./ownership.js";
 import { closeRedisConnections } from "./redis.js";
+import { logger } from "./logger.js";
 import { closeSandboxPool } from "./sandbox-pool.js";
 
 export const __test = {
@@ -66,7 +67,16 @@ attachWorkerEventLogger(worker, {
 
 await subscribeAbortEvents((event) => {
   const controller = getActiveAbortController(event.turnId);
-  controller?.abort();
+  if (!controller) {
+    logger.warn("[AgentAbort] no active controller", {
+      spaceId: event.spaceId,
+      sessionId: event.sessionId,
+      turnId: event.turnId,
+      reason: event.reason,
+    });
+    return;
+  }
+  controller.abort();
 });
 
 console.log("[AgentWorker] Starting BullMQ agent worker...");

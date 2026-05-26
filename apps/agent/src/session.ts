@@ -559,7 +559,7 @@ function enqueuePersistence(handle: SessionHandle, label: string, task: () => Pr
       throw error;
     });
 
-  handle.persistenceChain = next.catch(() => undefined);
+  handle.persistenceChain = next;
   return next;
 }
 

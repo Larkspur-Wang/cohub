@@ -517,6 +517,20 @@ export async function abortSessionTurn(input: {
   });
 }
 
+export async function failSessionTurn(input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  errorMessage: string;
+}) {
+  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/turns/${input.turnId}/fail`;
+  return postJsonWithRetry({
+    url,
+    body: { errorMessage: input.errorMessage },
+    errorPrefix: "Fail session turn failed",
+  });
+}
+
 export async function persistUserMessage(input: {
   spaceId: string;
   sessionId: string;

@@ -455,28 +455,67 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
   let retryAttempt = 0;
   let retryPromise: Promise<void> | null = null;
   let retryResolve: (() => void) | null = null;
+  let retryReject: ((error: Error) => void) | null = null;
+  let retryFailure: Error | null = null;
   let retryScheduled = false;
   let retryCancelled = false;
   let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const ensureRetryPromise = () => {
     if (retryPromise) return retryPromise;
-    retryPromise = new Promise<void>((resolve) => {
+    retryPromise = new Promise<void>((resolve, reject) => {
       retryResolve = resolve;
+      retryReject = reject;
     });
+    retryPromise.catch(() => {});
     return retryPromise;
+  };
+
+  const clearRetryTimer = () => {
+    if (!retryTimeout) return;
+    clearTimeout(retryTimeout);
+    retryTimeout = null;
   };
 
   const finishRetry = () => {
     retryScheduled = false;
     retryCancelled = false;
-    if (retryTimeout) {
-      clearTimeout(retryTimeout);
-      retryTimeout = null;
-    }
-    if (retryResolve) retryResolve();
+    clearRetryTimer();
+    retryFailure = null;
+    retryResolve?.();
     retryResolve = null;
+    retryReject = null;
     retryPromise = null;
+  };
+
+  const failRetry = (error: Error) => {
+    retryFailure = error;
+    retryScheduled = false;
+    retryCancelled = false;
+    clearRetryTimer();
+    retryReject?.(error);
+    retryResolve = null;
+    retryReject = null;
+    retryPromise = null;
+  };
+
+  const getRecentMessageRoles = () => agent.state.messages.slice(-8).map((message) => message.role).join(",");
+
+  const waitForRetryIfNeeded = async () => {
+    const pendingRetry = retryPromise;
+    if (pendingRetry) {
+      try {
+        await pendingRetry;
+      } catch (error) {
+        retryFailure = null;
+        throw error;
+      }
+    }
+    if (retryFailure) {
+      const error = retryFailure;
+      retryFailure = null;
+      throw error;
+    }
   };
 
   const unsubscribe = agent.subscribe((event: AgentEvent) => {
@@ -523,8 +562,24 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
         retryTimeout = setTimeout(() => {
           retryTimeout = null;
           if (retryCancelled) return;
-          void agent.continue().catch(() => {
-            // The subsequent agent_end / message_end cycle will surface the final error.
+          logger.info(`[AgentRetry] continue:start sessionId=${getCurrentToolExecutionContext()?.sessionId ?? "unknown"} turnId=${getCurrentToolExecutionContext()?.turnId ?? "unknown"} attempt=${retryAttempt} roles=${getRecentMessageRoles()}`);
+          void agent.continue().catch((error) => {
+            const normalized = error instanceof Error ? error : new Error(String(error));
+            logger.error("[AgentRetry] continue:failed", {
+              sessionId: getCurrentToolExecutionContext()?.sessionId ?? "unknown",
+              turnId: getCurrentToolExecutionContext()?.turnId ?? null,
+              retryAttempt,
+              retryCancelled,
+              agentIsStreaming: agent.state.isStreaming,
+              recentRoles: getRecentMessageRoles(),
+              lastAssistantStopReason: assistantMessage.stopReason ?? null,
+              lastAssistantErrorMessage: assistantMessage.errorMessage ?? null,
+              lastAssistantContentLength: Array.isArray(assistantMessage.content) ? assistantMessage.content.length : null,
+              errorName: normalized.name,
+              errorMessage: normalized.message,
+              stack: normalized.stack,
+            });
+            failRetry(normalized);
           });
         }, delayMs);
         return;
@@ -554,18 +609,14 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     async prompt(text, inputOptions) {
       await agent.prompt(text, inputOptions?.images);
       await agent.waitForIdle();
-      if (retryPromise) {
-        await retryPromise;
-        await agent.waitForIdle();
-      }
+      await waitForRetryIfNeeded();
+      await agent.waitForIdle();
     },
     async promptMessages(messages) {
       await agent.prompt(messages);
       await agent.waitForIdle();
-      if (retryPromise) {
-        await retryPromise;
-        await agent.waitForIdle();
-      }
+      await waitForRetryIfNeeded();
+      await agent.waitForIdle();
     },
     async steer(text, images) {
       agent.steer(createUserMessage(text, images));
@@ -576,10 +627,8 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async waitForIdle() {
       await agent.waitForIdle();
-      if (retryPromise) {
-        await retryPromise;
-        await agent.waitForIdle();
-      }
+      await waitForRetryIfNeeded();
+      await agent.waitForIdle();
     },
     async setModel(nextModel) {
       agent.state.model = nextModel;
@@ -598,10 +647,8 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async abort() {
       retryCancelled = true;
-      if (retryTimeout) {
-        clearTimeout(retryTimeout);
-        retryTimeout = null;
-      }
+      clearRetryTimer();
+      if (retryPromise) finishRetry();
       agent.abort();
       await agent.waitForIdle();
       retryAttempt = 0;
@@ -610,12 +657,9 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     dispose() {
       unsubscribe();
       retryCancelled = true;
-      if (retryTimeout) {
-        clearTimeout(retryTimeout);
-        retryTimeout = null;
-      }
+      clearRetryTimer();
+      if (retryPromise) finishRetry();
       retryAttempt = 0;
-      finishRetry();
       agent.abort();
     },
     subscribe(listener) {
