@@ -28,6 +28,7 @@ const {
 	onSelect,
 	onRefresh,
 	onCreateFile,
+	onCreateCanvas,
 	onCreateDir,
 	onRename,
 	onDelete,
@@ -51,6 +52,7 @@ const {
 	onSelect: (node: SpaceFsNode) => void;
 	onRefresh: () => void;
 	onCreateFile: (parentPath: string) => void;
+	onCreateCanvas?: (parentPath: string) => void;
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
@@ -99,6 +101,11 @@ function handleCreateFileAtRoot() {
 function handleCreateDirAtRoot() {
 	closeMenus();
 	onCreateDir("");
+}
+
+function handleCreateCanvasAtRoot() {
+	closeMenus();
+	onCreateCanvas?.("");
 }
 
 function openUploadPicker(folder = false) {
@@ -183,6 +190,12 @@ $effect(() => {
               <Plus class="w-3.5 h-3.5" />
               New file
             </button>
+            {#if onCreateCanvas}
+              <button type="button" class="dropdown-item" onclick={handleCreateCanvasAtRoot}>
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>
+                New canvas
+              </button>
+            {/if}
             <button type="button" class="dropdown-item" onclick={handleCreateDirAtRoot}>
               <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
               New folder
@@ -249,6 +262,7 @@ $effect(() => {
           {onToggle}
           {onSelect}
           {onCreateFile}
+          {onCreateCanvas}
           {onCreateDir}
           {onRename}
           {onDelete}

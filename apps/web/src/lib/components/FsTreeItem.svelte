@@ -26,6 +26,7 @@ const {
 	onToggle,
 	onSelect,
 	onCreateFile,
+	onCreateCanvas,
 	onCreateDir,
 	onRename,
 	onDelete,
@@ -44,6 +45,7 @@ const {
 	onToggle: (node: SpaceFsNode) => void;
 	onSelect: (node: SpaceFsNode) => void;
 	onCreateFile: (parentPath: string) => void;
+	onCreateCanvas?: (parentPath: string) => void;
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
 	onDelete: (node: SpaceFsNode) => void;
@@ -239,6 +241,9 @@ $effect(() => {
               {/if}
               <div class="dropdown-sep"></div>
               <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateFile(node.path))}>New file</button>
+              {#if onCreateCanvas}
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateCanvas(node.path))}>New canvas</button>
+              {/if}
               <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateDir(node.path))}>New folder</button>
               <div class="dropdown-sep"></div>
               <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}>Delete</button>
@@ -274,6 +279,7 @@ $effect(() => {
       {onToggle}
       {onSelect}
       {onCreateFile}
+      {onCreateCanvas}
       {onCreateDir}
       {onRename}
       {onDelete}

@@ -71,9 +71,15 @@ import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
+import {
+	createEmptyCovasDocument,
+	serializeCovasDocument,
+} from "$lib/canvas/canvas-document";
+import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
+import CanvasPanel from "$lib/components/canvas/CanvasPanel.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
@@ -329,7 +335,17 @@ let inlineFile = $state<{
 	error: string | null;
 	tooLarge: boolean;
 } | null>(null);
-const selectedFilePath = $derived(inlineFile?.path ?? routeFilePath ?? "");
+let inlineCanvas = $state<{
+	path: string;
+	content: string;
+	loading: boolean;
+	saving: boolean;
+	error: string | null;
+} | null>(null);
+let inlineCanvasRequestToken = $state(0);
+const selectedFilePath = $derived(
+	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
+);
 const inlineFileDirty = $derived(
 	Boolean(
 		inlineFile &&
@@ -378,7 +394,13 @@ const inlinePortEndpoint = $derived.by(() => {
 	return previewEndpoints[inlinePortPreview.port] ?? null;
 });
 const activePreviewKind = $derived(
-	inlinePortPreview ? "port" : inlineFile ? "file" : null,
+	inlinePortPreview
+		? "port"
+		: inlineCanvas
+			? "canvas"
+			: inlineFile
+				? "file"
+				: null,
 );
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
@@ -4188,10 +4210,32 @@ async function handleCreateFile(parentPath: string) {
 			...entries,
 			buildFsEntry(path, "file"),
 		]);
-		await openInlineFile(path);
+		if (isCovasFile(path)) await openInlineCanvas(path);
+		else await openInlineFile(path);
 	} catch (error) {
 		fileTreeError =
 			error instanceof Error ? error.message : "Failed to create file";
+	}
+}
+async function handleCreateCanvas(parentPath: string) {
+	const name = prompt("New canvas name", "Untitled.covas");
+	if (!name?.trim()) return;
+	const fileName = ensureCovasExtension(name);
+	const path = parentPath ? `${parentPath}/${fileName}` : fileName;
+	try {
+		await sdk.space(spaceId).files.write({
+			path,
+			content: serializeCovasDocument(createEmptyCovasDocument()),
+			encoding: "utf-8",
+		});
+		await patchFsDirectory(parentPath, (entries) => [
+			...entries,
+			buildFsEntry(path, "file"),
+		]);
+		await openInlineCanvas(path);
+	} catch (error) {
+		fileTreeError =
+			error instanceof Error ? error.message : "Failed to create canvas";
 	}
 }
 async function handleCreateDir(parentPath: string) {
@@ -4255,6 +4299,9 @@ async function handleRenameNode(node: SpaceFsNode) {
 		if (inlineFile?.path === node.path) {
 			await openInlineFile(toPath);
 		}
+		if (inlineCanvas?.path === node.path) {
+			inlineCanvas = { ...inlineCanvas, path: toPath };
+		}
 	} catch (error) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
 	}
@@ -4280,6 +4327,7 @@ async function handleDeleteNode(node: SpaceFsNode) {
 		}
 		if (openFile?.path === node.path) closeFile();
 		if (inlineFile?.path === node.path) closeInlineFile();
+		if (inlineCanvas?.path === node.path) closeInlineCanvas();
 	} catch (error) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
 	}
@@ -4293,6 +4341,7 @@ function closeFile() {
 }
 async function openInlineFile(path: string) {
 	inlinePortPreview = null;
+	inlineCanvas = null;
 	inlineFile = {
 		response: null,
 		draft: "",
@@ -4353,12 +4402,90 @@ async function openInlineFile(path: string) {
 function closeInlineFile() {
 	inlineFile = null;
 }
+async function openInlineCanvas(path: string) {
+	const requestToken = inlineCanvasRequestToken + 1;
+	inlineCanvasRequestToken = requestToken;
+	inlineFile = null;
+	inlinePortPreview = null;
+	inlineCanvas = {
+		path,
+		content: "",
+		loading: true,
+		saving: false,
+		error: null,
+	};
+	try {
+		const file = await sdk.space(spaceId).files.read(path);
+		if (
+			requestToken !== inlineCanvasRequestToken ||
+			inlineCanvas?.path !== path
+		)
+			return;
+		if (!("content" in file) || file.kind !== "text") {
+			throw new Error("Canvas file must be a text JSON file.");
+		}
+		inlineCanvas = {
+			path,
+			content: file.content,
+			loading: false,
+			saving: false,
+			error: null,
+		};
+	} catch (error) {
+		if (
+			requestToken !== inlineCanvasRequestToken ||
+			inlineCanvas?.path !== path
+		)
+			return;
+		inlineCanvas = {
+			path,
+			content: "",
+			loading: false,
+			saving: false,
+			error: error instanceof Error ? error.message : "Failed to open canvas",
+		};
+	}
+}
+function closeInlineCanvas() {
+	inlineCanvasRequestToken += 1;
+	inlineCanvas = null;
+}
+async function saveInlineCanvas(content: string) {
+	if (!inlineCanvas) return;
+	const savingPath = inlineCanvas.path;
+	markFileSavePending(savingPath);
+	inlineCanvas.saving = true;
+	inlineCanvas.error = null;
+	try {
+		await sdk.space(spaceId).files.write({
+			path: savingPath,
+			content,
+			encoding: "utf-8",
+		});
+		inlineCanvas = { ...inlineCanvas, content, saving: false, error: null };
+		await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
+			entries.map((entry) =>
+				entry.path === savingPath
+					? { ...entry, size: new Blob([content]).size, mtimeMs: Date.now() }
+					: entry,
+			),
+		);
+	} catch (error) {
+		if (inlineCanvas) {
+			inlineCanvas = { ...inlineCanvas, saving: false };
+		}
+		throw error;
+	} finally {
+		clearFileSavePendingSoon(savingPath);
+	}
+}
 function openInlinePort(
 	port: string,
 	url: string,
 	options: { autoOpened?: boolean } = {},
 ) {
 	inlineFile = null;
+	inlineCanvas = null;
 	inlinePortPreview = { port, url, autoOpened: options.autoOpened ?? false };
 }
 function closeInlinePort() {
@@ -7281,6 +7408,36 @@ $effect(() => {
       </div>
     </WorkspacePreviewPane>
   {/if}
+  {#if inlineCanvas}
+    <WorkspacePreviewPane
+      width={previewPanelWidth}
+      ariaLabel={`Canvas ${inlineCanvas.path}`}
+      onResizeStart={beginPreviewPanelResize}
+    >
+      {#if inlineCanvas.loading}
+        <div class="flex h-full min-w-0 flex-col bg-bg-content">
+          <div class="flex h-10 items-center border-b border-border-subtle px-3 text-xs text-text-tertiary">Loading canvas…</div>
+          <div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
+        </div>
+      {:else if inlineCanvas.error}
+        <div class="flex h-full min-w-0 flex-col bg-bg-content">
+          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
+            <span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{inlineCanvas.path}</span>
+            <button type="button" class="icon-btn" onclick={closeInlineCanvas} title="Close canvas"><X class="w-4 h-4" /></button>
+          </div>
+          <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{inlineCanvas.error}</div>
+        </div>
+      {:else}
+        <CanvasPanel
+          path={inlineCanvas.path}
+          content={inlineCanvas.content}
+          saving={inlineCanvas.saving}
+          onSave={(content) => saveInlineCanvas(content)}
+          onClose={closeInlineCanvas}
+        />
+      {/if}
+    </WorkspacePreviewPane>
+  {/if}
   {#if inlinePortPreview}
     <WorkspacePreviewPane
       width={previewPanelWidth}
@@ -7306,9 +7463,10 @@ $effect(() => {
           loading={fileTreeLoading}
           error={fileTreeError}
           onToggle={expandDirectory}
-          onSelect={(node) => { if (node.type === "file") void openInlineFile(node.path); }}
+          onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); } }}
           onRefresh={refreshFileTree}
           onCreateFile={handleCreateFile}
+          onCreateCanvas={handleCreateCanvas}
           onCreateDir={handleCreateDir}
           onRename={handleRenameNode}
           onDelete={handleDeleteNode}
@@ -7355,9 +7513,10 @@ $effect(() => {
         loading={fileTreeLoading}
         error={fileTreeError}
         onToggle={expandDirectory}
-        onSelect={(node) => { if (node.type === "file") { void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
+        onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
         onRefresh={refreshFileTree}
         onCreateFile={handleCreateFile}
+        onCreateCanvas={handleCreateCanvas}
         onCreateDir={handleCreateDir}
         onRename={handleRenameNode}
         onDelete={handleDeleteNode}
