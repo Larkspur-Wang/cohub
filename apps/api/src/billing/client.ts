@@ -62,6 +62,13 @@ type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
 const ENSURE_CUSTOMER_CACHE_TTL_MS = 5 * 60 * 1000;
 const CREDIT_LIST_PAGE_LIMIT = 100;
 const CREDIT_LIST_MAX_PAGES = 20;
+type BillingListPage<T> = {
+  items: T[];
+  pagination: {
+    page: number;
+    max_page: number;
+  };
+};
 
 function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
@@ -69,11 +76,6 @@ function isNotFound(error: unknown): boolean {
 
 function normalizeAmount(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
-  return Number(value.toFixed(8));
-}
-
-function roundAmount(value: number): number {
-  if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(8));
 }
 
@@ -181,8 +183,48 @@ async function getCustomerStateOrEmpty(input: {
   }
 }
 
-function findCreditBalance(state: BillingAccountState, tokenType: string): BillingCreditBalance | null {
-  return state.credits.find((credit) => credit.tokenType === tokenType) ?? null;
+async function getCustomerCreditsOrEmpty(input: {
+  sdk: ConfiguredBillingSdk;
+  businessKey: string;
+  userId: string;
+}): Promise<(BillingUserRef & { credits: BillingCreditBalance[] }) | null> {
+  try {
+    const credits = await input.sdk.admin.customers.getCredits({
+      external_user_id: input.userId,
+      business_key: input.businessKey,
+    });
+    return {
+      userId: input.userId,
+      credits: credits.credits.map(mapCreditBalance),
+    };
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    return null;
+  }
+}
+
+async function getCustomerEntitlementsOrEmpty(input: {
+  sdk: ConfiguredBillingSdk;
+  businessKey: string;
+  userId: string;
+}): Promise<(BillingUserRef & { entitlements: BillingFeatureEntitlement[] }) | null> {
+  try {
+    const entitlements = await input.sdk.admin.customers.getEntitlements({
+      external_user_id: input.userId,
+      business_key: input.businessKey,
+    });
+    return {
+      userId: input.userId,
+      entitlements: mapFeatureEntitlements(entitlements.active_benefits),
+    };
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    return null;
+  }
+}
+
+function findBalance(credits: BillingCreditBalance[], tokenType: string): BillingCreditBalance | null {
+  return credits.find((credit) => credit.tokenType === tokenType) ?? null;
 }
 
 function daysUntil(expiresAt: string | null | undefined, now = new Date()): number | null {
@@ -444,55 +486,77 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     return await getCustomerStateOrEmpty({ sdk, businessKey, userId }) ?? { userId, credits: [], entitlements: [] };
   };
 
+  const getCreditsAfterEnsure = async (userId: string): Promise<BillingUserRef & { credits: BillingCreditBalance[] }> => {
+    await ensureCustomer({ userId });
+    const state = await getCustomerCreditsOrEmpty({ sdk, businessKey, userId });
+    if (state) return state;
+
+    forgetEnsuredCustomer(userId);
+    await ensureCustomer({ userId });
+    return await getCustomerCreditsOrEmpty({ sdk, businessKey, userId }) ?? { userId, credits: [] };
+  };
+
+  const getEntitlementsAfterEnsure = async (
+    userId: string,
+  ): Promise<BillingUserRef & { entitlements: BillingFeatureEntitlement[] }> => {
+    await ensureCustomer({ userId });
+    const state = await getCustomerEntitlementsOrEmpty({ sdk, businessKey, userId });
+    if (state) return state;
+
+    forgetEnsuredCustomer(userId);
+    await ensureCustomer({ userId });
+    return await getCustomerEntitlementsOrEmpty({ sdk, businessKey, userId }) ?? { userId, entitlements: [] };
+  };
+
   const getFeatureEntitlement = async (input: {
     userId: string;
     featureKey: string;
   }): Promise<BillingFeatureEntitlement | null> => {
-    const state = await getStateAfterEnsure(input.userId);
+    const state = await getEntitlementsAfterEnsure(input.userId);
     return state.entitlements.find((entitlement) => entitlement.key === input.featureKey && entitlement.enabled) ?? null;
+  };
+
+  const listAllPages = async <T>(fetchPage: (page: number, limit: number) => Promise<BillingListPage<T>>): Promise<T[]> => {
+    const items: T[] = [];
+    for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
+      const response = await fetchPage(page, CREDIT_LIST_PAGE_LIMIT);
+      items.push(...response.items);
+      if (response.pagination.page >= response.pagination.max_page) break;
+    }
+    return items;
   };
 
   const listAllCreditGrants = async (input: {
     userId: string;
     tokenType: string;
     status?: "active" | "depleted" | "expired" | "revoked";
-  }): Promise<CreditGrant[]> => {
-    const items: CreditGrant[] = [];
-    for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
-      const response = await sdk.admin.credits.listGrants({
+  }): Promise<CreditGrant[]> =>
+    listAllPages((page, limit) =>
+      sdk.admin.credits.listGrants({
         business_key: businessKey,
         external_user_id: input.userId,
         token_type: input.tokenType,
         status: input.status,
         page,
-        limit: CREDIT_LIST_PAGE_LIMIT,
-      });
-      items.push(...response.items);
-      if (response.pagination.page >= response.pagination.max_page) break;
-    }
-    return items;
-  };
+        limit,
+      })
+    );
 
   const listAllUsageOverages = async (input: {
     userId: string;
     tokenType: string;
     status?: "open" | "settled";
-  }): Promise<UsageOverage[]> => {
-    const items: UsageOverage[] = [];
-    for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
-      const response = await sdk.admin.credits.listUsageOverages({
+  }): Promise<UsageOverage[]> =>
+    listAllPages((page, limit) =>
+      sdk.admin.credits.listUsageOverages({
         business_key: businessKey,
         external_user_id: input.userId,
         token_type: input.tokenType,
         status: input.status,
         page,
-        limit: CREDIT_LIST_PAGE_LIMIT,
-      });
-      items.push(...response.items);
-      if (response.pagination.page >= response.pagination.max_page) break;
-    }
-    return items;
-  };
+        limit,
+      })
+    );
 
   return {
     status,
@@ -504,12 +568,12 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
 
     async getCreditStatus(input: BillingUserRef & { tokenType?: string }): Promise<BillingCreditStatus> {
       const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
-      const state = await getStateAfterEnsure(input.userId);
-      const balance = findCreditBalance(state, tokenType);
-      const [grants, overages] = await Promise.all([
-        listAllCreditGrants({ userId: input.userId, tokenType, status: "active" }),
-        listAllUsageOverages({ userId: input.userId, tokenType, status: "open" }),
-      ]);
+      const state = await getCreditsAfterEnsure(input.userId);
+      const balance = findBalance(state.credits, tokenType);
+      const grants = await listAllCreditGrants({ userId: input.userId, tokenType, status: "active" });
+      const overages = balance && balance.openOverageBalance <= 0
+        ? []
+        : await listAllUsageOverages({ userId: input.userId, tokenType, status: "open" });
       const grantStatuses = grants
         .map((grant) => mapCreditGrant(grant))
         .filter((grant) => grant.remainingAmountUsd > 0);
@@ -557,8 +621,8 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         };
       }
 
-      const state = await getStateAfterEnsure(input.userId);
-      const balance = findCreditBalance(state, tokenType);
+      const state = await getCreditsAfterEnsure(input.userId);
+      const balance = findBalance(state.credits, tokenType);
       const availableBalance = amountToUsd(balance?.availableBalance ?? 0, tokenType);
       const netBalance = amountToUsd(balance?.netBalance ?? 0, tokenType);
       const shortfall = Math.max(0, estimatedAmountUsd - netBalance);
