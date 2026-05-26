@@ -18,16 +18,17 @@ export function normalizeMountSlug(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/[^a-z0-9_-]/g, "-")
     .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^[-_]+|[-_]+$/g, "")
     .slice(0, 63);
 }
 
 export function assertValidMountSlug(value: string): string {
   const slug = normalizeMountSlug(value);
-  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) {
-    throw new Error("mountSlug must be 1-63 chars of lowercase letters, numbers, or hyphens");
+  if (!/^[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?$/.test(slug)) {
+    throw new Error("mountSlug must be 1-63 chars of lowercase letters, numbers, hyphens, or underscores");
   }
   return slug;
 }
