@@ -1409,14 +1409,24 @@ $effect(() => {
 {:else}
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Brand Header -->
-  <div class="shrink-0 px-3 pb-2 pt-2">
-    <div class="flex h-8 items-center justify-between gap-2">
-      <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
-        <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
-          C
-        </div>
-        <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
-      </a>
+  <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
+    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
+      <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
+        C
+      </div>
+      <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
+    </a>
+    <div class="flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={openCommandPalette}
+        title="Search everywhere (⌘K / Ctrl K)"
+        aria-label="Search everywhere"
+      >
+        <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
+        <span class="hidden font-mono tracking-[0.02em] sm:inline">⌘K</span>
+      </button>
       {#if !isMobile}
         <button
           type="button"
@@ -1429,17 +1439,6 @@ $effect(() => {
         </button>
       {/if}
     </div>
-    <button
-      type="button"
-      class="group/search mt-1.5 flex h-8 w-full items-center gap-2 rounded-[7px] bg-bg-surface px-2.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-      onclick={openCommandPalette}
-      title="Search everywhere (⌘K / Ctrl K)"
-      aria-label="Search everywhere"
-    >
-      <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
-      <span class="min-w-0 flex-1 truncate text-left">Search everywhere</span>
-      <span class="rounded-[4px] bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] tracking-[0.02em] text-text-placeholder">⌘K</span>
-    </button>
   </div>
 
   {#if mode === "space"}
