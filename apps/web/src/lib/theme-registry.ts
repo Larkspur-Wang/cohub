@@ -5,7 +5,6 @@ export const RESOLVED_THEMES = [
 	"light",
 	"solarized-dark",
 	"solarized-light",
-	"tabby",
 ] as const;
 
 export type ResolvedTheme = (typeof RESOLVED_THEMES)[number];
@@ -39,11 +38,6 @@ export const THEME_OPTIONS: ThemeOption[] = [
 		description: "A warm light theme tuned for reading and code",
 	},
 	{
-		value: "tabby",
-		label: "Tabby",
-		description: "A refined warm theme inspired by tabby fur and amber eyes",
-	},
-	{
 		value: "system",
 		label: "System",
 		description: "Follow your system preference",
@@ -55,7 +49,6 @@ export const THEME_COLOR: Record<ResolvedTheme, string> = {
 	light: "#F8F8FA",
 	"solarized-dark": "#002B36",
 	"solarized-light": "#FDF6E3",
-	tabby: "#F7F0DF",
 };
 
 export function isResolvedTheme(value: string | null): value is ResolvedTheme {
