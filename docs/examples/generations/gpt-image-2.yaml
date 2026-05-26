@@ -6,8 +6,8 @@ description: Image generation model with optional reference images. Good for pho
 
 adapter:
   type: openai.images
-  base_url: https://new-api.talesofai.com/v1
-  api_key: $env:GPT_IMAGE_API_KEY
+  base_url: https://router.neta.art/v1
+  api_key: $env:NETA_ROUTER_API_KEY
 
 content:
   input:

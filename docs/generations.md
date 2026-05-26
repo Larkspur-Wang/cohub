@@ -84,7 +84,10 @@ parameters:
     enum: [auto, low, medium, high]
 ```
 
-See [`docs/examples/generations/gpt-image-2.yaml`](./examples/generations/gpt-image-2.yaml) for the full example.
+See the full examples:
+
+- [`docs/examples/generations/gpt-image-2.yaml`](./examples/generations/gpt-image-2.yaml)
+- [`docs/examples/generations/gemini-3.1-flash-image-preview.yaml`](./examples/generations/gemini-3.1-flash-image-preview.yaml)
 
 ## CLI
 
@@ -101,6 +104,11 @@ cohub generate "same character, smiling" \
   --image ./character.png \
   --param quality=high \
   --json
+
+cohub generate "a vibrant infographic explaining photosynthesis" \
+  --model gemini-3.1-flash-image-preview \
+  --param aspect_ratio=16:9 \
+  --param image_size=1K
 ```
 
 Use `$env:NAME` for API keys in YAML. Do not commit real API keys.

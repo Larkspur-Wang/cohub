@@ -1,5 +1,6 @@
 import type { CreateGenerationRequest, GenerationContentBlock, GenerationDeclaration } from "@cohub/protocol/generation";
 import type { AuthUser } from "../../lib/middleware.js";
+import { geminiGenerateContentAdapter } from "./gemini-generate-content.js";
 import { openAiImagesAdapter } from "./openai-images.js";
 
 export type GenerationAdapterInput = {
@@ -12,6 +13,7 @@ export type GenerationAdapterInput = {
 export type GenerationAdapter = (input: GenerationAdapterInput) => Promise<GenerationContentBlock[]>;
 
 const adapters: Record<string, GenerationAdapter> = {
+  "gemini.generateContent": geminiGenerateContentAdapter,
   "openai.images": openAiImagesAdapter,
 };
 
