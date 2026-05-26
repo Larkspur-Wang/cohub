@@ -36,6 +36,10 @@ function mergeSpaceRecord(current: SpaceRecord, next: Partial<SpaceRecord>) {
 	};
 }
 
+export async function getCachedSpaceRecord(spaceId: string) {
+	return spaceRecordRepo.getCached(spaceId);
+}
+
 export async function cacheSpaceRecord(space: SpaceRecord) {
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space && !isCacheableSpaceRecord(space)) return null;

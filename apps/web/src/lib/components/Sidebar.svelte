@@ -83,6 +83,10 @@ import {
 	onSpacePinsCacheUpdated,
 } from "$lib/stores/space-marks-cache";
 import { isSpacePin, toggleSpacePin } from "$lib/stores/space-pins";
+import {
+	cacheSpaceRecordSoon,
+	getCachedSpaceRecord,
+} from "$lib/stores/space-record-cache";
 
 const {
 	isMobile = false,
@@ -258,6 +262,49 @@ function getFallbackSessionCursor(sessionList: SessionRecord[]) {
 	return sessionList.at(-1)?.lastMessageAt ?? null;
 }
 
+function mergeSpaceIntoSidebarList(space: SpaceRecord) {
+	spaces = [space, ...spaces.filter((item) => item.id !== space.id)];
+}
+
+const currentSpaceRefreshes = new Map<string, Promise<void>>();
+
+async function loadCurrentSpaceFromUrl(
+	spaceId = currentSpaceId,
+	options?: { refresh?: boolean },
+) {
+	if (!spaceId) return;
+	const alreadyLoaded = spaces.some((space) => space.id === spaceId);
+
+	if (!alreadyLoaded) {
+		const cached = await getCachedSpaceRecord(spaceId).catch(() => null);
+		if (spaceId !== currentSpaceId) return;
+		if (cached?.space) mergeSpaceIntoSidebarList(cached.space);
+	}
+
+	if (!options?.refresh && currentSpaceRefreshes.has(spaceId)) return;
+
+	const refresh = (async () => {
+		try {
+			const space = await sdk.space(spaceId).get();
+			if (spaceId !== currentSpaceId) return;
+			mergeSpaceIntoSidebarList(space);
+			cacheSpaceRecordSoon(space);
+		} catch (error) {
+			if (spaceId !== currentSpaceId) return;
+			console.warn("[sidebar] Failed to load current space", {
+				spaceId,
+				error,
+			});
+		} finally {
+			if (currentSpaceRefreshes.get(spaceId) === refresh) {
+				currentSpaceRefreshes.delete(spaceId);
+			}
+		}
+	})();
+
+	currentSpaceRefreshes.set(spaceId, refresh);
+}
+
 function shouldShowLoadMoreSessions() {
 	if (sessionsPageInfo.hasMore && sessionsPageInfo.nextCursor) return true;
 	const fallbackCursor = getFallbackSessionCursor(sessions);
@@ -270,26 +317,26 @@ function shouldShowLoadMoreSessions() {
 
 async function loadSpaces(force = false) {
 	await authStore.ensureLoaded();
+	const requestedSpaceId = currentSpaceId;
+
+	// The current URL is the source of truth for the selected space. Load it
+	// directly first so guest-access spaces still render even if the broader
+	// space list does not include them (or becomes paginated later).
+	await loadCurrentSpaceFromUrl(requestedSpaceId);
+
 	if (!authStore.isAuthenticated) {
-		// For unauthenticated users, try to fetch the space from the URL directly
-		// so the sidebar can still show the current space and sessions.
-		if (currentSpaceId && !currentSpace) {
-			try {
-				const space = await sdk.space(currentSpaceId).get();
-				spaces = [space];
-			} catch {
-				spaces = [];
-			}
-		} else {
-			spaces = [];
-		}
 		return;
 	}
 
 	if (!force) {
 		const cached = getCachedSpaceList();
 		if (cached && cached.length > 0) {
-			spaces = cached;
+			spaces = requestedSpaceId
+				? [
+						...spaces.filter((space) => space.id === requestedSpaceId),
+						...cached.filter((space) => space.id !== requestedSpaceId),
+					]
+				: cached;
 		}
 	}
 
@@ -298,16 +345,24 @@ async function loadSpaces(force = false) {
 	if (!shouldFetch) return;
 
 	try {
-		spaces = await fetchSpaceListWithCache(
+		const listedSpaces = await fetchSpaceListWithCache(
 			async () => await sdk.spaces.list(),
 			{ force },
 		);
+		spaces = requestedSpaceId
+			? [
+					...spaces.filter((space) => space.id === requestedSpaceId),
+					...listedSpaces.filter((space) => space.id !== requestedSpaceId),
+				]
+			: listedSpaces;
 	} catch (error) {
 		if (await handleUnauthorizedError(error)) {
 			return;
 		}
 		console.warn("[sidebar] Failed to load spaces", error);
 	}
+
+	await loadCurrentSpaceFromUrl(requestedSpaceId);
 }
 
 async function loadSessionsForSpace(spaceId: string, force = false) {
@@ -1040,28 +1095,16 @@ onMount(() => {
 	};
 });
 
-// For unauthenticated users, load the space directly from the URL
-// so the sidebar can show the current space even without a full spaces list.
+// Always load the space addressed by the current URL directly. The global
+// space list is only a switcher data source and may omit guest-access spaces.
 $effect(() => {
 	if (mode !== "space") return;
 	const id = currentSpaceId;
-	if (id) {
-		untrack(async () => {
-			const requestedSpaceId = id;
-			await authStore.ensureLoaded();
-			if (requestedSpaceId !== currentSpaceId) return;
-			if (!authStore.isAuthenticated && !currentSpace) {
-				try {
-					const space = await sdk.space(requestedSpaceId).get();
-					if (requestedSpaceId !== currentSpaceId) return;
-					spaces = [space];
-				} catch {
-					if (requestedSpaceId !== currentSpaceId) return;
-					spaces = [];
-				}
-			}
-		});
-	}
+	if (!id) return;
+
+	untrack(() => {
+		void loadCurrentSpaceFromUrl(id);
+	});
 });
 
 $effect(() => {
