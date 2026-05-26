@@ -18,7 +18,7 @@ export function registerAuth(program: Command): void {
     .option("--request-code", "Request a device code without polling")
     .option("--verify-code", "Exchange a previously requested device code")
     .option("--json", "Output as JSON")
-    .action(async (opts: LoginOptions, command: Command) => {
+    .action(async (opts: LoginOptions) => {
       const asJson = jsonRequested(opts);
       if (opts.requestCode && opts.verifyCode) {
         return error("Conflicting options", "Use only one of --request-code or --verify-code");
@@ -54,7 +54,7 @@ export function registerAuth(program: Command): void {
     .command("whoami")
     .description("Show current user info")
     .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }, command: Command) => {
+    .action(async (opts: { json?: boolean }) => {
       const asJson = jsonRequested(opts);
       return showSignedIn(asJson);
     });

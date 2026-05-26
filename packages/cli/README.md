@@ -129,6 +129,8 @@ cohub search "query" --limit 20 --json
 ```bash
 cohub models ls --json
 cohub models ls --model-type multimodal --json
+cohub models show <model>
+cohub models show <model> --json
 
 cohub generate "a calm lake at sunrise" \
   --model <model> \
