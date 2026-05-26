@@ -65,7 +65,7 @@ const CREDIT_LIST_MAX_PAGES = 20;
 type BillingListPage<T> = {
   items: T[];
   pagination: {
-    page: number;
+    page?: number;
     max_page: number;
   };
 };
@@ -521,7 +521,7 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
       const response = await fetchPage(page, CREDIT_LIST_PAGE_LIMIT);
       items.push(...response.items);
-      if (response.pagination.page >= response.pagination.max_page) break;
+      if (page >= response.pagination.max_page) break;
     }
     return items;
   };
