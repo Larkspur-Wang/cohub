@@ -1,8 +1,10 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import { onDestroy, untrack } from "svelte";
+import MarkdownFrontmatter from "$lib/components/MarkdownFrontmatter.svelte";
 import MarkdownSurface from "$lib/components/MarkdownSurface.svelte";
 import { renderMarkdown } from "$lib/markdown";
+import { parseMarkdownFrontmatter } from "$lib/markdown-frontmatter";
 import { StreamingMarkdownController } from "$lib/streaming-markdown-controller";
 
 type MarkdownTextBlock = Extract<ContentBlock, { type: "text" }>;
@@ -36,6 +38,13 @@ const source = $derived.by(() => {
 		sourceProp ?? blocks?.map((block) => block.text).join("\n\n") ?? "";
 	return isStreaming ? raw : raw.trim();
 });
+
+const frontmatter = $derived(
+	!isStreaming && variant === "document"
+		? parseMarkdownFrontmatter(source)
+		: null,
+);
+const renderSource = $derived(frontmatter?.body ?? source);
 
 function ensureController() {
 	if (controller) return controller;
@@ -72,7 +81,7 @@ function renderFullMarkdown(markdownSource: string) {
 }
 
 $effect(() => {
-	const markdownSource = source;
+	const markdownSource = renderSource;
 	const streaming = isStreaming;
 
 	if (streaming) {
@@ -95,5 +104,11 @@ onDestroy(() => {
 	class:is-streaming={isStreaming}
 	data-variant={variant}
 >
+	{#if frontmatter}
+		<MarkdownFrontmatter
+			raw={frontmatter.raw}
+			entries={frontmatter.entries}
+		/>
+	{/if}
 	<MarkdownSurface html={renderedHtml} {variant} streamingLive={isStreaming} />
 </div>
