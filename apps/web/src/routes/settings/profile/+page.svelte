@@ -1,5 +1,6 @@
 <script lang="ts">
 import {
+	Cat,
 	Check,
 	Copy,
 	Loader2,
@@ -52,6 +53,7 @@ const themeIcon = {
 	light: Sun,
 	"solarized-dark": Palette,
 	"solarized-light": Palette,
+	tabby: Cat,
 	system: Monitor,
 } satisfies Record<ThemeMode, typeof Sun>;
 

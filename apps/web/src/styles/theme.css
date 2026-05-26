@@ -2,6 +2,7 @@
 @import "./themes/light.css";
 @import "./themes/solarized-dark.css";
 @import "./themes/solarized-light.css";
+@import "./themes/tabby.css";
 
 /* ============================================================
    Tailwind v4 @theme — semantic design tokens

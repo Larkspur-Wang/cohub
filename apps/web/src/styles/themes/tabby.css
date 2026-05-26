@@ -1,0 +1,133 @@
+/* --- Tabby Theme --- */
+[data-theme="tabby"] {
+	color-scheme: light;
+	/* Warm tabby fur scale — sand, taupe, and soft charcoal stripes. */
+	--neutral-0: oklch(15% 0.025 62);
+	--neutral-5: oklch(22% 0.025 62);
+	--neutral-10: oklch(34% 0.03 62);
+	--neutral-20: oklch(48% 0.032 64);
+	--neutral-30: oklch(61% 0.035 66);
+	--neutral-40: oklch(73% 0.035 68);
+	--neutral-50: oklch(82% 0.032 70);
+	--neutral-60: oklch(88% 0.03 72);
+	--neutral-70: oklch(92% 0.028 74);
+	--neutral-80: oklch(95% 0.026 76);
+	--neutral-90: oklch(97% 0.022 78);
+	--neutral-95: oklch(98.5% 0.018 80);
+	--neutral-100: oklch(99.5% 0.012 82);
+
+	/* Brand scale — amber tabby eyes with a refined copper edge. */
+	--brand-50: oklch(96% 0.035 78);
+	--brand-100: oklch(91% 0.065 76);
+	--brand-200: oklch(84% 0.105 72);
+	--brand-300: oklch(76% 0.14 68);
+	--brand-400: oklch(66% 0.17 58);
+	--brand-500: oklch(58% 0.18 50);
+	--brand-600: oklch(48% 0.16 44);
+	--brand-700: oklch(38% 0.13 42);
+	--brand-800: oklch(30% 0.095 40);
+	--brand-900: oklch(24% 0.065 38);
+	--brand-bg: oklch(94% 0.055 74);
+
+	/* Semantic colors — tuned to stay crisp on warm light surfaces. */
+	--success-400: oklch(48% 0.12 150);
+	--success-500: oklch(40% 0.13 150);
+	--success-700: oklch(31% 0.1 150);
+	--success-900: oklch(91% 0.045 150);
+
+	--warning-400: oklch(53% 0.13 76);
+	--warning-500: oklch(44% 0.14 76);
+	--warning-700: oklch(33% 0.1 76);
+	--warning-900: oklch(93% 0.05 76);
+
+	--error-400: oklch(47% 0.16 28);
+	--error-500: oklch(39% 0.18 28);
+	--error-700: oklch(29% 0.12 28);
+	--error-fg: var(--neutral-100);
+	--error-900: oklch(91% 0.045 28);
+
+	--info-400: oklch(47% 0.11 220);
+	--info-500: oklch(39% 0.13 220);
+	--info-700: oklch(29% 0.095 220);
+	--info-900: oklch(91% 0.04 220);
+
+	/* Backgrounds — efficient, low-noise hierarchy with subtle fur warmth. */
+	--bg-primary: oklch(98.8% 0.018 80);
+	--bg-content: oklch(97% 0.024 76);
+	--bg-surface: oklch(94.5% 0.03 72);
+	--bg-surface-hover: oklch(91.5% 0.04 68);
+	--bg-elevated: oklch(99% 0.014 80);
+	--bg-input: oklch(99.5% 0.012 82);
+	--bg-code: oklch(93.5% 0.027 70);
+	--bg-header-alt: oklch(95% 0.032 72);
+
+	/* Text */
+	--text-primary: var(--neutral-0);
+	--text-reading: var(--neutral-5);
+	--text-secondary: var(--neutral-10);
+	--text-tertiary: var(--neutral-20);
+	--text-placeholder: var(--neutral-30);
+	--text-disabled: var(--neutral-40);
+
+	/* Borders */
+	--border-primary: oklch(79% 0.04 68);
+	--border-subtle: oklch(87% 0.035 72);
+
+	/* Interactive states — faint tabby-stripe impressions without layout changes. */
+	--bg-hover: oklch(95% 0.032 72 / 1);
+	--bg-hover-strong: oklch(90.5% 0.045 68 / 1);
+	--bg-active: oklch(86.5% 0.055 62 / 1);
+
+	/* Scrollbar */
+	--scrollbar-thumb: oklch(70% 0.055 60);
+	--scrollbar-thumb-hover: oklch(49% 0.065 48);
+
+	/* Selection */
+	--selection-bg: oklch(86% 0.075 74);
+	--divider-muted: color-mix(in srgb, var(--border-subtle) 62%, transparent);
+
+	/* Brand semantics */
+	--brand: var(--brand-500);
+	--brand-hover: var(--brand-600);
+	--brand-soft: var(--brand-700);
+	--brand-contrast-fg: var(--neutral-100);
+	--brand-muted-fg: var(--brand);
+	--brand-muted: color-mix(in srgb, var(--brand) 11%, transparent);
+	--brand-muted-hover: color-mix(in srgb, var(--brand) 17%, transparent);
+	--brand-border: color-mix(in srgb, var(--brand) 24%, transparent);
+
+	/* Overlays */
+	--overlay-scrim: oklch(12% 0.02 62 / 0.48);
+	--overlay-scrim-strong: oklch(12% 0.02 62 / 0.8);
+	--overlay-control-bg: oklch(100% 0 0 / 0.12);
+	--overlay-control-bg-hover: oklch(100% 0 0 / 0.22);
+	--overlay-control-text: oklch(98% 0.012 82);
+
+	/* Provider colors */
+	--provider-discord: oklch(58% 0.18 275);
+	--provider-discord-bg: color-mix(in srgb, var(--provider-discord) 10%, transparent);
+	--provider-discord-bg-hover: color-mix(in srgb, var(--provider-discord) 14%, transparent);
+	--provider-discord-border: color-mix(in srgb, var(--provider-discord) 22%, transparent);
+	--provider-discord-border-hover: color-mix(in srgb, var(--provider-discord) 42%, transparent);
+	--provider-feishu: oklch(68% 0.12 220);
+	--provider-feishu-bg: color-mix(in srgb, var(--provider-feishu) 10%, transparent);
+	--provider-feishu-bg-hover: color-mix(in srgb, var(--provider-feishu) 14%, transparent);
+	--provider-feishu-border: color-mix(in srgb, var(--provider-feishu) 22%, transparent);
+	--provider-feishu-border-hover: color-mix(in srgb, var(--provider-feishu) 42%, transparent);
+
+	/* Effects */
+	--shadow-subtle: oklch(18% 0.025 62 / 0.08);
+	--shadow-medium: oklch(18% 0.025 62 / 0.18);
+	--shadow-strong: oklch(18% 0.025 62 / 0.28);
+	--brand-ring: color-mix(in srgb, var(--brand) 26%, transparent);
+	--mask-opaque: black;
+	--avatar-placeholder-bg: color-mix(in srgb, var(--brand) 9%, var(--bg-hover-strong));
+	--avatar-placeholder-fg: var(--text-placeholder);
+
+	/* Data visualizations */
+	--heatmap-0: var(--bg-elevated);
+	--heatmap-1: color-mix(in srgb, var(--brand) 30%, transparent);
+	--heatmap-2: color-mix(in srgb, var(--brand) 50%, transparent);
+	--heatmap-3: color-mix(in srgb, var(--brand) 70%, transparent);
+	--heatmap-4: color-mix(in srgb, var(--brand) 90%, transparent);
+}

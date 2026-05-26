@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Monitor, Moon, Palette, Sun } from "lucide-svelte";
+import { Cat, Monitor, Moon, Palette, Sun } from "lucide-svelte";
 import { getTheme, setTheme } from "$lib/theme.svelte";
 import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
 
@@ -11,6 +11,7 @@ const themeIcon = {
 	light: Sun,
 	"solarized-dark": Palette,
 	"solarized-light": Palette,
+	tabby: Cat,
 	system: Monitor,
 } satisfies Record<ThemeMode, typeof Sun>;
 
