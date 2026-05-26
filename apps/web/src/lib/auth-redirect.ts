@@ -1,5 +1,9 @@
 import { HttpError } from "@neta-art/cohub";
-import { clearBrokenAuthSession, signInWithRedirectPath } from "$lib/auth";
+import {
+	clearAuthToken,
+	clearBrokenAuthSession,
+	signInWithRedirectPath,
+} from "$lib/auth";
 
 export const getCurrentRedirectPath = () => {
 	if (typeof window === "undefined") return undefined;
@@ -10,11 +14,16 @@ let signInRedirectPromise: Promise<void> | null = null;
 
 export const redirectToSignIn = async (
 	redirectPath = getCurrentRedirectPath(),
+	options?: { clearSession?: boolean },
 ) => {
 	if (signInRedirectPromise) return signInRedirectPromise;
 
 	signInRedirectPromise = (async () => {
-		await clearBrokenAuthSession();
+		if (options?.clearSession) {
+			await clearBrokenAuthSession();
+		} else {
+			clearAuthToken();
+		}
 		await signInWithRedirectPath(redirectPath);
 	})().finally(() => {
 		signInRedirectPromise = null;

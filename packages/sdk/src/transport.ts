@@ -34,7 +34,7 @@ export type RawHttpResponse = {
 export type CohubClientOptions = {
   env?: CohubEnvironment;
   baseUrl?: string;
-  getAccessToken?: () => Promise<string | null> | string | null;
+  getAccessToken?: (options?: { forceRefresh?: boolean }) => Promise<string | null> | string | null;
   onUnauthorized?: () => Promise<void> | void;
   setStoredAuthToken?: (token: string) => void;
   clearStoredAuthToken?: () => void;
@@ -57,7 +57,7 @@ export class HttpError extends Error {
 export class HttpTransport {
   private readonly baseUrl: string;
   private readonly fetcher: Fetch;
-  private readonly getAccessToken?: () => Promise<string | null> | string | null;
+  private readonly getAccessToken?: (options?: { forceRefresh?: boolean }) => Promise<string | null> | string | null;
   private readonly onUnauthorized?: () => Promise<void> | void;
 
   constructor(options: CohubClientOptions = {}) {
@@ -67,9 +67,9 @@ export class HttpTransport {
     this.onUnauthorized = options.onUnauthorized;
   }
 
-  private async withAuthorization(init?: RequestInit): Promise<RequestInit> {
+  private async withAuthorization(init?: RequestInit, tokenOverride?: string | null): Promise<RequestInit> {
     const headers = new Headers(init?.headers);
-    const token = this.getAccessToken ? await this.getAccessToken() : null;
+    const token = tokenOverride ?? (this.getAccessToken ? await this.getAccessToken() : null);
 
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
@@ -87,6 +87,31 @@ export class HttpTransport {
     const fetcher = init?.fetch ?? this.fetcher;
     const url = this.baseUrl ? `${this.baseUrl}${path}` : path;
     const response = await fetcher(url, await this.withAuthorization(init));
+
+    const getAccessToken = this.getAccessToken;
+    if (response.status === 401 && getAccessToken) {
+      const refreshedToken = await (async () => {
+        try {
+          return await getAccessToken({ forceRefresh: true });
+        } catch {
+          return null;
+        }
+      })();
+      if (refreshedToken) {
+        const retryResponse = await fetcher(url, await this.withAuthorization(init, refreshedToken));
+        if (retryResponse.status !== 401) {
+          if (!retryResponse.ok) {
+            const body = await responseBodyForError(retryResponse);
+            throw new HttpError(
+              messageFromErrorBody(body, retryResponse.statusText),
+              retryResponse.status,
+              body,
+            );
+          }
+          return retryResponse;
+        }
+      }
+    }
 
     if (response.status === 401) {
       await this.onUnauthorized?.();

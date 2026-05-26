@@ -45,6 +45,8 @@ const getAccessTokenByRefreshToken = async (): Promise<string | null> => {
 	return await refreshWithToken.call(logtoClient, API_RESOURCE);
 };
 
+type GetAuthTokenOptions = { forceRefresh?: boolean };
+
 /**
  * Resolve a valid API access token.
  *
@@ -53,8 +55,13 @@ const getAccessTokenByRefreshToken = async (): Promise<string | null> => {
  * back to the refresh-token path for the rare case where the ID token is gone
  * but the refresh token is still valid.
  */
-export const getAuthToken = async (): Promise<string | null> => {
+export const getAuthToken = async (
+	options?: GetAuthTokenOptions,
+): Promise<string | null> => {
 	try {
+		if (options?.forceRefresh) {
+			return await getAccessTokenByRefreshToken();
+		}
 		return await logtoClient.getAccessToken(API_RESOURCE);
 	} catch {
 		try {

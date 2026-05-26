@@ -78,8 +78,9 @@ const restoreAuthSession = async (
 				.catch((error) => {
 					if (error instanceof HttpError && error.status === 401) {
 						clearCachedMeProfile(subject);
-						void clearBrokenAuthSession();
-						onProfileUpdate?.(unauthenticatedSession());
+						console.warn(
+							"[auth] Background current user profile refresh was unauthorized; keeping the recoverable auth session.",
+						);
 						return;
 					}
 					console.warn("[auth] Failed to refresh current user profile:", error);
