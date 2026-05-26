@@ -160,7 +160,7 @@ body.drawer-open {
 .streaming-markdown-flow[data-variant="document"]
 	> .frontmatter-panel
 	+ .markdown-content[data-variant="document"] {
-	padding-top: 18px;
+	padding-top: 12px;
 }
 
 @container (max-width: 520px) {
@@ -173,7 +173,7 @@ body.drawer-open {
 	.streaming-markdown-flow[data-variant="document"]
 		> .frontmatter-panel
 		+ .markdown-content[data-variant="document"] {
-		padding-top: 16px;
+		padding-top: 12px;
 	}
 }
 

@@ -46,120 +46,94 @@ onDestroy(() => {
 </script>
 
 <section class="frontmatter-panel" aria-label="Markdown frontmatter">
-	<div class="frontmatter-header">
-		<div class="frontmatter-title-group">
-			<div class="frontmatter-kicker">Frontmatter</div>
-			<div class="frontmatter-title">Document metadata</div>
-		</div>
-		<button
-			type="button"
-			class="frontmatter-copy"
-			onclick={() => void copyRaw()}
-			aria-label="Copy frontmatter"
-			title="Copy frontmatter"
-		>
-			{#if copied}
-				<Check class="size-3.5" />
-			{:else}
-				<Copy class="size-3.5" />
+	<div class="frontmatter-bar">
+		<div class="frontmatter-title">Frontmatter</div>
+		<div class="frontmatter-actions">
+			{#if entries.length > 6}
+				<button
+					type="button"
+					class="frontmatter-action frontmatter-toggle"
+					aria-expanded={expanded}
+					onclick={() => expanded = !expanded}
+				>
+					<span>{expanded ? "Less" : `+${hiddenCount}`}</span>
+					<ChevronDown class={expanded ? "size-3 rotate-180" : "size-3"} />
+				</button>
 			{/if}
-		</button>
+			<button
+				type="button"
+				class="frontmatter-action frontmatter-copy"
+				onclick={() => void copyRaw()}
+				aria-label="Copy frontmatter"
+				title="Copy frontmatter"
+			>
+				{#if copied}
+					<Check class="size-3.5" />
+				{:else}
+					<Copy class="size-3.5" />
+				{/if}
+			</button>
+		</div>
 	</div>
 
 	{#if visibleEntries.length > 0}
 		<dl class="frontmatter-grid">
 			{#each visibleEntries as entry}
-				<div class="frontmatter-row">
+				<div class="frontmatter-item">
 					<dt>{entry.key}</dt>
 					<dd>{entry.value}</dd>
 				</div>
 			{/each}
 		</dl>
-	{:else}
-		<pre class="frontmatter-raw">{raw}</pre>
-	{/if}
-
-	{#if entries.length > 6 || visibleEntries.length > 0}
-		<div class="frontmatter-footer">
-			{#if entries.length > 6}
-				<button
-					type="button"
-					class="frontmatter-toggle"
-					aria-expanded={expanded}
-					onclick={() => expanded = !expanded}
-				>
-					<span>{expanded ? "Show less" : `Show ${hiddenCount} more`}</span>
-					<ChevronDown class={expanded ? "size-3.5 rotate-180" : "size-3.5"} />
-				</button>
-			{/if}
-			<details class="frontmatter-details">
-				<summary>Raw</summary>
-				<pre>{raw}</pre>
-			</details>
-		</div>
 	{/if}
 </section>
 
 <style>
 .frontmatter-panel {
 	container-type: inline-size;
-	position: relative;
 	max-width: 860px;
 	margin: 0 auto;
-	padding: 18px 28px 0;
+	padding: 12px 28px 0;
 	color: var(--text-secondary);
 }
 
-.frontmatter-panel::before {
-	content: "";
-	position: absolute;
-	inset: 18px 28px auto;
-	height: 1px;
-	background: linear-gradient(
-		90deg,
-		var(--brand-border),
-		color-mix(in srgb, var(--border-subtle) 70%, transparent) 32%,
-		transparent
-	);
-}
-
-.frontmatter-header {
+.frontmatter-bar {
 	display: flex;
-	align-items: flex-start;
+	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	padding-top: 16px;
+	min-height: 28px;
+	border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 64%, transparent);
 }
 
-.frontmatter-title-group {
+.frontmatter-title {
+	display: inline-flex;
 	min-width: 0;
-}
-
-.frontmatter-kicker {
-	margin-bottom: 2px;
+	align-items: center;
+	gap: 7px;
 	color: var(--brand-muted-fg);
 	font-family: var(--font-mono, monospace);
 	font-size: 10px;
 	font-weight: 650;
-	letter-spacing: 0.12em;
-	line-height: 1.2;
+	letter-spacing: 0.1em;
+	line-height: 1;
 	text-transform: uppercase;
 }
 
-.frontmatter-title {
-	color: var(--text-primary);
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 1.35;
+.frontmatter-actions {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 4px;
 }
 
-.frontmatter-copy,
-.frontmatter-toggle {
+.frontmatter-action {
 	display: inline-flex;
+	height: 26px;
 	align-items: center;
 	justify-content: center;
-	border: 1px solid var(--border-subtle);
-	border-radius: 0.45rem;
+	border: 1px solid transparent;
+	border-radius: 0.4rem;
 	background: transparent;
 	color: var(--text-tertiary);
 	cursor: pointer;
@@ -171,165 +145,94 @@ onDestroy(() => {
 }
 
 .frontmatter-copy {
-	width: 32px;
-	height: 32px;
-	flex: 0 0 auto;
-}
-
-.frontmatter-copy:hover,
-.frontmatter-toggle:hover,
-.frontmatter-copy:focus-visible,
-.frontmatter-toggle:focus-visible {
-	border-color: var(--brand-border);
-	background: var(--brand-muted);
-	color: var(--text-primary);
-	outline: none;
-}
-
-.frontmatter-copy:active,
-.frontmatter-toggle:active {
-	transform: translateY(1px);
-}
-
-.frontmatter-grid {
-	display: grid;
-	gap: 0;
-	margin: 14px 0 0;
-	border-top: 1px solid color-mix(in srgb, var(--border-subtle) 72%, transparent);
-	font-size: 12px;
-}
-
-.frontmatter-row {
-	display: grid;
-	grid-template-columns: minmax(7rem, 0.32fr) minmax(0, 1fr);
-	gap: 16px;
-	padding: 8px 0;
-	border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 46%, transparent);
-}
-
-.frontmatter-row dt {
-	min-width: 0;
-	color: var(--text-tertiary);
-	font-family: var(--font-mono, monospace);
-	font-size: 11px;
-	line-height: 1.5;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.frontmatter-row dd {
-	min-width: 0;
-	margin: 0;
-	color: var(--text-secondary);
-	line-height: 1.5;
-	overflow-wrap: anywhere;
-}
-
-.frontmatter-footer {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 10px;
-	margin-top: 10px;
+	width: 26px;
+	padding: 0;
 }
 
 .frontmatter-toggle {
-	min-height: 32px;
-	gap: 6px;
-	padding: 0 9px;
+	gap: 4px;
+	padding: 0 7px;
 	font-size: 11px;
-	font-weight: 500;
+	font-weight: 550;
 }
 
 .frontmatter-toggle :global(svg) {
 	transition: transform 140ms ease;
 }
 
-.frontmatter-details {
-	margin-left: auto;
-	font-size: 11px;
-}
-
-.frontmatter-details summary {
-	min-height: 32px;
-	padding: 7px 0;
-	color: var(--text-tertiary);
-	cursor: pointer;
-	list-style: none;
-}
-
-.frontmatter-details summary::-webkit-details-marker {
-	display: none;
-}
-
-.frontmatter-details summary:hover,
-.frontmatter-details summary:focus-visible {
+.frontmatter-action:hover,
+.frontmatter-action:focus-visible {
+	border-color: var(--brand-border);
+	background: var(--brand-muted);
 	color: var(--text-primary);
 	outline: none;
 }
 
-.frontmatter-details pre,
-.frontmatter-raw {
-	max-height: 15rem;
-	margin: 8px 0 0;
-	padding: 10px 12px;
-	border: 1px solid var(--border-subtle);
-	border-radius: 0.55rem;
-	background: var(--bg-code);
-	color: var(--text-reading);
-	font-family: var(--font-mono, monospace);
-	font-size: 11px;
-	line-height: 1.55;
-	overflow: auto;
-	white-space: pre-wrap;
+.frontmatter-action:active {
+	transform: translateY(1px);
 }
 
-@container (max-width: 520px) {
+.frontmatter-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 2px 16px;
+	margin: 8px 0 0;
+	font-size: 12px;
+}
+
+.frontmatter-item {
+	display: grid;
+	grid-template-columns: minmax(4.75rem, 0.42fr) minmax(0, 1fr);
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+	padding: 3px 0;
+}
+
+.frontmatter-item dt {
+	min-width: 0;
+	color: var(--text-tertiary);
+	font-family: var(--font-mono, monospace);
+	font-size: 11px;
+	line-height: 1.45;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.frontmatter-item dd {
+	min-width: 0;
+	margin: 0;
+	color: var(--text-secondary);
+	line-height: 1.45;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+@container (max-width: 560px) {
 	.frontmatter-panel {
-		padding: 14px 16px 0;
+		padding: 10px 16px 0;
 	}
 
-	.frontmatter-panel::before {
-		inset-inline: 16px;
-		top: 14px;
-	}
-
-	.frontmatter-header {
-		padding-top: 14px;
-	}
-
-	.frontmatter-row {
+	.frontmatter-grid {
 		grid-template-columns: 1fr;
-		gap: 2px;
-		padding: 9px 0;
+		gap: 1px;
 	}
 
-	.frontmatter-row dt {
-		font-size: 10px;
+	.frontmatter-item {
+		grid-template-columns: 1fr;
+		gap: 1px;
+		padding: 4px 0;
 	}
 
-	.frontmatter-footer {
-		align-items: stretch;
-		flex-wrap: wrap;
-	}
-
-	.frontmatter-toggle {
-		min-height: 40px;
-	}
-
-	.frontmatter-details {
-		margin-left: 0;
-	}
-
-	.frontmatter-details summary {
-		min-height: 40px;
+	.frontmatter-item dd {
+		white-space: normal;
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.frontmatter-copy,
-	.frontmatter-toggle,
+	.frontmatter-action,
 	.frontmatter-toggle :global(svg) {
 		transition: none;
 	}
