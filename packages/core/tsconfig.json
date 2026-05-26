@@ -9,6 +9,7 @@
       "@cohub/db/schema": ["../db/src/index.ts"],
       "@cohub/db/schema-v2": ["../db/src/schema-v2.ts"],
       "@cohub/protocol/core": ["../protocol/src/core/index.ts"],
+      "@cohub/protocol/generation": ["../protocol/src/generation/index.ts"],
       "@cohub/sandbox-controller": ["../sandbox-controller/src/index.ts"]
     }
   },

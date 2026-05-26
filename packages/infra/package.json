@@ -32,6 +32,10 @@
       "types": "./dist/config-runtime/generations.d.ts",
       "default": "./dist/config-runtime/generations.js"
     },
+    "./config-runtime/generation-declarations": {
+      "types": "./dist/config-runtime/generation-declarations.d.ts",
+      "default": "./dist/config-runtime/generation-declarations.js"
+    },
     "./config-runtime/prompts": {
       "types": "./dist/config-runtime/prompts.d.ts",
       "default": "./dist/config-runtime/prompts.js"

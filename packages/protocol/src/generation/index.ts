@@ -11,33 +11,6 @@ export type GenerationContentBlock =
   | { type: "video"; source: GenerationSource; _meta?: GenerationContentBlockMeta }
   | { type: "audio"; source: GenerationSource; _meta?: GenerationContentBlockMeta };
 
-export type CreateGenerationRequest = {
-  model: string;
-  content: GenerationContentBlock[];
-  parameters?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-};
-
-export type GenerationStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
-
-export type Generation = {
-  id: string;
-  status: GenerationStatus;
-  model: string;
-  input: GenerationContentBlock[];
-  output?: GenerationContentBlock[];
-  parameters?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  error?: {
-    code?: string;
-    message: string;
-    raw?: unknown;
-  };
-  created_at: string;
-  updated_at: string;
-  completed_at?: string;
-};
-
 export type GenerationContentSpec = {
   type: "text" | "image" | "video" | "audio";
   required?: boolean;
@@ -84,6 +57,37 @@ export type GenerationParameterSpec =
       examples?: boolean[];
     };
 
+export const GENERATION_TASK_TYPE = "generation" as const;
+
+export type CreateGenerationTaskRequest = {
+  spaceId: string;
+  model: string;
+  content: GenerationContentBlock[];
+  parameters?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type CreateGenerationTaskResponse = {
+  taskRunId: string;
+  taskType: typeof GENERATION_TASK_TYPE;
+  status: "pending";
+};
+
+export type GenerationTaskData = {
+  model: string;
+  content: GenerationContentBlock[];
+  parameters?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type GenerationTaskResult = {
+  model: string;
+  output: GenerationContentBlock[];
+  metadata?: Record<string, unknown>;
+};
+
+export type GenerationExampleRequest = Omit<CreateGenerationTaskRequest, "spaceId">;
+
 export type GenerationDeclaration = {
   schema: "cohub.generation.v1";
   model: string;
@@ -100,7 +104,7 @@ export type GenerationDeclaration = {
   parameters?: Record<string, GenerationParameterSpec>;
   examples?: Array<{
     title?: string;
-    request: CreateGenerationRequest;
+    request: GenerationExampleRequest;
   }>;
 };
 

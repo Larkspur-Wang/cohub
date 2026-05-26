@@ -70,6 +70,12 @@
       "@cohub/infra/config-runtime/generations": [
         "../../packages/infra/src/config-runtime/generations.ts"
       ],
+      "@cohub/infra/config-runtime/generation-declarations": [
+        "../../packages/infra/src/config-runtime/generation-declarations.ts"
+      ],
+      "@cohub/core/generations": [
+        "../../packages/core/src/generations/index.ts"
+      ],
       "@cohub/infra/config-runtime/explore": [
         "../../packages/infra/src/config-runtime/explore.ts"
       ],

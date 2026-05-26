@@ -5,6 +5,7 @@ import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { cronJobs, taskRuns } from "@cohub/db";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol/task";
+import { GENERATION_TASK_TYPE } from "@cohub/protocol/generation";
 
 type TaskEnqueueOptions = Omit<JobsOptions, "scheduledAt"> & { scheduledAt?: Date | null };
 
@@ -15,7 +16,7 @@ export const taskQueue = createBullmqQueue(QUEUE_NAME, {
   telemetryServiceName: "cohub-api",
 });
 
-export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space", "run_command"]);
+export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_checkpoint", "create_space", "run_command", GENERATION_TASK_TYPE]);
 
 export const enqueueTask = async (
   payload: TaskPayload,
@@ -29,18 +30,23 @@ export const enqueueTask = async (
     jobId: taskRunId,
   });
 
-  await db.insert(taskRuns).values({
-    id: taskRunId,
-    jobId: taskRunId,
-    taskType: payload.type,
-    spaceId: payload.spaceId ?? null,
-    sessionId: payload.sessionId ?? null,
-    userUuid: payload.userId ?? null,
-    cronJobId: payload.cronJobId ?? null,
-    status: "pending",
-    payload,
-    scheduledAt: scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null),
-  });
+  try {
+    await db.insert(taskRuns).values({
+      id: taskRunId,
+      jobId: taskRunId,
+      taskType: payload.type,
+      spaceId: payload.spaceId ?? null,
+      sessionId: payload.sessionId ?? null,
+      userUuid: payload.userId ?? null,
+      cronJobId: payload.cronJobId ?? null,
+      status: "pending",
+      payload,
+      scheduledAt: scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null),
+    });
+  } catch (error) {
+    await job.remove().catch(() => undefined);
+    throw error;
+  }
 
   return { job, taskRunId };
 };

@@ -1,7 +1,6 @@
 import type { GenerationContentBlock } from "@cohub/protocol/generation";
-import { resolveDeclarationApiKey } from "../declarations.js";
+import { resolveDeclarationApiKey } from "../api-key.js";
 import { GenerationProviderError } from "../errors.js";
-import { resolveSourceAsUrlOrDataUri } from "../sources.js";
 import { mergeTextBlocks } from "../validation.js";
 import type { GenerationAdapterInput } from "./index.js";
 
@@ -31,7 +30,7 @@ export async function openAiImagesAdapter(input: GenerationAdapterInput): Promis
   const images = await Promise.all(
     input.request.content
       .filter((block): block is Extract<GenerationContentBlock, { type: "image" }> => block.type === "image")
-      .map((block) => resolveSourceAsUrlOrDataUri(block.source, input.user)),
+      .map((block) => input.resolveSource(block.source, input.user)),
   );
 
   const payload: Record<string, unknown> = {

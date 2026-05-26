@@ -1,13 +1,27 @@
-import type { CreateGenerationRequest, GenerationContentBlock, GenerationDeclaration } from "@cohub/protocol/generation";
-import type { AuthUser } from "../../lib/middleware.js";
+import type {
+  CreateGenerationTaskRequest,
+  GenerationContentBlock,
+  GenerationDeclaration,
+  GenerationSource,
+} from "@cohub/protocol/generation";
 import { geminiGenerateContentAdapter } from "./gemini-generate-content.js";
 import { openAiImagesAdapter } from "./openai-images.js";
 
+export type GenerationUserContext = {
+  uuid: string;
+};
+
+export type GenerationSourceResolver = (
+  source: GenerationSource,
+  user: GenerationUserContext,
+) => Promise<string>;
+
 export type GenerationAdapterInput = {
   declaration: GenerationDeclaration;
-  user: AuthUser;
-  request: CreateGenerationRequest;
+  user: GenerationUserContext;
+  request: CreateGenerationTaskRequest;
   parameters: Record<string, unknown>;
+  resolveSource: GenerationSourceResolver;
 };
 
 export type GenerationAdapter = (input: GenerationAdapterInput) => Promise<GenerationContentBlock[]>;

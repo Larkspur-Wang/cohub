@@ -1,14 +1,10 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
+import type { GenerationContentBlock } from "@neta-art/cohub";
 import { createClient } from "../client.js";
-import { json as outJson, jsonRequested, ok, handleHttp } from "../output.js";
-
-type GenerationContentBlock =
-  | { type: "text"; text: string; _meta?: Record<string, unknown> }
-  | { type: "image"; source: GenerationSource; _meta?: Record<string, unknown> }
-  | { type: "video"; source: GenerationSource; _meta?: Record<string, unknown> }
-  | { type: "audio"; source: GenerationSource; _meta?: Record<string, unknown> };
+import { resolveSpace } from "../space.js";
+import { json as outJson, jsonRequested, ok, handleHttp, spinner } from "../output.js";
 
 type GenerationSource =
   | { type: "url"; url: string }
@@ -80,7 +76,7 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
       continue;
     }
 
-    const source = block.source;
+    const source = block.source as GenerationSource;
     const target = isDir ? join(outputPath, outputName(block.type, source.type === "url" ? source.url : undefined, i)) : outputPath;
     if (source.type === "url") {
       const response = await fetch(source.url);
@@ -113,26 +109,36 @@ function printGeneration(output: GenerationContentBlock[]): void {
   }
 }
 
+function parseTimeoutMs(value?: string): number | undefined {
+  if (!value) return undefined;
+  const timeoutMs = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("--timeout-ms must be a positive integer");
+  return timeoutMs;
+}
+
 export function registerGenerations(program: Command): void {
   program
     .command("generate")
     .description("Generate multimodal outputs")
     .argument("<prompt>", "Prompt text")
-    .requiredOption("--model <model>", "Multimodal model ID from `cohub models ls --model-type multimodal`")
+    .requiredOption("-m, --model <model>", "Multimodal model ID from `cohub models ls --model-type multimodal`")
     .option("--image <path-or-url>", "Image input file path or URL; repeatable", collect, [])
     .option("--video <path-or-url>", "Video input file path or URL; repeatable", collect, [])
     .option("--audio <path-or-url>", "Audio input file path or URL; repeatable", collect, [])
     .option("--param <key=value>", "Generation parameter; repeatable, values may be JSON/number/boolean", collect, [])
     .option("--parameters <json>", "Generation parameters as a JSON object")
     .option("--metadata <json>", "Metadata as a JSON object")
-    .option("--output <path>", "Save generated output to a file or directory")
+    .option("-o, --output <path>", "Save generated output to a file or directory")
+    .option("--async", "Queue the generation task and return immediately")
+    .option("--timeout-ms <ms>", "Maximum time to wait in synchronous mode")
     .option("--json", "Output as JSON")
     .addHelpText("after", `
 
 Examples:
   cohub models ls --model-type multimodal
-  cohub generate "A calm lake at sunrise" --model <model> --output lake.png
-  cohub generate "Restyle this image" --model <model> --image input.png --param size=1024x1024
+  cohub -s <space-id> generate "A calm lake at sunrise" -m <model> -o lake.png
+  COHUB_SPACE_ID=<space-id> cohub generate "Restyle this image" -m <model> --image input.png
+  cohub -s <space-id> generate "A calm lake" -m <model> --async
 `)
     .action(async (prompt: string, opts: {
       model: string;
@@ -143,28 +149,46 @@ Examples:
       parameters?: string;
       metadata?: string;
       output?: string;
+      async?: boolean;
+      timeoutMs?: string;
       json?: boolean;
     }) => {
       try {
+        const spaceId = resolveSpace(program);
         const content: GenerationContentBlock[] = [{ type: "text", text: prompt }];
         content.push(...await Promise.all(opts.image.map((value) => contentFromPathOrUrl("image", value))));
         content.push(...await Promise.all(opts.video.map((value) => contentFromPathOrUrl("video", value))));
         content.push(...await Promise.all(opts.audio.map((value) => contentFromPathOrUrl("audio", value))));
-        const generation = await createClient().generations.create({
+
+        const client = createClient();
+        const created = await client.generations.create({
+          spaceId,
           model: opts.model,
           content,
           parameters: parseParams(opts.param, opts.parameters),
           metadata: opts.metadata ? JSON.parse(opts.metadata) as Record<string, unknown> : undefined,
         });
-        const savedPaths = opts.output && generation.output ? await saveOutputs(generation.output, opts.output) : [];
-        if (jsonRequested(opts)) return outJson(savedPaths.length > 0 ? { ...generation, savedPaths } : generation);
-        printGeneration(generation.output ?? []);
+
+        if (opts.async) {
+          if (jsonRequested(opts)) return outJson(created);
+          return ok(`Generation queued — taskRunId: ${created.taskRunId}`);
+        }
+
+        const spin = spinner();
+        if (!jsonRequested(opts)) spin.start("Generating");
+        const result = await client.generations.wait(created.taskRunId, {
+          timeoutMs: parseTimeoutMs(opts.timeoutMs),
+        });
+        if (!jsonRequested(opts)) spin.stop("Generation completed");
+
+        const savedPaths = opts.output ? await saveOutputs(result.output, opts.output) : [];
+        if (jsonRequested(opts)) return outJson(savedPaths.length > 0 ? { ...result, taskRunId: created.taskRunId, savedPaths } : { ...result, taskRunId: created.taskRunId });
+        printGeneration(result.output);
         if (savedPaths.length > 0) ok(`Saved to ${savedPaths.join(", ")}`);
       } catch (e: unknown) {
         handleHttp(e);
       }
     });
-
 }
 
 function collect(value: string, previous: string[]): string[] {

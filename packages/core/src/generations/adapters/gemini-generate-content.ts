@@ -1,7 +1,6 @@
 import type { GenerationContentBlock } from "@cohub/protocol/generation";
-import { resolveDeclarationApiKey } from "../declarations.js";
+import { resolveDeclarationApiKey } from "../api-key.js";
 import { GenerationProviderError } from "../errors.js";
-import { resolveSourceAsUrlOrDataUri } from "../sources.js";
 import { mergeTextBlocks } from "../validation.js";
 import type { GenerationAdapterInput } from "./index.js";
 
@@ -136,7 +135,7 @@ export async function geminiGenerateContentAdapter(input: GenerationAdapterInput
   const imageParts = await Promise.all(
     input.request.content
       .filter((block): block is Extract<GenerationContentBlock, { type: "image" }> => block.type === "image")
-      .map(async (block) => sourceToInlineData(await resolveSourceAsUrlOrDataUri(block.source, input.user))),
+      .map(async (block) => sourceToInlineData(await input.resolveSource(block.source, input.user))),
   );
 
   const generationConfig: Record<string, unknown> = {

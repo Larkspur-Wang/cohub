@@ -46,6 +46,15 @@
       "@cohub/infra/config-runtime/generations": [
         "../../packages/infra/src/config-runtime/generations.ts"
       ],
+      "@cohub/infra/config-runtime/generation-declarations": [
+        "../../packages/infra/src/config-runtime/generation-declarations.ts"
+      ],
+      "@cohub/core/generations": [
+        "../../packages/core/src/generations/index.ts"
+      ],
+      "@cohub/protocol/generation": [
+        "../../packages/protocol/src/generation/index.ts"
+      ],
       "@cohub/infra/config-runtime/prompts": [
         "../../packages/infra/src/config-runtime/prompts.ts"
       ],

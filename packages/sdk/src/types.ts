@@ -14,10 +14,12 @@ import type {
   Usage,
 } from "@cohub/protocol/core";
 import type {
-  Generation,
+  CreateGenerationTaskRequest,
+  CreateGenerationTaskResponse,
+  GenerationContentBlock,
+  GenerationTaskResult,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
-  CreateGenerationRequest,
 } from "@cohub/protocol/generation";
 import type { MessageRecord } from "@cohub/protocol/model";
 
@@ -131,10 +133,12 @@ export type {
   SessionTurnIndexItem,
   SessionForkRecord,
   SessionTurnSegmentRecord,
-  Generation,
+  CreateGenerationTaskRequest,
+  CreateGenerationTaskResponse,
+  GenerationContentBlock,
+  GenerationTaskResult,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
-  CreateGenerationRequest,
 };
 
 export type SpaceFsEntry = {
