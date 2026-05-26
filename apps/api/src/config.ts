@@ -7,6 +7,9 @@ export type AppConfig = {
   webOrigin?: string;
   redisUrl: string;
   litellmApiKey?: string;
+  talesofaiBillingBaseUrl?: string;
+  talesofaiBillingBusinessKey?: string;
+  talesofaiBillingAdminApiKey?: string;
   env: "dev" | "prod";
   giteaManagedEmailDomain: string;
   appEncryptionKey: string;
@@ -57,6 +60,9 @@ export const config: AppConfig = {
   webOrigin: process.env.WEB_ORIGIN,
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   litellmApiKey: process.env.LITELLM_API_KEY,
+  talesofaiBillingBaseUrl: process.env.TALESOFAI_BILLING_BASE_URL?.replace(/\/+$/, ""),
+  talesofaiBillingBusinessKey: process.env.TALESOFAI_BILLING_BUSINESS_KEY,
+  talesofaiBillingAdminApiKey: process.env.TALESOFAI_BILLING_ADMIN_API_KEY,
   env,
   giteaManagedEmailDomain: process.env.GITEA_MANAGED_EMAIL_DOMAIN ?? "cohub.local",
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
