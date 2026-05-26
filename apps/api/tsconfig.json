@@ -31,6 +31,9 @@
       "@cohub/protocol/fs": [
         "../../packages/protocol/src/fs/index.ts"
       ],
+      "@cohub/protocol/generation": [
+        "../../packages/protocol/src/generation/index.ts"
+      ],
       "@cohub/protocol/ports": [
         "../../packages/protocol/src/ports/index.ts"
       ],

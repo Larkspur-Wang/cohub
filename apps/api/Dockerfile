@@ -29,8 +29,21 @@ COPY packages/db/tsconfig.build.json ./packages/db/tsconfig.build.json
 COPY apps/api/package.json ./apps/api/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  --mount=type=secret,id=gitea_npm_token \
+  GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
+  export GITEA_NPM_TOKEN && \
+  if [ -z "$GITEA_NPM_TOKEN" ]; then \
+    echo "Missing required build secret: gitea_npm_token"; \
+    exit 1; \
+  fi && \
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc; \
+  fi && \
   pnpm config set store-dir /pnpm/store && \
-  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api...
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/api... && \
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc; \
+  fi
 
 COPY packages/identity ./packages/identity
 COPY packages/core ./packages/core
@@ -43,7 +56,17 @@ COPY apps/api/tsconfig.json apps/api/tsconfig.build.json ./apps/api/
 COPY apps/api/drizzle ./apps/api/drizzle
 
 RUN pnpm --filter @cohub/api... build
-RUN pnpm --filter @cohub/api --prod deploy /prod/api
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  --mount=type=secret,id=gitea_npm_token \
+  GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
+  export GITEA_NPM_TOKEN && \
+  if [ -z "$GITEA_NPM_TOKEN" ]; then \
+    echo "Missing required build secret: gitea_npm_token"; \
+    exit 1; \
+  fi && \
+  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
+  pnpm --filter @cohub/api --prod deploy /prod/api && \
+  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
 
 FROM node:24-slim AS runtime
 ENV NODE_ENV=production

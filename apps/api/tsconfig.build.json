@@ -16,6 +16,9 @@
       "@cohub/protocol/sandbox": [
         "../../packages/protocol/dist/sandbox/index.d.ts"
       ],
+      "@cohub/protocol/generation": [
+        "../../packages/protocol/dist/generation/index.d.ts"
+      ],
       "@cohub/infra/tracing": [
         "../../packages/infra/dist/tracing/index.d.ts"
       ],

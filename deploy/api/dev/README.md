@@ -33,9 +33,14 @@ vim secrets.yaml
 - `PUBLIC_ASSET_OSS_ACCESS_KEY_ID` / `PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY` - 公开资产 OSS 写入凭证（用于用户 / Space 头像上传）
 - `LOGTO_M2M_APP_ID` / `LOGTO_M2M_APP_SECRET` - Logto M2M 应用凭证
 
+可选字段：
+- `TALESOFAI_BILLING_BASE_URL` / `TALESOFAI_BILLING_BUSINESS_KEY` / `TALESOFAI_BILLING_ADMIN_API_KEY` - Talesofai Billing 插件配置，三项全部非空时启用；任意一项留空时禁用。Dev billing 地址通常是 `https://dev-billing.neta.art/v1`。
+
 同时请确认 `values.yaml` 中已填写：
 - `GITEA_MANAGED_EMAIL_DOMAIN` - 托管 Gitea 影子账号使用的邮箱域名后缀
 - `PUBLIC_ASSET_OSS_ENDPOINT` / `PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT` / `PUBLIC_ASSET_OSS_REGION` / `PUBLIC_ASSET_OSS_BUCKET` / `PUBLIC_ASSET_CDN_BASE_URL` - 公开资产上传与访问配置
+
+CI 构建还需要配置 `GITEA_NPM_TOKEN` secret。该 token 只在构建期用于读取 `git.talesofai.com/api/packages/talesofai/npm/` 中的私有 npm 包，不是 API 运行时 secret。
 
 ### 2. 运行数据库迁移
 
