@@ -19,6 +19,9 @@ function requireSpace(program: Command): string {
 
 type ModOptions = {
   json?: boolean;
+  name?: string;
+  slug?: string;
+  yes?: boolean;
 };
 
 type PromptOptions = {
@@ -152,6 +155,19 @@ async function uploadFiles(command: Command, paths: string[], opts: UploadOption
   } catch (e: unknown) {
     handleHttp(e);
   }
+}
+
+async function confirmRestart(opts: { yes?: boolean }): Promise<void> {
+  if (opts.yes) return;
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return error("Confirmation required", "Pass --yes to restart the sandbox automatically.");
+  process.stdout.write("Changing mods restarts the sandbox and may interrupt running work. Continue? [y/N] ");
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+    break;
+  }
+  const answer = Buffer.concat(chunks).toString().trim().toLowerCase();
+  if (answer !== "y" && answer !== "yes") return error("Cancelled");
 }
 
 async function readPromptContent(words: string[]): Promise<string> {
@@ -429,7 +445,7 @@ function registerMods(spacesCmd: Command): void {
         table(result.items, [
           { key: "id", label: "ID" },
           { key: "modSpaceName", label: "Name" },
-          { key: "modSpaceId", label: "Space" },
+          { key: "mountPath", label: "Mount" },
           { key: "enabled", label: "On" },
         ]);
       } catch (e: unknown) {
@@ -440,14 +456,18 @@ function registerMods(spacesCmd: Command): void {
   modsCmd
     .command("add <modSpaceId>")
     .description("Add a mod")
+    .option("--name <name>", "Display name")
+    .option("--slug <slug>", "Mount slug")
+    .option("-y, --yes", "Confirm sandbox restart")
     .option("--json", "Output as JSON")
     .action(async (modSpaceId: string, opts: ModOptions) => {
+      await confirmRestart(opts);
       const spaceId = requireSpace(spacesCmd);
       const client = createClient();
       try {
-        const result = await client.space(spaceId).mods.create({ modSpaceId });
+        const result = await client.space(spaceId).mods.create({ modSpaceId, name: opts.name, mountSlug: opts.slug });
         if (opts.json) return outJson(result);
-        ok("Mod added");
+        ok(`Mod added — ${result.item.mountPath}; sandbox restarting`);
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -456,14 +476,16 @@ function registerMods(spacesCmd: Command): void {
   modsCmd
     .command("enable <modId>")
     .description("Enable a mod")
+    .option("-y, --yes", "Confirm sandbox restart")
     .option("--json", "Output as JSON")
     .action(async (modId: string, opts: ModOptions) => {
+      await confirmRestart(opts);
       const spaceId = requireSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.update(modId, { enabled: true });
         if (opts.json) return outJson(result);
-        ok("Mod enabled");
+        ok("Mod enabled; sandbox restarting");
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -472,14 +494,16 @@ function registerMods(spacesCmd: Command): void {
   modsCmd
     .command("disable <modId>")
     .description("Disable a mod")
+    .option("-y, --yes", "Confirm sandbox restart")
     .option("--json", "Output as JSON")
     .action(async (modId: string, opts: ModOptions) => {
+      await confirmRestart(opts);
       const spaceId = requireSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.update(modId, { enabled: false });
         if (opts.json) return outJson(result);
-        ok("Mod disabled");
+        ok("Mod disabled; sandbox restarting");
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -489,14 +513,16 @@ function registerMods(spacesCmd: Command): void {
     .command("rm <modId>")
     .alias("remove")
     .description("Remove a mod")
+    .option("-y, --yes", "Confirm sandbox restart")
     .option("--json", "Output as JSON")
     .action(async (modId: string, opts: ModOptions) => {
+      await confirmRestart(opts);
       const spaceId = requireSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.remove(modId);
         if (opts.json) return outJson(result);
-        ok("Mod removed");
+        ok("Mod removed; sandbox restarting");
       } catch (e: unknown) {
         handleHttp(e);
       }

@@ -147,6 +147,8 @@ export const spaceMods = v2.table(
     id: uuid("id").primaryKey().defaultRandom(),
     spaceId: uuid("space_id").notNull(),
     modSpaceId: uuid("mod_space_id").notNull(),
+    name: varchar("name", { length: 255 }),
+    mountSlug: varchar("mount_slug", { length: 64 }).notNull(),
     enabled: boolean("enabled").notNull().default(true),
     sortOrder: integer("sort_order").notNull().default(0),
     createdBy: varchar("created_by", { length: 255 }).notNull(),
@@ -159,6 +161,10 @@ export const spaceMods = v2.table(
     spaceModUniqueIdx: uniqueIndex("v2_uq_space_mods_space_mod").on(
       table.spaceId,
       table.modSpaceId,
+    ),
+    spaceMountSlugUniqueIdx: uniqueIndex("v2_uq_space_mods_space_mount_slug").on(
+      table.spaceId,
+      table.mountSlug,
     ),
   }),
 );

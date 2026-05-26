@@ -5,7 +5,7 @@ import { spaceMods } from "@cohub/db";
 import { db } from "../../db/index.js";
 import { getOptionalAuth, requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
-import { createSpaceMod, spaceModErrorResponse } from "../../space-mods.js";
+import { createSpaceMod, getSpaceModUniqueViolationMessage, normalizeSpaceModName, parseSpaceModMountSlug, restartSandboxForMods, spaceModErrorResponse } from "../../space-mods.js";
 
 const router = new Hono();
 
@@ -27,12 +27,13 @@ router.post("/", async (c) => {
   if (!spaceId) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ modSpaceId?: string; enabled?: boolean }>().catch(() => null);
+  const body = await c.req.json<{ modSpaceId?: string; name?: string | null; mountSlug?: string | null }>().catch(() => null);
   try {
     const result = await createSpaceMod({
       actor: user,
       spaceId,
-      mod: { modSpaceId: body?.modSpaceId ?? "", enabled: body?.enabled },
+      mod: { modSpaceId: body?.modSpaceId ?? "", name: body?.name, mountSlug: body?.mountSlug },
+      restartSandbox: true,
     });
     return c.json(result, 201);
   } catch (error) {
@@ -65,7 +66,8 @@ router.post("/reorder", async (c) => {
     }
   });
 
-  return c.json({ items: await listSpaceMods(db, spaceId) });
+  await restartSandboxForMods(spaceId);
+  return c.json({ items: await listSpaceMods(db, spaceId), sandboxRestarting: true });
 });
 
 router.patch("/:modId", async (c) => {
@@ -75,16 +77,29 @@ router.patch("/:modId", async (c) => {
   if (!spaceId || !modId) return c.json({ message: "not found" }, 404);
   if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
 
-  const body = await c.req.json<{ enabled?: boolean; sortOrder?: number }>().catch(() => null);
+  const body = await c.req.json<{ name?: string | null; mountSlug?: string; enabled?: boolean; sortOrder?: number }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
   const patch: Partial<typeof spaceMods.$inferInsert> = { updatedAt: new Date() };
+  if ("name" in body) patch.name = normalizeSpaceModName(body.name);
+  if (typeof body.mountSlug === "string") {
+    const slug = parseSpaceModMountSlug(body.mountSlug);
+    if (!slug.ok) return c.json({ message: slug.message }, 400);
+    patch.mountSlug = slug.value ?? undefined;
+  }
   if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
   if (Number.isInteger(body.sortOrder)) patch.sortOrder = Math.max(0, body.sortOrder ?? 0);
 
-  const [updated] = await db.update(spaceMods).set(patch).where(and(eq(spaceMods.id, modId), eq(spaceMods.spaceId, spaceId))).returning();
-  if (!updated) return c.json({ message: "mod not found" }, 404);
+  try {
+    const [updated] = await db.update(spaceMods).set(patch).where(and(eq(spaceMods.id, modId), eq(spaceMods.spaceId, spaceId))).returning();
+    if (!updated) return c.json({ message: "mod not found" }, 404);
 
-  return c.json({ item: (await listSpaceMods(db, spaceId)).find((mod) => mod.id === modId) });
+    await restartSandboxForMods(spaceId);
+    return c.json({ item: (await listSpaceMods(db, spaceId)).find((mod) => mod.id === modId), sandboxRestarting: true });
+  } catch (error) {
+    const message = getSpaceModUniqueViolationMessage(error);
+    if (message) return c.json({ message }, 409);
+    throw error;
+  }
 });
 
 router.delete("/:modId", async (c) => {
@@ -97,7 +112,8 @@ router.delete("/:modId", async (c) => {
   const [deleted] = await db.delete(spaceMods).where(and(eq(spaceMods.id, modId), eq(spaceMods.spaceId, spaceId))).returning();
   if (!deleted) return c.json({ message: "mod not found" }, 404);
 
-  return c.json({ ok: true });
+  await restartSandboxForMods(spaceId);
+  return c.json({ ok: true, sandboxRestarting: true });
 });
 
 export default router;

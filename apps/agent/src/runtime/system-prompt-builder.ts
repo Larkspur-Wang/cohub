@@ -22,7 +22,6 @@ const FALLBACK_SYSTEM_PROMPT = "You are a helpful assistant.";
 type LoadedContextFile = {
   sandboxPath: string;
   content: string;
-  spaceId?: string | null;
 };
 
 type LoadedSkill = {
@@ -33,7 +32,6 @@ type LoadedSkill = {
   baseDir: string;
   sandboxBaseDir: string;
   content: string;
-  spaceId?: string | null;
 };
 
 export type BuildCohubSystemPromptOptions = {
@@ -86,14 +84,13 @@ async function loadFirstExisting(paths: string[]): Promise<string | undefined> {
   return undefined;
 }
 
-async function loadContextFilesFromRoot(root: string, sandboxRoot: string, spaceId?: string | null): Promise<LoadedContextFile[]> {
+async function loadContextFilesFromRoot(root: string, sandboxRoot: string): Promise<LoadedContextFile[]> {
   const files: LoadedContextFile[] = [];
   const agentsContent = await readTextIfExists(join(root, "AGENTS.md"));
   if (agentsContent) {
     files.push({
       sandboxPath: `${sandboxRoot}/AGENTS.md`,
       content: agentsContent,
-      spaceId: spaceId ?? null,
     });
   }
 
@@ -102,7 +99,6 @@ async function loadContextFilesFromRoot(root: string, sandboxRoot: string, space
     files.push({
       sandboxPath: `${sandboxRoot}/CLAUDE.md`,
       content: claudeContent,
-      spaceId: spaceId ?? null,
     });
   }
 
@@ -112,7 +108,6 @@ async function loadContextFilesFromRoot(root: string, sandboxRoot: string, space
 async function loadSkillsFromDir(input: {
   agentDir: string;
   sandboxDir: string;
-  spaceId?: string | null;
 }): Promise<LoadedSkill[]> {
   if (!(await pathExists(input.agentDir))) return [];
 
@@ -151,7 +146,6 @@ async function loadSkillsFromDir(input: {
           baseDir: full,
           sandboxBaseDir: `${input.sandboxDir}/${relativeDir}`,
           content,
-          spaceId: input.spaceId ?? null,
         });
         continue;
       }
@@ -167,8 +161,7 @@ async function loadSkillsFromDir(input: {
 async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: SpaceModListItem[] = []): Promise<LoadedSkill[]> {
   const modSkillGroups = await Promise.all(spaceMods.map((mod) => loadSkillsFromDir({
     agentDir: join(getAgentWorkspacePath(mod.modSpaceId), ".agents", "skills"),
-    sandboxDir: SANDBOX_WORKSPACE_SKILLS_PATH,
-    spaceId: mod.modSpaceId,
+    sandboxDir: `${mod.mountPath}/.agents/skills`,
   })));
 
   const [platformSkills, userSkills, workspaceSkills] = await Promise.all([
@@ -203,15 +196,13 @@ function formatSkillsForPrompt(skills: LoadedSkill[]): string {
 
   let out = "The following skills provide specialized instructions for specific tasks.\n";
   out += "Use the read tool to load a skill's file when the task matches its description.\n";
-  out += "When a skill includes space_id, pass it to read/ls/find/grep.\n";
-  out += "When a skill file references a relative path, resolve it against the skill directory and keep the same space_id.\n\n";
+  out += "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.\n\n";
   out += "<available_skills>\n";
   for (const skill of skills) {
     out += "  <skill>\n";
     out += `    <name>${skill.name}</name>\n`;
     out += `    <description>${skill.description}</description>\n`;
     out += `    <location>${skill.sandboxFilePath}</location>\n`;
-    if (skill.spaceId) out += `    <space_id>${skill.spaceId}</space_id>\n`;
     out += "  </skill>\n";
   }
   out += "</available_skills>";
@@ -245,7 +236,7 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
 
   const [userContextFiles, modContextGroups, projectContextFiles, skills] = await Promise.all([
     userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : Promise.resolve([]),
-    Promise.all(spaceMods.map((mod) => loadContextFilesFromRoot(getAgentWorkspacePath(mod.modSpaceId), SANDBOX_WORKSPACE_PATH, mod.modSpaceId))),
+    Promise.all(spaceMods.map((mod) => loadContextFilesFromRoot(getAgentWorkspacePath(mod.modSpaceId), mod.mountPath))),
     loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH),
     selectedTools.includes("read") ? loadMergedSkills(cwd, userId, spaceMods) : Promise.resolve([]),
   ]);
@@ -262,12 +253,12 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
 
   const modContextFiles = modContextGroups.flat();
   if (spaceMods.length > 0 || modContextFiles.length > 0) {
-    let modContext = "# Mods\n\nMods provide additional read-only instructions and files from other spaces. Each item is \"name: space_id\".";
+    let modContext = '# Mods\n\nMods are additional read-only resources mounted under /mods. Each list item is "name: path". Instruction priority: platform < mods < user < workspace.';
     for (const mod of spaceMods) {
-      modContext += `\n- ${mod.modSpaceName ?? mod.modSpaceId}: ${mod.modSpaceId}`;
+      modContext += `\n- ${mod.name ?? mod.modSpaceName ?? mod.modSpaceId}: ${mod.mountPath}`;
     }
     for (const file of modContextFiles) {
-      modContext += `\n\n## ${file.sandboxPath}${file.spaceId ? ` (${file.spaceId})` : ""}\n\n${file.content}`;
+      modContext += `\n\n## ${file.sandboxPath}\n\n${file.content}`;
     }
     sections.push(modContext);
   }

@@ -263,6 +263,8 @@ export type SpaceConfigInput = {
 
 export type CreateSpaceModInput = {
   modSpaceId: string;
+  name?: string | null;
+  mountSlug?: string | null;
   enabled?: boolean;
 };
 
@@ -605,6 +607,9 @@ export type SpaceModListItem = {
   id: string;
   spaceId: string;
   modSpaceId: string;
+  name: string | null;
+  mountSlug: string;
+  mountPath: string;
   enabled: boolean;
   sortOrder: number;
   createdBy: string;
