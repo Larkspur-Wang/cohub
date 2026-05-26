@@ -107,29 +107,29 @@ body.drawer-open {
    ============================================================ */
 @media (hover: none) and (pointer: coarse) {
 	:where(
-		input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
-			[type='file']
-		):not([type='submit']):not([type='button']):not([type='reset']),
-		textarea,
-		select,
-		[contenteditable='true'],
-		[contenteditable='']
-	) {
+			input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+					[type="file"]
+				):not([type="submit"]):not([type="button"]):not([type="reset"]),
+			textarea,
+			select,
+			[contenteditable="true"],
+			[contenteditable=""]
+		) {
 		font-size: 16px;
 	}
 
-	:where(button, input, select, textarea, [role='button']) {
+	:where(button, input, select, textarea, [role="button"]) {
 		touch-action: manipulation;
 		-webkit-tap-highlight-color: transparent;
 	}
 
 	:where(
-		input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
-			[type='file']
-		):not([type='submit']):not([type='button']):not([type='reset']),
-		textarea,
-		select
-	) {
+			input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+					[type="file"]
+				):not([type="submit"]):not([type="button"]):not([type="reset"]),
+			textarea,
+			select
+		) {
 		min-height: 44px;
 	}
 }
@@ -673,7 +673,7 @@ body.drawer-open {
 	overflow-wrap: normal;
 }
 
-/* Shiki dual-theme output. */
+/* Shiki multi-theme output. */
 .markdown-content .shiki,
 .markdown-content .shiki span {
 	color: var(--shiki-light);
@@ -690,6 +690,24 @@ body.drawer-open {
 
 [data-theme="dark"] .markdown-content .shiki {
 	background-color: var(--shiki-dark-bg);
+}
+
+[data-theme="solarized-light"] .markdown-content .shiki,
+[data-theme="solarized-light"] .markdown-content .shiki span {
+	color: var(--shiki-solarized-light, var(--shiki-light));
+}
+
+[data-theme="solarized-light"] .markdown-content .shiki {
+	background-color: var(--shiki-solarized-light-bg, var(--shiki-light-bg));
+}
+
+[data-theme="solarized-dark"] .markdown-content .shiki,
+[data-theme="solarized-dark"] .markdown-content .shiki span {
+	color: var(--shiki-solarized-dark, var(--shiki-dark));
+}
+
+[data-theme="solarized-dark"] .markdown-content .shiki {
+	background-color: var(--shiki-solarized-dark-bg, var(--shiki-dark-bg));
 }
 
 .markdown-code-copy {

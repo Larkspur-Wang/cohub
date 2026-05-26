@@ -36,7 +36,6 @@
 		"@lezer/highlight": "^1.2.3",
 		"@logto/browser": "^3.0.13",
 		"@neta-art/cohub": "workspace:*",
-		"@uiw/codemirror-theme-github": "^4.25.9",
 		"codemirror": "^6.0.2",
 		"isomorphic-dompurify": "3.9.0",
 		"lucide-svelte": "^1.0.1",

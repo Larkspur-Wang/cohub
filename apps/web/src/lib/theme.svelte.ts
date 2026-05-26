@@ -1,26 +1,22 @@
-export type ThemeMode = "dark" | "light" | "system";
-export type ResolvedTheme = "dark" | "light";
+import {
+	getSystemTheme,
+	isThemeMode,
+	type ResolvedTheme,
+	resolveThemeMode,
+	THEME_COLOR,
+	THEME_STORAGE_KEY,
+	type ThemeMode,
+} from "$lib/theme-registry";
 
-const STORAGE_KEY = "cohub-theme";
-const THEME_COLOR: Record<ResolvedTheme, string> = {
-	dark: "#1F2026",
-	light: "#F8F8FA",
-};
+export type { ResolvedTheme, ThemeMode } from "$lib/theme-registry";
 
 // --- Reactive state (Svelte 5 runes) ---
 let _mode = $state<ThemeMode>("system");
 let _resolved = $state<ResolvedTheme>("dark");
 
-function getSystemTheme(): ResolvedTheme {
-	if (typeof window === "undefined") return "dark";
-	return window.matchMedia("(prefers-color-scheme: dark)").matches
-		? "dark"
-		: "light";
-}
-
 /** Update reactive state + DOM attribute. Called on init, user action, and system change. */
 function applyTheme(mode: ThemeMode, skipDom = false) {
-	const resolved = mode === "system" ? getSystemTheme() : mode;
+	const resolved = resolveThemeMode(mode);
 	_mode = mode;
 	_resolved = resolved;
 	if (!skipDom && typeof document !== "undefined") {
@@ -43,18 +39,15 @@ export function getResolvedTheme(): ResolvedTheme {
 // --- Theme mutation ---
 export function setTheme(mode: ThemeMode) {
 	if (typeof localStorage !== "undefined") {
-		localStorage.setItem(STORAGE_KEY, mode);
+		localStorage.setItem(THEME_STORAGE_KEY, mode);
 	}
 	applyTheme(mode);
 }
 
 // --- Initialization ---
 if (typeof window !== "undefined") {
-	const stored = localStorage.getItem(STORAGE_KEY);
-	const initial: ThemeMode =
-		stored === "dark" || stored === "light" || stored === "system"
-			? stored
-			: "system";
+	const stored = localStorage.getItem(THEME_STORAGE_KEY);
+	const initial: ThemeMode = isThemeMode(stored) ? stored : "system";
 
 	// app.html inline script already set data-theme before JS loads —
 	// skip redundant DOM write here, only sync reactive state.
@@ -71,3 +64,5 @@ if (typeof window !== "undefined") {
 			}
 		});
 }
+
+export { getSystemTheme };

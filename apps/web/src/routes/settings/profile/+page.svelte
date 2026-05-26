@@ -5,6 +5,7 @@ import {
 	Loader2,
 	Monitor,
 	Moon,
+	Palette,
 	Pencil,
 	Sun,
 	Upload,
@@ -19,15 +20,10 @@ import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
-import {
-	getResolvedTheme,
-	getTheme,
-	setTheme,
-	type ThemeMode,
-} from "$lib/theme.svelte";
+import { getTheme, setTheme } from "$lib/theme.svelte";
+import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
 
 const mode = $derived(getTheme());
-const resolved = $derived(getResolvedTheme());
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
@@ -51,40 +47,20 @@ const profileTitle = $derived(displayName || username || "User");
 const usernameLabel = $derived(username ? `@${username}` : "Set username");
 const uuidLabel = $derived(formatUuid(userUuid));
 
-const themeOptions: {
-	value: ThemeMode;
-	label: string;
-	icon: typeof Sun;
-	description: string;
-}[] = [
-	{
-		value: "dark",
-		label: "Dark",
-		icon: Moon,
-		description: "Always use dark theme",
-	},
-	{
-		value: "light",
-		label: "Light",
-		icon: Sun,
-		description: "Always use light theme",
-	},
-	{
-		value: "system",
-		label: "System",
-		icon: Monitor,
-		description: "Follow your system preference",
-	},
-];
+const themeIcon = {
+	dark: Moon,
+	light: Sun,
+	"solarized-dark": Palette,
+	"solarized-light": Palette,
+	system: Monitor,
+} satisfies Record<ThemeMode, typeof Sun>;
 
 function handleThemeChange(mode: ThemeMode) {
 	setTheme(mode);
 }
 
 function isThemeActive(option: ThemeMode): boolean {
-	if (mode === option) return true;
-	if (mode === "system" && resolved === option) return true;
-	return false;
+	return mode === option;
 }
 
 function formatUuid(uuid: string): string {
@@ -375,16 +351,17 @@ onMount(() => {
 					<p class="mt-1 text-[12px] leading-5 text-text-tertiary">Choose how Cohub looks on this device.</p>
 				</div>
 
-				<div class="mt-4 grid gap-2 sm:grid-cols-3">
-					{#each themeOptions as option (option.value)}
+				<div class="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+					{#each THEME_OPTIONS as option (option.value)}
 						{@const active = isThemeActive(option.value)}
+						{@const Icon = themeIcon[option.value]}
 						<button
 							type="button"
 							class="group flex min-w-0 items-center gap-2 rounded-[6px] px-3 py-2.5 text-left transition-colors duration-100 {active ? 'bg-brand-bg text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
 							onclick={() => handleThemeChange(option.value)}
 						>
 							<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] {active ? 'bg-brand/15 text-brand' : 'bg-bg-hover-strong text-text-tertiary group-hover:text-text-secondary'}">
-								<option.icon class="w-3.5 h-3.5" />
+								<Icon class="w-3.5 h-3.5" />
 							</span>
 							<span class="min-w-0">
 								<span class="block text-[12px] font-medium">{option.label}</span>

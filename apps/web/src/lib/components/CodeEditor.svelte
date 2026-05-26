@@ -18,10 +18,12 @@ import {
 	bracketMatching,
 	foldGutter,
 	foldKeymap,
+	HighlightStyle,
 	indentOnInput,
+	syntaxHighlighting,
 } from "@codemirror/language";
 import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import {
 	crosshairCursor,
 	drawSelection,
@@ -34,8 +36,13 @@ import {
 	lineNumbers,
 	rectangularSelection,
 } from "@codemirror/view";
-import { githubDark, githubLight } from "@uiw/codemirror-theme-github";
+import { tags as t } from "@lezer/highlight";
 import { onDestroy, onMount } from "svelte";
+import {
+	isDarkTheme,
+	isResolvedTheme,
+	type ResolvedTheme,
+} from "$lib/theme-registry";
 
 const {
 	value = "",
@@ -90,22 +97,184 @@ function isMobile(): boolean {
 	return window.innerWidth < 640;
 }
 
-function getThemeExtension(dark: boolean) {
-	return dark ? githubDark : githubLight;
+type EditorPalette = {
+	background: string;
+	foreground: string;
+	muted: string;
+	selection: string;
+	activeLine: string;
+	keyword: string;
+	atom: string;
+	string: string;
+	definition: string;
+	variable: string;
+	comment: string;
+	invalid: string;
+};
+
+const EDITOR_PALETTES: Record<ResolvedTheme, EditorPalette> = {
+	dark: {
+		background: "var(--bg-code)",
+		foreground: "var(--text-reading)",
+		muted: "var(--text-tertiary)",
+		selection: "color-mix(in srgb, var(--brand) 24%, transparent)",
+		activeLine: "color-mix(in srgb, var(--bg-hover-strong) 42%, transparent)",
+		keyword: "oklch(76% 0.12 300)",
+		atom: "oklch(76% 0.14 70)",
+		string: "oklch(76% 0.11 155)",
+		definition: "oklch(75% 0.1 230)",
+		variable: "var(--text-reading)",
+		comment: "var(--text-placeholder)",
+		invalid: "var(--error-400)",
+	},
+	light: {
+		background: "var(--bg-code)",
+		foreground: "var(--text-reading)",
+		muted: "var(--text-tertiary)",
+		selection: "color-mix(in srgb, var(--brand) 16%, transparent)",
+		activeLine: "color-mix(in srgb, var(--bg-hover-strong) 50%, transparent)",
+		keyword: "oklch(44% 0.15 300)",
+		atom: "oklch(45% 0.14 65)",
+		string: "oklch(42% 0.12 150)",
+		definition: "oklch(45% 0.13 235)",
+		variable: "var(--text-reading)",
+		comment: "var(--text-placeholder)",
+		invalid: "var(--error-500)",
+	},
+	"solarized-dark": {
+		background: "#002b36",
+		foreground: "#93a1a1",
+		muted: "#586e75",
+		selection: "#073642",
+		activeLine: "color-mix(in srgb, #073642 72%, transparent)",
+		keyword: "#6c71c4",
+		atom: "#b58900",
+		string: "#2aa198",
+		definition: "#268bd2",
+		variable: "#93a1a1",
+		comment: "#586e75",
+		invalid: "#dc322f",
+	},
+	"solarized-light": {
+		background: "#fdf6e3",
+		foreground: "#657b83",
+		muted: "#93a1a1",
+		selection: "#eee8d5",
+		activeLine: "color-mix(in srgb, #eee8d5 76%, transparent)",
+		keyword: "#6c71c4",
+		atom: "#b58900",
+		string: "#2aa198",
+		definition: "#268bd2",
+		variable: "#657b83",
+		comment: "#93a1a1",
+		invalid: "#dc322f",
+	},
+};
+
+function getThemeExtension(theme: ResolvedTheme): Extension {
+	const palette = EDITOR_PALETTES[theme];
+	const dark = isDarkTheme(theme);
+
+	return [
+		EditorView.theme(
+			{
+				"&": {
+					backgroundColor: palette.background,
+					color: palette.foreground,
+					fontSize: getEditorFont(),
+					fontFamily: "var(--font-mono, monospace)",
+				},
+				"&.cm-focused": {
+					outline: "none",
+				},
+				".cm-scroller": {
+					overflow: "auto",
+				},
+				".cm-gutters": {
+					backgroundColor: "transparent",
+					borderRight: "1px solid var(--border-subtle)",
+					color: palette.muted,
+				},
+				".cm-activeLineGutter": {
+					backgroundColor: "transparent",
+					color: palette.foreground,
+				},
+				".cm-content": {
+					padding: "12px 0",
+					caretColor: "var(--brand)",
+				},
+				".cm-line": {
+					padding: "0 8px",
+				},
+				".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
+					backgroundColor: palette.selection,
+				},
+				".cm-activeLine": {
+					backgroundColor: palette.activeLine,
+				},
+				".cm-cursor": {
+					borderLeftColor: "var(--brand)",
+				},
+			},
+			{ dark },
+		),
+		syntaxHighlighting(
+			HighlightStyle.define([
+				{ tag: t.keyword, color: palette.keyword },
+				{ tag: [t.atom, t.bool, t.number, t.constant], color: palette.atom },
+				{
+					tag: [t.string, t.special(t.string), t.regexp],
+					color: palette.string,
+				},
+				{
+					tag: [t.definition(t.variableName), t.function(t.variableName)],
+					color: palette.definition,
+				},
+				{
+					tag: [t.variableName, t.propertyName, t.attributeName],
+					color: palette.variable,
+				},
+				{
+					tag: [t.comment, t.lineComment, t.blockComment],
+					color: palette.comment,
+					fontStyle: "italic",
+				},
+				{
+					tag: [t.heading, t.strong],
+					color: palette.foreground,
+					fontWeight: "600",
+				},
+				{
+					tag: [t.link, t.url],
+					color: palette.definition,
+					textDecoration: "underline",
+				},
+				{ tag: t.invalid, color: palette.invalid },
+			]),
+		),
+	];
 }
 
 function getEditorFont(): string {
 	return isMobile() ? "15px" : "13px";
 }
 
-function resolveTheme(): boolean {
-	if (typeof document === "undefined") return true;
+function resolveTheme(): ResolvedTheme {
+	if (typeof document === "undefined") return "dark";
 	const attr = document.documentElement.getAttribute("data-theme");
-	return attr !== "light";
+	return isResolvedTheme(attr) ? attr : "dark";
+}
+
+function reconfigureTheme(theme = resolveTheme()) {
+	if (!view || theme === currentTheme) return;
+	currentTheme = theme;
+	view.dispatch({
+		effects: themeConf.reconfigure(getThemeExtension(theme)),
+	});
 }
 
 let currentLanguage = $derived(language);
-let currentDark = $state(resolveTheme());
+let currentTheme = $state(resolveTheme());
 
 $effect(() => {
 	if (!view) return;
@@ -116,13 +285,7 @@ $effect(() => {
 
 $effect(() => {
 	if (!view) return;
-	const dark = resolveTheme();
-	if (dark !== currentDark) {
-		currentDark = dark;
-		view.dispatch({
-			effects: themeConf.reconfigure(getThemeExtension(dark)),
-		});
-	}
+	reconfigureTheme();
 });
 
 $effect(() => {
@@ -155,8 +318,8 @@ $effect(() => {
 onMount(() => {
 	if (!container) return;
 
-	const dark = resolveTheme();
-	currentDark = dark;
+	const theme = resolveTheme();
+	currentTheme = theme;
 	lastExternal = value;
 	syncing = true;
 
@@ -188,7 +351,7 @@ onMount(() => {
 					indentWithTab,
 				]),
 				langConf.of(getLanguageExtension(language)),
-				themeConf.of(getThemeExtension(dark)),
+				themeConf.of(getThemeExtension(theme)),
 				readOnlyConf.of([
 					EditorView.editable.of(!readonly),
 					EditorState.readOnly.of(readonly),
@@ -201,38 +364,21 @@ onMount(() => {
 						onInput?.(lastExternal);
 					}
 				}),
-				EditorView.theme({
-					"&": {
-						fontSize: getEditorFont(),
-						fontFamily: "var(--font-mono, monospace)",
-					},
-					"&.cm-focused": {
-						outline: "none",
-					},
-					".cm-scroller": {
-						overflow: "auto",
-					},
-					".cm-gutters": {
-						backgroundColor: "transparent",
-						borderRight: "1px solid var(--border-subtle)",
-					},
-					".cm-activeLineGutter": {
-						backgroundColor: "transparent",
-					},
-					".cm-content": {
-						padding: "12px 0",
-						caretColor: "var(--brand)",
-					},
-					".cm-line": {
-						padding: "0 8px",
-					},
-				}),
 			],
 		}),
 		parent: container,
 	});
 
+	const themeObserver = new MutationObserver(() => reconfigureTheme());
+	themeObserver.observe(document.documentElement, {
+		attributeFilter: ["data-theme"],
+	});
+
 	syncing = false;
+
+	return () => {
+		themeObserver.disconnect();
+	};
 });
 
 onDestroy(() => {

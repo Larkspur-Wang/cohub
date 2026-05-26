@@ -37,7 +37,12 @@ let highlighterPromise: Promise<
 function getHighlighter() {
 	if (!highlighterPromise) {
 		highlighterPromise = createHighlighter({
-			themes: ["github-light", "github-dark"],
+			themes: [
+				"github-light",
+				"github-dark",
+				"solarized-light",
+				"solarized-dark",
+			],
 			langs: [
 				"typescript",
 				"javascript",
@@ -99,6 +104,8 @@ async function highlightCodeTokens(tokens: Token[]) {
 					themes: {
 						light: "github-light",
 						dark: "github-dark",
+						"solarized-light": "solarized-light",
+						"solarized-dark": "solarized-dark",
 					},
 					defaultColor: false,
 				});
