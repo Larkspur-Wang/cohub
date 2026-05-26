@@ -37,8 +37,17 @@ COPY packages/sandbox-controller/tsconfig.build.json ./packages/sandbox-controll
 COPY apps/worker/package.json ./apps/worker/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  --mount=type=secret,id=gitea_npm_token \
+  GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
+  export GITEA_NPM_TOKEN && \
+  if [ -z "$GITEA_NPM_TOKEN" ]; then \
+    echo "Missing required build secret: gitea_npm_token"; \
+    exit 1; \
+  fi && \
+  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
   pnpm config set store-dir /pnpm/store && \
-  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker...
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker... && \
+  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
 
 # Copy source and build
 COPY packages/protocol ./packages/protocol
@@ -50,7 +59,17 @@ COPY apps/worker/src ./apps/worker/src
 COPY apps/worker/tsconfig.json apps/worker/tsconfig.build.json ./apps/worker/
 
 RUN pnpm --filter @cohub/worker... build
-RUN pnpm --filter @cohub/worker --prod deploy /prod/worker
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  --mount=type=secret,id=gitea_npm_token \
+  GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
+  export GITEA_NPM_TOKEN && \
+  if [ -z "$GITEA_NPM_TOKEN" ]; then \
+    echo "Missing required build secret: gitea_npm_token"; \
+    exit 1; \
+  fi && \
+  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
+  pnpm --filter @cohub/worker --prod deploy /prod/worker && \
+  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
 
 # ============================================
 # Stage 2: runtime

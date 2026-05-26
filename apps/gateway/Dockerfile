@@ -34,8 +34,17 @@ COPY apps/gateway/package.json ./apps/gateway/package.json
 
 # Install full deps (build needs dev deps like typescript)
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  --mount=type=secret,id=gitea_npm_token \
+  GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
+  export GITEA_NPM_TOKEN && \
+  if [ -z "$GITEA_NPM_TOKEN" ]; then \
+    echo "Missing required build secret: gitea_npm_token"; \
+    exit 1; \
+  fi && \
+  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
   pnpm config set store-dir /pnpm/store && \
-  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway...
+  pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/gateway... && \
+  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
 
 COPY packages/identity ./packages/identity
 COPY packages/protocol ./packages/protocol
@@ -44,7 +53,17 @@ COPY apps/gateway/src ./apps/gateway/src
 COPY apps/gateway/tsconfig.json apps/gateway/tsconfig.build.json ./apps/gateway/
 
 RUN pnpm --filter @cohub/gateway... build
-RUN pnpm --filter @cohub/gateway --prod deploy /prod/gateway
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+  --mount=type=secret,id=gitea_npm_token \
+  GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
+  export GITEA_NPM_TOKEN && \
+  if [ -z "$GITEA_NPM_TOKEN" ]; then \
+    echo "Missing required build secret: gitea_npm_token"; \
+    exit 1; \
+  fi && \
+  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
+  pnpm --filter @cohub/gateway --prod deploy /prod/gateway && \
+  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
 
 # ============================================
 # Stage 2: runtime
