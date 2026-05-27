@@ -67,7 +67,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     exit 1; \
   fi && \
   printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
-  pnpm --filter @cohub/worker --prod deploy /prod/worker && \
+  pnpm --filter @cohub/worker --prod deploy --legacy /prod/worker && \
   sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
 
 # ============================================
