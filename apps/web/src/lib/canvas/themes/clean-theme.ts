@@ -21,8 +21,8 @@ function drawCleanBackground(
 	container.removeChildren();
 	const { app, document, palette, viewport } = context;
 	const graphics = new Graphics();
-	const width = app.renderer.width;
-	const height = app.renderer.height;
+	const width = app.screen.width;
+	const height = app.screen.height;
 	graphics.rect(0, 0, width, height).fill({ color: palette.bg, alpha: 1 });
 
 	const appearance = document.appearance;

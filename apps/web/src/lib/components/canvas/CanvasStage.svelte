@@ -8,6 +8,7 @@ import {
 } from "$lib/canvas/actions/canvas-document-actions";
 import { clampZoom, screenToWorld } from "$lib/canvas/canvas-geometry";
 import { createSpaceFileCanvasItem } from "$lib/canvas/canvas-items";
+import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
 import type {
 	CanvasFrame,
 	CanvasItem,
@@ -44,6 +45,7 @@ let world: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let resizeFrame = 0;
 let drag: {
 	id: string;
 	pointerId: number;
@@ -224,6 +226,17 @@ function syncStage() {
 	syncCards(palette);
 }
 
+function resizeStage() {
+	if (!app) return;
+	cancelAnimationFrame(resizeFrame);
+	resizeFrame = requestAnimationFrame(() => {
+		if (!app) return;
+		app.resize();
+		app.stage.hitArea = app.screen;
+		syncStage();
+	});
+}
+
 function handleWheel(event: WheelEvent) {
 	event.preventDefault();
 	if (!host) return;
@@ -258,7 +271,13 @@ function handleDrop(event: DragEvent) {
 onMount(async () => {
 	if (!host) return;
 	app = new Application();
-	await app.init({ antialias: true, backgroundAlpha: 0, resizeTo: host });
+	await app.init({
+		antialias: true,
+		autoDensity: true,
+		backgroundAlpha: 0,
+		resizeTo: host,
+		resolution: getCanvasResolution(),
+	});
 	host.appendChild(app.canvas);
 	world = new Container();
 	app.stage.eventMode = "static";
@@ -298,9 +317,9 @@ onMount(async () => {
 		drag = null;
 		panning = null;
 	});
-	resizeObserver = new ResizeObserver(() => syncStage());
+	resizeObserver = new ResizeObserver(resizeStage);
 	resizeObserver.observe(host);
-	syncStage();
+	resizeStage();
 });
 
 $effect(() => {
@@ -311,6 +330,7 @@ $effect(() => {
 
 onDestroy(() => {
 	resizeObserver?.disconnect();
+	cancelAnimationFrame(resizeFrame);
 	for (const entry of cardDisplays.values())
 		entry.display.destroy({ children: true });
 	cardDisplays.clear();

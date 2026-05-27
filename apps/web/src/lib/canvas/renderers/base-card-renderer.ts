@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { getResourceTitle, inferMediaKind } from "$lib/canvas/canvas-media";
+import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
 import type { CanvasItem } from "$lib/canvas/canvas-schema";
 import type { CanvasRenderContext } from "$lib/canvas/renderers/canvas-renderer-registry";
 
@@ -66,6 +67,10 @@ export function createBaseCard(
 	const selected = context.selectedItemIds.includes(item.id);
 	const accent = emphasisColor(item, context);
 	const frame = item.frame;
+	const textOptions = {
+		resolution: getCanvasResolution(),
+		roundPixels: true,
+	};
 	const background = new Graphics();
 	background
 		.roundRect(0, 0, frame.width, frame.height, 10)
@@ -89,6 +94,7 @@ export function createBaseCard(
 	card.addChild(background);
 
 	const badge = new Text({
+		...textOptions,
 		text: options.badge,
 		style: {
 			fill: selected ? accent : context.palette.muted,
@@ -102,6 +108,7 @@ export function createBaseCard(
 	card.addChild(badge);
 
 	const body = new Text({
+		...textOptions,
 		text: options.body,
 		style: {
 			fill: context.palette.muted,
@@ -117,6 +124,7 @@ export function createBaseCard(
 	card.addChild(body);
 
 	const title = new Text({
+		...textOptions,
 		text: titleForCanvasItem(item),
 		style: {
 			fill: context.palette.text,
