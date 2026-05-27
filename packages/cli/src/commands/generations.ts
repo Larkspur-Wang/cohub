@@ -76,7 +76,7 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
     }
 
     const source = block.source as GenerationSource;
-    const target = isDir ? join(outputPath, outputName(block.type, source.type === "url" ? source.url : undefined, i)) : outputPath;
+    const target = isDir ? join(outputPath, outputName(block, source.type === "url" ? source.url : undefined, i)) : outputPath;
     if (source.type === "url") {
       const response = await fetch(source.url);
       if (!response.ok) throw new Error(`Failed to download ${source.url}: HTTP ${response.status}`);
@@ -90,18 +90,49 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
   return savedPaths;
 }
 
-function outputName(type: string, url: string | undefined, index: number): string {
+function outputName(block: GenerationContentBlock, url: string | undefined, index: number): string {
   const fromUrl = url ? basename(new URL(url).pathname) : "";
-  if (fromUrl?.includes(".")) return `generation-${index + 1}-${fromUrl}`;
-  const ext = type === "video" ? "mp4" : type === "audio" ? "bin" : "png";
-  return `generation-${index + 1}.${ext}`;
+  const label = slugOutputLabel(block);
+  if (fromUrl?.includes(".")) return `generation-${index + 1}-${label}-${fromUrl}`;
+  const ext = block.type === "video" ? "mp4" : block.type === "audio" ? "bin" : block.type === "text" ? "txt" : "png";
+  return `generation-${index + 1}-${label}.${ext}`;
+}
+
+function metaRole(block: GenerationContentBlock): string | undefined {
+  const role = block.meta?.role;
+  return typeof role === "string" && role.length > 0 ? role : undefined;
+}
+
+function humanizeRole(role: string): string {
+  return role.replaceAll("_", " ").replaceAll("-", " ");
+}
+
+function slugify(value: string): string {
+  return value.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-").replaceAll(/^-|-$/g, "") || "output";
+}
+
+function formatOutputLabel(block: GenerationContentBlock): string {
+  const role = metaRole(block);
+  if (!role) return block.type;
+  const label = humanizeRole(role);
+  return block.type === "image" && ["first_frame", "last_frame", "reference_image"].includes(role)
+    ? label
+    : `${block.type} (role: ${role})`;
+}
+
+function slugOutputLabel(block: GenerationContentBlock): string {
+  return slugify(metaRole(block) ?? block.type);
 }
 
 function printGeneration(output: GenerationContentBlock[]): void {
   for (const block of output) {
-    if (block.type === "text") console.log(block.text);
-    else if (block.source.type === "url") console.log(`${block.type}: ${block.source.url}`);
-    else console.log(`${block.type}: base64 ${block.source.mediaType} (${block.source.data.length} chars)`);
+    if (block.type === "text") {
+      console.log(block.text);
+    } else if (block.source.type === "url") {
+      console.log(`${formatOutputLabel(block)}: ${block.source.url}`);
+    } else {
+      console.log(`${formatOutputLabel(block)}: base64 ${block.source.mediaType} (${block.source.data.length} chars)`);
+    }
   }
 }
 
@@ -199,7 +230,7 @@ Examples:
             spin.update(`Generating... ${formatElapsed(Date.now() - waitStartedAt)}, ${pollCount} polls`);
           },
         });
-        if (!jsonRequested(opts)) spin.stop(`Generation completed — ${formatElapsed(Date.now() - waitStartedAt)}, ${pollCount} polls`);
+        if (!jsonRequested(opts)) spin.stop(`Generation completed — task ID: ${created.taskRunId}, ${formatElapsed(Date.now() - waitStartedAt)}, ${pollCount} polls`);
 
         const savedPaths = opts.output ? await saveOutputs(result.output, opts.output) : [];
         if (jsonRequested(opts)) return outJson(savedPaths.length > 0 ? { ...result, taskRunId: created.taskRunId, savedPaths } : { ...result, taskRunId: created.taskRunId });
