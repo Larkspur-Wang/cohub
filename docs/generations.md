@@ -88,6 +88,8 @@ See the full examples:
 
 - [`docs/examples/generations/gpt-image-2.yaml`](./examples/generations/gpt-image-2.yaml)
 - [`docs/examples/generations/gemini-3.1-flash-image-preview.yaml`](./examples/generations/gemini-3.1-flash-image-preview.yaml)
+- [`docs/examples/generations/seedance-2-0-fast.yaml`](./examples/generations/seedance-2-0-fast.yaml)
+- [`docs/examples/generations/seedance-2-0.yaml`](./examples/generations/seedance-2-0.yaml)
 
 ## CLI
 
@@ -109,6 +111,11 @@ cohub generate "a vibrant infographic explaining photosynthesis" \
   --model gemini-3.1-flash-image-preview \
   --param aspect_ratio=16:9 \
   --param image_size=1K
+
+cohub generate "a cat playing piano in a cozy jazz club" \
+  --model seedance-2-0-fast \
+  --param duration=5 \
+  --param resolution=720p
 ```
 
 Use `$env:NAME` for API keys in YAML. Do not commit real API keys.

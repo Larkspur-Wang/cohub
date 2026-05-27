@@ -4,6 +4,7 @@ import type {
   GenerationDeclaration,
   GenerationSource,
 } from "@cohub/protocol/generation";
+import { arkVideoGenerationsAdapter } from "./ark-video-generations.js";
 import { geminiGenerateContentAdapter } from "./gemini-generate-content.js";
 import { openAiImagesAdapter } from "./openai-images.js";
 
@@ -27,6 +28,7 @@ export type GenerationAdapterInput = {
 export type GenerationAdapter = (input: GenerationAdapterInput) => Promise<GenerationContentBlock[]>;
 
 const adapters: Record<string, GenerationAdapter> = {
+  "ark.videoGenerations": arkVideoGenerationsAdapter,
   "gemini.generateContent": geminiGenerateContentAdapter,
   "openai.images": openAiImagesAdapter,
 };
