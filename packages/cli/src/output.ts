@@ -89,6 +89,18 @@ function debugErrorMetaFromBody(body: unknown): string[] {
   return items;
 }
 
+function fetchFailureDetail(e: unknown): string | null {
+  if (!(e instanceof Error) || e.message !== "fetch failed") return null;
+  const cause = e.cause as { code?: unknown; hostname?: unknown; message?: unknown } | undefined;
+  const code = typeof cause?.code === "string" ? cause.code : null;
+  const hostname = typeof cause?.hostname === "string" ? cause.hostname : null;
+  const message = typeof cause?.message === "string" ? cause.message : null;
+  const parts = [code, hostname && `host: ${hostname}`, message].filter(Boolean);
+  return parts.length > 0
+    ? `Network request failed (${parts.join(" · ")}). Check DNS/proxy/firewall settings and try again.`
+    : "Network request failed. Check DNS/proxy/firewall settings and try again.";
+}
+
 export function handleHttp(e: unknown): never {
   if (e instanceof Error && e.name === "AuthRequiredError") {
     return error("not authenticated", "run `cohub auth login`");
@@ -97,6 +109,7 @@ export function handleHttp(e: unknown): never {
   const status = (e as { status?: number }).status;
   const body = (e as { body?: unknown }).body;
   const message = errorMessageFromBody(body) ?? (e instanceof Error ? e.message : String(e));
+  const fetchDetail = fetchFailureDetail(e);
 
   const detailParts: string[] = [];
   if (process.env.COHUB_DEBUG_ERRORS) {
@@ -104,7 +117,7 @@ export function handleHttp(e: unknown): never {
     detailParts.push(...debugErrorMetaFromBody(body));
   }
 
-  error(message, detailParts.length > 0 ? detailParts.join(" · ") : undefined);
+  error(message, detailParts.length > 0 ? detailParts.join(" · ") : fetchDetail ?? undefined);
 }
 
 // -- Spinner -----------------------------------------------------------------
