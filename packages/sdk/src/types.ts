@@ -17,6 +17,7 @@ import type {
   CreateGenerationTaskRequest,
   CreateGenerationTaskResponse,
   GenerationContentBlock,
+  GenerationPolicy,
   GenerationTaskResult,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
@@ -136,6 +137,7 @@ export type {
   CreateGenerationTaskRequest,
   CreateGenerationTaskResponse,
   GenerationContentBlock,
+  GenerationPolicy,
   GenerationTaskResult,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
@@ -552,6 +554,7 @@ export type CreateSpacePromptInput = {
   model?: string | null;
   provider?: string | null;
   clientMessageId?: string | null;
+  generationPolicy?: GenerationPolicy | null;
   schedule?:
     | { mode?: "immediate" }
     | { mode: "delay"; delayMs: number }

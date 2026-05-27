@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { getDefaultSpaceModsForEnv } from "@cohub/protocol";
+import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import * as cronParser from "cron-parser";
 import { db } from "../../db/index.js";
 import {
@@ -60,6 +61,7 @@ type SpacePromptInput = {
   model?: string | null;
   provider?: string | null;
   clientMessageId?: string | null;
+  generationPolicy?: unknown;
   schedule?: SpacePromptSchedule | null;
 };
 
@@ -1192,6 +1194,13 @@ router.post("/:id/prompt", async (c) => {
     return c.json({ message: "schedule.mode must be one of: immediate, delay, at, repeat" }, 400);
   }
 
+  const generationPolicy = body.generationPolicy === undefined || body.generationPolicy === null
+    ? null
+    : normalizeGenerationPolicy(body.generationPolicy);
+  if (body.generationPolicy !== undefined && body.generationPolicy !== null && !generationPolicy) {
+    return c.json({ message: "generationPolicy is invalid" }, 400);
+  }
+
   const content = body.content;
   const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
 
@@ -1226,6 +1235,7 @@ router.post("/:id/prompt", async (c) => {
         source: "public_api",
         model: body.model ?? null,
         provider: body.provider ?? null,
+        generationPolicy,
         context: { kind: "public_api" },
       });
       return c.json({ ok: true, mode: "immediate", sessionId, ...result });

@@ -1,4 +1,5 @@
 import type { GenerationContentBlock, GenerationModelDeclaration } from "@neta-art/generation";
+export * from "./policy.js";
 
 export type {
   GenerateRequest,

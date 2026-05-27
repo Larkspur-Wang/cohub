@@ -17,6 +17,7 @@ export const SYSTEM_ENV_KEYS = [
   "COHUB_EXECUTION_TOKEN",
   "COHUB_SESSION_ID",
   "COHUB_USER_UUID",
+  "COHUB_GENERATION_POLICY_B64",
 ] as const;
 
 export const SYSTEM_ENV_KEY_SET: Set<string> = new Set(SYSTEM_ENV_KEYS);

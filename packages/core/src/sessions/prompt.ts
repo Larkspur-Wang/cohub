@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { GenerationPolicy } from "@cohub/protocol/generation";
 import { normalizeContentBlocks } from "../content/normalize.js";
 
 export type PromptSource =
@@ -66,6 +67,7 @@ export type SubmitSessionPromptInput = {
   source: PromptSource;
   model?: string | null;
   provider?: string | null;
+  generationPolicy?: GenerationPolicy | null;
   context?: SubmitSessionPromptContext | null;
 };
 
@@ -256,6 +258,7 @@ export const submitSessionPrompt = async (
     model: input.model ?? null,
     provider: input.provider ?? null,
     promptTemplate,
+    generationPolicy: input.generationPolicy ?? null,
     context: input.context ?? null,
     executionAuth: executionGrant,
   };

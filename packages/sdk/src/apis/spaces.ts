@@ -1,4 +1,5 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
+import type { GenerationPolicy } from "@cohub/protocol/generation";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
@@ -94,6 +95,7 @@ type SessionSendMessageInput = {
   model?: string;
   provider?: string;
   clientMessageId?: string;
+  generationPolicy?: GenerationPolicy | null;
 };
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
@@ -424,6 +426,7 @@ class SessionMessagesClient {
           model: input.model,
           provider: input.provider,
           clientMessageId: input.clientMessageId,
+          generationPolicy: input.generationPolicy,
         }),
       },
     );

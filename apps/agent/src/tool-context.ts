@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { GenerationPolicy } from "@cohub/protocol/generation";
 
 export type TurnTelemetryMetrics = {
   llmRoundCount: number;
@@ -21,6 +22,7 @@ export type ToolExecutionContext = {
   requestId?: string | null;
   metrics?: TurnTelemetryMetrics;
   assistantMessageTiming?: AssistantMessageTimingContext;
+  generationPolicy?: GenerationPolicy | null;
 };
 
 const storage = new AsyncLocalStorage<ToolExecutionContext>();

@@ -16,6 +16,7 @@ import {
 import { markMessageAsFull, summarizeMessageForHistory } from "../session-content.js";
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
+import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { submitSessionPrompt } from "../session-prompts.js";
 import { createSessionFork } from "../session-forks.js";
 
@@ -415,10 +416,18 @@ router.post("/:id/messages", async (c) => {
     model?: string;
     provider?: string;
     clientMessageId?: string | null;
+    generationPolicy?: unknown;
   }>().catch(() => null);
 
   if (!validatePromptContentBlocks(body?.content)) {
     return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
+  }
+
+  const generationPolicy = body?.generationPolicy === undefined || body.generationPolicy === null
+    ? null
+    : normalizeGenerationPolicy(body.generationPolicy);
+  if (body?.generationPolicy !== undefined && body.generationPolicy !== null && !generationPolicy) {
+    return c.json({ message: "generationPolicy is invalid" }, 400);
   }
 
   try {
@@ -431,6 +440,7 @@ router.post("/:id/messages", async (c) => {
       source: "web_app",
       model: body.model ?? null,
       provider: body.provider ?? null,
+      generationPolicy,
       context: { kind: "web_app" },
     });
     return c.json({ ok: true, ...result });

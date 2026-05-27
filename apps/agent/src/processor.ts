@@ -14,6 +14,7 @@ import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
+import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
 import { claimTurnBatch, buildUserMessagesForBatch, enqueueNextQueuedTurn } from "./batch.js";
@@ -596,6 +597,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         ? batch.ownerTurn.meta as Record<string, unknown>
         : {});
       const actorUserId = resolveActorUserId(ownerMeta);
+      const generationPolicy = normalizeGenerationPolicy(ownerMeta.generationPolicy);
       const executionAuth = (ownerMeta.executionAuth && typeof ownerMeta.executionAuth === "object" && !Array.isArray(ownerMeta.executionAuth)
         ? ownerMeta.executionAuth as { token?: string; expiresAt?: number }
         : null) ?? data.executionAuth ?? null;
@@ -691,6 +693,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             requestId,
             metrics: turnMetrics,
             assistantMessageTiming,
+            generationPolicy,
           }, async () => {
             logger.debug(`[Agent] shell-command:start sessionId=${data.sessionId}`);
             await runDirectShellCommandTurn({
@@ -753,6 +756,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           requestId,
           metrics: turnMetrics,
           assistantMessageTiming,
+          generationPolicy,
         }, async () => {
           try {
             if (abortController.signal.aborted) throw new Error("aborted");

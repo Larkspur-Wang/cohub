@@ -1,6 +1,10 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
+	GenerationPolicy,
+	PublicGenerationDeclaration,
+} from "@cohub/protocol/generation";
+import type {
 	MessageToolCallsFile,
 	SessionTurnIndexItem,
 	SessionTurnRecord,
@@ -306,6 +310,14 @@ let modelsCatalog = $state<Array<{
 	id: string;
 	model: Record<string, unknown>;
 }> | null>(null);
+let generationModelsCatalog = $state<PublicGenerationDeclaration[] | null>(
+	null,
+);
+let generationPolicyMode = $state<"auto" | "limited">("auto");
+let selectedGenerationModels = $state<Set<string>>(new Set());
+let generationEnumSelections = $state<
+	Record<string, Record<string, Set<string>>>
+>({});
 let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
@@ -425,7 +437,7 @@ let previewPanelWidth = $state(480);
 let previewFocusMode = $state(false);
 let previewPanelResizeCleanup: (() => void) | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
-const CHAT_PANEL_MIN_WIDTH = 300;
+const CHAT_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
 let pendingFileSavePaths = $state<Set<string>>(new Set());
@@ -1309,6 +1321,109 @@ async function loadModelsCatalog() {
 		modelsCatalog = items;
 	} catch (error) {
 		console.error("Failed to load models catalog:", error);
+	}
+}
+async function loadGenerationModelsCatalog() {
+	if (generationModelsCatalog) return;
+	try {
+		const response = await sdk.models.listMultimodal();
+		generationModelsCatalog = response.models;
+	} catch (error) {
+		console.error("Failed to load generation models catalog:", error);
+	}
+}
+function buildTurnGenerationPolicy(): GenerationPolicy | null {
+	if (generationPolicyMode !== "limited") return null;
+	const models = [...selectedGenerationModels]
+		.filter(
+			(model) =>
+				generationModelsCatalog?.some((item) => item.model === model) ?? true,
+		)
+		.map((model) => {
+			const declaration = generationModelsCatalog?.find(
+				(item) => item.model === model,
+			);
+			const parameterPolicies: Record<
+				string,
+				{ kind: "enum"; values: Array<string | number | boolean> }
+			> = {};
+			for (const [name, selectedValues] of Object.entries(
+				generationEnumSelections[model] ?? {},
+			)) {
+				const spec = declaration?.parameters?.[name];
+				const enumValues =
+					spec && "enum" in spec && Array.isArray(spec.enum) ? spec.enum : [];
+				if (enumValues.length === 0 || selectedValues.size >= enumValues.length)
+					continue;
+				const allowed = enumValues.filter((value) =>
+					selectedValues.has(String(value)),
+				);
+				if (allowed.length > 0)
+					parameterPolicies[name] = {
+						kind: "enum",
+						values: allowed as Array<string | number | boolean>,
+					};
+			}
+			return Object.keys(parameterPolicies).length > 0
+				? { model, parameters: parameterPolicies }
+				: { model };
+		});
+	return models.length > 0 ? { version: 1, mode: "limited", models } : null;
+}
+function getDefaultGenerationEnumSelections(
+	model: PublicGenerationDeclaration,
+): Record<string, Set<string>> {
+	const result: Record<string, Set<string>> = {};
+	for (const [name, spec] of Object.entries(model.parameters ?? {})) {
+		if ("enum" in spec && Array.isArray(spec.enum) && spec.enum.length > 0) {
+			result[name] = new Set(spec.enum.map(String));
+		}
+	}
+	return result;
+}
+function ensureGenerationModelEnumSelections(modelId: string) {
+	const model = generationModelsCatalog?.find((item) => item.model === modelId);
+	if (!model || generationEnumSelections[modelId]) return;
+	generationEnumSelections = {
+		...generationEnumSelections,
+		[modelId]: getDefaultGenerationEnumSelections(model),
+	};
+}
+function setGenerationModelSelected(modelId: string, selected: boolean) {
+	const nextModels = new Set(selectedGenerationModels);
+	if (selected) {
+		nextModels.add(modelId);
+		ensureGenerationModelEnumSelections(modelId);
+	} else {
+		nextModels.delete(modelId);
+		const { [modelId]: _removed, ...rest } = generationEnumSelections;
+		generationEnumSelections = rest;
+	}
+	selectedGenerationModels = nextModels;
+}
+function setGenerationEnumValueSelected(
+	modelId: string,
+	parameter: string,
+	value: string,
+	selected: boolean,
+) {
+	const model = generationModelsCatalog?.find((item) => item.model === modelId);
+	if (!model) return;
+	const base =
+		generationEnumSelections[modelId] ??
+		getDefaultGenerationEnumSelections(model);
+	const nextValues = new Set(base[parameter] ?? []);
+	if (selected) nextValues.add(value);
+	else nextValues.delete(value);
+	generationEnumSelections = {
+		...generationEnumSelections,
+		[modelId]: {
+			...base,
+			[parameter]: nextValues,
+		},
+	};
+	if (!selectedGenerationModels.has(modelId)) {
+		selectedGenerationModels = new Set([...selectedGenerationModels, modelId]);
 	}
 }
 async function loadPromptTemplates() {
@@ -3586,6 +3701,7 @@ async function handleSend() {
 				model: model?.id,
 				provider: model?.provider,
 				clientMessageId,
+				generationPolicy: buildTurnGenerationPolicy(),
 			});
 		if (sendResult.turnId) {
 			replaceGenerationTurnId(sessionId, {
@@ -5004,6 +5120,7 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		event.preventDefault();
 		showModelSelector = true;
 		void loadModelsCatalog();
+		void loadGenerationModelsCatalog();
 		return;
 	}
 	if (isEditableShortcutTarget(event.target)) return;
@@ -5097,8 +5214,9 @@ onMount(() => {
 			pinnedFilePaths = getPinnedFilePaths(marks);
 		},
 	);
-	// Preload models catalog so model selector is ready immediately
+	// Preload model catalogs so the selector is ready immediately
 	void loadModelsCatalog();
+	void loadGenerationModelsCatalog();
 	void loadPromptTemplates();
 	const wsConnectionCleanup = sdk.onConnection((state) => {
 		const previousState = lastConnectionState;
@@ -7235,6 +7353,7 @@ $effect(() => {
             onabort={handleAbort}
             onModelSelect={() => {
               void loadModelsCatalog();
+              void loadGenerationModelsCatalog();
               showModelSelector = true;
             }}
           />
@@ -7776,6 +7895,14 @@ $effect(() => {
     onSelect={handleModelSelect}
     models={modelsCatalog ?? []}
     currentModel={activeSessionModel}
+    generationModels={generationModelsCatalog ?? []}
+    {generationPolicyMode}
+    {selectedGenerationModels}
+    {generationEnumSelections}
+    onGenerationTabOpen={() => { void loadGenerationModelsCatalog(); }}
+    onGenerationPolicyModeChange={(mode) => { generationPolicyMode = mode; }}
+    onGenerationModelToggle={setGenerationModelSelected}
+    onGenerationEnumValueToggle={setGenerationEnumValueSelected}
   />
 </div>
 <style>

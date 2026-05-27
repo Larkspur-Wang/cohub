@@ -30,6 +30,7 @@ import {
 } from "../runtime/tools/local-cross-space-query-tools.js";
 import { formatRgJsonGrepResult } from "../runtime/tools/grep-json-format.js";
 
+import { encodeGenerationPolicy, GENERATION_POLICY_ENV_KEY } from "@cohub/protocol/generation";
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
@@ -397,6 +398,7 @@ function createRemoteBashOperations(): BashOperations {
               const injectedEnv: Record<string, string> = {
                 ...(ctx?.spaceId ? getUserEnvForProcess(ctx.spaceId) : {}),
                 ...(env ?? {}),
+                ...(ctx?.generationPolicy ? { [GENERATION_POLICY_ENV_KEY]: encodeGenerationPolicy(ctx.generationPolicy) } : {}),
                 ...(ctx?.spaceId ? { COHUB_SPACE_ID: ctx.spaceId } : {}),
                 ...(ctx?.sessionId ? { COHUB_SESSION_ID: ctx.sessionId } : {}),
                 ...(actorUserId ? { COHUB_USER_UUID: actorUserId } : {}),

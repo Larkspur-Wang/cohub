@@ -2,6 +2,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
 import type { GenerationContentBlock } from "@neta-art/cohub";
+import { assertGenerationRequestAllowedByPolicy, GenerationPolicyError, parseGenerationPolicyFromEnv } from "@cohub/protocol/generation";
 import { createClient } from "../client.js";
 import { resolveSpace } from "../space.js";
 import { json as outJson, jsonRequested, ok, error, handleHttp, spinner } from "../output.js";
@@ -201,12 +202,24 @@ Examples:
         content.push(...await Promise.all(opts.video.map((value) => contentFromPathOrUrl("video", value))));
         content.push(...await Promise.all(opts.audio.map((value) => contentFromPathOrUrl("audio", value))));
 
+        const parameters = parseParams(opts.param, opts.parameters);
+        try {
+          assertGenerationRequestAllowedByPolicy({
+            policy: parseGenerationPolicyFromEnv(process.env),
+            model: opts.model,
+            parameters,
+          });
+        } catch (policyError) {
+          if (policyError instanceof GenerationPolicyError) return error("Generation settings", policyError.message);
+          throw policyError;
+        }
+
         const client = createClient();
         const created = await client.generations.create({
           spaceId,
           model: opts.model,
           content,
-          parameters: parseParams(opts.param, opts.parameters),
+          parameters,
           metadata: opts.metadata ? JSON.parse(opts.metadata) as Record<string, unknown> : undefined,
         });
 

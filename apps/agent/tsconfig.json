@@ -38,6 +38,9 @@
       "@cohub/protocol/ports": [
         "../../packages/protocol/src/ports/index.ts"
       ],
+      "@cohub/protocol/generation": [
+        "../../packages/protocol/src/generation/index.ts"
+      ],
       "@cohub/protocol/sandbox": [
         "../../packages/protocol/src/sandbox/index.ts"
       ],

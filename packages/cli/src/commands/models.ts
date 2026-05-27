@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 import type { PublicGenerationDeclaration } from "@neta-art/cohub";
+import { filterGenerationDeclarationsByPolicy, parseGenerationPolicyFromEnv } from "@cohub/protocol/generation";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, error, handleHttp, type Row } from "../output.js";
 
@@ -90,7 +91,8 @@ Examples:
       try {
         if (opts.modelType === "multimodal") {
           const response = await client.models.listMultimodal();
-          const models = response.models.map(toMultimodalModelSummary);
+          const filtered = filterGenerationDeclarationsByPolicy(response.models, parseGenerationPolicyFromEnv(process.env));
+          const models = filtered.map(toMultimodalModelSummary);
           if (jsonRequested(opts)) return outJson({ models });
           table(models as unknown as Row[], [
             { key: "model", label: "Model" },
@@ -130,7 +132,8 @@ Examples:
       const client = createClient();
       try {
         const response = await client.models.listMultimodal();
-        const model = response.models.find((item) => item.model === modelId);
+        const models = filterGenerationDeclarationsByPolicy(response.models, parseGenerationPolicyFromEnv(process.env));
+        const model = models.find((item) => item.model === modelId);
         if (!model) {
           return error("Model not found", `No multimodal model named ${modelId}`);
         }
