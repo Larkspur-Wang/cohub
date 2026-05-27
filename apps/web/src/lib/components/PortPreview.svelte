@@ -5,6 +5,8 @@ import {
 	ExternalLink,
 	Globe,
 	Loader2,
+	Maximize2,
+	Minimize2,
 	RefreshCw,
 	X,
 } from "lucide-svelte";
@@ -15,12 +17,16 @@ const {
 	url,
 	status = "unknown",
 	observedAt,
+	focused = false,
+	onToggleFocus,
 	onClose,
 }: {
 	port: string;
 	url: string;
 	status?: SpacePortStatus | "unknown";
 	observedAt?: number;
+	focused?: boolean;
+	onToggleFocus?: () => void;
 	onClose: () => void;
 } = $props();
 
@@ -119,6 +125,15 @@ onDestroy(() => {
 		<a class="preview-icon-btn" href={url} target="_blank" rel="noreferrer" title="Open externally" aria-disabled={!url}>
 			<ExternalLink class="h-4 w-4" />
 		</a>
+		{#if onToggleFocus}
+			<button type="button" class="preview-icon-btn" onclick={onToggleFocus} title={focused ? "Exit preview focus" : "Focus preview"} aria-label={focused ? "Exit preview focus" : "Focus preview"}>
+				{#if focused}
+					<Minimize2 class="h-4 w-4" />
+				{:else}
+					<Maximize2 class="h-4 w-4" />
+				{/if}
+			</button>
+		{/if}
 		<button type="button" class="preview-icon-btn" onclick={onClose} title="Close preview">
 			<X class="h-4 w-4" />
 		</button>

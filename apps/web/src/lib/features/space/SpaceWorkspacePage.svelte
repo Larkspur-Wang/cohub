@@ -43,7 +43,9 @@ import {
 	ListTree,
 	Loader2,
 	Lock,
+	Maximize2,
 	MessageSquare,
+	Minimize2,
 	MoreHorizontal,
 	Network,
 	PanelLeftClose,
@@ -420,7 +422,11 @@ let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let previewPanelWidth = $state(480);
+let previewFocusMode = $state(false);
 let previewPanelResizeCleanup: (() => void) | null = null;
+let workspaceBodyEl = $state<HTMLDivElement | null>(null);
+const CHAT_PANEL_MIN_WIDTH = 200;
+const PREVIEW_PANEL_MIN_WIDTH = 280;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
 let pendingFileSavePaths = $state<Set<string>>(new Set());
 function markFileSavePending(path: string) {
@@ -3989,20 +3995,49 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointerup", stop);
 	window.addEventListener("pointercancel", stop);
 }
+function getRightSidebarReservedWidth() {
+	if (uiState.rightSidebarCollapsed || spaceHasMinimalAccess) return 0;
+	return uiState.rightSidebarWidth;
+}
+function getMaxPreviewPanelWidth() {
+	if (typeof window === "undefined") return previewPanelWidth;
+	const layoutWidth = workspaceBodyEl?.clientWidth ?? window.innerWidth;
+	return Math.max(
+		PREVIEW_PANEL_MIN_WIDTH,
+		layoutWidth - CHAT_PANEL_MIN_WIDTH - getRightSidebarReservedWidth(),
+	);
+}
+function setPreviewPanelWidth(width: number) {
+	previewPanelWidth = Math.min(
+		Math.max(PREVIEW_PANEL_MIN_WIDTH, width),
+		getMaxPreviewPanelWidth(),
+	);
+}
+function togglePreviewFocusMode() {
+	previewFocusMode = !previewFocusMode;
+	if (!previewFocusMode) return;
+	uiState.setLeftSidebarCollapsed(true);
+	uiState.setRightSidebarCollapsed(true);
+	setPreviewPanelWidth(getMaxPreviewPanelWidth());
+}
+function closePreviewFocusMode() {
+	previewFocusMode = false;
+}
+function handlePreviewWindowResize() {
+	if (previewFocusMode) setPreviewPanelWidth(getMaxPreviewPanelWidth());
+}
 function beginPreviewPanelResize(event: PointerEvent) {
 	event.preventDefault();
 	if (window.innerWidth < 1024) return;
+	previewFocusMode = false;
 	const target = event.currentTarget as HTMLElement | null;
 	target?.setPointerCapture?.(event.pointerId);
 	previewPanelResizeCleanup?.();
 	const startX = event.clientX;
 	const startWidth = previewPanelWidth;
-	const minMainWidth = 400;
 	const onPointerMove = (moveEvent: PointerEvent) => {
 		const delta = startX - moveEvent.clientX;
-		const maxAllowed = window.innerWidth - minMainWidth - RIGHT_SIDEBAR_MIN;
-		const nextWidth = Math.min(Math.max(280, startWidth + delta), maxAllowed);
-		previewPanelWidth = nextWidth;
+		setPreviewPanelWidth(startWidth + delta);
 	};
 	const stop = () => {
 		if (target?.hasPointerCapture?.(event.pointerId)) {
@@ -4401,6 +4436,7 @@ async function openInlineFile(path: string) {
 }
 function closeInlineFile() {
 	inlineFile = null;
+	closePreviewFocusMode();
 }
 async function openInlineCanvas(path: string) {
 	const requestToken = inlineCanvasRequestToken + 1;
@@ -4449,6 +4485,7 @@ async function openInlineCanvas(path: string) {
 function closeInlineCanvas() {
 	inlineCanvasRequestToken += 1;
 	inlineCanvas = null;
+	closePreviewFocusMode();
 }
 async function saveInlineCanvas(content: string) {
 	if (!inlineCanvas) return;
@@ -4490,6 +4527,7 @@ function openInlinePort(
 }
 function closeInlinePort() {
 	inlinePortPreview = null;
+	closePreviewFocusMode();
 }
 async function downloadOpenFile() {
 	if (!routeFilePath) return;
@@ -5048,6 +5086,7 @@ onMount(() => {
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
+	window.addEventListener("resize", handlePreviewWindowResize);
 	window.addEventListener("cohub:marks-updated", handleMarksUpdated);
 	window.addEventListener("cohub:open-inline-file", handleOpenInlineFileEvent);
 	window.addEventListener("keydown", handleFileKeyboardSave);
@@ -5077,6 +5116,7 @@ onMount(() => {
 		window.removeEventListener("visibilitychange", handleVisibility);
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
+		window.removeEventListener("resize", handlePreviewWindowResize);
 		window.removeEventListener("cohub:marks-updated", handleMarksUpdated);
 		window.removeEventListener(
 			"cohub:open-inline-file",
@@ -5618,6 +5658,22 @@ $effect(() => {
 	</div>
 {/snippet}
 
+{#snippet PreviewFocusButton()}
+	<button
+		type="button"
+		class="icon-btn"
+		onclick={togglePreviewFocusMode}
+		title={previewFocusMode ? "Exit preview focus" : "Focus preview"}
+		aria-label={previewFocusMode ? "Exit preview focus" : "Focus preview"}
+	>
+		{#if previewFocusMode}
+			<Minimize2 class="w-4 h-4" />
+		{:else}
+			<Maximize2 class="w-4 h-4" />
+		{/if}
+	</button>
+{/snippet}
+
 <PageHeader>
   {#snippet left()}
     <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
@@ -5817,7 +5873,7 @@ $effect(() => {
     {/if}
   {/snippet}
 </PageHeader>
-<div class="relative flex-1 min-h-0 flex bg-bg-content">
+<div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if routeView === 'checkpoint-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
@@ -7206,6 +7262,7 @@ $effect(() => {
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
+            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -7221,6 +7278,7 @@ $effect(() => {
               <Download class="w-3.5 h-3.5 shrink-0" />
               <span class="hidden sm:inline">Download</span>
             </a>
+            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -7291,6 +7349,7 @@ $effect(() => {
                 <Save class="w-3.5 h-3.5 shrink-0" />
                 <span class="hidden sm:inline">Save</span>
               </button>
+              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -7335,6 +7394,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -7366,6 +7426,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -7391,6 +7452,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -7432,6 +7494,8 @@ $effect(() => {
           path={inlineCanvas.path}
           content={inlineCanvas.content}
           saving={inlineCanvas.saving}
+          focused={previewFocusMode}
+          onToggleFocus={togglePreviewFocusMode}
           onSave={(content) => saveInlineCanvas(content)}
           onClose={closeInlineCanvas}
         />
@@ -7449,6 +7513,8 @@ $effect(() => {
         url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
         status={inlinePortEndpoint?.status ?? "unknown"}
         observedAt={inlinePortEndpoint?.observedAt}
+        focused={previewFocusMode}
+        onToggleFocus={togglePreviewFocusMode}
         onClose={closeInlinePort}
       />
     </WorkspacePreviewPane>

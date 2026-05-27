@@ -3,6 +3,7 @@ import {
 	FilePlus2,
 	Link as LinkIcon,
 	Maximize2,
+	Minimize2,
 	Minus,
 	MousePointer2,
 	Plus,
@@ -22,6 +23,8 @@ const {
 	onZoomIn,
 	onZoomOut,
 	onFit,
+	focused = false,
+	onToggleFocus,
 	onSave,
 	onClose,
 }: {
@@ -35,6 +38,8 @@ const {
 	onZoomIn: () => void;
 	onZoomOut: () => void;
 	onFit: () => void;
+	focused?: boolean;
+	onToggleFocus?: () => void;
 	onSave: () => void;
 	onClose: () => void;
 } = $props();
@@ -74,6 +79,15 @@ const {
       <Save class="h-3.5 w-3.5" />
       <span>{saving ? "Saving" : "Save"}</span>
     </button>
+    {#if onToggleFocus}
+      <button type="button" class="canvas-icon" onclick={onToggleFocus} title={focused ? "Exit preview focus" : "Focus preview"} aria-label={focused ? "Exit preview focus" : "Focus preview"}>
+        {#if focused}
+          <Minimize2 class="h-3.5 w-3.5" />
+        {:else}
+          <Maximize2 class="h-3.5 w-3.5" />
+        {/if}
+      </button>
+    {/if}
     <button type="button" class="canvas-icon" onclick={onClose} title="Close canvas"><X class="h-3.5 w-3.5" /></button>
   </div>
 </div>

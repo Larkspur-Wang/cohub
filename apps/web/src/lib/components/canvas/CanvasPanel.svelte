@@ -22,12 +22,16 @@ const {
 	path,
 	content,
 	saving = false,
+	focused = false,
+	onToggleFocus,
 	onSave,
 	onClose,
 }: {
 	path: string;
 	content: string;
 	saving?: boolean;
+	focused?: boolean;
+	onToggleFocus?: () => void;
 	onSave: (content: string) => void | Promise<void>;
 	onClose: () => void;
 } = $props();
@@ -188,6 +192,8 @@ $effect(() => {
     onZoomIn={() => zoomBy(1.15)}
     onZoomOut={() => zoomBy(0.85)}
     onFit={fit}
+    {focused}
+    {onToggleFocus}
     onSave={() => void save()}
     onClose={close}
   />
