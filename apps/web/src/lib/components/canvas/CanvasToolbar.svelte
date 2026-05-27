@@ -2,6 +2,7 @@
 import {
 	FilePlus2,
 	Link as LinkIcon,
+	LocateFixed,
 	Maximize2,
 	Minimize2,
 	Minus,
@@ -73,7 +74,7 @@ const {
     <button type="button" class="canvas-icon" onclick={onZoomOut} title="Zoom out"><Minus class="h-3.5 w-3.5" /></button>
     <span class="w-10 text-center text-[11px] tabular-nums text-text-tertiary">{Math.round(zoom * 100)}%</span>
     <button type="button" class="canvas-icon" onclick={onZoomIn} title="Zoom in"><Plus class="h-3.5 w-3.5" /></button>
-    <button type="button" class="canvas-icon" onclick={onFit} title="Reset view"><Maximize2 class="h-3.5 w-3.5" /></button>
+    <button type="button" class="canvas-icon" onclick={onFit} title="Reset view"><LocateFixed class="h-3.5 w-3.5" /></button>
     <div class="mx-1 h-5 w-px bg-border-subtle"></div>
     <button type="button" class="canvas-tool primary" onclick={onSave} disabled={saving || !dirty} title="Save canvas">
       <Save class="h-3.5 w-3.5" />
