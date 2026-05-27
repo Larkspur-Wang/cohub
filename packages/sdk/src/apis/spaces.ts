@@ -77,17 +77,8 @@ const getFilenameFromContentDisposition = (value: string | null) => {
 
 export type SessionSubscriptionHandlers = {
   patch?: (event: WebsocketEventPayload) => void;
-  /**
-   * @deprecated Use `session.subscribeGeneration({ state })` for normalized
-   * snapshot/patch/progress generation state.
-   */
-  patchState?: (result: SessionPatchApplyResult) => void;
   /** @deprecated Use `session.subscribeGeneration({ state })`. */
-  snapshot?: (event: WebsocketEventPayload) => void;
-  /** @deprecated Legacy progress events are normalized by `subscribeGeneration`. */
-  progress?: (event: WebsocketEventPayload) => void;
-  /** @deprecated Use `session.subscribeGeneration({ commit, finalized })`. */
-  final?: (event: WebsocketEventPayload) => void;
+  patchState?: (result: SessionPatchApplyResult) => void;
   turnUpdated?: (event: WebsocketEventPayload) => void;
   turnFinalized?: (event: WebsocketEventPayload) => void;
   error?: (event: WebsocketEventPayload) => void;
@@ -95,8 +86,8 @@ export type SessionSubscriptionHandlers = {
   event?: (event: WebsocketEventPayload) => void;
 };
 
-export type SessionEventName = "turn.patch" | "turn.snapshot" | "turn.progress" | "turn.final" | "turn.updated" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "ports.changed" | "event";
+export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
+export type SpaceEventName = SessionEventName | "ports.changed" | "task.created" | "task.updated" | "event";
 
 type SessionSendMessageInput = {
   content: ContentBlock[];
@@ -107,18 +98,20 @@ type SessionSendMessageInput = {
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
+    case "session.created":
+      return "created";
+    case "session.updated":
+      return "updated";
+    case "session.turn.created":
+      return "turn.created";
     case "session.turn.patch":
       return "turn.patch";
-    case "session.turn.snapshot":
-      return "turn.snapshot";
-    case "session.turn.progress":
-      return "turn.progress";
     case "session.turn.error":
       return "turn.error";
     case "session.turn.updated":
       return "turn.updated";
     case "session.turn.finalized":
-      return "turn.final";
+      return "turn.finalized";
     case "session.message.persisted":
       return "message.persisted";
     default:
@@ -570,8 +563,6 @@ class SessionRealtimeClient {
           }
         }
       }
-      if (eventName === "turn.snapshot") handlers.snapshot?.(event);
-      if (eventName === "turn.progress") handlers.progress?.(event);
       if (eventName === "turn.error") {
         this.patchReducer.fail({
           spaceId: this.spaceId,
@@ -589,14 +580,13 @@ class SessionRealtimeClient {
         }
       }
       if (eventName === "turn.updated") handlers.turnUpdated?.(event);
-      if (eventName === "turn.final") {
+      if (eventName === "turn.finalized") {
         this.patchReducer.complete({
           spaceId: this.spaceId,
           sessionId: this.sessionId,
           turnId: typeof event.payload.turn === "object" && event.payload.turn && "id" in event.payload.turn ? String(event.payload.turn.id) : null,
         });
         handlers.turnFinalized?.(event);
-        handlers.final?.(event);
       }
       if (isAssistantFinalPersistedEvent(event)) {
         this.patchReducer.complete({
@@ -604,7 +594,6 @@ class SessionRealtimeClient {
           sessionId: this.sessionId,
           turnId: getPersistedMessageTurnId(event),
         });
-        handlers.final?.(event);
       }
     });
     return () => unsubscribe();
@@ -613,10 +602,6 @@ class SessionRealtimeClient {
   on(type: SessionEventName, handler: (event: WebsocketEventPayload) => void) {
     return this.subscribe({
       event: (event) => {
-        if (type === "turn.final" && isAssistantFinalPersistedEvent(event)) {
-          handler(event);
-          return;
-        }
         if (toSessionEventName(event.type) === type) handler(event);
       },
     });
@@ -781,7 +766,11 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
-      if (type === "turn.final" && isAssistantFinalPersistedEvent(event)) {
+      if (type === "task.created" && event.type === "task.created") {
+        handler(event);
+        return;
+      }
+      if (type === "task.updated" && event.type === "task.updated") {
         handler(event);
         return;
       }

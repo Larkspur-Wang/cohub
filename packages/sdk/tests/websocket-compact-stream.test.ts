@@ -29,7 +29,7 @@ function createPatchEnvelope(input: {
 	};
 }
 
-test("compact stream resumes after a snapshot-seeded patch", () => {
+test("compact stream resumes after a full patch seeds the stream", () => {
 	const client = new WebsocketClient({
 		url: "ws://localhost",
 		getAccessToken: () => "token",
@@ -42,28 +42,14 @@ test("compact stream resumes after a snapshot-seeded patch", () => {
 	).handleMessage.bind(client);
 
 	handleMessage(
-		JSON.stringify({
-			id: "snapshot-12",
-			timestamp: Date.now(),
-			domain: "session",
-			type: "session.turn.snapshot",
-			spaceId: "space-1",
-			sessionId: "session-1",
-			payload: {
-				turnId: "turn-1",
-				anchorUserMessageId: "user-1",
+		JSON.stringify(
+			createPatchEnvelope({
 				seq: 12,
-				current: {
-					messageId: "turn:turn-1:assistant:0",
-					messageOrdinal: 0,
-					content: [{ type: "text", text: "hello" }],
-					appendPath: "/message/content/blocks/0/text",
-				},
-				intermediateMessages: [],
-			},
-		}),
+				baseSeq: 0,
+				ops: [{ o: "append", p: "/message/content/blocks/0/text", v: "hello" }],
+			}),
+		),
 	);
-
 	handleMessage(
 		JSON.stringify(
 			createPatchEnvelope({
@@ -86,5 +72,5 @@ test("compact stream resumes after a snapshot-seeded patch", () => {
 	const patchSeqs = events
 		.filter((event) => event.type === "session.turn.patch")
 		.map((event) => event.payload.seq);
-	assert.deepEqual(patchSeqs, [13, 14]);
+	assert.deepEqual(patchSeqs, [12, 13, 14]);
 });

@@ -127,13 +127,6 @@ function shouldMarkTruncatedStart(
 	if (event.source === "patch") {
 		return event.state.patchSeq > 0 && current.contentBlocks.length === 0;
 	}
-	if (event.source === "progress") {
-		return (
-			event.state.patchSeq === 0 &&
-			current.contentBlocks.length === 0 &&
-			event.state.contentBlocks.length > 0
-		);
-	}
 	return false;
 }
 

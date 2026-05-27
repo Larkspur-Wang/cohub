@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { MessageRecord, SessionTurnRecord } from "@cohub/protocol/model";
 import type { GatewaySessionOutput } from "@cohub/protocol/gateway";
-import type { RealtimeMessageRecord, RealtimeTurnRecord } from "@cohub/protocol/realtime";
 import {
   dispatchOutboundMessage,
   dispatchRealtimeEventToUsers,
@@ -13,68 +12,7 @@ import {
 import { db } from "./db/index.js";
 import { spaceChannels } from "@cohub/db";
 import { clearSessionStreamSnapshot } from "./session-stream-snapshot.js";
-const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
-  if (!meta) return null;
-  const keys = [
-    "messageKind",
-    "clientMessageId",
-    "anchorUserMessageId",
-    "userId",
-    "contentDetail",
-    "contentPlaceholder",
-    "historySummary",
-  ];
-  const picked: Record<string, unknown> = {};
-  for (const key of keys) {
-    if (meta[key] !== undefined) picked[key] = meta[key];
-  }
-  return Object.keys(picked).length > 0 ? picked : null;
-};
-
-const toRealtimeMessageRecord = (message: MessageRecord): RealtimeMessageRecord => ({
-  id: message.id,
-  sessionId: message.sessionId,
-  role: message.role,
-  content: message.content,
-  text: message.content.length > 0 ? null : message.text,
-  sequence: message.sequence,
-  provider: message.provider,
-  model: message.model,
-  stopReason: message.stopReason,
-  errorMessage: message.errorMessage,
-  usage: message.usage,
-  meta: pickRealtimeMessageMeta(message.meta),
-  startedAt: message.startedAt,
-  completedAt: message.completedAt,
-  durationMs: message.durationMs,
-  createdAt: message.createdAt,
-});
-
-export const toRealtimeTurnRecord = (turn: SessionTurnRecord): RealtimeTurnRecord => ({
-  id: turn.id,
-  sessionId: turn.sessionId,
-  sequence: turn.sequence,
-  status: turn.status,
-  intent: turn.intent,
-  userUuid: turn.userUuid,
-  authorProfile: turn.authorProfile,
-  userText: turn.userText,
-  assistantText: turn.assistantText,
-  provider: turn.provider,
-  model: turn.model,
-  stopReason: turn.stopReason,
-  errorMessage: turn.errorMessage,
-  finalUsage: turn.finalUsage,
-  totalUsage: turn.totalUsage,
-  summary: turn.summary,
-  intermediateIndex: turn.intermediateIndex,
-  intermediateSummary: turn.intermediateSummary,
-  startedAt: turn.startedAt,
-  completedAt: turn.completedAt,
-  durationMs: turn.durationMs,
-  createdAt: turn.createdAt,
-  updatedAt: turn.updatedAt,
-});
+import { toRealtimeMessageRecord, toRealtimeTurnRecord } from "./realtime-events.js";
 
 export const buildSessionOutputsForPersistedMessage = async (input: {
   spaceId: string;
@@ -218,7 +156,7 @@ export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: s
       turn: toRealtimeTurnRecord(input.turn),
       targetUserIds: readableUserIds,
     },
-  } as never);
+  });
 };
 
 export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
@@ -235,7 +173,7 @@ export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId:
       turn: toRealtimeTurnRecord(input.turn),
       targetUserIds: readableUserIds,
     },
-  } as never);
+  });
 };
 
 export const dispatchSessionOutputs = async (outputs: GatewaySessionOutput[]) => {

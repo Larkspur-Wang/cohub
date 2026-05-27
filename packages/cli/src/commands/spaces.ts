@@ -794,7 +794,7 @@ function registerSessions(spacesCmd: Command): void {
         }
       });
 
-      session.on("turn.final", () => {
+      session.on("turn.finalized", () => {
         process.stdout.write("\n\n  ✓ Done\n");
         process.exit(0);
       });

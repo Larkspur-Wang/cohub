@@ -213,14 +213,16 @@ export async function dispatchOutboundMessage(input: {
 }
 
 export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & { payload: RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null } }) {
-  const targetUserIds = Array.from(new Set((input.payload.targetUserIds ?? []).map((value) => value.trim()).filter(Boolean)));
-  if (input.spaceId) {
-    await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
+  const { targetUserIds: rawTargetUserIds, targetConnectionId, ...cleanPayload } = input.payload as RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null };
+  let targetUserIds = Array.from(new Set((rawTargetUserIds ?? []).map((value) => value.trim()).filter(Boolean)));
+  const hasExplicitTarget = targetUserIds.length > 0 || Boolean(targetConnectionId);
+  if (input.spaceId && !hasExplicitTarget) {
+    targetUserIds = await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
       console.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
+      return targetUserIds;
     });
   }
 
-  const { targetUserIds: _targetUserIds, targetConnectionId, ...cleanPayload } = input.payload as RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null };
   await redisCommandClient.publish(
     REALTIME_OUTBOUND_CHANNEL,
     JSON.stringify({

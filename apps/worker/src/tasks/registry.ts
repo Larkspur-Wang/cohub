@@ -3,6 +3,7 @@ import type { TaskPayload } from "@cohub/protocol/task";
 import { eq } from "drizzle-orm";
 import { db } from "../db.js";
 import { taskRuns } from "@cohub/db";
+import { dispatchTaskCreated, dispatchTaskUpdated } from "../realtime-events.js";
 
 export type TaskHandlerContext = {
   taskRunId: string;
@@ -43,7 +44,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
 
     if (existing.length > 0) {
       // Already exists (API-enqueued with pending status)
-      await db
+      const [taskRun] = await db
         .update(taskRuns)
         .set({
           status: "running",
@@ -51,7 +52,14 @@ export const registerTask = (type: string, handler: TaskHandler) => {
           attemptCount: job.attemptsMade,
           updatedAt: now,
         })
-        .where(eq(taskRuns.jobId, jobId));
+        .where(eq(taskRuns.jobId, jobId))
+        .returning();
+      if (taskRun) {
+        await dispatchTaskUpdated({
+          task: taskRun,
+          changed: ["status", "startedAt", "attemptCount"],
+        }).catch((error) => console.warn("[Realtime] failed to dispatch task.updated", error));
+      }
     } else {
       // Cron-spawned — first time we see this job
       // Use onConflictDoNothing to handle retry after DB write interruption
@@ -67,10 +75,11 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         userUuid: payload.userId ?? null,
         startedAt: now,
         attemptCount: job.attemptsMade,
-      }).onConflictDoNothing().returning({ id: taskRuns.id });
+      }).onConflictDoNothing().returning();
 
       if (inserted[0]?.id) {
         taskRunId = inserted[0].id;
+        await dispatchTaskCreated(inserted[0]).catch((error) => console.warn("[Realtime] failed to dispatch task.created", error));
       } else {
         const [createdByPeer] = await db
           .select({ id: taskRuns.id })
@@ -85,7 +94,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
     try {
       const result = await handler(job, { taskRunId });
 
-      await db
+      const [taskRun] = await db
         .update(taskRuns)
         .set({
           status: "completed",
@@ -93,13 +102,20 @@ export const registerTask = (type: string, handler: TaskHandler) => {
           finishedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(taskRuns.jobId, jobId));
+        .where(eq(taskRuns.jobId, jobId))
+        .returning();
+      if (taskRun) {
+        await dispatchTaskUpdated({
+          task: taskRun,
+          changed: ["status", "result", "finishedAt"],
+        }).catch((error) => console.warn("[Realtime] failed to dispatch task.updated", error));
+      }
 
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      await db
+      const [taskRun] = await db
         .update(taskRuns)
         .set({
           status: "failed",
@@ -107,7 +123,14 @@ export const registerTask = (type: string, handler: TaskHandler) => {
           finishedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(taskRuns.jobId, jobId));
+        .where(eq(taskRuns.jobId, jobId))
+        .returning();
+      if (taskRun) {
+        await dispatchTaskUpdated({
+          task: taskRun,
+          changed: ["status", "errorMessage", "finishedAt"],
+        }).catch((error) => console.warn("[Realtime] failed to dispatch task.updated", error));
+      }
 
       throw error; // Rethrow so BullMQ handles retry/backoff
     }

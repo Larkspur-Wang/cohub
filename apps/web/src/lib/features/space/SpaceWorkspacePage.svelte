@@ -1666,6 +1666,38 @@ function updateNodeState(
 		return node;
 	});
 }
+const sessionSortTime = (session: SessionRecord) =>
+	Date.parse(
+		session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? "",
+	) || 0;
+function sortSessions(sessions: SessionRecord[]) {
+	return [...sessions].sort((a, b) => sessionSortTime(b) - sessionSortTime(a));
+}
+function applySessionRealtimeRecord(session: SessionRecord) {
+	const nextSessions = sortSessions([
+		session,
+		...spaceSessions.filter((item) => item.id !== session.id),
+	]);
+	spaceSessions = nextSessions;
+	void patchCachedSessionList(spaceId, () => nextSessions).catch(
+		() => undefined,
+	);
+	const existing = sessionStateById[session.id];
+	sessionStateById = {
+		...sessionStateById,
+		[session.id]: {
+			session,
+			turns: existing?.turns ?? [],
+			loading: existing?.loading ?? false,
+			loaded: existing?.loaded ?? false,
+			error: existing?.error ?? "",
+			hasMore: existing?.hasMore ?? true,
+			hasMoreNewer: existing?.hasMoreNewer ?? false,
+			loadingOlder: existing?.loadingOlder ?? false,
+			oldestCursor: existing?.oldestCursor,
+		},
+	};
+}
 function applySessionsSnapshot(sessions: SessionRecord[]) {
 	spaceSessions = sessions;
 	const nextState: Record<string, SessionViewState> = {};
@@ -3206,6 +3238,14 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			applyPortsChanged(payload);
 			return;
 		}
+		if (
+			payload.type === "session.created" ||
+			payload.type === "session.updated"
+		) {
+			const session = payload.payload.session as SessionRecord | undefined;
+			if (session?.id) applySessionRealtimeRecord(session);
+			return;
+		}
 		const targetSessionId =
 			typeof payload.sessionId === "string" ? payload.sessionId : null;
 		if (!targetSessionId) return;
@@ -3216,8 +3256,30 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		const isActiveSession = targetSessionId === currentActiveSessionId;
 		const state = sessionStateById[targetSessionId];
 		if (!state) {
+			if (payload.type === "session.turn.created") {
+				void loadSessionState(targetSessionId);
+			}
 			if (payload.type === "session.turn.finalized")
 				completeGeneration(targetSessionId);
+			return;
+		}
+		if (payload.type === "session.turn.created") {
+			const turn = payload.payload.turn as SessionTurnRecord | undefined;
+			if (turn?.id && !state.turns.some((item) => item.id === turn.id)) {
+				const snapshot = await sessionTurnsRepo.mergeTurns(
+					spaceId,
+					targetSessionId,
+					[turn],
+					{ session: state.session ?? null },
+				);
+				sessionStateById = {
+					...sessionStateById,
+					[targetSessionId]: {
+						...state,
+						turns: snapshot.turns,
+					},
+				};
+			}
 			return;
 		}
 		if (

@@ -22,6 +22,7 @@ import {
 } from "./redis.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
+import { dispatchSessionCreated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
 import { finalizeSessionTurnFromMessage } from "./session-turns.js";
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
@@ -313,6 +314,9 @@ export const createInitialSpaceSession = async (input: RegisterSessionInput) => 
   }).returning();
   if (!session) throw new Error("Failed to create initial space session");
   await ensureRootSessionTurnSegment(input.sessionId);
+  await dispatchSessionCreated(session).catch((error) => {
+    console.warn("[Realtime] failed to dispatch session.created", error);
+  });
   return session;
 };
 
@@ -334,6 +338,9 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
     }).returning();
     if (!session) throw new Error("Failed to register space session");
     await ensureRootSessionTurnSegment(input.sessionId);
+    await dispatchSessionCreated(session).catch((error) => {
+      console.warn("[Realtime] failed to dispatch session.created", error);
+    });
     return session;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -550,6 +557,50 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
 
   await updateSessionAfterAppend(input.sessionId, messageNode);
 
+  if (messageRole === "user") {
+    const turnId = typeof (input.message.meta as Record<string, unknown> | null | undefined)?.turnId === "string"
+      ? ((input.message.meta as Record<string, unknown>).turnId as string)
+      : null;
+    if (turnId) {
+      const [turnRow] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
+      if (turnRow) {
+        await dispatchTurnCreated({
+          spaceId: session.spaceId,
+          sessionId: input.sessionId,
+          turn: {
+            id: turnRow.id,
+            sessionId: turnRow.sessionId,
+            userUuid: turnRow.userUuid ?? null,
+            sequence: turnRow.sequence,
+            status: turnRow.status as never,
+            intent: turnRow.intent as never,
+            userContent: turnRow.userContent,
+            userText: turnRow.userText ?? null,
+            assistantContent: turnRow.assistantContent ?? null,
+            assistantText: turnRow.assistantText ?? null,
+            provider: turnRow.provider ?? null,
+            model: turnRow.model ?? null,
+            stopReason: turnRow.stopReason ?? null,
+            errorMessage: turnRow.errorMessage ?? null,
+            finalUsage: turnRow.finalUsage ?? null,
+            totalUsage: turnRow.totalUsage ?? null,
+            summary: turnRow.summary ?? null,
+            intermediateIndex: turnRow.intermediateIndex ?? null,
+            intermediateSummary: turnRow.intermediateSummary ?? null,
+            meta: normalizeRecord(turnRow.meta),
+            startedAt: turnRow.startedAt instanceof Date ? turnRow.startedAt.toISOString() : null,
+            completedAt: turnRow.completedAt instanceof Date ? turnRow.completedAt.toISOString() : null,
+            durationMs: turnRow.durationMs ?? null,
+            createdAt: turnRow.createdAt instanceof Date ? turnRow.createdAt.toISOString() : new Date().toISOString(),
+            updatedAt: turnRow.updatedAt instanceof Date ? turnRow.updatedAt.toISOString() : new Date().toISOString(),
+          },
+        }).catch((error) => {
+          console.warn("[Realtime] failed to dispatch session.turn.created", error);
+        });
+      }
+    }
+  }
+
   if (messageRole === "assistant") {
     const turnId = typeof (input.message.meta as Record<string, unknown> | null | undefined)?.turnId === "string"
       ? ((input.message.meta as Record<string, unknown>).turnId as string)
@@ -624,12 +675,30 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
 export const updateSpaceSessionInfo = async (input: UpdateSessionInfoInput) => {
   const session = await getSpaceSessionById(input.sessionId);
   if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
+
+  const nextTitle = input.title === undefined ? session.title : (input.title ?? null);
+  const nextLastMessageAt = input.updatedAt === undefined ? session.lastMessageAt : input.updatedAt ? new Date(input.updatedAt) : null;
+  const changed = [
+    ...(nextTitle !== session.title ? ["title"] : []),
+    ...(input.updatedAt !== undefined ? ["lastMessageAt"] : []),
+    ...(input.meta !== undefined ? ["meta"] : []),
+  ];
+
   await db.update(spaceSessions).set({
-    title: input.title === undefined ? session.title : (input.title ?? null),
-    lastMessageAt: input.updatedAt === undefined ? session.lastMessageAt : input.updatedAt ? new Date(input.updatedAt) : null,
+    title: nextTitle,
+    lastMessageAt: nextLastMessageAt,
     meta: input.meta === undefined ? session.meta : { ...((session.meta as Record<string, unknown> | null) ?? {}), ...(input.meta ?? {}) },
     updatedAt: new Date(),
   }).where(eq(spaceSessions.id, input.sessionId));
+
+  if (changed.length > 0) {
+    const refreshed = await getSpaceSessionById(input.sessionId);
+    if (refreshed) {
+      await dispatchSessionUpdated({ session: refreshed, changed }).catch((error) => {
+        console.warn("[Realtime] failed to dispatch session.updated", error);
+      });
+    }
+  }
   return true;
 };
 

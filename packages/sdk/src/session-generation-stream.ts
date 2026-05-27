@@ -55,7 +55,7 @@ export type GenerationStreamIntermediateMessage = {
 
 export type GenerationStreamStateEvent = {
   type: "state";
-  source: "snapshot" | "patch" | "progress";
+  source: "patch";
   state: SessionPatchState;
   messageId: string | null;
   messageOrdinal: number | null;
@@ -89,7 +89,7 @@ export type GenerationStreamErrorEvent = {
 
 export type GenerationStreamOutOfSyncEvent = {
   type: "out_of_sync";
-  source: "snapshot" | "patch";
+  source: "patch";
   reason: "duplicate" | "version_mismatch" | "invalid";
   state: SessionPatchState;
   rawEvent: WebsocketEventPayload;
@@ -125,11 +125,6 @@ const stringField = (record: Record<string, unknown>, key: string) => {
   return typeof value === "string" ? value : null;
 };
 
-const numberField = (record: Record<string, unknown>, key: string) => {
-  const value = record[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-};
-
 const getMessageKind = (message: MessageRecord) => {
   const kind = message.meta?.messageKind;
   return typeof kind === "string" ? kind : null;
@@ -154,104 +149,6 @@ export function parseAssistantMessageCommit(
   }
 
   return { kind: "ignored", message, isFinal: false };
-}
-
-function cloneContentBlock(block: ContentBlock): ContentBlock {
-  return structuredClone(block);
-}
-
-function getStreamIndex(block: ContentBlock): number | null {
-  const value = block._meta?.streamIndex;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function findMergeTargetIndex(result: ContentBlock[], block: ContentBlock) {
-  const streamIndex = getStreamIndex(block);
-  if (streamIndex != null) {
-    return result.findIndex(
-      (existing) =>
-        existing.type === block.type && getStreamIndex(existing) === streamIndex,
-    );
-  }
-  if (block.type === "tool_use") {
-    return result.findIndex(
-      (existing) => existing.type === "tool_use" && existing.id === block.id,
-    );
-  }
-  if (block.type === "tool_result") {
-    return result.findIndex(
-      (existing) =>
-        existing.type === "tool_result" &&
-        existing.tool_use_id === block.tool_use_id,
-    );
-  }
-  return -1;
-}
-
-function mergeStreamingDeltaBlocks(
-  existing: ContentBlock[],
-  delta: ContentBlock[],
-): ContentBlock[] {
-  if (delta.length === 0) return existing;
-  const result = existing.map(cloneContentBlock);
-
-  for (const block of delta) {
-    const targetIndex = findMergeTargetIndex(result, block);
-    if (targetIndex === -1) {
-      result.push(cloneContentBlock(block));
-      continue;
-    }
-
-    const target = result[targetIndex];
-    if (block.type === "text" && target?.type === "text") {
-      target.text += block.text;
-      continue;
-    }
-    if (block.type === "thinking" && target?.type === "thinking") {
-      target.thinking += block.thinking;
-      if (block.signature) target.signature = block.signature;
-      if (block._meta) target._meta = { ...(target._meta ?? {}), ...block._meta };
-      continue;
-    }
-
-    result[targetIndex] = Object.assign(target ?? {}, cloneContentBlock(block));
-  }
-
-  return result;
-}
-
-function parseSnapshotMessage(
-  value: unknown,
-): GenerationStreamIntermediateMessage | null {
-  if (!isRecord(value) || !isContentBlockArray(value.content)) return null;
-  return {
-    messageId: stringField(value, "messageId"),
-    messageOrdinal: numberField(value, "messageOrdinal"),
-    content: value.content,
-    ...(typeof value.id === "string" ? { id: value.id } : {}),
-    ...(typeof value.sessionId === "string" ? { sessionId: value.sessionId } : {}),
-    ...(value.role === "user" ||
-    value.role === "assistant" ||
-    value.role === "system"
-      ? { role: value.role }
-      : {}),
-    ...(typeof value.text === "string" ? { text: value.text } : {}),
-    ...(typeof value.provider === "string" ? { provider: value.provider } : {}),
-    ...(typeof value.model === "string" ? { model: value.model } : {}),
-    ...(typeof value.stopReason === "string"
-      ? { stopReason: value.stopReason }
-      : {}),
-    ...(typeof value.errorMessage === "string"
-      ? { errorMessage: value.errorMessage }
-      : {}),
-    ...(isRecord(value.usage) ? { usage: value.usage as Usage } : {}),
-    ...(typeof value.durationMs === "number" ? { durationMs: value.durationMs } : {}),
-    ...(typeof value.toolCallsObjectKey === "string"
-      ? { toolCallsObjectKey: value.toolCallsObjectKey }
-      : {}),
-    ...(isRecord(value.meta) ? { meta: value.meta } : {}),
-    ...(typeof value.createdAt === "string" ? { createdAt: value.createdAt } : {}),
-  };
 }
 
 function messageRecordToIntermediate(
@@ -311,7 +208,7 @@ export class SessionGenerationStreamClient {
   private messageId: string | null = null;
   private messageOrdinal: number | null = null;
   private intermediateMessages: GenerationStreamIntermediateMessage[] = [];
-  private progressState: SessionPatchState | null = null;
+  private patchState: SessionPatchState | null = null;
 
   constructor(
     private readonly websocketClient: WebsocketClient | null,
@@ -354,7 +251,7 @@ export class SessionGenerationStreamClient {
   private resetCurrentMessage() {
     this.messageId = null;
     this.messageOrdinal = null;
-    this.progressState = null;
+    this.patchState = null;
   }
 
   private appendCurrentMessage(state: SessionPatchState) {
@@ -396,7 +293,7 @@ export class SessionGenerationStreamClient {
     if (!result.applied) {
       this.emit(handlers, {
         type: "out_of_sync",
-        source: source === "progress" ? "patch" : source,
+        source,
         reason: result.reason,
         state: result.state,
         rawEvent,
@@ -404,7 +301,7 @@ export class SessionGenerationStreamClient {
       return;
     }
 
-    this.progressState = result.state;
+    this.patchState = result.state;
     this.messageId = messageId;
     this.messageOrdinal = messageOrdinal;
     this.emit(handlers, {
@@ -425,7 +322,7 @@ export class SessionGenerationStreamClient {
     anchorUserMessageId: string | null;
   }) {
     const current =
-      this.progressState ??
+      this.patchState ??
       this.reducer.get({
         spaceId: this.spaceId,
         sessionId: this.sessionId,
@@ -466,65 +363,6 @@ export class SessionGenerationStreamClient {
     }
 
     return nextMessageId;
-  }
-
-  private handleSnapshot(
-    event: WebsocketEventPayload,
-    handlers: GenerationStreamSubscriptionHandlers,
-  ) {
-    const payload = event.payload;
-    const current = isRecord(payload.current) ? payload.current : null;
-    const content = current ? current.content : null;
-    const seq = typeof payload.seq === "number" ? payload.seq : null;
-    if (!current || !isContentBlockArray(content) || seq === null) {
-      this.emit(handlers, {
-        type: "out_of_sync",
-        source: "snapshot",
-        reason: "invalid",
-        state: this.reducer.get({ spaceId: this.spaceId, sessionId: this.sessionId }),
-        rawEvent: event,
-      });
-      return;
-    }
-
-    const turnId = typeof payload.turnId === "string" ? payload.turnId : null;
-    const anchorUserMessageId =
-      typeof payload.anchorUserMessageId === "string"
-        ? payload.anchorUserMessageId
-        : null;
-    const messageOrdinal = numberField(current, "messageOrdinal");
-    const messageId = this.prepareMessageBoundary({
-      turnId,
-      messageId: stringField(current, "messageId"),
-      messageOrdinal,
-      anchorUserMessageId,
-    });
-    this.intermediateMessages = Array.isArray(payload.intermediateMessages)
-      ? payload.intermediateMessages
-          .map(parseSnapshotMessage)
-          .filter(
-            (message): message is GenerationStreamIntermediateMessage =>
-              message !== null,
-          )
-      : [];
-
-    const result = this.reducer.applySnapshot({
-      spaceId: this.spaceId,
-      sessionId: this.sessionId,
-      turnId,
-      seq,
-      contentBlocks: content,
-      anchorUserMessageId,
-      appendPath: stringField(current, "appendPath"),
-    });
-    this.handleAppliedState(
-      handlers,
-      "snapshot",
-      result,
-      event,
-      messageId,
-      messageOrdinal,
-    );
   }
 
   private handlePatch(
@@ -578,56 +416,6 @@ export class SessionGenerationStreamClient {
       messageId,
       messageOrdinal,
     );
-  }
-
-  private handleProgress(
-    event: WebsocketEventPayload,
-    handlers: GenerationStreamSubscriptionHandlers,
-  ) {
-    const payload = event.payload;
-    if (!isContentBlockArray(payload.content)) return;
-    const current =
-      this.progressState ??
-      this.reducer.get({ spaceId: this.spaceId, sessionId: this.sessionId });
-    const turnId = typeof payload.turnId === "string" ? payload.turnId : current.turnId;
-    const anchorUserMessageId =
-      typeof payload.anchorUserMessageId === "string"
-        ? payload.anchorUserMessageId
-        : current.anchorUserMessageId;
-    const messageOrdinal =
-      typeof payload.messageOrdinal === "number"
-        ? payload.messageOrdinal
-        : this.messageOrdinal;
-    const messageId = this.prepareMessageBoundary({
-      turnId,
-      messageId:
-        typeof payload.messageId === "string" ? payload.messageId : this.messageId,
-      messageOrdinal,
-      anchorUserMessageId,
-    });
-    const base =
-      this.progressState?.turnId === turnId ? this.progressState : current;
-    const state: SessionPatchState = {
-      ...base,
-      spaceId: this.spaceId,
-      sessionId: this.sessionId,
-      status: "streaming",
-      contentBlocks: mergeStreamingDeltaBlocks(base.contentBlocks, payload.content),
-      anchorUserMessageId,
-      turnId,
-    };
-    this.progressState = state;
-    this.messageId = messageId;
-    this.messageOrdinal = messageOrdinal;
-    this.emit(handlers, {
-      type: "state",
-      source: "progress",
-      state,
-      messageId,
-      messageOrdinal,
-      intermediateMessages: [...this.intermediateMessages],
-      rawEvent: event,
-    });
   }
 
   private handlePersisted(
@@ -703,14 +491,8 @@ export class SessionGenerationStreamClient {
     handlers: GenerationStreamSubscriptionHandlers,
   ) {
     switch (event.type) {
-      case "session.turn.snapshot":
-        this.handleSnapshot(event, handlers);
-        return;
       case "session.turn.patch":
         this.handlePatch(event, handlers);
-        return;
-      case "session.turn.progress":
-        this.handleProgress(event, handlers);
         return;
       case "session.message.persisted":
         this.handlePersisted(event, handlers);

@@ -6,6 +6,7 @@ import { db } from "./db/index.js";
 import { cronJobs, taskRuns } from "@cohub/db";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol/task";
 import { GENERATION_TASK_TYPE } from "@cohub/protocol/generation";
+import { dispatchTaskCreated } from "./realtime-events.js";
 
 type TaskEnqueueOptions = Omit<JobsOptions, "scheduledAt"> & { scheduledAt?: Date | null };
 
@@ -31,7 +32,7 @@ export const enqueueTask = async (
   });
 
   try {
-    await db.insert(taskRuns).values({
+    const [taskRun] = await db.insert(taskRuns).values({
       id: taskRunId,
       jobId: taskRunId,
       taskType: payload.type,
@@ -42,7 +43,12 @@ export const enqueueTask = async (
       status: "pending",
       payload,
       scheduledAt: scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null),
-    });
+    }).returning();
+    if (taskRun) {
+      await dispatchTaskCreated(taskRun).catch((error) => {
+        console.warn("[Realtime] failed to dispatch task.created", error);
+      });
+    }
   } catch (error) {
     await job.remove().catch(() => undefined);
     throw error;

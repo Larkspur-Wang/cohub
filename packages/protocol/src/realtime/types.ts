@@ -1,5 +1,6 @@
 import type { ContentBlock } from "../core/content.js";
-import type { MessageRecord, SessionTurnRecord } from "../model/session.js";
+import type { MessageRecord, SessionRecord, SessionTurnRecord } from "../model/session.js";
+import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
 
@@ -85,6 +86,43 @@ export type SystemAckOkEvent = {
   payload: { eventId?: string };
 };
 
+export type RealtimeSessionRecord = Pick<
+  SessionRecord,
+  | "id"
+  | "spaceId"
+  | "title"
+  | "source"
+  | "status"
+  | "externalSessionId"
+  | "latestMessageText"
+  | "lastMessageAt"
+  | "lastMessageId"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+export type SessionCreatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.created";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: { session: RealtimeSessionRecord };
+};
+
+export type SessionUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.updated";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: { session: RealtimeSessionRecord; changed: string[] };
+};
+
 export type SessionRequestAcceptedEvent = {
   id: string;
   timestamp: number;
@@ -105,22 +143,6 @@ export type SessionRequestErrorEvent = {
   spaceId?: string | null;
   sessionId?: string | null;
   payload: { code?: string; message: string; clientMessageId?: string | null };
-};
-
-export type SessionTurnProgressEvent = {
-  id: string;
-  timestamp: number;
-  domain: "session";
-  type: "session.turn.progress";
-  requestId?: string | null;
-  spaceId: string;
-  sessionId: string;
-  payload: {
-    messageId: string | null;
-    messageOrdinal?: number | null;
-    anchorUserMessageId: string | null;
-    content: ContentBlock[];
-  };
 };
 
 export type RealtimePatchOperation =
@@ -182,29 +204,6 @@ export type SessionTurnPatchEvent = {
   };
 };
 
-export type SessionTurnSnapshotMessage = {
-  messageId: string | null;
-  messageOrdinal: number | null;
-  content: ContentBlock[];
-};
-
-export type SessionTurnSnapshotEvent = {
-  id: string;
-  timestamp: number;
-  domain: "session";
-  type: "session.turn.snapshot";
-  requestId?: string | null;
-  spaceId: string;
-  sessionId: string;
-  payload: {
-    turnId: string | null;
-    anchorUserMessageId: string | null;
-    seq: number;
-    current: SessionTurnSnapshotMessage & { appendPath: string | null };
-    intermediateMessages: SessionTurnSnapshotMessage[];
-  };
-};
-
 export type SessionTurnErrorEvent = {
   id: string;
   timestamp: number;
@@ -225,7 +224,9 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "intent"
   | "userUuid"
   | "authorProfile"
+  | "userContent"
   | "userText"
+  | "assistantContent"
   | "assistantText"
   | "provider"
   | "model"
@@ -236,12 +237,44 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "summary"
   | "intermediateIndex"
   | "intermediateSummary"
+  | "meta"
   | "startedAt"
   | "completedAt"
   | "durationMs"
   | "createdAt"
   | "updatedAt"
 >>;
+
+export type RealtimeMessageRecord = Pick<
+  MessageRecord,
+  | "id"
+  | "sessionId"
+  | "role"
+  | "content"
+  | "text"
+  | "sequence"
+  | "provider"
+  | "model"
+  | "stopReason"
+  | "errorMessage"
+  | "usage"
+  | "meta"
+  | "startedAt"
+  | "completedAt"
+  | "durationMs"
+  | "createdAt"
+>;
+
+export type SessionTurnCreatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.created";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: { turn: RealtimeTurnRecord };
+};
 
 export type SessionTurnUpdatedEvent = {
   id: string;
@@ -264,26 +297,6 @@ export type SessionTurnFinalizedEvent = {
   sessionId: string;
   payload: { turn: RealtimeTurnRecord };
 };
-
-export type RealtimeMessageRecord = Pick<
-  MessageRecord,
-  | "id"
-  | "sessionId"
-  | "role"
-  | "content"
-  | "text"
-  | "sequence"
-  | "provider"
-  | "model"
-  | "stopReason"
-  | "errorMessage"
-  | "usage"
-  | "meta"
-  | "startedAt"
-  | "completedAt"
-  | "durationMs"
-  | "createdAt"
->;
 
 export type SessionMessagePersistedEvent = {
   id: string;
@@ -318,23 +331,66 @@ export type SpacePortsChangedEvent = {
   payload: SpacePortsChangedPayload;
 };
 
+export type RealtimeTaskRecord = {
+  id: string;
+  type: string;
+  status: TaskRunStatus;
+  jobId: string;
+  cronJobId: string | null;
+  spaceId: string | null;
+  sessionId: string | null;
+  userId: string | null;
+  attemptCount: number;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type TaskCreatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "task.created";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: { task: RealtimeTaskRecord };
+};
+
+export type TaskUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "task.updated";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: { task: RealtimeTaskRecord; changed: string[] };
+};
+
 export type RealtimeServerEvent =
   | SystemReadyEvent
   | SystemAuthOkEvent
   | SystemRequestErrorEvent
   | SystemPongEvent
   | SystemAckOkEvent
+  | SessionCreatedEvent
+  | SessionUpdatedEvent
   | SessionRequestAcceptedEvent
   | SessionRequestErrorEvent
-  | SessionTurnProgressEvent
+  | SessionTurnCreatedEvent
   | SessionTurnPatchEvent
-  | SessionTurnSnapshotEvent
   | SessionTurnErrorEvent
   | SessionTurnUpdatedEvent
   | SessionTurnFinalizedEvent
   | SessionMessagePersistedEvent
   | SpaceFsChangedEvent
-  | SpacePortsChangedEvent;
+  | SpacePortsChangedEvent
+  | TaskCreatedEvent
+  | TaskUpdatedEvent;
 
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

@@ -128,7 +128,7 @@
 ### Minor Changes
 
 - 341bfc0: Add turn abort/steer reason, continuedByTurnId to turn summary; add turnId/userMessageId to websocket events
-- Add `SessionGenerationStreamClient` and `session.subscribeGeneration(...)` for normalized generation events across turn snapshots, patches, progress, persisted assistant commits, finalized turns, and errors.
+- Add `SessionGenerationStreamClient` and `session.subscribeGeneration(...)` for normalized generation events across turn patches, persisted assistant commits, finalized turns, and errors.
 
 ### Patch Changes
 
@@ -180,7 +180,7 @@
 
 - f469947: Add SDK support for explore spaces, space profile and pinned-resource APIs, sandbox status/ports/recreate APIs, session turn pagination/index/window/detail/signed-url APIs, authenticated file downloads, user rules, and raw/blob transport helpers.
 
-  Improve realtime handling with turn snapshot/updated/finalized and ports changed events, plus buffered out-of-order patch frames for more reliable compact streams.
+  Improve realtime handling with turn updated/finalized and ports changed events, plus buffered out-of-order patch frames for more reliable compact streams.
 
 ## 1.2.2
 
