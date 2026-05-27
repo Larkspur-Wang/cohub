@@ -425,7 +425,7 @@ let previewPanelWidth = $state(480);
 let previewFocusMode = $state(false);
 let previewPanelResizeCleanup: (() => void) | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
-const CHAT_PANEL_MIN_WIDTH = 200;
+const CHAT_PANEL_MIN_WIDTH = 300;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
 let pendingFileSavePaths = $state<Set<string>>(new Set());
