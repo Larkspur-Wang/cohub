@@ -4016,13 +4016,16 @@ function setPreviewPanelWidth(width: number) {
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
-function togglePreviewFocusMode() {
+async function togglePreviewFocusMode() {
 	previewFocusMode = !previewFocusMode;
-	if (!previewFocusMode) return;
-	const releasedRightWidth = getRightSidebarReservedWidth();
+	if (!previewFocusMode) {
+		ensurePreviewPanelFits();
+		return;
+	}
 	uiState.setLeftSidebarCollapsed(true);
 	uiState.setRightSidebarCollapsed(true);
-	setPreviewPanelWidth(previewPanelWidth + releasedRightWidth);
+	await tick();
+	setPreviewPanelWidth(getMaxPreviewPanelWidth());
 }
 function closePreviewFocusMode() {
 	previewFocusMode = false;
