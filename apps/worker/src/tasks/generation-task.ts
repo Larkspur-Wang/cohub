@@ -54,6 +54,21 @@ function summarizeProviderBody(body: string | undefined): string | null {
   return body.replace(/\s+/g, " ").trim().slice(0, 500) || null;
 }
 
+function truncateProviderDetail(value: string, maxLength = 1_000): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+}
+
+function summarizeProviderDetails(details: Record<string, unknown> | undefined): string | null {
+  if (!details) return null;
+  try {
+    const serialized = JSON.stringify(details);
+    if (!serialized) return null;
+    return `details ${truncateProviderDetail(serialized.replace(/\s+/g, " "))}`;
+  } catch {
+    return "details [unserializable]";
+  }
+}
+
 function providerStatusMessage(status: number | undefined): string | null {
   if (status === undefined) return null;
   if (status === 401 || status === 403) return "Generation provider rejected the configured credentials";
@@ -69,8 +84,8 @@ function normalizeGenerationError(error: unknown): Error {
   if (error instanceof GenerationProviderError) {
     const parts = [providerStatusMessage(error.status) ?? error.message];
     if (error.status !== undefined) parts.push(`HTTP ${error.status}`);
-    const taskId = error.details?.taskId;
-    if (typeof taskId === "string" && taskId) parts.push(`task ${taskId}`);
+    const details = summarizeProviderDetails(error.details);
+    if (details) parts.push(details);
     const body = summarizeProviderBody(error.body);
     if (body) parts.push(body);
     return new Error(parts.join(" — "));

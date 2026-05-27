@@ -155,8 +155,8 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
       '@neta-art/generation':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -482,8 +482,8 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
       '@neta-art/generation':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -555,8 +555,8 @@ importers:
         specifier: workspace:*
         version: link:../sdk
       '@neta-art/generation':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -628,8 +628,8 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
       '@neta-art/generation':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -683,8 +683,8 @@ importers:
   packages/protocol:
     dependencies:
       '@neta-art/generation':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2715,8 +2715,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@neta-art/generation@0.1.0':
-    resolution: {integrity: sha512-dCB0R7hx90UbIaDPsT8o2NwMjN/mBiWZVReDHB4Xau2iVBeqReacJepsfToLbpv0Nd1B7DOx3jtZ/x8fsP6JfA==}
+  '@neta-art/generation@0.1.1':
+    resolution: {integrity: sha512-Wxu4J6bF7IHK4JS3qtcPEQUAsDJxsMd8rsWd9H605PvQdpij3TbG+O9mdcu3Pr+VRz2yVNLJu1rnapE/A8GT3A==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -8787,7 +8787,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.1
     optional: true
 
-  '@neta-art/generation@0.1.0':
+  '@neta-art/generation@0.1.1':
     dependencies:
       yaml: 2.8.3
 
