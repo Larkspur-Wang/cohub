@@ -173,7 +173,10 @@ export async function geminiGenerateContentAdapter(input: GenerationAdapterInput
       model: input.declaration.model,
       body,
     });
-    throw new GenerationProviderError();
+    throw new GenerationProviderError("Generation provider request failed", {
+      status: response.status,
+      body,
+    });
   }
 
   const raw = await response.json() as GeminiGenerateContentResponse;

@@ -74,7 +74,8 @@ export class GenerationsApi {
       }
 
       if (detail.run.status === "failed") {
-        throw new Error(detail.run.errorMessage || "Generation task failed");
+        const message = detail.run.errorMessage || "Generation task failed";
+        throw new Error(`${message}\ntask ID: ${taskRunId}`);
       }
 
       const elapsedMs = Date.now() - startedAt;

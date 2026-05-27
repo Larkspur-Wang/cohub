@@ -142,6 +142,12 @@ cohub generate "restyle this image" \
   --image ./input.png \
   --param size=1024x1024 \
   --json
+
+cohub generate "a calm lake" \
+  --model <model> \
+  --async
+
+cohub tasks get <taskRunId> --json
 ```
 
 Supported inputs:

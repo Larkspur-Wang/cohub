@@ -212,7 +212,10 @@ async function requestJson(url: string, apiKey: string, init: RequestInit): Prom
       status: response.status,
       body,
     });
-    throw new GenerationProviderError();
+    throw new GenerationProviderError("Generation provider request failed", {
+      status: response.status,
+      body,
+    });
   }
 
   return response.json();
@@ -313,9 +316,12 @@ export async function arkVideoGenerationsAdapter(input: GenerationAdapterInput):
     }
 
     if (["failed", "expired", "cancelled"].includes(status.status)) {
-      throw new GenerationProviderError(`Video generation ${status.status}`);
+      throw new GenerationProviderError(`Video generation ${status.status}`, {
+        taskId,
+        body: JSON.stringify(rawStatus),
+      });
     }
   }
 
-  throw new GenerationProviderError(`Timed out waiting for video generation task: ${taskId}`);
+  throw new GenerationProviderError("Timed out waiting for video generation", { taskId });
 }

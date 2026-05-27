@@ -44,18 +44,35 @@ function providerStatusMessage(status: number) {
   if (status === 401 || status === 403) return "Generation provider rejected the configured credentials";
   if (status === 429) return "Generation provider rate limit exceeded";
   if (status >= 500) return "Generation provider is temporarily unavailable";
-  return "Generation provider request failed";
+  return null;
+}
+
+function truncateDetail(value: string, maxLength = 1000) {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+}
+
+function formatProviderError(error: GenerationProviderError) {
+  const details: string[] = [];
+  if (error.provider?.status) details.push(`provider HTTP ${error.provider.status}`);
+  if (error.provider?.taskId) details.push(`provider task ${error.provider.taskId}`);
+  if (error.provider?.body) details.push(truncateDetail(error.provider.body));
+
+  const message = error.provider?.status
+    ? providerStatusMessage(error.provider.status) ?? error.message
+    : error.message;
+  return details.length > 0 ? `${message} (${details.join(" · ")})` : message;
+}
+
+function formatGenerationHttpError(error: GenerationHttpError) {
+  return `${error.message} (${error.code})`;
 }
 
 function normalizeGenerationError(error: unknown): Error {
   if (error instanceof GenerationProviderError) {
-    return new Error(error.message);
+    return new Error(formatProviderError(error));
   }
   if (error instanceof GenerationHttpError) {
-    const message = error.code === "provider_request_failed"
-      ? providerStatusMessage(error.status)
-      : error.message;
-    return new Error(`${message} (${error.code})`);
+    return new Error(formatGenerationHttpError(error));
   }
   if (error instanceof GenerationValidationError) {
     return new Error(`Invalid generation input: ${error.message}`);

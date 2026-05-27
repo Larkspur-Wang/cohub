@@ -109,23 +109,28 @@ export function handleHttp(e: unknown): never {
 
 // -- Spinner -----------------------------------------------------------------
 
-export function spinner(): { start(msg: string): void; stop(msg: string): void } {
+export function spinner(): { start(msg: string): void; update(msg: string): void; stop(msg: string): void } {
   let interval: ReturnType<typeof setInterval> | null = null;
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let i = 0;
+  let currentMsg = "";
 
   return {
     start(msg: string) {
+      currentMsg = msg;
       if (process.env.CI || !process.stderr.isTTY) {
-        process.stderr.write(`  ${msg}...\n`);
+        process.stderr.write(`  ${currentMsg}...\n`);
         return;
       }
-      process.stderr.write(`  ${msg}  `);
+      process.stderr.write(`  ${currentMsg}  `);
       interval = setInterval(() => {
         process.stderr.clearLine?.(0);
         process.stderr.cursorTo?.(0);
-        process.stderr.write(`  ${frames[i++ % frames.length] ?? ""} ${msg}  `);
+        process.stderr.write(`  ${frames[i++ % frames.length] ?? ""} ${currentMsg}  `);
       }, 80);
+    },
+    update(msg: string) {
+      currentMsg = msg;
     },
     stop(msg: string) {
       if (interval) clearInterval(interval);

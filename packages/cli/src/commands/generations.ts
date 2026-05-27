@@ -109,6 +109,19 @@ function printGeneration(output: GenerationContentBlock[]): void {
   }
 }
 
+function resumeHint(taskRunId: string): string {
+  return `Use \`cohub tasks get ${taskRunId} --json\` to inspect the task later.`;
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+  return restSeconds > 0 ? `${minutes}m ${restSeconds}s` : `${minutes}m`;
+}
+
 function parseTimeoutMs(value?: string): number | undefined {
   if (!value) return undefined;
   if (!/^\d+$/.test(value.trim())) return error("Invalid timeout", "--timeout-ms must be a positive integer");
@@ -172,15 +185,25 @@ Examples:
 
         if (opts.async) {
           if (jsonRequested(opts)) return outJson(created);
-          return ok(`Generation queued — taskRunId: ${created.taskRunId}`);
+          return ok(`Generation queued — task ID: ${created.taskRunId}\n    ${resumeHint(created.taskRunId)}`);
         }
 
         const spin = spinner();
-        if (!jsonRequested(opts)) spin.start("Generating");
+        let pollCount = 0;
+        const waitStartedAt = Date.now();
+        if (!jsonRequested(opts)) {
+          process.stderr.write(`  Generation queued — task ID: ${created.taskRunId}\n`);
+          process.stderr.write(`  ${resumeHint(created.taskRunId)}\n`);
+          spin.start("Generating...");
+        }
         const result = await client.generations.wait(created.taskRunId, {
           timeoutMs: parseTimeoutMs(opts.timeoutMs),
+          onPoll: () => {
+            pollCount += 1;
+            spin.update(`Generating... ${formatElapsed(Date.now() - waitStartedAt)}, ${pollCount} polls`);
+          },
         });
-        if (!jsonRequested(opts)) spin.stop("Generation completed");
+        if (!jsonRequested(opts)) spin.stop(`Generation completed — ${formatElapsed(Date.now() - waitStartedAt)}, ${pollCount} polls`);
 
         const savedPaths = opts.output ? await saveOutputs(result.output, opts.output) : [];
         if (jsonRequested(opts)) return outJson(savedPaths.length > 0 ? { ...result, taskRunId: created.taskRunId, savedPaths } : { ...result, taskRunId: created.taskRunId });
