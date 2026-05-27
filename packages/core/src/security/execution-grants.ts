@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-const EXECUTION_GRANT_TTL_SECONDS = 60 * 60;
+const EXECUTION_GRANT_TTL_SECONDS = 24 * 60 * 60;
 const EXECUTION_GRANT_HEADER = { alg: "HS256", typ: "JWT" } as const;
 
 export type ExecutionGrantPayload = {
