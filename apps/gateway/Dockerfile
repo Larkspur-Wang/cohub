@@ -12,8 +12,6 @@ WORKDIR /app
 # Use Corepack to manage pnpm
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
-# Optional: npm registry mirror (useful in CN networks)
-RUN printf 'registry=https://registry.npmmirror.com/\n@neta-art:registry=https://registry.npmjs.org/\n' > /root/.npmrc
 
 # ============================================
 # Stage 1: build workspace and deploy portable app
