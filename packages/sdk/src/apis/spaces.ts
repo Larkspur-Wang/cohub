@@ -88,7 +88,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "ports.changed" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "task.created" | "task.updated" | "event";
 
 type SessionSendMessageInput = {
   content: ContentBlock[];
@@ -762,6 +762,10 @@ export class SpaceEventsApi {
   on(type: SpaceEventName, handler: (event: WebsocketEventPayload) => void) {
     return this.subscribe((event) => {
       if (type === "event") {
+        handler(event);
+        return;
+      }
+      if (type === "fs.changed" && event.type === "space.fs.changed") {
         handler(event);
         return;
       }

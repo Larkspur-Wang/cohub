@@ -179,6 +179,11 @@ import {
 	toggleSpacePin,
 } from "$lib/stores/space-pins";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
+import {
+	mergeCachedCronJobTaskRuns,
+	mergeCachedTaskRun,
+	onTaskRunsCacheUpdated,
+} from "$lib/stores/task-runs-cache";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
 	loadMessageToolCalls,
@@ -685,6 +690,7 @@ let taskRunDetailLoading = $state(false);
 let taskRunDetailError = $state("");
 let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
+let taskRunRefreshInFlight: Promise<void> | null = null;
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
 type TokenUsageDays = 7 | 30 | 90;
@@ -930,6 +936,7 @@ async function loadCronjobDetail(cronjobId: string) {
 		cronjobDetail = job;
 		const { runs } = await sdk.cronJobs.runs(cronjobId);
 		cronjobRuns = runs;
+		mergeCachedCronJobTaskRuns(spaceId, cronjobId, runs);
 	} catch (error) {
 		cronjobDetail = null;
 		cronjobDetailError =
@@ -1014,37 +1021,95 @@ function clearTaskRunPoll() {
 	if (taskRunPollTimer) clearInterval(taskRunPollTimer);
 	taskRunPollTimer = null;
 }
+function ensureTaskRunPoll(taskId: string, intervalMs = 5000) {
+	if (taskRunPollTimer) return;
+	taskRunPollTimer = setInterval(
+		() => void refreshTaskDetail(taskId),
+		intervalMs,
+	);
+}
 
+const isActiveTaskRun = (run: Pick<TaskRunRecord, "status"> | null) =>
+	run?.status === "pending" || run?.status === "running";
+const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
+	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
+function mergeTaskRunRecord(
+	current: TaskRunRecord | null,
+	patch: Partial<TaskRunRecord> & {
+		id: string;
+		type?: string;
+		userId?: string | null;
+	},
+): TaskRunRecord {
+	const now = new Date().toISOString();
+	return {
+		id: patch.id,
+		jobId: patch.jobId ?? current?.jobId ?? patch.id,
+		cronJobId: patch.cronJobId ?? current?.cronJobId ?? null,
+		taskType: patch.taskType ?? patch.type ?? current?.taskType ?? "unknown",
+		status: patch.status ?? current?.status ?? "pending",
+		payload: patch.payload ?? current?.payload ?? null,
+		result: patch.result ?? current?.result ?? null,
+		errorMessage: patch.errorMessage ?? current?.errorMessage ?? null,
+		attemptCount: patch.attemptCount ?? current?.attemptCount ?? 0,
+		spaceId: patch.spaceId ?? current?.spaceId ?? spaceId,
+		sessionId: patch.sessionId ?? current?.sessionId ?? null,
+		userUuid: patch.userUuid ?? patch.userId ?? current?.userUuid ?? null,
+		scheduledAt: patch.scheduledAt ?? current?.scheduledAt ?? null,
+		startedAt: patch.startedAt ?? current?.startedAt ?? null,
+		finishedAt: patch.finishedAt ?? current?.finishedAt ?? null,
+		createdAt: patch.createdAt ?? current?.createdAt ?? now,
+		updatedAt: patch.updatedAt ?? current?.updatedAt ?? now,
+	};
+}
+function mergeTaskRunList(
+	runs: TaskRunRecord[],
+	patch: Partial<TaskRunRecord> & {
+		id: string;
+		type?: string;
+		userId?: string | null;
+	},
+) {
+	const existing = runs.find((run) => run.id === patch.id) ?? null;
+	const nextRun = mergeTaskRunRecord(existing, patch);
+	const nextRuns = existing
+		? runs.map((run) => (run.id === patch.id ? nextRun : run))
+		: [nextRun, ...runs];
+	return [...nextRuns].sort((a, b) => taskRunSortTime(b) - taskRunSortTime(a));
+}
 async function refreshTaskDetail(taskId: string, loading = false) {
-	if (loading) taskRunDetailLoading = true;
-	taskRunDetailError = "";
-	try {
-		const { run, progress } = await sdk.tasks.get(taskId);
-		taskRunDetail = run;
-		taskRunProgress = progress;
-		if (run.status !== "pending" && run.status !== "running")
+	if (taskRunRefreshInFlight) return taskRunRefreshInFlight;
+	const run = (async () => {
+		if (loading) taskRunDetailLoading = true;
+		taskRunDetailError = "";
+		try {
+			const { run, progress } = await sdk.tasks.get(taskId);
+			taskRunDetail = run;
+			taskRunProgress = progress;
+			if (run.spaceId) mergeCachedTaskRun(run.spaceId, run);
+			if (run.status !== "pending" && run.status !== "running")
+				clearTaskRunPoll();
+		} catch (error) {
+			taskRunDetail = null;
+			taskRunProgress = null;
+			taskRunDetailError =
+				error instanceof Error ? error.message : "Failed to load task run";
 			clearTaskRunPoll();
-	} catch (error) {
-		taskRunDetail = null;
-		taskRunProgress = null;
-		taskRunDetailError =
-			error instanceof Error ? error.message : "Failed to load task run";
-		clearTaskRunPoll();
-	} finally {
-		if (loading) taskRunDetailLoading = false;
-	}
+		} finally {
+			if (loading) taskRunDetailLoading = false;
+		}
+	})();
+	taskRunRefreshInFlight = run.finally(() => {
+		if (taskRunRefreshInFlight === run) taskRunRefreshInFlight = null;
+	});
+	return taskRunRefreshInFlight;
 }
 
 async function loadTaskDetail(taskId: string) {
 	clearTaskRunPoll();
 	taskRunProgress = null;
 	await refreshTaskDetail(taskId, true);
-	if (
-		taskRunDetail?.status === "pending" ||
-		taskRunDetail?.status === "running"
-	) {
-		taskRunPollTimer = setInterval(() => void refreshTaskDetail(taskId), 1500);
-	}
+	if (isActiveTaskRun(taskRunDetail)) ensureTaskRunPoll(taskId);
 }
 function openShareModal(sessionId: string) {
 	if (!canManageSessionAccess) return;
@@ -3298,6 +3363,43 @@ function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
 	return null;
 }
 
+function applyAcceptedTurnId(input: {
+	sessionId: string;
+	previousTurnId?: string | null;
+	nextTurnId: string;
+}) {
+	if (input.previousTurnId && input.previousTurnId !== input.nextTurnId) {
+		replaceGenerationTurnId(input.sessionId, {
+			previousTurnId: input.previousTurnId,
+			nextTurnId: input.nextTurnId,
+		});
+		void sessionTurnsRepo.replaceTurnId(
+			spaceId,
+			input.sessionId,
+			{
+				previousTurnId: input.previousTurnId,
+				nextTurnId: input.nextTurnId,
+			},
+			{ source: "indexeddb" },
+		);
+		const current = sessionStateById[input.sessionId];
+		if (current) {
+			sessionStateById = {
+				...sessionStateById,
+				[input.sessionId]: {
+					...current,
+					turns: current.turns.map((turn) =>
+						turn.id === input.previousTurnId
+							? { ...turn, id: input.nextTurnId }
+							: turn,
+					),
+				},
+			};
+		}
+		return;
+	}
+	replaceGenerationTurnId(input.sessionId, { nextTurnId: input.nextTurnId });
+}
 function hydrateTurnOnce(input: {
 	sessionId: string;
 	turnId: string;
@@ -3343,6 +3445,54 @@ function hydrateTurnOnce(input: {
 		}
 	});
 }
+function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
+	const eventPayload = payload.payload as {
+		task?: Partial<TaskRunRecord> & {
+			id?: string;
+			type?: string;
+			userId?: string | null;
+		};
+		progress?: unknown;
+		changed?: string[];
+	};
+	const task = eventPayload.task;
+	if (!task?.id) return;
+	const eventSpaceId = task.spaceId ?? payload.spaceId ?? spaceId;
+	if (eventSpaceId !== spaceId) return;
+	mergeCachedTaskRun(spaceId, task as Parameters<typeof mergeCachedTaskRun>[1]);
+	if (routeTaskId === task.id) {
+		const wasActive = isActiveTaskRun(taskRunDetail);
+		taskRunDetail = mergeTaskRunRecord(taskRunDetail, {
+			...(task as Partial<TaskRunRecord>),
+			id: task.id,
+			type: task.type,
+			userId: task.userId,
+		});
+		if ("progress" in eventPayload) taskRunProgress = eventPayload.progress;
+		if (isActiveTaskRun(taskRunDetail)) {
+			ensureTaskRunPoll(task.id);
+		} else {
+			clearTaskRunPoll();
+			if (wasActive || !taskRunDetail.result) void refreshTaskDetail(task.id);
+		}
+	}
+	if (task.cronJobId && cronjobDetail?.id === task.cronJobId) {
+		cronjobRuns = mergeTaskRunList(cronjobRuns, {
+			...(task as Partial<TaskRunRecord>),
+			id: task.id,
+			type: task.type,
+			userId: task.userId,
+		});
+	}
+	if (payload.type === "task.updated") {
+		if (
+			eventPayload.changed?.includes("status") &&
+			task.status === "completed"
+		) {
+			void loadSpaceCheckpoints();
+		}
+	}
+}
 async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
 		if (payload.type === "space.fs.changed") {
@@ -3351,6 +3501,10 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		if (payload.type === "space.ports.changed") {
 			applyPortsChanged(payload);
+			return;
+		}
+		if (payload.type === "task.created" || payload.type === "task.updated") {
+			handleTaskRealtimeEvent(payload);
 			return;
 		}
 		if (
@@ -3369,6 +3523,41 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		const currentActiveSessionId = activeSessionId;
 		const isActiveSession = targetSessionId === currentActiveSessionId;
+		if (payload.type === "session.request.accepted") {
+			const accepted = payload.payload as {
+				clientMessageId?: string | null;
+				turnId?: string | null;
+				userMessageId?: string | null;
+				traceId?: string | null;
+			};
+			if (accepted.turnId) {
+				const optimisticTurnId = sessionStateById[targetSessionId]?.turns.find(
+					(turn) =>
+						turn.meta &&
+						typeof turn.meta === "object" &&
+						"clientMessageId" in turn.meta &&
+						turn.meta.clientMessageId === accepted.clientMessageId,
+				)?.id;
+				applyAcceptedTurnId({
+					sessionId: targetSessionId,
+					previousTurnId: optimisticTurnId ?? null,
+					nextTurnId: accepted.turnId,
+				});
+			}
+			clearPostSendRecovery(targetSessionId);
+			return;
+		}
+		if (payload.type === "session.request.error") {
+			const requestError = payload.payload as {
+				message?: string;
+				clientMessageId?: string | null;
+			};
+			const message = requestError.message?.trim() || "Message request failed";
+			failGeneration(targetSessionId, message);
+			if (isActiveSession) composerError = message;
+			clearPostSendRecovery(targetSessionId);
+			return;
+		}
 		const state = sessionStateById[targetSessionId];
 		if (!state) {
 			if (payload.type === "session.turn.created") {
@@ -3704,19 +3893,11 @@ async function handleSend() {
 				generationPolicy: buildTurnGenerationPolicy(),
 			});
 		if (sendResult.turnId) {
-			replaceGenerationTurnId(sessionId, {
+			applyAcceptedTurnId({
+				sessionId,
 				previousTurnId: optimisticTurnId,
 				nextTurnId: sendResult.turnId,
 			});
-			void sessionTurnsRepo.replaceTurnId(
-				spaceId,
-				sessionId,
-				{
-					previousTurnId: optimisticTurnId,
-					nextTurnId: sendResult.turnId,
-				},
-				{ source: "indexeddb" },
-			);
 			const current = sessionStateById[sessionId];
 			if (current) {
 				sessionStateById = {
@@ -3724,10 +3905,9 @@ async function handleSend() {
 					[sessionId]: {
 						...current,
 						turns: current.turns.map((turn) =>
-							turn.id === optimisticTurnId
+							turn.id === sendResult.turnId
 								? {
 										...turn,
-										id: sendResult.turnId,
 										userUuid: currentUser.uuid ?? turn.userUuid,
 										meta: {
 											...(turn.meta ?? {}),
@@ -5214,6 +5394,19 @@ onMount(() => {
 			pinnedFilePaths = getPinnedFilePaths(marks);
 		},
 	);
+	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
+		({ spaceId: updatedSpaceId, runs }) => {
+			if (updatedSpaceId !== spaceId) return;
+			if (cronjobDetail) {
+				cronjobRuns = runs.filter((run) => run.cronJobId === cronjobDetail?.id);
+			}
+			if (routeTaskId) {
+				const run = runs.find((item) => item.id === routeTaskId);
+				if (run)
+					taskRunDetail = taskRunDetail ? { ...taskRunDetail, ...run } : run;
+			}
+		},
+	);
 	// Preload model catalogs so the selector is ready immediately
 	void loadModelsCatalog();
 	void loadGenerationModelsCatalog();
@@ -5309,6 +5502,7 @@ onMount(() => {
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
 		offSpacePinsCacheUpdated();
+		offTaskRunsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
@@ -5760,6 +5954,7 @@ $effect(() => {
 		return;
 	}
 	clearTaskRunPoll();
+	taskRunRefreshInFlight = null;
 	taskRunDetail = null;
 	taskRunProgress = null;
 	taskRunDetailError = "";

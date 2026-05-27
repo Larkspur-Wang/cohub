@@ -120,11 +120,6 @@ const isContentBlockArray = (value: unknown): value is ContentBlock[] =>
   Array.isArray(value) &&
   value.every((item) => isRecord(item) && typeof item.type === "string");
 
-const stringField = (record: Record<string, unknown>, key: string) => {
-  const value = record[key];
-  return typeof value === "string" ? value : null;
-};
-
 const getMessageKind = (message: MessageRecord) => {
   const kind = message.meta?.messageKind;
   return typeof kind === "string" ? kind : null;

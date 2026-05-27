@@ -91,6 +91,10 @@ import {
 	cacheSpaceRecordSoon,
 	getCachedSpaceRecord,
 } from "$lib/stores/space-record-cache";
+import {
+	onTaskRunsCacheUpdated,
+	setCachedTaskRuns,
+} from "$lib/stores/task-runs-cache";
 import { uiState } from "$lib/stores/ui.svelte";
 
 const {
@@ -600,7 +604,10 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 	}
 	try {
 		const result = await sdk.tasks.list({ spaceId });
-		if (spaceId === currentSpaceId) tasks = result.runs ?? [];
+		if (spaceId === currentSpaceId) {
+			tasks = result.runs ?? [];
+			setCachedTaskRuns(spaceId, tasks);
+		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load tasks", { spaceId, error });
 	} finally {
@@ -1064,6 +1071,7 @@ onMount(() => {
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
 	let offSpacePinsCacheUpdated = () => {};
+	let offTaskRunsCacheUpdated = () => {};
 	if (mode === "space") {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
 			({ spaces: nextSpaces }) => {
@@ -1083,6 +1091,10 @@ onMount(() => {
 		offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(({ spaceId, marks }) => {
 			if (spaceId !== currentSpaceId) return;
 			pinnedMarks = marks;
+		});
+		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
+			if (spaceId !== currentSpaceId) return;
+			tasks = runs;
 		});
 		window.addEventListener("keydown", handleGlobalNewChatKeydown);
 		void (async () => {
@@ -1133,6 +1145,7 @@ onMount(() => {
 		offSpaceListCacheUpdated();
 		offSessionListCacheUpdated();
 		offSpacePinsCacheUpdated();
+		offTaskRunsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
 			window.removeEventListener("keydown", handleGlobalNewChatKeydown);
