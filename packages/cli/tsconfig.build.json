@@ -8,6 +8,15 @@
     "declarationMap": false,
     "ignoreDeprecations": "6.0",
     "paths": {
+      "@cohub/protocol": ["../protocol/dist/index.d.ts"],
+      "@cohub/protocol/core": ["../protocol/dist/core/index.d.ts"],
+      "@cohub/protocol/model": ["../protocol/dist/model/session.d.ts"],
+      "@cohub/protocol/realtime": ["../protocol/dist/realtime/index.d.ts"],
+      "@cohub/protocol/gateway": ["../protocol/dist/gateway/index.d.ts"],
+      "@cohub/protocol/task": ["../protocol/dist/task/index.d.ts"],
+      "@cohub/protocol/fs": ["../protocol/dist/fs/index.d.ts"],
+      "@cohub/protocol/generation": ["../protocol/dist/generation/index.d.ts"],
+      "@cohub/protocol/ports": ["../protocol/dist/ports/index.d.ts"],
       "@neta-art/cohub": ["../sdk/dist/index.d.ts"],
       "@neta-art/cohub/http": ["../sdk/dist/http.d.ts"],
       "@neta-art/cohub/websocket": ["../sdk/dist/websocket.d.ts"]
