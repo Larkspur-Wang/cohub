@@ -179,13 +179,13 @@ export const authSource = (): AuthSource => {
   return null;
 };
 
-export async function resolveAccessToken(): Promise<string | null> {
+export async function resolveAccessToken(options?: { forceRefresh?: boolean }): Promise<string | null> {
   const executionToken = process.env.COHUB_EXECUTION_TOKEN?.trim();
   if (executionToken) return executionToken;
 
   const session = readAuthSession();
   if (!session) throw new AuthRequiredError();
-  if (session.accessTokenExpiresAt - Date.now() > EXPIRY_SKEW_MS) return session.accessToken;
+  if (!options?.forceRefresh && session.accessTokenExpiresAt - Date.now() > EXPIRY_SKEW_MS) return session.accessToken;
   return refreshAccessToken(session);
 }
 

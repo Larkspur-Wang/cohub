@@ -212,7 +212,17 @@ function sourceFromAuthUser(user: AuthUser): Record<string, unknown> {
 
 export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProfile> {
   const logtoUserId = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
-  if (!logtoUserId) throw new Error("current user is missing Logto user id");
+
+  if (!logtoUserId) {
+    const stored = await getStoredUserProfile(user.uuid);
+    if (stored) return stored;
+
+    return await upsertUserProfile({
+      userUuid: user.uuid,
+      logtoUserId: user.uuid,
+      fields: normalizeUserProfile({ userUuid: user.uuid, source: sourceFromAuthUser(user) }),
+    });
+  }
 
   try {
     const logtoUser = await getLogtoUser(logtoUserId);

@@ -92,12 +92,12 @@ async function showSignedIn(asJson?: boolean): Promise<void> {
   if (!source) return error("Not authenticated", "Run `cohub auth login`.");
 
   const client = createClient();
-  const sp = spinner();
-  sp.start("Fetching user info");
+  const sp = asJson ? null : spinner();
+  sp?.start("Fetching user info");
 
   try {
     const user = await client.user.getMe();
-    sp.stop("Done");
+    sp?.stop("Done");
     const session = readAuthSession();
     const payload = {
       source,
@@ -105,20 +105,77 @@ async function showSignedIn(asJson?: boolean): Promise<void> {
       user,
     };
     if (asJson) return outJson(payload);
-    const u = user as Record<string, unknown>;
+    const u = flattenMeForTable(user as Record<string, unknown>);
     console.log(`  Auth source: ${source}`);
     console.log(`  Token: ${payload.refreshable ? "refreshable" : "ephemeral"}\n`);
     table([u], [
-      { key: "id", label: "ID" },
+      { key: "uuid", label: "UUID" },
       { key: "username", label: "Username" },
-      { key: "name", label: "Name" },
+      { key: "displayName", label: "Name" },
       { key: "email", label: "Email" },
-      { key: "created_at", label: "Created" },
     ]);
   } catch (e: unknown) {
-    sp.stop("Failed");
+    if (source === "execution-token") {
+      sp?.stop("Using local execution token");
+      return showExecutionTokenFallback(asJson);
+    }
+    sp?.stop("Failed");
     handleHttp(e);
   }
+}
+
+function flattenMeForTable(user: Record<string, unknown>): Record<string, unknown> {
+  const profile = user.profile && typeof user.profile === "object" ? user.profile as Record<string, unknown> : {};
+  return {
+    uuid: user.uuid,
+    username: profile.username,
+    displayName: profile.displayName,
+    email: user.email,
+  };
+}
+
+function decodeExecutionTokenPayload(): Record<string, unknown> | null {
+  const token = process.env.COHUB_EXECUTION_TOKEN?.trim();
+  const payload = token?.split(".")[1];
+  if (!payload) return null;
+  try {
+    const decoded = Buffer.from(payload, "base64url").toString("utf-8");
+    const parsed = JSON.parse(decoded) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function showExecutionTokenFallback(asJson?: boolean): void {
+  const payload = decodeExecutionTokenPayload();
+  const execution = {
+    actorUserId: typeof payload?.actorUserId === "string" ? payload.actorUserId : null,
+    spaceId: typeof payload?.spaceId === "string" ? payload.spaceId : null,
+    sessionId: typeof payload?.sessionId === "string" ? payload.sessionId : null,
+    source: typeof payload?.source === "string" ? payload.source : null,
+    expiresAt: typeof payload?.exp === "number" ? new Date(payload.exp * 1000).toISOString() : null,
+  };
+  const result = {
+    source: "execution-token" as const,
+    refreshable: false,
+    user: execution.actorUserId ? { uuid: execution.actorUserId } : null,
+    execution,
+  };
+  if (asJson) {
+    outJson(result);
+    return;
+  }
+
+  console.log("  Auth source: execution-token");
+  console.log("  Token: ephemeral\n");
+  table([execution], [
+    { key: "actorUserId", label: "Actor" },
+    { key: "spaceId", label: "Space" },
+    { key: "sessionId", label: "Session" },
+    { key: "source", label: "Source" },
+    { key: "expiresAt", label: "Expires" },
+  ]);
 }
 
 function printDeviceCode(code: { userCode: string; verificationUriComplete: string; expiresAt: number }): void {

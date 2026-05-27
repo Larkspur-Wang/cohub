@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import type { GenerationContentBlock } from "@neta-art/cohub";
 import { createClient } from "../client.js";
 import { resolveSpace } from "../space.js";
-import { json as outJson, jsonRequested, ok, handleHttp, spinner } from "../output.js";
+import { json as outJson, jsonRequested, ok, error, handleHttp, spinner } from "../output.js";
 
 type GenerationSource =
   | { type: "url"; url: string }
@@ -111,8 +111,9 @@ function printGeneration(output: GenerationContentBlock[]): void {
 
 function parseTimeoutMs(value?: string): number | undefined {
   if (!value) return undefined;
+  if (!/^\d+$/.test(value.trim())) return error("Invalid timeout", "--timeout-ms must be a positive integer");
   const timeoutMs = Number.parseInt(value, 10);
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("--timeout-ms must be a positive integer");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return error("Invalid timeout", "--timeout-ms must be a positive integer");
   return timeoutMs;
 }
 

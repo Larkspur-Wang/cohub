@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, jsonRequested, ok, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
 
 export function registerCronJobs(program: Command): void {
   const cmd = program.command("cron-jobs", { hidden: true }).description("Scheduled prompt jobs");
@@ -46,6 +46,7 @@ export function registerCronJobs(program: Command): void {
     .command("toggle <id> <on|off>")
     .description("Enable or disable a cron job")
     .action(async (id: string, state: string) => {
+      if (state !== "on" && state !== "off") return error("Invalid state", "Use on or off");
       const enabled = state === "on";
       const client = createClient();
       try {

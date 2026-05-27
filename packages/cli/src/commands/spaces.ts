@@ -2,20 +2,12 @@ import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
+import { resolveCohubEnvironment } from "@neta-art/cohub";
 import type { Command } from "commander";
-import { createClient } from "../client.js";
 import { uploadAvatarAsset } from "../avatar.js";
+import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
-
-function requireSpace(program: Command): string {
-  let current: Command | null = program;
-  while (current) {
-    const opts = current.opts() as Record<string, unknown>;
-    if (opts.space) return String(opts.space);
-    current = current.parent ?? null;
-  }
-  return error("Missing required option", "Add -s, --space <id> to target a space");
-}
+import { resolveSpace } from "../space.js";
 
 type ModOptions = {
   json?: boolean;
@@ -50,18 +42,35 @@ type UploadOptions = {
   json?: boolean;
 };
 
-const cliEnv = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
+const cliEnv = resolveCohubEnvironment();
 const defaultIdleTtlSeconds = cliEnv === "prod" ? 12 * 60 * 60 : 10 * 60;
+const SPACE_ROLES = ["host", "builder", "guest"] as const;
+
+function parseInteger(value: string, name: string, options: { min?: number; max?: number } = {}): number {
+  if (!/^-?\d+$/.test(value.trim())) return error(`Invalid ${name}`, `${name} must be an integer`);
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed)) return error(`Invalid ${name}`, `${name} must be a safe integer`);
+  if (options.min !== undefined && parsed < options.min) return error(`Invalid ${name}`, `${name} must be at least ${options.min}`);
+  if (options.max !== undefined && parsed > options.max) return error(`Invalid ${name}`, `${name} must be at most ${options.max}`);
+  return parsed;
+}
+
+function parseChoice<const T extends readonly string[]>(value: string, name: string, choices: T): T[number] {
+  if ((choices as readonly string[]).includes(value)) return value as T[number];
+  return error(`Invalid ${name}`, `Use one of: ${choices.join(", ")}`);
+}
+
+function parseNullableRole(value: string | undefined, name: string): "host" | "builder" | "guest" | null {
+  if (value === undefined || value === "null") return null;
+  return parseChoice(value, name, SPACE_ROLES);
+}
 
 const parseAutoDestroy = (opts: { autoDestroy?: string; idleTtl?: string }) => {
   const mode = opts.autoDestroy ?? (opts.idleTtl ? "idle" : undefined);
   if (!mode) return undefined;
   if (mode === "never") return { mode: "never" as const };
   if (mode !== "idle") return error("Invalid auto destroy mode", "Use --auto-destroy idle or --auto-destroy never");
-  const ttlSeconds = Number.parseInt(opts.idleTtl ?? String(defaultIdleTtlSeconds), 10);
-  if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > 30 * 24 * 60 * 60) {
-    return error("Invalid idle TTL", "--idle-ttl must be an integer between 60 and 2592000 seconds");
-  }
+  const ttlSeconds = parseInteger(opts.idleTtl ?? String(defaultIdleTtlSeconds), "idle TTL", { min: 60, max: 30 * 24 * 60 * 60 });
   return { mode: "idle" as const, ttlSeconds };
 };
 
@@ -127,7 +136,7 @@ async function putUploadEntry(entry: UploadFile, uploadUrl: string, headers?: Re
 }
 
 async function uploadFiles(command: Command, paths: string[], opts: UploadOptions): Promise<void> {
-  const spaceId = requireSpace(command);
+  const spaceId = resolveSpace(command);
   const client = createClient();
   try {
     const files = await collectUploadFiles(paths);
@@ -182,16 +191,16 @@ async function readPromptContent(words: string[]): Promise<string> {
 }
 
 async function sendPrompt(command: Command, words: string[], opts: PromptOptions): Promise<void> {
-    const content = await readPromptContent(words);
+  const content = await readPromptContent(words);
   const scheduleFlags = [opts.delayMs, opts.at, opts.cron].filter((value) => value !== undefined);
   if (scheduleFlags.length > 1) return error("Conflicting schedule", "Use only one of --delay-ms, --at, or --cron");
   if (opts.cron && !opts.timezone) return error("Missing timezone", "--timezone is required with --cron");
 
-  const spaceId = requireSpace(command);
+  const spaceId = resolveSpace(command);
   const client = createClient();
   try {
     const schedule = opts.delayMs
-      ? { mode: "delay" as const, delayMs: Number.parseInt(opts.delayMs, 10) }
+      ? { mode: "delay" as const, delayMs: parseInteger(opts.delayMs, "delay", { min: 1 }) }
       : opts.at
         ? { mode: "at" as const, sendAt: opts.at }
         : opts.cron
@@ -326,7 +335,7 @@ export function registerSpaces(program: Command): void {
     .description("Upload the space avatar")
     .option("--json", "Output as JSON")
     .action(async (path: string, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const asset = await uploadAvatarAsset({ client, purpose: "space_avatar", spaceId, path });
@@ -406,10 +415,10 @@ export function registerSpaces(program: Command): void {
     .description("Space usage statistics (default: 30 days)")
     .option("--json", "Output as JSON")
     .action(async (days: string | undefined, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
-        const usage = await client.space(spaceId).usage.get(Number.parseInt(days ?? "30", 10));
+        const usage = await client.space(spaceId).usage.get(parseInteger(days ?? "30", "days", { min: 1 }));
         if (jsonRequested(opts)) return outJson(usage);
         console.log("\n  Summary:");
         table([usage.summary], [
@@ -429,7 +438,7 @@ function registerMods(spacesCmd: Command): void {
   const modsCmd = spacesCmd
     .command("mods")
     .description("Manage space mods")
-    .hook("preAction", () => { requireSpace(spacesCmd); });
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
 
   modsCmd
     .command("ls")
@@ -437,7 +446,7 @@ function registerMods(spacesCmd: Command): void {
     .description("List mods")
     .option("--json", "Output as JSON")
     .action(async (opts: ModOptions) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.list();
@@ -462,7 +471,7 @@ function registerMods(spacesCmd: Command): void {
     .option("--json", "Output as JSON")
     .action(async (modSpaceId: string, opts: ModOptions) => {
       await confirmRestart(opts);
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.create({ modSpaceId, name: opts.name, mountSlug: opts.slug });
@@ -480,7 +489,7 @@ function registerMods(spacesCmd: Command): void {
     .option("--json", "Output as JSON")
     .action(async (modId: string, opts: ModOptions) => {
       await confirmRestart(opts);
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.update(modId, { enabled: true });
@@ -498,7 +507,7 @@ function registerMods(spacesCmd: Command): void {
     .option("--json", "Output as JSON")
     .action(async (modId: string, opts: ModOptions) => {
       await confirmRestart(opts);
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.update(modId, { enabled: false });
@@ -517,7 +526,7 @@ function registerMods(spacesCmd: Command): void {
     .option("--json", "Output as JSON")
     .action(async (modId: string, opts: ModOptions) => {
       await confirmRestart(opts);
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).mods.remove(modId);
@@ -535,7 +544,7 @@ function registerFiles(spacesCmd: Command): void {
   const filesCmd = spacesCmd
     .command("files")
     .description("File operations")
-    .hook("preAction", () => { requireSpace(spacesCmd); });
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
 
   filesCmd
     .command("ls [path]")
@@ -543,7 +552,7 @@ function registerFiles(spacesCmd: Command): void {
     .description("List directory tree")
     .option("--json", "Output as JSON")
     .action(async (path: string | undefined, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const tree = await client.space(spaceId).files.list(path ?? "");
@@ -567,7 +576,7 @@ function registerFiles(spacesCmd: Command): void {
     .command("cat <path>")
     .description("Read file content")
     .action(async (path: string) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const file = await client.space(spaceId).files.read(path);
@@ -595,7 +604,7 @@ function registerFiles(spacesCmd: Command): void {
       }
       if (!content) return error("No content provided", "Use -c or pipe via stdin");
 
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).files.write({
@@ -620,7 +629,7 @@ function registerFiles(spacesCmd: Command): void {
     .command("mkdir <path>")
     .description("Create a directory")
     .action(async (path: string) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         await client.space(spaceId).files.createDir(path);
@@ -635,7 +644,7 @@ function registerFiles(spacesCmd: Command): void {
     .description("Delete a file or directory")
     .option("-r, --recursive", "Delete recursively")
     .action(async (path: string, opts: { recursive?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         await client.space(spaceId).files.delete(path, opts.recursive ?? false);
@@ -649,7 +658,7 @@ function registerFiles(spacesCmd: Command): void {
     .command("mv <from> <to>")
     .description("Move or rename")
     .action(async (from: string, to: string) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         await client.space(spaceId).files.move({ fromPath: from, toPath: to });
@@ -666,7 +675,7 @@ function registerSessions(spacesCmd: Command): void {
   const sessionsCmd = spacesCmd
     .command("sessions")
     .description("Browse sessions and turns")
-    .hook("preAction", () => { requireSpace(spacesCmd); });
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
 
   sessionsCmd
     .command("ls")
@@ -674,7 +683,7 @@ function registerSessions(spacesCmd: Command): void {
     .description("List sessions")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).sessions.list();
@@ -699,7 +708,7 @@ function registerSessions(spacesCmd: Command): void {
     .description("Create a session")
     .option("--json", "Output as JSON")
     .action(async (title: string | undefined, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).sessions.create({ title });
@@ -719,7 +728,7 @@ function registerSessions(spacesCmd: Command): void {
     .description("Session details")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(id).get();
@@ -740,7 +749,7 @@ function registerSessions(spacesCmd: Command): void {
     .command("rename <id> <name>")
     .description("Rename a session")
     .action(async (id: string, name: string) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         await client.space(spaceId).session(id).rename(name);
@@ -756,7 +765,7 @@ function registerSessions(spacesCmd: Command): void {
     .description("Stream realtime session events")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       const session = client.space(spaceId).session(id);
 
@@ -818,13 +827,13 @@ function registerTurns(sessionsCmd: Command): void {
     .option("--limit <n>", "Page size", "30")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, opts: { cursor?: string; direction?: string; limit?: string; json?: boolean }) => {
-      const spaceId = requireSpace(sessionsCmd);
+      const spaceId = resolveSpace(sessionsCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.listPaginated({
-          cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
-          direction: opts.direction as "older" | "newer",
-          limit: Number.parseInt(opts.limit ?? "30", 10),
+          cursor: opts.cursor === undefined ? undefined : parseInteger(opts.cursor, "cursor", { min: 0 }),
+          direction: parseChoice(opts.direction ?? "older", "direction", ["older", "newer"] as const),
+          limit: parseInteger(opts.limit ?? "30", "limit", { min: 1, max: 100 }),
         });
         if (jsonRequested(opts)) return outJson(result);
         if (result.turns.length === 0) return console.log("  No turns found");
@@ -847,7 +856,7 @@ function registerTurns(sessionsCmd: Command): void {
     .description("Show turn details")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, turnId: string, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(sessionsCmd);
+      const spaceId = resolveSpace(sessionsCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.get(turnId);
@@ -875,12 +884,12 @@ function registerTurns(sessionsCmd: Command): void {
     .option("--limit <n>", "Page size", "100")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, opts: { cursor?: string; limit?: string; json?: boolean }) => {
-      const spaceId = requireSpace(sessionsCmd);
+      const spaceId = resolveSpace(sessionsCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.index({
-          cursor: opts.cursor === undefined ? undefined : Number.parseInt(opts.cursor, 10),
-          limit: Number.parseInt(opts.limit ?? "100", 10),
+          cursor: opts.cursor === undefined ? undefined : parseInteger(opts.cursor, "cursor", { min: 0 }),
+          limit: parseInteger(opts.limit ?? "100", "limit", { min: 1, max: 500 }),
         });
         if (jsonRequested(opts)) return outJson(result);
         if (result.turns.length === 0) return console.log("  No turns found");
@@ -906,15 +915,15 @@ function registerTurns(sessionsCmd: Command): void {
     .option("--after <n>", "Turns after anchor", "20")
     .option("--json", "Output as JSON")
     .action(async (sessionId: string, opts: { sequence?: string; turn?: string; before?: string; after?: string; json?: boolean }) => {
-      const spaceId = requireSpace(sessionsCmd);
+      const spaceId = resolveSpace(sessionsCmd);
       if (!opts.sequence && !opts.turn) return error("Missing anchor", "Use --sequence <n> or --turn <id>");
       const client = createClient();
       try {
         const result = await client.space(spaceId).session(sessionId).turns.window({
-          sequence: opts.sequence === undefined ? undefined : Number.parseInt(opts.sequence, 10),
+          sequence: opts.sequence === undefined ? undefined : parseInteger(opts.sequence, "sequence", { min: 0 }),
           turnId: opts.turn,
-          before: Number.parseInt(opts.before ?? "10", 10),
-          after: Number.parseInt(opts.after ?? "20", 10),
+          before: parseInteger(opts.before ?? "10", "before", { min: 0, max: 200 }),
+          after: parseInteger(opts.after ?? "20", "after", { min: 0, max: 200 }),
         });
         if (jsonRequested(opts)) return outJson(result);
         if (result.turns.length === 0) return console.log("  No turns found");
@@ -964,7 +973,7 @@ function registerSessionAccess(sessionsCmd: Command): void {
       const client = createClient();
       try {
         const policy = await client.sessionAccess.set(id, {
-          anonymous_user: (opts.anonymous ?? null) as never,
+          anonymous_user: parseNullableRole(opts.anonymous, "anonymous role"),
         });
         if (jsonRequested(opts)) return outJson(policy);
         ok("Session access updated");
@@ -997,7 +1006,7 @@ function registerMembers(spacesCmd: Command): void {
   const memCmd = spacesCmd
     .command("members")
     .description("Member management")
-    .hook("preAction", () => { requireSpace(spacesCmd); });
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
 
   memCmd
     .command("ls")
@@ -1005,7 +1014,7 @@ function registerMembers(spacesCmd: Command): void {
     .description("List space members")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).members.list();
@@ -1028,10 +1037,10 @@ function registerMembers(spacesCmd: Command): void {
     .command("update <userId> <role>")
     .description("Change member role (host | builder | guest)")
     .action(async (userId: string, role: string) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
-        await client.space(spaceId).members.update(userId, role as never);
+        await client.space(spaceId).members.update(userId, parseChoice(role, "role", SPACE_ROLES));
         ok(`${userId} → ${role}`);
       } catch (e: unknown) {
         handleHttp(e);
@@ -1042,7 +1051,7 @@ function registerMembers(spacesCmd: Command): void {
     .command("remove <userId>")
     .description("Remove a member")
     .action(async (userId: string) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         await client.space(spaceId).members.remove(userId);
@@ -1059,14 +1068,14 @@ function registerAccess(spacesCmd: Command): void {
   const accCmd = spacesCmd
     .command("access")
     .description("Access control")
-    .hook("preAction", () => { requireSpace(spacesCmd); });
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
 
   accCmd
     .command("get")
     .description("Get access policy")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const policy = await client.space(spaceId).access.get();
@@ -1087,12 +1096,12 @@ function registerAccess(spacesCmd: Command): void {
     .option("--anonymous <role>", "Role for anonymous users (host|builder|guest|null)")
     .option("--json", "Output as JSON")
     .action(async (opts: { signedIn?: string; anonymous?: string; json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const policy = await client.space(spaceId).access.set({
-          signed_in_user: (opts.signedIn ?? null) as never,
-          anonymous_user: (opts.anonymous ?? null) as never,
+          signed_in_user: parseNullableRole(opts.signedIn, "signed-in role"),
+          anonymous_user: parseNullableRole(opts.anonymous, "anonymous role"),
         });
         if (jsonRequested(opts)) return outJson(policy);
         ok("Access policy updated");
@@ -1112,7 +1121,7 @@ function registerCheckpoints(spacesCmd: Command): void {
   const cpCmd = spacesCmd
     .command("checkpoints")
     .description("Checkpoint management")
-    .hook("preAction", () => { requireSpace(spacesCmd); });
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
 
   cpCmd
     .command("ls")
@@ -1120,7 +1129,7 @@ function registerCheckpoints(spacesCmd: Command): void {
     .description("List checkpoints")
     .option("--json", "Output as JSON")
     .action(async (opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.list();
@@ -1145,7 +1154,7 @@ function registerCheckpoints(spacesCmd: Command): void {
     .description("Checkpoint details")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.get(id);
@@ -1167,7 +1176,7 @@ function registerCheckpoints(spacesCmd: Command): void {
     .description("Create a checkpoint")
     .option("--json", "Output as JSON")
     .action(async (description: string | undefined, opts: { json?: boolean }) => {
-      const spaceId = requireSpace(spacesCmd);
+      const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
         const result = await client.space(spaceId).checkpoints.create(description ?? null);

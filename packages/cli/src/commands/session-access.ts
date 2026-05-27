@@ -1,6 +1,14 @@
 import type { Command } from "commander";
 import { createClient } from "../client.js";
-import { table, json as outJson, jsonRequested, handleHttp } from "../output.js";
+import { table, json as outJson, jsonRequested, error, handleHttp } from "../output.js";
+
+const SPACE_ROLES = ["host", "builder", "guest"] as const;
+
+function parseAnonymousRole(value: string | undefined): "host" | "builder" | "guest" | null {
+  if (value === undefined || value === "null") return null;
+  if ((SPACE_ROLES as readonly string[]).includes(value)) return value as "host" | "builder" | "guest";
+  return error("Invalid anonymous role", "Use one of: host, builder, guest, null");
+}
 
 export function registerSessionAccess(program: Command): void {
   const cmd = program
@@ -34,7 +42,7 @@ export function registerSessionAccess(program: Command): void {
       const client = createClient();
       try {
         const policy = await client.sessionAccess.set(id, {
-          anonymous_user: (opts.anonymous ?? null) as never,
+          anonymous_user: parseAnonymousRole(opts.anonymous),
         });
         if (jsonRequested(opts)) return outJson(policy);
         console.log("Session access updated");
