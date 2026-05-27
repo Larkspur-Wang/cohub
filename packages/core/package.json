@@ -60,10 +60,6 @@
       "types": "./dist/fs-cdn/index.d.ts",
       "default": "./dist/fs-cdn/index.js"
     },
-    "./generations": {
-      "types": "./dist/generations/index.d.ts",
-      "default": "./dist/generations/index.js"
-    },
     "./sandbox-lifecycle": {
       "types": "./dist/sandbox-lifecycle/index.d.ts",
       "default": "./dist/sandbox-lifecycle/index.js"

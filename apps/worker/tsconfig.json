@@ -49,9 +49,6 @@
       "@cohub/infra/config-runtime/generation-declarations": [
         "../../packages/infra/src/config-runtime/generation-declarations.ts"
       ],
-      "@cohub/core/generations": [
-        "../../packages/core/src/generations/index.ts"
-      ],
       "@cohub/protocol/generation": [
         "../../packages/protocol/src/generation/index.ts"
       ],

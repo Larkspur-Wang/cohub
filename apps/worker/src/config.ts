@@ -9,6 +9,7 @@ export interface WorkerConfig {
   spaceStorageSubpath: string;
   platformConfigRoot: string;
   platformSpaceId: string;
+  netaRouterApiKey: string;
   turnObjectS3Endpoint?: string;
   turnObjectS3Region: string;
   turnObjectS3Bucket?: string;
@@ -43,6 +44,7 @@ export const config: WorkerConfig = {
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
   platformSpaceId: process.env.PLATFORM_SPACE_ID ?? "",
+  netaRouterApiKey: process.env.NETA_ROUTER_API_KEY ?? "",
   turnObjectS3Endpoint: process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
   turnObjectS3Region: process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
   turnObjectS3Bucket: process.env.TURN_OBJECT_S3_BUCKET ?? "cohub-sessions",

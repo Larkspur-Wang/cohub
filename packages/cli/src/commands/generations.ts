@@ -8,8 +8,7 @@ import { json as outJson, jsonRequested, ok, error, handleHttp, spinner } from "
 
 type GenerationSource =
   | { type: "url"; url: string }
-  | { type: "base64"; media_type: string; data: string }
-  | { type: "space_file"; space_id: string; path: string };
+  | { type: "base64"; mediaType: string; data: string };
 
 const mimeByExt: Record<string, string> = {
   ".png": "image/png",
@@ -53,8 +52,8 @@ function parseParams(param?: string[], parameters?: string): Record<string, unkn
 async function contentFromPathOrUrl(type: "image" | "video" | "audio", value: string): Promise<GenerationContentBlock> {
   if (/^https?:\/\//.test(value)) return { type, source: { type: "url", url: value } } as GenerationContentBlock;
   const data = await readFile(value);
-  const media_type = mimeByExt[extname(value).toLowerCase()] ?? "application/octet-stream";
-  return { type, source: { type: "base64", media_type, data: data.toString("base64") } } as GenerationContentBlock;
+  const mediaType = mimeByExt[extname(value).toLowerCase()] ?? "application/octet-stream";
+  return { type, source: { type: "base64", mediaType, data: data.toString("base64") } } as GenerationContentBlock;
 }
 
 async function saveOutputs(output: GenerationContentBlock[], outputPath: string): Promise<string[]> {
@@ -83,11 +82,9 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
       if (!response.ok) throw new Error(`Failed to download ${source.url}: HTTP ${response.status}`);
       await writeFile(target, Buffer.from(await response.arrayBuffer()));
       savedPaths.push(target);
-    } else if (source.type === "base64") {
+    } else {
       await writeFile(target, Buffer.from(source.data, "base64"));
       savedPaths.push(target);
-    } else {
-      throw new Error(`Cannot save space file output locally: ${source.space_id}:${source.path}`);
     }
   }
   return savedPaths;
@@ -104,8 +101,7 @@ function printGeneration(output: GenerationContentBlock[]): void {
   for (const block of output) {
     if (block.type === "text") console.log(block.text);
     else if (block.source.type === "url") console.log(`${block.type}: ${block.source.url}`);
-    else if (block.source.type === "base64") console.log(`${block.type}: base64 ${block.source.media_type} (${block.source.data.length} chars)`);
-    else console.log(`${block.type}: ${block.source.space_id}:${block.source.path}`);
+    else console.log(`${block.type}: base64 ${block.source.mediaType} (${block.source.data.length} chars)`);
   }
 }
 

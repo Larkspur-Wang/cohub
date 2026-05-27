@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
+import { createGenerationClient, GenerationValidationError } from "@neta-art/generation";
 import { GENERATION_TASK_TYPE, type CreateGenerationTaskResponse } from "@cohub/protocol/generation";
-import { GenerationValidationError, resolveGenerationParameters, validateGenerationContent } from "@cohub/core/generations";
 import { useAuth, authzDenied } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { loadGenerationDeclaration } from "../generations/declarations.js";
@@ -37,10 +37,18 @@ router.post("/", async (c) => {
     return generationError(c, 404, "generation_model_not_found", `Generation model not found: ${request.model}`);
   }
 
-  let parameters: Record<string, unknown>;
+  let parameters: Record<string, unknown> | undefined;
   try {
-    validateGenerationContent(declaration, request.content);
-    parameters = resolveGenerationParameters(declaration, request.parameters);
+    const resolved = createGenerationClient({
+      models: [declaration],
+      includeBuiltinModels: false,
+    }).validate({
+      model: request.model,
+      content: request.content,
+      parameters: request.parameters,
+      metadata: request.metadata,
+    });
+    parameters = resolved.parameters;
   } catch (error) {
     if (error instanceof GenerationValidationError) {
       return generationError(c, 400, "invalid_generation_input", error.message);

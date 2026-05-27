@@ -1,18 +1,19 @@
 # Generations
 
-Cohub generations provide a small multimodal generation API driven by declaration files.
+Cohub generations provide a small task-based multimodal generation API. Model declarations are loaded from `.cohub/generations` and use the `@neta-art/generation` declaration schema.
 
 ## API
 
 ```http
-GET  /api/generations/declarations
+GET  /api/models?modelType=multimodal
 POST /api/generations
 ```
 
 `POST /api/generations` accepts:
 
 ```ts
-type CreateGenerationRequest = {
+type CreateGenerationTaskRequest = {
+  spaceId: string;
   model: string;
   content: GenerationContentBlock[];
   parameters?: Record<string, unknown>;
@@ -20,22 +21,21 @@ type CreateGenerationRequest = {
 };
 ```
 
-`content` contains the prompt and any reference files:
+`content` contains the prompt and any reference media:
 
 ```ts
 type GenerationSource =
   | { type: "url"; url: string }
-  | { type: "base64"; media_type: string; data: string }
-  | { type: "space_file"; space_id: string; path: string };
+  | { type: "base64"; mediaType: string; data: string };
 
 type GenerationContentBlock =
-  | { type: "text"; text: string; _meta?: Record<string, unknown> }
-  | { type: "image"; source: GenerationSource; _meta?: Record<string, unknown> }
-  | { type: "video"; source: GenerationSource; _meta?: Record<string, unknown> }
-  | { type: "audio"; source: GenerationSource; _meta?: Record<string, unknown> };
+  | { type: "text"; text: string; meta?: Record<string, unknown> }
+  | { type: "image"; source: GenerationSource; meta?: Record<string, unknown> }
+  | { type: "video"; source: GenerationSource; meta?: Record<string, unknown> }
+  | { type: "audio"; source: GenerationSource; meta?: Record<string, unknown> };
 ```
 
-The response is a `Generation` with `input` and generated `output` content blocks. The first implementation runs synchronously and returns `succeeded` or `failed` directly.
+The API queues a generation task and returns a task ID. Use task polling, or the SDK / CLI helpers, to wait for the final `GenerationTaskResult`.
 
 ## Declarations
 
@@ -47,20 +47,18 @@ Generation declarations live in:
 
 Platform declarations are loaded from `platform/.cohub/generations`, and user declarations from `users/<userId>/.cohub/generations`. User declarations override platform declarations with the same `model`.
 
-Public declaration listing never returns the private `adapter` field.
+Declarations use `neta.generation.model.v1`. Adapter credentials and provider base URLs are not stored in model declarations. Worker execution uses `NETA_ROUTER_API_KEY`, while provider routing defaults are handled by `@neta-art/generation`.
 
 Minimal shape:
 
 ```yaml
-schema: cohub.generation.v1
+schema: neta.generation.model.v1
 model: gpt-image-2
 title: GPT Image 2
 description: Image generation with optional reference images.
 
 adapter:
   type: openai.images
-  base_url: https://new-api.talesofai.com/v1
-  api_key: $env:GPT_IMAGE_API_KEY
 
 content:
   input:
@@ -70,7 +68,7 @@ content:
       merge: newline
     - type: image
       max: 16
-      sources: [url, base64, space_file]
+      sources: [url, base64]
 
 parameters:
   size:
@@ -94,7 +92,7 @@ See the full examples:
 ## CLI
 
 ```bash
-cohub generations ls
+cohub models ls --model-type multimodal
 
 cohub generate "a cyberpunk cat in neon rain" \
   --model gpt-image-2 \
@@ -117,5 +115,3 @@ cohub generate "a cat playing piano in a cozy jazz club" \
   --param duration=5 \
   --param resolution=720p
 ```
-
-Use `$env:NAME` for API keys in YAML. Do not commit real API keys.

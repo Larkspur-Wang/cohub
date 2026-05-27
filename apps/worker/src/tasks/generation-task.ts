@@ -1,18 +1,16 @@
 import type { Job } from "bullmq";
+import {
+  createGenerationClient,
+  GenerationConfigError,
+  GenerationProviderError,
+  GenerationUnsupportedAdapterError,
+  GenerationValidationError,
+} from "@neta-art/generation";
 import { createGenerationDeclarationLoader } from "@cohub/infra/config-runtime/generation-declarations";
 import { GENERATION_TASK_TYPE, type GenerationTaskData, type GenerationTaskResult } from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
-import {
-  GenerationHttpError,
-  GenerationProviderError,
-  GenerationValidationError,
-  getGenerationAdapter,
-  resolveGenerationParameters,
-  validateGenerationContent,
-} from "@cohub/core/generations";
 import { config } from "../config.js";
 import { redisCommandClient } from "../redis.js";
-import { resolveGenerationSource } from "../generation-source-resolver.js";
 import { registerTask } from "./registry.js";
 
 const loader = createGenerationDeclarationLoader({
@@ -32,50 +30,53 @@ function parseGenerationTaskData(data: unknown): GenerationTaskData {
   if (!Array.isArray(data.content) || data.content.length === 0) {
     throw new Error("Invalid generation task payload: content is required");
   }
+  if (data.parameters !== undefined && !isRecord(data.parameters)) {
+    throw new Error("Invalid generation task payload: parameters must be an object");
+  }
+  if (data.metadata !== undefined && !isRecord(data.metadata)) {
+    throw new Error("Invalid generation task payload: metadata must be an object");
+  }
   return {
     model: data.model,
     content: data.content as GenerationTaskData["content"],
-    parameters: isRecord(data.parameters) ? data.parameters : undefined,
-    metadata: isRecord(data.metadata) ? data.metadata : undefined,
+    parameters: data.parameters,
+    metadata: data.metadata,
   };
 }
 
-function providerStatusMessage(status: number) {
+function getNetaRouterApiKey(): string {
+  if (!config.netaRouterApiKey) throw new GenerationConfigError("Missing required env: NETA_ROUTER_API_KEY");
+  return config.netaRouterApiKey;
+}
+
+function summarizeProviderBody(body: string | undefined): string | null {
+  if (!body) return null;
+  return body.replace(/\s+/g, " ").trim().slice(0, 500) || null;
+}
+
+function providerStatusMessage(status: number | undefined): string | null {
+  if (status === undefined) return null;
   if (status === 401 || status === 403) return "Generation provider rejected the configured credentials";
   if (status === 429) return "Generation provider rate limit exceeded";
   if (status >= 500) return "Generation provider is temporarily unavailable";
-  return null;
-}
-
-function truncateDetail(value: string, maxLength = 1000) {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
-}
-
-function formatProviderError(error: GenerationProviderError) {
-  const details: string[] = [];
-  if (error.provider?.status) details.push(`provider HTTP ${error.provider.status}`);
-  if (error.provider?.taskId) details.push(`provider task ${error.provider.taskId}`);
-  if (error.provider?.body) details.push(truncateDetail(error.provider.body));
-
-  const message = error.provider?.status
-    ? providerStatusMessage(error.provider.status) ?? error.message
-    : error.message;
-  return details.length > 0 ? `${message} (${details.join(" · ")})` : message;
-}
-
-function formatGenerationHttpError(error: GenerationHttpError) {
-  return `${error.message} (${error.code})`;
+  return "Generation provider request failed";
 }
 
 function normalizeGenerationError(error: unknown): Error {
-  if (error instanceof GenerationProviderError) {
-    return new Error(formatProviderError(error));
-  }
-  if (error instanceof GenerationHttpError) {
-    return new Error(formatGenerationHttpError(error));
-  }
   if (error instanceof GenerationValidationError) {
     return new Error(`Invalid generation input: ${error.message}`);
+  }
+  if (error instanceof GenerationProviderError) {
+    const parts = [providerStatusMessage(error.status) ?? error.message];
+    if (error.status !== undefined) parts.push(`HTTP ${error.status}`);
+    const taskId = error.details?.taskId;
+    if (typeof taskId === "string" && taskId) parts.push(`task ${taskId}`);
+    const body = summarizeProviderBody(error.body);
+    if (body) parts.push(body);
+    return new Error(parts.join(" — "));
+  }
+  if (error instanceof GenerationConfigError || error instanceof GenerationUnsupportedAdapterError) {
+    return new Error(error.message);
   }
   if (error instanceof Error) return error;
   return new Error(String(error));
@@ -93,21 +94,15 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job) => {
     const declaration = await loader.loadGenerationDeclaration(userId, data.model);
     if (!declaration) throw new Error(`Generation model is unavailable: ${data.model}`);
 
-    validateGenerationContent(declaration, data.content);
-    const parameters = resolveGenerationParameters(declaration, data.parameters);
-    const adapter = getGenerationAdapter(declaration.adapter.type);
-    const output = await adapter({
-      declaration,
-      user: { uuid: userId },
-      request: {
-        spaceId,
-        model: data.model,
-        content: data.content,
-        parameters,
-        metadata: data.metadata,
-      },
-      parameters,
-      resolveSource: resolveGenerationSource,
+    const output = await createGenerationClient({
+      models: [declaration],
+      includeBuiltinModels: false,
+      apiKey: getNetaRouterApiKey(),
+    }).generate({
+      model: data.model,
+      content: data.content,
+      parameters: data.parameters,
+      metadata: data.metadata,
     });
 
     return {

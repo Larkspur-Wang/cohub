@@ -1,14 +1,9 @@
-schema: cohub.generation.v1
-
+schema: neta.generation.model.v1
 model: gemini-3.1-flash-image-preview
 title: Gemini 3.1 Flash Image Preview
 description: Gemini image generation and editing model. Good for text rendering, infographics, style transfer, and iterative image editing with references.
-
 adapter:
   type: gemini.generateContent
-  base_url: https://router.neta.art/v1beta
-  api_key: $env:NETA_ROUTER_API_KEY
-
 content:
   input:
     - type: text
@@ -17,16 +12,13 @@ content:
       max: 16
       merge: newline
       description: Prompt text.
-
     - type: image
       required: false
       max: 14
       sources:
         - url
         - base64
-        - space_file
       description: Optional reference images.
-
 parameters:
   aspect_ratio:
     type: string
@@ -48,7 +40,6 @@ parameters:
       - "1:8"
       - "8:1"
     description: Output aspect ratio.
-
   image_size:
     type: string
     optional: true
@@ -59,7 +50,6 @@ parameters:
       - 2K
       - 4K
     description: Output image resolution.
-
 examples:
   - title: Basic image
     request:
@@ -70,19 +60,3 @@ examples:
       parameters:
         aspect_ratio: "16:9"
         image_size: 1K
-
-  - title: Image editing with reference
-    request:
-      model: gemini-3.1-flash-image-preview
-      content:
-        - type: text
-          text: transform this portrait into a watercolor illustration, keep the same pose and composition
-        - type: image
-          source:
-            type: url
-            url: https://example.com/portrait.jpg
-          _meta:
-            role: reference
-      parameters:
-        aspect_ratio: "3:4"
-        image_size: 2K

@@ -154,6 +154,9 @@ importers:
       '@kubernetes/client-node':
         specifier: ^1.4.0
         version: 1.4.0
+      '@neta-art/generation':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -478,6 +481,9 @@ importers:
       '@kubernetes/client-node':
         specifier: ^1.4.0
         version: 1.4.0
+      '@neta-art/generation':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -548,6 +554,9 @@ importers:
       '@neta-art/cohub':
         specifier: workspace:*
         version: link:../sdk
+      '@neta-art/generation':
+        specifier: ^0.1.0
+        version: 0.1.0
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -618,6 +627,9 @@ importers:
       '@kubiks/otel-drizzle':
         specifier: ^2.1.0
         version: 2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260421.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
+      '@neta-art/generation':
+        specifier: ^0.1.0
+        version: 0.1.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -670,6 +682,9 @@ importers:
 
   packages/protocol:
     dependencies:
+      '@neta-art/generation':
+        specifier: ^0.1.0
+        version: 0.1.0
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2699,6 +2714,11 @@ packages:
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
+
+  '@neta-art/generation@0.1.0':
+    resolution: {integrity: sha512-dCB0R7hx90UbIaDPsT8o2NwMjN/mBiWZVReDHB4Xau2iVBeqReacJepsfToLbpv0Nd1B7DOx3jtZ/x8fsP6JfA==}
+    engines: {node: '>=20.0.0'}
+    hasBin: true
 
   '@nodable/entities@2.1.0':
     resolution: {integrity: sha512-nyT7T3nbMyBI/lvr6L5TyWbFJAI9FTgVRakNoBqCD+PmID8DzFrrNdLLtHMwMszOtqZa8PAOV24ZqDnQrhQINA==}
@@ -8766,6 +8786,10 @@ snapshots:
       '@emnapi/runtime': 1.9.2
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@neta-art/generation@0.1.0':
+    dependencies:
+      yaml: 2.8.3
 
   '@nodable/entities@2.1.0': {}
 

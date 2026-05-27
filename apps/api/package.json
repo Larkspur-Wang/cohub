@@ -26,9 +26,11 @@
     "@cohub/identity": "workspace:*",
     "@cohub/infra": "workspace:*",
     "@cohub/protocol": "workspace:*",
+    "@cohub/sandbox-controller": "workspace:*",
     "@hono/node-server": "2.0.0",
     "@hono/otel": "^1.1.0",
     "@kubernetes/client-node": "^1.4.0",
+    "@neta-art/generation": "^0.1.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-proto": "^0.203.0",
     "@opentelemetry/instrumentation": "^0.215.0",
@@ -48,8 +50,7 @@
     "ioredis": "^5.10.1",
     "postgres": "^3.4.9",
     "yaml": "^2.8.3",
-    "zod": "^4.3.6",
-    "@cohub/sandbox-controller": "workspace:*"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.12",

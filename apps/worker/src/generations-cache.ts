@@ -1,31 +1,28 @@
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { parse as parseYaml } from "yaml";
+import {
+  parseGenerationModelDeclaration,
+  type GenerationModelDeclaration,
+} from "@neta-art/generation";
 import {
   createCachedGenerationsConfig,
   GENERATIONS_CACHE_TTL_SEC,
   getUserGenerationsRedisKey,
-  isGenerationDeclaration,
   PLATFORM_GENERATIONS_REDIS_KEY,
   type CachedGenerationsConfig,
   type GenerationsConfig,
 } from "@cohub/infra/config-runtime/generations";
-import type { GenerationDeclaration } from "@cohub/protocol/generation";
 import { redisCommandClient } from "./redis.js";
 
 const DECLARATION_EXTENSIONS = new Set([".yaml", ".yml", ".json"]);
 
-function parseDeclaration(rawText: string, path: string): GenerationDeclaration {
-  const parsed = extname(path) === ".json" ? JSON.parse(rawText) : parseYaml(rawText);
-  if (!isGenerationDeclaration(parsed)) {
-    throw new Error(`Generation declaration has invalid schema: ${path}`);
-  }
-  return parsed;
+function parseDeclaration(rawText: string, path: string): GenerationModelDeclaration {
+  return parseGenerationModelDeclaration(rawText, path);
 }
 
 async function readGenerationsConfigFromDir(dir: string): Promise<{ rawText: string; content: GenerationsConfig }> {
   const entries = await readdir(dir);
-  const declarations: GenerationDeclaration[] = [];
+  const declarations: GenerationModelDeclaration[] = [];
   const rawParts: string[] = [];
   for (const entry of entries.sort()) {
     if (!DECLARATION_EXTENSIONS.has(extname(entry))) continue;

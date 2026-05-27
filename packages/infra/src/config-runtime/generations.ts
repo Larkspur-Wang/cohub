@@ -1,4 +1,7 @@
-import type { GenerationDeclaration } from "@cohub/protocol/generation";
+import {
+  isGenerationModelDeclaration,
+  type GenerationModelDeclaration,
+} from "@neta-art/generation";
 
 export const GENERATIONS_CACHE_REDIS_KEY_VERSION = "v1";
 export const PLATFORM_GENERATIONS_REDIS_KEY = `configs:generations:${GENERATIONS_CACHE_REDIS_KEY_VERSION}:platform`;
@@ -8,7 +11,7 @@ export const GENERATIONS_CACHE_TTL_SEC = 24 * 60 * 60;
 const SAFE_REDIS_KEY_SEGMENT_REGEX = /^[0-9a-zA-Z_-]+$/;
 
 export type GenerationsConfig = {
-  declarations: GenerationDeclaration[];
+  declarations: GenerationModelDeclaration[];
 };
 
 export type CachedGenerationsConfig = {
@@ -34,33 +37,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function isGenerationExample(value: unknown): boolean {
-  if (!isRecord(value)) return false;
-  const request = value.request;
-  return !request || (isRecord(request)
-    && typeof request.model === "string"
-    && Array.isArray(request.content));
-}
-
-export function isGenerationDeclaration(value: unknown): value is GenerationDeclaration {
-  if (!isRecord(value)) return false;
-  const adapter = value.adapter;
-  const content = value.content;
-  const examples = value.examples;
-  return value.schema === "cohub.generation.v1"
-    && typeof value.model === "string"
-    && isRecord(adapter)
-    && typeof adapter.type === "string"
-    && typeof adapter.base_url === "string"
-    && typeof adapter.api_key === "string"
-    && isRecord(content)
-    && Array.isArray(content.input)
-    && (examples === undefined || (Array.isArray(examples) && examples.every(isGenerationExample)));
-}
+export const isGenerationDeclaration = isGenerationModelDeclaration;
 
 export function isGenerationsConfig(value: unknown): value is GenerationsConfig {
   if (!isRecord(value) || !Array.isArray(value.declarations)) return false;
-  return value.declarations.every(isGenerationDeclaration);
+  return value.declarations.every(isGenerationModelDeclaration);
 }
 
 export function parseGenerationsConfig(rawText: string): GenerationsConfig {
@@ -114,11 +95,9 @@ export function parseCachedGenerationsConfig(rawText: string): CachedGenerations
 }
 
 export function mergeGenerationsConfigs(...configs: Array<GenerationsConfig | null | undefined>): GenerationsConfig {
-  const declarations = new Map<string, GenerationDeclaration>();
+  const declarations = new Map<string, GenerationModelDeclaration>();
   for (const config of configs) {
-    for (const declaration of config?.declarations ?? []) {
-      declarations.set(declaration.model, declaration);
-    }
+    for (const declaration of config?.declarations ?? []) declarations.set(declaration.model, declaration);
   }
   return { declarations: [...declarations.values()].sort((a, b) => a.model.localeCompare(b.model)) };
 }
