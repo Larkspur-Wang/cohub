@@ -4013,18 +4013,41 @@ function setPreviewPanelWidth(width: number) {
 		getMaxPreviewPanelWidth(),
 	);
 }
+function ensurePreviewPanelFits() {
+	setPreviewPanelWidth(previewPanelWidth);
+}
 function togglePreviewFocusMode() {
 	previewFocusMode = !previewFocusMode;
 	if (!previewFocusMode) return;
+	const releasedRightWidth = getRightSidebarReservedWidth();
 	uiState.setLeftSidebarCollapsed(true);
 	uiState.setRightSidebarCollapsed(true);
-	setPreviewPanelWidth(getMaxPreviewPanelWidth());
+	setPreviewPanelWidth(previewPanelWidth + releasedRightWidth);
 }
 function closePreviewFocusMode() {
 	previewFocusMode = false;
 }
 function handlePreviewWindowResize() {
-	if (previewFocusMode) setPreviewPanelWidth(getMaxPreviewPanelWidth());
+	if (previewFocusMode) {
+		setPreviewPanelWidth(getMaxPreviewPanelWidth());
+		return;
+	}
+	if (activePreviewKind) ensurePreviewPanelFits();
+}
+async function toggleRightSidebar() {
+	if (window.innerWidth < 1024) {
+		uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
+		return;
+	}
+	const nextCollapsed = !uiState.rightSidebarCollapsed;
+	const rightWidth = uiState.rightSidebarWidth;
+	uiState.setRightSidebarCollapsed(nextCollapsed);
+	if (!activePreviewKind) return;
+	closePreviewFocusMode();
+	await tick();
+	setPreviewPanelWidth(
+		previewPanelWidth + (nextCollapsed ? rightWidth : -rightWidth),
+	);
 }
 function beginPreviewPanelResize(event: PointerEvent) {
 	event.preventDefault();
@@ -4375,6 +4398,8 @@ function closeFile() {
 	});
 }
 async function openInlineFile(path: string) {
+	closePreviewFocusMode();
+	ensurePreviewPanelFits();
 	inlinePortPreview = null;
 	inlineCanvas = null;
 	inlineFile = {
@@ -4439,6 +4464,8 @@ function closeInlineFile() {
 	closePreviewFocusMode();
 }
 async function openInlineCanvas(path: string) {
+	closePreviewFocusMode();
+	ensurePreviewPanelFits();
 	const requestToken = inlineCanvasRequestToken + 1;
 	inlineCanvasRequestToken = requestToken;
 	inlineFile = null;
@@ -4521,6 +4548,8 @@ function openInlinePort(
 	url: string,
 	options: { autoOpened?: boolean } = {},
 ) {
+	closePreviewFocusMode();
+	ensurePreviewPanelFits();
 	inlineFile = null;
 	inlineCanvas = null;
 	inlinePortPreview = { port, url, autoOpened: options.autoOpened ?? false };
@@ -5852,13 +5881,7 @@ $effect(() => {
         <button
           type="button"
           class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={() => {
-            if (window.innerWidth < 1024) {
-              uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
-              return;
-            }
-            uiState.setRightSidebarCollapsed(!uiState.rightSidebarCollapsed);
-          }}
+          onclick={() => void toggleRightSidebar()}
           title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
         >
           {#if uiState.rightSidebarCollapsed}
