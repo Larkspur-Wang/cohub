@@ -48,6 +48,7 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
+import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { downloadCohubDebugBundle } from "$lib/debugger";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
@@ -159,6 +160,7 @@ let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
+const sidebarFlyoutPreviewLimit = 24;
 
 // Session rename state
 let renamingSessionId = $state<string | null>(null);
@@ -317,6 +319,32 @@ function sourceBadge(source: string | null): string {
 
 function sourceTooltip(source: string | null): string {
 	return source ?? "";
+}
+
+function getTaskRunBadge(status: TaskRunRecord["status"]) {
+	if (status === "completed") {
+		return { color: "text-status-running", dot: "bg-status-running" };
+	}
+	if (status === "failed") {
+		return { color: "text-status-error", dot: "bg-status-error" };
+	}
+	if (status === "running") {
+		return { color: "text-info", dot: "bg-info" };
+	}
+	return { color: "text-text-placeholder", dot: "bg-text-placeholder" };
+}
+
+function formatTaskRunTime(run: TaskRunRecord) {
+	const rawDate = run.createdAt ?? run.scheduledAt;
+	if (!rawDate) return "—";
+	const date = new Date(rawDate);
+	if (Number.isNaN(date.getTime())) return "—";
+	return date.toLocaleString("en-US", {
+		month: "short",
+		day: "numeric",
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
 function getFallbackSessionCursor(sessionList: SessionRecord[]) {
@@ -1251,6 +1279,208 @@ $effect(() => {
 });
 </script>
 
+{#snippet sidebarEmptyState(message: string, loading = false)}
+	<div class="flex min-h-8 items-center gap-2 rounded-[6px] px-2 py-2 text-[12px] text-text-placeholder">
+		{#if loading}
+			<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
+		{/if}
+		<span>{message}</span>
+	</div>
+{/snippet}
+
+{#snippet pinnedFlyoutList()}
+	{#if pinnedMarks.length === 0}
+		{@render sidebarEmptyState("No pinned items")}
+	{:else}
+		<div class="space-y-[2px]">
+			{#each pinnedMarks.slice(0, sidebarFlyoutPreviewLimit) as mark (mark.id)}
+				{@const Icon = getPinnedIcon(mark.resourceType)}
+				{@const isActivePinned = isPinnedMarkActive(mark)}
+				{@const insertReference = getPinnedInsertReference(mark)}
+				<div
+					role="link"
+					tabindex="0"
+					class="sidebar-flyout-item group/pinned relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-left text-[13px] {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} {isActivePinned ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+					onclick={() => void handleNavigateToPinned(mark)}
+					onkeydown={(e) => {
+						if (e.key !== 'Enter' && e.key !== ' ') return;
+						e.preventDefault();
+						void handleNavigateToPinned(mark);
+					}}
+					title={mark.resource?.subtitle ?? mark.resourceRef}
+					aria-current={isActivePinned ? "page" : undefined}
+				>
+					<Icon class="h-3.5 w-3.5 shrink-0 {isActivePinned ? 'text-text-tertiary' : 'text-text-placeholder'}" />
+					<span class="min-w-0 flex-1 truncate leading-tight">{getPinnedFallbackTitle(mark)}</span>
+					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto">
+						{#if insertReference}
+							<span
+								role="button"
+								tabindex="0"
+								class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"
+								title="Insert"
+								onclick={(e) => {
+									e.preventDefault();
+									e.stopPropagation();
+									insertPathReference(insertReference);
+								}}
+								onkeydown={(e) => {
+									if (e.key !== 'Enter' && e.key !== ' ') return;
+									e.preventDefault();
+									e.stopPropagation();
+									insertPathReference(insertReference);
+								}}
+							>
+								<FileText class="h-3.5 w-3.5" />
+							</span>
+						{/if}
+						<span
+							role="button"
+							tabindex="0"
+							class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"
+							title="Unpin"
+							onclick={(e) => {
+								e.preventDefault();
+								e.stopPropagation();
+								togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
+							}}
+							onkeydown={(e) => {
+								if (e.key !== 'Enter' && e.key !== ' ') return;
+								e.preventDefault();
+								e.stopPropagation();
+								togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
+							}}
+						>
+							<PinOff class="h-3.5 w-3.5" />
+						</span>
+					</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet sessionsFlyoutList()}
+	{#if loadingSessions && sessions.length === 0}
+		{@render sidebarEmptyState("Loading chats…", true)}
+	{:else if sessions.length === 0}
+		{@render sidebarEmptyState("No chats")}
+	{:else}
+		<div class="space-y-[2px]">
+			{#each sidebarSessionItems.slice(0, sidebarFlyoutPreviewLimit) as item (item.session.id)}
+				{@const session = item.session}
+				{@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
+				<a
+					href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
+					class="sidebar-flyout-item group/session relative flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+					style={getSessionRowStyle(item)}
+					onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+					draggable="true"
+					ondragstart={(e) => {
+						e.dataTransfer?.setData("text/cohub-path", `/sessions/${session.id}.jsonl`);
+						if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+					}}
+					title={item.titleText || sourceTooltip(session.source) || undefined}
+					aria-label={item.ariaLabel}
+				>
+					<span class="min-w-0 flex-1 truncate leading-tight">{item.displayTitle}</span>
+					{#if sourceBadge(session.source)}
+						<span class="absolute right-2 top-1/2 -translate-y-1/2 rounded-[3px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium leading-none text-text-tertiary group-hover/session:opacity-0 group-focus-within/session:opacity-0">
+							{sourceBadge(session.source)}
+						</span>
+					{/if}
+					{#if sessionIsStreaming(session)}
+						<span class="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-status-running animate-pulse group-hover/session:opacity-0 group-focus-within/session:opacity-0" title="Streaming..."></span>
+					{:else if unreadTracker.isUnread(session, session.lastMessageId)}
+						<span class="absolute right-3 top-1/2 h-[7px] w-[7px] -translate-y-1/2 rounded-full bg-brand group-hover/session:opacity-0 group-focus-within/session:opacity-0" title="Unread"></span>
+					{/if}
+					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Insert" onclick={(e) => { e.preventDefault(); e.stopPropagation(); insertPathReference(`/sessions/${session.id}.jsonl`); }}>
+							<FileText class="h-3.5 w-3.5" />
+						</button>
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title={isPinned("session", session.id) ? "Unpin chat" : "Pin chat"} onclick={(e) => { e.preventDefault(); e.stopPropagation(); togglePinResource("session", session.id, item.displayTitle); }}>
+							{#if isPinned("session", session.id)}<PinOff class="h-3.5 w-3.5" />{:else}<Pin class="h-3.5 w-3.5" />{/if}
+						</button>
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Rename" onclick={(e) => { e.preventDefault(); e.stopPropagation(); startRenameSession(session); }}>
+							<Pencil class="h-3.5 w-3.5" />
+						</button>
+					</span>
+				</a>
+			{/each}
+			{#if shouldShowLoadMoreSessions()}
+				<button type="button" class="mt-1 flex w-full items-center justify-center gap-2 rounded-[6px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-60" disabled={loadingMoreSessions} onclick={() => currentSpaceId && void loadMoreSessionsForSpace(currentSpaceId)}>
+					{#if loadingMoreSessions}<Loader2 class="h-3 w-3 animate-spin" /> Loading...{:else}Load more{/if}
+				</button>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet checkpointsFlyoutList()}
+	{#if loadingCheckpoints && checkpoints.length === 0}
+		{@render sidebarEmptyState("Loading saves…", true)}
+	{:else if checkpoints.length === 0}
+		{@render sidebarEmptyState("No saves")}
+	{:else}
+		<div class="space-y-[2px]">
+			{#each checkpoints.slice(0, sidebarFlyoutPreviewLimit) as checkpoint (checkpoint.id)}
+				{@const isActive = activeCheckpointId === checkpoint.id}
+				<a href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)} class="sidebar-flyout-item group/checkpoint relative flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-12 focus-within:pr-12 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}>
+					<History class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div><div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{checkpoint.commitHash.slice(0, 12)}</div></div>
+					<button type="button" class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 rounded p-0.5 text-text-tertiary opacity-0 pointer-events-none transition-opacity hover:bg-bg-hover-strong hover:text-text-primary group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto" draggable="false" title={isPinned("checkpoint", checkpoint.id) ? "Unpin save" : "Pin save"} onclick={(e) => { e.preventDefault(); e.stopPropagation(); togglePinResource("checkpoint", checkpoint.id, getCheckpointTitle(checkpoint)); }}>
+						{#if isPinned("checkpoint", checkpoint.id)}<PinOff class="h-3.5 w-3.5" />{:else}<Pin class="h-3.5 w-3.5" />{/if}
+					</button>
+				</a>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet cronjobsFlyoutList()}
+	<div class="mb-1 flex justify-end">
+		<button type="button" class="inline-flex items-center gap-1 rounded-[5px] px-2 py-1 text-[11px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35" onclick={handleNavigateToNewCronjob}>
+			<Plus class="h-3 w-3" /> New scheduled
+		</button>
+	</div>
+	{#if loadingCronjobs && cronjobs.length === 0}
+		{@render sidebarEmptyState("Loading scheduled…", true)}
+	{:else if cronjobs.length === 0}
+		{@render sidebarEmptyState("No scheduled")}
+	{:else}
+		<div class="space-y-[2px]">
+			{#each cronjobs.slice(0, sidebarFlyoutPreviewLimit) as job (job.id)}
+				{@const isActive = activeCronjobId === job.id}
+				<a href={buildSpaceCronjobRoute(currentSpaceId!, job.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}>
+					<Clock class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{job.title}</div></div>
+					<span class="h-1.5 w-1.5 shrink-0 rounded-full {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+				</a>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet tasksFlyoutList()}
+	{#if loadingTasks && tasks.length === 0}
+		{@render sidebarEmptyState("Loading tasks…", true)}
+	{:else if tasks.length === 0}
+		{@render sidebarEmptyState("No tasks")}
+	{:else}
+		<div class="space-y-[2px]">
+			{#each tasks.slice(0, sidebarFlyoutPreviewLimit) as run (run.id)}
+				{@const isActive = activeTaskId === run.id}
+				{@const badge = getTaskRunBadge(run.status)}
+				<a href={buildSpaceTaskRoute(currentSpaceId!, run.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}>
+					<Activity class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+					<div class="min-w-0 flex-1"><div class="truncate text-[12px] capitalize leading-tight {badge.color}">{run.status}</div><div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div></div>
+					<span class="h-1.5 w-1.5 shrink-0 rounded-full {badge.dot}"></span>
+				</a>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 {#if collapsed && !isMobile}
   <aside class="h-screen w-[52px] shrink-0 bg-bg-primary">
     <div class="flex h-full flex-col items-center border-r border-border-subtle/70 px-2 py-2">
@@ -1336,27 +1566,42 @@ $effect(() => {
 
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
-          <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
-            <button type="button" class="rail-button text-text-tertiary" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Pinned" title="Pinned">
-              <Pin class="h-4 w-4" />
-            </button>
-            <button type="button" class="rail-button {activeSession ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Chats" title="Chats">
-              <NotebookPen class="h-4 w-4" />
-              {#if activeSession && sessionIsStreaming(activeSession)}
-                <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-status-running animate-pulse"></span>
-              {:else if activeSession && unreadTracker.isUnread(activeSession, activeSession.lastMessageId)}
-                <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand"></span>
-              {/if}
-            </button>
-            <button type="button" class="rail-button {activeCheckpointId ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Saves" title="Saves">
-              <History class="h-4 w-4" />
-            </button>
-            <button type="button" class="rail-button {activeCronjobId ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Scheduled" title="Scheduled">
-              <Clock class="h-4 w-4" />
-            </button>
-            <button type="button" class="rail-button {activeTaskId ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}" onclick={() => uiState.setLeftSidebarCollapsed(false)} aria-label="Tasks" title="Tasks">
-              <Activity class="h-4 w-4" />
-            </button>
+          <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
+            <SidebarFlyout label="Pinned" count={pinnedMarks.length} active={pinnedMarks.some(isPinnedMarkActive)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <Pin class="h-4 w-4" />
+              {/snippet}
+              {@render pinnedFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Chats" count={sessions.length} active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <NotebookPen class="h-4 w-4" />
+                {#if activeSession && sessionIsStreaming(activeSession)}
+                  <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-status-running animate-pulse"></span>
+                {:else if activeSession && unreadTracker.isUnread(activeSession, activeSession.lastMessageId)}
+                  <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand"></span>
+                {/if}
+              {/snippet}
+              {@render sessionsFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Saves" count={checkpoints.length} active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <History class="h-4 w-4" />
+              {/snippet}
+              {@render checkpointsFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Scheduled" count={cronjobs.length} active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <Clock class="h-4 w-4" />
+              {/snippet}
+              {@render cronjobsFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Tasks" count={tasks.length} active={Boolean(activeTaskId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <Activity class="h-4 w-4" />
+              {/snippet}
+              {@render tasksFlyoutList()}
+            </SidebarFlyout>
           </nav>
         {:else}
           <div class="flex-1"></div>
@@ -2032,10 +2277,7 @@ $effect(() => {
                 <div class="space-y-[2px] mt-1">
                   {#each tasks.slice(0, 15) as run (run.id)}
                     {@const isActive = activeTaskId === run.id}
-                    {@const badge = run.status === 'completed' ? { color: 'text-status-running', dot: 'bg-status-running' }
-                      : run.status === 'failed' ? { color: 'text-status-error', dot: 'bg-status-error' }
-                      : run.status === 'running' ? { color: 'text-info', dot: 'bg-info' }
-                      : { color: 'text-text-placeholder', dot: 'bg-text-placeholder' }}
+                    {@const badge = getTaskRunBadge(run.status)}
                     <a
                       href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
                       class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
@@ -2044,7 +2286,7 @@ $effect(() => {
                       <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
                         <div class="truncate leading-tight text-[12px] capitalize {badge.color}">{run.status}</div>
-                        <div class="mt-0.5 text-[10px] text-text-placeholder">{(() => { const d = new Date(run.createdAt ?? run.scheduledAt); return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); })()}</div>
+                        <div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div>
                       </div>
                       <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
                     </a>
