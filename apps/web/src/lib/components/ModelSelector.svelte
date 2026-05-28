@@ -710,34 +710,6 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 											{/each}
 										</div>
 									{/if}
-
-										{#if getEnumParameters(model).length > 0}
-											<div class="mt-2 space-y-1.5 pl-5">
-												{#each getEnumParameters(model) as param (param.name)}
-													<div>
-														<div class="mb-1 flex items-center justify-between gap-2">
-															<div class="text-[11px] font-medium text-text-secondary">{param.name}</div>
-															<div class="text-[10px] text-text-tertiary">Enum</div>
-														</div>
-														<div class="flex flex-wrap gap-1">
-															{#each param.values as value (String(value))}
-																<label class={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors duration-100 ${selectedGenerationModels.has(model.model) && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)) ? "bg-brand-bg text-brand-muted-fg" : "bg-bg-subtle/60 text-text-tertiary hover:text-text-primary"}`}>
-																	<input
-																		type="checkbox"
-																		class="h-3 w-3 accent-brand disabled:opacity-35"
-																		disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model) || (getSelectedEnumValues(model.model, param.name, param.values).size === 1 && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)))}
-																		checked={getSelectedEnumValues(model.model, param.name, param.values).has(String(value))}
-																		onchange={(event) => toggleGenerationEnumValue(model.model, param.name, String(value), event.currentTarget.checked)}
-																	/>
-																	<span>{String(value)}</span>
-																</label>
-															{/each}
-														</div>
-													</div>
-												{/each}
-											</div>
-										{/if}
-									{/if}
 								</div>
 							</div>
 						</div>
