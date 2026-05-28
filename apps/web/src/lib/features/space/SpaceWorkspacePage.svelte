@@ -95,6 +95,9 @@ import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
+import SessionGenerationTaskTray, {
+	type GenerationTaskNotice,
+} from "$lib/components/SessionGenerationTaskTray.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
@@ -114,6 +117,10 @@ import {
 	MAX_COMPOSER_ATTACHMENTS,
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
+import {
+	extractGenerationMediaItems,
+	extractGenerationPromptPreview,
+} from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
@@ -708,6 +715,8 @@ let taskRunDetailError = $state("");
 let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let taskRunRefreshInFlight: Promise<void> | null = null;
+let generationTaskNotices = $state<GenerationTaskNotice[]>([]);
+let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
 type TokenUsageDays = 7 | 30 | 90;
@@ -1048,6 +1057,9 @@ function ensureTaskRunPoll(taskId: string, intervalMs = 5000) {
 
 const isActiveTaskRun = (run: Pick<TaskRunRecord, "status"> | null) =>
 	run?.status === "pending" || run?.status === "running";
+const isGenerationTaskRun = (
+	run: (Partial<TaskRunRecord> & { type?: string }) | null | undefined,
+) => (run?.taskType ?? run?.type) === "generation";
 const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
 function mergeTaskRunRecord(
@@ -1071,6 +1083,7 @@ function mergeTaskRunRecord(
 		attemptCount: patch.attemptCount ?? current?.attemptCount ?? 0,
 		spaceId: patch.spaceId ?? current?.spaceId ?? spaceId,
 		sessionId: patch.sessionId ?? current?.sessionId ?? null,
+		turnId: patch.turnId ?? current?.turnId ?? null,
 		userUuid: patch.userUuid ?? patch.userId ?? current?.userUuid ?? null,
 		scheduledAt: patch.scheduledAt ?? current?.scheduledAt ?? null,
 		startedAt: patch.startedAt ?? current?.startedAt ?? null,
@@ -1093,6 +1106,45 @@ function mergeTaskRunList(
 		? runs.map((run) => (run.id === patch.id ? nextRun : run))
 		: [nextRun, ...runs];
 	return [...nextRuns].sort((a, b) => taskRunSortTime(b) - taskRunSortTime(a));
+}
+function upsertGenerationTaskNotice(run: TaskRunRecord) {
+	generationTaskRunById = { ...generationTaskRunById, [run.id]: run };
+	if (!run.sessionId || run.sessionId !== activeSessionId) return;
+	const status = run.status;
+	if (
+		status !== "pending" &&
+		status !== "running" &&
+		status !== "completed" &&
+		status !== "failed"
+	) {
+		return;
+	}
+	const notice: GenerationTaskNotice = {
+		id: run.id,
+		spaceId: run.spaceId ?? spaceId,
+		sessionId: run.sessionId,
+		turnId: run.turnId ?? null,
+		status,
+		mediaItems: extractGenerationMediaItems(run.result),
+		promptPreview: extractGenerationPromptPreview(run.payload),
+		createdAt: run.createdAt,
+		startedAt: run.startedAt,
+		updatedAt: run.updatedAt,
+		finishedAt: run.finishedAt,
+	};
+	generationTaskNotices = [
+		...generationTaskNotices.filter((item) => item.id !== run.id),
+		notice,
+	]
+		.sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b))
+		.slice(-18);
+}
+function dismissGenerationTaskNotice(id: string) {
+	generationTaskNotices = generationTaskNotices.filter(
+		(item) => item.id !== id,
+	);
+	const { [id]: _removed, ...rest } = generationTaskRunById;
+	generationTaskRunById = rest;
 }
 async function refreshTaskDetail(taskId: string, loading = false) {
 	if (taskRunRefreshInFlight) return taskRunRefreshInFlight;
@@ -3718,6 +3770,15 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 	const eventSpaceId = task.spaceId ?? payload.spaceId ?? spaceId;
 	if (eventSpaceId !== spaceId) return;
 	mergeCachedTaskRun(spaceId, task as Parameters<typeof mergeCachedTaskRun>[1]);
+	const existingGenerationTaskRun = generationTaskRunById[task.id] ?? null;
+	const mergedTaskRun = mergeTaskRunRecord(existingGenerationTaskRun, {
+		...(task as Partial<TaskRunRecord>),
+		id: task.id,
+		type: task.type,
+		userId: task.userId,
+	});
+	if (isGenerationTaskRun(mergedTaskRun))
+		upsertGenerationTaskNotice(mergedTaskRun);
 	if (routeTaskId === task.id) {
 		const wasActive = isActiveTaskRun(taskRunDetail);
 		taskRunDetail = mergeTaskRunRecord(taskRunDetail, {
@@ -5656,6 +5717,9 @@ onMount(() => {
 	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
 		({ spaceId: updatedSpaceId, runs }) => {
 			if (updatedSpaceId !== spaceId) return;
+			for (const run of runs) {
+				if (isGenerationTaskRun(run)) upsertGenerationTaskNotice(run);
+			}
 			if (cronjobDetail) {
 				cronjobRuns = runs.filter((run) => run.cronJobId === cronjobDetail?.id);
 			}
@@ -7711,6 +7775,11 @@ $effect(() => {
           loadingOlder={activeSessionState?.loadingOlder ?? false}
           onOpenFile={openInlineFile}
           modelsCatalog={modelsCatalog ?? undefined}
+        />
+        <SessionGenerationTaskTray
+          notices={generationTaskNotices}
+          activeSessionId={activeSessionId}
+          onDismiss={dismissGenerationTaskNotice}
         />
         <TurnRail
           turns={activeTurnRailItems}
