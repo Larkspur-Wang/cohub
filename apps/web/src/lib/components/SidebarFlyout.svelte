@@ -4,7 +4,6 @@ import { onDestroy } from "svelte";
 
 const {
 	label,
-	count,
 	active = false,
 	disabled = false,
 	onTriggerClick,
@@ -12,7 +11,6 @@ const {
 	children,
 }: {
 	label: string;
-	count?: number | string | null;
 	active?: boolean;
 	disabled?: boolean;
 	onTriggerClick?: () => void;
@@ -89,7 +87,7 @@ onDestroy(clearCloseTimer);
 >
 	<button
 		type="button"
-		class="rail-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary {active || open ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}"
+		class="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary {active || open ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}"
 		disabled={disabled}
 		onclick={onTriggerClick}
 		aria-label={label}
@@ -110,9 +108,6 @@ onDestroy(clearCloseTimer);
 		>
 			<div class="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface/40 px-3">
 				<div class="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em] text-text-secondary">{label}</div>
-				{#if count !== undefined && count !== null}
-					<div class="rounded-[4px] border border-border-subtle bg-bg-primary px-1.5 py-px font-mono text-[10px] leading-4 text-text-placeholder">{count}</div>
-				{/if}
 			</div>
 			<div class="max-h-[min(560px,calc(100vh-64px))] overflow-y-auto overscroll-contain px-2 py-2">
 				{@render children()}

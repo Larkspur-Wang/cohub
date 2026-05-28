@@ -1568,13 +1568,13 @@ $effect(() => {
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
-            <SidebarFlyout label="Pinned" count={pinnedMarks.length} active={pinnedMarks.some(isPinnedMarkActive)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Pinned" active={pinnedMarks.some(isPinnedMarkActive)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Pin class="h-4 w-4" />
               {/snippet}
               {@render pinnedFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Chats" count={sessions.length} active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <NotebookPen class="h-4 w-4" />
                 {#if activeSession && sessionIsStreaming(activeSession)}
@@ -1585,19 +1585,19 @@ $effect(() => {
               {/snippet}
               {@render sessionsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Saves" count={checkpoints.length} active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Saves" active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <History class="h-4 w-4" />
               {/snippet}
               {@render checkpointsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Scheduled" count={cronjobs.length} active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Scheduled" active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Clock class="h-4 w-4" />
               {/snippet}
               {@render cronjobsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Tasks" count={tasks.length} active={Boolean(activeTaskId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Tasks" active={Boolean(activeTaskId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Activity class="h-4 w-4" />
               {/snippet}
