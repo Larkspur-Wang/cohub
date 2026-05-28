@@ -2,22 +2,42 @@ import type { RpcErrorCode, RpcMethod } from "@cohub/protocol/sandbox";
 
 export type SandboxRpcDiagnostics = Record<string, string | number | boolean | null | undefined>;
 
-const INFRA_RPC_ERROR_CODES: ReadonlySet<RpcErrorCode> = new Set([
-  "TIMEOUT",
-  "PROCESS_SPAWN_FAILED",
-  "PROCESS_ABORT_FAILED",
-  "IO_ERROR",
-  "INTERNAL_ERROR",
-]);
+export const SANDBOX_NOT_READY_MESSAGE = "Sandbox is not ready.";
+export const SANDBOX_CONNECTION_LOST_MESSAGE = "Sandbox connection lost.";
 
-function isInfrastructureRpcErrorCode(code: RpcErrorCode): boolean {
-  return INFRA_RPC_ERROR_CODES.has(code);
+const CONNECTION_NOT_READY_PATTERNS = [
+  "connect_failed",
+  "missing podip",
+  "not ready for requests",
+  "has not been started",
+  "timed out waiting for sandbox connection",
+  "closed before attach",
+  "websocket closed before attach",
+] as const;
+
+const CONNECTION_LOST_PATTERNS = [
+  "connection closed",
+  "connection replaced",
+  "ehostunreach",
+  "econnrefused",
+  "econnreset",
+  "etimedout",
+  "socket hang up",
+  "websocket is not open",
+] as const;
+
+function includesAny(value: string, patterns: readonly string[]) {
+  return patterns.some((pattern) => value.includes(pattern));
 }
 
-export class SandboxRpcError extends Error {
+export type SandboxRpcFailurePresentation = {
+  kind: "connect_failed" | "connection_lost" | "rpc_error";
+  message: string;
+  infrastructure: boolean;
+};
 
+export class SandboxRpcError extends Error {
   readonly toolCallError = true;
-  readonly infrastructure: boolean;
 
   constructor(
     message: string,
@@ -31,7 +51,6 @@ export class SandboxRpcError extends Error {
   ) {
     super(message);
     this.name = "SandboxRpcError";
-    this.infrastructure = isInfrastructureRpcErrorCode(options.rpcErrorCode);
   }
 
   get method() {
@@ -57,4 +76,30 @@ export class SandboxRpcError extends Error {
 
 export function isSandboxRpcError(error: unknown): error is SandboxRpcError {
   return error instanceof SandboxRpcError;
+}
+
+export function getSandboxRpcFailurePresentation(error: SandboxRpcError): SandboxRpcFailurePresentation {
+  const text = `${error.transportReason ?? ""} ${error.message}`.toLowerCase();
+
+  if (error.message === SANDBOX_NOT_READY_MESSAGE || includesAny(text, CONNECTION_NOT_READY_PATTERNS)) {
+    return {
+      kind: "connect_failed",
+      message: SANDBOX_NOT_READY_MESSAGE,
+      infrastructure: true,
+    };
+  }
+
+  if (error.message === SANDBOX_CONNECTION_LOST_MESSAGE || includesAny(text, CONNECTION_LOST_PATTERNS)) {
+    return {
+      kind: "connection_lost",
+      message: SANDBOX_CONNECTION_LOST_MESSAGE,
+      infrastructure: true,
+    };
+  }
+
+  return {
+    kind: "rpc_error",
+    message: error.message,
+    infrastructure: false,
+  };
 }

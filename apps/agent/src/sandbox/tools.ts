@@ -53,7 +53,13 @@ import {
 } from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
 import { type SandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
-import { SandboxRpcError, isSandboxRpcError, type SandboxRpcDiagnostics } from "./rpc-error.js";
+import {
+  getSandboxRpcFailurePresentation,
+  isSandboxRpcError,
+  SANDBOX_NOT_READY_MESSAGE,
+  SandboxRpcError,
+  type SandboxRpcDiagnostics,
+} from "./rpc-error.js";
 
 import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
 import { recoverSpaceSandbox } from "../api.js";
@@ -62,7 +68,6 @@ import { logger } from "../logger.js";
 import { db } from "../db.js";
 
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
-const SANDBOX_UNAVAILABLE_MESSAGE = "Sandbox unavailable.";
 
 function getCurrentTraceContext() {
   const ctx = getCurrentToolExecutionContext();
@@ -168,11 +173,13 @@ async function getCurrentConnection(method: RpcMethod | string = "sandbox.connec
   try {
     return await ensureSandboxConnection(spaceId);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     logger.warn(`[SandboxWS] unavailable while waiting for connection spaceId=${spaceId}:`, error);
-    throw new SandboxRpcError(SANDBOX_UNAVAILABLE_MESSAGE, {
+    throw new SandboxRpcError(SANDBOX_NOT_READY_MESSAGE, {
       method,
       rpcErrorCode: "IO_ERROR",
-      retryable: false,
+      retryable: true,
+      transportReason: `connect_failed: ${message}`,
     });
   }
 }
@@ -466,15 +473,16 @@ function createRemoteBashOperations(): BashOperations {
             }));
           } catch (error) {
             if (isSandboxRpcError(error)) {
-              logger.warn(`[Tool:bash] sandbox rpc failed cmd="${cmdSummary}" method=${error.method} rpcErrorCode=${error.rpcErrorCode} retryable=${error.retryable}`);
+              const presentation = getSandboxRpcFailurePresentation(error);
+              logger.warn(`[Tool:bash] sandbox rpc failed kind=${presentation.kind} cmd="${cmdSummary}" method=${error.method} rpcErrorCode=${error.rpcErrorCode} retryable=${error.retryable}`);
               finish(() => resolve({
                 failure: {
                   isError: true,
                   retryable: error.retryable,
-                  infrastructure: error.infrastructure,
+                  infrastructure: presentation.infrastructure,
                   rpcErrorCode: error.rpcErrorCode,
                   outputTail: outputPreview,
-                  message: error.message,
+                  message: presentation.message,
                 },
               } satisfies BashExecutionResult));
               return;
@@ -722,15 +730,16 @@ function withSandboxFailureResult<T extends AgentTool>(tool: T): T {
       return await tool.execute(...args);
     } catch (error) {
       if (!isSandboxRpcError(error)) throw error;
+      const presentation = getSandboxRpcFailurePresentation(error);
       const traceContext = formatTraceContextForLog();
       const diagnostics = formatDiagnostics(error.diagnostics);
       const transportReason = error.transportReason ? ` transportReason=${JSON.stringify(truncateLogValue(error.transportReason))}` : "";
-      logger.warn(`[Tool:${tool.name}] sandbox unavailable method=${error.method} rpcErrorCode=${error.rpcErrorCode} retryable=${error.retryable} infrastructure=${error.infrastructure}${transportReason}${traceContext ? ` ${traceContext}` : ""}${diagnostics ? ` ${diagnostics}` : ""}`);
+      logger.warn(`[Tool:${tool.name}] sandbox rpc failed kind=${presentation.kind} method=${error.method} rpcErrorCode=${error.rpcErrorCode} retryable=${error.retryable} infrastructure=${presentation.infrastructure}${transportReason}${traceContext ? ` ${traceContext}` : ""}${diagnostics ? ` ${diagnostics}` : ""}`);
       return {
-        content: [{ type: "text", text: SANDBOX_UNAVAILABLE_MESSAGE }],
-        details: createToolFailure(SANDBOX_UNAVAILABLE_MESSAGE, {
+        content: [{ type: "text", text: presentation.message }],
+        details: createToolFailure(presentation.message, {
           retryable: error.retryable,
-          infrastructure: error.infrastructure,
+          infrastructure: presentation.infrastructure,
           rpcErrorCode: error.rpcErrorCode,
         }),
       };

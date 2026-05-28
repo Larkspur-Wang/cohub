@@ -15,16 +15,15 @@ import { env } from "../env.js";
 import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
 import { refreshUserEnv } from "../runtime/env-cache.js";
 import { logger } from "../logger.js";
-import { SandboxRpcError, type SandboxRpcDiagnostics } from "./rpc-error.js";
+import {
+  SANDBOX_CONNECTION_LOST_MESSAGE,
+  SandboxRpcError,
+  type SandboxRpcDiagnostics,
+} from "./rpc-error.js";
 
 const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
-const SANDBOX_UNAVAILABLE_MESSAGE = "Sandbox unavailable.";
 const LOG_VALUE_LIMIT = 500;
-
-function getUserFacingFailureMessage(_method: string) {
-  return SANDBOX_UNAVAILABLE_MESSAGE;
-}
 
 function truncateLogValue(value: string, limit = LOG_VALUE_LIMIT) {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
@@ -157,7 +156,7 @@ export class SandboxConnection {
         });
       } catch (error) {
         this.clearPending(requestId, pending);
-        reject(new SandboxRpcError(getUserFacingFailureMessage(method), {
+        reject(new SandboxRpcError(SANDBOX_CONNECTION_LOST_MESSAGE, {
           method,
           rpcErrorCode: "IO_ERROR",
           retryable: false,
@@ -235,7 +234,7 @@ export class SandboxConnection {
     for (const [requestId, pending] of pendingEntries) {
       if (!pending.accepted) {
         this.clearPending(requestId, pending);
-        pending.reject(new SandboxRpcError(getUserFacingFailureMessage(pending.method), {
+        pending.reject(new SandboxRpcError(SANDBOX_CONNECTION_LOST_MESSAGE, {
           method: pending.method,
           rpcErrorCode: "IO_ERROR",
           retryable: false,
@@ -252,7 +251,7 @@ export class SandboxConnection {
         if (current !== pending) return;
         logger.warn(`[SandboxWS] accepted rpc did not complete after disconnect grace spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${pending.requestId.slice(0, 8)} opId=${pending.opId?.slice(0, 8) ?? "none"}`);
         this.clearPending(requestId, pending);
-        pending.reject(new SandboxRpcError(getUserFacingFailureMessage(pending.method), {
+        pending.reject(new SandboxRpcError(SANDBOX_CONNECTION_LOST_MESSAGE, {
           method: pending.method,
           rpcErrorCode: "IO_ERROR",
           retryable: false,
@@ -388,7 +387,13 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
       clearTimeout(pending.detachTimer);
       pending.detachTimer = undefined;
     }
-    pending.reject(new Error(getUserFacingFailureMessage(pending.method)));
+    pending.reject(new SandboxRpcError(SANDBOX_CONNECTION_LOST_MESSAGE, {
+      method: pending.method,
+      rpcErrorCode: "IO_ERROR",
+      retryable: false,
+      transportReason: reason,
+      diagnostics: pending.diagnostics,
+    }));
     registration.pendingByRequestId.delete(requestId);
     if (pending.opId) {
       registration.requestIdByOpId.delete(pending.opId);
