@@ -5,6 +5,7 @@ import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { isSandboxUsableStatus } from "@cohub/sandbox-controller";
+import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -478,7 +479,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   }
 
   const sequence = await getNextSessionSequence(input.sessionId);
-  const content = input.message.content;
+  const content = sanitizeContentBlocksForPostgresJson(input.message.content);
   const text = deriveMessagePreviewText({ content }) || null;
   const messageRole = input.message.role ?? "assistant";
   const _shouldDispatchToProvider = messageRole === "assistant";
@@ -510,18 +511,18 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     role: messageRole,
     content,
     text,
-    meta: {
+    meta: sanitizePostgresJsonValue({
       ...((input.message.meta as Record<string, unknown> | null) ?? {}),
       messageKind,
       anchorUserMessageId,
       providerResponseId: ((input.message.meta as Record<string, unknown> | null)?.responseId as string | undefined) ?? null,
-    },
+    }),
     idempotencyKey: input.idempotencyKey,
     sequence,
     provider: input.message.provider ?? null,
     model: input.message.model ?? null,
     stopReason: input.message.stopReason ?? null,
-    errorMessage: displayErrorMessage,
+    errorMessage: displayErrorMessage ? sanitizePostgresJsonValue(displayErrorMessage) : displayErrorMessage,
     usage: normalizedUsage,
     startedAt,
     completedAt,
