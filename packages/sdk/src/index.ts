@@ -9,6 +9,22 @@ export {
   parseAssistantMessageCommit,
 } from "./session-generation-stream.js";
 export { HttpError } from "./transport.js";
+export {
+  GenerationPolicyError,
+  assertGenerationRequestAllowedByPolicy,
+  decodeGenerationPolicy,
+  encodeGenerationPolicy,
+  filterGenerationDeclarationsByPolicy,
+  findGenerationModelPolicy,
+  getAllowedGenerationModelIds,
+  normalizeGenerationPolicy,
+  parseGenerationPolicyFromEnv,
+} from "@cohub/protocol/generation";
+export type {
+  GenerationModelPolicy,
+  GenerationParameterConstraint,
+  GenerationPolicy,
+} from "@cohub/protocol/generation";
 export type { RawHttpResponse } from "./transport.js";
 export {
   COHUB_ENVIRONMENTS,

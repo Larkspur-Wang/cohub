@@ -1,6 +1,9 @@
 import type { Command } from "commander";
-import type { PublicGenerationDeclaration } from "@neta-art/cohub";
-import { filterGenerationDeclarationsByPolicy, parseGenerationPolicyFromEnv } from "@cohub/protocol/generation";
+import {
+  filterGenerationDeclarationsByPolicy,
+  parseGenerationPolicyFromEnv,
+  type PublicGenerationDeclaration,
+} from "@neta-art/cohub";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, error, handleHttp, type Row } from "../output.js";
 

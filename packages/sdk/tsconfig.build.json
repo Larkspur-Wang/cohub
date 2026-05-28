@@ -14,6 +14,7 @@
       "@cohub/protocol/gateway": ["../protocol/dist/gateway/index.d.ts"],
       "@cohub/protocol/task": ["../protocol/dist/task/index.d.ts"],
       "@cohub/protocol/fs": ["../protocol/dist/fs/index.d.ts"],
+      "@cohub/protocol/generation": ["../protocol/dist/generation/index.d.ts"],
       "@cohub/protocol/ports": ["../protocol/dist/ports/index.d.ts"]
     }
   },

@@ -17,7 +17,6 @@
     "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@cohub/protocol": "workspace:*",
     "@neta-art/cohub": "workspace:*",
     "@neta-art/generation": "^0.1.2",
     "commander": "^13.1.0",

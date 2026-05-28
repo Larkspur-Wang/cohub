@@ -1,8 +1,12 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import type { Command } from "commander";
-import type { GenerationContentBlock } from "@neta-art/cohub";
-import { assertGenerationRequestAllowedByPolicy, GenerationPolicyError, parseGenerationPolicyFromEnv } from "@cohub/protocol/generation";
+import {
+  GenerationPolicyError,
+  assertGenerationRequestAllowedByPolicy,
+  parseGenerationPolicyFromEnv,
+  type GenerationContentBlock,
+} from "@neta-art/cohub";
 import { createClient } from "../client.js";
 import { resolveSpace } from "../space.js";
 import { json as outJson, jsonRequested, ok, error, handleHttp, spinner } from "../output.js";
