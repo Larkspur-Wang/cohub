@@ -1681,7 +1681,7 @@ $effect(() => {
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Brand Header -->
   <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
-    <a href="/" class="flex min-w-0 items-center gap-2 px-0.5 group" aria-label="Cohub">
+    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
       <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
         C
       </div>
@@ -1714,7 +1714,7 @@ $effect(() => {
 
   {#if mode === "space"}
     <!-- Space Switcher -->
-    <div class="px-2 py-1 shrink-0 border-b border-border-subtle">
+    <div class="px-1.5 py-1 shrink-0 border-b border-border-subtle">
       <button
         type="button"
         class="w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
@@ -1732,7 +1732,7 @@ $effect(() => {
 
     <!-- Action Buttons -->
     {#if currentSpace}
-      <div class="px-2 py-1.5 shrink-0 space-y-[2px]">
+      <div class="px-1.5 py-1.5 shrink-0 space-y-[2px]">
         <button
           type="button"
           class="flex w-full items-center gap-2 rounded-[7px] border border-brand-border bg-brand-muted px-1.5 py-1.5 text-brand transition-colors duration-100 hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50"
@@ -1776,7 +1776,7 @@ $effect(() => {
 
     <!-- Sessions / Checkpoints -->
     {#if currentSpace}
-      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
+      <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
         {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
           <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
             <Loader2 class="w-3 h-3 animate-spin" />
@@ -2310,14 +2310,14 @@ $effect(() => {
         {/if}
       </div>
     {:else}
-      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
+      <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
         <div class="px-1 py-6 text-[12px] text-text-placeholder text-center">
           Select a space to view chats
         </div>
       </div>
     {/if}
   {:else}
-    <div class="px-2 pt-2 pb-1">
+    <div class="px-1.5 pt-2 pb-1">
       <button
         type="button"
         class="flex w-full items-center gap-2 rounded-[5px] px-1.5 py-2 text-[13px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
@@ -2327,7 +2327,7 @@ $effect(() => {
         <span class="truncate">Back</span>
       </button>
     </div>
-    <nav class="flex-1 overflow-y-auto px-2 py-2 space-y-[2px]">
+    <nav class="flex-1 overflow-y-auto px-1.5 py-2 space-y-[2px]">
       {#each settingsTabs as tab (tab.id)}
         {@const isActive = activeSettingsTab === tab.id}
         <a
@@ -2440,7 +2440,7 @@ $effect(() => {
     <button
       type="button"
       data-user-menu
-      class="flex items-center gap-2 w-full px-2 py-[6px] rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
+      class="flex items-center gap-2 w-full px-1.5 py-[6px] rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
       onclick={() => { showUserMenu = !showUserMenu; }}
     >
       <div class="w-[22px] h-[22px] rounded-full bg-bg-hover-strong overflow-hidden shrink-0">
