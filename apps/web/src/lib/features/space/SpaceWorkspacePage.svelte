@@ -1135,16 +1135,7 @@ function upsertGenerationTaskNotice(run: TaskRunRecord) {
 	generationTaskNotices = [
 		...generationTaskNotices.filter((item) => item.id !== run.id),
 		notice,
-	]
-		.sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b))
-		.slice(-18);
-}
-function dismissGenerationTaskNotice(id: string) {
-	generationTaskNotices = generationTaskNotices.filter(
-		(item) => item.id !== id,
-	);
-	const { [id]: _removed, ...rest } = generationTaskRunById;
-	generationTaskRunById = rest;
+	].sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b));
 }
 async function refreshTaskDetail(taskId: string, loading = false) {
 	if (taskRunRefreshInFlight) return taskRunRefreshInFlight;
@@ -7776,11 +7767,7 @@ $effect(() => {
           onOpenFile={openInlineFile}
           modelsCatalog={modelsCatalog ?? undefined}
         />
-        <SessionGenerationTaskTray
-          notices={generationTaskNotices}
-          activeSessionId={activeSessionId}
-          onDismiss={dismissGenerationTaskNotice}
-        />
+        <SessionGenerationTaskTray notices={generationTaskNotices} />
         <TurnRail
           turns={activeTurnRailItems}
           loadedTurns={activeSessionState.turns}
