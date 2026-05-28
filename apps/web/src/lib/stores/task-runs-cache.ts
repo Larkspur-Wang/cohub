@@ -37,6 +37,7 @@ function normalizeTaskRunPatch(
 		attemptCount: patch.attemptCount ?? existing?.attemptCount ?? 0,
 		spaceId: patch.spaceId ?? existing?.spaceId ?? null,
 		sessionId: patch.sessionId ?? existing?.sessionId ?? null,
+		turnId: patch.turnId ?? existing?.turnId ?? null,
 		userUuid: patch.userUuid ?? patch.userId ?? existing?.userUuid ?? null,
 		scheduledAt: patch.scheduledAt ?? existing?.scheduledAt ?? null,
 		startedAt: patch.startedAt ?? existing?.startedAt ?? null,

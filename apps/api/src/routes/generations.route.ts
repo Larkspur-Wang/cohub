@@ -5,6 +5,8 @@ import { useAuth, authzDenied } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { loadGenerationDeclaration } from "../generations/declarations.js";
 import { createGenerationTaskRequestSchema } from "../generations/schema.js";
+import { getSpaceSessionById } from "../space-sessions.js";
+import { getSessionTurnById } from "../session-turns.js";
 import { enqueueTask } from "../tasks.js";
 
 const router = new Hono();
@@ -31,6 +33,24 @@ router.post("/", async (c) => {
 
   const request = parsed.data;
   if (!(await hasPermission(user, "space.view", { spaceId: request.spaceId }))) return authzDenied(c);
+
+  const sessionId = request.sessionId?.trim() || null;
+  const turnId = request.turnId?.trim() || null;
+  if (sessionId) {
+    const session = await getSpaceSessionById(sessionId);
+    if (!session || session.spaceId !== request.spaceId) {
+      return generationError(c, 404, "generation_session_not_found", "Generation session not found in this space.");
+    }
+  }
+  if (turnId) {
+    if (!sessionId) {
+      return generationError(c, 400, "generation_session_required", "sessionId is required when turnId is provided.");
+    }
+    const turn = await getSessionTurnById(sessionId, turnId);
+    if (!turn) {
+      return generationError(c, 404, "generation_turn_not_found", "Generation turn not found in this session.");
+    }
+  }
 
   const declaration = await loadGenerationDeclaration(user.uuid, request.model);
   if (!declaration) {
@@ -61,6 +81,8 @@ router.post("/", async (c) => {
     const enqueued = await enqueueTask({
       type: GENERATION_TASK_TYPE,
       spaceId: request.spaceId,
+      sessionId: sessionId ?? undefined,
+      turnId: turnId ?? undefined,
       userId: user.uuid,
       data: {
         model: request.model,

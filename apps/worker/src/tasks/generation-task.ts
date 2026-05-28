@@ -77,6 +77,20 @@ function providerStatusMessage(status: number | undefined): string | null {
   return "Generation provider request failed";
 }
 
+function mergeCohubMetadata(
+  metadata: Record<string, unknown> | undefined,
+  cohub: Record<string, unknown>,
+): Record<string, unknown> {
+  const existingCohub = metadata?.cohub;
+  return {
+    ...(metadata ?? {}),
+    cohub: {
+      ...(existingCohub && typeof existingCohub === "object" && !Array.isArray(existingCohub) ? existingCohub : {}),
+      ...cohub,
+    },
+  };
+}
+
 function normalizeGenerationError(error: unknown): Error {
   if (error instanceof GenerationValidationError) {
     return new Error(`Invalid generation input: ${error.message}`);
@@ -97,13 +111,22 @@ function normalizeGenerationError(error: unknown): Error {
   return new Error(String(error));
 }
 
-registerTask(GENERATION_TASK_TYPE, async (job: Job) => {
+registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
+  const sessionId = payload.sessionId;
+  const turnId = payload.turnId;
   const userId = payload.userId;
   if (!spaceId) throw new Error("Invalid generation task payload: spaceId is required");
   if (!userId) throw new Error("Invalid generation task payload: userId is required");
   const data = parseGenerationTaskData(payload.data);
+  const taskRunId = context?.taskRunId ?? String(job.id ?? "");
+  const metadata = mergeCohubMetadata(data.metadata, {
+    taskRunId,
+    spaceId,
+    sessionId: sessionId ?? null,
+    turnId: turnId ?? null,
+  });
 
   try {
     const declaration = await loader.loadGenerationDeclaration(userId, data.model);
@@ -117,13 +140,13 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job) => {
       model: data.model,
       content: data.content,
       parameters: data.parameters,
-      metadata: data.metadata,
+      metadata,
     });
 
     return {
       model: data.model,
       output,
-      metadata: data.metadata,
+      metadata,
     } satisfies GenerationTaskResult;
   } catch (error) {
     throw normalizeGenerationError(error);

@@ -620,6 +620,7 @@ export type TaskRunRecord = {
   attemptCount: number;
   spaceId: string | null;
   sessionId: string | null;
+  turnId: string | null;
   userUuid: string | null;
   scheduledAt: string | null;
   startedAt: string | null;

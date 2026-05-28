@@ -116,6 +116,7 @@ export const toRealtimeTaskRecord = (task: {
   status: string;
   spaceId: string | null;
   sessionId: string | null;
+  turnId: string | null;
   userUuid: string | null;
   attemptCount: number;
   scheduledAt: Date | string | null;
@@ -132,6 +133,7 @@ export const toRealtimeTaskRecord = (task: {
   cronJobId: task.cronJobId,
   spaceId: task.spaceId,
   sessionId: task.sessionId,
+  turnId: task.turnId,
   userId: task.userUuid,
   attemptCount: task.attemptCount,
   scheduledAt: toIsoOrNull(task.scheduledAt),

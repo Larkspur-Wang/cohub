@@ -16,6 +16,8 @@ export const SYSTEM_ENV_KEYS = [
   // agent process-level
   "COHUB_EXECUTION_TOKEN",
   "COHUB_SESSION_ID",
+  "COHUB_TURN_ID",
+  "COHUB_TOOL_CALL_ID",
   "COHUB_USER_UUID",
   "COHUB_GENERATION_POLICY_B64",
 ] as const;

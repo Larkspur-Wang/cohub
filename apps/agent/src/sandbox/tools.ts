@@ -275,6 +275,7 @@ function createRemoteReadOperations(): ReadOperations {
       return runWithToolExecutionContext({
         spaceId: toolCtx?.spaceId ?? spaceId,
         sessionId: toolCtx?.sessionId ?? "",
+        turnId: toolCtx?.turnId,
         toolCallId,
       }, async () => wrapToolCall(tracer, {
         toolName: "read",
@@ -327,6 +328,7 @@ function createRemoteWriteOperations(): WriteOperations {
       return runWithToolExecutionContext({
         spaceId: toolCtx?.spaceId ?? spaceId,
         sessionId: toolCtx?.sessionId ?? "",
+        turnId: toolCtx?.turnId,
         toolCallId,
       }, async () => wrapToolCall(tracer, {
         toolName: "write",
@@ -383,6 +385,7 @@ function createRemoteBashOperations(): BashOperations {
             return runWithToolExecutionContext({
               spaceId: toolCtx?.spaceId ?? spaceId,
               sessionId: toolCtx?.sessionId ?? "",
+              turnId: toolCtx?.turnId,
               toolCallId,
             }, async () => wrapToolCall(tracer, {
               toolName: "bash",
@@ -401,6 +404,8 @@ function createRemoteBashOperations(): BashOperations {
                 ...(ctx?.generationPolicy ? { [GENERATION_POLICY_ENV_KEY]: encodeGenerationPolicy(ctx.generationPolicy) } : {}),
                 ...(ctx?.spaceId ? { COHUB_SPACE_ID: ctx.spaceId } : {}),
                 ...(ctx?.sessionId ? { COHUB_SESSION_ID: ctx.sessionId } : {}),
+                ...(ctx?.turnId ? { COHUB_TURN_ID: ctx.turnId } : {}),
+                ...(ctx?.toolCallId ? { COHUB_TOOL_CALL_ID: ctx.toolCallId } : {}),
                 ...(actorUserId ? { COHUB_USER_UUID: actorUserId } : {}),
                 ...(executionToken ? { COHUB_EXECUTION_TOKEN: executionToken } : {}),
               };
@@ -506,6 +511,7 @@ function createRemoteLsOperations(): LsOperations {
       return runWithToolExecutionContext({
         spaceId: toolCtx?.spaceId ?? spaceId,
         sessionId: toolCtx?.sessionId ?? "",
+        turnId: toolCtx?.turnId,
         toolCallId,
       }, async () => wrapToolCall(tracer, {
         toolName: "ls",
@@ -538,6 +544,7 @@ function createRemoteFindOperations(): FindOperations {
       return runWithToolExecutionContext({
         spaceId: toolCtx?.spaceId ?? spaceId,
         sessionId: toolCtx?.sessionId ?? "",
+        turnId: toolCtx?.turnId,
         toolCallId,
       }, async () => wrapToolCall(tracer, {
         toolName: "find",
@@ -610,6 +617,7 @@ function createRemoteGrepTool() {
     return runWithToolExecutionContext({
       spaceId: toolCtx?.spaceId ?? spaceId,
       sessionId: toolCtx?.sessionId ?? "",
+      turnId: toolCtx?.turnId,
       toolCallId,
     }, async () => wrapToolCall(tracer, {
       toolName: "grep",

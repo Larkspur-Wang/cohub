@@ -72,6 +72,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         payload,
         spaceId: payload.spaceId ?? null,
         sessionId: payload.sessionId ?? null,
+        turnId: payload.turnId ?? null,
         userUuid: payload.userId ?? null,
         startedAt: now,
         attemptCount: job.attemptsMade,

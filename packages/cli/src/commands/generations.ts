@@ -162,6 +162,46 @@ function parseTimeoutMs(value?: string): number | undefined {
   return timeoutMs;
 }
 
+function envValue(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value || undefined;
+}
+
+function parseMetadata(value?: string): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    return error("Invalid metadata", "--metadata must be a JSON object");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return error("Invalid metadata", "--metadata must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function mergeCohubMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const sessionId = envValue("COHUB_SESSION_ID");
+  const turnId = envValue("COHUB_TURN_ID");
+  const toolCallId = envValue("COHUB_TOOL_CALL_ID");
+  if (!sessionId && !turnId && !toolCallId) return metadata;
+
+  const existingCohub = metadata?.cohub;
+  const cohub = existingCohub && typeof existingCohub === "object" && !Array.isArray(existingCohub)
+    ? existingCohub as Record<string, unknown>
+    : {};
+  return {
+    ...(metadata ?? {}),
+    cohub: {
+      ...cohub,
+      ...(sessionId ? { sessionId } : {}),
+      ...(turnId ? { turnId } : {}),
+      ...(toolCallId ? { toolCallId } : {}),
+    },
+  };
+}
+
 export function registerGenerations(program: Command): void {
   program
     .command("generate")
@@ -218,13 +258,16 @@ Examples:
           throw policyError;
         }
 
+        const metadata = mergeCohubMetadata(parseMetadata(opts.metadata));
         const client = createClient();
         const created = await client.generations.create({
           spaceId,
+          sessionId: envValue("COHUB_SESSION_ID"),
+          turnId: envValue("COHUB_TURN_ID"),
           model: opts.model,
           content,
           parameters,
-          metadata: opts.metadata ? JSON.parse(opts.metadata) as Record<string, unknown> : undefined,
+          metadata,
         });
 
         if (opts.async) {

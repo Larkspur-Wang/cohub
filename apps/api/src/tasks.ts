@@ -38,6 +38,7 @@ export const enqueueTask = async (
       taskType: payload.type,
       spaceId: payload.spaceId ?? null,
       sessionId: payload.sessionId ?? null,
+      turnId: payload.turnId ?? null,
       userUuid: payload.userId ?? null,
       cronJobId: payload.cronJobId ?? null,
       status: "pending",

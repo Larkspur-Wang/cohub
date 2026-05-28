@@ -339,6 +339,7 @@ export type RealtimeTaskRecord = {
   cronJobId: string | null;
   spaceId: string | null;
   sessionId: string | null;
+  turnId: string | null;
   userId: string | null;
   attemptCount: number;
   scheduledAt: string | null;

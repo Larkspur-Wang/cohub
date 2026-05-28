@@ -15,6 +15,8 @@ export const GENERATION_TASK_TYPE = "generation" as const;
 
 export type CreateGenerationTaskRequest = {
   spaceId: string;
+  sessionId?: string | null;
+  turnId?: string | null;
   model: string;
   content: GenerationContentBlock[];
   parameters?: Record<string, unknown>;

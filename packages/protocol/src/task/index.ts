@@ -4,6 +4,7 @@ export interface TaskPayload {
   type: TaskType;
   spaceId?: string;
   sessionId?: string;
+  turnId?: string;
   userId?: string;
   cronJobId?: string;
   data?: Record<string, unknown>;
