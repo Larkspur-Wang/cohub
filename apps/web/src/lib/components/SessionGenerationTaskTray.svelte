@@ -1,5 +1,5 @@
 <script lang="ts">
-import { AlertCircle, ChevronDown, Loader2, Play } from "lucide-svelte";
+import { AlertCircle, ChevronDown, Loader2, Play, Video } from "lucide-svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
@@ -36,24 +36,58 @@ let now = $state(Date.now());
 const sortedNotices = $derived.by(() =>
 	[...props.notices].sort((a, b) => taskTime(b) - taskTime(a)),
 );
-const summaryParts = $derived.by(() => {
-	const generating = sortedNotices.filter(isActive).length;
-	const ready = sortedNotices.filter(
-		(notice) => notice.status === "completed",
-	).length;
-	const failed = sortedNotices.filter(
-		(notice) => notice.status === "failed",
-	).length;
-	return [
-		generating ? `Generating ${generating}` : null,
-		ready ? `Ready ${ready}` : null,
-		failed ? `Failed ${failed}` : null,
+const generationCounts = $derived.by(() => ({
+	generating: sortedNotices.filter(isActive).length,
+	ready: sortedNotices.filter((notice) => notice.status === "completed").length,
+	failed: sortedNotices.filter((notice) => notice.status === "failed").length,
+	total: sortedNotices.length,
+}));
+const summaryText = $derived.by(() => {
+	const parts = [
+		generationCounts.generating
+			? `Generating ${generationCounts.generating}`
+			: null,
+		generationCounts.ready ? `Ready ${generationCounts.ready}` : null,
+		generationCounts.failed ? `Failed ${generationCounts.failed}` : null,
 	].filter(Boolean);
+	return parts.length > 0 ? parts.join(" · ") : `${generationCounts.total}`;
 });
-const summaryText = $derived(
-	summaryParts.length > 0
-		? summaryParts.join(" · ")
-		: `${sortedNotices.length}`,
+const statusItems = $derived.by(() =>
+	[
+		generationCounts.generating
+			? {
+					key: "generating",
+					label: "Generating",
+					count: generationCounts.generating,
+					dotClass: "bg-brand shadow-[0_0_0_3px_var(--brand-muted)]",
+				}
+			: null,
+		generationCounts.ready
+			? {
+					key: "ready",
+					label: "Ready",
+					count: generationCounts.ready,
+					dotClass: "bg-status-running/80",
+				}
+			: null,
+		generationCounts.failed
+			? {
+					key: "failed",
+					label: "Failed",
+					count: generationCounts.failed,
+					dotClass: "bg-status-error",
+				}
+			: null,
+	].filter(
+		(
+			item,
+		): item is {
+			key: string;
+			label: string;
+			count: number;
+			dotClass: string;
+		} => item !== null,
+	),
 );
 
 function taskTime(notice: GenerationTaskNotice) {
@@ -104,31 +138,50 @@ $effect(() => {
 </script>
 
 {#if sortedNotices.length > 0}
-	<div class="pointer-events-none absolute right-3 top-3 z-30 flex w-[calc(100vw-1.5rem)] max-w-[560px] justify-end sm:right-10 sm:top-4 lg:right-12">
-		<section class="pointer-events-auto overflow-hidden rounded-[10px] border border-border-subtle/75 bg-bg-primary/96 text-text-secondary shadow-[0_12px_34px_rgba(0,0,0,0.14)] backdrop-blur-md">
+	<div class="pointer-events-none absolute right-3 top-3 z-30 flex w-[calc(100vw-1.5rem)] justify-end sm:right-10 sm:top-4 lg:right-12">
+		<section class={`pointer-events-auto overflow-hidden rounded-[9px] border border-border-subtle/50 bg-bg-primary/76 text-text-secondary opacity-90 shadow-[0_10px_26px_rgba(0,0,0,0.08)] backdrop-blur-md transition-opacity duration-150 hover:opacity-100 ${collapsed ? "w-fit" : "w-full max-w-[560px]"}`}>
 			<button
 				type="button"
-				class="flex h-8 w-full min-w-[220px] max-w-[560px] items-center gap-2 px-2.5 text-left text-[11px] leading-none transition duration-150 hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand/45 sm:min-w-[280px]"
+				tabindex="-1"
+				class={`flex h-7 items-center gap-1.5 px-2 text-left text-[11px] leading-none transition duration-150 hover:bg-bg-hover/60 hover:text-text-primary ${collapsed ? "w-fit" : "w-full"}`}
 				onclick={() => {
 					collapsed = !collapsed;
 				}}
 				aria-expanded={!collapsed}
-				aria-label={collapsed ? "Expand generation items" : "Collapse generation items"}
+				aria-label={collapsed ? `Expand generation items: ${summaryText}` : `Collapse generation items: ${summaryText}`}
 			>
-				<span class="font-medium text-text-primary">Generation</span>
-				<span class="h-1 w-1 shrink-0 rounded-full bg-border-strong/80"></span>
-				<span class="min-w-0 flex-1 truncate text-text-tertiary tabular-nums">{summaryText}</span>
+				<Video class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+				<span class="sr-only">Generation</span>
+				{#if collapsed}
+					{#each statusItems as item (item.key)}
+						<span class="inline-flex shrink-0 items-center gap-1" title={`${item.label} ${item.count}`}>
+							<span class={`h-1.5 w-1.5 rounded-full ${item.dotClass}`}></span>
+							<span class="text-text-tertiary tabular-nums">{item.count}</span>
+						</span>
+					{/each}
+				{:else}
+					<div class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+						{#each statusItems as item (item.key)}
+							<span class="inline-flex min-w-0 shrink-0 items-center gap-1" title={`${item.label} ${item.count}`}>
+								<span class={`h-1.5 w-1.5 shrink-0 rounded-full ${item.dotClass}`}></span>
+								<span class="truncate text-text-tertiary">{item.label}</span>
+								<span class="text-text-tertiary tabular-nums">{item.count}</span>
+							</span>
+						{/each}
+					</div>
+				{/if}
 				<ChevronDown class={`h-3.5 w-3.5 shrink-0 text-text-tertiary transition-transform duration-150 ${collapsed ? "" : "rotate-180"}`} />
 			</button>
 
 			{#if !collapsed}
-				<div class="border-t border-border-subtle/60 bg-bg-surface/45 p-1.5">
-					<div class="max-h-[min(64vh,560px)] columns-2 gap-1 overflow-y-auto overscroll-contain sm:max-w-[560px] sm:columns-3">
+				<div class="border-t border-border-subtle/45 bg-bg-surface/25 p-px">
+					<div class="max-h-[min(64vh,560px)] columns-2 gap-px overflow-y-auto overscroll-contain sm:max-w-[560px] sm:columns-3">
 						{#each sortedNotices as notice (notice.id)}
 							{#if isInteractive(notice)}
 								<button
 									type="button"
-									class="group mb-1 block w-full break-inside-avoid overflow-hidden rounded-[6px] border border-border-subtle/55 bg-bg-primary text-left transition duration-150 hover:border-border-strong/80 hover:bg-bg-hover focus:outline-none focus:ring-1 focus:ring-brand/45"
+									tabindex="-1"
+									class="group mb-px block w-full break-inside-avoid overflow-hidden rounded-[3px] border border-transparent bg-bg-primary/72 text-left transition duration-150 hover:border-border-strong/65 hover:bg-bg-primary/90"
 									onclick={() => handleCardClick(notice)}
 								>
 									{@render CardInner(notice, elapsedSeconds(notice))}
@@ -136,7 +189,7 @@ $effect(() => {
 							{:else}
 								<div
 									role="status"
-									class="group mb-1 break-inside-avoid overflow-hidden rounded-[6px] border border-border-subtle/55 bg-bg-primary text-left transition duration-150"
+									class="group mb-px break-inside-avoid overflow-hidden rounded-[3px] border border-transparent bg-bg-primary/72 text-left transition duration-150"
 								>
 									{@render CardInner(notice, elapsedSeconds(notice))}
 								</div>
@@ -170,7 +223,7 @@ $effect(() => {
 			{/if}
 		</div>
 	{:else if isActive(notice)}
-		<div class="flex min-h-[72px] flex-col justify-between gap-2 p-2">
+		<div class="flex min-h-[68px] flex-col justify-between gap-2 p-2">
 			<div class="flex items-center gap-2 text-[12px] font-medium text-text-primary">
 				<Loader2 class="h-3.5 w-3.5 animate-spin text-brand" />
 				<span>Generating</span>
@@ -181,7 +234,7 @@ $effect(() => {
 			{/if}
 		</div>
 	{:else}
-		<div class="flex min-h-[60px] items-center justify-center gap-2 p-2 text-[12px] font-medium text-error-soft">
+		<div class="flex min-h-[56px] items-center justify-center gap-2 p-2 text-[12px] font-medium text-error-soft">
 			<AlertCircle class="h-3.5 w-3.5" />
 			<span>Failed</span>
 		</div>
