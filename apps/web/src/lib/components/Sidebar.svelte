@@ -1681,7 +1681,7 @@ $effect(() => {
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Brand Header -->
   <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
-    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
+    <a href="/" class="flex min-w-0 items-center gap-2 px-1 group" aria-label="Cohub">
       <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
         C
       </div>
@@ -1776,7 +1776,7 @@ $effect(() => {
 
     <!-- Sessions / Checkpoints -->
     {#if currentSpace}
-      <div class="flex-1 overflow-y-auto px-1 pb-2 pt-1 min-h-0">
+      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
         {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
           <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
             <Loader2 class="w-3 h-3 animate-spin" />
@@ -1796,7 +1796,7 @@ $effect(() => {
                   {@const insertReference = getPinnedInsertReference(mark)}
                   <button
                     type="button"
-                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-4 {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} mx-[-2px] rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-4 {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                     onclick={() => void handleNavigateToPinned(mark)}
                     title={mark.resource?.subtitle ?? mark.resourceRef}
                     aria-current={isActivePinned ? "page" : undefined}
@@ -1872,7 +1872,7 @@ $effect(() => {
 
                   {#if isRenaming}
                     <!-- Inline rename input -->
-                    <div class="flex items-center gap-1 px-1.5 py-1 mx-[-2px] rounded-[6px] bg-bg-active">
+                    <div class="flex items-center gap-1 px-2 py-1 rounded-[6px] bg-bg-active">
                       <input
                         bind:this={renameInputElement}
                         bind:value={renameTitleValue}
@@ -1918,7 +1918,7 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={getSessionRowStyle(item)}
 						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
@@ -2011,7 +2011,7 @@ $effect(() => {
           {:else if activeSession}
             {@const isRenamingActive = renamingSessionId === activeSession.id}
             {#if isRenamingActive}
-              <div class="flex items-center gap-1 px-1.5 py-1 mx-[-2px] mt-1 rounded-[6px] bg-bg-active">
+              <div class="flex items-center gap-1 px-2 py-1 mt-1 rounded-[6px] bg-bg-active">
                 <input
                   bind:this={renameInputElement}
                   bind:value={renameTitleValue}
@@ -2057,7 +2057,7 @@ $effect(() => {
             {:else}
               <a
                 href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
-                class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
+                class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
 				draggable={!isMobile}
@@ -2145,7 +2145,7 @@ $effect(() => {
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
-                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-2 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-2 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
                     >
                       <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2177,7 +2177,7 @@ $effect(() => {
             {:else if activeCheckpoint}
               <a
                 href={buildSpaceCheckpointRoute(currentSpaceId!, activeCheckpoint.id)}
-                class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(activeCheckpoint.id); }}
               >
                 <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2227,7 +2227,7 @@ $effect(() => {
                     {@const isActive = activeCronjobId === job.id}
                     <a
                       href={buildSpaceCronjobRoute(currentSpaceId!, job.id)}
-                      class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}
                     >
                       <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2242,7 +2242,7 @@ $effect(() => {
             {:else if activeCronjob}
               <a
                 href={buildSpaceCronjobRoute(currentSpaceId!, activeCronjob.id)}
-                class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(activeCronjob.id); }}
               >
                 <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2281,7 +2281,7 @@ $effect(() => {
                     {@const badge = getTaskRunBadge(run.status)}
                     <a
                       href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
-                      class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
                     >
                       <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2297,7 +2297,7 @@ $effect(() => {
             {:else if activeTaskId}
               <a
                 href={buildSpaceTaskRoute(currentSpaceId!, activeTaskId)}
-                class="flex items-center gap-2 px-2 py-1.5 mx-[-2px] mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToTask(activeTaskId); }}
               >
                 <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2310,7 +2310,7 @@ $effect(() => {
         {/if}
       </div>
     {:else}
-      <div class="flex-1 overflow-y-auto px-1 pb-2 pt-1 min-h-0">
+      <div class="flex-1 overflow-y-auto px-2 pb-2 pt-1 min-h-0">
         <div class="px-1 py-6 text-[12px] text-text-placeholder text-center">
           Select a space to view chats
         </div>
