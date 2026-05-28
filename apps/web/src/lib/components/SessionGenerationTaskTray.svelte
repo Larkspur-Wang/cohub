@@ -7,6 +7,7 @@ import {
 	Play,
 	X,
 } from "lucide-svelte";
+import { onMount, untrack } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import {
@@ -51,7 +52,7 @@ let timers = new Map<string, ReturnType<typeof setTimeout>>();
 let fadeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let observer: IntersectionObserver | null = null;
 let nodeById = new Map<string, HTMLElement>();
-let prefersCollapsed = false;
+let rescheduleTimer: ReturnType<typeof setTimeout> | null = null;
 
 const sortedNotices = $derived.by(() =>
 	[...props.notices].sort((a, b) => taskTime(a) - taskTime(b)),
@@ -92,7 +93,7 @@ function addId(list: string[], id: string) {
 }
 
 function removeId(list: string[], id: string) {
-	return list.filter((item) => item !== id);
+	return list.includes(id) ? list.filter((item) => item !== id) : list;
 }
 
 function clearNoticeTimers(id: string) {
@@ -142,10 +143,18 @@ function scheduleAutoDismiss(notice: GenerationTaskNotice) {
 }
 
 function rescheduleVisibleCompleted() {
-	for (const notice of displayedNotices) {
+	for (const notice of untrack(() => displayedNotices)) {
 		if (canAutoDismiss(notice)) scheduleAutoDismiss(notice);
 		else clearNoticeTimers(notice.id);
 	}
+}
+
+function scheduleRescheduleVisibleCompleted() {
+	if (rescheduleTimer) clearTimeout(rescheduleTimer);
+	rescheduleTimer = setTimeout(() => {
+		rescheduleTimer = null;
+		untrack(() => rescheduleVisibleCompleted());
+	}, 0);
 }
 
 function setCardNode(node: HTMLElement, id: string) {
@@ -183,10 +192,8 @@ function handleCardClick(notice: GenerationTaskNotice) {
 	}
 }
 
-$effect(() => {
-	if (!browser) return;
-	prefersCollapsed = window.matchMedia("(max-width: 768px)").matches;
-	collapsed = prefersCollapsed;
+onMount(() => {
+	collapsed = window.matchMedia("(max-width: 768px)").matches;
 });
 
 $effect(() => {
@@ -208,7 +215,7 @@ $effect(() => {
 					? addId(visibleIds, id)
 					: removeId(visibleIds, id);
 			}
-			rescheduleVisibleCompleted();
+			scheduleRescheduleVisibleCompleted();
 		},
 		{ threshold: 0.65 },
 	);
@@ -224,14 +231,16 @@ $effect(() => {
 	hoveredIds;
 	visibleIds;
 	mediaLightbox.open;
-	rescheduleVisibleCompleted();
+	scheduleRescheduleVisibleCompleted();
 });
 
 $effect(() => {
 	const ids = new Set(props.notices.map((notice) => notice.id));
-	for (const id of [...timers.keys(), ...fadeTimers.keys()]) {
-		if (!ids.has(id)) clearNoticeTimers(id);
-	}
+	untrack(() => {
+		for (const id of [...timers.keys(), ...fadeTimers.keys()]) {
+			if (!ids.has(id)) clearNoticeTimers(id);
+		}
+	});
 });
 </script>
 
