@@ -79,7 +79,7 @@ onDestroy(clearCloseTimer);
 
 <div
 	bind:this={anchorElement}
-	class="sidebar-flyout-anchor relative flex w-full justify-center"
+	class="sidebar-flyout-anchor relative flex h-8 w-8 shrink-0 items-center justify-center"
 	role="presentation"
 	onmouseenter={openFlyout}
 	onmouseleave={scheduleClose}
@@ -125,7 +125,7 @@ onDestroy(clearCloseTimer);
 	.sidebar-flyout-anchor::after {
 		content: "";
 		position: absolute;
-		left: 100%;
+		left: 2rem;
 		top: -0.25rem;
 		width: 0.5rem;
 		height: calc(100% + 0.5rem);

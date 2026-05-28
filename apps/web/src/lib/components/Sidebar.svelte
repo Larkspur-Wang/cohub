@@ -35,6 +35,7 @@ import {
 	Pin,
 	PinOff,
 	Plus,
+	Save,
 	Search,
 	Settings,
 	Trash2,
@@ -1559,7 +1560,7 @@ $effect(() => {
               aria-label="New save"
               title="New save"
             >
-              <History class="h-4 w-4" />
+              <Save class="h-4 w-4" />
             </button>
           {/if}
         </div>
@@ -1764,7 +1765,7 @@ $effect(() => {
           onclick={handleNavigateToNewCheckpoint}
           title="New save"
         >
-          <History class="w-3.5 h-3.5 shrink-0" />
+          <Save class="w-3.5 h-3.5 shrink-0" />
           <span class="text-[12px] font-medium">New Save</span>
         </button>
         {#if createSessionError}
