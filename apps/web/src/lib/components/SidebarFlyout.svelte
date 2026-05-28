@@ -27,6 +27,7 @@ const flyoutId = $derived(
 let open = $state(false);
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 let anchorElement: HTMLDivElement | null = $state(null);
+let pointerInside = $state(false);
 
 function clearCloseTimer() {
 	if (!closeTimer) return;
@@ -36,6 +37,7 @@ function clearCloseTimer() {
 
 function openFlyout() {
 	if (disabled) return;
+	pointerInside = true;
 	clearCloseTimer();
 	open = true;
 }
@@ -46,6 +48,7 @@ function closeFlyout() {
 }
 
 function scheduleClose() {
+	pointerInside = false;
 	clearCloseTimer();
 	closeTimer = setTimeout(() => {
 		open = false;
@@ -55,7 +58,10 @@ function scheduleClose() {
 
 function handleFocusOut(event: FocusEvent) {
 	const nextTarget = event.relatedTarget;
-	if (nextTarget instanceof Node && anchorElement?.contains(nextTarget)) {
+	if (
+		pointerInside ||
+		(nextTarget instanceof Node && anchorElement?.contains(nextTarget))
+	) {
 		return;
 	}
 	scheduleClose();
@@ -73,7 +79,7 @@ onDestroy(clearCloseTimer);
 
 <div
 	bind:this={anchorElement}
-	class="sidebar-flyout-anchor relative w-full"
+	class="sidebar-flyout-anchor relative flex w-full justify-center"
 	role="presentation"
 	onmouseenter={openFlyout}
 	onmouseleave={scheduleClose}
