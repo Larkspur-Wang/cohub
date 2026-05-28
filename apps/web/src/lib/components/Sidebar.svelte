@@ -1681,7 +1681,7 @@ $effect(() => {
 <aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
   <!-- Brand Header -->
   <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
-    <a href="/" class="flex min-w-0 items-center gap-2 px-1 group" aria-label="Cohub">
+    <a href="/" class="flex min-w-0 items-center gap-2 px-0.5 group" aria-label="Cohub">
       <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
         C
       </div>
@@ -1717,7 +1717,7 @@ $effect(() => {
     <div class="px-2 py-1 shrink-0 border-b border-border-subtle">
       <button
         type="button"
-        class="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
+        class="w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
         onclick={openSpacePalette}
       >
         {#if currentSpace}
@@ -1735,7 +1735,7 @@ $effect(() => {
       <div class="px-2 py-1.5 shrink-0 space-y-[2px]">
         <button
           type="button"
-          class="flex w-full items-center gap-2 rounded-[7px] border border-brand-border bg-brand-muted px-2 py-1.5 text-brand transition-colors duration-100 hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50"
+          class="flex w-full items-center gap-2 rounded-[7px] border border-brand-border bg-brand-muted px-1.5 py-1.5 text-brand transition-colors duration-100 hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50"
           onclick={() => { void handleCreateNewSession(); }}
           disabled={creatingSession}
           title="New chat (⌘O / Ctrl O)"
@@ -1752,7 +1752,7 @@ $effect(() => {
         </button>
         <button
           type="button"
-          class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
           title="Space details"
         >
@@ -1761,7 +1761,7 @@ $effect(() => {
         </button>
         <button
           type="button"
-          class="flex items-center gap-2 w-full px-2 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
           onclick={handleNavigateToNewCheckpoint}
           title="New save"
         >
@@ -1785,7 +1785,7 @@ $effect(() => {
         {:else}
           {#if pinnedMarks.length > 0}
             <div class="mb-3">
-              <div class="flex items-center gap-2 px-2 py-1.5 w-full text-left rounded-[6px]">
+              <div class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left rounded-[6px]">
                 <Pin class="w-3 h-3 text-text-tertiary shrink-0" />
                 <span class="text-[11px] text-text-placeholder select-none">Pinned</span>
               </div>
@@ -1796,7 +1796,7 @@ $effect(() => {
                   {@const insertReference = getPinnedInsertReference(mark)}
                   <button
                     type="button"
-                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-2 py-1.5 pr-4 {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-1.5 py-1.5 pr-4 {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                     onclick={() => void handleNavigateToPinned(mark)}
                     title={mark.resource?.subtitle ?? mark.resourceRef}
                     aria-current={isActivePinned ? "page" : undefined}
@@ -1852,7 +1852,7 @@ $effect(() => {
           {/if}
           <button
             type="button"
-            class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+            class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
             onclick={() => { sessionsCollapsed = !sessionsCollapsed; }}
             title={sessionsCollapsed ? "Expand chats" : "Collapse chats"}
           >
@@ -1862,7 +1862,7 @@ $effect(() => {
 
           {#if !sessionsCollapsed}
             {#if sessions.length === 0}
-              <div class="px-2 py-2 text-[12px] text-text-placeholder">No chats</div>
+              <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No chats</div>
             {:else}
               <div class="space-y-[2px] mt-1">
                 {#each sidebarSessionItems as item, index (item.session.id)}
@@ -1872,7 +1872,7 @@ $effect(() => {
 
                   {#if isRenaming}
                     <!-- Inline rename input -->
-                    <div class="flex items-center gap-1 px-2 py-1 rounded-[6px] bg-bg-active">
+                    <div class="flex items-center gap-1 px-1.5 py-1 rounded-[6px] bg-bg-active">
                       <input
                         bind:this={renameInputElement}
                         bind:value={renameTitleValue}
@@ -1918,7 +1918,7 @@ $effect(() => {
                   {:else}
                     <a
                       href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={getSessionRowStyle(item)}
 						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
@@ -1994,7 +1994,7 @@ $effect(() => {
                 {#if shouldShowLoadMoreSessions()}
                   <button
                     type="button"
-                    class="mt-1 flex items-center justify-center gap-2 w-full px-2 py-1.5 rounded-[6px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-60"
+                    class="mt-1 flex items-center justify-center gap-2 w-full px-1.5 py-1.5 rounded-[6px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-60"
                     disabled={loadingMoreSessions}
                     onclick={() => currentSpaceId && void loadMoreSessionsForSpace(currentSpaceId)}
                   >
@@ -2011,7 +2011,7 @@ $effect(() => {
           {:else if activeSession}
             {@const isRenamingActive = renamingSessionId === activeSession.id}
             {#if isRenamingActive}
-              <div class="flex items-center gap-1 px-2 py-1 mt-1 rounded-[6px] bg-bg-active">
+              <div class="flex items-center gap-1 px-1.5 py-1 mt-1 rounded-[6px] bg-bg-active">
                 <input
                   bind:this={renameInputElement}
                   bind:value={renameTitleValue}
@@ -2057,7 +2057,7 @@ $effect(() => {
             {:else}
               <a
                 href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
-                class="group/session relative flex items-center gap-1.5 overflow-hidden px-2 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
+                class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
 				draggable={!isMobile}
@@ -2123,7 +2123,7 @@ $effect(() => {
           <div class="mt-3">
             <button
               type="button"
-              class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+              class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
               onclick={() => { checkpointsCollapsed = !checkpointsCollapsed; }}
               title={checkpointsCollapsed ? "Expand saves" : "Collapse saves"}
             >
@@ -2133,19 +2133,19 @@ $effect(() => {
 
             {#if !checkpointsCollapsed}
               {#if loadingCheckpoints && checkpoints.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
                   <Loader2 class="w-3 h-3 animate-spin" />
                   Loading saves...
                 </div>
               {:else if checkpoints.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-placeholder">No saves</div>
+                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No saves</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each checkpoints.slice(0, 20) as checkpoint (checkpoint.id)}
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
-                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-2 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-1.5 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
                     >
                       <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2177,7 +2177,7 @@ $effect(() => {
             {:else if activeCheckpoint}
               <a
                 href={buildSpaceCheckpointRoute(currentSpaceId!, activeCheckpoint.id)}
-                class="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(activeCheckpoint.id); }}
               >
                 <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2192,7 +2192,7 @@ $effect(() => {
           <!-- Scheduled Jobs -->
           <div class="mt-3">
             <div
-              class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px] cursor-pointer"
+              class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px] cursor-pointer"
               onclick={() => { cronjobsCollapsed = !cronjobsCollapsed; }}
               title={cronjobsCollapsed ? "Expand scheduled" : "Collapse scheduled"}
               role="button"
@@ -2215,19 +2215,19 @@ $effect(() => {
 
             {#if !cronjobsCollapsed}
               {#if loadingCronjobs && cronjobs.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
                   <Loader2 class="w-3 h-3 animate-spin" />
                   Loading scheduled...
                 </div>
               {:else if cronjobs.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-placeholder">No scheduled</div>
+                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No scheduled</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each cronjobs.slice(0, 20) as job (job.id)}
                     {@const isActive = activeCronjobId === job.id}
                     <a
                       href={buildSpaceCronjobRoute(currentSpaceId!, job.id)}
-                      class="flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}
                     >
                       <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2242,7 +2242,7 @@ $effect(() => {
             {:else if activeCronjob}
               <a
                 href={buildSpaceCronjobRoute(currentSpaceId!, activeCronjob.id)}
-                class="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(activeCronjob.id); }}
               >
                 <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2258,7 +2258,7 @@ $effect(() => {
           <div class="mt-3">
             <button
               type="button"
-              class="flex items-center gap-2 px-2 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+              class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
               onclick={() => { tasksCollapsed = !tasksCollapsed; }}
               title={tasksCollapsed ? "Expand tasks" : "Collapse tasks"}
             >
@@ -2268,12 +2268,12 @@ $effect(() => {
 
             {#if !tasksCollapsed}
               {#if loadingTasks && tasks.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
                   <Loader2 class="w-3 h-3 animate-spin" />
                   Loading tasks...
                 </div>
               {:else if tasks.length === 0}
-                <div class="px-2 py-2 text-[12px] text-text-placeholder">No tasks</div>
+                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No tasks</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each tasks.slice(0, 15) as run (run.id)}
@@ -2281,7 +2281,7 @@ $effect(() => {
                     {@const badge = getTaskRunBadge(run.status)}
                     <a
                       href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
-                      class="flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
                     >
                       <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2297,7 +2297,7 @@ $effect(() => {
             {:else if activeTaskId}
               <a
                 href={buildSpaceTaskRoute(currentSpaceId!, activeTaskId)}
-                class="flex items-center gap-2 px-2 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToTask(activeTaskId); }}
               >
                 <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
@@ -2320,7 +2320,7 @@ $effect(() => {
     <div class="px-2 pt-2 pb-1">
       <button
         type="button"
-        class="flex w-full items-center gap-2 rounded-[5px] px-2.5 py-2 text-[13px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        class="flex w-full items-center gap-2 rounded-[5px] px-1.5 py-2 text-[13px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
         onclick={returnFromSettings}
       >
         <ArrowLeft class="w-[15px] h-[15px] shrink-0" />
@@ -2332,7 +2332,7 @@ $effect(() => {
         {@const isActive = activeSettingsTab === tab.id}
         <a
           href={tab.href}
-          class="flex items-center gap-2.5 px-2.5 py-2 rounded-[5px] text-[13px] transition-colors duration-100 cursor-pointer {
+          class="flex items-center gap-2.5 px-1.5 py-2 rounded-[5px] text-[13px] transition-colors duration-100 cursor-pointer {
             isActive
               ? 'bg-bg-active text-text-primary font-medium'
               : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'
