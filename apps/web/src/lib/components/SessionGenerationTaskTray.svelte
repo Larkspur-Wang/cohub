@@ -1,11 +1,5 @@
 <script lang="ts">
-import {
-	AlertCircle,
-	ChevronDown,
-	ChevronUp,
-	Loader2,
-	Play,
-} from "lucide-svelte";
+import { AlertCircle, ChevronDown, Loader2, Play } from "lucide-svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
@@ -56,6 +50,11 @@ const summaryParts = $derived.by(() => {
 		failed ? `Failed ${failed}` : null,
 	].filter(Boolean);
 });
+const summaryText = $derived(
+	summaryParts.length > 0
+		? summaryParts.join(" · ")
+		: `${sortedNotices.length}`,
+);
 
 function taskTime(notice: GenerationTaskNotice) {
 	return Date.parse(notice.updatedAt || notice.createdAt || "") || 0;
@@ -67,6 +66,10 @@ function isCompleted(notice: GenerationTaskNotice) {
 
 function isActive(notice: GenerationTaskNotice) {
 	return notice.status === "pending" || notice.status === "running";
+}
+
+function isInteractive(notice: GenerationTaskNotice) {
+	return isCompleted(notice) || notice.status === "failed";
 }
 
 function elapsedSeconds(notice: GenerationTaskNotice) {
@@ -101,50 +104,48 @@ $effect(() => {
 </script>
 
 {#if sortedNotices.length > 0}
-	<div class="pointer-events-none absolute right-8 top-3 z-30 flex max-w-[min(88vw,560px)] flex-col items-end gap-1 sm:right-10 sm:top-4 lg:right-12">
-		<button
-			type="button"
-			class="pointer-events-auto flex h-7 min-w-7 items-center justify-center rounded-full border border-border-subtle/70 bg-bg-primary/88 px-2 text-[11px] text-text-tertiary shadow-sm backdrop-blur-sm transition duration-150 hover:border-border-strong/70 hover:bg-bg-hover hover:text-text-primary active:scale-[0.96]"
-			onclick={() => { collapsed = !collapsed; }}
-			aria-label={collapsed ? "Expand generation items" : "Collapse generation items"}
-		>
-			{#if collapsed}
-				<ChevronDown class="h-3.5 w-3.5" />
-			{:else}
-				<ChevronUp class="h-3.5 w-3.5" />
-			{/if}
-		</button>
-
-		{#if collapsed}
+	<div class="pointer-events-none absolute right-3 top-3 z-30 flex w-[calc(100vw-1.5rem)] max-w-[560px] justify-end sm:right-10 sm:top-4 lg:right-12">
+		<section class="pointer-events-auto overflow-hidden rounded-[10px] border border-border-subtle/75 bg-bg-primary/96 text-text-secondary shadow-[0_12px_34px_rgba(0,0,0,0.14)] backdrop-blur-md">
 			<button
 				type="button"
-				class="pointer-events-auto flex max-w-[min(86vw,360px)] items-center gap-2 rounded-full border border-border-subtle/75 bg-bg-primary/92 px-2.5 py-1.5 text-[11px] leading-none text-text-tertiary shadow-[0_8px_24px_rgba(0,0,0,0.10)] backdrop-blur-sm transition duration-150 hover:border-border-strong/70 hover:bg-bg-hover hover:text-text-primary active:scale-[0.98]"
-				onclick={() => { collapsed = false; }}
-				aria-label="Expand generation items"
+				class="flex h-8 w-full min-w-[220px] max-w-[560px] items-center gap-2 px-2.5 text-left text-[11px] leading-none transition duration-150 hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-inset focus:ring-brand/45 sm:min-w-[280px]"
+				onclick={() => {
+					collapsed = !collapsed;
+				}}
+				aria-expanded={!collapsed}
+				aria-label={collapsed ? "Expand generation items" : "Collapse generation items"}
 			>
-				<span class="font-medium text-text-secondary">Generation</span>
-				{#if summaryParts.length > 0}
-					<span class="h-1 w-1 rounded-full bg-border-strong/80"></span>
-					<span class="truncate tabular-nums">{summaryParts.join(" · ")}</span>
-				{:else}
-					<span class="tabular-nums">{sortedNotices.length}</span>
-				{/if}
+				<span class="font-medium text-text-primary">Generation</span>
+				<span class="h-1 w-1 shrink-0 rounded-full bg-border-strong/80"></span>
+				<span class="min-w-0 flex-1 truncate text-text-tertiary tabular-nums">{summaryText}</span>
+				<ChevronDown class={`h-3.5 w-3.5 shrink-0 text-text-tertiary transition-transform duration-150 ${collapsed ? "" : "rotate-180"}`} />
 			</button>
-		{:else}
-			<div class="pointer-events-auto max-h-[min(64vh,560px)] columns-2 gap-1 overflow-y-auto overscroll-contain p-px pr-1 sm:min-w-[300px] sm:max-w-[560px] sm:columns-3">
-				{#each sortedNotices as notice (notice.id)}
-					<div
-						role="button"
-						tabindex="0"
-						class="group mb-1 break-inside-avoid cursor-pointer overflow-hidden border border-border-subtle/65 bg-bg-primary/94 text-left shadow-[0_4px_14px_rgba(0,0,0,0.09)] backdrop-blur-sm transition hover:-translate-y-px hover:border-border-strong/70 hover:shadow-[0_8px_22px_rgba(0,0,0,0.13)] focus:outline-none focus:ring-1 focus:ring-brand/45"
-						onclick={() => handleCardClick(notice)}
-						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); handleCardClick(notice); } }}
-					>
-						{@render CardInner(notice, elapsedSeconds(notice))}
+
+			{#if !collapsed}
+				<div class="border-t border-border-subtle/60 bg-bg-surface/45 p-1.5">
+					<div class="max-h-[min(64vh,560px)] columns-2 gap-1 overflow-y-auto overscroll-contain sm:max-w-[560px] sm:columns-3">
+						{#each sortedNotices as notice (notice.id)}
+							{#if isInteractive(notice)}
+								<button
+									type="button"
+									class="group mb-1 block w-full break-inside-avoid overflow-hidden rounded-[6px] border border-border-subtle/55 bg-bg-primary text-left transition duration-150 hover:border-border-strong/80 hover:bg-bg-hover focus:outline-none focus:ring-1 focus:ring-brand/45"
+									onclick={() => handleCardClick(notice)}
+								>
+									{@render CardInner(notice, elapsedSeconds(notice))}
+								</button>
+							{:else}
+								<div
+									role="status"
+									class="group mb-1 break-inside-avoid overflow-hidden rounded-[6px] border border-border-subtle/55 bg-bg-primary text-left transition duration-150"
+								>
+									{@render CardInner(notice, elapsedSeconds(notice))}
+								</div>
+							{/if}
+						{/each}
 					</div>
-				{/each}
-			</div>
-		{/if}
+				</div>
+			{/if}
+		</section>
 	</div>
 {/if}
 
@@ -169,10 +170,10 @@ $effect(() => {
 			{/if}
 		</div>
 	{:else if isActive(notice)}
-		<div class="flex min-h-[76px] flex-col justify-between p-2">
+		<div class="flex min-h-[72px] flex-col justify-between gap-2 p-2">
 			<div class="flex items-center gap-2 text-[12px] font-medium text-text-primary">
 				<Loader2 class="h-3.5 w-3.5 animate-spin text-brand" />
-				<span>Generating...</span>
+				<span>Generating</span>
 				<span class="text-text-tertiary tabular-nums">{elapsed}s</span>
 			</div>
 			{#if notice.promptPreview}
@@ -180,7 +181,7 @@ $effect(() => {
 			{/if}
 		</div>
 	{:else}
-		<div class="flex min-h-[64px] items-center justify-center gap-2 p-2 text-[12px] font-medium text-error-soft">
+		<div class="flex min-h-[60px] items-center justify-center gap-2 p-2 text-[12px] font-medium text-error-soft">
 			<AlertCircle class="h-3.5 w-3.5" />
 			<span>Failed</span>
 		</div>

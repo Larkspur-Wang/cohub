@@ -56,6 +56,10 @@ function emit(spaceId: string, runs: TaskRunRecord[]) {
 	);
 }
 
+export function getCachedTaskRuns(spaceId: string) {
+	return runsBySpace.get(spaceId) ?? [];
+}
+
 export function setCachedTaskRuns(spaceId: string, runs: TaskRunRecord[]) {
 	const nextRuns = sortRuns(runs);
 	runsBySpace.set(spaceId, nextRuns);

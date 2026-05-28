@@ -188,6 +188,7 @@ import {
 } from "$lib/stores/space-pins";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
+	getCachedTaskRuns,
 	mergeCachedCronJobTaskRuns,
 	mergeCachedTaskRun,
 	onTaskRunsCacheUpdated,
@@ -715,7 +716,6 @@ let taskRunDetailError = $state("");
 let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let taskRunRefreshInFlight: Promise<void> | null = null;
-let generationTaskNotices = $state<GenerationTaskNotice[]>([]);
 let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
@@ -1107,24 +1107,31 @@ function mergeTaskRunList(
 		: [nextRun, ...runs];
 	return [...nextRuns].sort((a, b) => taskRunSortTime(b) - taskRunSortTime(a));
 }
-function upsertGenerationTaskNotice(run: TaskRunRecord) {
-	generationTaskRunById = { ...generationTaskRunById, [run.id]: run };
-	if (!run.sessionId || run.sessionId !== activeSessionId) return;
-	const status = run.status;
-	if (
-		status !== "pending" &&
-		status !== "running" &&
-		status !== "completed" &&
-		status !== "failed"
-	) {
-		return;
-	}
-	const notice: GenerationTaskNotice = {
+function isDisplayableGenerationTaskRun(
+	run: TaskRunRecord,
+): run is TaskRunRecord & {
+	sessionId: string;
+	status: GenerationTaskNotice["status"];
+} {
+	return (
+		isGenerationTaskRun(run) &&
+		!!run.sessionId &&
+		(run.status === "pending" ||
+			run.status === "running" ||
+			run.status === "completed" ||
+			run.status === "failed")
+	);
+}
+function toGenerationTaskNotice(
+	run: TaskRunRecord,
+): GenerationTaskNotice | null {
+	if (!isDisplayableGenerationTaskRun(run)) return null;
+	return {
 		id: run.id,
 		spaceId: run.spaceId ?? spaceId,
 		sessionId: run.sessionId,
 		turnId: run.turnId ?? null,
-		status,
+		status: run.status,
 		mediaItems: extractGenerationMediaItems(run.result),
 		promptPreview: extractGenerationPromptPreview(run.payload),
 		createdAt: run.createdAt,
@@ -1132,10 +1139,10 @@ function upsertGenerationTaskNotice(run: TaskRunRecord) {
 		updatedAt: run.updatedAt,
 		finishedAt: run.finishedAt,
 	};
-	generationTaskNotices = [
-		...generationTaskNotices.filter((item) => item.id !== run.id),
-		notice,
-	].sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b));
+}
+function upsertGenerationTaskRun(run: TaskRunRecord) {
+	if (!isGenerationTaskRun(run)) return;
+	generationTaskRunById = { ...generationTaskRunById, [run.id]: run };
 }
 async function refreshTaskDetail(taskId: string, loading = false) {
 	if (taskRunRefreshInFlight) return taskRunRefreshInFlight;
@@ -1222,6 +1229,14 @@ async function makeSessionPrivate() {
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
 );
+const generationTaskNotices = $derived.by<GenerationTaskNotice[]>(() => {
+	if (!activeSessionId) return [];
+	return Object.values(generationTaskRunById)
+		.filter((run) => run.sessionId === activeSessionId)
+		.map(toGenerationTaskNotice)
+		.filter((notice): notice is GenerationTaskNotice => notice !== null)
+		.sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b));
+});
 const browserTabTitle = $derived.by(() => {
 	const spaceTitle = normalizeTabTitleSegment(
 		space?.name || space?.title || spaceId,
@@ -3769,7 +3784,7 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 		userId: task.userId,
 	});
 	if (isGenerationTaskRun(mergedTaskRun))
-		upsertGenerationTaskNotice(mergedTaskRun);
+		upsertGenerationTaskRun(mergedTaskRun);
 	if (routeTaskId === task.id) {
 		const wasActive = isActiveTaskRun(taskRunDetail);
 		taskRunDetail = mergeTaskRunRecord(taskRunDetail, {
@@ -5705,11 +5720,14 @@ onMount(() => {
 			pinnedFilePaths = getPinnedFilePaths(marks);
 		},
 	);
+	for (const run of getCachedTaskRuns(spaceId)) {
+		if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+	}
 	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
 		({ spaceId: updatedSpaceId, runs }) => {
 			if (updatedSpaceId !== spaceId) return;
 			for (const run of runs) {
-				if (isGenerationTaskRun(run)) upsertGenerationTaskNotice(run);
+				if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
 			}
 			if (cronjobDetail) {
 				cronjobRuns = runs.filter((run) => run.cronJobId === cronjobDetail?.id);
