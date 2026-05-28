@@ -35,14 +35,19 @@ function envNumber(name: string, defaultValue: number) {
   return Number.isFinite(value) ? value : defaultValue;
 }
 
+function resolveServiceName(serviceName: string, environment: string) {
+  return environment === "dev" && !serviceName.endsWith("-dev") ? `${serviceName}-dev` : serviceName;
+}
+
 /**
  * Initialize OpenTelemetry tracing for a service.
  * Call this as early as possible (before any other imports that make network calls).
  */
 export function initTracing(options: TracingOptions) {
   const ENV = options.environment ?? process.env.ENV ?? "dev";
+  const serviceName = resolveServiceName(options.serviceName, ENV);
   const resource: Resource = resourceFromAttributes({
-    "service.name": options.serviceName,
+    "service.name": serviceName,
     "service.version": options.serviceVersion ?? process.env.IMAGE_TAG ?? "latest",
     "deployment.environment": ENV,
     "host.name": os.hostname(),
