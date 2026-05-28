@@ -1,5 +1,13 @@
 # @neta-art/cohub
 
+## 1.18.0
+
+### Minor Changes
+
+- ce0e5fb: Expose generation policy helpers and metadata propagation for session generation tasks.
+
+  Add CLI-side generation policy enforcement from environment variables and filter model listings accordingly.
+
 ## 1.17.0
 
 ### Minor Changes
