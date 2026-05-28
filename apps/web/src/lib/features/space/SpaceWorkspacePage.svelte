@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
+	GenerationParameterConstraint,
 	GenerationPolicy,
 	PublicGenerationDeclaration,
 } from "@cohub/protocol/generation";
@@ -323,10 +324,21 @@ let selectedGenerationModels = $state<Set<string>>(new Set());
 let generationEnumSelections = $state<
 	Record<string, Record<string, Set<string>>>
 >({});
+let generationNumericConstraints = $state<
+	Record<string, Record<string, { min?: number; max?: number }>>
+>({});
+let generationBooleanConstraints = $state<
+	Record<string, Record<string, { value?: boolean }>>
+>({});
 type PersistedGenerationPolicy = {
 	mode: "auto" | "limited";
 	models: string[];
 	enumSelections: Record<string, Record<string, string[]>>;
+	numericConstraints?: Record<
+		string,
+		Record<string, { min?: number; max?: number }>
+	>;
+	booleanConstraints?: Record<string, Record<string, { value?: boolean }>>;
 };
 let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
@@ -1385,6 +1397,78 @@ function serializeGenerationEnumSelections() {
 		]),
 	);
 }
+
+function sanitizeGenerationNumericConstraints(
+	value: unknown,
+): Record<string, Record<string, { min?: number; max?: number }>> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	return Object.fromEntries(
+		Object.entries(value).map(([model, parameters]) => [
+			model,
+			Object.fromEntries(
+				Object.entries(
+					parameters &&
+						typeof parameters === "object" &&
+						!Array.isArray(parameters)
+						? parameters
+						: {},
+				).flatMap(([parameter, rawConstraint]) => {
+					if (
+						!rawConstraint ||
+						typeof rawConstraint !== "object" ||
+						Array.isArray(rawConstraint)
+					)
+						return [];
+					const constraint = rawConstraint as { min?: unknown; max?: unknown };
+					const next: { min?: number; max?: number } = {};
+					if (
+						typeof constraint.min === "number" &&
+						Number.isFinite(constraint.min)
+					)
+						next.min = constraint.min;
+					if (
+						typeof constraint.max === "number" &&
+						Number.isFinite(constraint.max)
+					)
+						next.max = constraint.max;
+					return next.min === undefined && next.max === undefined
+						? []
+						: [[parameter, next]];
+				}),
+			),
+		]),
+	);
+}
+
+function sanitizeGenerationBooleanConstraints(
+	value: unknown,
+): Record<string, Record<string, { value?: boolean }>> {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+	return Object.fromEntries(
+		Object.entries(value).map(([model, parameters]) => [
+			model,
+			Object.fromEntries(
+				Object.entries(
+					parameters &&
+						typeof parameters === "object" &&
+						!Array.isArray(parameters)
+						? parameters
+						: {},
+				).flatMap(([parameter, rawConstraint]) => {
+					if (
+						!rawConstraint ||
+						typeof rawConstraint !== "object" ||
+						Array.isArray(rawConstraint)
+					)
+						return [];
+					const value = (rawConstraint as { value?: unknown }).value;
+					return typeof value === "boolean" ? [[parameter, { value }]] : [];
+				}),
+			),
+		]),
+	);
+}
+
 function loadSessionGenerationPolicy(
 	sessionId: string,
 ): PersistedGenerationPolicy | null {
@@ -1412,6 +1496,12 @@ function loadSessionGenerationPolicy(
 					],
 				),
 			),
+			numericConstraints: sanitizeGenerationNumericConstraints(
+				parsed.numericConstraints,
+			),
+			booleanConstraints: sanitizeGenerationBooleanConstraints(
+				parsed.booleanConstraints,
+			),
 		};
 	} catch {
 		return null;
@@ -1433,6 +1523,8 @@ function applySessionGenerationPolicy(
 			),
 		]),
 	);
+	generationNumericConstraints = policy?.numericConstraints ?? {};
+	generationBooleanConstraints = policy?.booleanConstraints ?? {};
 }
 function saveSessionGenerationPolicy(sessionId: string) {
 	localStorage.setItem(
@@ -1441,6 +1533,8 @@ function saveSessionGenerationPolicy(sessionId: string) {
 			mode: generationPolicyMode,
 			models: [...selectedGenerationModels],
 			enumSelections: serializeGenerationEnumSelections(),
+			numericConstraints: generationNumericConstraints,
+			booleanConstraints: generationBooleanConstraints,
 		} satisfies PersistedGenerationPolicy),
 	);
 }
@@ -1492,10 +1586,8 @@ function buildTurnGenerationPolicy(): GenerationPolicy | null {
 			const declaration = generationModelsCatalog?.find(
 				(item) => item.model === model,
 			);
-			const parameterPolicies: Record<
-				string,
-				{ kind: "enum"; values: Array<string | number | boolean> }
-			> = {};
+			const parameterPolicies: Record<string, GenerationParameterConstraint> =
+				{};
 			for (const [name, selectedValues] of Object.entries(
 				generationEnumSelections[model] ?? {},
 			)) {
@@ -1511,6 +1603,31 @@ function buildTurnGenerationPolicy(): GenerationPolicy | null {
 					parameterPolicies[name] = {
 						kind: "enum",
 						values: allowed as Array<string | number | boolean>,
+					};
+			}
+			for (const [name, constraint] of Object.entries(
+				generationNumericConstraints[model] ?? {},
+			)) {
+				const spec = declaration?.parameters?.[name];
+				const type = spec && "type" in spec ? spec.type : null;
+				if (type !== "integer" && type !== "number") continue;
+				const next: GenerationParameterConstraint = {
+					kind: type === "integer" ? "integer" : "number",
+				};
+				if (constraint.min !== undefined) next.min = constraint.min;
+				if (constraint.max !== undefined) next.max = constraint.max;
+				if (next.min !== undefined || next.max !== undefined)
+					parameterPolicies[name] = next;
+			}
+			for (const [name, constraint] of Object.entries(
+				generationBooleanConstraints[model] ?? {},
+			)) {
+				const spec = declaration?.parameters?.[name];
+				if (!spec || !("type" in spec) || spec.type !== "boolean") continue;
+				if (constraint.value !== undefined)
+					parameterPolicies[name] = {
+						kind: "boolean",
+						value: constraint.value,
 					};
 			}
 			return Object.keys(parameterPolicies).length > 0
@@ -1550,12 +1667,25 @@ function setGenerationModelSelected(modelId: string, selected: boolean) {
 		ensureGenerationModelEnumSelections(modelId);
 	} else {
 		nextModels.delete(modelId);
-		const { [modelId]: _removed, ...rest } = generationEnumSelections;
-		generationEnumSelections = rest;
+		const { [modelId]: _removedEnum, ...restEnum } = generationEnumSelections;
+		generationEnumSelections = restEnum;
+		const { [modelId]: _removedNumeric, ...restNumeric } =
+			generationNumericConstraints;
+		generationNumericConstraints = restNumeric;
+		const { [modelId]: _removedBoolean, ...restBoolean } =
+			generationBooleanConstraints;
+		generationBooleanConstraints = restBoolean;
 	}
 	selectedGenerationModels = nextModels;
 	persistActiveSessionGenerationPolicy();
 }
+function ensureGenerationModelSelectedForPolicy(modelId: string) {
+	if (generationPolicyMode !== "limited") generationPolicyMode = "limited";
+	if (!selectedGenerationModels.has(modelId)) {
+		selectedGenerationModels = new Set([...selectedGenerationModels, modelId]);
+	}
+}
+
 function setGenerationEnumValueSelected(
 	modelId: string,
 	parameter: string,
@@ -1577,10 +1707,45 @@ function setGenerationEnumValueSelected(
 			[parameter]: nextValues,
 		},
 	};
-	if (generationPolicyMode !== "limited") generationPolicyMode = "limited";
-	if (!selectedGenerationModels.has(modelId)) {
-		selectedGenerationModels = new Set([...selectedGenerationModels, modelId]);
-	}
+	ensureGenerationModelSelectedForPolicy(modelId);
+	persistActiveSessionGenerationPolicy();
+}
+
+function setGenerationNumericConstraint(
+	modelId: string,
+	parameter: string,
+	constraint: { min?: number; max?: number },
+) {
+	const nextConstraint: { min?: number; max?: number } = {};
+	if (constraint.min !== undefined && Number.isFinite(constraint.min))
+		nextConstraint.min = constraint.min;
+	if (constraint.max !== undefined && Number.isFinite(constraint.max))
+		nextConstraint.max = constraint.max;
+	generationNumericConstraints = {
+		...generationNumericConstraints,
+		[modelId]: {
+			...(generationNumericConstraints[modelId] ?? {}),
+			[parameter]: nextConstraint,
+		},
+	};
+	ensureGenerationModelSelectedForPolicy(modelId);
+	persistActiveSessionGenerationPolicy();
+}
+
+function setGenerationBooleanConstraint(
+	modelId: string,
+	parameter: string,
+	constraint: { value?: boolean },
+) {
+	generationBooleanConstraints = {
+		...generationBooleanConstraints,
+		[modelId]: {
+			...(generationBooleanConstraints[modelId] ?? {}),
+			[parameter]:
+				constraint.value === undefined ? {} : { value: constraint.value },
+		},
+	};
+	ensureGenerationModelSelectedForPolicy(modelId);
 	persistActiveSessionGenerationPolicy();
 }
 async function loadPromptTemplates() {
@@ -8188,10 +8353,14 @@ $effect(() => {
     {generationPolicyMode}
     {selectedGenerationModels}
     {generationEnumSelections}
+    {generationNumericConstraints}
+    {generationBooleanConstraints}
     onGenerationTabOpen={() => { void loadGenerationModelsCatalog(); }}
     onGenerationPolicyModeChange={setGenerationPolicyMode}
     onGenerationModelToggle={setGenerationModelSelected}
     onGenerationEnumValueToggle={setGenerationEnumValueSelected}
+    onGenerationNumericConstraintChange={setGenerationNumericConstraint}
+    onGenerationBooleanConstraintChange={setGenerationBooleanConstraint}
   />
 </div>
 <style>

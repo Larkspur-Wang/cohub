@@ -10,6 +10,15 @@ type ModelItem = {
 	model: Record<string, unknown>;
 };
 
+type NumericGenerationConstraint = {
+	min?: number;
+	max?: number;
+};
+
+type BooleanGenerationConstraint = {
+	value?: boolean;
+};
+
 type Props = {
 	open: boolean;
 	onClose: () => void;
@@ -20,6 +29,14 @@ type Props = {
 	generationPolicyMode?: "auto" | "limited";
 	selectedGenerationModels?: Set<string>;
 	generationEnumSelections?: Record<string, Record<string, Set<string>>>;
+	generationNumericConstraints?: Record<
+		string,
+		Record<string, NumericGenerationConstraint>
+	>;
+	generationBooleanConstraints?: Record<
+		string,
+		Record<string, BooleanGenerationConstraint>
+	>;
 	onGenerationPolicyModeChange?: (mode: "auto" | "limited") => void;
 	onGenerationModelToggle?: (model: string, selected: boolean) => void;
 	onGenerationEnumValueToggle?: (
@@ -27,6 +44,16 @@ type Props = {
 		parameter: string,
 		value: string,
 		selected: boolean,
+	) => void;
+	onGenerationNumericConstraintChange?: (
+		model: string,
+		parameter: string,
+		constraint: NumericGenerationConstraint,
+	) => void;
+	onGenerationBooleanConstraintChange?: (
+		model: string,
+		parameter: string,
+		constraint: BooleanGenerationConstraint,
 	) => void;
 	onGenerationTabOpen?: () => void;
 };
@@ -41,9 +68,13 @@ const {
 	generationPolicyMode = "auto",
 	selectedGenerationModels = new Set<string>(),
 	generationEnumSelections = {},
+	generationNumericConstraints = {},
+	generationBooleanConstraints = {},
 	onGenerationPolicyModeChange,
 	onGenerationModelToggle,
 	onGenerationEnumValueToggle,
+	onGenerationNumericConstraintChange,
+	onGenerationBooleanConstraintChange,
 	onGenerationTabOpen,
 }: Props = $props();
 
@@ -52,6 +83,7 @@ let selectedIndex = $state(0);
 let navigationMode: "mouse" | "keyboard" = $state("mouse");
 let activeTab: "chat" | "generation" = $state("chat");
 let expandedGenerationModels = $state<Set<string>>(new Set());
+let expandedGenerationParameters = $state<Set<string>>(new Set());
 let containerEl = $state<HTMLElement | null>(null);
 let searchInputEl = $state<HTMLInputElement | null>(null);
 
@@ -95,16 +127,51 @@ function getGenerationKind(model: PublicGenerationDeclaration): string {
 	return "Multimodal";
 }
 
+function isEnumParameterSpec(spec: unknown): spec is { enum: unknown[] } {
+	return (
+		!!spec &&
+		typeof spec === "object" &&
+		"enum" in spec &&
+		Array.isArray(spec.enum) &&
+		spec.enum.length > 0
+	);
+}
+
+function isNumberParameterSpec(spec: unknown): spec is {
+	type?: unknown;
+	min?: unknown;
+	max?: unknown;
+} {
+	if (!spec || typeof spec !== "object" || isEnumParameterSpec(spec))
+		return false;
+	const type = "type" in spec ? spec.type : undefined;
+	return type === "integer" || type === "number";
+}
+
+function isBooleanParameterSpec(spec: unknown): spec is { type?: unknown } {
+	if (!spec || typeof spec !== "object" || isEnumParameterSpec(spec))
+		return false;
+	const type = "type" in spec ? spec.type : undefined;
+	return type === "boolean";
+}
+
+function getNumberParameterBounds(spec: { min?: unknown; max?: unknown }) {
+	const min =
+		typeof spec.min === "number" && Number.isFinite(spec.min)
+			? spec.min
+			: undefined;
+	const max =
+		typeof spec.max === "number" && Number.isFinite(spec.max)
+			? spec.max
+			: undefined;
+	return { min, max };
+}
+
 function getEnumParameters(
 	model: PublicGenerationDeclaration,
 ): Array<{ name: string; values: Array<string | number | boolean> }> {
 	return Object.entries(model.parameters ?? {}).flatMap(([name, spec]) => {
-		if (
-			!("enum" in spec) ||
-			!Array.isArray(spec.enum) ||
-			spec.enum.length === 0
-		)
-			return [];
+		if (!isEnumParameterSpec(spec)) return [];
 		const values = spec.enum.filter(
 			(value): value is string | number | boolean =>
 				typeof value === "string" ||
@@ -115,22 +182,68 @@ function getEnumParameters(
 	});
 }
 
+function getNumericParameters(model: PublicGenerationDeclaration): Array<{
+	name: string;
+	kind: "integer" | "number";
+	min?: number;
+	max?: number;
+}> {
+	return Object.entries(model.parameters ?? {}).flatMap(([name, spec]) => {
+		if (!isNumberParameterSpec(spec)) return [];
+		return [
+			{
+				name,
+				kind: spec.type === "integer" ? "integer" : "number",
+				...getNumberParameterBounds(spec),
+			},
+		];
+	});
+}
+
+function getBooleanParameters(
+	model: PublicGenerationDeclaration,
+): Array<{ name: string }> {
+	return Object.entries(model.parameters ?? {}).flatMap(([name, spec]) =>
+		isBooleanParameterSpec(spec) ? [{ name }] : [],
+	);
+}
+
+function getNumericConstraint(model: string, parameter: string) {
+	return generationNumericConstraints[model]?.[parameter] ?? {};
+}
+
+function getBooleanConstraint(model: string, parameter: string) {
+	return generationBooleanConstraints[model]?.[parameter] ?? {};
+}
+
 function getParameterRows(
 	model: PublicGenerationDeclaration,
 ): Array<{ name: string; detail: string }> {
-	return Object.entries(model.parameters ?? {}).map(([name, spec]) => {
-		if ("enum" in spec && Array.isArray(spec.enum) && spec.enum.length > 0) {
-			const selectedCount = getSelectedEnumValues(
-				model.model,
-				name,
-				spec.enum,
-			).size;
-			return selectedCount >= spec.enum.length
-				? { name, detail: "All values" }
-				: { name, detail: `${selectedCount}/${spec.enum.length} values` };
+	return Object.entries(model.parameters ?? {}).flatMap(([name, spec]) => {
+		if (
+			isEnumParameterSpec(spec) ||
+			isNumberParameterSpec(spec) ||
+			isBooleanParameterSpec(spec)
+		) {
+			return [];
 		}
-		return { name, detail: "Auto" };
+		return [{ name, detail: "Auto" }];
 	});
+}
+
+function getEnumParameterDetail(
+	model: PublicGenerationDeclaration,
+	parameter: string,
+	values: Array<string | number | boolean>,
+): string {
+	const selectedCount = getSelectedEnumValues(
+		model.model,
+		parameter,
+		values,
+	).size;
+	return selectedCount >= values.length
+		? "All values"
+		: `${selectedCount}/${values.length} values`;
 }
 
 function getSelectedEnumValues(
@@ -152,6 +265,63 @@ function toggleGenerationModelExpanded(model: string) {
 	if (next.has(model)) next.delete(model);
 	else next.add(model);
 	expandedGenerationModels = next;
+}
+
+function getGenerationParameterKey(model: string, parameter: string): string {
+	return `${model}\u0000${parameter}`;
+}
+
+function isGenerationParameterExpanded(
+	model: string,
+	parameter: string,
+): boolean {
+	return expandedGenerationParameters.has(
+		getGenerationParameterKey(model, parameter),
+	);
+}
+
+function toggleGenerationParameterExpanded(model: string, parameter: string) {
+	const key = getGenerationParameterKey(model, parameter);
+	const next = new Set(expandedGenerationParameters);
+	if (next.has(key)) next.delete(key);
+	else next.add(key);
+	expandedGenerationParameters = next;
+}
+
+function formatNumericConstraintDetail(
+	model: string,
+	parameter: string,
+	bounds: { min?: number; max?: number },
+) {
+	const constraint = getNumericConstraint(model, parameter);
+	const min = constraint.min ?? bounds.min;
+	const max = constraint.max ?? bounds.max;
+	if (min === undefined && max === undefined) return "Any value";
+	if (min !== undefined && max !== undefined) return `${min}–${max}`;
+	return min !== undefined ? `≥ ${min}` : `≤ ${max}`;
+}
+
+function formatBooleanConstraintDetail(model: string, parameter: string) {
+	const value = getBooleanConstraint(model, parameter).value;
+	if (value === true) return "True only";
+	if (value === false) return "False only";
+	return "Any value";
+}
+
+function updateNumericConstraint(
+	model: string,
+	parameter: string,
+	constraint: NumericGenerationConstraint,
+) {
+	onGenerationNumericConstraintChange?.(model, parameter, constraint);
+}
+
+function updateBooleanConstraint(
+	model: string,
+	parameter: string,
+	constraint: BooleanGenerationConstraint,
+) {
+	onGenerationBooleanConstraintChange?.(model, parameter, constraint);
 }
 
 function toggleGenerationEnumValue(
@@ -383,7 +553,7 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 				{#each filteredModels as item, index (item.provider + "/" + item.id)}
 					<button
 						type="button"
-						class={`group relative w-full cursor-pointer px-3 py-1.5 text-left transition-colors duration-100 ${
+						class={`group relative w-full cursor-pointer px-4 py-2 text-left transition-colors duration-100 ${
 							navigationMode === "mouse" ? "hover:bg-bg-hover" : ""
 						} ${index === selectedIndex ? "bg-bg-hover" : ""}`}
 						data-model-item
@@ -480,14 +650,66 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 									</div>
 
 									{#if isGenerationModelExpanded(model.model)}
-										{#if getParameterRows(model).length > 0}
-											<div class="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 pl-5 text-[11px]">
-												{#each getParameterRows(model) as param (param.name)}
-													<span class="truncate text-text-secondary">{param.name}</span>
-													<span class="text-text-tertiary">{param.detail}</span>
-												{/each}
-											</div>
-										{/if}
+										<div class="mt-2 space-y-1 pl-5 text-[11px]">
+											{#each getParameterRows(model) as param (param.name)}
+												<div class="flex items-center justify-between gap-3 rounded-[5px] px-2 py-1 text-text-secondary">
+													<span class="truncate">{param.name}</span>
+													<span class="shrink-0 text-text-tertiary">{param.detail}</span>
+												</div>
+											{/each}
+
+											{#each getBooleanParameters(model) as param (param.name)}
+												<div class="rounded-[6px] bg-bg-subtle/45">
+													<button type="button" class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-text-secondary transition-colors duration-100 hover:text-text-primary" onclick={() => toggleGenerationParameterExpanded(model.model, param.name)} aria-expanded={isGenerationParameterExpanded(model.model, param.name)}>
+														<ChevronDown class={`h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-100 ${isGenerationParameterExpanded(model.model, param.name) ? "rotate-0" : "-rotate-90"}`} />
+														<span class="min-w-0 flex-1 truncate">{param.name}</span>
+														<span class="shrink-0 text-text-tertiary">{formatBooleanConstraintDetail(model.model, param.name)}</span>
+													</button>
+													{#if isGenerationParameterExpanded(model.model, param.name)}
+														<div class="grid grid-cols-3 gap-1 px-2 pb-2 pt-0.5">
+															{#each [{ label: 'Any', value: undefined }, { label: 'True', value: true }, { label: 'False', value: false }] as option (option.label)}
+																<button type="button" class={`min-h-7 rounded px-2 text-[11px] transition-colors duration-100 ${getBooleanConstraint(model.model, param.name).value === option.value ? "bg-brand-bg text-brand-muted-fg" : "bg-bg-surface text-text-tertiary hover:text-text-primary"}`} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} onclick={() => updateBooleanConstraint(model.model, param.name, { value: option.value })}>{option.label}</button>
+															{/each}
+														</div>
+													{/if}
+												</div>
+											{/each}
+
+											{#each getNumericParameters(model) as param (param.name)}
+												{@const constraint = getNumericConstraint(model.model, param.name)}
+												<div class="rounded-[6px] bg-bg-subtle/45">
+													<button type="button" class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-text-secondary transition-colors duration-100 hover:text-text-primary" onclick={() => toggleGenerationParameterExpanded(model.model, param.name)} aria-expanded={isGenerationParameterExpanded(model.model, param.name)}>
+														<ChevronDown class={`h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-100 ${isGenerationParameterExpanded(model.model, param.name) ? "rotate-0" : "-rotate-90"}`} />
+														<span class="min-w-0 flex-1 truncate">{param.name}</span>
+														<span class="shrink-0 text-text-tertiary">{formatNumericConstraintDetail(model.model, param.name, { min: param.min, max: param.max })}</span>
+													</button>
+													{#if isGenerationParameterExpanded(model.model, param.name)}
+														<div class="grid grid-cols-2 gap-2 px-2 pb-2 pt-0.5">
+															<label class="min-w-0 text-[10px] text-text-tertiary"><span>Min</span><input type="number" step={param.kind === "integer" ? "1" : "any"} placeholder={param.min === undefined ? "Any" : String(param.min)} value={constraint.min ?? ""} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} class="mt-1 min-h-7 w-full rounded border border-border-subtle bg-bg-input px-2 text-[11px] text-text-primary outline-none focus:border-brand/45 disabled:opacity-50" oninput={(event) => updateNumericConstraint(model.model, param.name, { ...constraint, min: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></label>
+															<label class="min-w-0 text-[10px] text-text-tertiary"><span>Max</span><input type="number" step={param.kind === "integer" ? "1" : "any"} placeholder={param.max === undefined ? "Any" : String(param.max)} value={constraint.max ?? ""} disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model)} class="mt-1 min-h-7 w-full rounded border border-border-subtle bg-bg-input px-2 text-[11px] text-text-primary outline-none focus:border-brand/45 disabled:opacity-50" oninput={(event) => updateNumericConstraint(model.model, param.name, { ...constraint, max: event.currentTarget.value === "" ? undefined : Number(event.currentTarget.value) })} /></label>
+														</div>
+													{/if}
+												</div>
+											{/each}
+
+											{#each getEnumParameters(model) as param (param.name)}
+												<div class="rounded-[6px] bg-bg-subtle/45">
+													<button type="button" class="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[11px] text-text-secondary transition-colors duration-100 hover:text-text-primary" onclick={() => toggleGenerationParameterExpanded(model.model, param.name)} aria-expanded={isGenerationParameterExpanded(model.model, param.name)}>
+														<ChevronDown class={`h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-100 ${isGenerationParameterExpanded(model.model, param.name) ? "rotate-0" : "-rotate-90"}`} />
+														<span class="min-w-0 flex-1 truncate">{param.name}</span>
+														<span class="shrink-0 text-text-tertiary">{getEnumParameterDetail(model, param.name, param.values)}</span>
+													</button>
+													{#if isGenerationParameterExpanded(model.model, param.name)}
+														<div class="flex flex-wrap gap-1 px-2 pb-2 pt-0.5">
+															{#each param.values as value (String(value))}
+																<label class={`inline-flex min-h-7 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors duration-100 ${selectedGenerationModels.has(model.model) && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)) ? "bg-brand-bg text-brand-muted-fg" : "bg-bg-surface text-text-tertiary hover:text-text-primary"}`}><input type="checkbox" class="h-3 w-3 accent-brand disabled:opacity-35" disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model) || (getSelectedEnumValues(model.model, param.name, param.values).size === 1 && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)))} checked={getSelectedEnumValues(model.model, param.name, param.values).has(String(value))} onchange={(event) => toggleGenerationEnumValue(model.model, param.name, String(value), event.currentTarget.checked)} /><span>{String(value)}</span></label>
+															{/each}
+														</div>
+													{/if}
+												</div>
+											{/each}
+										</div>
+									{/if}
 
 										{#if getEnumParameters(model).length > 0}
 											<div class="mt-2 space-y-1.5 pl-5">
