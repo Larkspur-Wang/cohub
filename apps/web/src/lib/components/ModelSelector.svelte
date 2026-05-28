@@ -178,6 +178,9 @@ function setGenerationMode(mode: "auto" | "limited") {
 }
 
 function toggleGenerationModel(model: string, selected: boolean) {
+	if (generationPolicyMode !== "limited") {
+		setGenerationMode("limited");
+	}
 	onGenerationModelToggle?.(model, selected);
 }
 
@@ -329,14 +332,15 @@ function subsequenceScore(query: string, text: string): number {
 	if (qi < query.length) return 0;
 	return query.length / (query.length + gaps);
 }
+const selectedGenerationCount = $derived(selectedGenerationModels.size);
 </script>
 
-<Dialog {open} {onClose} title="Models" maxWidth="520px">
-	<div class="px-3 pt-3 border-b border-border-subtle">
-		<div class="flex rounded-md bg-bg-subtle p-0.5 text-[12px]">
+<Dialog {open} {onClose} title="Models" maxWidth="540px">
+	<div class="border-b border-border-subtle/70 px-3 py-2">
+		<div class="inline-flex rounded-md bg-bg-subtle/70 p-0.5 text-[12px]">
 			<button
 				type="button"
-				class={`flex-1 rounded px-2 py-1.5 font-medium transition-colors ${activeTab === "chat" ? "bg-bg-surface text-text-primary" : "text-text-tertiary hover:text-text-primary"}`}
+				class={`rounded px-3 py-1.5 font-medium transition-colors duration-100 ${activeTab === "chat" ? "bg-bg-surface text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"}`}
 				onclick={() => {
 					activeTab = "chat";
 					focusSearchInputSoon();
@@ -346,7 +350,7 @@ function subsequenceScore(query: string, text: string): number {
 			</button>
 			<button
 				type="button"
-				class={`flex-1 rounded px-2 py-1.5 font-medium transition-colors ${activeTab === "generation" ? "bg-bg-surface text-text-primary" : "text-text-tertiary hover:text-text-primary"}`}
+				class={`rounded px-3 py-1.5 font-medium transition-colors duration-100 ${activeTab === "generation" ? "bg-bg-surface text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"}`}
 				onclick={() => {
 					activeTab = "generation";
 					onGenerationTabOpen?.();
@@ -358,31 +362,28 @@ function subsequenceScore(query: string, text: string): number {
 	</div>
 
 	{#if activeTab === "chat"}
-		<div class="px-3 pt-3 pb-2 border-b border-border-subtle">
+		<div class="border-b border-border-subtle/70 px-3 py-2">
 			<input
 				bind:this={searchInputEl}
 				data-model-selector-search="true"
 				type="text"
-				placeholder="Search models..."
+				placeholder="Search models"
 				bind:value={searchQuery}
 				onkeydown={handleKeyDown}
-				class="w-full bg-bg-input border border-border-subtle rounded-md px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-placeholder focus:border-brand/40"
+				class="w-full rounded-md border-0 bg-bg-input px-3 py-2 text-[13px] text-text-primary outline-none ring-1 ring-border-subtle placeholder:text-text-placeholder transition-shadow duration-100 focus:ring-brand/45"
 			/>
 		</div>
 
-		<div
-			bind:this={containerEl}
-			class="flex-1 overflow-y-auto"
-		>
+		<div bind:this={containerEl} class="flex-1 overflow-y-auto py-1">
 			{#if filteredModels.length === 0}
-				<div class="px-4 py-6 text-center text-[13px] text-text-tertiary">
+				<div class="px-4 py-8 text-center text-[13px] text-text-tertiary">
 					{searchQuery ? "No matching models" : "No models available"}
 				</div>
 			{:else}
 				{#each filteredModels as item, index (item.provider + "/" + item.id)}
 					<button
 						type="button"
-						class={`w-full text-left px-4 py-2 cursor-pointer border-b border-border-subtle/50 transition-colors ${
+						class={`group relative w-full cursor-pointer px-3 py-1.5 text-left transition-colors duration-100 ${
 							navigationMode === "mouse" ? "hover:bg-bg-hover" : ""
 						} ${index === selectedIndex ? "bg-bg-hover" : ""}`}
 						data-model-item
@@ -395,20 +396,20 @@ function subsequenceScore(query: string, text: string): number {
 						aria-pressed={isCurrentModel(item)}
 						data-selected={index === selectedIndex}
 					>
-						<div class="flex items-center justify-between gap-2">
-							<div class="flex items-center gap-1.5 min-w-0">
-								<span class="text-[13px] font-medium text-text-primary truncate">
+						{#if isCurrentModel(item)}
+							<span class="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-brand"></span>
+						{/if}
+						<div class="flex items-center justify-between gap-3">
+							<div class="flex min-w-0 items-center gap-1.5">
+								<span class="truncate text-[13px] font-medium text-text-primary">
 									{getDisplayName(item)}
 								</span>
 								{#if hasVision(item)}
-									<Image class="w-3.5 h-3.5 text-text-tertiary shrink-0" />
-								{/if}
-								{#if isCurrentModel(item)}
-									<span class="text-status-running shrink-0 text-[12px]">✓</span>
+									<Image class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
 								{/if}
 							</div>
 
-							<span class="text-[11px] text-text-tertiary opacity-60 shrink-0">
+							<span class="shrink-0 text-[11px] text-text-tertiary/70">
 								{item.provider}
 							</span>
 						</div>
@@ -417,56 +418,44 @@ function subsequenceScore(query: string, text: string): number {
 			{/if}
 		</div>
 	{:else}
-		<div class="flex-1 overflow-y-auto px-4 py-3">
-			<div class="space-y-2">
+		<div class="flex-1 overflow-y-auto px-3 py-3">
+			<div class="grid grid-cols-2 gap-1 rounded-md bg-bg-subtle/60 p-1">
 				<button
 					type="button"
-					class={`w-full rounded-md border px-3 py-2 text-left transition-colors ${generationPolicyMode === "auto" ? "border-brand/50 bg-brand-bg" : "border-border-subtle hover:bg-bg-hover"}`}
+					class={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left transition-colors duration-100 ${generationPolicyMode === "auto" ? "bg-bg-surface text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"}`}
 					onclick={() => setGenerationMode("auto")}
 				>
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<div class="text-[13px] font-medium text-text-primary">Auto</div>
-							<div class="mt-0.5 text-[12px] text-text-tertiary">Use any available image or video generation model.</div>
-						</div>
-						<span class="text-[12px] text-brand-muted-fg">{generationPolicyMode === "auto" ? "Active" : ""}</span>
-					</div>
+					<span class="text-[13px] font-medium">Auto</span>
+					{#if generationPolicyMode === "auto"}<span class="h-1.5 w-1.5 rounded-full bg-brand"></span>{/if}
 				</button>
 
 				<button
 					type="button"
-					class={`w-full rounded-md border px-3 py-2 text-left transition-colors ${generationPolicyMode === "limited" ? "border-brand/50 bg-brand-bg" : "border-border-subtle hover:bg-bg-hover"}`}
+					class={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left transition-colors duration-100 ${generationPolicyMode === "limited" ? "bg-bg-surface text-text-primary shadow-sm" : "text-text-tertiary hover:text-text-primary"}`}
 					onclick={() => setGenerationMode("limited")}
 				>
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<div class="text-[13px] font-medium text-text-primary">Limited</div>
-							<div class="mt-0.5 text-[12px] text-text-tertiary">Use selected generation models for this turn.</div>
-						</div>
-						<span class="text-[12px] text-brand-muted-fg">{generationPolicyMode === "limited" ? "Active" : ""}</span>
-					</div>
+					<span class="text-[13px] font-medium">Limited</span>
+					<span class={`text-[11px] ${generationPolicyMode === "limited" ? "text-brand-muted-fg" : "text-text-tertiary"}`}>{selectedGenerationCount}</span>
 				</button>
 			</div>
 
-			<div class="mt-4 flex items-center justify-between gap-3">
-				<div class="text-[11px] font-medium uppercase tracking-wider text-text-tertiary">Generation models</div>
-				<div class="text-[12px] text-text-tertiary">Applies to this turn only.</div>
+			<div class="mt-3 px-1 text-[11px] font-medium uppercase tracking-wider text-text-tertiary">
+				Generation models
 			</div>
 
 			{#if generationModels.length === 0}
-				<div class="mt-3 rounded-md border border-border-subtle px-3 py-4 text-center text-[13px] text-text-tertiary">
+				<div class="mt-2 px-3 py-6 text-center text-[13px] text-text-tertiary">
 					No generation models available
 				</div>
 			{:else}
-				<div class="mt-2 divide-y divide-border-subtle rounded-md border border-border-subtle">
+				<div class="mt-1.5 -mx-3">
 					{#each generationModels as model (model.model)}
-						<div class="px-3 py-2.5 transition-colors hover:bg-bg-hover/50">
-							<div class="flex items-start gap-2">
+						<div class="px-3 py-2 transition-colors duration-100 hover:bg-bg-hover/60">
+							<div class="flex items-start gap-2.5">
 								<input
 									type="checkbox"
 									aria-label={`Use ${getGenerationModelTitle(model)} for this turn`}
 									class="mt-1 h-3.5 w-3.5 accent-brand"
-									disabled={generationPolicyMode !== "limited"}
 									checked={selectedGenerationModels.has(model.model)}
 									onchange={(event) => toggleGenerationModel(model.model, event.currentTarget.checked)}
 								/>
@@ -478,21 +467,21 @@ function subsequenceScore(query: string, text: string): number {
 											onclick={() => toggleGenerationModelExpanded(model.model)}
 											aria-expanded={isGenerationModelExpanded(model.model)}
 										>
-											<div class="flex items-center gap-2">
-												<ChevronDown class={`h-3.5 w-3.5 shrink-0 text-text-tertiary transition-transform ${isGenerationModelExpanded(model.model) ? "rotate-0" : "-rotate-90"}`} />
+											<div class="flex items-center gap-1.5">
+												<ChevronDown class={`h-3.5 w-3.5 shrink-0 text-text-tertiary transition-transform duration-100 ${isGenerationModelExpanded(model.model) ? "rotate-0" : "-rotate-90"}`} />
 												<span class="truncate text-[13px] font-medium text-text-primary">{getGenerationModelTitle(model)}</span>
-												<span class="rounded border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{getGenerationKind(model)}</span>
+												<span class="text-[10px] text-text-tertiary/80">{getGenerationKind(model)}</span>
 											</div>
-											<div class="mt-0.5 truncate pl-5 text-[12px] text-text-tertiary">{model.model}</div>
+											<div class="mt-0.5 truncate pl-5 text-[11px] text-text-tertiary">{model.model}</div>
 										</button>
 										{#if generationPolicyMode === "limited" && selectedGenerationModels.has(model.model)}
-											<span class="mt-0.5 rounded bg-brand-bg px-1.5 py-0.5 text-[10px] font-medium text-brand-muted-fg">Selected</span>
+											<span class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-label="Selected"></span>
 										{/if}
 									</div>
 
 									{#if isGenerationModelExpanded(model.model)}
 										{#if getParameterRows(model).length > 0}
-											<div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 pl-5 text-[11px]">
+											<div class="mt-1.5 grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 pl-5 text-[11px]">
 												{#each getParameterRows(model) as param (param.name)}
 													<span class="truncate text-text-secondary">{param.name}</span>
 													<span class="text-text-tertiary">{param.detail}</span>
@@ -501,19 +490,19 @@ function subsequenceScore(query: string, text: string): number {
 										{/if}
 
 										{#if getEnumParameters(model).length > 0}
-											<div class="mt-2 space-y-2 pl-5">
+											<div class="mt-2 space-y-1.5 pl-5">
 												{#each getEnumParameters(model) as param (param.name)}
-													<div class="rounded-md border border-border-subtle bg-bg-subtle/40 p-2">
-														<div class="mb-1.5 flex items-center justify-between gap-2">
+													<div>
+														<div class="mb-1 flex items-center justify-between gap-2">
 															<div class="text-[11px] font-medium text-text-secondary">{param.name}</div>
 															<div class="text-[10px] text-text-tertiary">Enum</div>
 														</div>
-														<div class="flex flex-wrap gap-1.5">
+														<div class="flex flex-wrap gap-1">
 															{#each param.values as value (String(value))}
-																<label class={`inline-flex items-center gap-1 rounded border px-1.5 py-1 text-[11px] transition-colors ${selectedGenerationModels.has(model.model) && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)) ? "border-brand/40 bg-brand-bg text-brand-muted-fg" : "border-border-subtle bg-bg-surface text-text-tertiary hover:text-text-primary"}`}>
+																<label class={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors duration-100 ${selectedGenerationModels.has(model.model) && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)) ? "bg-brand-bg text-brand-muted-fg" : "bg-bg-subtle/60 text-text-tertiary hover:text-text-primary"}`}>
 																	<input
 																		type="checkbox"
-																		class="h-3 w-3 accent-brand"
+																		class="h-3 w-3 accent-brand disabled:opacity-35"
 																		disabled={generationPolicyMode !== "limited" || !selectedGenerationModels.has(model.model) || (getSelectedEnumValues(model.model, param.name, param.values).size === 1 && getSelectedEnumValues(model.model, param.name, param.values).has(String(value)))}
 																		checked={getSelectedEnumValues(model.model, param.name, param.values).has(String(value))}
 																		onchange={(event) => toggleGenerationEnumValue(model.model, param.name, String(value), event.currentTarget.checked)}

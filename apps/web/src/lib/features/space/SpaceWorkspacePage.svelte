@@ -323,6 +323,11 @@ let selectedGenerationModels = $state<Set<string>>(new Set());
 let generationEnumSelections = $state<
 	Record<string, Record<string, Set<string>>>
 >({});
+type PersistedGenerationPolicy = {
+	mode: "auto" | "limited";
+	models: string[];
+	enumSelections: Record<string, Record<string, string[]>>;
+};
 let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
@@ -1349,6 +1354,9 @@ function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
 function getSessionModelKey(sessionId: string) {
 	return `cohub:model:${sessionId}`;
 }
+function getSessionGenerationPolicyKey(sessionId: string) {
+	return `cohub:generation-policy:${sessionId}`;
+}
 function loadSessionModel(sessionId: string): SelectedModel | null {
 	try {
 		const raw = localStorage.getItem(getSessionModelKey(sessionId));
@@ -1363,6 +1371,82 @@ function saveSessionModel(sessionId: string, model: SelectedModel | null) {
 	} else {
 		localStorage.setItem(getSessionModelKey(sessionId), JSON.stringify(model));
 	}
+}
+function serializeGenerationEnumSelections() {
+	return Object.fromEntries(
+		Object.entries(generationEnumSelections).map(([model, parameters]) => [
+			model,
+			Object.fromEntries(
+				Object.entries(parameters).map(([parameter, values]) => [
+					parameter,
+					[...values],
+				]),
+			),
+		]),
+	);
+}
+function loadSessionGenerationPolicy(
+	sessionId: string,
+): PersistedGenerationPolicy | null {
+	try {
+		const raw = localStorage.getItem(getSessionGenerationPolicyKey(sessionId));
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as Partial<PersistedGenerationPolicy>;
+		return {
+			mode: parsed.mode === "limited" ? "limited" : "auto",
+			models: Array.isArray(parsed.models)
+				? parsed.models.filter(
+						(model): model is string => typeof model === "string",
+					)
+				: [],
+			enumSelections: Object.fromEntries(
+				Object.entries(parsed.enumSelections ?? {}).map(
+					([model, parameters]) => [
+						model,
+						Object.fromEntries(
+							Object.entries(parameters ?? {}).map(([parameter, values]) => [
+								parameter,
+								Array.isArray(values) ? values.map(String) : [],
+							]),
+						),
+					],
+				),
+			),
+		};
+	} catch {
+		return null;
+	}
+}
+function applySessionGenerationPolicy(
+	policy: PersistedGenerationPolicy | null,
+) {
+	generationPolicyMode = policy?.mode ?? "auto";
+	selectedGenerationModels = new Set(policy?.models ?? []);
+	generationEnumSelections = Object.fromEntries(
+		Object.entries(policy?.enumSelections ?? {}).map(([model, parameters]) => [
+			model,
+			Object.fromEntries(
+				Object.entries(parameters).map(([parameter, values]) => [
+					parameter,
+					new Set(values),
+				]),
+			),
+		]),
+	);
+}
+function saveSessionGenerationPolicy(sessionId: string) {
+	localStorage.setItem(
+		getSessionGenerationPolicyKey(sessionId),
+		JSON.stringify({
+			mode: generationPolicyMode,
+			models: [...selectedGenerationModels],
+			enumSelections: serializeGenerationEnumSelections(),
+		} satisfies PersistedGenerationPolicy),
+	);
+}
+function persistActiveSessionGenerationPolicy() {
+	if (!activeSessionId) return;
+	saveSessionGenerationPolicy(activeSessionId);
 }
 function ensureSessionModelLoaded(sessionId: string) {
 	if (sessionModelById[sessionId]) return;
@@ -1454,7 +1538,12 @@ function ensureGenerationModelEnumSelections(modelId: string) {
 		[modelId]: getDefaultGenerationEnumSelections(model),
 	};
 }
+function setGenerationPolicyMode(mode: "auto" | "limited") {
+	generationPolicyMode = mode;
+	persistActiveSessionGenerationPolicy();
+}
 function setGenerationModelSelected(modelId: string, selected: boolean) {
+	if (generationPolicyMode !== "limited") generationPolicyMode = "limited";
 	const nextModels = new Set(selectedGenerationModels);
 	if (selected) {
 		nextModels.add(modelId);
@@ -1465,6 +1554,7 @@ function setGenerationModelSelected(modelId: string, selected: boolean) {
 		generationEnumSelections = rest;
 	}
 	selectedGenerationModels = nextModels;
+	persistActiveSessionGenerationPolicy();
 }
 function setGenerationEnumValueSelected(
 	modelId: string,
@@ -1487,9 +1577,11 @@ function setGenerationEnumValueSelected(
 			[parameter]: nextValues,
 		},
 	};
+	if (generationPolicyMode !== "limited") generationPolicyMode = "limited";
 	if (!selectedGenerationModels.has(modelId)) {
 		selectedGenerationModels = new Set([...selectedGenerationModels, modelId]);
 	}
+	persistActiveSessionGenerationPolicy();
 }
 async function loadPromptTemplates() {
 	if (promptTemplatesLoaded) return;
@@ -1955,6 +2047,7 @@ function prepareRouteSession(sessionId: string) {
 	currentTurnSequence = null;
 	showTurnBottomSheet = false;
 	ensureSessionModelLoaded(sessionId);
+	applySessionGenerationPolicy(loadSessionGenerationPolicy(sessionId));
 	shouldAutoFollow = true;
 	if (!sessionStateById[sessionId]) {
 		sessionStateById = {
@@ -5169,6 +5262,7 @@ function handleCreateNewSession() {
 			seedSessions(nextSessions);
 			activeSessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
+			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
 			updateUrlSession(newSession.id);
 			// New session has no turns yet — skip the unnecessary listPaginated call
 			sessionStateById = {
@@ -8095,7 +8189,7 @@ $effect(() => {
     {selectedGenerationModels}
     {generationEnumSelections}
     onGenerationTabOpen={() => { void loadGenerationModelsCatalog(); }}
-    onGenerationPolicyModeChange={(mode) => { generationPolicyMode = mode; }}
+    onGenerationPolicyModeChange={setGenerationPolicyMode}
     onGenerationModelToggle={setGenerationModelSelected}
     onGenerationEnumValueToggle={setGenerationEnumValueSelected}
   />
