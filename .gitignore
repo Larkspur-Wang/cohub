@@ -5,6 +5,7 @@ dist/
 .pnpm-store/
 configs/
 .idea/
+output/
 
 # Local rendered manifests (do not commit)
 rendered/
