@@ -8,6 +8,7 @@ import { renderSandboxPodTemplate } from "./sandbox-template.js";
 import { deleteSandboxPublicNetwork, getSandboxPublicEndpoints, reconcileSandboxPublicNetwork } from "./sandbox-public-network.js";
 import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
 import { redisCommandClient } from "./redis.js";
+import { publishSandboxLifecycleEvent } from "./sandbox-events.js";
 import type { SpaceSandboxRuntimeStatus, SpaceSandboxStatus, SpaceSandboxStopReason } from "./lib/sandbox/types.js";
 import { smokeVerifySandboxPod } from "./lib/sandbox/recovery.js";
 import type { V1Pod } from "@kubernetes/client-node";
@@ -298,6 +299,19 @@ export const reconcileSpaceSandbox = async (input: {
   const existingMeta = asMetaObject(existingSandbox?.meta);
 
   if (input.mode === "replace") {
+    const generation = new Date().toISOString();
+    await publishSandboxLifecycleEvent({
+      type: "sandbox.replacing",
+      spaceId: input.spaceId,
+      reason: input.reason,
+      source: "api",
+      generation,
+      podName: existingSandbox?.podName ?? podName,
+      podIp: typeof existingMeta.podIp === "string" ? existingMeta.podIp : null,
+    }).catch((error) => {
+      console.warn(`[SandboxEvents] failed to publish replacing event spaceId=${input.spaceId}:`, error);
+    });
+
     const podToReplace = existingSandbox?.podName ?? podName;
     try {
       await k8sCoreApi.deleteNamespacedPod({
@@ -392,6 +406,7 @@ export const reconcileSpaceSandbox = async (input: {
 
   await tryCreatePod(input.spaceId, pod);
 
+  const provisionedAt = new Date().toISOString();
   await updateSpaceSandbox({
     spaceId: input.spaceId,
     status: "provisioning",
@@ -407,7 +422,7 @@ export const reconcileSpaceSandbox = async (input: {
         mountPath: mod.mountPath,
         name: mod.name ?? mod.modSpaceName,
       })),
-      lastProvisionedAt: new Date().toISOString(),
+      lastProvisionedAt: provisionedAt,
     },
   });
 

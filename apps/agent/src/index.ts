@@ -19,7 +19,9 @@ import { closeDb } from "./db.js";
 import { closeOwnershipRedis } from "./ownership.js";
 import { closeRedisConnections } from "./redis.js";
 import { logger } from "./logger.js";
-import { closeSandboxPool } from "./sandbox-pool.js";
+import { invalidateSandboxConnection, closeSandboxPool } from "./sandbox-pool.js";
+import { closeSandboxLifecycleEventSubscriber, subscribeSandboxLifecycleEvents } from "./sandbox-events.js";
+import { SandboxRpcError } from "./sandbox/rpc-error.js";
 
 export const __test = {
   runInSessionOperation: async <T>(_handle: unknown, fn: () => Promise<T>) => fn(),
@@ -65,6 +67,36 @@ attachWorkerEventLogger(worker, {
   },
 });
 
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  return error;
+}
+
+function isKnownNonFatalError(error: unknown) {
+  return error instanceof SandboxRpcError || (
+    error instanceof Error &&
+    error.name === "SandboxRpcError" &&
+    (error as { toolCallError?: unknown }).toolCallError === true
+  );
+}
+
+process.on("unhandledRejection", (reason) => {
+  logger.error("[AgentWorker] unhandled rejection", { reason: serializeError(reason) });
+  if (isKnownNonFatalError(reason)) return;
+  void shutdown("unhandledRejection", { exitCode: 1 });
+});
+
+process.on("uncaughtException", (error) => {
+  logger.error("[AgentWorker] uncaught exception", { error: serializeError(error) });
+  void shutdown("uncaughtException", { exitCode: 1 });
+});
+
 await subscribeAbortEvents((event) => {
   const controller = getActiveAbortController(event.turnId);
   if (!controller) {
@@ -79,12 +111,25 @@ await subscribeAbortEvents((event) => {
   controller.abort();
 });
 
+await subscribeSandboxLifecycleEvents((event) => {
+  invalidateSandboxConnection(event.spaceId, `sandbox replacing: ${event.reason}`);
+  logger.info("[SandboxEvents] invalidated sandbox connection", {
+    spaceId: event.spaceId,
+    reason: event.reason,
+    generation: event.generation,
+  });
+}).catch((error) => {
+  logger.error("[SandboxEvents] failed to subscribe; continuing without proactive sandbox invalidation", {
+    error: serializeError(error),
+  });
+});
+
 console.log("[AgentWorker] Starting BullMQ agent worker...");
 console.log("[AgentWorker] Queue:", AGENT_TURN_QUEUE_NAME);
 console.log("[AgentWorker] Concurrency:", env.AGENT_WORKER_CONCURRENCY);
 
 let shuttingDown = false;
-async function shutdown(signal: string) {
+async function shutdown(signal: string, options?: { exitCode?: number }) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[AgentWorker] Received ${signal}, draining...`);
@@ -96,11 +141,12 @@ async function shutdown(signal: string) {
   await disposeAllSessionHandles();
   closeSandboxPool();
   await closeAbortSubscriber().catch(() => undefined);
+  await closeSandboxLifecycleEventSubscriber().catch(() => undefined);
   await closeOwnershipRedis().catch(() => undefined);
   await closeRedisConnections().catch(() => undefined);
   await closeDb().catch(() => undefined);
   await connection.quit().catch(() => undefined);
-  process.exit(0);
+  process.exit(options?.exitCode ?? 0);
 }
 
 process.on("SIGTERM", () => void shutdown("SIGTERM"));

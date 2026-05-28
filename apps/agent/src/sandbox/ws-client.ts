@@ -70,6 +70,21 @@ function formatDiagnostics(diagnostics: SandboxRpcDiagnostics | undefined) {
     .join(" ");
 }
 
+function isRefreshableConnectionError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const text = message.toLowerCase();
+  return [
+    "ehostunreach",
+    "econnrefused",
+    "etimedout",
+    "enetunreach",
+    "econnreset",
+    "socket hang up",
+    "websocket closed before attach",
+    "closed before attach",
+  ].some((pattern) => text.includes(pattern));
+}
+
 type PendingOperation = {
   requestId: string;
   method: string;
@@ -87,6 +102,7 @@ type SandboxStatusHooks = {
   onHeartbeat?: (message: SandboxHeartbeat) => void | Promise<void>;
   onDisconnected?: (input: { spaceId: string; reason?: string }) => void | Promise<void>;
   onConnectionError?: (input: { spaceId: string; error: Error }) => void | Promise<void>;
+  onRefreshWsUrl?: (input: { spaceId: string; currentWsUrl: string; error?: Error }) => string | null | Promise<string | null>;
 };
 
 type SandboxClientRegistration = {
@@ -415,6 +431,7 @@ export function hasPendingSandboxRequests(spaceId: string) {
 
 async function runLoop(registration: SandboxClientRegistration) {
   let attempt = 0;
+  let lastRefreshAt = 0;
 
   for (;;) {
     if (!registration.started) return;
@@ -429,6 +446,25 @@ async function runLoop(registration: SandboxClientRegistration) {
           spaceId: registration.spaceId,
           error,
         }));
+      }
+
+      const now = Date.now();
+      if (isRefreshableConnectionError(error) && now - lastRefreshAt >= 2_000) {
+        lastRefreshAt = now;
+        const currentWsUrl = registration.wsUrl;
+        const nextWsUrl = await Promise.resolve(registration.hooks?.onRefreshWsUrl?.({
+          spaceId: registration.spaceId,
+          currentWsUrl,
+          error: error instanceof Error ? error : new Error(String(error)),
+        })).catch((refreshError) => {
+          console.warn(`[SandboxWS] wsUrl refresh failed spaceId=${registration.spaceId}:`, refreshError);
+          return null;
+        });
+        if (nextWsUrl && nextWsUrl !== currentWsUrl) {
+          registration.wsUrl = nextWsUrl;
+          attempt = 0;
+          logger.warn(`[SandboxWS] refreshed wsUrl spaceId=${registration.spaceId} oldHash=${hashString(currentWsUrl)} newHash=${hashString(nextWsUrl)}`);
+        }
       }
     }
 

@@ -645,7 +645,7 @@ function createRemoteGrepTool() {
       const onAbort = () => {
         aborted = true;
         if (activeProcessId) {
-          void tracedRpcAbortProcess(activeProcessId);
+          void tracedRpcAbortProcess(activeProcessId).catch(() => undefined);
         }
       };
       if (signal) {
@@ -676,7 +676,7 @@ function createRemoteGrepTool() {
               if (event.type === "started") {
                 activeProcessId = event.processId;
                 if (aborted) {
-                  void tracedRpcAbortProcess(event.processId);
+                  void tracedRpcAbortProcess(event.processId).catch(() => undefined);
                 }
               }
             },

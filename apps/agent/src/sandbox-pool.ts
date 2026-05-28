@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
 import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import { getSpaceSandbox, recoverSpaceSandbox } from "./api.js";
@@ -18,6 +19,10 @@ const MAX_CONNECTIONS = Number(process.env.AGENT_SANDBOX_MAX_CONNECTIONS_PER_WOR
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
 type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
+
+function hashLogValue(value: string) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
 
 type PoolEntry = {
   spaceId: string;
@@ -120,11 +125,21 @@ function resolveSandboxWsUrlOnce(spaceId: string) {
   return promise;
 }
 
+async function refreshSandboxWsUrl(spaceId: string) {
+  wsUrlResolutions.delete(spaceId);
+  return resolveSandboxWsUrlOnce(spaceId);
+}
+
 function disconnectEntry(spaceId: string, reason: string) {
   const entry = entries.get(spaceId);
   if (entry?.idleTimer) clearTimeout(entry.idleTimer);
   entries.delete(spaceId);
   disconnectSandboxWsClient(spaceId, reason);
+}
+
+export function invalidateSandboxConnection(spaceId: string, reason: string) {
+  disconnectEntry(spaceId, reason);
+  wsUrlResolutions.delete(spaceId);
 }
 
 function scheduleIdleEviction(entry: PoolEntry) {
@@ -172,6 +187,13 @@ export async function ensureSandboxConnection(spaceId: string, options?: { timeo
         status: "provisioning",
         reason: error.message,
       }),
+      onRefreshWsUrl: async ({ currentWsUrl, error }) => {
+        const nextWsUrl = await refreshSandboxWsUrl(spaceId);
+        if (nextWsUrl !== currentWsUrl) {
+          console.warn(`[SandboxPool] refreshed sandbox wsUrl spaceId=${spaceId} oldHash=${hashLogValue(currentWsUrl)} newHash=${hashLogValue(nextWsUrl)} reason=${error?.message ?? "unknown"}`);
+        }
+        return nextWsUrl;
+      },
     },
   });
   const connection = await waitForSandboxConnection(spaceId, options?.timeoutMs);
