@@ -14,6 +14,7 @@ import {
 } from "./space-fs-cdn-cache.js";
 import { FS_CDN_READ_MANY_WAIT_TIMEOUT_MS, FS_CDN_READ_WAIT_TIMEOUT_MS } from "./space-fs-cdn-constants.js";
 import { config } from "./config.js";
+import { createSpaceGitignoreFilter, type SpaceFsVisibility } from "./space-fs-ignore.js";
 import type {
   SpaceFsEntry,
   SpaceFsFileResponse,
@@ -173,12 +174,31 @@ export function assertInsideRoot(target: string, root: string) {
   throw new SpaceFsError(400, "path_invalid", "Invalid path.");
 }
 
-async function resolveTarget(spaceId: string, inputPath: string, options?: { allowEmpty?: boolean }) {
+async function resolveTarget(
+  spaceId: string,
+  inputPath: string,
+  options?: { allowEmpty?: boolean },
+) {
   const safePath = assertSafeRelativePath(inputPath, { allowEmpty: options?.allowEmpty });
   const { rootReal } = await resolveSpaceRealRoot(spaceId);
   const target = resolve(rootReal, safePath);
   assertInsideRoot(target, rootReal);
   return { root: rootReal, target, relativePath: safePath };
+}
+
+async function assertVisiblePath(
+  filter: Awaited<ReturnType<typeof createSpaceGitignoreFilter>> | null,
+  relativePath: string,
+  options?: { isDirectory?: boolean },
+) {
+  if (!filter || !relativePath) return;
+  if (filter.isIgnored(relativePath, options)) {
+    throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
+  }
+}
+
+async function createVisibilityFilter(root: string, visibility: SpaceFsVisibility) {
+  return visibility === "filtered" ? await createSpaceGitignoreFilter(root) : null;
 }
 
 function toRelativePath(root: string, absPath: string) {
@@ -204,7 +224,12 @@ async function toEntry(root: string, absPath: string, name: string): Promise<Spa
   };
 }
 
-export async function listSpaceDirectory(spaceId: string, path = ""): Promise<SpaceFsTreeResponse> {
+export async function listSpaceDirectory(
+  spaceId: string,
+  path = "",
+  options?: { visibility?: SpaceFsVisibility },
+): Promise<SpaceFsTreeResponse> {
+  const visibility = options?.visibility ?? "full";
   const { root, target, relativePath } = await resolveTarget(spaceId, path, { allowEmpty: true });
   let targetStats: Stats;
   try {
@@ -212,30 +237,52 @@ export async function listSpaceDirectory(spaceId: string, path = ""): Promise<Sp
   } catch {
     throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
   }
+  const filter = await createVisibilityFilter(root, visibility);
+  await assertVisiblePath(filter, relativePath, { isDirectory: targetStats.isDirectory() });
   if (!targetStats.isDirectory() || targetStats.isSymbolicLink()) {
     throw new SpaceFsError(400, "not_a_directory", "The selected path is not a directory.");
   }
 
   const names = await readdir(target);
-  const limitedNames = names.slice(0, MAX_DIR_ENTRIES);
-  const entries = await Promise.all(limitedNames.map((name) => toEntry(root, join(target, name), name)));
+  const entries = await Promise.all(
+    names.slice(0, MAX_DIR_ENTRIES).map(async (name) => {
+      const absPath = join(target, name);
+      try {
+        const entry = await toEntry(root, absPath, name);
+        return filter?.isIgnored(entry.path, { isDirectory: entry.type === "dir" }) ? null : entry;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code;
+        if (code === "ENOENT") return null;
+        throw error;
+      }
+    }),
+  );
 
-  entries.sort((a: SpaceFsEntry, b: SpaceFsEntry) => {
+  const visibleEntries = entries.filter((entry): entry is SpaceFsEntry => entry !== null);
+
+  visibleEntries.sort((a: SpaceFsEntry, b: SpaceFsEntry) => {
     const typeRank = (item: SpaceFsEntry) => item.type === "dir" ? 0 : item.type === "symlink" ? 1 : 2;
     return typeRank(a) - typeRank(b) || a.name.localeCompare(b.name);
   });
 
-  return { path: relativePath, entries };
+  return { path: relativePath, entries: visibleEntries };
 }
 
-async function readSpaceFileMetadata(spaceId: string, path: string, options?: { enforcePreviewLimit?: boolean }) {
-  const { target, relativePath } = await resolveTarget(spaceId, path);
+async function readSpaceFileMetadata(
+  spaceId: string,
+  path: string,
+  options?: { enforcePreviewLimit?: boolean; visibility?: SpaceFsVisibility },
+) {
+  const { root, target, relativePath } = await resolveTarget(spaceId, path);
   let stats: Stats;
   try {
     stats = await lstat(target);
   } catch {
     throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
   }
+  await assertVisiblePath(await createVisibilityFilter(root, options?.visibility ?? "full"), relativePath, {
+    isDirectory: stats.isDirectory(),
+  });
   if (stats.isSymbolicLink()) throw new SpaceFsError(400, "symlink_not_supported", "Symlink preview is not supported.");
   if (!stats.isFile()) throw new SpaceFsError(400, "not_a_file", "The selected path is not a file.");
   if (options?.enforcePreviewLimit !== false && stats.size > MAX_FILE_BYTES) {
@@ -292,8 +339,15 @@ function toInlineFileResponse(target: string, relativePath: string, stats: Stats
   };
 }
 
-export async function readSpaceFile(spaceId: string, path: string): Promise<SpaceFsFileResponse | SpaceFsPreparingFile> {
-  const { target, relativePath, stats } = await readSpaceFileMetadata(spaceId, path, { enforcePreviewLimit: false });
+export async function readSpaceFile(
+  spaceId: string,
+  path: string,
+  options?: { visibility?: SpaceFsVisibility },
+): Promise<SpaceFsFileResponse | SpaceFsPreparingFile> {
+  const { target, relativePath, stats } = await readSpaceFileMetadata(spaceId, path, {
+    enforcePreviewLimit: false,
+    visibility: options?.visibility,
+  });
   const mimeType = getMimeType(target);
   const cdnMeta = toFsCdnMeta(spaceId, target, relativePath, stats, mimeType);
   if (shouldUseFsCdnForMeta(cdnMeta)) {
@@ -309,7 +363,11 @@ export async function readSpaceFile(spaceId: string, path: string): Promise<Spac
   return toInlineFileResponse(target, relativePath, stats, buffer, mimeType);
 }
 
-export async function readSpaceFiles(spaceId: string, paths: string[]): Promise<SpaceFsReadFilesResponse> {
+export async function readSpaceFiles(
+  spaceId: string,
+  paths: string[],
+  options?: { visibility?: SpaceFsVisibility },
+): Promise<SpaceFsReadFilesResponse> {
   if (paths.length === 0) throw new SpaceFsError(400, "paths_required", "paths are required.");
   if (paths.length > MAX_BATCH_READ_FILES) {
     throw new SpaceFsError(413, "too_many_files", `Cannot read more than ${MAX_BATCH_READ_FILES} files at once.`);
@@ -323,7 +381,14 @@ export async function readSpaceFiles(spaceId: string, paths: string[]): Promise<
 
   const metadataResults = await mapWithConcurrency(paths, MAX_BATCH_READ_CONCURRENCY, async (path) => {
     try {
-      return { ok: true as const, path, metadata: await readSpaceFileMetadata(spaceId, path, { enforcePreviewLimit: false }) };
+      return {
+        ok: true as const,
+        path,
+        metadata: await readSpaceFileMetadata(spaceId, path, {
+          enforcePreviewLimit: false,
+          visibility: options?.visibility,
+        }),
+      };
     } catch (error) {
       return { ok: false as const, path, error: toReadFilesError(path, error) };
     }
@@ -390,14 +455,21 @@ export async function readSpaceFiles(spaceId: string, paths: string[]): Promise<
   return { files, preparing, errors };
 }
 
-export async function streamSpaceFile(spaceId: string, path: string): Promise<{ path: string; name: string; size: number; mimeType: string | null; mtimeMs: number; target: string; }> {
-  const { target, relativePath } = await resolveTarget(spaceId, path);
+export async function streamSpaceFile(
+  spaceId: string,
+  path: string,
+  options?: { visibility?: SpaceFsVisibility },
+): Promise<{ path: string; name: string; size: number; mimeType: string | null; mtimeMs: number; target: string; }> {
+  const { root, target, relativePath } = await resolveTarget(spaceId, path);
   let stats: Stats;
   try {
     stats = await lstat(target);
   } catch {
     throw new SpaceFsError(404, "path_not_found", "File or directory not found.");
   }
+  await assertVisiblePath(await createVisibilityFilter(root, options?.visibility ?? "full"), relativePath, {
+    isDirectory: stats.isDirectory(),
+  });
   if (!stats.isFile() || stats.isSymbolicLink()) throw new SpaceFsError(400, "not_a_file", "The selected path is not a file.");
   return { path: relativePath, name: basename(target), size: stats.size, mimeType: getMimeType(target), mtimeMs: stats.mtimeMs, target };
 }

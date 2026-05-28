@@ -699,35 +699,39 @@ export type SpaceModListItem = {
   modSpaceDescription: string | null;
 };
 
-export type ExploreSpaceItem = {
-  space: SpaceRecord;
-  ownerProfile: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
-  accessAudience: "anonymous" | "signed_in";
-  explore: {
-    rank: number;
-    category: string | null;
-    label: string | null;
-  };
-  latestCheckpoints: CheckpointRecord[];
-  stats: {
-    pinnedCount: number;
-    checkpointCount: number;
-    forkCount: number;
-  };
-  sandboxStatus: string | null;
+export type PublicExploreSpace = {
+  id: string;
+  slug: string | null;
+  title: string;
+  summary: string | null;
+  spaceUrl: string;
+  coverUrl: string | null;
+  coverAlt: string | null;
+  ownerDisplayName: string | null;
+  ownerAvatarUrl: string | null;
+  category: string | null;
+  tags: string[];
+  skillCount: number;
+  assetCount: number;
+  forkCount: number;
+  updatedAt: string | null;
+  accessLabel: "public" | "sign-in-required" | "unknown";
+  latestSignal: string | null;
 };
+
+export type ExploreSpaceItem = PublicExploreSpace;
 
 export type ExploreSection = {
   key: string;
   title: string | null;
   subtitle: string | null;
   description: string | null;
-  spaces: ExploreSpaceItem[];
+  spaces: PublicExploreSpace[];
 };
 
 export type ExploreSpacesResponse = {
   sections: ExploreSection[];
-  spaces: ExploreSpaceItem[];
+  spaces: PublicExploreSpace[];
 };
 
 export type Permission =
@@ -739,6 +743,7 @@ export type Permission =
   | "session.prompt.readonly"
   | "session.prompt.fullaccess"
   | "file.view"
+  | "file.view.filtered"
   | "file.edit"
   | "checkpoint.view"
   | "checkpoint.edit"

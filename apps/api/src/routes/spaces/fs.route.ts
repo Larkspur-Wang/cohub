@@ -18,6 +18,7 @@ import {
   writeSpaceFile,
 } from "../../space-fs.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
+import type { SpaceFsVisibility } from "../../space-fs-ignore.js";
 import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
@@ -83,15 +84,22 @@ const buildUploadDestinationRoot = (destination: SpaceUploadDestination, uploadI
   return destination.targetDir ? `/workspace/${destination.targetDir}` : "/workspace";
 };
 
+async function resolveFileViewVisibility(user: ReturnType<typeof getOptionalAuth>, spaceId: string): Promise<SpaceFsVisibility | null> {
+  if (await hasPermission(user, "file.view", { spaceId })) return "full";
+  if (await hasPermission(user, "file.view.filtered", { spaceId })) return "filtered";
+  return null;
+}
+
 router.get("/tree", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  const visibility = await resolveFileViewVisibility(user, spaceId);
+  if (!visibility) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   try {
-    return c.json(await listSpaceDirectory(spaceId, path));
+    return c.json(await listSpaceDirectory(spaceId, path, { visibility }));
   } catch (error) {
     const { status, body } = spaceFsJsonError(error);
     return c.json(body, status as never);
@@ -102,11 +110,12 @@ router.get("/file", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  const visibility = await resolveFileViewVisibility(user, spaceId);
+  if (!visibility) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   try {
-    const result = await readSpaceFile(spaceId, path);
+    const result = await readSpaceFile(spaceId, path, { visibility });
     if (!("content" in result)) return c.json(result, 202);
     return c.json(result);
   } catch (error) {
@@ -119,12 +128,13 @@ router.post("/files", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  const visibility = await resolveFileViewVisibility(user, spaceId);
+  if (!visibility) return authzDenied(c);
 
   const body = await c.req.json<{ paths: string[] }>().catch(() => null);
   if (!Array.isArray(body?.paths)) return c.json({ message: "paths are required" }, 400);
   try {
-    return c.json(await readSpaceFiles(spaceId, body.paths));
+    return c.json(await readSpaceFiles(spaceId, body.paths, { visibility }));
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
     return c.json(errBody, status as never);
@@ -224,11 +234,12 @@ router.get("/download", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  const visibility = await resolveFileViewVisibility(user, spaceId);
+  if (!visibility) return authzDenied(c);
 
   const path = c.req.query("path") ?? "";
   try {
-    const info = await streamSpaceFile(spaceId, path);
+    const info = await streamSpaceFile(spaceId, path, { visibility });
     const meta = {
       spaceId,
       path: info.path,

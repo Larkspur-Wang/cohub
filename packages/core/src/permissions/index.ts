@@ -13,6 +13,7 @@ export const ALL_PERMISSIONS = [
   "session.prompt.readonly",
   "session.prompt.fullaccess",
   "file.view",
+  "file.view.filtered",
   "file.edit",
   "checkpoint.view",
   "checkpoint.edit",
@@ -104,7 +105,7 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "space.view",
     "session.view",
     "session.prompt.readonly",
-    "file.view",
+    "file.view.filtered",
     "checkpoint.view",
   ]),
 };
@@ -151,6 +152,9 @@ export const roleHasPermission = (role: SpaceRole, permission: Permission) => {
   const permissions = ROLE_PERMISSIONS[role];
   if (!permissions) return false;
   if (permission === "session.prompt.readonly" && permissions.has("session.prompt.fullaccess")) {
+    return true;
+  }
+  if (permission === "file.view.filtered" && permissions.has("file.view")) {
     return true;
   }
   return permissions.has(permission);
