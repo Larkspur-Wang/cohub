@@ -50,6 +50,12 @@ type ManagedProcess struct {
 	stopRequested bool
 }
 
+type ExitInfo struct {
+	ExitCode    *int
+	Reason      string
+	TimeoutSecs int
+}
+
 type Stats struct {
 	ActiveProcesses        int   `json:"activeProcesses"`
 	StartedTotal           int64 `json:"startedTotal"`
@@ -82,7 +88,7 @@ func NewManager(logger *slog.Logger) *Manager {
 	}
 }
 
-func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeoutSecs int, extraEnv map[string]string) (string, io.ReadCloser, io.ReadCloser, <-chan *int, error) {
+func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeoutSecs int, extraEnv map[string]string) (string, io.ReadCloser, io.ReadCloser, <-chan ExitInfo, error) {
 	ctx := context.Background()
 	var cancel context.CancelFunc
 	if timeoutSecs > 0 {
@@ -173,7 +179,7 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 		}
 	}()
 
-	exitCh := make(chan *int, 1)
+	exitCh := make(chan ExitInfo, 1)
 	go func() {
 		defer close(exitCh)
 		err := cmd.Wait()
@@ -195,7 +201,11 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 		m.mu.Unlock()
 		m.completedTotal.Add(1)
 		cancel()
-		exitCh <- exitCode
+		reason, stopped := managed.stopState()
+		if !stopped || reason == "" {
+			reason = "exited"
+		}
+		exitCh <- ExitInfo{ExitCode: exitCode, Reason: reason, TimeoutSecs: timeoutSecs}
 	}()
 
 	return processID, stdout, stderr, exitCh, nil

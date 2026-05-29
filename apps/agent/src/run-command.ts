@@ -4,6 +4,7 @@ import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";
 import {
   buildRunCommandToolContent,
   buildRunCommandRunningProgress,
+  type RunCommandTermination,
   RUN_COMMAND_TIMEOUT_SECONDS,
   RUN_COMMAND_TOOL_NAME,
 } from "@cohub/core/commands";
@@ -35,6 +36,25 @@ function getExitCode(result: unknown) {
   return typeof exitCode === "number" ? exitCode : null;
 }
 
+function getTermination(result: unknown): RunCommandTermination | null {
+  if (!result || typeof result !== "object") return null;
+  const details = (result as { details?: unknown }).details;
+  if (!details || typeof details !== "object") return null;
+  const termination = (details as { termination?: unknown }).termination;
+  if (!termination || typeof termination !== "object" || Array.isArray(termination)) return null;
+  const reason = (termination as { reason?: unknown }).reason;
+  if (reason !== "exited" && reason !== "timed_out" && reason !== "aborted") return null;
+  const exitCode = (termination as { exitCode?: unknown }).exitCode;
+  const timeoutSecs = (termination as { timeoutSecs?: unknown }).timeoutSecs;
+  const message = (termination as { message?: unknown }).message;
+  return {
+    reason: reason as RunCommandTermination["reason"],
+    exitCode: typeof exitCode === "number" ? exitCode : null,
+    ...(typeof timeoutSecs === "number" ? { timeoutSecs } : {}),
+    ...(typeof message === "string" ? { message } : {}),
+  };
+}
+
 function getOutputTruncation(result: unknown) {
   if (!result || typeof result !== "object") return false;
   const details = (result as { details?: unknown }).details;
@@ -64,7 +84,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
   let lastProgressSignature = "";
 
   const startAt = Date.now();
-  const pushProgress = async (phase: "queued" | "running", done = false, exitCode: number | null = null, durationMs = 0): Promise<void> => {
+  const pushProgress = async (phase: "queued" | "running", done = false, exitCode: number | null = null, durationMs = 0, termination?: RunCommandTermination | null): Promise<void> => {
     const progress = done
       ? {
           kind: "run_command" as const,
@@ -76,6 +96,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
             output: latestOutput,
             status: "done",
             exitCode,
+            termination,
             durationMs,
           }),
         }
@@ -114,7 +135,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
         toolCallId,
         { command: data.command, timeout: RUN_COMMAND_TIMEOUT_SECONDS } as never,
         undefined,
-        (partial) => {
+        (partial: unknown) => {
           const text = extractToolResultText(partial);
           if (text) latestOutput = text;
           void pushProgress("running");
@@ -126,6 +147,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       }
       latestOutput = extractToolResultText(result) || latestOutput;
       const exitCode = getExitCode(result);
+      const termination = getTermination(result) ?? { reason: "exited" as const, exitCode };
       const truncated = getOutputTruncation(result);
       const durationMs = Date.now() - startAt;
       const content = buildRunCommandToolContent({
@@ -135,12 +157,14 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
         output: latestOutput,
         status: "done",
         exitCode,
+        termination,
         durationMs,
       });
-      await pushProgress("running", true, exitCode, durationMs);
+      await pushProgress("running", true, exitCode, durationMs, termination);
       return {
         ok: true,
         exitCode,
+        termination,
         durationMs,
         output: latestOutput,
         truncated,

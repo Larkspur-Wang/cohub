@@ -272,9 +272,19 @@ export type ProcessStartParams = {
   env?: Record<string, string>;
 };
 
+export type ProcessTerminationReason = "exited" | "timed_out" | "aborted";
+
+export type ProcessTermination = {
+  reason: ProcessTerminationReason;
+  exitCode: number | null;
+  timeoutSecs?: number;
+  message?: string;
+};
+
 export type ProcessStartResult = {
   processId: string;
   exitCode: number | null;
+  termination?: ProcessTermination;
 };
 
 export type ProcessAbortParams = {
@@ -336,7 +346,7 @@ export type RpcEventPayload =
   | { type: "started"; processId: string }
   | { type: "stdout"; chunk: string }
   | { type: "stderr"; chunk: string }
-  | { type: "exit"; exitCode: number | null };
+  | { type: "exit"; exitCode: number | null; termination?: ProcessTermination };
 
 export type RpcEvent = OperationScopedMessage & {
   type: "rpc.event";

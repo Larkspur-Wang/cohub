@@ -148,10 +148,14 @@ function formatShellCommandResultForLlm(input: {
   output: string;
   exitCode?: number | null;
   cancelled?: boolean;
+  timedOut?: boolean;
+  timeoutSecs?: number | null;
 }) {
   let text = `Ran \`${input.command}\``;
   text += input.output ? `\n\`\`\`\n${input.output}\n\`\`\`` : "\n(no output)";
-  if (input.cancelled) {
+  if (input.timedOut) {
+    text += `\n\n(command timed out${input.timeoutSecs ? ` after ${input.timeoutSecs}s` : ""})`;
+  } else if (input.cancelled) {
     text += "\n\n(command cancelled)";
   } else if (input.exitCode != null && input.exitCode !== 0) {
     text += `\n\nCommand exited with code ${input.exitCode}`;
@@ -338,6 +342,8 @@ async function runDirectShellCommandTurn(input: {
 
     let exitCode: number | null | undefined;
     let cancelled = false;
+    let timedOut = false;
+    let termination: Record<string, unknown> | null = null;
     let truncated = false;
     let executionFailed = false;
     let errorMessage: string | null = null;
@@ -369,6 +375,11 @@ async function runDirectShellCommandTurn(input: {
       latestOutput = extractToolResultText(result);
       const details = result && typeof result === "object" ? (result as unknown as Record<string, unknown>).details as Record<string, unknown> | undefined : undefined;
       exitCode = typeof details?.exitCode === "number" ? details.exitCode : null;
+      termination = details?.termination && typeof details.termination === "object" && !Array.isArray(details.termination)
+        ? details.termination as Record<string, unknown>
+        : null;
+      timedOut = termination?.reason === "timed_out";
+      cancelled = termination?.reason === "aborted" || abortController.signal.aborted;
       truncated = Boolean(details?.truncation);
     } catch (error) {
       executionFailed = true;
@@ -381,7 +392,7 @@ async function runDirectShellCommandTurn(input: {
       }
     }
 
-    const isError = executionFailed || cancelled || (exitCode != null && exitCode !== 0);
+    const isError = executionFailed || cancelled || timedOut || (exitCode != null && exitCode !== 0);
     const toolCompletedAt = new Date().toISOString();
     const toolDurationMs = Math.max(0, new Date(toolCompletedAt).getTime() - new Date(toolStartedAt).getTime());
     const toolTiming = { startedAt: toolStartedAt, completedAt: toolCompletedAt, durationMs: toolDurationMs };
@@ -400,6 +411,8 @@ async function runDirectShellCommandTurn(input: {
         partial: false,
         toolStatus: isError ? "failed" : "done",
         exitCode: exitCode ?? null,
+        termination,
+        timedOut,
         cancelled,
         truncated,
         executionFailed,
@@ -426,6 +439,8 @@ async function runDirectShellCommandTurn(input: {
         command: input.command,
         rawText: input.rawText,
         exitCode: exitCode ?? null,
+        termination,
+        timedOut,
         cancelled,
         truncated,
         executionFailed,
@@ -435,6 +450,8 @@ async function runDirectShellCommandTurn(input: {
           output: latestOutput,
           exitCode,
           cancelled,
+          timedOut,
+          timeoutSecs: typeof termination?.timeoutSecs === "number" ? termination.timeoutSecs : null,
         }),
       },
     } as never;

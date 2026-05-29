@@ -581,20 +581,50 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string
 		})
 	}()
 	go func() {
-		exitCode := <-exitCh
+		exitInfo := <-exitCh
+		termination := processTermination(exitInfo)
 		codeStr := "unknown"
-		if exitCode != nil {
-			codeStr = fmt.Sprintf("%d", *exitCode)
+		if exitInfo.ExitCode != nil {
+			codeStr = fmt.Sprintf("%d", *exitInfo.ExitCode)
 		}
-		d.logger.Info("process:exit", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("exitCode", codeStr), slog.String("cmd", cmdSummary))
-		_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "exit", ExitCode: exitCode}))
+		d.logger.Info("process:exit", slog.String("processId", processID), slog.String("ownerIdentity", ownerIdentity), slog.String("exitCode", codeStr), slog.String("reason", termination.Reason), slog.String("cmd", cmdSummary))
+		_ = d.sendEventToIdentity(ownerIdentity, d.event(request, opID, protocol.RPCEventPayload{Type: "exit", ExitCode: exitInfo.ExitCode, Termination: termination}))
 		_ = d.sendEventToIdentity(ownerIdentity, d.complete(request, opID, map[string]interface{}{
-			"processId": processID,
-			"exitCode":  exitCode,
+			"processId":   processID,
+			"exitCode":    exitInfo.ExitCode,
+			"termination": termination,
 		}))
 	}()
 
 	return nil
+}
+
+func processTermination(exitInfo process.ExitInfo) *protocol.ProcessTermination {
+	reason := exitInfo.Reason
+	message := ""
+	switch reason {
+	case "timeout":
+		reason = "timed_out"
+		message = fmt.Sprintf("Command timed out after %d seconds.", exitInfo.TimeoutSecs)
+	case "abort", "identity_disconnect":
+		reason = "aborted"
+		message = "Command aborted."
+	case "exited", "":
+		reason = "exited"
+	default:
+		reason = "aborted"
+		message = "Command aborted."
+	}
+
+	termination := &protocol.ProcessTermination{
+		Reason:   reason,
+		ExitCode: exitInfo.ExitCode,
+		Message:  message,
+	}
+	if reason == "timed_out" && exitInfo.TimeoutSecs > 0 {
+		termination.TimeoutSecs = exitInfo.TimeoutSecs
+	}
+	return termination
 }
 
 func (d *Dispatcher) handleProcessAbort(request protocol.RPCRequest) interface{} {

@@ -446,8 +446,11 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     streamFn: createStreamFn(options.modelRegistry, options.userId),
     getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),
     async afterToolCall({ result }) {
-      if (!isToolFailureDetails(result.details)) return undefined;
-      return { isError: true };
+      if (isToolFailureDetails(result.details)) return { isError: true };
+      const details = result.details as Record<string, unknown> | undefined;
+      const termination = details?.termination as Record<string, unknown> | undefined;
+      if (termination?.reason === "timed_out" || termination?.reason === "aborted") return { isError: true };
+      return undefined;
     },
   });
 

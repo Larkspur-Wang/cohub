@@ -134,11 +134,19 @@ type RPCFailed struct {
 	Error RPCErrorPayload `json:"error"`
 }
 
+type ProcessTermination struct {
+	Reason      string `json:"reason"`
+	ExitCode    *int   `json:"exitCode"`
+	TimeoutSecs int    `json:"timeoutSecs,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
 type RPCEventPayload struct {
-	Type      string `json:"type"`
-	ProcessID string `json:"processId,omitempty"`
-	Chunk     string `json:"chunk,omitempty"`
-	ExitCode  *int   `json:"exitCode,omitempty"`
+	Type        string              `json:"type"`
+	ProcessID   string              `json:"processId,omitempty"`
+	Chunk       string              `json:"chunk,omitempty"`
+	ExitCode    *int                `json:"exitCode,omitempty"`
+	Termination *ProcessTermination `json:"termination,omitempty"`
 }
 
 type RPCEvent struct {

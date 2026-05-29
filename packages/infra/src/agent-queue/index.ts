@@ -33,6 +33,12 @@ export type AgentRunCommandJobData = {
 export type AgentRunCommandJobResult = {
   ok: true;
   exitCode: number | null;
+  termination?: {
+    reason: "exited" | "timed_out" | "aborted";
+    exitCode: number | null;
+    timeoutSecs?: number;
+    message?: string;
+  };
   durationMs: number;
   output: string;
   truncated: boolean;

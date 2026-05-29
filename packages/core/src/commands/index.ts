@@ -18,9 +18,17 @@ export type RunCommandTaskProgress = {
   content: ContentBlock[];
 };
 
+export type RunCommandTermination = {
+  reason: "exited" | "timed_out" | "aborted";
+  exitCode: number | null;
+  timeoutSecs?: number;
+  message?: string;
+};
+
 export type RunCommandTaskResult = {
   kind: RunCommandTaskType;
   exitCode: number | null;
+  termination?: RunCommandTermination;
   durationMs: number;
   command: string;
   cwd: string;
@@ -34,6 +42,7 @@ export type RunCommandToolCallState = {
   output?: string | null;
   status?: "running" | "done";
   exitCode?: number | null;
+  termination?: RunCommandTermination | null;
   durationMs?: number | null;
 };
 
@@ -43,7 +52,9 @@ function clampOutput(value: string, limit = 128 * 1024) {
 }
 
 export function buildRunCommandToolContent(state: RunCommandToolCallState): ContentBlock[] {
-  const { text, truncated } = clampOutput(state.output ?? "");
+  const terminationNote = state.termination?.message && state.termination.reason !== "exited" ? `[${state.termination.message}]` : "";
+  const output = terminationNote ? `${state.output ?? ""}${state.output ? "\n\n" : ""}${terminationNote}` : state.output ?? "";
+  const { text, truncated } = clampOutput(output);
   const toolUse: ContentBlock = {
     type: "tool_use",
     id: state.toolCallId,
@@ -70,6 +81,7 @@ export function buildRunCommandToolContent(state: RunCommandToolCallState): Cont
     is_error: false,
     _meta: {
       exitCode: state.exitCode ?? null,
+      termination: state.termination ?? undefined,
       durationMs: state.durationMs ?? null,
       truncated,
     },
@@ -98,6 +110,7 @@ export function buildRunCommandResult(state: RunCommandToolCallState): RunComman
   return {
     kind: RUN_COMMAND_TASK_TYPE,
     exitCode: state.exitCode ?? null,
+    termination: state.termination ?? undefined,
     durationMs: state.durationMs ?? 0,
     command: state.command,
     cwd: state.cwd,

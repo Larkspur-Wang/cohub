@@ -61,8 +61,17 @@ function failureToolResult(failure: ToolFailureDetails): AgentToolResult<unknown
   };
 }
 
+export type BashTerminationReason = "exited" | "timed_out" | "aborted";
+
+export type BashTermination = {
+  reason: BashTerminationReason;
+  exitCode: number | null;
+  timeoutSecs?: number;
+  message?: string;
+};
+
 export type BashExecutionResult =
-  | { exitCode: number | null }
+  | { exitCode: number | null; termination?: BashTermination }
   | { failure: ToolFailureDetails };
 
 export interface BashOperations {
@@ -76,6 +85,20 @@ export interface BashOperations {
 function tailOutput(content: string, maxChars = 900) {
   if (content.length <= maxChars) return content;
   return `…${content.slice(-maxChars)}`;
+}
+
+function normalizeBashTermination(result: { exitCode: number | null; termination?: BashTermination }): BashTermination {
+  return result.termination ?? { reason: "exited", exitCode: result.exitCode };
+}
+
+function formatBashTerminationNote(termination: BashTermination) {
+  if (termination.reason === "timed_out") {
+    return termination.message ?? `Command timed out${termination.timeoutSecs ? ` after ${termination.timeoutSecs} seconds` : ""}.`;
+  }
+  if (termination.reason === "aborted") {
+    return termination.message ?? "Command aborted.";
+  }
+  return "";
 }
 
 function createThrottledToolUpdate(onUpdate?: AgentToolUpdateCallback<unknown>) {
@@ -308,10 +331,13 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
       }
 
       const output = Buffer.concat(chunks).toString("utf-8");
-      const truncated = truncateHead(output, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
+      const termination = normalizeBashTermination(result);
+      const note = formatBashTerminationNote(termination);
+      const renderedOutput = note ? `${output}${output ? "\n\n" : ""}[${note}]` : output;
+      const truncated = truncateHead(renderedOutput, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
       return {
-        content: [{ type: "text", text: truncated.truncated ? truncated.content : output }],
-        details: { exitCode: result.exitCode, truncation: truncated.truncated ? truncated : undefined },
+        content: [{ type: "text", text: truncated.truncated ? truncated.content : renderedOutput }],
+        details: { exitCode: result.exitCode, termination, truncation: truncated.truncated ? truncated : undefined },
       };
     },
   };

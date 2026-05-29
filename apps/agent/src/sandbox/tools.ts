@@ -465,8 +465,12 @@ function createRemoteBashOperations(): BashOperations {
 
                     if (event.type === "exit") {
                       cleanupAbort();
-                      logger.debug(`[Tool:bash] exit code=${event.exitCode} summary="${cmdSummary}"`);
-                      finish(() => resolve({ exitCode: event.exitCode ?? null }));
+                      const exitCode = event.exitCode ?? null;
+                      logger.debug(`[Tool:bash] exit code=${exitCode} reason=${event.termination?.reason ?? "exited"} summary="${cmdSummary}"`);
+                      finish(() => resolve({
+                        exitCode,
+                        termination: event.termination ?? { reason: "exited", exitCode },
+                      }));
                     }
                   },
                 },
