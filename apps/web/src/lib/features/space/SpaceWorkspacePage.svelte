@@ -4208,6 +4208,12 @@ async function handleSend() {
 				}),
 			},
 		};
+		// Sending a message is an explicit intent to jump back to the live edge.
+		// This keeps the optimistic user turn and the following streaming reply in view,
+		// even if the user was previously reading older context.
+		shouldAutoFollow = true;
+		await tick();
+		requestBottomFollow({ immediate: true });
 		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
 			session: activeSessionState.session,
 		});
