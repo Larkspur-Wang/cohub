@@ -1517,11 +1517,11 @@ $effect(() => {
       <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
 
       <a
-        href="/explore"
+        href="/explore?view=wall"
         class="mt-2 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-        onclick={(e) => { e.preventDefault(); void handleNavigate('/explore'); }}
-        aria-label="Explore"
-        title="Explore"
+        onclick={(e) => { e.preventDefault(); void handleNavigate('/explore?view=wall'); }}
+        aria-label="Explore Wall"
+        title="Explore Wall"
       >
         <Compass class="h-4 w-4" />
       </a>
@@ -1665,7 +1665,7 @@ $effect(() => {
             {:else}
               <a href="/" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
             {/if}
-            <a href="/explore" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore'); }}><Compass class="h-3.5 w-3.5" /><span>Explore</span></a>
+            <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore Wall</span></a>
             <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
             <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
             <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
@@ -1744,13 +1744,13 @@ $effect(() => {
 
     <div class="px-1.5 py-1 shrink-0 border-b border-border-subtle">
       <a
-        href="/explore"
+        href="/explore?view=wall"
         class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
-        onclick={(e) => { e.preventDefault(); void handleNavigate('/explore'); }}
-        title="Explore public spaces"
+        onclick={(e) => { e.preventDefault(); void handleNavigate('/explore?view=wall'); }}
+        title="Explore Wall"
       >
         <Compass class="w-3.5 h-3.5 shrink-0" />
-        <span class="text-[12px] font-medium">Explore</span>
+        <span class="text-[12px] font-medium">Explore Wall</span>
       </a>
     </div>
 
@@ -2418,12 +2418,12 @@ $effect(() => {
           </a>
         {/if}
         <a
-          href="/explore"
+          href="/explore?view=wall"
           class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore'); }}
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}
         >
           <Compass class="w-3.5 h-3.5" />
-          <span>Explore</span>
+          <span>Explore Wall</span>
         </a>
         <a
           href="/trending"
