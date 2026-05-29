@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Loader2, LogIn, Terminal } from "lucide-svelte";
+import { Compass, Loader2, LogIn, Terminal } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth";
@@ -86,8 +86,15 @@ onMount(async () => {
           </button>
         {/if}
         <a
-          href="/spaces/new"
+          href="/explore"
           class="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-brand-muted border border-brand-border text-[13px] text-brand font-medium hover:bg-brand-muted-hover transition-colors"
+        >
+          <Compass class="w-[14px] h-[14px]" />
+          Explore Spaces
+        </a>
+        <a
+          href="/spaces/new"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-bg-content border border-border-subtle text-[13px] text-text-secondary font-medium hover:bg-bg-hover hover:text-text-primary transition-colors"
         >
           <Terminal class="w-[14px] h-[14px]" />
           Create a Space
