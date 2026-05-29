@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."checkpoints" ADD COLUMN "save_version" integer DEFAULT 1 NOT NULL;

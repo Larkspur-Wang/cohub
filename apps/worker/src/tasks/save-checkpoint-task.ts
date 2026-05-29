@@ -1,253 +1,163 @@
 import { join } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
+import { checkpoints, spaces } from "@cohub/db";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
-import { checkpoints, spaces, userGitAccounts } from "@cohub/db";
-import { decryptSecret } from "../crypto.js";
-import { buildAuthenticatedRemoteUrl, getSpaceWorkspaceDir, runGit, runGitWithOutput } from "../git.js";
-import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../config-publish.js";
 import { config } from "../config.js";
+import { publishUserConfigFromWorkspace, publishConfigFromWorkspace } from "../config-publish.js";
 import { getGenerationsDir, publishGenerationsCacheFromDir } from "../generations-cache.js";
 import { publishModelsCacheFromFile } from "../models-cache.js";
 import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
-import { createLogger } from "@cohub/infra/logging";
+import { uploadAssetIfMissing } from "../checkpoint/assets.js";
+import { ensureGitRepo, runGit, runGitWithOutput } from "../checkpoint/git.js";
+import { materializeLatest } from "../checkpoint/materialize.js";
+import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, ensureCheckpointDirs, getCheckpointLatestSubPath } from "../checkpoint/paths.js";
+import { syncSystemRepo, type CheckpointAsset } from "../checkpoint/repo-sync.js";
+import { saveCheckpointWithLock, type SaveCheckpointInput, type SaveCheckpointResult } from "../checkpoint/save.js";
+import { hashFile, scanWorkspace } from "../checkpoint/scan.js";
+import { buildInternalRepoRemoteUrl, createInternalRepository } from "../gitea.js";
 
+const SAVE_VERSION = 2;
 
-const logger = createLogger({ serviceName: "cohub-worker" });
 const buildCommitMessage = (description?: string | null) => {
   const trimmed = description?.trim();
   return trimmed?.length ? `checkpoint: ${trimmed}` : "checkpoint: save from cohub";
 };
 
-const saveCheckpointHandler = async (job: Job) => {
-  const payload = job.data as TaskPayload;
-  const spaceId = payload.spaceId;
-  const description = (payload.data?.description as string | undefined) ?? null;
-
-  if (!spaceId) {
-    throw new Error("spaceId is required for save_checkpoint task");
+async function mirrorToGitea(repoDir: string, repoName: string, branch: string) {
+  await createInternalRepository(repoName, true);
+  const remoteUrl = buildInternalRepoRemoteUrl(repoName);
+  await runGit(["remote", "remove", "cohub"], repoDir).catch(() => undefined);
+  await runGit(["remote", "add", "cohub", remoteUrl], repoDir);
+  try {
+    await runGit(["push", "-u", "cohub", branch], repoDir);
+  } finally {
+    await runGit(["remote", "remove", "cohub"], repoDir).catch(() => undefined);
   }
+}
+
+export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promise<SaveCheckpointResult> => {
+  const spaceId = input.spaceId;
+  const description = input.description ?? null;
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) throw new Error("space not found");
 
-  const [gitAccount] = await db
-    .select()
-    .from(userGitAccounts)
-    .where(eq(userGitAccounts.userUuid, space.userUuid))
-    .limit(1);
-  if (!gitAccount) throw new Error("git account not found");
-
-  const workspaceDir = getSpaceWorkspaceDir(spaceId);
-  await runGit(["rev-parse", "--is-inside-work-tree"], workspaceDir).catch(() => {
-    throw new Error("space repo is not initialized");
-  });
-
-  const status = await runGitWithOutput(["status", "--porcelain"], workspaceDir);
-  const changedLines = status.stdout
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter(Boolean);
-  const hasChanges = changedLines.length > 0;
-
-  // Check if HEAD exists (repo has at least one commit)
-  const hasHead = await runGitWithOutput(["rev-parse", "--verify", "HEAD"], workspaceDir).then(
-    () => true,
-    () => false,
-  );
-  const branchResult = hasHead
-    ? await runGitWithOutput(["rev-parse", "--abbrev-ref", "HEAD"], workspaceDir)
-    : { stdout: "" };
-  const branch = branchResult.stdout.trim() || "main";
+  const checkpointId = crypto.randomUUID();
+  const createdAt = new Date();
+  const branch = "main";
   const commitMessage = buildCommitMessage(description);
+  const dirs = await ensureCheckpointDirs(spaceId);
 
-  // Use a dedicated remote to avoid touching the user's "origin"
-  const COHUB_REMOTE = "cohub";
-  const accessToken = decryptSecret(gitAccount.giteaAccessTokenEncrypted);
-  const authenticatedRemoteUrl = buildAuthenticatedRemoteUrl({
-    username: gitAccount.giteaUsername,
-    accessToken,
-    repoName: space.storageRepoName,
-  });
-
-  // Ensure the cohub remote exists with the authenticated URL
-  // (re-create each time in case access token was rotated)
-  await runGit(["remote", "remove", COHUB_REMOTE], workspaceDir).catch(() => undefined);
-  await runGit(["remote", "add", COHUB_REMOTE, authenticatedRemoteUrl], workspaceDir);
-
-  if (hasChanges) {
-    await runGit(["add", "-A"], workspaceDir);
-    await runGit(["config", "user.name", "Cohub Worker"], workspaceDir);
-    await runGit(["config", "user.email", "noreply@cohub.run"], workspaceDir);
-    await runGit(["commit", "-m", commitMessage], workspaceDir);
+  await ensureGitRepo(dirs.repoDir, branch);
+  const scan = await scanWorkspace(dirs.workspaceDir);
+  const assets: CheckpointAsset[] = [];
+  const smallFiles = [];
+  for (const file of scan.files) {
+    if (file.type === "file" && file.size > config.checkpointAssetThresholdBytes) {
+      const sha256 = await hashFile(file.absPath);
+      const objectKey = await uploadAssetIfMissing({ filePath: file.absPath, sha256, size: file.size, mimeType: file.mimeType });
+      assets.push({ path: file.path, sha256, size: file.size, mimeType: file.mimeType, objectKey });
+    } else {
+      smallFiles.push(file);
+    }
   }
 
-  // Always push in case the remote was updated via another remote
-  try {
-    await runGit(["push", COHUB_REMOTE, branch], workspaceDir);
-  } finally {
-    // Clean up the cohub remote so authenticated URL is not left on disk
-    await runGit(["remote", "remove", COHUB_REMOTE], workspaceDir).catch(() => undefined);
-  }
+  const gitCheckpointMeta = {
+    version: 1,
+    saveVersion: SAVE_VERSION,
+    spaceId,
+    checkpointId,
+    createdAt: createdAt.toISOString(),
+    description: description?.trim() || "Checkpoint",
+    branch,
+  };
 
-  const head = await runGitWithOutput(["rev-parse", "HEAD"], workspaceDir);
+  await syncSystemRepo({ repoDir: dirs.repoDir, smallFiles, assets, gitCheckpointMeta });
+  await runGit(["add", "-A"], dirs.repoDir);
+  await runGit(["commit", "--allow-empty", "-m", commitMessage], dirs.repoDir);
+  const head = await runGitWithOutput(["rev-parse", "HEAD"], dirs.repoDir);
   const commitHash = head.stdout.trim();
 
-  // Insert with conflict handling — when there are no new git changes (changedFiles=0),
-  // the commitHash stays the same and the unique constraint on (space_id, commit_hash)
-  // would be violated on retries or repeated saves.
-  const insertResult = await db
-    .insert(checkpoints)
-    .values({
-      spaceId,
-      commitHash,
-      description: description?.trim() || "Checkpoint",
-      parentCheckpointId: space.headCheckpointId ?? null,
-      meta: {
-        branch,
-        commitMessage,
-        changedFiles: changedLines.length,
-        savedBy: payload.userId ?? null,
-        source: "worker_save_checkpoint",
-      },
-    })
-    .onConflictDoNothing()
-    .returning();
+  const latestMeta = { ...gitCheckpointMeta, commitHash, materializedAt: new Date().toISOString() };
+  await materializeLatest({ latestDir: dirs.latestDir, files: scan.files, checkpointMeta: latestMeta });
 
-  const checkpoint = insertResult[0] ?? (
-    await db.select().from(checkpoints).where(
-      and(eq(checkpoints.spaceId, spaceId), eq(checkpoints.commitHash, commitHash)),
-    ).limit(1)
-  )[0];
-
-  if (!checkpoint) throw new Error("failed to create or find checkpoint record");
-
-  await db
-    .update(spaces)
-    .set({
-      headCheckpointId: checkpoint.id,
-      updatedAt: new Date(),
-    })
-    .where(eq(spaces.id, spaceId));
-
-  let publishedUserConfig: {
-    targetDir: string;
-    copiedPaths: string[];
-    meta: Record<string, unknown>;
-  } | null = null;
-
-  if (space.name === "config") {
-    publishedUserConfig = await publishUserConfigFromWorkspace({
-      userId: space.userUuid,
-      spaceId: space.id,
-      checkpointId: checkpoint.id,
-      workspaceDir,
-    });
-    try {
-      await publishModelsCacheFromFile({
-        modelsPath: join(publishedUserConfig.targetDir, ".cohub", "models.json"),
-        scope: "user",
-        userId: space.userUuid,
-        sourceCheckpointId: checkpoint.id,
-      });
-    } catch (error) {
-      logger.warn(
-        `[save_checkpoint] failed to publish user models cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
-        error,
-      );
-    }
-    try {
-      await publishGenerationsCacheFromDir({
-        generationsDir: getGenerationsDir(publishedUserConfig.targetDir),
-        scope: "user",
-        userId: space.userUuid,
-        sourceCheckpointId: checkpoint.id,
-      });
-    } catch (error) {
-      logger.warn(
-        `[save_checkpoint] failed to publish user generations cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
-        error,
-      );
-    }
-    try {
-      await publishPromptsCacheFromDir({
-        promptsDir: getPromptsDir(publishedUserConfig.targetDir),
-        scope: "user",
-        userId: space.userUuid,
-        sourceCheckpointId: checkpoint.id,
-      });
-    } catch (error) {
-      logger.warn(
-        `[save_checkpoint] failed to publish user prompts cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
-        error,
-      );
-    }
-  }
-
-  let publishedPlatformConfig: {
-    targetDir: string;
-    copiedPaths: string[];
-    meta: Record<string, unknown>;
-  } | null = null;
-
-  if (config.platformSpaceId && spaceId === config.platformSpaceId) {
-    publishedPlatformConfig = await publishConfigFromWorkspace({
-      workspaceDir,
-      checkpointId: checkpoint.id,
-      targetDir: "/configs/platform",
-      whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub"],
-      sourceLabel: "platform",
-    });
-    try {
-      await publishModelsCacheFromFile({
-        modelsPath: join(publishedPlatformConfig.targetDir, ".cohub", "models.json"),
-        scope: "platform",
-        sourceCheckpointId: checkpoint.id,
-      });
-    } catch (error) {
-      logger.warn(
-        `[save_checkpoint] failed to publish platform models cache for checkpoint=${checkpoint.id}:`,
-        error,
-      );
-    }
-    try {
-      await publishGenerationsCacheFromDir({
-        generationsDir: getGenerationsDir(publishedPlatformConfig.targetDir),
-        scope: "platform",
-        sourceCheckpointId: checkpoint.id,
-      });
-    } catch (error) {
-      logger.warn(
-        `[save_checkpoint] failed to publish platform generations cache for checkpoint=${checkpoint.id}:`,
-        error,
-      );
-    }
-    try {
-      await publishPromptsCacheFromDir({
-        promptsDir: getPromptsDir(publishedPlatformConfig.targetDir),
-        scope: "platform",
-        sourceCheckpointId: checkpoint.id,
-      });
-    } catch (error) {
-      logger.warn(
-        `[save_checkpoint] failed to publish platform prompts cache for checkpoint=${checkpoint.id}:`,
-        error,
-      );
-    }
-  }
-
-  return {
-    checkpointId: checkpoint.id,
-    commitHash,
-    branch,
-    commitMessage,
-    changedFiles: changedLines.length,
-    spaceId,
-    ...(publishedUserConfig ? { publishedUserConfig } : {}),
-    ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}),
+  const stats = {
+    smallFiles: smallFiles.length,
+    smallBytes: smallFiles.reduce((sum, file) => sum + file.size, 0),
+    assets: assets.length,
+    assetBytes: assets.reduce((sum, asset) => sum + asset.size, 0),
+    ignored: scan.ignoredCount,
+    unsupported: scan.warnings.length,
   };
+
+  const [checkpoint] = await db.insert(checkpoints).values({
+    id: checkpointId,
+    spaceId,
+    commitHash,
+    description: description?.trim() || "Checkpoint",
+    parentCheckpointId: space.headCheckpointId ?? null,
+    saveVersion: SAVE_VERSION,
+    meta: {
+      version: SAVE_VERSION,
+      branch,
+      commitMessage,
+      paths: {
+        assetManifest: CHECKPOINT_ASSET_MANIFEST_PATH,
+        checkpointMeta: CHECKPOINT_META_PATH,
+        latestSubPath: getCheckpointLatestSubPath(spaceId),
+      },
+      stats,
+      warnings: scan.warnings,
+      source: input.reason ?? "save_checkpoint",
+      savedBy: input.userId ?? null,
+      mirror: { status: "queued" },
+    },
+    createdAt,
+  }).returning();
+
+  if (!checkpoint) throw new Error("failed to create checkpoint record");
+  await db.update(spaces).set({ headCheckpointId: checkpoint.id, updatedAt: new Date() }).where(eq(spaces.id, spaceId));
+
+  let mirrorMeta: { status: "pushed"; pushedAt: string } | { status: "failed"; error: string };
+  try {
+    await mirrorToGitea(dirs.repoDir, space.storageRepoName, branch);
+    mirrorMeta = { status: "pushed", pushedAt: new Date().toISOString() };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    mirrorMeta = { status: "failed", error: message };
+    console.warn(`[save_checkpoint] failed to mirror repo for space=${spaceId} checkpoint=${checkpoint.id}:`, error);
+  }
+  await db.update(checkpoints).set({ meta: { ...(checkpoint.meta as Record<string, unknown> | null), mirror: mirrorMeta } }).where(eq(checkpoints.id, checkpoint.id));
+
+  let publishedUserConfig: { targetDir: string; copiedPaths: string[]; meta: Record<string, unknown> } | null = null;
+  if (space.name === "config") {
+    publishedUserConfig = await publishUserConfigFromWorkspace({ userId: space.userUuid, spaceId: space.id, checkpointId: checkpoint.id, workspaceDir: dirs.latestDir });
+    await publishModelsCacheFromFile({ modelsPath: join(publishedUserConfig.targetDir, ".cohub", "models.json"), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish user models cache user=${space.userUuid}:`, error));
+    await publishGenerationsCacheFromDir({ generationsDir: getGenerationsDir(publishedUserConfig.targetDir), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish user generations cache user=${space.userUuid}:`, error));
+    await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedUserConfig.targetDir), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish user prompts cache user=${space.userUuid}:`, error));
+  }
+
+  let publishedPlatformConfig: { targetDir: string; copiedPaths: string[]; meta: Record<string, unknown> } | null = null;
+  if (config.platformSpaceId && spaceId === config.platformSpaceId) {
+    publishedPlatformConfig = await publishConfigFromWorkspace({ workspaceDir: dirs.latestDir, checkpointId: checkpoint.id, targetDir: "/configs/platform", whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub"], sourceLabel: "platform" });
+    await publishModelsCacheFromFile({ modelsPath: join(publishedPlatformConfig.targetDir, ".cohub", "models.json"), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform models cache:`, error));
+    await publishGenerationsCacheFromDir({ generationsDir: getGenerationsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform generations cache:`, error));
+    await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform prompts cache:`, error));
+  }
+
+  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount: assets.length, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}) };
+};
+
+const saveCheckpointHandler = async (job: Job) => {
+  const payload = job.data as TaskPayload;
+  const spaceId = payload.spaceId;
+  if (!spaceId) throw new Error("spaceId is required for save_checkpoint task");
+  const description = (payload.data?.description as string | undefined) ?? null;
+  const reason = (payload.data?.reason as string | undefined) ?? "save_checkpoint";
+  return saveCheckpointWithLock({ spaceId, userId: payload.userId, description, reason }, saveCheckpointForSpace);
 };
 
 registerTask("save_checkpoint", saveCheckpointHandler);

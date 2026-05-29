@@ -375,12 +375,21 @@ export const reconcileSpaceSandbox = async (input: {
     container.volumeMounts = [
       ...(container.volumeMounts ?? []),
       ...enabledMods.map((mod) => ({
-        name: "space-storage",
+        name: "checkpoint-cache",
         mountPath: mod.mountPath,
-        subPath: `${config.spaceStorageSubpath}/${mod.modSpaceId}/workspace`,
+        subPath: `${config.spaceStorageSubpath}/checkpoints/${mod.modSpaceId}/latest`,
         readOnly: true,
       })),
     ];
+    if (!pod.spec.volumes?.some((volume) => volume.name === "checkpoint-cache")) {
+      pod.spec.volumes = [
+        ...(pod.spec.volumes ?? []),
+        {
+          name: "checkpoint-cache",
+          persistentVolumeClaim: { claimName: config.checkpointCachePvc },
+        },
+      ];
+    }
     container.env = [
       { name: "COHUB_SPACE_ID", value: input.spaceId },
       ...(config.env === "dev" ? [{ name: "ENV", value: "dev" }] : []),

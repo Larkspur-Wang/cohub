@@ -298,11 +298,6 @@ export type SpaceMeta = JsonObject & {
   publicProfile?: Partial<SpacePublicProfile> | null;
 };
 
-export type SpaceGitInfo = {
-  giteaHost: string;
-  giteaUsername: string;
-};
-
 export type SpaceRecord = {
   id: string;
   userUuid: string;
@@ -331,8 +326,7 @@ export type SpaceRecord = {
 
 export type SpaceBootstrapSource =
   | { type: "blank" }
-  | { type: "git_repo"; repoUrl?: string; ref?: string | null }
-  | { type: "checkpoint"; checkpointId: string };
+  | { type: "git_repo"; repoUrl?: string; ref?: string | null };
 
 export type SpaceConfigInput = {
   sandbox?: {
@@ -541,14 +535,6 @@ export type SpaceSessionsResponse = {
     hasMore: boolean;
     nextCursor: string | null;
   };
-};
-
-export type UserSshKey = {
-  id: string;
-  key: string;
-  title: string;
-  giteaKeyId: number;
-  createdAt: string;
 };
 
 export type CreateSpacePromptInput = {

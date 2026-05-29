@@ -10,13 +10,12 @@ import {
   spaceChannels,
   spaceMods,
   spaces,
+  taskRuns,
   spaceMembers,
-  userGitAccounts,
   userProfiles,
 } from "@cohub/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
-import { ensureUserGitAccount } from "../../git-accounts.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
@@ -46,7 +45,6 @@ import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
-type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 
 const router = new Hono();
 const { CronExpressionParser } = cronParser;
@@ -236,7 +234,6 @@ const validateRepeatSchedule = (input: { cronExpression: string; timezone: strin
 function getSpaceProvisionParams(
   user: AuthUser,
   space: typeof spaces.$inferSelect,
-  _gitAccount: GitAccount,
 ) {
   return {
     spaceId: space.id,
@@ -289,8 +286,7 @@ router.post("/", async (c) => {
       mods?: CreateSpaceModInput[];
       bootstrapSource?:
         | { type: "blank" }
-        | { type: "git_repo"; repoUrl?: string; ref?: string | null }
-        | { type: "checkpoint"; checkpointId?: string };
+        | { type: "git_repo"; repoUrl?: string; ref?: string | null };
     gitHubToken?: string;
     }>()
     .catch(() => ({}))) as {
@@ -306,8 +302,7 @@ router.post("/", async (c) => {
     mods?: CreateSpaceModInput[];
     bootstrapSource?:
       | { type: "blank" }
-      | { type: "git_repo"; repoUrl?: string; ref?: string | null }
-      | { type: "checkpoint"; checkpointId?: string };
+      | { type: "git_repo"; repoUrl?: string; ref?: string | null };
     gitHubToken?: string;
     config?: SpaceConfigInput;
   };
@@ -358,8 +353,7 @@ router.post("/", async (c) => {
 
   let normalizedBootstrapSource:
     | { type: "blank" }
-    | { type: "git_repo"; repoUrl: string; ref: string | null }
-    | { type: "checkpoint"; checkpointId: string };
+    | { type: "git_repo"; repoUrl: string; ref: string | null };
   const gitToken = body.gitHubToken?.trim() || c.req.header("X-Git-Token")?.trim() || null;
   try {
     normalizedBootstrapSource = (() => {
@@ -370,24 +364,10 @@ router.post("/", async (c) => {
         if (!repoUrl) throw new Error("repoUrl is required");
         return { type: "git_repo", repoUrl, ref: source.ref?.trim() || null } as const;
       }
-      if (source.type === "checkpoint") {
-        const checkpointId = source.checkpointId?.trim();
-        if (!checkpointId || !requireValidId(checkpointId)) throw new Error("checkpointId is required");
-        return { type: "checkpoint", checkpointId } as const;
-      }
       return { type: "blank" } as const;
     })();
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "invalid bootstrap source" }, 400);
-  }
-
-  if (normalizedBootstrapSource.type === "checkpoint") {
-    const [checkpoint] = await db
-      .select({ id: checkpoints.id })
-      .from(checkpoints)
-      .where(eq(checkpoints.id, normalizedBootstrapSource.checkpointId))
-      .limit(1);
-    if (!checkpoint) return c.json({ message: "checkpoint not found" }, 404);
   }
 
   const spaceId = crypto.randomUUID();
@@ -419,7 +399,7 @@ router.post("/", async (c) => {
           slug,
           description: body.description ?? null,
           storageRepoName,
-          baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
+          baseCheckpointId: null,
           headCheckpointId: null,
           meta: {
             ...(body.meta ?? {}),
@@ -504,7 +484,6 @@ router.post("/", async (c) => {
     void bindSpaceChannelsToGateway(space.id).catch((error) => logger.error("[SpaceChannels] failed to bind channels after space creation", { spaceId: space.id, error }));
   }
 
-  const gitAccount = await ensureUserGitAccount(user.uuid);
   void scheduleSandboxAutoDestroy({
     spaceId: space.id,
     policy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
@@ -512,7 +491,7 @@ router.post("/", async (c) => {
   }).catch((error) => logger.error("[SandboxAutoDestroy] failed to schedule policy after space creation", { spaceId: space.id, error }));
   void reconcileSpaceSandbox(
     {
-      ...getSpaceProvisionParams(user, space, gitAccount),
+      ...getSpaceProvisionParams(user, space),
       mode: "ensure",
       reason: "space_created",
     },
@@ -604,17 +583,6 @@ async function serializeSpaceForResponse(space: typeof spaces.$inferSelect, user
   const profileMap = await getProfilesByUuids([space.userUuid]);
   const ownerProfile = profileMap.get(space.userUuid) ?? fallbackPublicUserProfile(space.userUuid);
 
-  let gitInfo: { giteaHost: string; giteaUsername: string } | undefined;
-  if (user?.uuid === space.userUuid) {
-    const giteaUsername = await getGiteaUsernameForUser(space.userUuid);
-    if (giteaUsername) {
-      gitInfo = {
-        giteaHost: new URL(config.giteaBaseUrl).host,
-        giteaUsername,
-      };
-    }
-  }
-
   return {
     ...space,
     meta: sanitizeSpaceMeta(space.meta),
@@ -623,7 +591,6 @@ async function serializeSpaceForResponse(space: typeof spaces.$inferSelect, user
     sandbox: attachSandboxPublicEndpoints(sandbox),
     access,
     ownerProfile,
-    gitInfo: gitInfo ?? null,
   };
 }
 
@@ -674,20 +641,6 @@ function sanitizeSpaceMeta(meta: unknown): Record<string, unknown> | null {
     };
   }
   return metaObj;
-}
-
-async function getGiteaUsernameForUser(userUuid: string): Promise<string | null> {
-  const [account] = await db
-    .select({ giteaUsername: userGitAccounts.giteaUsername })
-    .from(userGitAccounts)
-    .where(
-      and(
-        eq(userGitAccounts.userUuid, userUuid),
-        eq(userGitAccounts.provider, "gitea"),
-      ),
-    )
-    .limit(1);
-  return account?.giteaUsername ?? null;
 }
 
 router.get("/:id", async (c) => {
@@ -880,6 +833,14 @@ router.post("/:id/checkpoints", async (c) => {
       return c.json({ message: "multiple config spaces found for this user" }, 409);
     }
   }
+
+  const existingSave = await db
+    .select({ id: taskRuns.id })
+    .from(taskRuns)
+    .where(and(eq(taskRuns.spaceId, spaceId), eq(taskRuns.taskType, "save_checkpoint"), inArray(taskRuns.status, ["pending", "running"])))
+    .orderBy(desc(taskRuns.createdAt))
+    .limit(1);
+  if (existingSave[0]) return c.json({ ok: true, taskRunId: existingSave[0].id, existing: true });
 
   const { taskRunId } = await enqueueTask({
     type: "save_checkpoint",
@@ -1126,9 +1087,8 @@ router.post("/:id/sandbox/recreate", async (c) => {
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
 
-  const gitAccount = await ensureUserGitAccount(user.uuid);
   const result = await recoverSpaceSandbox({
-    ...getSpaceProvisionParams(user, space, gitAccount),
+    ...getSpaceProvisionParams(user, space),
     reason: "manual_recreate",
     source: "manual",
     verify: true,

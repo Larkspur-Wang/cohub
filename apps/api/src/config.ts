@@ -2,8 +2,6 @@ import { resolveLogtoEndpoint } from "@cohub/identity";
 
 export type AppConfig = {
   logtoEndpoint: string;
-  giteaBaseUrl: string;
-  giteaToken?: string;
   webOrigin?: string;
   redisUrl: string;
   litellmApiKey?: string;
@@ -11,7 +9,6 @@ export type AppConfig = {
   talesofaiBillingBusinessKey?: string;
   talesofaiBillingAdminApiKey?: string;
   env: "dev" | "prod";
-  giteaManagedEmailDomain: string;
   appEncryptionKey: string;
   executionGrantSigningKey: string;
   sandboxImage: string;
@@ -19,6 +16,7 @@ export type AppConfig = {
   workerSecret: string;
   spaceStorageRoot: string;
   spaceStoragePvc: string;
+  checkpointCachePvc: string;
   spaceStorageSubpath: string;
   configsSubpath: string;
   platformConfigRoot: string;
@@ -38,8 +36,6 @@ export type AppConfig = {
   publicAssetCdnBaseUrl?: string;
 };
 
-const normalizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
-
 const getSessionsNamespace = (env: string): string => {
   return env === "dev" ? "cohub-sessions-dev" : "cohub-sessions";
 };
@@ -55,8 +51,6 @@ const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
 export const config: AppConfig = {
   workerSecret: process.env.WORKER_SECRET ?? "",
   logtoEndpoint: resolveLogtoEndpoint({ endpoint: process.env.LOGTO_ENDPOINT, env }),
-  giteaBaseUrl: normalizeBaseUrl(process.env.GITEA_BASE_URL ?? ""),
-  giteaToken: process.env.GITEA_TOKEN,
   webOrigin: process.env.WEB_ORIGIN,
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   litellmApiKey: process.env.LITELLM_API_KEY,
@@ -64,7 +58,6 @@ export const config: AppConfig = {
   talesofaiBillingBusinessKey: process.env.TALESOFAI_BILLING_BUSINESS_KEY,
   talesofaiBillingAdminApiKey: process.env.TALESOFAI_BILLING_ADMIN_API_KEY,
   env,
-  giteaManagedEmailDomain: process.env.GITEA_MANAGED_EMAIL_DOMAIN ?? "cohub.local",
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   executionGrantSigningKey: process.env.EXECUTION_GRANT_SIGNING_KEY ?? process.env.APP_ENCRYPTION_KEY ?? "",
   sandboxImage:
@@ -73,6 +66,7 @@ export const config: AppConfig = {
     process.env.BULLMQ_REDIS_URL ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
+  checkpointCachePvc: process.env.CHECKPOINT_CACHE_PVC ?? process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
   configsSubpath: process.env.CONFIGS_SUBPATH ?? (env === "prod" ? "configs/prod" : "configs/dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
@@ -95,9 +89,6 @@ export const config: AppConfig = {
 export const sessionsNamespace = getSessionsNamespace(config.env);
 
 export const assertRequiredConfig = () => {
-  if (!config.giteaBaseUrl) {
-    throw new Error("Missing required env: GITEA_BASE_URL");
-  }
   if (!config.redisUrl) {
     throw new Error("Missing required env: REDIS_URL");
   }

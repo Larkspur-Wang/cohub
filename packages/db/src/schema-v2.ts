@@ -209,6 +209,7 @@ export const checkpoints = v2.table(
     description: text("description").notNull(),
     parentCheckpointId: uuid("parent_checkpoint_id"),
     forkCount: integer("fork_count").notNull().default(0),
+    saveVersion: integer("save_version").notNull().default(1),
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },

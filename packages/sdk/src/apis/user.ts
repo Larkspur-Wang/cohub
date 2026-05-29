@@ -1,5 +1,5 @@
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
-import type { MeResponse, UserProfile, UserRulesResponse, UserSshKey } from "../types.js";
+import type { MeResponse, UserProfile, UserRulesResponse } from "../types.js";
 
 export class UserApi {
   constructor(
@@ -56,28 +56,5 @@ export class UserApi {
   async clearAuthToken() {
     this.clearStoredAuthToken?.();
     return null;
-  }
-
-  getSshKeys(customFetch?: Fetch) {
-    return this.transport.request<UserSshKey[]>("/api/user/ssh-keys", {
-      method: "GET",
-      fetch: customFetch,
-    });
-  }
-
-  createSshKey(data: { key: string; title: string }) {
-    return this.transport.request<UserSshKey>("/api/user/ssh-keys", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(data),
-    });
-  }
-
-  deleteSshKey(id: string) {
-    return this.transport.request<{ ok: true }>(`/api/user/ssh-keys/${id}`, {
-      method: "DELETE",
-    });
   }
 }

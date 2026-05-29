@@ -3,10 +3,15 @@ export interface WorkerConfig {
   bullmqRedisUrl: string;
   databaseUrl: string;
   giteaBaseUrl: string;
+  giteaToken?: string;
+  giteaOrg: string;
   workerSecret: string;
   executionGrantSigningKey: string;
   spaceStorageRoot: string;
+  spaceSystemRoot: string;
+  checkpointCacheRoot: string;
   spaceStorageSubpath: string;
+  checkpointAssetThresholdBytes: number;
   platformConfigRoot: string;
   platformSpaceId: string;
   netaRouterApiKey: string;
@@ -16,6 +21,11 @@ export interface WorkerConfig {
   turnObjectCdnBaseUrl: string;
   turnObjectS3AccessKeyId?: string;
   turnObjectS3SecretAccessKey?: string;
+  checkpointAssetOssEndpoint?: string;
+  checkpointAssetOssRegion: string;
+  checkpointAssetOssBucket?: string;
+  checkpointAssetOssAccessKeyId?: string;
+  checkpointAssetOssSecretAccessKey?: string;
   env: "dev" | "prod";
 }
 
@@ -38,10 +48,15 @@ export const config: WorkerConfig = {
   bullmqRedisUrl: process.env.BULLMQ_REDIS_URL ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
   giteaBaseUrl: process.env.GITEA_BASE_URL ?? "",
+  giteaToken: process.env.GITEA_TOKEN,
+  giteaOrg: process.env.GITEA_ORG ?? "cohub-spaces",
   workerSecret: process.env.WORKER_SECRET ?? "",
   executionGrantSigningKey: process.env.EXECUTION_GRANT_SIGNING_KEY ?? process.env.APP_ENCRYPTION_KEY ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
+  spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
+  checkpointCacheRoot: process.env.CHECKPOINT_CACHE_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
+  checkpointAssetThresholdBytes: Number(process.env.CHECKPOINT_ASSET_THRESHOLD_BYTES ?? 4 * 1024 * 1024),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
   platformSpaceId: process.env.PLATFORM_SPACE_ID ?? "",
   netaRouterApiKey: process.env.NETA_ROUTER_API_KEY ?? "",
@@ -51,6 +66,11 @@ export const config: WorkerConfig = {
   turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
+  checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
+  checkpointAssetOssRegion: process.env.CHECKPOINT_ASSET_OSS_REGION ?? process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
+  checkpointAssetOssBucket: process.env.CHECKPOINT_ASSET_OSS_BUCKET ?? process.env.TURN_OBJECT_S3_BUCKET,
+  checkpointAssetOssAccessKeyId: process.env.CHECKPOINT_ASSET_OSS_ACCESS_KEY_ID ?? process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
+  checkpointAssetOssSecretAccessKey: process.env.CHECKPOINT_ASSET_OSS_SECRET_ACCESS_KEY ?? process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
   env,
 };
 
@@ -62,4 +82,6 @@ export const assertRequiredConfig = () => {
   if (!config.workerSecret) throw new Error("Missing required env: WORKER_SECRET");
   if (!config.executionGrantSigningKey) throw new Error("Missing required env: EXECUTION_GRANT_SIGNING_KEY (or APP_ENCRYPTION_KEY fallback)");
   if (!config.spaceStorageRoot) throw new Error("Missing required env: SPACE_STORAGE_ROOT");
+  if (!config.spaceSystemRoot) throw new Error("Missing required env: SPACE_SYSTEM_ROOT");
+  if (!config.checkpointCacheRoot) throw new Error("Missing required env: CHECKPOINT_CACHE_ROOT");
 };
