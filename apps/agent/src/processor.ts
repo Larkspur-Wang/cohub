@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { ImageContent } from "@mariozechner/pi-ai";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { context, trace } from "@opentelemetry/api";
 import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttributes } from "@cohub/infra/tracing";
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";

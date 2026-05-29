@@ -19,7 +19,7 @@ import { getCurrentToolExecutionContext } from "./tool-context.js";
 import { listEnabledSpaceMods } from "@cohub/core/space-mods";
 import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { refreshUserEnv } from "./runtime/env-cache.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
 import {
@@ -521,8 +521,7 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
       }
     } else if (block.type === "tool_use") {
       if (
-        !prev ||
-        prev.type !== "tool_use" ||
+        prev?.type !== "tool_use" ||
         !shallowRecordEqual(prev._meta, block._meta) ||
         !contentEqual(prev.input, block.input) ||
         prev.name !== block.name
@@ -531,8 +530,7 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
       }
     } else if (block.type === "tool_result") {
       if (
-        !prev ||
-        prev.type !== "tool_result" ||
+        prev?.type !== "tool_result" ||
         !contentEqual(prev.content, block.content) ||
         prev.is_error !== block.is_error
       ) {

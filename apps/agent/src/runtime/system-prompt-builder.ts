@@ -255,7 +255,7 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
   if (spaceMods.length > 0 || modContextFiles.length > 0) {
     let modContext = '# Mods\n\nMods are additional read-only resources mounted under /mods. Each list item is "name: path". Instruction priority: platform < mods < user < workspace.';
     for (const mod of spaceMods) {
-      modContext += `\n- ${mod.name ?? mod.modSpaceName ?? mod.modSpaceId}: ${mod.mountPath}`;
+      modContext += `\n- ${mod.modSpaceName ?? mod.modSpaceId}: ${mod.mountPath}`;
     }
     for (const file of modContextFiles) {
       modContext += `\n\n## ${file.sandboxPath}\n\n${file.content}`;

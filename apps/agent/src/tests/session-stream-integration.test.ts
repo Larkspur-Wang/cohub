@@ -10,7 +10,7 @@ process.env.ENV ??= "dev";
 process.env.AGENT_INSTANCE_ID ??= "test-agent";
 
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { AssistantMessage, AssistantMessageEvent } from "@mariozechner/pi-ai";
+import type { AssistantMessage, AssistantMessageEvent } from "@earendil-works/pi-ai";
 const { subscribeSessionEvents } = await import("../session.js");
 const { closeRedisConnections } = await import("../redis.js");
 const { createAssistantStreamState } = await import("../stream/assistant-stream-state.js");

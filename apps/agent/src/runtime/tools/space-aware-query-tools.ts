@@ -1,5 +1,5 @@
-import { Type } from "@mariozechner/pi-ai";
-import type { AgentTool, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
+import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../../tool-context.js";
 import { assertCrossSpaceQueryPathAllowed } from "./query-path-policy.js";
 

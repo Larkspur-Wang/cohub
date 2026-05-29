@@ -32,7 +32,7 @@ import { formatRgJsonGrepResult } from "../runtime/tools/grep-json-format.js";
 
 import { encodeGenerationPolicy, GENERATION_POLICY_ENV_KEY } from "@cohub/protocol/generation";
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import {

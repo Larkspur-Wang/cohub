@@ -1,8 +1,8 @@
-import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
-import { Agent as PiAgent } from "@mariozechner/pi-agent-core";
-import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@mariozechner/pi-ai";
+import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
+import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { context, trace, type Span } from "@opentelemetry/api";
-import type { AssistantMessage } from "@mariozechner/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { logger } from "../logger.js";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
@@ -43,7 +43,7 @@ const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
 
 function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
-  if (!message || message.stopReason !== "error" || !message.errorMessage) return false;
+  if (message?.stopReason !== "error" || !message.errorMessage) return false;
   return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(
     message.errorMessage,
   );
@@ -188,7 +188,7 @@ function toLlmImageContent(block: Record<string, unknown>): ImageContent | null 
     ? block.source as Record<string, unknown>
     : null;
 
-  if (!source || source.type !== "base64" || typeof source.data !== "string" || !source.data.trim()) {
+  if (source?.type !== "base64" || typeof source.data !== "string" || !source.data.trim()) {
     return null;
   }
 

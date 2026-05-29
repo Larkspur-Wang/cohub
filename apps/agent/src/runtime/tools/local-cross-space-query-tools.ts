@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { getCurrentToolExecutionContext } from "../../tool-context.js";
 import {
   assertResolvedOutputInsideWorkspace,
