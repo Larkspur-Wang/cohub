@@ -51,10 +51,9 @@
     "build": "tsdown",
     "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
-  "dependencies": {},
   "devDependencies": {
     "@cohub/protocol": "workspace:*",
-    "tsdown": "^0.22.0",
+    "tsdown": "^0.22.1",
     "typescript": "^6.0.3"
   }
 }
