@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -21,6 +22,7 @@ import { getSpacePublicProfile } from "../lib/middleware.js";
 import { getSpaceSandboxBySpaceId } from "../space-sandboxes.js";
 import { fallbackPublicUserProfile, getProfilesByUuids, type PublicUserProfile } from "../user-profiles.js";
 
+const logger = createLogger({ serviceName: "cohub-api" });
 const PLATFORM_EXPLORE_PATH = join(config.platformConfigRoot, "platform", ".cohub", "explore.json");
 const inflightByKey = new Map<string, Promise<ExploreConfig | null>>();
 
@@ -303,7 +305,7 @@ router.get("/spaces", async (c) => {
 
     return c.json({ sections: sectionsResult, spaces: spacesResult });
   } catch (error) {
-    console.error("[explore] failed to load spaces", error);
+    logger.error("[explore] failed to load spaces", error);
     return c.json({ message: "failed to load explore spaces" }, 502);
   }
 });

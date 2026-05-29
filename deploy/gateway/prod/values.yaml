@@ -43,3 +43,4 @@ GATEWAY_HOSTNAME: "gateway.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "prod"
+LOG_LEVEL: "info"

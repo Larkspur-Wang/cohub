@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
@@ -30,6 +31,8 @@ import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "./billing/index.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 export class SandboxNotReadyError extends Error {
   constructor(message = "space sandbox is not ready") {
     super(message);
@@ -142,7 +145,7 @@ const recordLlmUsageBilling = async (input: {
       reason: `LLM usage ${input.provider ?? "unknown"}/${input.model ?? "unknown"}`,
     });
     if (result.status === "overage") {
-      console.warn("[Billing] LLM usage recorded as overage", {
+      logger.warn("[Billing] LLM usage recorded as overage", {
         userId: input.userId,
         messageId: input.messageId,
         amountUsd,
@@ -151,7 +154,7 @@ const recordLlmUsageBilling = async (input: {
       });
     }
   } catch (error) {
-    console.warn("[Billing] failed to record LLM usage", {
+    logger.warn("[Billing] failed to record LLM usage", {
       userId: input.userId,
       messageId: input.messageId,
       amountUsd,
@@ -252,7 +255,7 @@ export const setSpaceEnv = async (spaceId: string, envs: Array<{ name: string; v
   } catch (err) {
     // DB is already updated; Redis write failure means agent may serve stale env
     // until the next successful env update or refresh after Redis recovers
-    console.warn(`[SpaceEnv] Failed to write env cache for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn(`[SpaceEnv] Failed to write env cache for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 };
 
@@ -316,7 +319,7 @@ export const createInitialSpaceSession = async (input: RegisterSessionInput) => 
   if (!session) throw new Error("Failed to create initial space session");
   await ensureRootSessionTurnSegment(input.sessionId);
   await dispatchSessionCreated(session).catch((error) => {
-    console.warn("[Realtime] failed to dispatch session.created", error);
+    logger.warn("[Realtime] failed to dispatch session.created", error);
   });
   return session;
 };
@@ -340,7 +343,7 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
     if (!session) throw new Error("Failed to register space session");
     await ensureRootSessionTurnSegment(input.sessionId);
     await dispatchSessionCreated(session).catch((error) => {
-      console.warn("[Realtime] failed to dispatch session.created", error);
+      logger.warn("[Realtime] failed to dispatch session.created", error);
     });
     return session;
   } catch (error) {
@@ -596,7 +599,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
             updatedAt: turnRow.updatedAt instanceof Date ? turnRow.updatedAt.toISOString() : new Date().toISOString(),
           },
         }).catch((error) => {
-          console.warn("[Realtime] failed to dispatch session.turn.created", error);
+          logger.warn("[Realtime] failed to dispatch session.turn.created", error);
         });
       }
     }
@@ -631,12 +634,12 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
           ...(typeof messageNode.durationMs === "number" ? { finalMessageDurationMs: messageNode.durationMs } : {}),
         },
       }).catch((error) => {
-        console.warn("[SessionTurn] failed to finalize turn", error);
+        logger.warn("[SessionTurn] failed to finalize turn", error);
         return null;
       });
       if (finalizedTurn) {
         await dispatchTurnFinalized({ spaceId: session.spaceId, sessionId: input.sessionId, turn: finalizedTurn }).catch((error) => {
-          console.warn("[SessionTurn] failed to dispatch finalized turn", error);
+          logger.warn("[SessionTurn] failed to dispatch finalized turn", error);
         });
       }
     }
@@ -656,7 +659,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     sessionId: session.id,
     message: realtimeMessage,
   });
-  await dispatchSessionOutputs(outputs).catch(console.error);
+  await dispatchSessionOutputs(outputs).catch((error) => logger.error("[SpaceSessions] failed to dispatch session outputs", error));
 
   if (messageRole === "assistant") {
     await recordLlmUsageBilling({
@@ -696,7 +699,7 @@ export const updateSpaceSessionInfo = async (input: UpdateSessionInfoInput) => {
     const refreshed = await getSpaceSessionById(input.sessionId);
     if (refreshed) {
       await dispatchSessionUpdated({ session: refreshed, changed }).catch((error) => {
-        console.warn("[Realtime] failed to dispatch session.updated", error);
+        logger.warn("[Realtime] failed to dispatch session.updated", error);
       });
     }
   }

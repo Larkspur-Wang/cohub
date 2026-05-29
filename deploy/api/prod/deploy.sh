@@ -63,6 +63,7 @@ CONFIGS_SUBPATH=$(get_value "CONFIGS_SUBPATH")
 ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
 API_HOSTNAME=$(get_value "API_HOSTNAME")
 ENV=$(get_value "ENV")
+LOG_LEVEL=$(get_value "LOG_LEVEL")
 
 echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
 echo -e "${BLUE}║   Cohub API Prod 环境部署        ║${NC}"
@@ -142,6 +143,7 @@ PY
     -e "s|__CONFIGS_SUBPATH__|${CONFIGS_SUBPATH}|g" \
     -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
+    -e "s|__LOG_LEVEL__|${LOG_LEVEL:-info}|g" \
     "$dst"
   rm -f "$dst.bak"
 }

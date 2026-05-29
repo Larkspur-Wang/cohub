@@ -33,6 +33,7 @@ import {
   type AssistantStreamState,
 } from "./stream/assistant-stream-state.js";
 
+
 export type PendingUserMessage = {
   userMessageId: string;
   turnId?: string | null;
@@ -343,7 +344,7 @@ export async function drainStreamStateBeforeReset(handle: SessionHandle) {
     try {
       await emitProviderRenderUpdate(handle);
     } catch (error) {
-      console.error(
+      logger.error(
         `[Agent] Final drain flush failed for session ${handle.sessionId}:`,
         error,
       );
@@ -372,7 +373,7 @@ function scheduleProviderRenderUpdate(
   handle.streamState.flushTimer = setTimeout(() => {
     handle.streamState.flushTimer = null;
     void emitProviderRenderUpdate(handle).catch((error) => {
-      console.error(`[Agent] Provider render update failed (${reason}) for session ${handle.sessionId}:`, error);
+      logger.error(`[Agent] Provider render update failed (${reason}) for session ${handle.sessionId}:`, error);
     });
   }, delayMs);
 }
@@ -387,7 +388,7 @@ function flushProviderRenderUpdate(handle: SessionHandle, reason: string) {
 
 function schedulePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
   void enqueuePersistence(handle, label, task).catch((error) => {
-    console.error(`[Agent] Persistence scheduling failed (${label}) for session ${handle.sessionId}:`, error);
+    logger.error(`[Agent] Persistence scheduling failed (${label}) for session ${handle.sessionId}:`, error);
   });
 }
 
@@ -549,11 +550,11 @@ function computeDelta(full: ContentBlock[], last: ContentBlock[]): ContentBlock[
 function enqueuePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
   const next = handle.persistenceChain
     .catch((error) => {
-      console.error(`[Agent] Previous persistence task failed for session ${handle.sessionId}:`, error);
+      logger.error(`[Agent] Previous persistence task failed for session ${handle.sessionId}:`, error);
     })
     .then(task)
     .catch((error) => {
-      console.error(`[Agent] Persistence task failed (${label}) for session ${handle.sessionId}:`, error);
+      logger.error(`[Agent] Persistence task failed (${label}) for session ${handle.sessionId}:`, error);
       throw error;
     });
 
@@ -570,7 +571,7 @@ function safeStringify(value: unknown): string {
 }
 
 function warnInvalidToolResultBlock(issue: { message: string; block: unknown }) {
-  console.warn(`[Normalize] tool result content: ${issue.message}`, { block: issue.block });
+  logger.warn(`[Normalize] tool result content: ${issue.message}`, { block: issue.block });
 }
 
 type NormalizedToolResultContent = {
@@ -662,7 +663,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
               sessionId: handle.sessionId,
               turnId: previousTurnId,
               continuedByTurnId: nextTurnId,
-            }).catch((error) => console.warn("[SessionTurn] failed to interrupt previous turn", error));
+            }).catch((error) => logger.warn("[SessionTurn] failed to interrupt previous turn", error));
           }
           handle.currentTurnId = nextTurnId;
           handle.currentTurnSeq = pending.turnSeq ?? handle.currentTurnSeq ?? null;
@@ -911,7 +912,7 @@ export async function loadOrCreateSessionHandle(input: {
   sessionHandles: Map<string, SessionHandle>;
 }) {
   await refreshUserEnv(input.spaceId).catch((error: unknown) => {
-    console.warn(`[Session] Failed to refresh env for ${input.spaceId}: ${error instanceof Error ? error.message : String(error)}`);
+    logger.warn(`[Session] Failed to refresh env for ${input.spaceId}: ${error instanceof Error ? error.message : String(error)}`);
   });
 
   const sessionKey = getSessionKey(input.spaceId, input.sessionId);
@@ -942,17 +943,17 @@ export async function loadOrCreateSessionHandle(input: {
     externalSessionId: null,
     meta: null,
   }).catch((error: unknown) => {
-    console.error(`[Agent] Failed to register session bootstrap for ${input.sessionId}:`, error);
+    logger.error(`[Agent] Failed to register session bootstrap for ${input.sessionId}:`, error);
     return null;
   });
 
   const spaceInfo = await getSpace({ spaceId: input.spaceId }).catch((error: unknown) => {
-    console.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);
+    logger.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);
     return null;
   });
   const spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
   const spaceMods = await listEnabledSpaceMods(db, input.spaceId).catch((error: unknown) => {
-    console.warn(`[Agent] Failed to load space mods for ${input.spaceId}; continuing without mods`, error);
+    logger.warn(`[Agent] Failed to load space mods for ${input.spaceId}; continuing without mods`, error);
     return [];
   });
 

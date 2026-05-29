@@ -30,6 +30,9 @@
       "@cohub/protocol/sandbox": [
         "../../packages/protocol/src/sandbox/index.ts"
       ],
+      "@cohub/infra/logging": [
+        "../../packages/infra/src/logging/index.ts"
+      ],
       "@cohub/infra/tracing": [
         "../../packages/infra/src/tracing/index.ts"
       ],

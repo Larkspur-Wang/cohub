@@ -2,7 +2,10 @@ import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 export type SessionHeader = {
   type: "session";
   version?: number;
@@ -335,7 +338,7 @@ export class SessionManager {
       })
       .catch((error) => {
         this.writeError = error;
-        console.error(`[SessionManager] Failed to write session file (${label}) ${this.sessionFile ?? "<unset>"}:`, error);
+        logger.error(`[SessionManager] Failed to write session file (${label}) ${this.sessionFile ?? "<unset>"}:`, error);
       });
   }
 

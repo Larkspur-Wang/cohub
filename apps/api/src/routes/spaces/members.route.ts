@@ -8,7 +8,10 @@ import { requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
 import { hasPermission, getRoleForSpaceUser } from "../../permissions.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { fallbackPublicUserProfile } from "../../user-profiles.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const VALID_ROLES: SpaceRole[] = ["host", "builder", "guest"];
 const ROLE_RANK: Record<SpaceRole, number> = { host: 3, builder: 2, guest: 1 };
 const router = new Hono();
@@ -23,7 +26,7 @@ async function isLastHost(spaceId: string): Promise<boolean> {
 
 function cleanupGatewayBindings(spaceChannelIds: string[]) {
   for (const spaceChannelId of spaceChannelIds) {
-    void unbindSpaceChannelFromGateway(spaceChannelId).catch(console.error);
+    void unbindSpaceChannelFromGateway(spaceChannelId).catch((error) => logger.error("[SpaceMembers] failed to unbind removed member channel from gateway", error));
   }
 }
 

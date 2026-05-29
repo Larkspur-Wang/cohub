@@ -22,6 +22,7 @@ SERVICE_NAME=$(get_value "serviceName")
 PORT=$(get_value "port")
 IMAGE=${OVERRIDE_IMAGE:-$(get_value "image")}
 ENV=$(get_value "env")
+LOG_LEVEL=$(get_value "logLevel")
 WORKSPACE_ROOT=$(get_value "workspaceRoot")
 SESSIONS_DIR=$(get_value "sessionsDir")
 PLATFORM_CONFIG_ROOT=$(get_value "platformConfigRoot")
@@ -80,6 +81,7 @@ sed -i.bak \
   -e "s|{{IMAGE}}|${IMAGE}|g" \
   -e "s|{{PORT}}|${PORT}|g" \
   -e "s|{{ENV}}|${ENV}|g" \
+  -e "s|{{LOG_LEVEL}}|${LOG_LEVEL:-info}|g" \
   -e "s|{{WORKSPACE_ROOT}}|${WORKSPACE_ROOT}|g" \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
   -e "s|{{SESSIONS_NAMESPACE}}|${SESSIONS_NAMESPACE}|g" \

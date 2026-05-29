@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { MessageRecord, SessionTurnRecord } from "@cohub/protocol/model";
@@ -14,6 +15,8 @@ import { spaceChannels } from "@cohub/db";
 import { clearSessionStreamSnapshot } from "./session-stream-snapshot.js";
 import { toRealtimeMessageRecord, toRealtimeTurnRecord } from "./realtime-events.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 export const buildSessionOutputsForPersistedMessage = async (input: {
   spaceId: string;
   sessionId: string;
@@ -117,7 +120,7 @@ const dispatchSessionOutputToChannels = async (output: GatewaySessionOutput) => 
           sessionMessageRole: message.role,
           turnAnchorMessageId,
         },
-      }).catch(console.error);
+      }).catch((error) => logger.error("[SessionOutput] failed to dispatch bound outbound message", { spaceId: output.spaceId, sessionId: output.sessionId, spaceChannelId: binding.spaceChannelId, sessionMessageId: message.id, error }));
     }
     return;
   }
@@ -134,7 +137,7 @@ const dispatchSessionOutputToChannels = async (output: GatewaySessionOutput) => 
         sessionOutput: output,
         sessionMessageRole: message.role,
       },
-    }).catch(console.error);
+    }).catch((error) => logger.error("[SessionOutput] failed to dispatch channel outbound message", { spaceId: output.spaceId, sessionId: output.sessionId, spaceChannelId: channel.id, sessionMessageId: message.id, error }));
   }
 };
 

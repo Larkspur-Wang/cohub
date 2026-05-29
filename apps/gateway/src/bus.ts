@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { randomUUID } from "node:crypto";
 import type { GatewayConversationCreateEvent, GatewayInboundEvent } from "@cohub/protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
@@ -11,6 +12,8 @@ import {
 } from "./redis.js";
 import { gatewayConfig } from "./config.js";
 
+
+const logger = createLogger({ serviceName: "cohub-gateway" });
 const ensureConsumerGroup = async (streamKey: string, groupName: string) => {
   try {
     await redisCommandClient.xgroup("CREATE", streamKey, groupName, "0", "MKSTREAM");
@@ -22,7 +25,7 @@ const ensureConsumerGroup = async (streamKey: string, groupName: string) => {
 
 export const OUTBOUND_STREAM = GATEWAY_OUTBOUND_STREAM;
 
-console.log(`[Bus] Stream names: outbound=${OUTBOUND_STREAM}`);
+logger.info(`[Bus] Stream names: outbound=${OUTBOUND_STREAM}`);
 
 // Inbound event dedup — prevents duplicate processing on WS reconnects
 const inboundDedup = new Map<string, number>();
@@ -32,7 +35,7 @@ const DEDUP_MAX_ENTRIES = 10000;
 export const publishInboundEvent = async (event: GatewayInboundEvent) => {
   // Dedup: skip if already processed (handles WS reconnect duplicate delivery)
   if (inboundDedup.has(event.eventId)) {
-    console.log(`[Bus] Duplicate inbound event ${event.eventId.slice(0, 8)}, skipping`);
+    logger.info(`[Bus] Duplicate inbound event ${event.eventId.slice(0, 8)}, skipping`);
     return;
   }
 
@@ -63,7 +66,7 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
   }
   inboundDedup.set(event.eventId, Date.now());
 
-  console.log(`[Bus] Inbound submitted: ${event.eventId.slice(0, 8)}`);
+  logger.info(`[Bus] Inbound submitted: ${event.eventId.slice(0, 8)}`);
 };
 
 export const publishConversationCreateEvent = async (
@@ -87,7 +90,7 @@ const OUTBOUND_BLOCK_MS = 5000;
 
 export const initOutboundConsumerGroup = async () => {
   await ensureConsumerGroup(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP);
-  console.log("[Bus] Outbound consumer group ready:", OUTBOUND_CONSUMER_GROUP);
+  logger.info("[Bus] Outbound consumer group ready:", OUTBOUND_CONSUMER_GROUP);
 };
 
 
@@ -95,14 +98,14 @@ export const initOutboundConsumerGroup = async () => {
 export const listenOutboundCommands = async (
   onCommand: (cmd: PlannedGatewayOutboundCommand) => Promise<{ success: boolean; error?: string; externalMessageId?: string }>
 ) => {
-  console.log(`[Bus] Listening: ${OUTBOUND_STREAM}`);
+  logger.info(`[Bus] Listening: ${OUTBOUND_STREAM}`);
 
   const client = createBlockingRedisClient();
-  console.log("[Bus] Outbound redis client status before connect:", client.status);
+  logger.info("[Bus] Outbound redis client status before connect:", client.status);
   if (client.status === "wait") {
     await client.connect();
   }
-  console.log("[Bus] Outbound redis client status after connect:", client.status);
+  logger.info("[Bus] Outbound redis client status after connect:", client.status);
 
   while (true) {
     try {
@@ -126,7 +129,7 @@ export const listenOutboundCommands = async (
           try {
             // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
             const cmd = JSON.parse(payload) as PlannedGatewayOutboundCommand;
-            console.log("[Bus] Consuming outbound command", {
+            logger.info("[Bus] Consuming outbound command", {
               streamId: id,
               commandId: cmd.commandId,
               channelId: cmd.channelId,
@@ -136,7 +139,7 @@ export const listenOutboundCommands = async (
             });
             const result = await onCommand(cmd);
             await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
-            console.log("[Bus] Acked outbound command", {
+            logger.info("[Bus] Acked outbound command", {
               streamId: id,
               commandId: cmd.commandId,
               success: result.success,
@@ -144,13 +147,13 @@ export const listenOutboundCommands = async (
               error: result.error ?? null,
             });
           } catch (err) {
-            console.error(`[Bus] Failed ${id}:`, err);
+            logger.error(`[Bus] Failed ${id}:`, err);
             await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
           }
         }
       }
     } catch (error) {
-      console.error("[Bus] Error:", error);
+      logger.error("[Bus] Error:", error);
       await new Promise((r) => setTimeout(r, 5000));
     }
   }

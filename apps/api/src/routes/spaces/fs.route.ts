@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";
 import { ensureFsCdnManifest, shouldUseFsCdnForMeta } from "../../space-fs-cdn-cache.js";
@@ -35,6 +36,8 @@ import {
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
 import type { SpaceFsCreateUploadInput, SpaceFsCompleteUploadInput } from "@cohub/protocol/fs";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 const MAX_UPLOAD_FILE_BYTES = 1024 * 1024 * 1024;
@@ -159,7 +162,7 @@ router.put("/file", async (c) => {
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       changes,
-    }).catch(console.error);
+    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
@@ -180,7 +183,7 @@ router.post("/dir", async (c) => {
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       changes: [{ path: result.path, kind: "create", nodeType: "dir", mtimeMs: result.mtimeMs }],
-    }).catch(console.error);
+    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
@@ -201,7 +204,7 @@ router.delete("/node", async (c) => {
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       changes: [{ path: result.path, kind: "delete", nodeType: result.nodeType === "symlink" ? "unknown" : result.nodeType }],
-    }).catch(console.error);
+    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
@@ -222,7 +225,7 @@ router.post("/move", async (c) => {
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
       changes: [{ path: result.toPath, oldPath: result.fromPath, kind: "rename", nodeType: "unknown" }],
-    }).catch(console.error);
+    }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);
   } catch (error) {
     const { status, body: errBody } = spaceFsJsonError(error);
@@ -387,7 +390,7 @@ router.post("/uploads/:uploadId/complete", async (c) => {
     });
   } catch (error) {
     await cancelSpaceUploadComplete(spaceId, uploadId);
-    console.error("[space-fs] failed to complete upload", error);
+    logger.error("[space-fs] failed to complete upload", error);
     return c.json({ message: "failed to complete upload" }, 500);
   }
 });
@@ -419,7 +422,7 @@ router.post("/upload", async (c) => {
       await dispatchSpaceFsChanged(spaceId, {
         source: "api-fs",
         changes,
-      }).catch(console.error);
+      }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     }
     return c.json(result);
   } catch (error) {

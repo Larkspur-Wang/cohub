@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -19,6 +20,8 @@ import { config } from "../config.js";
 import { useAuth } from "../lib/middleware.js";
 import { redisCommandClient } from "../redis.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const PLATFORM_MODELS_PATH = join(config.platformConfigRoot, "platform", ".cohub", "models.json");
 const MULTIMODAL_MODEL_TYPE = "multimodal";
 const getUserModelsPath = (userId: string) => join(config.platformConfigRoot, "users", userId, ".cohub", "models.json");
@@ -134,7 +137,7 @@ router.get("/", async (c) => {
     }
     return c.json(grouped);
   } catch (error) {
-    console.error("[models] failed to load catalog", error);
+    logger.error("[models] failed to load catalog", error);
     return c.json({ message: "failed to load models catalog" }, 502);
   }
 });

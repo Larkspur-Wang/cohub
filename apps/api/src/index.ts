@@ -1,5 +1,7 @@
 import "dotenv/config";
 import "./tracing.js";
+import { createLogger } from "@cohub/infra/logging";
+
 
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
@@ -16,6 +18,7 @@ import { assertRequiredConfig, config } from "./config.js";
 
 import router from "./routes/index.js";
 
+const logger = createLogger({ serviceName: "cohub-api" });
 // ── Hono app ─────────────────────────────────────────────────────────────────
 
 const app = new Hono<{
@@ -67,7 +70,7 @@ app.use(async (c, next) => {
 
   if (token) {
     const executionAuth = await consumeExecutionAuthFromToken(token).catch((error) => {
-      console.warn("[API] Failed to verify execution token:", error);
+      logger.warn("[API] Failed to verify execution token:", error);
       return null;
     });
     if (executionAuth) {
@@ -121,7 +124,7 @@ app.onError((error, c) => {
   }
   const path = c.req.path;
   const method = c.req.method;
-  console.error(`[API Error] ${method} ${path} requestId=${requestId} traceId=${ids.traceId ?? "none"}:`, serializeErrorForLog(error));
+  logger.error(`[API Error] ${method} ${path} requestId=${requestId} traceId=${ids.traceId ?? "none"}:`, serializeErrorForLog(error));
   return c.json({ message: "internal server error", requestId, traceId: ids.traceId }, 500);
 });
 
@@ -138,4 +141,4 @@ const server = serve({
   },
 });
 server.setTimeout(0);
-console.log(`@cohub/api listening on :${port}`);
+logger.info(`@cohub/api listening on :${port}`);

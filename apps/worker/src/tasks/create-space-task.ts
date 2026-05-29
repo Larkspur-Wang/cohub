@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { eq, sql } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
@@ -16,6 +17,8 @@ import {
 } from "../git.js";
 import { publishSpaceFsChanged } from "../space-events.js";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 type BootstrapStatus = "pending" | "running" | "ready" | "failed";
 type BootstrapStage = "prepare" | "import" | "checkpoint_restore" | "push" | "finalize";
 
@@ -259,7 +262,7 @@ const timeIt = async <T>(label: string, fn: () => Promise<T>): Promise<{ result:
   const start = performance.now();
   const result = await fn();
   const duration = Math.round(performance.now() - start);
-  console.log(`[CreateSpace] ⏱ ${label}: ${duration}ms`);
+  logger.info(`[CreateSpace] ⏱ ${label}: ${duration}ms`);
   return { result, duration };
 };
 
@@ -411,7 +414,7 @@ const createSpaceHandler = async (job: Job) => {
       resync: true,
       changes: [],
     }).catch((error) => {
-      console.warn(`[CreateSpace] Failed to publish bootstrap fs resync for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`);
+      logger.warn(`[CreateSpace] Failed to publish bootstrap fs resync for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`);
     });
 
     return {

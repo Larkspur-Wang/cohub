@@ -12,7 +12,10 @@ import { publishSandboxLifecycleEvent } from "./sandbox-events.js";
 import type { SpaceSandboxRuntimeStatus, SpaceSandboxStatus, SpaceSandboxStopReason } from "./lib/sandbox/types.js";
 import { smokeVerifySandboxPod } from "./lib/sandbox/recovery.js";
 import type { V1Pod } from "@kubernetes/client-node";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 export const toSandboxImageVersion = (image: string) => {
   const normalized = image.trim();
   if (!normalized) return "cohub-sandbox:unknown";
@@ -253,7 +256,7 @@ const triggerSandboxPublicNetworkReconcile = (spaceId: string) => {
         publicNetworkLastError: error instanceof Error ? error.message : String(error),
         publicEndpoints: getSandboxPublicEndpoints(spaceId),
       }).catch(() => undefined);
-      console.error(`[SandboxPublicNetwork] reconcile failed spaceId=${spaceId}`, error);
+      logger.error(`[SandboxPublicNetwork] reconcile failed spaceId=${spaceId}`, error);
     });
 };
 
@@ -309,7 +312,7 @@ export const reconcileSpaceSandbox = async (input: {
       podName: existingSandbox?.podName ?? podName,
       podIp: typeof existingMeta.podIp === "string" ? existingMeta.podIp : null,
     }).catch((error) => {
-      console.warn(`[SandboxEvents] failed to publish replacing event spaceId=${input.spaceId}:`, error);
+      logger.warn(`[SandboxEvents] failed to publish replacing event spaceId=${input.spaceId}:`, error);
     });
 
     const podToReplace = existingSandbox?.podName ?? podName;

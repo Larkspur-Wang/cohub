@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
@@ -9,6 +10,8 @@ import {
   type CreatePublicAssetUploadInput,
 } from "../public-asset-storage.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 router.post("/uploads", async (c) => {
@@ -39,10 +42,10 @@ router.post("/uploads", async (c) => {
       return c.json({ message: error.message }, status as never);
     }
     if (error instanceof PublicAssetConfigError) {
-      console.error("[public-assets] upload storage is not configured", error.message);
+      logger.error("[public-assets] upload storage is not configured", error.message);
       return c.json({ message: "public asset storage is not configured" }, 500);
     }
-    console.error("[public-assets] failed to create upload", error);
+    logger.error("[public-assets] failed to create upload", error);
     return c.json({ message: "failed to create public asset upload" }, 500);
   }
 });

@@ -3,7 +3,10 @@ import { redisCommandClient } from "../redis.js";
 import { DiscordProvider } from "../providers/discord/index.js";
 import { FeishuProvider } from "../providers/feishu/index.js";
 import type { GatewayProvider } from "../providers/base.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-gateway" });
 const GATEWAY_NODE_TTL_MS = 15_000;
 
 interface ChannelConfig {
@@ -27,35 +30,35 @@ export class GatewayManager {
   }
 
   public async start() {
-    console.log(`[Manager] Starting Gateway Node: ${this.nodeId}`);
+    logger.info(`[Manager] Starting Gateway Node: ${this.nodeId}`);
 
     // 1. 立即注册并开启心跳
-    console.log("[Manager] Sending initial heartbeat...");
+    logger.info("[Manager] Sending initial heartbeat...");
     await this.registerNode();
-    console.log("[Manager] Initial heartbeat sent, starting heartbeat loop (interval: 5s)");
+    logger.info("[Manager] Initial heartbeat sent, starting heartbeat loop (interval: 5s)");
     this.heartbeatInterval = setInterval(() => this.registerNode(), 5000);
 
     // 2. 立即全量同步一次，并开启定时同步
-    console.log("[Manager] Performing initial task sync...");
+    logger.info("[Manager] Performing initial task sync...");
     await this.syncTasks();
-    console.log("[Manager] Initial sync complete, starting sync loop (interval: 10s)");
+    logger.info("[Manager] Initial sync complete, starting sync loop (interval: 10s)");
     this.syncInterval = setInterval(() => this.syncTasks(), 10000);
 
-    console.log(`[Manager] Gateway Node ${this.nodeId} started successfully`);
+    logger.info(`[Manager] Gateway Node ${this.nodeId} started successfully`);
     this.started = true;
   }
 
   public async stop() {
-    console.log(`[Manager] Stopping Gateway Node: ${this.nodeId}`);
-    console.log(`[Manager] Active providers to stop: ${this.providers.size}`);
+    logger.info(`[Manager] Stopping Gateway Node: ${this.nodeId}`);
+    logger.info(`[Manager] Active providers to stop: ${this.providers.size}`);
 
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
-      console.log("[Manager] Heartbeat loop stopped");
+      logger.info("[Manager] Heartbeat loop stopped");
     }
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
-      console.log("[Manager] Sync loop stopped");
+      logger.info("[Manager] Sync loop stopped");
     }
 
     const channelIds = Array.from(this.providers.keys());
@@ -63,33 +66,33 @@ export class GatewayManager {
     // 清理本地所有的长连接
     for (const [channelId, provider] of this.providers.entries()) {
       try {
-        console.log(`[Manager] Destroying provider for ${channelId}...`);
+        logger.info(`[Manager] Destroying provider for ${channelId}...`);
         provider.destroy();
       } catch (err) {
-        console.error(`[Manager] Error destroying provider for ${channelId}:`, err);
+        logger.error(`[Manager] Error destroying provider for ${channelId}:`, err);
       }
     }
     this.providers.clear();
 
     // 从活跃节点中注销自己 (让 API 更快发现)
-    console.log("[Manager] Unregistering node from gateway:nodes...");
-    await redisCommandClient.zrem("gateway:nodes", this.nodeId).catch(console.error);
+    logger.info("[Manager] Unregistering node from gateway:nodes...");
+    await redisCommandClient.zrem("gateway:nodes", this.nodeId).catch((error) => logger.error("[Manager] failed to unregister gateway node", { nodeId: this.nodeId, error }));
 
     // 清理本节点的任务列表和 channel 路由
-    console.log("[Manager] Cleaning up task assignments...");
+    logger.info("[Manager] Cleaning up task assignments...");
     for (const channelId of channelIds) {
       // 从全局路由表中移除（如果当前节点仍然持有该 channel）
       const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);
       if (currentNode === this.nodeId) {
-        await redisCommandClient.hdel("gateway:channel_routing", channelId).catch(console.error);
-        console.log(`[Manager] Removed routing for channel ${channelId}`);
+        await redisCommandClient.hdel("gateway:channel_routing", channelId).catch((error) => logger.error("[Manager] failed to remove channel routing", { nodeId: this.nodeId, channelId, error }));
+        logger.info(`[Manager] Removed routing for channel ${channelId}`);
       }
     }
     // 删除本节点的任务列表
-    await redisCommandClient.del(`gateway:node:${this.nodeId}:channels`).catch(console.error);
-    console.log(`[Manager] Cleaned up ${channelIds.length} task assignments`);
+    await redisCommandClient.del(`gateway:node:${this.nodeId}:channels`).catch((error) => logger.error("[Manager] failed to cleanup node channel assignments", { nodeId: this.nodeId, error }));
+    logger.info(`[Manager] Cleaned up ${channelIds.length} task assignments`);
 
-    console.log(`[Manager] Node ${this.nodeId} stopped`);
+    logger.info(`[Manager] Node ${this.nodeId} stopped`);
   }
 
   private async registerNode() {
@@ -103,7 +106,7 @@ export class GatewayManager {
         .zremrangebyscore("gateway:nodes", 0, staleBefore)
         .exec();
     } catch (error) {
-      console.error("[Manager] Failed to send heartbeat:", error);
+      logger.error("[Manager] Failed to send heartbeat:", error);
     }
   }
 
@@ -118,12 +121,12 @@ export class GatewayManager {
       const expectedChannelIds = new Set(Object.keys(tasksStr));
       const currentChannelIds = new Set(this.providers.keys());
 
-      console.log(`[Manager] Sync tasks: expected=${expectedChannelIds.size}, current=${currentChannelIds.size}`);
+      logger.info(`[Manager] Sync tasks: expected=${expectedChannelIds.size}, current=${currentChannelIds.size}`);
       if (expectedChannelIds.size > 0) {
-        console.log(`[Manager] Expected channels: [${Array.from(expectedChannelIds).join(", ")}]`);
+        logger.info(`[Manager] Expected channels: [${Array.from(expectedChannelIds).join(", ")}]`);
       }
       if (currentChannelIds.size > 0) {
-        console.log(`[Manager] Current channels: [${Array.from(currentChannelIds).join(", ")}]`);
+        logger.info(`[Manager] Current channels: [${Array.from(currentChannelIds).join(", ")}]`);
       }
 
       // 1. 需要新增或更新的连接
@@ -131,10 +134,10 @@ export class GatewayManager {
       const toRemove = Array.from(currentChannelIds).filter(id => !expectedChannelIds.has(id));
 
       if (toAdd.length > 0) {
-        console.log(`[Manager] Channels to add: [${toAdd.join(", ")}]`);
+        logger.info(`[Manager] Channels to add: [${toAdd.join(", ")}]`);
       }
       if (toRemove.length > 0) {
-        console.log(`[Manager] Channels to remove: [${toRemove.join(", ")}]`);
+        logger.info(`[Manager] Channels to remove: [${toRemove.join(", ")}]`);
       }
 
       for (const channelId of toAdd) {
@@ -151,19 +154,19 @@ export class GatewayManager {
         await this.stopProvider(channelId);
       }
 
-      console.log(`[Manager] Sync completed in ${Date.now() - syncStart}ms`);
+      logger.info(`[Manager] Sync completed in ${Date.now() - syncStart}ms`);
     } catch (error) {
-      console.error("[Manager] Failed to sync tasks:", error);
+      logger.error("[Manager] Failed to sync tasks:", error);
     }
   }
 
   private startProvider(channelId: string, config: ChannelConfig) {
-    console.log(`[Manager] Starting provider for channel ${channelId} (${config.provider})`);
+    logger.info(`[Manager] Starting provider for channel ${channelId} (${config.provider})`);
     try {
       if (config.provider === "discord") {
         const provider = new DiscordProvider(channelId, config.credentials.token as string);
         this.providers.set(channelId, provider);
-        console.log(`[Manager] Provider for ${channelId} created and added to active providers`);
+        logger.info(`[Manager] Provider for ${channelId} created and added to active providers`);
       } else if (config.provider === "feishu") {
         const provider = new FeishuProvider(channelId, {
           appId: config.credentials.appId as string,
@@ -171,24 +174,24 @@ export class GatewayManager {
           brand: (config.credentials.brand as "feishu" | "lark") ?? "feishu",
         });
         this.providers.set(channelId, provider);
-        console.log(`[Manager] Provider for ${channelId} created and added to active providers`);
+        logger.info(`[Manager] Provider for ${channelId} created and added to active providers`);
       } else {
-        console.warn(`[Manager] Unsupported provider: ${config.provider}`);
+        logger.warn(`[Manager] Unsupported provider: ${config.provider}`);
       }
     } catch (error) {
-      console.error(`[Manager] Error starting provider for ${channelId}:`, error);
+      logger.error(`[Manager] Error starting provider for ${channelId}:`, error);
     }
   }
 
   private async stopProvider(channelId: string) {
-    console.log(`[Manager] Stopping provider for ${channelId}`);
+    logger.info(`[Manager] Stopping provider for ${channelId}`);
     const provider = this.providers.get(channelId);
     if (provider) {
       try {
         provider.destroy();
-        console.log(`[Manager] Provider for ${channelId} destroyed`);
+        logger.info(`[Manager] Provider for ${channelId} destroyed`);
       } catch (error) {
-        console.error(`[Manager] Error destroying provider for ${channelId}:`, error);
+        logger.error(`[Manager] Error destroying provider for ${channelId}:`, error);
       }
       this.providers.delete(channelId);
     }
@@ -198,10 +201,10 @@ export class GatewayManager {
       const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);
       if (currentNode === this.nodeId) {
         await redisCommandClient.hdel("gateway:channel_routing", channelId);
-        console.log(`[Manager] Removed routing for channel ${channelId}`);
+        logger.info(`[Manager] Removed routing for channel ${channelId}`);
       }
     } catch (error) {
-      console.error(`[Manager] Error cleaning up routing for ${channelId}:`, error);
+      logger.error(`[Manager] Error cleaning up routing for ${channelId}:`, error);
     }
   }
 

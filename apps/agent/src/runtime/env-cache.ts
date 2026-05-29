@@ -1,7 +1,10 @@
 import { Redis } from "ioredis";
 import { SYSTEM_ENV_KEY_SET, SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { env } from "../env.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 const cachedUserEnvBySpace = new Map<string, Record<string, string>>();
 let redisClient: Redis | null = null;
 
@@ -10,7 +13,7 @@ function getRedisClient(): Redis {
   if (!redisClient) {
     redisClient = new Redis(env.REDIS_URL);
     redisClient.on("error", (err) => {
-      console.warn(`[EnvCache] Redis error for space env: ${err.message}`);
+      logger.warn(`[EnvCache] Redis error for space env: ${err.message}`);
     });
   }
   return redisClient;
@@ -40,7 +43,7 @@ export async function refreshUserEnv(spaceId: string): Promise<void> {
     cachedUserEnvBySpace.set(spaceId, nextEnv);
   } catch (err) {
     // Redis unavailable or bad data — keep using stale cache for this space
-    console.warn(`[EnvCache] Failed to refresh env for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn(`[EnvCache] Failed to refresh env for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
@@ -19,6 +20,8 @@ import {
   readFeishuResourceBuffer,
 } from "./media.js";
 
+
+const logger = createLogger({ serviceName: "cohub-gateway" });
 // Detect image MIME type from magic bytes (first 4 bytes)
 function detectMimeType(buffer: Buffer): string | null {
   if (buffer.length < 4) return null;
@@ -143,7 +146,7 @@ export class FeishuProvider implements GatewayProvider {
     this.appId = credentials.appId;
     const domain = credentials.brand === "lark" ? Lark.Domain.Lark : Lark.Domain.Feishu;
 
-    console.log(`[Feishu:${channelId}] Creating Feishu client (domain=${domain})`);
+    logger.info(`[Feishu:${channelId}] Creating Feishu client (domain=${domain})`);
 
     this.client = new Lark.Client({
       appId: credentials.appId,
@@ -166,9 +169,9 @@ export class FeishuProvider implements GatewayProvider {
 
     this.setupListeners();
 
-    console.log(`[Feishu:${channelId}] Starting WebSocket connection...`);
+    logger.info(`[Feishu:${channelId}] Starting WebSocket connection...`);
     this.wsClient.start({ eventDispatcher: this.dispatcher }).catch((err) => {
-      console.error(`[Feishu:${channelId}] WS start failed:`, err);
+      logger.error(`[Feishu:${channelId}] WS start failed:`, err);
     });
 
     // Probe bot identity
@@ -184,12 +187,12 @@ export class FeishuProvider implements GatewayProvider {
       });
       if (res.code === 0 && res.data?.bot?.open_id) {
         this.botOpenId = res.data.bot.open_id;
-        console.log(`[Feishu:${this.channelId}] ✓ Bot open_id: ${this.botOpenId}`);
+        logger.info(`[Feishu:${this.channelId}] ✓ Bot open_id: ${this.botOpenId}`);
       } else {
-        console.warn(`[Feishu:${this.channelId}] Probe bot returned no open_id:`, JSON.stringify(res).slice(0, 200));
+        logger.warn(`[Feishu:${this.channelId}] Probe bot returned no open_id:`, JSON.stringify(res).slice(0, 200));
       }
     } catch (err) {
-      console.error(`[Feishu:${this.channelId}] Probe bot failed:`, err);
+      logger.error(`[Feishu:${this.channelId}] Probe bot failed:`, err);
     }
   }
 
@@ -197,7 +200,7 @@ export class FeishuProvider implements GatewayProvider {
     this.dispatcher.register({
       "im.message.receive_v1": (data: unknown) => {
         this.handleMessageEvent(data).catch((err) => {
-          console.error(`[Feishu:${this.channelId}] Handle message error:`, err);
+          logger.error(`[Feishu:${this.channelId}] Handle message error:`, err);
         });
       },
     });
@@ -232,7 +235,7 @@ export class FeishuProvider implements GatewayProvider {
 
     // Dedup
     if (!dedupAndPurge(eventId)) {
-      console.log(`[Feishu:${this.channelId}] Duplicate event ${eventId.slice(0, 8)}, skipping`);
+      logger.info(`[Feishu:${this.channelId}] Duplicate event ${eventId.slice(0, 8)}, skipping`);
       return;
     }
 
@@ -243,7 +246,7 @@ export class FeishuProvider implements GatewayProvider {
     if (msg.create_time) {
       const age = Date.now() - Number.parseInt(msg.create_time, 10) * 1000;
       if (age > 5 * 60 * 1000) {
-        console.log(`[Feishu:${this.channelId}] Expired message ${msg.message_id}, skipping`);
+        logger.info(`[Feishu:${this.channelId}] Expired message ${msg.message_id}, skipping`);
         return;
       }
     }
@@ -257,7 +260,7 @@ export class FeishuProvider implements GatewayProvider {
       if (requireMention && this.botOpenId) {
         const hasMention = msg.mentions?.some((m) => m.id.open_id === this.botOpenId) ?? false;
         if (!hasMention) {
-          console.log(`[Feishu:${this.channelId}] Bot not mentioned in group ${msg.chat_id}, skipping`);
+          logger.info(`[Feishu:${this.channelId}] Bot not mentioned in group ${msg.chat_id}, skipping`);
           return;
         }
       }
@@ -336,12 +339,12 @@ export class FeishuProvider implements GatewayProvider {
       : { ...inboundEventBase, eventType: "message_create" };
 
     if (channelCommand) {
-      console.log(`[Feishu:${this.channelId}] → Inbound command: ${channelCommand.name} message=${msg.message_id}`);
+      logger.info(`[Feishu:${this.channelId}] → Inbound command: ${channelCommand.name} message=${msg.message_id}`);
       await publishInboundEvent(inboundEvent);
       return;
     }
 
-    console.log(
+    logger.info(
       `[Feishu:${this.channelId}] → Inbound: ${inboundEvent.externalMessageId.slice(0, 8)} chat=${msg.chat_id} type=${msg.chat_type}${threadId ? ` thread=${threadId}` : ""}`,
     );
     await publishInboundEvent(inboundEvent);
@@ -360,10 +363,10 @@ export class FeishuProvider implements GatewayProvider {
       const reactionId = res.data?.reaction_id;
       if (reactionId) {
         this.typingReactions.set(messageId, reactionId);
-        console.log(`[Feishu:${this.channelId}] ✓ Typing reaction added: ${messageId}`);
+        logger.info(`[Feishu:${this.channelId}] ✓ Typing reaction added: ${messageId}`);
       }
     } catch (err) {
-      console.debug(`[Feishu:${this.channelId}] Failed to add typing reaction:`, err instanceof Error ? err.message : String(err));
+      logger.debug(`[Feishu:${this.channelId}] Failed to add typing reaction:`, err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -380,9 +383,9 @@ export class FeishuProvider implements GatewayProvider {
           reaction_id: reactionId,
         },
       });
-      console.log(`[Feishu:${this.channelId}] ✓ Typing reaction removed: ${messageId}`);
+      logger.info(`[Feishu:${this.channelId}] ✓ Typing reaction removed: ${messageId}`);
     } catch (err) {
-      console.debug(`[Feishu:${this.channelId}] Failed to remove typing reaction:`, err instanceof Error ? err.message : String(err));
+      logger.debug(`[Feishu:${this.channelId}] Failed to remove typing reaction:`, err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -403,7 +406,7 @@ export class FeishuProvider implements GatewayProvider {
         // Fetch from URL
         const res = await fetch(imageSource.url);
         if (!res.ok) {
-          console.warn(`[Feishu:${this.channelId}] Failed to fetch image URL: ${imageSource.url} (${res.status})`);
+          logger.warn(`[Feishu:${this.channelId}] Failed to fetch image URL: ${imageSource.url} (${res.status})`);
           return null;
         }
         buffer = Buffer.from(await res.arrayBuffer());
@@ -428,10 +431,10 @@ export class FeishuProvider implements GatewayProvider {
       if (uploadResult.code === 0 && uploadResult.data?.image_key) {
         return uploadResult.data.image_key as string;
       }
-      console.warn(`[Feishu:${this.channelId}] Image upload failed:`, JSON.stringify(uploadResult).slice(0, 200));
+      logger.warn(`[Feishu:${this.channelId}] Image upload failed:`, JSON.stringify(uploadResult).slice(0, 200));
       return null;
     } catch (err) {
-      console.warn(`[Feishu:${this.channelId}] Image upload error:`, err instanceof Error ? err.message : String(err));
+      logger.warn(`[Feishu:${this.channelId}] Image upload error:`, err instanceof Error ? err.message : String(err));
       return null;
     }
   }
@@ -446,7 +449,7 @@ export class FeishuProvider implements GatewayProvider {
       });
       const buffer = await readFeishuResourceBuffer(res, { maxBytes: FEISHU_INBOUND_IMAGE_MAX_BYTES });
       if (!buffer || buffer.length === 0) {
-        console.warn(`[Feishu:${this.channelId}] Image download returned empty: ${imageKey}`);
+        logger.warn(`[Feishu:${this.channelId}] Image download returned empty: ${imageKey}`);
         return null;
       }
       const mimeType = detectMimeType(buffer) ?? "image/png";
@@ -461,7 +464,7 @@ export class FeishuProvider implements GatewayProvider {
         _meta: { imageKey, source: "feishu" },
       };
     } catch (err) {
-      console.warn(`[Feishu:${this.channelId}] Failed to download image ${imageKey}:`, err instanceof Error ? err.message : String(err));
+      logger.warn(`[Feishu:${this.channelId}] Failed to download image ${imageKey}:`, err instanceof Error ? err.message : String(err));
       return null;
     }
   }
@@ -653,7 +656,7 @@ export class FeishuProvider implements GatewayProvider {
         docBlocks.push({ type: "text", text });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`[Feishu:${this.channelId}] Failed to expand document ${ref.url}:`, message);
+        logger.warn(`[Feishu:${this.channelId}] Failed to expand document ${ref.url}:`, message);
         docBlocks.push({ type: "text", text: `Feishu document link: ${ref.url}\n[Unable to fetch document content: ${message}]` });
       }
     }
@@ -662,7 +665,7 @@ export class FeishuProvider implements GatewayProvider {
   }
 
   public async handleOutbound(cmd: PlannedGatewayOutboundCommand): Promise<{ success: boolean; error?: string; externalMessageId?: string }> {
-    console.log(`[Feishu:${this.channelId}] → Outbound to ${cmd.externalChatId}`, {
+    logger.info(`[Feishu:${this.channelId}] → Outbound to ${cmd.externalChatId}`, {
       contentPreview: cmd.content.map((c: { type: string; text?: string }) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
       replyTo: cmd.replyToExternalMessageId?.slice(0, 8) || "none",
       source: typeof cmd.meta?.source === "string" ? cmd.meta.source : "unknown",
@@ -687,7 +690,7 @@ export class FeishuProvider implements GatewayProvider {
           )
         ).filter((k): k is string => k !== null);
         if (uploadedImageKeys.length < plan.imagesToUpload.length) {
-          console.warn(`[Feishu:${this.channelId}] Only uploaded ${uploadedImageKeys.length}/${plan.imagesToUpload.length} images`);
+          logger.warn(`[Feishu:${this.channelId}] Only uploaded ${uploadedImageKeys.length}/${plan.imagesToUpload.length} images`);
         }
       }
       const allImageKeys = [...imageKeys, ...uploadedImageKeys];
@@ -705,7 +708,7 @@ export class FeishuProvider implements GatewayProvider {
             path: { message_id: targetMessageId },
             data: { content },
           });
-          console.log(`[Feishu:${this.channelId}] ✓ Card patched: ${targetMessageId}`);
+          logger.info(`[Feishu:${this.channelId}] ✓ Card patched: ${targetMessageId}`);
           await this.removeTypingReaction(replyToForTypingCleanup);
           return { success: true, externalMessageId: targetMessageId };
         }
@@ -713,7 +716,7 @@ export class FeishuProvider implements GatewayProvider {
           path: { message_id: targetMessageId },
           data: { content, msg_type: "post" },
         });
-        console.log(`[Feishu:${this.channelId}] ✓ Post updated: ${targetMessageId}`);
+        logger.info(`[Feishu:${this.channelId}] ✓ Post updated: ${targetMessageId}`);
         await this.removeTypingReaction(replyToForTypingCleanup);
         return { success: true, externalMessageId: targetMessageId };
       }
@@ -734,7 +737,7 @@ export class FeishuProvider implements GatewayProvider {
         if (turnAnchorMessageId && messageId) {
           await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, messageId).catch(() => {});
         }
-        console.log(`[Feishu:${this.channelId}] ✓ Reply sent: ${messageId}`);
+        logger.info(`[Feishu:${this.channelId}] ✓ Reply sent: ${messageId}`);
         await this.removeTypingReaction(replyToForTypingCleanup);
         return { success: true, externalMessageId: messageId };
       }
@@ -767,20 +770,20 @@ export class FeishuProvider implements GatewayProvider {
             });
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            console.error(`[Feishu:${this.channelId}] ✗ Failed to send image ${imgKey}:`, errMsg);
+            logger.error(`[Feishu:${this.channelId}] ✗ Failed to send image ${imgKey}:`, errMsg);
             imageSendErrors.push(imgKey);
           }
         }
       }
 
-      console.log(`[Feishu:${this.channelId}] ✓ Message created: ${messageId}`);
+      logger.info(`[Feishu:${this.channelId}] ✓ Message created: ${messageId}`);
       await this.removeTypingReaction(replyToForTypingCleanup);
       return { success: true, externalMessageId: messageId };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[Feishu:${this.channelId}] ✗ Outbound failed:`, msg);
+      logger.error(`[Feishu:${this.channelId}] ✗ Outbound failed:`, msg);
       if (err instanceof Error && err.stack) {
-        console.error(`[Feishu:${this.channelId}] Stack:`, err.stack.split("\n").slice(0, 3).join("\n"));
+        logger.error(`[Feishu:${this.channelId}] Stack:`, err.stack.split("\n").slice(0, 3).join("\n"));
       }
       await this.removeTypingReaction(replyToForTypingCleanup);
       return { success: false, error: msg };
@@ -788,12 +791,12 @@ export class FeishuProvider implements GatewayProvider {
   }
 
   public destroy() {
-    console.log(`[Feishu:${this.channelId}] Destroying Feishu client...`);
+    logger.info(`[Feishu:${this.channelId}] Destroying Feishu client...`);
     try {
       this.wsClient.close({ force: true });
     } catch {
       // Ignore errors during close
     }
-    console.log(`[Feishu:${this.channelId}] Feishu client destroyed`);
+    logger.info(`[Feishu:${this.channelId}] Feishu client destroyed`);
   }
 }

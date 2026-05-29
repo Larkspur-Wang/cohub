@@ -1,5 +1,6 @@
 import "./tracing.js";
 
+
 import { Worker, type Job, type Processor } from "bullmq";
 import {
   attachWorkerEventLogger,
@@ -124,15 +125,15 @@ await subscribeSandboxLifecycleEvents((event) => {
   });
 });
 
-console.log("[AgentWorker] Starting BullMQ agent worker...");
-console.log("[AgentWorker] Queue:", AGENT_TURN_QUEUE_NAME);
-console.log("[AgentWorker] Concurrency:", env.AGENT_WORKER_CONCURRENCY);
+logger.info("[AgentWorker] Starting BullMQ agent worker...");
+logger.info("[AgentWorker] Queue:", AGENT_TURN_QUEUE_NAME);
+logger.info("[AgentWorker] Concurrency:", env.AGENT_WORKER_CONCURRENCY);
 
 let shuttingDown = false;
 async function shutdown(signal: string, options?: { exitCode?: number }) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[AgentWorker] Received ${signal}, draining...`);
+  logger.info(`[AgentWorker] Received ${signal}, draining...`);
   await closeWorkerGracefully(worker, {
     serviceName: "AgentWorker",
     timeoutMs: env.AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS,

@@ -61,3 +61,4 @@ API_HOSTNAME: "api-dev.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "dev"
+LOG_LEVEL: "debug"

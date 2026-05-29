@@ -26,6 +26,7 @@ import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 
+
 const sessionHandles = new Map<string, SessionHandle>();
 const tools = createSandboxCodingTools();
 const agentTracer = getAgentTracer();
@@ -93,7 +94,7 @@ async function getModelRegistryForUser(userId: string | null | undefined) {
   const configs = await loadRuntimeModelsConfigs(userId?.trim() || null);
   const registry = new CohubModelRegistry({ configs });
   if (registry.getError()) {
-    console.warn(`[Agent] Model registry warning for ${userId?.trim() || "__platform__"}:`, registry.getError());
+    logger.warn(`[Agent] Model registry warning for ${userId?.trim() || "__platform__"}:`, registry.getError());
   }
   return registry;
 }
@@ -717,7 +718,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         });
 
         await handle.persistenceChain;
-        await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
+        await handle.sessionManager.flush().catch((error) => logger.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
         await refreshSessionHandleFileSignature(handle);
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "direct_shell_complete" };
         clearRetryState(data);
@@ -729,7 +730,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
 
       if (messages.length === 0) {
-        console.info(`[Agent] batch has no new user messages; continuing ownerTurn=${batch.ownerTurn.id}`);
+        logger.info(`[Agent] batch has no new user messages; continuing ownerTurn=${batch.ownerTurn.id}`);
       }
 
       await wrapAgentTurn(agentTracer, {
@@ -799,7 +800,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       });
 
       await handle.persistenceChain;
-      await handle.sessionManager.flush().catch((error) => console.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
+      await handle.sessionManager.flush().catch((error) => logger.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
       await refreshSessionHandleFileSignature(handle);
       drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_complete" };
       clearRetryState(data);
@@ -845,7 +846,7 @@ export async function disposeAllSessionHandles() {
       clearCurrentSessionExecutionAuth(handle.sessionId);
       handle.session.dispose();
     } catch (error) {
-      console.error(`[Agent] failed to dispose session ${handle.sessionId}:`, error);
+      logger.error(`[Agent] failed to dispose session ${handle.sessionId}:`, error);
     }
   }
   sessionHandles.clear();

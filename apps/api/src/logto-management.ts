@@ -1,5 +1,8 @@
 import { config } from "./config.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 export type LogtoUser = Record<string, unknown>;
 
 type ManagementToken = {
@@ -50,7 +53,7 @@ export async function getLogtoManagementToken() {
 
   const expiresIn = typeof data.expires_in === "number" ? data.expires_in : 3600;
   if (typeof data.expires_in !== "number") {
-    console.warn("[logto] Unexpected expires_in type, defaulting to 3600s:", data.expires_in);
+    logger.warn("[logto] Unexpected expires_in type, defaulting to 3600s:", data.expires_in);
   }
   cachedToken = {
     accessToken: data.access_token,

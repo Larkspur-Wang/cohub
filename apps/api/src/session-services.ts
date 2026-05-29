@@ -10,7 +10,10 @@ import { redisCommandClient } from "./redis.js";
 import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPromptTemplate } from "./prompt-templates.js";
 import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
 import { getSpaceById } from "./space-sessions.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const AGENT_TURN_JOB_NAME = "agent_turns";
 
 export type PromptTemplateService = {
@@ -71,7 +74,7 @@ export function getSessionDomainServices(input?: {
           source,
           verify: false,
         }).catch((error) => {
-          console.warn(`[SandboxResume] failed to resume sandbox for prompt spaceId=${spaceId}:`, error);
+          logger.warn(`[SandboxResume] failed to resume sandbox for prompt spaceId=${spaceId}:`, error);
         });
       },
     },

@@ -30,6 +30,7 @@ import {
 } from "../runtime/tools/local-cross-space-query-tools.js";
 import { formatRgJsonGrepResult } from "../runtime/tools/grep-json-format.js";
 
+
 import { encodeGenerationPolicy, GENERATION_POLICY_ENV_KEY } from "@cohub/protocol/generation";
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -207,7 +208,7 @@ async function waitForRecoveredSandboxConnection(spaceId: string, timeoutMs = 60
 }
 
 async function recoverAndRetryAfterInfraError<T>(spaceId: string, error: SandboxInfrastructureError, retry: () => Promise<T>) {
-  console.warn(`[SandboxRecovery] ${error.code} detected spaceId=${spaceId} mount=${error.mountPath ?? "unknown"}; triggering recovery`);
+  logger.warn(`[SandboxRecovery] ${error.code} detected spaceId=${spaceId} mount=${error.mountPath ?? "unknown"}; triggering recovery`);
   disconnectSandboxWsClient(spaceId, `sandbox recovery requested: ${error.code}`);
   const result = await recoverSpaceSandbox({ spaceId, reason: error.code, source: "agent" });
   if (!result?.ok) {
@@ -487,7 +488,7 @@ function createRemoteBashOperations(): BashOperations {
               } satisfies BashExecutionResult));
               return;
             }
-            console.error(`[Tool:bash] error cmd="${cmdSummary}"`, error);
+            logger.error(`[Tool:bash] error cmd="${cmdSummary}"`, error);
             finish(() => reject(error));
           }
         })();

@@ -59,6 +59,10 @@
     "./tracing/db": {
       "types": "./dist/tracing/db.d.ts",
       "default": "./dist/tracing/db.js"
+    },
+    "./logging": {
+      "types": "./dist/logging/index.d.ts",
+      "default": "./dist/logging/index.js"
     }
   },
   "types": "./dist/index.d.ts",

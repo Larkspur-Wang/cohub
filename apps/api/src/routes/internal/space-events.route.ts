@@ -4,7 +4,10 @@ import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import { ensureInternalRequest, requireValidId } from "../../lib/middleware.js";
 import { dispatchRealtimeEventToUsers, getReadableUserIdsForSpace } from "../../channels.js";
 import { enqueueFsCdnWarmForChanges } from "../../space-fs-cdn-prewarm.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 router.post("/:spaceId/fs-changed", async (c) => {
@@ -32,7 +35,7 @@ router.post("/:spaceId/fs-changed", async (c) => {
       },
     }),
     enqueueFsCdnWarmForChanges(spaceId, payload.changes).catch((error) => {
-      console.error("[SpaceFS] failed to enqueue internal CDN prewarm:", error);
+      logger.error("[SpaceFS] failed to enqueue internal CDN prewarm:", error);
     }),
   ]);
 

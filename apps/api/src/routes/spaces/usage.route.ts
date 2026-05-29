@@ -4,7 +4,10 @@ import { db } from "../../db/index.js";
 import * as schema from "@cohub/db";
 import { getOptionalAuth, requireValidId, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 /**
@@ -74,7 +77,7 @@ router.get("/", async (c) => {
       )
       .orderBy(desc(schema.tokenUsageStatsHourly.bucketStartAt));
   } catch (error) {
-    console.error("[usage] DB query failed", error);
+    logger.error("[usage] DB query failed", error);
     return c.json({ message: "failed to load usage data" }, 500);
   }
 

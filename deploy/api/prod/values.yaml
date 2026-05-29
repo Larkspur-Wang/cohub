@@ -62,3 +62,4 @@ API_HOSTNAME: "api.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "prod"
+LOG_LEVEL: "info"

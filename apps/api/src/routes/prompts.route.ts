@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { getOptionalAuth, authzDenied } from "../lib/middleware.js";
 import { listPromptTemplates } from "../prompt-templates.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 router.get("/", async (c) => {
@@ -25,7 +28,7 @@ router.get("/", async (c) => {
       }),
     });
   } catch (error) {
-    console.error("[prompts] failed to load templates", error);
+    logger.error("[prompts] failed to load templates", error);
     return c.json({ message: "failed to load prompt templates" }, 502);
   }
 });

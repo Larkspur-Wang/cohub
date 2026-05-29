@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import type {
@@ -30,6 +31,8 @@ import {
   requireValidId,
 } from "../../lib/middleware.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const ALLOWED_SANDBOX_META_KEYS = new Set([
   "workspaceDir",
   "sandboxId",
@@ -113,7 +116,7 @@ router.post("/:id/status", async (c) => {
         lastHeartbeatAt: new Date(),
       });
     } catch (error) {
-      console.warn("[SandboxStatus] failed to persist sandbox meta:", error);
+      logger.warn("[SandboxStatus] failed to persist sandbox meta:", error);
     }
   }
 
@@ -180,7 +183,7 @@ router.post("/:id/sandbox-report", async (c) => {
       ownerUserUuid: space.userUuid,
       reason: typeof safeMeta.errorClass === "string" ? safeMeta.errorClass : body.status,
       source: "sandbox",
-    }).catch((error) => console.error(`[SandboxRecovery] auto recovery failed spaceId=${spaceId}`, error));
+    }).catch((error) => logger.error(`[SandboxRecovery] auto recovery failed spaceId=${spaceId}`, error));
   }
 
   return c.json({ ok: true });
@@ -208,7 +211,7 @@ router.post("/:id/sandbox/recover", async (c) => {
     });
     return c.json(result);
   } catch (error) {
-    console.error("[sandbox] failed to recover sandbox", error);
+    logger.error("[sandbox] failed to recover sandbox", error);
     return c.json({ ok: false, status: "error", message: "failed to recover sandbox" }, 500);
   }
 });
@@ -344,7 +347,7 @@ router.post("/:spaceId/sessions/:sessionId/turns/:turnId/interrupt", async (c) =
   if (!continuedByTurnId || !requireValidId(continuedByTurnId)) return c.json({ message: "continuedByTurnId is required" }, 400);
 
   const turn = await interruptSessionTurn({ spaceId, sessionId, turnId, continuedByTurnId });
-  if (turn) await dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => console.warn("[SessionTurn] failed to dispatch interrupted turn", error));
+  if (turn) await dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch interrupted turn", error));
   return c.json({ ok: true, turn });
 });
 
@@ -368,7 +371,7 @@ router.post("/:spaceId/sessions/:sessionId/turns/:turnId/abort", async (c) => {
     turnId,
     actorUserId: body?.actorUserId ?? null,
   });
-  if (turn) await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => console.warn("[SessionTurn] failed to dispatch aborted turn", error));
+  if (turn) await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch aborted turn", error));
   return c.json({ ok: true, turn });
 });
 
@@ -388,7 +391,7 @@ router.post("/:spaceId/sessions/:sessionId/turns/:turnId/fail", async (c) => {
   const body = await c.req.json<{ errorMessage?: string | null }>().catch(() => null);
   const errorMessage = body?.errorMessage?.trim() || "Agent turn failed.";
   const turn = await failSessionTurn({ sessionId, turnId, errorMessage });
-  if (turn) await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => console.warn("[SessionTurn] failed to dispatch failed turn", error));
+  if (turn) await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch failed turn", error));
   return c.json({ ok: true, turn });
 });
 

@@ -3,7 +3,10 @@ import type { AuthUser } from "./lib/middleware.js";
 import { db } from "./db/index.js";
 import { userProfiles } from "@cohub/db";
 import { getLogtoUser, updateLogtoUserProfile } from "./logto-management.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 export type PublicUserProfile = {
   userUuid: string;
   username: string | null;
@@ -232,7 +235,7 @@ export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProf
       fields: normalizeUserProfile({ userUuid: user.uuid, source: logtoUser }),
     });
   } catch (error) {
-    console.warn("[user-profile] Failed to refresh current user from Logto, using stored profile when available:", error);
+    logger.warn("[user-profile] Failed to refresh current user from Logto, using stored profile when available:", error);
     const stored = await getStoredUserProfile(user.uuid);
     if (stored) return stored;
 
@@ -284,7 +287,7 @@ export async function updateCurrentUserProfile(user: AuthUser, input: { displayN
       avatarUrl: previousFields.avatarUrl,
       username: previousFields.username,
     }).catch((rollbackError) => {
-      console.warn("[user-profile] Failed to roll back Logto profile after local update failure:", rollbackError);
+      logger.warn("[user-profile] Failed to roll back Logto profile after local update failure:", rollbackError);
     });
     throw error;
   }

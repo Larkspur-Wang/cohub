@@ -4,7 +4,10 @@ import { eq } from "drizzle-orm";
 import { db } from "../db.js";
 import { taskRuns } from "@cohub/db";
 import { dispatchTaskCreated, dispatchTaskUpdated } from "../realtime-events.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 export type TaskHandlerContext = {
   taskRunId: string;
 };
@@ -58,7 +61,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         await dispatchTaskUpdated({
           task: taskRun,
           changed: ["status", "startedAt", "attemptCount"],
-        }).catch((error) => console.warn("[Realtime] failed to dispatch task.updated", error));
+        }).catch((error) => logger.warn("[Realtime] failed to dispatch task.updated", error));
       }
     } else {
       // Cron-spawned — first time we see this job
@@ -80,7 +83,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
 
       if (inserted[0]?.id) {
         taskRunId = inserted[0].id;
-        await dispatchTaskCreated(inserted[0]).catch((error) => console.warn("[Realtime] failed to dispatch task.created", error));
+        await dispatchTaskCreated(inserted[0]).catch((error) => logger.warn("[Realtime] failed to dispatch task.created", error));
       } else {
         const [createdByPeer] = await db
           .select({ id: taskRuns.id })
@@ -109,7 +112,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         await dispatchTaskUpdated({
           task: taskRun,
           changed: ["status", "result", "finishedAt"],
-        }).catch((error) => console.warn("[Realtime] failed to dispatch task.updated", error));
+        }).catch((error) => logger.warn("[Realtime] failed to dispatch task.updated", error));
       }
 
       return result;
@@ -130,7 +133,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         await dispatchTaskUpdated({
           task: taskRun,
           changed: ["status", "errorMessage", "finishedAt"],
-        }).catch((error) => console.warn("[Realtime] failed to dispatch task.updated", error));
+        }).catch((error) => logger.warn("[Realtime] failed to dispatch task.updated", error));
       }
 
       throw error; // Rethrow so BullMQ handles retry/backoff

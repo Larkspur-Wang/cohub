@@ -4,7 +4,10 @@ import { redisCommandClient } from "../../../redis.js";
 import { enqueueSandboxIdleCheckAt } from "../../sandbox-idle-check-queue.js";
 import { sandboxInfra } from "../../sandbox-infra.js";
 import { registerSystemJob } from "../../registry.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 const controller = createSandboxLifecycleController({
   db,
   redis: redisCommandClient,
@@ -20,6 +23,6 @@ registerSystemJob(SANDBOX_IDLE_CHECK_JOB, async (job) => {
     await enqueueSandboxIdleCheckAt(spaceId, new Date(result.dueAt));
   }
 
-  console.log("[SandboxIdleCheck] completed", JSON.stringify(result));
+  logger.info("[SandboxIdleCheck] completed", JSON.stringify(result));
   return result;
 });

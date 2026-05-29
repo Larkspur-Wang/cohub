@@ -2,7 +2,10 @@ import { chmod, mkdir, readdir, rm, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { config } from "./config.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 const redactBasicAuthUrls = (value: string) =>
   value.replace(/(https?:\/\/[^:\s/@]+:)([^@\s]+)(@)/g, "$1***$3");
 
@@ -41,7 +44,7 @@ export const cleanStaleGitLock = async (cwd: string) => {
     const ageMs = Date.now() - st.mtimeMs;
     if (ageMs > 30_000) {
       await unlink(lockPath);
-      console.warn(`[git] removed stale index.lock (age=${Math.round(ageMs / 1000)}s) cwd=${cwd}`);
+      logger.warn(`[git] removed stale index.lock (age=${Math.round(ageMs / 1000)}s) cwd=${cwd}`);
     }
   } catch {
     // lock file doesn't exist or already removed — nothing to do

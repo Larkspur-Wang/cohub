@@ -1,6 +1,9 @@
 import { Redis } from "ioredis";
 import { env } from "./env.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 export const SANDBOX_EVENTS_CHANNEL = "pubsub:sandbox:events";
 
 export type SandboxLifecycleEvent = {
@@ -20,7 +23,7 @@ function getSubscriber() {
   if (subscriber) return subscriber;
   subscriber = new Redis(env.REDIS_URL, { lazyConnect: true });
   subscriber.on("error", (error) => {
-    console.warn("[SandboxEvents] Redis subscriber error", error);
+    logger.warn("[SandboxEvents] Redis subscriber error", error);
   });
   return subscriber;
 }
@@ -54,7 +57,7 @@ export async function subscribeSandboxLifecycleEvents(handler: (event: SandboxLi
     if (channel !== SANDBOX_EVENTS_CHANNEL) return;
     const event = parseSandboxLifecycleEvent(raw);
     if (!event) {
-      console.warn("[SandboxEvents] invalid sandbox lifecycle event");
+      logger.warn("[SandboxEvents] invalid sandbox lifecycle event");
       return;
     }
     handler(event);

@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { createReadStream } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
@@ -21,6 +22,8 @@ import {
   shouldUseFsCdnCache,
 } from "./policy.js";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 let s3Client: S3Client | null = null;
 
 function getS3Client() {
@@ -108,7 +111,7 @@ async function processWarmFile(job: Job<FsCdnWarmFileJob>) {
       Bucket: config.turnObjectS3Bucket,
       Key: objectKey,
     })).catch((error) => {
-      console.warn("[SystemWorker] failed to delete stale fs cdn object", error instanceof Error ? error.message : String(error));
+      logger.warn("[SystemWorker] failed to delete stale fs cdn object", error instanceof Error ? error.message : String(error));
     });
     return { skipped: true, reason: "changed_during_upload" };
   }
@@ -131,7 +134,7 @@ async function processWarmFile(job: Job<FsCdnWarmFileJob>) {
     FS_CDN_MANIFEST_TTL_SECONDS,
   );
 
-  console.log("[SystemWorker] fs cdn warmed", JSON.stringify({
+  logger.info("[SystemWorker] fs cdn warmed", JSON.stringify({
     spaceId: payload.spaceId,
     pathHash: manifest.pathHash,
     name: basename(relativePath),

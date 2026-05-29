@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type {
@@ -17,6 +18,8 @@ import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.j
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
 import { deriveMessagePreviewText } from "./session-content.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const toIso = (value: Date | string | null | undefined) => {
   if (!value) return new Date().toISOString();
   return value instanceof Date ? value.toISOString() : value;
@@ -515,7 +518,7 @@ export const finalizeSessionTurnFromMessage = async (input: {
   metaPatch?: Record<string, unknown> | null;
 }) => {
   const intermediate = await buildIntermediateObjectsForTurn(input).catch((error) => {
-    console.warn("[SessionTurn] failed to build intermediate objects", error);
+    logger.warn("[SessionTurn] failed to build intermediate objects", error);
     return null;
   });
   const completedAt = new Date();
@@ -565,7 +568,7 @@ const finalizeInterruptedTurn = async (input: {
   )).orderBy(desc(sessionMessages.sequence)).limit(1);
   const last = rows[0] ?? null;
   const intermediate = await buildIntermediateObjectsForTurn(input).catch((error) => {
-    console.warn("[SessionTurn] failed to build interrupted intermediate objects", error);
+    logger.warn("[SessionTurn] failed to build interrupted intermediate objects", error);
     return null;
   });
   const completedAt = new Date();

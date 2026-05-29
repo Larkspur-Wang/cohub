@@ -1,7 +1,10 @@
 import { CoreV1Api, CustomObjectsApi, KubeConfig } from "@kubernetes/client-node";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const createKubeConfig = () => {
   const kubeConfig = new KubeConfig();
 
@@ -14,7 +17,7 @@ const createKubeConfig = () => {
     if (existsSync(kubeconfigPath)) {
       kubeConfig.loadFromFile(kubeconfigPath);
     } else {
-      console.warn(
+      logger.warn(
         `KUBECONFIG file not found: ${kubeconfigPath}, falling back to default`,
       );
       kubeConfig.loadFromDefault();

@@ -21,6 +21,7 @@ import {
   type SandboxRpcDiagnostics,
 } from "./rpc-error.js";
 
+
 const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
 const RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const LOG_VALUE_LIMIT = 500;
@@ -298,7 +299,7 @@ export class SandboxConnection {
     try {
       this.socket.close(1000, reason);
     } catch (error) {
-      console.warn(`[SandboxWS] Failed to close socket spaceId=${this.spaceId} identity=${this.identity}`, error);
+      logger.warn(`[SandboxWS] Failed to close socket spaceId=${this.spaceId} identity=${this.identity}`, error);
     }
   }
 }
@@ -314,7 +315,7 @@ function callHookSafely(
   void Promise.resolve()
     .then(fn)
     .catch((error) => {
-      console.error(`[SandboxWS] Hook ${hookName} failed for ${spaceId}:`, error);
+      logger.error(`[SandboxWS] Hook ${hookName} failed for ${spaceId}:`, error);
     });
 }
 
@@ -396,7 +397,7 @@ export function disconnectSandboxWsClient(spaceId: string, reason = "ownership l
   setActiveConnection(spaceId, null);
 
   if (registration.pendingByRequestId.size > 0) {
-    console.warn(`[SandboxWS] disconnect rejecting ${registration.pendingByRequestId.size} accepted requests spaceId=${spaceId} reason=${reason}`);
+    logger.warn(`[SandboxWS] disconnect rejecting ${registration.pendingByRequestId.size} accepted requests spaceId=${spaceId} reason=${reason}`);
   }
   for (const [requestId, pending] of registration.pendingByRequestId) {
     if (pending.detachTimer) {
@@ -439,7 +440,7 @@ async function runLoop(registration: SandboxClientRegistration) {
       await connectOnce(registration);
       attempt = 0;
     } catch (error) {
-      console.error(`[SandboxWS] Client loop failed for ${registration.spaceId}:`, error);
+      logger.error(`[SandboxWS] Client loop failed for ${registration.spaceId}:`, error);
       attempt += 1;
       if (error instanceof Error) {
         callHookSafely(registration.spaceId, "onConnectionError", () => registration.hooks?.onConnectionError?.({
@@ -457,7 +458,7 @@ async function runLoop(registration: SandboxClientRegistration) {
           currentWsUrl,
           error: error instanceof Error ? error : new Error(String(error)),
         })).catch((refreshError) => {
-          console.warn(`[SandboxWS] wsUrl refresh failed spaceId=${registration.spaceId}:`, refreshError);
+          logger.warn(`[SandboxWS] wsUrl refresh failed spaceId=${registration.spaceId}:`, refreshError);
           return null;
         });
         if (nextWsUrl && nextWsUrl !== currentWsUrl) {
@@ -520,7 +521,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
               if (setup.exitCode === 0 && !setup.error) {
                 logger.debug(`[SandboxWS] setup.sh completed ok spaceId=${registration.spaceId} duration=${setup.duration}`);
               } else {
-                console.warn(`[SandboxWS] setup.sh failed spaceId=${registration.spaceId} exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
+                logger.warn(`[SandboxWS] setup.sh failed spaceId=${registration.spaceId} exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
               }
             } else {
               logger.debug(`[SandboxWS] setup.sh not found, skipped spaceId=${registration.spaceId}`);
@@ -552,7 +553,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
           connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, socket, registration);
           setActiveConnection(registration.spaceId, connection);
           void refreshUserEnv(registration.spaceId).catch((err) => {
-            console.warn(`[SandboxWS] Failed to refresh env for ${registration.spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+            logger.warn(`[SandboxWS] Failed to refresh env for ${registration.spaceId}: ${err instanceof Error ? err.message : String(err)}`);
           });
           const setupSummary = heartbeat.metadata?.setup
             ? heartbeat.metadata.setup.ran
@@ -588,7 +589,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
 
         connection?.handleMessage(message);
       } catch (error) {
-        console.error(`[SandboxWS] Failed to handle message for ${registration.spaceId}:`, error);
+        logger.error(`[SandboxWS] Failed to handle message for ${registration.spaceId}:`, error);
       }
     });
 
@@ -604,7 +605,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
         }));
       }
       if (!attached) {
-        console.warn(`[SandboxWS] closed before attach spaceId=${registration.spaceId} reason=${reasonStr}`);
+        logger.warn(`[SandboxWS] closed before attach spaceId=${registration.spaceId} reason=${reasonStr}`);
         finishReject(new Error(`Sandbox websocket closed before attach: ${reasonStr}`));
         return;
       }
@@ -617,7 +618,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
     });
 
     socket.on("error", (error: Error) => {
-      console.error(`[SandboxWS] Socket error for ${registration.spaceId}:`, error);
+      logger.error(`[SandboxWS] Socket error for ${registration.spaceId}:`, error);
       const normalizedError = error instanceof Error ? error : new Error(String(error));
       connection?.dispose(normalizedError);
       const isActive = isActiveConnection();
@@ -628,7 +629,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
           error: normalizedError,
         }));
       } else {
-        console.warn(`[SandboxWS] stale connection error ignored spaceId=${registration.spaceId} error=${normalizedError.message}`);
+        logger.warn(`[SandboxWS] stale connection error ignored spaceId=${registration.spaceId} error=${normalizedError.message}`);
       }
       finishReject(normalizedError);
     });

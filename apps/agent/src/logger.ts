@@ -1,4 +1,8 @@
+import { createLogger } from "@cohub/infra/logging";
 type LogLevel = "silent" | "error" | "warn" | "info" | "debug" | "trace";
+
+const appLogger = createLogger({ serviceName: "cohub-agent", defaultLevel: process.env.DEBUG_AGENT === "1" ? "debug" : "info" });
+
 
 const LEVELS: Record<LogLevel, number> = {
   silent: 0,
@@ -34,19 +38,19 @@ export const logger = {
   isTraceEnabled() {
     return enabled("trace");
   },
-  error(...args: unknown[]) {
-    if (enabled("error")) console.error(...args);
+  error(message: unknown, ...args: unknown[]) {
+    if (enabled("error")) appLogger.error(message, ...args);
   },
-  warn(...args: unknown[]) {
-    if (enabled("warn")) console.warn(...args);
+  warn(message: unknown, ...args: unknown[]) {
+    if (enabled("warn")) appLogger.warn(message, ...args);
   },
-  info(...args: unknown[]) {
-    if (enabled("info")) console.log(...args);
+  info(message: unknown, ...args: unknown[]) {
+    if (enabled("info")) appLogger.info(message, ...args);
   },
-  debug(...args: unknown[]) {
-    if (enabled("debug")) console.log(...args);
+  debug(message: unknown, ...args: unknown[]) {
+    if (enabled("debug")) appLogger.debug(message, ...args);
   },
-  trace(...args: unknown[]) {
-    if (enabled("trace")) console.log(...args);
+  trace(message: unknown, ...args: unknown[]) {
+    if (enabled("trace")) appLogger.trace(message, ...args);
   },
 };

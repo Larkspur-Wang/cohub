@@ -9,7 +9,10 @@ import { resolveChannelCommand } from "../../channel-commands.js";
 import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 import { buildDiscordDeliveryPlan } from "../../session-output-planner.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-gateway" });
 const buildDiscordBindingKey = (message: Message) => {
   return `discord:conversation:${message.channelId}`;
 };
@@ -288,7 +291,7 @@ export class DiscordProvider implements GatewayProvider {
 
   constructor(channelId: string, token: string) {
     this.channelId = channelId;
-    console.log(`[Discord:${channelId}] Creating Discord client...`);
+    logger.info(`[Discord:${channelId}] Creating Discord client...`);
 
     this.client = new Client({
       intents: [
@@ -302,63 +305,63 @@ export class DiscordProvider implements GatewayProvider {
     });
 
     this.setupListeners();
-    console.log(`[Discord:${channelId}] Logging in with token...`);
+    logger.info(`[Discord:${channelId}] Logging in with token...`);
     this.client.login(token).catch((err) => {
-      console.error(`[Discord:${channelId}] Login failed:`, err);
+      logger.error(`[Discord:${channelId}] Login failed:`, err);
     });
   }
 
   private setupListeners() {
     this.client.on(Events.ClientReady, (readyClient) => {
-      console.log(`[Discord:${this.channelId}] ✓ Connected as ${readyClient.user.tag} (${readyClient.user.id})`);
-      console.log(`[Discord:${this.channelId}] Guilds: ${readyClient.guilds.cache.size}`);
+      logger.info(`[Discord:${this.channelId}] ✓ Connected as ${readyClient.user.tag} (${readyClient.user.id})`);
+      logger.info(`[Discord:${this.channelId}] Guilds: ${readyClient.guilds.cache.size}`);
       if (readyClient.guilds.cache.size > 0) {
-        console.log(`[Discord:${this.channelId}] Guild names: ${readyClient.guilds.cache.map((g) => g.name).join(", ")}`);
+        logger.info(`[Discord:${this.channelId}] Guild names: ${readyClient.guilds.cache.map((g) => g.name).join(", ")}`);
       }
 
       const intents = Array.isArray(this.client.options.intents)
         ? this.client.options.intents.join(",")
         : this.client.options.intents.toArray().join(",");
       const partials = (this.client.options.partials ?? []).join(",") || "none";
-      console.log(`[Discord:${this.channelId}] Client options: intents=${intents}, partials=${partials}`);
-      console.log(`[Discord:${this.channelId}] DM debugging enabled. Waiting for MessageCreate events...`);
+      logger.info(`[Discord:${this.channelId}] Client options: intents=${intents}, partials=${partials}`);
+      logger.info(`[Discord:${this.channelId}] DM debugging enabled. Waiting for MessageCreate events...`);
       this.registerNativeCommands().catch((error) => {
-        console.warn(`[Discord:${this.channelId}] Failed to register native commands:`, error);
+        logger.warn(`[Discord:${this.channelId}] Failed to register native commands:`, error);
       });
     });
 
     this.client.on(Events.Debug, (message) => {
       if (process.env.DEBUG_MODE === "true") {
-        console.log(`[Discord:${this.channelId}] Debug: ${message}`);
+        logger.info(`[Discord:${this.channelId}] Debug: ${message}`);
       }
     });
 
     this.client.on(Events.Warn, (message) => {
-      console.warn(`[Discord:${this.channelId}] Warn: ${message}`);
+      logger.warn(`[Discord:${this.channelId}] Warn: ${message}`);
     });
 
     this.client.on(Events.Error, (error) => {
-      console.error(`[Discord:${this.channelId}] Error:`, error);
+      logger.error(`[Discord:${this.channelId}] Error:`, error);
     });
 
     this.client.on("disconnect", () => {
-      console.warn(`[Discord:${this.channelId}] Disconnected from Discord`);
+      logger.warn(`[Discord:${this.channelId}] Disconnected from Discord`);
     });
 
     this.client.on("reconnecting", () => {
-      console.log(`[Discord:${this.channelId}] Reconnecting to Discord...`);
+      logger.info(`[Discord:${this.channelId}] Reconnecting to Discord...`);
     });
 
     this.client.on(Events.ShardReady, (shardId) => {
-      console.log(`[Discord:${this.channelId}] Shard ready: ${shardId}`);
+      logger.info(`[Discord:${this.channelId}] Shard ready: ${shardId}`);
     });
 
     this.client.on(Events.ShardResume, (shardId, replayedEvents) => {
-      console.log(`[Discord:${this.channelId}] Shard resumed: ${shardId}, replayedEvents=${replayedEvents}`);
+      logger.info(`[Discord:${this.channelId}] Shard resumed: ${shardId}, replayedEvents=${replayedEvents}`);
     });
 
     this.client.on(Events.ShardDisconnect, (closeEvent, shardId) => {
-      console.warn(
+      logger.warn(
         `[Discord:${this.channelId}] Shard disconnected: shard=${shardId}, code=${closeEvent.code}, reason=${closeEvent.reason || "unknown"}`,
       );
     });
@@ -366,7 +369,7 @@ export class DiscordProvider implements GatewayProvider {
     this.client.on(Events.ThreadCreate, async (thread) => {
       try {
         const meta = await buildThreadConversationMeta(thread);
-        console.log(`[Discord:${this.channelId}] ThreadCreate observed`, {
+        logger.info(`[Discord:${this.channelId}] ThreadCreate observed`, {
           threadId: thread.id,
           parentId: meta.parentId,
           starterMessageId: meta.starterMessageId,
@@ -415,7 +418,7 @@ export class DiscordProvider implements GatewayProvider {
           },
         });
       } catch (error) {
-        console.error(`[Discord:${this.channelId}] Failed to inspect thread create:`, error);
+        logger.error(`[Discord:${this.channelId}] Failed to inspect thread create:`, error);
       }
     });
 
@@ -438,7 +441,7 @@ export class DiscordProvider implements GatewayProvider {
         parentMessageId = starter?.id ?? null;
       }
 
-      console.log(`[Discord:${this.channelId}] MessageCreate event observed:`, {
+      logger.info(`[Discord:${this.channelId}] MessageCreate event observed:`, {
         messageId: message.id,
         authorId: message.author?.id,
         authorTag: message.author?.tag,
@@ -454,17 +457,17 @@ export class DiscordProvider implements GatewayProvider {
       });
 
       if (message.author.bot) {
-        console.log(`[Discord:${this.channelId}] Ignoring bot-authored message ${message.id}`);
+        logger.info(`[Discord:${this.channelId}] Ignoring bot-authored message ${message.id}`);
         return;
       }
 
       const accepted = await shouldAcceptDiscordInboundMessage(this.channelId, message);
       if (!accepted) {
-        console.log(`[Discord:${this.channelId}] Ignoring message ${message.id}: mention required by inbound config`);
+        logger.info(`[Discord:${this.channelId}] Ignoring message ${message.id}: mention required by inbound config`);
         return;
       }
 
-      console.log(`[Discord:${this.channelId}] ← Message received:`, {
+      logger.info(`[Discord:${this.channelId}] ← Message received:`, {
         author: `${message.author.tag} (${message.author.id})`,
         channelId: message.channelId,
         guildId: message.guildId || "DM",
@@ -496,9 +499,9 @@ export class DiscordProvider implements GatewayProvider {
       for (const attachment of message.attachments.values()) {
         if (attachment.contentType?.startsWith("image/")) {
           content.push({ type: "image", source: { type: "url", url: attachment.url } });
-          console.log(`[Discord:${this.channelId}] Attachment: ${attachment.name} (${attachment.contentType})`);
+          logger.info(`[Discord:${this.channelId}] Attachment: ${attachment.name} (${attachment.contentType})`);
         } else {
-          console.log(
+          logger.info(
             `[Discord:${this.channelId}] Non-image attachment ignored: ${attachment.name || "unnamed"} (${attachment.contentType || "unknown"})`,
           );
         }
@@ -575,7 +578,7 @@ export class DiscordProvider implements GatewayProvider {
         : { ...inboundEventBase, eventType: "message_create" };
 
       if (channelCommand) {
-        console.log(`[Discord:${this.channelId}] → Publishing command event ${inboundEvent.eventId.slice(0, 8)}`, {
+        logger.info(`[Discord:${this.channelId}] → Publishing command event ${inboundEvent.eventId.slice(0, 8)}`, {
           externalChatId: inboundEvent.externalChatId,
           externalMessageId: inboundEvent.externalMessageId,
           command: channelCommand.name,
@@ -584,20 +587,20 @@ export class DiscordProvider implements GatewayProvider {
         return;
       }
 
-      console.log(`[Discord:${this.channelId}] → Publishing inbound event ${inboundEvent.eventId.slice(0, 8)}`, {
+      logger.info(`[Discord:${this.channelId}] → Publishing inbound event ${inboundEvent.eventId.slice(0, 8)}`, {
         externalChatId: inboundEvent.externalChatId,
         externalMessageId: inboundEvent.externalMessageId,
         bindingKey: inboundEvent.bindingKey,
         blockTypes: inboundEvent.content.map((block) => block.type).join(","),
       });
       await publishInboundEvent(inboundEvent);
-      console.log(`[Discord:${this.channelId}] ✓ Inbound event published ${inboundEvent.eventId.slice(0, 8)}`);
+      logger.info(`[Discord:${this.channelId}] ✓ Inbound event published ${inboundEvent.eventId.slice(0, 8)}`);
     });
   }
 
   private async registerNativeCommands() {
     if (!this.client.application) {
-      console.warn(`[Discord:${this.channelId}] Application unavailable; native command registration skipped`);
+      logger.warn(`[Discord:${this.channelId}] Application unavailable; native command registration skipped`);
       return;
     }
 
@@ -605,7 +608,7 @@ export class DiscordProvider implements GatewayProvider {
       name: command.name,
       description: command.description,
     })));
-    console.log(`[Discord:${this.channelId}] Native commands registered: ${GATEWAY_CHANNEL_COMMAND_SPECS.map((command) => command.slash).join(", ")}`);
+    logger.info(`[Discord:${this.channelId}] Native commands registered: ${GATEWAY_CHANNEL_COMMAND_SPECS.map((command) => command.slash).join(", ")}`);
   }
 
   private async handleCommandInteraction(interaction: CommandInteraction) {
@@ -635,7 +638,7 @@ export class DiscordProvider implements GatewayProvider {
 
     if (!interaction.deferred && !interaction.replied) {
       await interaction.reply({ content: "Command received.", ephemeral: true }).catch((error) => {
-        console.warn(`[Discord:${this.channelId}] Failed to acknowledge command interaction:`, error);
+        logger.warn(`[Discord:${this.channelId}] Failed to acknowledge command interaction:`, error);
       });
     }
 
@@ -696,7 +699,7 @@ export class DiscordProvider implements GatewayProvider {
       },
     };
 
-    console.log(`[Discord:${this.channelId}] → Publishing native command event ${inboundEvent.eventId.slice(0, 8)}`, {
+    logger.info(`[Discord:${this.channelId}] → Publishing native command event ${inboundEvent.eventId.slice(0, 8)}`, {
       externalChatId: inboundEvent.externalChatId,
       externalMessageId: inboundEvent.externalMessageId,
       command: command.name,
@@ -705,7 +708,7 @@ export class DiscordProvider implements GatewayProvider {
   }
 
   public async handleOutbound(cmd: PlannedGatewayOutboundCommand) {
-    console.log(`[Discord:${this.channelId}] → Sending message to ${cmd.externalChatId}:`, {
+    logger.info(`[Discord:${this.channelId}] → Sending message to ${cmd.externalChatId}:`, {
       contentPreview: cmd.content.map((c: { type: string; text?: string }) => (c.type === "text" ? c.text?.slice(0, 30) : c.type)).join(", "),
       replyTo: cmd.replyToExternalMessageId?.slice(0, 8) || "none",
       sessionMessageId: cmd.sessionMessageId ?? "none",
@@ -714,11 +717,11 @@ export class DiscordProvider implements GatewayProvider {
     try {
       const channel = await this.client.channels.fetch(cmd.externalChatId);
       if (!channel) {
-        console.error(`[Discord:${this.channelId}] Channel not found: ${cmd.externalChatId}`);
+        logger.error(`[Discord:${this.channelId}] Channel not found: ${cmd.externalChatId}`);
         return { success: false as const, error: `Channel not found: ${cmd.externalChatId}` };
       }
       if (!channel.isTextBased()) {
-        console.error(`[Discord:${this.channelId}] Channel is not text-based: ${cmd.externalChatId}`);
+        logger.error(`[Discord:${this.channelId}] Channel is not text-based: ${cmd.externalChatId}`);
         return { success: false as const, error: `Channel is not text-based: ${cmd.externalChatId}` };
       }
 
@@ -731,7 +734,7 @@ export class DiscordProvider implements GatewayProvider {
       const hasRenderableContent = Boolean(plan.primaryText.trim()) || files.length > 0;
 
       if (plan.mode === "upsert" && !hasRenderableContent) {
-        console.log(`[Discord:${this.channelId}] Skipping empty rich_status update`, {
+        logger.info(`[Discord:${this.channelId}] Skipping empty rich_status update`, {
           commandId: cmd.commandId,
           sessionMessageId: cmd.sessionMessageId ?? "none",
         });
@@ -747,7 +750,7 @@ export class DiscordProvider implements GatewayProvider {
         : (cachedTurnMessageId ?? undefined);
 
       if (!plan.primaryText && files.length === 0) {
-        console.log(`[Discord:${this.channelId}] Skipping empty outbound message`, {
+        logger.info(`[Discord:${this.channelId}] Skipping empty outbound message`, {
           commandId: cmd.commandId,
           renderMode: plan.mode,
           source: typeof cmd.meta?.source === "string" ? cmd.meta.source : "unknown",
@@ -761,7 +764,7 @@ export class DiscordProvider implements GatewayProvider {
         if (target) {
           await target.edit({ content: plan.primaryText });
           if (turnAnchorMessageId) {
-            await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch(console.error);
+            await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch((error) => logger.error("[Discord] failed to persist edited turn message ref", { channelId: this.channelId, turnAnchorMessageId, externalMessageId: target.id, error }));
           }
 
           if (plan.continuationChunks.length > 0) {
@@ -777,13 +780,13 @@ export class DiscordProvider implements GatewayProvider {
             }
           }
 
-          console.log(`[Discord:${this.channelId}] ✓ Message edited successfully: ${target.id}`);
+          logger.info(`[Discord:${this.channelId}] ✓ Message edited successfully: ${target.id}`);
           return { success: true as const, externalMessageId: target.id };
         }
       }
 
       if (!("send" in textChannel)) {
-        console.error(`[Discord:${this.channelId}] Channel ${cmd.externalChatId} does not support sending messages`);
+        logger.error(`[Discord:${this.channelId}] Channel ${cmd.externalChatId} does not support sending messages`);
         return { success: false as const, error: "Channel does not support sending messages" };
       }
 
@@ -795,7 +798,7 @@ export class DiscordProvider implements GatewayProvider {
       const sendableChannel = textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>;
       const sentMsg = (await sendableChannel.send(messageOptions)) as { id: string };
       if (turnAnchorMessageId) {
-        await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, sentMsg.id).catch(console.error);
+        await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, sentMsg.id).catch((error) => logger.error("[Discord] failed to persist sent turn message ref", { channelId: this.channelId, turnAnchorMessageId, externalMessageId: sentMsg.id, error }));
       }
 
       let previousMessageId = sentMsg.id;
@@ -809,21 +812,21 @@ export class DiscordProvider implements GatewayProvider {
         previousMessageId = continuation.id;
       }
 
-      console.log(`[Discord:${this.channelId}] ✓ Message sent successfully: ${sentMsg.id}`);
+      logger.info(`[Discord:${this.channelId}] ✓ Message sent successfully: ${sentMsg.id}`);
       return { success: true as const, externalMessageId: sentMsg.id };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[Discord:${this.channelId}] ✗ Failed to send message:`, errorMessage);
+      logger.error(`[Discord:${this.channelId}] ✗ Failed to send message:`, errorMessage);
       if (error instanceof Error && error.stack) {
-        console.error(`[Discord:${this.channelId}] Stack trace:`, error.stack.split("\n").slice(0, 3).join("\n"));
+        logger.error(`[Discord:${this.channelId}] Stack trace:`, error.stack.split("\n").slice(0, 3).join("\n"));
       }
       return { success: false as const, error: errorMessage };
     }
   }
 
   public destroy() {
-    console.log(`[Discord:${this.channelId}] Destroying Discord client...`);
+    logger.info(`[Discord:${this.channelId}] Destroying Discord client...`);
     this.client.destroy();
-    console.log(`[Discord:${this.channelId}] Discord client destroyed`);
+    logger.info(`[Discord:${this.channelId}] Discord client destroyed`);
   }
 }

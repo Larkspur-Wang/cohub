@@ -12,7 +12,10 @@ import { config } from "../config.js";
 import { getGenerationsDir, publishGenerationsCacheFromDir } from "../generations-cache.js";
 import { publishModelsCacheFromFile } from "../models-cache.js";
 import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 const buildCommitMessage = (description?: string | null) => {
   const trimmed = description?.trim();
   return trimmed?.length ? `checkpoint: ${trimmed}` : "checkpoint: save from cohub";
@@ -150,7 +153,7 @@ const saveCheckpointHandler = async (job: Job) => {
         sourceCheckpointId: checkpoint.id,
       });
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[save_checkpoint] failed to publish user models cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
         error,
       );
@@ -163,7 +166,7 @@ const saveCheckpointHandler = async (job: Job) => {
         sourceCheckpointId: checkpoint.id,
       });
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[save_checkpoint] failed to publish user generations cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
         error,
       );
@@ -176,7 +179,7 @@ const saveCheckpointHandler = async (job: Job) => {
         sourceCheckpointId: checkpoint.id,
       });
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[save_checkpoint] failed to publish user prompts cache for user=${space.userUuid} checkpoint=${checkpoint.id}:`,
         error,
       );
@@ -204,7 +207,7 @@ const saveCheckpointHandler = async (job: Job) => {
         sourceCheckpointId: checkpoint.id,
       });
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[save_checkpoint] failed to publish platform models cache for checkpoint=${checkpoint.id}:`,
         error,
       );
@@ -216,7 +219,7 @@ const saveCheckpointHandler = async (job: Job) => {
         sourceCheckpointId: checkpoint.id,
       });
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[save_checkpoint] failed to publish platform generations cache for checkpoint=${checkpoint.id}:`,
         error,
       );
@@ -228,7 +231,7 @@ const saveCheckpointHandler = async (job: Job) => {
         sourceCheckpointId: checkpoint.id,
       });
     } catch (error) {
-      console.warn(
+      logger.warn(
         `[save_checkpoint] failed to publish platform prompts cache for checkpoint=${checkpoint.id}:`,
         error,
       );

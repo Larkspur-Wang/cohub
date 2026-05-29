@@ -9,7 +9,10 @@ import type { SpacePortsChangedPayload } from "@cohub/protocol/ports";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { env } from "./env.js";
 import { buildPatchOpsForContentDelta, getAppendPathForStreamEvent } from "./stream/patch-delta.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 const redis = new Redis(env.REDIS_URL);
 
 export { redis };
@@ -115,7 +118,7 @@ const scheduleSessionStreamSnapshotPersist = async (key: string, force = false) 
   state.persistTimer = setTimeout(() => {
     state.persistTimer = null;
     void persistSessionStreamSnapshotNow(key).catch((error) => {
-      console.warn("[SessionStreamSnapshot] failed to persist snapshot:", error);
+      logger.warn("[SessionStreamSnapshot] failed to persist snapshot:", error);
     });
   }, SESSION_STREAM_SNAPSHOT_WRITE_INTERVAL_MS - elapsed);
   state.persistTimer.unref?.();
@@ -341,12 +344,12 @@ const sendOutputSchema = z.union([
 export async function sendOutput(data: SessionStreamEvent | SessionStreamError) {
   const parsed = sendOutputSchema.safeParse(data);
   if (!parsed.success) {
-    console.error("[Redis] Invalid session output event:", parsed.error.issues);
+    logger.error("[Redis] Invalid session output event:", parsed.error.issues);
     return;
   }
 
   if (parsed.data.type === "error" && !parsed.data.sessionId) {
-    console.warn("[Redis] Skipping session error output without sessionId");
+    logger.warn("[Redis] Skipping session error output without sessionId");
     return;
   }
 
@@ -361,7 +364,7 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
       const streamEvent = event as SessionStreamEvent;
       const ops = buildPatchOpsForContentDelta(streamEvent);
       await cacheSessionStreamSnapshot(streamEvent).catch((error) => {
-        console.warn("[SessionStreamSnapshot] failed to cache snapshot:", error);
+        logger.warn("[SessionStreamSnapshot] failed to cache snapshot:", error);
       });
       envelope = {
         id: randomUUID(),
@@ -402,7 +405,7 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
     const span = trace.getActiveSpan();
     await redis.publish(AGENT_REALTIME_PATCH_CHANNEL, payload).catch((err) => {
       if (span) recordStreamPublishFailure(span, err);
-      console.error("[Redis] Failed to publish realtime output:", err);
+      logger.error("[Redis] Failed to publish realtime output:", err);
       throw err;
     });
     if (span) recordStreamPublishSuccess(span, event, Buffer.byteLength(payload));
@@ -427,7 +430,7 @@ export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChange
     });
     await context.with(trace.deleteSpan(context.active()), () => redis.publish(REALTIME_OUTBOUND_CHANNEL, message));
   } catch (err) {
-    console.error("[Redis] Failed to send space fs changed event:", err);
+    logger.error("[Redis] Failed to send space fs changed event:", err);
   }
 }
 
@@ -446,7 +449,7 @@ export async function sendSpacePortsChanged(spaceId: string, payload: SpacePorts
     });
     await context.with(trace.deleteSpan(context.active()), () => redis.publish(REALTIME_OUTBOUND_CHANNEL, message));
   } catch (err) {
-    console.error("[Redis] Failed to send space ports changed event:", err);
+    logger.error("[Redis] Failed to send space ports changed event:", err);
   }
 }
 

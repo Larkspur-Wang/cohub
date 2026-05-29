@@ -8,7 +8,10 @@ import { createGenerationTaskRequestSchema } from "../generations/schema.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { getSessionTurnById } from "../session-turns.js";
 import { enqueueTask } from "../tasks.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 502 | 503;
@@ -97,7 +100,7 @@ router.post("/", async (c) => {
     });
     taskRunId = enqueued.taskRunId;
   } catch (error) {
-    console.error("[generations] failed to enqueue generation task", {
+    logger.error("[generations] failed to enqueue generation task", {
       userId: user.uuid,
       spaceId: request.spaceId,
       model: request.model,

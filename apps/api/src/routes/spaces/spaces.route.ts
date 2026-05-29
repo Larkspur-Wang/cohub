@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { getDefaultSpaceModsForEnv } from "@cohub/protocol";
@@ -43,6 +44,8 @@ import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profil
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
 import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput } from "../../space-mods.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 type GitAccount = Awaited<ReturnType<typeof ensureUserGitAccount>>;
 
 const router = new Hono();
@@ -498,7 +501,7 @@ router.post("/", async (c) => {
       ),
     );
     // Push channel config to gateway so it starts long-polling
-    void bindSpaceChannelsToGateway(space.id).catch(console.error);
+    void bindSpaceChannelsToGateway(space.id).catch((error) => logger.error("[SpaceChannels] failed to bind channels after space creation", { spaceId: space.id, error }));
   }
 
   const gitAccount = await ensureUserGitAccount(user.uuid);
@@ -506,14 +509,14 @@ router.post("/", async (c) => {
     spaceId: space.id,
     policy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
     baseAt: space.createdAt ? new Date(space.createdAt) : new Date(),
-  }).catch(console.error);
+  }).catch((error) => logger.error("[SandboxAutoDestroy] failed to schedule policy after space creation", { spaceId: space.id, error }));
   void reconcileSpaceSandbox(
     {
       ...getSpaceProvisionParams(user, space, gitAccount),
       mode: "ensure",
       reason: "space_created",
     },
-  ).catch(console.error);
+  ).catch((error) => logger.error("[SandboxPublicNetwork] failed to reconcile after space creation", { spaceId: space.id, error }));
 
   const taskData: Record<string, unknown> = { source: normalizedBootstrapSource };
   // TODO: gitToken is stored in taskData (BullMQ Redis + DB task_runs).
@@ -1087,7 +1090,7 @@ router.patch("/:id/config", async (c) => {
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
   const baseAt = sandbox?.lastActivityAt ?? sandbox?.lastHeartbeatAt ?? sandbox?.createdAt ?? updated.createdAt ?? new Date();
-  await scheduleSandboxAutoDestroy({ spaceId, policy: nextAutoDestroy, baseAt: baseAt ? new Date(baseAt) : null }).catch(console.error);
+  await scheduleSandboxAutoDestroy({ spaceId, policy: nextAutoDestroy, baseAt: baseAt ? new Date(baseAt) : null }).catch((error) => logger.error("[SandboxAutoDestroy] failed to reschedule policy", { spaceId, error }));
 
   return c.json({ space: await serializeSpaceForResponse(updated, user) });
 });
@@ -1439,7 +1442,7 @@ router.post("/:id/channels/:channelId", async (c) => {
   if (!spaceChannel) return c.json({ message: "failed to bind channel" }, 500);
 
   // Push to gateway so it starts listening (bindSingleChannelToGateway handles config cache internally)
-  void bindSpaceChannelsToGateway(spaceId).catch(console.error);
+  void bindSpaceChannelsToGateway(spaceId).catch((error) => logger.error("[SpaceChannels] failed to bind channel to gateway", { spaceId, error }));
 
   return c.json(spaceChannel, 201);
 });
@@ -1460,7 +1463,7 @@ router.delete("/:id/channels/:channelId", async (c) => {
 
   await db.delete(spaceChannels).where(eq(spaceChannels.id, spaceChannel.id));
   // Remove from gateway routing
-  void unbindSpaceChannelFromGateway(spaceChannel.id).catch(console.error);
+  void unbindSpaceChannelFromGateway(spaceChannel.id).catch((error) => logger.error("[SpaceChannels] failed to unbind channel from gateway", { spaceId, spaceChannelId: spaceChannel.id, error }));
 
   return c.json({ ok: true });
 });

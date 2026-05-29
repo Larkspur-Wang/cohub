@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { redis } from "./redis.js";
 import { env } from "./env.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 const lockKey = (sessionId: string) => `agent:session:${sessionId}:lock`;
 
 const RELEASE_SCRIPT = `
@@ -36,7 +39,7 @@ export async function acquireSessionLock(sessionId: string): Promise<SessionLock
     if (closed) return;
     void redis
       .eval(RENEW_SCRIPT, 1, key, token, String(env.AGENT_SESSION_LOCK_TTL_MS))
-      .catch((error) => console.error(`[AgentLock] renew failed sessionId=${sessionId}:`, error));
+      .catch((error) => logger.error(`[AgentLock] renew failed sessionId=${sessionId}:`, error));
   }, env.AGENT_SESSION_LOCK_RENEW_INTERVAL_MS);
 
   const stop = () => {
@@ -52,7 +55,7 @@ export async function acquireSessionLock(sessionId: string): Promise<SessionLock
     release: async () => {
       stop();
       await redis.eval(RELEASE_SCRIPT, 1, key, token).catch((error) => {
-        console.warn(`[AgentLock] release failed sessionId=${sessionId}:`, error);
+        logger.warn(`[AgentLock] release failed sessionId=${sessionId}:`, error);
       });
     },
   };

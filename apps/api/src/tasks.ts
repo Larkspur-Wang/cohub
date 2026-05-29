@@ -7,7 +7,10 @@ import { cronJobs, taskRuns } from "@cohub/db";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol/task";
 import { GENERATION_TASK_TYPE } from "@cohub/protocol/generation";
 import { dispatchTaskCreated } from "./realtime-events.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 type TaskEnqueueOptions = Omit<JobsOptions, "scheduledAt"> & { scheduledAt?: Date | null };
 
 const QUEUE_NAME = COHUB_TASKS_QUEUE;
@@ -47,7 +50,7 @@ export const enqueueTask = async (
     }).returning();
     if (taskRun) {
       await dispatchTaskCreated(taskRun).catch((error) => {
-        console.warn("[Realtime] failed to dispatch task.created", error);
+        logger.warn("[Realtime] failed to dispatch task.created", error);
       });
     }
   } catch (error) {

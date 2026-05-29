@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { Hono } from "hono";
@@ -20,6 +21,8 @@ import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { submitSessionPrompt } from "../session-prompts.js";
 import { createSessionFork } from "../session-forks.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 function validatePromptContentBlocks(content: unknown): content is ContentBlock[] {
@@ -91,7 +94,7 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
         anchorEntryId,
       });
     } catch (enqueueError) {
-      console.error("[SessionFork] failed to enqueue agent fork", enqueueError);
+      logger.error("[SessionFork] failed to enqueue agent fork", enqueueError);
       return c.json({ message: "failed to prepare fork session" }, 503);
     }
     return c.json({ session: childSession, fork });

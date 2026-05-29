@@ -1,5 +1,7 @@
 import "dotenv/config";
 import "./tracing.js";
+import { createLogger } from "@cohub/infra/logging";
+
 
 import { randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
@@ -26,6 +28,7 @@ import {
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { authenticateRealtimeToken, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
+import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
 import {
@@ -36,6 +39,7 @@ import {
   getSpaceWsUsersKey,
 } from "./redis.js";
 
+const logger = createLogger({ serviceName: "cohub-gateway" });
 type WsConnectionContext = {
   connectionId: string;
   userId?: string;
@@ -66,15 +70,15 @@ const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${co
 const getWsUserConnectionsKey = (userId: string) => `gateway:ws:user:${userId}:connections`;
 
 function logStartupInfo() {
-  console.log("=".repeat(60));
-  console.log("[Gateway] Starting with configuration:");
-  console.log(`  NODE_ID: ${process.env.POD_NAME || process.env.HOSTNAME || "unknown"}`);
-  console.log(`  ENV: ${process.env.ENV || "unknown"}`);
-  console.log(`  DEBUG_MODE: ${process.env.DEBUG_MODE || "false"}`);
-  console.log(`  REDIS_URL: ${process.env.REDIS_URL ? `${process.env.REDIS_URL.slice(0, 30)}...` : "not set"}`);
-  console.log(`  API_BASE_URL: ${gatewayConfig.apiBaseUrl}`);
-  console.log(`  PORT: ${gatewayConfig.port}`);
-  console.log("=".repeat(60));
+  logger.info("=".repeat(60));
+  logger.info("[Gateway] Starting with configuration:");
+  logger.info(`  NODE_ID: ${process.env.POD_NAME || process.env.HOSTNAME || "unknown"}`);
+  logger.info(`  ENV: ${process.env.ENV || "unknown"}`);
+  logger.info(`  DEBUG_MODE: ${process.env.DEBUG_MODE || "false"}`);
+  logger.info("  REDIS_URL", { redis: summarizeRedisUrl(process.env.REDIS_URL) });
+  logger.info(`  API_BASE_URL: ${gatewayConfig.apiBaseUrl}`);
+  logger.info(`  PORT: ${gatewayConfig.port}`);
+  logger.info("=".repeat(60));
 }
 
 const addUserConnection = (userId: string, connectionId: string) => {
@@ -348,14 +352,14 @@ async function startSpaceOutputSubscriber() {
     try {
       const parsed = realtimeEnvelopeSchema.safeParse(JSON.parse(message));
       if (!parsed.success) {
-        console.error("[Gateway] Invalid realtime payload:", parsed.error.issues);
+        logger.error("[Gateway] Invalid realtime payload:", parsed.error.issues);
         return;
       }
       void fanOutBroadcastToLocalSockets(parsed.data as GatewayWsBroadcastPayload).catch((error) => {
-        console.error("[Gateway] Failed to fan out realtime payload:", error);
+        logger.error("[Gateway] Failed to fan out realtime payload:", error);
       });
     } catch (error) {
-      console.error("[Gateway] Failed to handle realtime payload:", error);
+      logger.error("[Gateway] Failed to handle realtime payload:", error);
     }
   });
 }
@@ -410,10 +414,10 @@ async function main() {
   const manager = new GatewayManager();
   await manager.start();
 
-  console.log("[Gateway] Listening for outbound commands from API...");
+  logger.info("[Gateway] Listening for outbound commands from API...");
 
   listenOutboundCommands(async (cmd: PlannedGatewayOutboundCommand) => {
-    console.log("[Gateway] Received outbound command:", {
+    logger.info("[Gateway] Received outbound command:", {
       commandId: cmd.commandId,
       channelId: cmd.channelId,
       provider: cmd.provider,
@@ -473,17 +477,17 @@ async function main() {
 
     const provider = manager.getProvider(cmd.channelId);
     if (!provider) {
-      console.warn(`[Gateway] Command rejected: provider not found for channel ${cmd.channelId}`);
-      console.warn(`[Gateway] Active channels: ${manager.getActiveChannelIds().join(", ") || "none"}`);
+      logger.warn(`[Gateway] Command rejected: provider not found for channel ${cmd.channelId}`);
+      logger.warn(`[Gateway] Active channels: ${manager.getActiveChannelIds().join(", ") || "none"}`);
       return { success: false, error: `Provider not found for channel ${cmd.channelId}` };
     }
 
-    console.log(`[Gateway] Routing command ${cmd.commandId} to ${cmd.provider} provider`);
+    logger.info(`[Gateway] Routing command ${cmd.commandId} to ${cmd.provider} provider`);
     const result = await provider.handleOutbound(cmd);
-    console.log(`[Gateway] Command ${cmd.commandId} result:`, result.success ? "success" : `failed: ${result.error}`);
+    logger.info(`[Gateway] Command ${cmd.commandId} result:`, result.success ? "success" : `failed: ${result.error}`);
     return result;
   }).catch((error) => {
-    console.error("[Gateway] Fatal error listening to outbound stream:", error);
+    logger.error("[Gateway] Fatal error listening to outbound stream:", error);
   });
 
   const app = new Hono();
@@ -645,7 +649,7 @@ async function main() {
           sendWsError(socket, "BAD_REQUEST", error.message, requestId);
           return;
         }
-        console.error("[Gateway] WebSocket message handling failed:", error);
+        logger.error("[Gateway] WebSocket message handling failed:", error);
         sendWsError(socket, "INTERNAL_ERROR", "internal error", requestId);
       }
     });
@@ -658,12 +662,12 @@ async function main() {
     });
   });
 
-  console.log(`@cohub/gateway listening on :${gatewayConfig.port}`);
+  logger.info(`@cohub/gateway listening on :${gatewayConfig.port}`);
 
   const shutdown = async () => {
-    console.log("[Gateway] Received shutdown signal, stopping...");
+    logger.info("[Gateway] Received shutdown signal, stopping...");
     await manager.stop();
-    console.log("[Gateway] Shutdown complete");
+    logger.info("[Gateway] Shutdown complete");
     process.exit(0);
   };
 
@@ -671,10 +675,10 @@ async function main() {
   process.on("SIGINT", shutdown);
 
   if (process.env.DEBUG_MODE === "true") {
-    console.log("[Gateway] DEBUG_MODE enabled.");
+    logger.info("[Gateway] DEBUG_MODE enabled.");
 
     const startDebugProvider = async (channelId: string, providerType: string, credential: string | { appId: string; appSecret: string; brand?: string }) => {
-      console.log(`[Debug] Initializing test channel: ${channelId} (${providerType})`);
+      logger.info(`[Debug] Initializing test channel: ${channelId} (${providerType})`);
 
       if (providerType === "discord" && typeof credential === "string") {
         const { DiscordProvider } = await import("./providers/discord/index.js");
@@ -710,4 +714,4 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main().catch((error) => logger.error("[Gateway] main failed", error));

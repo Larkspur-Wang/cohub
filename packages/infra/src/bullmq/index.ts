@@ -1,7 +1,10 @@
 import { Queue, Worker, type JobsOptions, type Processor, type QueueOptions, type WorkerOptions } from "bullmq";
 import { BullMQOtel } from "bullmq-otel";
 import { Redis, type RedisOptions } from "ioredis";
+import { createLogger } from "../logging/logger.js";
 
+
+const logger = createLogger({ serviceName: "cohub-infra" });
 export const COHUB_TASKS_QUEUE = "cohub-tasks";
 export const COHUB_AGENT_TURNS_QUEUE = "cohub-agent-turns";
 export const COHUB_SYSTEM_FS_QUEUE = "cohub-system-fs";
@@ -155,37 +158,37 @@ export const attachWorkerEventLogger = (worker: Worker, options: WorkerLoggerOpt
   const queue = `queue=${options.queueName}`;
 
   worker.on("active", (job) => {
-    console.log(`${prefix} bullmq.job.active ${queue} ${formatJob(job)}`);
+    logger.info(`${prefix} bullmq.job.active ${queue} ${formatJob(job)}`);
   });
 
   worker.on("completed", (job, result) => {
     if (options.shouldLogCompleted && !options.shouldLogCompleted(job, result)) return;
     const suffix = options.logCompletedResult ? ` result=${safeJson(redactSensitiveData(result))}` : "";
-    console.log(`${prefix} bullmq.job.completed ${queue} ${formatJob(job)}${suffix}`);
+    logger.info(`${prefix} bullmq.job.completed ${queue} ${formatJob(job)}${suffix}`);
   });
 
   worker.on("failed", (job, error) => {
-    console.error(`${prefix} bullmq.job.failed ${queue} ${formatJob(job)} error=${safeJson(redactSensitiveData(error))}`);
+    logger.error(`${prefix} bullmq.job.failed ${queue} ${formatJob(job)} error=${safeJson(redactSensitiveData(error))}`);
   });
 
   worker.on("stalled", (jobId) => {
-    console.error(`${prefix} bullmq.job.stalled ${queue} jobId=${jobId}`);
+    logger.error(`${prefix} bullmq.job.stalled ${queue} jobId=${jobId}`);
   });
 
   worker.on("drained", () => {
-    console.log(`${prefix} bullmq.queue.drained ${queue}`);
+    logger.info(`${prefix} bullmq.queue.drained ${queue}`);
   });
 
   worker.on("paused", () => {
-    console.log(`${prefix} bullmq.worker.paused ${queue}`);
+    logger.info(`${prefix} bullmq.worker.paused ${queue}`);
   });
 
   worker.on("resumed", () => {
-    console.log(`${prefix} bullmq.worker.resumed ${queue}`);
+    logger.info(`${prefix} bullmq.worker.resumed ${queue}`);
   });
 
   worker.on("error", (error) => {
-    console.error(`${prefix} bullmq.worker.error ${queue} error=${safeJson(redactSensitiveData(error))}`);
+    logger.error(`${prefix} bullmq.worker.error ${queue} error=${safeJson(redactSensitiveData(error))}`);
   });
 };
 
@@ -208,7 +211,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export const closeWorkerGracefully = async (worker: Worker, options: CloseWorkerGracefullyOptions) => {
   if (options.pauseBeforeClose) {
     await worker.pause(true).catch((error: unknown) => {
-      console.error(`[${options.serviceName}] Failed to pause worker before shutdown:`, error);
+      logger.error(`[${options.serviceName}] Failed to pause worker before shutdown:`, error);
     });
   }
 
@@ -216,16 +219,16 @@ export const closeWorkerGracefully = async (worker: Worker, options: CloseWorker
     worker.close()
       .then(() => true)
       .catch((error: unknown) => {
-        console.error(`[${options.serviceName}] Failed to close worker gracefully:`, safeJson(redactSensitiveData(error)));
+        logger.error(`[${options.serviceName}] Failed to close worker gracefully:`, safeJson(redactSensitiveData(error)));
         return false;
       }),
     sleep(options.timeoutMs).then(() => false),
   ]);
 
   if (!closed) {
-    console.warn(`[${options.serviceName}] Worker did not close within ${options.timeoutMs}ms, forcing close...`);
+    logger.warn(`[${options.serviceName}] Worker did not close within ${options.timeoutMs}ms, forcing close...`);
     await worker.close(true).catch((error: unknown) => {
-      console.error(`[${options.serviceName}] Failed to force-close worker:`, error);
+      logger.error(`[${options.serviceName}] Failed to force-close worker:`, error);
     });
   }
 };

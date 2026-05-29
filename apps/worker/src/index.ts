@@ -1,5 +1,7 @@
 import "dotenv/config";
 import "./tracing.js";
+import { createLogger } from "@cohub/infra/logging";
+
 
 import { Worker, type Processor } from "bullmq";
 import {
@@ -16,6 +18,7 @@ import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { config, assertRequiredConfig } from "./config.js";
 import { getTaskHandler, getRegisteredTasks } from "./tasks/registry.js";
 
+const logger = createLogger({ serviceName: "cohub-worker" });
 // Auto-register all tasks
 import "./tasks/index.js";
 
@@ -65,14 +68,14 @@ attachWorkerEventLogger(taskWorker, {
   logCompletedResult: true,
 });
 
-console.log("[Worker] Starting task worker...");
-console.log("[Worker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
-console.log("[Worker] App Redis:", getRedisHost(config.redisUrl));
-console.log("[Worker] Registered tasks:", getRegisteredTasks());
+logger.info("[Worker] Starting task worker...");
+logger.info("[Worker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
+logger.info("[Worker] App Redis:", getRedisHost(config.redisUrl));
+logger.info("[Worker] Registered tasks:", getRegisteredTasks());
 
 // Graceful shutdown
 const shutdown = async (signal: string) => {
-  console.log(`[Worker] Received ${signal}, shutting down...`);
+  logger.info(`[Worker] Received ${signal}, shutting down...`);
   await closeWorkerGracefully(taskWorker, {
     serviceName: "Worker",
     timeoutMs: Number(process.env.TASK_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),

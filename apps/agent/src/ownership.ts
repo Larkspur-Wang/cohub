@@ -1,6 +1,9 @@
 import { Redis } from "ioredis";
 import { AGENT_INSTANCE_HEARTBEAT_MS, env } from "./env.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 const redis = new Redis(env.REDIS_URL);
 
 export type AgentInstanceRecord = {
@@ -85,12 +88,12 @@ export async function listActiveAgentInstances(): Promise<AgentInstanceRecord[]>
 
 export function startAgentInstanceHeartbeatLoop() {
   void heartbeatAgentInstance("ready").catch((error) => {
-    console.error("[Ownership] Initial agent heartbeat failed:", error);
+    logger.error("[Ownership] Initial agent heartbeat failed:", error);
   });
 
   return setInterval(() => {
     void heartbeatAgentInstance("ready").catch((error) => {
-      console.error("[Ownership] Agent heartbeat failed:", error);
+      logger.error("[Ownership] Agent heartbeat failed:", error);
     });
   }, AGENT_INSTANCE_HEARTBEAT_MS);
 }

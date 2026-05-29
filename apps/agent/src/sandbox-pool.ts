@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { createHash } from "node:crypto";
 import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
 import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
@@ -12,6 +13,8 @@ import {
   waitForSandboxConnection,
 } from "./sandbox/ws-client.js";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || null;
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 const IDLE_TTL_MS = Number(process.env.AGENT_SANDBOX_IDLE_TTL_MS ?? 30 * 60_000);
@@ -52,7 +55,7 @@ async function syncSandboxHeartbeat(spaceId: string, message: SandboxHeartbeat) 
   const normalized = normalizeSandboxStatus(message.status);
   const setup = message.metadata?.setup;
   if (normalized === "degraded" && setup) {
-    console.warn(`[Agent] sandbox degraded spaceId=${spaceId} setup exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
+    logger.warn(`[Agent] sandbox degraded spaceId=${spaceId} setup exitCode=${setup.exitCode} duration=${setup.duration} error=${setup.error ?? "unknown"}`);
   }
   await Promise.allSettled([
     sandboxLifecycle.recordHeartbeat({ spaceId, heartbeat: message }),
@@ -190,7 +193,7 @@ export async function ensureSandboxConnection(spaceId: string, options?: { timeo
       onRefreshWsUrl: async ({ currentWsUrl, error }) => {
         const nextWsUrl = await refreshSandboxWsUrl(spaceId);
         if (nextWsUrl !== currentWsUrl) {
-          console.warn(`[SandboxPool] refreshed sandbox wsUrl spaceId=${spaceId} oldHash=${hashLogValue(currentWsUrl)} newHash=${hashLogValue(nextWsUrl)} reason=${error?.message ?? "unknown"}`);
+          logger.warn(`[SandboxPool] refreshed sandbox wsUrl spaceId=${spaceId} oldHash=${hashLogValue(currentWsUrl)} newHash=${hashLogValue(nextWsUrl)} reason=${error?.message ?? "unknown"}`);
         }
         return nextWsUrl;
       },
@@ -217,7 +220,7 @@ export function pruneSandboxConnections(options?: { preserveSpaceId?: string }) 
   }
 
   if (entries.size > MAX_CONNECTIONS) {
-    console.warn(`[SandboxPool] max connections exceeded (${entries.size}/${MAX_CONNECTIONS}); skipped ${skippedPending} connections with pending requests`);
+    logger.warn(`[SandboxPool] max connections exceeded (${entries.size}/${MAX_CONNECTIONS}); skipped ${skippedPending} connections with pending requests`);
   }
 }
 

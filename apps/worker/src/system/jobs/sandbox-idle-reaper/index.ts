@@ -4,7 +4,10 @@ import { redisCommandClient } from "../../../redis.js";
 import { registerSystemJob } from "../../registry.js";
 import { sandboxInfra } from "../../sandbox-infra.js";
 import { SANDBOX_IDLE_REAPER_JOB } from "./types.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 const getLimit = () => Number(process.env.SANDBOX_IDLE_REAPER_LIMIT ?? 50);
 
 const sandboxLifecycle = createSandboxLifecycleController({
@@ -17,6 +20,6 @@ registerSystemJob(SANDBOX_IDLE_REAPER_JOB, async () => {
   const result = await sandboxLifecycle.reapIdleSandboxes({
     limit: getLimit(),
   });
-  console.log("[SandboxReaper] completed", JSON.stringify(result));
+  logger.info("[SandboxReaper] completed", JSON.stringify(result));
   return result;
 });

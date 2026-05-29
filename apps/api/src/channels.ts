@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
@@ -15,6 +16,8 @@ import {
 import { hasPermission } from "./permissions.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const bindingLocks = new Map<string, Promise<unknown>>();
 const GATEWAY_NODE_TTL_MS = 15_000;
 const READABLE_USER_IDS_CACHE_TTL_MS = 4_000;
@@ -115,7 +118,7 @@ export async function bindAllActiveSpaceChannelsToGateway() {
       stats.bound += 1;
     } catch (error) {
       stats.failed += 1;
-      console.warn(`[GatewayBinding] failed to bind space channel ${channel.id}:`, error);
+      logger.warn(`[GatewayBinding] failed to bind space channel ${channel.id}:`, error);
     }
   }
 
@@ -218,7 +221,7 @@ export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & 
   const hasExplicitTarget = targetUserIds.length > 0 || Boolean(targetConnectionId);
   if (input.spaceId && !hasExplicitTarget) {
     targetUserIds = await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
-      console.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
+      logger.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
       return targetUserIds;
     });
   }
@@ -465,7 +468,7 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
         lastMaterializedBy: input.event.eventType === "conversation_create" ? "conversation_create" : ((binding.meta as Record<string, unknown> | null)?.lifecycle as Record<string, unknown> | null)?.lastMaterializedBy ?? "message_create",
       },
     };
-    await updateSpaceSessionBindingMeta({ bindingId: binding.id, meta: lifecycleUpdate }).catch(console.error);
+    await updateSpaceSessionBindingMeta({ bindingId: binding.id, meta: lifecycleUpdate }).catch((error) => logger.error("[Channels] failed to update session binding lifecycle meta", error));
     await touchSpaceSessionBinding(binding.id);
     return binding;
   }

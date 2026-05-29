@@ -36,6 +36,7 @@ PLATFORM_CONFIG_ROOT: "/configs"
 PLATFORM_SPACE_ID: "f371b93a-4710-4d48-81d2-cde277cbcf89"
 CONFIGS_SUBPATH: "configs/dev"
 ENV: "dev"
+LOG_LEVEL: "debug"
 
 # ========== OSS 配置 ==========
 TURN_OBJECT_S3_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"

@@ -1,0 +1,28 @@
+apiVersion: telemetry.alibabacloud.com/v1alpha1
+kind: ClusterAliyunPipelineConfig
+metadata:
+  name: cohub-dev-app-logs
+spec:
+  project:
+    name: cohub
+  logstores:
+    - name: cohub-dev
+  config:
+    global:
+      TopicType: custom
+      TopicFormat: customized://cohub-dev-app-logs
+    inputs:
+      - Type: input_container_stdio
+        IgnoringStdout: false
+        IgnoringStderr: true
+        ContainerFilters:
+          K8sNamespaceRegex: ^cohub-dev$
+          K8sContainerRegex: ^(cohub-api-dev|cohub-gateway-dev|cohub-user-worker-dev|cohub-system-worker-dev|cohub-agent-dev)$
+    processors:
+      - Type: processor_parse_json_native
+        SourceKey: content
+        KeepingSourceWhenParseFail: true
+        KeepingSourceWhenParseSucceed: false
+    flushers:
+      - Type: flusher_sls
+        Logstore: cohub-dev

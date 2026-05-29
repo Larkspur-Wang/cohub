@@ -1,6 +1,9 @@
 import "dotenv/config";
 import postgres from "postgres";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
@@ -20,12 +23,12 @@ const mapRuntimeResourceType = (type: string | null): "space" | "session" | null
 };
 
 async function migrateV2Data() {
-  console.log("[V2 Data Migration] Starting...");
+  logger.info("[V2 Data Migration] Starting...");
 
   try {
     await sql`CREATE SCHEMA IF NOT EXISTS v2`;
 
-    console.log("[V2 Data Migration] Migrating user git accounts...");
+    logger.info("[V2 Data Migration] Migrating user git accounts...");
     await sql`
       INSERT INTO v2.user_git_accounts (
         id,
@@ -60,7 +63,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating user channels...");
+    logger.info("[V2 Data Migration] Migrating user channels...");
     await sql`
       INSERT INTO v2.user_channels (
         id,
@@ -85,7 +88,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating runtimes as spaces...");
+    logger.info("[V2 Data Migration] Migrating runtimes as spaces...");
     await sql`
       WITH runtime_candidates AS (
         SELECT
@@ -146,7 +149,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating runtime sandboxes as space sandboxes...");
+    logger.info("[V2 Data Migration] Migrating runtime sandboxes as space sandboxes...");
     await sql`
       INSERT INTO v2.space_sandboxes (
         space_id,
@@ -180,7 +183,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating space channels...");
+    logger.info("[V2 Data Migration] Migrating space channels...");
     await sql`
       INSERT INTO v2.space_channels (
         id,
@@ -199,7 +202,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating space sessions...");
+    logger.info("[V2 Data Migration] Migrating space sessions...");
     await sql`
       INSERT INTO v2.space_sessions (
         id,
@@ -244,7 +247,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating space session bindings...");
+    logger.info("[V2 Data Migration] Migrating space session bindings...");
     await sql`
       INSERT INTO v2.space_session_bindings (
         id,
@@ -277,7 +280,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating provider message refs...");
+    logger.info("[V2 Data Migration] Migrating provider message refs...");
     await sql`
       INSERT INTO v2.provider_message_refs (
         id,
@@ -318,7 +321,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating session messages...");
+    logger.info("[V2 Data Migration] Migrating session messages...");
     await sql`
       INSERT INTO v2.session_messages (
         id,
@@ -359,7 +362,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating runtime/session permissions into space members and access policies...");
+    logger.info("[V2 Data Migration] Migrating runtime/session permissions into space members and access policies...");
     const permissions = await sql<{
       resource_type: string;
       resource_id: string;
@@ -427,7 +430,7 @@ async function migrateV2Data() {
       }
     }
 
-    console.log("[V2 Data Migration] Migrating public runtime permissions from public workspace visibility...");
+    logger.info("[V2 Data Migration] Migrating public runtime permissions from public workspace visibility...");
     await sql`
       INSERT INTO v2.access_policies (
         resource_type,
@@ -454,7 +457,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating gateway logs...");
+    logger.info("[V2 Data Migration] Migrating gateway logs...");
     await sql`
       INSERT INTO v2.gateway_logs (
         id,
@@ -483,7 +486,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating cron jobs...");
+    logger.info("[V2 Data Migration] Migrating cron jobs...");
     await sql`
       INSERT INTO v2.cron_jobs (
         id,
@@ -520,7 +523,7 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Migrating task runs...");
+    logger.info("[V2 Data Migration] Migrating task runs...");
     await sql`
       INSERT INTO v2.task_runs (
         id,
@@ -563,9 +566,9 @@ async function migrateV2Data() {
       ON CONFLICT DO NOTHING
     `;
 
-    console.log("[V2 Data Migration] Completed successfully.");
+    logger.info("[V2 Data Migration] Completed successfully.");
   } catch (error) {
-    console.error("[V2 Data Migration] Failed:", error);
+    logger.error("[V2 Data Migration] Failed:", error);
     throw error;
   } finally {
     await sql.end({ timeout: 5 });

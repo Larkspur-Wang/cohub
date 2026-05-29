@@ -4,6 +4,7 @@ serviceName: cohub-agent
 port: 8788
 image: git.talesofai.com/talesofai/cohub-agent:v0.6.8
 env: prod
+logLevel: info
 workerSecret: ""
 workspaceRoot: /space-storage
 sessionsDir: /sessions

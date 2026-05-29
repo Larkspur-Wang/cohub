@@ -1,5 +1,7 @@
 import "dotenv/config";
 import "../tracing.js";
+import { createLogger } from "@cohub/infra/logging";
+
 
 import { Queue, Worker, type Processor } from "bullmq";
 import {
@@ -18,6 +20,7 @@ import { FS_CDN_QUEUE_NAME } from "../system/jobs/fs-cdn-cache/types.js";
 
 import "../system/jobs/index.js";
 
+const logger = createLogger({ serviceName: "cohub-worker" });
 assertRequiredConfig();
 
 const connection = createBullmqRedisConnection(config.bullmqRedisUrl);
@@ -64,14 +67,14 @@ attachWorkerEventLogger(systemWorker, {
   queueName: FS_CDN_QUEUE_NAME,
 });
 
-console.log("[SystemWorker] Starting system worker...");
-console.log("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
-console.log("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
-console.log("[SystemWorker] Queue:", FS_CDN_QUEUE_NAME);
-console.log("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
+logger.info("[SystemWorker] Starting system worker...");
+logger.info("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
+logger.info("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
+logger.info("[SystemWorker] Queue:", FS_CDN_QUEUE_NAME);
+logger.info("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
 const shutdown = async (signal: string) => {
-  console.log(`[SystemWorker] Received ${signal}, shutting down...`);
+  logger.info(`[SystemWorker] Received ${signal}, shutting down...`);
   await closeWorkerGracefully(systemWorker, {
     serviceName: "SystemWorker",
     timeoutMs: Number(process.env.FS_CDN_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),

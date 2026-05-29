@@ -7,7 +7,10 @@ import { requireValidId } from "./lib/middleware.js";
 import { hasPermission } from "./permissions.js";
 import { getSpaceById } from "./space-sessions.js";
 import { recoverSpaceSandbox } from "./space-sandboxes.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 export type CreateSpaceModInput = {
   modSpaceId: string;
   name?: string | null;
@@ -67,7 +70,7 @@ export async function restartSandboxForMods(spaceId: string) {
     source: "space_mods",
     verify: true,
   }).catch((error) => {
-    console.error(`[SpaceMods] failed to restart sandbox spaceId=${spaceId}`, error);
+    logger.error(`[SpaceMods] failed to restart sandbox spaceId=${spaceId}`, error);
   });
 }
 

@@ -3,7 +3,10 @@ import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 import { normalizePublicAvatarUrl, useAuth } from "../lib/middleware.js";
+import { createLogger } from "@cohub/infra/logging";
 
+
+const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 const MIN_QUERY_LENGTH = 2;
 const DEFAULT_LIMIT = 30;
@@ -347,7 +350,7 @@ router.get("/", async (c) => {
           .map((row) => row.ownerUserUuid as string),
       );
     } catch (error) {
-      console.warn("[search] profile enrichment failed", {
+      logger.warn("[search] profile enrichment failed", {
         userUuid: user.uuid,
         ownerCount: new Set(rows.map((row) => row.ownerUserUuid).filter(Boolean)).size,
         error,
@@ -355,7 +358,7 @@ router.get("/", async (c) => {
     }
     return c.json({ items: rows.map((row) => mapRow(row, profileMap)), query: q, source: "remote" });
   } catch (error) {
-    console.warn("[search] global search failed", {
+    logger.warn("[search] global search failed", {
       userUuid: user.uuid,
       queryLength: q.length,
       error,

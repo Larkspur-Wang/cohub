@@ -1,3 +1,4 @@
+import { createLogger } from "@cohub/infra/logging";
 import { createHash } from "node:crypto";
 import type {
   PersistMessageInput,
@@ -8,6 +9,8 @@ import { normalizeContentBlockSafe, normalizeContentBlocksSafe } from "@cohub/co
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { env } from "./env.js";
 
+
+const logger = createLogger({ serviceName: "cohub-agent" });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const INTERNAL_API_BASE_URL =
@@ -150,7 +153,7 @@ const safeStringify = (value: unknown): string => {
 };
 
 const warnInvalidContentBlock = (context: string) => (issue: { message: string; block: unknown }) => {
-  console.warn(`[Normalize] ${context}: ${issue.message}`, { block: issue.block });
+  logger.warn(`[Normalize] ${context}: ${issue.message}`, { block: issue.block });
 };
 
 type NormalizedToolResultContent = {
@@ -344,7 +347,7 @@ export function normalizeAssistantTurn(
         });
         emittedToolUses.add(block.id);
       } else {
-        console.warn("[Normalize] tool block has no matching execution", {
+        logger.warn("[Normalize] tool block has no matching execution", {
           blockType: block.type,
           toolCallId: block.id,
           hasName: typeof block.name === "string",
@@ -358,7 +361,7 @@ export function normalizeAssistantTurn(
         emitToolUseBlock(blocks, execution, emittedToolUses);
         emitToolResultBlock(blocks, execution, emittedToolResults);
       } else {
-        console.warn("[Normalize] tool_result block has no matching execution", {
+        logger.warn("[Normalize] tool_result block has no matching execution", {
           toolCallId: block.tool_use_id,
         });
         const normalizedContent = Array.isArray(block.content)
@@ -630,7 +633,7 @@ export async function persistAssistantMessage(input: {
     : [];
 
   if (!assistantMessage || typeof assistantMessage !== "object") {
-    console.warn("[Persist] turn_end event missing assistant message payload.");
+    logger.warn("[Persist] turn_end event missing assistant message payload.");
     return;
   }
 
@@ -650,7 +653,7 @@ export async function persistAssistantMessage(input: {
   const effectiveErrorMessage = isEmptySuccessfulAssistant ? EMPTY_ASSISTANT_MESSAGE_ERROR : errorMessage;
 
   if (isEmptySuccessfulAssistant) {
-    console.warn("[Persist] empty assistant message converted to error", {
+    logger.warn("[Persist] empty assistant message converted to error", {
       spaceId: input.spaceId,
       spaceSessionId: input.spaceSessionId,
       userMessageId: input.userMessageId,
