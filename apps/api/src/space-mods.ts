@@ -122,9 +122,9 @@ export async function prepareSpaceModInserts(input: {
   if (normalized.length === 0) return [];
 
   const permitted = await Promise.all(
-    modSpaceIds.map((modSpaceId) => hasPermission(input.actor, "file.view", { spaceId: modSpaceId })),
+    modSpaceIds.map((modSpaceId) => hasPermission(input.actor, "file.view.filtered", { spaceId: modSpaceId })),
   );
-  if (permitted.some((value) => !value)) throw new SpaceModInputError("missing file.view permission for mod space", 403);
+  if (permitted.some((value) => !value)) throw new SpaceModInputError("missing file.view.filtered permission for mod space", 403);
 
   const targets = await db
     .select({ id: spaces.id })
