@@ -1,4 +1,4 @@
-import type { MediaItem } from "$lib/components/media-lightbox.svelte";
+import type { MediaItem } from "$lib/components/media-lightbox";
 
 type RecordValue = Record<string, unknown>;
 

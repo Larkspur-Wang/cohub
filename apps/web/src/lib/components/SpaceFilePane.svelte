@@ -39,7 +39,7 @@ $effect(() => {
 });
 
 const dataUrl = $derived.by(() => {
-	if (!file || file.kind !== "binary") return null;
+	if (file?.kind !== "binary") return null;
 	const mime = file.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${file.content}`;
 });
@@ -52,7 +52,7 @@ const isMarkdown = $derived(
 );
 
 const editorLanguage = $derived.by(() => {
-	if (!file || file.kind !== "text") return "plaintext";
+	if (file?.kind !== "text") return "plaintext";
 	return file.name.split(".").pop()?.toLowerCase() ?? "";
 });
 </script>

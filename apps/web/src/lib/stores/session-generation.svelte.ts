@@ -354,6 +354,7 @@ class SessionGenerationStore {
 			spaceId?: string | null;
 			turnId?: string | null;
 			anchorUserMessageId?: string | null;
+			finalizedPreview?: boolean;
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);

@@ -14,13 +14,16 @@ function isCacheableSpaceRecord(space: Partial<SpaceRecord> & { id: string }) {
 	);
 }
 
-function mergeSpaceRecord(current: SpaceRecord, next: Partial<SpaceRecord>) {
+function mergeSpaceRecord(
+	current: SpaceRecord,
+	next: Partial<SpaceRecord>,
+): SpaceRecord {
 	return {
 		...current,
 		...next,
-		slug: hasOwn(next, "slug") ? next.slug : current.slug,
+		slug: hasOwn(next, "slug") ? (next.slug ?? null) : current.slug,
 		description: hasOwn(next, "description")
-			? next.description
+			? (next.description ?? null)
 			: current.description,
 		publicProfile: hasOwn(next, "publicProfile")
 			? next.publicProfile

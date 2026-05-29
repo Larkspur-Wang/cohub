@@ -2,7 +2,10 @@ import { Container, Graphics, Text } from "pixi.js";
 import { getResourceTitle, inferMediaKind } from "$lib/canvas/canvas-media";
 import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
 import type { CanvasItem } from "$lib/canvas/canvas-schema";
-import type { CanvasRenderContext } from "$lib/canvas/renderers/canvas-renderer-registry";
+import type {
+	CanvasItemPointerEvent,
+	CanvasRenderContext,
+} from "$lib/canvas/renderers/canvas-renderer-registry";
 
 export function titleForCanvasItem(item: CanvasItem) {
 	if (item.type === "text") return item.text.split("\n")[0] || "Text note";
@@ -62,7 +65,9 @@ export function createBaseCard(
 	card.rotation = (item.frame.rotation * Math.PI) / 180;
 	card.eventMode = "static";
 	card.cursor = "grab";
-	card.on("pointerdown", (event) => context.onItemPointerDown(item, event));
+	card.on("pointerdown", (event) =>
+		context.onItemPointerDown(item, event as unknown as CanvasItemPointerEvent),
+	);
 
 	const selected = context.selectedItemIds.includes(item.id);
 	const accent = emphasisColor(item, context);

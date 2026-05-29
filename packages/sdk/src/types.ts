@@ -324,6 +324,7 @@ export type SpaceRecord = {
     provider: string;
     status: string;
   }[];
+  access?: SpaceAccess;
   accessLevel?: "minimal";
   ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
 };
@@ -507,6 +508,9 @@ export type GlobalSearchResult = {
   turnId: string | null;
   sequence: number | null;
   title: string;
+  excerpt?: string | null;
+  spaceName?: string | null;
+  sessionTitle?: string | null;
   ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
   spaceProfile?: SpacePublicProfile | null;
   matchedField: "userText" | "title" | "name" | "description";
@@ -700,23 +704,24 @@ export type SpaceModListItem = {
 };
 
 export type PublicExploreSpace = {
-  id: string;
-  slug: string | null;
-  title: string;
-  summary: string | null;
-  spaceUrl: string;
-  coverUrl: string | null;
-  coverAlt: string | null;
-  ownerDisplayName: string | null;
-  ownerAvatarUrl: string | null;
-  category: string | null;
-  tags: string[];
-  skillCount: number;
-  assetCount: number;
-  forkCount: number;
-  updatedAt: string | null;
-  accessLabel: "public" | "sign-in-required" | "unknown";
-  latestSignal: string | null;
+  space: SpaceRecord & {
+    publicProfile: SpacePublicProfile;
+    ownerProfile: UserProfile | null;
+  };
+  ownerProfile: UserProfile | null;
+  accessAudience: "anonymous" | "signed_in";
+  explore: {
+    rank: number;
+    category: string | null;
+    label: string | null;
+  };
+  latestCheckpoints: CheckpointRecord[];
+  stats: {
+    pinnedCount: number;
+    checkpointCount: number;
+    forkCount: number;
+  };
+  sandboxStatus: string | null;
 };
 
 export type ExploreSpaceItem = PublicExploreSpace;

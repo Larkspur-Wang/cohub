@@ -3,10 +3,7 @@ import { AlertCircle, ChevronDown, Loader2, Play, Video } from "lucide-svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
-import {
-	type MediaItem,
-	mediaLightbox,
-} from "$lib/components/media-lightbox.svelte";
+import { type MediaItem, mediaLightbox } from "$lib/components/media-lightbox";
 import { buildSpaceTaskRoute } from "$lib/space-routes";
 
 export type GenerationTaskNotice = {
@@ -27,7 +24,7 @@ type Props = {
 	notices: GenerationTaskNotice[];
 };
 
-const props = $props<Props>();
+const props: Props = $props();
 const TICK_MS = 1000;
 
 let collapsed = $state(false);

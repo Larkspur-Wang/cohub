@@ -105,7 +105,7 @@ export async function bindAllActiveSpaceChannelsToGateway() {
   const stats = { total: channels.length, bound: 0, skipped: 0, failed: 0 };
   for (const channel of channels) {
     const userChannel = userChannelMap.get(channel.channelId);
-    if (!userChannel || userChannel.status !== "active") {
+    if (userChannel?.status !== "active") {
       stats.skipped += 1;
       continue;
     }
@@ -123,7 +123,7 @@ export async function bindAllActiveSpaceChannelsToGateway() {
 }
 
 async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$inferSelect, userChannel: typeof userChannels.$inferSelect | undefined) {
-  if (!userChannel || userChannel.status !== "active") return;
+  if (userChannel?.status !== "active") return;
 
   const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", spaceChannel.id);
   let nodeId = existingNodeId;

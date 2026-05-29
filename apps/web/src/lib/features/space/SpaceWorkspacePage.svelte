@@ -404,7 +404,7 @@ const inlineFileIsMarkdown = $derived(
 	),
 );
 const inlineFileExt = $derived.by(() => {
-	if (!inlineFile || inlineFile.response?.kind !== "text") return "plaintext";
+	if (inlineFile?.response?.kind !== "text") return "plaintext";
 	return (
 		inlineFile.response.name.split(".").pop()?.toLowerCase() ?? "plaintext"
 	);
@@ -419,7 +419,7 @@ const inlineFileIsText = $derived(
 	Boolean(inlineFile?.response?.kind === "text"),
 );
 const inlineFileDataUrl = $derived.by(() => {
-	if (!inlineFile || inlineFile.response?.kind !== "binary") return null;
+	if (inlineFile?.response?.kind !== "binary") return null;
 	if (inlineFile.response.delivery === "url")
 		return inlineFile.response.url ?? null;
 	const mime = inlineFile.response.mimeType ?? "application/octet-stream";
@@ -548,7 +548,7 @@ const openFileIsMarkdown = $derived(
 	Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)),
 );
 const openFileExt = $derived.by(() => {
-	if (!openFile || openFile.kind !== "text") return "plaintext";
+	if (openFile?.kind !== "text") return "plaintext";
 	return openFile.name.split(".").pop()?.toLowerCase() ?? "plaintext";
 });
 const openFileIsImage = $derived(
@@ -559,7 +559,7 @@ const openFileIsVideo = $derived(
 );
 const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
 const openFileDataUrl = $derived.by(() => {
-	if (!openFile || openFile.kind !== "binary") return null;
+	if (openFile?.kind !== "binary") return null;
 	if (openFile.delivery === "url") return openFile.url ?? null;
 	const mime = openFile.mimeType ?? "application/octet-stream";
 	return `data:${mime};base64,${openFile.content}`;
@@ -1410,6 +1410,7 @@ function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
 		status: turn.status,
 		startedAt: turn.startedAt,
 		completedAt: turn.completedAt,
+		durationMs: turn.durationMs,
 		createdAt: turn.createdAt,
 		updatedAt: turn.updatedAt,
 		userPreview: turn.userText,
@@ -1669,7 +1670,10 @@ function buildTurnGenerationPolicy(): GenerationPolicy | null {
 				const spec = declaration?.parameters?.[name];
 				const type = spec && "type" in spec ? spec.type : null;
 				if (type !== "integer" && type !== "number") continue;
-				const next: GenerationParameterConstraint = {
+				const next: Extract<
+					GenerationParameterConstraint,
+					{ kind: "integer" | "number" }
+				> = {
 					kind: type === "integer" ? "integer" : "number",
 				};
 				if (constraint.min !== undefined) next.min = constraint.min;
@@ -4191,6 +4195,7 @@ async function handleSend() {
 			authorProfile: currentUser.profile,
 			startedAt: now,
 			completedAt: null,
+			durationMs: null,
 			createdAt: now,
 			updatedAt: now,
 		} as SessionTurnRecord;
@@ -4905,7 +4910,7 @@ async function openFileFromUrl(path: string) {
 	}
 }
 async function saveOpenFile() {
-	if (!openFile || openFile.kind !== "text") return;
+	if (openFile?.kind !== "text") return;
 	const savingPath = openFile.path;
 	markFileSavePending(savingPath);
 	openFileSaving = true;
@@ -5263,7 +5268,7 @@ async function downloadInlineFile() {
 	);
 }
 async function saveInlineFile() {
-	if (!inlineFile || inlineFile.response?.kind !== "text") return;
+	if (inlineFile?.response?.kind !== "text") return;
 	const savingPath = inlineFile.path;
 	const nextContent = inlineFile.draft;
 	markFileSavePending(savingPath);
@@ -5323,7 +5328,7 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 	}
 }
 async function copyFileContent() {
-	if (!openFile || openFile.kind !== "text") return;
+	if (openFile?.kind !== "text") return;
 	await navigator.clipboard.writeText(openFileDraft);
 	openFileCopied = true;
 	if (openFileCopiedTimer) clearTimeout(openFileCopiedTimer);
@@ -5332,7 +5337,7 @@ async function copyFileContent() {
 	}, 1500);
 }
 async function copyInlineFileContent() {
-	if (!inlineFile || inlineFile.response?.kind !== "text") return;
+	if (inlineFile?.response?.kind !== "text") return;
 	await navigator.clipboard.writeText(inlineFile.draft);
 	inlineFileCopied = true;
 	if (inlineFileCopiedTimer) clearTimeout(inlineFileCopiedTimer);

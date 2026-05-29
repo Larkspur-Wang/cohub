@@ -123,7 +123,7 @@ function shouldMarkTruncatedStart(
 	event: GenerationStreamStateEvent,
 ) {
 	const current = sessionGenerationStore.get(sessionId);
-	if (!current || current.status !== "pending") return false;
+	if (current?.status !== "pending") return false;
 	if (event.source === "patch") {
 		return event.state.patchSeq > 0 && current.contentBlocks.length === 0;
 	}

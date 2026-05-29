@@ -671,7 +671,7 @@ async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
 	try {
 		const result = await sdk
 			.space(spaceId)
-			.mods.update(mod.id, { mountSlug: mountSlug || null });
+			.mods.update(mod.id, { mountSlug: mountSlug || undefined });
 		mods = mods.map((item) => (item.id === mod.id ? result.item : item));
 		noteModRestart();
 		await loadSandbox();

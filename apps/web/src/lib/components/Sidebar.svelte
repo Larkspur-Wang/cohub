@@ -373,7 +373,8 @@ async function loadCurrentSpaceFromUrl(
 
 	if (!options?.refresh && currentSpaceRefreshes.has(spaceId)) return;
 
-	const refresh = (async () => {
+	let refresh!: Promise<void>;
+	refresh = (async () => {
 		try {
 			const space = await sdk.space(spaceId).get();
 			if (spaceId !== currentSpaceId) return;
@@ -793,7 +794,8 @@ function togglePinResource(
 ) {
 	if (!currentSpaceId && resourceType !== "space") return;
 	void toggleSpacePin({
-		spaceId: resourceType === "space" ? undefined : currentSpaceId,
+		spaceId:
+			resourceType === "space" ? undefined : (currentSpaceId ?? undefined),
 		resourceType,
 		resourceRef,
 		label,

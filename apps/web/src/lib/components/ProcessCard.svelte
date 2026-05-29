@@ -138,7 +138,7 @@ const usageTitle = $derived.by(() => {
 	}
 	if (usageOutputTokens > 0)
 		parts.push(`Output: ${formatTokenCount(usageOutputTokens)}`);
-	if (summary.usage.cacheWrite)
+	if (summary?.usage?.cacheWrite)
 		parts.push(`Cache write: ${formatTokenCount(summary.usage.cacheWrite)}`);
 	if (usageTokens > 0) parts.push(`Total: ${formatTokenCount(usageTokens)}`);
 	if (durationTitle) parts.push(durationTitle);

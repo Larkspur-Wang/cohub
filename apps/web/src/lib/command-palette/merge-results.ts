@@ -27,6 +27,9 @@ export function commandItemKey(
 function remoteToItem(item: GlobalSearchResult): CommandPaletteItem {
 	return {
 		...item,
+		excerpt: item.excerpt ?? null,
+		spaceName: item.spaceName ?? null,
+		sessionTitle: item.sessionTitle ?? null,
 		source: "remote",
 		remoteScore: item.score,
 	};

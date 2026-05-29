@@ -91,7 +91,7 @@ function remoteSpaceToSuggestion(
 		id: item.spaceId,
 		spaceId: item.spaceId,
 		name: item.title || item.spaceName || `space:${item.spaceId.slice(0, 8)}`,
-		description: compactText(item.excerpt, 180),
+		description: compactText(item.excerpt ?? null, 180),
 		ownerProfile: ownerProfile ?? null,
 		spaceProfile: normalizeSpacePublicProfile(spaceProfile),
 		href: item.href || buildSpaceMentionHref(item.spaceId),

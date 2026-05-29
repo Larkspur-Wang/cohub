@@ -167,7 +167,8 @@ function syncBackground(palette: CanvasRenderPalette) {
 }
 
 function syncCards(palette: CanvasRenderPalette) {
-	if (!world) return;
+	const currentWorld = world;
+	if (!currentWorld) return;
 	const selectedSet = new Set(selectedItemIds);
 	const itemIds = new Set(canvasDocument.items.map((item) => item.id));
 	const renderContext = {
@@ -179,7 +180,7 @@ function syncCards(palette: CanvasRenderPalette) {
 
 	for (const [id, entry] of cardDisplays) {
 		if (!itemIds.has(id)) {
-			world.removeChild(entry.display);
+			currentWorld.removeChild(entry.display);
 			entry.display.destroy({ children: true });
 			cardDisplays.delete(id);
 		}
@@ -198,7 +199,7 @@ function syncCards(palette: CanvasRenderPalette) {
 		let display = existing?.display;
 		if (needsReplace) {
 			if (existing) {
-				world.removeChild(existing.display);
+				currentWorld.removeChild(existing.display);
 				existing.display.destroy({ children: true });
 			}
 			display = renderer.create(item, renderContext);
@@ -210,8 +211,9 @@ function syncCards(palette: CanvasRenderPalette) {
 			});
 		}
 
-		if (display && display.parent !== world) world.addChild(display);
-		if (display) world.setChildIndex(display, index);
+		if (display && display.parent !== currentWorld)
+			currentWorld.addChild(display);
+		if (display) currentWorld.setChildIndex(display, index);
 	});
 }
 

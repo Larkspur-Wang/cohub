@@ -123,7 +123,7 @@ function addText() {
 function editText(id: string) {
 	if (!documentState) return;
 	const item = documentState.items.find((candidate) => candidate.id === id);
-	if (!item || item.type !== "text") return;
+	if (item?.type !== "text") return;
 	const next = prompt("Edit text", item.text);
 	if (next == null) return;
 	updateDocument({

@@ -221,13 +221,19 @@ function getThemeExtension(theme: ResolvedTheme): Extension {
 		syntaxHighlighting(
 			HighlightStyle.define([
 				{ tag: t.keyword, color: palette.keyword },
-				{ tag: [t.atom, t.bool, t.number, t.constant], color: palette.atom },
+				{
+					tag: [t.atom, t.bool, t.number, t.constant(t.variableName)],
+					color: palette.atom,
+				},
 				{
 					tag: [t.string, t.special(t.string), t.regexp],
 					color: palette.string,
 				},
 				{
-					tag: [t.definition(t.variableName), t.function(t.variableName)],
+					tag: [
+						t.definition(t.variableName),
+						t.definition(t.function(t.variableName)),
+					],
 					color: palette.definition,
 				},
 				{

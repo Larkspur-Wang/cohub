@@ -220,6 +220,7 @@ export function buildTurnTimelineItems(input: {
 					meta: null,
 					startedAt: null,
 					completedAt: null,
+					durationMs: null,
 					createdAt: renderCreatedAt,
 					updatedAt: renderCreatedAt,
 				} satisfies SessionTurnRecord);

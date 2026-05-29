@@ -446,7 +446,9 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	}, DEBOUNCE_MS);
 }
 
-function isPinnable(item: CommandPaletteItem) {
+function isPinnable(
+	item: CommandPaletteItem,
+): item is CommandPaletteItem & { type: "space" | "session" } {
 	return item.type === "space" || item.type === "session";
 }
 

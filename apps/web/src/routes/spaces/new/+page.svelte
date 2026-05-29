@@ -16,7 +16,7 @@ import { ArrowLeft, Loader2, PackagePlus, Plus } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { PUBLIC_COHUB_ENV } from "$env/static/public";
+import { env as publicEnv } from "$env/dynamic/public";
 import { ensureAuth } from "$lib/auth";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
@@ -45,7 +45,9 @@ let gitRepoRef = $state("");
 let gitToken = $state("");
 let checkpointId = $state("");
 let mods = $state<CreateSpaceModInput[]>(
-	getDefaultSpaceModsForEnv(normalizeCohubRuntimeEnv(PUBLIC_COHUB_ENV)),
+	getDefaultSpaceModsForEnv(
+		normalizeCohubRuntimeEnv(publicEnv.PUBLIC_COHUB_ENV),
+	),
 );
 let modSpaceId = $state("");
 let modName = $state("");
@@ -290,7 +292,7 @@ async function handleSubmit(event: SubmitEvent) {
               bind:value={slug}
               type="text"
               placeholder="optional-url-name"
-              pattern="[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?"
+              pattern={String.raw`[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?`}
               class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
             />
             <p class="mt-1 text-[11px] text-text-placeholder">Optional. Lowercase letters, numbers, hyphens, or underscores.</p>

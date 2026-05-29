@@ -359,7 +359,7 @@ export const getFileContent = async (
     `/repos/${owner}/${repo}/contents/${cleanPath}${suffix}`,
   );
 
-  if (!data || data.type !== "file") {
+  if (data?.type !== "file") {
     return null;
   }
 
