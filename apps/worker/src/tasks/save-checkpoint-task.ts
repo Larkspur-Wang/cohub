@@ -46,6 +46,8 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) throw new Error("space not found");
 
+  const progress = (stage: string, extra?: Record<string, unknown>) => input.onProgress?.({ stage, updatedAt: new Date().toISOString(), ...extra });
+  await progress("prepare");
   const checkpointId = crypto.randomUUID();
   const createdAt = new Date();
   const branch = "main";
@@ -53,7 +55,9 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   const dirs = await ensureCheckpointDirs(spaceId);
 
   await ensureGitRepo(dirs.repoDir, branch);
+  await progress("scan_workspace");
   const scan = await scanWorkspace(dirs.workspaceDir);
+  await progress("upload_assets", { fileCount: scan.files.length, gitRepoCount: scan.gitRepos.length });
   const assets: CheckpointAsset[] = [];
   const smallFiles = [];
   for (const file of scan.files) {
@@ -66,6 +70,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     }
   }
 
+  await progress("bundle_git_repos", { assetCount: assets.length });
   const userGitRepos = await collectUserGitRepos({
     workspaceDir: dirs.workspaceDir,
     systemDir: dirs.systemDir,
@@ -84,6 +89,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     branch,
   };
 
+  await progress("commit_checkpoint", { gitRepoCount: userGitRepos.length });
   await syncSystemRepo({ repoDir: dirs.repoDir, smallFiles, assets, gitCheckpointMeta, userGitRepos: userGitReposManifest });
   await runGit(["add", "-A"], dirs.repoDir);
   await runGit(["commit", "--allow-empty", "-m", commitMessage], dirs.repoDir);
@@ -91,6 +97,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   const commitHash = head.stdout.trim();
 
   const latestMeta = { ...gitCheckpointMeta, commitHash, materializedAt: new Date().toISOString() };
+  await progress("materialize_latest", { commitHash });
   await materializeLatest({ latestDir: dirs.latestDir, files: scan.files, checkpointMeta: latestMeta });
 
   const smallFileCount = smallFiles.length;
@@ -114,12 +121,14 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     gitBundleBytes,
   };
 
+  await progress("write_checkpoint_record");
   const [checkpoint] = await db.insert(checkpoints).values({
     id: checkpointId,
     spaceId,
     commitHash,
     description: description?.trim() || "Checkpoint",
     parentCheckpointId: space.headCheckpointId ?? null,
+    rootCheckpointId: space.headCheckpointId ? ((await db.select({ rootCheckpointId: checkpoints.rootCheckpointId, id: checkpoints.id }).from(checkpoints).where(eq(checkpoints.id, space.headCheckpointId)).limit(1))[0]?.rootCheckpointId ?? space.headCheckpointId) : checkpointId,
     saveVersion: SAVE_VERSION,
     meta: {
       version: SAVE_VERSION,
@@ -152,6 +161,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   if (!checkpoint) throw new Error("failed to create checkpoint record");
   await db.update(spaces).set({ headCheckpointId: checkpoint.id, updatedAt: new Date() }).where(eq(spaces.id, spaceId));
 
+  await progress("mirror_gitea");
   let mirrorMeta: { status: "pushed"; pushedAt: string } | { status: "failed"; error: string };
   try {
     await mirrorToGitea(dirs.repoDir, space.storageRepoName, branch);
@@ -179,6 +189,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform prompts cache:`, error));
   }
 
+  await progress("completed", { checkpointId: checkpoint.id, commitHash });
   return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount, detectedGitRepoCount, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}) };
 };
 
@@ -188,7 +199,7 @@ const saveCheckpointHandler = async (job: Job) => {
   if (!spaceId) throw new Error("spaceId is required for save_checkpoint task");
   const description = (payload.data?.description as string | undefined) ?? null;
   const reason = (payload.data?.reason as string | undefined) ?? "save_checkpoint";
-  return saveCheckpointWithLock({ spaceId, userId: payload.userId, description, reason }, saveCheckpointForSpace);
+  return saveCheckpointWithLock({ spaceId, userId: payload.userId, description, reason, onProgress: (progress) => job.updateProgress(progress) }, saveCheckpointForSpace);
 };
 
 registerTask("save_checkpoint", saveCheckpointHandler);

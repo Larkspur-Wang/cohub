@@ -208,6 +208,7 @@ export const checkpoints = v2.table(
     commitHash: varchar("commit_hash", { length: 40 }).notNull(),
     description: text("description").notNull(),
     parentCheckpointId: uuid("parent_checkpoint_id"),
+    rootCheckpointId: uuid("root_checkpoint_id"),
     forkCount: integer("fork_count").notNull().default(0),
     saveVersion: integer("save_version").notNull().default(1),
     meta: jsonb("meta"),
@@ -216,6 +217,7 @@ export const checkpoints = v2.table(
   (table) => ({
     spaceIdx: index("v2_idx_checkpoints_space_id").on(table.spaceId),
     parentIdx: index("v2_idx_checkpoints_parent_id").on(table.parentCheckpointId),
+    rootIdx: index("v2_idx_checkpoints_root_id").on(table.rootCheckpointId),
     spaceCommitUniqueIdx: uniqueIndex("v2_uq_checkpoints_space_commit").on(
       table.spaceId,
       table.commitHash,

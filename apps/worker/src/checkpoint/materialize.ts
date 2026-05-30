@@ -11,7 +11,7 @@ async function removePath(path: string) {
   await rm(path, { recursive: true, force: true });
 }
 
-async function copyEntryToLatest(file: ScannedFile, latestDir: string) {
+export async function copyEntryToLatest(file: ScannedFile, latestDir: string) {
   const target = join(latestDir, file.path);
   await mkdir(dirname(target), { recursive: true, mode: 0o775 });
   await removePath(target);

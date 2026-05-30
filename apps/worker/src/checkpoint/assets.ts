@@ -4,7 +4,7 @@ import { config } from "../config.js";
 
 let client: S3Client | null = null;
 
-const getClient = () => {
+export const getCheckpointAssetClient = () => {
   if (!config.checkpointAssetOssBucket) throw new Error("CHECKPOINT_ASSET_OSS_BUCKET is required for checkpoint assets");
   if (!config.checkpointAssetOssEndpoint) throw new Error("CHECKPOINT_ASSET_OSS_ENDPOINT is required for checkpoint assets");
   if (!config.checkpointAssetOssAccessKeyId || !config.checkpointAssetOssSecretAccessKey) {
@@ -32,7 +32,7 @@ export const uploadObjectFileIfMissing = async (input: {
   metadata?: Record<string, string>;
 }) => {
   const Bucket = config.checkpointAssetOssBucket as string;
-  const s3 = getClient();
+  const s3 = getCheckpointAssetClient();
   const exists = await s3.send(new HeadObjectCommand({ Bucket, Key: input.objectKey })).then(() => true, () => false);
   if (!exists) {
     await s3.send(new PutObjectCommand({

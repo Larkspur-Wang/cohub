@@ -286,7 +286,8 @@ router.post("/", async (c) => {
       mods?: CreateSpaceModInput[];
       bootstrapSource?:
         | { type: "blank" }
-        | { type: "git_repo"; repoUrl?: string; ref?: string | null };
+        | { type: "git_repo"; repoUrl?: string; ref?: string | null }
+        | { type: "checkpoint"; checkpointId?: string };
     gitHubToken?: string;
     }>()
     .catch(() => ({}))) as {
@@ -302,7 +303,8 @@ router.post("/", async (c) => {
     mods?: CreateSpaceModInput[];
     bootstrapSource?:
       | { type: "blank" }
-      | { type: "git_repo"; repoUrl?: string; ref?: string | null };
+      | { type: "git_repo"; repoUrl?: string; ref?: string | null }
+      | { type: "checkpoint"; checkpointId?: string };
     gitHubToken?: string;
     config?: SpaceConfigInput;
   };
@@ -353,7 +355,8 @@ router.post("/", async (c) => {
 
   let normalizedBootstrapSource:
     | { type: "blank" }
-    | { type: "git_repo"; repoUrl: string; ref: string | null };
+    | { type: "git_repo"; repoUrl: string; ref: string | null }
+    | { type: "checkpoint"; checkpointId: string };
   const gitToken = body.gitHubToken?.trim() || c.req.header("X-Git-Token")?.trim() || null;
   try {
     normalizedBootstrapSource = (() => {
@@ -364,10 +367,21 @@ router.post("/", async (c) => {
         if (!repoUrl) throw new Error("repoUrl is required");
         return { type: "git_repo", repoUrl, ref: source.ref?.trim() || null } as const;
       }
+      if (source.type === "checkpoint") {
+        const checkpointId = source.checkpointId?.trim();
+        if (!checkpointId || !requireValidId(checkpointId)) throw new Error("checkpointId is required");
+        return { type: "checkpoint", checkpointId } as const;
+      }
       return { type: "blank" } as const;
     })();
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "invalid bootstrap source" }, 400);
+  }
+
+  if (normalizedBootstrapSource.type === "checkpoint") {
+    const [checkpoint] = await db.select().from(checkpoints).where(eq(checkpoints.id, normalizedBootstrapSource.checkpointId)).limit(1);
+    if (!checkpoint) return c.json({ message: "checkpoint not found" }, 404);
+    if (!(await hasPermission(user, "checkpoint.view", { spaceId: checkpoint.spaceId }))) return authzDenied(c);
   }
 
   const spaceId = crypto.randomUUID();
@@ -399,7 +413,7 @@ router.post("/", async (c) => {
           slug,
           description: body.description ?? null,
           storageRepoName,
-          baseCheckpointId: null,
+          baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
           headCheckpointId: null,
           meta: {
             ...(body.meta ?? {}),

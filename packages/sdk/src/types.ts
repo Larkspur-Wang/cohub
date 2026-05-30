@@ -326,7 +326,8 @@ export type SpaceRecord = {
 
 export type SpaceBootstrapSource =
   | { type: "blank" }
-  | { type: "git_repo"; repoUrl?: string; ref?: string | null };
+  | { type: "git_repo"; repoUrl?: string; ref?: string | null }
+  | { type: "checkpoint"; checkpointId: string };
 
 export type SpaceConfigInput = {
   sandbox?: {

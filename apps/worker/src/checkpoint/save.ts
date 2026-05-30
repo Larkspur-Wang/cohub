@@ -1,10 +1,13 @@
 import { withSpaceSaveLock } from "./lock.js";
 
+export type SaveCheckpointProgress = Record<string, unknown>;
+
 export type SaveCheckpointInput = {
   spaceId: string;
   userId?: string | null;
   description?: string | null;
   reason?: string;
+  onProgress?: (progress: SaveCheckpointProgress) => Promise<void> | void;
 };
 
 export type SaveCheckpointResult = {
