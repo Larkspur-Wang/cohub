@@ -20,6 +20,7 @@ import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { submitSessionPrompt } from "../session-prompts.js";
 import { createSessionFork } from "../session-forks.js";
+import { buildSessionTurnResponse } from "../session-turn-response.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -269,10 +270,9 @@ router.get("/:id/turns/:turnId", async (c) => {
     return authzDenied(c);
   }
 
-  const turn = await getSessionTurnById(session.id, turnId);
-  if (!turn) return c.json({ message: "turn not found" }, 404);
-  const [hydratedTurn] = await hydrateTurnAuthorProfiles([turn]);
-  return c.json({ session, turn: hydratedTurn ?? turn });
+  const response = await buildSessionTurnResponse(session, turnId);
+  if (!response) return c.json({ message: "turn not found" }, 404);
+  return c.json(response);
 });
 
 router.post("/:id/turns/:turnId/signed-urls", async (c) => {
@@ -434,7 +434,7 @@ router.post("/:id/messages", async (c) => {
   }
 
   try {
-    const result = await submitSessionPrompt({
+    const { turnId } = await submitSessionPrompt({
       spaceId: space.id,
       sessionId: session.id,
       userId: user.uuid,
@@ -446,7 +446,9 @@ router.post("/:id/messages", async (c) => {
       generationPolicy,
       context: { kind: "web_app" },
     });
-    return c.json({ ok: true, ...result });
+    const response = await buildSessionTurnResponse(session, turnId);
+    if (!response) return c.json({ message: "turn not found" }, 500);
+    return c.json(response);
   } catch (error) {
     if (error instanceof SandboxNotReadyError) {
       return c.json({ message: "sandbox is not ready" }, 503);

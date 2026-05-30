@@ -414,7 +414,7 @@ class SessionMessagesClient {
     this.lastSentSignature = signature;
     this.lastSentAt = now;
 
-    return this.transport.request<{ ok: true; userMessageId: string; turnId: string }>(
+    return this.transport.request<SessionTurnResponse>(
       `/api/sessions/${this.sessionId}/messages`,
       {
         method: "POST",

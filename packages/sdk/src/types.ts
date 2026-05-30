@@ -554,22 +554,14 @@ export type CreateSpacePromptInput = {
 };
 
 export type CreateSpacePromptResponse =
+  | (SessionTurnResponse & { mode: "immediate" })
   | {
-      ok: true;
-      mode: "immediate";
-      sessionId: string;
-      userMessageId: string;
-      turnId: string;
-    }
-  | {
-      ok: true;
       mode: "delay" | "at";
       taskRunId: string;
       scheduledAt: string;
       sessionId: string | null;
     }
   | {
-      ok: true;
       mode: "repeat";
       cronJobId: string;
       nextRunAt: string;

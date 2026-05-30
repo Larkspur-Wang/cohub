@@ -38,6 +38,7 @@ import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolveP
 import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
+import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
@@ -48,6 +49,13 @@ const logger = createLogger({ serviceName: "cohub-api" });
 
 const router = new Hono();
 const { CronExpressionParser } = cronParser;
+
+type SpaceRouteSessionRecord = NonNullable<Awaited<ReturnType<typeof getSpaceSessionById>>>;
+
+async function buildSpacePromptTurnResponse(session: SpaceRouteSessionRecord | null, turnId: string) {
+  const response = session ? await buildSessionTurnResponse(session, turnId) : null;
+  return response ? { mode: "immediate" as const, ...response } : null;
+}
 
 type SpacePromptSchedule =
   | { mode?: "immediate" }
@@ -1157,12 +1165,14 @@ router.post("/:id/prompt", async (c) => {
   if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
 
   let sessionId = body.sessionId?.trim() || null;
+  let promptSession: SpaceRouteSessionRecord | null = null;
   if (sessionId) {
     const session = await getSpaceSessionById(sessionId);
     if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
     if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId, sessionId }))) {
       return authzDenied(c);
     }
+    promptSession = session;
   }
 
   const schedule = body.schedule ?? { mode: "immediate" as const };
@@ -1183,6 +1193,8 @@ router.post("/:id/prompt", async (c) => {
 
   const taskData = {
     content,
+    clientMessageId,
+    ...(generationPolicy ? { generationPolicy } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(body.title ? { title: body.title } : {}),
     ...(body.model ? { model: body.model } : {}),
@@ -1191,7 +1203,7 @@ router.post("/:id/prompt", async (c) => {
 
   if (mode === "immediate") {
     if (!sessionId) {
-      const session = await createInitialSpaceSession({
+      promptSession = await createInitialSpaceSession({
         spaceId,
         sessionId: crypto.randomUUID(),
         title: body.title ?? null,
@@ -1199,11 +1211,11 @@ router.post("/:id/prompt", async (c) => {
         externalSessionId: null,
         meta: { createdBy: "api_space_prompt" },
       });
-      sessionId = session.id;
+      sessionId = promptSession.id;
     }
 
     try {
-      const result = await submitSessionPrompt({
+      const { turnId } = await submitSessionPrompt({
         spaceId,
         sessionId,
         userId: user.uuid,
@@ -1215,7 +1227,9 @@ router.post("/:id/prompt", async (c) => {
         generationPolicy,
         context: { kind: "public_api" },
       });
-      return c.json({ ok: true, mode: "immediate", sessionId, ...result });
+      const response = await buildSpacePromptTurnResponse(promptSession ?? await getSpaceSessionById(sessionId), turnId);
+      if (!response) return c.json({ message: "turn not found" }, 500);
+      return c.json(response);
     } catch (error) {
       if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
       const inputError = promptInputError(error);
@@ -1237,7 +1251,7 @@ router.post("/:id/prompt", async (c) => {
       userId: user.uuid,
       data: taskData,
     }, { delay: delayMs, scheduledAt });
-    return c.json({ ok: true, mode: "delay", taskRunId, scheduledAt: scheduledAt.toISOString(), sessionId });
+    return c.json({ mode: "delay", taskRunId, scheduledAt: scheduledAt.toISOString(), sessionId });
   }
 
   if (mode === "at") {
@@ -1256,7 +1270,7 @@ router.post("/:id/prompt", async (c) => {
       userId: user.uuid,
       data: taskData,
     }, { delay: scheduledAt.getTime() - Date.now(), scheduledAt });
-    return c.json({ ok: true, mode: "at", taskRunId, scheduledAt: scheduledAt.toISOString(), sessionId });
+    return c.json({ mode: "at", taskRunId, scheduledAt: scheduledAt.toISOString(), sessionId });
   }
 
   const repeat = schedule as { cronExpression?: string; timezone?: string };
@@ -1280,7 +1294,6 @@ router.post("/:id/prompt", async (c) => {
   });
 
   return c.json({
-    ok: true,
     mode: "repeat",
     cronJobId: cronJob.id,
     nextRunAt: parsedRepeat.nextRun.toISOString(),

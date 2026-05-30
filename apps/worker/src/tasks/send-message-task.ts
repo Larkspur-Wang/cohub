@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import type { SubmitSessionPromptContext } from "@cohub/core/sessions";
@@ -19,13 +20,14 @@ const sessionPromptService = getSessionDomainServices({
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, model, provider, clientMessageId } = (payload.data ?? {}) as {
+  const { content, sessionId, title, model, provider, clientMessageId, generationPolicy } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
     model?: string;
     provider?: string;
     clientMessageId?: string;
+    generationPolicy?: GenerationPolicy | null;
   };
 
   if (!spaceId) throw new Error("spaceId is required for send_message task");
@@ -53,6 +55,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     source,
     model: model ?? null,
     provider: provider ?? null,
+    generationPolicy: generationPolicy ?? null,
     context: {
       kind: "scheduled_task",
       taskRunId,

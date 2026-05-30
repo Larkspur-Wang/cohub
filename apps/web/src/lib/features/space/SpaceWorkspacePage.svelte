@@ -3683,6 +3683,38 @@ function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
 	return null;
 }
 
+function getTurnClientMessageId(turn: Pick<SessionTurnRecord, "meta">) {
+	const value = turn.meta?.clientMessageId;
+	return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizeTurnDuplicates(turns: SessionTurnRecord[]) {
+	const optimistic = turns.filter((turn) => turn.meta?.optimistic === true);
+	const confirmed = turns.filter((turn) => turn.meta?.optimistic !== true);
+	const optimisticByClientMessageId = new Map(
+		optimistic
+			.map((turn) => [getTurnClientMessageId(turn), turn] as const)
+			.filter((entry): entry is [string, SessionTurnRecord] =>
+				Boolean(entry[0]),
+			),
+	);
+	return mergeTurnsById(
+		optimistic,
+		confirmed.map((turn) => {
+			const optimisticTurn = optimisticByClientMessageId.get(
+				getTurnClientMessageId(turn) ?? "",
+			);
+			if (!optimisticTurn) return turn;
+			return {
+				...turn,
+				userUuid: turn.userUuid ?? optimisticTurn.userUuid,
+				authorProfile: turn.authorProfile ?? optimisticTurn.authorProfile,
+			};
+		}),
+		{ preferIncoming: true },
+	);
+}
+
 function applyAcceptedTurnId(input: {
 	sessionId: string;
 	previousTurnId?: string | null;
@@ -3704,15 +3736,16 @@ function applyAcceptedTurnId(input: {
 		);
 		const current = sessionStateById[input.sessionId];
 		if (current) {
+			const turns = current.turns.map((turn) =>
+				turn.id === input.previousTurnId
+					? { ...turn, id: input.nextTurnId }
+					: turn,
+			);
 			sessionStateById = {
 				...sessionStateById,
 				[input.sessionId]: {
 					...current,
-					turns: current.turns.map((turn) =>
-						turn.id === input.previousTurnId
-							? { ...turn, id: input.nextTurnId }
-							: turn,
-					),
+					turns: normalizeTurnDuplicates(turns),
 				},
 			};
 		}
@@ -3898,18 +3931,34 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		if (payload.type === "session.turn.created") {
 			const turn = payload.payload.turn as SessionTurnRecord | undefined;
-			if (turn?.id && !state.turns.some((item) => item.id === turn.id)) {
+			if (turn?.id) {
+				const clientMessageId = getTurnClientMessageId(turn);
+				const optimisticTurn = clientMessageId
+					? state.turns.find(
+							(item) =>
+								item.meta?.optimistic === true &&
+								getTurnClientMessageId(item) === clientMessageId,
+						)
+					: null;
+				if (optimisticTurn?.id && optimisticTurn.id !== turn.id) {
+					applyAcceptedTurnId({
+						sessionId: targetSessionId,
+						previousTurnId: optimisticTurn.id,
+						nextTurnId: turn.id,
+					});
+				}
+				const current = sessionStateById[targetSessionId] ?? state;
 				const snapshot = await sessionTurnsRepo.mergeTurns(
 					spaceId,
 					targetSessionId,
 					[turn],
-					{ session: state.session ?? null },
+					{ session: current.session ?? null },
 				);
 				sessionStateById = {
 					...sessionStateById,
 					[targetSessionId]: {
-						...state,
-						turns: snapshot.turns,
+						...current,
+						turns: normalizeTurnDuplicates(snapshot.turns),
 					},
 				};
 			}
@@ -4218,51 +4267,47 @@ async function handleSend() {
 			session: activeSessionState.session,
 		});
 		startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
-		const sendResult = await sdk
-			.space(spaceId)
-			.session(sessionId)
-			.messages.send({
-				content,
-				model: model?.id,
-				provider: model?.provider,
-				clientMessageId,
-				generationPolicy: buildTurnGenerationPolicy(),
-			});
-		if (sendResult.turnId) {
-			applyAcceptedTurnId({
+		const sendResult = await sdk.space(spaceId).prompt({
+			sessionId,
+			content,
+			model: model?.id,
+			provider: model?.provider,
+			clientMessageId,
+			generationPolicy: buildTurnGenerationPolicy(),
+			schedule: { mode: "immediate" },
+		});
+		if (sendResult.mode !== "immediate") {
+			throw new Error("Expected immediate prompt response");
+		}
+		const acceptedTurn = sendResult.turn;
+		applyAcceptedTurnId({
+			sessionId,
+			previousTurnId: optimisticTurnId,
+			nextTurnId: acceptedTurn.id,
+		});
+		const current = sessionStateById[sessionId];
+		if (current) {
+			const snapshot = await sessionTurnsRepo.mergeTurns(
+				spaceId,
 				sessionId,
-				previousTurnId: optimisticTurnId,
-				nextTurnId: sendResult.turnId,
-			});
-			const current = sessionStateById[sessionId];
-			if (current) {
-				sessionStateById = {
-					...sessionStateById,
-					[sessionId]: {
-						...current,
-						turns: current.turns.map((turn) =>
-							turn.id === sendResult.turnId
-								? {
-										...turn,
-										userUuid: currentUser.uuid ?? turn.userUuid,
-										meta: {
-											...(turn.meta ?? {}),
-											optimistic: true,
-											userId: currentUser.uuid,
-											clientMessageId,
-										},
-										authorProfile: currentUser.profile ?? turn.authorProfile,
-									}
-								: turn,
-						),
+				[
+					{
+						...acceptedTurn,
+						userUuid: acceptedTurn.userUuid ?? currentUser.uuid,
+						authorProfile:
+							acceptedTurn.authorProfile ?? currentUser.profile ?? null,
 					},
-				};
-			}
-			void hydrateTurnOnce({
-				sessionId,
-				turnId: sendResult.turnId,
-				reason: "send",
-			});
+				],
+				{ session: sendResult.session ?? current.session ?? null },
+			);
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...current,
+					session: snapshot.session ?? current.session,
+					turns: normalizeTurnDuplicates(snapshot.turns),
+				},
+			};
 		}
 		if (wsConnectionState !== "open") {
 			schedulePostSendRecoveryCheck(sessionId);
