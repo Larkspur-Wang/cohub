@@ -124,6 +124,7 @@ import {
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
+import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import {
@@ -2165,15 +2166,8 @@ function updateNodeState(
 		return node;
 	});
 }
-const sessionSortTime = (session: SessionRecord) =>
-	Date.parse(
-		session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? "",
-	) || 0;
-function sortSessions(sessions: SessionRecord[]) {
-	return [...sessions].sort((a, b) => sessionSortTime(b) - sessionSortTime(a));
-}
 function applySessionRealtimeRecord(session: SessionRecord) {
-	const nextSessions = sortSessions([
+	const nextSessions = sortSessionsByRecentActivity([
 		session,
 		...spaceSessions.filter((item) => item.id !== session.id),
 	]);

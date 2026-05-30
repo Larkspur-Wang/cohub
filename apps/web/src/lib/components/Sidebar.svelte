@@ -55,6 +55,7 @@ import { downloadCohubDebugBundle } from "$lib/debugger";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
+import { getSessionSortTime } from "$lib/session-sort";
 import {
 	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
@@ -935,9 +936,7 @@ function getSessionRowStyle(item: SidebarSessionItem) {
 }
 
 function getSessionActiveTime(session: SessionRecord) {
-	return new Date(
-		session.lastMessageAt ?? session.updatedAt ?? session.createdAt,
-	).getTime();
+	return getSessionSortTime(session);
 }
 
 function buildSidebarSessionItems(

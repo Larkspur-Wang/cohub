@@ -17,6 +17,7 @@ import {
 	DEFAULT_SESSION_LIST_PAGE_INFO,
 	type SessionListPageInfo,
 } from "$lib/cache/types";
+import { sortSessionsByRecentActivity } from "$lib/session-sort";
 
 const SESSION_LIST_TTL_MS = 30_000;
 const memory = new MemoryLru<string, SessionListCacheRecord>(50);
@@ -40,18 +41,10 @@ export type SessionListSnapshot = {
 	source: CacheSource;
 };
 
-function sortSessions(sessions: SessionRecord[]) {
-	return [...sessions].sort((a, b) => {
-		const aTime = new Date(a.updatedAt ?? a.createdAt).getTime();
-		const bTime = new Date(b.updatedAt ?? b.createdAt).getTime();
-		return bTime - aTime;
-	});
-}
-
 function normalizeSessions(sessions: SessionRecord[]) {
 	const byId = new Map<string, SessionRecord>();
 	for (const session of sessions) byId.set(session.id, session);
-	return sortSessions(Array.from(byId.values()));
+	return sortSessionsByRecentActivity(Array.from(byId.values()));
 }
 
 function normalizePageInfo(
