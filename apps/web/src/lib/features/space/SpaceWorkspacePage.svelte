@@ -63,6 +63,7 @@ import {
 	Power,
 	PowerOff,
 	RefreshCw,
+	Rocket,
 	Save,
 	Settings,
 	Share2,
@@ -914,6 +915,12 @@ async function handleCopyCheckpointCommitHash() {
 	checkpointCopiedTimer = setTimeout(() => {
 		checkpointCopied = false;
 	}, 1800);
+}
+async function handleForkCheckpoint() {
+	if (!checkpointDetail) return;
+	await goto(
+		`/spaces/new?checkpointId=${encodeURIComponent(checkpointDetail.id)}`,
+	);
 }
 async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 	event.preventDefault();
@@ -6727,19 +6734,29 @@ $effect(() => {
                 <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint ID</div>
                 <div class="flex items-center gap-3">
                   <div class="font-mono text-[18px] font-semibold text-text-primary tracking-tight break-all leading-snug">{checkpointDetail.id}</div>
-                  <button
-                    type="button"
-                    class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-                    onclick={handleCopyCheckpointId}
-                  >
-                    {#if checkpointIdCopied}
-                      <Check class="w-3.5 h-3.5 text-success-soft" />
-                      <span class="text-success-soft">Copied</span>
-                    {:else}
-                      <Copy class="w-3.5 h-3.5" />
-                      <span>Copy</span>
-                    {/if}
-                  </button>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-brand-muted border border-brand-border text-[12px] text-brand hover:bg-brand-muted-hover transition-colors"
+                      onclick={handleForkCheckpoint}
+                    >
+                      <Rocket class="w-3.5 h-3.5" />
+                      <span>New space</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                      onclick={handleCopyCheckpointId}
+                    >
+                      {#if checkpointIdCopied}
+                        <Check class="w-3.5 h-3.5 text-success-soft" />
+                        <span class="text-success-soft">Copied</span>
+                      {:else}
+                        <Copy class="w-3.5 h-3.5" />
+                        <span>Copy</span>
+                      {/if}
+                    </button>
+                  </div>
                 </div>
               </div>
               {#if checkpointDetail.description?.trim()}

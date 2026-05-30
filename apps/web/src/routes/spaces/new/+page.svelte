@@ -37,10 +37,15 @@ let description = $state("");
 let selectedChannelIds = $state<string[]>([]);
 let extraEnv = $state<SpaceEnvInput[]>([]);
 let channelConfigById = $state<Record<string, ChannelConfig>>({});
-let selectedBootstrapType = $state<"blank" | "git_repo">("blank");
+const initialCheckpointId =
+	page.url.searchParams.get("checkpointId")?.trim() ?? "";
+let selectedBootstrapType = $state<"blank" | "git_repo" | "checkpoint">(
+	initialCheckpointId ? "checkpoint" : "blank",
+);
 let gitRepoUrl = $state("");
 let gitRepoRef = $state("");
 let gitToken = $state("");
+let checkpointId = $state(initialCheckpointId);
 let mods = $state<CreateSpaceModInput[]>(
 	getDefaultSpaceModsForEnv(
 		normalizeCohubRuntimeEnv(publicEnv.PUBLIC_COHUB_ENV),
@@ -196,6 +201,20 @@ async function handleSubmit(event: SubmitEvent) {
 			.map((item) => ({ name: item.name.trim(), value: item.value }))
 			.filter((item) => item.name.length > 0);
 
+		const bootstrapSource =
+			selectedBootstrapType === "git_repo"
+				? {
+						type: "git_repo" as const,
+						repoUrl: gitRepoUrl.trim(),
+						ref: gitRepoRef.trim() || null,
+					}
+				: selectedBootstrapType === "checkpoint"
+					? {
+							type: "checkpoint" as const,
+							checkpointId: checkpointId.trim(),
+						}
+					: { type: "blank" as const };
+
 		const result = await sdk.spaces.create(
 			{
 				name: name.trim(),
@@ -205,14 +224,7 @@ async function handleSubmit(event: SubmitEvent) {
 				extraEnv: normalizedExtraEnv,
 				channelBindings,
 				mods,
-				bootstrapSource:
-					selectedBootstrapType === "git_repo"
-						? {
-								type: "git_repo",
-								repoUrl: gitRepoUrl.trim(),
-								ref: gitRepoRef.trim() || null,
-							}
-						: { type: "blank" },
+				bootstrapSource,
 			},
 			gitToken.trim() ? { "X-Git-Token": gitToken.trim() } : undefined,
 		);
@@ -303,7 +315,7 @@ async function handleSubmit(event: SubmitEvent) {
           <div class="space-y-2">
             <div>
               <div class="text-[10px] uppercase tracking-wider text-text-tertiary font-medium mb-1.5">Bootstrap Source</div>
-              <div class="grid gap-2 sm:grid-cols-2">
+              <div class="grid gap-2 sm:grid-cols-3">
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
                   <input type="radio" bind:group={selectedBootstrapType} value="blank" />
                   <span>Blank</span>
@@ -311,6 +323,10 @@ async function handleSubmit(event: SubmitEvent) {
                 <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
                   <input type="radio" bind:group={selectedBootstrapType} value="git_repo" />
                   <span>Git Repo</span>
+                </label>
+                <label class="flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary">
+                  <input type="radio" bind:group={selectedBootstrapType} value="checkpoint" />
+                  <span>Checkpoint</span>
                 </label>
               </div>
             </div>
@@ -336,6 +352,17 @@ async function handleSubmit(event: SubmitEvent) {
                   placeholder="Optional access token for private repos (not stored)"
                   class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
                 />
+              </div>
+            {:else if selectedBootstrapType === "checkpoint"}
+              <div class="space-y-1.5">
+                <input
+                  bind:value={checkpointId}
+                  type="text"
+                  placeholder="Checkpoint UUID"
+                  class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                  required
+                />
+                <p class="text-[11px] text-text-placeholder">Create an independent space from a saved checkpoint.</p>
               </div>
             {/if}
           </div>
