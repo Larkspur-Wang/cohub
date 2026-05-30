@@ -1516,16 +1516,6 @@ $effect(() => {
 
       <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
 
-      <a
-        href="/explore?view=wall"
-        class="mt-2 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-        onclick={(e) => { e.preventDefault(); void handleNavigate('/explore?view=wall'); }}
-        aria-label="Explore Wall"
-        title="Explore Wall"
-      >
-        <Compass class="h-4 w-4" />
-      </a>
-
       {#if mode === "space"}
         <div class="mt-2 flex w-full flex-col items-center gap-1">
           <button
@@ -1740,18 +1730,6 @@ $effect(() => {
         {/if}
         <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
       </button>
-    </div>
-
-    <div class="px-1.5 py-1 shrink-0 border-b border-border-subtle">
-      <a
-        href="/explore?view=wall"
-        class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100"
-        onclick={(e) => { e.preventDefault(); void handleNavigate('/explore?view=wall'); }}
-        title="Explore Wall"
-      >
-        <Compass class="w-3.5 h-3.5 shrink-0" />
-        <span class="text-[12px] font-medium">Explore Wall</span>
-      </a>
     </div>
 
     <!-- Action Buttons -->
