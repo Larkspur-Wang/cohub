@@ -699,18 +699,18 @@ export type ExploreSpaceItem = {
   title: string;
   summary: string | null;
   spaceUrl: string;
-  coverUrl: string | null;
-  coverAlt: string | null;
+  avatarUrl: string | null;
+  avatarAlt: string | null;
   ownerDisplayName: string | null;
   ownerAvatarUrl: string | null;
   category: string | null;
   tags: string[];
-  skillCount: number;
-  assetCount: number;
+  saveCount: number;
+  pinCount: number;
   forkCount: number;
   updatedAt: string | null;
   accessLabel: "public" | "sign-in-required" | "unknown";
-  latestSignal: string | null;
+  latestSaveLabel: string | null;
 };
 
 export type ExploreSection = {

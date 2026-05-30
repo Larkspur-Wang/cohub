@@ -58,8 +58,8 @@ function getPrimaryMeta(item: ExploreSpaceItem): string | null {
 
 function getSecondaryMeta(item: ExploreSpaceItem): string {
 	const signals = [
-		item.skillCount != null ? `${formatCount(item.skillCount)} saves` : null,
-		item.assetCount != null ? `${formatCount(item.assetCount)} pins` : null,
+		item.saveCount != null ? `${formatCount(item.saveCount)} saves` : null,
+		item.pinCount != null ? `${formatCount(item.pinCount)} pins` : null,
 		item.ownerDisplayName ? `by ${item.ownerDisplayName}` : null,
 	].filter(Boolean);
 	return signals.slice(0, 2).join(" · ") || item.accessLabel;
@@ -191,10 +191,10 @@ $effect(() => {
 								data-sveltekit-preload-data="hover"
 							>
 								<div class={`relative overflow-hidden ${getWallRatio(index)} ${getWallTone(index)}`}>
-									{#if item.coverUrl}
+									{#if item.avatarUrl}
 										<img
-											src={item.coverUrl}
-											alt={item.coverAlt ?? ""}
+											src={item.avatarUrl}
+											alt={item.avatarAlt ?? ""}
 											class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.025]"
 											loading={index < 10 ? "eager" : "lazy"}
 											decoding="async"
@@ -256,8 +256,8 @@ $effect(() => {
 											<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
 												<div class="flex min-w-0 flex-1 items-start gap-3">
 													<div class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-border-subtle bg-bg-primary text-[13px] font-semibold text-text-tertiary">
-														{#if item.coverUrl}
-															<img src={item.coverUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" />
+														{#if item.avatarUrl}
+															<img src={item.avatarUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" />
 														{:else}
 															{getInitials(item.title)}
 														{/if}
@@ -288,8 +288,8 @@ $effect(() => {
 															<p class="mt-3 max-w-3xl text-[13px] leading-6 text-text-tertiary sm:text-[14px]">{item.summary}</p>
 														{/if}
 														<div class="mt-4 flex flex-wrap items-center gap-2">
-															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><Pin class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.assetCount)}</span>
-															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><Save class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.skillCount)}</span>
+															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><Pin class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.pinCount)}</span>
+															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><Save class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.saveCount)}</span>
 															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary px-2.5 py-1 text-[11px] text-text-secondary"><GitFork class="h-3.5 w-3.5 text-text-tertiary" /> {formatCount(item.forkCount)}</span>
 														</div>
 													</div>
@@ -297,8 +297,8 @@ $effect(() => {
 
 												<div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border-subtle pt-4 text-[11px] text-text-tertiary">
 													<div class="flex flex-wrap items-center gap-2">
-														{#if item.latestSignal}
-															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary/70 px-2 py-1"><Sparkles class="h-3.5 w-3.5" /> Latest save: {item.latestSignal}</span>
+														{#if item.latestSaveLabel}
+															<span class="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-primary/70 px-2 py-1"><Sparkles class="h-3.5 w-3.5" /> Latest save: {item.latestSaveLabel}</span>
 														{/if}
 													</div>
 													<span class="inline-flex items-center gap-1 font-medium text-text-secondary transition-colors group-hover:text-brand">Open <span aria-hidden="true">→</span></span>

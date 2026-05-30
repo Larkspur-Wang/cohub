@@ -31,18 +31,18 @@ type ExploreSpaceItem = {
   title: string;
   summary: string | null;
   spaceUrl: string;
-  coverUrl: string | null;
-  coverAlt: string | null;
+  avatarUrl: string | null;
+  avatarAlt: string | null;
   ownerDisplayName: string | null;
   ownerAvatarUrl: string | null;
   category: string | null;
   tags: string[];
-  skillCount: number;
-  assetCount: number;
+  saveCount: number;
+  pinCount: number;
   forkCount: number;
   updatedAt: string | null;
   accessLabel: "public" | "sign-in-required" | "unknown";
-  latestSignal: string | null;
+  latestSaveLabel: string | null;
 };
 
 type ExploreSectionResult = {
@@ -99,23 +99,24 @@ function dedupeSpaces(sections: ExploreSectionConfig[]) {
   return ordered;
 }
 
-const ALLOWED_COVER_HOSTS = new Set([
+const EXPLORE_IMAGE_HOSTS = new Set([
   "cohub.run",
   "dev.cohub.run",
   "api.cohub.run",
   "api-dev.cohub.run",
   "public.cohub.run",
   "sessions.cohub.run",
-  "localhost",
-  "127.0.0.1",
 ]);
+const DEV_EXPLORE_IMAGE_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
-function normalizeExploreCoverUrl(value: string | null | undefined): string | null {
+function normalizeExploreImageUrl(value: string | null | undefined): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-    if (!ALLOWED_COVER_HOSTS.has(url.hostname.toLowerCase())) return null;
+    const hostname = url.hostname.toLowerCase();
+    const isDevLocalhost = config.env === "dev" && DEV_EXPLORE_IMAGE_HOSTS.has(hostname);
+    if (url.protocol !== "https:" && !(isDevLocalhost && url.protocol === "http:")) return null;
+    if (!EXPLORE_IMAGE_HOSTS.has(hostname) && !isDevLocalhost) return null;
     return url.toString();
   } catch {
     return null;
@@ -292,18 +293,18 @@ router.get("/spaces", async (c) => {
         title,
         summary: space.description ?? null,
         spaceUrl: `/spaces/${space.id}`,
-        coverUrl: normalizeExploreCoverUrl(publicProfile.avatarUrl),
-        coverAlt: publicProfile.avatarUrl ? `${title} cover` : null,
+        avatarUrl: normalizeExploreImageUrl(publicProfile.avatarUrl),
+        avatarAlt: publicProfile.avatarUrl ? `${title} avatar` : null,
         ownerDisplayName: ownerProfile?.displayName ?? null,
-        ownerAvatarUrl: normalizeExploreCoverUrl(ownerProfile?.avatarUrl ?? null),
+        ownerAvatarUrl: normalizeExploreImageUrl(ownerProfile?.avatarUrl ?? null),
         category: entry.label ?? entry.category ?? null,
         tags: [entry.category, entry.label].filter((v): v is string => Boolean(v)),
-        skillCount: stats?.checkpointCount ?? 0,
-        assetCount: pinCountBySpaceId.get(space.id) ?? 0,
+        saveCount: stats?.checkpointCount ?? 0,
+        pinCount: pinCountBySpaceId.get(space.id) ?? 0,
         forkCount: stats?.forkCount ?? 0,
         updatedAt: space.updatedAt ? new Date(space.updatedAt).toISOString() : null,
         accessLabel: policy.anonymousUserRole ? "public" : "sign-in-required",
-        latestSignal: latestCheckpoint ? latestCheckpoint.description || latestCheckpoint.commitHash.slice(0, 12) : null,
+        latestSaveLabel: latestCheckpoint ? latestCheckpoint.description || latestCheckpoint.commitHash.slice(0, 12) : null,
       };
     };
 
