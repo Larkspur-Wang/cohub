@@ -4,6 +4,7 @@ import { config } from "../config.js";
 
 export const CHECKPOINT_ASSET_MANIFEST_PATH = ".cohub/system/checkpoint-assets.v1.json";
 export const CHECKPOINT_META_PATH = ".cohub/system/checkpoint-meta.v1.json";
+export const USER_GIT_REPOS_PATH = ".cohub/system/user-git-repos.v1.json";
 
 const rootWithSubpath = (root: string) => resolve(root, config.spaceStorageSubpath);
 

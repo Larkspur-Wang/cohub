@@ -12,8 +12,9 @@ import { publishModelsCacheFromFile } from "../models-cache.js";
 import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
 import { uploadAssetIfMissing } from "../checkpoint/assets.js";
 import { ensureGitRepo, runGit, runGitWithOutput } from "../checkpoint/git.js";
+import { collectUserGitRepos } from "../checkpoint/git-bundles.js";
 import { materializeLatest } from "../checkpoint/materialize.js";
-import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, ensureCheckpointDirs, getCheckpointLatestSubPath } from "../checkpoint/paths.js";
+import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, USER_GIT_REPOS_PATH, ensureCheckpointDirs, getCheckpointLatestSubPath } from "../checkpoint/paths.js";
 import { syncSystemRepo, type CheckpointAsset } from "../checkpoint/repo-sync.js";
 import { saveCheckpointWithLock, type SaveCheckpointInput, type SaveCheckpointResult } from "../checkpoint/save.js";
 import { hashFile, scanWorkspace } from "../checkpoint/scan.js";
@@ -65,6 +66,14 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     }
   }
 
+  const userGitRepos = await collectUserGitRepos({
+    workspaceDir: dirs.workspaceDir,
+    systemDir: dirs.systemDir,
+    tmpDir: dirs.tmpDir,
+    repoPaths: scan.gitRepos.map((repo) => repo.path),
+  });
+  const userGitReposManifest = { version: 1, repos: userGitRepos };
+
   const gitCheckpointMeta = {
     version: 1,
     saveVersion: SAVE_VERSION,
@@ -75,7 +84,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     branch,
   };
 
-  await syncSystemRepo({ repoDir: dirs.repoDir, smallFiles, assets, gitCheckpointMeta });
+  await syncSystemRepo({ repoDir: dirs.repoDir, smallFiles, assets, gitCheckpointMeta, userGitRepos: userGitReposManifest });
   await runGit(["add", "-A"], dirs.repoDir);
   await runGit(["commit", "--allow-empty", "-m", commitMessage], dirs.repoDir);
   const head = await runGitWithOutput(["rev-parse", "HEAD"], dirs.repoDir);
@@ -91,6 +100,8 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     assetBytes: assets.reduce((sum, asset) => sum + asset.size, 0),
     ignored: scan.ignoredCount,
     unsupported: scan.warnings.length,
+    gitRepos: userGitRepos.length,
+    gitBundles: userGitRepos.filter((repo) => repo.bundle).length,
   };
 
   const [checkpoint] = await db.insert(checkpoints).values({
@@ -107,10 +118,20 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
       paths: {
         assetManifest: CHECKPOINT_ASSET_MANIFEST_PATH,
         checkpointMeta: CHECKPOINT_META_PATH,
+        userGitRepos: USER_GIT_REPOS_PATH,
         latestSubPath: getCheckpointLatestSubPath(spaceId),
       },
       stats,
-      warnings: scan.warnings,
+      warnings: [
+        ...scan.warnings,
+        ...userGitRepos.flatMap((repo) => repo.remotes.filter((remote) => remote.credentialSanitized).map((remote) => ({
+          path: repo.path,
+          type: "git_remote",
+          action: "sanitized" as const,
+          reason: "credential_in_remote_url",
+          remote: remote.name,
+        }))),
+      ],
       source: input.reason ?? "save_checkpoint",
       savedBy: input.userId ?? null,
       mirror: { status: "queued" },
@@ -148,7 +169,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
     await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform prompts cache:`, error));
   }
 
-  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount: assets.length, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}) };
+  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount: assets.length, gitRepoCount: userGitRepos.length, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}) };
 };
 
 const saveCheckpointHandler = async (job: Job) => {

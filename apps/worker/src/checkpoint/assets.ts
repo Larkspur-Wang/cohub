@@ -24,25 +24,38 @@ const getClient = () => {
 export const buildAssetObjectKey = (sha256: string) =>
   `checkpoint-assets/sha256/${sha256.slice(0, 2)}/${sha256.slice(2, 4)}/${sha256}`;
 
+export const uploadObjectFileIfMissing = async (input: {
+  filePath: string;
+  objectKey: string;
+  size: number;
+  mimeType: string | null;
+  metadata?: Record<string, string>;
+}) => {
+  const Bucket = config.checkpointAssetOssBucket as string;
+  const s3 = getClient();
+  const exists = await s3.send(new HeadObjectCommand({ Bucket, Key: input.objectKey })).then(() => true, () => false);
+  if (!exists) {
+    await s3.send(new PutObjectCommand({
+      Bucket,
+      Key: input.objectKey,
+      Body: createReadStream(input.filePath),
+      ContentLength: input.size,
+      ContentType: input.mimeType ?? undefined,
+      Metadata: input.metadata,
+    }));
+  }
+  return input.objectKey;
+};
+
 export const uploadAssetIfMissing = async (input: {
   filePath: string;
   sha256: string;
   size: number;
   mimeType: string | null;
-}) => {
-  const Bucket = config.checkpointAssetOssBucket as string;
-  const Key = buildAssetObjectKey(input.sha256);
-  const s3 = getClient();
-  const exists = await s3.send(new HeadObjectCommand({ Bucket, Key })).then(() => true, () => false);
-  if (!exists) {
-    await s3.send(new PutObjectCommand({
-      Bucket,
-      Key,
-      Body: createReadStream(input.filePath),
-      ContentLength: input.size,
-      ContentType: input.mimeType ?? undefined,
-      Metadata: { sha256: input.sha256 },
-    }));
-  }
-  return Key;
-};
+}) => uploadObjectFileIfMissing({
+  filePath: input.filePath,
+  objectKey: buildAssetObjectKey(input.sha256),
+  size: input.size,
+  mimeType: input.mimeType,
+  metadata: { sha256: input.sha256 },
+});

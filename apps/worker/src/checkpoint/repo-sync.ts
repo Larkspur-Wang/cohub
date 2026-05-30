@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { copyFile, lstat, mkdir, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type { ScannedFile } from "./scan.js";
-import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH } from "./paths.js";
+import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, USER_GIT_REPOS_PATH } from "./paths.js";
 
 export type CheckpointAsset = {
   path: string;
@@ -60,6 +60,7 @@ export async function syncSystemRepo(input: {
   smallFiles: ScannedFile[];
   assets: CheckpointAsset[];
   gitCheckpointMeta: Record<string, unknown>;
+  userGitRepos: Record<string, unknown>;
 }) {
   const keep = new Set<string>();
   await Promise.all(input.smallFiles.map(async (file) => {
@@ -77,9 +78,11 @@ export async function syncSystemRepo(input: {
 
   keep.add(CHECKPOINT_ASSET_MANIFEST_PATH);
   keep.add(CHECKPOINT_META_PATH);
+  keep.add(USER_GIT_REPOS_PATH);
   await mkdir(join(input.repoDir, dirname(CHECKPOINT_ASSET_MANIFEST_PATH)), { recursive: true, mode: 0o775 });
   await writeFile(join(input.repoDir, CHECKPOINT_ASSET_MANIFEST_PATH), `${JSON.stringify({ version: 1, assets: input.assets }, null, 2)}\n`);
   await writeFile(join(input.repoDir, CHECKPOINT_META_PATH), `${JSON.stringify(input.gitCheckpointMeta, null, 2)}\n`);
+  await writeFile(join(input.repoDir, USER_GIT_REPOS_PATH), `${JSON.stringify(input.userGitRepos, null, 2)}\n`);
 
   const existing = (await collectExisting(input.repoDir)).sort((a, b) => b.length - a.length);
   for (const rel of existing) {

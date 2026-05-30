@@ -68,6 +68,11 @@ Thumbs.db
 **/Thumbs.db
 `;
 
+export type DiscoveredGitRepo = {
+  path: string;
+  absPath: string;
+};
+
 export type ScannedFile = {
   path: string;
   absPath: string;
@@ -147,6 +152,7 @@ const isIgnoredByMatchers = (absPath: string, isDirectory: boolean, matchers: Ig
 
 export async function scanWorkspace(root: string) {
   const candidates: ScannedFile[] = [];
+  const gitRepos: DiscoveredGitRepo[] = [];
   const warnings: ScanWarning[] = [];
   let ignoredCount = 0;
 
@@ -164,6 +170,13 @@ export async function scanWorkspace(root: string) {
       if (!st) return;
       const isDirectory = st.isDirectory() && !st.isSymbolicLink();
       const ignorePath = pathForIgnore(rel, isDirectory);
+
+      if (isDirectory && name === ".git") {
+        const repoPath = normalizeRel(root, dir) || ".";
+        gitRepos.push({ path: repoPath, absPath: dir });
+        ignoredCount += 1;
+        return;
+      }
 
       if (systemMatcher.ignores(ignorePath) || isIgnoredByMatchers(absPath, isDirectory, matchers)) {
         ignoredCount += 1;
@@ -196,5 +209,5 @@ export async function scanWorkspace(root: string) {
   };
 
   await walk(root, []);
-  return { files: candidates.sort((a, b) => a.path.localeCompare(b.path)), warnings, ignoredCount };
+  return { files: candidates.sort((a, b) => a.path.localeCompare(b.path)), gitRepos: gitRepos.sort((a, b) => a.path.localeCompare(b.path)), warnings, ignoredCount };
 }
