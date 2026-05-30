@@ -195,6 +195,7 @@ import {
 	mergeCachedTaskRun,
 	onTaskRunsCacheUpdated,
 } from "$lib/stores/task-runs-cache";
+import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
 	loadMessageToolCalls,
 	loadTurnIntermediate,
@@ -3683,6 +3684,86 @@ function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
 	return null;
 }
 
+function getTurnClientMessageId(turn: Pick<SessionTurnRecord, "meta">) {
+	const value = turn.meta?.clientMessageId;
+	return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizeTurnDuplicates(turns: SessionTurnRecord[]) {
+	const optimistic = turns.filter((turn) => turn.meta?.optimistic === true);
+	const confirmed = turns.filter((turn) => turn.meta?.optimistic !== true);
+	const confirmedClientMessageIds = new Set(
+		confirmed
+			.map(getTurnClientMessageId)
+			.filter((value): value is string => Boolean(value)),
+	);
+	const optimisticByClientMessageId = new Map(
+		optimistic
+			.map((turn) => [getTurnClientMessageId(turn), turn] as const)
+			.filter((entry): entry is [string, SessionTurnRecord] =>
+				Boolean(entry[0]),
+			),
+	);
+	return mergeTurnsById(
+		optimistic.filter((turn) => {
+			const clientMessageId = getTurnClientMessageId(turn);
+			return (
+				!clientMessageId || !confirmedClientMessageIds.has(clientMessageId)
+			);
+		}),
+		confirmed.map((turn) => {
+			const optimisticTurn = optimisticByClientMessageId.get(
+				getTurnClientMessageId(turn) ?? "",
+			);
+			if (!optimisticTurn) return turn;
+			return {
+				...turn,
+				userUuid: turn.userUuid ?? optimisticTurn.userUuid,
+				authorProfile: turn.authorProfile ?? optimisticTurn.authorProfile,
+			};
+		}),
+		{ preferIncoming: true },
+	);
+}
+
+function applyAcceptedTurnId(input: {
+	sessionId: string;
+	previousTurnId?: string | null;
+	nextTurnId: string;
+}) {
+	if (input.previousTurnId && input.previousTurnId !== input.nextTurnId) {
+		replaceGenerationTurnId(input.sessionId, {
+			previousTurnId: input.previousTurnId,
+			nextTurnId: input.nextTurnId,
+		});
+		void sessionTurnsRepo.replaceTurnId(
+			spaceId,
+			input.sessionId,
+			{
+				previousTurnId: input.previousTurnId,
+				nextTurnId: input.nextTurnId,
+			},
+			{ source: "indexeddb" },
+		);
+		const current = sessionStateById[input.sessionId];
+		if (current) {
+			const turns = current.turns.map((turn) =>
+				turn.id === input.previousTurnId
+					? { ...turn, id: input.nextTurnId }
+					: turn,
+			);
+			sessionStateById = {
+				...sessionStateById,
+				[input.sessionId]: {
+					...current,
+					turns: normalizeTurnDuplicates(turns),
+				},
+			};
+		}
+		return;
+	}
+	replaceGenerationTurnId(input.sessionId, { nextTurnId: input.nextTurnId });
+}
 function hydrateTurnOnce(input: {
 	sessionId: string;
 	turnId: string;
@@ -3816,9 +3897,23 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		const currentActiveSessionId = activeSessionId;
 		const isActiveSession = targetSessionId === currentActiveSessionId;
 		if (payload.type === "session.request.accepted") {
-			const accepted = payload.payload as { turnId?: string | null };
+			const accepted = payload.payload as {
+				clientMessageId?: string | null;
+				turnId?: string | null;
+				userMessageId?: string | null;
+				traceId?: string | null;
+			};
 			if (accepted.turnId) {
-				replaceGenerationTurnId(targetSessionId, {
+				const optimisticTurnId = sessionStateById[targetSessionId]?.turns.find(
+					(turn) =>
+						turn.meta &&
+						typeof turn.meta === "object" &&
+						"clientMessageId" in turn.meta &&
+						turn.meta.clientMessageId === accepted.clientMessageId,
+				)?.id;
+				applyAcceptedTurnId({
+					sessionId: targetSessionId,
+					previousTurnId: optimisticTurnId ?? null,
 					nextTurnId: accepted.turnId,
 				});
 			}
@@ -3847,18 +3942,34 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		if (payload.type === "session.turn.created") {
 			const turn = payload.payload.turn as SessionTurnRecord | undefined;
-			if (turn?.id && !state.turns.some((item) => item.id === turn.id)) {
+			if (turn?.id) {
+				const clientMessageId = getTurnClientMessageId(turn);
+				const optimisticTurn = clientMessageId
+					? state.turns.find(
+							(item) =>
+								item.meta?.optimistic === true &&
+								getTurnClientMessageId(item) === clientMessageId,
+						)
+					: null;
+				if (optimisticTurn?.id && optimisticTurn.id !== turn.id) {
+					applyAcceptedTurnId({
+						sessionId: targetSessionId,
+						previousTurnId: optimisticTurn.id,
+						nextTurnId: turn.id,
+					});
+				}
+				const current = sessionStateById[targetSessionId] ?? state;
 				const snapshot = await sessionTurnsRepo.mergeTurns(
 					spaceId,
 					targetSessionId,
 					[turn],
-					{ session: state.session ?? null },
+					{ session: current.session ?? null },
 				);
 				sessionStateById = {
 					...sessionStateById,
 					[targetSessionId]: {
-						...state,
-						turns: snapshot.turns,
+						...current,
+						turns: normalizeTurnDuplicates(snapshot.turns),
 					},
 				};
 			}
@@ -4047,6 +4158,7 @@ async function handleSend() {
 	const sessionId = activeSessionState.session.id;
 	const pendingInput = input;
 	const pendingAttachments = attachments;
+	const optimisticTurnId = crypto.randomUUID();
 	const clientMessageId = crypto.randomUUID();
 	const currentUser = {
 		uuid: authStore.userUuid ?? null,
@@ -4057,6 +4169,7 @@ async function handleSend() {
 	let hadFileUpload = false;
 	let fileUploadCompleted = false;
 	let uploadedReferenceText = "";
+	let optimisticTurn: SessionTurnRecord | null = null;
 	try {
 		const fileAttachments = attachments.filter(
 			(attachment): attachment is ComposerFileAttachment =>
@@ -4107,11 +4220,65 @@ async function handleSend() {
 			...attachmentBlocks,
 		];
 
+		// Clear input immediately so it disappears from the composer at the same
+		// time the optimistic turn appears in the list — avoids the awkward "stuck"
+		// feeling where the message shows in the list but lingers in the input.
 		input = "";
 		attachments = [];
 		const model = activeSessionModel;
+		const now = new Date().toISOString();
+		const sequenceHint = (activeSessionState?.turns.at(-1)?.sequence ?? 0) + 1;
+		optimisticTurn = {
+			id: optimisticTurnId,
+			sessionId,
+			userUuid: currentUser.uuid,
+			sequence: sequenceHint,
+			status: "running",
+			intent: "steer",
+			userContent: content,
+			userText: text,
+			assistantContent: null,
+			assistantText: null,
+			provider: model?.provider ?? null,
+			model: model?.id ?? null,
+			stopReason: null,
+			errorMessage: null,
+			finalUsage: null,
+			totalUsage: null,
+			summary: null,
+			intermediateIndex: null,
+			intermediateSummary: null,
+			meta: {
+				optimistic: true,
+				userId: currentUser.uuid,
+				clientMessageId,
+			},
+			authorProfile: currentUser.profile,
+			startedAt: now,
+			completedAt: null,
+			durationMs: null,
+			createdAt: now,
+			updatedAt: now,
+		} as SessionTurnRecord;
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...activeSessionState,
+				turns: mergeTurnsById(activeSessionState.turns, [optimisticTurn], {
+					preferIncoming: true,
+				}),
+			},
+		};
 		// Sending a message is an explicit intent to jump back to the live edge.
+		// This keeps the optimistic user turn and the following streaming reply in view,
+		// even if the user was previously reading older context.
 		shouldAutoFollow = true;
+		await tick();
+		requestBottomFollow({ immediate: true });
+		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
+			session: activeSessionState.session,
+		});
+		startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
 		const sendResult = await sdk.space(spaceId).prompt({
 			sessionId,
 			content,
@@ -4125,7 +4292,11 @@ async function handleSend() {
 			throw new Error("Expected immediate prompt response");
 		}
 		const acceptedTurn = sendResult.turn;
-		startGenerationRequest(sessionId, { spaceId, turnId: acceptedTurn.id });
+		applyAcceptedTurnId({
+			sessionId,
+			previousTurnId: optimisticTurnId,
+			nextTurnId: acceptedTurn.id,
+		});
 		const current = sessionStateById[sessionId];
 		if (current) {
 			const snapshot = await sessionTurnsRepo.mergeTurns(
@@ -4146,7 +4317,7 @@ async function handleSend() {
 				[sessionId]: {
 					...current,
 					session: snapshot.session ?? current.session,
-					turns: snapshot.turns,
+					turns: normalizeTurnDuplicates(snapshot.turns),
 				},
 			};
 		}
@@ -4175,13 +4346,60 @@ async function handleSend() {
 		}
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
-		composerError = hadFileUpload
+		const displayError = hadFileUpload
 			? fileUploadCompleted
 				? "Message failed. Files were uploaded."
 				: "Upload failed. Please try again."
 			: sendError;
+		composerError = displayError;
 		failGeneration(sessionId, sendError);
-		await loadSessionState(sessionId, true).catch(() => undefined);
+		const current = sessionStateById[sessionId];
+		if (current && optimisticTurn) {
+			const failedAt = new Date().toISOString();
+			const failedTurn = {
+				id: optimisticTurnId,
+				sessionId,
+				userUuid: currentUser.uuid,
+				sequence: optimisticTurn.sequence,
+				status: "failed",
+				intent: "steer",
+				userContent: content,
+				userText: text,
+				assistantContent: null,
+				assistantText: null,
+				provider: optimisticTurn.provider,
+				model: optimisticTurn.model,
+				stopReason: "error",
+				errorMessage: displayError,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: {
+					...(optimisticTurn.meta ?? {}),
+					localOnly: true,
+					failedAt,
+				},
+				authorProfile: currentUser.profile,
+				startedAt: optimisticTurn.startedAt,
+				completedAt: failedAt,
+				durationMs: null,
+				createdAt: optimisticTurn.createdAt,
+				updatedAt: failedAt,
+			} as SessionTurnRecord;
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...current,
+					turns: mergeTurnsById(
+						current.turns.filter((turn) => turn.id !== optimisticTurnId),
+						[failedTurn],
+						{ preferIncoming: true },
+					),
+				},
+			};
+		}
 	} finally {
 		sending = false;
 	}
