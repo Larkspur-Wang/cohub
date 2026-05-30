@@ -38,7 +38,6 @@ __IMAGE_PULL_SECRETS_BLOCK__
           volumeMounts:
             - name: space-storage
               mountPath: /space-storage
-              subPath: __SPACE_STORAGE_SUBPATH__
             - name: checkpoint-cache
               mountPath: /checkpoint-cache
             - name: system-storage

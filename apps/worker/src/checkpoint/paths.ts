@@ -9,7 +9,7 @@ export const USER_GIT_REPOS_PATH = ".cohub/system/user-git-repos.v1.json";
 const rootWithSubpath = (root: string) => resolve(root, config.spaceStorageSubpath);
 
 export const getCheckpointWorkspaceDir = (spaceId: string) =>
-  join(rootWithSubpath(config.spaceStorageRoot), spaceId, "workspace");
+  join(config.spaceStorageRoot, spaceId, "workspace");
 
 export const getCheckpointSystemDir = (spaceId: string) =>
   join(rootWithSubpath(config.spaceSystemRoot), spaceId);
