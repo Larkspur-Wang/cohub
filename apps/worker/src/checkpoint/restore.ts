@@ -114,6 +114,7 @@ async function restoreFilesFromArchive(input: { restoreTmpDir: string; targetDir
   await Promise.all(files.map(async (rel) => {
     if (rel === ".cohub" || rel.startsWith(".cohub/system/")) return;
     const safeRel = assertSafeRelativePath(rel);
+    if (safeRel === ".cohub/system" || safeRel.startsWith(".cohub/system/")) return;
     const asset = assets.get(safeRel);
     const target = safeJoin(input.targetDir, safeRel);
     if (asset) {
