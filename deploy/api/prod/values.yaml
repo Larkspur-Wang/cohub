@@ -7,7 +7,7 @@ APP_NAME: "cohub-api"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-api"
-IMAGE_TAG: "v0.6.8"
+IMAGE_TAG: "v1.41.1"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: "gitea-registry"
 
@@ -43,6 +43,7 @@ WEB_ORIGIN: "https://cohub.run"
 SANDBOX_IMAGE: "git.talesofai.com/talesofai/cohub-sandbox:v0.6.8"
 SPACE_STORAGE_ROOT: "/space-storage"
 SPACE_STORAGE_PVC: "cohub-spaces-pvc"
+CHECKPOINT_CACHE_PVC: "cohub-checkpoints-pvc"
 SPACE_STORAGE_SUBPATH: "workspaces/prod"
 PLATFORM_CONFIG_ROOT: "/configs"
 TURN_OBJECT_S3_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"
