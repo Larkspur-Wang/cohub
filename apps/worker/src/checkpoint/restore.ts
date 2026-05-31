@@ -157,10 +157,11 @@ async function restoreUserGitRepos(input: { workspaceDir: string; restoreTmpDir:
     await mkdir(repoDir, { recursive: true, mode: 0o775 });
     const bundlePath = join(bundleDir, `${repo.bundle.sha256}.bundle`);
     await downloadObjectToFile(repo.bundle.objectKey, bundlePath);
+    const branch = restoreBranchName(repo.branch);
     await runGit(["init"], repoDir);
-    await runGit(["checkout", "--detach"], repoDir).catch(() => undefined);
     await runGit(["fetch", bundlePath, "refs/heads/*:refs/remotes/restore/*", "refs/tags/*:refs/tags/*"], repoDir);
-    await runGit(["checkout", "-B", restoreBranchName(repo.branch), repo.head], repoDir);
+    await runGit(["update-ref", `refs/heads/${branch}`, repo.head], repoDir);
+    await runGit(["symbolic-ref", "HEAD", `refs/heads/${branch}`], repoDir);
     await runGit(["reset", "--mixed", repo.head], repoDir);
   }
 }
