@@ -14,6 +14,11 @@ export type CheckpointAsset = {
 
 const toPosix = (value: string) => value.replace(/\\/g, "/");
 
+function keepPathWithParents(keep: Set<string>, path: string) {
+  const parts = toPosix(path).split("/").filter(Boolean);
+  for (let index = 1; index <= parts.length; index += 1) keep.add(parts.slice(0, index).join("/"));
+}
+
 const pointerContent = (asset: CheckpointAsset) => [
   "version https://cohub.run/spec/asset-pointer/v1",
   `sha256 ${asset.sha256}`,
@@ -64,21 +69,21 @@ export async function syncSystemRepo(input: {
 }) {
   const keep = new Set<string>();
   await Promise.all(input.smallFiles.map(async (file) => {
-    keep.add(file.path);
+    keepPathWithParents(keep, file.path);
     await copySmallFile(file, input.repoDir);
   }));
 
   for (const asset of input.assets) {
-    keep.add(asset.path);
+    keepPathWithParents(keep, asset.path);
     const target = join(input.repoDir, asset.path);
     await mkdir(dirname(target), { recursive: true, mode: 0o775 });
     await removePath(target);
     await writeFile(target, pointerContent(asset));
   }
 
-  keep.add(CHECKPOINT_ASSET_MANIFEST_PATH);
-  keep.add(CHECKPOINT_META_PATH);
-  keep.add(USER_GIT_REPOS_PATH);
+  keepPathWithParents(keep, CHECKPOINT_ASSET_MANIFEST_PATH);
+  keepPathWithParents(keep, CHECKPOINT_META_PATH);
+  keepPathWithParents(keep, USER_GIT_REPOS_PATH);
   await mkdir(join(input.repoDir, dirname(CHECKPOINT_ASSET_MANIFEST_PATH)), { recursive: true, mode: 0o775 });
   await writeFile(join(input.repoDir, CHECKPOINT_ASSET_MANIFEST_PATH), `${JSON.stringify({ version: 1, assets: input.assets }, null, 2)}\n`);
   await writeFile(join(input.repoDir, CHECKPOINT_META_PATH), `${JSON.stringify(input.gitCheckpointMeta, null, 2)}\n`);

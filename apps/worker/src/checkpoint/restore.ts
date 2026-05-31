@@ -79,6 +79,10 @@ async function copyEntry(source: string, target: string) {
     await symlink(link, target);
     return;
   }
+  if (st.isDirectory()) {
+    await mkdir(target, { recursive: true, mode: 0o775 });
+    return;
+  }
   await copyFile(source, target, constants.COPYFILE_FICLONE).catch(async () => copyFile(source, target));
 }
 

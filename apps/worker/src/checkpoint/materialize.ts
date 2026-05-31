@@ -7,6 +7,11 @@ import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH } from "./paths.js
 const toPosix = (value: string) => value.replace(/\\/g, "/");
 const metaDir = dirname(CHECKPOINT_META_PATH);
 
+function keepPathWithParents(keep: Set<string>, path: string) {
+  const parts = toPosix(path).split("/").filter(Boolean);
+  for (let index = 1; index <= parts.length; index += 1) keep.add(parts.slice(0, index).join("/"));
+}
+
 async function removePath(path: string) {
   await rm(path, { recursive: true, force: true });
 }
@@ -44,9 +49,9 @@ export async function materializeLatest(input: {
   checkpointMeta: Record<string, unknown>;
 }) {
   await mkdir(input.latestDir, { recursive: true, mode: 0o775 });
-  const keep = new Set(input.files.map((file) => file.path));
-  keep.add(CHECKPOINT_META_PATH);
-  keep.add(metaDir);
+  const keep = new Set<string>();
+  for (const file of input.files) keepPathWithParents(keep, file.path);
+  keepPathWithParents(keep, CHECKPOINT_META_PATH);
 
   await Promise.all(input.files.map((file) => copyEntryToLatest(file, input.latestDir)));
   await mkdir(join(input.latestDir, metaDir), { recursive: true, mode: 0o775 });
