@@ -12,7 +12,7 @@ export const getCheckpointWorkspaceDir = (spaceId: string) =>
   join(config.spaceStorageRoot, spaceId, "workspace");
 
 export const getCheckpointSystemDir = (spaceId: string) =>
-  join(rootWithSubpath(config.spaceSystemRoot), spaceId);
+  join(config.spaceSystemRoot, spaceId);
 
 export const getCheckpointSystemRepoDir = (spaceId: string) =>
   join(getCheckpointSystemDir(spaceId), "repo");

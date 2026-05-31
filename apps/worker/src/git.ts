@@ -9,10 +9,10 @@ const logger = createLogger({ serviceName: "cohub-worker" });
 const redactBasicAuthUrls = (value: string) =>
   value.replace(/(https?:\/\/[^:\s/@]+:)([^@\s]+)(@)/g, "$1***$3");
 
-export const getSpaceWorkspaceDir = (spaceId: string) => `${config.spaceStorageRoot}/${config.spaceStorageSubpath}/${spaceId}/workspace`;
+export const getSpaceWorkspaceDir = (spaceId: string) => `${config.spaceStorageRoot}/${spaceId}/workspace`;
 
 export const ensureSpaceWorkspaceReady = async (spaceId: string) => {
-  const spaceBaseDir = `${config.spaceStorageRoot}/${config.spaceStorageSubpath}/${spaceId}`;
+  const spaceBaseDir = `${config.spaceStorageRoot}/${spaceId}`;
   const workspaceDir = getSpaceWorkspaceDir(spaceId);
   await mkdir(spaceBaseDir, { recursive: true, mode: 0o775 });
   await mkdir(workspaceDir, { recursive: true, mode: 0o775 });
