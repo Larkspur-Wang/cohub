@@ -13,6 +13,7 @@ export const getCheckpointAssetClient = () => {
   client ??= new S3Client({
     endpoint: config.checkpointAssetOssEndpoint,
     region: config.checkpointAssetOssRegion,
+    requestChecksumCalculation: "WHEN_REQUIRED",
     credentials: {
       accessKeyId: config.checkpointAssetOssAccessKeyId,
       secretAccessKey: config.checkpointAssetOssSecretAccessKey,
