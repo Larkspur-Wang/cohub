@@ -334,7 +334,12 @@ router.post("/", async (c) => {
   const envValidationError = validateSpaceEnvForResponse(normalizedExtraEnv);
   if (envValidationError) return c.json(envValidationError, 400);
 
-  const normalizedConfig = normalizeSpaceConfigInput(body.config ?? null);
+  let normalizedConfig: SpaceConfigInput;
+  try {
+    normalizedConfig = normalizeSpaceConfigInput(body.config ?? null);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "invalid space config" }, 400);
+  }
 
   const normalizedChannelBindings = Array.isArray(body.channelBindings)
     ? body.channelBindings
@@ -1065,7 +1070,12 @@ router.patch("/:id/config", async (c) => {
   const body = await c.req.json<{ sandbox?: { autoDestroy?: SpaceSandboxAutoDestroyPolicy } }>().catch(() => null);
   if (!body) return c.json({ message: "invalid body" }, 400);
 
-  const nextAutoDestroy = body.sandbox?.autoDestroy ? normalizeSpaceSandboxAutoDestroyPolicy(body.sandbox.autoDestroy) : DEFAULT_SPACE_SANDBOX_AUTO_DESTROY;
+  let nextAutoDestroy: SpaceSandboxAutoDestroyPolicy;
+  try {
+    nextAutoDestroy = body.sandbox?.autoDestroy ? normalizeSpaceSandboxAutoDestroyPolicy(body.sandbox.autoDestroy) : DEFAULT_SPACE_SANDBOX_AUTO_DESTROY;
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "invalid space config" }, 400);
+  }
   const nextMeta = mergeSpaceConfig(space, { sandbox: { autoDestroy: nextAutoDestroy } });
 
   const [updated] = await db.update(spaces).set({ meta: nextMeta, updatedAt: new Date() }).where(eq(spaces.id, spaceId)).returning();
