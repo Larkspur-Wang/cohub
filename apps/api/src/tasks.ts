@@ -28,37 +28,44 @@ export const enqueueTask = async (
 ) => {
   const taskRunId = crypto.randomUUID();
   const { scheduledAt, ...jobOptions } = opts ?? {};
+  const scheduledAtValue = scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null);
 
-  const job = await taskQueue.add(payload.type, payload, {
-    ...jobOptions,
+  const [taskRun] = await db.insert(taskRuns).values({
+    id: taskRunId,
     jobId: taskRunId,
-  });
+    taskType: payload.type,
+    spaceId: payload.spaceId ?? null,
+    sessionId: payload.sessionId ?? null,
+    turnId: payload.turnId ?? null,
+    userUuid: payload.userId ?? null,
+    cronJobId: payload.cronJobId ?? null,
+    status: "pending",
+    payload,
+    scheduledAt: scheduledAtValue,
+  }).returning();
 
   try {
-    const [taskRun] = await db.insert(taskRuns).values({
-      id: taskRunId,
+    const job = await taskQueue.add(payload.type, payload, {
+      ...jobOptions,
       jobId: taskRunId,
-      taskType: payload.type,
-      spaceId: payload.spaceId ?? null,
-      sessionId: payload.sessionId ?? null,
-      turnId: payload.turnId ?? null,
-      userUuid: payload.userId ?? null,
-      cronJobId: payload.cronJobId ?? null,
-      status: "pending",
-      payload,
-      scheduledAt: scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null),
-    }).returning();
+    });
+
     if (taskRun) {
       await dispatchTaskCreated(taskRun).catch((error) => {
         logger.warn("[Realtime] failed to dispatch task.created", error);
       });
     }
+
+    return { job, taskRunId };
   } catch (error) {
-    await job.remove().catch(() => undefined);
+    await db.update(taskRuns).set({
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : String(error),
+      finishedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(taskRuns.id, taskRunId)).catch(() => undefined);
     throw error;
   }
-
-  return { job, taskRunId };
 };
 
 export const createCronJob = async (params: {

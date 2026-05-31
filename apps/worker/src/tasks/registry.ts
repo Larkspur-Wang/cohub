@@ -64,8 +64,8 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         }).catch((error) => logger.warn("[Realtime] failed to dispatch task.updated", error));
       }
     } else {
-      // Cron-spawned — first time we see this job
-      // Use onConflictDoNothing to handle retry after DB write interruption
+      // Cron-spawned or manually enqueued — first time we see this job.
+      // Use onConflictDoNothing to handle retry after DB write interruption.
       const inserted = await db.insert(taskRuns).values({
         id: taskRunId,
         jobId,
