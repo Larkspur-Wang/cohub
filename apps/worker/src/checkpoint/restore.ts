@@ -56,17 +56,23 @@ async function downloadObjectToFile(objectKey: string, targetPath: string) {
   await pipeline(result.Body as NodeJS.ReadableStream, createWriteStream(targetPath));
 }
 
-async function collectFiles(root: string, dir = root): Promise<string[]> {
+async function collectArchiveEntries(root: string, dir = root): Promise<{ dirs: string[]; files: string[] }> {
   const names = await readdir(dir).catch(() => []);
-  const nested = await Promise.all(names.map(async (name) => {
+  const entries = await Promise.all(names.map(async (name) => {
     const absPath = join(dir, name);
     const rel = toPosix(relative(root, absPath));
     const st = await lstat(absPath).catch(() => null);
-    if (!st) return [];
-    if (st.isDirectory() && !st.isSymbolicLink()) return [rel, ...await collectFiles(root, absPath)];
-    return [rel];
+    if (!st) return { dirs: [], files: [] };
+    if (st.isDirectory() && !st.isSymbolicLink()) {
+      const nested = await collectArchiveEntries(root, absPath);
+      return { dirs: [rel, ...nested.dirs], files: nested.files };
+    }
+    return { dirs: [], files: [rel] };
   }));
-  return nested.flat();
+  return {
+    dirs: entries.flatMap((entry) => entry.dirs),
+    files: entries.flatMap((entry) => entry.files),
+  };
 }
 
 async function copyEntry(source: string, target: string) {
@@ -114,11 +120,15 @@ async function archiveSourceCommit(input: { sourceRepoDir: string; commitHash: s
 async function restoreFilesFromArchive(input: { restoreTmpDir: string; targetDir: string; assetManifest: AssetManifest }) {
   await emptyDirectory(input.targetDir);
   const assets = new Map((input.assetManifest.assets ?? []).map((asset) => [assertSafeRelativePath(asset.path), asset]));
-  const files = await collectFiles(input.restoreTmpDir);
-  await Promise.all(files.map(async (rel) => {
-    if (rel === ".cohub" || rel.startsWith(".cohub/system/")) return;
+  const entries = await collectArchiveEntries(input.restoreTmpDir);
+  await Promise.all(entries.dirs.map(async (rel) => {
     const safeRel = assertSafeRelativePath(rel);
-    if (safeRel === ".cohub/system" || safeRel.startsWith(".cohub/system/")) return;
+    if (safeRel === ".cohub" || safeRel === ".cohub/system" || safeRel.startsWith(".cohub/system/")) return;
+    await mkdir(safeJoin(input.targetDir, safeRel), { recursive: true, mode: 0o775 });
+  }));
+  await Promise.all(entries.files.map(async (rel) => {
+    const safeRel = assertSafeRelativePath(rel);
+    if (safeRel === ".cohub" || safeRel === ".cohub/system" || safeRel.startsWith(".cohub/system/")) return;
     const asset = assets.get(safeRel);
     const target = safeJoin(input.targetDir, safeRel);
     if (asset) {
@@ -127,6 +137,14 @@ async function restoreFilesFromArchive(input: { restoreTmpDir: string; targetDir
     }
     await copyEntry(safeJoin(input.restoreTmpDir, safeRel), target);
   }));
+}
+
+const SAFE_BRANCH_REGEX = /^[a-zA-Z0-9._/-]+$/;
+
+function restoreBranchName(value: string | null) {
+  const branch = value?.trim();
+  if (!branch || branch === "HEAD" || branch.startsWith("-") || branch.includes("..") || !SAFE_BRANCH_REGEX.test(branch)) return "restored";
+  return branch;
 }
 
 async function restoreUserGitRepos(input: { workspaceDir: string; restoreTmpDir: string; manifest: UserGitReposManifest }) {
@@ -140,8 +158,9 @@ async function restoreUserGitRepos(input: { workspaceDir: string; restoreTmpDir:
     const bundlePath = join(bundleDir, `${repo.bundle.sha256}.bundle`);
     await downloadObjectToFile(repo.bundle.objectKey, bundlePath);
     await runGit(["init"], repoDir);
-    await runGit(["fetch", bundlePath, "refs/*:refs/*"], repoDir);
-    if (repo.branch) await runGit(["symbolic-ref", "HEAD", `refs/heads/${repo.branch}`], repoDir).catch(() => undefined);
+    await runGit(["checkout", "--detach"], repoDir).catch(() => undefined);
+    await runGit(["fetch", bundlePath, "refs/heads/*:refs/remotes/restore/*", "refs/tags/*:refs/tags/*"], repoDir);
+    await runGit(["checkout", "-B", restoreBranchName(repo.branch), repo.head], repoDir);
     await runGit(["reset", "--mixed", repo.head], repoDir);
   }
 }
