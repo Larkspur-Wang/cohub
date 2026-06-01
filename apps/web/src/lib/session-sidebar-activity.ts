@@ -110,7 +110,7 @@ function findLatestSignal(blocks: ContentBlock[]) {
 			);
 			return {
 				phase: "result" as const,
-				label: `${block.is_error ? "error" : "result"}${name ? ` · ${name}` : ""}`,
+				label: name ?? (block.is_error ? "error" : "tool_result"),
 				text: text || null,
 				progressKey: `result:${block.tool_use_id}:${index}`,
 			};
@@ -122,7 +122,7 @@ function findLatestSignal(blocks: ContentBlock[]) {
 			);
 			return {
 				phase: "tool" as const,
-				label: `tool · ${block.name}`,
+				label: block.name,
 				text: text || null,
 				progressKey: `tool:${block.id}:${index}`,
 			};
@@ -134,7 +134,7 @@ function findLatestSignal(blocks: ContentBlock[]) {
 			);
 			return {
 				phase: "tool" as const,
-				label: "tool · shell_command",
+				label: "shell_command",
 				text: text || null,
 				progressKey: `shell-command:${index}`,
 			};
