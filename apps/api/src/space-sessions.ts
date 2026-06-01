@@ -1,7 +1,7 @@
 import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
-import type { PersistMessageInput, RegisterSessionInput, UpdateSessionInfoInput } from "@cohub/protocol/model";
+import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
@@ -25,7 +25,7 @@ import {
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
 import { dispatchSessionCreated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
-import { finalizeSessionTurnFromMessage } from "./session-turns.js";
+import { finalizeSessionTurnFromMessage, hydrateTurnAuthorProfiles } from "./session-turns.js";
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
@@ -568,36 +568,38 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     if (turnId) {
       const [turnRow] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
       if (turnRow) {
+        const turnRecord: SessionTurnRecord = {
+          id: turnRow.id,
+          sessionId: turnRow.sessionId,
+          userUuid: turnRow.userUuid ?? null,
+          sequence: turnRow.sequence,
+          status: turnRow.status as SessionTurnRecord["status"],
+          intent: turnRow.intent as SessionTurnRecord["intent"],
+          userContent: turnRow.userContent,
+          userText: turnRow.userText ?? null,
+          assistantContent: turnRow.assistantContent ?? null,
+          assistantText: turnRow.assistantText ?? null,
+          provider: turnRow.provider ?? null,
+          model: turnRow.model ?? null,
+          stopReason: turnRow.stopReason ?? null,
+          errorMessage: turnRow.errorMessage ?? null,
+          finalUsage: turnRow.finalUsage ?? null,
+          totalUsage: turnRow.totalUsage ?? null,
+          summary: turnRow.summary ?? null,
+          intermediateIndex: turnRow.intermediateIndex ?? null,
+          intermediateSummary: turnRow.intermediateSummary ?? null,
+          meta: normalizeRecord(turnRow.meta),
+          startedAt: turnRow.startedAt instanceof Date ? turnRow.startedAt.toISOString() : null,
+          completedAt: turnRow.completedAt instanceof Date ? turnRow.completedAt.toISOString() : null,
+          durationMs: turnRow.durationMs ?? null,
+          createdAt: turnRow.createdAt instanceof Date ? turnRow.createdAt.toISOString() : new Date().toISOString(),
+          updatedAt: turnRow.updatedAt instanceof Date ? turnRow.updatedAt.toISOString() : new Date().toISOString(),
+        };
+        const [turn = turnRecord] = await hydrateTurnAuthorProfiles([turnRecord]);
         await dispatchTurnCreated({
           spaceId: session.spaceId,
           sessionId: input.sessionId,
-          turn: {
-            id: turnRow.id,
-            sessionId: turnRow.sessionId,
-            userUuid: turnRow.userUuid ?? null,
-            sequence: turnRow.sequence,
-            status: turnRow.status as never,
-            intent: turnRow.intent as never,
-            userContent: turnRow.userContent,
-            userText: turnRow.userText ?? null,
-            assistantContent: turnRow.assistantContent ?? null,
-            assistantText: turnRow.assistantText ?? null,
-            provider: turnRow.provider ?? null,
-            model: turnRow.model ?? null,
-            stopReason: turnRow.stopReason ?? null,
-            errorMessage: turnRow.errorMessage ?? null,
-            finalUsage: turnRow.finalUsage ?? null,
-            totalUsage: turnRow.totalUsage ?? null,
-            summary: turnRow.summary ?? null,
-            intermediateIndex: turnRow.intermediateIndex ?? null,
-            intermediateSummary: turnRow.intermediateSummary ?? null,
-            meta: normalizeRecord(turnRow.meta),
-            startedAt: turnRow.startedAt instanceof Date ? turnRow.startedAt.toISOString() : null,
-            completedAt: turnRow.completedAt instanceof Date ? turnRow.completedAt.toISOString() : null,
-            durationMs: turnRow.durationMs ?? null,
-            createdAt: turnRow.createdAt instanceof Date ? turnRow.createdAt.toISOString() : new Date().toISOString(),
-            updatedAt: turnRow.updatedAt instanceof Date ? turnRow.updatedAt.toISOString() : new Date().toISOString(),
-          },
+          turn,
         }).catch((error) => {
           logger.warn("[Realtime] failed to dispatch session.turn.created", error);
         });

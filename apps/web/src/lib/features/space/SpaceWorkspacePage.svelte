@@ -3689,6 +3689,64 @@ function getTurnClientMessageId(turn: Pick<SessionTurnRecord, "meta">) {
 	return typeof value === "string" && value.trim() ? value : null;
 }
 
+function isOptimisticTurn(turn: Pick<SessionTurnRecord, "meta">) {
+	return turn.meta?.optimistic === true;
+}
+
+function withOptimisticMetaCleared(turn: SessionTurnRecord) {
+	if (!isOptimisticTurn(turn)) return turn;
+	const meta = turn.meta ? { ...turn.meta } : null;
+	if (meta && "optimistic" in meta) delete meta.optimistic;
+	return { ...turn, meta };
+}
+
+function isSameClientMessageTurn(
+	turn: Pick<SessionTurnRecord, "meta">,
+	clientMessageId: string | null,
+) {
+	return Boolean(
+		clientMessageId && getTurnClientMessageId(turn) === clientMessageId,
+	);
+}
+
+function reconcileOptimisticTurn(
+	turns: SessionTurnRecord[],
+	confirmedTurn: SessionTurnRecord,
+) {
+	const clientMessageId = getTurnClientMessageId(confirmedTurn);
+	let remapped = false;
+	const nextTurns = turns.map((turn) => {
+		if (!isOptimisticTurn(turn)) return turn;
+		if (!isSameClientMessageTurn(turn, clientMessageId)) return turn;
+		remapped = true;
+		const meta = {
+			...(turn.meta ?? {}),
+			...(confirmedTurn.meta ?? {}),
+		};
+		delete meta.optimistic;
+		return {
+			...withOptimisticMetaCleared(turn),
+			id: confirmedTurn.id,
+			sequence: confirmedTurn.sequence,
+			status: confirmedTurn.status,
+			userUuid: confirmedTurn.userUuid ?? turn.userUuid,
+			userContent: confirmedTurn.userContent,
+			userText: confirmedTurn.userText ?? turn.userText,
+			provider: confirmedTurn.provider ?? turn.provider,
+			model: confirmedTurn.model ?? turn.model,
+			createdAt: confirmedTurn.createdAt,
+			updatedAt: confirmedTurn.updatedAt,
+			meta,
+		};
+	});
+	return {
+		turns: remapped
+			? mergeTurnsById([], nextTurns, { preferIncoming: true })
+			: turns,
+		remapped,
+	};
+}
+
 function normalizeTurnDuplicates(turns: SessionTurnRecord[]) {
 	const optimistic = turns.filter((turn) => turn.meta?.optimistic === true);
 	const confirmed = turns.filter((turn) => turn.meta?.optimistic !== true);
@@ -3931,7 +3989,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			clearPostSendRecovery(targetSessionId);
 			return;
 		}
-		const state = sessionStateById[targetSessionId];
+		let state = sessionStateById[targetSessionId];
 		if (!state) {
 			if (payload.type === "session.turn.created") {
 				void loadSessionState(targetSessionId);
@@ -3944,21 +4002,21 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			const turn = payload.payload.turn as SessionTurnRecord | undefined;
 			if (turn?.id) {
 				const clientMessageId = getTurnClientMessageId(turn);
-				const optimisticTurn = clientMessageId
-					? state.turns.find(
-							(item) =>
-								item.meta?.optimistic === true &&
-								getTurnClientMessageId(item) === clientMessageId,
-						)
-					: null;
+				const optimisticTurn = state.turns.find(
+					(item) =>
+						isOptimisticTurn(item) &&
+						isSameClientMessageTurn(item, clientMessageId),
+				);
 				if (optimisticTurn?.id && optimisticTurn.id !== turn.id) {
 					applyAcceptedTurnId({
 						sessionId: targetSessionId,
 						previousTurnId: optimisticTurn.id,
 						nextTurnId: turn.id,
 					});
+					state = sessionStateById[targetSessionId] ?? state;
 				}
 				const current = sessionStateById[targetSessionId] ?? state;
+				const reconciled = reconcileOptimisticTurn(current.turns, turn);
 				const snapshot = await sessionTurnsRepo.mergeTurns(
 					spaceId,
 					targetSessionId,
@@ -3969,7 +4027,11 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					...sessionStateById,
 					[targetSessionId]: {
 						...current,
-						turns: normalizeTurnDuplicates(snapshot.turns),
+						turns: normalizeTurnDuplicates(
+							mergeTurnsById(reconciled.turns, snapshot.turns, {
+								preferIncoming: true,
+							}),
+						),
 					},
 				};
 			}
@@ -6105,7 +6167,11 @@ $effect(() => {
 			[sessionId]: {
 				...current,
 				session: snapshot.session ?? current.session,
-				turns: snapshot.turns,
+				turns: normalizeTurnDuplicates(
+					mergeTurnsById(current.turns, snapshot.turns, {
+						preferIncoming: true,
+					}),
+				),
 				hasMore: snapshot.hasMoreOlder,
 				hasMoreNewer: snapshot.hasMoreNewer,
 				oldestCursor: snapshot.oldestSequence ?? undefined,
