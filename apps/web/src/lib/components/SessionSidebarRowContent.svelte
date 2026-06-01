@@ -20,7 +20,8 @@ const activity = $derived(
 	getSessionSidebarActivity(sessionGenerationStore.get(session.id)),
 );
 const badge = $derived(activity.active ? "" : sourceBadge(session.source));
-const participantLabel = $derived(getSessionParticipantLabel(session));
+const participants = $derived(getSessionParticipants(session));
+const participantLabel = $derived(getSessionParticipantLabel(participants));
 const activityTime = $derived(
 	formatCompactAbsoluteTime(getSessionActivityAt(session)),
 );
@@ -36,30 +37,52 @@ function sourceBadge(source: string | null): string {
 	return idx > 0 ? source.slice(0, idx) : source;
 }
 
-function getSessionParticipantLabel(session: SessionRecord) {
-	const names: string[] = [];
+type Participant = {
+	key: string;
+	name: string;
+	avatarUrl: string | null;
+};
+
+function getInitials(name: string) {
+	return (
+		name
+			.split(/\s+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0]?.toUpperCase() ?? "")
+			.join("") || "?"
+	);
+}
+
+function getSessionParticipants(session: SessionRecord): Participant[] {
+	const participants: Participant[] = [];
 	const seen = new Set<string>();
-	const addName = (
-		userUuid: string | null | undefined,
-		displayName: string | null | undefined,
+	const addProfile = (
+		profile:
+			| {
+					userUuid?: string | null;
+					displayName?: string | null;
+					avatarUrl?: string | null;
+			  }
+			| null
+			| undefined,
 	) => {
-		const name = displayName?.trim();
+		const name = profile?.displayName?.trim();
 		if (!name) return;
-		const key = userUuid?.trim() || name.toLowerCase();
+		const key = profile?.userUuid?.trim() || name.toLowerCase();
 		if (seen.has(key)) return;
 		seen.add(key);
-		names.push(name);
+		participants.push({ key, name, avatarUrl: profile?.avatarUrl ?? null });
 	};
-	addName(
-		session.userProfile?.userUuid ?? session.userUuid,
-		session.userProfile?.displayName,
-	);
-	for (const profile of session.participantProfiles ?? []) {
-		addName(profile.userUuid, profile.displayName);
-	}
-	if (names.length === 0) return "unknown";
-	if (names.length === 1) return names[0] ?? "unknown";
-	return `${names[0]} +${names.length - 1}`;
+	addProfile(session.userProfile);
+	for (const profile of session.participantProfiles ?? []) addProfile(profile);
+	return participants;
+}
+
+function getSessionParticipantLabel(participants: Participant[]) {
+	if (participants.length === 0) return "unknown";
+	if (participants.length === 1) return participants[0]?.name ?? "unknown";
+	return `${participants[0]?.name ?? "unknown"} +${participants.length - 1}`;
 }
 </script>
 
@@ -69,11 +92,24 @@ function getSessionParticipantLabel(session: SessionRecord) {
 		<span class="shrink-0 tabular-nums text-[10px] font-normal text-text-placeholder">{activityTime}</span>
 	</span>
 	<span class="flex min-w-0 items-center gap-1.5 text-[10.5px] font-normal text-text-tertiary">
-		<span class="max-w-[42%] shrink-0 truncate">{participantLabel}</span>
-		<span class="text-text-placeholder">·</span>
-		<span class="min-w-0 flex-1 truncate {activityClass}" title={activity.text ? `${activity.label} · ${activity.text}` : activity.label}>
-			{activity.label}{#if activity.text} · {activity.text}{/if}{#if activity.active}<span class="session-activity-caret">▍</span>{/if}
+		<span class="inline-flex min-w-0 max-w-[48%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
+			<span class="inline-flex shrink-0 -space-x-1.5">
+				{#each participants.slice(0, 3) as participant (participant.key)}
+					{#if participant.avatarUrl}
+						<img src={participant.avatarUrl} alt="" class="h-3.5 w-3.5 rounded-full border border-bg-primary object-cover" />
+					{:else}
+						<span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-bg-primary bg-bg-hover-strong text-[7px] font-medium text-text-tertiary">{getInitials(participant.name)}</span>
+					{/if}
+				{/each}
+			</span>
+			<span class="min-w-0 truncate">{participantLabel}</span>
 		</span>
+		{#if activity.active || activity.phase === "failed" || activity.phase === "interrupted"}
+			<span class="text-text-placeholder">·</span>
+			<span class="min-w-0 flex-1 truncate {activityClass}" title={activity.text ? `${activity.label} · ${activity.text}` : activity.label}>
+				{activity.label}{#if activity.text} · {activity.text}{/if}{#if activity.active}<span class="session-activity-caret">▍</span>{/if}
+			</span>
+		{/if}
 	</span>
 </span>
 {#if badge}
