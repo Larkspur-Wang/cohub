@@ -101,7 +101,24 @@ export async function processSandboxBashJob(job: Job<AgentSandboxBashUploadJobDa
 
   const command = await buildUploadCommand(data);
   const toolCallId = `sandbox_bash_${randomUUID()}`;
+  const totalBytes = data.files.reduce((sum, file) => sum + file.size, 0);
+  const logMeta = {
+    jobId: job.id,
+    spaceId: data.spaceId,
+    sessionId: data.sessionId,
+    uploadId: data.uploadId,
+    destinationRoot: data.destinationRoot,
+    fileCount: data.files.length,
+    totalBytes,
+    firstFile: data.files[0]?.relativePath,
+    requestId: data.requestId ?? undefined,
+  };
   let latestOutput = "";
+
+  await job.updateProgress({
+    stage: "running",
+    ...logMeta,
+  });
 
   await runWithToolExecutionContext({
     spaceId: data.spaceId,
@@ -130,11 +147,40 @@ export async function processSandboxBashJob(job: Job<AgentSandboxBashUploadJobDa
     latestOutput = extractResultText(result) || latestOutput;
     const exitCode = getExitCode(result);
     if (exitCode !== 0) {
+      const failure = {
+        stage: "failed",
+        reason: "command_failed",
+        ...logMeta,
+        exitCode,
+        outputTail: latestOutput.slice(-2000),
+      };
+      await job.updateProgress(failure);
+      await job.log(JSON.stringify(failure));
+      logger.error("[SandboxBash] upload command failed", failure);
       throw new Error(latestOutput || `sandbox_bash upload_files failed with exit code ${exitCode ?? "unknown"}`);
     }
   }));
 
-  const uploaded = parseUploadedLines(latestOutput, data);
-  logger.info(`[SandboxBash] uploaded ${uploaded.length} file(s) spaceId=${data.spaceId} sessionId=${data.sessionId} uploadId=${data.uploadId}`);
-  return { ok: true, uploaded, output: latestOutput };
+  try {
+    const uploaded = parseUploadedLines(latestOutput, data);
+    await job.updateProgress({
+      stage: "completed",
+      ...logMeta,
+      uploadedCount: uploaded.length,
+      firstUploadedPath: uploaded[0]?.path,
+    });
+    return { ok: true, uploaded, output: latestOutput };
+  } catch (error) {
+    const failure = {
+      stage: "failed",
+      reason: "result_parse_failed",
+      ...logMeta,
+      error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+      outputTail: latestOutput.slice(-2000),
+    };
+    await job.updateProgress(failure);
+    await job.log(JSON.stringify(failure));
+    logger.error("[SandboxBash] upload result parse failed", error, failure);
+    throw error;
+  }
 }

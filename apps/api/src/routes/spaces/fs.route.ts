@@ -23,8 +23,8 @@ import type { SpaceFsVisibility } from "../../space-fs-ignore.js";
 import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
-  buildSpaceUploadPublicUrl,
   cancelSpaceUploadComplete,
+  createPresignedGetUrl,
   createPresignedPutUrl,
   createSpaceUploadId,
   deleteSpaceUploadManifest,
@@ -369,18 +369,22 @@ router.post("/uploads/:uploadId/complete", async (c) => {
     }
 
     const destinationRoot = buildUploadDestinationRoot(manifest.destination, manifest.uploadId);
+    const sessionId = manifest.destination.kind === "sandbox_tmp" ? manifest.destination.sessionId : `upload:${uploadId}`;
     const result = await enqueueSandboxUploadFilesJob({
       spaceId,
-      sessionId: manifest.destination.kind === "sandbox_tmp" ? manifest.destination.sessionId : `upload:${uploadId}`,
+      sessionId,
       uploadId,
       destinationRoot,
-      files: entries.map((entry) => ({
-        relativePath: entry.relativePath,
-        name: entry.name,
-        size: entry.size,
-        mimeType: entry.mimeType,
-        downloadUrl: buildSpaceUploadPublicUrl(entry.objectKey),
-      })),
+      files: entries.map((entry) => {
+        const signed = createPresignedGetUrl(entry.objectKey);
+        return {
+          relativePath: entry.relativePath,
+          name: entry.name,
+          size: entry.size,
+          mimeType: entry.mimeType,
+          downloadUrl: signed.downloadUrl,
+        };
+      }),
     });
 
     await deleteSpaceUploadManifest(spaceId, uploadId);
@@ -390,7 +394,11 @@ router.post("/uploads/:uploadId/complete", async (c) => {
     });
   } catch (error) {
     await cancelSpaceUploadComplete(spaceId, uploadId);
-    logger.error("[space-fs] failed to complete upload", error);
+    logger.error("[space-fs] failed to complete upload", error, {
+      spaceId,
+      uploadId,
+      requestedEntries: body.entries.length,
+    });
     return c.json({ message: "failed to complete upload" }, 500);
   }
 });

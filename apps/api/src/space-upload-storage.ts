@@ -105,7 +105,7 @@ const publicEndpoint = (bucket: string) => {
   return parsed.toString().replace(/\/+$/, "");
 };
 
-const createPresignedPutObjectUrl = (objectKey: string, contentType?: string | null) => {
+const createPresignedObjectUrl = (method: "GET" | "PUT", objectKey: string, options: { contentType?: string | null } = {}) => {
   requireObjectConfig();
   const accessKeyId = config.turnObjectS3AccessKeyId as string;
   const secretAccessKey = config.turnObjectS3SecretAccessKey as string;
@@ -129,7 +129,7 @@ const createPresignedPutObjectUrl = (objectKey: string, contentType?: string | n
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join("&");
   const canonicalRequest = [
-    "PUT",
+    method,
     url.pathname,
     canonicalQuery,
     `host:${url.host}\n`,
@@ -146,17 +146,20 @@ const createPresignedPutObjectUrl = (objectKey: string, contentType?: string | n
   url.searchParams.set("X-Amz-Signature", signature);
 
   return {
-    uploadUrl: url.toString(),
+    url: url.toString(),
     expiresAt: new Date(now.getTime() + PRESIGN_TTL_SECONDS * 1000).toISOString(),
-    headers: contentType ? { "content-type": contentType } : undefined,
+    headers: method === "PUT" && options.contentType ? { "content-type": options.contentType } : undefined,
   };
 };
 
-export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) => createPresignedPutObjectUrl(objectKey, contentType);
+export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) => {
+  const signed = createPresignedObjectUrl("PUT", objectKey, { contentType });
+  return { uploadUrl: signed.url, expiresAt: signed.expiresAt, headers: signed.headers };
+};
 
-export const buildSpaceUploadPublicUrl = (objectKey: string) => {
-  requireObjectConfig();
-  return `${publicEndpoint(config.turnObjectS3Bucket as string)}/${encodePath(objectKey)}`;
+export const createPresignedGetUrl = (objectKey: string) => {
+  const signed = createPresignedObjectUrl("GET", objectKey);
+  return { downloadUrl: signed.url, expiresAt: signed.expiresAt };
 };
 
 const sha256Hex = (value: string) => createHash("sha256").update(value).digest("hex");
