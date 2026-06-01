@@ -243,11 +243,31 @@ export type QueueSnapshot = {
   registeredJobs: readonly string[];
 };
 
-export const getQueueSnapshot = async (queue: Queue): Promise<QueueSnapshot> => {
+export type QueueSnapshotOptions = {
+  redisUrl?: string;
+};
+
+const getRedisDbIndex = (redisUrl: string | undefined): string | null => {
+  if (!redisUrl) return null;
+  try {
+    const url = new URL(redisUrl);
+    return url.pathname.replace(/^\//, "") || "0";
+  } catch {
+    return null;
+  }
+};
+
+const getWorkerCount = async (queue: Queue, options: QueueSnapshotOptions = {}) => {
+  const redisDb = getRedisDbIndex(options.redisUrl);
+  const workers = await queue.getWorkers();
+  return redisDb ? workers.filter((worker) => worker.db === redisDb).length : workers.length;
+};
+
+export const getQueueSnapshot = async (queue: Queue, options: QueueSnapshotOptions = {}): Promise<QueueSnapshot> => {
   const [counts, isPaused, workers, waitingJobs] = await Promise.all([
     queue.getJobCounts("waiting", "active", "delayed", "failed", "completed", "paused", "prioritized", "waiting-children"),
     queue.isPaused(),
-    queue.getWorkers().then((items) => items.length).catch(() => 0),
+    getWorkerCount(queue, options).catch(() => 0),
     queue.getJobs(["waiting"], 0, 0, true),
   ]);
 
@@ -264,7 +284,8 @@ export const getQueueSnapshot = async (queue: Queue): Promise<QueueSnapshot> => 
   };
 };
 
-export const getQueueSnapshots = async (queues: Queue[]) => Promise.all(queues.map((queue) => getQueueSnapshot(queue)));
+export const getQueueSnapshots = async (queues: Queue[], options: QueueSnapshotOptions = {}) =>
+  Promise.all(queues.map((queue) => getQueueSnapshot(queue, options)));
 
 export type ExportQueuesPrometheusMetricsOptions = {
   includeQueueDefinitionLabels?: boolean;

@@ -18,7 +18,7 @@ const describeRedisEndpoint = (value: string) => {
 };
 
 router.get("/", async (c) => {
-  const queues = await getQueueSnapshots([taskQueue, agentTurnQueue, fsCdnQueue]);
+  const queues = await getQueueSnapshots([taskQueue, agentTurnQueue, fsCdnQueue], { redisUrl: config.bullmqRedisUrl });
   const bullmqRedisEndpoint = describeRedisEndpoint(config.bullmqRedisUrl);
   return c.json({
     ok: true,
