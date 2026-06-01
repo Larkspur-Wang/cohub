@@ -1,11 +1,13 @@
 import type { SessionRecord } from "@neta-art/cohub";
 
-export function getSessionSortTime(session: SessionRecord) {
+export function getSessionActivityAt(session: SessionRecord) {
 	return (
-		Date.parse(
-			session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? "",
-		) || 0
+		session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? null
 	);
+}
+
+export function getSessionSortTime(session: SessionRecord) {
+	return Date.parse(getSessionActivityAt(session) ?? "") || 0;
 }
 
 export function compareSessionsByRecentActivity(

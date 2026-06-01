@@ -8,6 +8,10 @@ import {
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
 import type { ChatMessage } from "$lib/session-tree";
+import {
+	formatCompactAbsoluteTime,
+	formatFullAbsoluteTime,
+} from "$lib/time-format";
 
 type ModelCatalogItem = {
 	provider: string;
@@ -149,48 +153,9 @@ function toggleThinking() {
 
 // ─── Meta bar: time, model, tokens, copy ───
 
-// Time display
-function isValidDate(date: Date): boolean {
-	return !Number.isNaN(date.getTime());
-}
-
-function padDatePart(value: number): string {
-	return String(value).padStart(2, "0");
-}
-
-function formatLocalTime(date: Date, includeSeconds = false): string {
-	const parts = [date.getHours(), date.getMinutes()];
-	if (includeSeconds) parts.push(date.getSeconds());
-	return parts.map(padDatePart).join(":");
-}
-
-function formatLocalDateTime(date: Date, includeSeconds = false): string {
-	return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())} ${formatLocalTime(date, includeSeconds)}`;
-}
-
-function isSameLocalDay(a: Date, b: Date): boolean {
-	return (
-		a.getFullYear() === b.getFullYear() &&
-		a.getMonth() === b.getMonth() &&
-		a.getDate() === b.getDate()
-	);
-}
-
-const messageCreatedAtDate = $derived(
-	message.createdAt ? new Date(message.createdAt) : null,
-);
-
-const timeDisplay = $derived.by(() => {
-	if (!messageCreatedAtDate || !isValidDate(messageCreatedAtDate)) return "";
-	return isSameLocalDay(messageCreatedAtDate, new Date())
-		? formatLocalTime(messageCreatedAtDate)
-		: formatLocalDateTime(messageCreatedAtDate);
-});
-
+const timeDisplay = $derived(formatCompactAbsoluteTime(message.createdAt));
 const fullDateTime = $derived(
-	messageCreatedAtDate && isValidDate(messageCreatedAtDate)
-		? formatLocalDateTime(messageCreatedAtDate, true)
-		: "",
+	formatFullAbsoluteTime(message.createdAt, { seconds: true }),
 );
 
 // Model display: default show model name (matched from catalog), fallback to model id

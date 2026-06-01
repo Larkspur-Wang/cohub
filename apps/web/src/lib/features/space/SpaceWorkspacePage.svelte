@@ -125,6 +125,7 @@ import {
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
+import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
@@ -2176,8 +2177,9 @@ function upsertSessionRecord(
 	session: SessionRecord,
 	options?: { cache?: boolean },
 ) {
+	const existingSession = spaceSessions.find((item) => item.id === session.id);
 	const nextSessions = sortSessionsByRecentActivity([
-		session,
+		mergeSessionRecord(existingSession, session),
 		...spaceSessions.filter((item) => item.id !== session.id),
 	]);
 	spaceSessions = nextSessions;

@@ -17,6 +17,7 @@ import {
 	DEFAULT_SESSION_LIST_PAGE_INFO,
 	type SessionListPageInfo,
 } from "$lib/cache/types";
+import { mergeSessionRecords } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 
 const SESSION_LIST_TTL_MS = 30_000;
@@ -42,9 +43,7 @@ export type SessionListSnapshot = {
 };
 
 function normalizeSessions(sessions: SessionRecord[]) {
-	const byId = new Map<string, SessionRecord>();
-	for (const session of sessions) byId.set(session.id, session);
-	return sortSessionsByRecentActivity(Array.from(byId.values()));
+	return sortSessionsByRecentActivity(mergeSessionRecords(sessions));
 }
 
 function normalizePageInfo(

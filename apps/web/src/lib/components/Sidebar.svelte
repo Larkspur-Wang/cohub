@@ -49,6 +49,7 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
+import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { downloadCohubDebugBundle } from "$lib/debugger";
@@ -1385,17 +1386,7 @@ $effect(() => {
 					title={item.titleText || sourceTooltip(session.source) || undefined}
 					aria-label={item.ariaLabel}
 				>
-					<span class="min-w-0 flex-1 truncate leading-tight">{item.displayTitle}</span>
-					{#if sourceBadge(session.source)}
-						<span class="absolute right-2 top-1/2 -translate-y-1/2 rounded-[3px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium leading-none text-text-tertiary group-hover/session:opacity-0 group-focus-within/session:opacity-0">
-							{sourceBadge(session.source)}
-						</span>
-					{/if}
-					{#if sessionIsStreaming(session)}
-						<span class="absolute right-3 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-status-running animate-pulse group-hover/session:opacity-0 group-focus-within/session:opacity-0" title="Streaming..."></span>
-					{:else if unreadTracker.isUnread(session, session.lastMessageId)}
-						<span class="absolute right-3 top-1/2 h-[7px] w-[7px] -translate-y-1/2 rounded-full bg-brand group-hover/session:opacity-0 group-focus-within/session:opacity-0" title="Unread"></span>
-					{/if}
+					<SessionSidebarRowContent {session} title={item.displayTitle} />
 					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
 						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Insert" onclick={(e) => { e.preventDefault(); e.stopPropagation(); insertPathReference(`/sessions/${session.id}.jsonl`); }}>
 							<FileText class="h-3.5 w-3.5" />
@@ -1933,17 +1924,7 @@ $effect(() => {
                       title={item.titleText || sourceTooltip(session.source) || undefined}
                       aria-label={item.ariaLabel}
                     >
-                      <span class="truncate leading-tight flex-1">{item.displayTitle}</span>
-                      {#if sourceBadge(session.source)}
-                        <span class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-px rounded-[3px] bg-bg-hover-strong text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}">
-                          {sourceBadge(session.source)}
-                        </span>
-                      {/if}
-                      {#if sessionIsStreaming(session)}
-                        <div class="absolute right-3 top-1/2 -translate-y-1/2 w-[6px] h-[6px] rounded-full bg-status-running animate-pulse {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Streaming..."></div>
-                      {:else if unreadTracker.isUnread(session, session.lastMessageId)}
-                        <div class="absolute right-3 top-1/2 -translate-y-1/2 w-[7px] h-[7px] rounded-full bg-brand {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Unread"></div>
-                      {/if}
+                      <SessionSidebarRowContent {session} title={item.displayTitle} {isMobile} />
                       <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                         <button
                           type="button"
@@ -2071,7 +2052,7 @@ $effect(() => {
 				}}
                 title={sourceTooltip(activeSession.source) || undefined}
               >
-                <span class="truncate leading-tight flex-1">{getSessionTitle(activeSession, 0)}</span>
+                <SessionSidebarRowContent session={activeSession} title={getSessionTitle(activeSession, 0)} {isMobile} />
                 <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                   <button
                     type="button"
@@ -2540,6 +2521,33 @@ $effect(() => {
 
 	.session-fork-row--last::after {
 		bottom: 50%;
+	}
+
+	.session-activity-caret {
+		display: inline-block;
+		margin-left: 0.0625rem;
+		color: var(--color-brand);
+		font-size: 0.82em;
+		line-height: 1;
+		animation: session-activity-caret 1.15s steps(2, jump-none) infinite;
+	}
+
+	@keyframes session-activity-caret {
+		0%,
+		45% {
+			opacity: 1;
+		}
+		46%,
+		100% {
+			opacity: 0.28;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.session-activity-caret {
+			animation: none;
+			opacity: 0.85;
+		}
 	}
 
 	@media (hover: hover) {
