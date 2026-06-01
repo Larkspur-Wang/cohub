@@ -1565,9 +1565,6 @@ $effect(() => {
             <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <NotebookPen class="h-4 w-4" />
-                {#if activeSession && unreadTracker.isUnread(activeSession, activeSession.lastMessageId)}
-                  <span class="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand"></span>
-                {/if}
               {/snippet}
               {@render sessionsFlyoutList()}
             </SidebarFlyout>

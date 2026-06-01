@@ -3,7 +3,6 @@ import type { SessionRecord } from "@neta-art/cohub";
 import { getSessionSidebarActivity } from "$lib/session-sidebar-activity";
 import { getSessionActivityAt } from "$lib/session-sort";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
-import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
 
 const {
@@ -89,7 +88,7 @@ function getSessionParticipantLabel(participants: Participant[]) {
 <span class="min-w-0 flex flex-1 flex-col gap-0.5 overflow-hidden leading-tight">
 	<span class="flex min-w-0 items-baseline gap-2">
 		<span class="min-w-0 flex-1 truncate">{title}</span>
-		<span class="shrink-0 tabular-nums text-[10px] font-normal text-text-placeholder">{activityTime}</span>
+		<span class="shrink-0 tabular-nums text-[10px] font-normal text-text-placeholder transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0">{activityTime}</span>
 	</span>
 	<span class="flex min-w-0 items-center gap-1.5 text-[10.5px] font-normal text-text-tertiary">
 		<span class="inline-flex min-w-0 max-w-[48%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
@@ -116,7 +115,4 @@ function getSessionParticipantLabel(participants: Participant[]) {
 	<span class="absolute right-2 top-2 rounded-[3px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium leading-none text-text-tertiary {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}">
 		{badge}
 	</span>
-{/if}
-{#if unreadTracker.isUnread(session, session.lastMessageId) && !activity.active}
-	<span class="absolute right-3 top-2.5 h-[6px] w-[6px] rounded-full bg-brand {isMobile ? '' : 'group-hover/session:opacity-0 group-focus-within/session:opacity-0'}" title="Unread"></span>
 {/if}
