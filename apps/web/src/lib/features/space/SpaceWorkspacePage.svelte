@@ -2953,6 +2953,14 @@ async function syncGenerationStateFromTail(
 	);
 	if (runningTurn) {
 		const current = sessionGenerationStore.get(sessionId);
+		const optimisticTurn = turns.find(
+			(turn) =>
+				turn.meta?.optimistic === true &&
+				getTurnClientMessageId(turn) === getTurnClientMessageId(runningTurn),
+		);
+		if (optimisticTurn?.id && optimisticTurn.id !== runningTurn.id) {
+			return;
+		}
 		// The HTTP API response may lag behind WebSocket events. Two guards:
 		//
 		// 1. If the generation already reached a terminal state for the same
@@ -3788,6 +3796,7 @@ function applyAcceptedTurnId(input: {
 	sessionId: string;
 	previousTurnId?: string | null;
 	nextTurnId: string;
+	confirmedTurn?: SessionTurnRecord | null;
 }) {
 	if (input.previousTurnId && input.previousTurnId !== input.nextTurnId) {
 		replaceGenerationTurnId(input.sessionId, {
@@ -3805,11 +3814,23 @@ function applyAcceptedTurnId(input: {
 		);
 		const current = sessionStateById[input.sessionId];
 		if (current) {
-			const turns = current.turns.map((turn) =>
-				turn.id === input.previousTurnId
-					? { ...turn, id: input.nextTurnId }
-					: turn,
-			);
+			const turns = current.turns.map((turn) => {
+				if (turn.id !== input.previousTurnId) return turn;
+				const meta = {
+					...(turn.meta ?? {}),
+					...(input.confirmedTurn?.meta ?? {}),
+				};
+				delete meta.optimistic;
+				return {
+					...turn,
+					...(input.confirmedTurn ?? {}),
+					id: input.nextTurnId,
+					userUuid: input.confirmedTurn?.userUuid ?? turn.userUuid,
+					authorProfile:
+						input.confirmedTurn?.authorProfile ?? turn.authorProfile ?? null,
+					meta,
+				};
+			});
 			sessionStateById = {
 				...sessionStateById,
 				[input.sessionId]: {
@@ -3955,26 +3976,6 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		const currentActiveSessionId = activeSessionId;
 		const isActiveSession = targetSessionId === currentActiveSessionId;
 		if (payload.type === "session.request.accepted") {
-			const accepted = payload.payload as {
-				clientMessageId?: string | null;
-				turnId?: string | null;
-				userMessageId?: string | null;
-				traceId?: string | null;
-			};
-			if (accepted.turnId) {
-				const optimisticTurnId = sessionStateById[targetSessionId]?.turns.find(
-					(turn) =>
-						turn.meta &&
-						typeof turn.meta === "object" &&
-						"clientMessageId" in turn.meta &&
-						turn.meta.clientMessageId === accepted.clientMessageId,
-				)?.id;
-				applyAcceptedTurnId({
-					sessionId: targetSessionId,
-					previousTurnId: optimisticTurnId ?? null,
-					nextTurnId: accepted.turnId,
-				});
-			}
 			clearPostSendRecovery(targetSessionId);
 			return;
 		}
@@ -4012,6 +4013,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 						sessionId: targetSessionId,
 						previousTurnId: optimisticTurn.id,
 						nextTurnId: turn.id,
+						confirmedTurn: turn,
 					});
 					state = sessionStateById[targetSessionId] ?? state;
 				}
@@ -4358,6 +4360,7 @@ async function handleSend() {
 			sessionId,
 			previousTurnId: optimisticTurnId,
 			nextTurnId: acceptedTurn.id,
+			confirmedTurn: acceptedTurn,
 		});
 		const current = sessionStateById[sessionId];
 		if (current) {
