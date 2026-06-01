@@ -2173,15 +2173,20 @@ function updateNodeState(
 		return node;
 	});
 }
-function applySessionRealtimeRecord(session: SessionRecord) {
+function upsertSessionRecord(
+	session: SessionRecord,
+	options?: { cache?: boolean },
+) {
 	const nextSessions = sortSessionsByRecentActivity([
 		session,
 		...spaceSessions.filter((item) => item.id !== session.id),
 	]);
 	spaceSessions = nextSessions;
-	void patchCachedSessionList(spaceId, () => nextSessions).catch(
-		() => undefined,
-	);
+	if (options?.cache !== false) {
+		void patchCachedSessionList(spaceId, () => nextSessions).catch(
+			() => undefined,
+		);
+	}
 	const existing = sessionStateById[session.id];
 	sessionStateById = {
 		...sessionStateById,
@@ -2198,10 +2203,21 @@ function applySessionRealtimeRecord(session: SessionRecord) {
 		},
 	};
 }
+function applySessionRealtimeRecord(session: SessionRecord) {
+	upsertSessionRecord(session);
+}
 function applySessionsSnapshot(sessions: SessionRecord[]) {
-	spaceSessions = sessions;
+	const activeSession = activeSessionId
+		? sessionStateById[activeSessionId]?.session
+		: undefined;
+	const nextSessions =
+		activeSession &&
+		!sessions.some((session) => session.id === activeSession.id)
+			? sortSessionsByRecentActivity([activeSession, ...sessions])
+			: sessions;
+	spaceSessions = nextSessions;
 	const nextState: Record<string, SessionViewState> = {};
-	for (const session of sessions) {
+	for (const session of nextSessions) {
 		const existing = sessionStateById[session.id];
 		nextState[session.id] = {
 			session,
@@ -3078,6 +3094,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				turns: response.turns,
 				hasMore: response.hasMore,
 			});
+			upsertSessionRecord(response.session);
 			sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
@@ -6099,15 +6116,19 @@ $effect(() => {
 					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
 				}
 				const cachedSpace = await spaceRecordRepo.getCached(spaceId);
-				if (cachedSpace?.space) {
-					space = cachedSpace.space;
-					previewEndpoints = extractPublicEndpoints(cachedSpace.space);
-					hasCachedSpace = true;
-				}
 				const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
 				const cachedSessions = cachedSnapshot?.sessions;
 				if (cachedSessions && cachedSessions.length > 0) {
 					seedSessions(cachedSessions);
+				}
+				if (routeView === "session" && routeSessionId) {
+					prepareRouteSession(routeSessionId);
+				}
+				const cachedSessionLoad = sessionLoad;
+				if (cachedSpace?.space) {
+					space = cachedSpace.space;
+					previewEndpoints = extractPublicEndpoints(cachedSpace.space);
+					hasCachedSpace = true;
 				}
 				if (hasCachedSpace) {
 					void loadSpace();
@@ -6123,7 +6144,7 @@ $effect(() => {
 				if (routeView === "space") void loadTokenUsage(7);
 				if (routeView === "session" && routeSessionId) {
 					prepareRouteSession(routeSessionId);
-					await sessionLoad;
+					await cachedSessionLoad;
 					void loadTurnIndex(routeSessionId);
 				}
 			} catch {
