@@ -3,6 +3,7 @@ import type { SessionRecord } from "@neta-art/cohub";
 import { getSessionSidebarActivity } from "$lib/session-sidebar-activity";
 import { getSessionActivityAt } from "$lib/session-sort";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
+import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
 
 const {
@@ -24,8 +25,24 @@ const participantLabel = $derived(getSessionParticipantLabel(participants));
 const activityTime = $derived(
 	formatCompactAbsoluteTime(getSessionActivityAt(session)),
 );
+const isUnread = $derived(
+	unreadTracker.isUnread(session, session.lastMessageId),
+);
+const shouldShowActivity = $derived(
+	activity.active ||
+		activity.phase === "failed" ||
+		activity.phase === "interrupted" ||
+		isUnread,
+);
+const activityLabel = $derived(
+	isUnread && !activity.active ? "unread" : activity.label,
+);
+const activityText = $derived(
+	isUnread && !activity.active ? null : activity.text,
+);
 const activityClass = $derived.by(() => {
 	if (activity.phase === "failed") return "text-error-soft";
+	if (isUnread && !activity.active) return "text-brand";
 	if (activity.active) return "text-text-secondary";
 	return "text-text-placeholder";
 });
@@ -79,34 +96,36 @@ function getSessionParticipants(session: SessionRecord): Participant[] {
 }
 
 function getSessionParticipantLabel(participants: Participant[]) {
-	if (participants.length === 0) return "unknown";
-	if (participants.length === 1) return participants[0]?.name ?? "unknown";
-	return `${participants[0]?.name ?? "unknown"} +${participants.length - 1}`;
+	if (participants.length === 0) return "";
+	if (participants.length === 1) return participants[0]?.name ?? "";
+	return `${participants[0]?.name ?? ""} +${participants.length - 1}`;
 }
 </script>
 
 <span class="min-w-0 flex flex-1 flex-col gap-0.5 overflow-hidden leading-tight">
 	<span class="flex min-w-0 items-baseline gap-2">
 		<span class="min-w-0 flex-1 truncate">{title}</span>
-		<span class="shrink-0 tabular-nums text-[10px] font-normal text-text-placeholder transition-opacity group-hover/session:opacity-0 group-focus-within/session:opacity-0">{activityTime}</span>
+		<span class="shrink-0 tabular-nums text-[10px] font-normal text-text-placeholder group-hover/session:hidden group-focus-within/session:hidden">{activityTime}</span>
 	</span>
 	<span class="flex min-w-0 items-center gap-1.5 text-[10.5px] font-normal text-text-tertiary">
-		<span class="inline-flex min-w-0 max-w-[48%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
-			<span class="inline-flex shrink-0 -space-x-1.5">
-				{#each participants.slice(0, 3) as participant (participant.key)}
-					{#if participant.avatarUrl}
-						<img src={participant.avatarUrl} alt="" class="h-3.5 w-3.5 rounded-full border border-bg-primary object-cover" />
-					{:else}
-						<span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-bg-primary bg-bg-hover-strong text-[7px] font-medium text-text-tertiary">{getInitials(participant.name)}</span>
-					{/if}
-				{/each}
+		{#if participants.length > 0}
+			<span class="inline-flex min-w-0 max-w-[48%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
+				<span class="inline-flex shrink-0 -space-x-1.5">
+					{#each participants.slice(0, 3) as participant (participant.key)}
+						{#if participant.avatarUrl}
+							<img src={participant.avatarUrl} alt="" class="h-3.5 w-3.5 rounded-full border border-bg-primary object-cover" />
+						{:else}
+							<span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-bg-primary bg-bg-hover-strong text-[7px] font-medium text-text-tertiary">{getInitials(participant.name)}</span>
+						{/if}
+					{/each}
+				</span>
+				<span class="min-w-0 truncate">{participantLabel}</span>
 			</span>
-			<span class="min-w-0 truncate">{participantLabel}</span>
-		</span>
-		{#if activity.active || activity.phase === "failed" || activity.phase === "interrupted"}
-			<span class="text-text-placeholder">·</span>
-			<span class="min-w-0 flex-1 truncate {activityClass}" title={activity.text ? `${activity.label} · ${activity.text}` : activity.label}>
-				{activity.label}{#if activity.text} · {activity.text}{/if}{#if activity.active}<span class="session-activity-caret">▍</span>{/if}
+		{/if}
+		{#if shouldShowActivity}
+			{#if participants.length > 0}<span class="text-text-placeholder">·</span>{/if}
+			<span class="min-w-0 flex-1 truncate {activityClass}" title={activityText ? `${activityLabel} · ${activityText}` : activityLabel}>
+				{activityLabel}{#if activityText} · {activityText}{/if}{#if activity.active}<span class="session-activity-caret">▍</span>{/if}
 			</span>
 		{/if}
 	</span>
