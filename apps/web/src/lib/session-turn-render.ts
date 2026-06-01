@@ -12,6 +12,60 @@ function getTurnContextWindow(turn: SessionTurnRecord) {
 	return typeof raw === "number" && raw > 0 ? raw : null;
 }
 
+function getTurnClientMessageId(turn: Pick<SessionTurnRecord, "meta">) {
+	const value = turn.meta?.clientMessageId;
+	return typeof value === "string" && value.trim() ? value : null;
+}
+
+function isOptimisticTurn(turn: Pick<SessionTurnRecord, "meta">) {
+	return turn.meta?.optimistic === true;
+}
+
+function isTerminalTurn(turn: SessionTurnRecord) {
+	return (
+		turn.status === "completed" ||
+		turn.status === "failed" ||
+		turn.status === "interrupted" ||
+		turn.status === "merged" ||
+		turn.status === "cancelled"
+	);
+}
+
+function parseTurnUpdatedAt(turn: SessionTurnRecord) {
+	const value = Date.parse(turn.updatedAt);
+	return Number.isFinite(value) ? value : 0;
+}
+
+function shouldPreferRenderableTurn(
+	current: SessionTurnRecord,
+	incoming: SessionTurnRecord,
+) {
+	if (isOptimisticTurn(current) && !isOptimisticTurn(incoming)) return true;
+	if (!isOptimisticTurn(current) && isOptimisticTurn(incoming)) return false;
+	if (!isTerminalTurn(current) && isTerminalTurn(incoming)) return true;
+	if (isTerminalTurn(current) && !isTerminalTurn(incoming)) return false;
+	return parseTurnUpdatedAt(incoming) >= parseTurnUpdatedAt(current);
+}
+
+function dedupeRenderableTurnsByClientMessageId(turns: SessionTurnRecord[]) {
+	const byClientMessageId = new Map<string, SessionTurnRecord>();
+	const withoutClientMessageId: SessionTurnRecord[] = [];
+	for (const turn of turns) {
+		const clientMessageId = getTurnClientMessageId(turn);
+		if (!clientMessageId) {
+			withoutClientMessageId.push(turn);
+			continue;
+		}
+		const current = byClientMessageId.get(clientMessageId);
+		if (!current || shouldPreferRenderableTurn(current, turn)) {
+			byClientMessageId.set(clientMessageId, turn);
+		}
+	}
+	return [...withoutClientMessageId, ...byClientMessageId.values()].sort(
+		(a, b) => a.sequence - b.sequence || a.createdAt.localeCompare(b.createdAt),
+	);
+}
+
 function getFinalMessageDurationMs(turn: SessionTurnRecord) {
 	const raw = turn.meta?.finalMessageDurationMs;
 	return typeof raw === "number" && raw > 0 ? raw : null;
@@ -132,7 +186,7 @@ export function buildTurnTimelineItems(input: {
 				input.streaming.status === "streaming"),
 	);
 	let streamingProcessInserted = false;
-	for (const turn of input.turns) {
+	for (const turn of dedupeRenderableTurnsByClientMessageId(input.turns)) {
 		items.push({
 			id: `turn:${turn.id}:user`,
 			kind: "message",
