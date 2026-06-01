@@ -86,6 +86,7 @@ function createHandle(session: FakeSession): SessionHandle {
     currentAssistantMessageOrdinal: null,
     currentStreamMessageId: null,
     currentLlmRound: null,
+    currentAccessMode: null,
     ownerEpoch: 0,
     lastActiveAt: Date.now(),
     idleTimer: null,

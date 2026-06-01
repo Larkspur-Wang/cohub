@@ -18,6 +18,7 @@ import { markMessageAsFull, summarizeMessageForHistory } from "../session-conten
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
+import type { PromptAccessMode } from "@cohub/core/sessions";
 import { submitSessionPrompt } from "../session-prompts.js";
 import { createSessionFork } from "../session-forks.js";
 import { buildSessionTurnResponse } from "../session-turn-response.js";
@@ -40,7 +41,8 @@ function promptInputError(error: unknown): string | null {
     error.message.includes("userId") ||
     error.message.includes("Invalid image") ||
     error.message.includes("Invalid content block") ||
-    error.message.includes("shell command is empty")
+    error.message.includes("shell command is empty") ||
+    error.message.includes("shell_command is not allowed")
   ) {
     return error.message;
   }
@@ -407,12 +409,6 @@ router.post("/:id/messages", async (c) => {
 
   const session = await getSpaceSessionById(sessionId);
   if (!session) return c.json({ message: "session not found" }, 404);
-  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId: session.spaceId, sessionId: session.id }))) {
-    return authzDenied(c);
-  }
-
-  const space = await getSpaceById(session.spaceId);
-  if (!space) return c.json({ message: "space not found" }, 404);
 
   const body = await c.req.json<{
     content: ContentBlock[];
@@ -420,11 +416,23 @@ router.post("/:id/messages", async (c) => {
     provider?: string;
     clientMessageId?: string | null;
     generationPolicy?: unknown;
+    accessMode?: PromptAccessMode | null;
   }>().catch(() => null);
 
   if (!validatePromptContentBlocks(body?.content)) {
     return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
   }
+  const accessMode = body.accessMode ?? "full_access";
+  if (accessMode !== "read_only" && accessMode !== "full_access") {
+    return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
+  }
+  const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
+  if (!(await hasPermission(user, promptPermission, { spaceId: session.spaceId, sessionId: session.id }))) {
+    return authzDenied(c);
+  }
+
+  const space = await getSpaceById(session.spaceId);
+  if (!space) return c.json({ message: "space not found" }, 404);
 
   const generationPolicy = body?.generationPolicy === undefined || body.generationPolicy === null
     ? null
@@ -444,6 +452,7 @@ router.post("/:id/messages", async (c) => {
       model: body.model ?? null,
       provider: body.provider ?? null,
       generationPolicy,
+      accessMode,
       context: { kind: "web_app" },
     });
     const response = await buildSessionTurnResponse(session, turnId);

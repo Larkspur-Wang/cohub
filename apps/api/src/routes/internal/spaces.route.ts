@@ -17,7 +17,7 @@ import {
 import { abortSessionTurn, failSessionTurn, interruptSessionTurn } from "../../session-turns.js";
 import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output.js";
-import { submitSessionPrompt, type SubmitSessionPromptContext } from "../../session-prompts.js";
+import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
@@ -381,6 +381,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
       source?: string | null;
       model?: string | null;
       provider?: string | null;
+      accessMode?: PromptAccessMode | null;
       context?: SubmitSessionPromptContext | null;
     }>()
     .catch(() => null);
@@ -389,7 +390,12 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   }
   const userId = body.userId?.trim();
   if (!userId) return c.json({ message: "userId is required" }, 400);
-  if (!(await hasPermission({ uuid: userId }, "session.prompt.fullaccess", { spaceId, sessionId }))) {
+  const accessMode = body.accessMode ?? "full_access";
+  if (accessMode !== "read_only" && accessMode !== "full_access") {
+    return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
+  }
+  const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
+  if (!(await hasPermission({ uuid: userId }, promptPermission, { spaceId, sessionId }))) {
     return c.json({ message: "forbidden" }, 403);
   }
   const clientMessageId = body.clientMessageId?.trim();
@@ -405,6 +411,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
       source: body.source?.trim() || "scheduled_task",
       model: body.model ?? null,
       provider: body.provider ?? null,
+      accessMode,
       context: body.context ?? null,
     });
     return c.json({ ok: true, ...result });

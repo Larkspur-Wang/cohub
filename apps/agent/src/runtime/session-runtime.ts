@@ -1,4 +1,4 @@
-import type { Agent, AgentEvent, AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
 import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
 import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { context, trace, type Span } from "@opentelemetry/api";
@@ -28,15 +28,14 @@ export type CohubAgentSession = {
   enqueueSteer(text: string, images?: ImageContent[]): void;
   waitForIdle(): Promise<void>;
   setModel(model: Model<Api>): Promise<void>;
+  configureTools(tools: ToolLike[]): Promise<void>;
   reload(): Promise<void>;
   abort(): Promise<void>;
   dispose(): void;
   subscribe(listener: (event: CohubAgentSessionEvent) => void): () => void;
 };
 
-type ToolLike = {
-  name: string;
-};
+type ToolLike = AgentTool;
 
 const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
@@ -425,13 +424,15 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     options.sessionManager.appendThinkingLevelChange(model.reasoning ? "medium" : "off");
   }
 
-  const systemPrompt = await buildCohubSystemPrompt({
+  const buildSystemPromptForTools = (tools: ToolLike[]) => buildCohubSystemPrompt({
     cwd: options.cwd,
     userId: options.userId,
-    selectedTools: options.tools.map((tool) => tool.name),
-    toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
+    selectedTools: tools.map((tool) => tool.name),
+    toolSnippets: Object.fromEntries(tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
     spaceMods: options.spaceMods ?? [],
   });
+
+  const systemPrompt = await buildSystemPromptForTools(options.tools);
 
   const agent = new PiAgent({
     initialState: {
@@ -637,16 +638,12 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       agent.state.model = nextModel;
       options.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
     },
+    async configureTools(tools) {
+      agent.state.systemPrompt = await buildSystemPromptForTools(tools);
+      agent.state.tools = tools as never;
+    },
     async reload() {
-      const nextPrompt = await buildCohubSystemPrompt({
-        cwd: options.cwd,
-        userId: options.userId,
-        selectedTools: options.tools.map((tool) => tool.name),
-        toolSnippets: Object.fromEntries(options.tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
-        spaceMods: options.spaceMods ?? [],
-      });
-      agent.state.systemPrompt = nextPrompt;
-      agent.state.tools = options.tools as never;
+      await this.configureTools(options.tools);
     },
     async abort() {
       retryCancelled = true;

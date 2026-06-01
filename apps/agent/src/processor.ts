@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { context, trace } from "@opentelemetry/api";
 import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttributes } from "@cohub/infra/tracing";
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
@@ -25,6 +25,7 @@ import { setActiveAbortController, clearActiveAbortController } from "./active-t
 import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
+import type { PromptAccessMode } from "@cohub/core/sessions";
 
 
 const sessionHandles = new Map<string, SessionHandle>();
@@ -530,6 +531,28 @@ function resolveActorUserId(ownerMeta: Record<string, unknown>) {
   return typeof ownerMeta.userId === "string" && ownerMeta.userId.trim() ? ownerMeta.userId.trim() : null;
 }
 
+function resolvePromptAccessMode(ownerMeta: Record<string, unknown>): PromptAccessMode {
+  return ownerMeta.accessMode === "read_only" ? "read_only" : "full_access";
+}
+
+function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): PromptAccessMode {
+  return batch.turns.some((turn) => resolvePromptAccessMode(turn.meta && typeof turn.meta === "object" && !Array.isArray(turn.meta) ? turn.meta as Record<string, unknown> : {}) === "read_only")
+    ? "read_only"
+    : "full_access";
+}
+
+function filterToolsForAccessMode(allTools: AgentTool[], accessMode: PromptAccessMode) {
+  if (accessMode === "full_access") return allTools;
+  const readOnlyTools = new Set(["read", "ls", "find", "grep"]);
+  return allTools.filter((tool) => readOnlyTools.has(tool.name));
+}
+
+async function configureHandleAccessMode(handle: SessionHandle, accessMode: PromptAccessMode) {
+  if (handle.currentAccessMode === accessMode) return;
+  await handle.session.configureTools(filterToolsForAccessMode(tools, accessMode));
+  handle.currentAccessMode = accessMode;
+}
+
 function formatTurnFailureMessage(error: unknown) {
   if (error instanceof Error) return error.message || error.name;
   return String(error);
@@ -615,6 +638,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         ? batch.ownerTurn.meta as Record<string, unknown>
         : {});
       const actorUserId = resolveActorUserId(ownerMeta);
+      const accessMode = resolveBatchAccessMode(batch);
       const generationPolicy = normalizeGenerationPolicy(ownerMeta.generationPolicy);
       const executionAuth = (ownerMeta.executionAuth && typeof ownerMeta.executionAuth === "object" && !Array.isArray(ownerMeta.executionAuth)
         ? ownerMeta.executionAuth as { token?: string; expiresAt?: number }
@@ -638,8 +662,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         ownerUserId,
         requestedModel: resolveRequestedModel(ownerMeta),
       });
+      try {
+        await configureHandleAccessMode(handle, accessMode);
+      } catch (error) {
+        logger.error(`[Agent] failed to configure tools sessionId=${data.sessionId} turnId=${batch.ownerTurn.id} accessMode=${accessMode}:`, error);
+        throw error;
+      }
 
-      warmupSandboxConnection(data.spaceId);
+      if (accessMode === "full_access") warmupSandboxConnection(data.spaceId);
 
       const turnUserMessages: TurnUserMessage[] = buildUserMessagesForBatch(batch)
         .filter((item) => Boolean(item.userMessageId))
@@ -684,7 +714,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         .filter((item) => !hasSessionUserMessage(handle, item.userMessageId))
         .map((item) => contentToAgentMessage(item.content, normalizeTurnUserMeta(item)));
 
-      const directShellItem = turnUserMessages.length === 1 ? turnUserMessages[0] : null;
+      const directShellItem = accessMode === "full_access" && turnUserMessages.length === 1 ? turnUserMessages[0] : null;
       const directShellCommand = directShellItem ? getShellCommandBlock(directShellItem.content) : null;
       if (directShellItem && directShellCommand) {
         await wrapAgentTurn(agentTracer, {

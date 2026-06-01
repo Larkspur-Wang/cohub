@@ -64,6 +64,13 @@ type SpacePromptSchedule =
   | { mode: "at"; sendAt?: string }
   | { mode: "repeat"; cronExpression?: string; timezone?: string };
 
+type PromptAccessMode = "read_only" | "full_access";
+
+const normalizePromptAccessMode = (value: unknown): PromptAccessMode | null => {
+  if (value === undefined || value === null) return "full_access";
+  return value === "read_only" || value === "full_access" ? value : null;
+};
+
 type SpacePromptInput = {
   sessionId?: string | null;
   title?: string | null;
@@ -72,6 +79,7 @@ type SpacePromptInput = {
   provider?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: unknown;
+  accessMode?: PromptAccessMode | null;
   schedule?: SpacePromptSchedule | null;
 };
 
@@ -191,7 +199,8 @@ function promptInputError(error: unknown): string | null {
     error.message.includes("userId") ||
     error.message.includes("Invalid image") ||
     error.message.includes("Invalid content block") ||
-    error.message.includes("shell command is empty")
+    error.message.includes("shell command is empty") ||
+    error.message.includes("shell_command is not allowed")
   ) {
     return error.message;
   }
@@ -1164,15 +1173,19 @@ router.post("/:id/prompt", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return authzDenied(c);
-
-  const space = await getSpaceById(spaceId);
-  if (!space) return c.json({ message: "space not found" }, 404);
 
   const body = await c.req.json<SpacePromptInput>().catch(() => null);
   if (!validatePromptContentBlocks(body?.content)) {
     return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
   }
+  const accessMode = normalizePromptAccessMode(body.accessMode);
+  if (!accessMode) return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
+  const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
+  if (!(await hasPermission(user, promptPermission, { spaceId }))) return authzDenied(c);
+
+  const space = await getSpaceById(spaceId);
+  if (!space) return c.json({ message: "space not found" }, 404);
+
   if (body.sessionId && !requireValidId(body.sessionId)) return c.json({ message: "invalid sessionId" }, 400);
 
   let sessionId = body.sessionId?.trim() || null;
@@ -1180,7 +1193,7 @@ router.post("/:id/prompt", async (c) => {
   if (sessionId) {
     const session = await getSpaceSessionById(sessionId);
     if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
-    if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId, sessionId }))) {
+    if (!(await hasPermission(user, promptPermission, { spaceId, sessionId }))) {
       return authzDenied(c);
     }
     promptSession = session;
@@ -1206,6 +1219,7 @@ router.post("/:id/prompt", async (c) => {
     content,
     clientMessageId,
     ...(generationPolicy ? { generationPolicy } : {}),
+    ...(accessMode !== "full_access" ? { accessMode } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(body.title ? { title: body.title } : {}),
     ...(body.model ? { model: body.model } : {}),
@@ -1237,6 +1251,7 @@ router.post("/:id/prompt", async (c) => {
         model: body.model ?? null,
         provider: body.provider ?? null,
         generationPolicy,
+        accessMode,
         context: { kind: "public_api" },
       });
       const response = await buildSpacePromptTurnResponse(promptSession ?? await getSpaceSessionById(sessionId), turnId);

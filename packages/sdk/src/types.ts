@@ -538,6 +538,8 @@ export type SpaceSessionsResponse = {
   };
 };
 
+export type PromptAccessMode = "read_only" | "full_access";
+
 export type CreateSpacePromptInput = {
   sessionId?: string | null;
   title?: string | null;
@@ -546,6 +548,7 @@ export type CreateSpacePromptInput = {
   provider?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: GenerationPolicy | null;
+  accessMode?: PromptAccessMode | null;
   schedule?:
     | { mode?: "immediate" }
     | { mode: "delay"; delayMs: number }

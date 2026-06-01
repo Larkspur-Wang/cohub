@@ -58,6 +58,8 @@ export type PromptTemplateUsageMeta = {
   args: string[];
 };
 
+export type PromptAccessMode = "read_only" | "full_access";
+
 export type SubmitSessionPromptInput = {
   spaceId: string;
   sessionId: string;
@@ -68,6 +70,7 @@ export type SubmitSessionPromptInput = {
   model?: string | null;
   provider?: string | null;
   generationPolicy?: GenerationPolicy | null;
+  accessMode?: PromptAccessMode | null;
   context?: SubmitSessionPromptContext | null;
 };
 
@@ -237,15 +240,21 @@ export const submitSessionPrompt = async (
     spaceId: input.spaceId,
   });
   const content = normalizeContentBlocks(expandedContent);
+  const accessMode = input.accessMode ?? "full_access";
 
   const isDirectShellCommand = content.length === 1 && content[0]?.type === "shell_command";
+  if (accessMode === "read_only" && isDirectShellCommand) {
+    throw new Error("shell_command is not allowed in read_only accessMode");
+  }
   const inputIntent = isDirectShellCommand ? "shell_command" : "steer";
-  const executionGrant = await deps.createExecutionGrant({
-    actorUserId: userId,
-    spaceId: input.spaceId,
-    sessionId: input.sessionId,
-    source: input.source,
-  });
+  const executionGrant = accessMode === "full_access"
+    ? await deps.createExecutionGrant({
+      actorUserId: userId,
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      source: input.source,
+    })
+    : null;
 
   const userMessageId = deps.randomUUID();
   const baseMeta = {
@@ -259,6 +268,7 @@ export const submitSessionPrompt = async (
     provider: input.provider ?? null,
     promptTemplate,
     generationPolicy: input.generationPolicy ?? null,
+    accessMode,
     context: input.context ?? null,
     executionAuth: executionGrant,
   };

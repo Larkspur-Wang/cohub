@@ -1,5 +1,6 @@
 import type {
   ChannelPromptContext,
+  PromptAccessMode,
   PromptSource,
   PromptTemplateUsageMeta,
   PublicApiPromptContext,
@@ -17,6 +18,7 @@ import { getSessionDomainServices } from "./session-services.js";
 
 export type {
   ChannelPromptContext,
+  PromptAccessMode,
   PromptSource,
   PromptTemplateUsageMeta,
   PublicApiPromptContext,
