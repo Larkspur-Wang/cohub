@@ -174,7 +174,6 @@ import {
 	clearCachedSpaceFsSubtree,
 	fetchSpaceFsDirWithCache,
 	getCachedSpaceFsDir,
-	getCachedSpaceFsDirMeta,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
@@ -4956,6 +4955,7 @@ async function loadFileTree(force = false) {
 	fileTreeRequestToken = requestToken;
 	if (!force) {
 		const cached = await getCachedSpaceFsDir(spaceId, "");
+		if (requestToken !== fileTreeRequestToken) return;
 		if (cached && cached.length > 0) {
 			fileTree = makeFsNodes(cached, fileTree);
 		}
@@ -4966,12 +4966,6 @@ async function loadFileTree(force = false) {
 		fileTreeLoading = true;
 	}
 	fileTreeError = null;
-	const cacheMeta = await getCachedSpaceFsDirMeta(spaceId, "");
-	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
-	if (!shouldFetch) {
-		fileTreeLoading = false;
-		return;
-	}
 	try {
 		const entries = await fetchSpaceFsDirWithCache(
 			spaceId,
@@ -4980,7 +4974,7 @@ async function loadFileTree(force = false) {
 				const tree = await sdk.space(spaceId).files.list("");
 				return tree.entries;
 			},
-			{ force },
+			{ force: true },
 		);
 		if (requestToken !== fileTreeRequestToken) return;
 		fileTree = makeFsNodes(entries, fileTree);
@@ -6139,7 +6133,7 @@ $effect(() => {
 				void refreshSessionsList(false);
 				void loadSpacePins();
 				void loadPreviewEndpoints();
-				void loadFileTree(true);
+				void loadFileTree();
 				void loadSpaceCheckpoints();
 				if (routeView === "space") void loadTokenUsage(7);
 				if (routeView === "session" && routeSessionId) {
