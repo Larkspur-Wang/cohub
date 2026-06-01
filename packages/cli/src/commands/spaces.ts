@@ -21,6 +21,7 @@ type PromptOptions = {
   title?: string;
   model?: string;
   provider?: string;
+  readOnly?: boolean;
   delayMs?: string;
   at?: string;
   cron?: string;
@@ -212,6 +213,7 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
       content: [{ type: "text", text: content }],
       model: opts.model,
       provider: opts.provider,
+      accessMode: opts.readOnly ? "read_only" : "full_access",
       schedule,
     });
     if (jsonRequested(opts)) return outJson(result);
@@ -231,6 +233,7 @@ export function registerPrompt(program: Command): void {
     .option("--title <title>", "Title for a newly created session or schedule")
     .option("-m, --model <model>", "Model name")
     .option("-p, --provider <provider>", "Provider name")
+    .option("--read-only", "Use read-only tools")
     .option("--delay-ms <ms>", "Delay sending by milliseconds")
     .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
@@ -384,6 +387,7 @@ export function registerSpaces(program: Command): void {
     .option("--title <title>", "Title for a newly created session or schedule")
     .option("-m, --model <model>", "Model name")
     .option("-p, --provider <provider>", "Provider name")
+    .option("--read-only", "Use read-only tools")
     .option("--delay-ms <ms>", "Delay sending by milliseconds")
     .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
