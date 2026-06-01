@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
+import { recordJobFailure } from "@cohub/infra/bullmq";
 import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";
 import {
   buildRunCommandToolContent,
@@ -172,6 +173,15 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       } satisfies AgentRunCommandJobResult;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      await recordJobFailure(job, error, {
+        reason: "run_command_failed",
+        meta: {
+          spaceId: data.spaceId,
+          taskRunId: data.taskRunId,
+          cwd: data.cwd,
+          outputTail: latestOutput.slice(-2000),
+        },
+      });
       logger.warn(`[RunCommand] infrastructure failure spaceId=${data.spaceId} taskRunId=${data.taskRunId}: ${errorMessage}`);
       throw error;
     }

@@ -3,6 +3,7 @@ import { BullMQOtel } from "bullmq-otel";
 import { Redis, type RedisOptions } from "ioredis";
 import { createLogger } from "../logging/logger.js";
 
+export * from "./job-diagnostics.js";
 
 const logger = createLogger({ serviceName: "cohub-infra" });
 export const COHUB_TASKS_QUEUE = "cohub-tasks";

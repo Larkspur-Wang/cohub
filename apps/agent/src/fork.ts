@@ -1,3 +1,4 @@
+import { recordJobFailure } from "@cohub/infra/bullmq";
 import { extractTrace, runInActiveSpan } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getAgentSessionFilePath, getAgentSpaceSessionsPath } from "./runtime/paths.js";
@@ -6,7 +7,7 @@ import type { AgentSessionForkJobData } from "./queue.js";
 
 const tracer = getAgentTracer();
 
-export async function processSessionForkJob(job: { data: AgentSessionForkJobData; id?: string; attemptsMade?: number; timestamp?: number; processedOn?: number; delay?: number }) {
+export async function processSessionForkJob(job: import("bullmq").Job<AgentSessionForkJobData>) {
   const data = job.data;
   const queueWaitMs = getQueueWaitMs(job);
   const parentCtx = extractTrace((data.trace ?? data) as Record<string, unknown>);
@@ -27,17 +28,31 @@ export async function processSessionForkJob(job: { data: AgentSessionForkJobData
       ...(queueWaitMs != null ? { "agent.queue.wait_ms": queueWaitMs } : {}),
     },
   }, parentCtx, async () => {
-    const parentSessionFile = getAgentSessionFilePath(data.spaceId, data.parentSessionId);
-    const childSessionFile = getAgentSessionFilePath(data.spaceId, data.sessionId);
-    const sessionsDir = getAgentSpaceSessionsPath(data.spaceId);
-    const parentManager = await SessionManager.open(parentSessionFile, sessionsDir);
-    const branchFile = await parentManager.createBranchedSession(data.anchorEntryId, {
-      id: data.sessionId,
-      filePath: childSessionFile,
-      parentSession: parentSessionFile,
-    });
-    if (!branchFile) throw new Error("Failed to create forked session file");
-    return { sessionId: data.sessionId, branchFile };
+    try {
+      const parentSessionFile = getAgentSessionFilePath(data.spaceId, data.parentSessionId);
+      const childSessionFile = getAgentSessionFilePath(data.spaceId, data.sessionId);
+      const sessionsDir = getAgentSpaceSessionsPath(data.spaceId);
+      const parentManager = await SessionManager.open(parentSessionFile, sessionsDir);
+      const branchFile = await parentManager.createBranchedSession(data.anchorEntryId, {
+        id: data.sessionId,
+        filePath: childSessionFile,
+        parentSession: parentSessionFile,
+      });
+      if (!branchFile) throw new Error("Failed to create forked session file");
+      return { sessionId: data.sessionId, branchFile };
+    } catch (error) {
+      await recordJobFailure(job, error, {
+        reason: "session_fork_failed",
+        meta: {
+          spaceId: data.spaceId,
+          sessionId: data.sessionId,
+          parentSessionId: data.parentSessionId,
+          anchorTurnId: data.anchorTurnId,
+          anchorEntryId: data.anchorEntryId,
+        },
+      });
+      throw error;
+    }
   });
 }
 

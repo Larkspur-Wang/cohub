@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
+import { recordJobFailure } from "@cohub/infra/bullmq";
 import { getAgentTracer, wrapToolCall } from "@cohub/infra/tracing/agent";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
@@ -147,17 +148,17 @@ export async function processSandboxBashJob(job: Job<AgentSandboxBashUploadJobDa
     latestOutput = extractResultText(result) || latestOutput;
     const exitCode = getExitCode(result);
     if (exitCode !== 0) {
-      const failure = {
-        stage: "failed",
-        reason: "command_failed",
-        ...logMeta,
-        exitCode,
-        outputTail: latestOutput.slice(-2000),
-      };
-      await job.updateProgress(failure);
-      await job.log(JSON.stringify(failure));
+      const error = new Error(latestOutput || `sandbox_bash upload_files failed with exit code ${exitCode ?? "unknown"}`);
+      const failure = await recordJobFailure(job, error, {
+        reason: "sandbox_bash_command_failed",
+        meta: {
+          ...logMeta,
+          exitCode,
+          outputTail: latestOutput.slice(-2000),
+        },
+      });
       logger.error("[SandboxBash] upload command failed", failure);
-      throw new Error(latestOutput || `sandbox_bash upload_files failed with exit code ${exitCode ?? "unknown"}`);
+      throw error;
     }
   }));
 
@@ -171,15 +172,13 @@ export async function processSandboxBashJob(job: Job<AgentSandboxBashUploadJobDa
     });
     return { ok: true, uploaded, output: latestOutput };
   } catch (error) {
-    const failure = {
-      stage: "failed",
-      reason: "result_parse_failed",
-      ...logMeta,
-      error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
-      outputTail: latestOutput.slice(-2000),
-    };
-    await job.updateProgress(failure);
-    await job.log(JSON.stringify(failure));
+    const failure = await recordJobFailure(job, error, {
+      reason: "sandbox_bash_result_parse_failed",
+      meta: {
+        ...logMeta,
+        outputTail: latestOutput.slice(-2000),
+      },
+    });
     logger.error("[SandboxBash] upload result parse failed", error, failure);
     throw error;
   }

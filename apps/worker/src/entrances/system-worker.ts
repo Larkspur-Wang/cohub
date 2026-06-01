@@ -8,6 +8,7 @@ import {
   resolveQueueConcurrencyPerWorkerByName,
   attachWorkerEventLogger,
   closeWorkerGracefully,
+  recordJobFailure,
   createBullmqRedisConnection,
   createQueueTelemetry,
   getRedisHost,
@@ -47,6 +48,13 @@ const processor: Processor = async (job) => {
     } catch (err) {
       span.recordException(err instanceof Error ? err : new Error(String(err)));
       span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+      await recordJobFailure(job, err, {
+        reason: "system_job_failed",
+        meta: {
+          jobName: job.name,
+          queueName: job.queueName,
+        },
+      });
       throw err;
     } finally {
       span.end();

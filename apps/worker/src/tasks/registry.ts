@@ -1,4 +1,5 @@
 import type { Job } from "bullmq";
+import { recordJobFailure } from "@cohub/infra/bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { eq } from "drizzle-orm";
 import { db } from "../db.js";
@@ -118,6 +119,17 @@ export const registerTask = (type: string, handler: TaskHandler) => {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      await recordJobFailure(job, error, {
+        reason: "task_failed",
+        meta: {
+          taskRunId,
+          taskType: job.name,
+          spaceId: payload.spaceId ?? null,
+          sessionId: payload.sessionId ?? null,
+          turnId: payload.turnId ?? null,
+          cronJobId: payload.cronJobId ?? null,
+        },
+      });
 
       const [taskRun] = await db
         .update(taskRuns)
