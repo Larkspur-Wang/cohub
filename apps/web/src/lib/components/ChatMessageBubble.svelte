@@ -150,26 +150,46 @@ function toggleThinking() {
 // ─── Meta bar: time, model, tokens, copy ───
 
 // Time display
-const shortTime = $derived(
-	message.createdAt
-		? new Date(message.createdAt).toLocaleTimeString("en-GB", {
-				hour: "2-digit",
-				minute: "2-digit",
-				second: "2-digit",
-			})
-		: "",
+function isValidDate(date: Date): boolean {
+	return !Number.isNaN(date.getTime());
+}
+
+function padDatePart(value: number): string {
+	return String(value).padStart(2, "0");
+}
+
+function formatLocalTime(date: Date, includeSeconds = false): string {
+	const parts = [date.getHours(), date.getMinutes()];
+	if (includeSeconds) parts.push(date.getSeconds());
+	return parts.map(padDatePart).join(":");
+}
+
+function formatLocalDateTime(date: Date, includeSeconds = false): string {
+	return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())} ${formatLocalTime(date, includeSeconds)}`;
+}
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+	return (
+		a.getFullYear() === b.getFullYear() &&
+		a.getMonth() === b.getMonth() &&
+		a.getDate() === b.getDate()
+	);
+}
+
+const messageCreatedAtDate = $derived(
+	message.createdAt ? new Date(message.createdAt) : null,
 );
 
+const timeDisplay = $derived.by(() => {
+	if (!messageCreatedAtDate || !isValidDate(messageCreatedAtDate)) return "";
+	return isSameLocalDay(messageCreatedAtDate, new Date())
+		? formatLocalTime(messageCreatedAtDate)
+		: formatLocalDateTime(messageCreatedAtDate);
+});
+
 const fullDateTime = $derived(
-	message.createdAt
-		? new Date(message.createdAt).toLocaleString("en-GB", {
-				year: "numeric",
-				month: "2-digit",
-				day: "2-digit",
-				hour: "2-digit",
-				minute: "2-digit",
-				second: "2-digit",
-			})
+	messageCreatedAtDate && isValidDate(messageCreatedAtDate)
+		? formatLocalDateTime(messageCreatedAtDate, true)
 		: "",
 );
 
@@ -377,7 +397,7 @@ function handleCopy() {
 
     </div>
 
-    {#if (message.role === 'assistant' && (message.meta?.model || shortTime)) || (message.role === 'user' && shortTime)}
+    {#if (message.role === 'assistant' && (message.meta?.model || timeDisplay)) || (message.role === 'user' && timeDisplay)}
       <!-- Meta bar: copy | identity/model | tokens | time -->
       <div class="mt-1 flex items-center gap-1 px-2 text-[11px] text-text-placeholder/50 select-none">
         <!-- Copy button -->
@@ -449,9 +469,9 @@ function handleCopy() {
         {/if}
 
         <!-- Time (always visible on the right) -->
-        {#if shortTime}
+        {#if timeDisplay}
           <time datetime={message.createdAt} class="ml-auto shrink-0 tabular-nums cursor-default" title={fullDateTime}>
-            {shortTime}
+            {timeDisplay}
           </time>
         {/if}
       </div>
