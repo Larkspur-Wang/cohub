@@ -5,7 +5,7 @@ import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { checkpoints, spaces } from "@cohub/db";
-import { emptyDirectory, ensureSpaceWorkspaceReady, getSpaceWorkspaceDir, runGit } from "../git.js";
+import { assertDirectoryEmpty, ensureSpaceWorkspaceReady, getSpaceWorkspaceDir, runGit } from "../git.js";
 import { publishSpaceFsChanged } from "../space-events.js";
 import { saveCheckpointWithLock } from "../checkpoint/save.js";
 import { saveCheckpointForSpace } from "./save-checkpoint-task.js";
@@ -104,7 +104,7 @@ const buildCloneUrl = (repoUrl: string, token?: string) => {
 
 const bootstrapFromGitRepo = async (input: { workspaceDir: string; repoUrl: string; ref?: string | null; gitToken?: string }) => {
   const repoUrl = assertRepoUrl(input.repoUrl, Boolean(input.gitToken));
-  await emptyDirectory(input.workspaceDir);
+  await assertDirectoryEmpty(input.workspaceDir);
   await runGit(["clone", buildCloneUrl(repoUrl, input.gitToken), "."], input.workspaceDir);
   if (input.ref) await runGit(["checkout", ensureValidGitRef(input.ref)], input.workspaceDir);
   await runGit(["remote", "set-url", "origin", repoUrl], input.workspaceDir).catch(() => undefined);
@@ -238,8 +238,8 @@ const createSpaceHandler = async (job: Job) => {
         stageTimings.bootstrapFromGitRepo = duration;
       } else {
         await progress("prepare_blank_workspace");
-        const { duration } = await timeIt("bootstrapBlankSpace", () => emptyDirectory(workspaceDir));
-        stageTimings.bootstrapBlankSpace = duration;
+        const { duration } = await timeIt("assertWorkspaceEmpty", () => assertDirectoryEmpty(workspaceDir));
+        stageTimings.assertWorkspaceEmpty = duration;
       }
 
       await progress("save_initial_checkpoint");

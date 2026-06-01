@@ -12,7 +12,7 @@ import { config } from "../config.js";
 import { getCheckpointSystemRepoDir, CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, USER_GIT_REPOS_PATH } from "./paths.js";
 import { ensureGitRepo, runGit } from "./git.js";
 import { getCheckpointAssetClient } from "./assets.js";
-import { emptyDirectory } from "../git.js";
+import { assertDirectoryEmpty } from "../git.js";
 
 type AssetManifest = {
   version: number;
@@ -118,7 +118,7 @@ async function archiveSourceCommit(input: { sourceRepoDir: string; commitHash: s
 }
 
 async function restoreFilesFromArchive(input: { restoreTmpDir: string; targetDir: string; assetManifest: AssetManifest }) {
-  await emptyDirectory(input.targetDir);
+  await assertDirectoryEmpty(input.targetDir);
   const assets = new Map((input.assetManifest.assets ?? []).map((asset) => [assertSafeRelativePath(asset.path), asset]));
   const entries = await collectArchiveEntries(input.restoreTmpDir);
   await Promise.all(entries.dirs.map(async (rel) => {

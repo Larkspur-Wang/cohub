@@ -1,4 +1,4 @@
-import { chmod, mkdir, readdir, rm, stat, unlink } from "node:fs/promises";
+import { chmod, mkdir, readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { config } from "./config.js";
@@ -23,9 +23,14 @@ export const ensureSpaceWorkspaceReady = async (spaceId: string) => {
   return { spaceBaseDir, workspaceDir };
 };
 
-export const emptyDirectory = async (dir: string) => {
-  const names = await readdir(dir).catch(() => []);
-  await Promise.all(names.map((name) => rm(join(dir, name), { recursive: true, force: true })));
+export const listDirectoryNames = async (dir: string) => readdir(dir).catch(() => []);
+
+export const assertDirectoryEmpty = async (dir: string) => {
+  const names = await listDirectoryNames(dir);
+  if (names.length > 0) {
+    const preview = names.slice(0, 20).join(", ");
+    throw new Error(`refusing to bootstrap into non-empty workspace: ${preview}${names.length > 20 ? ", ..." : ""}`);
+  }
 };
 
 /**
