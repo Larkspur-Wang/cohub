@@ -7,6 +7,7 @@ import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { isSandboxUsableStatus } from "@cohub/sandbox-controller";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
+import { initializeSessionParticipantsMeta, readSessionParticipantUserUuids } from "@cohub/core/sessions";
 import { db } from "./db/index.js";
 import {
   sessionMessages,
@@ -29,6 +30,7 @@ import { finalizeSessionTurnFromMessage, hydrateTurnAuthorProfiles } from "./ses
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "./billing/index.js";
 
 
@@ -304,15 +306,23 @@ export const ensureRootSessionTurnSegment = async (sessionId: string) => {
   });
 };
 
+const normalizeRequiredUserUuid = (userUuid: string | null | undefined) => {
+  const normalized = userUuid?.trim();
+  if (!normalized) throw new Error("userUuid is required");
+  return normalized;
+};
+
 export const createInitialSpaceSession = async (input: RegisterSessionInput) => {
+  const userUuid = normalizeRequiredUserUuid(input.userUuid);
   const [session] = await db.insert(spaceSessions).values({
     id: input.sessionId,
     spaceId: input.spaceId,
+    userUuid,
     title: input.title ?? null,
     source: input.source ?? null,
     status: "active",
     externalSessionId: input.externalSessionId ?? null,
-    meta: input.meta ?? null,
+    meta: sanitizePostgresJsonValue(initializeSessionParticipantsMeta(input.meta, userUuid)),
     lastMessageAt: new Date(),
     lastMessageId: null,
   }).returning();
@@ -328,15 +338,18 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
   const space = await getSpaceById(input.spaceId);
   if (!space) throw new Error("Space not found");
 
+  const userUuid = normalizeRequiredUserUuid(input.userUuid);
+
   try {
     const [session] = await db.insert(spaceSessions).values({
       id: input.sessionId,
       spaceId: input.spaceId,
+      userUuid,
       title: input.title ?? null,
       source: input.source ?? null,
       status: "active",
       externalSessionId: input.externalSessionId ?? null,
-      meta: input.meta ?? null,
+      meta: sanitizePostgresJsonValue(initializeSessionParticipantsMeta(input.meta, userUuid)),
       lastMessageAt: new Date(),
       lastMessageId: null,
     }).returning();
@@ -382,6 +395,27 @@ const decodeSessionListCursor = (cursor: string | null | undefined) => {
   return { date, id };
 };
 
+export const hydrateSessionParticipantProfiles = async <T extends typeof spaceSessions.$inferSelect>(sessions: T[]) => {
+  const allUserUuids = new Set<string>();
+  for (const session of sessions) {
+    if (session.userUuid?.trim()) allUserUuids.add(session.userUuid.trim());
+    for (const userUuid of readSessionParticipantUserUuids(session.meta)) allUserUuids.add(userUuid);
+  }
+
+  const profiles = await getProfilesByUuids([...allUserUuids]);
+  return sessions.map((session) => {
+    const participantUserUuids = readSessionParticipantUserUuids(session.meta);
+    const userUuid = session.userUuid?.trim() || null;
+    return {
+      ...session,
+      userUuid,
+      userProfile: userUuid ? profiles.get(userUuid) ?? fallbackPublicUserProfile(userUuid) : null,
+      participantUserUuids,
+      participantProfiles: participantUserUuids.map((uuid) => profiles.get(uuid) ?? fallbackPublicUserProfile(uuid)),
+    };
+  });
+};
+
 export const listSpaceSessions = async (
   spaceId: string,
   options?: { limit?: number; cursor?: string | null },
@@ -424,12 +458,6 @@ export const listSpaceSessions = async (
       nextCursor: hasMore ? encodeSessionListCursor(lastSession) : null,
     },
   };
-};
-
-export const getSpaceSessionBootstrap = async (spaceSessionId: string) => {
-  const session = await getSpaceSessionById(spaceSessionId);
-  if (!session) return null;
-  return { session };
 };
 
 const getNextSessionSequence = async (sessionId: string) => {

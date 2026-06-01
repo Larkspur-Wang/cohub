@@ -3,6 +3,8 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
+import { sanitizePostgresJsonValue } from "../content/sanitize.js";
+import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
 import type { ExecutionGrantService } from "../security/index.js";
 import { recomputeSpaceWsUsers } from "../spaces/index.js";
 import { submitSessionPrompt, type ExpandedPromptTemplate, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
@@ -98,7 +100,9 @@ export function createSessionServices(input: {
     });
   }
 
-  async function registerCronjobSession(spaceId: string, options: { source: string; title?: string | null }) {
+  async function registerCronjobSession(spaceId: string, options: { source: string; title?: string | null; userUuid: string }) {
+    const userUuid = options.userUuid.trim();
+    if (!userUuid) throw new Error("userUuid is required");
     const [space] = await input.db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
     if (!space) throw new Error("space not found");
 
@@ -106,11 +110,12 @@ export function createSessionServices(input: {
     const [session] = await input.db.insert(spaceSessions).values({
       id: sessionId,
       spaceId,
+      userUuid,
       title: options.title ?? null,
       source: options.source,
       status: "active",
       externalSessionId: null,
-      meta: { createdBy: "cronjob" },
+      meta: sanitizePostgresJsonValue(initializeSessionParticipantsMeta({ createdBy: "cronjob" }, userUuid)),
       lastMessageAt: new Date(),
       lastMessageId: null,
     }).returning();
@@ -128,7 +133,7 @@ export function createSessionServices(input: {
   }) {
     const userText = deriveMessagePreviewText({ content: turnInput.userContent }) || null;
     const [row] = await input.db.transaction(async (tx) => {
-      const [sessionRow] = await tx.execute(sql`select id from v2.space_sessions where id = ${turnInput.sessionId} for update`);
+      const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, turnInput.sessionId)).for("update").limit(1);
       if (!sessionRow) throw new Error("session not found");
       const [seqRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, turnInput.sessionId));
       const [localSegment] = await tx.select({ fromSequence: sessionTurnSegments.fromSequence }).from(sessionTurnSegments).where(and(
@@ -137,6 +142,9 @@ export function createSessionServices(input: {
         isNull(sessionTurnSegments.toSequence),
       )).orderBy(desc(sessionTurnSegments.ordinal)).limit(1);
       const sequence = seqRow?.max ? (seqRow.max + 1) : (localSegment?.fromSequence ?? 1);
+      await tx.update(spaceSessions).set({
+        meta: sanitizePostgresJsonValue(addSessionParticipantMeta(sessionRow.meta, turnInput.userUuid)),
+      }).where(eq(spaceSessions.id, turnInput.sessionId));
       return tx.insert(sessionTurns).values({
         sessionId: turnInput.sessionId,
         sequence,

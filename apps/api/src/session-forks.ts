@@ -1,7 +1,9 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
 import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
+import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
+import { setSessionParticipantsMeta } from "@cohub/core/sessions";
 
 type SegmentRow = typeof sessionTurnSegments.$inferSelect;
 type ForkRow = typeof sessionForks.$inferSelect;
@@ -141,6 +143,8 @@ export async function createSessionFork(input: {
   createdBy?: string | null;
 }) {
   const now = new Date();
+  const createdBy = input.createdBy?.trim();
+  if (!createdBy) throw new Error("createdBy is required");
   const result = await db.transaction(async (tx) => {
     const [anchorTurn] = await tx.select().from(sessionTurns).where(eq(sessionTurns.id, input.turnId)).limit(1);
     if (!anchorTurn) throw new Error("Turn not found");
@@ -177,22 +181,41 @@ export async function createSessionFork(input: {
     const sessionPath = [...ancestorSessionIds, input.childSessionId];
     const depth = parentFork ? parentFork.depth + 1 : 1;
 
+    const clipped = clipSegments(parentSegments, anchorSequence);
+    if (clipped.length > 128) throw new Error("Fork chain is too deep");
+    const childSegments = [
+      ...clipped,
+      { sourceSessionId: input.childSessionId, fromSequence: anchorSequence + 1, toSequence: null },
+    ];
+    const visibleTurnUserUuids = new Set<string>();
+    for (const segment of childSegments) {
+      const toSequence = segment.toSequence ?? anchorSequence;
+      if (toSequence < segment.fromSequence) continue;
+      const rows = await tx.select({ userUuid: sessionTurns.userUuid }).from(sessionTurns).where(and(
+        eq(sessionTurns.sessionId, segment.sourceSessionId),
+        gte(sessionTurns.sequence, segment.fromSequence),
+        lte(sessionTurns.sequence, toSequence),
+      ));
+      for (const row of rows) if (row.userUuid?.trim()) visibleTurnUserUuids.add(row.userUuid.trim());
+    }
+
     const [child] = await tx.insert(spaceSessions).values({
       id: input.childSessionId,
       spaceId: input.spaceId,
+      userUuid: createdBy,
       title: input.title ?? parent.title ?? null,
       source: parent.source,
       status: "active",
       externalSessionId: null,
-      meta: {
+      meta: sanitizePostgresJsonValue(setSessionParticipantsMeta({
         ...((parent.meta && typeof parent.meta === "object" && !Array.isArray(parent.meta)) ? parent.meta as Record<string, unknown> : {}),
         fork: {
           version: 1,
           kind: "turn",
           createdAt: now.toISOString(),
-          createdBy: input.createdBy ?? null,
+          createdBy,
         },
-      },
+      }, [createdBy, ...visibleTurnUserUuids], now)),
       lastMessageAt: now,
       lastMessageId: null,
       latestMessageText: anchorTurn.userText ?? parent.latestMessageText ?? null,
@@ -210,16 +233,10 @@ export async function createSessionFork(input: {
       anchorSequence,
       ancestorSessionIds,
       sessionPath,
-      createdBy: input.createdBy ?? null,
+      createdBy,
     }).returning();
     if (!fork) throw new Error("Failed to create fork record");
 
-    const clipped = clipSegments(parentSegments, anchorSequence);
-    if (clipped.length > 128) throw new Error("Fork chain is too deep");
-    const childSegments = [
-      ...clipped,
-      { sourceSessionId: child.id, fromSequence: anchorSequence + 1, toSequence: null },
-    ];
     await tx.insert(sessionTurnSegments).values(childSegments.map((segment, index) => ({
       sessionId: child.id,
       ordinal: index + 1,

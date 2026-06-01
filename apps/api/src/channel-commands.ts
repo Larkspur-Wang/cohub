@@ -24,6 +24,7 @@ import { registerSpaceSession } from "./space-sessions.js";
 type ResolvedGatewayInbound = {
   spaceId: string;
   sessionId: string;
+  userId: string;
   spaceChannelId: string;
   conversationId: string;
   bindingKey: string;
@@ -254,6 +255,7 @@ const createFreshSessionForBinding = async (
   const session = await registerSpaceSession({
     spaceId: resolved.spaceId,
     sessionId,
+    userUuid: resolved.userId,
     source: buildSessionSourceChannel(event),
     externalSessionId: null,
     meta: {

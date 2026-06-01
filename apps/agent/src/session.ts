@@ -3,7 +3,7 @@ import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { normalizeContentBlocksSafe } from "@cohub/core/content/normalize";
-import { getSpace, persistAssistantMessage, persistUserMessage, registerSpaceSession, interruptSessionTurn } from "./api.js";
+import { getSpace, persistAssistantMessage, persistUserMessage, interruptSessionTurn } from "./api.js";
 import { sendOutput } from "./redis.js";
 import { logger } from "./logger.js";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
@@ -935,17 +935,6 @@ export async function loadOrCreateSessionHandle(input: {
     clearCurrentSessionExecutionAuth(existing.sessionId);
     input.sessionHandles.delete(sessionKey);
   }
-
-  await registerSpaceSession({
-    spaceId: input.spaceId,
-    sessionId: input.sessionId,
-    title: null,
-    externalSessionId: null,
-    meta: null,
-  }).catch((error: unknown) => {
-    logger.error(`[Agent] Failed to register session bootstrap for ${input.sessionId}:`, error);
-    return null;
-  });
 
   const spaceInfo = await getSpace({ spaceId: input.spaceId }).catch((error: unknown) => {
     logger.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);

@@ -436,7 +436,7 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
   } as Record<string, unknown>;
 }
 
-async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
   const lockKey = `${input.spaceChannelId}:${input.bindingKey}`;
   const existingLock = bindingLocks.get(lockKey);
   if (existingLock) {
@@ -455,7 +455,7 @@ async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; 
   }
 }
 
-async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: string; spaceChannelId: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: string; spaceChannelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
   let binding = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: input.bindingKey });
   if (binding?.spaceSessionId) {
     const lifecycleUpdate = {
@@ -477,6 +477,7 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
   const session = await registerSpaceSession({
         spaceId: input.spaceId,
         sessionId: randomUUID(),
+        userUuid: input.userUuid,
         source: sessionSource,
         externalSessionId: null,
         meta: {
@@ -525,6 +526,7 @@ export async function resolveChannelInboundForEvent(event: GatewayInboundEvent):
   const bindingKey = resolveInboundBindingKey(event, conversationId);
   const binding = await _resolveOrCreateSessionBindingForEvent({
     spaceId: spaceChannel.spaceId,
+    userUuid: userChannel.userUuid,
     spaceChannelId: spaceChannel.id,
     provider: event.provider,
     externalChatId: event.externalChatId,

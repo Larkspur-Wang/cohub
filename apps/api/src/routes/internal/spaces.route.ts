@@ -4,15 +4,12 @@ import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
 import type {
   PersistMessageInput,
   UpdateSessionInfoInput,
-  RegisterSessionInput,
 } from "@cohub/protocol/model";
 import type { ContentBlock } from "@cohub/protocol/core";
 import {
   getSpaceById,
-  getSpaceSessionBootstrap,
   getSpaceSessionById,
   persistMessageNode,
-  registerSpaceSession,
   updateSpaceSessionInfo,
   updateSpaceStatus,
   SandboxNotReadyError,
@@ -229,37 +226,6 @@ router.get("/:id/sandbox", async (c) => {
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
   return c.json({ sandbox: attachSandboxPublicEndpoints(sandbox) });
-});
-
-// POST /internal/spaces/:id/sessions
-router.post("/:id/sessions", async (c) => {
-  const forbidden = ensureInternalRequest(c);
-  if (forbidden) return forbidden;
-
-  const spaceId = c.req.param("id");
-  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  const space = await getSpaceById(spaceId);
-  if (!space) return c.json({ message: "space not found" }, 404);
-
-  const body = await c.req.json<RegisterSessionInput>().catch(() => null);
-  if (!body?.sessionId) return c.json({ message: "sessionId is required" }, 400);
-
-  const existing = await getSpaceSessionById(body.sessionId);
-  if (existing) {
-    const bootstrap = await getSpaceSessionBootstrap(existing.id);
-    return c.json({ ok: true, session: existing, bootstrap });
-  }
-
-  const session = await registerSpaceSession({
-    spaceId,
-    sessionId: body.sessionId,
-    title: body.title,
-    source: body.source,
-    externalSessionId: body.externalSessionId,
-    meta: body.meta,
-  });
-  const bootstrap = await getSpaceSessionBootstrap(session.id);
-  return c.json({ ok: true, session, bootstrap });
 });
 
 // POST /internal/spaces/:spaceId/sessions/:sessionId/info

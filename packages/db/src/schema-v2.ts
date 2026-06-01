@@ -268,6 +268,7 @@ export const spaceSessions = v2.table(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     spaceId: uuid("space_id").notNull(),
+    userUuid: varchar("user_uuid", { length: 255 }),
     title: varchar("title", { length: 255 }),
     source: varchar("source", { length: 255 }),
     status: varchar("status", { length: 50 }).default("active"),
@@ -281,6 +282,7 @@ export const spaceSessions = v2.table(
   },
   (table) => ({
     spaceIdx: index("v2_idx_space_sessions_space_id").on(table.spaceId),
+    userUuidIdx: index("v2_idx_space_sessions_user_uuid").on(table.userUuid),
     lastMessageIdx: index("v2_idx_space_sessions_last_message_id").on(table.lastMessageId),
     lastMessageAtIdx: index("v2_idx_space_sessions_last_message_at").on(table.lastMessageAt),
     titleSearchIdx: index("v2_idx_space_sessions_title_trgm").using("gin", table.title.op("gin_trgm_ops")),

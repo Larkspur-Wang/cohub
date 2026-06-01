@@ -2,6 +2,7 @@ import type { SessionRecord } from "@cohub/protocol/model";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "./session-turns.js";
 
 type SessionRow = Omit<SessionRecord, "meta" | "lastMessageAt" | "createdAt" | "updatedAt"> & {
+  userUuid?: string | null;
   meta: unknown;
   lastMessageAt: Date | string | null;
   createdAt: Date | string | null;

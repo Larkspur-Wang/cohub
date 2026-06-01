@@ -12,7 +12,9 @@ import type {
   TurnIntermediateMessagesFile,
 } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
-import { sessionMessages, sessionTurnSegments, sessionTurns } from "@cohub/db";
+import { sessionMessages, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
+import { addSessionParticipantMeta } from "@cohub/core/sessions";
+import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
@@ -255,7 +257,7 @@ export const createSessionTurn = async (input: {
 }) => {
   const userText = deriveMessagePreviewText({ content: input.userContent }) || null;
   const [row] = await db.transaction(async (tx) => {
-    const [sessionRow] = await tx.execute(sql`select id from v2.space_sessions where id = ${input.sessionId} for update`);
+    const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
     if (!sessionRow) throw new Error("session not found");
     const [seqRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
     let startSequence = 1;
@@ -266,6 +268,11 @@ export const createSessionTurn = async (input: {
     )).orderBy(desc(sessionTurnSegments.ordinal)).limit(1);
     startSequence = localSegment?.fromSequence ?? 1;
     const sequence = seqRow?.max ? (seqRow.max + 1) : startSequence;
+    if (input.userUuid) {
+      await tx.update(spaceSessions).set({
+        meta: sanitizePostgresJsonValue(addSessionParticipantMeta(sessionRow.meta, input.userUuid)),
+      }).where(eq(spaceSessions.id, input.sessionId));
+    }
     return tx.insert(sessionTurns).values({
       ...(input.id ? { id: input.id } : {}),
       sessionId: input.sessionId,

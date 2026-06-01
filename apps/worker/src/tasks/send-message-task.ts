@@ -41,7 +41,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
 
   const source = "scheduled_task";
   const targetSessionId = sessionId?.trim() || null;
-  const promptSessionId = targetSessionId ?? (await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null })).id;
+  const promptSessionId = targetSessionId ?? (await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null, userUuid: userId })).id;
   const promptClientMessageId = payload.cronJobId?.trim()
     ? `cron:${payload.cronJobId.trim()}:run:${taskRunId}`
     : clientMessageId?.trim() || `taskrun:${taskRunId}`;

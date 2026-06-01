@@ -37,6 +37,7 @@ const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefine
 export const toRealtimeSessionRecord = (session: SessionRecord | {
   id: string;
   spaceId: string;
+  userUuid?: string | null;
   title: string | null;
   source: string | null;
   status: string | null;
@@ -49,6 +50,7 @@ export const toRealtimeSessionRecord = (session: SessionRecord | {
 }): RealtimeSessionRecord => ({
   id: session.id,
   spaceId: session.spaceId,
+  userUuid: session.userUuid ?? null,
   title: session.title,
   source: session.source,
   status: session.status,

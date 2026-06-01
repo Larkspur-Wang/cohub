@@ -60,6 +60,7 @@ export type SessionPromptInput = {
 export type RegisterSessionInput = {
   spaceId: string;
   sessionId: string;
+  userUuid: string;
   title?: string | null;
   source?: string | null;
   externalSessionId?: string | null;
@@ -114,9 +115,20 @@ export type SessionBindingRecord = {
   lastMessageAt: string | null;
 };
 
+export type SessionUserProfile = {
+  userUuid: string;
+  username: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export type SessionRecord = {
   id: string;
   spaceId: string;
+  userUuid: string | null;
+  userProfile?: SessionUserProfile | null;
+  participantUserUuids?: string[];
+  participantProfiles?: SessionUserProfile[];
   title: string | null;
   source: string | null;
   status: string | null;

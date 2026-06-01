@@ -1,9 +1,6 @@
 import { createLogger } from "@cohub/infra/logging";
 import { createHash } from "node:crypto";
-import type {
-  PersistMessageInput,
-  RegisterSessionInput,
-} from "@cohub/protocol/model";
+import type { PersistMessageInput } from "@cohub/protocol/model";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { normalizeContentBlockSafe, normalizeContentBlocksSafe } from "@cohub/core/content/normalize";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
@@ -413,26 +410,6 @@ export function normalizeAssistantTurn(
 }
 
 // ─── Event normalization ───
-
-export async function registerSpaceSession(input: RegisterSessionInput) {
-  const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: internalHeaders(),
-    body: JSON.stringify(input),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Register session failed ${response.status}: ${text}`);
-  }
-
-  return response.json().catch(() => null) as Promise<{
-    ok: true;
-    session: { id: string };
-    bootstrap?: Record<string, unknown> | null;
-  } | null>;
-}
 
 export async function getSpaceSandbox(input: { spaceId: string }) {
   const url = `${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sandbox`;

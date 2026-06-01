@@ -127,6 +127,13 @@
       "when": 1780157378861,
       "tag": "0017_gray_captain_cross",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1780303514240,
+      "tag": "0018_high_hairball",
+      "breakpoints": true
     }
   ]
 }

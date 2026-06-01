@@ -24,6 +24,7 @@ import {
   createInitialSpaceSession,
   getSpaceById,
   getSpaceSessionById,
+  hydrateSessionParticipantProfiles,
   listSpaceSessions,
   normalizeSpaceEnv,
   validateSpaceEnv,
@@ -1216,6 +1217,7 @@ router.post("/:id/prompt", async (c) => {
       promptSession = await createInitialSpaceSession({
         spaceId,
         sessionId: crypto.randomUUID(),
+        userUuid: user.uuid,
         title: body.title ?? null,
         source: "public_api",
         externalSessionId: null,
@@ -1329,6 +1331,7 @@ router.post("/:id/sessions", async (c) => {
   const session = await createInitialSpaceSession({
     spaceId: space.id,
     sessionId: crypto.randomUUID(),
+    userUuid: user.uuid,
     title: body.title ?? null,
     source: body.source ?? null,
     externalSessionId: null,
@@ -1358,6 +1361,8 @@ router.get("/:id/sessions", async (c) => {
     ? sessions
     : await filterSessionsByPermission(user, "session.view", spaceId, sessions);
 
+  const hydratedSessions = await hydrateSessionParticipantProfiles(visibleSessions);
+
   const includeForks = c.req.query("includeForks") === "1" || c.req.query("includeForks") === "true";
   const forks = includeForks
     ? (await listSessionForksForSessions(visibleSessions.map((session) => session.id))).map((fork) => {
@@ -1378,7 +1383,7 @@ router.get("/:id/sessions", async (c) => {
     })
     : undefined;
 
-  return c.json({ sessions: visibleSessions, ...(forks ? { forks } : {}), pageInfo });
+  return c.json({ sessions: hydratedSessions, ...(forks ? { forks } : {}), pageInfo });
 });
 
 // ── Channels ─────────────────────────────────────────────────────────────────

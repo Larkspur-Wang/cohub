@@ -90,6 +90,7 @@ export type RealtimeSessionRecord = Pick<
   SessionRecord,
   | "id"
   | "spaceId"
+  | "userUuid"
   | "title"
   | "source"
   | "status"
