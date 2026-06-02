@@ -40,7 +40,6 @@ async function migrateV2Data() {
         gitea_access_token_encrypted,
         status,
         last_verified_at,
-        ssh_public_keys,
         meta,
         created_at,
         updated_at
@@ -55,7 +54,6 @@ async function migrateV2Data() {
         gitea_access_token_encrypted,
         status,
         last_verified_at,
-        ssh_public_keys,
         meta,
         created_at,
         updated_at

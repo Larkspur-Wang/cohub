@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."user_git_accounts" DROP COLUMN "ssh_public_keys";

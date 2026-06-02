@@ -24,7 +24,6 @@ import {
 	FolderKanban,
 	History,
 	Keyboard,
-	KeyRound,
 	LayoutDashboard,
 	Loader2,
 	LogOut,
@@ -329,12 +328,6 @@ const baseSettingsTabs = [
 		label: "Billing",
 		icon: CreditCard,
 		href: "/settings/billing",
-	},
-	{
-		id: "ssh-keys",
-		label: "SSH Keys",
-		icon: KeyRound,
-		href: "/settings/ssh-keys",
 	},
 	{
 		id: "rules",
