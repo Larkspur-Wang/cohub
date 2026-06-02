@@ -2858,7 +2858,6 @@ $effect(() => {
 	<NewLabelPopover
 		spaceId={currentSpaceId}
 		{labels}
-		withinDrawer={isMobile}
 		onCreated={() => { void loadLabelsForSpace(currentSpaceId, true); }}
 		onClose={() => { showNewLabelPopover = false; }}
 	/>

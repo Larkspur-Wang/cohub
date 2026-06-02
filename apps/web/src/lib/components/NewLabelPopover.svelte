@@ -4,18 +4,26 @@ import { X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import { createSpaceLabel } from "$lib/stores/space-labels";
 
+function portal(node: HTMLElement) {
+	if (typeof document === "undefined") return {};
+	document.body.appendChild(node);
+	return {
+		destroy() {
+			node.remove();
+		},
+	};
+}
+
 const {
 	spaceId,
 	labels,
 	onCreated,
 	onClose,
-	withinDrawer = false,
 }: {
 	spaceId: string;
 	labels: LabelListItem[];
 	onCreated: () => void;
 	onClose: () => void;
-	withinDrawer?: boolean;
 } = $props();
 
 async function createLabel(input: { name: string; parentRef: string | null }) {
@@ -30,8 +38,8 @@ async function createLabel(input: { name: string; parentRef: string | null }) {
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape") onClose(); }} />
 
-<div class="{withinDrawer ? 'absolute' : 'fixed'} inset-0 z-[70] bg-overlay-scrim/20" role="presentation" onclick={onClose}></div>
-<div class="new-label-popover {withinDrawer ? 'absolute' : 'fixed'} left-3 top-28 z-[71] w-[min(328px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl" class:within-drawer={withinDrawer} role="dialog" aria-label="New label">
+<div use:portal class="fixed inset-0 z-[70] bg-overlay-scrim/20" role="presentation" onclick={onClose}></div>
+<div use:portal class="new-label-popover fixed left-3 top-28 z-[71] w-[min(328px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl" role="dialog" aria-label="New label">
 	<div class="sheet-handle" aria-hidden="true"></div>
 	<div class="flex items-start justify-between border-b border-border-subtle px-3 py-2.5">
 		<div class="min-w-0">
@@ -78,10 +86,6 @@ async function createLabel(input: { name: string; parentRef: string | null }) {
 			max-height: calc(100dvh - 16px);
 			border-radius: 14px;
 			padding-bottom: env(safe-area-inset-bottom);
-		}
-
-		.new-label-popover.within-drawer {
-			max-height: calc(100% - 16px);
 		}
 
 		.sheet-handle {
