@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.11.1
+
+### Patch Changes
+
+- Release billing balance details, billing plans and redemption flow, and label-based space organization APIs.
+- Updated dependencies
+  - @neta-art/cohub@1.20.0
+
 ## 1.11.0
 
 ### Minor Changes

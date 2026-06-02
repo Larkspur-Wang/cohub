@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.20.0
+
+### Minor Changes
+
+- Release billing balance details, billing plans and redemption flow, and label-based space organization APIs.
+
 ## 1.19.0
 
 ### Minor Changes
