@@ -141,6 +141,13 @@
       "when": 1780390506308,
       "tag": "0019_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1780394620963,
+      "tag": "0020_label_constraints",
+      "breakpoints": true
     }
   ]
 }

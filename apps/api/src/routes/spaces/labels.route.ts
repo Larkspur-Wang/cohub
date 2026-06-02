@@ -8,6 +8,8 @@ import { hasPermission } from "../../permissions.js";
 const router = new Hono();
 const SCOPE_TYPE = "space";
 const RESOURCE_TYPES = new Set(["session", "checkpoint", "file"]);
+const DEFAULT_ITEMS_LIMIT = 30;
+const MAX_ITEMS_LIMIT = 50;
 
 function slugifyLabelName(name: string) {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -27,6 +29,30 @@ function isSafeFilePath(path: string) {
     !trimmed.startsWith("/") &&
     !trimmed.includes("\0") &&
     !trimmed.split("/").some((part) => part === ".." || part === "");
+}
+
+function parseItemsLimit(value: string | undefined) {
+  const limit = Number(value ?? DEFAULT_ITEMS_LIMIT);
+  if (!Number.isSafeInteger(limit) || limit < 1) return DEFAULT_ITEMS_LIMIT;
+  return Math.min(limit, MAX_ITEMS_LIMIT);
+}
+
+function encodeItemsCursor(row: typeof labelAssignments.$inferSelect) {
+  return Buffer.from(JSON.stringify({ rank: row.rank, createdAt: row.createdAt?.toISOString() ?? null, id: row.id })).toString("base64url");
+}
+
+function decodeItemsCursor(value: string | undefined) {
+  if (!value) return { ok: true as const, cursor: null };
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { rank?: unknown; createdAt?: unknown; id?: unknown };
+    if (!Number.isSafeInteger(parsed.rank) || typeof parsed.id !== "string" || !requireValidId(parsed.id)) return { ok: false as const };
+    if (parsed.createdAt !== null && typeof parsed.createdAt !== "string") return { ok: false as const };
+    const createdAt = parsed.createdAt ? new Date(parsed.createdAt) : null;
+    if (createdAt && !Number.isFinite(createdAt.getTime())) return { ok: false as const };
+    return { ok: true as const, cursor: { rank: parsed.rank, createdAt, id: parsed.id } };
+  } catch {
+    return { ok: false as const };
+  }
 }
 
 function buildHref(spaceId: string, resourceType: string, resourceRef: string) {
@@ -261,8 +287,25 @@ router.get("/:labelId/items", async (c) => {
   if (access.error) return access.error;
   const labelId = c.req.param("labelId");
   if (!labelId || !requireValidId(labelId) || !(await getLabelInSpace(access.spaceId, labelId))) return c.json({ message: "label not found" }, 404);
-  const rows = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.labelId, labelId))).orderBy(asc(labelAssignments.rank), asc(labelAssignments.createdAt));
-  return c.json({ items: await hydrateAssignments(access.spaceId, rows) });
+  const limit = parseItemsLimit(c.req.query("limit"));
+  const decodedCursor = decodeItemsCursor(c.req.query("cursor"));
+  if (!decodedCursor.ok) return c.json({ message: "invalid cursor" }, 400);
+  const cursor = decodedCursor.cursor;
+  const rows = await db
+    .select()
+    .from(labelAssignments)
+    .where(and(
+      eq(labelAssignments.scopeType, SCOPE_TYPE),
+      eq(labelAssignments.scopeId, access.spaceId),
+      eq(labelAssignments.labelId, labelId),
+      ...(cursor ? [sql`(${labelAssignments.rank}, ${labelAssignments.createdAt}, ${labelAssignments.id}) > (${cursor.rank}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
+    ))
+    .orderBy(asc(labelAssignments.rank), asc(labelAssignments.createdAt), asc(labelAssignments.id))
+    .limit(limit + 1);
+  const pageRows = rows.slice(0, limit);
+  const lastRow = pageRows.at(-1);
+  const nextCursor = rows.length > limit && lastRow ? encodeItemsCursor(lastRow) : null;
+  return c.json({ items: await hydrateAssignments(access.spaceId, pageRows), pageInfo: { hasMore: Boolean(nextCursor), nextCursor } });
 });
 
 router.post("/:labelId/items", async (c) => {
@@ -327,16 +370,31 @@ export async function setResourceLabels(c: Context) {
     ? await db.select().from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
     : [];
   if (rows.length !== labelIds.length) return c.json({ message: "label not found" }, 404);
+  const existing = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
+  const wanted = new Set(labelIds);
+  const existingIds = new Set(existing.map((assignment) => assignment.labelId));
+  const removeIds = existing.filter((assignment) => !wanted.has(assignment.labelId)).map((assignment) => assignment.id);
+  const existingByLabelId = new Map(existing.map((assignment) => [assignment.labelId, assignment]));
+  const addIds = labelIds.filter((labelId) => !existingIds.has(labelId));
   await db.transaction(async (tx) => {
-    await tx.delete(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
+    if (removeIds.length > 0) await tx.delete(labelAssignments).where(inArray(labelAssignments.id, removeIds));
     for (const [index, labelId] of labelIds.entries()) {
+      const rank = (index + 1) * 10;
+      const existingAssignment = existingByLabelId.get(labelId);
+      if (existingAssignment) {
+        if (existingAssignment.rank !== rank) {
+          await tx.update(labelAssignments).set({ rank, updatedAt: new Date() }).where(eq(labelAssignments.id, existingAssignment.id));
+        }
+        continue;
+      }
+      if (!addIds.includes(labelId)) continue;
       await tx.insert(labelAssignments).values({
         labelId,
         scopeType: SCOPE_TYPE,
         scopeId: access.spaceId,
         resourceType,
         resourceRef,
-        rank: (index + 1) * 10,
+        rank,
         source: "user",
         createdBy: access.user?.uuid ?? null,
       }).onConflictDoNothing();

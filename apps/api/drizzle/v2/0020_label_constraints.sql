@@ -1,0 +1,3 @@
+CREATE INDEX "v2_idx_label_assignments_resource_label" ON "v2"."label_assignments" USING btree ("resource_type","resource_ref","label_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "v2_uq_labels_scope_parent_name" ON "v2"."labels" USING btree ("scope_type","scope_id",coalesce("parent_id"::text, ''),lower("name"));--> statement-breakpoint
+ALTER TABLE "v2"."labels" ADD CONSTRAINT "v2_chk_labels_depth" CHECK ("v2"."labels"."depth" in (0, 1));

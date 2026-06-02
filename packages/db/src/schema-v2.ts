@@ -657,11 +657,18 @@ export const labels = v2.table(
       table.scopeId,
       table.parentId,
     ),
+    siblingNameUniqueIdx: uniqueIndex("v2_uq_labels_scope_parent_name").on(
+      table.scopeType,
+      table.scopeId,
+      sql`coalesce(${table.parentId}::text, '')`,
+      sql`lower(${table.name})`,
+    ),
     systemKeyUniqueIdx: uniqueIndex("v2_uq_labels_scope_system_key").on(
       table.scopeType,
       table.scopeId,
       table.systemKey,
     ),
+    depthCheck: check("v2_chk_labels_depth", sql`${table.depth} in (0, 1)`),
   }),
 );
 
@@ -700,6 +707,11 @@ export const labelAssignments = v2.table(
     scopeLabelIdx: index("v2_idx_label_assignments_scope_label").on(
       table.scopeType,
       table.scopeId,
+      table.labelId,
+    ),
+    resourceLabelIdx: index("v2_idx_label_assignments_resource_label").on(
+      table.resourceType,
+      table.resourceRef,
       table.labelId,
     ),
   }),

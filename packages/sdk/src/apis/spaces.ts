@@ -45,6 +45,7 @@ import type {
   SpaceUsageResponse,
   SpaceFsWriteFileInput,
   LabelAssignmentListItem,
+  LabelAssignmentPageInfo,
   LabelAssignmentRecord,
   LabelListItem,
   LabelResourceType,
@@ -1104,9 +1105,13 @@ export class SpaceLabelsApi {
     );
   }
 
-  listItems(labelId: string) {
-    return this.transport.request<{ items: LabelAssignmentListItem[] }>(
-      `/api/spaces/${this.spaceId}/labels/${labelId}/items`,
+  listItems(labelId: string, input?: { limit?: number; cursor?: string | null }) {
+    const params = new URLSearchParams();
+    if (input?.limit) params.set("limit", String(input.limit));
+    if (input?.cursor) params.set("cursor", input.cursor);
+    const query = params.toString();
+    return this.transport.request<{ items: LabelAssignmentListItem[]; pageInfo: LabelAssignmentPageInfo }>(
+      `/api/spaces/${this.spaceId}/labels/${labelId}/items${query ? `?${query}` : ""}`,
     );
   }
 

@@ -82,5 +82,12 @@ export async function setResourceLabels(
 		.space(spaceId)
 		.labels.setResourceLabels(resourceType, resourceRef, labelIds);
 	setCachedSpaceLabels(spaceId, result.labels);
+	if (typeof window !== "undefined") {
+		window.dispatchEvent(
+			new CustomEvent("cohub:label-assignments-updated", {
+				detail: { spaceId, resourceType, resourceRef, labelIds },
+			}),
+		);
+	}
 	return result;
 }

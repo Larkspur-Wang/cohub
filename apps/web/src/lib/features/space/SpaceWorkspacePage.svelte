@@ -93,6 +93,7 @@ import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
+import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SessionGenerationTaskTray, {
 	type GenerationTaskNotice,
@@ -175,12 +176,6 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
-import {
-	createSpaceLabel,
-	flattenLabels,
-	getResourceLabels,
-	setResourceLabels,
-} from "$lib/stores/space-labels";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
@@ -353,6 +348,10 @@ let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
+let labelPickerResource = $state<{
+	type: "session" | "checkpoint" | "file";
+	ref: string;
+} | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeLoading = $state(false);
@@ -5584,46 +5583,11 @@ function insertFilePathReference(path: string) {
 	insertPathReference(path);
 }
 
-async function editResourceLabels(
+function editResourceLabels(
 	resourceType: "session" | "checkpoint" | "file",
 	resourceRef: string,
 ) {
-	try {
-		const current = await getResourceLabels(spaceId, resourceType, resourceRef);
-		let flatLabels = flattenLabels(current.labels);
-		if (flatLabels.length === 0) {
-			const name = window.prompt("New label");
-			const trimmed = name?.replace(/\s+/g, " ").trim();
-			if (!trimmed) return;
-			await createSpaceLabel(spaceId, { name: trimmed });
-			flatLabels = flattenLabels(
-				(await getResourceLabels(spaceId, resourceType, resourceRef)).labels,
-			);
-		}
-		const selected = new Set(
-			current.assignments.map((assignment) => assignment.labelId),
-		);
-		const input = window.prompt(
-			"Labels",
-			flatLabels
-				.filter((label) => selected.has(label.id))
-				.map((label) => label.name)
-				.join(", "),
-		);
-		if (input == null) return;
-		const wantedNames = new Set(
-			input
-				.split(",")
-				.map((name) => name.replace(/\s+/g, " ").trim().toLowerCase())
-				.filter(Boolean),
-		);
-		const nextIds = flatLabels
-			.filter((label) => wantedNames.has(label.name.toLowerCase()))
-			.map((label) => label.id);
-		await setResourceLabels(spaceId, resourceType, resourceRef, nextIds);
-	} catch (error) {
-		console.warn("[space] Failed to edit labels", error);
-	}
+	labelPickerResource = { type: resourceType, ref: resourceRef };
 }
 
 function getHeaderFileActionPath() {
@@ -6547,7 +6511,7 @@ $effect(() => {
 					role="menuitem"
 				>
 					<ListTree class="w-3.5 h-3.5" />
-					<span>Labels…</span>
+					<span>Label as…</span>
 				</button>
 				<button
 					type="button"
@@ -6749,7 +6713,7 @@ $effect(() => {
               role="menuitem"
             >
               <ListTree class="w-3.5 h-3.5" />
-              <span>Labels…</span>
+              <span>Label as…</span>
             </button>
             <button type="button" class="menu-item" onclick={insertHeaderReference} role="menuitem">
               <FileText class="w-3.5 h-3.5" />
@@ -8640,6 +8604,16 @@ $effect(() => {
     onGenerationBooleanConstraintChange={setGenerationBooleanConstraint}
   />
 </div>
+
+{#if labelPickerResource}
+	<ResourceLabelPicker
+		{spaceId}
+		resourceType={labelPickerResource.type}
+		resourceRef={labelPickerResource.ref}
+		onClose={() => { labelPickerResource = null; }}
+	/>
+{/if}
+
 <style>
   @keyframes cohub-scroll-to-bottom-in {
     from {

@@ -741,6 +741,11 @@ export type LabelAssignmentListItem = LabelAssignmentRecord & {
   } | null;
 };
 
+export type LabelAssignmentPageInfo = {
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
 export type ResourceLabelsResponse = {
   labels: LabelListItem[];
   assignments: LabelAssignmentRecord[];

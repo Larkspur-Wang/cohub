@@ -3,6 +3,7 @@ import type {
 	BillingCreditStatus,
 	CheckpointRecord,
 	CronJobRecord,
+	LabelAssignmentListItem,
 	LabelListItem,
 	SessionForkRecord,
 	SessionRecord,
@@ -47,6 +48,7 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
+import NewLabelPopover from "$lib/components/NewLabelPopover.svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -75,7 +77,10 @@ import {
 	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import { createSpaceLabel, fetchSpaceLabels } from "$lib/stores/space-labels";
+import {
+	fetchSpaceLabels,
+	onSpaceLabelsCacheUpdated,
+} from "$lib/stores/space-labels";
 import {
 	clearAllCachedSpaceLists,
 	fetchSpaceListWithCache,
@@ -134,6 +139,18 @@ type SidebarSessionItem = {
 let sessionForks = $state<SessionForkSidebarRecord[]>([]);
 let checkpoints = $state<CheckpointRecord[]>([]);
 let labels = $state<LabelListItem[]>([]);
+let labelItemsBySpace = $state<
+	Record<string, Record<string, LabelAssignmentListItem[]>>
+>({});
+let labelItemsPageInfoBySpace = $state<
+	Record<
+		string,
+		Record<string, { hasMore: boolean; nextCursor: string | null }>
+	>
+>({});
+let expandedLabelIdsBySpace = $state<Record<string, Set<string>>>({});
+let loadingLabelIdsBySpace = $state<Record<string, Set<string>>>({});
+let showNewLabelPopover = $state(false);
 let loadingSessions = $state(false);
 let loadingSessionsSpaceId = $state<string | null>(null);
 let loadingMoreSessions = $state(false);
@@ -216,6 +233,22 @@ const currentSpaceId = $derived.by(() => {
 
 const currentSpace = $derived(
 	currentSpaceId ? (spaces.find((s) => s.id === currentSpaceId) ?? null) : null,
+);
+const currentLabelItemsById = $derived(
+	currentSpaceId ? (labelItemsBySpace[currentSpaceId] ?? {}) : {},
+);
+const currentLabelItemsPageInfoById = $derived(
+	currentSpaceId ? (labelItemsPageInfoBySpace[currentSpaceId] ?? {}) : {},
+);
+const currentExpandedLabelIds = $derived(
+	currentSpaceId
+		? (expandedLabelIdsBySpace[currentSpaceId] ?? new Set<string>())
+		: new Set<string>(),
+);
+const currentLoadingLabelIds = $derived(
+	currentSpaceId
+		? (loadingLabelIdsBySpace[currentSpaceId] ?? new Set<string>())
+		: new Set<string>(),
 );
 
 const userDisplayName = $derived(
@@ -615,15 +648,90 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 	}
 }
 
-async function handleCreateLabel() {
+async function loadLabelItems(
+	labelId: string,
+	options?: { force?: boolean; append?: boolean },
+) {
+	const spaceId = currentSpaceId;
+	if (!spaceId) return;
+	const append = options?.append ?? false;
+	const force = options?.force ?? false;
+	const spaceItems = labelItemsBySpace[spaceId] ?? {};
+	const spacePageInfo = labelItemsPageInfoBySpace[spaceId] ?? {};
+	if (!force && !append && spaceItems[labelId]) return;
+	loadingLabelIdsBySpace = {
+		...loadingLabelIdsBySpace,
+		[spaceId]: new Set([
+			...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
+			labelId,
+		]),
+	};
+	try {
+		const result = await sdk.space(spaceId).labels.listItems(labelId, {
+			limit: 30,
+			cursor: append ? spacePageInfo[labelId]?.nextCursor : null,
+		});
+		if (spaceId !== currentSpaceId) return;
+		const latestItems = labelItemsBySpace[spaceId] ?? {};
+		labelItemsBySpace = {
+			...labelItemsBySpace,
+			[spaceId]: {
+				...latestItems,
+				[labelId]: append
+					? [...(latestItems[labelId] ?? []), ...(result.items ?? [])]
+					: (result.items ?? []),
+			},
+		};
+		labelItemsPageInfoBySpace = {
+			...labelItemsPageInfoBySpace,
+			[spaceId]: {
+				...(labelItemsPageInfoBySpace[spaceId] ?? {}),
+				[labelId]: result.pageInfo,
+			},
+		};
+	} catch (error) {
+		console.warn("[sidebar] Failed to load label items", { labelId, error });
+	} finally {
+		if (spaceId === currentSpaceId) {
+			loadingLabelIdsBySpace = {
+				...loadingLabelIdsBySpace,
+				[spaceId]: new Set(
+					[...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>())].filter(
+						(id) => id !== labelId,
+					),
+				),
+			};
+		}
+	}
+}
+
+function toggleLabelExpanded(labelId: string) {
 	if (!currentSpaceId) return;
-	const name = window.prompt("New label");
-	const trimmed = name?.replace(/\s+/g, " ").trim();
-	if (!trimmed) return;
-	await createSpaceLabel(currentSpaceId, { name: trimmed }).catch((error) => {
-		console.warn("[sidebar] Failed to create label", error);
-	});
-	await loadLabelsForSpace(currentSpaceId, true);
+	const next = new Set(
+		expandedLabelIdsBySpace[currentSpaceId] ?? new Set<string>(),
+	);
+	if (next.has(labelId)) next.delete(labelId);
+	else {
+		next.add(labelId);
+		void loadLabelItems(labelId);
+	}
+	expandedLabelIdsBySpace = {
+		...expandedLabelIdsBySpace,
+		[currentSpaceId]: next,
+	};
+}
+
+function refreshExpandedLabelItems(spaceId: string) {
+	const expanded = expandedLabelIdsBySpace[spaceId];
+	if (!expanded) return;
+	labelItemsBySpace = { ...labelItemsBySpace, [spaceId]: {} };
+	labelItemsPageInfoBySpace = { ...labelItemsPageInfoBySpace, [spaceId]: {} };
+	if (spaceId !== currentSpaceId) return;
+	for (const labelId of expanded) void loadLabelItems(labelId, { force: true });
+}
+
+function labelAssignmentHref(item: LabelAssignmentListItem) {
+	return item.href;
 }
 
 async function loadCronjobsForSpace(spaceId: string, force = false) {
@@ -1056,6 +1164,7 @@ function handleGlobalNewChatKeydown(event: KeyboardEvent) {
 onMount(() => {
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
+	let offSpaceLabelsCacheUpdated = () => {};
 	let offTaskRunsCacheUpdated = () => {};
 	if (mode === "space") {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
@@ -1071,6 +1180,13 @@ onMount(() => {
 				sessionForks = forks ?? [];
 				if (pageInfo) sessionsPageInfo = pageInfo;
 				exhaustedFallbackSessionCursor = null;
+			},
+		);
+		offSpaceLabelsCacheUpdated = onSpaceLabelsCacheUpdated(
+			({ spaceId, labels: nextLabels }) => {
+				if (spaceId !== currentSpaceId) return;
+				labels = nextLabels;
+				refreshExpandedLabelItems(spaceId);
 			},
 		);
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
@@ -1089,10 +1205,6 @@ onMount(() => {
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
 			);
-			window.addEventListener(
-				"cohub:marks-updated",
-				handleMarksUpdated as EventListener,
-			);
 		})();
 	}
 
@@ -1107,13 +1219,6 @@ onMount(() => {
 		}
 	}
 
-	function handleMarksUpdated(e: Event) {
-		const custom = e as CustomEvent;
-		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
-			void loadLabelsForSpace(currentSpaceId, true);
-		}
-	}
-
 	function handleClickOutside(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest("[data-user-menu]")) {
@@ -1125,6 +1230,7 @@ onMount(() => {
 	return () => {
 		offSpaceListCacheUpdated();
 		offSessionListCacheUpdated();
+		offSpaceLabelsCacheUpdated();
 		offTaskRunsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
@@ -1136,10 +1242,6 @@ onMount(() => {
 			window.removeEventListener(
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
-			);
-			window.removeEventListener(
-				"cohub:marks-updated",
-				handleMarksUpdated as EventListener,
 			);
 		}
 	};
@@ -1237,6 +1339,85 @@ $effect(() => {
 			<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
 		{/if}
 		<span>{message}</span>
+	</div>
+{/snippet}
+
+{#snippet labelAssignmentRows(label: LabelListItem, depth: number)}
+	{@const items = currentLabelItemsById[label.id] ?? []}
+	{#if currentExpandedLabelIds.has(label.id)}
+		{#if currentLoadingLabelIds.has(label.id) && items.length === 0}
+			<div class="flex items-center gap-2 px-9 py-1 text-[12px] text-text-tertiary"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
+		{:else if items.length === 0}
+			<div class="px-9 py-1 text-[12px] text-text-tertiary">No items</div>
+		{:else}
+			{#each items as item (item.id)}
+				<a
+					href={labelAssignmentHref(item)}
+					class="flex min-w-0 items-center gap-2 rounded-[6px] px-9 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
+					title={item.resource?.subtitle ?? item.resourceRef}
+				>
+					<FileText class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
+				</a>
+			{/each}
+			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
+				<button
+					type="button"
+					class="ml-9 mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+					disabled={currentLoadingLabelIds.has(label.id)}
+					onclick={() => void loadLabelItems(label.id, { append: true })}
+				>
+					{#if currentLoadingLabelIds.has(label.id)}Loading…{:else}Load more{/if}
+				</button>
+			{/if}
+		{/if}
+	{/if}
+{/snippet}
+
+{#snippet labelsSection()}
+	<div class="mt-2">
+		<div class="flex items-center gap-1">
+			<button
+				type="button"
+				class="flex flex-1 items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
+				onclick={() => { labelsCollapsed = !labelsCollapsed; }}
+				title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
+			>
+				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
+				<span class="text-[11px] text-text-placeholder select-none">Labels</span>
+			</button>
+			<button
+				type="button"
+				class="rounded-[5px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+				title="New label"
+				onclick={() => { showNewLabelPopover = true; }}
+			>
+				<Plus class="h-3.5 w-3.5" />
+			</button>
+		</div>
+		{#if !labelsCollapsed}
+			{#if labels.length === 0}
+				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
+			{:else}
+				<div class="mt-1 space-y-[1px]">
+					{#each labels as label (label.id)}
+						<button type="button" class="label-tree-row" onclick={() => toggleLabelExpanded(label.id)}>
+							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
+							<span class="truncate">{label.name}</span>
+						</button>
+						{@render labelAssignmentRows(label, 0)}
+						{#each label.children ?? [] as child (child.id)}
+							<button type="button" class="label-tree-row child" onclick={() => toggleLabelExpanded(child.id)}>
+								<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
+								<span class="truncate">{child.name}</span>
+							</button>
+							{@render labelAssignmentRows(child, 1)}
+						{/each}
+					{/each}
+				</div>
+			{/if}
+		{/if}
 	</div>
 {/snippet}
 
@@ -1637,6 +1818,8 @@ $effect(() => {
             Loading...
           </div>
         {:else}
+          {@render labelsSection()}
+
           <button
             type="button"
             class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
@@ -1862,42 +2045,6 @@ $effect(() => {
               </a>
             {/if}
           {/if}
-
-          <div class="mt-3">
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                class="flex flex-1 items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
-                onclick={() => { labelsCollapsed = !labelsCollapsed; }}
-                title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
-              >
-                <ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
-                <span class="text-[11px] text-text-placeholder select-none">Labels</span>
-              </button>
-              <button
-                type="button"
-                class="rounded-[5px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
-                title="New label"
-                onclick={() => void handleCreateLabel()}
-              >
-                <Plus class="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {#if !labelsCollapsed}
-              {#if labels.length === 0}
-                <div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
-              {:else}
-                <div class="mt-1 space-y-[2px]">
-                  {#each labels as label (label.id)}
-                    <div class="rounded-[6px] px-6 py-1 text-[13px] text-text-tertiary">{label.name}</div>
-                    {#each label.children ?? [] as child (child.id)}
-                      <div class="rounded-[6px] px-9 py-1 text-[13px] text-text-tertiary">{child.name}</div>
-                    {/each}
-                  {/each}
-                </div>
-              {/if}
-            {/if}
-          </div>
 
           <div class="mt-3">
             <button
@@ -2229,7 +2376,40 @@ $effect(() => {
 </aside>
 {/if}
 
+{#if showNewLabelPopover && currentSpaceId}
+	<NewLabelPopover
+		spaceId={currentSpaceId}
+		{labels}
+		onCreated={() => { void loadLabelsForSpace(currentSpaceId, true); }}
+		onClose={() => { showNewLabelPopover = false; }}
+	/>
+{/if}
+
 <style>
+	.label-tree-row {
+		display: flex;
+		min-height: 28px;
+		width: 100%;
+		align-items: center;
+		gap: 6px;
+		border-radius: 6px;
+		padding: 0 6px;
+		color: var(--text-tertiary);
+		font-size: 13px;
+		text-align: left;
+		transition: background-color 100ms ease, color 100ms ease;
+	}
+
+	.label-tree-row:hover {
+		background: var(--bg-hover);
+		color: var(--text-secondary);
+	}
+
+	.label-tree-row.child {
+		padding-left: 22px;
+		font-size: 12px;
+	}
+
 	.rail-button {
 		position: relative;
 		display: flex;
