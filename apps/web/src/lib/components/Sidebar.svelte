@@ -801,6 +801,8 @@ function insertPathReference(path: string) {
 	onClose?.();
 }
 
+// ── Session rename ──────────────────────────────────────────────────────
+
 function startRenameSession(session: SessionRecord) {
 	renamingSessionId = session.id;
 	renameTitleValue = session.title ?? getSessionTitle(session, 0);
@@ -1108,6 +1110,7 @@ onMount(() => {
 	function handleMarksUpdated(e: Event) {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
+			void loadLabelsForSpace(currentSpaceId, true);
 		}
 	}
 
@@ -1175,8 +1178,8 @@ $effect(() => {
 	if (id) {
 		sessions = [];
 		sessionForks = [];
-		checkpoints = [];
 		labels = [];
+		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
@@ -1191,18 +1194,18 @@ $effect(() => {
 		loadingTasksSpaceId = null;
 		untrack(() => {
 			void loadSessionsForSpace(id);
-			void loadCheckpointsForSpace(id, true);
 			void loadLabelsForSpace(id, true);
+			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
 			void loadTasksForSpace(id, true);
 		});
 	} else {
 		sessions = [];
 		sessionForks = [];
+		labels = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
 		checkpoints = [];
-		labels = [];
 		cronjobs = [];
 		tasks = [];
 		loadingSessions = false;
@@ -1490,6 +1493,150 @@ $effect(() => {
                     {:else if billingCredit}
                       {formatUsdAmount(billingCredit.balance.netUsd)}
                     {:else}
+                      <span class="text-text-placeholder">—</span>
+                    {/if}
+                  </span>
+                </a>
+                {#if billingCreditError}
+                  <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
+                {/if}
+              </div>
+            {/if}
+            {#if mode === "space"}
+              <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
+            {:else}
+              <a href="/" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
+            {/if}
+            <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore Wall</span></a>
+            <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
+            <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
+            <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
+            <button type="button" class="rail-menu-item w-full hover:text-error-soft" onclick={() => { showUserMenu = false; void handleLogout(); }}><LogOut class="h-3.5 w-3.5" /><span>Sign out</span></button>
+          </div>
+        {/if}
+        <button
+          type="button"
+          data-user-menu
+          class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-bg-hover-strong transition-colors duration-100 hover:bg-bg-hover"
+          onclick={() => { showUserMenu = !showUserMenu; }}
+          aria-label={userDisplayName}
+          title={userDisplayName}
+        >
+          {#if authStore.profile?.avatarUrl}
+            <img src={authStore.profile.avatarUrl} alt="" class="h-full w-full object-cover" />
+          {:else}
+            <User class="h-4 w-4 text-text-tertiary" />
+          {/if}
+        </button>
+      </div>
+    </div>
+  </aside>
+{:else}
+<aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
+  <!-- Brand Header -->
+  <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
+    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
+      <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
+        C
+      </div>
+      <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
+    </a>
+    <div class="flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={openCommandPalette}
+        title="Search everywhere (⌘K / Ctrl K)"
+        aria-label="Search everywhere"
+      >
+        <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
+        <span class="hidden font-mono tracking-[0.02em] sm:inline">⌘K</span>
+      </button>
+      {#if !isMobile}
+        <button
+          type="button"
+          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+          onclick={() => uiState.setLeftSidebarCollapsed(true)}
+          title="Collapse sidebar"
+          aria-label="Collapse sidebar"
+        >
+          <PanelLeftClose class="h-4 w-4" />
+        </button>
+      {/if}
+    </div>
+  </div>
+
+  {#if mode === "space"}
+    <!-- Space Switcher -->
+    <div class="px-1.5 py-1 shrink-0 border-b border-border-subtle">
+      <button
+        type="button"
+        class="w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
+        onclick={openSpacePalette}
+      >
+        {#if currentSpace}
+          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
+          <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
+        {:else}
+          <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
+        {/if}
+        <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
+      </button>
+    </div>
+
+    <!-- Action Buttons -->
+    {#if currentSpace}
+      <div class="px-1.5 py-1.5 shrink-0 space-y-[2px]">
+        <button
+          type="button"
+          class="flex w-full items-center gap-2 rounded-[7px] border border-brand-border bg-brand-muted px-1.5 py-1.5 text-brand transition-colors duration-100 hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50"
+          onclick={() => { void handleCreateNewSession(); }}
+          disabled={creatingSession}
+          title="New chat (⌘O / Ctrl O)"
+          aria-label="New chat (⌘O / Ctrl O)"
+        >
+          {#if creatingSession}
+            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
+            <span class="text-[12px] font-medium">Creating…</span>
+          {:else}
+            <Plus class="w-3.5 h-3.5 shrink-0" />
+            <span class="text-[12px] font-medium">New Chat</span>
+            <span class="ml-auto hidden rounded-[4px] border border-brand/20 bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] text-brand/80 xl:inline">⌘O</span>
+          {/if}
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
+          title="Space details"
+        >
+          <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
+          <span class="text-[12px] font-medium">Detail</span>
+        </button>
+        <button
+          type="button"
+          class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
+          onclick={handleNavigateToNewCheckpoint}
+          title="New save"
+        >
+          <Save class="w-3.5 h-3.5 shrink-0" />
+          <span class="text-[12px] font-medium">New Save</span>
+        </button>
+        {#if createSessionError}
+          <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Sessions / Checkpoints -->
+    {#if currentSpace}
+      <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
+        {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
+          <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
+            <Loader2 class="w-3 h-3 animate-spin" />
+            Loading...
+          </div>
+        {:else}
           <button
             type="button"
             class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
