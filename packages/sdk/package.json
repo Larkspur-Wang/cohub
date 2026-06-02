@@ -22,27 +22,46 @@
     "websocket"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "import": "./dist/index.js"
+      },
+      "./http": {
+        "types": "./dist/http.d.ts",
+        "import": "./dist/http.js"
+      },
+      "./websocket": {
+        "types": "./dist/websocket.d.ts",
+        "import": "./dist/websocket.js"
+      },
+      "./debugger": {
+        "types": "./dist/debugger.d.ts",
+        "import": "./dist/debugger.js"
+      }
+    },
+    "types": "./dist/index.d.ts"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
     },
     "./http": {
-      "types": "./dist/http.d.ts",
-      "import": "./dist/http.js"
+      "types": "./src/http.ts",
+      "import": "./src/http.ts"
     },
     "./websocket": {
-      "types": "./dist/websocket.d.ts",
-      "import": "./dist/websocket.js"
+      "types": "./src/websocket.ts",
+      "import": "./src/websocket.ts"
     },
     "./debugger": {
-      "types": "./dist/debugger.d.ts",
-      "import": "./dist/debugger.js"
+      "types": "./src/debugger.ts",
+      "import": "./src/debugger.ts"
     }
   },
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "files": [
     "dist",
     "README.md"
