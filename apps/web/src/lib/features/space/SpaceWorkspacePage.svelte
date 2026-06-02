@@ -39,6 +39,7 @@ import {
 	Code,
 	Copy,
 	Download,
+	ExternalLink,
 	Eye,
 	FileText,
 	FolderKanban,
@@ -241,6 +242,10 @@ type InlinePortPreview = {
 	url: string;
 	autoOpened: boolean;
 };
+type PortReadyToast = {
+	port: string;
+	url: string;
+};
 type SessionViewState = {
 	session: SessionRecord | undefined;
 	turns: SessionTurnRecord[];
@@ -364,6 +369,8 @@ let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
 let previewEndpoints = $state<SpacePublicEndpoints>({});
 let inlinePortPreview = $state<InlinePortPreview | null>(null);
+let portReadyToast = $state<PortReadyToast | null>(null);
+let portReadyToastTimer: ReturnType<typeof setTimeout> | null = null;
 let directoryLoadTokenByPath = $state<Record<string, number>>({});
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
@@ -2323,26 +2330,28 @@ function extractPublicEndpoints(value: unknown): SpacePublicEndpoints {
 }
 
 async function loadPreviewEndpoints() {
+	const currentSpaceId = spaceId;
 	const previous = previewEndpoints;
 	try {
-		const result = await sdk.space(spaceId).sandbox.ports();
+		const result = await sdk.space(currentSpaceId).sandbox.ports();
+		if (spaceId !== currentSpaceId) return;
 		const next = result.endpoints ?? {};
 		previewEndpoints = next;
-		maybeAutoOpenPortPreview(previous, next);
+		maybeNotifyPortReady(previous, next);
 	} catch {
+		if (spaceId !== currentSpaceId) return;
 		const next = extractPublicEndpoints(space);
 		previewEndpoints = next;
-		maybeAutoOpenPortPreview(previous, next);
+		maybeNotifyPortReady(previous, next);
 	}
 }
 
-function maybeAutoOpenPortPreview(
+function maybeNotifyPortReady(
 	previous: SpacePublicEndpoints,
 	next: SpacePublicEndpoints,
 	changedPorts?: string[],
 ) {
-	if (!pageMounted || activePreviewKind || routeView === "file") return;
-	if (spaceHasMinimalAccess) return;
+	if (!pageMounted || spaceHasMinimalAccess) return;
 	const entries = (
 		changedPorts?.length
 			? changedPorts.map((port) => [port, next[port]] as const)
@@ -2352,9 +2361,44 @@ function maybeAutoOpenPortPreview(
 		const previousStatus = previous[port]?.status;
 		const becameListening = previousStatus !== "listening";
 		if (!becameListening || !endpoint?.url) continue;
-		openInlinePort(port, endpoint.url, { autoOpened: true });
+		if (inlinePortPreview?.port === port) continue;
+		if (!isHttpUrl(endpoint.url)) continue;
+		showPortReadyToast(port, endpoint.url);
 		return;
 	}
+}
+
+function isHttpUrl(url: string) {
+	try {
+		const parsed = new URL(url);
+		return parsed.protocol === "http:" || parsed.protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+function showPortReadyToast(port: string, url: string) {
+	if (!isHttpUrl(url)) return;
+	portReadyToast = { port, url };
+	if (portReadyToastTimer) clearTimeout(portReadyToastTimer);
+	portReadyToastTimer = setTimeout(() => {
+		portReadyToast = null;
+		portReadyToastTimer = null;
+	}, 4000);
+}
+
+function closePortReadyToast() {
+	portReadyToast = null;
+	if (portReadyToastTimer) {
+		clearTimeout(portReadyToastTimer);
+		portReadyToastTimer = null;
+	}
+}
+
+function previewPortFromToast() {
+	if (!portReadyToast) return;
+	openInlinePort(portReadyToast.port, portReadyToast.url);
+	closePortReadyToast();
 }
 
 function applyPortsChanged(payload: ChannelEnvelope) {
@@ -2381,7 +2425,7 @@ function applyPortsChanged(payload: ChannelEnvelope) {
 		changedPorts.push(key);
 	}
 	previewEndpoints = next;
-	maybeAutoOpenPortPreview(previous, next, changedPorts);
+	maybeNotifyPortReady(previous, next, changedPorts);
 }
 
 async function loadSpace() {
@@ -6020,6 +6064,7 @@ onMount(() => {
 		offTaskRunsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
+		if (portReadyToastTimer) clearTimeout(portReadyToastTimer);
 		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
 		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
@@ -6086,6 +6131,7 @@ $effect(() => {
 	fileTreeError = null;
 	previewEndpoints = {};
 	inlinePortPreview = null;
+	closePortReadyToast();
 	openFile = null;
 	openFileDraft = "";
 	inlineFile = null;
@@ -6797,6 +6843,29 @@ $effect(() => {
     {/if}
   {/snippet}
 </PageHeader>
+{#if portReadyToast}
+	<div class="port-ready-toast" role="status" aria-live="polite">
+		<div class="flex min-w-0 items-center gap-2.5">
+			<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-success-soft/25 bg-success-bg text-success-soft">
+				<Globe class="h-3.5 w-3.5" />
+			</div>
+			<div class="min-w-0 flex-1">
+				<div class="text-[12px] font-medium text-text-primary">Port :{portReadyToast.port} is ready</div>
+				<div class="truncate text-[11px] text-text-tertiary" title={portReadyToast.url}>{portReadyToast.url}</div>
+			</div>
+		</div>
+		<div class="flex shrink-0 items-center gap-1.5">
+			<button type="button" class="port-ready-action primary" onclick={previewPortFromToast}>Preview</button>
+			<a class="port-ready-action" href={portReadyToast.url} target="_blank" rel="noreferrer" onclick={closePortReadyToast}>
+				<ExternalLink class="h-3 w-3" />
+				<span>Open externally</span>
+			</a>
+			<button type="button" class="port-ready-close" onclick={closePortReadyToast} title="Dismiss port notification" aria-label="Dismiss port notification">
+				<X class="h-3.5 w-3.5" />
+			</button>
+		</div>
+	</div>
+{/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if routeView === 'checkpoint-new'}
@@ -8707,6 +8776,111 @@ $effect(() => {
   .inline-panel-resize-handle:hover::after,
   :global(body.sidebar-resizing) .inline-panel-resize-handle::after {
     background: var(--border-subtle);
+  }
+  .port-ready-toast {
+    position: fixed;
+    left: 50%;
+    top: 58px;
+    z-index: 80;
+    display: flex;
+    max-width: min(680px, calc(100vw - 24px));
+    min-width: min(520px, calc(100vw - 24px));
+    transform: translateX(-50%);
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    padding: 9px 10px 9px 12px;
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
+  }
+  .port-ready-action {
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    border-radius: 6px;
+    border: 1px solid var(--border-subtle);
+    background: transparent;
+    padding: 0 8px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .port-ready-action:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+  .port-ready-action.primary {
+    border-color: color-mix(in srgb, var(--brand) 35%, var(--border-subtle));
+    background: color-mix(in srgb, var(--brand) 12%, transparent);
+    color: var(--brand);
+  }
+  .port-ready-action.primary:hover {
+    border-color: color-mix(in srgb, var(--brand) 55%, var(--border-subtle));
+    background: color-mix(in srgb, var(--brand) 18%, transparent);
+  }
+  .port-ready-close {
+    display: inline-flex;
+    height: 28px;
+    width: 28px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .port-ready-close:hover {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+  }
+  @media (max-width: 640px) {
+    .port-ready-toast {
+      left: 12px;
+      right: 12px;
+      top: 52px;
+      min-width: 0;
+      max-width: none;
+      transform: none;
+      align-items: stretch;
+      flex-direction: column;
+      gap: 8px;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .port-ready-toast {
+      animation: port-ready-toast-enter 140ms ease-out;
+    }
+  }
+  @keyframes port-ready-toast-enter {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -4px);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+  }
+  @media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+    @keyframes port-ready-toast-enter {
+      from {
+        opacity: 0;
+        transform: translateY(-4px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
   }
   /* File viewer */
   .icon-btn {
