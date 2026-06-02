@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.21.0
+
+### Minor Changes
+
+- Release label refs in prompts, automatic session source labels, label item management, and CLI label command updates.
+
 ## 1.20.0
 
 ### Minor Changes
