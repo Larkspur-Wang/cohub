@@ -61,6 +61,9 @@
       "@cohub/core/labels": [
         "../../packages/core/dist/labels/index.d.ts"
       ],
+      "@cohub/core/labels/session-source": [
+        "../../packages/core/dist/labels/session-source.d.ts"
+      ],
       "@cohub/core/spaces/audience": [
         "../../packages/core/dist/spaces/audience.d.ts"
       ],

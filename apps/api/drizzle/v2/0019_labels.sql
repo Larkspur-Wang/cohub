@@ -73,7 +73,7 @@ WITH pinned_spaces AS (
     'pinned',
     NULL,
     0,
-    'migration',
+    'system',
     'legacy:pinned',
     0,
     created_by,
@@ -103,7 +103,7 @@ SELECT
   sm.resource_type,
   sm.resource_ref,
   sm.rank,
-  'migration',
+  'system',
   sm.created_by,
   sm.created_at,
   sm.updated_at

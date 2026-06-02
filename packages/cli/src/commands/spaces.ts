@@ -875,6 +875,11 @@ function registerFiles(spacesCmd: Command): void {
 
 // ── Session operations ──
 
+type SessionCreateOptions = {
+  label?: string[];
+  json?: boolean;
+};
+
 function registerSessions(spacesCmd: Command): void {
   const sessionsCmd = spacesCmd
     .command("sessions")
@@ -910,12 +915,17 @@ function registerSessions(spacesCmd: Command): void {
   sessionsCmd
     .command("create [title]")
     .description("Create a session")
+    .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
     .option("--json", "Output as JSON")
-    .action(async (title: string | undefined, opts: { json?: boolean }) => {
+    .action(async (title: string | undefined, opts: SessionCreateOptions) => {
       const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
-        const result = await client.space(spaceId).sessions.create({ title });
+        const result = await client.space(spaceId).sessions.create({
+          title,
+          source: "cli",
+          labelRefs: opts.label?.length ? opts.label : undefined,
+        });
         if (jsonRequested(opts)) return outJson(result);
         ok(`Session created: ${result.session.id}`);
         table([result.session], [

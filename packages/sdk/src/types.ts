@@ -682,6 +682,12 @@ export type GlobalSearchResponse = {
   degraded?: boolean;
 };
 
+export type CreateSpaceSessionInput = {
+  title?: string | null;
+  source?: string | null;
+  labelRefs?: string[];
+};
+
 export type SpaceSessionsResponse = {
   sessions: SessionRecord[];
   forks?: Array<SessionForkRecord & {
@@ -801,7 +807,7 @@ export type SpaceMember = {
 
 export type LabelScopeType = "space" | "user" | "org";
 
-export type LabelSource = "user" | "migration" | "system";
+export type LabelSource = "user" | "system";
 
 export type LabelResourceType = "session" | "checkpoint" | "file";
 

@@ -54,6 +54,7 @@ import type {
   SpaceRecord,
   SpaceRole,
   SpaceSessionsResponse,
+  CreateSpaceSessionInput,
   CreateSpaceInput,
   SpaceConfigInput,
   SpaceConfigResponse,
@@ -698,7 +699,7 @@ export class SpaceSessionsApi {
     private readonly websocketClient: WebsocketClient | null,
   ) {}
 
-  create(input?: { title?: string; source?: string }) {
+  create(input?: CreateSpaceSessionInput) {
     return this.transport.request<{ ok: true; session: SessionRecord }>(
       `/api/spaces/${this.spaceId}/sessions`,
       {

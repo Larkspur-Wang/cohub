@@ -3,12 +3,16 @@ import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { assignLabelsToSession } from "@cohub/core/labels";
+import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import type { PromptAccessMode, SubmitSessionPromptContext } from "@cohub/core/sessions";
 import { createExecutionGrantService } from "@cohub/core/security";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
+import { createLogger } from "@cohub/infra/logging";
 import { config } from "../config.js";
 import { db } from "../db.js";
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 
 const executionGrantService = createExecutionGrantService({
   signingKey: config.executionGrantSigningKey,
@@ -45,13 +49,20 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
 
   const source = "scheduled_task";
   const targetSessionId = sessionId?.trim() || null;
-  const promptSessionId = targetSessionId ?? (await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null, userUuid: userId })).id;
+  const createdSession = targetSessionId ? null : await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null, userUuid: userId });
+  const promptSessionId = targetSessionId ?? createdSession?.id;
+  if (!promptSessionId) throw new Error("sessionId is required for send_message task");
   const promptClientMessageId = payload.cronJobId?.trim()
     ? `cron:${payload.cronJobId.trim()}:run:${taskRunId}`
     : clientMessageId?.trim() || `taskrun:${taskRunId}`;
 
   if (labelIds && labelIds.length > 0) {
     await assignLabelsToSession({ db, spaceId, sessionId: promptSessionId, labelIds, userId });
+  }
+  if (createdSession) {
+    await assignSessionSourceSystemLabel({ db, spaceId, sessionId: promptSessionId, source }).catch((error) => {
+      logger.warn("[SessionSourceLabel] failed to assign scheduled task source label", error);
+    });
   }
 
   const result = await sessionPromptService.submitPrompt({

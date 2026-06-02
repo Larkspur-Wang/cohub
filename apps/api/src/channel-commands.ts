@@ -18,8 +18,12 @@ import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { sessionMessages, spaces } from "@cohub/db";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
+import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
+import { createLogger } from "@cohub/infra/logging";
 import { redisCommandClient } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";
+
+const logger = createLogger({ serviceName: "cohub-api" });
 
 type ResolvedGatewayInbound = {
   spaceId: string;
@@ -252,11 +256,12 @@ const createFreshSessionForBinding = async (
   resolved: ResolvedGatewayInbound,
 ) => {
   const sessionId = randomUUID();
+  const sessionSource = buildSessionSourceChannel(event);
   const session = await registerSpaceSession({
     spaceId: resolved.spaceId,
     sessionId,
     userUuid: resolved.userId,
-    source: buildSessionSourceChannel(event),
+    source: sessionSource,
     externalSessionId: null,
     meta: {
       source: `channel:${event.provider}`,
@@ -266,6 +271,14 @@ const createFreshSessionForBinding = async (
       previousSessionId: resolved.sessionId,
     },
   });
+
+  await assignSessionSourceSystemLabel({
+    db,
+    spaceId: resolved.spaceId,
+    sessionId: session.id,
+    source: sessionSource,
+    provider: event.provider,
+  }).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
 
   const defaultBindingMeta = deps.buildDefaultBindingMeta(event);
   await deps.createSpaceSessionBinding({

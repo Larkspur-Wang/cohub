@@ -5,6 +5,7 @@ import { labelAssignments, labels } from "@cohub/db";
 export type LabelPath = readonly [string] | readonly [string, string];
 
 type LabelsDb = PostgresJsDatabase<Record<string, unknown>>;
+export type LabelSource = "user" | "system";
 
 const SCOPE_TYPE = "space";
 const MAX_LABEL_NAME_LENGTH = 80;
@@ -84,6 +85,7 @@ async function getOrCreateLabel(db: LabelsDb, input: {
   parentId: string | null;
   depth: 0 | 1;
   userId: string | null;
+  source: LabelSource;
 }) {
   const existing = await findLabelByName(db, input.spaceId, input.name, input.parentId);
   if (existing) return existing;
@@ -96,7 +98,7 @@ async function getOrCreateLabel(db: LabelsDb, input: {
     parentId: input.parentId,
     depth: input.depth,
     rank: await nextLabelRank(db, input.spaceId, input.parentId),
-    source: "user",
+    source: input.source,
     createdBy: input.userId,
   }).onConflictDoNothing().returning();
   if (created) return created;
@@ -131,7 +133,9 @@ export async function resolveOrCreateLabelPaths(input: {
   spaceId: string;
   paths: LabelPath[];
   userId: string | null;
+  source?: LabelSource;
 }) {
+  const source = input.source ?? "user";
   const labelIds: string[] = [];
   for (const path of input.paths) {
     const parent = await getOrCreateLabel(input.db, {
@@ -140,6 +144,7 @@ export async function resolveOrCreateLabelPaths(input: {
       parentId: null,
       depth: 0,
       userId: input.userId,
+      source,
     });
     if (path.length === 1) {
       labelIds.push(parent.id);
@@ -151,6 +156,7 @@ export async function resolveOrCreateLabelPaths(input: {
       parentId: parent.id,
       depth: 1,
       userId: input.userId,
+      source,
     });
     labelIds.push(child.id);
   }
@@ -163,7 +169,9 @@ export async function assignLabelsToSession(input: {
   sessionId: string;
   labelIds: string[];
   userId: string | null;
+  source?: LabelSource;
 }) {
+  const source = input.source ?? "user";
   const labelIds = [...new Set(input.labelIds)].filter(Boolean);
   if (labelIds.length === 0) return;
   const existing = await input.db
@@ -184,7 +192,7 @@ export async function assignLabelsToSession(input: {
       resourceType: "session",
       resourceRef: input.sessionId,
       rank: Number(value ?? 0) + 10,
-      source: "user",
+      source,
       createdBy: input.userId,
     };
   }));

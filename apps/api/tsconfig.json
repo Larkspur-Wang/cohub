@@ -109,6 +109,9 @@
       "@cohub/core/labels": [
         "../../packages/core/src/labels/index.ts"
       ],
+      "@cohub/core/labels/session-source": [
+        "../../packages/core/src/labels/session-source.ts"
+      ],
       "@cohub/core/spaces": [
         "../../packages/core/src/spaces/index.ts"
       ],

@@ -40,6 +40,10 @@
       "types": "./dist/labels/index.d.ts",
       "default": "./dist/labels/index.js"
     },
+    "./labels/session-source": {
+      "types": "./dist/labels/session-source.d.ts",
+      "default": "./dist/labels/session-source.js"
+    },
     "./spaces": {
       "types": "./dist/spaces/index.d.ts",
       "default": "./dist/spaces/index.js"

@@ -36,6 +36,7 @@ import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChanne
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
+import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
@@ -1194,6 +1195,7 @@ router.post("/:id/prompt", async (c) => {
 
   let sessionId = body.sessionId?.trim() || null;
   let promptSession: SpaceRouteSessionRecord | null = null;
+  let createdPromptSession: SpaceRouteSessionRecord | null = null;
   if (sessionId) {
     const session = await getSpaceSessionById(sessionId);
     if (!session || session.spaceId !== spaceId) return c.json({ message: "session not found" }, 404);
@@ -1256,12 +1258,18 @@ router.post("/:id/prompt", async (c) => {
         externalSessionId: null,
         meta: { createdBy: "api_space_prompt" },
       });
+      createdPromptSession = promptSession;
       sessionId = promptSession.id;
     }
 
     try {
       if (promptLabelIds.length > 0) {
         await assignLabelsToSession({ db, spaceId, sessionId, labelIds: promptLabelIds, userId: user.uuid });
+      }
+      if (createdPromptSession) {
+        await assignSessionSourceSystemLabel({ db, spaceId, sessionId, source: createdPromptSession.source }).catch((error) => {
+          logger.warn("[SessionSourceLabel] failed to assign system source label", error);
+        });
       }
       const { turnId } = await submitSessionPrompt({
         spaceId,
@@ -1360,19 +1368,42 @@ router.post("/:id/sessions", async (c) => {
   const space = await getSpaceById(spaceId);
   if (!space) return c.json({ message: "space not found" }, 404);
 
-  const body = await c.req.json<{ title?: string; source?: string }>().catch(() => ({
-    title: undefined,
-    source: undefined,
-  }));
+  let body: { title?: string | null; source?: string | null; labelRefs?: unknown };
+  try {
+    body = await c.req.json<{ title?: string | null; source?: string | null; labelRefs?: unknown }>();
+  } catch {
+    return c.json({ message: "invalid json body" }, 400);
+  }
 
+  let userLabelIds: string[] = [];
+  try {
+    const labelPaths = parseLabelRefs(body.labelRefs);
+    if (labelPaths.length > 0) {
+      if (!(await hasPermission(user, "space.label.assign", { spaceId }))) return authzDenied(c);
+      const resolved = await resolveLabelPaths({ db, spaceId, paths: labelPaths });
+      if (resolved.missingPaths.length > 0 && !(await hasPermission(user, "space.label.manage", { spaceId }))) return authzDenied(c);
+      userLabelIds = (await resolveOrCreateLabelPaths({ db, spaceId, paths: labelPaths, userId: user.uuid })).labelIds;
+    }
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+
+  const source = body.source?.trim() || "public_api";
   const session = await createInitialSpaceSession({
     spaceId: space.id,
     sessionId: crypto.randomUUID(),
     userUuid: user.uuid,
     title: body.title ?? null,
-    source: body.source ?? null,
+    source,
     externalSessionId: null,
     meta: { createdBy: "api_space_session_create" },
+  });
+
+  if (userLabelIds.length > 0) {
+    await assignLabelsToSession({ db, spaceId, sessionId: session.id, labelIds: userLabelIds, userId: user.uuid });
+  }
+  await assignSessionSourceSystemLabel({ db, spaceId, sessionId: session.id, source }).catch((error) => {
+    logger.warn("[SessionSourceLabel] failed to assign system source label", error);
   });
 
   return c.json({ ok: true, session });
