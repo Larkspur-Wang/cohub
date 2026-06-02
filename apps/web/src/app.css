@@ -106,7 +106,7 @@ body.drawer-open {
    automatic focus zoom while preserving the compact desktop scale.
    ============================================================ */
 @media (hover: none) and (pointer: coarse) {
-	:where(
+	:is(
 			input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
 					[type="file"]
 				):not([type="submit"]):not([type="button"]):not([type="reset"]),
