@@ -10,6 +10,7 @@ import {
 	Upload,
 } from "lucide-svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
+import { setCohubResourceDragData } from "$lib/drag/cohub-resource-drag";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	entriesFromDataTransfer,
@@ -181,6 +182,24 @@ $effect(() => {
       return;
     }
     const path = node.type === "dir" ? `${node.path}/` : node.path;
+    if (node.type === "file") {
+      setCohubResourceDragData(
+        e.dataTransfer,
+        {
+          version: 1,
+          resources: [{
+            type: "file",
+            ref: node.path,
+            title: node.name,
+            path: node.path,
+          }],
+          origin: { kind: "space-file-tree" },
+          createdAt: Date.now(),
+        },
+        { cohubPath: path, plainText: path, effectAllowed: "copyMove" },
+      );
+      return;
+    }
     e.dataTransfer?.setData("text/cohub-path", path);
     e.dataTransfer?.setData("text/plain", path);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";

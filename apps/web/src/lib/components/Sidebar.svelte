@@ -52,7 +52,22 @@ import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.s
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { downloadCohubDebugBundle } from "$lib/debugger";
+import {
+	type CohubResourceDragPayload,
+	getCohubResourceDragData,
+	getFirstCohubResource,
+	hasCohubResourceDragData,
+	isLabelAssignableResource,
+	type LabelAssignableCohubResource,
+	setCohubResourceDragData,
+} from "$lib/drag/cohub-resource-drag";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import {
+	addResourceToLabel,
+	moveResourceToLabel,
+	type ResourceLabelMutationResult,
+	removeResourceFromLabel,
+} from "$lib/labels/resource-label-actions";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import { getSessionSortTime } from "$lib/session-sort";
@@ -179,6 +194,17 @@ let billingConfigured = $state<boolean | null>(null);
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
 let labelsCollapsed = $state(false);
+let labelDropTargetId = $state<string | null>(null);
+let labelDropBusyId = $state<string | null>(null);
+let labelDropSuccessId = $state<string | null>(null);
+let labelDropErrorId = $state<string | null>(null);
+let labelDropErrorMessage = $state<string | null>(null);
+let labelRemoveDropActive = $state(false);
+let draggedLabelOrigin = $state<{ labelId: string; labelName?: string } | null>(
+	null,
+);
+let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
+let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
@@ -242,6 +268,9 @@ const currentSpaceId = $derived.by(() => {
 
 const currentSpace = $derived(
 	currentSpaceId ? (spaces.find((s) => s.id === currentSpaceId) ?? null) : null,
+);
+const canAssignLabels = $derived(
+	Boolean(currentSpace?.access?.permissions?.includes("space.label.assign")),
 );
 const currentLabelItemsById = $derived(
 	currentSpaceId ? (labelItemsBySpace[currentSpaceId] ?? {}) : {},
@@ -816,6 +845,269 @@ function refreshExpandedLabelItems(spaceId: string) {
 	const expanded = expandedLabelIdsBySpace[spaceId];
 	if (!expanded || spaceId !== currentSpaceId) return;
 	for (const labelId of expanded) void loadLabelItems(labelId, { force: true });
+}
+
+function ensureLabelExpanded(labelId: string) {
+	if (!currentSpaceId) return;
+	const spaceId = currentSpaceId;
+	const next = new Set(expandedLabelIdsBySpace[spaceId] ?? new Set<string>());
+	if (next.has(labelId)) return;
+	next.add(labelId);
+	expandedLabelIdsBySpace = {
+		...expandedLabelIdsBySpace,
+		[spaceId]: next,
+	};
+	setCachedExpandedLabelIds(spaceId, next);
+}
+
+function clearLabelAutoExpandTimer() {
+	if (!labelAutoExpandTimer) return;
+	clearTimeout(labelAutoExpandTimer);
+	labelAutoExpandTimer = null;
+}
+
+function scheduleLabelAutoExpand(labelId: string) {
+	clearLabelAutoExpandTimer();
+	if (currentExpandedLabelIds.has(labelId)) return;
+	labelAutoExpandTimer = setTimeout(() => {
+		ensureLabelExpanded(labelId);
+		void loadLabelItems(labelId);
+		labelAutoExpandTimer = null;
+	}, 600);
+}
+
+function setLabelDropFeedback(
+	kind: "success" | "error",
+	labelId: string,
+	message?: string,
+) {
+	if (labelDropFeedbackTimer) clearTimeout(labelDropFeedbackTimer);
+	labelDropSuccessId = kind === "success" ? labelId : null;
+	labelDropErrorId = kind === "error" ? labelId : null;
+	labelDropErrorMessage =
+		kind === "error" ? (message ?? "Failed to update label") : null;
+	labelDropFeedbackTimer = setTimeout(
+		() => {
+			labelDropSuccessId = null;
+			labelDropErrorId = null;
+			labelDropErrorMessage = null;
+			labelDropFeedbackTimer = null;
+		},
+		kind === "error" ? 2400 : 900,
+	);
+}
+
+function refreshAffectedLabelItems(result: ResourceLabelMutationResult) {
+	if (!currentSpaceId) return;
+	for (const labelId of result.affectedLabelIds) {
+		if (currentExpandedLabelIds.has(labelId)) {
+			void loadLabelItems(labelId, { force: true });
+		}
+	}
+}
+
+function getDropResource(event: DragEvent): {
+	payload: CohubResourceDragPayload;
+	resource: LabelAssignableCohubResource;
+} | null {
+	const payload = getCohubResourceDragData(event.dataTransfer);
+	if (!payload) return null;
+	const resource = getFirstCohubResource(payload);
+	if (!isLabelAssignableResource(resource)) return null;
+	return { payload, resource };
+}
+
+function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
+	if (!canAssignLabels || !hasCohubResourceDragData(event.dataTransfer)) return;
+	event.preventDefault();
+	event.stopPropagation();
+	labelDropTargetId = label.id;
+	if (event.dataTransfer) {
+		event.dataTransfer.dropEffect = draggedLabelOrigin ? "move" : "copy";
+	}
+	scheduleLabelAutoExpand(label.id);
+}
+
+function handleLabelDragLeave(event: DragEvent, label: LabelListItem) {
+	const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+	const { clientX: x, clientY: y } = event;
+	if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+		return;
+	if (labelDropTargetId === label.id) labelDropTargetId = null;
+	clearLabelAutoExpandTimer();
+}
+
+async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
+	if (!canAssignLabels || !currentSpaceId) return;
+	const spaceId = currentSpaceId;
+	const drop = getDropResource(event);
+	if (!drop) return;
+	event.preventDefault();
+	event.stopPropagation();
+	clearLabelAutoExpandTimer();
+	labelDropTargetId = null;
+	labelDropBusyId = label.id;
+	try {
+		const result =
+			drop.payload.origin?.kind === "label-items"
+				? await moveResourceToLabel({
+						spaceId,
+						resource: drop.resource,
+						sourceLabelId: drop.payload.origin.labelId,
+						targetLabelId: label.id,
+					})
+				: await addResourceToLabel({
+						spaceId,
+						resource: drop.resource,
+						targetLabelId: label.id,
+					});
+		if (currentSpaceId !== spaceId) return;
+		ensureLabelExpanded(label.id);
+		void loadLabelItems(label.id, { force: true });
+		refreshAffectedLabelItems(result);
+		setLabelDropFeedback("success", label.id);
+	} catch (error) {
+		console.warn("[labels] Failed to update resource labels", {
+			labelId: label.id,
+			resource: drop.resource,
+			error,
+		});
+		if (currentSpaceId === spaceId) {
+			setLabelDropFeedback("error", label.id, "Could not update label");
+		}
+	} finally {
+		if (currentSpaceId === spaceId) labelDropBusyId = null;
+	}
+}
+
+function handleSessionDragStart(
+	event: DragEvent,
+	session: SessionRecord,
+	title: string,
+) {
+	const path = `/sessions/${session.id}.jsonl`;
+	setCohubResourceDragData(
+		event.dataTransfer,
+		{
+			version: 1,
+			resources: [
+				{
+					type: "session",
+					ref: session.id,
+					title,
+					href: currentSpaceId
+						? buildSpaceSessionRoute(currentSpaceId, session.id)
+						: undefined,
+					path,
+				},
+			],
+			origin: { kind: "sidebar-session-list" },
+			createdAt: Date.now(),
+		},
+		{ cohubPath: path, plainText: path, effectAllowed: "copyMove" },
+	);
+}
+
+function handleLabelItemDragStart(
+	event: DragEvent,
+	label: LabelListItem,
+	item: LabelAssignmentListItem,
+) {
+	if (!canAssignLabels) {
+		event.preventDefault();
+		return;
+	}
+	if (item.resourceType !== "session" && item.resourceType !== "file") {
+		event.preventDefault();
+		return;
+	}
+	const resource: LabelAssignableCohubResource = {
+		type: item.resourceType,
+		ref: item.resourceRef,
+		title: item.resource?.title ?? item.resourceRef,
+		subtitle: item.resource?.subtitle,
+		href: item.href,
+		path: item.resourceType === "file" ? item.resourceRef : undefined,
+	};
+	setCohubResourceDragData(
+		event.dataTransfer,
+		{
+			version: 1,
+			resources: [resource],
+			origin: { kind: "label-items", labelId: label.id, labelName: label.name },
+			createdAt: Date.now(),
+		},
+		{
+			cohubPath:
+				item.resourceType === "file"
+					? item.resourceRef
+					: `/sessions/${item.resourceRef}.jsonl`,
+			plainText: item.resourceRef,
+			effectAllowed: "copyMove",
+		},
+	);
+	draggedLabelOrigin = { labelId: label.id, labelName: label.name };
+}
+
+function handleResourceDragEnd() {
+	draggedLabelOrigin = null;
+	labelDropTargetId = null;
+	labelRemoveDropActive = false;
+	clearLabelAutoExpandTimer();
+}
+
+async function handleRemoveLabelDrop(event: DragEvent) {
+	if (!canAssignLabels || !currentSpaceId || !draggedLabelOrigin) return;
+	const spaceId = currentSpaceId;
+	const drop = getDropResource(event);
+	const origin = drop?.payload.origin;
+	if (origin?.kind !== "label-items" || !drop) return;
+	event.preventDefault();
+	event.stopPropagation();
+	labelRemoveDropActive = false;
+	labelDropBusyId = origin.labelId;
+	try {
+		const result = await removeResourceFromLabel({
+			spaceId,
+			resource: drop.resource,
+			sourceLabelId: origin.labelId,
+		});
+		if (currentSpaceId !== spaceId) return;
+		refreshAffectedLabelItems(result);
+		setLabelDropFeedback("success", origin.labelId);
+	} catch (error) {
+		console.warn("[labels] Failed to remove resource label", {
+			labelId: origin.labelId,
+			resource: drop.resource,
+			error,
+		});
+		if (currentSpaceId === spaceId) {
+			setLabelDropFeedback("error", origin.labelId, "Could not remove label");
+		}
+	} finally {
+		if (currentSpaceId === spaceId) labelDropBusyId = null;
+	}
+}
+
+function handleRemoveLabelDragOver(event: DragEvent) {
+	if (
+		!canAssignLabels ||
+		!draggedLabelOrigin ||
+		!hasCohubResourceDragData(event.dataTransfer)
+	)
+		return;
+	event.preventDefault();
+	event.stopPropagation();
+	labelRemoveDropActive = true;
+	if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+}
+
+function handleRemoveLabelDragLeave(event: DragEvent) {
+	const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+	const { clientX: x, clientY: y } = event;
+	if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+		return;
+	labelRemoveDropActive = false;
 }
 
 function labelAssignmentHref(item: LabelAssignmentListItem) {
@@ -1405,6 +1697,12 @@ $effect(() => {
 		loadingCronjobsSpaceId = null;
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
+		labelDropTargetId = null;
+		labelDropBusyId = null;
+		labelDropErrorMessage = null;
+		labelRemoveDropActive = false;
+		draggedLabelOrigin = null;
+		clearLabelAutoExpandTimer();
 		untrack(() => {
 			restoreExpandedLabelIds(id);
 			void loadSessionsForSpace(id);
@@ -1430,6 +1728,12 @@ $effect(() => {
 		loadingCronjobsSpaceId = null;
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
+		labelDropTargetId = null;
+		labelDropBusyId = null;
+		labelDropErrorMessage = null;
+		labelRemoveDropActive = false;
+		draggedLabelOrigin = null;
+		clearLabelAutoExpandTimer();
 	}
 });
 
@@ -1468,6 +1772,9 @@ $effect(() => {
 					class="flex min-w-0 items-center gap-2 rounded-[6px] px-9 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
+					draggable={canAssignLabels && (item.resourceType === "session" || item.resourceType === "file")}
+					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
+					ondragend={handleResourceDragEnd}
 				>
 					<FileText class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
@@ -1508,19 +1815,57 @@ $effect(() => {
 				<Plus class="h-3.5 w-3.5" />
 			</button>
 		</div>
+		{#if draggedLabelOrigin && canAssignLabels}
+			<div
+				role="button"
+				tabindex="-1"
+				class="label-remove-drop-zone"
+				class:active={labelRemoveDropActive}
+				ondragover={handleRemoveLabelDragOver}
+				ondragleave={handleRemoveLabelDragLeave}
+				ondrop={handleRemoveLabelDrop}
+			>
+				Remove from “{draggedLabelOrigin.labelName ?? "label"}”
+			</div>
+		{/if}
+		{#if labelDropErrorMessage}
+			<div class="label-drop-message" role="status">{labelDropErrorMessage}</div>
+		{/if}
 		{#if !labelsCollapsed}
 			{#if labels.length === 0}
 				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 			{:else}
 				<div class="mt-1 space-y-[1px]">
 					{#each labels as label (label.id)}
-						<button type="button" class="label-tree-row" onclick={() => toggleLabelExpanded(label.id)}>
+						<button
+							type="button"
+							class="label-tree-row"
+							class:drop-target={labelDropTargetId === label.id}
+							class:drop-busy={labelDropBusyId === label.id}
+							class:drop-success={labelDropSuccessId === label.id}
+							class:drop-error={labelDropErrorId === label.id}
+							onclick={() => toggleLabelExpanded(label.id)}
+							ondragover={(event) => handleLabelDragOver(event, label)}
+							ondragleave={(event) => handleLabelDragLeave(event, label)}
+							ondrop={(event) => handleLabelDrop(event, label)}
+						>
 							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
 							<span class="truncate">{label.name}</span>
 						</button>
 						{@render labelAssignmentRows(label, 0)}
 						{#each label.children ?? [] as child (child.id)}
-							<button type="button" class="label-tree-row child" onclick={() => toggleLabelExpanded(child.id)}>
+							<button
+								type="button"
+								class="label-tree-row child"
+								class:drop-target={labelDropTargetId === child.id}
+								class:drop-busy={labelDropBusyId === child.id}
+								class:drop-success={labelDropSuccessId === child.id}
+								class:drop-error={labelDropErrorId === child.id}
+								onclick={() => toggleLabelExpanded(child.id)}
+								ondragover={(event) => handleLabelDragOver(event, child)}
+								ondragleave={(event) => handleLabelDragLeave(event, child)}
+								ondrop={(event) => handleLabelDrop(event, child)}
+							>
 								<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
 								<span class="truncate">{child.name}</span>
 							</button>
@@ -1549,10 +1894,8 @@ $effect(() => {
 					style={getSessionRowStyle(item)}
 					onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 					draggable="true"
-					ondragstart={(e) => {
-						e.dataTransfer?.setData("text/cohub-path", `/sessions/${session.id}.jsonl`);
-						if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
-					}}
+					ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
+					ondragend={handleResourceDragEnd}
 					title={item.titleText || sourceTooltip(session.source) || undefined}
 					aria-label={item.ariaLabel}
 				>
@@ -2004,13 +2347,8 @@ $effect(() => {
                       style={getSessionRowStyle(item)}
 						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
-								ondragstart={(e) => {
-									e.dataTransfer?.setData(
-										"text/cohub-path",
-										`/sessions/${session.id}.jsonl`,
-									);
-									if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
-								}}
+							ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
+							ondragend={handleResourceDragEnd}
                       title={item.titleText || sourceTooltip(session.source) || undefined}
                       aria-label={item.ariaLabel}
                     >
@@ -2116,13 +2454,8 @@ $effect(() => {
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
 				draggable={!isMobile}
-				ondragstart={(e) => {
-					e.dataTransfer?.setData(
-						"text/cohub-path",
-						`/sessions/${activeSession.id}.jsonl`,
-					);
-					if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
-				}}
+				ondragstart={(e) => handleSessionDragStart(e, activeSession, getSessionTitle(activeSession, 0))}
+				ondragend={handleResourceDragEnd}
                 title={sourceTooltip(activeSession.source) || undefined}
               >
                 <SessionSidebarRowContent session={activeSession} title={getSessionTitle(activeSession, 0)} {isMobile} />
@@ -2499,6 +2832,7 @@ $effect(() => {
 
 <style>
 	.label-tree-row {
+		position: relative;
 		display: flex;
 		min-height: 28px;
 		width: 100%;
@@ -2520,6 +2854,60 @@ $effect(() => {
 	.label-tree-row.child {
 		padding-left: 22px;
 		font-size: 12px;
+	}
+
+	.label-tree-row.drop-target {
+		background: var(--bg-active);
+		color: var(--text-secondary);
+	}
+
+	.label-tree-row.drop-target::before,
+	.label-tree-row.drop-success::before,
+	.label-tree-row.drop-error::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		top: 6px;
+		bottom: 6px;
+		width: 2px;
+		border-radius: 999px;
+		background: var(--brand);
+	}
+
+	.label-tree-row.drop-busy {
+		color: var(--text-secondary);
+		opacity: 0.75;
+	}
+
+	.label-tree-row.drop-error::before {
+		background: var(--error-500, var(--brand));
+	}
+
+	.label-remove-drop-zone {
+		margin: 4px 0 6px;
+		border: 1px dashed var(--border-subtle);
+		border-radius: 6px;
+		padding: 6px 8px;
+		color: var(--text-tertiary);
+		font-size: 11px;
+		line-height: 1.2;
+		transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
+	}
+
+	.label-remove-drop-zone.active {
+		border-color: var(--brand);
+		background: var(--bg-active);
+		color: var(--text-secondary);
+	}
+
+	.label-drop-message {
+		margin: 4px 0 6px;
+		border-radius: 6px;
+		padding: 5px 8px;
+		background: color-mix(in srgb, var(--error-500, var(--brand)) 8%, transparent);
+		color: var(--text-secondary);
+		font-size: 11px;
+		line-height: 1.25;
 	}
 
 	.rail-button {
