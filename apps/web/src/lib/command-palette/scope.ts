@@ -6,7 +6,6 @@ import type {
 export type CommandPaletteSearchPlan = {
 	query: string;
 	resourceTypes?: CommandPaletteResourceType[];
-	pinnedOnly?: boolean;
 };
 
 const REMOTE_TYPES = new Set<CommandPaletteResourceType>([
@@ -41,10 +40,8 @@ export function getRemoteResourceTypes(
 
 export function typeLabelFor(
 	resourceTypes: CommandPaletteResourceType[] | undefined,
-	pinnedOnly = false,
 ) {
-	const label = resourceTypes?.length
+	return resourceTypes?.length
 		? resourceTypes.map((type) => TYPE_LABELS[type]).join(" + ")
 		: null;
-	return pinnedOnly ? `Pinned${label ? ` ${label.toLowerCase()}` : ""}` : label;
 }

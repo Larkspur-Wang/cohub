@@ -44,10 +44,11 @@ import type {
   SpaceFsUploadResponse,
   SpaceUsageResponse,
   SpaceFsWriteFileInput,
-  SpaceMarkKind,
+  LabelAssignmentListItem,
+  LabelAssignmentRecord,
+  LabelListItem,
+  LabelResourceType,
   SpaceModListItem,
-  SpaceMarkListItem,
-  SpaceMarkResourceType,
   SpaceMember,
   SpaceRecord,
   SpaceRole,
@@ -1051,39 +1052,98 @@ export class SpaceSandboxApi {
 
 export type SpaceRunCommandResponse = { taskRunId: string };
 
-export class SpaceMarksApi {
+export class SpaceLabelsApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly spaceId: string,
   ) {}
 
-  list(kind: SpaceMarkKind = "pin") {
-    const params = new URLSearchParams({ kind });
-    return this.transport.request<{ marks: SpaceMarkListItem[] }>(
-      `/api/spaces/${this.spaceId}/marks?${params.toString()}`,
+  list() {
+    return this.transport.request<{ labels: LabelListItem[] }>(
+      `/api/spaces/${this.spaceId}/labels`,
     );
   }
 
-  create(input: {
-    kind?: SpaceMarkKind;
-    resourceType: SpaceMarkResourceType;
-    resourceRef: string;
-    label?: string | null;
-  }) {
-    return this.transport.request<{ mark: SpaceMarkListItem }>(
-      `/api/spaces/${this.spaceId}/marks`,
+  create(input: { name: string; parentId?: string | null }) {
+    return this.transport.request<{ label: LabelListItem }>(
+      `/api/spaces/${this.spaceId}/labels`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "pin", ...input }),
+        body: JSON.stringify(input),
       },
     );
   }
 
-  delete(markId: string) {
+  update(labelId: string, input: { name?: string; parentId?: string | null; rank?: number }) {
+    return this.transport.request<{ label: LabelListItem }>(
+      `/api/spaces/${this.spaceId}/labels/${labelId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  delete(labelId: string) {
     return this.transport.request<{ ok: true }>(
-      `/api/spaces/${this.spaceId}/marks/${markId}`,
+      `/api/spaces/${this.spaceId}/labels/${labelId}`,
       { method: "DELETE" },
+    );
+  }
+
+  reorder(labelIds: string[]) {
+    return this.transport.request<{ labels: LabelListItem[] }>(
+      `/api/spaces/${this.spaceId}/labels/reorder`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelIds }),
+      },
+    );
+  }
+
+  listItems(labelId: string) {
+    return this.transport.request<{ items: LabelAssignmentListItem[] }>(
+      `/api/spaces/${this.spaceId}/labels/${labelId}/items`,
+    );
+  }
+
+  addItem(labelId: string, input: { resourceType: LabelResourceType; resourceRef: string }) {
+    return this.transport.request<{ assignment: LabelAssignmentRecord }>(
+      `/api/spaces/${this.spaceId}/labels/${labelId}/items`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  deleteItem(labelId: string, assignmentId: string) {
+    return this.transport.request<{ ok: true }>(
+      `/api/spaces/${this.spaceId}/labels/${labelId}/items/${assignmentId}`,
+      { method: "DELETE" },
+    );
+  }
+
+  getResourceLabels(resourceType: LabelResourceType, resourceRef: string) {
+    const params = new URLSearchParams({ resourceRef });
+    return this.transport.request<{ labels: LabelListItem[]; assignments: LabelAssignmentRecord[] }>(
+      `/api/spaces/${this.spaceId}/resources/${resourceType}/labels?${params.toString()}`,
+    );
+  }
+
+  setResourceLabels(resourceType: LabelResourceType, resourceRef: string, labelIds: string[]) {
+    const params = new URLSearchParams({ resourceRef });
+    return this.transport.request<{ labels: LabelListItem[]; assignments: LabelAssignmentRecord[] }>(
+      `/api/spaces/${this.spaceId}/resources/${resourceType}/labels?${params.toString()}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelIds }),
+      },
     );
   }
 }
@@ -1131,7 +1191,7 @@ export class SpaceClient {
   readonly env: SpaceEnvApi;
   readonly sandbox: SpaceSandboxApi;
   readonly invitations: SpaceInvitationsApi;
-  readonly marks: SpaceMarksApi;
+  readonly labels: SpaceLabelsApi;
 
   constructor(
     readonly id: string,
@@ -1149,7 +1209,7 @@ export class SpaceClient {
     this.env = new SpaceEnvApi(transport, id);
     this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
-    this.marks = new SpaceMarksApi(transport, id);
+    this.labels = new SpaceLabelsApi(transport, id);
   }
 
   get(customFetch?: Fetch) {

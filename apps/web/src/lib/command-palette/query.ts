@@ -22,7 +22,6 @@ export type ParsedCommandPaletteQuery = {
 	raw: string;
 	query: string;
 	resourceTypes?: CommandPaletteResourceType[];
-	pinnedOnly: boolean;
 	explicitTypeFilter: boolean;
 };
 
@@ -51,16 +50,6 @@ export function parseCommandPaletteQuery(
 	const raw = input;
 	const trimmedStart = input.trimStart();
 
-	const pinnedMatch = /^(p|pin|pinned):(?:\s+)?(.*)$/i.exec(trimmedStart);
-	if (pinnedMatch) {
-		return {
-			raw,
-			query: (pinnedMatch[2] ?? "").trim(),
-			pinnedOnly: true,
-			explicitTypeFilter: false,
-		};
-	}
-
 	const longMatch = /^type:([^\s]+)(?:\s+)?(.*)$/i.exec(trimmedStart);
 	if (longMatch) {
 		const resourceTypes = parseTypeList(longMatch[1] ?? "");
@@ -69,7 +58,6 @@ export function parseCommandPaletteQuery(
 				raw,
 				query: (longMatch[2] ?? "").trim(),
 				resourceTypes,
-				pinnedOnly: false,
 				explicitTypeFilter: true,
 			};
 		}
@@ -83,7 +71,6 @@ export function parseCommandPaletteQuery(
 				raw,
 				query: (shortMatch[2] ?? "").trim(),
 				resourceTypes: [type],
-				pinnedOnly: false,
 				explicitTypeFilter: true,
 			};
 		}
@@ -92,7 +79,6 @@ export function parseCommandPaletteQuery(
 	return {
 		raw,
 		query: input.trim(),
-		pinnedOnly: false,
 		explicitTypeFilter: false,
 	};
 }

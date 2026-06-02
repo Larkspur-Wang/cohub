@@ -5,7 +5,7 @@ import membersRouter from "./members.route.js";
 import accessRouter from "./access.route.js";
 import usageRouter from "./usage.route.js";
 import invitationsRouter from "./invitations.route.js";
-import marksRouter from "./marks.route.js";
+import labelsRouter, { getResourceLabels, setResourceLabels } from "./labels.route.js";
 import modsRouter from "./mods.route.js";
 
 const router = new Hono();
@@ -16,7 +16,9 @@ router.route("/:id/members", membersRouter);
 router.route("/:id/access", accessRouter);
 router.route("/:id/usage", usageRouter);
 router.route("/:id/invitations", invitationsRouter);
-router.route("/:id/marks", marksRouter);
+router.route("/:id/labels", labelsRouter);
+router.get("/:id/resources/:resourceType/labels", getResourceLabels);
+router.put("/:id/resources/:resourceType/labels", setResourceLabels);
 router.route("/:id/mods", modsRouter);
 
 export default router;

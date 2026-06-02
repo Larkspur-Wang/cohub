@@ -34,8 +34,6 @@ const {
 	onDelete,
 	onDownload,
 	onUpload,
-	isPinned,
-	onTogglePin,
 	onInsertReference,
 	onOpenPort,
 	activePort = null,
@@ -58,8 +56,6 @@ const {
 	onDelete: (node: SpaceFsNode) => void;
 	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
-	isPinned?: (node: SpaceFsNode) => boolean;
-	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
 	onOpenPort?: (port: string, url: string) => void;
 	activePort?: string | null;
@@ -268,8 +264,6 @@ $effect(() => {
           {onDelete}
           {onDownload}
           {onUpload}
-          {isPinned}
-          {onTogglePin}
           {onInsertReference}
           {draggable}
           {showItemActions}

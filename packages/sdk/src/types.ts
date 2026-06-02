@@ -691,24 +691,48 @@ export type SpaceMember = {
   updatedAt: string;
 };
 
-export type SpaceMarkKind = "pin";
+export type LabelScopeType = "space" | "user" | "org";
 
-export type SpaceMarkResourceType = "session" | "checkpoint" | "file" | "space";
+export type LabelSource = "user" | "migration" | "system";
 
-export type SpaceMarkRecord = {
+export type LabelResourceType = "session" | "checkpoint" | "file";
+
+export type LabelRecord = {
   id: string;
-  spaceId: string;
-  kind: SpaceMarkKind;
-  resourceType: SpaceMarkResourceType;
-  resourceRef: string;
-  label: string | null;
+  scopeType: LabelScopeType;
+  scopeId: string;
+  name: string;
+  slug: string;
+  parentId: string | null;
+  depth: number;
+  source: LabelSource;
+  systemKey: string | null;
   rank: number;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
+  createdBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 };
 
-export type SpaceMarkListItem = SpaceMarkRecord & {
+export type LabelListItem = LabelRecord & {
+  children?: LabelListItem[];
+};
+
+export type LabelAssignmentRecord = {
+  id: string;
+  labelId: string;
+  scopeType: LabelScopeType;
+  scopeId: string;
+  resourceType: LabelResourceType;
+  resourceRef: string;
+  rank: number;
+  source: LabelSource;
+  createdBy: string | null;
+  meta: Record<string, unknown> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type LabelAssignmentListItem = LabelAssignmentRecord & {
   href: string;
   resource: {
     title: string;
@@ -717,6 +741,10 @@ export type SpaceMarkListItem = SpaceMarkRecord & {
   } | null;
 };
 
+export type ResourceLabelsResponse = {
+  labels: LabelListItem[];
+  assignments: LabelAssignmentRecord[];
+};
 
 export type SpaceModListItem = {
   id: string;
@@ -774,7 +802,9 @@ export type ExploreSpacesResponse = {
 export type Permission =
   | "space.view"
   | "space.edit"
-  | "space.pin"
+  | "space.label.view"
+  | "space.label.manage"
+  | "space.label.assign"
   | "session.view"
   | "session.edit"
   | "session.prompt.readonly"

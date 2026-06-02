@@ -6,8 +6,6 @@ import {
 	FolderOpen,
 	MoreHorizontal,
 	Pencil,
-	Pin,
-	PinOff,
 	Trash2,
 	Upload,
 } from "lucide-svelte";
@@ -32,8 +30,6 @@ const {
 	onDelete,
 	onDownload,
 	onUpload,
-	isPinned,
-	onTogglePin,
 	onInsertReference,
 	draggable = true,
 	showItemActions = true,
@@ -51,8 +47,6 @@ const {
 	onDelete: (node: SpaceFsNode) => void;
 	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
-	isPinned?: (node: SpaceFsNode) => boolean;
-	onTogglePin?: (node: SpaceFsNode) => void;
 	onInsertReference?: (path: string) => void;
 	draggable?: boolean;
 	showItemActions?: boolean;
@@ -213,15 +207,6 @@ $effect(() => {
 
   {#if showItemActions && canWrite}
     <span class="actions">
-      {#if !isDir && onTogglePin}
-        <button type="button" class="action" title={isPinned?.(node) ? "Unpin" : "Pin"} onclick={stop(() => onTogglePin(node))}>
-          {#if isPinned?.(node)}
-            <PinOff class="w-3.5 h-3.5" />
-          {:else}
-            <Pin class="w-3.5 h-3.5" />
-          {/if}
-        </button>
-      {/if}
       {#if onInsertReference}
         <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><FileIcon class="w-3.5 h-3.5" /></button>
       {/if}
@@ -285,8 +270,6 @@ $effect(() => {
       {onDelete}
       {onDownload}
       {onUpload}
-      {isPinned}
-      {onTogglePin}
       {onInsertReference}
       {draggable}
       {showItemActions}

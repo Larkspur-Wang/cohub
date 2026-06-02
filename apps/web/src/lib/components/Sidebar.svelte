@@ -3,9 +3,9 @@ import type {
 	BillingCreditStatus,
 	CheckpointRecord,
 	CronJobRecord,
+	LabelListItem,
 	SessionForkRecord,
 	SessionRecord,
-	SpaceMarkListItem,
 	SpaceRecord,
 	TaskRunRecord,
 } from "@neta-art/cohub";
@@ -32,8 +32,6 @@ import {
 	PanelLeftClose,
 	PanelLeftOpen,
 	Pencil,
-	Pin,
-	PinOff,
 	Plus,
 	Save,
 	Search,
@@ -77,6 +75,7 @@ import {
 	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
+import { createSpaceLabel, fetchSpaceLabels } from "$lib/stores/space-labels";
 import {
 	clearAllCachedSpaceLists,
 	fetchSpaceListWithCache,
@@ -84,13 +83,6 @@ import {
 	getCachedSpaceListMeta,
 	onSpaceListCacheUpdated,
 } from "$lib/stores/space-list-cache";
-import {
-	clearAllCachedSpacePins,
-	fetchSpacePinsWithCache,
-	getCachedSpacePins,
-	onSpacePinsCacheUpdated,
-} from "$lib/stores/space-marks-cache";
-import { isSpacePin, toggleSpacePin } from "$lib/stores/space-pins";
 import {
 	cacheSpaceRecordSoon,
 	getCachedSpaceRecord,
@@ -141,7 +133,7 @@ type SidebarSessionItem = {
 };
 let sessionForks = $state<SessionForkSidebarRecord[]>([]);
 let checkpoints = $state<CheckpointRecord[]>([]);
-let pinnedMarks = $state<SpaceMarkListItem[]>([]);
+let labels = $state<LabelListItem[]>([]);
 let loadingSessions = $state(false);
 let loadingSessionsSpaceId = $state<string | null>(null);
 let loadingMoreSessions = $state(false);
@@ -160,6 +152,7 @@ let billingConfigured = $state<boolean | null>(null);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
+let labelsCollapsed = $state(false);
 let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
@@ -592,28 +585,6 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 	}
 }
 
-async function loadPinsForSpace(spaceId: string, force = false) {
-	if (!force) {
-		const cached = getCachedSpacePins(spaceId);
-		if (spaceId !== currentSpaceId) return;
-		if (cached) pinnedMarks = cached;
-	}
-	try {
-		const marks = await fetchSpacePinsWithCache(
-			spaceId,
-			async () => {
-				const result = await sdk.space(spaceId).marks.list("pin");
-				return result.marks ?? [];
-			},
-			{ force },
-		);
-		if (spaceId === currentSpaceId) pinnedMarks = marks;
-	} catch {
-		if (spaceId === currentSpaceId && !getCachedSpacePins(spaceId))
-			pinnedMarks = [];
-	}
-}
-
 async function loadCheckpointsForSpace(spaceId: string, force = false) {
 	if (!force && loadingCheckpoints && loadingCheckpointsSpaceId === spaceId)
 		return;
@@ -633,6 +604,26 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 			loadingCheckpointsSpaceId = null;
 		}
 	}
+}
+
+async function loadLabelsForSpace(spaceId: string, force = false) {
+	try {
+		const next = await fetchSpaceLabels(spaceId, force);
+		if (spaceId === currentSpaceId) labels = next;
+	} catch (error) {
+		console.warn("[sidebar] Failed to load labels", { spaceId, error });
+	}
+}
+
+async function handleCreateLabel() {
+	if (!currentSpaceId) return;
+	const name = window.prompt("New label");
+	const trimmed = name?.replace(/\s+/g, " ").trim();
+	if (!trimmed) return;
+	await createSpaceLabel(currentSpaceId, { name: trimmed }).catch((error) => {
+		console.warn("[sidebar] Failed to create label", error);
+	});
+	await loadLabelsForSpace(currentSpaceId, true);
 }
 
 async function loadCronjobsForSpace(spaceId: string, force = false) {
@@ -754,19 +745,6 @@ async function handleNavigateToSession(sessionId: string) {
 	await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
 }
 
-async function handleNavigateToPinned(mark: SpaceMarkListItem) {
-	onClose?.();
-	if (mark.resourceType === "file" && currentSpaceId) {
-		window.dispatchEvent(
-			new CustomEvent("cohub:open-inline-file", {
-				detail: { spaceId: currentSpaceId, path: mark.resourceRef },
-			}),
-		);
-		return;
-	}
-	await goto(mark.href);
-}
-
 async function handleNavigateToCheckpoint(checkpointId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
@@ -818,71 +796,10 @@ async function handleCreateNewSession() {
 	}
 }
 
-function isPinned(
-	resourceType: "session" | "checkpoint" | "file" | "space",
-	resourceRef: string,
-) {
-	return isSpacePin(pinnedMarks, resourceType, resourceRef);
-}
-
 function insertPathReference(path: string) {
 	insertComposerSnippet(` \`${path}\` `);
 	onClose?.();
 }
-
-function togglePinResource(
-	resourceType: "session" | "checkpoint" | "file" | "space",
-	resourceRef: string,
-	label?: string | null,
-) {
-	if (!currentSpaceId && resourceType !== "space") return;
-	void toggleSpacePin({
-		spaceId:
-			resourceType === "space" ? undefined : (currentSpaceId ?? undefined),
-		resourceType,
-		resourceRef,
-		label,
-	}).then((marks) => {
-		pinnedMarks = marks;
-	});
-}
-
-function getPinnedInsertReference(mark: SpaceMarkListItem) {
-	if (mark.resourceType === "session")
-		return `/sessions/${mark.resourceRef}.jsonl`;
-	if (mark.resourceType === "file") return mark.resourceRef;
-	return null;
-}
-
-function getPinnedIcon(resourceType: string) {
-	if (resourceType === "space") return FolderKanban;
-	if (resourceType === "session") return Activity;
-	if (resourceType === "checkpoint") return History;
-	return FileText;
-}
-
-function getPinnedFallbackTitle(mark: SpaceMarkListItem) {
-	return mark.resource?.title ?? mark.label ?? mark.resourceRef;
-}
-
-function isPinnedMarkActive(mark: SpaceMarkListItem) {
-	if (mark.resourceType === "space") return currentPath === mark.href;
-	if (!currentSpaceId) return false;
-	if (mark.resourceType === "session") {
-		return (
-			currentPath === buildSpaceSessionRoute(currentSpaceId, mark.resourceRef)
-		);
-	}
-	if (mark.resourceType === "checkpoint") {
-		return (
-			currentPath ===
-			buildSpaceCheckpointRoute(currentSpaceId, mark.resourceRef)
-		);
-	}
-	return currentPath === mark.href;
-}
-
-// ── Session rename ──────────────────────────────────────────────────────
 
 function startRenameSession(session: SessionRecord) {
 	renamingSessionId = session.id;
@@ -1106,7 +1023,6 @@ async function handleLogout() {
 		// Ignore storage cleanup failures during logout.
 	}
 	clearAllCachedSpaceLists();
-	clearAllCachedSpacePins();
 	await clearAllIndexedDbCache().catch((error) => {
 		console.warn("[sidebar] Failed to clear IndexedDB cache", error);
 	});
@@ -1138,7 +1054,6 @@ function handleGlobalNewChatKeydown(event: KeyboardEvent) {
 onMount(() => {
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
-	let offSpacePinsCacheUpdated = () => {};
 	let offTaskRunsCacheUpdated = () => {};
 	if (mode === "space") {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
@@ -1156,10 +1071,6 @@ onMount(() => {
 				exhaustedFallbackSessionCursor = null;
 			},
 		);
-		offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(({ spaceId, marks }) => {
-			if (spaceId !== currentSpaceId) return;
-			pinnedMarks = marks;
-		});
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
 			if (spaceId !== currentSpaceId) return;
 			tasks = runs;
@@ -1197,7 +1108,6 @@ onMount(() => {
 	function handleMarksUpdated(e: Event) {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
-			void loadPinsForSpace(currentSpaceId, true);
 		}
 	}
 
@@ -1212,7 +1122,6 @@ onMount(() => {
 	return () => {
 		offSpaceListCacheUpdated();
 		offSessionListCacheUpdated();
-		offSpacePinsCacheUpdated();
 		offTaskRunsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
@@ -1266,8 +1175,8 @@ $effect(() => {
 	if (id) {
 		sessions = [];
 		sessionForks = [];
-		pinnedMarks = [];
 		checkpoints = [];
+		labels = [];
 		cronjobs = [];
 		tasks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
@@ -1282,18 +1191,18 @@ $effect(() => {
 		loadingTasksSpaceId = null;
 		untrack(() => {
 			void loadSessionsForSpace(id);
-			void loadPinsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
+			void loadLabelsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
 			void loadTasksForSpace(id, true);
 		});
 	} else {
 		sessions = [];
 		sessionForks = [];
-		pinnedMarks = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
 		checkpoints = [];
+		labels = [];
 		cronjobs = [];
 		tasks = [];
 		loadingSessions = false;
@@ -1328,78 +1237,6 @@ $effect(() => {
 	</div>
 {/snippet}
 
-{#snippet pinnedFlyoutList()}
-	{#if pinnedMarks.length === 0}
-		{@render sidebarEmptyState("No pinned items")}
-	{:else}
-		<div class="space-y-[2px]">
-			{#each pinnedMarks.slice(0, sidebarFlyoutPreviewLimit) as mark (mark.id)}
-				{@const Icon = getPinnedIcon(mark.resourceType)}
-				{@const isActivePinned = isPinnedMarkActive(mark)}
-				{@const insertReference = getPinnedInsertReference(mark)}
-				<div
-					role="link"
-					tabindex="0"
-					class="sidebar-flyout-item group/pinned relative flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-left text-[13px] {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} {isActivePinned ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-					onclick={() => void handleNavigateToPinned(mark)}
-					onkeydown={(e) => {
-						if (e.key !== 'Enter' && e.key !== ' ') return;
-						e.preventDefault();
-						void handleNavigateToPinned(mark);
-					}}
-					title={mark.resource?.subtitle ?? mark.resourceRef}
-					aria-current={isActivePinned ? "page" : undefined}
-				>
-					<Icon class="h-3.5 w-3.5 shrink-0 {isActivePinned ? 'text-text-tertiary' : 'text-text-placeholder'}" />
-					<span class="min-w-0 flex-1 truncate leading-tight">{getPinnedFallbackTitle(mark)}</span>
-					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto">
-						{#if insertReference}
-							<span
-								role="button"
-								tabindex="0"
-								class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"
-								title="Insert"
-								onclick={(e) => {
-									e.preventDefault();
-									e.stopPropagation();
-									insertPathReference(insertReference);
-								}}
-								onkeydown={(e) => {
-									if (e.key !== 'Enter' && e.key !== ' ') return;
-									e.preventDefault();
-									e.stopPropagation();
-									insertPathReference(insertReference);
-								}}
-							>
-								<FileText class="h-3.5 w-3.5" />
-							</span>
-						{/if}
-						<span
-							role="button"
-							tabindex="0"
-							class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"
-							title="Unpin"
-							onclick={(e) => {
-								e.preventDefault();
-								e.stopPropagation();
-								togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
-							}}
-							onkeydown={(e) => {
-								if (e.key !== 'Enter' && e.key !== ' ') return;
-								e.preventDefault();
-								e.stopPropagation();
-								togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
-							}}
-						>
-							<PinOff class="h-3.5 w-3.5" />
-						</span>
-					</span>
-				</div>
-			{/each}
-		</div>
-	{/if}
-{/snippet}
-
 {#snippet sessionsFlyoutList()}
 	{#if loadingSessions && sessions.length === 0}
 		{@render sidebarEmptyState("Loading chats…", true)}
@@ -1428,9 +1265,6 @@ $effect(() => {
 						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Insert" onclick={(e) => { e.preventDefault(); e.stopPropagation(); insertPathReference(`/sessions/${session.id}.jsonl`); }}>
 							<FileText class="h-3.5 w-3.5" />
 						</button>
-						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title={isPinned("session", session.id) ? "Unpin chat" : "Pin chat"} onclick={(e) => { e.preventDefault(); e.stopPropagation(); togglePinResource("session", session.id, item.displayTitle); }}>
-							{#if isPinned("session", session.id)}<PinOff class="h-3.5 w-3.5" />{:else}<Pin class="h-3.5 w-3.5" />{/if}
-						</button>
 						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Rename" onclick={(e) => { e.preventDefault(); e.stopPropagation(); startRenameSession(session); }}>
 							<Pencil class="h-3.5 w-3.5" />
 						</button>
@@ -1458,9 +1292,6 @@ $effect(() => {
 				<a href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)} class="sidebar-flyout-item group/checkpoint relative flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-12 focus-within:pr-12 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}>
 					<History class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div><div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{checkpoint.commitHash.slice(0, 12)}</div></div>
-					<button type="button" class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 rounded p-0.5 text-text-tertiary opacity-0 pointer-events-none transition-opacity hover:bg-bg-hover-strong hover:text-text-primary group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto" draggable="false" title={isPinned("checkpoint", checkpoint.id) ? "Unpin save" : "Pin save"} onclick={(e) => { e.preventDefault(); e.stopPropagation(); togglePinResource("checkpoint", checkpoint.id, getCheckpointTitle(checkpoint)); }}>
-						{#if isPinned("checkpoint", checkpoint.id)}<PinOff class="h-3.5 w-3.5" />{:else}<Pin class="h-3.5 w-3.5" />{/if}
-					</button>
 				</a>
 			{/each}
 		</div>
@@ -1597,12 +1428,6 @@ $effect(() => {
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
-            <SidebarFlyout label="Pinned" active={pinnedMarks.some(isPinnedMarkActive)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
-              {#snippet trigger()}
-                <Pin class="h-4 w-4" />
-              {/snippet}
-              {@render pinnedFlyoutList()}
-            </SidebarFlyout>
             <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <NotebookPen class="h-4 w-4" />
@@ -1665,217 +1490,6 @@ $effect(() => {
                     {:else if billingCredit}
                       {formatUsdAmount(billingCredit.balance.netUsd)}
                     {:else}
-                      <span class="text-text-placeholder">—</span>
-                    {/if}
-                  </span>
-                </a>
-                {#if billingCreditError}
-                  <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
-                {/if}
-              </div>
-            {/if}
-            {#if mode === "space"}
-              <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
-            {:else}
-              <a href="/" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
-            {/if}
-            <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore Wall</span></a>
-            <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
-            <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
-            <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
-            <button type="button" class="rail-menu-item w-full hover:text-error-soft" onclick={() => { showUserMenu = false; void handleLogout(); }}><LogOut class="h-3.5 w-3.5" /><span>Sign out</span></button>
-          </div>
-        {/if}
-        <button
-          type="button"
-          data-user-menu
-          class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-bg-hover-strong transition-colors duration-100 hover:bg-bg-hover"
-          onclick={() => { showUserMenu = !showUserMenu; }}
-          aria-label={userDisplayName}
-          title={userDisplayName}
-        >
-          {#if authStore.profile?.avatarUrl}
-            <img src={authStore.profile.avatarUrl} alt="" class="h-full w-full object-cover" />
-          {:else}
-            <User class="h-4 w-4 text-text-tertiary" />
-          {/if}
-        </button>
-      </div>
-    </div>
-  </aside>
-{:else}
-<aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-bg-primary">
-  <!-- Brand Header -->
-  <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
-    <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
-      <div class="w-7 h-7 bg-brand rounded-[6px] flex items-center justify-center font-bold text-[11px] text-brand-contrast-fg group-hover:bg-brand-hover transition-colors shrink-0">
-        C
-      </div>
-      <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
-    </a>
-    <div class="flex shrink-0 items-center gap-1">
-      <button
-        type="button"
-        class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-        onclick={openCommandPalette}
-        title="Search everywhere (⌘K / Ctrl K)"
-        aria-label="Search everywhere"
-      >
-        <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
-        <span class="hidden font-mono tracking-[0.02em] sm:inline">⌘K</span>
-      </button>
-      {#if !isMobile}
-        <button
-          type="button"
-          class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-          onclick={() => uiState.setLeftSidebarCollapsed(true)}
-          title="Collapse sidebar"
-          aria-label="Collapse sidebar"
-        >
-          <PanelLeftClose class="h-4 w-4" />
-        </button>
-      {/if}
-    </div>
-  </div>
-
-  {#if mode === "space"}
-    <!-- Space Switcher -->
-    <div class="px-1.5 py-1 shrink-0 border-b border-border-subtle">
-      <button
-        type="button"
-        class="w-full flex items-center gap-1.5 px-1.5 py-1.5 rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer group"
-        onclick={openSpacePalette}
-      >
-        {#if currentSpace}
-          <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
-          <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
-        {:else}
-          <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
-        {/if}
-        <ChevronDown class="w-3.5 h-3.5 text-text-tertiary shrink-0 transition-transform duration-150 group-hover:text-text-secondary" />
-      </button>
-    </div>
-
-    <!-- Action Buttons -->
-    {#if currentSpace}
-      <div class="px-1.5 py-1.5 shrink-0 space-y-[2px]">
-        <button
-          type="button"
-          class="flex w-full items-center gap-2 rounded-[7px] border border-brand-border bg-brand-muted px-1.5 py-1.5 text-brand transition-colors duration-100 hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50"
-          onclick={() => { void handleCreateNewSession(); }}
-          disabled={creatingSession}
-          title="New chat (⌘O / Ctrl O)"
-          aria-label="New chat (⌘O / Ctrl O)"
-        >
-          {#if creatingSession}
-            <Loader2 class="w-3.5 h-3.5 animate-spin shrink-0" />
-            <span class="text-[12px] font-medium">Creating…</span>
-          {:else}
-            <Plus class="w-3.5 h-3.5 shrink-0" />
-            <span class="text-[12px] font-medium">New Chat</span>
-            <span class="ml-auto hidden rounded-[4px] border border-brand/20 bg-bg-primary/70 px-1.5 py-px font-mono text-[10px] text-brand/80 xl:inline">⌘O</span>
-          {/if}
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
-          title="Space details"
-        >
-          <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">Detail</span>
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={handleNavigateToNewCheckpoint}
-          title="New save"
-        >
-          <Save class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">New Save</span>
-        </button>
-        {#if createSessionError}
-          <div class="px-2 py-1 text-[11px] text-error-soft">{createSessionError}</div>
-        {/if}
-      </div>
-    {/if}
-
-    <!-- Sessions / Checkpoints -->
-    {#if currentSpace}
-      <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
-        {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
-          <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
-            <Loader2 class="w-3 h-3 animate-spin" />
-            Loading...
-          </div>
-        {:else}
-          {#if pinnedMarks.length > 0}
-            <div class="mb-3">
-              <div class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left rounded-[6px]">
-                <Pin class="w-3 h-3 text-text-tertiary shrink-0" />
-                <span class="text-[11px] text-text-placeholder select-none">Pinned</span>
-              </div>
-              <div class="space-y-[2px] mt-1">
-                {#each pinnedMarks as mark (mark.id)}
-                  {@const Icon = getPinnedIcon(mark.resourceType)}
-                  {@const isActivePinned = isPinnedMarkActive(mark)}
-                  {@const insertReference = getPinnedInsertReference(mark)}
-                  <button
-                    type="button"
-                    class="group/pinned relative flex items-center gap-2 w-full overflow-hidden px-1.5 py-1.5 pr-4 {insertReference ? 'hover:pr-16 focus-within:pr-16' : 'hover:pr-10 focus-within:pr-10'} rounded-[6px] text-left text-[13px] transition-colors duration-100 {isActivePinned ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                    onclick={() => void handleNavigateToPinned(mark)}
-                    title={mark.resource?.subtitle ?? mark.resourceRef}
-                    aria-current={isActivePinned ? "page" : undefined}
-                  >
-                    <Icon class="w-3.5 h-3.5 shrink-0 {isActivePinned ? 'text-text-tertiary' : 'text-text-placeholder'}" />
-                    <span class="truncate leading-tight flex-1">{getPinnedFallbackTitle(mark)}</span>
-                    <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/pinned:opacity-100 group-hover/pinned:pointer-events-auto group-focus-within/pinned:opacity-100 group-focus-within/pinned:pointer-events-auto"}>
-                      {#if insertReference}
-                        <span
-                          role="button"
-                          tabindex="0"
-                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                          title="Insert"
-                          onclick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            insertPathReference(insertReference);
-                          }}
-                          onkeydown={(e) => {
-                            if (e.key !== 'Enter' && e.key !== ' ') return;
-                            e.preventDefault();
-                            e.stopPropagation();
-                            insertPathReference(insertReference);
-                          }}
-                        >
-                          <FileText class="w-3.5 h-3.5" />
-                        </span>
-                      {/if}
-                      <span
-                        role="button"
-                        tabindex="0"
-                        class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                        title="Unpin"
-                        onclick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
-                        }}
-                        onkeydown={(e) => {
-                          if (e.key !== 'Enter' && e.key !== ' ') return;
-                          e.preventDefault();
-                          e.stopPropagation();
-                          togglePinResource(mark.resourceType, mark.resourceRef, getPinnedFallbackTitle(mark));
-                        }}
-                      >
-                        <PinOff class="w-3.5 h-3.5" />
-                      </span>
-                    </span>
-                  </button>
-                {/each}
-              </div>
-            </div>
-          {/if}
           <button
             type="button"
             class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
@@ -1972,23 +1586,6 @@ $effect(() => {
                           }}
                         >
                           <FileText class="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                          draggable="false"
-                          title={isPinned("session", session.id) ? "Unpin chat" : "Pin chat"}
-                          onclick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            togglePinResource("session", session.id, item.displayTitle);
-                          }}
-                        >
-                          {#if isPinned("session", session.id)}
-                            <PinOff class="w-3.5 h-3.5" />
-                          {:else}
-                            <Pin class="w-3.5 h-3.5" />
-                          {/if}
                         </button>
                         <button
                           type="button"
@@ -2105,23 +1702,6 @@ $effect(() => {
                     type="button"
                     class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
                     draggable="false"
-                    title={isPinned("session", activeSession.id) ? "Unpin chat" : "Pin chat"}
-                    onclick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      togglePinResource("session", activeSession.id, getSessionTitle(activeSession, 0));
-                    }}
-                  >
-                    {#if isPinned("session", activeSession.id)}
-                      <PinOff class="w-3.5 h-3.5" />
-                    {:else}
-                      <Pin class="w-3.5 h-3.5" />
-                    {/if}
-                  </button>
-                  <button
-                    type="button"
-                    class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                    draggable="false"
                     title="Rename"
                     onclick={(e) => {
                       e.preventDefault();
@@ -2135,6 +1715,42 @@ $effect(() => {
               </a>
             {/if}
           {/if}
+
+          <div class="mt-3">
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                class="flex flex-1 items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
+                onclick={() => { labelsCollapsed = !labelsCollapsed; }}
+                title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
+              >
+                <ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
+                <span class="text-[11px] text-text-placeholder select-none">Labels</span>
+              </button>
+              <button
+                type="button"
+                class="rounded-[5px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                title="New label"
+                onclick={() => void handleCreateLabel()}
+              >
+                <Plus class="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {#if !labelsCollapsed}
+              {#if labels.length === 0}
+                <div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
+              {:else}
+                <div class="mt-1 space-y-[2px]">
+                  {#each labels as label (label.id)}
+                    <div class="rounded-[6px] px-6 py-1 text-[13px] text-text-tertiary">{label.name}</div>
+                    {#each label.children ?? [] as child (child.id)}
+                      <div class="rounded-[6px] px-9 py-1 text-[13px] text-text-tertiary">{child.name}</div>
+                    {/each}
+                  {/each}
+                </div>
+              {/if}
+            {/if}
+          </div>
 
           <div class="mt-3">
             <button
@@ -2169,23 +1785,6 @@ $effect(() => {
                         <div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div>
                         <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{checkpoint.commitHash.slice(0, 12)}</div>
                       </div>
-                      <button
-                        type="button"
-                        class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-opacity opacity-0 pointer-events-none group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto"}
-                        draggable="false"
-                        title={isPinned("checkpoint", checkpoint.id) ? "Unpin save" : "Pin save"}
-                        onclick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          togglePinResource("checkpoint", checkpoint.id, getCheckpointTitle(checkpoint));
-                        }}
-                      >
-                        {#if isPinned("checkpoint", checkpoint.id)}
-                          <PinOff class="w-3.5 h-3.5" />
-                        {:else}
-                          <Pin class="w-3.5 h-3.5" />
-                        {/if}
-                      </button>
                     </a>
                   {/each}
                 </div>

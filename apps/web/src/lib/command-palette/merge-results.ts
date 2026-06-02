@@ -1,5 +1,4 @@
 import type { GlobalSearchResult } from "@neta-art/cohub";
-import { applyPinInfoToItems } from "./pins";
 import { sortCommandItems } from "./score";
 import type { CommandPaletteItem } from "./types";
 
@@ -38,7 +37,6 @@ function remoteToItem(item: GlobalSearchResult): CommandPaletteItem {
 export function mergeCommandResults(input: {
 	local: CommandPaletteItem[];
 	remote: GlobalSearchResult[];
-	pins?: import("./pins").PinIndex;
 	limit?: number;
 }) {
 	const byKey = new Map<string, CommandPaletteItem>();
@@ -66,9 +64,5 @@ export function mergeCommandResults(input: {
 			),
 		});
 	}
-	const items = sortCommandItems([...byKey.values()]).slice(
-		0,
-		input.limit ?? 30,
-	);
-	return input.pins ? applyPinInfoToItems(items, input.pins) : items;
+	return sortCommandItems([...byKey.values()]).slice(0, input.limit ?? 30);
 }

@@ -14,14 +14,6 @@ export type CommandPaletteItemSource =
 	| "recent"
 	| "default";
 
-export type PinInfo = {
-	markId: string;
-	scopeSpaceId: string;
-	resourceType: "space" | "session";
-	resourceRef: string;
-	rank: number;
-};
-
 export type CommandPaletteItem = {
 	type: CommandPaletteItemType;
 	id: string;
@@ -47,8 +39,6 @@ export type CommandPaletteItem = {
 	membershipPriorityScore?: number;
 	updatedAt: string | null;
 	source: CommandPaletteItemSource;
-	isPinned?: boolean;
-	pin?: PinInfo;
 	localScore?: number;
 	remoteScore?: number;
 };

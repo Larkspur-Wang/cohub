@@ -7,7 +7,9 @@ export type Audience = "member_user" | "signed_in_user" | "anonymous_user";
 export const ALL_PERMISSIONS = [
   "space.view",
   "space.edit",
-  "space.pin",
+  "space.label.view",
+  "space.label.manage",
+  "space.label.assign",
   "session.view",
   "session.edit",
   "session.prompt.readonly",
@@ -61,7 +63,9 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
   host: new Set([
     "space.view",
     "space.edit",
-    "space.pin",
+    "space.label.view",
+    "space.label.manage",
+    "space.label.assign",
     "session.view",
     "session.edit",
     "session.prompt.readonly",
@@ -85,6 +89,8 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
   ]),
   builder: new Set([
     "space.view",
+    "space.label.view",
+    "space.label.assign",
     "session.view",
     "session.edit",
     "session.prompt.readonly",
@@ -103,6 +109,7 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
   ]),
   guest: new Set([
     "space.view",
+    "space.label.view",
     "session.view",
     "session.prompt.readonly",
     "file.view.filtered",

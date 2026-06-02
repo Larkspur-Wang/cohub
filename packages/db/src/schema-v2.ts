@@ -629,6 +629,82 @@ export const spaceMarks = v2.table(
   }),
 );
 
+export const labels = v2.table(
+  "labels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scopeType: varchar("scope_type", { length: 30 }).notNull(),
+    scopeId: text("scope_id").notNull(),
+    name: varchar("name", { length: 80 }).notNull(),
+    slug: varchar("slug", { length: 100 }).notNull(),
+    parentId: uuid("parent_id"),
+    depth: integer("depth").notNull().default(0),
+    source: varchar("source", { length: 30 }).notNull().default("user"),
+    systemKey: varchar("system_key", { length: 120 }),
+    rank: integer("rank").notNull().default(0),
+    createdBy: varchar("created_by", { length: 255 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    scopeRankIdx: index("v2_idx_labels_scope_rank").on(
+      table.scopeType,
+      table.scopeId,
+      table.rank,
+    ),
+    scopeParentIdx: index("v2_idx_labels_scope_parent").on(
+      table.scopeType,
+      table.scopeId,
+      table.parentId,
+    ),
+    systemKeyUniqueIdx: uniqueIndex("v2_uq_labels_scope_system_key").on(
+      table.scopeType,
+      table.scopeId,
+      table.systemKey,
+    ),
+  }),
+);
+
+export const labelAssignments = v2.table(
+  "label_assignments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    labelId: uuid("label_id").notNull(),
+    scopeType: varchar("scope_type", { length: 30 }).notNull(),
+    scopeId: text("scope_id").notNull(),
+    resourceType: varchar("resource_type", { length: 30 }).notNull(),
+    resourceRef: text("resource_ref").notNull(),
+    rank: integer("rank").notNull().default(0),
+    source: varchar("source", { length: 30 }).notNull().default("user"),
+    createdBy: varchar("created_by", { length: 255 }),
+    meta: jsonb("meta"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    uniqueLabelResourceIdx: uniqueIndex("v2_uq_label_assignments_label_resource").on(
+      table.labelId,
+      table.resourceType,
+      table.resourceRef,
+    ),
+    labelRankIdx: index("v2_idx_label_assignments_label_rank").on(
+      table.labelId,
+      table.rank,
+    ),
+    scopeResourceIdx: index("v2_idx_label_assignments_scope_resource").on(
+      table.scopeType,
+      table.scopeId,
+      table.resourceType,
+      table.resourceRef,
+    ),
+    scopeLabelIdx: index("v2_idx_label_assignments_scope_label").on(
+      table.scopeType,
+      table.scopeId,
+      table.labelId,
+    ),
+  }),
+);
+
 export const cronJobs = v2.table(
   "cron_jobs",
   {

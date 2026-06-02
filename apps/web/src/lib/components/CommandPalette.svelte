@@ -5,7 +5,6 @@ import {
 	FolderKanban,
 	Loader2,
 	MessageSquare,
-	Pin,
 	Plus,
 	Search,
 	TerminalSquare,
@@ -16,11 +15,6 @@ import { searchCommandItems } from "$lib/command-palette/commands";
 import { getCommandPaletteDefaultItems } from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
 import { mergeCommandResults } from "$lib/command-palette/merge-results";
-import {
-	applyPinInfoToItems,
-	getCachedCommandPalettePins,
-	getPinnedCommandItems,
-} from "$lib/command-palette/pins";
 import { parseCommandPaletteQuery } from "$lib/command-palette/query";
 import {
 	getRecentCommandItems,
@@ -40,14 +34,12 @@ import {
 	fetchSpaceListWithCache,
 	getCachedSpaceListMeta,
 } from "$lib/stores/space-list-cache";
-import { toggleSpacePin } from "$lib/stores/space-pins";
 
 const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
 const POINTER_HOVER_ARM_MS = 220;
-const DEFAULT_PLACEHOLDER =
-	"Search turns, sessions, spaces… Try p: for pinned or a: for spaces";
+const DEFAULT_PLACEHOLDER = "Search turns, sessions, spaces… Try a: for spaces";
 
 type OpenCommandPaletteDetail = {
 	query?: string;
@@ -68,21 +60,15 @@ let pointerHoverTimer: number | null = null;
 let localItems = $state<CommandPaletteItem[]>([]);
 let remoteItems = $state<import("@neta-art/cohub").GlobalSearchResult[]>([]);
 let defaultItems = $state<CommandPaletteItem[]>([]);
-let pinnedItems = $state<CommandPaletteItem[]>([]);
-let pins = $state(getCachedCommandPalettePins(null));
 let localDone = $state(true);
 let remoteDone = $state(true);
 let defaultDone = $state(true);
-let pinnedDone = $state(true);
 let remoteError = $state<string | null>(null);
 let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
 let spaceListRefreshToken = 0;
-let pinError = $state("");
-let pinErrorTimer: number | null = null;
-let pendingPinKeys = $state<Set<string>>(new Set());
 let runMode = $state(false);
 let runCommand = $state("");
 let runTaskId = $state<string | null>(null);
@@ -103,32 +89,25 @@ const parsedQuery = $derived(parseCommandPaletteQuery(query));
 const searchPlan = $derived({
 	query: parsedQuery.query,
 	resourceTypes: parsedQuery.resourceTypes,
-	pinnedOnly: parsedQuery.pinnedOnly,
 });
 const trimmedQuery = $derived(searchPlan.query.trim());
-const typeLabel = $derived(
-	typeLabelFor(searchPlan.resourceTypes, searchPlan.pinnedOnly),
-);
+const typeLabel = $derived(typeLabelFor(searchPlan.resourceTypes));
 const recentItems = $derived.by(() => {
-	const items = applyPinInfoToItems(getRecentCommandItems(), pins);
+	const items = getRecentCommandItems();
 	if (!searchPlan.resourceTypes) return items;
 	return items.filter((item) => searchPlan.resourceTypes?.includes(item.type));
 });
 const mergedItems = $derived.by(() => {
-	if (searchPlan.pinnedOnly) return pinnedItems.slice(0, RESULT_LIMIT);
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
 		return defaultItems.length > 0 ? defaultItems : recentItems;
 	}
 	return mergeCommandResults({
 		local: [...localItems, ...searchCommandItems(searchPlan)],
 		remote: remoteItems,
-		pins,
 		limit: RESULT_LIMIT,
 	});
 });
-const isSearching = $derived(
-	!localDone || !remoteDone || !defaultDone || !pinnedDone,
-);
+const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
 const renderedItems = $derived(
 	mergedItems.length > 0 || !isSearching ? mergedItems : settledItems,
 );
@@ -138,10 +117,6 @@ const showingSettledItems = $derived(
 const runBlocks = $derived(runResult ?? runProgress ?? []);
 const statusText = $derived.by(() => {
 	const label = typeLabel ?? "Turns, Sessions, Spaces, and Commands";
-	if (searchPlan.pinnedOnly) {
-		if (showingSettledItems) return `${label} · loading pins…`;
-		return `${label} · ${renderedItems.length} pinned item${renderedItems.length === 1 ? "" : "s"}`;
-	}
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
 		return renderedItems.length > 0
 			? `${label} · type to filter`
@@ -154,24 +129,6 @@ const statusText = $derived.by(() => {
 	if (!localDone) return `${label} · searching indexed cache…`;
 	return `${label} · ${renderedItems.length} result${renderedItems.length === 1 ? "" : "s"} · indexed cache + server`;
 });
-
-function pinScopeIdsForItems(items: CommandPaletteItem[]) {
-	return items
-		.filter((item) => item.type === "session")
-		.map((item) => item.spaceId);
-}
-
-function refreshPinIndex(extraItems: CommandPaletteItem[] = []) {
-	return getCachedCommandPalettePins(
-		currentSpaceId,
-		pinScopeIdsForItems([
-			...extraItems,
-			...localItems,
-			...defaultItems,
-			...pinnedItems,
-		]),
-	);
-}
 
 function profileFor(item: CommandPaletteItem) {
 	if (item.type !== "space") return null;
@@ -304,11 +261,9 @@ function resetSearch() {
 	localItems = [];
 	remoteItems = [];
 	defaultItems = [];
-	pinnedItems = [];
 	localDone = true;
 	remoteDone = true;
 	defaultDone = true;
-	pinnedDone = true;
 	remoteError = null;
 	activeIndex = 0;
 }
@@ -325,7 +280,7 @@ async function refreshSpaceListForDefaultItems(token: number) {
 	}
 
 	if (token !== searchToken || !open || runMode) return;
-	if (trimmedQuery.length >= MIN_QUERY_LENGTH || searchPlan.pinnedOnly) return;
+	if (trimmedQuery.length >= MIN_QUERY_LENGTH) return;
 	spaceListRefreshToken += 1;
 }
 
@@ -333,45 +288,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	const q = plan.query.trim();
 	resetSearch();
 	const token = ++searchToken;
-	pins = getCachedCommandPalettePins(spaceId);
-
-	if (plan.pinnedOnly) {
-		pinnedDone = false;
-		localController = new AbortController();
-		void getPinnedCommandItems({
-			query: q,
-			currentSpaceId: spaceId,
-			signal: localController.signal,
-		})
-			.then((items) => {
-				if (token !== searchToken) return;
-				pins = refreshPinIndex(items);
-				pinnedItems = applyPinInfoToItems(items, pins);
-			})
-			.catch((error) => {
-				if (error?.name !== "AbortError")
-					console.warn("[command-palette] pinned search failed", error);
-			})
-			.finally(() => {
-				if (token === searchToken) pinnedDone = true;
-			});
-		return;
-	}
-
-	void getPinnedCommandItems({
-		query: "",
-		currentSpaceId: spaceId,
-	})
-		.then(() => {
-			if (token !== searchToken) return;
-			pins = refreshPinIndex();
-			localItems = applyPinInfoToItems(localItems, pins);
-			defaultItems = applyPinInfoToItems(defaultItems, pins);
-		})
-		.catch((error) => {
-			console.warn("[command-palette] pin status refresh failed", error);
-		});
-
 	if (q.length < MIN_QUERY_LENGTH) {
 		defaultDone = false;
 		localController = new AbortController();
@@ -383,8 +299,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		})
 			.then((items) => {
 				if (token !== searchToken) return;
-				pins = refreshPinIndex(items);
-				defaultItems = applyPinInfoToItems(items, pins);
+				defaultItems = items;
 			})
 			.catch((error) => {
 				console.warn("[command-palette] default items failed", error);
@@ -406,8 +321,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	})
 		.then((items) => {
 			if (token !== searchToken) return;
-			pins = refreshPinIndex(items);
-			localItems = applyPinInfoToItems(items, pins);
+			localItems = items;
 		})
 		.catch((error) => {
 			if (error?.name !== "AbortError")
@@ -432,7 +346,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 			.then((items) => {
 				if (token !== searchToken) return;
 				remoteItems = items;
-				pins = refreshPinIndex(items as CommandPaletteItem[]);
 				remoteError = null;
 			})
 			.catch((error) => {
@@ -444,95 +357,6 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 				if (token === searchToken) remoteDone = true;
 			});
 	}, DEBOUNCE_MS);
-}
-
-function isPinnable(
-	item: CommandPaletteItem,
-): item is CommandPaletteItem & { type: "space" | "session" } {
-	return item.type === "space" || item.type === "session";
-}
-
-function pinKeyFor(item: CommandPaletteItem) {
-	return item.type === "space"
-		? `space:${item.spaceId}`
-		: `session:${item.sessionId ?? item.id}`;
-}
-
-function setPinError(message: string) {
-	pinError = message;
-	if (pinErrorTimer != null) window.clearTimeout(pinErrorTimer);
-	if (!message) {
-		pinErrorTimer = null;
-		return;
-	}
-	pinErrorTimer = window.setTimeout(() => {
-		pinError = "";
-		pinErrorTimer = null;
-	}, 2400);
-}
-
-function syncPinStateFromCache(extraItems: CommandPaletteItem[] = []) {
-	const nextPins = refreshPinIndex(extraItems);
-	pins = nextPins;
-	localItems = applyPinInfoToItems(localItems, nextPins);
-	defaultItems = applyPinInfoToItems(defaultItems, nextPins);
-	pinnedItems = applyPinInfoToItems(pinnedItems, nextPins).filter(
-		(item) => item.isPinned,
-	);
-}
-
-function upsertPinnedItem(item: CommandPaletteItem) {
-	const [nextItem] = applyPinInfoToItems([item], pins);
-	if (!nextItem?.isPinned) return;
-	const itemKey = pinKeyFor(nextItem);
-	pinnedItems = [
-		nextItem,
-		...pinnedItems.filter((pinnedItem) => pinKeyFor(pinnedItem) !== itemKey),
-	];
-}
-
-async function toggleItemPin(item: CommandPaletteItem) {
-	if (!isPinnable(item)) return;
-	const itemKey = pinKeyFor(item);
-	if (pendingPinKeys.has(itemKey)) return;
-	const wasPinned = Boolean(item.isPinned);
-	pendingPinKeys = new Set([...pendingPinKeys, itemKey]);
-	setPinError("");
-	const scopeSpaceId = item.type === "space" ? undefined : item.spaceId;
-	const marks = await toggleSpacePin({
-		spaceId: scopeSpaceId,
-		resourceType: item.type,
-		resourceRef:
-			item.type === "space" ? item.spaceId : (item.sessionId ?? item.id),
-		label: item.title,
-	}).catch((error) => {
-		console.warn("[command-palette] toggle pin failed", error);
-		return null;
-	});
-	pendingPinKeys = new Set(
-		[...pendingPinKeys].filter((pendingKey) => pendingKey !== itemKey),
-	);
-	if (!marks) {
-		setPinError(`Couldn't ${wasPinned ? "unpin" : "pin"} ${item.title}`);
-		return;
-	}
-	syncPinStateFromCache([item]);
-	if (wasPinned) {
-		pinnedItems = pinnedItems.filter(
-			(pinnedItem) => pinKeyFor(pinnedItem) !== itemKey,
-		);
-	} else {
-		upsertPinnedItem(item);
-	}
-}
-
-async function handlePinClick(
-	event: MouseEvent | KeyboardEvent,
-	item: CommandPaletteItem,
-) {
-	event.preventDefault();
-	event.stopPropagation();
-	await toggleItemPin(item);
 }
 
 function openRunCommandMode() {
@@ -734,7 +558,6 @@ onMount(() => {
 		remoteController?.abort();
 		if (debounceTimer != null) window.clearTimeout(debounceTimer);
 		if (pointerHoverTimer != null) window.clearTimeout(pointerHoverTimer);
-		if (pinErrorTimer != null) window.clearTimeout(pinErrorTimer);
 	};
 });
 </script>
@@ -804,7 +627,7 @@ onMount(() => {
 									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
 								</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">
-									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try p: for pinned, a: for spaces, t: for turns, or Run Command." : "Try a different phrase or type filter."}
+									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try a: for spaces, t: for turns, or Run Command." : "Try a different phrase or type filter."}
 								</div>
 							</div>
 						</div>
@@ -814,7 +637,6 @@ onMount(() => {
 							{@const Icon = meta.icon}
 							{@const profile = profileFor(item)}
 							{@const timestamp = itemTimestamp(item)}
-							{@const isPinPending = isPinnable(item) && pendingPinKeys.has(pinKeyFor(item))}
 							<button
 								type="button"
 								class:active={index === activeIndex}
@@ -856,30 +678,6 @@ onMount(() => {
 										{/if}
 									</div>
 								</div>
-								{#if isPinnable(item)}
-									<span
-										role="button"
-										tabindex="0"
-										class:pinned={item.isPinned}
-										class:pending={isPinPending}
-										class="command-pin-action"
-										title={item.isPinned ? "Unpin" : "Pin"}
-										aria-label={item.isPinned ? `Unpin ${item.title}` : `Pin ${item.title}`}
-										aria-pressed={item.isPinned}
-										aria-busy={isPinPending}
-										onclick={(event) => void handlePinClick(event, item)}
-										onkeydown={(event) => { if (!isPinPending && (event.key === "Enter" || event.key === " ")) void handlePinClick(event, item); }}
-									>
-										{#if isPinPending}
-											<Loader2 class="h-3 w-3 animate-spin" />
-											<span>{item.isPinned ? "Unpinning" : "Pinning"}</span>
-										{:else if item.isPinned}
-											<Pin class="h-3 w-3" />
-										{:else}
-											<Pin class="h-3.5 w-3.5" />
-										{/if}
-									</span>
-								{/if}
 								<div class="command-enter">↵</div>
 							</button>
 						{/each}
@@ -888,13 +686,13 @@ onMount(() => {
 			{/if}
 
 			<div class="command-footer">
-				<div class:error={Boolean(pinError) || Boolean(runError)} class="command-status" role="status" aria-live="polite">
+				<div class:error={Boolean(runError)} class="command-status" role="status" aria-live="polite">
 					{#if runMode}
 						{#if runStatus === "queued" || runStatus === "running"}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
 						<span>{runError || (runStatus === "done" ? `Done · ${runTaskId}` : runStatus === "running" ? "Running…" : runStatus === "queued" ? "Queued…" : currentSpaceId ? "Press ↵ to run" : "Open a space first")}</span>
 					{:else}
-						{#if isSearching && !pinError}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
-						<span>{pinError || statusText}</span>
+						{#if isSearching}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
+						<span>{statusText}</span>
 					{/if}
 				</div>
 				<div class="hidden items-center gap-2 sm:flex"><span>↑↓</span><span>C-n/p</span><span>navigate</span><span>↵</span><span>open</span><span>esc</span><span>close</span></div>
@@ -1002,11 +800,7 @@ onMount(() => {
 
 	.command-result.active { background: color-mix(in oklch, var(--brand-bg) 56%, var(--bg-hover) 44%); }
 	.command-result.active::before { background: var(--brand); }
-	.command-result.active .command-enter,
-	.command-result.active .command-pin-action:not(.pinned),
-	.command-result.active .command-pin-action.pending,
-	.command-result:hover .command-pin-action:not(.pinned),
-	.command-result:focus-within .command-pin-action:not(.pinned) {
+	.command-result.active .command-enter {
 		opacity: 1;
 	}
 	.command-result.active .command-time { color: var(--text-secondary); }
@@ -1119,61 +913,6 @@ onMount(() => {
 		font-size: 13px;
 		line-height: 1;
 		text-align: right;
-	}
-
-	.command-pin-action {
-		display: inline-flex;
-		place-items: center;
-		align-items: center;
-		justify-content: center;
-		gap: 4px;
-		min-width: 26px;
-		height: 26px;
-		flex: 0 0 auto;
-		border: 1px solid transparent;
-		border-radius: 999px;
-		padding: 0 7px;
-		background: transparent;
-		color: var(--text-tertiary);
-		opacity: 0;
-		font-size: 10px;
-		font-weight: 550;
-		line-height: 1;
-		transition: opacity 90ms cubic-bezier(0.25, 1, 0.5, 1), background-color 90ms cubic-bezier(0.25, 1, 0.5, 1), color 90ms cubic-bezier(0.25, 1, 0.5, 1), border-color 90ms cubic-bezier(0.25, 1, 0.5, 1);
-	}
-
-	.command-pin-action.pinned,
-	.command-pin-action.pending {
-		border-color: color-mix(in oklch, var(--brand) 20%, transparent);
-		background: color-mix(in oklch, var(--brand) 9%, transparent);
-		color: var(--brand);
-		opacity: 1;
-	}
-
-	.command-pin-action.pending {
-		cursor: progress;
-		pointer-events: none;
-	}
-
-	.command-pin-action.pinned:hover {
-		border-color: color-mix(in oklch, var(--brand) 34%, transparent);
-		background: color-mix(in oklch, var(--brand) 14%, transparent);
-	}
-
-	.command-pin-action:hover {
-		border-color: var(--border-subtle);
-		background: var(--bg-hover);
-		color: var(--brand);
-	}
-
-	.command-pin-action:focus-visible {
-		opacity: 1;
-		outline: 2px solid color-mix(in oklch, var(--brand) 42%, transparent);
-		outline-offset: 2px;
-	}
-
-	.command-pin-action + .command-enter {
-		margin-left: -4px;
 	}
 
 	.command-empty {

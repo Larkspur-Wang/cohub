@@ -24,7 +24,6 @@ import {
 	type SpaceAccessPolicy,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
-	type SpaceMarkListItem,
 	type SpaceRecord,
 	type SpaceUsageResponse,
 	type TaskRunRecord,
@@ -58,8 +57,6 @@ import {
 	PanelRightClose,
 	PanelRightOpen,
 	Pencil,
-	Pin,
-	PinOff,
 	Plus,
 	Power,
 	PowerOff,
@@ -178,17 +175,13 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import {
+	createSpaceLabel,
+	flattenLabels,
+	getResourceLabels,
+	setResourceLabels,
+} from "$lib/stores/space-labels";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
-import {
-	getCachedSpacePins,
-	onSpacePinsCacheUpdated,
-} from "$lib/stores/space-marks-cache";
-import {
-	fetchSpacePins,
-	getPinnedFilePaths,
-	isSpacePin,
-	toggleSpacePin,
-} from "$lib/stores/space-pins";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	getCachedTaskRuns,
@@ -362,8 +355,6 @@ let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
-let pinnedMarks = $state<SpaceMarkListItem[]>([]);
-let pinnedFilePaths = $state<Set<string>>(new Set());
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
@@ -2361,7 +2352,8 @@ function maybeNotifyPortReady(
 		const previousStatus = previous[port]?.status;
 		const cameFromPortsChangedEvent = Boolean(changedPorts?.length);
 		const becameListening = previousStatus !== "listening";
-		if (!(cameFromPortsChangedEvent || becameListening) || !endpoint?.url) continue;
+		if (!(cameFromPortsChangedEvent || becameListening) || !endpoint?.url)
+			continue;
 		if (inlinePortPreview?.port === port) continue;
 		if (!isHttpUrl(endpoint.url)) continue;
 		showPortReadyToast(port, endpoint.url);
@@ -5578,37 +5570,9 @@ function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 		minute: "2-digit",
 	});
 }
-async function loadSpacePins(force = false) {
-	const currentSpaceId = spaceId;
-	if (!currentSpaceId) return;
-	if (!force) {
-		const cached = getCachedSpacePins(currentSpaceId);
-		if (cached) {
-			pinnedMarks = cached;
-			pinnedFilePaths = getPinnedFilePaths(cached);
-		}
-	}
-	try {
-		const marks = await fetchSpacePins(currentSpaceId, force);
-		pinnedMarks = marks;
-		pinnedFilePaths = getPinnedFilePaths(marks);
-	} catch {
-		if (!getCachedSpacePins(currentSpaceId)) {
-			pinnedMarks = [];
-			pinnedFilePaths = new Set();
-		}
-	}
-}
-
 function insertPathReference(path: string) {
 	insertComposerSnippet(` \`${path}\` `);
 	uiState.mobileRightDrawerOpen = false;
-}
-
-function isActiveSessionPinned() {
-	const session = activeSessionState?.session;
-	if (!session) return false;
-	return isSpacePin(pinnedMarks, "session", session.id);
 }
 
 function insertActiveSessionReference() {
@@ -5616,29 +5580,50 @@ function insertActiveSessionReference() {
 	insertPathReference(`/sessions/${activeSessionId}.jsonl`);
 }
 
-async function togglePinActiveSession() {
-	const session = activeSessionState?.session;
-	if (!session) return;
-	try {
-		const marks = await toggleSpacePin({
-			spaceId,
-			resourceType: "session",
-			resourceRef: session.id,
-			label: session.title ?? getSessionTitle(session),
-		});
-		pinnedMarks = marks;
-		pinnedFilePaths = getPinnedFilePaths(marks);
-	} catch {
-		// Pin is host-only; silently ignore for users without permission.
-	}
-}
-
-function isFilePathPinned(path: string) {
-	return pinnedFilePaths.has(path);
-}
-
 function insertFilePathReference(path: string) {
 	insertPathReference(path);
+}
+
+async function editResourceLabels(
+	resourceType: "session" | "checkpoint" | "file",
+	resourceRef: string,
+) {
+	try {
+		const current = await getResourceLabels(spaceId, resourceType, resourceRef);
+		let flatLabels = flattenLabels(current.labels);
+		if (flatLabels.length === 0) {
+			const name = window.prompt("New label");
+			const trimmed = name?.replace(/\s+/g, " ").trim();
+			if (!trimmed) return;
+			await createSpaceLabel(spaceId, { name: trimmed });
+			flatLabels = flattenLabels(
+				(await getResourceLabels(spaceId, resourceType, resourceRef)).labels,
+			);
+		}
+		const selected = new Set(
+			current.assignments.map((assignment) => assignment.labelId),
+		);
+		const input = window.prompt(
+			"Labels",
+			flatLabels
+				.filter((label) => selected.has(label.id))
+				.map((label) => label.name)
+				.join(", "),
+		);
+		if (input == null) return;
+		const wantedNames = new Set(
+			input
+				.split(",")
+				.map((name) => name.replace(/\s+/g, " ").trim().toLowerCase())
+				.filter(Boolean),
+		);
+		const nextIds = flatLabels
+			.filter((label) => wantedNames.has(label.name.toLowerCase()))
+			.map((label) => label.id);
+		await setResourceLabels(spaceId, resourceType, resourceRef, nextIds);
+	} catch (error) {
+		console.warn("[space] Failed to edit labels", error);
+	}
 }
 
 function getHeaderFileActionPath() {
@@ -5655,17 +5640,6 @@ function closeResourceActionMenu() {
 	fileActionMenuOpenPath = null;
 }
 
-function toggleHeaderPin() {
-	const filePath = getHeaderFileActionPath();
-	if (filePath) {
-		void togglePinFilePath(filePath);
-		closeResourceActionMenu();
-		return;
-	}
-	void togglePinActiveSession();
-	closeResourceActionMenu();
-}
-
 function insertHeaderReference() {
 	const filePath = getHeaderFileActionPath();
 	if (filePath) {
@@ -5677,29 +5651,8 @@ function insertHeaderReference() {
 	closeResourceActionMenu();
 }
 
-function isHeaderResourcePinned() {
-	const filePath = getHeaderFileActionPath();
-	if (filePath) return isFilePathPinned(filePath);
-	return isActiveSessionPinned();
-}
-
 function getHeaderResourceLabel() {
 	return getHeaderFileActionPath() ? "file" : "chat";
-}
-
-async function togglePinFilePath(path: string) {
-	try {
-		const marks = await toggleSpacePin({
-			spaceId,
-			resourceType: "file",
-			resourceRef: path,
-			label: path.split("/").pop() ?? path,
-		});
-		pinnedMarks = marks;
-		pinnedFilePaths = getPinnedFilePaths(marks);
-	} catch {
-		// Pin is host-only; silently ignore for users without permission.
-	}
 }
 
 function handleCreateNewSession() {
@@ -5941,13 +5894,6 @@ onMount(() => {
 			applySessionsSnapshot(sessions);
 		},
 	);
-	const offSpacePinsCacheUpdated = onSpacePinsCacheUpdated(
-		({ spaceId: updatedSpaceId, marks }) => {
-			if (updatedSpaceId !== spaceId) return;
-			pinnedMarks = marks;
-			pinnedFilePaths = getPinnedFilePaths(marks);
-		},
-	);
 	for (const run of getCachedTaskRuns(spaceId)) {
 		if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
 	}
@@ -6032,10 +5978,6 @@ onMount(() => {
 		pageOnline = false;
 		scheduleStatusRefresh();
 	};
-	const handleMarksUpdated = (e: Event) => {
-		const custom = e as CustomEvent;
-		if (custom.detail?.spaceId === spaceId) void loadSpacePins(true);
-	};
 	const handleOpenInlineFileEvent = (e: Event) => {
 		const custom = e as CustomEvent<{ spaceId?: string; path?: string }>;
 		if (custom.detail?.spaceId !== spaceId || !custom.detail?.path) return;
@@ -6052,7 +5994,6 @@ onMount(() => {
 	window.addEventListener("online", handleOnline);
 	window.addEventListener("offline", handleOffline);
 	window.addEventListener("resize", handlePreviewWindowResize);
-	window.addEventListener("cohub:marks-updated", handleMarksUpdated);
 	window.addEventListener("cohub:open-inline-file", handleOpenInlineFileEvent);
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	window.addEventListener("keydown", handleResourceActionMenuKeydown);
@@ -6061,7 +6002,6 @@ onMount(() => {
 	return () => {
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
-		offSpacePinsCacheUpdated();
 		offTaskRunsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
@@ -6084,7 +6024,6 @@ onMount(() => {
 		window.removeEventListener("online", handleOnline);
 		window.removeEventListener("offline", handleOffline);
 		window.removeEventListener("resize", handlePreviewWindowResize);
-		window.removeEventListener("cohub:marks-updated", handleMarksUpdated);
 		window.removeEventListener(
 			"cohub:open-inline-file",
 			handleOpenInlineFileEvent,
@@ -6126,8 +6065,6 @@ $effect(() => {
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
 	fileTree = [];
-	pinnedMarks = [];
-	pinnedFilePaths = new Set();
 	fileTreeLoading = false;
 	fileTreeError = null;
 	previewEndpoints = {};
@@ -6180,7 +6117,6 @@ $effect(() => {
 				}
 				if (spaceId !== currentSpaceId) return;
 				void refreshSessionsList(false);
-				void loadSpacePins();
 				void loadPreviewEndpoints();
 				void loadFileTree();
 				void loadSpaceCheckpoints();
@@ -6605,18 +6541,13 @@ $effect(() => {
 					type="button"
 					class="menu-item"
 					onclick={() => {
-						void togglePinFilePath(path);
+						void editResourceLabels("file", path);
 						fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
 				>
-					{#if isFilePathPinned(path)}
-						<PinOff class="w-3.5 h-3.5" />
-						<span>Unpin file</span>
-					{:else}
-						<Pin class="w-3.5 h-3.5" />
-						<span>Pin file</span>
-					{/if}
+					<ListTree class="w-3.5 h-3.5" />
+					<span>Labels…</span>
 				</button>
 				<button
 					type="button"
@@ -6806,14 +6737,19 @@ $effect(() => {
         </button>
         {#if resourceActionMenuOpen}
           <div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-            <button type="button" class="menu-item" onclick={toggleHeaderPin} role="menuitem">
-              {#if isHeaderResourcePinned()}
-                <PinOff class="w-3.5 h-3.5" />
-                <span>Unpin {getHeaderResourceLabel()}</span>
-              {:else}
-                <Pin class="w-3.5 h-3.5" />
-                <span>Pin {getHeaderResourceLabel()}</span>
-              {/if}
+            <button
+              type="button"
+              class="menu-item"
+              onclick={() => {
+                const filePath = getHeaderFileActionPath();
+                if (filePath) void editResourceLabels("file", filePath);
+                else if (activeSessionState?.session) void editResourceLabels("session", activeSessionState.session.id);
+                closeResourceActionMenu();
+              }}
+              role="menuitem"
+            >
+              <ListTree class="w-3.5 h-3.5" />
+              <span>Labels…</span>
             </button>
             <button type="button" class="menu-item" onclick={insertHeaderReference} role="menuitem">
               <FileText class="w-3.5 h-3.5" />
@@ -8544,8 +8480,6 @@ $effect(() => {
           onDelete={handleDeleteNode}
           onDownload={handleDownloadNode}
           onUpload={handleUploadFiles}
-          isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
-          onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
           onInsertReference={insertPathReference}
           onOpenPort={(port, url) => openInlinePort(port, url)}
           activePort={inlinePortPreview?.port ?? null}
@@ -8594,8 +8528,6 @@ $effect(() => {
         onDelete={handleDeleteNode}
         onDownload={handleDownloadNode}
         onUpload={handleUploadFiles}
-        isPinned={(node) => node.type === "file" && pinnedFilePaths.has(node.path)}
-        onTogglePin={(node) => { if (node.type === "file") void togglePinFilePath(node.path); }}
         onInsertReference={insertPathReference}
         onOpenPort={(port, url) => { openInlinePort(port, url); uiState.mobileRightDrawerOpen = false; }}
         activePort={inlinePortPreview?.port ?? null}
