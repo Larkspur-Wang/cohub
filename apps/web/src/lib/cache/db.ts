@@ -2,11 +2,18 @@ import type {
 	SessionForkRecord,
 	SessionTurnRecord,
 } from "@cohub/protocol/model";
-import type { SessionRecord, SpaceFsEntry, SpaceRecord } from "@neta-art/cohub";
+import type {
+	LabelAssignmentListItem,
+	LabelAssignmentPageInfo,
+	LabelListItem,
+	SessionRecord,
+	SpaceFsEntry,
+	SpaceRecord,
+} from "@neta-art/cohub";
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 2;
+export const DB_VERSION = 3;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -70,11 +77,36 @@ export type SpaceRecordCacheRecord = {
 	watermark: string | null;
 };
 
+export type LabelTreeCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	labels: LabelListItem[];
+	updatedAt: number;
+	lastAccessedAt: number;
+	watermark: string | null;
+};
+
+export type LabelItemsCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	labelId: string;
+	items: LabelAssignmentListItem[];
+	pageInfo: LabelAssignmentPageInfo;
+	updatedAt: number;
+	lastAccessedAt: number;
+	watermark: string | null;
+	completeness: "partial" | "complete";
+};
+
 type StoreName =
 	| "session_lists"
 	| "session_turns"
 	| "space_fs_dirs"
-	| "space_records";
+	| "space_records"
+	| "label_trees"
+	| "label_items";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -128,6 +160,20 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 					keyPath: ["userKey", "spaceId", "dirPath"],
 				},
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+			]);
+			createStore(db, "label_trees", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
+			]);
+			createStore(db, "label_items", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_label",
+					keyPath: ["userKey", "spaceId", "labelId"],
+				},
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
 			]);
 		};
 		request.onsuccess = () => {

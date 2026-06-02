@@ -1,6 +1,8 @@
 import {
-	DB_NAME,
 	idbDeleteWhere,
+	type LabelItemsCacheRecord,
+	type LabelTreeCacheRecord,
+	openCacheDb,
 	type SessionListCacheRecord,
 	type SessionTurnsCacheRecord,
 	type SpaceFsDirCacheRecord,
@@ -14,6 +16,8 @@ const MAX_ENTRIES = {
 	sessionLists: 500,
 	sessionTurns: 1000,
 	spaceFsDirs: 5000,
+	labelTrees: 500,
+	labelItems: 5000,
 };
 
 function shouldRunCleanup() {
@@ -37,20 +41,22 @@ function markCleanupDone() {
 async function cleanupStore<
 	T extends { key: string; userKey: string; lastAccessedAt: number },
 >(
-	store: "session_lists" | "session_turns" | "space_fs_dirs",
+	store:
+		| "session_lists"
+		| "session_turns"
+		| "space_fs_dirs"
+		| "label_trees"
+		| "label_items",
 	maxEntries: number,
 ) {
 	const userKey = getCacheUserKey();
+	const db = await openCacheDb();
+	if (!db?.objectStoreNames.contains(store)) return;
 	const records = await new Promise<T[]>((resolve, reject) => {
-		const request = indexedDB.open(DB_NAME);
-		request.onsuccess = () => {
-			const db = request.result;
-			const tx = db.transaction(store, "readonly");
-			const getAll = tx.objectStore(store).getAll();
-			getAll.onsuccess = () => resolve((getAll.result as T[]) ?? []);
-			getAll.onerror = () => reject(getAll.error);
-		};
-		request.onerror = () => reject(request.error);
+		const tx = db.transaction(store, "readonly");
+		const getAll = tx.objectStore(store).getAll();
+		getAll.onsuccess = () => resolve((getAll.result as T[]) ?? []);
+		getAll.onerror = () => reject(getAll.error);
 	});
 	const mine = records
 		.filter((record) => record.userKey === userKey)
@@ -81,6 +87,11 @@ export function scheduleCacheCleanup() {
 			cleanupStore<SpaceFsDirCacheRecord>(
 				"space_fs_dirs",
 				MAX_ENTRIES.spaceFsDirs,
+			),
+			cleanupStore<LabelTreeCacheRecord>("label_trees", MAX_ENTRIES.labelTrees),
+			cleanupStore<LabelItemsCacheRecord>(
+				"label_items",
+				MAX_ENTRIES.labelItems,
 			),
 		])
 			.then(markCleanupDone)

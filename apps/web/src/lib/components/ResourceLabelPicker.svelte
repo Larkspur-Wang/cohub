@@ -67,9 +67,16 @@ async function save() {
 	saving = true;
 	error = "";
 	try {
-		const result = await setResourceLabels(spaceId, resourceType, resourceRef, [
-			...selected,
-		]);
+		const previousLabelIds = assignments.map(
+			(assignment) => assignment.labelId,
+		);
+		const result = await setResourceLabels(
+			spaceId,
+			resourceType,
+			resourceRef,
+			[...selected],
+			{ previousLabelIds },
+		);
 		labels = result.labels;
 		assignments = result.assignments;
 		onClose();

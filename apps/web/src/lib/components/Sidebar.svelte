@@ -78,7 +78,12 @@ import {
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
-	fetchSpaceLabels,
+	fetchLabelItemsFirstPageFresh,
+	fetchSpaceLabelsFresh,
+	getCachedLabelItemsSnapshot,
+	getCachedSpaceLabelsSnapshot,
+	LABEL_ITEMS_PAGE_SIZE,
+	markLabelItemsStale,
 	onSpaceLabelsCacheUpdated,
 } from "$lib/stores/space-labels";
 import {
@@ -640,12 +645,64 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 }
 
 async function loadLabelsForSpace(spaceId: string, force = false) {
+	if (!force) {
+		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
+		if (spaceId !== currentSpaceId) return;
+		if (cached) labels = cached.labels;
+		if (cached && !cached.stale) return;
+	}
+
 	try {
-		const next = await fetchSpaceLabels(spaceId, force);
+		const next = await fetchSpaceLabelsFresh(spaceId);
 		if (spaceId === currentSpaceId) labels = next;
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
 	}
+}
+
+function labelItemsEqual(
+	left: LabelAssignmentListItem[],
+	right: LabelAssignmentListItem[],
+) {
+	if (left.length !== right.length) return false;
+	for (let index = 0; index < left.length; index += 1) {
+		const a = left[index];
+		const b = right[index];
+		if (!a || !b) return false;
+		if (a.id !== b.id || a.updatedAt !== b.updatedAt || a.rank !== b.rank)
+			return false;
+	}
+	return true;
+}
+
+function patchLabelItems(
+	spaceId: string,
+	labelId: string,
+	items: LabelAssignmentListItem[],
+	pageInfo: { hasMore: boolean; nextCursor: string | null },
+) {
+	const currentSpaceItems = labelItemsBySpace[spaceId] ?? {};
+	const currentItems = currentSpaceItems[labelId] ?? [];
+	const currentPageInfo = labelItemsPageInfoBySpace[spaceId]?.[labelId];
+	const samePageInfo =
+		currentPageInfo?.hasMore === pageInfo.hasMore &&
+		currentPageInfo?.nextCursor === pageInfo.nextCursor;
+	if (labelItemsEqual(currentItems, items) && samePageInfo) return;
+
+	labelItemsBySpace = {
+		...labelItemsBySpace,
+		[spaceId]: {
+			...currentSpaceItems,
+			[labelId]: items,
+		},
+	};
+	labelItemsPageInfoBySpace = {
+		...labelItemsPageInfoBySpace,
+		[spaceId]: {
+			...(labelItemsPageInfoBySpace[spaceId] ?? {}),
+			[labelId]: pageInfo,
+		},
+	};
 }
 
 async function loadLabelItems(
@@ -656,39 +713,45 @@ async function loadLabelItems(
 	if (!spaceId) return;
 	const append = options?.append ?? false;
 	const force = options?.force ?? false;
-	const spaceItems = labelItemsBySpace[spaceId] ?? {};
 	const spacePageInfo = labelItemsPageInfoBySpace[spaceId] ?? {};
-	if (!force && !append && spaceItems[labelId]) return;
-	loadingLabelIdsBySpace = {
-		...loadingLabelIdsBySpace,
-		[spaceId]: new Set([
-			...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
-			labelId,
-		]),
-	};
-	try {
-		const result = await sdk.space(spaceId).labels.listItems(labelId, {
-			limit: 30,
-			cursor: append ? spacePageInfo[labelId]?.nextCursor : null,
-		});
+
+	if (!append && !force) {
+		const cached = await getCachedLabelItemsSnapshot(spaceId, labelId);
 		if (spaceId !== currentSpaceId) return;
-		const latestItems = labelItemsBySpace[spaceId] ?? {};
-		labelItemsBySpace = {
-			...labelItemsBySpace,
-			[spaceId]: {
-				...latestItems,
-				[labelId]: append
-					? [...(latestItems[labelId] ?? []), ...(result.items ?? [])]
-					: (result.items ?? []),
-			},
+		if (cached) {
+			patchLabelItems(spaceId, labelId, cached.items, cached.pageInfo);
+			if (!cached.stale) return;
+		}
+	}
+
+	const hasVisibleItems = Boolean(
+		labelItemsBySpace[spaceId]?.[labelId]?.length,
+	);
+	if (!hasVisibleItems || append) {
+		loadingLabelIdsBySpace = {
+			...loadingLabelIdsBySpace,
+			[spaceId]: new Set([
+				...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
+				labelId,
+			]),
 		};
-		labelItemsPageInfoBySpace = {
-			...labelItemsPageInfoBySpace,
-			[spaceId]: {
-				...(labelItemsPageInfoBySpace[spaceId] ?? {}),
-				[labelId]: result.pageInfo,
-			},
-		};
+	}
+	try {
+		if (append) {
+			const result = await sdk.space(spaceId).labels.listItems(labelId, {
+				limit: LABEL_ITEMS_PAGE_SIZE,
+				cursor: spacePageInfo[labelId]?.nextCursor,
+			});
+			if (spaceId !== currentSpaceId) return;
+			const latestItems = labelItemsBySpace[spaceId]?.[labelId] ?? [];
+			const nextItems = [...latestItems, ...(result.items ?? [])];
+			patchLabelItems(spaceId, labelId, nextItems, result.pageInfo);
+			return;
+		}
+
+		const result = await fetchLabelItemsFirstPageFresh(spaceId, labelId);
+		if (spaceId !== currentSpaceId) return;
+		patchLabelItems(spaceId, labelId, result.items, result.pageInfo);
 	} catch (error) {
 		console.warn("[sidebar] Failed to load label items", { labelId, error });
 	} finally {
@@ -723,10 +786,7 @@ function toggleLabelExpanded(labelId: string) {
 
 function refreshExpandedLabelItems(spaceId: string) {
 	const expanded = expandedLabelIdsBySpace[spaceId];
-	if (!expanded) return;
-	labelItemsBySpace = { ...labelItemsBySpace, [spaceId]: {} };
-	labelItemsPageInfoBySpace = { ...labelItemsPageInfoBySpace, [spaceId]: {} };
-	if (spaceId !== currentSpaceId) return;
+	if (!expanded || spaceId !== currentSpaceId) return;
 	for (const labelId of expanded) void loadLabelItems(labelId, { force: true });
 }
 
@@ -1186,7 +1246,6 @@ onMount(() => {
 			({ spaceId, labels: nextLabels }) => {
 				if (spaceId !== currentSpaceId) return;
 				labels = nextLabels;
-				refreshExpandedLabelItems(spaceId);
 			},
 		);
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
@@ -1205,6 +1264,10 @@ onMount(() => {
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
 			);
+			window.addEventListener(
+				"cohub:label-assignments-updated",
+				handleLabelAssignmentsUpdated as EventListener,
+			);
 		})();
 	}
 
@@ -1216,6 +1279,21 @@ onMount(() => {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
 			void loadCheckpointsForSpace(currentSpaceId, true);
+		}
+	}
+
+	function handleLabelAssignmentsUpdated(e: Event) {
+		const custom = e as CustomEvent<{
+			spaceId?: string;
+			affectedLabelIds?: string[];
+		}>;
+		const spaceId = custom.detail?.spaceId;
+		if (!spaceId || spaceId !== currentSpaceId) return;
+		const expanded = expandedLabelIdsBySpace[spaceId];
+		if (!expanded) return;
+		for (const labelId of custom.detail?.affectedLabelIds ?? []) {
+			if (expanded.has(labelId)) void loadLabelItems(labelId, { force: true });
+			else void markLabelItemsStale(spaceId, labelId);
 		}
 	}
 
@@ -1242,6 +1320,10 @@ onMount(() => {
 			window.removeEventListener(
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
+			);
+			window.removeEventListener(
+				"cohub:label-assignments-updated",
+				handleLabelAssignmentsUpdated as EventListener,
 			);
 		}
 	};
@@ -1296,7 +1378,7 @@ $effect(() => {
 		loadingTasksSpaceId = null;
 		untrack(() => {
 			void loadSessionsForSpace(id);
-			void loadLabelsForSpace(id, true);
+			void loadLabelsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
 			void loadTasksForSpace(id, true);

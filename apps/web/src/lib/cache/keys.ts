@@ -16,6 +16,18 @@ export function sessionListKey(userKey: string, spaceId: string) {
 	return [userKey, spaceId, "recent"].map(encodeKeyPart).join(":");
 }
 
+export function labelTreeKey(userKey: string, spaceId: string) {
+	return [userKey, spaceId, "labels"].map(encodeKeyPart).join(":");
+}
+
+export function labelItemsKey(
+	userKey: string,
+	spaceId: string,
+	labelId: string,
+) {
+	return [userKey, spaceId, labelId, "items"].map(encodeKeyPart).join(":");
+}
+
 export function sessionTurnsKey(
 	userKey: string,
 	spaceId: string,
