@@ -111,6 +111,22 @@ function elapsedSeconds(notice: GenerationTaskNotice) {
 	return Math.max(0, Math.floor((now - start) / 1000));
 }
 
+function getTaskReferenceUri(notice: GenerationTaskNotice) {
+	return `cohub://tasks/${notice.id}`;
+}
+
+function handleNoticeDragStart(event: DragEvent, notice: GenerationTaskNotice) {
+	const uri = getTaskReferenceUri(notice);
+
+	event.dataTransfer?.setData("application/x-cohub-uri", uri);
+	event.dataTransfer?.setData("text/cohub-path", uri);
+	event.dataTransfer?.setData("text/plain", uri);
+
+	if (event.dataTransfer) {
+		event.dataTransfer.effectAllowed = "copy";
+	}
+}
+
 function handleCardClick(notice: GenerationTaskNotice) {
 	if (isCompleted(notice)) {
 		mediaLightbox.show(notice.mediaItems);
@@ -178,15 +194,19 @@ $effect(() => {
 								<button
 									type="button"
 									tabindex="-1"
+									draggable={true}
 									class="group mb-px block w-full break-inside-avoid overflow-hidden rounded-[3px] border border-transparent bg-bg-primary/72 text-left transition duration-150 hover:border-border-strong/65 hover:bg-bg-primary/90"
 									onclick={() => handleCardClick(notice)}
+									ondragstart={(e) => handleNoticeDragStart(e, notice)}
 								>
 									{@render CardInner(notice, elapsedSeconds(notice))}
 								</button>
 							{:else}
 								<div
 									role="status"
+									draggable={true}
 									class="group mb-px break-inside-avoid overflow-hidden rounded-[3px] border border-transparent bg-bg-primary/72 text-left transition duration-150"
+									ondragstart={(e) => handleNoticeDragStart(e, notice)}
 								>
 									{@render CardInner(notice, elapsedSeconds(notice))}
 								</div>
