@@ -1,11 +1,25 @@
+import { benefitsFeature, type Benefit, type CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
+import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
 import { creditsFeature, type CreditGrant, type CreditTransaction, type UsageOverage } from "@talesofai-billing/sdk/admin/credits";
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
+import { type CreateOrderResponse, ordersFeature } from "@talesofai-billing/sdk/admin/orders";
+import { type Product, productsFeature } from "@talesofai-billing/sdk/admin/products";
+import { redemptionCodesFeature } from "@talesofai-billing/sdk/admin/redemption-codes";
+import { type CreateSubscriptionResponse, type Subscription, subscriptionsFeature } from "@talesofai-billing/sdk/admin/subscriptions";
+import { type WaffoPayMethod, waffoFeature } from "@talesofai-billing/sdk/admin/waffo";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
+import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.js";
+import { redisCommandClient } from "../redis.js";
 import {
   COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_TOKEN_TYPES,
   type BillingAccountState,
+  type BillingCatalog,
+  type BillingCatalogProduct,
+  type BillingCheckoutInput,
+  type BillingCheckoutResult,
+  type BillingProductCreditBenefit,
   type BillingCreditBalance,
   type BillingCreditExpiryGroup,
   type BillingCreditGrantStatus,
@@ -18,6 +32,8 @@ import {
   type BillingOpenOverageStatus,
   type BillingOperations,
   type BillingPluginStatus,
+  type BillingRedemptionInput,
+  type BillingRedemptionResult,
   type BillingUsagePreflight,
   type BillingUsagePreflightInput,
   type BillingUsageRecordList,
@@ -58,16 +74,33 @@ function createConfiguredSdk(input: BillingClientConfig) {
     baseURL: input.baseUrl,
     adminApiKey: input.adminApiKey,
   })
+    .useAdmin(benefitsFeature())
+    .useAdmin(businessesFeature())
     .useAdmin(customersFeature())
-    .useAdmin(creditsFeature());
+    .useAdmin(creditsFeature())
+    .useAdmin(productsFeature())
+    .useAdmin(ordersFeature())
+    .useAdmin(redemptionCodesFeature())
+    .useAdmin(subscriptionsFeature())
+    .useAdmin(waffoFeature());
 }
 
 type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
 
 const ENSURE_CUSTOMER_CACHE_TTL_MS = 5 * 60 * 1000;
+const CHECKOUT_LOCK_TTL_MS = 30_000;
+const CHECKOUT_LOCK_RETRY_DELAY_MS = 250;
+const CHECKOUT_LOCK_RETRY_COUNT = 24;
 const CREDIT_LIST_PAGE_LIMIT = 100;
 const CREDIT_LIST_MAX_PAGES = 20;
 const CREDIT_GRANT_DISPLAY_STATUSES = ["active", "depleted", "expired"] as const;
+const BILLING_CURRENT_SUBSCRIPTION_STATUSES = ["active"] as const;
+const BILLING_BLOCKING_SUBSCRIPTION_STATUSES = [
+  "trialing",
+  "active",
+  "past_due",
+  "payment_conflicted",
+] as const;
 const CREDIT_BENEFIT_DISPLAY_NAMES: Record<string, string> = {
   free_monthly_credits: "Free Plan Credits",
 };
@@ -87,6 +120,15 @@ function isNotFound(error: unknown): boolean {
 function normalizeAmount(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   return Number(value.toFixed(8));
+}
+
+function normalizeRedemptionCode(value: string): string {
+  return value.trim();
+}
+
+function redemptionIdempotencyKey(input: { userId: string; code: string }): string {
+  const codeHash = createHash("sha256").update(normalizeRedemptionCode(input.code)).digest("hex");
+  return `cohub:billing:redemption:${input.userId}:${codeHash}`;
 }
 
 function roundUsd(value: number, decimalPlaces = COHUB_BILLING_CREDIT_UNITS.usdMicroCent.usdDecimalPlaces): number {
@@ -324,7 +366,16 @@ function mapCreditGrant(grant: CreditGrant, now = new Date()): BillingCreditGran
     effectiveAt: grant.effective_at ?? null,
     expiresAt: grant.expires_at ?? null,
     daysRemaining,
+    createdAt: grant.created_at,
   };
+}
+
+function createdAtDesc(left: BillingCreditGrantStatus, right: BillingCreditGrantStatus): number {
+  const leftTime = Date.parse(left.createdAt);
+  const rightTime = Date.parse(right.createdAt);
+  const leftValue = Number.isNaN(leftTime) ? 0 : leftTime;
+  const rightValue = Number.isNaN(rightTime) ? 0 : rightTime;
+  return rightValue - leftValue;
 }
 
 function groupCreditGrants(grants: BillingCreditGrantStatus[]): BillingCreditExpiryGroup[] {
@@ -344,6 +395,9 @@ function groupCreditGrants(grants: BillingCreditGrantStatus[]): BillingCreditExp
     if (!group) continue;
     group.remainingAmountUsd = normalizeAmount(group.remainingAmountUsd + grant.remainingAmountUsd);
     group.grants.push(grant);
+  }
+  for (const group of byKey.values()) {
+    group.grants.sort(createdAtDesc);
   }
   return orderedKeys
     .map((key) => byKey.get(key))
@@ -380,6 +434,281 @@ function mapUsageRecord(transaction: CreditTransaction): BillingUsageRecordStatu
     reason: transaction.reason ?? null,
     createdAt: transaction.created_at,
   };
+}
+
+function minorAmountToUsd(amount: number): number {
+  if (!Number.isFinite(amount)) return 0;
+  return Number((amount / 100).toFixed(2));
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function optionalNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return value;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function uniqueStringArray(value: unknown): string[] {
+  return [...new Set(stringArray(value).map((item) => item.trim()).filter(Boolean))];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getProductInterval(product: Product): BillingCatalogProduct["interval"] {
+  if (product.billing_type === "one_time") return "one_time";
+  if (product.billing_type !== "recurring" || product.billing_period !== "month") return "other";
+  switch (product.billing_interval_count) {
+    case 1:
+      return "monthly";
+    case 3:
+      return "quarterly";
+    case 12:
+      return "yearly";
+    default:
+      return "other";
+  }
+}
+
+function isCreditsBenefit(benefit: Benefit): benefit is CreditsBenefit {
+  return benefit.type === "credits";
+}
+
+function isProductCreditsBenefit(product: Product, benefit: CreditsBenefit): boolean {
+  const grantKind = product.billing_type === "recurring" ? "plan_period" : "purchased";
+  if (benefit.config.grant_kind !== grantKind) return false;
+  const meta = asRecord(product.meta) ?? {};
+  const display = asRecord(meta.display) ?? {};
+  const configuredKeys = uniqueStringArray(
+    display.credit_benefit_keys ?? display.creditBenefitKeys ?? meta.credit_benefit_keys,
+  );
+  if (configuredKeys.length > 0) return configuredKeys.includes(benefit.key);
+  const productKey = product.key.toLowerCase();
+  const benefitKey = benefit.key.toLowerCase();
+  const exactKeys = new Set([
+    `${productKey}_credits`,
+    `${productKey}_benefit`,
+    `${productKey}_credits_benefit`,
+  ]);
+  if (exactKeys.has(benefitKey)) return true;
+  return benefitKey.startsWith(`${productKey}_`) && benefitKey.includes("credit");
+}
+
+function mapProductCreditBenefit(product: Product, benefit: CreditsBenefit): BillingProductCreditBenefit {
+  const cycleAmount = benefit.config.amount;
+  const multiplier = benefit.config.grant_kind === "plan_period"
+    ? Math.max(1, product.billing_interval_count)
+    : 1;
+  const periodAmount = cycleAmount * multiplier;
+  return {
+    key: benefit.key,
+    name: benefit.name,
+    tokenType: benefit.config.token_type,
+    grantKind: benefit.config.grant_kind,
+    scope: benefit.config.scope,
+    cycleAmount,
+    cycleAmountUsd: amountToUsd(cycleAmount, benefit.config.token_type),
+    periodAmount,
+    periodAmountUsd: amountToUsd(periodAmount, benefit.config.token_type),
+    expiresInDays: benefit.config.expires_in_days ?? null,
+  };
+}
+
+function mapCatalogProduct(
+  product: Product,
+  defaultPlanProductKey: string | null,
+  creditBenefits: CreditsBenefit[],
+): BillingCatalogProduct {
+  const meta = asRecord(product.meta) ?? {};
+  const pricing = asRecord(meta.pricing) ?? {};
+  const display = asRecord(meta.display) ?? {};
+  const compareAtAmountMinor =
+    optionalNumber(pricing.compare_at_amount_minor) ??
+    optionalNumber(pricing.compare_at_amount) ??
+    null;
+  const productCreditBenefits = creditBenefits
+    .filter((benefit) => isProductCreditsBenefit(product, benefit))
+    .map((benefit) => mapProductCreditBenefit(product, benefit));
+  const creditsAmount = productCreditBenefits.length > 0
+    ? productCreditBenefits.reduce((sum, benefit) => sum + benefit.periodAmount, 0)
+    : null;
+  return {
+    id: product.id,
+    key: product.key,
+    name: product.name,
+    description: product.description,
+    status: product.status,
+    visibility: product.visibility,
+    billingType: product.billing_type,
+    billingPeriod: product.billing_period,
+    billingIntervalCount: product.billing_interval_count,
+    currency: product.currency,
+    kind: product.billing_type === "recurring" ? "plan" : "addon",
+    interval: getProductInterval(product),
+    pricing: {
+      amountMinor: product.amount,
+      amountUsd: minorAmountToUsd(product.amount),
+      compareAtAmountMinor,
+      compareAtAmountUsd: compareAtAmountMinor === null ? null : minorAmountToUsd(compareAtAmountMinor),
+      discountLabel: optionalString(pricing.discount_label),
+      discountRate: optionalNumber(pricing.discount_rate),
+    },
+    display: {
+      description: optionalString(display.description) ?? product.description,
+      benefits: stringArray(display.benefits),
+      creditsAmount,
+      validity: optionalString(display.validity) ?? optionalString(meta.validity),
+      creditBenefits: productCreditBenefits,
+    },
+    isDefaultPlan: product.key === defaultPlanProductKey,
+  };
+}
+
+function mapSubscriptionSummary(subscription: Subscription) {
+  return {
+    id: subscription.id,
+    productKey: subscription.product_key_snapshot ?? null,
+    productName: subscription.product_name_snapshot ?? null,
+    status: subscription.status,
+    currentPeriodStart: subscription.current_period_start,
+    currentPeriodEnd: subscription.current_period_end,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+  };
+}
+
+function isAvailableWaffoPayMethod(method: WaffoPayMethod): boolean {
+  const currentStatus = optionalString(method.currentStatus);
+  if (currentStatus === "1") return true;
+  if (currentStatus === "0") return false;
+
+  const payMethodStatus = optionalString(method.payMethodStatus);
+  if (!payMethodStatus) return false;
+  return payMethodStatus.toUpperCase() === "ACTIVE";
+}
+
+async function resolvePaymentStatus(sdk: ConfiguredBillingSdk) {
+  try {
+    const response = await sdk.admin.waffo.payMethods();
+    if (response.status !== "pay_methods_inquired") {
+      return {
+        available: false,
+        reason: response.message ?? "Waffo payMethods query failed",
+      };
+    }
+    const availablePayMethodCount = response.pay_methods.filter(isAvailableWaffoPayMethod).length;
+    return availablePayMethodCount > 0
+      ? { available: true, reason: null }
+      : { available: false, reason: "No available Waffo payment methods" };
+  } catch (error) {
+    return {
+      available: false,
+      reason: error instanceof Error ? error.message : "Waffo payMethods query failed",
+    };
+  }
+}
+
+function checkoutResultFromOrder(input: {
+  userId: string;
+  productKey: string;
+  response: CreateOrderResponse;
+  status: BillingPluginStatus;
+  reused?: boolean;
+}): BillingCheckoutResult {
+  const checkout = input.response.checkout;
+  const checkoutUsable = checkout?.checkout_usable === true && !!checkout.checkout_url;
+  return {
+    userId: input.userId,
+    billing: input.status,
+    payment: {
+      available: checkoutUsable,
+      reason: checkoutUsable
+        ? null
+        : checkout?.message ?? "Waffo checkout is not currently usable",
+    },
+    productKey: input.productKey,
+    checkoutUrl: checkout?.checkout_url ?? null,
+    checkoutUsable,
+    message: checkout?.message ?? null,
+    orderId: input.response.order.id,
+    subscriptionId: input.response.order.subscription_id,
+    reused: input.reused === true,
+  };
+}
+
+function checkoutResultFromSubscription(input: {
+  userId: string;
+  productKey: string;
+  response: CreateSubscriptionResponse;
+  status: BillingPluginStatus;
+}): BillingCheckoutResult {
+  const checkout = input.response.checkout;
+  const checkoutUsable = checkout?.checkout_usable === true && !!checkout.checkout_url;
+  return {
+    userId: input.userId,
+    billing: input.status,
+    payment: {
+      available: checkoutUsable,
+      reason: checkoutUsable
+        ? null
+        : checkout?.message ?? "Waffo checkout is not currently usable",
+    },
+    productKey: input.productKey,
+    checkoutUrl: checkout?.checkout_url ?? null,
+    checkoutUsable,
+    message: checkout?.message ?? null,
+    orderId: null,
+    subscriptionId: input.response.subscription.id,
+    reused: input.response.reused === true,
+  };
+}
+
+function checkoutRedirects(returnUrl: string | undefined) {
+  const resolved = returnUrl && /^https?:\/\//i.test(returnUrl) ? returnUrl : undefined;
+  return {
+    success_redirect_url: resolved,
+    failed_redirect_url: resolved,
+    cancel_redirect_url: resolved,
+  };
+}
+
+async function withRedisCheckoutLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const lockKey = `billing:checkout:lock:${key}`;
+  const lockValue = randomUUID();
+  for (let attempt = 0; attempt < CHECKOUT_LOCK_RETRY_COUNT; attempt += 1) {
+    const locked = await redisCommandClient
+      .set(lockKey, lockValue, "PX", CHECKOUT_LOCK_TTL_MS, "NX")
+      .catch(() => null);
+    if (locked === "OK") {
+      try {
+        return await run();
+      } finally {
+        await redisCommandClient
+          .eval(
+            "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+            1,
+            lockKey,
+            lockValue,
+          )
+          .catch(() => undefined);
+      }
+    }
+    await sleep(CHECKOUT_LOCK_RETRY_DELAY_MS);
+  }
+  return run();
 }
 
 function emptyCreditStatus(input: {
@@ -451,6 +780,65 @@ function emptyOpenOverageList(input: {
   };
 }
 
+function emptyCatalog(input: {
+  userId: string;
+  status: BillingPluginStatus;
+  paymentReason: string | null;
+}): BillingCatalog {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    payment: {
+      available: false,
+      reason: input.paymentReason,
+    },
+    products: [],
+    plans: [],
+    addons: [],
+    currentSubscriptions: [],
+    hasActiveSubscription: false,
+    defaultPlanProductKey: null,
+  };
+}
+
+function disabledCheckoutResult(input: {
+  userId: string;
+  productKey: string;
+  status: BillingPluginStatus;
+  reason: string | null;
+}): BillingCheckoutResult {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    payment: {
+      available: false,
+      reason: input.reason,
+    },
+    productKey: input.productKey,
+    checkoutUrl: null,
+    checkoutUsable: false,
+    message: input.reason,
+    orderId: null,
+    subscriptionId: null,
+    reused: false,
+  };
+}
+
+function disabledRedemptionResult(input: {
+  userId: string;
+  status: BillingPluginStatus;
+  reason: string | null;
+}): BillingRedemptionResult {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    redeemed: false,
+    message: input.reason,
+    redemptionRecordId: null,
+    itemCount: 0,
+  };
+}
+
 function checkFeatureLimitFromEntitlement(input: {
   entitlement: BillingFeatureEntitlement | null;
   quantity: number;
@@ -500,6 +888,40 @@ export function createDisabledBillingOperations(reason = "billing configuration 
         status,
         page: input.page ?? 1,
         limit: input.limit ?? 10,
+      });
+    },
+
+    async getCatalog(input: BillingUserRef): Promise<BillingCatalog> {
+      return emptyCatalog({
+        userId: input.userId,
+        status,
+        paymentReason: status.reason ?? "Billing integration is not configured",
+      });
+    },
+
+    async purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult> {
+      return disabledCheckoutResult({
+        userId: input.userId,
+        productKey: input.productKey,
+        status,
+        reason: status.reason ?? "Billing integration is not configured",
+      });
+    },
+
+    async createSubscription(input: BillingCheckoutInput): Promise<BillingCheckoutResult> {
+      return disabledCheckoutResult({
+        userId: input.userId,
+        productKey: input.productKey,
+        status,
+        reason: status.reason ?? "Billing integration is not configured",
+      });
+    },
+
+    async redeemCode(input: BillingRedemptionInput): Promise<BillingRedemptionResult> {
+      return disabledRedemptionResult({
+        userId: input.userId,
+        status,
+        reason: status.reason ?? "Billing integration is not configured",
       });
     },
 
@@ -562,6 +984,21 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
   const status: BillingPluginStatus = { provider: "talesofai", configured: true };
   const ensuredCustomers = new Map<string, { value: BillingUserRef; expiresAt: number }>();
   const inflightEnsures = new Map<string, Promise<BillingUserRef>>();
+  const inflightCheckouts = new Map<string, Promise<BillingCheckoutResult>>();
+
+  const runCheckoutSingleflight = (
+    input: { kind: "addon" | "plan"; userId: string; productKey: string },
+    run: () => Promise<BillingCheckoutResult>,
+  ): Promise<BillingCheckoutResult> => {
+    const key = `${businessKey}:${input.kind}:${input.userId}:${input.productKey}`;
+    const inflight = inflightCheckouts.get(key);
+    if (inflight) return inflight;
+    const promise = withRedisCheckoutLock(key, run).finally(() => {
+      inflightCheckouts.delete(key);
+    });
+    inflightCheckouts.set(key, promise);
+    return promise;
+  };
 
   const cacheEnsuredCustomer = (input: BillingUserRef) => {
     ensuredCustomers.set(input.userId, {
@@ -731,6 +1168,340 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     };
   };
 
+  const listPublicProducts = async (): Promise<Product[]> => {
+    const products = await listAllPages((page, limit) =>
+      sdk.admin.products.list({
+        business_key: businessKey,
+        page,
+        limit,
+      })
+    );
+    return products.filter((product) => product.status === "active" && product.visibility === "public");
+  };
+
+  const listActiveCreditsBenefits = async (): Promise<CreditsBenefit[]> => {
+    const benefits = await listAllPages((page, limit) =>
+      sdk.admin.benefits.list({
+        business_key: businessKey,
+        page,
+        limit,
+      })
+    );
+    return benefits.filter((benefit): benefit is CreditsBenefit =>
+      isCreditsBenefit(benefit) && benefit.status === "active"
+    );
+  };
+
+  const getDefaultPlanProductKey = async (products: Product[]): Promise<string | null> => {
+    try {
+      const defaultPlan = await sdk.admin.businesses.getDefaultPlan({
+        business_key: businessKey,
+      });
+      if (defaultPlan.status !== "enabled") return null;
+      return products.find((product) => product.id === defaultPlan.product_id)?.key ?? null;
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      return null;
+    }
+  };
+
+  const listSubscriptionsByStatuses = async (
+    userId: string,
+    statuses: readonly string[],
+  ): Promise<Subscription[]> => {
+    const subscriptions = await listAllPages((page, limit) =>
+      sdk.admin.subscriptions.list({
+        business_key: businessKey,
+        external_user_id: userId,
+        sorting: "-created_at",
+        page,
+        limit,
+      })
+    );
+    return subscriptions.filter((subscription) =>
+      statuses.includes(subscription.status)
+    );
+  };
+
+  const listCurrentSubscriptions = async (userId: string): Promise<Subscription[]> =>
+    listSubscriptionsByStatuses(userId, BILLING_CURRENT_SUBSCRIPTION_STATUSES);
+
+  const listBlockingSubscriptions = async (userId: string): Promise<Subscription[]> => {
+    return listSubscriptionsByStatuses(userId, BILLING_BLOCKING_SUBSCRIPTION_STATUSES);
+  };
+
+  const getCatalog = async (input: BillingUserRef): Promise<BillingCatalog> => {
+    await ensureCustomer({ userId: input.userId });
+    const [products, payment, currentSubscriptions, blockingSubscriptions, creditBenefits] = await Promise.all([
+      listPublicProducts(),
+      resolvePaymentStatus(sdk),
+      listCurrentSubscriptions(input.userId),
+      listBlockingSubscriptions(input.userId),
+      listActiveCreditsBenefits(),
+    ]);
+    const defaultPlanProductKey = await getDefaultPlanProductKey(products);
+    const mappedProducts = products
+      .map((product) => mapCatalogProduct(product, defaultPlanProductKey, creditBenefits))
+      .sort((left, right) => left.pricing.amountMinor - right.pricing.amountMinor);
+    const plans = mappedProducts.filter((product) => product.kind === "plan");
+    const addons = mappedProducts.filter((product) => product.kind === "addon");
+    return {
+      userId: input.userId,
+      billing: status,
+      payment,
+      products: mappedProducts,
+      plans,
+      addons,
+      currentSubscriptions: currentSubscriptions.map(mapSubscriptionSummary),
+      hasActiveSubscription: blockingSubscriptions.some((subscription) =>
+        BILLING_BLOCKING_SUBSCRIPTION_STATUSES.includes(
+          subscription.status as typeof BILLING_BLOCKING_SUBSCRIPTION_STATUSES[number],
+        )
+      ),
+      defaultPlanProductKey,
+    };
+  };
+
+  const findCheckoutProduct = async (input: {
+    productKey: string;
+    kind: "addon" | "plan";
+  }): Promise<Product | null> => {
+    try {
+      const product = await sdk.admin.products.get({
+        business_key: businessKey,
+        product_key: input.productKey,
+      });
+      const expectedBillingType = input.kind === "addon" ? "one_time" : "recurring";
+      if (
+        product.status !== "active" ||
+        product.visibility !== "public" ||
+        product.billing_type !== expectedBillingType
+      ) {
+        return null;
+      }
+      return product;
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      return null;
+    }
+  };
+
+  const createUnavailableCheckout = (input: {
+    userId: string;
+    productKey: string;
+    reason: string;
+  }) =>
+    disabledCheckoutResult({
+      userId: input.userId,
+      productKey: input.productKey,
+      status,
+      reason: input.reason,
+    });
+
+  const findReusableAddonCheckout = async (input: {
+    userId: string;
+    productKey: string;
+  }): Promise<BillingCheckoutResult | null> => {
+    const response = await sdk.admin.orders.list({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      product_key: input.productKey,
+      status: "pending_checkout",
+      billing_reason: "purchase",
+      sorting: "-created_at",
+      page: 1,
+      limit: 10,
+    });
+    for (const order of response.items) {
+      try {
+        const inspected = await sdk.admin.orders.inspect({
+          order_id: order.id,
+          business_key: businessKey,
+        });
+        if (inspected.checkout?.checkout_usable === true && inspected.checkout.checkout_url) {
+          return checkoutResultFromOrder({
+            userId: input.userId,
+            productKey: input.productKey,
+            response: inspected,
+            status,
+            reused: true,
+          });
+        }
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+      }
+    }
+    return null;
+  };
+
+  const findReusableSubscriptionCheckout = async (input: {
+    userId: string;
+    productKey: string;
+  }): Promise<BillingCheckoutResult | null> => {
+    const response = await sdk.admin.subscriptions.list({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      product_key: input.productKey,
+      status: "pending_checkout",
+      sorting: "-created_at",
+      page: 1,
+      limit: 10,
+    });
+    for (const subscription of response.items) {
+      try {
+        const inspected = await sdk.admin.subscriptions.inspect({
+          subscription_id: subscription.id,
+          business_key: businessKey,
+        });
+        if (inspected.checkout?.checkout_usable === true && inspected.checkout.checkout_url) {
+          return checkoutResultFromSubscription({
+            userId: input.userId,
+            productKey: input.productKey,
+            response: { ...inspected, reused: true },
+            status,
+          });
+        }
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+      }
+    }
+    return null;
+  };
+
+  const purchaseAddon = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
+    return runCheckoutSingleflight(
+      { kind: "addon", userId: input.userId, productKey: input.productKey },
+      () => purchaseAddonUnprotected(input),
+    );
+  };
+
+  const purchaseAddonUnprotected = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
+    const product = await findCheckoutProduct({ productKey: input.productKey, kind: "addon" });
+    if (!product) {
+      return createUnavailableCheckout({
+        userId: input.userId,
+        productKey: input.productKey,
+        reason: "Product is not available for purchase",
+      });
+    }
+
+    await ensureCustomer({ userId: input.userId });
+    const reusableCheckout = await findReusableAddonCheckout({
+      userId: input.userId,
+      productKey: product.key,
+    });
+    if (reusableCheckout) return reusableCheckout;
+
+    const payment = await resolvePaymentStatus(sdk);
+    if (!payment.available) {
+      return createUnavailableCheckout({
+        userId: input.userId,
+        productKey: product.key,
+        reason: payment.reason ?? "No available Waffo payment methods",
+      });
+    }
+
+    const response = await sdk.admin.orders.create({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      product_key: product.key,
+      billing_reason: "purchase",
+      ...checkoutRedirects(input.returnUrl),
+    });
+    return checkoutResultFromOrder({
+      userId: input.userId,
+      productKey: product.key,
+      response,
+      status,
+    });
+  };
+
+  const createSubscription = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
+    return runCheckoutSingleflight(
+      { kind: "plan", userId: input.userId, productKey: input.productKey },
+      () => createSubscriptionUnprotected(input),
+    );
+  };
+
+  const createSubscriptionUnprotected = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
+    const product = await findCheckoutProduct({ productKey: input.productKey, kind: "plan" });
+    if (!product) {
+      return createUnavailableCheckout({
+        userId: input.userId,
+        productKey: input.productKey,
+        reason: "Plan is not available for subscription",
+      });
+    }
+
+    await ensureCustomer({ userId: input.userId });
+    const currentSubscriptions = await listBlockingSubscriptions(input.userId);
+    if (currentSubscriptions.length > 0) {
+      return createUnavailableCheckout({
+        userId: input.userId,
+        productKey: product.key,
+        reason: "A subscription is already active",
+      });
+    }
+
+    const reusableCheckout = await findReusableSubscriptionCheckout({
+      userId: input.userId,
+      productKey: product.key,
+    });
+    if (reusableCheckout) return reusableCheckout;
+
+    const payment = await resolvePaymentStatus(sdk);
+    if (!payment.available) {
+      return createUnavailableCheckout({
+        userId: input.userId,
+        productKey: product.key,
+        reason: payment.reason ?? "No available Waffo payment methods",
+      });
+    }
+
+    const response = await sdk.admin.subscriptions.create({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      product_key: product.key,
+      ...checkoutRedirects(input.returnUrl),
+    });
+    return checkoutResultFromSubscription({
+      userId: input.userId,
+      productKey: product.key,
+      response,
+      status,
+    });
+  };
+
+  const redeemCode = async (input: BillingRedemptionInput): Promise<BillingRedemptionResult> => {
+    const code = normalizeRedemptionCode(input.code);
+    if (!code) {
+      return {
+        userId: input.userId,
+        billing: status,
+        redeemed: false,
+        message: "Redemption code is required",
+        redemptionRecordId: null,
+        itemCount: 0,
+      };
+    }
+    await ensureCustomer({ userId: input.userId });
+    const response = await sdk.admin.redemptionCodes.redeem(
+      {
+        code,
+        external_user_id: input.userId,
+      },
+      { idempotencyKey: redemptionIdempotencyKey({ userId: input.userId, code }) },
+    );
+    return {
+      userId: input.userId,
+      billing: status,
+      redeemed: true,
+      message: null,
+      redemptionRecordId: response.redemption_record.id,
+      itemCount: response.redemption_record.items_snapshot.length,
+    };
+  };
+
   return {
     status,
     ensureCustomer,
@@ -773,6 +1544,14 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     },
 
     listOpenOverages,
+
+    getCatalog,
+
+    purchaseAddon,
+
+    createSubscription,
+
+    redeemCode,
 
     async preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight> {
       const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;

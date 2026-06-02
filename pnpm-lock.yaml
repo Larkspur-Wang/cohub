@@ -16,8 +16,8 @@ importers:
         specifier: ^2.31.0
         version: 2.31.0(@types/node@25.9.1)
       '@talesofai-billing/cli':
-        specifier: ^1.0.0
-        version: 1.0.0
+        specifier: ^1.3.1
+        version: 1.3.1
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260527.2
         version: 7.0.0-dev.20260527.2
@@ -3476,14 +3476,9 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@talesofai-billing/cli@1.0.0':
-    resolution: {integrity: sha512-6rO2GADQkV4oTZjKz7W4aUK2eoZhN+tprSys9TKvCzys5rr/tsknsOBRZ4Win9kajMxyUXdXAkjWGPdWnJuDhQ==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fcli/-/1.0.0/cli-1.0.0.tgz}
-    engines: {node: '>=20'}
+  '@talesofai-billing/cli@1.3.1':
+    resolution: {integrity: sha512-yMy2EUIZn3BUFSt7MG9zlRwojvvMKIoBuPp+gXFHq9B5zh8IK4GHqWfIVV38C/npWQh0hF2/Ba0HBTwcevQ8vw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fcli/-/1.3.1/cli-1.3.1.tgz}
     hasBin: true
-
-  '@talesofai-billing/sdk@1.0.0':
-    resolution: {integrity: sha512-WmZhYsckhgQCEj57vFjlOEriTWynAGcWvye9jEtz1KXVVWRmi1qsxW5puUjGqPt2D0GbGosZHfUGVR/uOVHhtw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.0.0/sdk-1.0.0.tgz}
-    engines: {node: '>=18'}
 
   '@talesofai-billing/sdk@1.3.1':
     resolution: {integrity: sha512-TqnldDXUNbqolIxjW/Zb53CYEFk5uy3xyBkQaD6w2XLA0kxXP8pEiDWe+Qwb3aoYP/7l2IZ5FYp4DhCiV1C8bw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.3.1/sdk-1.3.1.tgz}
@@ -9004,15 +8999,11 @@ snapshots:
       tailwindcss: 4.3.0
       vite: 8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
 
-  '@talesofai-billing/cli@1.0.0':
+  '@talesofai-billing/cli@1.3.1':
     dependencies:
       '@commander-js/extra-typings': 14.0.0(commander@14.0.3)
-      '@talesofai-billing/sdk': 1.0.0
+      '@talesofai-billing/sdk': 1.3.1
       commander: 14.0.3
-
-  '@talesofai-billing/sdk@1.0.0':
-    dependencies:
-      zod: 4.4.3
 
   '@talesofai-billing/sdk@1.3.1':
     dependencies:

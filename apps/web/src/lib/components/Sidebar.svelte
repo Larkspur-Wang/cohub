@@ -320,10 +320,10 @@ async function refreshBillingCredit() {
 const baseSettingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
 	{
-		id: "balance",
-		label: "Balance",
+		id: "billing",
+		label: "Billing",
 		icon: CreditCard,
-		href: "/settings/balance",
+		href: "/settings/billing",
 	},
 	{
 		id: "ssh-keys",
@@ -346,7 +346,7 @@ const baseSettingsTabs = [
 ];
 const settingsTabs = $derived(
 	baseSettingsTabs.filter(
-		(tab) => tab.id !== "balance" || billingConfigured !== false,
+		(tab) => tab.id !== "billing" || billingConfigured !== false,
 	),
 );
 
@@ -804,9 +804,9 @@ function openSettings() {
 	void handleNavigate(target.pathname + target.search + target.hash);
 }
 
-function openBalanceSettings() {
+function openBillingSettings() {
 	const current = `${page.url.pathname}${page.url.search}${page.url.hash}`;
-	const target = new URL("/settings/balance", page.url);
+	const target = new URL("/settings/billing", page.url);
 	if (!current.startsWith("/settings")) {
 		target.searchParams.set("from", current);
 	} else {
@@ -1665,7 +1665,7 @@ $effect(() => {
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
             {#if showBillingBalanceEntry}
               <div class="border-b border-border-subtle pb-1">
-                <a href="/settings/balance" class="rail-menu-item" title="Open balance details" onclick={(e) => { e.preventDefault(); openBalanceSettings(); }}>
+                <a href="/settings/billing" class="rail-menu-item" title="Open billing details" onclick={(e) => { e.preventDefault(); openBillingSettings(); }}>
                   <CreditCard class="h-3.5 w-3.5" />
                   <span>Balance</span>
                   <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
@@ -2265,10 +2265,10 @@ $effect(() => {
         {#if showBillingBalanceEntry}
           <div class="border-b border-border-subtle">
             <a
-              href="/settings/balance"
+              href="/settings/billing"
               class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-              title="Open balance details"
-              onclick={(e) => { e.preventDefault(); openBalanceSettings(); }}
+              title="Open billing details"
+              onclick={(e) => { e.preventDefault(); openBillingSettings(); }}
             >
               <CreditCard class="w-3.5 h-3.5" />
               <span>Balance</span>

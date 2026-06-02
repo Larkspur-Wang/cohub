@@ -86,6 +86,7 @@ export type BillingCreditGrantStatus = {
   effectiveAt: string | null;
   expiresAt: string | null;
   daysRemaining: number | null;
+  createdAt: string;
 };
 
 export type BillingCreditExpiryGroup = {
@@ -140,6 +141,112 @@ export type BillingOpenOverageList = {
     maxPage: number;
     totalCount: number;
   };
+};
+
+export type BillingProductKind = "plan" | "addon";
+
+export type BillingProductBillingInterval =
+  | "monthly"
+  | "quarterly"
+  | "yearly"
+  | "one_time"
+  | "other";
+
+export type BillingProductPricing = {
+  amountMinor: number;
+  amountUsd: number;
+  compareAtAmountMinor: number | null;
+  compareAtAmountUsd: number | null;
+  discountLabel: string | null;
+  discountRate: number | null;
+};
+
+export type BillingProductDisplay = {
+  description: string | null;
+  benefits: string[];
+  creditsAmount: number | null;
+  validity: string | null;
+  creditBenefits: BillingProductCreditBenefit[];
+};
+
+export type BillingProductCreditBenefit = {
+  key: string;
+  name: string;
+  tokenType: string;
+  grantKind: string;
+  scope: string;
+  cycleAmount: number;
+  cycleAmountUsd: number;
+  periodAmount: number;
+  periodAmountUsd: number;
+  expiresInDays: number | null;
+};
+
+export type BillingCatalogProduct = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: string;
+  visibility: string;
+  billingType: string;
+  billingPeriod: string;
+  billingIntervalCount: number;
+  currency: string;
+  kind: BillingProductKind;
+  interval: BillingProductBillingInterval;
+  pricing: BillingProductPricing;
+  display: BillingProductDisplay;
+  isDefaultPlan: boolean;
+};
+
+export type BillingSubscriptionSummary = {
+  id: string;
+  productKey: string | null;
+  productName: string | null;
+  status: string;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+};
+
+export type BillingPaymentStatus = {
+  available: boolean;
+  reason: string | null;
+};
+
+export type BillingCatalog = {
+  userId: string;
+  billing: BillingPluginStatus;
+  payment: BillingPaymentStatus;
+  products: BillingCatalogProduct[];
+  plans: BillingCatalogProduct[];
+  addons: BillingCatalogProduct[];
+  currentSubscriptions: BillingSubscriptionSummary[];
+  hasActiveSubscription: boolean;
+  defaultPlanProductKey: string | null;
+};
+
+export type BillingCheckoutResult = {
+  userId: string;
+  billing: BillingPluginStatus;
+  payment: BillingPaymentStatus;
+  productKey: string;
+  checkoutUrl: string | null;
+  checkoutUsable: boolean;
+  message: string | null;
+  orderId: string | null;
+  subscriptionId: string | null;
+  reused: boolean;
+};
+
+export type BillingRedemptionResult = {
+  userId: string;
+  billing: BillingPluginStatus;
+  redeemed: boolean;
+  message: string | null;
+  redemptionRecordId: string | null;
+  itemCount: number;
 };
 
 export type BillingUsageRecordStatus = {
