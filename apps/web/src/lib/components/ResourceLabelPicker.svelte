@@ -4,7 +4,8 @@ import type {
 	LabelListItem,
 	LabelResourceType,
 } from "@neta-art/cohub";
-import { Check, ChevronDown, Loader2, Plus, X } from "lucide-svelte";
+import { Check, Loader2, Plus, X } from "lucide-svelte";
+import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import {
 	createSpaceLabel,
 	flattenLabels,
@@ -32,13 +33,10 @@ let loading = $state(true);
 let saving = $state(false);
 let error = $state("");
 let showCreate = $state(false);
-let newLabelName = $state("");
-let newLabelParentId = $state("");
-let createSaving = $state(false);
 
 const flatLabels = $derived(flattenLabels(labels));
 const labelOptions = $derived(flattenLabelsWithRefs(labels));
-const rootLabels = $derived(flatLabels.filter((label) => label.depth === 0));
+const selectedCount = $derived(selected.size);
 
 async function load() {
 	loading = true;
@@ -103,39 +101,21 @@ async function save() {
 	}
 }
 
-async function createLabel() {
-	const name = newLabelName.replace(/\s+/g, " ").trim();
-	if (!name || createSaving) return;
-	createSaving = true;
-	error = "";
-	try {
-		const parentRef = newLabelParentId
-			? flattenLabelsWithRefs(labels).find(
-					(label) => label.id === newLabelParentId,
-				)?.ref
-			: null;
-		const label = await createSpaceLabel(
-			spaceId,
-			parentRef ? `${parentRef}/${name}` : name,
-		);
-		const result = await getResourceLabels(spaceId, resourceType, resourceRef);
-		labels = result.labels;
-		assignments = result.assignments;
-		if (label) {
-			const createdRef = flattenLabelsWithRefs(result.labels).find(
-				(item) => item.id === label.id,
-			)?.ref;
-			if (createdRef) selected = new Set([...selected, createdRef]);
-		}
-		newLabelName = "";
-		newLabelParentId = "";
-		showCreate = false;
-	} catch (err) {
-		console.warn("[labels] Failed to create label", err);
-		error = "Could not create label";
-	} finally {
-		createSaving = false;
+async function createLabel(input: { name: string; parentRef: string | null }) {
+	const label = await createSpaceLabel(
+		spaceId,
+		input.parentRef ? `${input.parentRef}/${input.name}` : input.name,
+	);
+	const result = await getResourceLabels(spaceId, resourceType, resourceRef);
+	labels = result.labels;
+	assignments = result.assignments;
+	if (label) {
+		const createdRef = flattenLabelsWithRefs(result.labels).find(
+			(item) => item.id === label.id,
+		)?.ref;
+		if (createdRef) selected = new Set([...selected, createdRef]);
 	}
+	showCreate = false;
 }
 
 $effect(() => {
@@ -146,23 +126,26 @@ $effect(() => {
 });
 </script>
 
-<div class="fixed inset-0 z-[80]" role="presentation" onclick={onClose}></div>
+<svelte:window onkeydown={(event) => { if (event.key === "Escape") onClose(); }} />
+
+<div class="fixed inset-0 z-[80] bg-overlay-scrim/20" role="presentation" onclick={onClose}></div>
 <div
-	class="label-picker fixed right-4 top-16 z-[81] w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl"
+	class="label-picker fixed right-4 top-16 z-[81] w-[min(380px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl"
 	role="dialog"
 	aria-label="Label as"
 >
-	<div class="flex items-center justify-between border-b border-border-subtle px-3 py-2">
-		<div>
+	<div class="sheet-handle" aria-hidden="true"></div>
+	<div class="flex items-start justify-between border-b border-border-subtle px-3 py-2.5">
+		<div class="min-w-0">
 			<div class="text-[13px] font-medium text-text-primary">Label as</div>
 			<div class="mt-0.5 text-[11px] text-text-tertiary">Choose labels for this item.</div>
 		</div>
-		<button type="button" class="rounded-[5px] p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-primary" onclick={onClose} aria-label="Close">
+		<button type="button" class="close-button" onclick={onClose} aria-label="Close">
 			<X class="h-3.5 w-3.5" />
 		</button>
 	</div>
 
-	<div class="max-h-[360px] overflow-y-auto px-2 py-2">
+	<div class="label-picker-body">
 		{#if loading}
 			<div class="flex items-center gap-2 px-2 py-4 text-[12px] text-text-tertiary">
 				<Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading labels…
@@ -170,7 +153,7 @@ $effect(() => {
 		{:else if flatLabels.length === 0 && !showCreate}
 			<div class="px-2 py-5 text-[12px] text-text-tertiary">
 				<div class="font-medium text-text-secondary">No labels yet</div>
-				<div class="mt-1">Create one to group chats, files, and saves.</div>
+				<div class="mt-1">Create one to group chats, files, and checkpoints.</div>
 			</div>
 		{:else}
 			<div class="space-y-[1px]">
@@ -178,13 +161,13 @@ $effect(() => {
 					{@const labelRef = labelOptions.find((item) => item.id === label.id)?.ref ?? label.name}
 					<label class="label-row">
 						<input type="checkbox" checked={selected.has(labelRef)} onchange={() => toggleLabel(labelRef)} />
-						<span>{label.name}</span>
+						<span class="truncate">{label.name}</span>
 					</label>
 					{#each label.children ?? [] as child (child.id)}
 						{@const childRef = labelOptions.find((item) => item.id === child.id)?.ref ?? `${labelRef}/${child.name}`}
 						<label class="label-row child">
 							<input type="checkbox" checked={selected.has(childRef)} onchange={() => toggleLabel(childRef)} />
-							<span>{child.name}</span>
+							<span class="truncate">{child.name}</span>
 						</label>
 					{/each}
 				{/each}
@@ -192,36 +175,8 @@ $effect(() => {
 		{/if}
 
 		{#if showCreate}
-			<div class="mt-2 rounded-md border border-border-subtle bg-bg-secondary p-2">
-				<label class="block text-[11px] text-text-tertiary" for="new-resource-label-name">Label name</label>
-				<input
-					id="new-resource-label-name"
-					class="mt-1 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[13px] text-text-primary outline-none focus:border-brand"
-					bind:value={newLabelName}
-					maxlength="80"
-					placeholder="New label"
-				/>
-				<label class="mt-2 block text-[11px] text-text-tertiary" for="new-resource-label-parent">Nest label under</label>
-				<div class="relative mt-1">
-					<select
-						id="new-resource-label-parent"
-						class="w-full appearance-none rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 pr-7 text-[13px] text-text-primary outline-none focus:border-brand"
-						bind:value={newLabelParentId}
-					>
-						<option value="">None</option>
-						{#each rootLabels as label (label.id)}
-							<option value={label.id}>{label.name}</option>
-						{/each}
-					</select>
-					<ChevronDown class="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-tertiary" />
-				</div>
-				<div class="mt-2 flex items-center justify-end gap-1.5">
-					<button type="button" class="btn-ghost" onclick={() => { showCreate = false; newLabelName = ""; newLabelParentId = ""; }}>Cancel</button>
-					<button type="button" class="btn-primary" disabled={!newLabelName.trim() || createSaving} onclick={() => void createLabel()}>
-						{#if createSaving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Plus class="h-3 w-3" />{/if}
-						Create
-					</button>
-				</div>
+			<div class="create-panel">
+				<LabelCreateForm labels={labels} onSubmit={createLabel} onCancel={() => { showCreate = false; }} autofocus={showCreate} />
 			</div>
 		{/if}
 	</div>
@@ -230,11 +185,12 @@ $effect(() => {
 		<div class="border-t border-border-subtle px-3 py-2 text-[12px] text-error-soft">{error}</div>
 	{/if}
 
-	<div class="flex items-center justify-between border-t border-border-subtle px-3 py-2">
-		<button type="button" class="inline-flex items-center gap-1.5 rounded-[5px] px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary" onclick={() => { showCreate = !showCreate; }}>
+	<div class="label-picker-footer">
+		<button type="button" class="label-action secondary" onclick={() => { showCreate = !showCreate; }}>
 			<Plus class="h-3.5 w-3.5" /> New label
 		</button>
-		<button type="button" class="btn-primary" disabled={saving || loading} onclick={() => void save()}>
+		<div class="selected-count" aria-live="polite">{selectedCount} selected</div>
+		<button type="button" class="label-action primary" disabled={saving || loading} onclick={() => void save()}>
 			{#if saving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}
 			Apply
 		</button>
@@ -243,45 +199,96 @@ $effect(() => {
 
 <style>
 	.label-picker {
-		max-height: min(72vh, 560px);
+		max-height: min(74vh, 580px);
+		display: flex;
+		flex-direction: column;
+	}
+
+	.label-picker-body {
+		min-height: 0;
+		overflow-y: auto;
+		padding: 8px;
 	}
 
 	.label-row {
 		display: flex;
+		min-width: 0;
+		min-height: 32px;
 		align-items: center;
 		gap: 8px;
-		min-height: 30px;
 		border-radius: 6px;
 		padding: 0 8px;
 		color: var(--text-secondary);
 		font-size: 13px;
 		cursor: pointer;
+		transition: background-color 120ms ease, color 120ms ease;
 	}
 
 	.label-row:hover { background: var(--bg-hover); color: var(--text-primary); }
-	.label-row.child { padding-left: 26px; color: var(--text-tertiary); }
-	.label-row input { accent-color: var(--brand); }
+	.label-row.child { padding-left: 28px; color: var(--text-tertiary); }
+	.label-row input { flex-shrink: 0; accent-color: var(--brand); }
 
-	.btn-primary,
-	.btn-ghost {
-		display: inline-flex;
-		align-items: center;
-		gap: 6px;
-		border-radius: 5px;
-		padding: 6px 9px;
-		font-size: 12px;
-		line-height: 1;
-		transition: background-color 100ms ease, color 100ms ease, opacity 100ms ease;
+	.create-panel {
+		margin-top: 10px;
+		border-top: 1px solid var(--border-subtle);
+		padding: 12px 2px 2px;
 	}
 
-	.btn-primary {
+	.close-button,
+	.label-action {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		border-radius: 6px;
+		font-size: 12px;
+		line-height: 1;
+		transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+	}
+
+	.close-button {
+		min-height: 28px;
+		min-width: 28px;
+		color: var(--text-tertiary);
+	}
+
+	.close-button:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.label-picker-footer {
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		align-items: center;
+		gap: 8px;
+		border-top: 1px solid var(--border-subtle);
+		padding: 8px 12px;
+	}
+
+	.label-action {
+		min-height: 32px;
+		padding: 7px 10px;
+	}
+
+	.label-action.primary {
 		background: var(--brand);
 		color: var(--brand-contrast-fg);
 	}
 
-	.btn-primary:disabled { opacity: 0.55; }
-	.btn-ghost { color: var(--text-tertiary); }
-	.btn-ghost:hover { background: var(--bg-hover); color: var(--text-secondary); }
+	.label-action.primary:disabled { opacity: 0.55; }
+	.label-action.secondary { color: var(--text-tertiary); }
+	.label-action.secondary:hover { background: var(--bg-hover); color: var(--text-secondary); }
+
+	.selected-count {
+		color: var(--text-placeholder);
+		font-size: 11px;
+		text-align: right;
+	}
+
+	.sheet-handle {
+		display: none;
+	}
 
 	@media (max-width: 640px) {
 		.label-picker {
@@ -290,13 +297,44 @@ $effect(() => {
 			bottom: 8px;
 			left: 8px;
 			width: auto;
-			max-height: 78vh;
+			max-height: min(82dvh, 640px);
 			border-radius: 14px;
+			padding-bottom: env(safe-area-inset-bottom);
+		}
+
+		.sheet-handle {
+			display: block;
+			margin: 8px auto 2px;
+			height: 3px;
+			width: 36px;
+			border-radius: 999px;
+			background: var(--border-strong);
+			opacity: 0.75;
 		}
 
 		.label-row {
-			min-height: 42px;
+			min-height: 44px;
 			font-size: 14px;
+		}
+
+		.label-row.child { padding-left: 34px; }
+
+		.close-button,
+		.label-action {
+			min-height: 44px;
+		}
+
+		.close-button {
+			min-width: 44px;
+		}
+
+		.label-picker-footer {
+			grid-template-columns: 1fr 1fr;
+			padding: 10px 12px;
+		}
+
+		.selected-count {
+			display: none;
 		}
 	}
 </style>

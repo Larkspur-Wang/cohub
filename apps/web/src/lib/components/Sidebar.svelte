@@ -1793,14 +1793,14 @@ $effect(() => {
 	{@const items = currentLabelItemsById[label.id] ?? []}
 	{#if currentExpandedLabelIds.has(label.id)}
 		{#if currentLoadingLabelIds.has(label.id) && items.length === 0}
-			<div class="flex items-center gap-2 px-9 py-1 text-[12px] text-text-tertiary"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
+			<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
 		{:else if items.length === 0}
-			<div class="px-9 py-1 text-[12px] text-text-tertiary">No items</div>
+			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
 		{:else}
 			{#each items as item (item.id)}
 				<a
 					href={labelAssignmentHref(item)}
-					class="flex min-w-0 items-center gap-2 rounded-[6px] px-9 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+					class="flex w-full min-w-0 items-center gap-2 rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {depth > 0 ? 'pl-11' : 'pl-9'}"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
 					draggable={canAssignLabels && (item.resourceType === "session" || item.resourceType === "file")}
@@ -1814,7 +1814,7 @@ $effect(() => {
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
 				<button
 					type="button"
-					class="ml-9 mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+					class="mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {depth > 0 ? 'ml-11' : 'ml-9'}"
 					disabled={currentLoadingLabelIds.has(label.id)}
 					onclick={() => void loadLabelItems(label.id, { append: true })}
 				>
@@ -1827,24 +1827,26 @@ $effect(() => {
 
 {#snippet labelsSection()}
 	<div class="mt-2">
-		<div class="flex items-center gap-1">
-			<button
-				type="button"
-				class="flex flex-1 items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
-				onclick={() => { labelsCollapsed = !labelsCollapsed; }}
-				title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
-			>
-				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
-				<span class="text-[11px] text-text-placeholder select-none">Labels</span>
-			</button>
-			<button
-				type="button"
-				class="rounded-[5px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+		<div
+			class="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
+			onclick={() => { labelsCollapsed = !labelsCollapsed; }}
+			title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
+			role="button"
+			tabindex="0"
+			onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); labelsCollapsed = !labelsCollapsed; } }}
+		>
+			<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
+			<span class="text-[11px] text-text-placeholder select-none">Labels</span>
+			<span
+				class="ml-auto rounded p-0.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
 				title="New label"
-				onclick={() => { showNewLabelPopover = true; }}
+				onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
+				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); event.preventDefault(); showNewLabelPopover = true; } }}
+				role="button"
+				tabindex="0"
 			>
-				<Plus class="h-3.5 w-3.5" />
-			</button>
+				<Plus class="h-3 w-3" />
+			</span>
 		</div>
 		{#if draggedLabelOrigin && canAssignLabels}
 			<div
