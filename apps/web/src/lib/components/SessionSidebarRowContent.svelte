@@ -119,14 +119,14 @@ function getSessionParticipantLabel(participants: Participant[]) {
 </script>
 
 <span class="min-w-0 flex flex-1 flex-col gap-0.5 overflow-hidden leading-tight">
-	<span class="flex min-w-0 items-baseline gap-2">
-		<span class="min-w-0 flex flex-1 items-baseline gap-1.5 overflow-hidden">
-			<span class="min-w-0 truncate">{title}</span>
+	<span class="flex min-w-0 items-center gap-2">
+		<span class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
+			<span class="min-w-0 truncate leading-4">{title}</span>
 			{#if isUnread}
-				<span class="shrink-0 rounded-full bg-brand/80 px-1 py-px text-[9px] font-medium uppercase leading-none tracking-[0.02em] text-brand-contrast-fg">new</span>
+				<span class="inline-flex h-3.5 shrink-0 items-center rounded-full bg-brand/80 px-1 text-[8.5px] font-medium uppercase leading-none tracking-[0.02em] text-brand-contrast-fg">new</span>
 			{/if}
 		</span>
-		<span class="shrink-0 tabular-nums text-[9.5px] font-normal text-text-placeholder/70 group-hover/session:hidden group-focus-within/session:hidden">{activityTime}</span>
+		<span class="shrink-0 tabular-nums text-[9.5px] font-normal leading-4 text-text-placeholder/70 group-hover/session:hidden group-focus-within/session:hidden">{activityTime}</span>
 	</span>
 	{#if shouldShowSecondLine}
 		<span class="flex min-w-0 items-center gap-2 text-[10px] font-normal text-text-placeholder">
