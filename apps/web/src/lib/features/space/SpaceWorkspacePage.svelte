@@ -247,8 +247,10 @@ type SessionViewState = {
 	oldestCursor: number | undefined;
 };
 const MAX_IMAGE_EDGE = 2160;
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
-const WEBP_QUALITIES = [0.88, 0.82, 0.76, 0.7, 0.62, 0.54];
+const SAFARI_IMAGE_MEDIA_TYPE = "image/jpeg";
+const SAFARI_IMAGE_QUALITY = 0.82;
+const DEFAULT_IMAGE_MEDIA_TYPE = "image/webp";
+const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
@@ -4749,8 +4751,9 @@ async function loadImageElement(file: File): Promise<HTMLImageElement> {
 		image.src = objectUrl;
 	});
 }
-async function canvasToWebpBlob(
+async function canvasToImageBlob(
 	canvas: HTMLCanvasElement,
+	mediaType: string,
 	quality: number,
 ): Promise<Blob> {
 	return new Promise((resolve, reject) => {
@@ -4759,10 +4762,18 @@ async function canvasToWebpBlob(
 				if (blob) resolve(blob);
 				else reject(new Error("Failed to encode image"));
 			},
-			"image/webp",
+			mediaType,
 			quality,
 		);
 	});
+}
+function isSafariBrowser() {
+	const userAgent = navigator.userAgent;
+	return /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(userAgent);
+}
+function getCompressedImageName(name: string, mediaType: string) {
+	const baseName = name.replace(/\.[^.]+$/, "") || name;
+	return `${baseName}.${mediaType === SAFARI_IMAGE_MEDIA_TYPE ? "jpg" : "webp"}`;
 }
 async function compressImageFile(file: File) {
 	try {
@@ -4778,22 +4789,25 @@ async function compressImageFile(file: File) {
 		const context = canvas.getContext("2d");
 		if (!context) throw new Error("Canvas is not supported");
 		context.drawImage(image, 0, 0, width, height);
-		let blob = await canvasToWebpBlob(canvas, WEBP_QUALITIES[0]);
-		for (const quality of WEBP_QUALITIES.slice(1)) {
-			if (blob.size <= MAX_IMAGE_BYTES) break;
-			blob = await canvasToWebpBlob(canvas, quality);
-		}
-		if (blob.size > MAX_IMAGE_BYTES)
-			throw new Error("Image is too large after compression");
+		const targetMediaType = isSafariBrowser()
+			? SAFARI_IMAGE_MEDIA_TYPE
+			: DEFAULT_IMAGE_MEDIA_TYPE;
+		const targetQuality = isSafariBrowser()
+			? SAFARI_IMAGE_QUALITY
+			: DEFAULT_IMAGE_QUALITY;
+		const blob = await canvasToImageBlob(
+			canvas,
+			targetMediaType,
+			targetQuality,
+		);
 		const dataUrl = await fileToDataUrl(blob);
-		return { blob, dataUrl, mediaType: "image/webp", size: blob.size };
-	} catch (error) {
-		if (
-			error instanceof Error &&
-			error.message === "Image is too large after compression"
-		) {
-			throw error;
-		}
+		return {
+			blob,
+			dataUrl,
+			mediaType: blob.type || targetMediaType,
+			size: blob.size,
+		};
+	} catch {
 		throw new Error(
 			`Could not process image "${file.name}". Use JPG, PNG, GIF, or WebP.`,
 		);
@@ -4876,11 +4890,10 @@ async function handlePickAttachments(
 				}
 				const compressed = await compressImageFile(file);
 				const [, base64 = ""] = compressed.dataUrl.split(",");
-				const webpName = file.name.replace(/\.[^.]+$/, "") || file.name;
 				return {
 					kind: "image",
 					id: createComposerAttachmentId(file),
-					name: `${webpName}.webp`,
+					name: getCompressedImageName(file.name, compressed.mediaType),
 					mediaType: compressed.mediaType,
 					data: base64,
 					previewUrl: compressed.dataUrl,
