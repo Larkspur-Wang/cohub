@@ -66,22 +66,23 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
   if (outputs.length === 0) return [];
 
   const info = await stat(outputPath).catch(() => null);
-  const isDir = info?.isDirectory() ?? (!extname(outputPath) && outputs.length > 1);
-  if (outputs.length > 1 && !isDir) throw new Error("--output must be a directory when generation returns multiple outputs");
-  if (isDir) await mkdir(outputPath, { recursive: true });
-  else await mkdir(dirname(outputPath), { recursive: true });
+  const isSingleFile = outputs.length === 1 && !(info?.isDirectory() ?? false);
+  const targetPath = isSingleFile ? outputPath : await resolveOutputDirectory(outputPath, info);
+
+  if (isSingleFile) await mkdir(dirname(targetPath), { recursive: true });
+  else await mkdir(targetPath, { recursive: true });
 
   const savedPaths: string[] = [];
   for (const [i, block] of outputs.entries()) {
     if (block.type === "text") {
-      const target = isDir ? join(outputPath, `generation-${i + 1}.txt`) : outputPath;
+      const target = isSingleFile ? targetPath : join(targetPath, `generation-${i + 1}.txt`);
       await writeFile(target, block.text, "utf-8");
       savedPaths.push(target);
       continue;
     }
 
     const source = block.source as GenerationSource;
-    const target = isDir ? join(outputPath, outputName(block, source.type === "url" ? source.url : undefined, i)) : outputPath;
+    const target = isSingleFile ? targetPath : join(targetPath, outputName(block, source.type === "url" ? source.url : undefined, i));
     if (source.type === "url") {
       const response = await fetch(source.url);
       if (!response.ok) throw new Error(`Failed to download ${source.url}: HTTP ${response.status}`);
@@ -93,6 +94,21 @@ async function saveOutputs(output: GenerationContentBlock[], outputPath: string)
     }
   }
   return savedPaths;
+}
+
+async function resolveOutputDirectory(outputPath: string, info: Awaited<ReturnType<typeof stat>> | null): Promise<string> {
+  if (info?.isDirectory() || (!info && !extname(outputPath))) return outputPath;
+
+  const ext = extname(outputPath);
+  const stem = ext ? basename(outputPath, ext) : basename(outputPath);
+  const parent = dirname(outputPath);
+  const base = join(parent, `${stem}-outputs`);
+
+  for (let i = 0; ; i += 1) {
+    const candidate = i === 0 ? base : `${base}-${i + 1}`;
+    const candidateInfo = await stat(candidate).catch(() => null);
+    if (!candidateInfo || candidateInfo.isDirectory()) return candidate;
+  }
 }
 
 function outputName(block: GenerationContentBlock, url: string | undefined, index: number): string {
