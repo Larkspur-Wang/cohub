@@ -87,10 +87,9 @@ export const smokeVerifySandboxPod = async (podName: string, namespace: string, 
     "stat /workspace >/dev/null",
     "stat /sessions >/dev/null",
     "stat /public >/dev/null",
-    "stat /configs/platform/.agents/skills >/dev/null",
     "printf ok > /tmp/.cohub-healthcheck",
     "grep -q ok /tmp/.cohub-healthcheck",
-    "printf '{\"workspace\":true,\"sessions\":true,\"public\":true,\"platformAgents\":true,\"tmp\":true}'",
+    "printf '{\"workspace\":true,\"sessions\":true,\"public\":true,\"tmp\":true}'",
   ].join("\n");
 
   const deadline = Date.now() + timeoutMs;
