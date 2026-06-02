@@ -2359,8 +2359,9 @@ function maybeNotifyPortReady(
 	).filter(([, endpoint]) => endpoint?.status === "listening" && endpoint.url);
 	for (const [port, endpoint] of entries) {
 		const previousStatus = previous[port]?.status;
+		const cameFromPortsChangedEvent = Boolean(changedPorts?.length);
 		const becameListening = previousStatus !== "listening";
-		if (!becameListening || !endpoint?.url) continue;
+		if (!(cameFromPortsChangedEvent || becameListening) || !endpoint?.url) continue;
 		if (inlinePortPreview?.port === port) continue;
 		if (!isHttpUrl(endpoint.url)) continue;
 		showPortReadyToast(port, endpoint.url);
@@ -2384,7 +2385,7 @@ function showPortReadyToast(port: string, url: string) {
 	portReadyToastTimer = setTimeout(() => {
 		portReadyToast = null;
 		portReadyToastTimer = null;
-	}, 4000);
+	}, 7000);
 }
 
 function closePortReadyToast() {
