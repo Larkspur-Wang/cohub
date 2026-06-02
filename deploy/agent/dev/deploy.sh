@@ -32,6 +32,16 @@ SESSIONS_SUBPATH=$(get_value "sessionsSubpath")
 CONFIGS_SUBPATH=$(get_value "configsSubpath")
 SESSIONS_NAMESPACE=$(get_value "sessionsNamespace")
 AGENT_WORKER_CONCURRENCY=$(get_value "agentWorkerConcurrency")
+AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS=$(get_value "agentShutdownDrainTimeoutMs")
+REPLICAS=$(get_value "replicas")
+MAX_UNAVAILABLE=$(get_value "maxUnavailable")
+MAX_SURGE=$(get_value "maxSurge")
+TERMINATION_GRACE_PERIOD_SECONDS=$(get_value "terminationGracePeriodSeconds")
+IMAGE_PULL_POLICY=$(get_value "imagePullPolicy")
+RESOURCE_REQUEST_CPU=$(get_value "resourceRequestCpu")
+RESOURCE_REQUEST_MEMORY=$(get_value "resourceRequestMemory")
+RESOURCE_LIMIT_CPU=$(get_value "resourceLimitCpu")
+RESOURCE_LIMIT_MEMORY=$(get_value "resourceLimitMemory")
 
 require_value() {
   local name="$1"
@@ -57,6 +67,16 @@ require_value "sessionsSubpath" "$SESSIONS_SUBPATH"
 require_value "configsSubpath" "$CONFIGS_SUBPATH"
 require_value "sessionsNamespace" "$SESSIONS_NAMESPACE"
 require_value "agentWorkerConcurrency" "$AGENT_WORKER_CONCURRENCY"
+require_value "agentShutdownDrainTimeoutMs" "$AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS"
+require_value "replicas" "$REPLICAS"
+require_value "maxUnavailable" "$MAX_UNAVAILABLE"
+require_value "maxSurge" "$MAX_SURGE"
+require_value "terminationGracePeriodSeconds" "$TERMINATION_GRACE_PERIOD_SECONDS"
+require_value "imagePullPolicy" "$IMAGE_PULL_POLICY"
+require_value "resourceRequestCpu" "$RESOURCE_REQUEST_CPU"
+require_value "resourceRequestMemory" "$RESOURCE_REQUEST_MEMORY"
+require_value "resourceLimitCpu" "$RESOURCE_LIMIT_CPU"
+require_value "resourceLimitMemory" "$RESOURCE_LIMIT_MEMORY"
 
 if [ ! -f "secrets.yaml" ]; then
   echo -e "${RED}✗ 缺少 secrets.yaml，请先参考 secrets.template.yaml 生成${NC}"
@@ -73,12 +93,17 @@ sed -i.bak \
   -e "s|{{NAMESPACE}}|${NAMESPACE}|g" \
   -e "s|{{SERVICE_NAME}}|${SERVICE_NAME}|g" \
   -e "s|{{PORT}}|${PORT}|g" \
+  -e "s|{{REPLICAS}}|${REPLICAS}|g" \
+  -e "s|{{MAX_UNAVAILABLE}}|${MAX_UNAVAILABLE}|g" \
+  -e "s|{{MAX_SURGE}}|${MAX_SURGE}|g" \
+  -e "s|{{TERMINATION_GRACE_PERIOD_SECONDS}}|${TERMINATION_GRACE_PERIOD_SECONDS}|g" \
   rendered/configmap.yaml rendered/service.yaml rendered/deployment.yaml
 
 sed -i.bak \
   -e "s|{{APP_NAME}}|${APP_NAME}|g" \
   -e "s|{{NAMESPACE}}|${NAMESPACE}|g" \
   -e "s|{{IMAGE}}|${IMAGE}|g" \
+  -e "s|{{IMAGE_PULL_POLICY}}|${IMAGE_PULL_POLICY}|g" \
   -e "s|{{PORT}}|${PORT}|g" \
   -e "s|{{ENV}}|${ENV}|g" \
   -e "s|{{LOG_LEVEL}}|${LOG_LEVEL:-info}|g" \
@@ -86,6 +111,7 @@ sed -i.bak \
   -e "s|{{SESSIONS_DIR}}|${SESSIONS_DIR}|g" \
   -e "s|{{SESSIONS_NAMESPACE}}|${SESSIONS_NAMESPACE}|g" \
   -e "s|{{AGENT_WORKER_CONCURRENCY}}|${AGENT_WORKER_CONCURRENCY}|g" \
+  -e "s|{{AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS}}|${AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS}|g" \
   -e "s|{{PLATFORM_CONFIG_ROOT}}|${PLATFORM_CONFIG_ROOT}|g" \
   -e "s|{{SPACE_STORAGE_PVC}}|${SPACE_STORAGE_PVC}|g" \
   -e "s|{{WORKSPACE_SUBPATH}}|${WORKSPACE_SUBPATH}|g" \
@@ -93,15 +119,19 @@ sed -i.bak \
   -e "s|{{CONFIGS_SUBPATH}}|${CONFIGS_SUBPATH}|g" \
   rendered/configmap.yaml rendered/deployment.yaml
 
-# Inject resource limits (dev)
-awk '/{{RESOURCES}}/ {
+# Inject resource limits
+awk -v request_cpu="$RESOURCE_REQUEST_CPU" \
+    -v request_memory="$RESOURCE_REQUEST_MEMORY" \
+    -v limit_cpu="$RESOURCE_LIMIT_CPU" \
+    -v limit_memory="$RESOURCE_LIMIT_MEMORY" \
+    '/{{RESOURCES}}/ {
   print "          resources:"
   print "            requests:"
-  print "              cpu: \"0.1\""
-  print "              memory: \"256Mi\""
+  print "              cpu: \"" request_cpu "\""
+  print "              memory: \"" request_memory "\""
   print "            limits:"
-  print "              cpu: \"1\""
-  print "              memory: \"1024Mi\""
+  print "              cpu: \"" limit_cpu "\""
+  print "              memory: \"" limit_memory "\""
   next
 }
 { print }' rendered/deployment.yaml > rendered/deployment.tmp && mv rendered/deployment.tmp rendered/deployment.yaml

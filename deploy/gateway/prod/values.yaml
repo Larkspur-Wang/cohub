@@ -6,7 +6,7 @@ APP_NAME: "cohub-gateway"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-gateway"
-IMAGE_TAG: "v0.6.8"
+IMAGE_TAG: "v1.43.0"
 IMAGE_PULL_POLICY: "IfNotPresent"
 IMAGE_PULL_SECRET: "gitea-registry"
 
@@ -15,7 +15,7 @@ SERVICE_PORT: "8788"
 CONTAINER_PORT: "8788"
 
 # ========== 副本与资源 ==========
-REPLICAS: "1"
+REPLICAS: "2"
 REQUEST_CPU: "200m"
 REQUEST_MEMORY: "256Mi"
 LIMIT_CPU: "1000m"
@@ -44,3 +44,4 @@ GATEWAY_HOSTNAME: "gateway.cohub.run"
 # ========== 环境标识 ==========
 ENV: "prod"
 LOG_LEVEL: "info"
+TERMINATION_GRACE_PERIOD_SECONDS: "120"

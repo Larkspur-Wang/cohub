@@ -16,6 +16,7 @@ spec:
       labels:
         app.kubernetes.io/name: __APP_NAME__
     spec:
+      terminationGracePeriodSeconds: __TERMINATION_GRACE_PERIOD_SECONDS__
 __IMAGE_PULL_SECRETS_BLOCK__
       securityContext:
         runAsUser: 1000

@@ -7,6 +7,11 @@ metadata:
     app.kubernetes.io/name: __APP_NAME__
 spec:
   replicas: __REPLICAS__
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: __MAX_UNAVAILABLE__
+      maxSurge: __MAX_SURGE__
   selector:
     matchLabels:
       app.kubernetes.io/name: __APP_NAME__
@@ -15,6 +20,7 @@ spec:
       labels:
         app.kubernetes.io/name: __APP_NAME__
     spec:
+      terminationGracePeriodSeconds: __TERMINATION_GRACE_PERIOD_SECONDS__
       serviceAccountName: __APP_NAME__
 __IMAGE_PULL_SECRETS_BLOCK__
       securityContext:

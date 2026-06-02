@@ -4,7 +4,12 @@ metadata:
   name: {{APP_NAME}}
   namespace: {{NAMESPACE}}
 spec:
-  replicas: 1
+  replicas: {{REPLICAS}}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: {{MAX_UNAVAILABLE}}
+      maxSurge: {{MAX_SURGE}}
   selector:
     matchLabels:
       app: {{APP_NAME}}
@@ -13,6 +18,7 @@ spec:
       labels:
         app: {{APP_NAME}}
     spec:
+      terminationGracePeriodSeconds: {{TERMINATION_GRACE_PERIOD_SECONDS}}
       imagePullSecrets:
         - name: gitea-registry
       securityContext:
@@ -21,6 +27,7 @@ spec:
       containers:
         - name: agent
           image: {{IMAGE}}
+          imagePullPolicy: {{IMAGE_PULL_POLICY}}
           ports:
             - containerPort: {{PORT}}
           envFrom:

@@ -6,7 +6,7 @@ APP_NAME: "cohub-gateway-dev"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-gateway"
-IMAGE_TAG: "latest"
+IMAGE_TAG: "main-17f713a"
 IMAGE_PULL_POLICY: "Always"
 IMAGE_PULL_SECRET: "gitea-registry"
 
@@ -44,3 +44,4 @@ GATEWAY_HOSTNAME: "gateway-dev.cohub.run"
 # ========== 环境标识 ==========
 ENV: "dev"
 LOG_LEVEL: "debug"
+TERMINATION_GRACE_PERIOD_SECONDS: "120"

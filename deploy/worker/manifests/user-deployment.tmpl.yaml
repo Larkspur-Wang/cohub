@@ -9,6 +9,11 @@ metadata:
     cohub.dev/worker-kind: user
 spec:
   replicas: __USER_REPLICAS__
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: __MAX_UNAVAILABLE__
+      maxSurge: __MAX_SURGE__
   selector:
     matchLabels:
       app.kubernetes.io/name: __USER_APP_NAME__
@@ -20,6 +25,7 @@ spec:
         app.kubernetes.io/component: worker
         cohub.dev/worker-kind: user
     spec:
+      terminationGracePeriodSeconds: __TERMINATION_GRACE_PERIOD_SECONDS__
       serviceAccountName: __APP_NAME__
 __IMAGE_PULL_SECRETS_BLOCK__
       securityContext:

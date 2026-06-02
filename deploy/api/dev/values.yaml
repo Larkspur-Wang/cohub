@@ -6,7 +6,7 @@ APP_NAME: "cohub-api-dev"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-api"
-IMAGE_TAG: "latest"
+IMAGE_TAG: "main-93aeadc"
 IMAGE_PULL_POLICY: "Always"
 IMAGE_PULL_SECRET: "gitea-registry"
 
@@ -63,3 +63,6 @@ API_HOSTNAME: "api-dev.cohub.run"
 # ========== 环境标识 ==========
 ENV: "dev"
 LOG_LEVEL: "debug"
+MAX_UNAVAILABLE: "0"
+MAX_SURGE: "1"
+TERMINATION_GRACE_PERIOD_SECONDS: "120"

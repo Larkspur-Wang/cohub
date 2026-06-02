@@ -8,7 +8,7 @@ SYSTEM_APP_NAME: "cohub-system-worker-dev"
 
 # ========== 镜像 ==========
 IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-worker"
-IMAGE_TAG: "latest"
+IMAGE_TAG: "main-93aeadc"
 IMAGE_PULL_POLICY: "Always"
 IMAGE_PULL_SECRET: "gitea-registry"
 
@@ -50,3 +50,8 @@ TURN_OBJECT_S3_BUCKET: "cohub-sessions"
 CHECKPOINT_ASSET_OSS_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"
 CHECKPOINT_ASSET_OSS_REGION: "us-west-1"
 CHECKPOINT_ASSET_OSS_BUCKET: "cohub-checkpoint-assets"
+MAX_UNAVAILABLE: "0"
+MAX_SURGE: "1"
+TERMINATION_GRACE_PERIOD_SECONDS: "360"
+TASK_WORKER_SHUTDOWN_TIMEOUT_MS: "300000"
+FS_CDN_WORKER_SHUTDOWN_TIMEOUT_MS: "300000"
