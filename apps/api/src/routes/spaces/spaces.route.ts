@@ -853,6 +853,8 @@ router.patch("/:id/profile", async (c) => {
 router.post("/:id/checkpoints", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "checkpoint.edit", { spaceId }))) return authzDenied(c);
