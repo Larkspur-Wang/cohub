@@ -67,6 +67,7 @@ export type BillingCreditGrantStatus = {
   id: string;
   tokenType: string;
   benefitKey: string | null;
+  benefitName: string | null;
   grantKind: string | null;
   sourceType: string | null;
   sourceId: string | null;
@@ -75,6 +76,13 @@ export type BillingCreditGrantStatus = {
   remainingAmountUsd: number;
   originalAmount: number | null;
   originalAmountUsd: number | null;
+  consumedAmount: number | null;
+  consumedAmountUsd: number | null;
+  usageConsumedAmount: number | null;
+  usageConsumedAmountUsd: number | null;
+  settledOverageAmount: number | null;
+  settledOverageAmountUsd: number | null;
+  consumedPercent: number | null;
   effectiveAt: string | null;
   expiresAt: string | null;
   daysRemaining: number | null;
@@ -118,6 +126,47 @@ export type BillingCreditStatus = {
     items: BillingOpenOverageStatus[];
   };
   groups: BillingCreditExpiryGroup[];
+};
+
+export type BillingOpenOverageList = {
+  userId: string;
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  page: number;
+  limit: number;
+  items: BillingOpenOverageStatus[];
+  pagination: {
+    maxPage: number;
+    totalCount: number;
+  };
+};
+
+export type BillingUsageRecordStatus = {
+  id: string;
+  tokenType: string;
+  usageType: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  operationId: string | null;
+  amount: number;
+  amountUsd: number;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type BillingUsageRecordList = {
+  userId: string;
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  page: number;
+  limit: number;
+  items: BillingUsageRecordStatus[];
+  pagination: {
+    maxPage: number;
+    totalCount: number;
+  };
 };
 
 export type UserRulesResponse = {

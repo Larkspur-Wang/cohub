@@ -156,6 +156,7 @@ let billingCredit = $state<BillingCreditStatus | null>(null);
 let billingCreditLoading = $state(false);
 let billingCreditError = $state<string | null>(null);
 let billingCreditUserId = $state<string | null>(null);
+let billingConfigured = $state<boolean | null>(null);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
@@ -229,12 +230,27 @@ const userDisplayName = $derived(
 );
 
 let billingCreditRequest: Promise<boolean> | null = null;
+const showBillingBalanceEntry = $derived(
+	billingConfigured !== false &&
+		(billingCreditLoading ||
+			Boolean(billingCredit) ||
+			Boolean(billingCreditError)),
+);
 
 function clearBillingCredit() {
 	billingCredit = null;
 	billingCreditLoading = false;
 	billingCreditError = null;
 	billingCreditUserId = null;
+	billingConfigured = null;
+}
+
+function markBillingUnavailable() {
+	billingCredit = null;
+	billingCreditLoading = false;
+	billingCreditError = null;
+	billingCreditUserId = authStore.userUuid;
+	billingConfigured = false;
 }
 
 function formatUsdAmount(value: number | null | undefined) {
@@ -252,11 +268,12 @@ async function refreshBillingCredit() {
 		try {
 			const { credit } = await sdk.billing.getCredits();
 			if (!credit.billing.configured) {
-				clearBillingCredit();
+				markBillingUnavailable();
 				return false;
 			}
 			billingCredit = credit;
 			billingCreditUserId = authStore.userUuid;
+			billingConfigured = true;
 			return true;
 		} catch (error) {
 			if (await handleUnauthorizedError(error)) {
@@ -274,8 +291,14 @@ async function refreshBillingCredit() {
 	return billingCreditRequest;
 }
 
-const settingsTabs = [
+const baseSettingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
+	{
+		id: "balance",
+		label: "Balance",
+		icon: CreditCard,
+		href: "/settings/balance",
+	},
 	{
 		id: "ssh-keys",
 		label: "SSH Keys",
@@ -295,6 +318,11 @@ const settingsTabs = [
 		href: "/settings/channels",
 	},
 ];
+const settingsTabs = $derived(
+	baseSettingsTabs.filter(
+		(tab) => tab.id !== "balance" || billingConfigured !== false,
+	),
+);
 
 const settingsReturnTo = $derived.by(() => {
 	const returnTo = page.url.searchParams.get("from");
@@ -672,6 +700,19 @@ function openSettings() {
 	const target = new URL("/settings/profile", page.url);
 	if (!current.startsWith("/settings")) {
 		target.searchParams.set("from", current);
+	}
+	showUserMenu = false;
+	void handleNavigate(target.pathname + target.search + target.hash);
+}
+
+function openBalanceSettings() {
+	const current = `${page.url.pathname}${page.url.search}${page.url.hash}`;
+	const target = new URL("/settings/balance", page.url);
+	if (!current.startsWith("/settings")) {
+		target.searchParams.set("from", current);
+	} else {
+		const from = page.url.searchParams.get("from");
+		if (from) target.searchParams.set("from", from);
 	}
 	showUserMenu = false;
 	void handleNavigate(target.pathname + target.search + target.hash);
@@ -1203,7 +1244,7 @@ $effect(() => {
 	if (billingCreditUserId && billingCreditUserId !== userId) {
 		clearBillingCredit();
 	}
-	if (!showUserMenu) return;
+	if (!showUserMenu && mode !== "settings") return;
 	untrack(() => {
 		void refreshBillingCredit();
 	});
@@ -1613,24 +1654,26 @@ $effect(() => {
       <div class="relative mt-auto w-full pt-2">
         {#if showUserMenu}
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
-            <div class="border-b border-border-subtle pb-1">
-              <div class="rail-menu-item" title="Net balance">
-                <CreditCard class="h-3.5 w-3.5" />
-                <span>Balance</span>
-                <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
-                  {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
-                    <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
-                  {:else if billingCredit}
-                    {formatUsdAmount(billingCredit.balance.netUsd)}
-                  {:else}
-                    <span class="text-text-placeholder">—</span>
-                  {/if}
-                </span>
+            {#if showBillingBalanceEntry}
+              <div class="border-b border-border-subtle pb-1">
+                <a href="/settings/balance" class="rail-menu-item" title="Open balance details" onclick={(e) => { e.preventDefault(); openBalanceSettings(); }}>
+                  <CreditCard class="h-3.5 w-3.5" />
+                  <span>Balance</span>
+                  <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                    {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
+                      <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+                    {:else if billingCredit}
+                      {formatUsdAmount(billingCredit.balance.netUsd)}
+                    {:else}
+                      <span class="text-text-placeholder">—</span>
+                    {/if}
+                  </span>
+                </a>
+                {#if billingCreditError}
+                  <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
+                {/if}
               </div>
-              {#if billingCreditError}
-                <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
-              {/if}
-            </div>
+            {/if}
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
             {:else}
@@ -2326,27 +2369,31 @@ $effect(() => {
         data-user-menu
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
-        <div class="border-b border-border-subtle">
-          <div
-            class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary"
-            title="Net balance"
-          >
-            <CreditCard class="w-3.5 h-3.5" />
-            <span>Balance</span>
-            <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
-              {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
-                <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
-              {:else if billingCredit}
-                {formatUsdAmount(billingCredit.balance.netUsd)}
-              {:else}
-                <span class="text-text-placeholder">—</span>
-              {/if}
-            </span>
+        {#if showBillingBalanceEntry}
+          <div class="border-b border-border-subtle">
+            <a
+              href="/settings/balance"
+              class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+              title="Open balance details"
+              onclick={(e) => { e.preventDefault(); openBalanceSettings(); }}
+            >
+              <CreditCard class="w-3.5 h-3.5" />
+              <span>Balance</span>
+              <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
+                  <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+                {:else if billingCredit}
+                  {formatUsdAmount(billingCredit.balance.netUsd)}
+                {:else}
+                  <span class="text-text-placeholder">—</span>
+                {/if}
+              </span>
+            </a>
+            {#if billingCreditError}
+              <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
+            {/if}
           </div>
-          {#if billingCreditError}
-            <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
-          {/if}
-        </div>
+        {/if}
         {#if mode === "space"}
           <a
             href="/settings"

@@ -77,6 +77,7 @@ export type BillingCreditGrantStatus = {
   id: string;
   tokenType: string;
   benefitKey: string | null;
+  benefitName: string | null;
   grantKind: string | null;
   sourceType: string | null;
   sourceId: string | null;
@@ -85,6 +86,13 @@ export type BillingCreditGrantStatus = {
   remainingAmountUsd: number;
   originalAmount: number | null;
   originalAmountUsd: number | null;
+  consumedAmount: number | null;
+  consumedAmountUsd: number | null;
+  usageConsumedAmount: number | null;
+  usageConsumedAmountUsd: number | null;
+  settledOverageAmount: number | null;
+  settledOverageAmountUsd: number | null;
+  consumedPercent: number | null;
   effectiveAt: string | null;
   expiresAt: string | null;
   daysRemaining: number | null;
@@ -127,6 +135,25 @@ export type BillingCreditStatus = BillingUserRef & {
     items: BillingOpenOverageStatus[];
   };
   groups: BillingCreditExpiryGroup[];
+};
+
+export type BillingOpenOverageList = BillingUserRef & {
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  page: number;
+  limit: number;
+  items: BillingOpenOverageStatus[];
+  pagination: {
+    maxPage: number;
+    totalCount: number;
+  };
+};
+
+export type BillingOpenOverageListInput = BillingUserRef & {
+  tokenType?: CohubBillingTokenType;
+  page?: number;
+  limit?: number;
 };
 
 export type BillingFeatureEntitlement = {
@@ -176,6 +203,38 @@ export type BillingUsageRecordResult = {
   response: ConsumeCreditsResponse | null;
 };
 
+export type BillingUsageRecordStatus = {
+  id: string;
+  tokenType: string;
+  usageType: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  operationId: string | null;
+  amount: number;
+  amountUsd: number;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type BillingUsageRecordList = BillingUserRef & {
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  page: number;
+  limit: number;
+  items: BillingUsageRecordStatus[];
+  pagination: {
+    maxPage: number;
+    totalCount: number;
+  };
+};
+
+export type BillingUsageRecordListInput = BillingUserRef & {
+  tokenType?: CohubBillingTokenType;
+  page?: number;
+  limit?: number;
+};
+
 export type BillingFeatureEntitlementInput = BillingUserRef & {
   featureKey: CohubBillingFeatureKey;
 };
@@ -200,8 +259,10 @@ export interface BillingOperations {
   ensureCustomer(input: BillingUserRef): Promise<BillingUserRef>;
   getState(input: BillingUserRef): Promise<BillingAccountState>;
   getCreditStatus(input: BillingUserRef & { tokenType?: CohubBillingTokenType }): Promise<BillingCreditStatus>;
+  listOpenOverages(input: BillingOpenOverageListInput): Promise<BillingOpenOverageList>;
   preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight>;
   recordUsage(input: BillingUsageRecordInput): Promise<BillingUsageRecordResult>;
+  listUsageRecords(input: BillingUsageRecordListInput): Promise<BillingUsageRecordList>;
   getFeatureEntitlement(input: BillingFeatureEntitlementInput): Promise<BillingFeatureEntitlement | null>;
   checkFeatureLimit(input: BillingFeatureLimitInput): Promise<BillingFeatureLimitCheck>;
 }

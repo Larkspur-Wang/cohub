@@ -1,4 +1,4 @@
-import { creditsFeature, type CreditGrant, type UsageOverage } from "@talesofai-billing/sdk/admin/credits";
+import { creditsFeature, type CreditGrant, type CreditTransaction, type UsageOverage } from "@talesofai-billing/sdk/admin/credits";
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
 import { config } from "../config.js";
@@ -13,11 +13,16 @@ import {
   type BillingFeatureEntitlement,
   type BillingFeatureLimitCheck,
   type BillingFeatureLimitInput,
+  type BillingOpenOverageList,
+  type BillingOpenOverageListInput,
   type BillingOpenOverageStatus,
   type BillingOperations,
   type BillingPluginStatus,
   type BillingUsagePreflight,
   type BillingUsagePreflightInput,
+  type BillingUsageRecordList,
+  type BillingUsageRecordListInput,
+  type BillingUsageRecordStatus,
   type BillingUsageRecordInput,
   type BillingUsageRecordResult,
   type BillingUserRef,
@@ -62,6 +67,10 @@ type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
 const ENSURE_CUSTOMER_CACHE_TTL_MS = 5 * 60 * 1000;
 const CREDIT_LIST_PAGE_LIMIT = 100;
 const CREDIT_LIST_MAX_PAGES = 20;
+const CREDIT_GRANT_DISPLAY_STATUSES = ["active", "depleted", "expired"] as const;
+const CREDIT_BENEFIT_DISPLAY_NAMES: Record<string, string> = {
+  free_monthly_credits: "Free Plan Credits",
+};
 type BillingListPage<T> = {
   items: T[];
   pagination: {
@@ -69,6 +78,7 @@ type BillingListPage<T> = {
     max_page: number;
   };
 };
+type CreditGrantDisplayStatus = typeof CREDIT_GRANT_DISPLAY_STATUSES[number];
 
 function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
@@ -257,20 +267,60 @@ function getExpiryGroupLabel(key: BillingCreditExpiryGroup["key"]): string {
   }
 }
 
+function humanizeIdentifier(value: string): string {
+  return value
+    .split(/[_\s.-]+/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function resolveCreditGrantBenefitName(grant: CreditGrant): string | null {
+  const benefitName = grant.benefit_name?.trim();
+  if (benefitName) return benefitName;
+  const benefitKey = grant.benefit_key?.trim();
+  if (!benefitKey) return null;
+  return CREDIT_BENEFIT_DISPLAY_NAMES[benefitKey] ?? humanizeIdentifier(benefitKey);
+}
+
+function optionalAmount(value: number | undefined, tokenType: string) {
+  if (typeof value !== "number") return { amount: null, amountUsd: null };
+  return {
+    amount: normalizeAmount(value),
+    amountUsd: amountToUsd(value, tokenType),
+  };
+}
+
 function mapCreditGrant(grant: CreditGrant, now = new Date()): BillingCreditGrantStatus {
   const daysRemaining = daysUntil(grant.expires_at ?? null, now);
+  const consumed = optionalAmount(grant.consumed_amount, grant.token_type);
+  const usageConsumed = optionalAmount(grant.usage_consumed_amount, grant.token_type);
+  const settledOverage = optionalAmount(grant.settled_overage_amount, grant.token_type);
+  const originalAmount = typeof grant.original_amount === "number" ? normalizeAmount(grant.original_amount) : null;
+  const originalAmountUsd = typeof grant.original_amount === "number" ? amountToUsd(grant.original_amount, grant.token_type) : null;
+  const consumedPercent = originalAmount && consumed.amount !== null
+    ? Math.min(100, Math.max(0, Number(((consumed.amount / originalAmount) * 100).toFixed(1))))
+    : null;
   return {
     id: grant.id,
     tokenType: grant.token_type,
     benefitKey: grant.benefit_key ?? null,
+    benefitName: resolveCreditGrantBenefitName(grant),
     grantKind: grant.grant_kind ?? null,
     sourceType: grant.source_type ?? null,
     sourceId: grant.source_id ?? null,
     status: grant.status,
     remainingAmount: normalizeAmount(grant.remaining_amount),
     remainingAmountUsd: amountToUsd(grant.remaining_amount, grant.token_type),
-    originalAmount: typeof grant.original_amount === "number" ? normalizeAmount(grant.original_amount) : null,
-    originalAmountUsd: typeof grant.original_amount === "number" ? amountToUsd(grant.original_amount, grant.token_type) : null,
+    originalAmount,
+    originalAmountUsd,
+    consumedAmount: consumed.amount,
+    consumedAmountUsd: consumed.amountUsd,
+    usageConsumedAmount: usageConsumed.amount,
+    usageConsumedAmountUsd: usageConsumed.amountUsd,
+    settledOverageAmount: settledOverage.amount,
+    settledOverageAmountUsd: settledOverage.amountUsd,
+    consumedPercent,
     effectiveAt: grant.effective_at ?? null,
     expiresAt: grant.expires_at ?? null,
     daysRemaining,
@@ -317,6 +367,21 @@ function mapUsageOverage(overage: UsageOverage): BillingOpenOverageStatus {
   };
 }
 
+function mapUsageRecord(transaction: CreditTransaction): BillingUsageRecordStatus {
+  return {
+    id: transaction.id,
+    tokenType: transaction.token_type,
+    usageType: transaction.usage_type ?? null,
+    sourceType: transaction.source_type ?? null,
+    sourceId: transaction.source_id ?? null,
+    operationId: transaction.operation_id ?? null,
+    amount: normalizeAmount(transaction.amount),
+    amountUsd: amountToUsd(transaction.amount, transaction.token_type),
+    reason: transaction.reason ?? null,
+    createdAt: transaction.created_at,
+  };
+}
+
 function emptyCreditStatus(input: {
   userId: string;
   tokenType: string;
@@ -339,6 +404,50 @@ function emptyCreditStatus(input: {
       items: [],
     },
     groups: [],
+  };
+}
+
+function emptyUsageRecordList(input: {
+  userId: string;
+  tokenType: string;
+  status: BillingPluginStatus;
+  page: number;
+  limit: number;
+}): BillingUsageRecordList {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    tokenType: input.tokenType,
+    unit: getCreditUnit(input.tokenType),
+    page: input.page,
+    limit: input.limit,
+    items: [],
+    pagination: {
+      maxPage: 0,
+      totalCount: 0,
+    },
+  };
+}
+
+function emptyOpenOverageList(input: {
+  userId: string;
+  tokenType: string;
+  status: BillingPluginStatus;
+  page: number;
+  limit: number;
+}): BillingOpenOverageList {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    tokenType: input.tokenType,
+    unit: getCreditUnit(input.tokenType),
+    page: input.page,
+    limit: input.limit,
+    items: [],
+    pagination: {
+      maxPage: 0,
+      totalCount: 0,
+    },
   };
 }
 
@@ -383,6 +492,17 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       return emptyCreditStatus({ userId: input.userId, tokenType, status });
     },
 
+    async listOpenOverages(input: BillingOpenOverageListInput): Promise<BillingOpenOverageList> {
+      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+      return emptyOpenOverageList({
+        userId: input.userId,
+        tokenType,
+        status,
+        page: input.page ?? 1,
+        limit: input.limit ?? 10,
+      });
+    },
+
     async preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight> {
       const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       return {
@@ -403,6 +523,17 @@ export function createDisabledBillingOperations(reason = "billing configuration 
         status: "disabled",
         response: null,
       };
+    },
+
+    async listUsageRecords(input: BillingUsageRecordListInput): Promise<BillingUsageRecordList> {
+      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+      return emptyUsageRecordList({
+        userId: input.userId,
+        tokenType,
+        status,
+        page: input.page ?? 1,
+        limit: input.limit ?? 10,
+      });
     },
 
     async getFeatureEntitlement(): Promise<BillingFeatureEntitlement | null> {
@@ -529,7 +660,7 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
   const listAllCreditGrants = async (input: {
     userId: string;
     tokenType: string;
-    status?: "active" | "depleted" | "expired" | "revoked";
+    status?: CreditGrantDisplayStatus | "revoked";
   }): Promise<CreditGrant[]> =>
     listAllPages((page, limit) =>
       sdk.admin.credits.listGrants({
@@ -542,21 +673,63 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       })
     );
 
-  const listAllUsageOverages = async (input: {
-    userId: string;
-    tokenType: string;
-    status?: "open" | "settled";
-  }): Promise<UsageOverage[]> =>
-    listAllPages((page, limit) =>
-      sdk.admin.credits.listUsageOverages({
-        business_key: businessKey,
-        external_user_id: input.userId,
-        token_type: input.tokenType,
-        status: input.status,
-        page,
-        limit,
-      })
-    );
+  const listUsageRecords = async (input: BillingUsageRecordListInput): Promise<BillingUsageRecordList> => {
+    const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    const page = Math.max(1, Math.floor(input.page ?? 1));
+    const limit = Math.min(10, Math.max(1, Math.floor(input.limit ?? 10)));
+    await ensureCustomer({ userId: input.userId });
+    const response = await sdk.admin.credits.listTransactions({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      token_type: tokenType,
+      type: "consume",
+      sorting: "-created_at",
+      page,
+      limit,
+    });
+    return {
+      userId: input.userId,
+      billing: status,
+      tokenType,
+      unit: getCreditUnit(tokenType),
+      page,
+      limit,
+      items: response.items.map(mapUsageRecord),
+      pagination: {
+        maxPage: response.pagination.max_page,
+        totalCount: response.pagination.total_count,
+      },
+    };
+  };
+
+  const listOpenOverages = async (input: BillingOpenOverageListInput): Promise<BillingOpenOverageList> => {
+    const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    const page = Math.max(1, Math.floor(input.page ?? 1));
+    const limit = Math.min(10, Math.max(1, Math.floor(input.limit ?? 10)));
+    await ensureCustomer({ userId: input.userId });
+    const response = await sdk.admin.credits.listUsageOverages({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      token_type: tokenType,
+      status: "open",
+      sorting: "-created_at",
+      page,
+      limit,
+    });
+    return {
+      userId: input.userId,
+      billing: status,
+      tokenType,
+      unit: getCreditUnit(tokenType),
+      page,
+      limit,
+      items: response.items.map(mapUsageOverage),
+      pagination: {
+        maxPage: response.pagination.max_page,
+        totalCount: response.pagination.total_count,
+      },
+    };
+  };
 
   return {
     status,
@@ -570,23 +743,15 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       const state = await getCreditsAfterEnsure(input.userId);
       const balance = findBalance(state.credits, tokenType);
-      const grants = await listAllCreditGrants({ userId: input.userId, tokenType, status: "active" });
-      const overages = balance && balance.openOverageBalance <= 0
-        ? []
-        : await listAllUsageOverages({ userId: input.userId, tokenType, status: "open" });
-      const grantStatuses = grants
-        .map((grant) => mapCreditGrant(grant))
-        .filter((grant) => grant.remainingAmountUsd > 0);
-      const overageItems = overages.map(mapUsageOverage).filter((overage) => overage.remainingAmountUsd > 0);
-      const openAmountUsd = normalizeAmount(
-        overageItems.reduce((sum, overage) => sum + overage.remainingAmountUsd, 0),
-      );
-      const openOverageUsd = balance
-        ? amountToUsd(balance.openOverageBalance, tokenType)
-        : openAmountUsd;
+      const grants = (await listAllCreditGrants({ userId: input.userId, tokenType }))
+        .filter((grant) =>
+          CREDIT_GRANT_DISPLAY_STATUSES.includes(grant.status as CreditGrantDisplayStatus)
+        );
+      const grantStatuses = grants.map((grant) => mapCreditGrant(grant));
+      const openOverageUsd = amountToUsd(balance?.openOverageBalance ?? 0, tokenType);
       const netUsd = balance
         ? amountToUsd(balance.netBalance, tokenType)
-        : -openAmountUsd;
+        : -openOverageUsd;
 
       return {
         userId: input.userId,
@@ -599,13 +764,15 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
           netUsd,
         },
         overage: {
-          hasOpenOverage: openAmountUsd > 0 || (balance?.openOverageBalance ?? 0) > 0,
-          openAmountUsd,
-          items: overageItems,
+          hasOpenOverage: openOverageUsd > 0,
+          openAmountUsd: openOverageUsd,
+          items: [],
         },
         groups: groupCreditGrants(grantStatuses),
       };
     },
+
+    listOpenOverages,
 
     async preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight> {
       const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
@@ -664,6 +831,8 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         response,
       };
     },
+
+    listUsageRecords,
 
     getFeatureEntitlement,
 
