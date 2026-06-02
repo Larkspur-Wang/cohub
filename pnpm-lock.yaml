@@ -698,6 +698,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@typescript/native-preview':
+        specifier: 7.0.0-dev.20260527.2
+        version: 7.0.0-dev.20260527.2
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -3480,9 +3483,11 @@ packages:
 
   '@talesofai-billing/sdk@1.0.0':
     resolution: {integrity: sha512-WmZhYsckhgQCEj57vFjlOEriTWynAGcWvye9jEtz1KXVVWRmi1qsxW5puUjGqPt2D0GbGosZHfUGVR/uOVHhtw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.0.0/sdk-1.0.0.tgz}
+    engines: {node: '>=18'}
 
   '@talesofai-billing/sdk@1.3.1':
     resolution: {integrity: sha512-TqnldDXUNbqolIxjW/Zb53CYEFk5uy3xyBkQaD6w2XLA0kxXP8pEiDWe+Qwb3aoYP/7l2IZ5FYp4DhCiV1C8bw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.3.1/sdk-1.3.1.tgz}
+    engines: {node: '>=18'}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     resolution: {integrity: sha512-/67zpWDBLV+oYAEL682s1ktXL0HgqX76f6gaVGkGnVZlBbm1zd0v4Bz8MFF2GGhoX9rvfq3KSQHubFHwa6w6/Q==}
