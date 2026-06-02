@@ -8,9 +8,12 @@ import { Check, Loader2, Plus, X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import {
 	createSpaceLabel,
+	fetchSpaceLabelsFresh,
 	flattenLabels,
 	flattenLabelsWithRefs,
+	getCachedSpaceLabelsSnapshot,
 	getResourceLabels,
+	onSpaceLabelsCacheUpdated,
 	setResourceLabels,
 } from "$lib/stores/space-labels";
 
@@ -33,29 +36,41 @@ let loading = $state(true);
 let saving = $state(false);
 let error = $state("");
 let showCreate = $state(false);
+let labelsLoadedFromCache = $state(false);
 
 const flatLabels = $derived(flattenLabels(labels));
 const labelOptions = $derived(flattenLabelsWithRefs(labels));
 const selectedCount = $derived(selected.size);
 
+function applyAssignments(
+	nextLabels: LabelListItem[],
+	nextAssignments: LabelAssignmentRecord[],
+) {
+	labels = nextLabels;
+	assignments = nextAssignments;
+	const refsById = new Map(
+		flattenLabelsWithRefs(nextLabels).map((label) => [label.id, label.ref]),
+	);
+	selected = new Set(
+		nextAssignments
+			.map((assignment) => refsById.get(assignment.labelId))
+			.filter((ref): ref is string => Boolean(ref)),
+	);
+}
+
 async function load() {
 	loading = true;
+	labelsLoadedFromCache = false;
 	error = "";
 	try {
+		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
+		if (cached?.labels) {
+			labels = cached.labels;
+			labelsLoadedFromCache = true;
+		}
+
 		const result = await getResourceLabels(spaceId, resourceType, resourceRef);
-		labels = result.labels;
-		assignments = result.assignments;
-		const refsById = new Map(
-			flattenLabelsWithRefs(result.labels).map((label) => [
-				label.id,
-				label.ref,
-			]),
-		);
-		selected = new Set(
-			result.assignments
-				.map((assignment) => refsById.get(assignment.labelId))
-				.filter((ref): ref is string => Boolean(ref)),
-		);
+		applyAssignments(result.labels, result.assignments);
 	} catch (err) {
 		console.warn("[labels] Failed to load resource labels", err);
 		error = "Labels unavailable";
@@ -124,6 +139,17 @@ $effect(() => {
 	resourceRef;
 	void load();
 });
+
+$effect(() => {
+	const currentSpaceId = spaceId;
+	const unsubscribe = onSpaceLabelsCacheUpdated(
+		({ spaceId: updatedSpaceId, labels: nextLabels }) => {
+			if (updatedSpaceId !== currentSpaceId) return;
+			labels = nextLabels;
+		},
+	);
+	return unsubscribe;
+});
 </script>
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape") onClose(); }} />
@@ -146,7 +172,7 @@ $effect(() => {
 	</div>
 
 	<div class="label-picker-body">
-		{#if loading}
+		{#if loading && !labelsLoadedFromCache}
 			<div class="flex items-center gap-2 px-2 py-4 text-[12px] text-text-tertiary">
 				<Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading labels…
 			</div>
@@ -156,6 +182,11 @@ $effect(() => {
 				<div class="mt-1">Create one to group chats, files, and checkpoints.</div>
 			</div>
 		{:else}
+			{#if loading && labelsLoadedFromCache}
+				<div class="mb-1 flex items-center gap-2 px-2 py-1 text-[11px] text-text-placeholder">
+					<Loader2 class="h-3 w-3 animate-spin" /> Refreshing…
+				</div>
+			{/if}
 			<div class="space-y-[1px]">
 				{#each labels as label (label.id)}
 					{@const labelRef = labelOptions.find((item) => item.id === label.id)?.ref ?? label.name}

@@ -143,7 +143,11 @@ export async function getResourceLabels(
 	resourceType: LabelResourceType,
 	resourceRef: string,
 ) {
-	return sdk.space(spaceId).labels.getResourceLabels(resourceType, resourceRef);
+	const result = await sdk
+		.space(spaceId)
+		.labels.getResourceLabels(resourceType, resourceRef);
+	await labelTreeRepo.set(spaceId, result.labels, { source: "network" });
+	return result;
 }
 
 export async function getCachedLabelItemsSnapshot(
