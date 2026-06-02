@@ -36,6 +36,10 @@
       "types": "./dist/space-mods/index.d.ts",
       "default": "./dist/space-mods/index.js"
     },
+    "./labels": {
+      "types": "./dist/labels/index.d.ts",
+      "default": "./dist/labels/index.js"
+    },
     "./spaces": {
       "types": "./dist/spaces/index.d.ts",
       "default": "./dist/spaces/index.js"

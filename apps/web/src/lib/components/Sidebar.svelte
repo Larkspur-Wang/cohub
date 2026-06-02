@@ -99,8 +99,10 @@ import {
 	fetchLabelItemsFirstPageFresh,
 	fetchSpaceLabelsFresh,
 	flattenLabels,
+	flattenLabelsWithRefs,
 	getCachedLabelItemsSnapshot,
 	getCachedSpaceLabelsSnapshot,
+	getLabelRefById,
 	LABEL_ITEMS_PAGE_SIZE,
 	markLabelItemsStale,
 	onSpaceLabelsCacheUpdated,
@@ -200,9 +202,11 @@ let labelDropSuccessId = $state<string | null>(null);
 let labelDropErrorId = $state<string | null>(null);
 let labelDropErrorMessage = $state<string | null>(null);
 let labelRemoveDropActive = $state(false);
-let draggedLabelOrigin = $state<{ labelId: string; labelName?: string } | null>(
-	null,
-);
+let draggedLabelOrigin = $state<{
+	labelId: string;
+	labelRef: string;
+	labelName?: string;
+} | null>(null);
 let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
 let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 let cronjobsCollapsed = $state(false);
@@ -770,8 +774,10 @@ async function loadLabelItems(
 		};
 	}
 	try {
+		const labelRef = await getLabelRefById(spaceId, labelId);
+		if (!labelRef) return;
 		if (append) {
-			const result = await sdk.space(spaceId).labels.listItems(labelId, {
+			const result = await sdk.space(spaceId).labels.listItems(labelRef, {
 				limit: LABEL_ITEMS_PAGE_SIZE,
 				cursor: spacePageInfo[labelId]?.nextCursor,
 			});
@@ -782,7 +788,11 @@ async function loadLabelItems(
 			return;
 		}
 
-		const result = await fetchLabelItemsFirstPageFresh(spaceId, labelId);
+		const result = await fetchLabelItemsFirstPageFresh(
+			spaceId,
+			labelId,
+			labelRef,
+		);
 		if (spaceId !== currentSpaceId) return;
 		patchLabelItems(spaceId, labelId, result.items, result.pageInfo);
 	} catch (error) {
@@ -928,6 +938,13 @@ function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
 	scheduleLabelAutoExpand(label.id);
 }
 
+function labelRefForId(labelId: string) {
+	return (
+		flattenLabelsWithRefs(labels).find((label) => label.id === labelId)?.ref ??
+		null
+	);
+}
+
 function handleLabelDragLeave(event: DragEvent, label: LabelListItem) {
 	const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
 	const { clientX: x, clientY: y } = event;
@@ -948,18 +965,20 @@ async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
 	labelDropTargetId = null;
 	labelDropBusyId = label.id;
 	try {
+		const targetLabelRef = labelRefForId(label.id);
+		if (!targetLabelRef) return;
 		const result =
 			drop.payload.origin?.kind === "label-items"
 				? await moveResourceToLabel({
 						spaceId,
 						resource: drop.resource,
-						sourceLabelId: drop.payload.origin.labelId,
-						targetLabelId: label.id,
+						sourceLabelRef: drop.payload.origin.labelRef,
+						targetLabelRef,
 					})
 				: await addResourceToLabel({
 						spaceId,
 						resource: drop.resource,
-						targetLabelId: label.id,
+						targetLabelRef,
 					});
 		if (currentSpaceId !== spaceId) return;
 		ensureLabelExpanded(label.id);
@@ -1034,7 +1053,11 @@ function handleLabelItemDragStart(
 		{
 			version: 1,
 			resources: [resource],
-			origin: { kind: "label-items", labelId: label.id, labelName: label.name },
+			origin: {
+				kind: "label-items",
+				labelRef: labelRefForId(label.id) ?? label.name,
+				labelName: label.name,
+			},
 			createdAt: Date.now(),
 		},
 		{
@@ -1046,7 +1069,11 @@ function handleLabelItemDragStart(
 			effectAllowed: "copyMove",
 		},
 	);
-	draggedLabelOrigin = { labelId: label.id, labelName: label.name };
+	draggedLabelOrigin = {
+		labelId: label.id,
+		labelRef: labelRefForId(label.id) ?? label.name,
+		labelName: label.name,
+	};
 }
 
 function handleResourceDragEnd() {
@@ -1065,24 +1092,28 @@ async function handleRemoveLabelDrop(event: DragEvent) {
 	event.preventDefault();
 	event.stopPropagation();
 	labelRemoveDropActive = false;
-	labelDropBusyId = origin.labelId;
+	labelDropBusyId = draggedLabelOrigin.labelId;
 	try {
 		const result = await removeResourceFromLabel({
 			spaceId,
 			resource: drop.resource,
-			sourceLabelId: origin.labelId,
+			sourceLabelRef: origin.labelRef,
 		});
 		if (currentSpaceId !== spaceId) return;
 		refreshAffectedLabelItems(result);
-		setLabelDropFeedback("success", origin.labelId);
+		setLabelDropFeedback("success", draggedLabelOrigin.labelId);
 	} catch (error) {
 		console.warn("[labels] Failed to remove resource label", {
-			labelId: origin.labelId,
+			labelRef: origin.labelRef,
 			resource: drop.resource,
 			error,
 		});
 		if (currentSpaceId === spaceId) {
-			setLabelDropFeedback("error", origin.labelId, "Could not remove label");
+			setLabelDropFeedback(
+				"error",
+				draggedLabelOrigin.labelId,
+				"Could not remove label",
+			);
 		}
 	} finally {
 		if (currentSpaceId === spaceId) labelDropBusyId = null;

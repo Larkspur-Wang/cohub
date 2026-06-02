@@ -1,15 +1,16 @@
 import type { LabelResourceType } from "@neta-art/cohub";
 import type { LabelAssignableCohubResource } from "$lib/drag/cohub-resource-drag";
 import {
-	getAffectedLabelIds,
+	getLabelIdsByRefs,
+	getLabelRefsFromAssignments,
 	getResourceLabels,
 	setResourceLabels,
 } from "$lib/stores/space-labels";
 
 export type ResourceLabelMutationResult = {
 	changed: boolean;
-	previousLabelIds: string[];
-	nextLabelIds: string[];
+	previousLabelRefs: string[];
+	nextLabelRefs: string[];
 	affectedLabelIds: string[];
 };
 
@@ -17,33 +18,36 @@ function unique(values: string[]) {
 	return Array.from(new Set(values.filter(Boolean)));
 }
 
-async function getCurrentLabelIds(
+async function getCurrentLabels(
 	spaceId: string,
 	resourceType: LabelResourceType,
 	resourceRef: string,
 ) {
 	const result = await getResourceLabels(spaceId, resourceType, resourceRef);
-	return result.assignments.map((assignment) => assignment.labelId);
+	return {
+		refs: getLabelRefsFromAssignments(result.labels, result.assignments),
+		labels: result.labels,
+	};
 }
 
 async function applyResourceLabels(input: {
 	spaceId: string;
 	resource: LabelAssignableCohubResource;
-	previousLabelIds: string[];
-	nextLabelIds: string[];
+	previousLabelRefs: string[];
+	nextLabelRefs: string[];
 }): Promise<ResourceLabelMutationResult> {
-	const previousLabelIds = unique(input.previousLabelIds);
-	const nextLabelIds = unique(input.nextLabelIds);
-	const affectedLabelIds = getAffectedLabelIds(previousLabelIds, nextLabelIds);
+	const previousLabelRefs = unique(input.previousLabelRefs);
+	const nextLabelRefs = unique(input.nextLabelRefs);
+	const affectedRefs = unique([...previousLabelRefs, ...nextLabelRefs]);
 	const unchanged =
-		previousLabelIds.length === nextLabelIds.length &&
-		previousLabelIds.every((labelId) => nextLabelIds.includes(labelId));
+		previousLabelRefs.length === nextLabelRefs.length &&
+		previousLabelRefs.every((labelRef) => nextLabelRefs.includes(labelRef));
 
 	if (unchanged) {
 		return {
 			changed: false,
-			previousLabelIds,
-			nextLabelIds,
+			previousLabelRefs,
+			nextLabelRefs,
 			affectedLabelIds: [],
 		};
 	}
@@ -52,24 +56,29 @@ async function applyResourceLabels(input: {
 		input.spaceId,
 		input.resource.type,
 		input.resource.ref,
-		nextLabelIds,
-		{ previousLabelIds },
+		nextLabelRefs,
+		{ previousLabelRefs },
 	);
 
+	const latest = await getResourceLabels(
+		input.spaceId,
+		input.resource.type,
+		input.resource.ref,
+	);
 	return {
 		changed: true,
-		previousLabelIds,
-		nextLabelIds,
-		affectedLabelIds,
+		previousLabelRefs,
+		nextLabelRefs,
+		affectedLabelIds: getLabelIdsByRefs(latest.labels, affectedRefs),
 	};
 }
 
 export async function addResourceToLabel(input: {
 	spaceId: string;
 	resource: LabelAssignableCohubResource;
-	targetLabelId: string;
+	targetLabelRef: string;
 }): Promise<ResourceLabelMutationResult> {
-	const previousLabelIds = await getCurrentLabelIds(
+	const current = await getCurrentLabels(
 		input.spaceId,
 		input.resource.type,
 		input.resource.ref,
@@ -77,43 +86,37 @@ export async function addResourceToLabel(input: {
 	return applyResourceLabels({
 		spaceId: input.spaceId,
 		resource: input.resource,
-		previousLabelIds,
-		nextLabelIds: [...previousLabelIds, input.targetLabelId],
+		previousLabelRefs: current.refs,
+		nextLabelRefs: [...current.refs, input.targetLabelRef],
 	});
 }
 
 export async function moveResourceToLabel(input: {
 	spaceId: string;
 	resource: LabelAssignableCohubResource;
-	sourceLabelId: string;
-	targetLabelId: string;
+	sourceLabelRef: string;
+	targetLabelRef: string;
 }): Promise<ResourceLabelMutationResult> {
-	if (input.sourceLabelId === input.targetLabelId) {
-		const previousLabelIds = await getCurrentLabelIds(
-			input.spaceId,
-			input.resource.type,
-			input.resource.ref,
-		);
-		return {
-			changed: false,
-			previousLabelIds,
-			nextLabelIds: previousLabelIds,
-			affectedLabelIds: [],
-		};
-	}
-
-	const previousLabelIds = await getCurrentLabelIds(
+	const current = await getCurrentLabels(
 		input.spaceId,
 		input.resource.type,
 		input.resource.ref,
 	);
+	if (input.sourceLabelRef === input.targetLabelRef) {
+		return {
+			changed: false,
+			previousLabelRefs: current.refs,
+			nextLabelRefs: current.refs,
+			affectedLabelIds: [],
+		};
+	}
 	return applyResourceLabels({
 		spaceId: input.spaceId,
 		resource: input.resource,
-		previousLabelIds,
-		nextLabelIds: [
-			...previousLabelIds.filter((labelId) => labelId !== input.sourceLabelId),
-			input.targetLabelId,
+		previousLabelRefs: current.refs,
+		nextLabelRefs: [
+			...current.refs.filter((labelRef) => labelRef !== input.sourceLabelRef),
+			input.targetLabelRef,
 		],
 	});
 }
@@ -121,9 +124,9 @@ export async function moveResourceToLabel(input: {
 export async function removeResourceFromLabel(input: {
 	spaceId: string;
 	resource: LabelAssignableCohubResource;
-	sourceLabelId: string;
+	sourceLabelRef: string;
 }): Promise<ResourceLabelMutationResult> {
-	const previousLabelIds = await getCurrentLabelIds(
+	const current = await getCurrentLabels(
 		input.spaceId,
 		input.resource.type,
 		input.resource.ref,
@@ -131,9 +134,9 @@ export async function removeResourceFromLabel(input: {
 	return applyResourceLabels({
 		spaceId: input.spaceId,
 		resource: input.resource,
-		previousLabelIds,
-		nextLabelIds: previousLabelIds.filter(
-			(labelId) => labelId !== input.sourceLabelId,
+		previousLabelRefs: current.refs,
+		nextLabelRefs: current.refs.filter(
+			(labelRef) => labelRef !== input.sourceLabelRef,
 		),
 	});
 }

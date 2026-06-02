@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { resolveCohubEnvironment } from "@neta-art/cohub";
+import type { LabelListItem, LabelResourceType } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { uploadAvatarAsset } from "../avatar.js";
 import { createClient } from "../client.js";
@@ -26,6 +27,7 @@ type PromptOptions = {
   at?: string;
   cron?: string;
   timezone?: string;
+  label?: string[];
   json?: boolean;
 };
 
@@ -46,6 +48,7 @@ type UploadOptions = {
 const cliEnv = resolveCohubEnvironment();
 const defaultIdleTtlSeconds = cliEnv === "prod" ? 12 * 60 * 60 : 10 * 60;
 const SPACE_ROLES = ["host", "builder", "guest"] as const;
+const LABEL_RESOURCE_TYPES = ["session", "checkpoint", "file"] as const;
 
 function parseInteger(value: string, name: string, options: { min?: number; max?: number } = {}): number {
   if (!/^-?\d+$/.test(value.trim())) return error(`Invalid ${name}`, `${name} must be an integer`);
@@ -54,6 +57,10 @@ function parseInteger(value: string, name: string, options: { min?: number; max?
   if (options.min !== undefined && parsed < options.min) return error(`Invalid ${name}`, `${name} must be at least ${options.min}`);
   if (options.max !== undefined && parsed > options.max) return error(`Invalid ${name}`, `${name} must be at most ${options.max}`);
   return parsed;
+}
+
+function collectOption(value: string, previous: string[] = []): string[] {
+  return [...previous, value];
 }
 
 function parseChoice<const T extends readonly string[]>(value: string, name: string, choices: T): T[number] {
@@ -215,6 +222,7 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
       provider: opts.provider,
       accessMode: opts.readOnly ? "read_only" : "full_access",
       schedule,
+      labelRefs: opts.label?.length ? opts.label : undefined,
     });
     if (jsonRequested(opts)) return outJson(result);
     if (result.mode === "immediate") return ok(`Prompt sent — sessionId: ${result.session.id}, turnId: ${result.turn.id}`);
@@ -238,6 +246,7 @@ export function registerPrompt(program: Command): void {
     .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
+    .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(program, words, opts));
 }
@@ -392,6 +401,7 @@ export function registerSpaces(program: Command): void {
     .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
+    .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(spacesCmd, words, opts));
 
@@ -413,6 +423,9 @@ export function registerSpaces(program: Command): void {
   // ── spaces mods ──
   registerMods(spacesCmd);
 
+  // ── spaces labels ──
+  registerLabels(spacesCmd);
+
   // ── spaces usage ──
   spacesCmd
     .command("usage [days]")
@@ -432,6 +445,193 @@ export function registerSpaces(program: Command): void {
           { key: "successCount", label: "Success" },
           { key: "errorCount", label: "Errors" },
         ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+}
+
+function flattenLabels(items: LabelListItem[], prefix = ""): Array<LabelListItem & { path: string }> {
+  return items.flatMap((label) => {
+    const path = prefix ? `${prefix}/${label.name}` : label.name;
+    return [{ ...label, path }, ...flattenLabels(label.children ?? [], path)];
+  });
+}
+
+function parseLabelResourceType(value: string): LabelResourceType {
+  return parseChoice(value, "resource type", LABEL_RESOURCE_TYPES);
+}
+
+function parseLabelRefs(value: string | undefined): string[] {
+  if (!value?.trim()) return [];
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function registerLabels(spacesCmd: Command): void {
+  const labelsCmd = spacesCmd
+    .command("labels")
+    .description("Manage labels")
+    .hook("preAction", () => { resolveSpace(spacesCmd); });
+
+  labelsCmd
+    .command("ls")
+    .alias("list")
+    .description("List labels")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).labels.list();
+        if (jsonRequested(opts)) return outJson(result);
+        table(flattenLabels(result.labels), [
+          { key: "path", label: "Label" },
+          { key: "rank", label: "Rank" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("create <labelRef>")
+    .description("Create a label")
+    .option("--json", "Output as JSON")
+    .action(async (labelRef: string, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).labels.create(labelRef);
+        if (jsonRequested(opts)) return outJson(result);
+        ok("Label created");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("update <labelRef>")
+    .description("Update a label")
+    .option("--name <name>", "Label name")
+    .option("--parent <ref>", "Parent label; use null for root")
+    .option("--rank <n>", "Sort rank")
+    .option("--json", "Output as JSON")
+    .action(async (labelRef: string, opts: { name?: string; parent?: string; rank?: string; json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).labels.update(labelRef, {
+          name: opts.name,
+          parentRef: opts.parent === undefined ? undefined : opts.parent === "null" ? null : opts.parent,
+          rank: opts.rank === undefined ? undefined : parseInteger(opts.rank, "rank", { min: -1_000_000, max: 1_000_000 }),
+        });
+        if (jsonRequested(opts)) return outJson(result);
+        ok("Label updated");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("rm <labelRef>")
+    .alias("delete")
+    .description("Delete a label")
+    .action(async (labelRef: string) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        await client.space(spaceId).labels.delete(labelRef);
+        ok("Label deleted");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("reorder <labelRefs...>")
+    .description("Reorder labels")
+    .option("--json", "Output as JSON")
+    .action(async (labelRefs: string[], opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).labels.reorder(labelRefs);
+        if (jsonRequested(opts)) return outJson(result);
+        ok("Labels reordered");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("items <labelRef>")
+    .description("List label items")
+    .option("--limit <n>", "Page size")
+    .option("--cursor <cursor>", "Page cursor")
+    .option("--json", "Output as JSON")
+    .action(async (labelRef: string, opts: { limit?: string; cursor?: string; json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).labels.listItems(labelRef, {
+          limit: opts.limit ? parseInteger(opts.limit, "limit", { min: 1 }) : undefined,
+          cursor: opts.cursor,
+        });
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.items, [
+          { key: "id", label: "ID" },
+          { key: "resourceType", label: "Type" },
+          { key: "resourceRef", label: "Resource" },
+          { key: "rank", label: "Rank" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("attach <labelRef> <resourceType> <resourceRef>")
+    .description("Attach a label")
+    .option("--json", "Output as JSON")
+    .action(async (labelRef: string, resourceType: string, resourceRef: string, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).labels.attach(labelRef, { resourceType: parseLabelResourceType(resourceType), resourceRef });
+        if (jsonRequested(opts)) return outJson(result);
+        ok("Label attached");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("detach <labelRef> <resourceType> <resourceRef>")
+    .description("Detach a label")
+    .action(async (labelRef: string, resourceType: string, resourceRef: string) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        await client.space(spaceId).labels.detach(labelRef, { resourceType: parseLabelResourceType(resourceType), resourceRef });
+        ok("Label detached");
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  labelsCmd
+    .command("set <resourceType> <resourceRef> [labelRefs...]")
+    .description("Set resource labels")
+    .option("--labels <refs>", "Comma-separated label refs")
+    .option("--json", "Output as JSON")
+    .action(async (resourceType: string, resourceRef: string, labelRefs: string[], opts: { labels?: string; json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const refs = [...parseLabelRefs(opts.labels), ...labelRefs];
+        const result = await client.space(spaceId).labels.setResourceLabels(parseLabelResourceType(resourceType), resourceRef, refs);
+        if (jsonRequested(opts)) return outJson(result);
+        ok("Resource labels updated");
       } catch (e: unknown) {
         handleHttp(e);
       }

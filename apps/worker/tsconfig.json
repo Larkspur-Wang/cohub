@@ -103,6 +103,9 @@
       "@cohub/core/spaces": [
         "../../packages/core/src/spaces/index.ts"
       ],
+      "@cohub/core/labels": [
+        "../../packages/core/src/labels/index.ts"
+      ],
       "@cohub/core/spaces/audience": [
         "../../packages/core/src/spaces/audience.ts"
       ],

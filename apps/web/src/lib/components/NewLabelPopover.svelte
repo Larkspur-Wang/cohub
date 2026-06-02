@@ -1,7 +1,11 @@
 <script lang="ts">
 import type { LabelListItem } from "@neta-art/cohub";
 import { ChevronDown, Loader2, Plus, X } from "lucide-svelte";
-import { createSpaceLabel, flattenLabels } from "$lib/stores/space-labels";
+import {
+	createSpaceLabel,
+	flattenLabels,
+	flattenLabelsWithRefs,
+} from "$lib/stores/space-labels";
 
 const {
 	spaceId,
@@ -29,10 +33,14 @@ async function submit() {
 	saving = true;
 	error = "";
 	try {
-		await createSpaceLabel(spaceId, {
-			name: trimmed,
-			parentId: parentId || null,
-		});
+		const parentRef = parentId
+			? flattenLabelsWithRefs(labels).find((label) => label.id === parentId)
+					?.ref
+			: null;
+		await createSpaceLabel(
+			spaceId,
+			parentRef ? `${parentRef}/${trimmed}` : trimmed,
+		);
 		onCreated();
 		onClose();
 	} catch (err) {

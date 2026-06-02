@@ -8,6 +8,7 @@ import { Check, ChevronDown, Loader2, Plus, X } from "lucide-svelte";
 import {
 	createSpaceLabel,
 	flattenLabels,
+	flattenLabelsWithRefs,
 	getResourceLabels,
 	setResourceLabels,
 } from "$lib/stores/space-labels";
@@ -36,6 +37,7 @@ let newLabelParentId = $state("");
 let createSaving = $state(false);
 
 const flatLabels = $derived(flattenLabels(labels));
+const labelOptions = $derived(flattenLabelsWithRefs(labels));
 const rootLabels = $derived(flatLabels.filter((label) => label.depth === 0));
 
 async function load() {
@@ -45,8 +47,16 @@ async function load() {
 		const result = await getResourceLabels(spaceId, resourceType, resourceRef);
 		labels = result.labels;
 		assignments = result.assignments;
+		const refsById = new Map(
+			flattenLabelsWithRefs(result.labels).map((label) => [
+				label.id,
+				label.ref,
+			]),
+		);
 		selected = new Set(
-			result.assignments.map((assignment) => assignment.labelId),
+			result.assignments
+				.map((assignment) => refsById.get(assignment.labelId))
+				.filter((ref): ref is string => Boolean(ref)),
 		);
 	} catch (err) {
 		console.warn("[labels] Failed to load resource labels", err);
@@ -56,10 +66,10 @@ async function load() {
 	}
 }
 
-function toggleLabel(labelId: string) {
+function toggleLabel(labelRef: string) {
 	const next = new Set(selected);
-	if (next.has(labelId)) next.delete(labelId);
-	else next.add(labelId);
+	if (next.has(labelRef)) next.delete(labelRef);
+	else next.add(labelRef);
 	selected = next;
 }
 
@@ -67,15 +77,20 @@ async function save() {
 	saving = true;
 	error = "";
 	try {
-		const previousLabelIds = assignments.map(
-			(assignment) => assignment.labelId,
+		const previousLabelRefs = new Set(
+			assignments
+				.map(
+					(assignment) =>
+						labelOptions.find((label) => label.id === assignment.labelId)?.ref,
+				)
+				.filter((ref): ref is string => Boolean(ref)),
 		);
 		const result = await setResourceLabels(
 			spaceId,
 			resourceType,
 			resourceRef,
 			[...selected],
-			{ previousLabelIds },
+			{ previousLabelRefs: [...previousLabelRefs] },
 		);
 		labels = result.labels;
 		assignments = result.assignments;
@@ -94,14 +109,24 @@ async function createLabel() {
 	createSaving = true;
 	error = "";
 	try {
-		const label = await createSpaceLabel(spaceId, {
-			name,
-			parentId: newLabelParentId || null,
-		});
+		const parentRef = newLabelParentId
+			? flattenLabelsWithRefs(labels).find(
+					(label) => label.id === newLabelParentId,
+				)?.ref
+			: null;
+		const label = await createSpaceLabel(
+			spaceId,
+			parentRef ? `${parentRef}/${name}` : name,
+		);
 		const result = await getResourceLabels(spaceId, resourceType, resourceRef);
 		labels = result.labels;
 		assignments = result.assignments;
-		selected = new Set([...selected, label.id]);
+		if (label) {
+			const createdRef = flattenLabelsWithRefs(result.labels).find(
+				(item) => item.id === label.id,
+			)?.ref;
+			if (createdRef) selected = new Set([...selected, createdRef]);
+		}
 		newLabelName = "";
 		newLabelParentId = "";
 		showCreate = false;
@@ -150,13 +175,15 @@ $effect(() => {
 		{:else}
 			<div class="space-y-[1px]">
 				{#each labels as label (label.id)}
+					{@const labelRef = labelOptions.find((item) => item.id === label.id)?.ref ?? label.name}
 					<label class="label-row">
-						<input type="checkbox" checked={selected.has(label.id)} onchange={() => toggleLabel(label.id)} />
+						<input type="checkbox" checked={selected.has(labelRef)} onchange={() => toggleLabel(labelRef)} />
 						<span>{label.name}</span>
 					</label>
 					{#each label.children ?? [] as child (child.id)}
+						{@const childRef = labelOptions.find((item) => item.id === child.id)?.ref ?? `${labelRef}/${child.name}`}
 						<label class="label-row child">
-							<input type="checkbox" checked={selected.has(child.id)} onchange={() => toggleLabel(child.id)} />
+							<input type="checkbox" checked={selected.has(childRef)} onchange={() => toggleLabel(childRef)} />
 							<span>{child.name}</span>
 						</label>
 					{/each}

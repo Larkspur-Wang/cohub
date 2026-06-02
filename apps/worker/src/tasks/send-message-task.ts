@@ -2,11 +2,13 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
+import { assignLabelsToSession } from "@cohub/core/labels";
 import type { PromptAccessMode, SubmitSessionPromptContext } from "@cohub/core/sessions";
 import { createExecutionGrantService } from "@cohub/core/security";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
 import { config } from "../config.js";
+import { db } from "../db.js";
 
 const executionGrantService = createExecutionGrantService({
   signingKey: config.executionGrantSigningKey,
@@ -20,7 +22,7 @@ const sessionPromptService = getSessionDomainServices({
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, model, provider, clientMessageId, generationPolicy, accessMode } = (payload.data ?? {}) as {
+  const { content, sessionId, title, model, provider, clientMessageId, generationPolicy, accessMode, labelIds } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
@@ -29,6 +31,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     clientMessageId?: string;
     generationPolicy?: GenerationPolicy | null;
     accessMode?: PromptAccessMode | null;
+    labelIds?: string[];
   };
 
   if (!spaceId) throw new Error("spaceId is required for send_message task");
@@ -46,6 +49,10 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
   const promptClientMessageId = payload.cronJobId?.trim()
     ? `cron:${payload.cronJobId.trim()}:run:${taskRunId}`
     : clientMessageId?.trim() || `taskrun:${taskRunId}`;
+
+  if (labelIds && labelIds.length > 0) {
+    await assignLabelsToSession({ db, spaceId, sessionId: promptSessionId, labelIds, userId });
+  }
 
   const result = await sessionPromptService.submitPrompt({
     spaceId,

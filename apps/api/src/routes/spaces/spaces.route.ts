@@ -35,6 +35,7 @@ import {
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
+import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
@@ -81,6 +82,7 @@ type SpacePromptInput = {
   generationPolicy?: unknown;
   accessMode?: PromptAccessMode | null;
   schedule?: SpacePromptSchedule | null;
+  labelRefs?: unknown;
 };
 
 type SpaceSandboxAutoDestroyPolicy =
@@ -1214,6 +1216,20 @@ router.post("/:id/prompt", async (c) => {
     return c.json({ message: "generationPolicy is invalid" }, 400);
   }
 
+  let promptLabelIds: string[] = [];
+  try {
+    const labelPaths = parseLabelRefs(body.labelRefs);
+    if (labelPaths.length > 0) {
+      const labelPermissionScope = sessionId ? { spaceId, sessionId } : { spaceId };
+      if (!(await hasPermission(user, "space.label.assign", labelPermissionScope))) return authzDenied(c);
+      const resolved = await resolveLabelPaths({ db, spaceId, paths: labelPaths });
+      if (resolved.missingPaths.length > 0 && !(await hasPermission(user, "space.label.manage", { spaceId }))) return authzDenied(c);
+      promptLabelIds = (await resolveOrCreateLabelPaths({ db, spaceId, paths: labelPaths, userId: user.uuid })).labelIds;
+    }
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+
   const content = body.content;
   const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
 
@@ -1226,6 +1242,7 @@ router.post("/:id/prompt", async (c) => {
     ...(body.title ? { title: body.title } : {}),
     ...(body.model ? { model: body.model } : {}),
     ...(body.provider ? { provider: body.provider } : {}),
+    ...(promptLabelIds.length > 0 ? { labelIds: promptLabelIds } : {}),
   };
 
   if (mode === "immediate") {
@@ -1243,6 +1260,9 @@ router.post("/:id/prompt", async (c) => {
     }
 
     try {
+      if (promptLabelIds.length > 0) {
+        await assignLabelsToSession({ db, spaceId, sessionId, labelIds: promptLabelIds, userId: user.uuid });
+      }
       const { turnId } = await submitSessionPrompt({
         spaceId,
         sessionId,

@@ -705,6 +705,7 @@ export type CreateSpacePromptInput = {
   clientMessageId?: string | null;
   generationPolicy?: GenerationPolicy | null;
   accessMode?: PromptAccessMode | null;
+  labelRefs?: string[];
   schedule?:
     | { mode?: "immediate" }
     | { mode: "delay"; delayMs: number }

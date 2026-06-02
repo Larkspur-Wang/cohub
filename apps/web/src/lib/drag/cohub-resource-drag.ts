@@ -17,7 +17,7 @@ export type CohubDragResource = {
 export type CohubDragOrigin =
 	| { kind: "sidebar-session-list" }
 	| { kind: "space-file-tree" }
-	| { kind: "label-items"; labelId: string; labelName?: string };
+	| { kind: "label-items"; labelRef: string; labelName?: string };
 
 export type CohubResourceDragPayload = {
 	version: 1;
@@ -58,12 +58,12 @@ function normalizeOrigin(origin: unknown): CohubDragOrigin | undefined {
 		return { kind: value.kind };
 	}
 	if (value.kind === "label-items") {
-		const labelId = "labelId" in value ? value.labelId : undefined;
-		if (typeof labelId !== "string" || !labelId.trim()) return undefined;
+		const labelRef = "labelRef" in value ? value.labelRef : undefined;
+		if (typeof labelRef !== "string" || !labelRef.trim()) return undefined;
 		const labelName = "labelName" in value ? value.labelName : undefined;
 		return {
 			kind: "label-items",
-			labelId: labelId.trim(),
+			labelRef: labelRef.trim(),
 			labelName: typeof labelName === "string" ? labelName : undefined,
 		};
 	}

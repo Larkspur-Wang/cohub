@@ -1,8 +1,9 @@
 import { Hono, type Context } from "hono";
 import { and, asc, count, eq, inArray, max, sql } from "drizzle-orm";
 import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db";
+import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";
-import { getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
+import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
 
 const router = new Hono();
@@ -11,16 +12,12 @@ const RESOURCE_TYPES = new Set(["session", "checkpoint", "file"]);
 const DEFAULT_ITEMS_LIMIT = 30;
 const MAX_ITEMS_LIMIT = 50;
 
-function slugifyLabelName(name: string) {
-  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return slug || "label";
-}
-
 function normalizeName(value: unknown) {
-  if (typeof value !== "string") return null;
-  const name = value.replace(/\s+/g, " ").trim();
-  if (name.length < 1 || name.length > 80) return null;
-  return name;
+  try {
+    return normalizeLabelName(value);
+  } catch {
+    return null;
+  }
 }
 
 function isSafeFilePath(path: string) {
@@ -86,16 +83,12 @@ async function requireSpacePermission(c: Context, permission: Parameters<typeof 
   const user = permission === "space.label.view" ? getOptionalAuth(c) : useAuth(c);
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return { error: c.json({ message: "space not found" }, 404) };
-  if (!(await hasPermission(user, permission, { spaceId }))) return { error: c.json({ message: "not found" }, 404) };
+  if (!(await hasPermission(user, permission, { spaceId }))) return { error: authzDenied(c) };
   return { user, spaceId };
 }
 
 async function getScopeLabels(spaceId: string) {
-  return db
-    .select()
-    .from(labels)
-    .where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, spaceId)))
-    .orderBy(asc(labels.rank), asc(labels.name));
+  return listLabelsByRank(db, spaceId);
 }
 
 async function getLabelInSpace(spaceId: string, labelId: string) {
@@ -105,6 +98,34 @@ async function getLabelInSpace(spaceId: string, labelId: string) {
     .where(and(eq(labels.id, labelId), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, spaceId)))
     .limit(1);
   return label ?? null;
+}
+
+async function getLabelByRef(spaceId: string, labelRef: unknown) {
+  const path = parseLabelRef(labelRef);
+  const resolved = await resolveLabelPaths({ db, spaceId, paths: [path] });
+  const labelId = resolved.labelIds[0];
+  if (!labelId) return null;
+  return getLabelInSpace(spaceId, labelId);
+}
+
+async function resolveOrCreateRefs(spaceId: string, labelRefs: unknown, userId: string | null) {
+  const paths = parseLabelRefs(labelRefs);
+  return resolveOrCreateLabelPaths({ db, spaceId, paths, userId });
+}
+
+async function resolveRefsWithCreatePermission(c: Context, access: { user: ReturnType<typeof getOptionalAuth>; spaceId: string }, labelRefs: unknown) {
+  const paths = parseLabelRefs(labelRefs);
+  const resolved = await resolveLabelPaths({ db, spaceId: access.spaceId, paths });
+  if (resolved.missingPaths.length > 0 && !(await hasPermission(access.user, "space.label.manage", { spaceId: access.spaceId }))) {
+    return { error: authzDenied(c) };
+  }
+  return resolveOrCreateLabelPaths({ db, spaceId: access.spaceId, paths, userId: access.user?.uuid ?? null });
+}
+
+function isUniqueLabelNameViolation(error: unknown) {
+  const record = error as { code?: string; constraint_name?: string; constraint?: string };
+  const constraint = record.constraint_name ?? record.constraint ?? "";
+  return record.code === "23505" && constraint.includes("labels_scope_parent_name");
 }
 
 async function validateResource(spaceId: string, resourceType: string, resourceRef: string) {
@@ -183,58 +204,45 @@ router.get("/", async (c) => {
 router.post("/", async (c) => {
   const access = await requireSpacePermission(c, "space.label.manage");
   if (access.error) return access.error;
-  const body = await c.req.json<{ name?: string; parentId?: string | null }>().catch(() => null);
-  const name = normalizeName(body?.name);
-  if (!name) return c.json({ message: "name is required" }, 400);
-  const parentId = body?.parentId ?? null;
-  let depth = 0;
-  if (parentId) {
-    if (!requireValidId(parentId)) return c.json({ message: "parent label not found" }, 404);
-    const parent = await getLabelInSpace(access.spaceId, parentId);
-    if (parent?.depth !== 0) return c.json({ message: "parent label not found" }, 404);
-    depth = 1;
+  const body = await c.req.json<{ labelRef?: unknown }>().catch(() => null);
+  try {
+    const { labelIds } = await resolveOrCreateRefs(access.spaceId, [body?.labelRef], access.user?.uuid ?? null);
+    const rows = labelIds.length > 0
+      ? await db.select().from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
+      : [];
+    return c.json({ labels: rows }, 201);
+  } catch (error) {
+    if (isUniqueLabelNameViolation(error)) return c.json({ message: "label already exists" }, 409);
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
-  const [{ value: maxRank } = { value: 0 }] = await db.select({ value: max(labels.rank) }).from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), parentId ? eq(labels.parentId, parentId) : sql`${labels.parentId} is null`));
-  const [label] = await db.insert(labels).values({
-    scopeType: SCOPE_TYPE,
-    scopeId: access.spaceId,
-    name,
-    slug: slugifyLabelName(name),
-    parentId,
-    depth,
-    rank: Number(maxRank ?? 0) + 10,
-    source: "user",
-    createdBy: access.user?.uuid ?? null,
-  }).returning();
-  return c.json({ label }, 201);
 });
 
-router.post("/reorder", async (c) => {
+router.post("/resolve", async (c) => {
   const access = await requireSpacePermission(c, "space.label.manage");
   if (access.error) return access.error;
-  const body = await c.req.json<{ labelIds?: string[] }>().catch(() => null);
-  const labelIds = [...new Set(body?.labelIds ?? [])];
-  if (!Array.isArray(labelIds) || labelIds.some((id) => !requireValidId(id))) return c.json({ message: "labelIds are required" }, 400);
-  const matched = labelIds.length > 0
-    ? await db.select({ id: labels.id }).from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
-    : [];
-  if (matched.length !== labelIds.length) return c.json({ message: "label not found" }, 404);
-  await db.transaction(async (tx) => {
-    for (const [index, labelId] of labelIds.entries()) {
-      await tx.update(labels).set({ rank: (index + 1) * 10, updatedAt: new Date() }).where(and(eq(labels.id, labelId), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId)));
-    }
-  });
-  return c.json({ labels: buildLabelTree(await getScopeLabels(access.spaceId)) });
+  const body = await c.req.json<{ labelRefs?: unknown }>().catch(() => null);
+  try {
+    const { labelIds } = await resolveOrCreateRefs(access.spaceId, body?.labelRefs, access.user?.uuid ?? null);
+    const rows = labelIds.length > 0
+      ? await db.select().from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
+      : [];
+    return c.json({ labels: rows });
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
 });
 
-router.patch("/:labelId", async (c) => {
+router.patch("/by-ref", async (c) => {
   const access = await requireSpacePermission(c, "space.label.manage");
   if (access.error) return access.error;
-  const labelId = c.req.param("labelId");
-  if (!labelId || !requireValidId(labelId)) return c.json({ message: "label not found" }, 404);
-  const label = await getLabelInSpace(access.spaceId, labelId);
+  const body = await c.req.json<{ labelRef?: unknown; name?: string; parentRef?: string | null; rank?: number }>().catch(() => null);
+  let label: typeof labels.$inferSelect | null;
+  try {
+    label = await getLabelByRef(access.spaceId, body?.labelRef);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
   if (!label) return c.json({ message: "label not found" }, 404);
-  const body = await c.req.json<{ name?: string; parentId?: string | null; rank?: number }>().catch(() => null);
   const patch: Partial<typeof labels.$inferInsert> = { updatedAt: new Date() };
   if (body?.name !== undefined) {
     const name = normalizeName(body.name);
@@ -247,46 +255,84 @@ router.patch("/:labelId", async (c) => {
     if (!Number.isSafeInteger(rank) || rank < -1_000_000 || rank > 1_000_000) return c.json({ message: "invalid rank" }, 400);
     patch.rank = rank;
   }
-  if (body?.parentId !== undefined) {
-    const parentId = body.parentId ?? null;
-    if (parentId === labelId) return c.json({ message: "invalid parent label" }, 400);
+  if (body?.parentRef !== undefined) {
+    let parentId: string | null = null;
     let depth = 0;
-    if (parentId) {
-      if (!requireValidId(parentId)) return c.json({ message: "parent label not found" }, 404);
-      const parent = await getLabelInSpace(access.spaceId, parentId);
-      if (parent?.depth !== 0) return c.json({ message: "parent label not found" }, 404);
+    if (body.parentRef !== null) {
+      let parent: typeof labels.$inferSelect | null;
+      try {
+        parent = await getLabelByRef(access.spaceId, body.parentRef);
+      } catch (error) {
+        return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+      }
+      if (parent?.depth !== 0 || parent.id === label.id) return c.json({ message: "parent label not found" }, 404);
+      parentId = parent.id;
       depth = 1;
     }
-    const [{ value: childCount } = { value: 0 }] = await db.select({ value: count() }).from(labels).where(eq(labels.parentId, labelId));
+    const [{ value: childCount } = { value: 0 }] = await db.select({ value: count() }).from(labels).where(eq(labels.parentId, label.id));
     if (depth === 1 && Number(childCount) > 0) return c.json({ message: "label has child labels" }, 400);
     patch.parentId = parentId;
     patch.depth = depth;
   }
-  const [updated] = await db.update(labels).set(patch).where(and(eq(labels.id, labelId), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId))).returning();
-  return c.json({ label: updated });
+  try {
+    const [updated] = await db.update(labels).set(patch).where(and(eq(labels.id, label.id), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId))).returning();
+    return c.json({ label: updated });
+  } catch (error) {
+    if (isUniqueLabelNameViolation(error)) return c.json({ message: "label already exists" }, 409);
+    throw error;
+  }
 });
 
-router.delete("/:labelId", async (c) => {
+router.delete("/by-ref", async (c) => {
   const access = await requireSpacePermission(c, "space.label.manage");
   if (access.error) return access.error;
-  const labelId = c.req.param("labelId");
-  if (!labelId || !requireValidId(labelId)) return c.json({ message: "label not found" }, 404);
-  const label = await getLabelInSpace(access.spaceId, labelId);
+  let label: typeof labels.$inferSelect | null;
+  try {
+    label = await getLabelByRef(access.spaceId, c.req.query("ref"));
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
   if (!label) return c.json({ message: "label not found" }, 404);
-  const [{ value: childCount } = { value: 0 }] = await db.select({ value: count() }).from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), eq(labels.parentId, labelId)));
+  const [{ value: childCount } = { value: 0 }] = await db.select({ value: count() }).from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), eq(labels.parentId, label.id)));
   if (Number(childCount) > 0) return c.json({ message: "delete child labels first" }, 400);
   await db.transaction(async (tx) => {
-    await tx.delete(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.labelId, labelId)));
-    await tx.delete(labels).where(and(eq(labels.id, labelId), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId)));
+    await tx.delete(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.labelId, label.id)));
+    await tx.delete(labels).where(and(eq(labels.id, label.id), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId)));
   });
   return c.json({ ok: true });
 });
 
-router.get("/:labelId/items", async (c) => {
+router.post("/reorder", async (c) => {
+  const access = await requireSpacePermission(c, "space.label.manage");
+  if (access.error) return access.error;
+  const body = await c.req.json<{ labelRefs?: unknown }>().catch(() => null);
+  let labelIds: string[];
+  try {
+    const paths = parseLabelRefs(body?.labelRefs);
+    const resolved = await resolveLabelPaths({ db, spaceId: access.spaceId, paths });
+    if (resolved.missingPaths.length > 0) return c.json({ message: "label not found" }, 404);
+    labelIds = resolved.labelIds;
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  await db.transaction(async (tx) => {
+    for (const [index, labelId] of labelIds.entries()) {
+      await tx.update(labels).set({ rank: (index + 1) * 10, updatedAt: new Date() }).where(and(eq(labels.id, labelId), eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId)));
+    }
+  });
+  return c.json({ labels: buildLabelTree(await getScopeLabels(access.spaceId)) });
+});
+
+router.get("/items", async (c) => {
   const access = await requireSpacePermission(c, "space.label.view");
   if (access.error) return access.error;
-  const labelId = c.req.param("labelId");
-  if (!labelId || !requireValidId(labelId) || !(await getLabelInSpace(access.spaceId, labelId))) return c.json({ message: "label not found" }, 404);
+  let label: typeof labels.$inferSelect | null;
+  try {
+    label = await getLabelByRef(access.spaceId, c.req.query("ref"));
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  if (!label) return c.json({ message: "label not found" }, 404);
   const limit = parseItemsLimit(c.req.query("limit"));
   const decodedCursor = decodeItemsCursor(c.req.query("cursor"));
   if (!decodedCursor.ok) return c.json({ message: "invalid cursor" }, 400);
@@ -297,7 +343,7 @@ router.get("/:labelId/items", async (c) => {
     .where(and(
       eq(labelAssignments.scopeType, SCOPE_TYPE),
       eq(labelAssignments.scopeId, access.spaceId),
-      eq(labelAssignments.labelId, labelId),
+      eq(labelAssignments.labelId, label.id),
       ...(cursor ? [sql`(${labelAssignments.rank}, ${labelAssignments.createdAt}, ${labelAssignments.id}) > (${cursor.rank}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
     ))
     .orderBy(asc(labelAssignments.rank), asc(labelAssignments.createdAt), asc(labelAssignments.id))
@@ -308,15 +354,23 @@ router.get("/:labelId/items", async (c) => {
   return c.json({ items: await hydrateAssignments(access.spaceId, pageRows), pageInfo: { hasMore: Boolean(nextCursor), nextCursor } });
 });
 
-router.post("/:labelId/items", async (c) => {
+router.post("/attach", async (c) => {
   const access = await requireSpacePermission(c, "space.label.assign");
   if (access.error) return access.error;
-  const labelId = c.req.param("labelId");
-  if (!labelId || !requireValidId(labelId) || !(await getLabelInSpace(access.spaceId, labelId))) return c.json({ message: "label not found" }, 404);
-  const body = await c.req.json<{ resourceType?: string; resourceRef?: string }>().catch(() => null);
+  const body = await c.req.json<{ labelRef?: unknown; resourceType?: string; resourceRef?: string }>().catch(() => null);
   const resourceType = body?.resourceType ?? "";
   const resourceRef = body?.resourceRef?.trim() ?? "";
   if (!resourceRef || !(await validateResource(access.spaceId, resourceType, resourceRef))) return c.json({ message: "resource not found" }, 404);
+  let labelIds: string[];
+  try {
+    const resolved = await resolveRefsWithCreatePermission(c, access, [body?.labelRef]);
+    if ("error" in resolved) return resolved.error;
+    labelIds = resolved.labelIds;
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  const labelId = labelIds[0];
+  if (!labelId) return c.json({ message: "label not found" }, 404);
   const [{ value: maxRank } = { value: 0 }] = await db.select({ value: max(labelAssignments.rank) }).from(labelAssignments).where(eq(labelAssignments.labelId, labelId));
   const [assignment] = await db.insert(labelAssignments).values({
     labelId,
@@ -333,13 +387,21 @@ router.post("/:labelId/items", async (c) => {
   return c.json({ assignment: existing }, existing ? 200 : 409);
 });
 
-router.delete("/:labelId/items/:assignmentId", async (c) => {
+router.post("/detach", async (c) => {
   const access = await requireSpacePermission(c, "space.label.assign");
   if (access.error) return access.error;
-  const labelId = c.req.param("labelId");
-  const assignmentId = c.req.param("assignmentId");
-  if (!labelId || !requireValidId(labelId) || !assignmentId || !requireValidId(assignmentId)) return c.json({ message: "not found" }, 404);
-  await db.delete(labelAssignments).where(and(eq(labelAssignments.id, assignmentId), eq(labelAssignments.labelId, labelId), eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId)));
+  const body = await c.req.json<{ labelRef?: unknown; resourceType?: string; resourceRef?: string }>().catch(() => null);
+  const resourceType = body?.resourceType ?? "";
+  const resourceRef = body?.resourceRef?.trim() ?? "";
+  if (!resourceRef || !RESOURCE_TYPES.has(resourceType)) return c.json({ message: "resource not found" }, 404);
+  let label: typeof labels.$inferSelect | null;
+  try {
+    label = await getLabelByRef(access.spaceId, body?.labelRef);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  if (!label) return c.json({ message: "label not found" }, 404);
+  await db.delete(labelAssignments).where(and(eq(labelAssignments.labelId, label.id), eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
   return c.json({ ok: true });
 });
 
@@ -363,13 +425,15 @@ export async function setResourceLabels(c: Context) {
   const resourceType = c.req.param("resourceType") ?? "";
   const resourceRef = c.req.query("resourceRef")?.trim() ?? "";
   if (!resourceRef || !(await validateResource(access.spaceId, resourceType, resourceRef))) return c.json({ message: "resource not found" }, 404);
-  const body = await c.req.json<{ labelIds?: string[] }>().catch(() => null);
-  const labelIds: string[] = [...new Set(body?.labelIds ?? [])];
-  if (labelIds.some((id) => !requireValidId(id))) return c.json({ message: "labelIds are required" }, 400);
-  const rows = labelIds.length > 0
-    ? await db.select().from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
-    : [];
-  if (rows.length !== labelIds.length) return c.json({ message: "label not found" }, 404);
+  const body = await c.req.json<{ labelRefs?: unknown }>().catch(() => null);
+  let labelIds: string[];
+  try {
+    const resolved = await resolveRefsWithCreatePermission(c, access, body?.labelRefs ?? []);
+    if ("error" in resolved) return resolved.error;
+    labelIds = resolved.labelIds;
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
+  }
   const existing = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
   const wanted = new Set(labelIds);
   const existingIds = new Set(existing.map((assignment) => assignment.labelId));

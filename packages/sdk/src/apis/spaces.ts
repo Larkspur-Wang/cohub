@@ -1065,71 +1065,75 @@ export class SpaceLabelsApi {
     );
   }
 
-  create(input: { name: string; parentId?: string | null }) {
-    return this.transport.request<{ label: LabelListItem }>(
+  create(labelRef: string) {
+    return this.transport.request<{ labels: LabelListItem[] }>(
       `/api/spaces/${this.spaceId}/labels`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ labelRef }),
       },
     );
   }
 
-  update(labelId: string, input: { name?: string; parentId?: string | null; rank?: number }) {
+  update(labelRef: string, input: { name?: string; parentRef?: string | null; rank?: number }) {
     return this.transport.request<{ label: LabelListItem }>(
-      `/api/spaces/${this.spaceId}/labels/${labelId}`,
+      `/api/spaces/${this.spaceId}/labels/by-ref`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ labelRef, ...input }),
       },
     );
   }
 
-  delete(labelId: string) {
+  delete(labelRef: string) {
+    const params = new URLSearchParams({ ref: labelRef });
     return this.transport.request<{ ok: true }>(
-      `/api/spaces/${this.spaceId}/labels/${labelId}`,
+      `/api/spaces/${this.spaceId}/labels/by-ref?${params.toString()}`,
       { method: "DELETE" },
     );
   }
 
-  reorder(labelIds: string[]) {
+  reorder(labelRefs: string[]) {
     return this.transport.request<{ labels: LabelListItem[] }>(
       `/api/spaces/${this.spaceId}/labels/reorder`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labelIds }),
+        body: JSON.stringify({ labelRefs }),
       },
     );
   }
 
-  listItems(labelId: string, input?: { limit?: number; cursor?: string | null }) {
-    const params = new URLSearchParams();
+  listItems(labelRef: string, input?: { limit?: number; cursor?: string | null }) {
+    const params = new URLSearchParams({ ref: labelRef });
     if (input?.limit) params.set("limit", String(input.limit));
     if (input?.cursor) params.set("cursor", input.cursor);
-    const query = params.toString();
     return this.transport.request<{ items: LabelAssignmentListItem[]; pageInfo: LabelAssignmentPageInfo }>(
-      `/api/spaces/${this.spaceId}/labels/${labelId}/items${query ? `?${query}` : ""}`,
+      `/api/spaces/${this.spaceId}/labels/items?${params.toString()}`,
     );
   }
 
-  addItem(labelId: string, input: { resourceType: LabelResourceType; resourceRef: string }) {
+  attach(labelRef: string, input: { resourceType: LabelResourceType; resourceRef: string }) {
     return this.transport.request<{ assignment: LabelAssignmentRecord }>(
-      `/api/spaces/${this.spaceId}/labels/${labelId}/items`,
+      `/api/spaces/${this.spaceId}/labels/attach`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ labelRef, ...input }),
       },
     );
   }
 
-  deleteItem(labelId: string, assignmentId: string) {
+  detach(labelRef: string, input: { resourceType: LabelResourceType; resourceRef: string }) {
     return this.transport.request<{ ok: true }>(
-      `/api/spaces/${this.spaceId}/labels/${labelId}/items/${assignmentId}`,
-      { method: "DELETE" },
+      `/api/spaces/${this.spaceId}/labels/detach`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labelRef, ...input }),
+      },
     );
   }
 
@@ -1140,14 +1144,14 @@ export class SpaceLabelsApi {
     );
   }
 
-  setResourceLabels(resourceType: LabelResourceType, resourceRef: string, labelIds: string[]) {
+  setResourceLabels(resourceType: LabelResourceType, resourceRef: string, labelRefs: string[]) {
     const params = new URLSearchParams({ resourceRef });
     return this.transport.request<{ labels: LabelListItem[]; assignments: LabelAssignmentRecord[] }>(
       `/api/spaces/${this.spaceId}/resources/${resourceType}/labels?${params.toString()}`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ labelIds }),
+        body: JSON.stringify({ labelRefs }),
       },
     );
   }

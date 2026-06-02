@@ -5,3 +5,4 @@ export * from "./spaces/index.js";
 export * from "./content/index.js";
 export * from "./commands/index.js";
 export * from "./fs-cdn/index.js";
+export * from "./labels/index.js";

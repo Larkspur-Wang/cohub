@@ -57,6 +57,58 @@ export async function fetchSpaceLabels(spaceId: string, force = false) {
 	return fetchSpaceLabelsFresh(spaceId);
 }
 
+export type LabelWithRef = LabelListItem & { ref: string };
+
+export function flattenLabelsWithRefs(labels: LabelListItem[]) {
+	const result: LabelWithRef[] = [];
+	const visit = (items: LabelListItem[], parentRef = "") => {
+		for (const label of items) {
+			const ref = parentRef ? `${parentRef}/${label.name}` : label.name;
+			result.push({ ...label, ref });
+			if (label.children?.length) visit(label.children, ref);
+		}
+	};
+	visit(labels);
+	return result;
+}
+
+export async function getLabelRefById(spaceId: string, labelId: string) {
+	const labels = await fetchSpaceLabels(spaceId);
+	return (
+		flattenLabelsWithRefs(labels).find((label) => label.id === labelId)?.ref ??
+		null
+	);
+}
+
+export async function getLabelByRef(spaceId: string, labelRef: string) {
+	const labels = await fetchSpaceLabels(spaceId);
+	return (
+		flattenLabelsWithRefs(labels).find((label) => label.ref === labelRef) ??
+		null
+	);
+}
+
+export function getLabelRefsFromAssignments(
+	labels: LabelListItem[],
+	assignments: LabelAssignmentRecord[],
+) {
+	const refsById = new Map(
+		flattenLabelsWithRefs(labels).map((label) => [label.id, label.ref]),
+	);
+	return assignments
+		.map((assignment) => refsById.get(assignment.labelId))
+		.filter((ref): ref is string => Boolean(ref));
+}
+
+export function getLabelIdsByRefs(labels: LabelListItem[], refs: string[]) {
+	const idsByRef = new Map(
+		flattenLabelsWithRefs(labels).map((label) => [label.ref, label.id]),
+	);
+	return refs
+		.map((ref) => idsByRef.get(ref))
+		.filter((id): id is string => Boolean(id));
+}
+
 export function flattenLabels(labels: LabelListItem[]) {
 	const result: LabelListItem[] = [];
 	const visit = (items: LabelListItem[]) => {
@@ -69,19 +121,20 @@ export function flattenLabels(labels: LabelListItem[]) {
 	return result;
 }
 
-export async function createSpaceLabel(
-	spaceId: string,
-	input: { name: string; parentId?: string | null },
-) {
-	const result = await sdk.space(spaceId).labels.create(input);
+export async function createSpaceLabel(spaceId: string, labelRef: string) {
+	const result = await sdk.space(spaceId).labels.create(labelRef);
 	await fetchSpaceLabelsFresh(spaceId);
-	return result.label;
+	return result.labels[0] ?? null;
 }
 
-export async function deleteSpaceLabel(spaceId: string, labelId: string) {
-	await sdk.space(spaceId).labels.delete(labelId);
+export async function deleteSpaceLabel(spaceId: string, labelRef: string) {
+	const label = await getLabelByRef(spaceId, labelRef);
+	await sdk.space(spaceId).labels.delete(labelRef);
 	const labels = await fetchSpaceLabelsFresh(spaceId);
-	await labelItemsRepo.deleteFirstPage(spaceId, labelId).catch(() => undefined);
+	if (label)
+		await labelItemsRepo
+			.deleteFirstPage(spaceId, label.id)
+			.catch(() => undefined);
 	return labels;
 }
 
@@ -103,12 +156,16 @@ export async function getCachedLabelItemsSnapshot(
 export async function fetchLabelItemsFirstPageFresh(
 	spaceId: string,
 	labelId: string,
+	labelRef?: string,
 ) {
+	const ref = labelRef ?? (await getLabelRefById(spaceId, labelId));
+	if (!ref)
+		return { items: [], pageInfo: { hasMore: false, nextCursor: null } };
 	const snapshot = await labelItemsRepo.refreshFirstPage(
 		spaceId,
 		labelId,
 		async () => {
-			const result = await sdk.space(spaceId).labels.listItems(labelId, {
+			const result = await sdk.space(spaceId).labels.listItems(ref, {
 				limit: LABEL_ITEMS_PAGE_SIZE,
 				cursor: null,
 			});
@@ -136,35 +193,29 @@ export async function markLabelItemsStale(spaceId: string, labelId: string) {
 	return labelItemsRepo.markStale(spaceId, labelId);
 }
 
-export function getAffectedLabelIds(
-	oldLabelIds: string[],
-	nextLabelIds: string[],
-) {
-	return Array.from(new Set([...oldLabelIds, ...nextLabelIds]));
-}
-
 export async function setResourceLabels(
 	spaceId: string,
 	resourceType: LabelResourceType,
 	resourceRef: string,
-	labelIds: string[],
-	options?: { previousLabelIds?: string[] },
+	labelRefs: string[],
+	options?: { previousLabelRefs?: string[] },
 ): Promise<{ labels: LabelListItem[]; assignments: LabelAssignmentRecord[] }> {
-	const previousLabelIds =
-		options?.previousLabelIds ??
+	const previousLabelRefs =
+		options?.previousLabelRefs ??
 		(await getResourceLabels(spaceId, resourceType, resourceRef)
 			.then((result) =>
-				result.assignments.map((assignment) => assignment.labelId),
+				getLabelRefsFromAssignments(result.labels, result.assignments),
 			)
 			.catch(() => undefined));
 	const result = await sdk
 		.space(spaceId)
-		.labels.setResourceLabels(resourceType, resourceRef, labelIds);
+		.labels.setResourceLabels(resourceType, resourceRef, labelRefs);
 	await labelTreeRepo.set(spaceId, result.labels, { source: "network" });
 
-	const affectedLabelIds = previousLabelIds
-		? getAffectedLabelIds(previousLabelIds, labelIds)
-		: labelIds;
+	const affectedRefs = previousLabelRefs
+		? Array.from(new Set([...previousLabelRefs, ...labelRefs]))
+		: labelRefs;
+	const affectedLabelIds = getLabelIdsByRefs(result.labels, affectedRefs);
 	await Promise.all(
 		affectedLabelIds.map((labelId) => markLabelItemsStale(spaceId, labelId)),
 	).catch(() => undefined);
@@ -176,7 +227,7 @@ export async function setResourceLabels(
 					spaceId,
 					resourceType,
 					resourceRef,
-					labelIds,
+					labelRefs,
 					affectedLabelIds,
 				},
 			}),

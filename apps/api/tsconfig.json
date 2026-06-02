@@ -106,6 +106,9 @@
       "@cohub/core/space-mods": [
         "../../packages/core/src/space-mods/index.ts"
       ],
+      "@cohub/core/labels": [
+        "../../packages/core/src/labels/index.ts"
+      ],
       "@cohub/core/spaces": [
         "../../packages/core/src/spaces/index.ts"
       ],
