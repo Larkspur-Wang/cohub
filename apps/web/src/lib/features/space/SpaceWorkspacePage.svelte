@@ -74,6 +74,7 @@ import {
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { normalizeAvatarToWebp } from "$lib/avatar-image";
+import type { SessionListForkRecord } from "$lib/cache/db";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
@@ -2241,6 +2242,29 @@ function applySessionsSnapshot(sessions: SessionRecord[]) {
 function seedSessions(sessions: SessionRecord[]) {
 	applySessionsSnapshot(sessions);
 }
+async function syncForkResponseToSessionListCache(
+	session: SessionRecord,
+	fork: SessionListForkRecord | null | undefined,
+	parentSession?: SessionRecord | null,
+) {
+	const snapshot = await getCachedSessionListSnapshot(spaceId).catch(
+		() => null,
+	);
+	const forkByChildId = new Map(
+		(snapshot?.forks ?? []).map((item) => [item.childSessionId, item]),
+	);
+	if (fork?.childSessionId) forkByChildId.set(fork.childSessionId, fork);
+	await patchCachedSessionList(
+		spaceId,
+		(current) => {
+			const base =
+				current.length > 0 ? current : parentSession ? [parentSession] : [];
+			return [session, ...base.filter((item) => item.id !== session.id)];
+		},
+		undefined,
+		Array.from(forkByChildId.values()),
+	);
+}
 async function refreshSessionsList(force = true) {
 	if (refreshSessionsListInFlight) {
 		refreshSessionsListQueued = true;
@@ -4199,6 +4223,11 @@ async function handleForkTurn(turn: SessionTurnRecord) {
 		await sessionTurnsRepo
 			.clearSession(spaceId, response.session.id)
 			.catch(() => undefined);
+		await syncForkResponseToSessionListCache(
+			response.session,
+			response.fork as SessionListForkRecord,
+			activeSessionState?.session ?? null,
+		).catch(() => undefined);
 		await goto(buildSpaceSessionRoute(spaceId, response.session.id));
 	} catch (error) {
 		composerError =

@@ -8,6 +8,7 @@ import {
   getSpaceById,
   getSpaceSessionById,
   getSessionMessageById,
+  hydrateSessionParticipantProfiles,
   listSessionMessages,
   SandboxNotReadyError,
   enqueueSessionAbort,
@@ -20,7 +21,7 @@ import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import type { PromptAccessMode } from "@cohub/core/sessions";
 import { submitSessionPrompt } from "../session-prompts.js";
-import { createSessionFork } from "../session-forks.js";
+import { createSessionFork, listSessionForksForSessions } from "../session-forks.js";
 import { buildSessionTurnResponse } from "../session-turn-response.js";
 
 
@@ -100,7 +101,9 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
       logger.error("[SessionFork] failed to enqueue agent fork", enqueueError);
       return c.json({ message: "failed to prepare fork session" }, 503);
     }
-    return c.json({ session: childSession, fork });
+    const [hydratedChildSession] = await hydrateSessionParticipantProfiles([childSession]);
+    const [enrichedFork] = await listSessionForksForSessions([childSession.id]);
+    return c.json({ session: hydratedChildSession ?? childSession, fork: enrichedFork ?? fork });
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "failed to fork session" }, 400);
   }
