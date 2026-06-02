@@ -77,8 +77,13 @@ import {
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
+	getCachedExpandedLabelIds,
+	setCachedExpandedLabelIds,
+} from "$lib/stores/sidebar-label-expanded";
+import {
 	fetchLabelItemsFirstPageFresh,
 	fetchSpaceLabelsFresh,
+	flattenLabels,
 	getCachedLabelItemsSnapshot,
 	getCachedSpaceLabelsSnapshot,
 	LABEL_ITEMS_PAGE_SIZE,
@@ -641,13 +646,19 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 	if (!force) {
 		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
 		if (spaceId !== currentSpaceId) return;
-		if (cached) labels = cached.labels;
+		if (cached) {
+			labels = cached.labels;
+			pruneExpandedLabelIds(spaceId, cached.labels);
+		}
 		if (cached && !cached.stale) return;
 	}
 
 	try {
 		const next = await fetchSpaceLabelsFresh(spaceId);
-		if (spaceId === currentSpaceId) labels = next;
+		if (spaceId === currentSpaceId) {
+			labels = next;
+			pruneExpandedLabelIds(spaceId, next);
+		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
 	}
@@ -763,9 +774,8 @@ async function loadLabelItems(
 
 function toggleLabelExpanded(labelId: string) {
 	if (!currentSpaceId) return;
-	const next = new Set(
-		expandedLabelIdsBySpace[currentSpaceId] ?? new Set<string>(),
-	);
+	const spaceId = currentSpaceId;
+	const next = new Set(expandedLabelIdsBySpace[spaceId] ?? new Set<string>());
 	if (next.has(labelId)) next.delete(labelId);
 	else {
 		next.add(labelId);
@@ -773,8 +783,33 @@ function toggleLabelExpanded(labelId: string) {
 	}
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
-		[currentSpaceId]: next,
+		[spaceId]: next,
 	};
+	setCachedExpandedLabelIds(spaceId, next);
+}
+
+function restoreExpandedLabelIds(spaceId: string) {
+	const expanded = getCachedExpandedLabelIds(spaceId);
+	expandedLabelIdsBySpace = {
+		...expandedLabelIdsBySpace,
+		[spaceId]: expanded,
+	};
+	for (const labelId of expanded) void loadLabelItems(labelId);
+}
+
+function pruneExpandedLabelIds(spaceId: string, nextLabels: LabelListItem[]) {
+	const expanded = expandedLabelIdsBySpace[spaceId];
+	if (!expanded?.size) return;
+	const validIds = new Set(flattenLabels(nextLabels).map((label) => label.id));
+	const next = new Set(
+		[...expanded].filter((labelId) => validIds.has(labelId)),
+	);
+	if (next.size === expanded.size) return;
+	expandedLabelIdsBySpace = {
+		...expandedLabelIdsBySpace,
+		[spaceId]: next,
+	};
+	setCachedExpandedLabelIds(spaceId, next);
 }
 
 function refreshExpandedLabelItems(spaceId: string) {
@@ -1239,6 +1274,7 @@ onMount(() => {
 			({ spaceId, labels: nextLabels }) => {
 				if (spaceId !== currentSpaceId) return;
 				labels = nextLabels;
+				pruneExpandedLabelIds(spaceId, nextLabels);
 			},
 		);
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
@@ -1370,6 +1406,7 @@ $effect(() => {
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
 		untrack(() => {
+			restoreExpandedLabelIds(id);
 			void loadSessionsForSpace(id);
 			void loadLabelsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
