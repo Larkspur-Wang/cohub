@@ -37,6 +37,7 @@ import {
 	Search,
 	Settings,
 	Trash2,
+	Unlink2,
 	User,
 	X,
 } from "lucide-svelte";
@@ -1083,6 +1084,47 @@ function handleResourceDragEnd() {
 	clearLabelAutoExpandTimer();
 }
 
+async function removeLabelAssignment(
+	label: LabelListItem,
+	item: LabelAssignmentListItem,
+) {
+	if (!canAssignLabels || !currentSpaceId) return;
+	if (item.resourceType !== "session" && item.resourceType !== "file") return;
+	const spaceId = currentSpaceId;
+	const sourceLabelRef = labelRefForId(label.id);
+	if (!sourceLabelRef) return;
+	labelDropBusyId = label.id;
+	try {
+		const result = await removeResourceFromLabel({
+			spaceId,
+			resource: {
+				type: item.resourceType,
+				ref: item.resourceRef,
+				title: item.resource?.title ?? item.resourceRef,
+				subtitle: item.resource?.subtitle,
+				href: item.href,
+				path: item.resourceType === "file" ? item.resourceRef : undefined,
+			},
+			sourceLabelRef,
+		});
+		if (currentSpaceId !== spaceId) return;
+		refreshAffectedLabelItems(result);
+		setLabelDropFeedback("success", label.id);
+	} catch (error) {
+		console.warn("[labels] Failed to remove resource label", {
+			labelId: label.id,
+			resourceType: item.resourceType,
+			resourceRef: item.resourceRef,
+			error,
+		});
+		if (currentSpaceId === spaceId) {
+			setLabelDropFeedback("error", label.id, "Could not remove label");
+		}
+	} finally {
+		if (currentSpaceId === spaceId) labelDropBusyId = null;
+	}
+}
+
 async function handleRemoveLabelDrop(event: DragEvent) {
 	if (!canAssignLabels || !currentSpaceId || !draggedLabelOrigin) return;
 	const spaceId = currentSpaceId;
@@ -1798,17 +1840,37 @@ $effect(() => {
 			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
 		{:else}
 			{#each items as item (item.id)}
+				{@const itemDraggable = canAssignLabels && (item.resourceType === "session" || item.resourceType === "file")}
 				<a
 					href={labelAssignmentHref(item)}
-					class="flex w-full min-w-0 items-center gap-2 rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {depth > 0 ? 'pl-11' : 'pl-9'}"
+					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
-					draggable={canAssignLabels && (item.resourceType === "session" || item.resourceType === "file")}
+					draggable={itemDraggable}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 				>
 					<FileText class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
+					{#if itemDraggable}
+						<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
+							<button
+								type="button"
+								class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+								draggable="false"
+								disabled={labelDropBusyId === label.id}
+								title={`Remove from “${label.name}”`}
+								aria-label={`Remove from ${label.name}`}
+								onclick={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									void removeLabelAssignment(label, item);
+								}}
+							>
+								<Unlink2 class="h-3.5 w-3.5" />
+							</button>
+						</span>
+					{/if}
 				</a>
 			{/each}
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
@@ -1886,24 +1948,26 @@ $effect(() => {
 							<span class="truncate">{label.name}</span>
 						</button>
 						{@render labelAssignmentRows(label, 0)}
-						{#each label.children ?? [] as child (child.id)}
-							<button
-								type="button"
-								class="label-tree-row child"
-								class:drop-target={labelDropTargetId === child.id}
-								class:drop-busy={labelDropBusyId === child.id}
-								class:drop-success={labelDropSuccessId === child.id}
-								class:drop-error={labelDropErrorId === child.id}
-								onclick={() => toggleLabelExpanded(child.id)}
-								ondragover={(event) => handleLabelDragOver(event, child)}
-								ondragleave={(event) => handleLabelDragLeave(event, child)}
-								ondrop={(event) => handleLabelDrop(event, child)}
-							>
-								<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
-								<span class="truncate">{child.name}</span>
-							</button>
-							{@render labelAssignmentRows(child, 1)}
-						{/each}
+						{#if currentExpandedLabelIds.has(label.id)}
+							{#each label.children ?? [] as child (child.id)}
+								<button
+									type="button"
+									class="label-tree-row child"
+									class:drop-target={labelDropTargetId === child.id}
+									class:drop-busy={labelDropBusyId === child.id}
+									class:drop-success={labelDropSuccessId === child.id}
+									class:drop-error={labelDropErrorId === child.id}
+									onclick={() => toggleLabelExpanded(child.id)}
+									ondragover={(event) => handleLabelDragOver(event, child)}
+									ondragleave={(event) => handleLabelDragLeave(event, child)}
+									ondrop={(event) => handleLabelDrop(event, child)}
+								>
+									<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
+									<span class="truncate">{child.name}</span>
+								</button>
+								{@render labelAssignmentRows(child, 1)}
+							{/each}
+						{/if}
 					{/each}
 				</div>
 			{/if}
