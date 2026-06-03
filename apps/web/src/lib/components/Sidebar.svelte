@@ -25,6 +25,7 @@ import {
 	History,
 	Keyboard,
 	LayoutDashboard,
+	Link2Off,
 	Loader2,
 	LogOut,
 	MessageSquare,
@@ -40,7 +41,6 @@ import {
 	Tags,
 	TextCursorInput,
 	Trash2,
-	Unlink2,
 	User,
 	X,
 } from "lucide-svelte";
@@ -2073,7 +2073,7 @@ $effect(() => {
 									void removeLabelAssignment(label, item);
 								}}
 							>
-								<Unlink2 class="h-3.5 w-3.5" />
+								<Link2Off class="h-3.5 w-3.5" />
 							</button>
 						</span>
 					{/if}
