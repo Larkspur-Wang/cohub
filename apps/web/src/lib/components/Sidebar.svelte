@@ -1134,14 +1134,14 @@ function clearLabelDragImage() {
 	labelDragImageElement = null;
 }
 
-function createLabelDragImage(item: LabelAssignmentListItem) {
+function createLabelDragImage(item: LabelAssignmentListItem, event: DragEvent) {
 	clearLabelDragImage();
 	if (typeof document === "undefined") return null;
 	const element = document.createElement("div");
 	element.textContent = item.resource?.title ?? item.resourceRef;
 	element.style.position = "fixed";
-	element.style.top = "-1000px";
-	element.style.left = "-1000px";
+	element.style.top = `${Math.max(0, event.clientY - 16)}px`;
+	element.style.left = `${Math.max(0, event.clientX - 16)}px`;
 	element.style.zIndex = "2147483647";
 	element.style.maxWidth = "260px";
 	element.style.overflow = "hidden";
@@ -1153,6 +1153,7 @@ function createLabelDragImage(item: LabelAssignmentListItem) {
 	element.style.boxShadow = "0 10px 24px rgb(0 0 0 / 0.18)";
 	element.style.color = "var(--text-secondary)";
 	element.style.font = "12px/1.4 var(--font-sans, system-ui, sans-serif)";
+	element.style.opacity = "0.96";
 	element.style.padding = "6px 8px";
 	element.style.pointerEvents = "none";
 	document.body.appendChild(element);
@@ -1166,8 +1167,13 @@ function handleLabelItemDragStart(
 	item: LabelAssignmentListItem,
 ) {
 	if (event.dataTransfer) {
-		const dragImage = createLabelDragImage(item);
-		if (dragImage) event.dataTransfer.setDragImage(dragImage, 16, 14);
+		const dragImage = createLabelDragImage(item, event);
+		if (dragImage) {
+			event.dataTransfer.setDragImage(dragImage, 16, 14);
+			requestAnimationFrame(() => {
+				if (labelDragImageElement === dragImage) clearLabelDragImage();
+			});
+		}
 	}
 	console.debug("[sidebar-label-dnd] dragstart:before", {
 		isMobile,
