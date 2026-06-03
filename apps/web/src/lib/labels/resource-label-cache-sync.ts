@@ -4,6 +4,7 @@ import type {
 	LabelListItem,
 	LabelResourceType,
 } from "@neta-art/cohub";
+import { resourceLabelsRepo } from "$lib/cache/repositories/resource-labels-repo";
 import {
 	getCachedLabelItemsSnapshot,
 	markLabelItemsStale,
@@ -89,7 +90,16 @@ async function upsertCachedLabelItems(input: {
 export async function syncResourceLabelsToCache(
 	snapshot: ResourceLabelSnapshot,
 ) {
-	await setCachedSpaceLabels(snapshot.spaceId, snapshot.labels);
+	await Promise.all([
+		setCachedSpaceLabels(snapshot.spaceId, snapshot.labels),
+		resourceLabelsRepo.set(
+			snapshot.spaceId,
+			snapshot.resourceType,
+			snapshot.resourceRef,
+			{ labels: snapshot.labels, assignments: snapshot.assignments },
+			{ source: "network" },
+		),
+	]);
 	const affectedLabelIds = Array.from(
 		new Set([
 			...(snapshot.affectedLabelIds ?? []),

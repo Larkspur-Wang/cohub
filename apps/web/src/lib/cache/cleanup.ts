@@ -3,6 +3,7 @@ import {
 	type LabelItemsCacheRecord,
 	type LabelTreeCacheRecord,
 	openCacheDb,
+	type ResourceLabelsCacheRecord,
 	type SessionListCacheRecord,
 	type SessionTurnsCacheRecord,
 	type SpaceFsDirCacheRecord,
@@ -18,6 +19,7 @@ const MAX_ENTRIES = {
 	spaceFsDirs: 5000,
 	labelTrees: 500,
 	labelItems: 5000,
+	resourceLabels: 5000,
 };
 
 function shouldRunCleanup() {
@@ -46,7 +48,8 @@ async function cleanupStore<
 		| "session_turns"
 		| "space_fs_dirs"
 		| "label_trees"
-		| "label_items",
+		| "label_items"
+		| "resource_labels",
 	maxEntries: number,
 ) {
 	const userKey = getCacheUserKey();
@@ -92,6 +95,10 @@ export function scheduleCacheCleanup() {
 			cleanupStore<LabelItemsCacheRecord>(
 				"label_items",
 				MAX_ENTRIES.labelItems,
+			),
+			cleanupStore<ResourceLabelsCacheRecord>(
+				"resource_labels",
+				MAX_ENTRIES.resourceLabels,
 			),
 		])
 			.then(markCleanupDone)

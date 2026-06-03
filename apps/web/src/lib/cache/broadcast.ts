@@ -4,7 +4,8 @@ export type CacheBroadcastStore =
 	| "session_turns"
 	| "space_fs_dirs"
 	| "label_trees"
-	| "label_items";
+	| "label_items"
+	| "resource_labels";
 
 export type CacheBroadcastMessage = {
 	type: "cache-updated" | "cache-deleted" | "cache-scope-invalidated";
@@ -15,6 +16,8 @@ export type CacheBroadcastMessage = {
 	sessionId?: string;
 	dirPath?: string;
 	labelId?: string;
+	resourceType?: string;
+	resourceRef?: string;
 	prefix?: string;
 	updatedAt: number;
 };

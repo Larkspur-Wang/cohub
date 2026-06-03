@@ -5,6 +5,7 @@ import type {
 import type {
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
+	LabelAssignmentRecord,
 	LabelListItem,
 	SessionRecord,
 	SpaceFsEntry,
@@ -13,7 +14,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -100,13 +101,26 @@ export type LabelItemsCacheRecord = {
 	completeness: "partial" | "complete";
 };
 
+export type ResourceLabelsCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	resourceType: string;
+	resourceRef: string;
+	labels: LabelListItem[];
+	assignments: LabelAssignmentRecord[];
+	updatedAt: number;
+	lastAccessedAt: number;
+};
+
 type StoreName =
 	| "session_lists"
 	| "session_turns"
 	| "space_fs_dirs"
 	| "space_records"
 	| "label_trees"
-	| "label_items";
+	| "label_items"
+	| "resource_labels";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -174,6 +188,14 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 				},
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
 				{ name: "by_updated_at", keyPath: "updatedAt" },
+			]);
+			createStore(db, "resource_labels", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_resource",
+					keyPath: ["userKey", "spaceId", "resourceType", "resourceRef"],
+				},
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
 			]);
 		};
 		request.onsuccess = () => {

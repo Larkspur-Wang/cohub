@@ -8,8 +8,10 @@ import { Check, Loader2, Plus, X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import {
 	createSpaceLabel,
+	fetchResourceLabelsFresh,
 	flattenLabels,
 	flattenLabelsWithRefs,
+	getCachedResourceLabelsSnapshot,
 	getCachedSpaceLabelsSnapshot,
 	getResourceLabels,
 	onSpaceLabelsCacheUpdated,
@@ -89,11 +91,22 @@ async function load() {
 	loading = true;
 	error = "";
 	try {
-		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
+		const [treeCache, assignmentsCache] = await Promise.all([
+			getCachedSpaceLabelsSnapshot(spaceId),
+			getCachedResourceLabelsSnapshot(spaceId, resourceType, resourceRef),
+		]);
 		if (version !== loadVersion) return;
-		if (cached?.labels) updateLabels(cached.labels);
+		if (treeCache?.labels) updateLabels(treeCache.labels);
+		if (assignmentsCache) {
+			applyAssignments(assignmentsCache.labels, assignmentsCache.assignments);
+			if (!assignmentsCache.stale) return;
+		}
 
-		const result = await getResourceLabels(spaceId, resourceType, resourceRef);
+		const result = await fetchResourceLabelsFresh(
+			spaceId,
+			resourceType,
+			resourceRef,
+		);
 		if (version !== loadVersion) return;
 		applyAssignments(result.labels, result.assignments);
 	} catch (err) {

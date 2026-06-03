@@ -28,6 +28,17 @@ export function labelItemsKey(
 	return [userKey, spaceId, labelId, "items"].map(encodeKeyPart).join(":");
 }
 
+export function resourceLabelsKey(
+	userKey: string,
+	spaceId: string,
+	resourceType: string,
+	resourceRef: string,
+) {
+	return [userKey, spaceId, resourceType, resourceRef]
+		.map(encodeKeyPart)
+		.join(":");
+}
+
 export function sessionTurnsKey(
 	userKey: string,
 	spaceId: string,

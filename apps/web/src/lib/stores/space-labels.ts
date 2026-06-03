@@ -7,6 +7,7 @@ import type {
 } from "@neta-art/cohub";
 import { labelItemsRepo } from "$lib/cache/repositories/label-items-repo";
 import { labelTreeRepo } from "$lib/cache/repositories/label-tree-repo";
+import { resourceLabelsRepo } from "$lib/cache/repositories/resource-labels-repo";
 import { sdk } from "$lib/sdk";
 
 const LABEL_ITEMS_PAGE_SIZE = 30;
@@ -138,6 +139,14 @@ export async function deleteSpaceLabel(spaceId: string, labelRef: string) {
 	return labels;
 }
 
+export async function getCachedResourceLabelsSnapshot(
+	spaceId: string,
+	resourceType: LabelResourceType,
+	resourceRef: string,
+) {
+	return resourceLabelsRepo.get(spaceId, resourceType, resourceRef);
+}
+
 export async function getResourceLabels(
 	spaceId: string,
 	resourceType: LabelResourceType,
@@ -146,8 +155,46 @@ export async function getResourceLabels(
 	const result = await sdk
 		.space(spaceId)
 		.labels.getResourceLabels(resourceType, resourceRef);
-	await labelTreeRepo.set(spaceId, result.labels, { source: "network" });
+	await Promise.all([
+		labelTreeRepo.set(spaceId, result.labels, { source: "network" }),
+		resourceLabelsRepo.set(spaceId, resourceType, resourceRef, result, {
+			source: "network",
+		}),
+	]);
 	return result;
+}
+
+export async function fetchResourceLabelsFresh(
+	spaceId: string,
+	resourceType: LabelResourceType,
+	resourceRef: string,
+) {
+	return getResourceLabels(spaceId, resourceType, resourceRef);
+}
+
+export async function fetchResourceLabels(
+	spaceId: string,
+	resourceType: LabelResourceType,
+	resourceRef: string,
+	force = false,
+) {
+	if (!force) {
+		const cached = await getCachedResourceLabelsSnapshot(
+			spaceId,
+			resourceType,
+			resourceRef,
+		);
+		if (cached && !cached.stale) {
+			return {
+				labels: cached.labels,
+				assignments: cached.assignments,
+				fromCache: true,
+			} as const;
+		}
+	}
+	return getResourceLabels(spaceId, resourceType, resourceRef).then(
+		(result) => ({ ...result, fromCache: false }) as const,
+	);
 }
 
 export async function getCachedLabelItemsSnapshot(
@@ -214,7 +261,12 @@ export async function setResourceLabels(
 	const result = await sdk
 		.space(spaceId)
 		.labels.setResourceLabels(resourceType, resourceRef, labelRefs);
-	await labelTreeRepo.set(spaceId, result.labels, { source: "network" });
+	await Promise.all([
+		labelTreeRepo.set(spaceId, result.labels, { source: "network" }),
+		resourceLabelsRepo.set(spaceId, resourceType, resourceRef, result, {
+			source: "network",
+		}),
+	]);
 
 	const affectedRefs = previousLabelRefs
 		? Array.from(new Set([...previousLabelRefs, ...labelRefs]))
