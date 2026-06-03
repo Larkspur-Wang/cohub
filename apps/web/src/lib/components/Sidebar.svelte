@@ -27,6 +27,7 @@ import {
 	LayoutDashboard,
 	Loader2,
 	LogOut,
+	MessageSquare,
 	Network,
 	NotebookPen,
 	PanelLeftClose,
@@ -36,6 +37,7 @@ import {
 	Save,
 	Search,
 	Settings,
+	Tags,
 	Trash2,
 	Unlink2,
 	User,
@@ -1243,6 +1245,18 @@ function labelAssignmentHref(item: LabelAssignmentListItem) {
 	return item.href;
 }
 
+function getLabelAssignmentIcon(item: LabelAssignmentListItem) {
+	if (item.resourceType === "session") return MessageSquare;
+	if (item.resourceType === "checkpoint") return History;
+	return FileText;
+}
+
+function getLabelAssignmentTypeLabel(item: LabelAssignmentListItem) {
+	if (item.resourceType === "session") return "Chat";
+	if (item.resourceType === "checkpoint") return "Save";
+	return "File";
+}
+
 async function loadCronjobsForSpace(spaceId: string, force = false) {
 	if (!force && loadingCronjobs && loadingCronjobsSpaceId === spaceId) return;
 	const shouldShowLoading = cronjobs.length === 0;
@@ -2030,6 +2044,7 @@ $effect(() => {
 		{:else if items.length > 0}
 			{#each items as item (item.id)}
 				{@const itemDraggable = isDraggableLabelItem(item)}
+				{@const ItemIcon = getLabelAssignmentIcon(item)}
 				<a
 					href={labelAssignmentHref(item)}
 					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
@@ -2039,8 +2054,9 @@ $effect(() => {
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 				>
-					<FileText class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+					<ItemIcon class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
+					<span class="sr-only">{getLabelAssignmentTypeLabel(item)}</span>
 					{#if itemDraggable}
 						<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
 							<button
@@ -2419,7 +2435,7 @@ $effect(() => {
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
             <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
-                <NotebookPen class="h-4 w-4" />
+                <MessageSquare class="h-4 w-4" />
               {/snippet}
               {@render sessionsFlyoutList()}
             </SidebarFlyout>
@@ -2440,6 +2456,12 @@ $effect(() => {
                 <Activity class="h-4 w-4" />
               {/snippet}
               {@render tasksFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Labels" active={false} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <Tags class="h-4 w-4" />
+              {/snippet}
+              {@render labelsSection()}
             </SidebarFlyout>
           </nav>
         {:else}
