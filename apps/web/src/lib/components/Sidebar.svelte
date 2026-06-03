@@ -214,6 +214,7 @@ let draggedLabelOrigin = $state<{
 } | null>(null);
 let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
 let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
+let labelDragImageElement: HTMLElement | null = null;
 let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
@@ -1068,6 +1069,7 @@ async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
 			setLabelDropFeedback("error", label.id, "Could not update label");
 		}
 	} finally {
+		clearLabelDragImage();
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
 	}
 }
@@ -1127,18 +1129,45 @@ function handleLabelItemPointerDown(
 	});
 }
 
+function clearLabelDragImage() {
+	labelDragImageElement?.remove();
+	labelDragImageElement = null;
+}
+
+function createLabelDragImage(item: LabelAssignmentListItem) {
+	clearLabelDragImage();
+	if (typeof document === "undefined") return null;
+	const element = document.createElement("div");
+	element.textContent = item.resource?.title ?? item.resourceRef;
+	element.style.position = "fixed";
+	element.style.top = "-1000px";
+	element.style.left = "-1000px";
+	element.style.zIndex = "2147483647";
+	element.style.maxWidth = "260px";
+	element.style.overflow = "hidden";
+	element.style.textOverflow = "ellipsis";
+	element.style.whiteSpace = "nowrap";
+	element.style.border = "1px solid var(--border-subtle)";
+	element.style.borderRadius = "6px";
+	element.style.background = "var(--bg-primary)";
+	element.style.boxShadow = "0 10px 24px rgb(0 0 0 / 0.18)";
+	element.style.color = "var(--text-secondary)";
+	element.style.font = "12px/1.4 var(--font-sans, system-ui, sans-serif)";
+	element.style.padding = "6px 8px";
+	element.style.pointerEvents = "none";
+	document.body.appendChild(element);
+	labelDragImageElement = element;
+	return element;
+}
+
 function handleLabelItemDragStart(
 	event: DragEvent,
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	const sourceElement = event.currentTarget;
-	if (event.dataTransfer && sourceElement instanceof HTMLElement) {
-		event.dataTransfer.setDragImage(
-			sourceElement,
-			16,
-			Math.max(1, sourceElement.offsetHeight / 2),
-		);
+	if (event.dataTransfer) {
+		const dragImage = createLabelDragImage(item);
+		if (dragImage) event.dataTransfer.setDragImage(dragImage, 16, 14);
 	}
 	console.debug("[sidebar-label-dnd] dragstart:before", {
 		isMobile,
@@ -1194,6 +1223,7 @@ function handleResourceDragEnd() {
 	labelDropTargetId = null;
 	labelRemoveDropActive = false;
 	clearLabelAutoExpandTimer();
+	clearLabelDragImage();
 }
 
 async function removeLabelAssignment(
@@ -1270,6 +1300,7 @@ async function handleRemoveLabelDrop(event: DragEvent) {
 			);
 		}
 	} finally {
+		clearLabelDragImage();
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
 	}
 }
