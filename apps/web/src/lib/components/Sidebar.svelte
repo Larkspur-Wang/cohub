@@ -975,6 +975,10 @@ function getDropResource(event: DragEvent): {
 }
 
 function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
+	console.debug("[sidebar-label-dnd] dragover", {
+		labelId: label.id,
+		types: Array.from(event.dataTransfer?.types ?? []),
+	});
 	if (!hasCohubResourceDragData(event.dataTransfer)) return;
 	event.preventDefault();
 	event.stopPropagation();
@@ -1020,6 +1024,13 @@ async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
 	if (!currentSpaceId) return;
 	const spaceId = currentSpaceId;
 	const drop = getDropResource(event);
+	console.debug("[sidebar-label-dnd] drop", {
+		labelId: label.id,
+		types: Array.from(event.dataTransfer?.types ?? []),
+		hasDrop: Boolean(drop),
+		resource: drop?.resource,
+		origin: drop?.payload.origin,
+	});
 	if (!drop) return;
 	event.preventDefault();
 	event.stopPropagation();
@@ -1101,11 +1112,33 @@ function isDraggableLabelItem(
 	);
 }
 
+function handleLabelItemPointerDown(
+	event: PointerEvent,
+	label: LabelListItem,
+	item: LabelAssignmentListItem,
+) {
+	console.debug("[sidebar-label-dnd] pointerdown", {
+		button: event.button,
+		isPrimary: event.isPrimary,
+		isMobile,
+		labelId: label.id,
+		resourceType: item.resourceType,
+		resourceRef: item.resourceRef,
+	});
+}
+
 function handleLabelItemDragStart(
 	event: DragEvent,
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
+	console.debug("[sidebar-label-dnd] dragstart:before", {
+		isMobile,
+		labelId: label.id,
+		resourceType: item.resourceType,
+		resourceRef: item.resourceRef,
+		types: Array.from(event.dataTransfer?.types ?? []),
+	});
 	const resource: LabelAssignableCohubResource = {
 		type: item.resourceType,
 		ref: item.resourceRef,
@@ -1142,6 +1175,10 @@ function handleLabelItemDragStart(
 		labelRef: labelRefForId(label.id) ?? label.name,
 		labelName: label.name,
 	};
+	console.debug("[sidebar-label-dnd] dragstart:after", {
+		types: Array.from(event.dataTransfer?.types ?? []),
+		draggedLabelOrigin,
+	});
 }
 
 function handleResourceDragEnd() {
@@ -2055,6 +2092,7 @@ $effect(() => {
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
 					draggable={!isMobile}
+					onpointerdown={(event) => handleLabelItemPointerDown(event, label, item)}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 				>
