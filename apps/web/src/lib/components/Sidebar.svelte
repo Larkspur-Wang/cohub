@@ -228,6 +228,7 @@ let renamingLabelId = $state<string | null>(null);
 let renameLabelValue = $state("");
 let renameLabelSaving = $state(false);
 let renameLabelInputElement: HTMLInputElement | null = $state(null);
+let deletingLabelId = $state<string | null>(null);
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
@@ -1458,16 +1459,20 @@ async function submitRenameSession(session: SessionRecord) {
 	}
 }
 
-function findLabelById(labelId: string) {
-	return flattenLabels(labels).find((label) => label.id === labelId) ?? null;
-}
-
 function isUserLabel(label: LabelListItem) {
 	return label.source === "user";
 }
 
-function canRenameLabel(label: LabelListItem) {
+function canManageUserLabel(label: LabelListItem) {
 	return canManageLabels && isUserLabel(label);
+}
+
+function canRenameLabel(label: LabelListItem) {
+	return canManageUserLabel(label);
+}
+
+function canDeleteLabel(label: LabelListItem) {
+	return canManageUserLabel(label);
 }
 
 function startRenameLabel(label: LabelListItem) {
@@ -1483,6 +1488,47 @@ function startRenameLabel(label: LabelListItem) {
 function cancelRenameLabel() {
 	renamingLabelId = null;
 	renameLabelValue = "";
+}
+
+async function deleteLabel(label: LabelListItem) {
+	if (deletingLabelId || !currentSpaceId || !canDeleteLabel(label)) return;
+	if (label.children?.length) {
+		window.alert("Delete child labels first.");
+		return;
+	}
+	const labelRef = labelRefForId(label.id);
+	if (!labelRef) {
+		window.alert("Label not found.");
+		return;
+	}
+	const confirmed = window.confirm(
+		`Delete “${label.name}”?\n\nThis removes the label and its item assignments. This cannot be undone.`,
+	);
+	if (!confirmed) return;
+
+	deletingLabelId = label.id;
+	try {
+		if (renamingLabelId === label.id) cancelRenameLabel();
+		await sdk.space(currentSpaceId).labels.delete(labelRef);
+		labels = await fetchSpaceLabelsFresh(currentSpaceId);
+		const nextExpanded = new Set(currentExpandedLabelIds);
+		nextExpanded.delete(label.id);
+		expandedLabelIdsBySpace = {
+			...expandedLabelIdsBySpace,
+			[currentSpaceId]: nextExpanded,
+		};
+		setCachedExpandedLabelIds(currentSpaceId, nextExpanded);
+	} catch (error) {
+		console.warn("[labels] Failed to delete label", {
+			labelId: label.id,
+			error,
+		});
+		window.alert(
+			error instanceof Error ? error.message : "Failed to delete label.",
+		);
+	} finally {
+		deletingLabelId = null;
+	}
 }
 
 async function submitRenameLabel(label: LabelListItem) {
@@ -1519,6 +1565,13 @@ async function submitRenameLabel(label: LabelListItem) {
 
 function handleLabelRowClick(label: LabelListItem) {
 	if (renamingLabelId === label.id) return;
+	toggleLabelExpanded(label.id);
+}
+
+function handleLabelRowKeydown(event: KeyboardEvent, label: LabelListItem) {
+	if (renamingLabelId === label.id) return;
+	if (event.key !== "Enter" && event.key !== " ") return;
+	event.preventDefault();
 	toggleLabelExpanded(label.id);
 }
 
@@ -2068,8 +2121,9 @@ $effect(() => {
 			{:else}
 				<div class="mt-1 space-y-[1px]">
 					{#each labels as label (label.id)}
-						<button
-							type="button"
+						<div
+							role="button"
+							tabindex="0"
 							class="label-tree-row group/label"
 							class:drop-target={labelDropTargetId === label.id}
 							class:drop-busy={labelDropBusyId === label.id}
@@ -2077,7 +2131,7 @@ $effect(() => {
 							class:drop-error={labelDropErrorId === label.id}
 							class:renaming={renamingLabelId === label.id}
 							onclick={() => handleLabelRowClick(label)}
-							ondblclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}
+							onkeydown={(event) => handleLabelRowKeydown(event, label)}
 							ondragover={(event) => handleLabelDragOver(event, label)}
 							ondragleave={(event) => handleLabelDragLeave(event, label)}
 							ondrop={(event) => handleLabelDrop(event, label)}
@@ -2102,33 +2156,68 @@ $effect(() => {
 								</span>
 							{:else}
 								<span class="min-w-0 flex-1 truncate">{label.name}</span>
-								{#if canRenameLabel(label)}
+								{#if canManageUserLabel(label)}
 									<span class="label-row-actions">
-										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Rename" onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
+										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
 											<Pencil class="h-3.5 w-3.5" />
+										</button>
+										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(label); }}>
+											{#if deletingLabelId === label.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
 										</button>
 									</span>
 								{/if}
 							{/if}
-						</button>
+						</div>
 						{@render labelAssignmentRows(label, 0)}
 						{#if currentExpandedLabelIds.has(label.id)}
 							{#each label.children ?? [] as child (child.id)}
-								<button
-									type="button"
-									class="label-tree-row child"
+								<div
+									role="button"
+									tabindex="0"
+									class="label-tree-row child group/label"
 									class:drop-target={labelDropTargetId === child.id}
 									class:drop-busy={labelDropBusyId === child.id}
 									class:drop-success={labelDropSuccessId === child.id}
 									class:drop-error={labelDropErrorId === child.id}
-									onclick={() => toggleLabelExpanded(child.id)}
+									class:renaming={renamingLabelId === child.id}
+									onclick={() => handleLabelRowClick(child)}
+									onkeydown={(event) => handleLabelRowKeydown(event, child)}
 									ondragover={(event) => handleLabelDragOver(event, child)}
 									ondragleave={(event) => handleLabelDragLeave(event, child)}
 									ondrop={(event) => handleLabelDrop(event, child)}
 								>
 									<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
-									<span class="truncate">{child.name}</span>
-								</button>
+									{#if renamingLabelId === child.id}
+										<input
+											bind:this={renameLabelInputElement}
+											bind:value={renameLabelValue}
+											class="label-rename-input"
+											disabled={renameLabelSaving}
+											onclick={(event) => event.stopPropagation()}
+											onkeydown={(event) => handleLabelRenameKeydown(event, child)}
+										/>
+										<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
+											<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(child); }}>
+												{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+											</button>
+											<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
+												<X class="h-3.5 w-3.5" />
+											</button>
+										</span>
+									{:else}
+										<span class="min-w-0 flex-1 truncate">{child.name}</span>
+										{#if canManageUserLabel(child)}
+											<span class="label-row-actions">
+												<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>
+													<Pencil class="h-3.5 w-3.5" />
+												</button>
+												<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(child); }}>
+													{#if deletingLabelId === child.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+												</button>
+											</span>
+										{/if}
+									{/if}
+								</div>
 								{@render labelAssignmentRows(child, 1)}
 							{/each}
 						{/if}
@@ -3107,9 +3196,45 @@ $effect(() => {
 		transition: background-color 100ms ease, color 100ms ease;
 	}
 
-	.label-tree-row:hover {
+	.label-tree-row:hover,
+	.label-tree-row.renaming {
 		background: var(--bg-hover);
 		color: var(--text-secondary);
+	}
+
+	.label-row-actions {
+		margin-left: auto;
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 2px;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 100ms ease;
+	}
+
+	.label-tree-row:hover .label-row-actions,
+	.label-tree-row:focus-within .label-row-actions {
+		opacity: 1;
+		pointer-events: auto;
+	}
+
+	.label-rename-input {
+		min-width: 0;
+		flex: 1 1 auto;
+		border: 1px solid var(--border-subtle);
+		border-radius: 5px;
+		background: var(--bg-input);
+		padding: 2px 6px;
+		color: var(--text-primary);
+		font: inherit;
+		line-height: 1.25;
+		outline: none;
+	}
+
+	.label-rename-input:focus {
+		border-color: color-mix(in srgb, var(--brand) 45%, var(--border-subtle));
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 18%, transparent);
 	}
 
 	.label-tree-row.child {
