@@ -209,14 +209,15 @@ let labelDropSuccessId = $state<string | null>(null);
 let labelDropErrorId = $state<string | null>(null);
 let labelDropErrorMessage = $state<string | null>(null);
 let labelRemoveDropActive = $state(false);
-let draggedLabelOrigin = $state<{
+type LabelDragOrigin = {
 	labelId: string;
 	labelRef: string;
 	labelName?: string;
-} | null>(null);
+};
+let draggedLabelOrigin = $state<LabelDragOrigin | null>(null);
+let activeLabelDragOrigin: LabelDragOrigin | null = null;
 let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
 let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
-let labelDragImageElement: HTMLElement | null = null;
 let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
 let creatingSession = $state(false);
@@ -978,16 +979,12 @@ function getDropResource(event: DragEvent): {
 }
 
 function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
-	console.debug("[sidebar-label-dnd] dragover", {
-		labelId: label.id,
-		types: Array.from(event.dataTransfer?.types ?? []),
-	});
 	if (!hasCohubResourceDragData(event.dataTransfer)) return;
 	event.preventDefault();
 	event.stopPropagation();
 	labelDropTargetId = label.id;
 	if (event.dataTransfer) {
-		event.dataTransfer.dropEffect = draggedLabelOrigin ? "move" : "copy";
+		event.dataTransfer.dropEffect = activeLabelDragOrigin ? "move" : "copy";
 	}
 	scheduleLabelAutoExpand(label.id);
 }
@@ -1027,13 +1024,6 @@ async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
 	if (!currentSpaceId) return;
 	const spaceId = currentSpaceId;
 	const drop = getDropResource(event);
-	console.debug("[sidebar-label-dnd] drop", {
-		labelId: label.id,
-		types: Array.from(event.dataTransfer?.types ?? []),
-		hasDrop: Boolean(drop),
-		resource: drop?.resource,
-		origin: drop?.payload.origin,
-	});
 	if (!drop) return;
 	event.preventDefault();
 	event.stopPropagation();
@@ -1071,7 +1061,6 @@ async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
 			setLabelDropFeedback("error", label.id, "Could not update label");
 		}
 	} finally {
-		clearLabelDragImage();
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
 	}
 }
@@ -1116,74 +1105,11 @@ function isDraggableLabelItem(
 	);
 }
 
-function handleLabelItemPointerDown(
-	event: PointerEvent,
-	label: LabelListItem,
-	item: LabelAssignmentListItem,
-) {
-	console.debug("[sidebar-label-dnd] pointerdown", {
-		button: event.button,
-		isPrimary: event.isPrimary,
-		isMobile,
-		labelId: label.id,
-		resourceType: item.resourceType,
-		resourceRef: item.resourceRef,
-	});
-}
-
-function clearLabelDragImage() {
-	labelDragImageElement?.remove();
-	labelDragImageElement = null;
-}
-
-function createLabelDragImage(item: LabelAssignmentListItem, event: DragEvent) {
-	clearLabelDragImage();
-	if (typeof document === "undefined") return null;
-	const element = document.createElement("div");
-	element.textContent = item.resource?.title ?? item.resourceRef;
-	element.style.position = "fixed";
-	element.style.top = `${Math.max(0, event.clientY - 16)}px`;
-	element.style.left = `${Math.max(0, event.clientX - 16)}px`;
-	element.style.zIndex = "2147483647";
-	element.style.maxWidth = "260px";
-	element.style.overflow = "hidden";
-	element.style.textOverflow = "ellipsis";
-	element.style.whiteSpace = "nowrap";
-	element.style.border = "1px solid var(--border-subtle)";
-	element.style.borderRadius = "6px";
-	element.style.background = "var(--bg-primary)";
-	element.style.boxShadow = "0 10px 24px rgb(0 0 0 / 0.18)";
-	element.style.color = "var(--text-secondary)";
-	element.style.font = "12px/1.4 var(--font-sans, system-ui, sans-serif)";
-	element.style.opacity = "0.96";
-	element.style.padding = "6px 8px";
-	element.style.pointerEvents = "none";
-	document.body.appendChild(element);
-	labelDragImageElement = element;
-	return element;
-}
-
 function handleLabelItemDragStart(
 	event: DragEvent,
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (event.dataTransfer) {
-		const dragImage = createLabelDragImage(item, event);
-		if (dragImage) {
-			event.dataTransfer.setDragImage(dragImage, 16, 14);
-			requestAnimationFrame(() => {
-				if (labelDragImageElement === dragImage) clearLabelDragImage();
-			});
-		}
-	}
-	console.debug("[sidebar-label-dnd] dragstart:before", {
-		isMobile,
-		labelId: label.id,
-		resourceType: item.resourceType,
-		resourceRef: item.resourceRef,
-		types: Array.from(event.dataTransfer?.types ?? []),
-	});
 	const resource: LabelAssignableCohubResource = {
 		type: item.resourceType,
 		ref: item.resourceRef,
@@ -1215,23 +1141,19 @@ function handleLabelItemDragStart(
 			effectAllowed: "copyMove",
 		},
 	);
-	draggedLabelOrigin = {
+	activeLabelDragOrigin = {
 		labelId: label.id,
 		labelRef: labelRefForId(label.id) ?? label.name,
 		labelName: label.name,
 	};
-	console.debug("[sidebar-label-dnd] dragstart:after", {
-		types: Array.from(event.dataTransfer?.types ?? []),
-		draggedLabelOrigin,
-	});
 }
 
 function handleResourceDragEnd() {
+	activeLabelDragOrigin = null;
 	draggedLabelOrigin = null;
 	labelDropTargetId = null;
 	labelRemoveDropActive = false;
 	clearLabelAutoExpandTimer();
-	clearLabelDragImage();
 }
 
 async function removeLabelAssignment(
@@ -1308,7 +1230,6 @@ async function handleRemoveLabelDrop(event: DragEvent) {
 			);
 		}
 	} finally {
-		clearLabelDragImage();
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
 	}
 }
@@ -2072,6 +1993,7 @@ $effect(() => {
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
 		labelRemoveDropActive = false;
+		activeLabelDragOrigin = null;
 		draggedLabelOrigin = null;
 		cancelRenameLabel();
 		clearLabelAutoExpandTimer();
@@ -2104,6 +2026,7 @@ $effect(() => {
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
 		labelRemoveDropActive = false;
+		activeLabelDragOrigin = null;
 		draggedLabelOrigin = null;
 		cancelRenameLabel();
 		clearLabelAutoExpandTimer();
@@ -2137,6 +2060,8 @@ $effect(() => {
 	{#if currentExpandedLabelIds.has(label.id)}
 		{#if items.length === 0 && !hasChildLabels}
 			<div
+				role="button"
+				tabindex="-1"
 				class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"
 				ondragover={(event) => handleLabelDragOver(event, label)}
 				ondragleave={(event) => handleLabelDragLeave(event, label)}
@@ -2153,7 +2078,6 @@ $effect(() => {
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
 					draggable={!isMobile}
-					onpointerdown={(event) => handleLabelItemPointerDown(event, label, item)}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 					ondragover={(event) => handleLabelDragOver(event, label)}
