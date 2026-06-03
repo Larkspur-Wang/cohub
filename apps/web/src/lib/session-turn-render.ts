@@ -71,7 +71,7 @@ function getFinalMessageDurationMs(turn: SessionTurnRecord) {
 	return typeof raw === "number" && raw > 0 ? raw : null;
 }
 
-function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
+export function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	const meta = turn.meta ?? {};
 	return {
 		id: `turn:${turn.id}:user`,
@@ -92,7 +92,9 @@ function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	};
 }
 
-function turnToAssistantMessage(turn: SessionTurnRecord): ChatMessage | null {
+export function turnToAssistantMessage(
+	turn: SessionTurnRecord,
+): ChatMessage | null {
 	const isAborted = turn.stopReason === "aborted";
 	if (
 		!turn.assistantContent &&

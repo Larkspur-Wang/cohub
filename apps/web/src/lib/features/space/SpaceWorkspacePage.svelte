@@ -99,6 +99,7 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SessionGenerationTaskTray, {
 	type GenerationTaskNotice,
 } from "$lib/components/SessionGenerationTaskTray.svelte";
+import SessionSplitMode from "$lib/components/SessionSplitMode.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
@@ -145,6 +146,7 @@ import {
 	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
+	buildSpaceSessionModeRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
@@ -223,6 +225,7 @@ type Props = {
 		cronjobId?: string | null;
 		taskId?: string | null;
 		turnSequence?: string | null;
+		sessionMode?: string | null;
 	};
 };
 type SelectedModel = {
@@ -248,6 +251,7 @@ type SessionViewState = {
 	hasMore: boolean;
 	hasMoreNewer: boolean;
 	loadingOlder: boolean;
+	loadingNewer: boolean;
 	oldestCursor: number | undefined;
 };
 const MAX_IMAGE_EDGE = 2160;
@@ -275,6 +279,9 @@ const routeTurnSequence = $derived.by(() => {
 		? Math.floor(sequence)
 		: null;
 });
+const routeSessionMode = $derived<"chat" | "split">(
+	data.sessionMode === "split" ? "split" : "chat",
+);
 const fileMode = $derived<"chat" | "file">(
 	routeView === "file" ? "file" : "chat",
 );
@@ -2204,6 +2211,7 @@ function upsertSessionRecord(
 			hasMore: existing?.hasMore ?? true,
 			hasMoreNewer: existing?.hasMoreNewer ?? false,
 			loadingOlder: existing?.loadingOlder ?? false,
+			loadingNewer: existing?.loadingNewer ?? false,
 			oldestCursor: existing?.oldestCursor,
 		},
 	};
@@ -2233,6 +2241,7 @@ function applySessionsSnapshot(sessions: SessionRecord[]) {
 			hasMore: existing?.hasMore ?? true,
 			hasMoreNewer: existing?.hasMoreNewer ?? false,
 			loadingOlder: existing?.loadingOlder ?? false,
+			loadingNewer: existing?.loadingNewer ?? false,
 			oldestCursor: existing?.oldestCursor,
 		};
 	}
@@ -2333,6 +2342,7 @@ function prepareRouteSession(sessionId: string) {
 				hasMore: true,
 				hasMoreNewer: false,
 				loadingOlder: false,
+				loadingNewer: false,
 				oldestCursor: undefined,
 			},
 		};
@@ -3119,6 +3129,7 @@ async function loadSessionState(sessionId: string, force = false) {
 					hasMore: cached.hasMoreOlder,
 					hasMoreNewer: cached.hasMoreNewer,
 					loadingOlder: false,
+					loadingNewer: false,
 					oldestCursor: cached.oldestSequence ?? undefined,
 				},
 			};
@@ -3140,6 +3151,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				hasMoreNewer:
 					currentSeed?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
 				loadingOlder: false,
+				loadingNewer: false,
 				oldestCursor: currentSeed?.oldestCursor ?? existing?.oldestCursor,
 			},
 		};
@@ -3173,6 +3185,7 @@ async function loadSessionState(sessionId: string, force = false) {
 					hasMore: snapshot.hasMoreOlder,
 					hasMoreNewer: snapshot.hasMoreNewer,
 					loadingOlder: false,
+					loadingNewer: false,
 					oldestCursor: snapshot.oldestSequence ?? undefined,
 				},
 			};
@@ -3194,6 +3207,7 @@ async function loadSessionState(sessionId: string, force = false) {
 					hasMoreNewer:
 						fallback?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
 					loadingOlder: false,
+					loadingNewer: false,
 					oldestCursor: fallback?.oldestCursor ?? existing?.oldestCursor,
 				},
 			};
@@ -3369,14 +3383,45 @@ async function jumpToTurn(sequence: number) {
 			error instanceof Error ? error.message : "Failed to jump to turn";
 	}
 }
-async function jumpToTurnAndUpdateUrl(sequence: number) {
+function updateSessionModeUrl(
+	mode: "chat" | "split",
+	sequence = currentTurnSequence ?? routeTurnSequence,
+) {
+	if (!activeSessionId) return;
+	void goto(
+		buildSpaceSessionModeRoute(spaceId, activeSessionId, mode, sequence),
+		{
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true,
+		},
+	);
+}
+async function jumpToTurnAndUpdateUrl(
+	sequence: number,
+	options?: { mode?: "chat" | "split" },
+) {
 	if (!activeSessionId) return;
 	appliedRouteTurnKey = `${activeSessionId}:${sequence}`;
-	void goto(buildSpaceSessionTurnRoute(spaceId, activeSessionId, sequence), {
-		replaceState: true,
-		keepFocus: true,
-		noScroll: true,
-	});
+	void goto(
+		buildSpaceSessionTurnRoute(spaceId, activeSessionId, sequence, {
+			mode: options?.mode ?? routeSessionMode,
+		}),
+		{
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true,
+		},
+	);
+	if (options?.mode === "split") {
+		await ensureTurnWindowLoaded(activeSessionId, sequence);
+		return;
+	}
+	await jumpToTurn(sequence);
+}
+async function openTurnInChat(sequence: number) {
+	updateSessionModeUrl("chat", sequence);
+	await tick();
 	await jumpToTurn(sequence);
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
@@ -3387,6 +3432,13 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 		if (!state || state.turns.length === 0) return;
 		const newestSeq = state.turns.at(-1)?.sequence;
 		if (newestSeq == null) return;
+		sessionStateById = {
+			...sessionStateById,
+			[sessionId]: {
+				...state,
+				loadingNewer: true,
+			},
+		};
 		try {
 			const response = await sdk
 				.space(spaceId)
@@ -3417,6 +3469,17 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 			}
 		} catch (error) {
 			console.warn("[syncSessionNewer] Failed to sync newer turns:", error);
+		} finally {
+			const current = sessionStateById[sessionId];
+			if (current) {
+				sessionStateById = {
+					...sessionStateById,
+					[sessionId]: {
+						...current,
+						loadingNewer: false,
+					},
+				};
+			}
 		}
 	})();
 	syncSessionNewerInFlight.set(sessionId, run);
@@ -3460,6 +3523,7 @@ async function loadOlderTurns(sessionId: string) {
 				hasMore: snapshot.hasMoreOlder,
 				hasMoreNewer: snapshot.hasMoreNewer,
 				loadingOlder: false,
+				loadingNewer: false,
 				oldestCursor: snapshot.oldestSequence ?? undefined,
 			},
 		};
@@ -3588,6 +3652,7 @@ async function reconcileSessionTail(sessionId: string) {
 					loaded: true,
 					error: "",
 					loadingOlder: false,
+					loadingNewer: false,
 					oldestCursor: snapshot.oldestSequence ?? undefined,
 				},
 			};
@@ -4440,6 +4505,9 @@ async function handleSend() {
 		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
 			session: activeSessionState.session,
 		});
+		if (routeSessionMode === "split") {
+			void jumpToTurnAndUpdateUrl(sequenceHint, { mode: "split" });
+		}
 		startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
 		const sendResult = await sdk.space(spaceId).prompt({
 			sessionId,
@@ -4460,6 +4528,9 @@ async function handleSend() {
 			nextTurnId: acceptedTurn.id,
 			confirmedTurn: acceptedTurn,
 		});
+		if (routeSessionMode === "split") {
+			void jumpToTurnAndUpdateUrl(acceptedTurn.sequence, { mode: "split" });
+		}
 		const current = sessionStateById[sessionId];
 		if (current) {
 			const snapshot = await sessionTurnsRepo.mergeTurns(
@@ -5708,6 +5779,7 @@ function handleCreateNewSession() {
 					hasMore: false,
 					hasMoreNewer: false,
 					loadingOlder: false,
+					loadingNewer: false,
 					oldestCursor: undefined,
 				},
 			};
@@ -6208,6 +6280,10 @@ $effect(() => {
 	const key = `${sessionId}:${sequence}`;
 	if (appliedRouteTurnKey === key) return;
 	appliedRouteTurnKey = key;
+	if (routeSessionMode === "split") {
+		void ensureTurnWindowLoaded(sessionId, sequence);
+		return;
+	}
 	void jumpToTurn(sequence);
 });
 $effect(() => {
@@ -6721,6 +6797,26 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
+    {#if routeView === "session" && activeSessionId}
+      <div class="flex items-center rounded-[6px] border border-border-subtle bg-bg-input p-[2px]">
+        <button
+          type="button"
+          class={`h-7 rounded-[4px] px-2 text-[12px] transition-colors ${routeSessionMode === 'chat' ? 'bg-bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}`}
+          onclick={() => updateSessionModeUrl('chat')}
+          aria-pressed={routeSessionMode === 'chat'}
+        >
+          Chat
+        </button>
+        <button
+          type="button"
+          class={`h-7 rounded-[4px] px-2 text-[12px] transition-colors ${routeSessionMode === 'split' ? 'bg-bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}`}
+          onclick={() => updateSessionModeUrl('split')}
+          aria-pressed={routeSessionMode === 'split'}
+        >
+          Split
+        </button>
+      </div>
+    {/if}
     <!-- Session Share -->
     {#if activeSessionId && canManageSessionAccess}
       {@const isPublic = hasSessionPermission(activeSessionId)}
@@ -7995,45 +8091,81 @@ $effect(() => {
         </div>
       {/if}
       <div class="relative flex-1 min-h-0 flex flex-col">
-        <ChatTimeline
-          bind:this={chatTimelineRef}
-          bind:bindListEl={listEl}
-          timeline={timeline}
-          preloadThreshold={10}
-          onFirstVisible={handleFirstVisible}
-          onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
-          onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
-          onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
-          onMarkdownRendered={handleTimelineMarkdownRendered}
-          onForkTurn={handleForkTurn}
-          forkingTurnId={forkingTurnId}
-          loadingOlder={activeSessionState?.loadingOlder ?? false}
-          onOpenFile={openInlineFile}
-          modelsCatalog={modelsCatalog ?? undefined}
-        />
-        <SessionGenerationTaskTray notices={generationTaskNotices} />
-        <TurnRail
-          turns={activeTurnRailItems}
-          loadedTurns={activeSessionState.turns}
-          markerPositions={turnMarkerPositions}
-          markerHeights={turnMarkerHeights}
-          scrollTop={timelineScrollTop}
-          scrollHeight={timelineScrollHeight}
-          clientHeight={timelineClientHeight}
-          bottomOffset={composerHeight}
-          olderCount={unloadedOlderTurnCount}
-          newerCount={unloadedNewerTurnCount}
-          hasMoreOlder={activeSessionState.hasMore}
-          hasMoreNewer={activeSessionState.hasMoreNewer}
-          loadingOlder={activeSessionState.loadingOlder}
-          currentSequence={currentTurnSequence}
-          loadingSequence={loadingTurnSequence}
-          onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
-          onScrollTo={(scrollTop) => { setProgrammaticScrollTop(scrollTop); }}
-          onScrollCommit={() => { snapScrollToNearestTurn(); }}
-          onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
-          onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
-        />
+        {#if routeSessionMode === 'split' && activeSessionId}
+          <SessionSplitMode
+            turns={activeSessionState.turns}
+            turnIndexItems={activeTurnRailItems}
+            selectedSequence={routeTurnSequence}
+            olderCount={unloadedOlderTurnCount}
+            newerCount={unloadedNewerTurnCount}
+            hasMoreOlder={activeSessionState.hasMore}
+            hasMoreNewer={activeSessionState.hasMoreNewer}
+            loadingOlder={activeSessionState.loadingOlder}
+            loadingNewer={activeSessionState.loadingNewer}
+            loadingSequence={loadingTurnSequence}
+            streaming={activeGenerationState && (activeGenerationState.status === "streaming" || activeGenerationState.status === "pending" || !TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status)) ? {
+              sessionId: activeSessionId,
+              turnId: activeGenerationState.turnId ?? null,
+              anchorUserMessageId: activeGenerationState.anchorUserMessageId ?? null,
+              intermediateMessages: activeStreamingIntermediateMessages,
+              contentBlocks: activeGenerationState.contentBlocks,
+              finalizedPreview: activeGenerationState.finalizedPreview,
+              status: activeGenerationState.status,
+            } : null}
+            onSelectTurn={(sequence) => { void jumpToTurnAndUpdateUrl(sequence, { mode: 'split' }); }}
+            onJumpToChat={(sequence) => { void openTurnInChat(sequence); }}
+            onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
+            onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
+            onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
+            onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
+            onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
+            onMarkdownRendered={handleTimelineMarkdownRendered}
+            onForkTurn={handleForkTurn}
+            forkingTurnId={forkingTurnId}
+            onOpenFile={openInlineFile}
+            modelsCatalog={modelsCatalog ?? undefined}
+          />
+        {:else}
+          <ChatTimeline
+            bind:this={chatTimelineRef}
+            bind:bindListEl={listEl}
+            timeline={timeline}
+            preloadThreshold={10}
+            onFirstVisible={handleFirstVisible}
+            onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
+            onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
+            onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
+            onMarkdownRendered={handleTimelineMarkdownRendered}
+            onForkTurn={handleForkTurn}
+            forkingTurnId={forkingTurnId}
+            loadingOlder={activeSessionState?.loadingOlder ?? false}
+            onOpenFile={openInlineFile}
+            modelsCatalog={modelsCatalog ?? undefined}
+          />
+          <SessionGenerationTaskTray notices={generationTaskNotices} />
+          <TurnRail
+            turns={activeTurnRailItems}
+            loadedTurns={activeSessionState.turns}
+            markerPositions={turnMarkerPositions}
+            markerHeights={turnMarkerHeights}
+            scrollTop={timelineScrollTop}
+            scrollHeight={timelineScrollHeight}
+            clientHeight={timelineClientHeight}
+            bottomOffset={composerHeight}
+            olderCount={unloadedOlderTurnCount}
+            newerCount={unloadedNewerTurnCount}
+            hasMoreOlder={activeSessionState.hasMore}
+            hasMoreNewer={activeSessionState.hasMoreNewer}
+            loadingOlder={activeSessionState.loadingOlder}
+            currentSequence={currentTurnSequence}
+            loadingSequence={loadingTurnSequence}
+            onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
+            onScrollTo={(scrollTop) => { setProgrammaticScrollTop(scrollTop); }}
+            onScrollCommit={() => { snapScrollToNearestTurn(); }}
+            onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
+            onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
+          />
+        {/if}
         {#if highlightedTurnSequence}
           <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
         {/if}
