@@ -769,10 +769,7 @@ async function loadLabelItems(
 		}
 	}
 
-	const hasVisibleItems = Boolean(
-		labelItemsBySpace[spaceId]?.[labelId]?.length,
-	);
-	if (!hasVisibleItems || append) {
+	if (append) {
 		loadingLabelIdsBySpace = {
 			...loadingLabelIdsBySpace,
 			[spaceId]: new Set([
@@ -1035,16 +1032,18 @@ function handleSessionDragStart(
 	);
 }
 
+function isDraggableLabelItem(
+	item: LabelAssignmentListItem,
+): item is LabelAssignmentListItem & { resourceType: "session" | "file" } {
+	return item.resourceType === "session" || item.resourceType === "file";
+}
+
 function handleLabelItemDragStart(
 	event: DragEvent,
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (!canAssignLabels) {
-		event.preventDefault();
-		return;
-	}
-	if (item.resourceType !== "session" && item.resourceType !== "file") {
+	if (!canAssignLabels || !isDraggableLabelItem(item)) {
 		event.preventDefault();
 		return;
 	}
@@ -1840,20 +1839,20 @@ $effect(() => {
 
 {#snippet labelAssignmentRows(label: LabelListItem, depth: number)}
 	{@const items = currentLabelItemsById[label.id] ?? []}
+	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
-		{#if currentLoadingLabelIds.has(label.id) && items.length === 0}
-			<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
-		{:else if items.length === 0}
+		{#if items.length === 0 && !hasChildLabels}
 			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
-		{:else}
+		{:else if items.length > 0}
 			{#each items as item (item.id)}
-				{@const itemDraggable = canAssignLabels && (item.resourceType === "session" || item.resourceType === "file")}
+				{@const itemDraggable = isDraggableLabelItem(item)}
 				<a
 					href={labelAssignmentHref(item)}
-					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
+					class="group/label-item relative flex w-full min-w-0 select-none items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'cursor-move hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
 					draggable={itemDraggable}
+					aria-disabled={itemDraggable && !canAssignLabels ? "true" : undefined}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 				>
