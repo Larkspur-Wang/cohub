@@ -243,6 +243,9 @@ let loadingTasks = $state(false);
 let loadingTasksSpaceId = $state<string | null>(null);
 
 const currentPath = $derived(page.url.pathname);
+const currentSessionViewMode = $derived<"chat" | "split">(
+	page.url.searchParams.get("mode") === "split" ? "split" : "chat",
+);
 const activeSession = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
 	const activeSessionId = match?.[1] ?? null;
@@ -1326,7 +1329,8 @@ function openSpacePalette() {
 
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
 	const preferredMode = loadSpaceSessionModePreference(spaceId);
-	return preferredMode === "split"
+	const mode = preferredMode ?? currentSessionViewMode;
+	return mode === "split"
 		? buildSpaceSessionModeRoute(spaceId, sessionId, "split")
 		: buildSpaceSessionRoute(spaceId, sessionId);
 }

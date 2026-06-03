@@ -309,7 +309,7 @@ function selectTurn(sequence: number) {
 				<div class="px-4 py-8 text-center text-[12px] text-text-tertiary">No matching user messages.</div>
 			{:else}
 				<div class="divide-y divide-border-subtle/70">
-					{#each filteredRows as row (row.sequence)}
+					{#each filteredRows as row (`${row.sessionId}:${row.sequence}`)}
 						{@const selected = row.sequence === effectiveSelectedSequence}
 						<button
 							type="button"

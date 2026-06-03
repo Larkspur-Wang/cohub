@@ -8137,6 +8137,7 @@ $effect(() => {
       {/if}
       <div class="relative flex-1 min-h-0 flex flex-col">
         {#if routeSessionMode === 'split' && activeSessionId}
+          {#key activeSessionId}
           <SessionSplitMode
             turns={activeSessionState.turns}
             turnIndexItems={activeTurnRailItems}
@@ -8173,6 +8174,7 @@ $effect(() => {
             onOpenFile={openInlineFile}
             modelsCatalog={modelsCatalog ?? undefined}
           />
+          {/key}
         {:else}
           <ChatTimeline
             bind:this={chatTimelineRef}
