@@ -40,7 +40,6 @@ import {
 	Download,
 	ExternalLink,
 	Eye,
-	FileText,
 	FolderKanban,
 	GitCommitHorizontal,
 	Globe,
@@ -66,6 +65,7 @@ import {
 	Settings,
 	Share2,
 	Terminal,
+	TextCursorInput,
 	Trash2,
 	Upload,
 	UserRound,
@@ -6577,7 +6577,7 @@ $effect(() => {
 					}}
 					role="menuitem"
 				>
-					<FileText class="w-3.5 h-3.5" />
+					<TextCursorInput class="w-3.5 h-3.5" />
 					<span>Insert reference</span>
 				</button>
 			</div>
@@ -6771,7 +6771,7 @@ $effect(() => {
               <span>Label as…</span>
             </button>
             <button type="button" class="menu-item" onclick={insertHeaderReference} role="menuitem">
-              <FileText class="w-3.5 h-3.5" />
+              <TextCursorInput class="w-3.5 h-3.5" />
               <span>Insert reference</span>
             </button>
           </div>

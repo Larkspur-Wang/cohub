@@ -21,7 +21,6 @@ import {
 	CreditCard,
 	Download,
 	File as FileIcon,
-	FileText,
 	FolderKanban,
 	History,
 	Keyboard,
@@ -39,6 +38,7 @@ import {
 	Search,
 	Settings,
 	Tags,
+	TextCursorInput,
 	Trash2,
 	Unlink2,
 	User,
@@ -2105,6 +2105,7 @@ $effect(() => {
 				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); labelsCollapsed = !labelsCollapsed; } }}
 			>
 				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
+				<Tags class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 				<span class="text-[11px] text-text-placeholder select-none">Labels</span>
 				{#if canManageLabels}
 					<span
@@ -2273,7 +2274,7 @@ $effect(() => {
 					<SessionSidebarRowContent {session} title={item.displayTitle} />
 					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
 						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Insert" onclick={(e) => { e.preventDefault(); e.stopPropagation(); insertPathReference(`/sessions/${session.id}.jsonl`); }}>
-							<FileText class="h-3.5 w-3.5" />
+							<TextCursorInput class="h-3.5 w-3.5" />
 						</button>
 						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Rename" onclick={(e) => { e.preventDefault(); e.stopPropagation(); startRenameSession(session); }}>
 							<Pencil class="h-3.5 w-3.5" />
@@ -2300,7 +2301,6 @@ $effect(() => {
 			{#each checkpoints.slice(0, sidebarFlyoutPreviewLimit) as checkpoint (checkpoint.id)}
 				{@const isActive = activeCheckpointId === checkpoint.id}
 				<a href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)} class="sidebar-flyout-item group/checkpoint relative flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-12 focus-within:pr-12 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}>
-					<History class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div><div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{checkpoint.commitHash.slice(0, 12)}</div></div>
 				</a>
 			{/each}
@@ -2323,7 +2323,6 @@ $effect(() => {
 			{#each cronjobs.slice(0, sidebarFlyoutPreviewLimit) as job (job.id)}
 				{@const isActive = activeCronjobId === job.id}
 				<a href={buildSpaceCronjobRoute(currentSpaceId!, job.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}>
-					<Clock class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{job.title}</div></div>
 					<span class="h-1.5 w-1.5 shrink-0 rounded-full {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
 				</a>
@@ -2343,7 +2342,6 @@ $effect(() => {
 				{@const isActive = activeTaskId === run.id}
 				{@const badge = getTaskRunBadge(run.status)}
 				<a href={buildSpaceTaskRoute(currentSpaceId!, run.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}>
-					<Activity class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<div class="min-w-0 flex-1"><div class="truncate text-[12px] capitalize leading-tight {badge.color}">{run.status}</div><div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div></div>
 					<span class="h-1.5 w-1.5 shrink-0 rounded-full {badge.dot}"></span>
 				</a>
@@ -2672,6 +2670,7 @@ $effect(() => {
             title={sessionsCollapsed ? "Expand chats" : "Collapse chats"}
           >
             <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {sessionsCollapsed ? 'rotate-180' : ''}" />
+            <MessageSquare class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
             <span class="text-[11px] text-text-placeholder select-none">Chats</span>
           </button>
 
@@ -2755,7 +2754,7 @@ $effect(() => {
 								insertPathReference(`/sessions/${session.id}.jsonl`);
                           }}
                         >
-                          <FileText class="w-3.5 h-3.5" />
+                          <TextCursorInput class="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
@@ -2861,7 +2860,7 @@ $effect(() => {
 						insertPathReference(`/sessions/${activeSession.id}.jsonl`);
                     }}
                   >
-                    <FileText class="w-3.5 h-3.5" />
+                    <TextCursorInput class="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
@@ -2889,6 +2888,7 @@ $effect(() => {
               title={checkpointsCollapsed ? "Expand saves" : "Collapse saves"}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {checkpointsCollapsed ? 'rotate-180' : ''}" />
+              <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Saves</span>
             </button>
 
@@ -2909,7 +2909,6 @@ $effect(() => {
                       class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-1.5 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
                     >
-                      <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
                         <div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div>
                         <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{checkpoint.commitHash.slice(0, 12)}</div>
@@ -2924,7 +2923,6 @@ $effect(() => {
                 class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(activeCheckpoint.id); }}
               >
-                <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate leading-tight">{getCheckpointTitle(activeCheckpoint)}</div>
                   <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{activeCheckpoint.commitHash.slice(0, 12)}</div>
@@ -2944,6 +2942,7 @@ $effect(() => {
               onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cronjobsCollapsed = !cronjobsCollapsed; } }}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {cronjobsCollapsed ? 'rotate-180' : ''}" />
+              <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Scheduled</span>
               <span
                 class="ml-auto p-0.5 rounded hover:bg-bg-hover text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
@@ -2974,7 +2973,6 @@ $effect(() => {
                       class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}
                     >
-                      <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
                         <div class="truncate leading-tight">{job.title}</div>
                       </div>
@@ -2989,7 +2987,6 @@ $effect(() => {
                 class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(activeCronjob.id); }}
               >
-                <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate leading-tight">{activeCronjob.title}</div>
                 </div>
@@ -3007,6 +3004,7 @@ $effect(() => {
               title={tasksCollapsed ? "Expand tasks" : "Collapse tasks"}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {tasksCollapsed ? 'rotate-180' : ''}" />
+              <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Tasks</span>
             </button>
 
@@ -3028,7 +3026,6 @@ $effect(() => {
                       class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
                     >
-                      <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
                         <div class="truncate leading-tight text-[12px] capitalize {badge.color}">{run.status}</div>
                         <div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div>
@@ -3044,7 +3041,6 @@ $effect(() => {
                 class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToTask(activeTaskId); }}
               >
-                <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate leading-tight text-[12px]">Task run</div>
                 </div>

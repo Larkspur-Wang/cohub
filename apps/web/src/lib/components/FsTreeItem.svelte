@@ -6,6 +6,7 @@ import {
 	FolderOpen,
 	MoreHorizontal,
 	Pencil,
+	TextCursorInput,
 	Trash2,
 	Upload,
 } from "lucide-svelte";
@@ -227,7 +228,7 @@ $effect(() => {
   {#if showItemActions && canWrite}
     <span class="actions">
       {#if onInsertReference}
-        <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><FileIcon class="w-3.5 h-3.5" /></button>
+        <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><TextCursorInput class="w-3.5 h-3.5" /></button>
       {/if}
       <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3.5 h-3.5" /></button>
       {#if isDir}
