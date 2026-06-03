@@ -223,6 +223,12 @@ let renameTitleValue = $state("");
 let renameSaving = $state(false);
 let renameInputElement: HTMLInputElement | null = $state(null);
 
+// Label rename state
+let renamingLabelId = $state<string | null>(null);
+let renameLabelValue = $state("");
+let renameLabelSaving = $state(false);
+let renameLabelInputElement: HTMLInputElement | null = $state(null);
+
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
 let loadingCronjobs = $state(false);
@@ -277,6 +283,9 @@ const currentSpace = $derived(
 );
 const canAssignLabels = $derived(
 	Boolean(currentSpace?.access?.permissions?.includes("space.label.assign")),
+);
+const canManageLabels = $derived(
+	Boolean(currentSpace?.access?.permissions?.includes("space.label.manage")),
 );
 const currentLabelItemsById = $derived.by(() =>
 	currentSpaceId
@@ -962,7 +971,7 @@ function getDropResource(event: DragEvent): {
 }
 
 function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
-	if (!canAssignLabels || !hasCohubResourceDragData(event.dataTransfer)) return;
+	if (!hasCohubResourceDragData(event.dataTransfer)) return;
 	event.preventDefault();
 	event.stopPropagation();
 	labelDropTargetId = label.id;
@@ -979,6 +988,21 @@ function labelRefForId(labelId: string) {
 	);
 }
 
+function replaceLabelInTree(
+	items: LabelListItem[],
+	labelId: string,
+	updater: (label: LabelListItem) => LabelListItem,
+): LabelListItem[] {
+	return items.map((item) => {
+		const nextItem = item.id === labelId ? updater(item) : item;
+		if (!nextItem.children?.length) return nextItem;
+		return {
+			...nextItem,
+			children: replaceLabelInTree(nextItem.children, labelId, updater),
+		};
+	});
+}
+
 function handleLabelDragLeave(event: DragEvent, label: LabelListItem) {
 	const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
 	const { clientX: x, clientY: y } = event;
@@ -989,7 +1013,7 @@ function handleLabelDragLeave(event: DragEvent, label: LabelListItem) {
 }
 
 async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
-	if (!canAssignLabels || !currentSpaceId) return;
+	if (!currentSpaceId) return;
 	const spaceId = currentSpaceId;
 	const drop = getDropResource(event);
 	if (!drop) return;
@@ -1072,7 +1096,7 @@ function handleLabelItemDragStart(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (!canAssignLabels || !isDraggableLabelItem(item)) {
+	if (!isDraggableLabelItem(item)) {
 		event.preventDefault();
 		return;
 	}
@@ -1161,7 +1185,7 @@ async function removeLabelAssignment(
 }
 
 async function handleRemoveLabelDrop(event: DragEvent) {
-	if (!canAssignLabels || !currentSpaceId || !draggedLabelOrigin) return;
+	if (!currentSpaceId || !draggedLabelOrigin) return;
 	const spaceId = currentSpaceId;
 	const drop = getDropResource(event);
 	const origin = drop?.payload.origin;
@@ -1198,11 +1222,7 @@ async function handleRemoveLabelDrop(event: DragEvent) {
 }
 
 function handleRemoveLabelDragOver(event: DragEvent) {
-	if (
-		!canAssignLabels ||
-		!draggedLabelOrigin ||
-		!hasCohubResourceDragData(event.dataTransfer)
-	)
+	if (!draggedLabelOrigin || !hasCohubResourceDragData(event.dataTransfer))
 		return;
 	event.preventDefault();
 	event.stopPropagation();
@@ -1435,6 +1455,86 @@ async function submitRenameSession(session: SessionRecord) {
 	} finally {
 		renameSaving = false;
 		cancelRenameSession();
+	}
+}
+
+function findLabelById(labelId: string) {
+	return flattenLabels(labels).find((label) => label.id === labelId) ?? null;
+}
+
+function isUserLabel(label: LabelListItem) {
+	return label.source === "user";
+}
+
+function canRenameLabel(label: LabelListItem) {
+	return canManageLabels && isUserLabel(label);
+}
+
+function startRenameLabel(label: LabelListItem) {
+	if (!canRenameLabel(label)) return;
+	renamingLabelId = label.id;
+	renameLabelValue = label.name;
+	void tick().then(() => {
+		renameLabelInputElement?.focus();
+		renameLabelInputElement?.select();
+	});
+}
+
+function cancelRenameLabel() {
+	renamingLabelId = null;
+	renameLabelValue = "";
+}
+
+async function submitRenameLabel(label: LabelListItem) {
+	if (renameLabelSaving || !currentSpaceId || !canRenameLabel(label)) return;
+	const trimmed = renameLabelValue.trim();
+	if (!trimmed || trimmed === label.name) {
+		cancelRenameLabel();
+		return;
+	}
+	const labelRef = labelRefForId(label.id);
+	if (!labelRef) {
+		cancelRenameLabel();
+		return;
+	}
+
+	renameLabelSaving = true;
+	try {
+		await sdk.space(currentSpaceId).labels.update(labelRef, { name: trimmed });
+		labels = replaceLabelInTree(labels, label.id, (item) => ({
+			...item,
+			name: trimmed,
+		}));
+		labels = await fetchSpaceLabelsFresh(currentSpaceId);
+	} catch (error) {
+		console.warn("[labels] Failed to rename label", {
+			labelId: label.id,
+			error,
+		});
+	} finally {
+		renameLabelSaving = false;
+		cancelRenameLabel();
+	}
+}
+
+function handleLabelRowClick(label: LabelListItem) {
+	if (renamingLabelId === label.id) return;
+	toggleLabelExpanded(label.id);
+}
+
+function handleLabelRenameKeydown(event: KeyboardEvent, label: LabelListItem) {
+	if (
+		event.key === "Enter" &&
+		!renameLabelSaving &&
+		!isComposingKeyboardEvent(event)
+	) {
+		event.preventDefault();
+		void submitRenameLabel(label);
+		return;
+	}
+	if (event.key === "Escape" && !renameLabelSaving) {
+		event.preventDefault();
+		cancelRenameLabel();
 	}
 }
 
@@ -1810,6 +1910,7 @@ $effect(() => {
 		labelDropErrorMessage = null;
 		labelRemoveDropActive = false;
 		draggedLabelOrigin = null;
+		cancelRenameLabel();
 		clearLabelAutoExpandTimer();
 		untrack(() => {
 			restoreExpandedLabelIds(id);
@@ -1841,6 +1942,7 @@ $effect(() => {
 		labelDropErrorMessage = null;
 		labelRemoveDropActive = false;
 		draggedLabelOrigin = null;
+		cancelRenameLabel();
 		clearLabelAutoExpandTimer();
 	}
 });
@@ -1944,7 +2046,7 @@ $effect(() => {
 				<Plus class="h-3 w-3" />
 			</span>
 		</div>
-		{#if draggedLabelOrigin && canAssignLabels}
+		{#if draggedLabelOrigin}
 			<div
 				role="button"
 				tabindex="-1"
@@ -1968,18 +2070,46 @@ $effect(() => {
 					{#each labels as label (label.id)}
 						<button
 							type="button"
-							class="label-tree-row"
+							class="label-tree-row group/label"
 							class:drop-target={labelDropTargetId === label.id}
 							class:drop-busy={labelDropBusyId === label.id}
 							class:drop-success={labelDropSuccessId === label.id}
 							class:drop-error={labelDropErrorId === label.id}
-							onclick={() => toggleLabelExpanded(label.id)}
+							class:renaming={renamingLabelId === label.id}
+							onclick={() => handleLabelRowClick(label)}
+							ondblclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}
 							ondragover={(event) => handleLabelDragOver(event, label)}
 							ondragleave={(event) => handleLabelDragLeave(event, label)}
 							ondrop={(event) => handleLabelDrop(event, label)}
 						>
 							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
-							<span class="truncate">{label.name}</span>
+							{#if renamingLabelId === label.id}
+								<input
+									bind:this={renameLabelInputElement}
+									bind:value={renameLabelValue}
+									class="label-rename-input"
+									disabled={renameLabelSaving}
+									onclick={(event) => event.stopPropagation()}
+									onkeydown={(event) => handleLabelRenameKeydown(event, label)}
+								/>
+								<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
+									<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(label); }}>
+										{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+									</button>
+									<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
+										<X class="h-3.5 w-3.5" />
+									</button>
+								</span>
+							{:else}
+								<span class="min-w-0 flex-1 truncate">{label.name}</span>
+								{#if canRenameLabel(label)}
+									<span class="label-row-actions">
+										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Rename" onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
+											<Pencil class="h-3.5 w-3.5" />
+										</button>
+									</span>
+								{/if}
+							{/if}
 						</button>
 						{@render labelAssignmentRows(label, 0)}
 						{#if currentExpandedLabelIds.has(label.id)}
