@@ -290,8 +290,24 @@ const routeTurnSequence = $derived.by(() => {
 		? Math.floor(sequence)
 		: null;
 });
+// Reactive mobile detection – split mode is disabled on small viewports.
+const MOBILE_BREAKPOINT = 1024;
+let isMobile = $state(
+	typeof window !== "undefined"
+		? window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`).matches
+		: false,
+);
+$effect(() => {
+	if (typeof window === "undefined") return;
+	const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+	const handler = (e: MediaQueryListEvent) => {
+		isMobile = e.matches;
+	};
+	mql.addEventListener("change", handler);
+	return () => mql.removeEventListener("change", handler);
+});
 const routeSessionMode = $derived<SessionViewMode>(
-	data.sessionMode === "split" ? "split" : "chat",
+	isMobile ? "chat" : data.sessionMode === "split" ? "split" : "chat",
 );
 const fileMode = $derived<"chat" | "file">(
 	routeView === "file" ? "file" : "chat",
@@ -6301,7 +6317,13 @@ $effect(() => {
 });
 $effect(() => {
 	const sessionId = routeSessionId;
-	if (!pageMounted || routeView !== "session" || !sessionId || data.sessionMode)
+	if (
+		!pageMounted ||
+		routeView !== "session" ||
+		!sessionId ||
+		data.sessionMode ||
+		isMobile
+	)
 		return;
 	const key = `${spaceId}:${sessionId}`;
 	if (sessionModePreferenceRedirectKey === key) return;
@@ -6842,7 +6864,7 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
-    {#if routeView === "session" && activeSessionId}
+    {#if routeView === "session" && activeSessionId && !isMobile}
       <div class="flex items-center rounded-[6px] border border-border-subtle bg-bg-input p-[2px]">
         <button
           type="button"
