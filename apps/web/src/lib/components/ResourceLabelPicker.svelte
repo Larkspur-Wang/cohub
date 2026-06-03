@@ -8,7 +8,6 @@ import { Check, Loader2, Plus, X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import {
 	createSpaceLabel,
-	fetchSpaceLabelsFresh,
 	flattenLabels,
 	flattenLabelsWithRefs,
 	getCachedSpaceLabelsSnapshot,
@@ -32,50 +31,80 @@ const {
 let labels = $state<LabelListItem[]>([]);
 let assignments = $state<LabelAssignmentRecord[]>([]);
 let selected = $state<Set<string>>(new Set());
-let loading = $state(true);
 let saving = $state(false);
 let error = $state("");
 let showCreate = $state(false);
-let labelsLoadedFromCache = $state(false);
+let initialLoadSettled = $state(false);
+let loading = $state(false);
+let loadVersion = 0;
 
 const flatLabels = $derived(flattenLabels(labels));
 const labelOptions = $derived(flattenLabelsWithRefs(labels));
 const selectedCount = $derived(selected.size);
 
+function labelsEqual(a: LabelListItem[], b: LabelListItem[]): boolean {
+	if (a === b) return true;
+	if (a.length !== b.length) return false;
+	return a.every((label, index) => {
+		const other = b[index];
+		return (
+			other &&
+			label.id === other.id &&
+			label.name === other.name &&
+			labelsEqual(label.children ?? [], other.children ?? [])
+		);
+	});
+}
+
+function assignmentRefsEqual(a: Set<string>, b: Set<string>) {
+	if (a.size !== b.size) return false;
+	for (const value of a) if (!b.has(value)) return false;
+	return true;
+}
+
+function updateLabels(nextLabels: LabelListItem[]) {
+	if (!labelsEqual(labels, nextLabels)) labels = nextLabels;
+}
+
 function applyAssignments(
 	nextLabels: LabelListItem[],
 	nextAssignments: LabelAssignmentRecord[],
 ) {
-	labels = nextLabels;
+	updateLabels(nextLabels);
 	assignments = nextAssignments;
 	const refsById = new Map(
 		flattenLabelsWithRefs(nextLabels).map((label) => [label.id, label.ref]),
 	);
-	selected = new Set(
+	const nextSelected = new Set(
 		nextAssignments
 			.map((assignment) => refsById.get(assignment.labelId))
 			.filter((ref): ref is string => Boolean(ref)),
 	);
+	if (!assignmentRefsEqual(selected, nextSelected)) selected = nextSelected;
 }
 
 async function load() {
+	const version = ++loadVersion;
+	initialLoadSettled = false;
 	loading = true;
-	labelsLoadedFromCache = false;
 	error = "";
 	try {
 		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
-		if (cached?.labels) {
-			labels = cached.labels;
-			labelsLoadedFromCache = true;
-		}
+		if (version !== loadVersion) return;
+		if (cached?.labels) updateLabels(cached.labels);
 
 		const result = await getResourceLabels(spaceId, resourceType, resourceRef);
+		if (version !== loadVersion) return;
 		applyAssignments(result.labels, result.assignments);
 	} catch (err) {
+		if (version !== loadVersion) return;
 		console.warn("[labels] Failed to load resource labels", err);
 		error = "Labels unavailable";
 	} finally {
-		loading = false;
+		if (version === loadVersion) {
+			initialLoadSettled = true;
+			loading = false;
+		}
 	}
 }
 
@@ -105,7 +134,7 @@ async function save() {
 			[...selected],
 			{ previousLabelRefs: [...previousLabelRefs] },
 		);
-		labels = result.labels;
+		updateLabels(result.labels);
 		assignments = result.assignments;
 		onClose();
 	} catch (err) {
@@ -122,7 +151,7 @@ async function createLabel(input: { name: string; parentRef: string | null }) {
 		input.parentRef ? `${input.parentRef}/${input.name}` : input.name,
 	);
 	const result = await getResourceLabels(spaceId, resourceType, resourceRef);
-	labels = result.labels;
+	updateLabels(result.labels);
 	assignments = result.assignments;
 	if (label) {
 		const createdRef = flattenLabelsWithRefs(result.labels).find(
@@ -145,7 +174,7 @@ $effect(() => {
 	const unsubscribe = onSpaceLabelsCacheUpdated(
 		({ spaceId: updatedSpaceId, labels: nextLabels }) => {
 			if (updatedSpaceId !== currentSpaceId) return;
-			labels = nextLabels;
+			updateLabels(nextLabels);
 		},
 	);
 	return unsubscribe;
@@ -163,7 +192,12 @@ $effect(() => {
 	<div class="sheet-handle" aria-hidden="true"></div>
 	<div class="flex items-start justify-between border-b border-border-subtle px-3 py-2.5">
 		<div class="min-w-0">
-			<div class="text-[13px] font-medium text-text-primary">Label as</div>
+			<div class="flex min-w-0 items-center gap-1.5">
+				<div class="text-[13px] font-medium text-text-primary">Label as</div>
+				{#if loading}
+					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" aria-label="Loading labels" />
+				{/if}
+			</div>
 			<div class="mt-0.5 text-[11px] text-text-tertiary">Choose labels for this item.</div>
 		</div>
 		<button type="button" class="close-button" onclick={onClose} aria-label="Close">
@@ -172,21 +206,12 @@ $effect(() => {
 	</div>
 
 	<div class="label-picker-body">
-		{#if loading && !labelsLoadedFromCache}
-			<div class="flex items-center gap-2 px-2 py-4 text-[12px] text-text-tertiary">
-				<Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading labels…
-			</div>
-		{:else if flatLabels.length === 0 && !showCreate}
+		{#if initialLoadSettled && flatLabels.length === 0 && !showCreate}
 			<div class="px-2 py-5 text-[12px] text-text-tertiary">
 				<div class="font-medium text-text-secondary">No labels yet</div>
 				<div class="mt-1">Create one to group chats, files, and checkpoints.</div>
 			</div>
-		{:else}
-			{#if loading && labelsLoadedFromCache}
-				<div class="mb-1 flex items-center gap-2 px-2 py-1 text-[11px] text-text-placeholder">
-					<Loader2 class="h-3 w-3 animate-spin" /> Refreshing…
-				</div>
-			{/if}
+		{:else if flatLabels.length > 0}
 			<div class="space-y-[1px]">
 				{#each labels as label (label.id)}
 					{@const labelRef = labelOptions.find((item) => item.id === label.id)?.ref ?? label.name}
@@ -221,7 +246,7 @@ $effect(() => {
 			<Plus class="h-3.5 w-3.5" /> New label
 		</button>
 		<div class="selected-count" aria-live="polite">{selectedCount} selected</div>
-		<button type="button" class="label-action primary" disabled={saving || loading} onclick={() => void save()}>
+		<button type="button" class="label-action primary" disabled={saving} onclick={() => void save()}>
 			{#if saving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}
 			Apply
 		</button>
