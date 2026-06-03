@@ -8,7 +8,6 @@ import type {
 } from "@cohub/protocol/model";
 import {
 	ArrowLeft,
-	GripVertical,
 	Loader2,
 	MessageSquare,
 	PanelLeftClose,
@@ -53,7 +52,6 @@ type Props = {
 	hasMoreNewer?: boolean;
 	loadingOlder?: boolean;
 	loadingNewer?: boolean;
-	loadingSequence?: number | null;
 	listWidth?: number;
 	listMinWidth?: number;
 	listMaxWidth?: number;
@@ -88,7 +86,6 @@ let {
 	hasMoreNewer = false,
 	loadingOlder = false,
 	loadingNewer = false,
-	loadingSequence = null,
 	listWidth = 320,
 	listMinWidth = 260,
 	listMaxWidth = 460,
@@ -285,7 +282,7 @@ function selectTurn(sequence: number) {
 }
 </script>
 
-<div class="flex h-full min-h-0 flex-col bg-bg-content md:flex-row">
+<div class="flex h-full min-h-0 min-w-0 flex-col bg-bg-content md:flex-row">
 	<aside
 		class={`relative min-h-0 border-border-subtle bg-bg-content md:flex md:shrink-0 md:flex-col md:border-r ${mobileDetailOpen ? 'hidden md:flex' : 'flex flex-1 flex-col'}`}
 		style:width={`${clampWidth(listWidth)}px`}
@@ -314,26 +311,22 @@ function selectTurn(sequence: number) {
 				<div class="divide-y divide-border-subtle/70">
 					{#each filteredRows as row (row.sequence)}
 						{@const selected = row.sequence === effectiveSelectedSequence}
-						{@const loaded = turnsBySequence.has(row.sequence)}
 						<button
 							type="button"
-							class={`group grid w-full grid-cols-[3.25rem_minmax(0,1fr)] gap-2 px-3 py-2.5 text-left transition-colors hover:bg-bg-hover/70 ${selected ? 'bg-bg-hover' : ''}`}
+							class={`group block w-full px-3 py-2.5 text-left transition-colors hover:bg-bg-hover/70 ${selected ? 'bg-bg-hover' : ''}`}
 							onclick={() => selectTurn(row.sequence)}
 						>
-							<div class="pt-0.5 text-[11px] tabular-nums text-text-placeholder">#{row.sequence}</div>
 							<div class="min-w-0">
 								<div class="line-clamp-3 whitespace-pre-wrap text-[13px] leading-[1.45] text-text-primary">{previewText(row)}</div>
 								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] leading-none">
+									<span class="shrink-0 tabular-nums text-text-placeholder/70">#{row.sequence}</span>
+									<span class="text-text-placeholder">·</span>
 									<span class={`shrink-0 ${statusClass(row.status)}`}>{row.status ?? 'turn'}</span>
 									<span class="text-text-placeholder">·</span>
 									<time class="shrink-0 tabular-nums text-text-placeholder" datetime={row.startedAt ?? row.createdAt} title={formatFullAbsoluteTime(row.startedAt ?? row.createdAt)}>{formatCompactAbsoluteTime(row.startedAt ?? row.createdAt)}</time>
 									{#if row.model}
 										<span class="text-text-placeholder">·</span>
 										<span class="min-w-0 truncate text-text-placeholder">{row.model}</span>
-									{/if}
-									{#if !loaded || loadingSequence === row.sequence}
-										<span class="text-text-placeholder">·</span>
-										<span class="inline-flex shrink-0 items-center gap-1 text-text-tertiary">{#if loadingSequence === row.sequence}<Loader2 class="h-3 w-3 animate-spin" />{/if}{loaded ? 'loading' : 'indexed'}</span>
 									{/if}
 								</div>
 							</div>
@@ -350,18 +343,14 @@ function selectTurn(sequence: number) {
 		</div>
 		<button
 			type="button"
-			class="group absolute -right-2 top-0 bottom-0 z-10 hidden w-4 cursor-col-resize items-center justify-center text-text-placeholder/45 transition-colors hover:text-text-tertiary md:flex"
+			class="split-resize-handle hidden md:block"
 			onpointerdown={beginListResize}
 			aria-label="Resize turn list"
 			title="Resize turn list"
-		>
-			<span class="flex h-8 w-3 items-center justify-center rounded-full bg-bg-content/90 opacity-0 shadow-sm ring-1 ring-border-subtle transition-opacity group-hover:opacity-100">
-				<GripVertical class="h-3.5 w-3.5" />
-			</span>
-		</button>
+		></button>
 	</aside>
 
-	<section class={`min-h-0 flex-1 flex-col ${mobileDetailOpen ? 'flex' : 'hidden md:flex'}`}>
+	<section class={`min-h-0 min-w-0 flex-1 flex-col ${mobileDetailOpen ? 'flex' : 'hidden md:flex'}`}>
 		<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
 			<button type="button" class="flex h-8 items-center gap-1.5 rounded-[5px] px-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary md:hidden" onclick={() => mobileDetailOpen = false}>
 				<ArrowLeft class="h-4 w-4" />
@@ -411,3 +400,35 @@ function selectTurn(sequence: number) {
 		</div>
 	</section>
 </div>
+
+<style>
+	.split-resize-handle {
+		position: absolute;
+		top: 0;
+		right: -4px;
+		width: 8px;
+		height: 100%;
+		border: none;
+		padding: 0;
+		cursor: col-resize;
+		background: transparent;
+		touch-action: none;
+		z-index: 10;
+	}
+
+	.split-resize-handle::after {
+		content: "";
+		position: absolute;
+		left: 3px;
+		top: 0;
+		width: 2px;
+		height: 100%;
+		background: transparent;
+		transition: background-color 120ms ease;
+	}
+
+	.split-resize-handle:hover::after,
+	:global(body.sidebar-resizing) .split-resize-handle::after {
+		background: var(--border-subtle);
+	}
+</style>

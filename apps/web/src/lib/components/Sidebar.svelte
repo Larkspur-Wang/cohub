@@ -82,6 +82,7 @@ import {
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
+	buildSpaceSessionModeRoute,
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
@@ -96,6 +97,7 @@ import {
 	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
+import { loadSpaceSessionModePreference } from "$lib/stores/session-view-preferences";
 import {
 	getCachedExpandedLabelIds,
 	setCachedExpandedLabelIds,
@@ -1455,12 +1457,19 @@ function openSpacePalette() {
 	);
 }
 
+function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
+	const preferredMode = loadSpaceSessionModePreference(spaceId);
+	return preferredMode === "split"
+		? buildSpaceSessionModeRoute(spaceId, sessionId, "split")
+		: buildSpaceSessionRoute(spaceId, sessionId);
+}
+
 async function handleNavigateToSession(sessionId: string) {
 	onClose?.();
 	const session = sessions.find((s) => s.id === sessionId);
 	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
 	if (!currentSpaceId) return;
-	await goto(buildSpaceSessionRoute(currentSpaceId, sessionId));
+	await goto(buildPreferredSessionRoute(currentSpaceId, sessionId));
 }
 
 async function handleNavigateToCheckpoint(checkpointId: string) {
@@ -2353,9 +2362,10 @@ $effect(() => {
 		<div class="space-y-[2px]">
 			{#each sidebarSessionItems.slice(0, sidebarFlyoutPreviewLimit) as item (item.session.id)}
 				{@const session = item.session}
-				{@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
+				{@const isActive = activeSession?.id === session.id}
+				{@const sessionHref = buildPreferredSessionRoute(currentSpaceId!, session.id)}
 				<a
-					href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
+					href={sessionHref}
 					class="sidebar-flyout-item group/session relative flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
 					style={getSessionRowStyle(item)}
 					onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
@@ -2775,7 +2785,7 @@ $effect(() => {
               <div class="space-y-[2px] mt-1">
                 {#each sidebarSessionItems as item, index (item.session.id)}
                   {@const session = item.session}
-                  {@const isActive = currentPath === buildSpaceSessionRoute(currentSpaceId!, session.id)}
+                  {@const isActive = activeSession?.id === session.id}
                   {@const isRenaming = renamingSessionId === session.id}
 
                   {#if isRenaming}
@@ -2825,7 +2835,7 @@ $effect(() => {
                     </div>
                   {:else}
                     <a
-                      href={buildSpaceSessionRoute(currentSpaceId!, session.id)}
+                      href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
                       class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={getSessionRowStyle(item)}
 						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
@@ -2932,7 +2942,7 @@ $effect(() => {
               </div>
             {:else}
               <a
-                href={buildSpaceSessionRoute(currentSpaceId!, activeSession.id)}
+                href={buildPreferredSessionRoute(currentSpaceId!, activeSession.id)}
                 class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
 				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}

@@ -178,6 +178,17 @@ import {
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
+	clampSplitTurnListWidth,
+	loadSpaceSessionModePreference,
+	loadSpaceSplitTurnListWidth,
+	type SessionViewMode,
+	SPLIT_TURN_LIST_DEFAULT_WIDTH,
+	SPLIT_TURN_LIST_MAX_WIDTH,
+	SPLIT_TURN_LIST_MIN_WIDTH,
+	saveSpaceSessionModePreference,
+	saveSpaceSplitTurnListWidth,
+} from "$lib/stores/session-view-preferences";
+import {
 	clearCachedSpaceFsSubtree,
 	fetchSpaceFsDirWithCache,
 	getCachedSpaceFsDir,
@@ -261,9 +272,6 @@ const DEFAULT_IMAGE_MEDIA_TYPE = "image/webp";
 const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
-const SPLIT_TURN_LIST_MIN_WIDTH = 260;
-const SPLIT_TURN_LIST_MAX_WIDTH = 460;
-const SPLIT_TURN_LIST_DEFAULT_WIDTH = 320;
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const props = $props();
 const data = $derived((props as Props).data);
@@ -282,7 +290,7 @@ const routeTurnSequence = $derived.by(() => {
 		? Math.floor(sequence)
 		: null;
 });
-const routeSessionMode = $derived<"chat" | "split">(
+const routeSessionMode = $derived<SessionViewMode>(
 	data.sessionMode === "split" ? "split" : "chat",
 );
 const fileMode = $derived<"chat" | "file">(
@@ -1452,63 +1460,6 @@ function getSessionModelKey(sessionId: string) {
 function getSessionGenerationPolicyKey(sessionId: string) {
 	return `cohub:generation-policy:${sessionId}`;
 }
-function getSpaceSessionModePreferenceKey(spaceId: string) {
-	return `cohub:session-mode:${spaceId}`;
-}
-function getSpaceSplitTurnListWidthKey(spaceId: string) {
-	return `cohub:session-split-turn-list-width:${spaceId}`;
-}
-function isSessionMode(value: unknown): value is "chat" | "split" {
-	return value === "chat" || value === "split";
-}
-function clampSplitTurnListWidth(width: number) {
-	return Math.min(
-		SPLIT_TURN_LIST_MAX_WIDTH,
-		Math.max(SPLIT_TURN_LIST_MIN_WIDTH, width),
-	);
-}
-function loadSpaceSessionModePreference(spaceId: string) {
-	try {
-		const value = localStorage.getItem(
-			getSpaceSessionModePreferenceKey(spaceId),
-		);
-		return isSessionMode(value) ? value : null;
-	} catch {
-		return null;
-	}
-}
-function saveSpaceSessionModePreference(
-	spaceId: string,
-	mode: "chat" | "split",
-) {
-	try {
-		localStorage.setItem(getSpaceSessionModePreferenceKey(spaceId), mode);
-	} catch {
-		// ignore
-	}
-}
-function loadSpaceSplitTurnListWidth(spaceId: string) {
-	try {
-		const value = Number(
-			localStorage.getItem(getSpaceSplitTurnListWidthKey(spaceId)),
-		);
-		return Number.isFinite(value)
-			? clampSplitTurnListWidth(value)
-			: SPLIT_TURN_LIST_DEFAULT_WIDTH;
-	} catch {
-		return SPLIT_TURN_LIST_DEFAULT_WIDTH;
-	}
-}
-function saveSpaceSplitTurnListWidth(spaceId: string, width: number) {
-	try {
-		localStorage.setItem(
-			getSpaceSplitTurnListWidthKey(spaceId),
-			String(clampSplitTurnListWidth(width)),
-		);
-	} catch {
-		// ignore
-	}
-}
 function loadSessionModel(sessionId: string): SelectedModel | null {
 	try {
 		const raw = localStorage.getItem(getSessionModelKey(sessionId));
@@ -1918,11 +1869,17 @@ function handleModelSelect(model: { provider: string; id: string }) {
 	saveSessionModel(activeSessionId, selected);
 	showModelSelector = false;
 }
+function buildPreferredSessionRoute(sessionId: string) {
+	const preferredMode = loadSpaceSessionModePreference(spaceId);
+	return preferredMode === "split"
+		? buildSpaceSessionModeRoute(spaceId, sessionId, "split")
+		: buildSpaceSessionRoute(spaceId, sessionId);
+}
 function navigateToSession(
 	sessionId: string,
 	options?: { replaceState?: boolean },
 ) {
-	void goto(buildSpaceSessionRoute(spaceId, sessionId), {
+	void goto(buildPreferredSessionRoute(sessionId), {
 		replaceState: options?.replaceState ?? true,
 		keepFocus: true,
 		noScroll: true,
@@ -8190,7 +8147,6 @@ $effect(() => {
             hasMoreNewer={activeSessionState.hasMoreNewer}
             loadingOlder={activeSessionState.loadingOlder}
             loadingNewer={activeSessionState.loadingNewer}
-            loadingSequence={loadingTurnSequence}
             listWidth={splitTurnListWidth}
             listMinWidth={SPLIT_TURN_LIST_MIN_WIDTH}
             listMaxWidth={SPLIT_TURN_LIST_MAX_WIDTH}
