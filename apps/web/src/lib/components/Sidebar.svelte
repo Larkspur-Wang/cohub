@@ -452,8 +452,37 @@ function getFallbackSessionCursor(sessionList: SessionRecord[]) {
 	return sessionList.at(-1)?.lastMessageAt ?? null;
 }
 
+function mergeDefinedSpaceRecordFields(
+	incoming: SpaceRecord,
+	existing: SpaceRecord | null | undefined,
+) {
+	if (!existing) return incoming;
+	const merged: SpaceRecord = { ...existing };
+	for (const [key, value] of Object.entries(incoming) as Array<
+		[keyof SpaceRecord, SpaceRecord[keyof SpaceRecord]]
+	>) {
+		if (value !== undefined) {
+			merged[key] = value as never;
+		}
+	}
+	return merged;
+}
+
 function mergeSpaceIntoSidebarList(space: SpaceRecord) {
-	spaces = [space, ...spaces.filter((item) => item.id !== space.id)];
+	const existing = spaces.find((item) => item.id === space.id);
+	const merged = mergeDefinedSpaceRecordFields(space, existing);
+	spaces = [merged, ...spaces.filter((item) => item.id !== space.id)];
+}
+
+function mergeSpaceListPreservingCurrent(nextSpaces: SpaceRecord[]) {
+	const current = currentSpaceId
+		? spaces.find((space) => space.id === currentSpaceId)
+		: null;
+	return nextSpaces.map((space) =>
+		space.id === currentSpaceId
+			? mergeDefinedSpaceRecordFields(space, current)
+			: space,
+	);
 }
 
 const currentSpaceRefreshes = new Map<string, Promise<void>>();
@@ -527,7 +556,7 @@ async function loadSpaces(force = false) {
 						...spaces.filter((space) => space.id === requestedSpaceId),
 						...cached.filter((space) => space.id !== requestedSpaceId),
 					]
-				: cached;
+				: mergeSpaceListPreservingCurrent(cached);
 		}
 	}
 
@@ -545,7 +574,7 @@ async function loadSpaces(force = false) {
 					...spaces.filter((space) => space.id === requestedSpaceId),
 					...listedSpaces.filter((space) => space.id !== requestedSpaceId),
 				]
-			: listedSpaces;
+			: mergeSpaceListPreservingCurrent(listedSpaces);
 	} catch (error) {
 		if (await handleUnauthorizedError(error)) {
 			return;
@@ -1629,7 +1658,7 @@ onMount(() => {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
 			({ spaces: nextSpaces }) => {
 				if (!authStore.isAuthenticated) return;
-				spaces = nextSpaces;
+				spaces = mergeSpaceListPreservingCurrent(nextSpaces);
 			},
 		);
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
@@ -1848,11 +1877,10 @@ $effect(() => {
 				{@const itemDraggable = isDraggableLabelItem(item)}
 				<a
 					href={labelAssignmentHref(item)}
-					class="group/label-item relative flex w-full min-w-0 select-none items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'cursor-move hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
+					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
-					draggable={itemDraggable}
-					aria-disabled={itemDraggable && !canAssignLabels ? "true" : undefined}
+					draggable={!isMobile && itemDraggable}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 				>
