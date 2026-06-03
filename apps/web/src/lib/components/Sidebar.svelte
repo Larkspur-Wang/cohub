@@ -208,13 +208,11 @@ let labelDropBusyId = $state<string | null>(null);
 let labelDropSuccessId = $state<string | null>(null);
 let labelDropErrorId = $state<string | null>(null);
 let labelDropErrorMessage = $state<string | null>(null);
-let labelRemoveDropActive = $state(false);
 type LabelDragOrigin = {
 	labelId: string;
 	labelRef: string;
 	labelName?: string;
 };
-let draggedLabelOrigin = $state<LabelDragOrigin | null>(null);
 let activeLabelDragOrigin: LabelDragOrigin | null = null;
 let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
 let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
@@ -979,7 +977,7 @@ function getDropResource(event: DragEvent): {
 }
 
 function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
-	if (!hasCohubResourceDragData(event.dataTransfer)) return;
+	if (!canAssignLabels || !hasCohubResourceDragData(event.dataTransfer)) return;
 	event.preventDefault();
 	event.stopPropagation();
 	labelDropTargetId = label.id;
@@ -1021,7 +1019,7 @@ function handleLabelDragLeave(event: DragEvent, label: LabelListItem) {
 }
 
 async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
-	if (!currentSpaceId) return;
+	if (!canAssignLabels || !currentSpaceId) return;
 	const spaceId = currentSpaceId;
 	const drop = getDropResource(event);
 	if (!drop) return;
@@ -1110,6 +1108,10 @@ function handleLabelItemDragStart(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
+	if (!canAssignLabels || !isDraggableLabelItem(item)) {
+		event.preventDefault();
+		return;
+	}
 	const resource: LabelAssignableCohubResource = {
 		type: item.resourceType,
 		ref: item.resourceRef,
@@ -1150,9 +1152,7 @@ function handleLabelItemDragStart(
 
 function handleResourceDragEnd() {
 	activeLabelDragOrigin = null;
-	draggedLabelOrigin = null;
 	labelDropTargetId = null;
-	labelRemoveDropActive = false;
 	clearLabelAutoExpandTimer();
 }
 
@@ -1195,60 +1195,6 @@ async function removeLabelAssignment(
 	} finally {
 		if (currentSpaceId === spaceId) labelDropBusyId = null;
 	}
-}
-
-async function handleRemoveLabelDrop(event: DragEvent) {
-	if (!currentSpaceId || !draggedLabelOrigin) return;
-	const spaceId = currentSpaceId;
-	const drop = getDropResource(event);
-	const origin = drop?.payload.origin;
-	if (origin?.kind !== "label-items" || !drop) return;
-	event.preventDefault();
-	event.stopPropagation();
-	labelRemoveDropActive = false;
-	labelDropBusyId = draggedLabelOrigin.labelId;
-	try {
-		const result = await removeResourceFromLabel({
-			spaceId,
-			resource: drop.resource,
-			sourceLabelRef: origin.labelRef,
-		});
-		if (currentSpaceId !== spaceId) return;
-		refreshAffectedLabelItems(result);
-		setLabelDropFeedback("success", draggedLabelOrigin.labelId);
-	} catch (error) {
-		console.warn("[labels] Failed to remove resource label", {
-			labelRef: origin.labelRef,
-			resource: drop.resource,
-			error,
-		});
-		if (currentSpaceId === spaceId) {
-			setLabelDropFeedback(
-				"error",
-				draggedLabelOrigin.labelId,
-				"Could not remove label",
-			);
-		}
-	} finally {
-		if (currentSpaceId === spaceId) labelDropBusyId = null;
-	}
-}
-
-function handleRemoveLabelDragOver(event: DragEvent) {
-	if (!draggedLabelOrigin || !hasCohubResourceDragData(event.dataTransfer))
-		return;
-	event.preventDefault();
-	event.stopPropagation();
-	labelRemoveDropActive = true;
-	if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
-}
-
-function handleRemoveLabelDragLeave(event: DragEvent) {
-	const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-	const { clientX: x, clientY: y } = event;
-	if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
-		return;
-	labelRemoveDropActive = false;
 }
 
 function labelAssignmentHref(item: LabelAssignmentListItem) {
@@ -1992,9 +1938,7 @@ $effect(() => {
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
-		labelRemoveDropActive = false;
 		activeLabelDragOrigin = null;
-		draggedLabelOrigin = null;
 		cancelRenameLabel();
 		clearLabelAutoExpandTimer();
 		untrack(() => {
@@ -2025,9 +1969,7 @@ $effect(() => {
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
-		labelRemoveDropActive = false;
 		activeLabelDragOrigin = null;
-		draggedLabelOrigin = null;
 		cancelRenameLabel();
 		clearLabelAutoExpandTimer();
 	}
@@ -2059,35 +2001,25 @@ $effect(() => {
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
 		{#if items.length === 0 && !hasChildLabels}
-			<div
-				role="button"
-				tabindex="-1"
-				class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"
-				ondragover={(event) => handleLabelDragOver(event, label)}
-				ondragleave={(event) => handleLabelDragLeave(event, label)}
-				ondrop={(event) => handleLabelDrop(event, label)}
-			>
-				No items
-			</div>
+			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
 		{:else if items.length > 0}
 			{#each items as item (item.id)}
+				{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
 				{@const ItemIcon = getLabelAssignmentIcon(item)}
 				<a
 					href={labelAssignmentHref(item)}
-					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:pr-7 hover:text-text-secondary focus-within:pr-7 {depth > 0 ? 'pl-11' : 'pl-9'}"
+					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
-					draggable={!isMobile}
+					draggable={!isMobile && itemDraggable}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
-					ondragover={(event) => handleLabelDragOver(event, label)}
-					ondragleave={(event) => handleLabelDragLeave(event, label)}
-					ondrop={(event) => handleLabelDrop(event, label)}
 				>
 					<ItemIcon class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
 					<span class="sr-only">{getLabelAssignmentTypeLabel(item)}</span>
-					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
+					{#if itemDraggable}
+						<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
 							<button
 								type="button"
 								class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
@@ -2103,7 +2035,8 @@ $effect(() => {
 							>
 								<Link2Off class="h-3.5 w-3.5" />
 							</button>
-					</span>
+						</span>
+					{/if}
 				</a>
 			{/each}
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
@@ -2146,19 +2079,6 @@ $effect(() => {
 						<Plus class="h-3 w-3" />
 					</span>
 				{/if}
-			</div>
-		{/if}
-		{#if draggedLabelOrigin}
-			<div
-				role="button"
-				tabindex="-1"
-				class="label-remove-drop-zone"
-				class:active={labelRemoveDropActive}
-				ondragover={handleRemoveLabelDragOver}
-				ondragleave={handleRemoveLabelDragLeave}
-				ondrop={handleRemoveLabelDrop}
-			>
-				Remove from “{draggedLabelOrigin.labelName ?? "label"}”
 			</div>
 		{/if}
 		{#if labelDropErrorMessage}
@@ -3331,23 +3251,6 @@ $effect(() => {
 
 	.label-tree-row.drop-error::before {
 		background: var(--error-500, var(--brand));
-	}
-
-	.label-remove-drop-zone {
-		margin: 4px 0 6px;
-		border: 1px dashed var(--border-subtle);
-		border-radius: 6px;
-		padding: 6px 8px;
-		color: var(--text-tertiary);
-		font-size: 11px;
-		line-height: 1.2;
-		transition: background-color 100ms ease, border-color 100ms ease, color 100ms ease;
-	}
-
-	.label-remove-drop-zone.active {
-		border-color: var(--brand);
-		background: var(--bg-active);
-		color: var(--text-secondary);
 	}
 
 	.label-drop-message {
