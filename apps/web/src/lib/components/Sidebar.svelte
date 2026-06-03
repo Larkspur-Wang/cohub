@@ -63,6 +63,7 @@ import {
 	setCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
 import {
 	addResourceToLabel,
 	moveResourceToLabel,
@@ -277,8 +278,14 @@ const currentSpace = $derived(
 const canAssignLabels = $derived(
 	Boolean(currentSpace?.access?.permissions?.includes("space.label.assign")),
 );
-const currentLabelItemsById = $derived(
-	currentSpaceId ? (labelItemsBySpace[currentSpaceId] ?? {}) : {},
+const currentLabelItemsById = $derived.by(() =>
+	currentSpaceId
+		? hydrateLabelItemsById(
+				currentSpaceId,
+				labelItemsBySpace[currentSpaceId] ?? {},
+				{ sessions },
+			)
+		: {},
 );
 const currentLabelItemsPageInfoById = $derived(
 	currentSpaceId ? (labelItemsPageInfoBySpace[currentSpaceId] ?? {}) : {},
