@@ -1132,6 +1132,14 @@ function handleLabelItemDragStart(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
+	const sourceElement = event.currentTarget;
+	if (event.dataTransfer && sourceElement instanceof HTMLElement) {
+		event.dataTransfer.setDragImage(
+			sourceElement,
+			16,
+			Math.max(1, sourceElement.offsetHeight / 2),
+		);
+	}
 	console.debug("[sidebar-label-dnd] dragstart:before", {
 		isMobile,
 		labelId: label.id,
@@ -2082,7 +2090,14 @@ $effect(() => {
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
 		{#if items.length === 0 && !hasChildLabels}
-			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
+			<div
+				class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"
+				ondragover={(event) => handleLabelDragOver(event, label)}
+				ondragleave={(event) => handleLabelDragLeave(event, label)}
+				ondrop={(event) => handleLabelDrop(event, label)}
+			>
+				No items
+			</div>
 		{:else if items.length > 0}
 			{#each items as item (item.id)}
 				{@const ItemIcon = getLabelAssignmentIcon(item)}
@@ -2095,6 +2110,9 @@ $effect(() => {
 					onpointerdown={(event) => handleLabelItemPointerDown(event, label, item)}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
+					ondragover={(event) => handleLabelDragOver(event, label)}
+					ondragleave={(event) => handleLabelDragLeave(event, label)}
+					ondrop={(event) => handleLabelDrop(event, label)}
 				>
 					<ItemIcon class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
