@@ -1091,8 +1091,14 @@ function handleSessionDragStart(
 
 function isDraggableLabelItem(
 	item: LabelAssignmentListItem,
-): item is LabelAssignmentListItem & { resourceType: "session" | "file" } {
-	return item.resourceType === "session" || item.resourceType === "file";
+): item is LabelAssignmentListItem & {
+	resourceType: "session" | "checkpoint" | "file";
+} {
+	return (
+		item.resourceType === "session" ||
+		item.resourceType === "checkpoint" ||
+		item.resourceType === "file"
+	);
 }
 
 function handleLabelItemDragStart(
@@ -1100,10 +1106,6 @@ function handleLabelItemDragStart(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (!isDraggableLabelItem(item)) {
-		event.preventDefault();
-		return;
-	}
 	const resource: LabelAssignableCohubResource = {
 		type: item.resourceType,
 		ref: item.resourceRef,
@@ -1128,7 +1130,9 @@ function handleLabelItemDragStart(
 			cohubPath:
 				item.resourceType === "file"
 					? item.resourceRef
-					: `/sessions/${item.resourceRef}.jsonl`,
+					: item.resourceType === "session"
+						? `/sessions/${item.resourceRef}.jsonl`
+						: undefined,
 			plainText: item.resourceRef,
 			effectAllowed: "copyMove",
 		},
@@ -1152,7 +1156,7 @@ async function removeLabelAssignment(
 	item: LabelAssignmentListItem,
 ) {
 	if (!canAssignLabels || !currentSpaceId) return;
-	if (item.resourceType !== "session" && item.resourceType !== "file") return;
+	if (!isDraggableLabelItem(item)) return;
 	const spaceId = currentSpaceId;
 	const sourceLabelRef = labelRefForId(label.id);
 	if (!sourceLabelRef) return;
@@ -2044,22 +2048,20 @@ $effect(() => {
 			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
 		{:else if items.length > 0}
 			{#each items as item (item.id)}
-				{@const itemDraggable = isDraggableLabelItem(item)}
 				{@const ItemIcon = getLabelAssignmentIcon(item)}
 				<a
 					href={labelAssignmentHref(item)}
-					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
+					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:pr-7 hover:text-text-secondary focus-within:pr-7 {depth > 0 ? 'pl-11' : 'pl-9'}"
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
-					draggable={!isMobile && itemDraggable}
+					draggable={!isMobile}
 					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
 					ondragend={handleResourceDragEnd}
 				>
 					<ItemIcon class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
 					<span class="sr-only">{getLabelAssignmentTypeLabel(item)}</span>
-					{#if itemDraggable}
-						<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
+					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
 							<button
 								type="button"
 								class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
@@ -2075,8 +2077,7 @@ $effect(() => {
 							>
 								<Link2Off class="h-3.5 w-3.5" />
 							</button>
-						</span>
-					{/if}
+					</span>
 				</a>
 			{/each}
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}

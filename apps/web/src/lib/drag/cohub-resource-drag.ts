@@ -27,7 +27,7 @@ export type CohubResourceDragPayload = {
 };
 
 export type LabelAssignableCohubResource = CohubDragResource & {
-	type: "session" | "file";
+	type: "session" | "checkpoint" | "file";
 	ref: string;
 };
 
@@ -135,7 +135,9 @@ export function isLabelAssignableResource(
 ): resource is LabelAssignableCohubResource {
 	return Boolean(
 		resource &&
-			(resource.type === "session" || resource.type === "file") &&
+			(resource.type === "session" ||
+				resource.type === "checkpoint" ||
+				resource.type === "file") &&
 			resource.ref.trim(),
 	);
 }
