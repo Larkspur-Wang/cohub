@@ -3,6 +3,8 @@ import type { RealtimeMessageRecord, RealtimeSessionRecord, RealtimeTaskRecord, 
 import type { MessageRecord, SessionRecord, SessionTurnRecord } from "@cohub/protocol/model";
 import type { TaskRunStatus } from "@cohub/protocol/task";
 import { dispatchRealtimeEventToUsers, getReadableUserIdsForSpace } from "./channels.js";
+import { buildResourceLabelSnapshot, type LabelResourceType } from "@cohub/core/labels/resource-events";
+import { db } from "./db/index.js";
 
 const toIsoOrNull = (value: Date | string | null | undefined) => {
   if (!value) return null;
@@ -233,6 +235,37 @@ export async function dispatchTaskUpdated(input: {
       task: realtimeTask,
       changed: input.changed,
       ...(realtimeTask.userId && !realtimeTask.spaceId ? { targetUserIds: [realtimeTask.userId] } : {}),
+    },
+  });
+}
+
+export async function dispatchLabelAssignmentsUpdated(input: {
+  spaceId: string;
+  resourceType: LabelResourceType;
+  resourceRef: string;
+  sessionId?: string | null;
+  affectedLabelIds?: string[];
+}) {
+  const [snapshot, readableUserIds] = await Promise.all([
+    buildResourceLabelSnapshot({ db, ...input }),
+    getReadableUserIdsForSpace(input.spaceId),
+  ]);
+  if (readableUserIds.length === 0) return;
+  await dispatchRealtimeEventToUsers({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "label",
+    type: "label.assignments.updated",
+    spaceId: input.spaceId,
+    sessionId: input.sessionId ?? (input.resourceType === "session" ? input.resourceRef : null),
+    payload: {
+      resourceType: input.resourceType,
+      resourceRef: input.resourceRef,
+      labels: snapshot.labels,
+      assignments: snapshot.assignments,
+      items: snapshot.items,
+      affectedLabelIds: snapshot.affectedLabelIds,
+      targetUserIds: readableUserIds,
     },
   });
 }

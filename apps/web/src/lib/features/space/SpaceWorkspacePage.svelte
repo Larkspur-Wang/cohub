@@ -123,6 +123,10 @@ import {
 	extractGenerationPromptPreview,
 } from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import {
+	parseResourceLabelRealtimePayload,
+	syncResourceLabelsToCache,
+} from "$lib/labels/resource-label-cache-sync";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
@@ -4037,6 +4041,15 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		if (payload.type === "task.created" || payload.type === "task.updated") {
 			handleTaskRealtimeEvent(payload);
+			return;
+		}
+		if (payload.type === "label.assignments.updated") {
+			const snapshot = parseResourceLabelRealtimePayload({
+				spaceId: payload.spaceId,
+				payload: payload.payload,
+			});
+			if (snapshot?.spaceId === spaceId)
+				await syncResourceLabelsToCache(snapshot);
 			return;
 		}
 		if (

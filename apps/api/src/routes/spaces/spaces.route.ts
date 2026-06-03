@@ -42,6 +42,7 @@ import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
+import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
 import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
@@ -1267,7 +1268,10 @@ router.post("/:id/prompt", async (c) => {
         await assignLabelsToSession({ db, spaceId, sessionId, labelIds: promptLabelIds, userId: user.uuid });
       }
       if (createdPromptSession) {
-        await assignSessionSourceSystemLabel({ db, spaceId, sessionId, source: createdPromptSession.source }).catch((error) => {
+        const createdPromptSessionId = createdPromptSession.id;
+        await assignSessionSourceSystemLabel({ db, spaceId, sessionId: createdPromptSessionId, source: createdPromptSession.source }).then(() =>
+          dispatchLabelAssignmentsUpdated({ spaceId, resourceType: "session", resourceRef: createdPromptSessionId, sessionId: createdPromptSessionId }),
+        ).catch((error) => {
           logger.warn("[SessionSourceLabel] failed to assign system source label", error);
         });
       }
@@ -1402,7 +1406,9 @@ router.post("/:id/sessions", async (c) => {
   if (userLabelIds.length > 0) {
     await assignLabelsToSession({ db, spaceId, sessionId: session.id, labelIds: userLabelIds, userId: user.uuid });
   }
-  await assignSessionSourceSystemLabel({ db, spaceId, sessionId: session.id, source }).catch((error) => {
+  await assignSessionSourceSystemLabel({ db, spaceId, sessionId: session.id, source }).then(() =>
+    dispatchLabelAssignmentsUpdated({ spaceId, resourceType: "session", resourceRef: session.id, sessionId: session.id }),
+  ).catch((error) => {
     logger.warn("[SessionSourceLabel] failed to assign system source label", error);
   });
 

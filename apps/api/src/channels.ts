@@ -16,6 +16,7 @@ import {
 import { hasPermission } from "./permissions.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
+import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -495,7 +496,9 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
     sessionId: session.id,
     source: sessionSource,
     provider: input.provider,
-  }).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
+  }).then(() =>
+    dispatchLabelAssignmentsUpdated({ spaceId: input.spaceId, resourceType: "session", resourceRef: session.id, sessionId: session.id }),
+  ).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
 
   binding = await createSpaceSessionBinding({
     spaceId: input.spaceId,

@@ -15,7 +15,7 @@ export type WsClientEvent =
 export type RealtimeEnvelope = {
   id: string;
   timestamp: number;
-  domain: "system" | "session" | "space";
+  domain: "system" | "session" | "space" | "label";
   type: string;
   requestId?: string | null;
   spaceId?: string | null;
@@ -373,6 +373,24 @@ export type TaskUpdatedEvent = {
   payload: { task: RealtimeTaskRecord; changed: string[] };
 };
 
+export type LabelAssignmentsUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "label";
+  type: "label.assignments.updated";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+  payload: {
+    resourceType: "session" | "checkpoint" | "file";
+    resourceRef: string;
+    labels: unknown[];
+    assignments: unknown[];
+    items?: unknown[];
+    affectedLabelIds: string[];
+  };
+};
+
 export type RealtimeServerEvent =
   | SystemReadyEvent
   | SystemAuthOkEvent
@@ -392,7 +410,8 @@ export type RealtimeServerEvent =
   | SpaceFsChangedEvent
   | SpacePortsChangedEvent
   | TaskCreatedEvent
-  | TaskUpdatedEvent;
+  | TaskUpdatedEvent
+  | LabelAssignmentsUpdatedEvent;
 
 export type WsServerEnvelope = RealtimeEnvelope;
 export type ChannelServerEnvelope = ChannelEnvelope;

@@ -138,7 +138,7 @@ const isRealtimeEnvelope = (value: unknown): value is ChannelEnvelope => {
   if (!isRecord(value)) return false;
   if (typeof value.id !== "string") return false;
   if (typeof value.timestamp !== "number") return false;
-  if (value.domain !== "system" && value.domain !== "session" && value.domain !== "space") return false;
+  if (value.domain !== "system" && value.domain !== "session" && value.domain !== "space" && value.domain !== "label") return false;
   if (typeof value.type !== "string") return false;
   if (!isRecord(value.payload)) return false;
   return true;

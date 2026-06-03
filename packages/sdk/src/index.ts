@@ -55,5 +55,6 @@ export type {
   GenerationStreamTurnUpdatedEvent,
 } from "./session-generation-stream.js";
 export * from "./types.js";
+export type { ChannelEnvelope, LabelAssignmentsUpdatedEvent, RealtimeServerEvent } from "@cohub/protocol/realtime";
 export type { SessionEventName, SessionSubscriptionHandlers, SpaceChannelBindingRecord, SpaceEventName, WebSocketConnectionState } from "./apis/spaces.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetPurpose } from "./apis/public-assets.js";

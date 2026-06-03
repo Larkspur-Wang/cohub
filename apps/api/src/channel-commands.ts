@@ -19,6 +19,7 @@ import { db } from "./db/index.js";
 import { sessionMessages, spaces } from "@cohub/db";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
+import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
 import { redisCommandClient } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";
@@ -278,7 +279,9 @@ const createFreshSessionForBinding = async (
     sessionId: session.id,
     source: sessionSource,
     provider: event.provider,
-  }).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
+  }).then(() =>
+    dispatchLabelAssignmentsUpdated({ spaceId: resolved.spaceId, resourceType: "session", resourceRef: session.id, sessionId: session.id }),
+  ).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
 
   const defaultBindingMeta = deps.buildDefaultBindingMeta(event);
   await deps.createSpaceSessionBinding({

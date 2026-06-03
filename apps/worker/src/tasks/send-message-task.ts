@@ -11,6 +11,7 @@ import { getSessionDomainServices } from "../session-services.js";
 import { createLogger } from "@cohub/infra/logging";
 import { config } from "../config.js";
 import { db } from "../db.js";
+import { dispatchLabelAssignmentsUpdated } from "../label-events.js";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 
@@ -60,7 +61,9 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     await assignLabelsToSession({ db, spaceId, sessionId: promptSessionId, labelIds, userId });
   }
   if (createdSession) {
-    await assignSessionSourceSystemLabel({ db, spaceId, sessionId: promptSessionId, source }).catch((error) => {
+    await assignSessionSourceSystemLabel({ db, spaceId, sessionId: promptSessionId, source }).then(() =>
+      dispatchLabelAssignmentsUpdated({ spaceId, resourceType: "session", resourceRef: promptSessionId, sessionId: promptSessionId }),
+    ).catch((error) => {
       logger.warn("[SessionSourceLabel] failed to assign scheduled task source label", error);
     });
   }

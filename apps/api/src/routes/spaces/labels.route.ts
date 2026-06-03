@@ -5,6 +5,7 @@ import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, re
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
+import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
 
 const router = new Hono();
 const SCOPE_TYPE = "space";
@@ -382,8 +383,26 @@ router.post("/attach", async (c) => {
     source: "user",
     createdBy: access.user?.uuid ?? null,
   }).onConflictDoNothing().returning();
-  if (assignment) return c.json({ assignment }, 201);
+  if (assignment) {
+    await dispatchLabelAssignmentsUpdated({
+      spaceId: access.spaceId,
+      resourceType: resourceType as "session" | "checkpoint" | "file",
+      resourceRef,
+      sessionId: resourceType === "session" ? resourceRef : null,
+      affectedLabelIds: [labelId],
+    }).catch(() => undefined);
+    return c.json({ assignment }, 201);
+  }
   const [existing] = await db.select().from(labelAssignments).where(and(eq(labelAssignments.labelId, labelId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef))).limit(1);
+  if (existing) {
+    await dispatchLabelAssignmentsUpdated({
+      spaceId: access.spaceId,
+      resourceType: resourceType as "session" | "checkpoint" | "file",
+      resourceRef,
+      sessionId: resourceType === "session" ? resourceRef : null,
+      affectedLabelIds: [labelId],
+    }).catch(() => undefined);
+  }
   return c.json({ assignment: existing }, existing ? 200 : 409);
 });
 
@@ -402,6 +421,13 @@ router.post("/detach", async (c) => {
   }
   if (!label) return c.json({ message: "label not found" }, 404);
   await db.delete(labelAssignments).where(and(eq(labelAssignments.labelId, label.id), eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
+  await dispatchLabelAssignmentsUpdated({
+    spaceId: access.spaceId,
+    resourceType: resourceType as "session" | "checkpoint" | "file",
+    resourceRef,
+    sessionId: resourceType === "session" ? resourceRef : null,
+    affectedLabelIds: [label.id],
+  }).catch(() => undefined);
   return c.json({ ok: true });
 });
 
@@ -437,6 +463,7 @@ export async function setResourceLabels(c: Context) {
   const existing = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
   const wanted = new Set(labelIds);
   const existingIds = new Set(existing.map((assignment) => assignment.labelId));
+  const affectedLabelIds = Array.from(new Set([...existingIds, ...labelIds]));
   const removeIds = existing.filter((assignment) => !wanted.has(assignment.labelId)).map((assignment) => assignment.id);
   const existingByLabelId = new Map(existing.map((assignment) => [assignment.labelId, assignment]));
   const addIds = labelIds.filter((labelId) => !existingIds.has(labelId));
@@ -468,6 +495,13 @@ export async function setResourceLabels(c: Context) {
     getScopeLabels(access.spaceId),
     db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef))),
   ]);
+  await dispatchLabelAssignmentsUpdated({
+    spaceId: access.spaceId,
+    resourceType: resourceType as "session" | "checkpoint" | "file",
+    resourceRef,
+    sessionId: resourceType === "session" ? resourceRef : null,
+    affectedLabelIds,
+  }).catch(() => undefined);
   return c.json({ labels: buildLabelTree(allLabels), assignments });
 }
 
