@@ -261,6 +261,9 @@ const DEFAULT_IMAGE_MEDIA_TYPE = "image/webp";
 const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
+const SPLIT_TURN_LIST_MIN_WIDTH = 260;
+const SPLIT_TURN_LIST_MAX_WIDTH = 460;
+const SPLIT_TURN_LIST_DEFAULT_WIDTH = 320;
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const props = $props();
 const data = $derived((props as Props).data);
@@ -478,6 +481,8 @@ let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let previewPanelWidth = $state(480);
 let previewFocusMode = $state(false);
+let splitTurnListWidth = $state(SPLIT_TURN_LIST_DEFAULT_WIDTH);
+let sessionModePreferenceRedirectKey = $state("");
 let previewPanelResizeCleanup: (() => void) | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const CHAT_PANEL_MIN_WIDTH = 320;
@@ -1446,6 +1451,63 @@ function getSessionModelKey(sessionId: string) {
 }
 function getSessionGenerationPolicyKey(sessionId: string) {
 	return `cohub:generation-policy:${sessionId}`;
+}
+function getSpaceSessionModePreferenceKey(spaceId: string) {
+	return `cohub:session-mode:${spaceId}`;
+}
+function getSpaceSplitTurnListWidthKey(spaceId: string) {
+	return `cohub:session-split-turn-list-width:${spaceId}`;
+}
+function isSessionMode(value: unknown): value is "chat" | "split" {
+	return value === "chat" || value === "split";
+}
+function clampSplitTurnListWidth(width: number) {
+	return Math.min(
+		SPLIT_TURN_LIST_MAX_WIDTH,
+		Math.max(SPLIT_TURN_LIST_MIN_WIDTH, width),
+	);
+}
+function loadSpaceSessionModePreference(spaceId: string) {
+	try {
+		const value = localStorage.getItem(
+			getSpaceSessionModePreferenceKey(spaceId),
+		);
+		return isSessionMode(value) ? value : null;
+	} catch {
+		return null;
+	}
+}
+function saveSpaceSessionModePreference(
+	spaceId: string,
+	mode: "chat" | "split",
+) {
+	try {
+		localStorage.setItem(getSpaceSessionModePreferenceKey(spaceId), mode);
+	} catch {
+		// ignore
+	}
+}
+function loadSpaceSplitTurnListWidth(spaceId: string) {
+	try {
+		const value = Number(
+			localStorage.getItem(getSpaceSplitTurnListWidthKey(spaceId)),
+		);
+		return Number.isFinite(value)
+			? clampSplitTurnListWidth(value)
+			: SPLIT_TURN_LIST_DEFAULT_WIDTH;
+	} catch {
+		return SPLIT_TURN_LIST_DEFAULT_WIDTH;
+	}
+}
+function saveSpaceSplitTurnListWidth(spaceId: string, width: number) {
+	try {
+		localStorage.setItem(
+			getSpaceSplitTurnListWidthKey(spaceId),
+			String(clampSplitTurnListWidth(width)),
+		);
+	} catch {
+		// ignore
+	}
 }
 function loadSessionModel(sessionId: string): SelectedModel | null {
 	try {
@@ -3388,6 +3450,7 @@ function updateSessionModeUrl(
 	sequence = currentTurnSequence ?? routeTurnSequence,
 ) {
 	if (!activeSessionId) return;
+	saveSpaceSessionModePreference(spaceId, mode);
 	void goto(
 		buildSpaceSessionModeRoute(spaceId, activeSessionId, mode, sequence),
 		{
@@ -3396,6 +3459,11 @@ function updateSessionModeUrl(
 			noScroll: true,
 		},
 	);
+}
+function setSplitTurnListWidth(width: number) {
+	const next = clampSplitTurnListWidth(width);
+	splitTurnListWidth = next;
+	saveSpaceSplitTurnListWidth(spaceId, next);
 }
 async function jumpToTurnAndUpdateUrl(
 	sequence: number,
@@ -5978,6 +6046,7 @@ onMount(() => {
 	pageVisible = !document.hidden;
 	pageOnline = navigator.onLine;
 	loadSessionScrollAnchors();
+	splitTurnListWidth = loadSpaceSplitTurnListWidth(spaceId);
 	window.addEventListener("keydown", handleSessionVimKeydown);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
@@ -6272,6 +6341,25 @@ $effect(() => {
 			},
 		};
 	});
+});
+$effect(() => {
+	const sessionId = routeSessionId;
+	if (!pageMounted || routeView !== "session" || !sessionId || data.sessionMode)
+		return;
+	const key = `${spaceId}:${sessionId}`;
+	if (sessionModePreferenceRedirectKey === key) return;
+	const preferredMode = loadSpaceSessionModePreference(spaceId);
+	if (preferredMode !== "split") return;
+	sessionModePreferenceRedirectKey = key;
+	void goto(
+		buildSpaceSessionModeRoute(
+			spaceId,
+			sessionId,
+			preferredMode,
+			routeTurnSequence,
+		),
+		{ replaceState: true, keepFocus: true, noScroll: true },
+	);
 });
 $effect(() => {
 	const sessionId = activeSessionId;
@@ -8103,6 +8191,10 @@ $effect(() => {
             loadingOlder={activeSessionState.loadingOlder}
             loadingNewer={activeSessionState.loadingNewer}
             loadingSequence={loadingTurnSequence}
+            listWidth={splitTurnListWidth}
+            listMinWidth={SPLIT_TURN_LIST_MIN_WIDTH}
+            listMaxWidth={SPLIT_TURN_LIST_MAX_WIDTH}
+            onListWidthChange={setSplitTurnListWidth}
             streaming={activeGenerationState && (activeGenerationState.status === "streaming" || activeGenerationState.status === "pending" || !TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status)) ? {
               sessionId: activeSessionId,
               turnId: activeGenerationState.turnId ?? null,

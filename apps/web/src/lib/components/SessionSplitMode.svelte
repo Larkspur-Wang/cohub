@@ -8,11 +8,13 @@ import type {
 } from "@cohub/protocol/model";
 import {
 	ArrowLeft,
+	GripVertical,
 	Loader2,
 	MessageSquare,
 	PanelLeftClose,
 	Search,
 } from "lucide-svelte";
+import { onDestroy } from "svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import type { ChatMessage } from "$lib/session-tree";
@@ -52,12 +54,16 @@ type Props = {
 	loadingOlder?: boolean;
 	loadingNewer?: boolean;
 	loadingSequence?: number | null;
+	listWidth?: number;
+	listMinWidth?: number;
+	listMaxWidth?: number;
 	streaming?: StreamingTurnState;
 	modelsCatalog?: ModelCatalogItem[];
 	onSelectTurn?: (sequence: number) => void;
 	onJumpToChat?: (sequence: number) => void;
 	onLoadOlder?: () => void;
 	onLoadNewer?: () => void;
+	onListWidthChange?: (width: number) => void;
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
 	onLoadIntermediate?: (
@@ -83,12 +89,16 @@ let {
 	loadingOlder = false,
 	loadingNewer = false,
 	loadingSequence = null,
+	listWidth = 320,
+	listMinWidth = 260,
+	listMaxWidth = 460,
 	streaming = null,
 	modelsCatalog,
 	onSelectTurn,
 	onJumpToChat,
 	onLoadOlder,
 	onLoadNewer,
+	onListWidthChange,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
 	onLoadIntermediate,
@@ -100,6 +110,41 @@ let {
 
 let query = $state("");
 let mobileDetailOpen = $state(false);
+let resizeCleanup: (() => void) | null = null;
+
+function clampWidth(width: number) {
+	return Math.min(listMaxWidth, Math.max(listMinWidth, width));
+}
+
+function beginListResize(event: PointerEvent) {
+	event.preventDefault();
+	if (window.innerWidth < 768) return;
+	const target = event.currentTarget as HTMLElement | null;
+	target?.setPointerCapture?.(event.pointerId);
+	resizeCleanup?.();
+	const startX = event.clientX;
+	const startWidth = listWidth;
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		onListWidthChange?.(clampWidth(startWidth + moveEvent.clientX - startX));
+	};
+	const stop = () => {
+		if (target?.hasPointerCapture?.(event.pointerId)) {
+			target.releasePointerCapture(event.pointerId);
+		}
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (resizeCleanup === stop) resizeCleanup = null;
+	};
+	resizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
+}
+
+onDestroy(() => resizeCleanup?.());
 
 const turnsBySequence = $derived.by(() => {
 	const map = new Map<number, SessionTurnRecord>();
@@ -241,7 +286,10 @@ function selectTurn(sequence: number) {
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-bg-content md:flex-row">
-	<aside class={`min-h-0 border-border-subtle bg-bg-content md:flex md:w-[360px] md:shrink-0 md:flex-col md:border-r xl:w-[400px] ${mobileDetailOpen ? 'hidden md:flex' : 'flex flex-1 flex-col'}`}>
+	<aside
+		class={`relative min-h-0 border-border-subtle bg-bg-content md:flex md:shrink-0 md:flex-col md:border-r ${mobileDetailOpen ? 'hidden md:flex' : 'flex flex-1 flex-col'}`}
+		style:width={`${clampWidth(listWidth)}px`}
+	>
 		<div class="shrink-0 border-b border-border-subtle px-3 py-2.5">
 			<div class="flex items-center gap-2 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-tertiary focus-within:border-brand/40">
 				<Search class="h-3.5 w-3.5 shrink-0" />
@@ -300,6 +348,17 @@ function selectTurn(sequence: number) {
 				</button>
 			{/if}
 		</div>
+		<button
+			type="button"
+			class="group absolute -right-2 top-0 bottom-0 z-10 hidden w-4 cursor-col-resize items-center justify-center text-text-placeholder/45 transition-colors hover:text-text-tertiary md:flex"
+			onpointerdown={beginListResize}
+			aria-label="Resize turn list"
+			title="Resize turn list"
+		>
+			<span class="flex h-8 w-3 items-center justify-center rounded-full bg-bg-content/90 opacity-0 shadow-sm ring-1 ring-border-subtle transition-opacity group-hover:opacity-100">
+				<GripVertical class="h-3.5 w-3.5" />
+			</span>
+		</button>
 	</aside>
 
 	<section class={`min-h-0 flex-1 flex-col ${mobileDetailOpen ? 'flex' : 'hidden md:flex'}`}>
