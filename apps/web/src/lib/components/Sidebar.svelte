@@ -20,6 +20,7 @@ import {
 	Compass,
 	CreditCard,
 	Download,
+	File as FileIcon,
 	FileText,
 	FolderKanban,
 	History,
@@ -1248,7 +1249,7 @@ function labelAssignmentHref(item: LabelAssignmentListItem) {
 function getLabelAssignmentIcon(item: LabelAssignmentListItem) {
 	if (item.resourceType === "session") return MessageSquare;
 	if (item.resourceType === "checkpoint") return History;
-	return FileText;
+	return FileIcon;
 }
 
 function getLabelAssignmentTypeLabel(item: LabelAssignmentListItem) {
@@ -2092,29 +2093,33 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-{#snippet labelsSection()}
-	<div class="mt-2">
-		<div
-			class="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
-			onclick={() => { labelsCollapsed = !labelsCollapsed; }}
-			title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
-			role="button"
-			tabindex="0"
-			onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); labelsCollapsed = !labelsCollapsed; } }}
-		>
-			<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
-			<span class="text-[11px] text-text-placeholder select-none">Labels</span>
-			<span
-				class="ml-auto rounded p-0.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-				title="New label"
-				onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
-				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); event.preventDefault(); showNewLabelPopover = true; } }}
+{#snippet labelsSection(showHeader = true)}
+	<div class={showHeader ? "mt-2" : "mt-0"}>
+		{#if showHeader}
+			<div
+				class="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
+				onclick={() => { labelsCollapsed = !labelsCollapsed; }}
+				title={labelsCollapsed ? "Expand labels" : "Collapse labels"}
 				role="button"
 				tabindex="0"
+				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); labelsCollapsed = !labelsCollapsed; } }}
 			>
-				<Plus class="h-3 w-3" />
-			</span>
-		</div>
+				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
+				<span class="text-[11px] text-text-placeholder select-none">Labels</span>
+				{#if canManageLabels}
+					<span
+						class="ml-auto rounded p-0.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
+						title="New label"
+						onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
+						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); event.preventDefault(); showNewLabelPopover = true; } }}
+						role="button"
+						tabindex="0"
+					>
+						<Plus class="h-3 w-3" />
+					</span>
+				{/if}
+			</div>
+		{/if}
 		{#if draggedLabelOrigin}
 			<div
 				role="button"
@@ -2131,7 +2136,7 @@ $effect(() => {
 		{#if labelDropErrorMessage}
 			<div class="label-drop-message" role="status">{labelDropErrorMessage}</div>
 		{/if}
-		{#if !labelsCollapsed}
+		{#if !showHeader || !labelsCollapsed}
 			{#if labels.length === 0}
 				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 			{:else}
@@ -2433,6 +2438,25 @@ $effect(() => {
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
+            <SidebarFlyout label="Labels" active={false} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <Tags class="h-4 w-4" />
+              {/snippet}
+              {#if canManageLabels}
+                {#snippet headerAction()}
+                  <button
+                    type="button"
+                    class="inline-flex h-6 w-6 items-center justify-center rounded-[5px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+                    title="New label"
+                    aria-label="New label"
+                    onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
+                  >
+                    <Plus class="h-3.5 w-3.5" />
+                  </button>
+                {/snippet}
+              {/if}
+              {@render labelsSection(false)}
+            </SidebarFlyout>
             <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <MessageSquare class="h-4 w-4" />
@@ -2456,12 +2480,6 @@ $effect(() => {
                 <Activity class="h-4 w-4" />
               {/snippet}
               {@render tasksFlyoutList()}
-            </SidebarFlyout>
-            <SidebarFlyout label="Labels" active={false} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
-              {#snippet trigger()}
-                <Tags class="h-4 w-4" />
-              {/snippet}
-              {@render labelsSection()}
             </SidebarFlyout>
           </nav>
         {:else}
@@ -3193,7 +3211,7 @@ $effect(() => {
 </aside>
 {/if}
 
-{#if showNewLabelPopover && currentSpaceId}
+{#if showNewLabelPopover && currentSpaceId && canManageLabels}
 	<NewLabelPopover
 		spaceId={currentSpaceId}
 		{labels}

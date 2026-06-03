@@ -8,6 +8,7 @@ const {
 	disabled = false,
 	onTriggerClick,
 	trigger,
+	headerAction,
 	children,
 }: {
 	label: string;
@@ -15,6 +16,7 @@ const {
 	disabled?: boolean;
 	onTriggerClick?: () => void;
 	trigger: Snippet<[{ open: boolean; active: boolean }]>;
+	headerAction?: Snippet;
 	children: Snippet;
 } = $props();
 
@@ -108,6 +110,11 @@ onDestroy(clearCloseTimer);
 		>
 			<div class="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface/40 px-3">
 				<div class="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em] text-text-secondary">{label}</div>
+				{#if headerAction}
+					<div class="shrink-0">
+						{@render headerAction()}
+					</div>
+				{/if}
 			</div>
 			<div class="max-h-[min(560px,calc(100vh-64px))] overflow-y-auto overscroll-contain px-2 py-2">
 				{@render children()}
