@@ -59,6 +59,11 @@ body.sidebar-resizing iframe {
 	background: var(--selection-bg);
 }
 
+:where(pre, code, kbd, samp, .font-mono, .cm-editor) {
+	font-variant-ligatures: none;
+	font-feature-settings: "liga" 0, "calt" 0;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
 	*,
@@ -138,8 +143,6 @@ body.drawer-open {
 	color: var(--text-reading);
 	font-size: 14px;
 	line-height: 1.68;
-	font-variant-ligatures: none;
-	font-feature-settings: "liga" 0, "calt" 0;
 	word-break: break-word;
 	overflow-wrap: anywhere;
 	min-width: 0;
@@ -548,8 +551,6 @@ body.drawer-open {
 	font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 	font-size: 0.9em;
 	font-weight: 400;
-	font-variant-ligatures: none;
-	font-feature-settings: "liga" 0, "calt" 0;
 }
 
 .markdown-content :not(pre) > code {
