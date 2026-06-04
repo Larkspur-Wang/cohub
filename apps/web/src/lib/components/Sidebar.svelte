@@ -1327,6 +1327,19 @@ function openSpacePalette() {
 	);
 }
 
+function logSidebarSessionNav(
+	event: string,
+	detail: Record<string, unknown> = {},
+) {
+	console.info("[session-nav][sidebar]", event, {
+		...detail,
+		currentPath,
+		currentSearch: page.url.search,
+		currentSessionViewMode,
+		currentSpaceId,
+	});
+}
+
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
 	const preferredMode = loadSpaceSessionModePreference(spaceId);
 	const mode = preferredMode ?? currentSessionViewMode;
@@ -1336,15 +1349,28 @@ function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
 }
 
 function handleSessionLinkClick(sessionId: string) {
-	onClose?.();
 	const session = sessions.find((s) => s.id === sessionId);
+	const href = currentSpaceId
+		? buildPreferredSessionRoute(currentSpaceId, sessionId)
+		: null;
+	logSidebarSessionNav("link-click", {
+		sessionId,
+		href,
+		title: session?.title ?? null,
+		lastMessageId: session?.lastMessageId ?? null,
+		lastMessageAt: session?.lastMessageAt ?? null,
+	});
+	onClose?.();
 	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
 }
 
 async function handleNavigateToSession(sessionId: string) {
 	handleSessionLinkClick(sessionId);
 	if (!currentSpaceId) return;
-	await goto(buildPreferredSessionRoute(currentSpaceId, sessionId));
+	const href = buildPreferredSessionRoute(currentSpaceId, sessionId);
+	logSidebarSessionNav("goto-start", { sessionId, href });
+	await goto(href);
+	logSidebarSessionNav("goto-complete", { sessionId, href });
 }
 
 async function handleNavigateToCheckpoint(checkpointId: string) {
