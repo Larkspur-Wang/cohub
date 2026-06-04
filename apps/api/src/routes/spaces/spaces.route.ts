@@ -116,14 +116,15 @@ async function promoteQueuedTurnToSteer(input: {
     if (target.intent !== "followup") throw new Error("only follow-up turns can be steered");
 
     const ordered = [target, ...queuedTurns.filter((turn) => turn.id !== target.id)];
-    const baseSequence = queuedTurns[0]?.sequence ?? target.sequence;
-    const tempOffset = 1_000_000;
+    const originalSequences = queuedTurns.map((turn) => turn.sequence);
+    const [maxSequenceRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
+    const tempBaseSequence = (maxSequenceRow?.max ?? 0) + 1_000_000;
     for (const [index, turn] of ordered.entries()) {
-      await tx.update(sessionTurns).set({ sequence: baseSequence + tempOffset + index, updatedAt: now }).where(eq(sessionTurns.id, turn.id));
+      await tx.update(sessionTurns).set({ sequence: tempBaseSequence + index, updatedAt: now }).where(eq(sessionTurns.id, turn.id));
     }
     for (const [index, turn] of ordered.entries()) {
       await tx.update(sessionTurns).set({
-        sequence: baseSequence + index,
+        sequence: originalSequences[index] ?? turn.sequence,
         intent: turn.id === target.id ? "steer" : turn.intent,
         meta: sanitizeMeta({
           ...readMetaRecord(turn.meta),
@@ -1551,7 +1552,7 @@ router.post("/:id/sessions/:sessionId/turns/:turnId/cancel", async (c) => {
 
   try {
     const turn = await cancelQueuedTurn({ spaceId, sessionId, turnId, actorUserId: user.uuid });
-    await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch cancelled turn", error));
+    await dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch cancelled turn", error));
     return c.json({ ok: true, turn });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

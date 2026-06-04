@@ -1472,7 +1472,10 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 });
 const followupQueue = $derived.by(() =>
 	(activeSessionState?.turns ?? []).filter(
-		(turn) => turn.status === "queued" && turn.intent === "followup",
+		(turn) =>
+			turn.status === "queued" &&
+			turn.intent === "followup" &&
+			turn.id !== activeGenerationState?.turnId,
 	),
 );
 
@@ -4291,8 +4294,14 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			if (payload.type === "session.turn.created") {
 				void loadSessionState(targetSessionId);
 			}
-			if (payload.type === "session.turn.finalized")
-				completeGeneration(targetSessionId);
+			if (payload.type === "session.turn.finalized") {
+				const turnId =
+					typeof (payload.payload.turn as { id?: unknown } | undefined)?.id ===
+					"string"
+						? (payload.payload.turn as { id: string }).id
+						: null;
+				completeGenerationForTurn(targetSessionId, turnId);
+			}
 			return;
 		}
 		if (payload.type === "session.turn.created") {
@@ -4381,7 +4390,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					reason: "turn.event",
 					onHydrated:
 						payload.type === "session.turn.finalized"
-							? () => completeGeneration(targetSessionId)
+							? () => completeGenerationForTurn(targetSessionId, turnId)
 							: undefined,
 				});
 			}
@@ -4396,6 +4405,12 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
 }
+function completeGenerationForTurn(sessionId: string, turnId: string | null) {
+	const current = sessionGenerationStore.get(sessionId);
+	if (turnId && current?.turnId && current.turnId !== turnId) return;
+	completeGeneration(sessionId);
+}
+
 async function handleGenerationStreamEvent(
 	sessionId: string,
 	event: GenerationStreamEvent,
