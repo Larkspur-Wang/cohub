@@ -8434,7 +8434,7 @@ $effect(() => {
                 <span class="font-medium text-text-secondary">Follow-up</span>
                 <span>{followupQueue.length} queued</span>
               </div>
-              <div class="max-h-[min(28vh,12rem)] space-y-1 overflow-y-auto overscroll-contain pr-1">
+              <div class="max-h-[min(22dvh,9rem)] space-y-1 overflow-y-auto overscroll-contain pr-1 sm:max-h-[min(28vh,12rem)]">
                 {#each followupQueue as turn (turn.id)}
                   <div class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60">
                     <div class="min-w-0 flex-1 truncate">{turnPreviewText(turn)}</div>
