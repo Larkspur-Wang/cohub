@@ -779,6 +779,7 @@ let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let taskRunRefreshInFlight: Promise<void> | null = null;
 let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
+let pendingFollowupActionIds = $state<Set<string>>(new Set());
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
 type TokenUsageDays = 7 | 30 | 90;
@@ -1470,12 +1471,40 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 				: null,
 	});
 });
+function preferFollowupQueueTurn(
+	current: SessionTurnRecord,
+	incoming: SessionTurnRecord,
+) {
+	if (isOptimisticTurn(current) && !isOptimisticTurn(incoming)) return incoming;
+	if (!isOptimisticTurn(current) && isOptimisticTurn(incoming)) return current;
+	return Date.parse(incoming.updatedAt) >= Date.parse(current.updatedAt)
+		? incoming
+		: current;
+}
+
+function dedupeFollowupQueueTurns(turns: SessionTurnRecord[]) {
+	const byKey = new Map<string, SessionTurnRecord>();
+	for (const turn of turns) {
+		const clientMessageId = getTurnClientMessageId(turn);
+		const key = clientMessageId
+			? `client:${clientMessageId}`
+			: `turn:${turn.id}`;
+		const current = byKey.get(key);
+		byKey.set(key, current ? preferFollowupQueueTurn(current, turn) : turn);
+	}
+	return [...byKey.values()].sort(
+		(a, b) => a.sequence - b.sequence || a.createdAt.localeCompare(b.createdAt),
+	);
+}
+
 const followupQueue = $derived.by(() =>
-	(activeSessionState?.turns ?? []).filter(
-		(turn) =>
-			turn.status === "queued" &&
-			turn.intent === "followup" &&
-			turn.id !== activeGenerationState?.turnId,
+	dedupeFollowupQueueTurns(
+		(activeSessionState?.turns ?? []).filter(
+			(turn) =>
+				turn.status === "queued" &&
+				turn.intent === "followup" &&
+				turn.id !== activeGenerationState?.turnId,
+		),
 	),
 );
 
@@ -1483,19 +1512,27 @@ function turnPreviewText(turn: SessionTurnRecord) {
 	return (turn.userText ?? "").replace(/\s+/g, " ").trim() || "Follow-up";
 }
 
+async function refreshSessionAfterStaleFollowupAction(sessionId: string) {
+	composerError = "";
+	await syncSessionNewer(sessionId, null).catch(() => undefined);
+}
+
 async function handleSteerFollowup(turnId: string) {
-	if (!activeSessionId || !space) return;
+	if (!activeSessionId || !space || pendingFollowupActionIds.has(turnId))
+		return;
+	const sessionId = activeSessionId;
+	pendingFollowupActionIds = new Set([...pendingFollowupActionIds, turnId]);
 	composerError = "";
 	try {
 		const result = await sdk
 			.space(spaceId)
-			.session(activeSessionId)
+			.session(sessionId)
 			.steerTurn(turnId);
-		const current = sessionStateById[activeSessionId];
+		const current = sessionStateById[sessionId];
 		if (current) {
 			sessionStateById = {
 				...sessionStateById,
-				[activeSessionId]: {
+				[sessionId]: {
 					...current,
 					turns: mergeTurnsById(current.turns, result.affectedTurns, {
 						preferIncoming: true,
@@ -1503,29 +1540,40 @@ async function handleSteerFollowup(turnId: string) {
 				},
 			};
 		}
-		startGenerationRequest(activeSessionId, {
+		startGenerationRequest(sessionId, {
 			spaceId,
 			turnId: result.turn.id,
 		});
 	} catch (error) {
+		if (error instanceof HttpError && error.status === 409) {
+			await refreshSessionAfterStaleFollowupAction(sessionId);
+			return;
+		}
 		composerError =
 			error instanceof Error ? error.message : "Failed to steer follow-up";
+	} finally {
+		const next = new Set(pendingFollowupActionIds);
+		next.delete(turnId);
+		pendingFollowupActionIds = next;
 	}
 }
 
 async function handleCancelFollowup(turnId: string) {
-	if (!activeSessionId || !space) return;
+	if (!activeSessionId || !space || pendingFollowupActionIds.has(turnId))
+		return;
+	const sessionId = activeSessionId;
+	pendingFollowupActionIds = new Set([...pendingFollowupActionIds, turnId]);
 	composerError = "";
 	try {
 		const result = await sdk
 			.space(spaceId)
-			.session(activeSessionId)
+			.session(sessionId)
 			.cancelTurn(turnId);
-		const current = sessionStateById[activeSessionId];
+		const current = sessionStateById[sessionId];
 		if (current) {
 			sessionStateById = {
 				...sessionStateById,
-				[activeSessionId]: {
+				[sessionId]: {
 					...current,
 					turns: mergeTurnsById(current.turns, [result.turn], {
 						preferIncoming: true,
@@ -1534,8 +1582,16 @@ async function handleCancelFollowup(turnId: string) {
 			};
 		}
 	} catch (error) {
+		if (error instanceof HttpError && error.status === 409) {
+			await refreshSessionAfterStaleFollowupAction(sessionId);
+			return;
+		}
 		composerError =
 			error instanceof Error ? error.message : "Failed to cancel follow-up";
+	} finally {
+		const next = new Set(pendingFollowupActionIds);
+		next.delete(turnId);
+		pendingFollowupActionIds = next;
 	}
 }
 
@@ -8361,8 +8417,8 @@ $effect(() => {
                 {#each followupQueue as turn (turn.id)}
                   <div class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60">
                     <div class="min-w-0 flex-1 truncate">{turnPreviewText(turn)}</div>
-                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-secondary hover:bg-bg-surface hover:text-text-primary" onclick={() => { void handleSteerFollowup(turn.id); }}>Steer now</button>
-                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-placeholder hover:bg-bg-surface hover:text-text-secondary" onclick={() => { void handleCancelFollowup(turn.id); }}>Cancel</button>
+                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-secondary hover:bg-bg-surface hover:text-text-primary disabled:cursor-default disabled:opacity-50" disabled={pendingFollowupActionIds.has(turn.id)} onclick={() => { void handleSteerFollowup(turn.id); }}>Steer now</button>
+                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-placeholder hover:bg-bg-surface hover:text-text-secondary disabled:cursor-default disabled:opacity-50" disabled={pendingFollowupActionIds.has(turn.id)} onclick={() => { void handleCancelFollowup(turn.id); }}>Cancel</button>
                   </div>
                 {/each}
               </div>
