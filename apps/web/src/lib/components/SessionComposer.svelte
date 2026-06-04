@@ -988,7 +988,7 @@ $effect(() => {
 								!event.shiftKey &&
 								!isComposingKeyboardEvent(event)
 							) {
-								if (isMobile() || isComposerExpanded) return;
+								if (isMobile()) return;
 								event.preventDefault();
 								submitDraft();
 							}
