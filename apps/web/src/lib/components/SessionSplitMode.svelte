@@ -1,3 +1,13 @@
+<script lang="ts" module>
+type TurnListScrollAnchor = {
+	sequence: number;
+	offset: number;
+	updatedAt: number;
+};
+
+const turnListScrollAnchorBySession = new Map<string, TurnListScrollAnchor>();
+</script>
+
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
@@ -13,7 +23,7 @@ import {
 	PanelLeftClose,
 	Search,
 } from "lucide-svelte";
-import { onDestroy } from "svelte";
+import { onDestroy, tick } from "svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import type { ChatMessage } from "$lib/session-tree";
@@ -43,6 +53,7 @@ type StreamingTurnState = {
 } | null;
 
 type Props = {
+	sessionId: string;
 	turns: SessionTurnRecord[];
 	turnIndexItems: SessionTurnIndexItem[];
 	selectedSequence: number | null;
@@ -77,6 +88,7 @@ type Props = {
 };
 
 let {
+	sessionId,
 	turns,
 	turnIndexItems,
 	selectedSequence,
@@ -107,7 +119,11 @@ let {
 
 let query = $state("");
 let mobileDetailOpen = $state(false);
+let turnListScrollEl = $state<HTMLDivElement | null>(null);
 let resizeCleanup: (() => void) | null = null;
+let turnListScrollSessionId: string | null = null;
+let restoringTurnListScroll = false;
+let restoreTurnListScrollFrame: number | null = null;
 
 function clampWidth(width: number) {
 	return Math.min(listMaxWidth, Math.max(listMinWidth, width));
@@ -141,7 +157,100 @@ function beginListResize(event: PointerEvent) {
 	window.addEventListener("pointercancel", stop);
 }
 
-onDestroy(() => resizeCleanup?.());
+function getTurnListNodeTop(node: HTMLElement) {
+	if (!turnListScrollEl) return 0;
+	const containerRect = turnListScrollEl.getBoundingClientRect();
+	const nodeRect = node.getBoundingClientRect();
+	return turnListScrollEl.scrollTop + (nodeRect.top - containerRect.top);
+}
+
+function captureTurnListScrollAnchor() {
+	if (!turnListScrollEl || !turnListScrollSessionId) return;
+	const nodes = Array.from(
+		turnListScrollEl.querySelectorAll<HTMLElement>("[data-turn-list-sequence]"),
+	);
+	if (nodes.length === 0) return;
+	const containerRect = turnListScrollEl.getBoundingClientRect();
+	const firstVisible =
+		nodes.find(
+			(node) => node.getBoundingClientRect().bottom > containerRect.top + 8,
+		) ?? nodes[0];
+	const sequence = Number(firstVisible.dataset.turnListSequence);
+	if (!Number.isFinite(sequence)) return;
+	turnListScrollAnchorBySession.set(turnListScrollSessionId, {
+		sequence,
+		offset: turnListScrollEl.scrollTop - getTurnListNodeTop(firstVisible),
+		updatedAt: Date.now(),
+	});
+}
+
+function handleTurnListScroll() {
+	if (restoringTurnListScroll) return;
+	captureTurnListScrollAnchor();
+}
+
+function finishTurnListScrollRestore(key: string) {
+	requestAnimationFrame(() => {
+		if (turnListScrollSessionId === key) restoringTurnListScroll = false;
+	});
+}
+
+function restoreTurnListScroll(key: string, retries = 2) {
+	if (restoreTurnListScrollFrame != null) {
+		cancelAnimationFrame(restoreTurnListScrollFrame);
+	}
+	restoreTurnListScrollFrame = requestAnimationFrame(() => {
+		restoreTurnListScrollFrame = null;
+		const el = turnListScrollEl;
+		if (!el || turnListScrollSessionId !== key) return;
+
+		const anchor = turnListScrollAnchorBySession.get(key);
+		if (!anchor) {
+			el.scrollTop = 0;
+			finishTurnListScrollRestore(key);
+			return;
+		}
+
+		const node = el.querySelector<HTMLElement>(
+			`[data-turn-list-sequence="${anchor.sequence}"]`,
+		);
+		if (!node) {
+			if (retries > 0) {
+				restoreTurnListScroll(key, retries - 1);
+				return;
+			}
+			el.scrollTop = 0;
+			finishTurnListScrollRestore(key);
+			return;
+		}
+
+		const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+		el.scrollTop = Math.min(
+			maxScrollTop,
+			Math.max(0, getTurnListNodeTop(node) + anchor.offset),
+		);
+		finishTurnListScrollRestore(key);
+	});
+}
+
+$effect(() => {
+	const el = turnListScrollEl;
+	const key = sessionId;
+	if (!el || !key || turnListScrollSessionId === key) return;
+
+	captureTurnListScrollAnchor();
+	turnListScrollSessionId = key;
+	restoringTurnListScroll = true;
+	void tick().then(() => restoreTurnListScroll(key));
+});
+
+onDestroy(() => {
+	captureTurnListScrollAnchor();
+	if (restoreTurnListScrollFrame != null) {
+		cancelAnimationFrame(restoreTurnListScrollFrame);
+	}
+	resizeCleanup?.();
+});
 
 const turnsBySequence = $derived.by(() => {
 	const map = new Map<number, SessionTurnRecord>();
@@ -298,7 +407,7 @@ function selectTurn(sequence: number) {
 				/>
 			</div>
 		</div>
-		<div class="min-h-0 flex-1 overflow-y-auto">
+		<div bind:this={turnListScrollEl} class="min-h-0 flex-1 overflow-y-auto" onscroll={handleTurnListScroll}>
 			{#if hasMoreOlder || olderCount > 0}
 				<button type="button" class="flex w-full items-center justify-center gap-2 border-b border-border-subtle px-3 py-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-60" onclick={onLoadOlder} disabled={loadingOlder}>
 					{#if loadingOlder}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
@@ -313,6 +422,7 @@ function selectTurn(sequence: number) {
 						{@const selected = row.sequence === effectiveSelectedSequence}
 						<button
 							type="button"
+							data-turn-list-sequence={row.sequence}
 							class={`group block w-full px-3 py-2.5 text-left transition-colors hover:bg-bg-hover/70 ${selected ? 'bg-bg-hover' : ''}`}
 							onclick={() => selectTurn(row.sequence)}
 						>

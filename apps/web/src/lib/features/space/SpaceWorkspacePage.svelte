@@ -8163,6 +8163,7 @@ $effect(() => {
       <div class="relative flex-1 min-h-0 flex flex-col">
         {#if routeSessionMode === 'split' && activeSessionId}
           <SessionSplitMode
+            sessionId={activeSessionId}
             turns={activeSessionState.turns}
             turnIndexItems={activeTurnRailItems}
             selectedSequence={routeTurnSequence}
