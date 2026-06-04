@@ -106,7 +106,9 @@ export class VoiceInputClient {
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private pendingSamples: number[] = [];
+  private pendingAudio: string[] = [];
   private started = false;
+  private asrStarted = false;
   private intentionalClose = false;
 
   constructor(options: VoiceInputClientOptions = {}) {
@@ -120,6 +122,8 @@ export class VoiceInputClient {
   async start() {
     if (this.started) return;
     this.started = true;
+    this.asrStarted = false;
+    this.pendingAudio = [];
     this.intentionalClose = false;
 
     try {
@@ -173,7 +177,11 @@ export class VoiceInputClient {
           try {
             const data = this.handleMessage(event);
             if (data.type === "system.auth.ok") this.send({ type: "asr.start" });
-            if (data.type === "asr.started") succeed();
+            if (data.type === "asr.started") {
+              this.asrStarted = true;
+              this.flushPendingAudio();
+              succeed();
+            }
             if (data.type === "asr.error") fail(new Error(String(data.payload?.message ?? "Voice input failed")));
           } catch {
             const error = new Error("Voice service sent invalid data. Try again.");
@@ -193,12 +201,13 @@ export class VoiceInputClient {
 
   stop() {
     if (this.pendingSamples.length > 0) this.sendAudio(new Float32Array(this.pendingSamples.splice(0)));
-    this.send({ type: "asr.stop" });
+    this.flushPendingAudio();
+    if (this.asrStarted) this.send({ type: "asr.stop" });
     this.cleanupAudio();
   }
 
   cancel() {
-    this.send({ type: "asr.cancel" });
+    if (this.asrStarted) this.send({ type: "asr.cancel" });
     this.intentionalClose = true;
     this.close();
   }
@@ -243,7 +252,18 @@ export class VoiceInputClient {
 
   private sendAudio(samples: Float32Array) {
     const audio = encodeBase64(floatToPcm16(samples));
+    if (!this.asrStarted) {
+      this.pendingAudio.push(audio);
+      return;
+    }
     this.send({ type: "asr.audio", payload: { audio } });
+  }
+
+  private flushPendingAudio() {
+    if (!this.asrStarted) return;
+    for (const audio of this.pendingAudio.splice(0)) {
+      this.send({ type: "asr.audio", payload: { audio } });
+    }
   }
 
   private send(message: Record<string, unknown>) {
@@ -258,6 +278,8 @@ export class VoiceInputClient {
     if (data.type === "asr.error") this.callbacks.onError?.(String(data.payload?.message ?? "Voice input failed"));
     if (data.type === "asr.done") {
       this.intentionalClose = true;
+      this.asrStarted = false;
+      this.started = false;
       this.callbacks.onDone?.();
     }
     return data;
@@ -276,6 +298,8 @@ export class VoiceInputClient {
     this.stream = null;
     this.audioContext = null;
     this.pendingSamples = [];
+    this.pendingAudio = [];
+    this.asrStarted = false;
   }
 }
 
