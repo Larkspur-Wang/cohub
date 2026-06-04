@@ -1512,6 +1512,23 @@ function turnPreviewText(turn: SessionTurnRecord) {
 	return (turn.userText ?? "").replace(/\s+/g, " ").trim() || "Follow-up";
 }
 
+function removeQueuedFollowupDuplicates(
+	turns: SessionTurnRecord[],
+	resolvedTurn: SessionTurnRecord,
+) {
+	const clientMessageId = getTurnClientMessageId(resolvedTurn);
+	if (!clientMessageId)
+		return turns.filter((turn) => turn.id !== resolvedTurn.id);
+	return turns.filter((turn) => {
+		if (turn.id === resolvedTurn.id) return false;
+		return !(
+			turn.status === "queued" &&
+			turn.intent === "followup" &&
+			getTurnClientMessageId(turn) === clientMessageId
+		);
+	});
+}
+
 async function refreshSessionAfterStaleFollowupAction(sessionId: string) {
 	composerError = "";
 	await syncSessionNewer(sessionId, null).catch(() => undefined);
@@ -1534,9 +1551,11 @@ async function handleSteerFollowup(turnId: string) {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
-					turns: mergeTurnsById(current.turns, result.affectedTurns, {
-						preferIncoming: true,
-					}),
+					turns: mergeTurnsById(
+						removeQueuedFollowupDuplicates(current.turns, result.turn),
+						result.affectedTurns,
+						{ preferIncoming: true },
+					),
 				},
 			};
 		}
@@ -1575,9 +1594,11 @@ async function handleCancelFollowup(turnId: string) {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
-					turns: mergeTurnsById(current.turns, [result.turn], {
-						preferIncoming: true,
-					}),
+					turns: mergeTurnsById(
+						removeQueuedFollowupDuplicates(current.turns, result.turn),
+						[result.turn],
+						{ preferIncoming: true },
+					),
 				},
 			};
 		}
@@ -8413,7 +8434,7 @@ $effect(() => {
                 <span class="font-medium text-text-secondary">Follow-up</span>
                 <span>{followupQueue.length} queued</span>
               </div>
-              <div class="space-y-1">
+              <div class="max-h-[min(28vh,12rem)] space-y-1 overflow-y-auto overscroll-contain pr-1">
                 {#each followupQueue as turn (turn.id)}
                   <div class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60">
                     <div class="min-w-0 flex-1 truncate">{turnPreviewText(turn)}</div>

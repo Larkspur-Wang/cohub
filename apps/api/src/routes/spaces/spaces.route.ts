@@ -16,7 +16,7 @@ import {
   userProfiles,
   sessionTurns,
 } from "@cohub/db";
-import { eq, and, inArray, desc, asc, sql } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
@@ -110,34 +110,24 @@ async function promoteQueuedTurnToSteer(input: {
     const [session] = await tx.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
     if (!session || session.spaceId !== input.spaceId) throw new Error("session not found");
 
-    const queuedTurns = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "queued"))).orderBy(asc(sessionTurns.sequence));
-    const target = queuedTurns.find((turn) => turn.id === input.turnId);
-    if (!target) throw new Error("turn is not queued");
+    const [target] = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).for("update").limit(1);
+    if (target?.status !== "queued") throw new Error("turn is not queued");
     if (target.intent !== "followup") throw new Error("only follow-up turns can be steered");
 
-    const ordered = [target, ...queuedTurns.filter((turn) => turn.id !== target.id)];
-    const originalSequences = queuedTurns.map((turn) => turn.sequence);
     const [maxSequenceRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
-    const tempBaseSequence = (maxSequenceRow?.max ?? 0) + 1_000_000;
-    for (const [index, turn] of ordered.entries()) {
-      await tx.update(sessionTurns).set({ sequence: tempBaseSequence + index, updatedAt: now }).where(eq(sessionTurns.id, turn.id));
-    }
-    for (const [index, turn] of ordered.entries()) {
-      await tx.update(sessionTurns).set({
-        sequence: originalSequences[index] ?? turn.sequence,
-        intent: turn.id === target.id ? "steer" : turn.intent,
-        meta: sanitizeMeta({
-          ...readMetaRecord(turn.meta),
-          ...(turn.id === target.id ? {
-            promotedToSteerAt: now.toISOString(),
-            promotedByUserId: input.actorUserId,
-            promotedFromIntent: turn.intent,
-            dispatchIntent: "steer",
-          } : {}),
-        }),
-        updatedAt: now,
-      }).where(eq(sessionTurns.id, turn.id));
-    }
+    const nextSequence = (maxSequenceRow?.max ?? target.sequence) + 1;
+    await tx.update(sessionTurns).set({
+      sequence: nextSequence,
+      intent: "steer",
+      meta: sanitizeMeta({
+        ...readMetaRecord(target.meta),
+        promotedToSteerAt: now.toISOString(),
+        promotedByUserId: input.actorUserId,
+        promotedFromIntent: target.intent,
+        dispatchIntent: "steer",
+      }),
+      updatedAt: now,
+    }).where(eq(sessionTurns.id, target.id));
 
     const [activeTurn] = await tx.select({ id: sessionTurns.id, status: sessionTurns.status, meta: sessionTurns.meta }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).orderBy(desc(sessionTurns.sequence)).limit(1);
     if (activeTurn && activeTurn.id !== target.id) {
@@ -153,7 +143,7 @@ async function promoteQueuedTurnToSteer(input: {
       }).where(and(eq(sessionTurns.id, activeTurn.id), inArray(sessionTurns.status, ["running", "abort_requested"])));
     }
 
-    return { targetId: target.id, activeTurnId: activeTurn?.id ?? null, activeTurnStatus: activeTurn?.status ?? null, affectedTurnIds: [...ordered.map((turn) => turn.id), ...(activeTurn?.id && activeTurn.id !== target.id ? [activeTurn.id] : [])] };
+    return { targetId: target.id, activeTurnId: activeTurn?.id ?? null, activeTurnStatus: activeTurn?.status ?? null, affectedTurnIds: [target.id, ...(activeTurn?.id && activeTurn.id !== target.id ? [activeTurn.id] : [])] };
   });
 
   try {
@@ -207,7 +197,9 @@ async function cancelQueuedTurn(input: {
     const [turn] = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).for("update").limit(1);
     if (turn?.status !== "queued") throw new Error("turn is not queued");
     if (turn.intent !== "followup") throw new Error("only follow-up turns can be cancelled");
+    const [maxSequenceRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
     return tx.update(sessionTurns).set({
+      sequence: (maxSequenceRow?.max ?? turn.sequence) + 1,
       status: "cancelled",
       summary: { finishReason: "cancelled", reason: "queued_followup_cancelled" },
       meta: sanitizeMeta({
