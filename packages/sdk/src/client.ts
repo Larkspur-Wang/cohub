@@ -14,6 +14,7 @@ import { UserApi } from "./apis/user.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { createWebsocketClient } from "./websocket.js";
+import { VoiceApi } from "./voice-input.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 
 export class CohubClient {
@@ -31,6 +32,7 @@ export class CohubClient {
   readonly cronJobs: CronJobsApi;
   readonly explore: ExploreApi;
   readonly invite: PublicInviteApi;
+  readonly voice: VoiceApi;
 
   private readonly transport: HttpTransport;
   private readonly websocketClient: ReturnType<typeof createWebsocketClient>;
@@ -44,7 +46,14 @@ export class CohubClient {
         url: options.websocket?.url,
       }),
       ...options.websocket,
-      getAccessToken: options.getAccessToken,
+      getAccessToken: options.websocket?.getAccessToken ?? options.getAccessToken,
+    });
+    this.voice = new VoiceApi({
+      env: options.voice?.env ?? options.env,
+      url: options.voice?.url,
+      getAccessToken: options.voice?.getAccessToken ?? options.getAccessToken,
+      WebSocketImpl: options.voice?.WebSocketImpl,
+      connectionTimeoutMs: options.voice?.connectionTimeoutMs,
     });
     this.spaces = new SpacesApi(this.transport);
     this.channels = new ChannelsApi(this.transport);

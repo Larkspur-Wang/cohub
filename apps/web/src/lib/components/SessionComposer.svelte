@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
+import type {
+	PromptTemplateCatalogEntry,
+	VoiceInputClient,
+} from "@neta-art/cohub";
 import {
 	ArrowUp,
 	ChevronDown,
@@ -36,12 +39,12 @@ import {
 	searchLocalSpaceMentions,
 	searchRemoteSpaceMentions,
 } from "$lib/mentions/space-search";
+import { sdk } from "$lib/sdk";
 import {
 	entriesFromDataTransfer,
 	entriesFromFiles,
 	type LocalUploadEntry,
 } from "$lib/upload-entries";
-import { VoiceInputClient } from "$lib/voice-asr";
 
 type SelectedModel = {
 	provider: string;
@@ -332,7 +335,7 @@ async function startVoiceInput() {
 	voiceSuffix = value.slice(end);
 	voiceCommittedText = "";
 	voicePartialText = "";
-	voiceClient = new VoiceInputClient({
+	voiceClient = sdk.voice.createInputClient({
 		onPartial: (text) => {
 			voicePartialText = text;
 			applyVoiceText(text);

@@ -15,16 +15,22 @@ const handleUnauthorized = async () => {
 
 const createWebSdk = (options: Partial<CohubClientOptions> = {}) =>
 	createCohubClient({
-		baseUrl: PUBLIC_API_ORIGIN ?? "",
-		getAccessToken: resolveAccessToken,
-		onUnauthorized: handleUnauthorized,
-		setStoredAuthToken: setAuthToken,
-		clearStoredAuthToken: clearAuthToken,
+		baseUrl: options.baseUrl ?? PUBLIC_API_ORIGIN ?? "",
+		getAccessToken: options.getAccessToken ?? resolveAccessToken,
+		onUnauthorized: options.onUnauthorized ?? handleUnauthorized,
+		setStoredAuthToken: options.setStoredAuthToken ?? setAuthToken,
+		clearStoredAuthToken: options.clearStoredAuthToken ?? clearAuthToken,
+		...options,
 		websocket: {
 			url: PUBLIC_GATEWAY_ORIGIN ?? undefined,
 			getAccessToken: resolveAccessToken,
+			...options.websocket,
 		},
-		...options,
+		voice: {
+			url: PUBLIC_GATEWAY_ORIGIN ?? undefined,
+			getAccessToken: resolveAccessToken,
+			...options.voice,
+		},
 	});
 
 export const sdk = createWebSdk();

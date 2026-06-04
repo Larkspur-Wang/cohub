@@ -2,6 +2,7 @@ export { CohubHttpClient, createHttpClient } from "./http.js";
 export { BillingApi } from "./apis/billing.js";
 export { CohubClient, createCohubClient } from "./client.js";
 export { WebsocketClient, createWebsocketClient } from "./websocket.js";
+export { VoiceApi, VoiceInputClient, createVoiceInputClient } from "./voice-input.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export {
   SessionGenerationStreamClient,
@@ -29,13 +30,21 @@ export type { RawHttpResponse } from "./transport.js";
 export {
   COHUB_ENVIRONMENTS,
   normalizeBaseUrl,
+  normalizeVoiceInputWebsocketUrl,
   normalizeWebsocketUrl,
   resolveApiBaseUrl,
   resolveCohubEnvironment,
+  resolveVoiceInputWebsocketUrl,
   resolveWebsocketUrl,
 } from "./environment.js";
 export type { CohubClientOptions, Fetch } from "./transport.js";
 export type { CohubEnvironment } from "./environment.js";
+export type {
+  VoiceInputCallbacks,
+  VoiceInputClientOptions,
+  VoiceInputCreateOptions,
+  VoiceInputEvent,
+} from "./voice-input.js";
 export type {
   SessionPatchApplyInput,
   SessionPatchApplyResult,

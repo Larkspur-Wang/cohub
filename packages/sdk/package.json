@@ -36,6 +36,10 @@
         "types": "./dist/websocket.d.ts",
         "import": "./dist/websocket.js"
       },
+      "./voice-input": {
+        "types": "./dist/voice-input.d.ts",
+        "import": "./dist/voice-input.js"
+      },
       "./debugger": {
         "types": "./dist/debugger.d.ts",
         "import": "./dist/debugger.js"
@@ -55,6 +59,10 @@
     "./websocket": {
       "types": "./src/websocket.ts",
       "import": "./src/websocket.ts"
+    },
+    "./voice-input": {
+      "types": "./src/voice-input.ts",
+      "import": "./src/voice-input.ts"
     },
     "./debugger": {
       "types": "./src/debugger.ts",

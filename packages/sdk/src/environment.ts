@@ -4,12 +4,14 @@ export const COHUB_ENVIRONMENTS = {
   prod: {
     apiBaseUrl: "https://api.cohub.run",
     websocketUrl: "wss://gateway.cohub.run/ws",
+    voiceInputWebsocketUrl: "wss://gateway.cohub.run/asr/ws",
   },
   dev: {
     apiBaseUrl: "https://api-dev.cohub.run",
     websocketUrl: "wss://gateway-dev.cohub.run/ws",
+    voiceInputWebsocketUrl: "wss://gateway-dev.cohub.run/asr/ws",
   },
-} as const satisfies Record<CohubEnvironment, { apiBaseUrl: string; websocketUrl: string }>;
+} as const satisfies Record<CohubEnvironment, { apiBaseUrl: string; websocketUrl: string; voiceInputWebsocketUrl: string }>;
 
 const readRuntimeEnv = (): string | undefined => {
   const runtime = globalThis as typeof globalThis & {
@@ -25,13 +27,23 @@ export const resolveCohubEnvironment = (env?: CohubEnvironment): CohubEnvironmen
 
 export const normalizeBaseUrl = (url: string) => url.trim().replace(/\/+$/, "");
 
-export const normalizeWebsocketUrl = (input: string) => {
-  const trimmed = normalizeBaseUrl(input);
-  const withProtocol = trimmed
+const normalizeWebsocketPath = (input: string, path: string, replacePaths: string[] = []) => {
+  let withProtocol = normalizeBaseUrl(input)
     .replace(/^http:/, "ws:")
     .replace(/^https:/, "wss:");
-  return withProtocol.endsWith("/ws") ? withProtocol : `${withProtocol}/ws`;
+  for (const replacePath of replacePaths) {
+    if (withProtocol.endsWith(replacePath)) {
+      withProtocol = withProtocol.slice(0, -replacePath.length);
+      break;
+    }
+  }
+  return withProtocol.endsWith(path) ? withProtocol : `${withProtocol}${path}`;
 };
+
+export const normalizeWebsocketUrl = (input: string) => normalizeWebsocketPath(input, "/ws", ["/asr/ws"]);
+
+export const normalizeVoiceInputWebsocketUrl = (input: string) =>
+  normalizeWebsocketPath(input, "/asr/ws", ["/ws"]);
 
 export const resolveApiBaseUrl = (options: {
   baseUrl?: string;
@@ -47,4 +59,12 @@ export const resolveWebsocketUrl = (options: {
 } = {}) => {
   if (options.url) return normalizeWebsocketUrl(options.url);
   return COHUB_ENVIRONMENTS[resolveCohubEnvironment(options.env)].websocketUrl;
+};
+
+export const resolveVoiceInputWebsocketUrl = (options: {
+  url?: string;
+  env?: CohubEnvironment;
+} = {}) => {
+  if (options.url) return normalizeVoiceInputWebsocketUrl(options.url);
+  return COHUB_ENVIRONMENTS[resolveCohubEnvironment(options.env)].voiceInputWebsocketUrl;
 };

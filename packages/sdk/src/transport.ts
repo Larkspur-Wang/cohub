@@ -1,6 +1,7 @@
 import type { CohubEnvironment } from "./environment.js";
 import { resolveApiBaseUrl } from "./environment.js";
 import type { WebsocketClientOptions } from "./websocket.js";
+import type { VoiceInputCreateOptions } from "./voice-input.js";
 
 export type Fetch = typeof globalThis.fetch;
 
@@ -40,6 +41,7 @@ export type CohubClientOptions = {
   clearStoredAuthToken?: () => void;
   fetch?: Fetch;
   websocket?: WebsocketClientOptions;
+  voice?: VoiceInputCreateOptions;
 };
 
 export class HttpError extends Error {
