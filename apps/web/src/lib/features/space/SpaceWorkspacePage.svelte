@@ -89,11 +89,11 @@ import CodeEditor from "$lib/components/CodeEditor.svelte";
 import CanvasPanel from "$lib/components/canvas/CanvasPanel.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
-import MarkdownView from "$lib/components/MarkdownView.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
+import RenderedFilePreview from "$lib/components/RenderedFilePreview.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SessionGenerationTaskTray, {
@@ -437,11 +437,25 @@ const inlineFileDirty = $derived(
 			inlineFile.draft !== inlineFile.response.content,
 	),
 );
+const isMarkdownPath = (path: string) => /\.md$/i.test(path);
+const isHtmlPath = (path: string) => /\.html?$/i.test(path);
+const hasRenderedFilePreview = (file: SpaceFsFileResponse) =>
+	file.kind === "text" && (isMarkdownPath(file.path) || isHtmlPath(file.path));
+
 const inlineFileIsMarkdown = $derived(
 	Boolean(
 		inlineFile?.response?.kind === "text" &&
-			/\.md$/i.test(inlineFile.response.path),
+			isMarkdownPath(inlineFile.response.path),
 	),
+);
+const inlineFileIsHtml = $derived(
+	Boolean(
+		inlineFile?.response?.kind === "text" &&
+			isHtmlPath(inlineFile.response.path),
+	),
+);
+const inlineFileHasRenderedPreview = $derived(
+	inlineFileIsMarkdown || inlineFileIsHtml,
 );
 const inlineFileExt = $derived.by(() => {
 	if (inlineFile?.response?.kind !== "text") return "plaintext";
@@ -488,7 +502,7 @@ const activePreviewKind = $derived(
 );
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
-	return !(file.kind === "text" && /\.md$/i.test(file.path));
+	return !hasRenderedFilePreview(file);
 }
 // Image zoom state (for both route-based and inline file viewers)
 let openFileZoom = $state(1);
@@ -587,7 +601,13 @@ const fileDirty = $derived(
 	),
 );
 const openFileIsMarkdown = $derived(
-	Boolean(openFile?.kind === "text" && /\.md$/i.test(openFile.path)),
+	Boolean(openFile?.kind === "text" && isMarkdownPath(openFile.path)),
+);
+const openFileIsHtml = $derived(
+	Boolean(openFile?.kind === "text" && isHtmlPath(openFile.path)),
+);
+const openFileHasRenderedPreview = $derived(
+	openFileIsMarkdown || openFileIsHtml,
 );
 const openFileExt = $derived.by(() => {
 	if (openFile?.kind !== "text") return "plaintext";
@@ -7611,7 +7631,7 @@ $effect(() => {
               <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
                 {openFile.path}
               </div>
-              {#if openFileIsMarkdown}
+              {#if openFileHasRenderedPreview}
                 <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
                   <button
                     type="button"
@@ -7627,7 +7647,7 @@ $effect(() => {
                     class="segmented-btn"
                     class:active={!fileEdit}
                     onclick={() => fileEdit = false}
-                    title="Preview markdown"
+                    title={openFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
                   >
                     Preview
                   </button>
@@ -7671,8 +7691,12 @@ $effect(() => {
                   language={openFileExt}
                   onInput={(v) => openFileDraft = v}
                 />
-              {:else if openFileIsMarkdown}
-                <MarkdownView source={openFileDraft} variant="document" />
+              {:else if openFileHasRenderedPreview}
+                <RenderedFilePreview
+                  name={openFile.name}
+                  source={openFileDraft}
+                  type={openFileIsMarkdown ? "markdown" : "html"}
+                />
               {:else}
                 <CodeEditor
                   value={openFileDraft}
@@ -8386,10 +8410,10 @@ $effect(() => {
       {:else if inlineFile.response}
         {#if inlineFileIsText}
           <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
-            {#if inlineFileIsMarkdown}
+            {#if inlineFileHasRenderedPreview}
               <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
                 <button type="button" class="segmented-btn" class:active={inlineFileEdit} onclick={() => inlineFileEdit = true} title="Edit source">Source</button>
-                <button type="button" class="segmented-btn" class:active={!inlineFileEdit} onclick={() => inlineFileEdit = false} title="Preview markdown">Preview</button>
+                <button type="button" class="segmented-btn" class:active={!inlineFileEdit} onclick={() => inlineFileEdit = false} title={inlineFileIsMarkdown ? "Preview markdown" : "Preview HTML"}>Preview</button>
               </div>
             {/if}
             <div class="flex-1"></div>
@@ -8403,8 +8427,12 @@ $effect(() => {
           <div class="flex-1 min-h-0">
             {#if inlineFileEdit}
               <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} />
-            {:else if inlineFileIsMarkdown}
-              <MarkdownView source={inlineFile.draft} variant="document" />
+            {:else if inlineFileHasRenderedPreview}
+              <RenderedFilePreview
+                name={inlineFile.response.name}
+                source={inlineFile.draft}
+                type={inlineFileIsMarkdown ? "markdown" : "html"}
+              />
             {:else}
               <CodeEditor value={inlineFile.draft} language={inlineFileExt} readonly={true} />
             {/if}
@@ -8493,7 +8521,7 @@ $effect(() => {
                 {inlineFile.response.path}
               </div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {#if inlineFileIsMarkdown}
+              {#if inlineFileHasRenderedPreview}
                 <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
                   <button
                     type="button"
@@ -8509,7 +8537,7 @@ $effect(() => {
                     class="segmented-btn"
                     class:active={!inlineFileEdit}
                     onclick={() => inlineFileEdit = false}
-                    title="Preview markdown"
+                    title={inlineFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
                   >
                     Preview
                   </button>
@@ -8553,8 +8581,12 @@ $effect(() => {
                   language={inlineFileExt}
                   onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
                 />
-              {:else if inlineFileIsMarkdown}
-                <MarkdownView source={inlineFile.draft} variant="document" />
+              {:else if inlineFileHasRenderedPreview}
+                <RenderedFilePreview
+                  name={inlineFile.response.name}
+                  source={inlineFile.draft}
+                  type={inlineFileIsMarkdown ? "markdown" : "html"}
+                />
               {:else}
                 <CodeEditor
                   value={inlineFile.draft}
