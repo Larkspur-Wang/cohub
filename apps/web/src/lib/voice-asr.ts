@@ -123,8 +123,7 @@ export class VoiceInputClient {
 				};
 				this.socket.onmessage = (event) => {
 					const data = this.handleMessage(event);
-					if (data?.type === "system.auth.ok")
-						this.send({ type: "asr.start", payload: { language: "zh-CN" } });
+					if (data?.type === "system.auth.ok") this.send({ type: "asr.start" });
 					if (data?.type === "asr.started") succeed();
 					if (data?.type === "asr.error")
 						fail(
