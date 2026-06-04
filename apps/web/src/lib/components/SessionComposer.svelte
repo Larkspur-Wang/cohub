@@ -127,6 +127,7 @@ let voiceSuffix = "";
 let voiceCommittedText = "";
 let voicePartialText = $state("");
 let isVoiceRecording = $state(false);
+let isVoiceStarting = $state(false);
 let voiceError = $state<string | null>(null);
 
 const hasDraft = $derived(Boolean(value.trim() || attachments.length > 0));
@@ -290,8 +291,9 @@ function applyVoiceText(partialText = "") {
 }
 
 async function startVoiceInput() {
-	if (disabled || sending || isVoiceRecording) return;
+	if (disabled || sending || isVoiceRecording || isVoiceStarting) return;
 	voiceError = null;
+	isVoiceStarting = true;
 	const start = textareaEl?.selectionStart ?? value.length;
 	const end = textareaEl?.selectionEnd ?? start;
 	voicePrefix = value.slice(0, start);
@@ -313,6 +315,7 @@ async function startVoiceInput() {
 		},
 		onDone: () => {
 			isVoiceRecording = false;
+			isVoiceStarting = false;
 			voiceClient?.close();
 			voiceClient = null;
 		},
@@ -325,31 +328,23 @@ async function startVoiceInput() {
 		voiceClient?.close();
 		voiceClient = null;
 		isVoiceRecording = false;
+	} finally {
+		isVoiceStarting = false;
 	}
+}
+
+function toggleVoiceInput() {
+	if (isVoiceRecording) {
+		stopVoiceInput();
+		return;
+	}
+	void startVoiceInput();
 }
 
 function stopVoiceInput() {
 	if (!isVoiceRecording) return;
 	isVoiceRecording = false;
 	voiceClient?.stop();
-}
-
-function cancelVoiceInput() {
-	if (!isVoiceRecording) return;
-	value = voicePrefix + voiceSuffix;
-	voiceCommittedText = "";
-	voicePartialText = "";
-	isVoiceRecording = false;
-	voiceClient?.cancel();
-	voiceClient = null;
-	requestAnimationFrame(resizeTextarea);
-}
-
-function handleVoicePointerMove(event: PointerEvent) {
-	if (!isVoiceRecording) return;
-	const target = event.currentTarget as HTMLElement;
-	const rect = target.getBoundingClientRect();
-	if (event.clientY < rect.top - 36) cancelVoiceInput();
 }
 
 function applyPromptTemplate(item: SlashCommandMenuItem) {
@@ -993,9 +988,9 @@ $effect(() => {
 						onselect={applySpaceMention}
 					/>
 
-					{#if isVoiceRecording || voiceError}
+					{#if isVoiceStarting || isVoiceRecording || voiceError}
 						<div class="mt-1.5 text-[12px] {voiceError ? 'text-error-soft' : 'text-text-tertiary'}">
-							{voiceError ?? (voicePartialText ? '正在识别，松开发送，上滑取消' : '按住说话中…松开发送，上滑取消')}
+							{voiceError ?? (isVoiceStarting ? '正在启动语音输入…' : '正在听写，点击麦克风结束')}
 						</div>
 					{/if}
 
@@ -1030,30 +1025,17 @@ $effect(() => {
 						<div class="flex items-center gap-2">
 							<button
 								type="button"
-								class={`voice-record-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'bg-error-bg text-error-soft' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
-								disabled={disabled || sending || showAbort}
-								title="按住说话"
-								aria-label="按住说话"
+								class={`voice-record-button relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'border-brand/45 bg-brand text-brand-contrast-fg shadow-sm' : isVoiceStarting ? 'border-border-subtle bg-bg-hover-strong text-text-secondary' : 'border-transparent text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
+								disabled={disabled || sending || showAbort || isVoiceStarting}
+								title={isVoiceRecording ? "结束语音输入" : "开始语音输入"}
+								aria-label={isVoiceRecording ? "结束语音输入" : "开始语音输入"}
+								aria-pressed={isVoiceRecording}
 								oncontextmenu={(event) => event.preventDefault()}
-								onpointerdown={(event) => {
-									event.preventDefault();
-									event.currentTarget.setPointerCapture(event.pointerId);
-									void startVoiceInput();
-								}}
-								onpointerup={(event) => {
-									try {
-										if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-											event.currentTarget.releasePointerCapture(event.pointerId);
-										}
-									} catch {
-										// Ignore browsers that lose pointer capture during cancel / scroll gestures.
-									}
-									stopVoiceInput();
-								}}
-								onpointercancel={cancelVoiceInput}
-								onpointermove={handleVoicePointerMove}
-								onlostpointercapture={stopVoiceInput}
+								onclick={toggleVoiceInput}
 							>
+								{#if isVoiceRecording}
+									<span class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-error-soft ring-2 ring-bg-primary"></span>
+								{/if}
 								<Mic class="h-4 w-4" />
 							</button>
 							<button
@@ -1097,7 +1079,7 @@ $effect(() => {
 
 <style>
 	.voice-record-button {
-		touch-action: none;
+		touch-action: manipulation;
 		-webkit-user-select: none;
 		user-select: none;
 		-webkit-touch-callout: none;
