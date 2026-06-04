@@ -1895,7 +1895,7 @@ function navigateToSession(
 	sessionId: string,
 	options?: { replaceState?: boolean },
 ) {
-	void goto(buildPreferredSessionRoute(sessionId), {
+	return goto(buildPreferredSessionRoute(sessionId), {
 		replaceState: options?.replaceState ?? true,
 		keepFocus: true,
 		noScroll: true,
@@ -1903,10 +1903,9 @@ function navigateToSession(
 }
 function updateUrlSession(sessionId: string | null) {
 	if (sessionId) {
-		navigateToSession(sessionId, { replaceState: true });
-		return;
+		return navigateToSession(sessionId, { replaceState: true });
 	}
-	void goto(buildSpaceDetailRoute(spaceId), {
+	return goto(buildSpaceDetailRoute(spaceId), {
 		replaceState: true,
 		keepFocus: true,
 		noScroll: true,
@@ -5804,11 +5803,8 @@ function handleCreateNewSession() {
 				],
 			);
 			seedSessions(nextSessions);
-			activeSessionId = newSession.id;
-			ensureSessionModelLoaded(newSession.id);
-			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
-			updateUrlSession(newSession.id);
-			// New session has no turns yet — skip the unnecessary listPaginated call
+			// New session has no turns yet — seed it before navigation so the route
+			// loader does not issue an unnecessary listPaginated request for split mode.
 			sessionStateById = {
 				...sessionStateById,
 				[newSession.id]: {
@@ -5824,6 +5820,13 @@ function handleCreateNewSession() {
 					oldestCursor: undefined,
 				},
 			};
+			// Navigate before switching the local active session. Otherwise split mode
+			// can briefly combine the new empty session with the previous URL/turn and
+			// try to load that old turn from the new session.
+			await updateUrlSession(newSession.id);
+			activeSessionId = newSession.id;
+			ensureSessionModelLoaded(newSession.id);
+			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
 			shouldAutoFollow = true;
 			await forceScrollToBottom();
 			focusComposerSoon();
