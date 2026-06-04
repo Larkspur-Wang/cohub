@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.22.0
+
+### Minor Changes
+
+- Add browser voice input support with Volc ASR, including the new `voice-input` SDK export, realtime WebSocket reuse during idle periods, and related split-view stability fixes.
+
 ## 1.21.0
 
 ### Minor Changes

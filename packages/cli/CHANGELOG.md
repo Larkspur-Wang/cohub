@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.12.1
+
+### Patch Changes
+
+- Add browser voice input support with Volc ASR, including the new `voice-input` SDK export, realtime WebSocket reuse during idle periods, and related split-view stability fixes.
+- Updated dependencies
+  - @neta-art/cohub@1.22.0
+
 ## 1.12.0
 
 ### Minor Changes
