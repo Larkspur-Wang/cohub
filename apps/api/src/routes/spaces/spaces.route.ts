@@ -1288,7 +1288,7 @@ router.post("/:id/prompt", async (c) => {
         accessMode,
         context: { kind: "public_api" },
       });
-      const response = await buildSpacePromptTurnResponse(promptSession ?? await getSpaceSessionById(sessionId), turnId);
+      const response = await buildSpacePromptTurnResponse(await getSpaceSessionById(sessionId), turnId);
       if (!response) return c.json({ message: "turn not found" }, 500);
       return c.json(response);
     } catch (error) {

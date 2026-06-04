@@ -82,6 +82,7 @@ export function createSessionServices(input: {
   injectTrace?: () => Record<string, unknown>;
   getRequestId?: () => string | null | undefined;
   logger?: Pick<Console, "warn">;
+  onSessionActivityUpdated?: (input: { sessionId: string; changed: string[] }) => void | Promise<void>;
 }) {
   const randomUUID = input.randomUUID ?? defaultRandomUUID;
   const injectTrace = input.injectTrace ?? (() => ({}));
@@ -132,6 +133,7 @@ export function createSessionServices(input: {
     meta: Record<string, unknown>;
   }) {
     const userText = deriveMessagePreviewText({ content: turnInput.userContent }) || null;
+    const touchedAt = new Date();
     const [row] = await input.db.transaction(async (tx) => {
       const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, turnInput.sessionId)).for("update").limit(1);
       if (!sessionRow) throw new Error("session not found");
@@ -143,6 +145,9 @@ export function createSessionServices(input: {
       )).orderBy(desc(sessionTurnSegments.ordinal)).limit(1);
       const sequence = seqRow?.max ? (seqRow.max + 1) : (localSegment?.fromSequence ?? 1);
       await tx.update(spaceSessions).set({
+        latestMessageText: userText,
+        lastMessageAt: touchedAt,
+        updatedAt: touchedAt,
         meta: sanitizePostgresJsonValue(addSessionParticipantMeta(sessionRow.meta, turnInput.userUuid)),
       }).where(eq(spaceSessions.id, turnInput.sessionId));
       return tx.insert(sessionTurns).values({
@@ -157,6 +162,10 @@ export function createSessionServices(input: {
       }).returning();
     });
     if (!row) throw new Error("failed to create session turn");
+    await Promise.resolve(input.onSessionActivityUpdated?.({
+      sessionId: turnInput.sessionId,
+      changed: ["latestMessageText", "lastMessageAt", "updatedAt"],
+    })).catch((error) => logger.warn("[Session] failed to publish session activity update", error));
     return row;
   }
 

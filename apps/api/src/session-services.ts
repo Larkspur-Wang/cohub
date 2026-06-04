@@ -9,7 +9,8 @@ import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
 import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPromptTemplate } from "./prompt-templates.js";
 import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
-import { getSpaceById } from "./space-sessions.js";
+import { getSpaceSessionById, getSpaceById } from "./space-sessions.js";
+import { dispatchSessionUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
 
 
@@ -80,6 +81,11 @@ export function getSessionDomainServices(input?: {
     },
     injectTrace,
     getRequestId: getCurrentRequestId,
+    onSessionActivityUpdated: async ({ sessionId, changed }) => {
+      const session = await getSpaceSessionById(sessionId);
+      if (!session) return;
+      await dispatchSessionUpdated({ session, changed });
+    },
     agentTurnQueue: {
       enqueue: (job) => agentTurnQueue.add(AGENT_TURN_JOB_NAME, {
         spaceId: job.spaceId,

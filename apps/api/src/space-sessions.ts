@@ -472,6 +472,15 @@ const updateSessionAfterAppend = async (sessionId: string, message: typeof sessi
     lastMessageAt: message.createdAt ?? new Date(),
     updatedAt: new Date(),
   }).where(eq(spaceSessions.id, sessionId));
+  const refreshed = await getSpaceSessionById(sessionId);
+  if (refreshed) {
+    await dispatchSessionUpdated({
+      session: refreshed,
+      changed: ["lastMessageId", "latestMessageText", "lastMessageAt", "updatedAt"],
+    }).catch((error) => {
+      logger.warn("[Realtime] failed to dispatch session.updated after message append", error);
+    });
+  }
 };
 
 export const persistMessageNode = async (input: PersistMessageInput & { message: PersistMessageInput["message"] & { id?: string } }) => {
