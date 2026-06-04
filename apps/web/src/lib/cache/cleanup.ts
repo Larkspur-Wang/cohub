@@ -1,8 +1,8 @@
 import {
 	idbDeleteWhere,
+	idbGetAll,
 	type LabelItemsCacheRecord,
 	type LabelTreeCacheRecord,
-	openCacheDb,
 	type ResourceLabelsCacheRecord,
 	type SessionListCacheRecord,
 	type SessionTurnsCacheRecord,
@@ -53,14 +53,7 @@ async function cleanupStore<
 	maxEntries: number,
 ) {
 	const userKey = getCacheUserKey();
-	const db = await openCacheDb();
-	if (!db?.objectStoreNames.contains(store)) return;
-	const records = await new Promise<T[]>((resolve, reject) => {
-		const tx = db.transaction(store, "readonly");
-		const getAll = tx.objectStore(store).getAll();
-		getAll.onsuccess = () => resolve((getAll.result as T[]) ?? []);
-		getAll.onerror = () => reject(getAll.error);
-	});
+	const records = await idbGetAll<T>(store);
 	const mine = records
 		.filter((record) => record.userKey === userKey)
 		.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);

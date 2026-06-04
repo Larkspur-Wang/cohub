@@ -128,6 +128,19 @@ function isBrowser() {
 	return typeof indexedDB !== "undefined";
 }
 
+function isClosingConnectionError(error: unknown) {
+	return error instanceof DOMException && error.name === "InvalidStateError";
+}
+
+function resetDbConnection(db?: IDBDatabase | null) {
+	try {
+		db?.close();
+	} catch {
+		// ignore
+	}
+	dbPromise = null;
+}
+
 function createStore(
 	db: IDBDatabase,
 	name: StoreName,
@@ -200,7 +213,7 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 		};
 		request.onsuccess = () => {
 			const db = request.result;
-			db.onversionchange = () => db.close();
+			db.onversionchange = () => resetDbConnection(db);
 			resolve(db);
 		};
 		request.onerror = () => {
@@ -214,8 +227,7 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 export async function deleteCacheDatabase() {
 	if (!isBrowser()) return;
 	const db = await dbPromise?.catch(() => null);
-	db?.close();
-	dbPromise = null;
+	resetDbConnection(db);
 	await new Promise<void>((resolve, reject) => {
 		const request = indexedDB.deleteDatabase(DB_NAME);
 		request.onsuccess = () => resolve();
@@ -224,15 +236,34 @@ export async function deleteCacheDatabase() {
 	});
 }
 
-export async function idbGet<T>(storeName: StoreName, key: string) {
+async function withObjectStore<T>(
+	storeName: StoreName,
+	mode: IDBTransactionMode,
+	run: (store: IDBObjectStore, tx: IDBTransaction) => T,
+	retry = true,
+): Promise<T | null> {
 	const db = await openCacheDb();
 	if (!db) return null;
-	return new Promise<T | null>((resolve, reject) => {
-		const tx = db.transaction(storeName, "readonly");
-		const request = tx.objectStore(storeName).get(key);
-		request.onsuccess = () =>
-			resolve((request.result as T | undefined) ?? null);
-		request.onerror = () => reject(request.error);
+	try {
+		const tx = db.transaction(storeName, mode);
+		return run(tx.objectStore(storeName), tx);
+	} catch (error) {
+		if (retry && isClosingConnectionError(error)) {
+			resetDbConnection(db);
+			return withObjectStore(storeName, mode, run, false);
+		}
+		throw error;
+	}
+}
+
+export async function idbGet<T>(storeName: StoreName, key: string) {
+	return withObjectStore(storeName, "readonly", (store) => {
+		return new Promise<T | null>((resolve, reject) => {
+			const request = store.get(key);
+			request.onsuccess = () =>
+				resolve((request.result as T | undefined) ?? null);
+			request.onerror = () => reject(request.error);
+		});
 	});
 }
 
@@ -241,25 +272,35 @@ function sanitizeForIndexedDb<T>(value: T): T {
 }
 
 export async function idbPut<T>(storeName: StoreName, value: T) {
-	const db = await openCacheDb();
-	if (!db) return;
-	await new Promise<void>((resolve, reject) => {
-		const tx = db.transaction(storeName, "readwrite");
-		tx.objectStore(storeName).put(sanitizeForIndexedDb(value));
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => reject(tx.error);
+	await withObjectStore(storeName, "readwrite", (store, tx) => {
+		return new Promise<void>((resolve, reject) => {
+			store.put(sanitizeForIndexedDb(value));
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
 	});
 }
 
 export async function idbDelete(storeName: StoreName, key: string) {
-	const db = await openCacheDb();
-	if (!db) return;
-	await new Promise<void>((resolve, reject) => {
-		const tx = db.transaction(storeName, "readwrite");
-		tx.objectStore(storeName).delete(key);
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => reject(tx.error);
+	await withObjectStore(storeName, "readwrite", (store, tx) => {
+		return new Promise<void>((resolve, reject) => {
+			store.delete(key);
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
 	});
+}
+
+export async function idbGetAll<T>(storeName: StoreName) {
+	return (
+		(await withObjectStore(storeName, "readonly", (store) => {
+			return new Promise<T[]>((resolve, reject) => {
+				const request = store.getAll();
+				request.onsuccess = () => resolve((request.result as T[]) ?? []);
+				request.onerror = () => reject(request.error);
+			});
+		})) ?? []
+	);
 }
 
 export async function idbGetAllByIndex<T>(
@@ -267,33 +308,32 @@ export async function idbGetAllByIndex<T>(
 	indexName: string,
 	query: IDBValidKey | IDBKeyRange,
 ) {
-	const db = await openCacheDb();
-	if (!db) return [];
-	return new Promise<T[]>((resolve, reject) => {
-		const tx = db.transaction(storeName, "readonly");
-		const request = tx.objectStore(storeName).index(indexName).getAll(query);
-		request.onsuccess = () => resolve((request.result as T[]) ?? []);
-		request.onerror = () => reject(request.error);
-	});
+	return (
+		(await withObjectStore(storeName, "readonly", (store) => {
+			return new Promise<T[]>((resolve, reject) => {
+				const request = store.index(indexName).getAll(query);
+				request.onsuccess = () => resolve((request.result as T[]) ?? []);
+				request.onerror = () => reject(request.error);
+			});
+		})) ?? []
+	);
 }
 
 export async function idbDeleteWhere<T extends { key: string }>(
 	storeName: StoreName,
 	predicate: (record: T) => boolean,
 ) {
-	const db = await openCacheDb();
-	if (!db) return;
-	await new Promise<void>((resolve, reject) => {
-		const tx = db.transaction(storeName, "readwrite");
-		const store = tx.objectStore(storeName);
-		const request = store.openCursor();
-		request.onsuccess = () => {
-			const cursor = request.result;
-			if (!cursor) return;
-			if (predicate(cursor.value as T)) cursor.delete();
-			cursor.continue();
-		};
-		tx.oncomplete = () => resolve();
-		tx.onerror = () => reject(tx.error);
+	await withObjectStore(storeName, "readwrite", (store, tx) => {
+		return new Promise<void>((resolve, reject) => {
+			const request = store.openCursor();
+			request.onsuccess = () => {
+				const cursor = request.result;
+				if (!cursor) return;
+				if (predicate(cursor.value as T)) cursor.delete();
+				cursor.continue();
+			};
+			tx.oncomplete = () => resolve();
+			tx.onerror = () => reject(tx.error);
+		});
 	});
 }
