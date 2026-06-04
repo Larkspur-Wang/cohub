@@ -1327,19 +1327,6 @@ function openSpacePalette() {
 	);
 }
 
-function logSidebarSessionNav(
-	event: string,
-	detail: Record<string, unknown> = {},
-) {
-	console.info("[session-nav][sidebar]", event, {
-		...detail,
-		currentPath,
-		currentSearch: page.url.search,
-		currentSessionViewMode,
-		currentSpaceId,
-	});
-}
-
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
 	const preferredMode = loadSpaceSessionModePreference(spaceId);
 	const mode = preferredMode ?? currentSessionViewMode;
@@ -1348,29 +1335,12 @@ function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
 		: buildSpaceSessionRoute(spaceId, sessionId);
 }
 
-function handleSessionLinkClick(sessionId: string) {
-	const session = sessions.find((s) => s.id === sessionId);
-	const href = currentSpaceId
-		? buildPreferredSessionRoute(currentSpaceId, sessionId)
-		: null;
-	logSidebarSessionNav("link-click", {
-		sessionId,
-		href,
-		title: session?.title ?? null,
-		lastMessageId: session?.lastMessageId ?? null,
-		lastMessageAt: session?.lastMessageAt ?? null,
-	});
-	onClose?.();
-	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
-}
-
 async function handleNavigateToSession(sessionId: string) {
-	handleSessionLinkClick(sessionId);
+	onClose?.();
+	const session = sessions.find((s) => s.id === sessionId);
+	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
 	if (!currentSpaceId) return;
-	const href = buildPreferredSessionRoute(currentSpaceId, sessionId);
-	logSidebarSessionNav("goto-start", { sessionId, href });
-	await goto(href);
-	logSidebarSessionNav("goto-complete", { sessionId, href });
+	await goto(buildPreferredSessionRoute(currentSpaceId, sessionId));
 }
 
 async function handleNavigateToCheckpoint(checkpointId: string) {
@@ -2246,7 +2216,7 @@ $effect(() => {
 					href={sessionHref}
 					class="sidebar-flyout-item group/session relative flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
 					style={getSessionRowStyle(item)}
-					onclick={() => { handleSessionLinkClick(session.id); }}
+					onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 					draggable="true"
 					ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
 					ondragend={handleResourceDragEnd}
@@ -2716,7 +2686,7 @@ $effect(() => {
                       href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
                       class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={getSessionRowStyle(item)}
-						onclick={() => { handleSessionLinkClick(session.id); }}
+						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
 							draggable={!isMobile}
 							ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
 							ondragend={handleResourceDragEnd}
@@ -2823,7 +2793,7 @@ $effect(() => {
                 href={buildPreferredSessionRoute(currentSpaceId!, activeSession.id)}
                 class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
-				onclick={() => { handleSessionLinkClick(activeSession.id); }}
+				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
 				draggable={!isMobile}
 				ondragstart={(e) => handleSessionDragStart(e, activeSession, getSessionTitle(activeSession, 0))}
 				ondragend={handleResourceDragEnd}

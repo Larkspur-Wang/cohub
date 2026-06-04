@@ -2352,25 +2352,7 @@ async function refreshSessionsList(force = true) {
 	});
 	return refreshSessionsListInFlight;
 }
-function logSessionWorkspaceNav(
-	event: string,
-	detail: Record<string, unknown> = {},
-) {
-	console.info("[session-nav][workspace]", event, {
-		...detail,
-		routeView,
-		routeSessionId,
-		routeTurnSequence,
-		routeSessionMode,
-		activeSessionId,
-	});
-}
-
 function prepareRouteSession(sessionId: string) {
-	logSessionWorkspaceNav("prepare-route-session", {
-		sessionId,
-		hadState: Boolean(sessionStateById[sessionId]),
-	});
 	activeSessionId = sessionId;
 	pendingRestoreSessionId = sessionId;
 	activeAnchorRestore = null;
@@ -3158,13 +3140,6 @@ async function syncGenerationStateFromTail(
 	}
 }
 async function loadSessionState(sessionId: string, force = false) {
-	logSessionWorkspaceNav("load-session-state-start", {
-		sessionId,
-		force,
-		existingLoaded: sessionStateById[sessionId]?.loaded ?? false,
-		existingLoading: sessionStateById[sessionId]?.loading ?? false,
-		existingTurns: sessionStateById[sessionId]?.turns.length ?? 0,
-	});
 	const existing = sessionStateById[sessionId];
 	const inFlight = sessionLoadInFlight.get(sessionId);
 	if (inFlight && !force) return inFlight;
@@ -3232,12 +3207,6 @@ async function loadSessionState(sessionId: string, force = false) {
 				turns: response.turns,
 				hasMore: response.hasMore,
 			});
-			logSessionWorkspaceNav("load-session-state-response", {
-				sessionId,
-				responseSessionId: response.session.id,
-				turns: response.turns.length,
-				hasMore: response.hasMore,
-			});
 			upsertSessionRecord(response.session);
 			sessionStateById = {
 				...sessionStateById,
@@ -3255,10 +3224,6 @@ async function loadSessionState(sessionId: string, force = false) {
 				},
 			};
 		} catch (error) {
-			logSessionWorkspaceNav("load-session-state-error", {
-				sessionId,
-				error: error instanceof Error ? error.message : String(error),
-			});
 			const fallback = sessionStateById[sessionId];
 			sessionStateById = {
 				...sessionStateById,
@@ -6403,14 +6368,6 @@ $effect(() => {
 		return;
 	if (routeSessionMode === "split") {
 		const state = sessionStateById[sessionId];
-		logSessionWorkspaceNav("route-turn-split", {
-			sessionId,
-			sequence,
-			stateLoaded: state?.loaded ?? false,
-			stateLoading: state?.loading ?? false,
-			turns: state?.turns.length ?? null,
-			appliedRouteTurnKey,
-		});
 		if (!state?.loaded || state.loading) return;
 		if (state.turns.length === 0) return;
 		const key = `${sessionId}:${sequence}`;
@@ -6477,9 +6434,6 @@ $effect(() => {
 		routeSessionId &&
 		routeSessionId !== activeSessionId
 	) {
-		logSessionWorkspaceNav("route-session-change", {
-			nextRouteSessionId: routeSessionId,
-		});
 		prepareRouteSession(routeSessionId);
 		const state = sessionStateById[routeSessionId];
 		unreadTracker.markViewed(
