@@ -3,9 +3,7 @@ import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import {
 	ArrowUp,
 	ChevronDown,
-	Maximize2,
 	Mic,
-	Minimize2,
 	Plus,
 	Square,
 	Upload,
@@ -229,11 +227,11 @@ function getViewportHeight(): number {
 	return window.visualViewport?.height ?? window.innerHeight;
 }
 
-function getTextareaLimits() {
+function getTextareaLimits(expanded = isComposerExpanded) {
 	const mobile = isMobile();
 	const viewportHeight = getViewportHeight();
-	const min = isComposerExpanded ? (mobile ? 160 : 200) : 44;
-	const max = isComposerExpanded
+	const min = expanded ? (mobile ? 144 : 168) : 44;
+	const max = expanded
 		? Math.min(viewportHeight * (mobile ? 0.58 : 0.7), mobile ? 520 : 720)
 		: Math.min(viewportHeight * (mobile ? 0.34 : 0.38), mobile ? 220 : 220);
 
@@ -243,13 +241,55 @@ function getTextareaLimits() {
 	};
 }
 
+function getDraftLineCount(text: string): number {
+	return text.length === 0 ? 1 : text.split(/\r\n|\r|\n/).length;
+}
+
+function shouldAutoExpandComposer(scrollHeight: number): boolean {
+	const draft = value.trim();
+	if (!draft) return false;
+
+	const mobile = isMobile();
+	const lineCount = getDraftLineCount(value);
+	const compactMax = getTextareaLimits(false).max;
+
+	return (
+		lineCount >= (mobile ? 5 : 7) ||
+		value.length >= (mobile ? 360 : 560) ||
+		scrollHeight > compactMax + 1
+	);
+}
+
+function shouldAutoCollapseComposer(scrollHeight: number): boolean {
+	if (!value.trim()) return true;
+
+	const mobile = isMobile();
+	const lineCount = getDraftLineCount(value);
+	const compactMax = getTextareaLimits(false).max;
+
+	return (
+		lineCount <= (mobile ? 2 : 3) &&
+		value.length < (mobile ? 220 : 360) &&
+		scrollHeight <= compactMax * 0.78
+	);
+}
+
+function syncAutoComposerExpansion(scrollHeight: number) {
+	if (isComposerExpanded) {
+		if (shouldAutoCollapseComposer(scrollHeight)) isComposerExpanded = false;
+		return;
+	}
+
+	if (shouldAutoExpandComposer(scrollHeight)) isComposerExpanded = true;
+}
+
 function resizeTextarea() {
 	if (!textareaEl) return;
-	const { min, max } = getTextareaLimits();
 	textareaEl.style.height = "0px";
-	const nextHeight = isComposerExpanded
-		? max
-		: Math.min(textareaEl.scrollHeight, max);
+	const scrollHeight = textareaEl.scrollHeight;
+	syncAutoComposerExpansion(scrollHeight);
+	const { min, max } = getTextareaLimits();
+	const nextHeight = Math.min(scrollHeight, max);
 	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
 	syncMentionMirrorScroll();
 }
@@ -258,14 +298,6 @@ function syncMentionMirrorScroll() {
 	if (!textareaEl || !mentionMirrorEl) return;
 	mentionMirrorEl.scrollTop = textareaEl.scrollTop;
 	mentionMirrorEl.scrollLeft = textareaEl.scrollLeft;
-}
-
-function toggleComposerExpanded() {
-	isComposerExpanded = !isComposerExpanded;
-	requestAnimationFrame(() => {
-		textareaEl?.focus();
-		resizeTextarea();
-	});
 }
 
 function collapseComposer() {
@@ -929,6 +961,11 @@ $effect(() => {
 
 							if (event.key === 'Escape') {
 								event.preventDefault();
+								if (isComposerExpanded) {
+									isComposerExpanded = false;
+									requestAnimationFrame(resizeTextarea);
+									return;
+								}
 								textareaEl?.blur();
 								return;
 							}
@@ -940,13 +977,6 @@ $effect(() => {
 							) {
 								event.preventDefault();
 								submitDraft();
-								return;
-							}
-
-							if (event.key === 'Escape' && isComposerExpanded) {
-								event.preventDefault();
-								isComposerExpanded = false;
-								requestAnimationFrame(resizeTextarea);
 								return;
 							}
 
@@ -1036,21 +1066,6 @@ $effect(() => {
 									<span class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-error-soft ring-2 ring-bg-primary"></span>
 								{/if}
 								<Mic class="h-4 w-4" />
-							</button>
-							<button
-								type="button"
-								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-								onclick={toggleComposerExpanded}
-								disabled={disabled}
-								title={isComposerExpanded ? "Collapse editor" : "Expand editor"}
-								aria-label={isComposerExpanded ? "Collapse editor" : "Expand editor"}
-								aria-pressed={isComposerExpanded}
-							>
-								{#if isComposerExpanded}
-									<Minimize2 class="h-4 w-4" />
-								{:else}
-									<Maximize2 class="h-4 w-4" />
-								{/if}
 							</button>
 							<button
 								type={showAbort ? "button" : "submit"}
