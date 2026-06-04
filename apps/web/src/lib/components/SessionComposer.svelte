@@ -1065,9 +1065,6 @@ $effect(() => {
 								oncontextmenu={(event) => event.preventDefault()}
 								onclick={toggleVoiceInput}
 							>
-								{#if isVoiceRecording}
-									<span class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-error-soft ring-2 ring-bg-primary"></span>
-								{/if}
 								<Mic class="h-4 w-4" />
 							</button>
 							<button
