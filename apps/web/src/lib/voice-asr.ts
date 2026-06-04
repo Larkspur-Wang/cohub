@@ -84,7 +84,7 @@ export class VoiceInputClient {
 
 			this.socket = new WebSocket(getGatewayWsUrl());
 			await new Promise<void>((resolve, reject) => {
-				if (!this.socket) return reject(new Error("Voice connection failed"));
+				if (!this.socket) return reject(new Error("Voice service unavailable"));
 				let settled = false;
 				const timeout = window.setTimeout(
 					() => fail(new Error("Voice connection timed out")),
@@ -100,6 +100,8 @@ export class VoiceInputClient {
 					if (settled) return;
 					settled = true;
 					window.clearTimeout(timeout);
+					this.cleanupAudio();
+					this.started = false;
 					this.intentionalClose = true;
 					this.socket?.close();
 					reject(error);
@@ -108,7 +110,8 @@ export class VoiceInputClient {
 				this.socket.onopen = () => {
 					this.send({ type: "auth", payload: { token } });
 				};
-				this.socket.onerror = () => fail(new Error("Voice connection failed"));
+				this.socket.onerror = () =>
+					fail(new Error("Voice service unavailable"));
 				this.socket.onclose = () => {
 					if (!settled) {
 						fail(new Error("Voice connection closed"));
@@ -210,6 +213,7 @@ export class VoiceInputClient {
 
 	private cleanupAudio() {
 		this.processor?.disconnect();
+		if (this.processor) this.processor.onaudioprocess = null;
 		this.source?.disconnect();
 		this.stream?.getTracks().forEach((track) => {
 			track.stop();
