@@ -4,6 +4,7 @@ import {
 	ArrowUp,
 	ChevronDown,
 	Maximize2,
+	Mic,
 	Minimize2,
 	Plus,
 	Square,
@@ -42,6 +43,7 @@ import {
 	entriesFromFiles,
 	type LocalUploadEntry,
 } from "$lib/upload-entries";
+import { VoiceInputClient } from "$lib/voice-asr";
 
 type SelectedModel = {
 	provider: string;
@@ -119,6 +121,11 @@ let spaceMentionTrigger = $state<{
 	query: string;
 } | null>(null);
 let isComposerExpanded = $state(false);
+let voiceClient: VoiceInputClient | null = null;
+let voiceBaseValue = "";
+let voicePartialText = $state("");
+let isVoiceRecording = $state(false);
+let voiceError = $state<string | null>(null);
 
 const hasDraft = $derived(Boolean(value.trim() || attachments.length > 0));
 const showAbort = $derived(Boolean(isRunning && !hasDraft));
@@ -268,6 +275,66 @@ function submitDraft() {
 	if (submitDisabled || !hasDraft) return;
 	onsubmit();
 	collapseComposer();
+}
+
+async function startVoiceInput() {
+	if (disabled || sending || isVoiceRecording) return;
+	voiceError = null;
+	voiceBaseValue = value;
+	voicePartialText = "";
+	voiceClient = new VoiceInputClient({
+		onPartial: (text) => {
+			voicePartialText = text;
+			value = voiceBaseValue + text;
+			requestAnimationFrame(resizeTextarea);
+		},
+		onFinal: (text) => {
+			voiceBaseValue += text;
+			voicePartialText = "";
+			value = voiceBaseValue;
+			requestAnimationFrame(resizeTextarea);
+		},
+		onError: (message) => {
+			voiceError = message;
+		},
+		onDone: () => {
+			isVoiceRecording = false;
+			voiceClient?.close();
+			voiceClient = null;
+		},
+	});
+	try {
+		await voiceClient.start();
+		isVoiceRecording = true;
+	} catch (error) {
+		voiceError = error instanceof Error ? error.message : "语音输入启动失败";
+		voiceClient?.close();
+		voiceClient = null;
+		isVoiceRecording = false;
+	}
+}
+
+function stopVoiceInput() {
+	if (!isVoiceRecording) return;
+	isVoiceRecording = false;
+	voiceClient?.stop();
+}
+
+function cancelVoiceInput() {
+	if (!isVoiceRecording) return;
+	value = voiceBaseValue;
+	voicePartialText = "";
+	isVoiceRecording = false;
+	voiceClient?.cancel();
+	voiceClient = null;
+	requestAnimationFrame(resizeTextarea);
+}
+
+function handleVoicePointerMove(event: PointerEvent) {
+	if (!isVoiceRecording) return;
+	const target = event.currentTarget as HTMLElement;
+	const rect = target.getBoundingClientRect();
+	if (event.clientY < rect.top - 36) cancelVoiceInput();
 }
 
 function applyPromptTemplate(item: SlashCommandMenuItem) {
@@ -569,6 +636,7 @@ onMount(() => {
 		spaceMentionLocalController?.abort();
 		spaceMentionRemoteController?.abort();
 		pastedSpaceResolveController?.abort();
+		voiceClient?.close();
 		if (spaceMentionDebounceTimer != null)
 			window.clearTimeout(spaceMentionDebounceTimer);
 	};
@@ -910,6 +978,12 @@ $effect(() => {
 						onselect={applySpaceMention}
 					/>
 
+					{#if isVoiceRecording || voiceError}
+						<div class="mt-1.5 text-[12px] {voiceError ? 'text-error-soft' : 'text-text-tertiary'}">
+							{voiceError ?? (voicePartialText ? '正在识别，松开发送，上滑取消' : '按住说话中…松开发送，上滑取消')}
+						</div>
+					{/if}
+
 					<div class="mt-1.5 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1">
 							<button
@@ -939,6 +1013,23 @@ $effect(() => {
 						</div>
 
 						<div class="flex items-center gap-2">
+							<button
+								type="button"
+								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'bg-error-bg text-error-soft' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
+								disabled={disabled || sending || showAbort}
+								title="按住说话"
+								aria-label="按住说话"
+								onpointerdown={(event) => {
+									event.preventDefault();
+									void startVoiceInput();
+								}}
+								onpointerup={stopVoiceInput}
+								onpointercancel={cancelVoiceInput}
+								onpointermove={handleVoicePointerMove}
+								onlostpointercapture={stopVoiceInput}
+							>
+								<Mic class="h-4 w-4" />
+							</button>
 							<button
 								type="button"
 								class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"

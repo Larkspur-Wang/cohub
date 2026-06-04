@@ -31,6 +31,7 @@ import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
+import { handleAsrWebSocketConnection } from "./asr/session.js";
 import {
   createPubSubRedisClient,
   redisCommandClient,
@@ -515,6 +516,9 @@ async function main() {
 
   const server = serve({ fetch: app.fetch, port: gatewayConfig.port }) as unknown as import("node:http").Server;
   const wss = new WebSocketServer({ server, path: "/ws" });
+  const asrWss = new WebSocketServer({ server, path: "/asr/ws", maxPayload: 1024 * 1024 });
+
+  asrWss.on("connection", handleAsrWebSocketConnection);
 
   wss.on("connection", (socket: WebSocket) => {
     const connectionId = randomUUID();
