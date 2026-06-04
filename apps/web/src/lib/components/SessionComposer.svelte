@@ -988,12 +988,6 @@ $effect(() => {
 						onselect={applySpaceMention}
 					/>
 
-					{#if isVoiceStarting || isVoiceRecording || voiceError}
-						<div class="mt-1.5 text-[12px] {voiceError ? 'text-error-soft' : 'text-text-tertiary'}">
-							{voiceError ?? (isVoiceStarting ? 'Starting voice input…' : 'Listening… tap mic to stop')}
-						</div>
-					{/if}
-
 					<div class="mt-1.5 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1">
 							<button
@@ -1023,6 +1017,11 @@ $effect(() => {
 						</div>
 
 						<div class="flex items-center gap-2">
+							{#if isVoiceStarting || isVoiceRecording || voiceError}
+								<span class={`max-w-[160px] truncate text-[11px] leading-none ${voiceError ? 'text-error-soft' : 'text-text-placeholder'}`}>
+									{voiceError ?? (isVoiceStarting ? 'Starting…' : 'Listening')}
+								</span>
+							{/if}
 							<button
 								type="button"
 								class={`voice-record-button relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'border-brand/45 bg-brand text-brand-contrast-fg shadow-sm' : isVoiceStarting ? 'border-border-subtle bg-bg-hover-strong text-text-secondary' : 'border-transparent text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
