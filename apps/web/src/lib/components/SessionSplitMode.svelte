@@ -363,11 +363,6 @@ const userMessage = $derived.by<ChatMessage | null>(() => {
 });
 
 $effect(() => {
-	if (!effectiveSelectedSequence) return;
-	if (!selectedSequence) onSelectTurn?.(effectiveSelectedSequence);
-});
-
-$effect(() => {
 	if (!selectedSequence) return;
 	mobileDetailOpen = true;
 });
