@@ -9,7 +9,8 @@ import { VolcAsrProvider } from "./volc-asr-provider.js";
 const logger = createLogger({ serviceName: "cohub-gateway" });
 
 const ASR_MAX_MESSAGE_BYTES = 1024 * 1024;
-const ASR_MAX_SESSION_MS = 60_000;
+const ASR_MAX_SESSION_MS = 10 * 60_000;
+const ASR_IDLE_CONNECTION_MS = 30 * 60_000;
 
 const authMessageSchema = z.object({
   type: z.literal("auth"),
@@ -58,6 +59,7 @@ type AsrConnectionContext = {
   committedText: string;
   partialText: string;
   timeout?: NodeJS.Timeout;
+  idleTimeout?: NodeJS.Timeout;
 };
 
 const send = (socket: WebSocket, input: {
@@ -107,9 +109,27 @@ const getVolcConfig = () => {
   };
 };
 
-const closeProvider = (ctx: AsrConnectionContext) => {
+const clearSessionTimeout = (ctx: AsrConnectionContext) => {
   if (ctx.timeout) clearTimeout(ctx.timeout);
   ctx.timeout = undefined;
+};
+
+const clearIdleTimeout = (ctx: AsrConnectionContext) => {
+  if (ctx.idleTimeout) clearTimeout(ctx.idleTimeout);
+  ctx.idleTimeout = undefined;
+};
+
+const scheduleIdleClose = (socket: WebSocket, ctx: AsrConnectionContext) => {
+  clearIdleTimeout(ctx);
+  if (ctx.provider) return;
+  ctx.idleTimeout = setTimeout(() => {
+    if (ctx.provider || socket.readyState !== WebSocket.OPEN) return;
+    socket.close(1000, "asr connection idle timeout");
+  }, ASR_IDLE_CONNECTION_MS);
+};
+
+const closeProvider = (ctx: AsrConnectionContext) => {
+  clearSessionTimeout(ctx);
   const provider = ctx.provider;
   ctx.provider = undefined;
   provider?.close();
@@ -117,8 +137,7 @@ const closeProvider = (ctx: AsrConnectionContext) => {
 
 const markProviderClosed = (ctx: AsrConnectionContext, provider: VolcAsrProvider) => {
   if (ctx.provider !== provider) return;
-  if (ctx.timeout) clearTimeout(ctx.timeout);
-  ctx.timeout = undefined;
+  clearSessionTimeout(ctx);
   ctx.provider = undefined;
 };
 
@@ -127,6 +146,7 @@ const startAsr = async (socket: WebSocket, ctx: AsrConnectionContext, message: E
     sendError(socket, "UNAUTHORIZED", "authentication required", message.requestId);
     return;
   }
+  clearIdleTimeout(ctx);
   closeProvider(ctx);
   ctx.committedText = "";
   ctx.partialText = "";
@@ -158,6 +178,7 @@ const startAsr = async (socket: WebSocket, ctx: AsrConnectionContext, message: E
   provider.on("close", () => {
     markProviderClosed(ctx, provider);
     send(socket, { type: "asr.done", requestId });
+    scheduleIdleClose(socket, ctx);
   });
 
   await provider.start();
@@ -187,13 +208,13 @@ const handleAsrMessage = async (socket: WebSocket, ctx: AsrConnectionContext, me
   }
   if (message.type === "asr.stop") {
     ctx.provider.stop();
-    if (ctx.timeout) clearTimeout(ctx.timeout);
-    ctx.timeout = undefined;
+    clearSessionTimeout(ctx);
     return;
   }
   if (message.type === "asr.cancel") {
     closeProvider(ctx);
     send(socket, { type: "asr.cancelled", requestId: message.requestId });
+    scheduleIdleClose(socket, ctx);
   }
 };
 
@@ -204,6 +225,7 @@ export const handleAsrWebSocketConnection = (socket: WebSocket) => {
     partialText: "",
   };
   send(socket, { type: "system.ready", payload: { connectionId: ctx.connectionId } });
+  scheduleIdleClose(socket, ctx);
 
   socket.on("message", (data) => {
     void (async () => {
@@ -245,6 +267,12 @@ export const handleAsrWebSocketConnection = (socket: WebSocket) => {
     })();
   });
 
-  socket.on("close", () => closeProvider(ctx));
-  socket.on("error", () => closeProvider(ctx));
+  socket.on("close", () => {
+    clearIdleTimeout(ctx);
+    closeProvider(ctx);
+  });
+  socket.on("error", () => {
+    clearIdleTimeout(ctx);
+    closeProvider(ctx);
+  });
 };

@@ -54,6 +54,7 @@ export class CohubClient {
       getAccessToken: options.voice?.getAccessToken ?? options.getAccessToken,
       WebSocketImpl: options.voice?.WebSocketImpl,
       connectionTimeoutMs: options.voice?.connectionTimeoutMs,
+      idleConnectionTimeoutMs: options.voice?.idleConnectionTimeoutMs,
     });
     this.spaces = new SpacesApi(this.transport);
     this.channels = new ChannelsApi(this.transport);

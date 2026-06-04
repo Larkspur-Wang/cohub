@@ -19,6 +19,7 @@ export type VoiceInputClientOptions = {
   getAccessToken?: (options?: { forceRefresh?: boolean }) => Promise<string | null> | string | null;
   WebSocketImpl?: WebSocketConstructor;
   connectionTimeoutMs?: number;
+  idleConnectionTimeoutMs?: number;
   callbacks?: VoiceInputCallbacks;
 };
 
@@ -40,6 +41,7 @@ const TARGET_SAMPLE_RATE = 16_000;
 const CHUNK_MS = 200;
 const CHUNK_SAMPLES = (TARGET_SAMPLE_RATE * CHUNK_MS) / 1000;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
+const DEFAULT_IDLE_CONNECTION_TIMEOUT_MS = 30 * 60_000;
 const WEBSOCKET_OPEN = 1;
 
 const getDefaultWebSocket = (): WebSocketConstructor => {
@@ -93,11 +95,22 @@ const resampleTo16k = (input: Float32Array, inputSampleRate: number) => {
   return output;
 };
 
+const getErrorCode = (event: VoiceInputEvent) => {
+  const code = event.payload?.code;
+  return typeof code === "string" ? code : null;
+};
+
+const getErrorMessage = (event: VoiceInputEvent) => {
+  const message = event.payload?.message;
+  return typeof message === "string" ? message : "Voice input failed";
+};
+
 export class VoiceInputClient {
   private readonly url: string;
   private readonly getAccessToken?: VoiceInputClientOptions["getAccessToken"];
   private readonly WebSocketImpl: WebSocketConstructor;
   private readonly connectionTimeoutMs: number;
+  private readonly idleConnectionTimeoutMs: number;
   private readonly callbacks: VoiceInputCallbacks;
 
   private socket: WebSocketLike | null = null;
@@ -109,94 +122,39 @@ export class VoiceInputClient {
   private pendingAudio: string[] = [];
   private started = false;
   private asrStarted = false;
+  private authenticated = false;
   private intentionalClose = false;
+  private startPromise: Promise<void> | null = null;
+  private socketOpenPromise: Promise<void> | null = null;
+  private idleCloseTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+  private authWaiter: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null = null;
+  private asrStartWaiter: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } | null = null;
 
   constructor(options: VoiceInputClientOptions = {}) {
     this.url = resolveVoiceInputWebsocketUrl({ env: options.env, url: options.url });
     this.getAccessToken = options.getAccessToken;
     this.WebSocketImpl = options.WebSocketImpl ?? getDefaultWebSocket();
     this.connectionTimeoutMs = options.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS;
+    this.idleConnectionTimeoutMs = options.idleConnectionTimeoutMs ?? DEFAULT_IDLE_CONNECTION_TIMEOUT_MS;
     this.callbacks = options.callbacks ?? {};
   }
 
   async start() {
+    if (this.startPromise) return this.startPromise;
     if (this.started) return;
-    this.started = true;
-    this.asrStarted = false;
-    this.pendingAudio = [];
-    this.intentionalClose = false;
 
-    try {
-      const token = await this.getAccessToken?.();
-      if (!token) throw new Error("Sign in to use voice input");
-
-      await this.setupAudio();
-
-      this.socket = new this.WebSocketImpl(this.url);
-      await new Promise<void>((resolve, reject) => {
-        if (!this.socket) return reject(new Error("Voice service unavailable"));
-        let settled = false;
-        const timeout = globalThis.setTimeout(
-          () => fail(new Error("Voice connection timed out")),
-          this.connectionTimeoutMs,
-        );
-        const succeed = () => {
-          if (settled) return;
-          settled = true;
-          globalThis.clearTimeout(timeout);
-          resolve();
-        };
-        const fail = (error: Error) => {
-          if (settled) return;
-          settled = true;
-          globalThis.clearTimeout(timeout);
-          this.cleanupAudio();
-          this.started = false;
-          this.intentionalClose = true;
-          this.socket?.close();
-          reject(error);
-        };
-
-        this.socket.onopen = () => {
-          this.send({ type: "auth", payload: { token } });
-        };
-        this.socket.onerror = () => fail(new Error("Voice service unavailable"));
-        this.socket.onclose = () => {
-          if (!settled) {
-            fail(new Error("Voice connection closed"));
-            return;
-          }
-          if (!this.intentionalClose) {
-            this.cleanupAudio();
-            this.started = false;
-            this.callbacks.onError?.("Voice connection closed. Try again.");
-            this.callbacks.onDone?.();
-          }
-        };
-        this.socket.onmessage = (event) => {
-          try {
-            const data = this.handleMessage(event);
-            if (data.type === "system.auth.ok") this.send({ type: "asr.start" });
-            if (data.type === "asr.started") {
-              this.asrStarted = true;
-              this.flushPendingAudio();
-              succeed();
-            }
-            if (data.type === "asr.error") fail(new Error(String(data.payload?.message ?? "Voice input failed")));
-          } catch {
-            const error = new Error("Voice service sent invalid data. Try again.");
-            if (!settled) {
-              fail(error);
-              return;
-            }
-            this.closeWithError(error.message);
-          }
-        };
-      });
-    } catch (error) {
-      this.close();
-      throw error;
-    }
+    this.startPromise = this.startInternal().finally(() => {
+      this.startPromise = null;
+    });
+    return this.startPromise;
   }
 
   stop() {
@@ -204,20 +162,179 @@ export class VoiceInputClient {
     this.flushPendingAudio();
     if (this.asrStarted) this.send({ type: "asr.stop" });
     this.cleanupAudio();
+    this.started = false;
+    this.scheduleIdleClose();
   }
 
   cancel() {
     if (this.asrStarted) this.send({ type: "asr.cancel" });
-    this.intentionalClose = true;
-    this.close();
+    this.cleanupAudio();
+    this.started = false;
+    this.scheduleIdleClose();
   }
 
   close() {
     this.intentionalClose = true;
+    this.clearIdleCloseTimer();
     this.cleanupAudio();
-    this.socket?.close();
-    this.socket = null;
+    this.closeSocket();
     this.started = false;
+  }
+
+  private async startInternal() {
+    this.clearIdleCloseTimer();
+    this.started = true;
+    this.asrStarted = false;
+    this.pendingAudio = [];
+    this.intentionalClose = false;
+
+    try {
+      await this.withConnectionTimeout(Promise.all([this.setupAudio(), this.ensureAuthenticatedSocket()]));
+      await this.withConnectionTimeout(this.startAsrSession());
+    } catch (error) {
+      this.cleanupAudio();
+      this.started = false;
+      this.scheduleIdleClose();
+      throw error;
+    }
+  }
+
+  private async withConnectionTimeout<T>(promise: Promise<T>) {
+    let timeout: ReturnType<typeof globalThis.setTimeout> | null = null;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timeout = globalThis.setTimeout(
+            () => reject(new Error("Voice connection timed out")),
+            this.connectionTimeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timeout) globalThis.clearTimeout(timeout);
+    }
+  }
+
+  private async ensureAuthenticatedSocket() {
+    if (this.socket?.readyState === WEBSOCKET_OPEN && this.authenticated) return;
+
+    await this.ensureSocketOpen();
+    if (this.authenticated) return;
+
+    try {
+      await this.authenticate(false);
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "UNAUTHORIZED") throw error;
+      await this.authenticate(true);
+    }
+  }
+
+  private async ensureSocketOpen() {
+    if (this.socket?.readyState === WEBSOCKET_OPEN) return;
+    if (this.socketOpenPromise) return this.socketOpenPromise;
+
+    this.authenticated = false;
+    this.intentionalClose = false;
+    this.socket = new this.WebSocketImpl(this.url);
+
+    this.socketOpenPromise = new Promise<void>((resolve, reject) => {
+      const socket = this.socket;
+      if (!socket) return reject(new Error("Voice service unavailable"));
+
+      socket.onopen = () => resolve();
+      socket.onerror = () => reject(new Error("Voice service unavailable"));
+      socket.onclose = (event) => {
+        this.authenticated = false;
+        this.socketOpenPromise = null;
+        this.rejectAuthWaiter(new Error("Voice connection closed"));
+        this.rejectAsrStartWaiter(new Error("Voice connection closed"));
+        if (this.socket === socket) this.socket = null;
+        if (!this.intentionalClose && this.started) {
+          this.cleanupAudio();
+          this.started = false;
+          this.callbacks.onError?.("Voice connection closed. Try again.");
+          this.callbacks.onDone?.();
+        }
+        if (socket.readyState !== WEBSOCKET_OPEN) {
+          reject(new Error(event.reason || "Voice connection closed"));
+        }
+      };
+      socket.onmessage = (event) => {
+        try {
+          this.handleMessage(event);
+        } catch {
+          this.closeWithError("Voice service sent invalid data. Try again.");
+        }
+      };
+    }).finally(() => {
+      this.socketOpenPromise = null;
+    });
+
+    return this.socketOpenPromise;
+  }
+
+  private async authenticate(forceRefresh: boolean) {
+    const token = await this.getAccessToken?.({ forceRefresh });
+    if (!token) throw new Error("Sign in to use voice input");
+
+    const waiter = this.createAuthWaiter();
+    this.send({ type: "auth", payload: { token } });
+    await waiter.promise;
+  }
+
+  private async startAsrSession() {
+    const waiter = this.createAsrStartWaiter();
+    this.send({ type: "asr.start" });
+    await waiter.promise;
+  }
+
+  private createAuthWaiter() {
+    this.rejectAuthWaiter(new Error("superseded auth waiter"));
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.authWaiter = { promise, resolve, reject };
+    return this.authWaiter;
+  }
+
+  private resolveAuthWaiter() {
+    if (!this.authWaiter) return;
+    this.authWaiter.resolve();
+    this.authWaiter = null;
+  }
+
+  private rejectAuthWaiter(error: Error) {
+    if (!this.authWaiter) return;
+    this.authWaiter.reject(error);
+    this.authWaiter = null;
+  }
+
+  private createAsrStartWaiter() {
+    this.rejectAsrStartWaiter(new Error("superseded asr start waiter"));
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    this.asrStartWaiter = { promise, resolve, reject };
+    return this.asrStartWaiter;
+  }
+
+  private resolveAsrStartWaiter() {
+    if (!this.asrStartWaiter) return;
+    this.asrStartWaiter.resolve();
+    this.asrStartWaiter = null;
+  }
+
+  private rejectAsrStartWaiter(error: Error) {
+    if (!this.asrStartWaiter) return;
+    this.asrStartWaiter.reject(error);
+    this.asrStartWaiter = null;
   }
 
   private closeWithError(message: string) {
@@ -273,13 +390,38 @@ export class VoiceInputClient {
   private handleMessage(event: MessageEvent) {
     const data = JSON.parse(String(event.data)) as VoiceInputEvent;
     const text = typeof data.payload?.text === "string" ? data.payload.text : "";
+
+    if (data.type === "system.auth.ok") {
+      this.authenticated = true;
+      this.resolveAuthWaiter();
+      return data;
+    }
+
+    if (data.type === "asr.started") {
+      this.asrStarted = true;
+      this.flushPendingAudio();
+      this.resolveAsrStartWaiter();
+      return data;
+    }
+
+    if (data.type === "asr.error") {
+      const message = getErrorMessage(data);
+      const code = getErrorCode(data);
+      if (code === "UNAUTHORIZED") {
+        this.authenticated = false;
+        this.rejectAuthWaiter(new Error("UNAUTHORIZED"));
+      }
+      this.rejectAsrStartWaiter(new Error(message));
+      this.callbacks.onError?.(message);
+      return data;
+    }
+
     if (data.type === "asr.partial") this.callbacks.onPartial?.(text);
     if (data.type === "asr.final") this.callbacks.onFinal?.(text);
-    if (data.type === "asr.error") this.callbacks.onError?.(String(data.payload?.message ?? "Voice input failed"));
     if (data.type === "asr.done") {
-      this.intentionalClose = true;
       this.asrStarted = false;
       this.started = false;
+      this.scheduleIdleClose();
       this.callbacks.onDone?.();
     }
     return data;
@@ -300,6 +442,30 @@ export class VoiceInputClient {
     this.pendingSamples = [];
     this.pendingAudio = [];
     this.asrStarted = false;
+  }
+
+  private scheduleIdleClose() {
+    this.clearIdleCloseTimer();
+    if (!this.socket || this.idleConnectionTimeoutMs <= 0) return;
+    this.idleCloseTimer = globalThis.setTimeout(() => {
+      this.intentionalClose = true;
+      this.closeSocket();
+    }, this.idleConnectionTimeoutMs);
+  }
+
+  private clearIdleCloseTimer() {
+    if (!this.idleCloseTimer) return;
+    globalThis.clearTimeout(this.idleCloseTimer);
+    this.idleCloseTimer = null;
+  }
+
+  private closeSocket() {
+    this.rejectAuthWaiter(new Error("Voice connection closed"));
+    this.rejectAsrStartWaiter(new Error("Voice connection closed"));
+    this.authenticated = false;
+    this.socketOpenPromise = null;
+    this.socket?.close();
+    this.socket = null;
   }
 }
 
