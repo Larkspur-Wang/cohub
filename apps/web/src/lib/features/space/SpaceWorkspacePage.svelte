@@ -3354,6 +3354,21 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 	if (inFlight) return inFlight;
 	const run = (async () => {
 		const state = sessionStateById[sessionId];
+		if (state?.turns.some((turn) => turn.sequence === sequence)) return;
+		if (state?.loaded && !state.loading && state.turns.length === 0) {
+			if (
+				activeSessionId === sessionId &&
+				routeSessionMode === "split" &&
+				routeTurnSequence === sequence
+			) {
+				void goto(buildSpaceSessionModeRoute(spaceId, sessionId, "split"), {
+					replaceState: true,
+					keepFocus: true,
+					noScroll: true,
+				});
+			}
+			return;
+		}
 		loadingTurnSequence = sequence;
 		try {
 			const response = await sdk
@@ -3392,6 +3407,27 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 					},
 				};
 			}
+		} catch (error) {
+			const current = sessionStateById[sessionId];
+			if (
+				error instanceof HttpError &&
+				error.status === 404 &&
+				!current?.turns.some((turn) => turn.sequence === sequence)
+			) {
+				if (
+					activeSessionId === sessionId &&
+					routeSessionMode === "split" &&
+					routeTurnSequence === sequence
+				) {
+					void goto(buildSpaceSessionModeRoute(spaceId, sessionId, "split"), {
+						replaceState: true,
+						keepFocus: true,
+						noScroll: true,
+					});
+				}
+				return;
+			}
+			throw error;
 		} finally {
 			loadingTurnSequence = null;
 		}
