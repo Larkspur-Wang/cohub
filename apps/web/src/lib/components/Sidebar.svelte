@@ -1335,10 +1335,14 @@ function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
 		: buildSpaceSessionRoute(spaceId, sessionId);
 }
 
-async function handleNavigateToSession(sessionId: string) {
+function handleSessionLinkClick(sessionId: string) {
 	onClose?.();
 	const session = sessions.find((s) => s.id === sessionId);
 	unreadTracker.markViewed(sessionId, session?.lastMessageId ?? null);
+}
+
+async function handleNavigateToSession(sessionId: string) {
+	handleSessionLinkClick(sessionId);
 	if (!currentSpaceId) return;
 	await goto(buildPreferredSessionRoute(currentSpaceId, sessionId));
 }
@@ -2216,7 +2220,7 @@ $effect(() => {
 					href={sessionHref}
 					class="sidebar-flyout-item group/session relative flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
 					style={getSessionRowStyle(item)}
-					onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+					onclick={() => { handleSessionLinkClick(session.id); }}
 					draggable="true"
 					ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
 					ondragend={handleResourceDragEnd}
@@ -2686,7 +2690,7 @@ $effect(() => {
                       href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
                       class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       style={getSessionRowStyle(item)}
-						onclick={(e) => { e.preventDefault(); handleNavigateToSession(session.id); }}
+						onclick={() => { handleSessionLinkClick(session.id); }}
 							draggable={!isMobile}
 							ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
 							ondragend={handleResourceDragEnd}
@@ -2793,7 +2797,7 @@ $effect(() => {
                 href={buildPreferredSessionRoute(currentSpaceId!, activeSession.id)}
                 class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
                 style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
-				onclick={(e) => { e.preventDefault(); handleNavigateToSession(activeSession.id); }}
+				onclick={() => { handleSessionLinkClick(activeSession.id); }}
 				draggable={!isMobile}
 				ondragstart={(e) => handleSessionDragStart(e, activeSession, getSessionTitle(activeSession, 0))}
 				ondragend={handleResourceDragEnd}
