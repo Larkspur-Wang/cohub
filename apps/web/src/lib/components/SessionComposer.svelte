@@ -324,7 +324,7 @@ async function startVoiceInput() {
 		await voiceClient.start();
 		isVoiceRecording = true;
 	} catch (error) {
-		voiceError = error instanceof Error ? error.message : "语音输入启动失败";
+		voiceError = error instanceof Error ? error.message : "Voice input failed";
 		voiceClient?.close();
 		voiceClient = null;
 		isVoiceRecording = false;
@@ -990,7 +990,7 @@ $effect(() => {
 
 					{#if isVoiceStarting || isVoiceRecording || voiceError}
 						<div class="mt-1.5 text-[12px] {voiceError ? 'text-error-soft' : 'text-text-tertiary'}">
-							{voiceError ?? (isVoiceStarting ? '正在启动语音输入…' : '正在听写，点击麦克风结束')}
+							{voiceError ?? (isVoiceStarting ? 'Starting voice input…' : 'Listening… tap mic to stop')}
 						</div>
 					{/if}
 
@@ -1027,8 +1027,8 @@ $effect(() => {
 								type="button"
 								class={`voice-record-button relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-all disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'border-brand/45 bg-brand text-brand-contrast-fg shadow-sm' : isVoiceStarting ? 'border-border-subtle bg-bg-hover-strong text-text-secondary' : 'border-transparent text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
 								disabled={disabled || sending || showAbort || isVoiceStarting}
-								title={isVoiceRecording ? "结束语音输入" : "开始语音输入"}
-								aria-label={isVoiceRecording ? "结束语音输入" : "开始语音输入"}
+								title={isVoiceRecording ? "Stop voice input" : "Start voice input"}
+								aria-label={isVoiceRecording ? "Stop voice input" : "Start voice input"}
 								aria-pressed={isVoiceRecording}
 								oncontextmenu={(event) => event.preventDefault()}
 								onclick={toggleVoiceInput}

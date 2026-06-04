@@ -153,7 +153,7 @@ const startAsr = async (socket: WebSocket, ctx: AsrConnectionContext, message: E
   });
   provider.on("error", (error) => {
     logger.warn("[ASR] provider error", { connectionId: ctx.connectionId, requestId, error: error.message });
-    sendError(socket, "PROVIDER_ERROR", "语音识别暂不可用，请稍后重试", requestId);
+    sendError(socket, "PROVIDER_ERROR", "Voice input is unavailable. Try again later.", requestId);
   });
   provider.on("close", () => {
     markProviderClosed(ctx, provider);
@@ -163,7 +163,7 @@ const startAsr = async (socket: WebSocket, ctx: AsrConnectionContext, message: E
   await provider.start();
   ctx.timeout = setTimeout(() => {
     provider.stop();
-    sendError(socket, "MAX_DURATION_EXCEEDED", "语音输入已达到最长时长", requestId);
+    sendError(socket, "MAX_DURATION_EXCEEDED", "Voice input reached the time limit", requestId);
   }, ASR_MAX_SESSION_MS);
   send(socket, { type: "asr.started", requestId });
 };
@@ -239,7 +239,7 @@ export const handleAsrWebSocketConnection = (socket: WebSocket) => {
         sendError(
           socket,
           message === "message too large" ? "MESSAGE_TOO_LARGE" : "INTERNAL_ERROR",
-          message === "message too large" ? "语音数据过大" : "语音服务暂不可用，请稍后重试",
+          message === "message too large" ? "Voice data is too large" : "Voice input is unavailable. Try again later",
         );
       }
     })();

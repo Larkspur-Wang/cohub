@@ -80,14 +80,14 @@ export class VoiceInputClient {
 			await this.setupAudio();
 
 			const token = await getAuthToken();
-			if (!token) throw new Error("请先登录后再使用语音输入");
+			if (!token) throw new Error("Sign in to use voice input");
 
 			this.socket = new WebSocket(getGatewayWsUrl());
 			await new Promise<void>((resolve, reject) => {
-				if (!this.socket) return reject(new Error("语音连接初始化失败"));
+				if (!this.socket) return reject(new Error("Voice connection failed"));
 				let settled = false;
 				const timeout = window.setTimeout(
-					() => fail(new Error("语音服务连接超时")),
+					() => fail(new Error("Voice connection timed out")),
 					10_000,
 				);
 				const succeed = () => {
@@ -108,16 +108,16 @@ export class VoiceInputClient {
 				this.socket.onopen = () => {
 					this.send({ type: "auth", payload: { token } });
 				};
-				this.socket.onerror = () => fail(new Error("语音服务连接失败"));
+				this.socket.onerror = () => fail(new Error("Voice connection failed"));
 				this.socket.onclose = () => {
 					if (!settled) {
-						fail(new Error("语音服务连接已断开"));
+						fail(new Error("Voice connection closed"));
 						return;
 					}
 					if (!this.intentionalClose) {
 						this.cleanupAudio();
 						this.started = false;
-						this.callbacks.onError?.("语音服务连接已断开，请重试");
+						this.callbacks.onError?.("Voice connection closed. Try again.");
 						this.callbacks.onDone?.();
 					}
 				};
@@ -127,7 +127,9 @@ export class VoiceInputClient {
 						this.send({ type: "asr.start", payload: { language: "zh-CN" } });
 					if (data?.type === "asr.started") succeed();
 					if (data?.type === "asr.error")
-						fail(new Error(String(data.payload?.message ?? "语音识别失败")));
+						fail(
+							new Error(String(data.payload?.message ?? "Voice input failed")),
+						);
 				};
 			});
 		} catch (error) {
@@ -197,7 +199,9 @@ export class VoiceInputClient {
 		if (data.type === "asr.partial") this.callbacks.onPartial?.(text);
 		if (data.type === "asr.final") this.callbacks.onFinal?.(text);
 		if (data.type === "asr.error")
-			this.callbacks.onError?.(String(data.payload?.message ?? "语音识别失败"));
+			this.callbacks.onError?.(
+				String(data.payload?.message ?? "Voice input failed"),
+			);
 		if (data.type === "asr.done") {
 			this.intentionalClose = true;
 			this.callbacks.onDone?.();
