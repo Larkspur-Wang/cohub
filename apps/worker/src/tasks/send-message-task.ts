@@ -5,6 +5,7 @@ import { registerTask } from "./registry.js";
 import { assignLabelsToSession } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import type { PromptAccessMode, SubmitSessionPromptContext } from "@cohub/core/sessions";
+import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { createExecutionGrantService } from "@cohub/core/security";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
@@ -27,7 +28,7 @@ const sessionPromptService = getSessionDomainServices({
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, model, provider, clientMessageId, generationPolicy, accessMode, labelIds } = (payload.data ?? {}) as {
+  const { content, sessionId, title, model, provider, clientMessageId, generationPolicy, accessMode, intent, labelIds } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
@@ -36,6 +37,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     clientMessageId?: string;
     generationPolicy?: GenerationPolicy | null;
     accessMode?: PromptAccessMode | null;
+    intent?: SessionTurnIntent | null;
     labelIds?: string[];
   };
 
@@ -79,6 +81,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     provider: provider ?? null,
     generationPolicy: generationPolicy ?? null,
     accessMode: accessMode ?? "full_access",
+    intent: intent ?? null,
     context: {
       kind: "scheduled_task",
       taskRunId,

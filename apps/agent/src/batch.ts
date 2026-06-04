@@ -10,6 +10,7 @@ type TurnRow = {
   userUuid: string | null;
   sequence: number;
   status: string;
+  intent: string;
   userContent: ContentBlock[];
   userText: string | null;
   meta: unknown;
@@ -62,6 +63,7 @@ function normalizeTurn(row: Record<string, unknown>): TurnRow {
     userUuid: typeof row.user_uuid === "string" ? row.user_uuid : null,
     sequence: Number(row.sequence),
     status: String(row.status),
+    intent: String(row.intent ?? "steer"),
     userContent: row.user_content as ContentBlock[],
     userText: typeof row.user_text === "string" ? row.user_text : null,
     meta: row.meta ?? null,
@@ -122,7 +124,7 @@ async function markStaleTurnInterrupted(tx: Transaction, turn: TurnRow) {
 async function selectTurnsByIds(ids: string[]) {
   if (ids.length === 0) return [];
   const rows = await db.execute(sql`
-    select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
+    select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
     from v2.session_turns
     where id = any(${toPgUuidArrayParam(ids)}::uuid[])
     order by sequence asc
@@ -135,7 +137,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     await tx.execute(sql`select id from v2.space_sessions where id = ${job.sessionId} for update`);
 
     const requestedRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
+      select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
       where id = any(${toPgUuidArrayParam(job.turnIds)}::uuid[])
       order by sequence asc
@@ -151,7 +153,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
         .find((value): value is string => typeof value === "string" && value.trim().length > 0);
       if (ownerId) {
         const ownerRows = await tx.execute(sql`
-          select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
+          select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
           from v2.session_turns
           where id = ${ownerId}
           limit 1
@@ -181,7 +183,7 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     }
 
     const activeRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
+      select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
       where session_id = ${job.sessionId} and status in ('running', 'abort_requested')
       order by sequence asc
@@ -210,12 +212,19 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
     }
 
     const queuedRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, user_content, user_text, meta, updated_at
+      select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
       where session_id = ${job.sessionId} and status = 'queued' and sequence <= ${requestedMaxSequence}
       order by sequence asc
     `);
-    const queued = queuedRows.map((row) => normalizeTurn(row as Record<string, unknown>));
+    let queued = queuedRows.map((row) => normalizeTurn(row as Record<string, unknown>));
+    const requestedHasSteer = requestedNonTerminal.some((turn) => turn.intent === "steer");
+    if (requestedHasSteer) {
+      const requestedIds = new Set(job.turnIds);
+      queued = queued.filter((turn) => requestedIds.has(turn.id));
+    } else {
+      queued = queued.filter((turn) => turn.intent === "followup");
+    }
     if (queued.length === 0) return { kind: "noop" as const };
 
     const owner = queued[queued.length - 1];
@@ -270,15 +279,15 @@ export async function enqueueNextQueuedTurn(input: { spaceId: string; sessionId:
   const rows = await db.execute(sql`
     select id
     from v2.session_turns
-    where session_id = ${input.sessionId} and status = 'queued'
+    where session_id = ${input.sessionId} and status = 'queued' and intent = 'followup'
     order by sequence asc
-    limit 1
   `);
-  const rawId = rows[0] ? (rows[0] as Record<string, unknown>).id : null;
-  const id = typeof rawId === "string" ? rawId : null;
-  if (!id) return null;
-  await input.enqueue({ spaceId: input.spaceId, sessionId: input.sessionId, turnIds: [id] });
-  return id;
+  const ids = rows
+    .map((row) => (row as Record<string, unknown>).id)
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (ids.length === 0) return null;
+  await input.enqueue({ spaceId: input.spaceId, sessionId: input.sessionId, turnIds: ids });
+  return ids[0] ?? null;
 }
 
 export function buildUserMessagesForBatch(batch: ClaimedTurnBatch) {

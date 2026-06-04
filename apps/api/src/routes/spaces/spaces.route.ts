@@ -11,10 +11,12 @@ import {
   spaceMods,
   spaces,
   taskRuns,
+  spaceSessions,
   spaceMembers,
   userProfiles,
+  sessionTurns,
 } from "@cohub/db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, sql } from "drizzle-orm";
 import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
@@ -35,6 +37,7 @@ import {
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
+import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
@@ -42,6 +45,10 @@ import { checkpoints } from "@cohub/db";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
+import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
+import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output.js";
+import { enqueueAgentTurnJob } from "../../agent-turn-queue.js";
+import { requestAgentTurnAbort } from "../../agent-turn-abort.js";
 import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
 import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
@@ -74,6 +81,151 @@ const normalizePromptAccessMode = (value: unknown): PromptAccessMode | null => {
   return value === "read_only" || value === "full_access" ? value : null;
 };
 
+type SpacePromptIntent = "followup" | "steer";
+
+const normalizeSpacePromptIntent = (value: unknown): SpacePromptIntent | null => {
+  if (value === undefined || value === null) return "followup";
+  return value === "followup" || value === "steer" ? value : null;
+};
+
+const readMetaRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const sanitizeMeta = (value: Record<string, unknown>) =>
+  sanitizePostgresJsonValue(value) as Record<string, unknown>;
+
+type SpaceTurnActionResult = {
+  turn: NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>;
+  affectedTurns: NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>[];
+};
+
+async function promoteQueuedTurnToSteer(input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  actorUserId: string;
+}): Promise<SpaceTurnActionResult> {
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
+    const [session] = await tx.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
+    if (!session || session.spaceId !== input.spaceId) throw new Error("session not found");
+
+    const queuedTurns = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "queued"))).orderBy(asc(sessionTurns.sequence));
+    const target = queuedTurns.find((turn) => turn.id === input.turnId);
+    if (!target) throw new Error("turn is not queued");
+    if (target.intent !== "followup") throw new Error("only follow-up turns can be steered");
+
+    const ordered = [target, ...queuedTurns.filter((turn) => turn.id !== target.id)];
+    const baseSequence = queuedTurns[0]?.sequence ?? target.sequence;
+    const tempOffset = 1_000_000;
+    for (const [index, turn] of ordered.entries()) {
+      await tx.update(sessionTurns).set({ sequence: baseSequence + tempOffset + index, updatedAt: now }).where(eq(sessionTurns.id, turn.id));
+    }
+    for (const [index, turn] of ordered.entries()) {
+      await tx.update(sessionTurns).set({
+        sequence: baseSequence + index,
+        intent: turn.id === target.id ? "steer" : turn.intent,
+        meta: sanitizeMeta({
+          ...readMetaRecord(turn.meta),
+          ...(turn.id === target.id ? {
+            promotedToSteerAt: now.toISOString(),
+            promotedByUserId: input.actorUserId,
+            promotedFromIntent: turn.intent,
+            dispatchIntent: "steer",
+          } : {}),
+        }),
+        updatedAt: now,
+      }).where(eq(sessionTurns.id, turn.id));
+    }
+
+    const [activeTurn] = await tx.select({ id: sessionTurns.id, status: sessionTurns.status, meta: sessionTurns.meta }).from(sessionTurns).where(and(eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).orderBy(desc(sessionTurns.sequence)).limit(1);
+    if (activeTurn && activeTurn.id !== target.id) {
+      await tx.update(sessionTurns).set({
+        status: "abort_requested",
+        meta: sanitizeMeta({
+          ...readMetaRecord(activeTurn.meta),
+          abortRequestedAt: now.toISOString(),
+          continuedByTurnId: target.id,
+          abortActorUserId: input.actorUserId,
+        }),
+        updatedAt: now,
+      }).where(and(eq(sessionTurns.id, activeTurn.id), inArray(sessionTurns.status, ["running", "abort_requested"])));
+    }
+
+    return { targetId: target.id, activeTurnId: activeTurn?.id ?? null, activeTurnStatus: activeTurn?.status ?? null, affectedTurnIds: [...ordered.map((turn) => turn.id), ...(activeTurn?.id && activeTurn.id !== target.id ? [activeTurn.id] : [])] };
+  });
+
+  try {
+    await enqueueAgentTurnJob({ spaceId: input.spaceId, sessionId: input.sessionId, turnIds: [result.targetId] });
+  } catch (error) {
+    const failedAt = new Date();
+    await db.update(sessionTurns).set({
+      status: "failed",
+      summary: { finishReason: "failed", reason: "enqueue_failed" },
+      errorMessage: error instanceof Error ? error.message : String(error),
+      meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ enqueueFailedAt: failedAt.toISOString() })}::jsonb`,
+      completedAt: failedAt,
+      updatedAt: failedAt,
+    }).where(and(eq(sessionTurns.id, result.targetId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "queued")));
+    if (result.activeTurnId && result.activeTurnId !== result.targetId && result.activeTurnStatus === "running") {
+      await db.update(sessionTurns).set({ status: "running", updatedAt: failedAt }).where(and(eq(sessionTurns.id, result.activeTurnId), eq(sessionTurns.sessionId, input.sessionId), eq(sessionTurns.status, "abort_requested")));
+    }
+    throw new Error("failed to enqueue steered turn");
+  }
+
+  if (result.activeTurnId && result.activeTurnId !== result.targetId) {
+    await requestAgentTurnAbort({
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId: result.activeTurnId,
+      reason: "interrupt",
+      continuedByTurnId: result.targetId,
+      actorUserId: input.actorUserId,
+    }).catch((error) => {
+      logger.warn("[SessionTurn] failed to publish steer abort", error);
+    });
+  }
+  const turns = (await Promise.all(result.affectedTurnIds.map((turnId) => getSessionTurnById(input.sessionId, turnId))))
+    .filter(Boolean) as NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>[];
+  const hydrated = await hydrateTurnAuthorProfiles(turns);
+  const target = hydrated.find((turn) => turn.id === result.targetId);
+  if (!target) throw new Error("turn not found");
+  return { turn: target, affectedTurns: hydrated };
+}
+
+async function cancelQueuedTurn(input: {
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  actorUserId: string;
+}): Promise<NonNullable<Awaited<ReturnType<typeof getSessionTurnById>>>> {
+  const now = new Date();
+  const [updated] = await db.transaction(async (tx) => {
+    const [session] = await tx.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
+    if (!session || session.spaceId !== input.spaceId) throw new Error("session not found");
+    const [turn] = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).for("update").limit(1);
+    if (!turn || turn.status !== "queued") throw new Error("turn is not queued");
+    if (turn.intent !== "followup") throw new Error("only follow-up turns can be cancelled");
+    return tx.update(sessionTurns).set({
+      status: "cancelled",
+      summary: { finishReason: "cancelled", reason: "queued_followup_cancelled" },
+      meta: sanitizeMeta({
+        ...readMetaRecord(turn.meta),
+        cancelledAt: now.toISOString(),
+        cancelledByUserId: input.actorUserId,
+        cancelledBeforeDispatch: true,
+      }),
+      completedAt: now,
+      updatedAt: now,
+    }).where(eq(sessionTurns.id, input.turnId)).returning();
+  });
+  if (!updated) throw new Error("turn not found");
+  const turn = await getSessionTurnById(input.sessionId, input.turnId);
+  if (!turn) throw new Error("turn not found");
+  const [hydrated = turn] = await hydrateTurnAuthorProfiles([turn]);
+  return hydrated;
+}
+
 type SpacePromptInput = {
   sessionId?: string | null;
   title?: string | null;
@@ -82,6 +234,7 @@ type SpacePromptInput = {
   provider?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: unknown;
+  intent?: SpacePromptIntent | null;
   accessMode?: PromptAccessMode | null;
   schedule?: SpacePromptSchedule | null;
   labelRefs?: unknown;
@@ -1186,6 +1339,8 @@ router.post("/:id/prompt", async (c) => {
   }
   const accessMode = normalizePromptAccessMode(body.accessMode);
   if (!accessMode) return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
+  const promptIntent = normalizeSpacePromptIntent(body.intent);
+  if (!promptIntent) return c.json({ message: "intent must be one of: followup, steer" }, 400);
   const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
   if (!(await hasPermission(user, promptPermission, { spaceId }))) return authzDenied(c);
 
@@ -1240,6 +1395,7 @@ router.post("/:id/prompt", async (c) => {
     content,
     clientMessageId,
     ...(generationPolicy ? { generationPolicy } : {}),
+    ...(promptIntent !== "followup" ? { intent: promptIntent } : {}),
     ...(accessMode !== "full_access" ? { accessMode } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(body.title ? { title: body.title } : {}),
@@ -1285,6 +1441,7 @@ router.post("/:id/prompt", async (c) => {
         model: body.model ?? null,
         provider: body.provider ?? null,
         generationPolicy,
+        intent: promptIntent,
         accessMode,
         context: { kind: "public_api" },
       });
@@ -1361,6 +1518,47 @@ router.post("/:id/prompt", async (c) => {
     timezone: parsedRepeat.timezone,
     sessionId,
   });
+});
+
+router.post("/:id/sessions/:sessionId/turns/:turnId/steer", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  const sessionId = c.req.param("sessionId");
+  const turnId = c.req.param("turnId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId) || !requireValidId(turnId)) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId, sessionId }))) return authzDenied(c);
+
+  try {
+    const result = await promoteQueuedTurnToSteer({ spaceId, sessionId, turnId, actorUserId: user.uuid });
+    await Promise.all(result.affectedTurns.map((turn) => dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch steered turn", error))));
+    return c.json({ ok: true, turn: result.turn, affectedTurns: result.affectedTurns });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "session not found") return c.json({ message }, 404);
+    if (message === "failed to enqueue steered turn") return c.json({ message }, 503);
+    if (message.includes("not queued") || message.includes("only follow-up")) return c.json({ message }, 409);
+    throw error;
+  }
+});
+
+router.post("/:id/sessions/:sessionId/turns/:turnId/cancel", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  const sessionId = c.req.param("sessionId");
+  const turnId = c.req.param("turnId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId) || !requireValidId(turnId)) return c.json({ message: "not found" }, 404);
+  if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId, sessionId }))) return authzDenied(c);
+
+  try {
+    const turn = await cancelQueuedTurn({ spaceId, sessionId, turnId, actorUserId: user.uuid });
+    await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch cancelled turn", error));
+    return c.json({ ok: true, turn });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "session not found" || message === "turn not found") return c.json({ message }, 404);
+    if (message.includes("not queued") || message.includes("only follow-up")) return c.json({ message }, 409);
+    throw error;
+  }
 });
 
 router.post("/:id/sessions", async (c) => {

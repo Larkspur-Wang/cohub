@@ -23,6 +23,7 @@ type PromptOptions = {
   model?: string;
   provider?: string;
   readOnly?: boolean;
+  steer?: boolean;
   delayMs?: string;
   at?: string;
   cron?: string;
@@ -221,6 +222,7 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
       model: opts.model,
       provider: opts.provider,
       accessMode: opts.readOnly ? "read_only" : "full_access",
+      intent: opts.steer ? "steer" : undefined,
       schedule,
       labelRefs: opts.label?.length ? opts.label : undefined,
     });
@@ -242,6 +244,7 @@ export function registerPrompt(program: Command): void {
     .option("-m, --model <model>", "Model name")
     .option("-p, --provider <provider>", "Provider name")
     .option("--read-only", "Use read-only tools")
+    .option("--steer", "Interrupt the current turn and run immediately")
     .option("--delay-ms <ms>", "Delay sending by milliseconds")
     .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
@@ -397,6 +400,7 @@ export function registerSpaces(program: Command): void {
     .option("-m, --model <model>", "Model name")
     .option("-p, --provider <provider>", "Provider name")
     .option("--read-only", "Use read-only tools")
+    .option("--steer", "Interrupt the current turn and run immediately")
     .option("--delay-ms <ms>", "Delay sending by milliseconds")
     .option("--at <iso>", "Send once at an ISO 8601 time with timezone")
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
@@ -1086,6 +1090,38 @@ function registerTurns(sessionsCmd: Command): void {
         ]);
         if (result.turn.userText) console.log(`\nUser:\n${result.turn.userText}`);
         if (result.turn.assistantText) console.log(`\nAssistant:\n${result.turn.assistantText}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  turnsCmd
+    .command("steer <sessionId> <turnId>")
+    .description("Run a queued follow-up now")
+    .option("--json", "Output as JSON")
+    .action(async (sessionId: string, turnId: string, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(sessionsCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).session(sessionId).steerTurn(turnId);
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Turn steered: ${result.turn.id}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  turnsCmd
+    .command("cancel <sessionId> <turnId>")
+    .description("Cancel a queued follow-up")
+    .option("--json", "Output as JSON")
+    .action(async (sessionId: string, turnId: string, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(sessionsCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).session(sessionId).cancelTurn(turnId);
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Turn cancelled: ${result.turn.id}`);
       } catch (e: unknown) {
         handleHttp(e);
       }

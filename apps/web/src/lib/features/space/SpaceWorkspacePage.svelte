@@ -1470,6 +1470,72 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 				: null,
 	});
 });
+const followupQueue = $derived.by(() =>
+	(activeSessionState?.turns ?? []).filter(
+		(turn) => turn.status === "queued" && turn.intent === "followup",
+	),
+);
+
+function turnPreviewText(turn: SessionTurnRecord) {
+	return (turn.userText ?? "").replace(/\s+/g, " ").trim() || "Follow-up";
+}
+
+async function handleSteerFollowup(turnId: string) {
+	if (!activeSessionId || !space) return;
+	composerError = "";
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.session(activeSessionId)
+			.steerTurn(turnId);
+		const current = sessionStateById[activeSessionId];
+		if (current) {
+			sessionStateById = {
+				...sessionStateById,
+				[activeSessionId]: {
+					...current,
+					turns: mergeTurnsById(current.turns, result.affectedTurns, {
+						preferIncoming: true,
+					}),
+				},
+			};
+		}
+		startGenerationRequest(activeSessionId, {
+			spaceId,
+			turnId: result.turn.id,
+		});
+	} catch (error) {
+		composerError =
+			error instanceof Error ? error.message : "Failed to steer follow-up";
+	}
+}
+
+async function handleCancelFollowup(turnId: string) {
+	if (!activeSessionId || !space) return;
+	composerError = "";
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.session(activeSessionId)
+			.cancelTurn(turnId);
+		const current = sessionStateById[activeSessionId];
+		if (current) {
+			sessionStateById = {
+				...sessionStateById,
+				[activeSessionId]: {
+					...current,
+					turns: mergeTurnsById(current.turns, [result.turn], {
+						preferIncoming: true,
+					}),
+				},
+			};
+		}
+	} catch (error) {
+		composerError =
+			error instanceof Error ? error.message : "Failed to cancel follow-up";
+	}
+}
+
 function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
 	return {
 		id: turn.id,
@@ -4469,6 +4535,7 @@ async function handleSend() {
 	let fileUploadCompleted = false;
 	let uploadedReferenceText = "";
 	let optimisticTurn: SessionTurnRecord | null = null;
+	let hasActiveTurn = false;
 	try {
 		const fileAttachments = attachments.filter(
 			(attachment): attachment is ComposerFileAttachment =>
@@ -4527,13 +4594,14 @@ async function handleSend() {
 		const model = activeSessionModel;
 		const now = new Date().toISOString();
 		const sequenceHint = (activeSessionState?.turns.at(-1)?.sequence ?? 0) + 1;
+		hasActiveTurn = activeSessionIsRunning;
 		optimisticTurn = {
 			id: optimisticTurnId,
 			sessionId,
 			userUuid: currentUser.uuid,
 			sequence: sequenceHint,
-			status: "running",
-			intent: "steer",
+			status: hasActiveTurn ? "queued" : "running",
+			intent: "followup",
 			userContent: content,
 			userText: text,
 			assistantContent: null,
@@ -4580,7 +4648,8 @@ async function handleSend() {
 		if (routeSessionMode === "split") {
 			void jumpToTurnAndUpdateUrl(sequenceHint, { mode: "split" });
 		}
-		startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
+		if (!hasActiveTurn)
+			startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
 		const sendResult = await sdk.space(spaceId).prompt({
 			sessionId,
 			content,
@@ -4588,6 +4657,7 @@ async function handleSend() {
 			provider: model?.provider,
 			clientMessageId,
 			generationPolicy: buildTurnGenerationPolicy(),
+			intent: "followup",
 			schedule: { mode: "immediate" },
 		});
 		if (sendResult.mode !== "immediate") {
@@ -4667,8 +4737,8 @@ async function handleSend() {
 				sessionId,
 				userUuid: currentUser.uuid,
 				sequence: optimisticTurn.sequence,
-				status: "failed",
-				intent: "steer",
+				status: hasActiveTurn ? "cancelled" : "failed",
+				intent: "followup",
 				userContent: content,
 				userText: text,
 				assistantContent: null,
@@ -8266,6 +8336,23 @@ $effect(() => {
             modelsCatalog={modelsCatalog ?? undefined}
           />
           <SessionGenerationTaskTray notices={generationTaskNotices} />
+          {#if followupQueue.length > 0}
+            <div class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6">
+              <div class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder">
+                <span class="font-medium text-text-secondary">Follow-up</span>
+                <span>{followupQueue.length} queued</span>
+              </div>
+              <div class="space-y-1">
+                {#each followupQueue as turn (turn.id)}
+                  <div class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60">
+                    <div class="min-w-0 flex-1 truncate">{turnPreviewText(turn)}</div>
+                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-secondary hover:bg-bg-surface hover:text-text-primary" onclick={() => { void handleSteerFollowup(turn.id); }}>Steer now</button>
+                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-placeholder hover:bg-bg-surface hover:text-text-secondary" onclick={() => { void handleCancelFollowup(turn.id); }}>Cancel</button>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
           <TurnRail
             turns={activeTurnRailItems}
             loadedTurns={activeSessionState.turns}

@@ -101,6 +101,20 @@ const assistantErrorMessage = $derived(
 		: "",
 );
 
+const isCancelledBeforeDispatch = $derived(
+	message.role === "user" &&
+		message.meta?.turn?.status === "cancelled" &&
+		message.meta?.turn?.meta?.cancelledBeforeDispatch === true,
+);
+
+const cancelledByDisplay = $derived.by(() => {
+	const userId = message.meta?.turn?.meta?.cancelledByUserId;
+	if (typeof userId !== "string" || !userId.trim()) return "";
+	if (message.authorProfile?.userUuid === userId)
+		return message.authorProfile.displayName;
+	return userId.replaceAll("-", "").slice(0, 8);
+});
+
 const isUserMessage = $derived(message.role === "user");
 
 const defaultExpandToolCalls = $derived(
@@ -337,7 +351,7 @@ function handleCopy() {
   />
 {:else}
   <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
-    <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? 'bg-brand/5 text-text-primary rounded-xl rounded-br-md' : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
+    <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? (isCancelledBeforeDispatch ? 'bg-bg-muted/30 text-text-tertiary/75 rounded-xl rounded-br-md opacity-60' : 'bg-brand/5 text-text-primary rounded-xl rounded-br-md') : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
 
       <MessageContentFlow
         content={message.content?.length ? message.content : [{ type: 'text', text: message.text }]}
@@ -407,6 +421,9 @@ function handleCopy() {
             {/if}
             <span class="min-w-0 truncate">{userDisplayName}</span>
           </span>
+          {#if isCancelledBeforeDispatch}
+            <span class="shrink-0 text-[11px] font-medium text-text-placeholder/65" title={cancelledByDisplay ? `Cancelled by ${cancelledByDisplay}. Not sent to agent.` : 'Not sent to agent.'}>cancelled</span>
+          {/if}
         {:else}
           <!-- Model (truncates when space is tight) -->
           {#if modelDisplayName}

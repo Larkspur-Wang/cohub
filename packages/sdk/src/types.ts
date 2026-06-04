@@ -800,6 +800,7 @@ export type CreateSpacePromptInput = {
   provider?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: GenerationPolicy | null;
+  intent?: "followup" | "steer" | null;
   accessMode?: PromptAccessMode | null;
   labelRefs?: string[];
   schedule?:

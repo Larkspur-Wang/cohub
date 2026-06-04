@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
+import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { normalizeContentBlocks } from "../content/normalize.js";
 
 export type PromptSource =
@@ -84,6 +85,7 @@ export type SubmitSessionPromptInput = {
   provider?: string | null;
   generationPolicy?: GenerationPolicy | null;
   accessMode?: PromptAccessMode | null;
+  intent?: SessionTurnIntent | null;
   context?: SubmitSessionPromptContext | null;
 };
 
@@ -145,7 +147,7 @@ export type SessionPromptDependencies = {
     sessionId: string;
     userUuid: string;
     userContent: ContentBlock[];
-    intent: "steer";
+    intent: SessionTurnIntent;
     meta: Record<string, unknown>;
   }): Promise<{ id: string }>;
   enqueueSpacePrompt(input: {
@@ -259,7 +261,8 @@ export const submitSessionPrompt = async (
   if (accessMode === "read_only" && isDirectShellCommand) {
     throw new Error("shell_command is not allowed in read_only accessMode");
   }
-  const inputIntent = isDirectShellCommand ? "shell_command" : "steer";
+  const inputIntent = isDirectShellCommand ? "shell_command" : "prompt";
+  const turnIntent: SessionTurnIntent = isDirectShellCommand ? "steer" : (input.intent ?? "followup");
   const executionGrant = accessMode === "full_access"
     ? await deps.createExecutionGrant({
       actorUserId: userId,
@@ -276,6 +279,7 @@ export const submitSessionPrompt = async (
     clientMessageId,
     userMessageId,
     intent: inputIntent,
+    dispatchIntent: turnIntent,
     llm: isDirectShellCommand ? false : undefined,
     model: input.model ?? null,
     provider: input.provider ?? null,
@@ -290,7 +294,7 @@ export const submitSessionPrompt = async (
     sessionId: input.sessionId,
     userUuid: userId,
     userContent: content,
-    intent: "steer",
+    intent: turnIntent,
     meta: baseMeta,
   }).catch((error: unknown) => {
     throw new SubmitSessionPromptError("failed to create session turn", error);

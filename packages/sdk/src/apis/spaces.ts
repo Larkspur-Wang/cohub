@@ -20,6 +20,7 @@ import type {
   SessionMessagesPaginatedResponse,
   SessionMessagesResponse,
   SessionTurnResponse,
+  SessionTurnRecord,
   SessionTurnStreamSnapshotResponse,
   SessionTurnIndexResponse,
   SessionTurnWindowResponse,
@@ -649,6 +650,20 @@ export class SessionClient {
         body: JSON.stringify({ title }),
         fetch: customFetch,
       },
+    );
+  }
+
+  steerTurn(turnId: string, customFetch?: Fetch) {
+    return this.transport.request<{ ok: true; turn: SessionTurnRecord; affectedTurns: SessionTurnRecord[] }>(
+      `/api/spaces/${this.spaceId}/sessions/${this.id}/turns/${turnId}/steer`,
+      { method: "POST", fetch: customFetch },
+    );
+  }
+
+  cancelTurn(turnId: string, customFetch?: Fetch) {
+    return this.transport.request<{ ok: true; turn: SessionTurnRecord }>(
+      `/api/spaces/${this.spaceId}/sessions/${this.id}/turns/${turnId}/cancel`,
+      { method: "POST", fetch: customFetch },
     );
   }
 

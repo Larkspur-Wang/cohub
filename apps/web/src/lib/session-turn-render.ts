@@ -165,6 +165,10 @@ export function buildStreamingPreviewBlocks(
 	});
 }
 
+function isQueuedFollowupTurn(turn: SessionTurnRecord) {
+	return turn.status === "queued" && turn.intent === "followup";
+}
+
 export function buildTurnTimelineItems(input: {
 	sessionId: string | null;
 	turns: SessionTurnRecord[];
@@ -189,6 +193,7 @@ export function buildTurnTimelineItems(input: {
 	);
 	let streamingProcessInserted = false;
 	for (const turn of dedupeRenderableTurnsByClientMessageId(input.turns)) {
+		if (isQueuedFollowupTurn(turn)) continue;
 		items.push({
 			id: `turn:${turn.id}:user`,
 			kind: "message",

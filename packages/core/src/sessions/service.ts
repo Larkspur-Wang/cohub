@@ -2,6 +2,7 @@ import { randomUUID as defaultRandomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "../content/sanitize.js";
 import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
@@ -129,7 +130,7 @@ export function createSessionServices(input: {
     sessionId: string;
     userUuid: string;
     userContent: ContentBlock[];
-    intent: "steer";
+    intent: SessionTurnIntent;
     meta: Record<string, unknown>;
   }) {
     const userText = deriveMessagePreviewText({ content: turnInput.userContent }) || null;
@@ -219,13 +220,18 @@ export function createSessionServices(input: {
     });
 
     const actorUserId = typeof promptInput.meta.userId === "string" && promptInput.meta.userId.trim() ? promptInput.meta.userId.trim() : null;
+    const dispatchIntent = promptInput.meta.dispatchIntent === "steer" ? "steer" : "followup";
     const [activeTurn] = await input.db.select({ id: sessionTurns.id })
       .from(sessionTurns)
       .where(and(eq(sessionTurns.sessionId, promptInput.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"])))
       .orderBy(desc(sessionTurns.sequence))
       .limit(1);
 
-    if (activeTurn && activeTurn.id !== promptInput.turnId) {
+    if (dispatchIntent === "followup" && activeTurn && activeTurn.id !== promptInput.turnId) {
+      return;
+    }
+
+    if (dispatchIntent === "steer" && activeTurn && activeTurn.id !== promptInput.turnId) {
       await input.db.update(sessionTurns).set({
         status: "abort_requested",
         meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify({ abortRequestedAt: new Date().toISOString(), continuedByTurnId: promptInput.turnId })}::jsonb`,
