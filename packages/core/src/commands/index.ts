@@ -3,6 +3,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 export const RUN_COMMAND_TASK_TYPE = "run_command" as const;
 export const RUN_COMMAND_TOOL_NAME = "bash" as const;
 export const RUN_COMMAND_TIMEOUT_SECONDS = 6 * 60 * 60;
+export const MAX_RUN_COMMAND_TIMEOUT_SECONDS = RUN_COMMAND_TIMEOUT_SECONDS;
 
 export type RunCommandTaskType = typeof RUN_COMMAND_TASK_TYPE;
 

@@ -1,4 +1,5 @@
 import { Type, type Static } from "@earendil-works/pi-ai";
+import { MAX_RUN_COMMAND_TIMEOUT_SECONDS } from "@cohub/core/commands";
 import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./truncate.js";
 
@@ -74,12 +75,25 @@ export type BashExecutionResult =
   | { exitCode: number | null; termination?: BashTermination }
   | { failure: ToolFailureDetails };
 
+export type BashCommandRequest = {
+  command: string;
+  cwd: string;
+  signal?: AbortSignal;
+  timeout?: number;
+  env?: Record<string, string>;
+};
+
+export type BashForegroundRequest = BashCommandRequest & {
+  onData: (chunk: Buffer) => void;
+};
+
+export type BashBackgroundRequest = BashCommandRequest & {
+  toolCallId: string;
+};
+
 export interface BashOperations {
-  exec: (
-    command: string,
-    cwd: string,
-    options: { onData: (chunk: Buffer) => void; signal?: AbortSignal; timeout?: number; env?: Record<string, string> },
-  ) => Promise<BashExecutionResult>;
+  exec: (input: BashForegroundRequest) => Promise<BashExecutionResult>;
+  startBackground?: (input: BashBackgroundRequest) => Promise<{ taskRunId: string }>;
 }
 
 function tailOutput(content: string, maxChars = 900) {
@@ -300,29 +314,56 @@ export function createEditTool(cwd: string, options: { operations: EditOperation
   };
 }
 
+function clampBashTimeout(timeout: number | undefined) {
+  if (timeout === undefined) return undefined;
+  if (!Number.isFinite(timeout) || timeout <= 0) return undefined;
+  return Math.min(Math.floor(timeout), MAX_RUN_COMMAND_TIMEOUT_SECONDS);
+}
+
 export function createBashTool(cwd: string, options: { operations: BashOperations }): AgentTool {
   const parameters = Type.Object({
     command: Type.String({ description: "Bash command to execute" }),
     timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+    run_in_background: Type.Optional(Type.Boolean({ description: "Run this command in the background. You will be notified when it completes." })),
   });
   return {
     name: "bash",
     label: "bash",
-    description: "Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
+    description: "Execute a bash command in the current working directory. Use run_in_background for long-running commands when you do not need the result immediately. Returns stdout and stderr. Output is truncated to last 2000 lines or 50KB.",
     parameters,
     async execute(_toolCallId, rawParams, signal, onUpdate) {
       const params = rawParams as Static<typeof parameters>;
+      const timeout = clampBashTimeout(params.timeout);
+      if (params.run_in_background) {
+        if (!options.operations.startBackground) {
+          throw new Error("Background bash execution is not available in this environment.");
+        }
+        const background = await options.operations.startBackground({
+          command: params.command,
+          cwd,
+          signal,
+          timeout,
+          toolCallId: _toolCallId,
+        });
+        return {
+          content: [{ type: "text", text: `Background bash command started.\n\nTask ID: ${background.taskRunId}\nYou will be notified when it completes.` }],
+          details: { background: true, taskRunId: background.taskRunId },
+        };
+      }
+
       const chunks: Buffer[] = [];
       let outputPreview = "";
       const updates = createThrottledToolUpdate(onUpdate);
-      const result = await options.operations.exec(params.command, cwd, {
+      const result = await options.operations.exec({
+        command: params.command,
+        cwd,
         onData: (chunk) => {
           chunks.push(chunk);
           outputPreview = tailOutput(`${outputPreview}${chunk.toString("utf-8")}`);
           updates.push(outputPreview);
         },
         signal,
-        timeout: params.timeout,
+        timeout,
       });
       updates.flush();
 

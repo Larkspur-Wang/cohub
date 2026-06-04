@@ -32,6 +32,10 @@ import { formatRgJsonGrepResult } from "../runtime/tools/grep-json-format.js";
 
 
 import { encodeGenerationPolicy, GENERATION_POLICY_ENV_KEY } from "@cohub/protocol/generation";
+import type { TaskPayload } from "@cohub/protocol/task";
+import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
+import { enqueueTaskRun } from "@cohub/core/tasks";
+import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
 import type { RpcMethod, RpcRequestMap } from "@cohub/protocol/sandbox";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { wrapToolCall, wrapSandboxRpc, getAgentTracer } from "@cohub/infra/tracing/agent";
@@ -67,6 +71,12 @@ import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
 import { logger } from "../logger.js";
 import { db } from "../db.js";
+import { env as agentEnv } from "../env.js";
+
+const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
+  redisUrl: agentEnv.BULLMQ_REDIS_URL,
+  telemetryServiceName: "cohub-agent-background-bash",
+});
 
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
@@ -370,7 +380,7 @@ function createRemoteEditOperations(): EditOperations {
 function createRemoteBashOperations(): BashOperations {
   const tracer = getAgentTracer();
   return {
-    exec(command, cwd, { onData, signal, timeout, env }) {
+    exec({ command, cwd, onData, signal, timeout, env }) {
       let outputPreview = "";
       return new Promise((resolve, reject) => {
         let processId: string | null = null;
@@ -459,6 +469,7 @@ function createRemoteBashOperations(): BashOperations {
                       const chunk = executionToken
                         ? rawChunk.split(executionToken).join("[REDACTED_TOKEN]")
                         : rawChunk;
+                      outputPreview = `${outputPreview}${chunk}`.slice(-2000);
                       onData(Buffer.from(chunk, "utf8"));
                       return;
                     }
@@ -497,6 +508,49 @@ function createRemoteBashOperations(): BashOperations {
           }
         })();
       });
+    },
+    async startBackground({ command, cwd, signal, timeout, toolCallId }) {
+      if (signal?.aborted) throw new Error("Operation aborted");
+      const ctx = getCurrentToolExecutionContext();
+      const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
+      const userId = ctx?.actorUserId ?? sessionExecutionAuth?.actorUserId ?? null;
+      if (!ctx?.spaceId || !ctx.sessionId || !ctx.turnId || !userId) {
+        throw new Error("Background bash execution requires space, session, turn, and user context.");
+      }
+
+      const payload: TaskPayload = {
+        type: RUN_COMMAND_TASK_TYPE,
+        spaceId: ctx.spaceId,
+        sessionId: ctx.sessionId,
+        turnId: ctx.turnId,
+        userId,
+        data: {
+          command,
+          cwd,
+          ...(timeout !== undefined ? { timeout } : {}),
+          ...(ctx.generationPolicy ? { generationPolicy: ctx.generationPolicy } : {}),
+          origin: {
+            kind: "bash_tool_call",
+            sessionId: ctx.sessionId,
+            turnId: ctx.turnId,
+            toolCallId,
+            ...(ctx.requestId ? { requestId: ctx.requestId } : {}),
+          },
+          notify: {
+            kind: "session_prompt",
+            sessionId: ctx.sessionId,
+            source: "background_bash_task",
+          },
+        },
+      };
+
+      const { taskRunId } = await enqueueTaskRun({
+        db,
+        payload,
+        enqueue: (name, taskPayload, options) => taskQueue.add(name, taskPayload, options),
+      });
+      logger.info(`[Tool:bash] background task enqueued taskRunId=${taskRunId} turnId=${ctx.turnId} toolCallId=${toolCallId} command=${JSON.stringify(command.trim().slice(0, 80))}`);
+      return { taskRunId };
     },
   };
 }

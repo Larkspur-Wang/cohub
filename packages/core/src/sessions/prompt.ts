@@ -31,6 +31,18 @@ export type ScheduledTaskPromptContext = {
   cronJobId?: string | null;
 };
 
+export type BackgroundBashTaskPromptContext = {
+  kind: "background_bash_task";
+  taskRunId: string;
+  origin?: {
+    kind: "bash_tool_call";
+    sessionId: string;
+    turnId: string;
+    toolCallId: string;
+    requestId?: string | null;
+  } | null;
+};
+
 export type ChannelPromptContext = {
   kind: "channel";
   provider: string;
@@ -46,6 +58,7 @@ export type SubmitSessionPromptContext =
   | WebsocketPromptContext
   | PublicApiPromptContext
   | ScheduledTaskPromptContext
+  | BackgroundBashTaskPromptContext
   | ChannelPromptContext;
 
 export type PromptTemplateUsageMeta = {

@@ -68,6 +68,10 @@
       "types": "./dist/content/sanitize.d.ts",
       "default": "./dist/content/sanitize.js"
     },
+    "./tasks": {
+      "types": "./src/tasks/index.ts",
+      "default": "./dist/tasks/index.js"
+    },
     "./commands": {
       "types": "./src/commands/index.ts",
       "default": "./dist/commands/index.js"

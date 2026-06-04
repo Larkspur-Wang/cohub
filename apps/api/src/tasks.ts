@@ -1,9 +1,10 @@
 import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
 import type { JobsOptions } from "bullmq";
+import { enqueueTaskRun } from "@cohub/core/tasks";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
-import { cronJobs, taskRuns } from "@cohub/db";
+import { cronJobs } from "@cohub/db";
 import type { TaskPayload, TaskScheduleConfig } from "@cohub/protocol/task";
 import { GENERATION_TASK_TYPE } from "@cohub/protocol/generation";
 import { dispatchTaskCreated } from "./realtime-events.js";
@@ -25,48 +26,15 @@ export const SUPPORTED_TASK_TYPES = new Set<string>(["send_message", "save_check
 export const enqueueTask = async (
   payload: TaskPayload,
   opts?: TaskEnqueueOptions,
-) => {
-  const taskRunId = crypto.randomUUID();
-  const { scheduledAt, ...jobOptions } = opts ?? {};
-  const scheduledAtValue = scheduledAt ?? (jobOptions.delay ? new Date(Date.now() + jobOptions.delay) : null);
-
-  const [taskRun] = await db.insert(taskRuns).values({
-    id: taskRunId,
-    jobId: taskRunId,
-    taskType: payload.type,
-    spaceId: payload.spaceId ?? null,
-    sessionId: payload.sessionId ?? null,
-    turnId: payload.turnId ?? null,
-    userUuid: payload.userId ?? null,
-    cronJobId: payload.cronJobId ?? null,
-    status: "pending",
-    payload,
-    scheduledAt: scheduledAtValue,
-  }).returning();
-
-  try {
-    const job = await taskQueue.add(payload.type, payload, {
-      ...jobOptions,
-      jobId: taskRunId,
-    });
-
-    if (taskRun) {
-      await dispatchTaskCreated(taskRun).catch((error) => {
-        logger.warn("[Realtime] failed to dispatch task.created", error);
-      });
-    }
-
-    return { job, taskRunId };
-  } catch (error) {
-    await db.update(taskRuns).set({
-      status: "failed",
-      errorMessage: error instanceof Error ? error.message : String(error),
-      finishedAt: new Date(),
-      updatedAt: new Date(),
-    }).where(eq(taskRuns.id, taskRunId)).catch(() => undefined);
-    throw error;
-  }
-};
+) => enqueueTaskRun({
+  db,
+  payload,
+  options: opts,
+  enqueue: (name, taskPayload, options) => taskQueue.add(name, taskPayload, options),
+  onTaskCreated: (taskRun) => dispatchTaskCreated(taskRun).catch((error) => {
+    logger.warn("[Realtime] failed to dispatch task.created", error);
+  }),
+});
 
 export const createCronJob = async (params: {
   userId: string;

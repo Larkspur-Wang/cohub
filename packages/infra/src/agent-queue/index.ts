@@ -1,3 +1,4 @@
+import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { Queue, JobsOptions, QueueOptions } from "bullmq";
 import { COHUB_AGENT_TURNS_QUEUE, createBullmqConnectionOptions, createBullmqQueue } from "../bullmq/index.js";
 
@@ -21,13 +22,27 @@ export type AgentSandboxBashUploadJobData = {
   trace?: Record<string, unknown>;
 };
 
+export type AgentRunCommandOrigin = {
+  kind: "bash_tool_call";
+  sessionId: string;
+  turnId: string;
+  toolCallId: string;
+  requestId?: string | null;
+};
+
 export type AgentRunCommandJobData = {
   spaceId: string;
+  sessionId?: string | null;
   taskRunId: string;
   command: string;
   cwd: string;
+  timeout?: number;
+  userId?: string | null;
+  executionToken?: string | null;
+  generationPolicy?: GenerationPolicy | null;
   requestId?: string | null;
   trace?: Record<string, unknown>;
+  origin?: AgentRunCommandOrigin | null;
 };
 
 export type AgentRunCommandJobResult = {

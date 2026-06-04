@@ -6,17 +6,141 @@ import {
   type AgentRunCommandJobData,
   type AgentRunCommandJobResult,
 } from "@cohub/infra/agent-queue";
-import { RUN_COMMAND_TASK_TYPE, RUN_COMMAND_TIMEOUT_SECONDS, buildRunCommandQueuedProgress } from "@cohub/core/commands";
+import { RUN_COMMAND_TASK_TYPE, RUN_COMMAND_TIMEOUT_SECONDS, MAX_RUN_COMMAND_TIMEOUT_SECONDS, buildRunCommandQueuedProgress } from "@cohub/core/commands";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
+import type { GenerationPolicy } from "@cohub/protocol/generation";
+import { createExecutionGrantService } from "@cohub/core/security";
 import { config } from "../config.js";
+import { getPromptTemplateService } from "../prompt-templates.js";
+import { getSessionDomainServices } from "../session-services.js";
 import { registerTask } from "./registry.js";
 
 const agentQueue = createAgentTurnsQueue<AgentRunCommandJobData, AgentRunCommandJobResult>(config.bullmqRedisUrl, "cohub-worker-run-command");
+const BACKGROUND_BASH_TASK_SOURCE = "background_bash_task";
+const executionGrantService = createExecutionGrantService({ signingKey: config.executionGrantSigningKey });
+
+const sessionPromptService = getSessionDomainServices({
+  executionGrantService,
+  promptTemplateService: getPromptTemplateService(),
+});
 
 function getJobId(job: Job) {
   if (!job.id) throw new Error("Task job has no id");
   return job.id;
+}
+
+type RunCommandOrigin = {
+  kind: "bash_tool_call";
+  sessionId: string;
+  turnId: string;
+  toolCallId: string;
+  requestId?: string | null;
+};
+
+type RunCommandNotify = {
+  kind: "session_prompt";
+  sessionId: string;
+  source?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function parseOrigin(value: unknown): RunCommandOrigin | null {
+  const record = asRecord(value);
+  if (record?.kind !== "bash_tool_call") return null;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  const turnId = typeof record.turnId === "string" ? record.turnId.trim() : "";
+  const toolCallId = typeof record.toolCallId === "string" ? record.toolCallId.trim() : "";
+  if (!sessionId || !turnId || !toolCallId) return null;
+  const requestId = typeof record.requestId === "string" && record.requestId.trim() ? record.requestId.trim() : null;
+  return { kind: "bash_tool_call", sessionId, turnId, toolCallId, ...(requestId ? { requestId } : {}) };
+}
+
+function parseNotify(value: unknown): RunCommandNotify | null {
+  const record = asRecord(value);
+  if (record?.kind !== "session_prompt") return null;
+  const sessionId = typeof record.sessionId === "string" ? record.sessionId.trim() : "";
+  if (!sessionId) return null;
+  const source = typeof record.source === "string" && record.source.trim() ? record.source.trim() : BACKGROUND_BASH_TASK_SOURCE;
+  return { kind: "session_prompt", sessionId, source };
+}
+
+function parseGenerationPolicy(value: unknown): GenerationPolicy | null {
+  return asRecord(value) as GenerationPolicy | null;
+}
+
+function clampTimeout(timeout: unknown) {
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return undefined;
+  return Math.min(Math.floor(timeout), MAX_RUN_COMMAND_TIMEOUT_SECONDS);
+}
+
+function formatBackgroundBashTaskMessage(input: {
+  command: string;
+  exitCode: number | null;
+  output: string;
+  truncated: boolean;
+  termination?: AgentRunCommandJobResult["termination"];
+}) {
+  const reason = input.termination?.reason;
+  const title = reason === "timed_out"
+    ? "Background bash command timed out."
+    : reason === "aborted"
+      ? "Background bash command was aborted."
+      : input.exitCode === 0
+        ? "Background bash command finished."
+        : "Background bash command failed.";
+  const output = input.output.trimEnd();
+  return [
+    title,
+    "",
+    `Command: ${input.command}`,
+    `Exit code: ${input.exitCode ?? "unknown"}`,
+    "",
+    "Output:",
+    output || "(no output)",
+    input.truncated ? "\n[Output truncated]" : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function notifyRunCommandCompletion(input: {
+  payload: TaskPayload;
+  taskRunId: string;
+  command: string;
+  result: AgentRunCommandJobResult;
+  notify: RunCommandNotify | null;
+  origin: RunCommandOrigin | null;
+}) {
+  if (!input.notify) return;
+  const spaceId = input.payload.spaceId;
+  const userId = input.payload.userId?.trim();
+  if (!spaceId || !userId) return;
+
+  await sessionPromptService.submitPrompt({
+    spaceId,
+    sessionId: input.notify.sessionId,
+    userId,
+    clientMessageId: `background-bash-task:${input.taskRunId}:completion`,
+    content: [{
+      type: "text",
+      text: formatBackgroundBashTaskMessage({
+        command: input.command,
+        exitCode: input.result.exitCode,
+        output: input.result.output,
+        truncated: input.result.truncated,
+        termination: input.result.termination,
+      }),
+    }],
+    source: input.notify.source ?? BACKGROUND_BASH_TASK_SOURCE,
+    context: {
+      kind: "background_bash_task",
+      taskRunId: input.taskRunId,
+      origin: input.origin,
+    },
+    accessMode: "full_access",
+  });
 }
 
 async function mirrorAgentProgress(job: Job, agentJobId: string) {
@@ -33,16 +157,36 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   const data = payload.data ?? {};
   const command = typeof data.command === "string" ? data.command.trim() : "";
   const cwd = typeof data.cwd === "string" && data.cwd.trim() ? data.cwd.trim() : "/workspace";
+  const timeout = clampTimeout(data.timeout);
+  const generationPolicy = parseGenerationPolicy(data.generationPolicy);
+  const origin = parseOrigin(data.origin);
+  const notify = parseNotify(data.notify);
   if (!spaceId) throw new Error("spaceId is required for run_command task");
   if (!command) throw new Error("command is required for run_command task");
 
   const taskRunId = getJobId(job);
+  const userId = payload.userId?.trim() || null;
+  const commandSessionId = origin?.sessionId ?? payload.sessionId ?? null;
+  const executionGrant = userId && commandSessionId
+    ? await executionGrantService.createExecutionGrant({
+        actorUserId: userId,
+        spaceId,
+        sessionId: commandSessionId,
+        source: notify?.source ?? RUN_COMMAND_TASK_TYPE,
+      })
+    : null;
   const agentJob = await enqueueAgentRunCommandJob(agentQueue, {
     spaceId,
+    sessionId: payload.sessionId ?? null,
     taskRunId,
     command,
     cwd,
-    requestId: null,
+    ...(timeout !== undefined ? { timeout } : {}),
+    ...(userId ? { userId } : {}),
+    ...(executionGrant?.token ? { executionToken: executionGrant.token } : {}),
+    ...(generationPolicy ? { generationPolicy } : {}),
+    requestId: origin?.requestId ?? null,
+    origin,
   });
 
   await job.updateProgress(buildRunCommandQueuedProgress({
@@ -61,8 +205,9 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   }, 600);
 
   try {
-    const result = await agentJob.waitUntilFinished(queueEvents, (RUN_COMMAND_TIMEOUT_SECONDS + 60) * 1000) as AgentRunCommandJobResult;
+    const result = await agentJob.waitUntilFinished(queueEvents, ((timeout ?? RUN_COMMAND_TIMEOUT_SECONDS) + 60) * 1000) as AgentRunCommandJobResult;
     await mirrorAgentProgress(job, agentJob.id ?? `run-command-${taskRunId}`);
+    await notifyRunCommandCompletion({ payload, taskRunId, command, result, notify, origin });
     return result;
   } catch (error) {
     throw error instanceof Error ? error : new Error(String(error));

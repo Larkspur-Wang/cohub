@@ -6,6 +6,7 @@ import {
   buildRunCommandToolContent,
   buildRunCommandRunningProgress,
   type RunCommandTermination,
+  MAX_RUN_COMMAND_TIMEOUT_SECONDS,
   RUN_COMMAND_TIMEOUT_SECONDS,
   RUN_COMMAND_TOOL_NAME,
 } from "@cohub/core/commands";
@@ -70,6 +71,11 @@ function getFailureDetails(result: unknown) {
   return (details as { isError?: unknown }).isError === true ? (details as Record<string, unknown>) : null;
 }
 
+function clampTimeout(timeout: unknown) {
+  if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return RUN_COMMAND_TIMEOUT_SECONDS;
+  return Math.min(Math.floor(timeout), MAX_RUN_COMMAND_TIMEOUT_SECONDS);
+}
+
 export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Promise<AgentRunCommandJobResult> {
   const data = job.data;
   if (!data.spaceId || !data.taskRunId || !data.command || !data.cwd) {
@@ -80,6 +86,8 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
   if (!bashTool) throw new Error("bash tool is not available");
 
   const toolCallId = `run_command_${randomUUID()}`;
+  const timeout = clampTimeout(data.timeout);
+  const contextSessionId = data.origin?.sessionId ?? data.sessionId ?? "";
   let latestOutput = "";
   let lastProgressAt = 0;
   let lastProgressSignature = "";
@@ -117,7 +125,11 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
 
   return runWithToolExecutionContext({
     spaceId: data.spaceId,
-    sessionId: data.spaceId,
+    sessionId: contextSessionId,
+    turnId: data.origin?.turnId,
+    actorUserId: data.userId ?? null,
+    executionToken: data.executionToken ?? null,
+    generationPolicy: data.generationPolicy ?? null,
     llmRound: 0,
     toolCallId,
     requestId: data.requestId ?? undefined,
@@ -125,7 +137,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
     toolName: RUN_COMMAND_TOOL_NAME,
     input: { command: data.command, cwd: data.cwd, taskRunId: data.taskRunId },
     spaceId: data.spaceId,
-    sessionId: data.taskRunId,
+    sessionId: contextSessionId,
     llmRound: 0,
     toolCallId,
     requestId: data.requestId ?? undefined,
@@ -134,7 +146,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
     try {
       const result = await bashTool.execute(
         toolCallId,
-        { command: data.command, timeout: RUN_COMMAND_TIMEOUT_SECONDS } as never,
+        { command: data.command, timeout } as never,
         undefined,
         (partial: unknown) => {
           const text = extractToolResultText(partial);
