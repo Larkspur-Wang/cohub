@@ -77,6 +77,8 @@ export class VoiceInputClient {
 		this.intentionalClose = false;
 
 		try {
+			await this.setupAudio();
+
 			const token = await getAuthToken();
 			if (!token) throw new Error("请先登录后再使用语音输入");
 
@@ -128,29 +130,32 @@ export class VoiceInputClient {
 						fail(new Error(String(data.payload?.message ?? "语音识别失败")));
 				};
 			});
-
-			this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-			this.audioContext = new AudioContext();
-			this.source = this.audioContext.createMediaStreamSource(this.stream);
-			this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-			this.processor.onaudioprocess = (event) => {
-				const samples = event.inputBuffer.getChannelData(0);
-				const resampled = resampleTo16k(
-					samples,
-					this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE,
-				);
-				for (const sample of resampled) this.pendingSamples.push(sample);
-				while (this.pendingSamples.length >= CHUNK_SAMPLES) {
-					const chunk = this.pendingSamples.splice(0, CHUNK_SAMPLES);
-					this.sendAudio(new Float32Array(chunk));
-				}
-			};
-			this.source.connect(this.processor);
-			this.processor.connect(this.audioContext.destination);
 		} catch (error) {
 			this.close();
 			throw error;
 		}
+	}
+
+	private async setupAudio() {
+		this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+		this.audioContext = new AudioContext();
+		await this.audioContext.resume().catch(() => undefined);
+		this.source = this.audioContext.createMediaStreamSource(this.stream);
+		this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+		this.processor.onaudioprocess = (event) => {
+			const samples = event.inputBuffer.getChannelData(0);
+			const resampled = resampleTo16k(
+				samples,
+				this.audioContext?.sampleRate ?? TARGET_SAMPLE_RATE,
+			);
+			for (const sample of resampled) this.pendingSamples.push(sample);
+			while (this.pendingSamples.length >= CHUNK_SAMPLES) {
+				const chunk = this.pendingSamples.splice(0, CHUNK_SAMPLES);
+				this.sendAudio(new Float32Array(chunk));
+			}
+		};
+		this.source.connect(this.processor);
+		this.processor.connect(this.audioContext.destination);
 	}
 
 	stop() {
@@ -211,5 +216,6 @@ export class VoiceInputClient {
 		this.source = null;
 		this.stream = null;
 		this.audioContext = null;
+		this.pendingSamples = [];
 	}
 }

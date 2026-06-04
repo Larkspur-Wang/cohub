@@ -122,7 +122,9 @@ let spaceMentionTrigger = $state<{
 } | null>(null);
 let isComposerExpanded = $state(false);
 let voiceClient: VoiceInputClient | null = null;
-let voiceBaseValue = "";
+let voicePrefix = "";
+let voiceSuffix = "";
+let voiceCommittedText = "";
 let voicePartialText = $state("");
 let isVoiceRecording = $state(false);
 let voiceError = $state<string | null>(null);
@@ -277,22 +279,34 @@ function submitDraft() {
 	collapseComposer();
 }
 
+function applyVoiceText(partialText = "") {
+	value = voicePrefix + voiceCommittedText + partialText + voiceSuffix;
+	requestAnimationFrame(() => {
+		resizeTextarea();
+		const cursor =
+			voicePrefix.length + voiceCommittedText.length + partialText.length;
+		textareaEl?.setSelectionRange(cursor, cursor);
+	});
+}
+
 async function startVoiceInput() {
 	if (disabled || sending || isVoiceRecording) return;
 	voiceError = null;
-	voiceBaseValue = value;
+	const start = textareaEl?.selectionStart ?? value.length;
+	const end = textareaEl?.selectionEnd ?? start;
+	voicePrefix = value.slice(0, start);
+	voiceSuffix = value.slice(end);
+	voiceCommittedText = "";
 	voicePartialText = "";
 	voiceClient = new VoiceInputClient({
 		onPartial: (text) => {
 			voicePartialText = text;
-			value = voiceBaseValue + text;
-			requestAnimationFrame(resizeTextarea);
+			applyVoiceText(text);
 		},
 		onFinal: (text) => {
-			voiceBaseValue += text;
+			voiceCommittedText += text;
 			voicePartialText = "";
-			value = voiceBaseValue;
-			requestAnimationFrame(resizeTextarea);
+			applyVoiceText();
 		},
 		onError: (message) => {
 			voiceError = message;
@@ -322,7 +336,8 @@ function stopVoiceInput() {
 
 function cancelVoiceInput() {
 	if (!isVoiceRecording) return;
-	value = voiceBaseValue;
+	value = voicePrefix + voiceSuffix;
+	voiceCommittedText = "";
 	voicePartialText = "";
 	isVoiceRecording = false;
 	voiceClient?.cancel();
@@ -1015,15 +1030,26 @@ $effect(() => {
 						<div class="flex items-center gap-2">
 							<button
 								type="button"
-								class={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'bg-error-bg text-error-soft' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
+								class={`voice-record-button flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isVoiceRecording ? 'bg-error-bg text-error-soft' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-primary'}`}
 								disabled={disabled || sending || showAbort}
 								title="按住说话"
 								aria-label="按住说话"
+								oncontextmenu={(event) => event.preventDefault()}
 								onpointerdown={(event) => {
 									event.preventDefault();
+									event.currentTarget.setPointerCapture(event.pointerId);
 									void startVoiceInput();
 								}}
-								onpointerup={stopVoiceInput}
+								onpointerup={(event) => {
+									try {
+										if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+											event.currentTarget.releasePointerCapture(event.pointerId);
+										}
+									} catch {
+										// Ignore browsers that lose pointer capture during cancel / scroll gestures.
+									}
+									stopVoiceInput();
+								}}
 								onpointercancel={cancelVoiceInput}
 								onpointermove={handleVoicePointerMove}
 								onlostpointercapture={stopVoiceInput}
@@ -1070,6 +1096,13 @@ $effect(() => {
 </div>
 
 <style>
+	.voice-record-button {
+		touch-action: none;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-touch-callout: none;
+	}
+
 	.composer-input-shell textarea,
 	.composer-mention-mirror {
 		font: inherit;
