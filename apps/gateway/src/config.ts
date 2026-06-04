@@ -11,8 +11,8 @@ export const gatewayConfig = {
   port: Number(process.env.PORT ?? 8788),
   volcAsr: {
     apiKey: process.env.VOLC_ASR_API_KEY ?? "",
-    resourceId: process.env.VOLC_ASR_RESOURCE_ID ?? "volc.seedasr.sauc.concurrent",
-    url: process.env.VOLC_ASR_WS_URL ?? "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+    resourceId: "volc.seedasr.sauc.duration",
+    url: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
   },
 };
 
