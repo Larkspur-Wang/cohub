@@ -15,7 +15,7 @@ import { processSessionForkJob } from "./fork.js";
 import { processSandboxBashJob } from "./sandbox-bash.js";
 import { processRunCommandJob } from "./run-command.js";
 import { subscribeAbortEvents, closeAbortSubscriber } from "./abort.js";
-import { getActiveAbortController } from "./active-turns.js";
+import { getActiveAbortController, setActiveAbortEvent } from "./active-turns.js";
 import { closeDb } from "./db.js";
 import { closeOwnershipRedis } from "./ownership.js";
 import { closeRedisConnections } from "./redis.js";
@@ -109,6 +109,7 @@ await subscribeAbortEvents((event) => {
     });
     return;
   }
+  setActiveAbortEvent(event);
   controller.abort();
 });
 

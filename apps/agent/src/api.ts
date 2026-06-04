@@ -318,11 +318,20 @@ export function normalizeAssistantTurn(
     const block = item as Record<string, unknown>;
 
     if (block.type === "text" && typeof block.text === "string") {
-      blocks.push({ type: "text", text: block.text });
+      blocks.push({
+        type: "text",
+        text: block.text,
+        ...(block._meta && typeof block._meta === "object" ? { _meta: block._meta as Record<string, unknown> } : {}),
+      });
       continue;
     }
     if (block.type === "thinking" && typeof block.thinking === "string") {
-      blocks.push({ type: "thinking", thinking: block.thinking });
+      blocks.push({
+        type: "thinking",
+        thinking: block.thinking,
+        ...(typeof block.signature === "string" ? { signature: block.signature } : {}),
+        ...(block._meta && typeof block._meta === "object" ? { _meta: block._meta as Record<string, unknown> } : {}),
+      });
       continue;
     }
     if (block.type === "image") {

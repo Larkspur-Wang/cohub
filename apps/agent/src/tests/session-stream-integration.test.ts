@@ -104,6 +104,7 @@ function createHandle(session: FakeSession): SessionHandle {
     activeAssistantContext: null,
     persistenceChain: Promise.resolve(),
     operationChain: Promise.resolve(),
+    interruptedSnapshotTurnIds: new Set(),
     streamState: {
       assistantState: createAssistantStreamState(),
       content: [],

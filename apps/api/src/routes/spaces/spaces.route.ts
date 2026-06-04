@@ -46,7 +46,7 @@ import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
-import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output.js";
+import { dispatchTurnUpdated } from "../../session-output.js";
 import { enqueueAgentTurnJob } from "../../agent-turn-queue.js";
 import { requestAgentTurnAbort } from "../../agent-turn-abort.js";
 import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
@@ -205,7 +205,7 @@ async function cancelQueuedTurn(input: {
     const [session] = await tx.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
     if (!session || session.spaceId !== input.spaceId) throw new Error("session not found");
     const [turn] = await tx.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).for("update").limit(1);
-    if (!turn || turn.status !== "queued") throw new Error("turn is not queued");
+    if (turn?.status !== "queued") throw new Error("turn is not queued");
     if (turn.intent !== "followup") throw new Error("only follow-up turns can be cancelled");
     return tx.update(sessionTurns).set({
       status: "cancelled",

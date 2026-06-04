@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { access, stat } from "node:fs/promises";
 import { trace } from "@opentelemetry/api";
 import { SessionManager } from "./runtime/local-session-manager.js";
@@ -19,6 +20,7 @@ import { getCurrentToolExecutionContext } from "./tool-context.js";
 import { listEnabledSpaceMods } from "@cohub/core/space-mods";
 import { db } from "./db.js";
 import { createCohubAgentSession, type CohubAgentSession } from "./runtime/session-runtime.js";
+import type { AgentTurnAbortEvent } from "./abort.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { refreshUserEnv } from "./runtime/env-cache.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
@@ -148,6 +150,7 @@ export type SessionHandle = {
     flushPromise?: Promise<void> | null;
     flushTimer?: ReturnType<typeof setTimeout> | null;
   };
+  interruptedSnapshotTurnIds: Set<string>;
   sessionFileSignature: SessionFileSignature | null;
 };
 
@@ -444,6 +447,116 @@ function resolvePersistedAssistantContent(handle: SessionHandle, message: Record
     return mergeFinalAssistantContentWithStreamOrder(rawContent, handle.streamState.content);
   }
   return rawContent;
+}
+
+function interruptedToolResultContent(value: unknown): string | ContentBlock[] {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (Array.isArray(value)) return value as ContentBlock[];
+  return "Tool execution was interrupted.";
+}
+
+function closeInterruptedToolCalls(content: ContentBlock[], input: { reason: AgentTurnAbortEvent["reason"]; timestamp: string }) {
+  const resultIds = new Set(content.filter((block) => block.type === "tool_result").map((block) => block.tool_use_id));
+  const closed: ContentBlock[] = [];
+
+  for (const block of content) {
+    if (block.type !== "tool_use") {
+      closed.push(block);
+      continue;
+    }
+
+    const meta = block._meta ?? {};
+    const nextMeta = {
+      ...meta,
+      partial: true,
+      toolStatus: resultIds.has(block.id) ? meta.toolStatus : "failed",
+    };
+    closed.push({ ...block, _meta: nextMeta });
+
+    if (resultIds.has(block.id)) continue;
+    closed.push({
+      type: "tool_result",
+      tool_use_id: block.id,
+      content: interruptedToolResultContent(meta.partialResult),
+      is_error: true,
+      _meta: {
+        synthetic: true,
+        partial: true,
+        toolStatus: "failed",
+        abortReason: input.reason,
+        interruptedAt: input.timestamp,
+      },
+    });
+  }
+
+  return closed;
+}
+
+export async function persistInterruptedAssistantSnapshot(
+  handle: SessionHandle,
+  input: {
+    abortEvent: AgentTurnAbortEvent | null;
+    actorUserId?: string | null;
+    fallbackTurnId?: string | null;
+    fallbackUserMessageId?: string | null;
+  },
+) {
+  const turnId = handle.activeAssistantContext?.turnId ?? handle.currentTurnId ?? input.fallbackTurnId ?? null;
+  const userMessageId = handle.activeAssistantContext?.userMessageId ?? handle.currentUserMessageId ?? input.fallbackUserMessageId ?? null;
+  if (!turnId || !userMessageId || handle.interruptedSnapshotTurnIds.has(turnId)) return false;
+
+  await drainStreamStateBeforeReset(handle);
+  ensureProjectedStreamContent(handle);
+  if (handle.streamState.content.length === 0) return false;
+
+  handle.interruptedSnapshotTurnIds.add(turnId);
+  const now = new Date().toISOString();
+  const reason = input.abortEvent?.reason ?? "abort";
+  const content = closeInterruptedToolCalls(structuredClone(handle.streamState.content), { reason, timestamp: now });
+  const model = handle.session.agent.state.model;
+  const entryId = randomUUID().slice(0, 8);
+  const assistantMessage = {
+    role: "assistant",
+    content,
+    timestamp: Date.now(),
+    stopReason: "aborted",
+    provider: model.provider,
+    model: model.id,
+    sessionEntryId: entryId,
+    meta: {
+      turnId,
+      partial: true,
+      abortReason: reason,
+      actorUserId: input.actorUserId ?? input.abortEvent?.actorUserId ?? null,
+      continuedByTurnId: input.abortEvent?.continuedByTurnId ?? null,
+      streamSnapshotPersistedAt: now,
+      agentSessionEntryId: entryId,
+    },
+  } as unknown as AgentMessage & { sessionEntryId?: string; meta?: Record<string, unknown> };
+
+  await enqueuePersistence(handle, `interrupted-assistant:${turnId}`, async () => {
+    await persistAssistantMessage({
+      spaceId: handle.spaceId,
+      spaceSessionId: handle.sessionId,
+      userMessageId,
+      event: { type: "turn_end", message: assistantMessage, toolResults: [] },
+      userId: ((handle.activeAssistantContext?.userMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
+      turnId,
+      startedAt: handle.activeAssistantContext?.startedAt ?? null,
+      completedAt: now,
+    });
+  });
+
+  handle.sessionManager.appendMessage(assistantMessage as never, { id: entryId });
+  handle.session.agent.state.messages.push(assistantMessage as never);
+  await handle.sessionManager.flush();
+  handle.interruptedSnapshotTurnIds.add(turnId);
+
+  resetStreamState(handle);
+  if (handle.activeAssistantContext?.turnId === turnId) handle.activeAssistantContext = null;
+  clearAssistantMessageTiming();
+  removePendingUserMessage(handle, userMessageId);
+  return true;
 }
 
 function getStreamIndex(block: ContentBlock): number | null {
@@ -1019,6 +1132,7 @@ export async function loadOrCreateSessionHandle(input: {
       flushPromise: null,
       flushTimer: null,
     },
+    interruptedSnapshotTurnIds: new Set(),
     sessionFileSignature: fileSignature,
   };
 

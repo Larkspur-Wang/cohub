@@ -206,10 +206,12 @@ export class SessionManager {
     return { messages, thinkingLevel, model };
   }
 
-  appendMessage(message: AgentMessage): string {
+  appendMessage(message: AgentMessage, options?: { id?: string }): string {
+    const existingIds = new Set(this.entries.map((item) => item.id));
+    const entryId = options?.id && !existingIds.has(options.id) ? options.id : generateEntryId(existingIds);
     const entry: SessionMessageEntry = {
       type: "message",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: entryId,
       parentId: this.leafId,
       timestamp: nowIso(),
       message,

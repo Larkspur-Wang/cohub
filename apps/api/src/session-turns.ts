@@ -567,7 +567,12 @@ const finalizeInterruptedTurn = async (input: {
   summary: Record<string, unknown>;
 }) => {
   const [existing] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
-  if (!existing || !["running", "abort_requested"].includes(existing.status)) return existing ? toTurnRecord(existing) : null;
+  if (!existing) return null;
+  if (!["running", "abort_requested", "interrupted"].includes(existing.status)) return toTurnRecord(existing);
+  const existingSummary = normalizeRecord(existing.summary);
+  const shouldPromoteSteerSummary = existing.status === "interrupted" && input.summary.reason === "steer" && existingSummary?.reason !== "steer";
+  const shouldFillInterruptedContent = existing.status === "interrupted" && !existing.assistantContent;
+  if (existing.status === "interrupted" && !shouldPromoteSteerSummary && !shouldFillInterruptedContent) return toTurnRecord(existing);
   const rows = await db.select().from(sessionMessages).where(and(
     eq(sessionMessages.sessionId, input.sessionId),
     eq(sessionMessages.role, "assistant"),
@@ -590,13 +595,13 @@ const finalizeInterruptedTurn = async (input: {
     errorMessage: null,
     finalUsage: (last?.usage as Usage | null | undefined) ?? null,
     totalUsage: intermediate?.summary.usage ?? null,
-    summary: input.summary,
+    summary: shouldPromoteSteerSummary || existing.status !== "interrupted" ? input.summary : existing.summary,
     intermediateIndex: intermediate?.index ?? null,
     intermediateSummary: intermediate?.summary ?? null,
     completedAt,
     durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
-  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
+  }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
   return row ? toTurnRecord(row) : null;
 };
 

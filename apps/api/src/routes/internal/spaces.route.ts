@@ -16,7 +16,7 @@ import {
 } from "../../space-sessions.js";
 import { abortSessionTurn, failSessionTurn, interruptSessionTurn } from "../../session-turns.js";
 import { hasPermission } from "../../permissions.js";
-import { dispatchTurnFinalized, dispatchTurnUpdated } from "../../session-output.js";
+import { dispatchTurnFinalized } from "../../session-output.js";
 import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
@@ -313,7 +313,7 @@ router.post("/:spaceId/sessions/:sessionId/turns/:turnId/interrupt", async (c) =
   if (!continuedByTurnId || !requireValidId(continuedByTurnId)) return c.json({ message: "continuedByTurnId is required" }, 400);
 
   const turn = await interruptSessionTurn({ spaceId, sessionId, turnId, continuedByTurnId });
-  if (turn) await dispatchTurnUpdated({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch interrupted turn", error));
+  if (turn) await dispatchTurnFinalized({ spaceId, sessionId, turn }).catch((error) => logger.warn("[SessionTurn] failed to dispatch interrupted turn", error));
   return c.json({ ok: true, turn });
 });
 

@@ -8,7 +8,7 @@ import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttri
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
-import { getSpace, abortSessionTurn, failSessionTurn, persistAssistantMessage, persistUserMessage } from "./api.js";
+import { getSpace, abortSessionTurn, failSessionTurn, interruptSessionTurn, persistAssistantMessage, persistUserMessage } from "./api.js";
 import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
@@ -16,12 +16,12 @@ import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { runWithToolExecutionContext } from "./tool-context.js";
-import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
+import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, persistInterruptedAssistantSnapshot, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
 import { claimTurnBatch, buildUserMessagesForBatch, enqueueNextQueuedTurn } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
 import { getAbortEvent } from "./abort.js";
-import { setActiveAbortController, clearActiveAbortController } from "./active-turns.js";
+import { setActiveAbortController, clearActiveAbortController, getActiveAbortEvent, setActiveAbortEvent } from "./active-turns.js";
 import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
@@ -645,12 +645,21 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         : null) ?? data.executionAuth ?? null;
       const abortEvent = await getAbortEvent(batch.ownerTurn.id);
       if (abortEvent) {
-        await abortSessionTurn({
-          spaceId: data.spaceId,
-          sessionId: data.sessionId,
-          turnId: batch.ownerTurn.id,
-          actorUserId,
-        });
+        if (abortEvent.reason === "interrupt" && abortEvent.continuedByTurnId) {
+          await interruptSessionTurn({
+            spaceId: data.spaceId,
+            sessionId: data.sessionId,
+            turnId: batch.ownerTurn.id,
+            continuedByTurnId: abortEvent.continuedByTurnId,
+          });
+        } else {
+          await abortSessionTurn({
+            spaceId: data.spaceId,
+            sessionId: data.sessionId,
+            turnId: batch.ownerTurn.id,
+            actorUserId,
+          });
+        }
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "abort_precheck" };
         return { skipped: "abort_requested", turnId: batch.ownerTurn.id };
       }
@@ -698,7 +707,11 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       const abortController = new AbortController();
       activeTurn = { id: batch.ownerTurn.id, controller: abortController };
       setActiveAbortController(batch.ownerTurn.id, abortController);
-      if (await getAbortEvent(batch.ownerTurn.id)) abortController.abort();
+      const pendingAbortEvent = await getAbortEvent(batch.ownerTurn.id);
+      if (pendingAbortEvent) {
+        setActiveAbortEvent(pendingAbortEvent);
+        abortController.abort();
+      }
 
       setActiveTurnContext(handle, {
         turnId: batch.ownerTurn.id,
@@ -828,14 +841,34 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             }
           } catch (error) {
             if (abortController.signal.aborted || (error instanceof Error && error.message === "aborted")) {
+              const abortEvent = getActiveAbortEvent(batch.ownerTurn.id);
               await handle.session.abort().catch(() => undefined);
-              await abortSessionTurn({
-                spaceId: data.spaceId,
-                sessionId: data.sessionId,
-                turnId: batch.ownerTurn.id,
+              await persistInterruptedAssistantSnapshot(handle, {
+                abortEvent,
                 actorUserId,
-              }).catch(() => undefined);
+                fallbackTurnId: batch.ownerTurn.id,
+                fallbackUserMessageId: ownerUserMessageId,
+              }).catch((snapshotError) => {
+                logger.warn(`[Agent] failed to persist interrupted snapshot sessionId=${data.sessionId} turnId=${batch.ownerTurn.id}:`, snapshotError);
+              });
               await handle.persistenceChain.catch(() => undefined);
+              if (abortEvent?.reason === "interrupt" && abortEvent.continuedByTurnId) {
+                await interruptSessionTurn({
+                  spaceId: data.spaceId,
+                  sessionId: data.sessionId,
+                  turnId: batch.ownerTurn.id,
+                  continuedByTurnId: abortEvent.continuedByTurnId,
+                }).catch(() => undefined);
+              } else {
+                await abortSessionTurn({
+                  spaceId: data.spaceId,
+                  sessionId: data.sessionId,
+                  turnId: batch.ownerTurn.id,
+                  actorUserId,
+                }).catch(() => undefined);
+              }
+              await handle.sessionManager.flush().catch(() => undefined);
+              await refreshSessionHandleFileSignature(handle).catch(() => undefined);
               return;
             }
             throw error;
