@@ -71,6 +71,7 @@ import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
 import { logger } from "../logger.js";
 import { db } from "../db.js";
+import { dispatchTaskCreated } from "../realtime-events.js";
 import { env as agentEnv } from "../env.js";
 
 const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
@@ -548,6 +549,7 @@ function createRemoteBashOperations(): BashOperations {
         db,
         payload,
         enqueue: (name, taskPayload, options) => taskQueue.add(name, taskPayload, options),
+        onTaskCreated: (taskRun) => dispatchTaskCreated(taskRun).catch((error) => logger.warn("[Realtime] failed to dispatch task.created", error)),
       });
       logger.info(`[Tool:bash] background task enqueued taskRunId=${taskRunId} turnId=${ctx.turnId} toolCallId=${toolCallId} command=${JSON.stringify(command.trim().slice(0, 80))}`);
       return { taskRunId };

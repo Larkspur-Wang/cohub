@@ -10,11 +10,12 @@ import type {
 	SessionRecord,
 	SpaceFsEntry,
 	SpaceRecord,
+	TaskRunRecord,
 } from "@neta-art/cohub";
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 4;
+export const DB_VERSION = 5;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -113,6 +114,34 @@ export type ResourceLabelsCacheRecord = {
 	lastAccessedAt: number;
 };
 
+export type TaskRunSummaryCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	sessionId: string | null;
+	turnId: string | null;
+	taskRunId: string;
+	taskType: string;
+	status: TaskRunRecord["status"];
+	run: TaskRunRecord;
+	updatedAt: number;
+	lastAccessedAt: number;
+};
+
+export type TaskRunDetailCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	sessionId: string | null;
+	turnId: string | null;
+	taskRunId: string;
+	taskType: string;
+	run: TaskRunRecord;
+	progress: unknown;
+	updatedAt: number;
+	lastAccessedAt: number;
+};
+
 type StoreName =
 	| "session_lists"
 	| "session_turns"
@@ -120,7 +149,9 @@ type StoreName =
 	| "space_records"
 	| "label_trees"
 	| "label_items"
-	| "resource_labels";
+	| "resource_labels"
+	| "task_run_summaries"
+	| "task_run_details";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -209,6 +240,32 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 					keyPath: ["userKey", "spaceId", "resourceType", "resourceRef"],
 				},
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+			]);
+			createStore(db, "task_run_summaries", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_session",
+					keyPath: ["userKey", "spaceId", "sessionId"],
+				},
+				{
+					name: "by_user_space_task",
+					keyPath: ["userKey", "spaceId", "taskRunId"],
+				},
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
+			]);
+			createStore(db, "task_run_details", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_session",
+					keyPath: ["userKey", "spaceId", "sessionId"],
+				},
+				{
+					name: "by_user_space_task",
+					keyPath: ["userKey", "spaceId", "taskRunId"],
+				},
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
 			]);
 		};
 		request.onsuccess = () => {

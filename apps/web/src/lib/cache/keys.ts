@@ -39,6 +39,14 @@ export function resourceLabelsKey(
 		.join(":");
 }
 
+export function taskRunKey(
+	userKey: string,
+	spaceId: string,
+	taskRunId: string,
+) {
+	return [userKey, spaceId, taskRunId].map(encodeKeyPart).join(":");
+}
+
 export function sessionTurnsKey(
 	userKey: string,
 	spaceId: string,

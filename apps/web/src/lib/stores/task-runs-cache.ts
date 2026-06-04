@@ -1,4 +1,9 @@
 import type { TaskRunRecord } from "@neta-art/cohub";
+import {
+	readTaskRunSummaries,
+	writeTaskRunSummaries,
+	writeTaskRunSummary,
+} from "$lib/cache/repositories/task-runs-repo";
 
 type TaskRunPatch = Partial<TaskRunRecord> & {
 	id: string;
@@ -11,7 +16,9 @@ type TaskRunsCacheEvent = {
 	runs: TaskRunRecord[];
 };
 
+const MAX_CACHED_RUNS = 500;
 const runsBySpace = new Map<string, TaskRunRecord[]>();
+const restoredSpaces = new Set<string>();
 
 const taskRunTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
@@ -60,9 +67,35 @@ export function getCachedTaskRuns(spaceId: string) {
 	return runsBySpace.get(spaceId) ?? [];
 }
 
+export async function restoreCachedTaskRuns(
+	spaceId: string,
+	sessionId?: string | null,
+) {
+	if (!sessionId && restoredSpaces.has(spaceId))
+		return getCachedTaskRuns(spaceId);
+	const restored = await readTaskRunSummaries(spaceId, sessionId);
+	if (restored.length === 0) {
+		if (!sessionId) restoredSpaces.add(spaceId);
+		return getCachedTaskRuns(spaceId);
+	}
+	const nextRuns = patchCachedTaskRuns(
+		spaceId,
+		(current) => {
+			const byId = new Map(current.map((run) => [run.id, run]));
+			for (const run of restored)
+				byId.set(run.id, { ...(byId.get(run.id) ?? run), ...run });
+			return Array.from(byId.values());
+		},
+		{ persist: false },
+	);
+	if (!sessionId) restoredSpaces.add(spaceId);
+	return nextRuns;
+}
+
 export function setCachedTaskRuns(spaceId: string, runs: TaskRunRecord[]) {
-	const nextRuns = sortRuns(runs);
+	const nextRuns = sortRuns(runs).slice(0, MAX_CACHED_RUNS);
 	runsBySpace.set(spaceId, nextRuns);
+	void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
 	emit(spaceId, nextRuns);
 	return nextRuns;
 }
@@ -70,20 +103,31 @@ export function setCachedTaskRuns(spaceId: string, runs: TaskRunRecord[]) {
 export function patchCachedTaskRuns(
 	spaceId: string,
 	updater: (runs: TaskRunRecord[]) => TaskRunRecord[],
+	options?: { persist?: boolean },
 ) {
-	const nextRuns = sortRuns(updater(runsBySpace.get(spaceId) ?? []));
+	const nextRuns = sortRuns(updater(runsBySpace.get(spaceId) ?? [])).slice(
+		0,
+		MAX_CACHED_RUNS,
+	);
 	runsBySpace.set(spaceId, nextRuns);
+	if (options?.persist !== false)
+		void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
 	emit(spaceId, nextRuns);
 	return nextRuns;
 }
 
 export function mergeCachedTaskRun(spaceId: string, patch: TaskRunPatch) {
-	return patchCachedTaskRuns(spaceId, (runs) => {
-		const existing = runs.find((run) => run.id === patch.id) ?? null;
-		const nextRun = normalizeTaskRunPatch(patch, existing);
-		if (!existing) return [nextRun, ...runs];
-		return runs.map((run) => (run.id === patch.id ? nextRun : run));
+	let merged: TaskRunRecord | null = null;
+	const runs = patchCachedTaskRuns(spaceId, (currentRuns) => {
+		const existing = currentRuns.find((run) => run.id === patch.id) ?? null;
+		merged = normalizeTaskRunPatch(patch, existing);
+		if (!existing) return [merged, ...currentRuns];
+		return currentRuns.map((run) =>
+			run.id === patch.id ? (merged as TaskRunRecord) : run,
+		);
 	});
+	if (merged) void writeTaskRunSummary(spaceId, merged).catch(() => undefined);
+	return runs;
 }
 
 export function mergeCachedCronJobTaskRuns(

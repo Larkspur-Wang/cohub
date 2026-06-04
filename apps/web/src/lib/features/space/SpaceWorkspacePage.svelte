@@ -78,6 +78,7 @@ import type { SessionListForkRecord } from "$lib/cache/db";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
+import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
 import {
 	createEmptyCovasDocument,
 	serializeCovasDocument,
@@ -96,10 +97,11 @@ import PortPreview from "$lib/components/PortPreview.svelte";
 import RenderedFilePreview from "$lib/components/RenderedFilePreview.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SessionGenerationTaskTray, {
-	type GenerationTaskNotice,
-} from "$lib/components/SessionGenerationTaskTray.svelte";
 import SessionSplitMode from "$lib/components/SessionSplitMode.svelte";
+import SessionTaskTray, {
+	type GenerationTaskNotice,
+	type SessionTaskNotice,
+} from "$lib/components/SessionTaskTray.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
@@ -201,6 +203,7 @@ import {
 	mergeCachedCronJobTaskRuns,
 	mergeCachedTaskRun,
 	onTaskRunsCacheUpdated,
+	restoreCachedTaskRuns,
 } from "$lib/stores/task-runs-cache";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
@@ -779,6 +782,10 @@ let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let taskRunRefreshInFlight: Promise<void> | null = null;
 let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
+let backgroundBashTaskRunById = $state<Record<string, TaskRunRecord>>({});
+let backgroundBashHydrateKey = "";
+const taskHydrateRetryCounts = new Map<string, number>();
+const taskHydrateRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let pendingFollowupActionIds = $state<Set<string>>(new Set());
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
@@ -1131,6 +1138,54 @@ const isGenerationTaskRun = (
 ) => (run?.taskType ?? run?.type) === "generation";
 const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
+function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
+	return asRecord(asRecord(run.payload)?.data);
+}
+function getBackgroundBashOrigin(run: Pick<TaskRunRecord, "payload">) {
+	const origin = asRecord(getTaskPayloadData(run)?.origin);
+	return origin?.kind === "bash_tool_call" ? origin : null;
+}
+function isBackgroundBashTaskRun(
+	run: (Partial<TaskRunRecord> & { type?: string }) | null | undefined,
+): run is TaskRunRecord {
+	return (
+		(run?.taskType ?? run?.type) === "run_command" &&
+		!!run?.sessionId &&
+		!!getBackgroundBashOrigin(run as Pick<TaskRunRecord, "payload">)
+	);
+}
+function tailText(value: unknown, limit = 420) {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	return trimmed.length > limit ? `…${trimmed.slice(-limit)}` : trimmed;
+}
+function extractBackgroundBashResultPreview(result: unknown) {
+	const content = asRecord(result)?.content;
+	if (!Array.isArray(content)) return null;
+	for (const block of content) {
+		const record = asRecord(block);
+		if (record?.type === "tool_result") return tailText(record.content);
+	}
+	return null;
+}
+function formatBackgroundBashSubtitle(run: TaskRunRecord) {
+	const result = asRecord(run.result);
+	const parts = [
+		run.status === "completed"
+			? "Completed"
+			: run.status === "failed"
+				? "Failed"
+				: run.status === "pending"
+					? "Queued"
+					: "Running",
+		typeof result?.exitCode === "number" ? `exit ${result.exitCode}` : null,
+		typeof result?.durationMs === "number"
+			? `${Math.max(1, Math.round(result.durationMs / 1000))}s`
+			: null,
+	].filter(Boolean);
+	return parts.join(" · ") || null;
+}
 function mergeTaskRunRecord(
 	current: TaskRunRecord | null,
 	patch: Partial<TaskRunRecord> & {
@@ -1197,12 +1252,50 @@ function toGenerationTaskNotice(
 	if (!isDisplayableGenerationTaskRun(run)) return null;
 	return {
 		id: run.id,
+		kind: "generation",
 		spaceId: run.spaceId ?? spaceId,
 		sessionId: run.sessionId,
 		turnId: run.turnId ?? null,
 		status: run.status,
+		title:
+			run.status === "completed"
+				? "Generation ready"
+				: run.status === "failed"
+					? "Generation failed"
+					: "Generating",
+		subtitle: null,
+		preview: extractGenerationPromptPreview(run.payload),
 		mediaItems: extractGenerationMediaItems(run.result),
-		promptPreview: extractGenerationPromptPreview(run.payload),
+		createdAt: run.createdAt,
+		startedAt: run.startedAt,
+		updatedAt: run.updatedAt,
+		finishedAt: run.finishedAt,
+	};
+}
+function toBackgroundBashTaskNotice(
+	run: TaskRunRecord,
+): SessionTaskNotice | null {
+	if (!isBackgroundBashTaskRun(run)) return null;
+	if (!["pending", "running", "completed", "failed"].includes(run.status))
+		return null;
+	const sessionId = run.sessionId;
+	if (!sessionId) return null;
+	const data = getTaskPayloadData(run);
+	const command =
+		typeof data?.command === "string"
+			? data.command.trim()
+			: "Background command";
+	return {
+		id: run.id,
+		kind: "background_bash",
+		spaceId: run.spaceId ?? spaceId,
+		sessionId,
+		turnId: run.turnId ?? null,
+		status: run.status,
+		title: command.split("\n")[0]?.trim() || "Background command",
+		subtitle: formatBackgroundBashSubtitle(run),
+		preview: extractBackgroundBashResultPreview(run.result),
+		mediaItems: [],
 		createdAt: run.createdAt,
 		startedAt: run.startedAt,
 		updatedAt: run.updatedAt,
@@ -1212,6 +1305,10 @@ function toGenerationTaskNotice(
 function upsertGenerationTaskRun(run: TaskRunRecord) {
 	if (!isGenerationTaskRun(run)) return;
 	generationTaskRunById = { ...generationTaskRunById, [run.id]: run };
+}
+function upsertBackgroundBashTaskRun(run: TaskRunRecord) {
+	if (!isBackgroundBashTaskRun(run)) return;
+	backgroundBashTaskRunById = { ...backgroundBashTaskRunById, [run.id]: run };
 }
 async function refreshTaskDetail(taskId: string, loading = false) {
 	if (taskRunRefreshInFlight) return taskRunRefreshInFlight;
@@ -1246,6 +1343,54 @@ async function loadTaskDetail(taskId: string) {
 	taskRunProgress = null;
 	await refreshTaskDetail(taskId, true);
 	if (isActiveTaskRun(taskRunDetail)) ensureTaskRunPoll(taskId);
+}
+async function hydrateTaskRun(taskId: string) {
+	try {
+		const detail = await sdk.tasks.get(taskId);
+		taskHydrateRetryCounts.delete(taskId);
+		const retryTimer = taskHydrateRetryTimers.get(taskId);
+		if (retryTimer) clearTimeout(retryTimer);
+		taskHydrateRetryTimers.delete(taskId);
+		if (detail.run.spaceId) mergeCachedTaskRun(detail.run.spaceId, detail.run);
+		if (detail.run.spaceId)
+			void writeTaskRunDetail(
+				detail.run.spaceId,
+				detail.run,
+				detail.progress,
+			).catch(() => undefined);
+		if (isGenerationTaskRun(detail.run)) upsertGenerationTaskRun(detail.run);
+		if (isBackgroundBashTaskRun(detail.run))
+			upsertBackgroundBashTaskRun(detail.run);
+	} catch {
+		const retryCount = taskHydrateRetryCounts.get(taskId) ?? 0;
+		if (retryCount >= 3 || taskHydrateRetryTimers.has(taskId)) return;
+		taskHydrateRetryCounts.set(taskId, retryCount + 1);
+		const timer = setTimeout(
+			() => {
+				taskHydrateRetryTimers.delete(taskId);
+				void hydrateTaskRun(taskId);
+			},
+			1000 * 2 ** retryCount,
+		);
+		taskHydrateRetryTimers.set(taskId, timer);
+	}
+}
+async function hydrateActiveSessionTasks(sessionId: string) {
+	try {
+		const { runs } = await sdk.tasks.list({
+			spaceId,
+			sessionId,
+			status: "active",
+			limit: 50,
+		});
+		for (const run of runs) {
+			mergeCachedTaskRun(spaceId, run);
+			if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+			if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
+		}
+	} catch (error) {
+		console.warn("Failed to load session tasks:", error);
+	}
 }
 function openShareModal(sessionId: string) {
 	if (!canManageSessionAccess) return;
@@ -1298,13 +1443,38 @@ async function makeSessionPrivate() {
 const activeSessionState = $derived(
 	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
 );
-const generationTaskNotices = $derived.by<GenerationTaskNotice[]>(() => {
+const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 	if (!activeSessionId) return [];
-	return Object.values(generationTaskRunById)
-		.filter((run) => run.sessionId === activeSessionId)
-		.map(toGenerationTaskNotice)
-		.filter((notice): notice is GenerationTaskNotice => notice !== null)
+	return [
+		...Object.values(generationTaskRunById)
+			.filter((run) => run.sessionId === activeSessionId)
+			.map(toGenerationTaskNotice),
+		...Object.values(backgroundBashTaskRunById)
+			.filter((run) => run.sessionId === activeSessionId)
+			.map(toBackgroundBashTaskNotice),
+	]
+		.filter((notice): notice is SessionTaskNotice => notice !== null)
 		.sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b));
+});
+$effect(() => {
+	const sessionId = activeSessionId;
+	if (!sessionId) {
+		backgroundBashHydrateKey = "";
+		return;
+	}
+	const hydrateKey = `${spaceId}:${sessionId}`;
+	if (backgroundBashHydrateKey !== hydrateKey) {
+		backgroundBashHydrateKey = hydrateKey;
+		void restoreCachedTaskRuns(spaceId, sessionId)
+			.then((runs) => {
+				for (const run of runs) {
+					if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+					if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
+				}
+			})
+			.catch(() => undefined);
+		void hydrateActiveSessionTasks(sessionId);
+	}
 });
 const browserTabTitle = $derived.by(() => {
 	const spaceTitle = normalizeTabTitleSegment(
@@ -4279,6 +4449,14 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 	});
 	if (isGenerationTaskRun(mergedTaskRun))
 		upsertGenerationTaskRun(mergedTaskRun);
+	if (isBackgroundBashTaskRun(mergedTaskRun))
+		upsertBackgroundBashTaskRun(mergedTaskRun);
+	if (
+		task.sessionId === activeSessionId &&
+		(task.type === "run_command" || task.type === "generation")
+	) {
+		void hydrateTaskRun(task.id);
+	}
 	if (routeTaskId === task.id) {
 		const wasActive = isActiveTaskRun(taskRunDetail);
 		taskRunDetail = mergeTaskRunRecord(taskRunDetail, {
@@ -6226,12 +6404,22 @@ onMount(() => {
 	);
 	for (const run of getCachedTaskRuns(spaceId)) {
 		if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+		if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
 	}
+	void restoreCachedTaskRuns(spaceId)
+		.then((runs) => {
+			for (const run of runs) {
+				if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+				if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
+			}
+		})
+		.catch(() => undefined);
 	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
 		({ spaceId: updatedSpaceId, runs }) => {
 			if (updatedSpaceId !== spaceId) return;
 			for (const run of runs) {
 				if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+				if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
 			}
 			if (cronjobDetail) {
 				cronjobRuns = runs.filter((run) => run.cronJobId === cronjobDetail?.id);
@@ -6340,6 +6528,9 @@ onMount(() => {
 		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		clearTaskRunPoll();
+		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
+		taskHydrateRetryTimers.clear();
+		taskHydrateRetryCounts.clear();
 		if (turnMarkerMeasureFrame != null)
 			cancelAnimationFrame(turnMarkerMeasureFrame);
 		stopVimScroll();
@@ -8427,7 +8618,7 @@ $effect(() => {
             onOpenFile={openInlineFile}
             modelsCatalog={modelsCatalog ?? undefined}
           />
-          <SessionGenerationTaskTray notices={generationTaskNotices} />
+          <SessionTaskTray notices={sessionTaskNotices} />
           {#if followupQueue.length > 0}
             <div class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6">
               <div class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder">

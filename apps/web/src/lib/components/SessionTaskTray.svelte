@@ -1,77 +1,91 @@
 <script lang="ts">
-import { AlertCircle, ChevronDown, Loader2, Play, Video } from "lucide-svelte";
+import {
+	AlertCircle,
+	ChevronDown,
+	Loader2,
+	Play,
+	Terminal,
+	Video,
+} from "lucide-svelte";
 import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { type MediaItem, mediaLightbox } from "$lib/components/media-lightbox";
 import { buildSpaceTaskRoute } from "$lib/space-routes";
 
-export type GenerationTaskNotice = {
+export type SessionTaskNotice = {
 	id: string;
+	kind: "generation" | "background_bash";
 	spaceId: string;
 	sessionId: string;
 	turnId: string | null;
 	status: "pending" | "running" | "completed" | "failed";
+	title: string;
+	subtitle: string | null;
+	preview: string | null;
 	mediaItems: MediaItem[];
-	promptPreview: string | null;
 	createdAt: string;
 	startedAt: string | null;
 	updatedAt: string;
 	finishedAt: string | null;
 };
 
+export type GenerationTaskNotice = SessionTaskNotice & { kind: "generation" };
+
 type Props = {
-	notices: GenerationTaskNotice[];
+	notices: SessionTaskNotice[];
 };
 
 const props: Props = $props();
 const TICK_MS = 1000;
 
-let collapsed = $state(false);
+let collapsed = $state(true);
 let now = $state(Date.now());
 
 const sortedNotices = $derived.by(() =>
 	[...props.notices].sort((a, b) => taskTime(b) - taskTime(a)),
 );
-const generationCounts = $derived.by(() => ({
-	generating: sortedNotices.filter(isActive).length,
+const counts = $derived.by(() => ({
+	running: sortedNotices.filter(isActive).length,
 	ready: sortedNotices.filter((notice) => notice.status === "completed").length,
 	failed: sortedNotices.filter((notice) => notice.status === "failed").length,
+	commands: sortedNotices.filter((notice) => notice.kind === "background_bash")
+		.length,
+	generations: sortedNotices.filter((notice) => notice.kind === "generation")
+		.length,
 	total: sortedNotices.length,
 }));
 const summaryText = $derived.by(() => {
 	const parts = [
-		generationCounts.generating
-			? `Generating ${generationCounts.generating}`
-			: null,
-		generationCounts.ready ? `Ready ${generationCounts.ready}` : null,
-		generationCounts.failed ? `Failed ${generationCounts.failed}` : null,
+		counts.running ? `Running ${counts.running}` : null,
+		counts.ready ? `Ready ${counts.ready}` : null,
+		counts.failed ? `Failed ${counts.failed}` : null,
 	].filter(Boolean);
-	return parts.length > 0 ? parts.join(" · ") : `${generationCounts.total}`;
+	return parts.length > 0 ? parts.join(" · ") : `Tasks ${counts.total}`;
 });
 const statusItems = $derived.by(() =>
 	[
-		generationCounts.generating
+		counts.running
 			? {
-					key: "generating",
-					label: "Generating",
-					count: generationCounts.generating,
+					key: "running",
+					label: "Running",
+					count: counts.running,
 					dotClass: "bg-brand shadow-[0_0_0_3px_var(--brand-muted)]",
 				}
 			: null,
-		generationCounts.ready
+		counts.ready
 			? {
 					key: "ready",
 					label: "Ready",
-					count: generationCounts.ready,
+					count: counts.ready,
 					dotClass: "bg-status-running/80",
 				}
 			: null,
-		generationCounts.failed
+		counts.failed
 			? {
 					key: "failed",
 					label: "Failed",
-					count: generationCounts.failed,
+					count: counts.failed,
 					dotClass: "bg-status-error",
 				}
 			: null,
@@ -87,23 +101,31 @@ const statusItems = $derived.by(() =>
 	),
 );
 
-function taskTime(notice: GenerationTaskNotice) {
+function taskTime(notice: SessionTaskNotice) {
 	return Date.parse(notice.updatedAt || notice.createdAt || "") || 0;
 }
 
-function isCompleted(notice: GenerationTaskNotice) {
-	return notice.status === "completed" && notice.mediaItems.length > 0;
+function isCompletedGeneration(notice: SessionTaskNotice) {
+	return (
+		notice.kind === "generation" &&
+		notice.status === "completed" &&
+		notice.mediaItems.length > 0
+	);
 }
 
-function isActive(notice: GenerationTaskNotice) {
+function isActive(notice: SessionTaskNotice) {
 	return notice.status === "pending" || notice.status === "running";
 }
 
-function isInteractive(notice: GenerationTaskNotice) {
-	return isCompleted(notice) || notice.status === "failed";
+function isInteractive(notice: SessionTaskNotice) {
+	return (
+		isCompletedGeneration(notice) ||
+		notice.status === "failed" ||
+		notice.kind === "background_bash"
+	);
 }
 
-function elapsedSeconds(notice: GenerationTaskNotice) {
+function elapsedSeconds(notice: SessionTaskNotice) {
 	const start = Date.parse(
 		notice.startedAt || notice.createdAt || notice.updatedAt || "",
 	);
@@ -111,34 +133,37 @@ function elapsedSeconds(notice: GenerationTaskNotice) {
 	return Math.max(0, Math.floor((now - start) / 1000));
 }
 
-function getTaskReferenceUri(notice: GenerationTaskNotice) {
+function formatElapsed(seconds: number) {
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	const rest = seconds % 60;
+	if (minutes < 60) return `${minutes}m ${rest}s`;
+	const hours = Math.floor(minutes / 60);
+	return `${hours}h ${minutes % 60}m`;
+}
+
+function getTaskReferenceUri(notice: SessionTaskNotice) {
 	return `cohub://tasks/${notice.id}`;
 }
 
-function handleNoticeDragStart(event: DragEvent, notice: GenerationTaskNotice) {
+function handleNoticeDragStart(event: DragEvent, notice: SessionTaskNotice) {
 	const uri = getTaskReferenceUri(notice);
-
 	event.dataTransfer?.setData("application/x-cohub-uri", uri);
 	event.dataTransfer?.setData("text/cohub-path", uri);
 	event.dataTransfer?.setData("text/plain", uri);
-
-	if (event.dataTransfer) {
-		event.dataTransfer.effectAllowed = "copy";
-	}
+	if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
 }
 
-function handleCardClick(notice: GenerationTaskNotice) {
-	if (isCompleted(notice)) {
+function handleCardClick(notice: SessionTaskNotice) {
+	if (isCompletedGeneration(notice)) {
 		mediaLightbox.show(notice.mediaItems);
 		return;
 	}
-	if (notice.status === "failed") {
-		void goto(buildSpaceTaskRoute(notice.spaceId, notice.id));
-	}
+	void goto(buildSpaceTaskRoute(notice.spaceId, notice.id));
 }
 
 onMount(() => {
-	collapsed = window.matchMedia("(max-width: 768px)").matches;
+	collapsed = true;
 });
 
 $effect(() => {
@@ -161,10 +186,14 @@ $effect(() => {
 					collapsed = !collapsed;
 				}}
 				aria-expanded={!collapsed}
-				aria-label={collapsed ? `Expand generation items: ${summaryText}` : `Collapse generation items: ${summaryText}`}
+				aria-label={collapsed ? `Expand tasks: ${summaryText}` : `Collapse tasks: ${summaryText}`}
 			>
-				<Video class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-				<span class="sr-only">Generation</span>
+				{#if counts.commands > 0 && counts.generations === 0}
+					<Terminal class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+				{:else}
+					<Video class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+				{/if}
+				<span class="sr-only">Tasks</span>
 				{#if collapsed}
 					{#each statusItems as item (item.key)}
 						<span class="inline-flex shrink-0 items-center gap-1" title={`${item.label} ${item.count}`}>
@@ -188,7 +217,7 @@ $effect(() => {
 
 			{#if !collapsed}
 				<div class="border-t border-border-subtle/45 bg-bg-surface/25 p-px">
-					<div class="max-h-[min(64vh,560px)] columns-2 gap-px overflow-y-auto overscroll-contain sm:max-w-[560px] sm:columns-3">
+					<div class="max-h-[min(64vh,560px)] columns-1 gap-px overflow-y-auto overscroll-contain sm:max-w-[560px] sm:columns-2">
 						{#each sortedNotices as notice (notice.id)}
 							{#if isInteractive(notice)}
 								<button
@@ -219,8 +248,8 @@ $effect(() => {
 	</div>
 {/if}
 
-{#snippet CardInner(notice: GenerationTaskNotice, elapsed: number)}
-	{#if isCompleted(notice)}
+{#snippet CardInner(notice: SessionTaskNotice, elapsed: number)}
+	{#if isCompletedGeneration(notice)}
 		{@const first = notice.mediaItems[0]}
 		<div class="relative w-full bg-bg-surface">
 			{#if first.type === "image"}
@@ -239,21 +268,29 @@ $effect(() => {
 				<span class="absolute bottom-1.5 right-1.5 rounded-full bg-overlay-control px-1.5 py-0.5 text-[10px] font-medium text-overlay-control-text backdrop-blur-sm">{notice.mediaItems.length}</span>
 			{/if}
 		</div>
-	{:else if isActive(notice)}
-		<div class="flex min-h-[68px] flex-col justify-between gap-2 p-2">
-			<div class="flex items-center gap-2 text-[12px] font-medium text-text-primary">
-				<Loader2 class="h-3.5 w-3.5 animate-spin text-brand" />
-				<span>Generating</span>
-				<span class="text-text-tertiary tabular-nums">{elapsed}s</span>
-			</div>
-			{#if notice.promptPreview}
-				<div class="line-clamp-3 text-[11px] leading-relaxed text-text-tertiary">{notice.promptPreview}</div>
-			{/if}
-		</div>
 	{:else}
-		<div class="flex min-h-[56px] items-center justify-center gap-2 p-2 text-[12px] font-medium text-error-soft">
-			<AlertCircle class="h-3.5 w-3.5" />
-			<span>Failed</span>
+		<div class="flex min-h-[68px] flex-col gap-2 p-2">
+			<div class="flex items-center gap-2 text-[12px] font-medium text-text-primary">
+				{#if notice.status === "failed"}
+					<AlertCircle class="h-3.5 w-3.5 shrink-0 text-error-soft" />
+				{:else if isActive(notice)}
+					<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-brand" />
+				{:else if notice.kind === "background_bash"}
+					<Terminal class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+				{:else}
+					<Video class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+				{/if}
+				<span class="min-w-0 flex-1 truncate">{notice.title}</span>
+				{#if isActive(notice)}
+					<span class="shrink-0 text-text-tertiary tabular-nums">{formatElapsed(elapsed)}</span>
+				{/if}
+			</div>
+			{#if notice.subtitle}
+				<div class="truncate text-[11px] leading-relaxed text-text-tertiary">{notice.subtitle}</div>
+			{/if}
+			{#if notice.preview}
+				<div class="line-clamp-3 whitespace-pre-wrap text-[11px] leading-relaxed text-text-tertiary">{notice.preview}</div>
+			{/if}
 		</div>
 	{/if}
 {/snippet}
