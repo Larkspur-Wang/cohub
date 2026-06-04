@@ -6369,14 +6369,7 @@ $effect(() => {
 	if (routeSessionMode === "split") {
 		const state = sessionStateById[sessionId];
 		if (!state?.loaded || state.loading) return;
-		if (state.turns.length === 0) {
-			void goto(buildSpaceSessionModeRoute(spaceId, sessionId, "split"), {
-				replaceState: true,
-				keepFocus: true,
-				noScroll: true,
-			});
-			return;
-		}
+		if (state.turns.length === 0) return;
 		const key = `${sessionId}:${sequence}`;
 		if (appliedRouteTurnKey === key) return;
 		appliedRouteTurnKey = key;
