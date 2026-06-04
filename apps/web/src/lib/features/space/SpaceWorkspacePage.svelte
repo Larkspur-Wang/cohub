@@ -6380,9 +6380,16 @@ $effect(() => {
 	);
 });
 $effect(() => {
-	const sessionId = activeSessionId;
+	const sessionId = routeSessionId;
 	const sequence = routeTurnSequence;
-	if (!pageMounted || !sessionId || !sequence) return;
+	if (
+		!pageMounted ||
+		routeView !== "session" ||
+		!sessionId ||
+		activeSessionId !== sessionId ||
+		!sequence
+	)
+		return;
 	const key = `${sessionId}:${sequence}`;
 	if (appliedRouteTurnKey === key) return;
 	appliedRouteTurnKey = key;
