@@ -515,8 +515,28 @@ async function main() {
   });
 
   const server = serve({ fetch: app.fetch, port: gatewayConfig.port }) as unknown as import("node:http").Server;
-  const wss = new WebSocketServer({ server, path: "/ws" });
-  const asrWss = new WebSocketServer({ server, path: "/asr/ws", maxPayload: 1024 * 1024 });
+  const wss = new WebSocketServer({ noServer: true });
+  const asrWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+
+  const websocketRoutes = new Map<string, WebSocketServer>([
+    ["/ws", wss],
+    ["/asr/ws", asrWss],
+  ]);
+
+  server.on("upgrade", (request, socket, head) => {
+    const pathname = request.url ? new URL(request.url, "http://localhost").pathname : "";
+    const websocketServer = websocketRoutes.get(pathname);
+
+    if (!websocketServer) {
+      socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    websocketServer.handleUpgrade(request, socket, head, (websocket) => {
+      websocketServer.emit("connection", websocket, request);
+    });
+  });
 
   asrWss.on("connection", handleAsrWebSocketConnection);
 
