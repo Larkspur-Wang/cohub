@@ -107,6 +107,36 @@ router.get("/catalog", async (c) => {
   }
 });
 
+router.get("/orders", async (c) => {
+  const user = useAuth(c);
+  try {
+    const orders = await billingOperations.listOrders({
+      userId: user.uuid,
+      page: parsePositiveInt(c.req.query("page"), 1, 10_000),
+      limit: parsePositiveInt(c.req.query("limit"), BILLING_PAGE_SIZE, BILLING_PAGE_SIZE),
+    });
+    return c.json({ orders });
+  } catch (error) {
+    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
+router.get("/subscriptions", async (c) => {
+  const user = useAuth(c);
+  try {
+    const subscriptions = await billingOperations.listSubscriptions({
+      userId: user.uuid,
+      page: parsePositiveInt(c.req.query("page"), 1, 10_000),
+      limit: parsePositiveInt(c.req.query("limit"), BILLING_PAGE_SIZE, BILLING_PAGE_SIZE),
+    });
+    return c.json({ subscriptions });
+  } catch (error) {
+    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
 router.post("/addons/:productKey/purchase", async (c) => {
   const user = useAuth(c);
   const body = await readCheckoutBody(c);
@@ -123,6 +153,20 @@ router.post("/addons/:productKey/purchase", async (c) => {
   }
 });
 
+router.post("/orders/:orderId/cancel-checkout", async (c) => {
+  const user = useAuth(c);
+  try {
+    const order = await billingOperations.cancelOrderCheckout({
+      userId: user.uuid,
+      orderId: c.req.param("orderId"),
+    });
+    return c.json({ order });
+  } catch (error) {
+    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
 router.post("/plans/:productKey/subscribe", async (c) => {
   const user = useAuth(c);
   const body = await readCheckoutBody(c);
@@ -133,6 +177,34 @@ router.post("/plans/:productKey/subscribe", async (c) => {
       returnUrl: parseReturnUrl((body as { returnUrl?: unknown }).returnUrl),
     });
     return c.json({ checkout });
+  } catch (error) {
+    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
+router.post("/subscriptions/:subscriptionId/cancel-checkout", async (c) => {
+  const user = useAuth(c);
+  try {
+    const subscription = await billingOperations.cancelSubscriptionCheckout({
+      userId: user.uuid,
+      subscriptionId: c.req.param("subscriptionId"),
+    });
+    return c.json({ subscription });
+  } catch (error) {
+    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
+router.post("/subscriptions/:subscriptionId/cancel-auto-renew", async (c) => {
+  const user = useAuth(c);
+  try {
+    const subscription = await billingOperations.cancelSubscriptionAutoRenew({
+      userId: user.uuid,
+      subscriptionId: c.req.param("subscriptionId"),
+    });
+    return c.json({ subscription });
   } catch (error) {
     if (error instanceof ApiError) return billingApiErrorResponse(c, error);
     throw error;

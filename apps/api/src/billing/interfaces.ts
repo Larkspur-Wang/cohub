@@ -235,6 +235,99 @@ export type BillingCatalog = BillingUserRef & {
   defaultPlanProductKey: string | null;
 };
 
+export type BillingHistoryPagination = {
+  maxPage: number;
+  totalCount: number;
+};
+
+export type BillingCheckoutActionState = {
+  canPay: boolean;
+  checkoutUrl: string | null;
+  checkoutUsable: boolean;
+  canCancelCheckout: boolean;
+  canCancelAutoRenew: boolean;
+  unavailableReason: string | null;
+};
+
+export type BillingHistoryListInput = BillingUserRef & {
+  page?: number;
+  limit?: number;
+};
+
+export type BillingOrderStatus = {
+  id: string;
+  externalUserId: string;
+  productKey: string;
+  productName: string;
+  subscriptionId: string | null;
+  status: string;
+  billingReason: string;
+  amountMinor: number;
+  amountUsd: number;
+  paidAmountMinor: number;
+  paidAmountUsd: number;
+  currency: string;
+  refundedAmountMinor: number;
+  refundedAmountUsd: number;
+  fulfillmentSource: string;
+  checkoutExpiresAt: string | null;
+  paidAt: string | null;
+  checkoutCanceledAt: string | null;
+  checkoutExpiredAt: string | null;
+  paymentConflictedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  providerStatus: string | null;
+  checkoutStatus: string | null;
+  actions: BillingCheckoutActionState;
+};
+
+export type BillingOrderList = BillingUserRef & {
+  billing: BillingPluginStatus;
+  page: number;
+  limit: number;
+  items: BillingOrderStatus[];
+  pagination: BillingHistoryPagination;
+};
+
+export type BillingSubscriptionHistoryStatus = {
+  id: string;
+  externalUserId: string;
+  productKey: string;
+  productName: string;
+  status: string;
+  amountMinor: number;
+  amountUsd: number;
+  paidAmountMinor: number;
+  paidAmountUsd: number;
+  currency: string;
+  billingPeriod: string;
+  billingIntervalCount: number;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  checkoutExpiresAt: string | null;
+  checkoutCanceledAt: string | null;
+  checkoutExpiredAt: string | null;
+  paymentConflictedAt: string | null;
+  endedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  providerStatus: string | null;
+  providerTerminal: boolean;
+  checkoutStatus: string | null;
+  actions: BillingCheckoutActionState;
+};
+
+export type BillingSubscriptionHistoryList = BillingUserRef & {
+  billing: BillingPluginStatus;
+  page: number;
+  limit: number;
+  items: BillingSubscriptionHistoryStatus[];
+  pagination: BillingHistoryPagination;
+};
+
 export type BillingCheckoutInput = BillingUserRef & {
   productKey: string;
   returnUrl?: string;
@@ -369,8 +462,13 @@ export interface BillingOperations {
   getCreditStatus(input: BillingUserRef & { tokenType?: CohubBillingTokenType }): Promise<BillingCreditStatus>;
   listOpenOverages(input: BillingOpenOverageListInput): Promise<BillingOpenOverageList>;
   getCatalog(input: BillingUserRef): Promise<BillingCatalog>;
+  listOrders(input: BillingHistoryListInput): Promise<BillingOrderList>;
+  listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList>;
   purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
   createSubscription(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
+  cancelOrderCheckout(input: BillingUserRef & { orderId: string }): Promise<BillingOrderStatus>;
+  cancelSubscriptionCheckout(input: BillingUserRef & { subscriptionId: string }): Promise<BillingSubscriptionHistoryStatus>;
+  cancelSubscriptionAutoRenew(input: BillingUserRef & { subscriptionId: string }): Promise<BillingSubscriptionHistoryStatus>;
   redeemCode(input: BillingRedemptionInput): Promise<BillingRedemptionResult>;
   preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight>;
   recordUsage(input: BillingUsageRecordInput): Promise<BillingUsageRecordResult>;

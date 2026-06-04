@@ -2,10 +2,15 @@ import { benefitsFeature, type Benefit, type CreditsBenefit } from "@talesofai-b
 import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
 import { creditsFeature, type CreditGrant, type CreditTransaction, type UsageOverage } from "@talesofai-billing/sdk/admin/credits";
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
-import { type CreateOrderResponse, ordersFeature } from "@talesofai-billing/sdk/admin/orders";
+import { type CreateOrderResponse, type Order, type OrderCheckout, ordersFeature } from "@talesofai-billing/sdk/admin/orders";
 import { type Product, productsFeature } from "@talesofai-billing/sdk/admin/products";
 import { redemptionCodesFeature } from "@talesofai-billing/sdk/admin/redemption-codes";
-import { type CreateSubscriptionResponse, type Subscription, subscriptionsFeature } from "@talesofai-billing/sdk/admin/subscriptions";
+import {
+  type CreateSubscriptionResponse,
+  type Subscription,
+  type SubscriptionCheckout,
+  subscriptionsFeature,
+} from "@talesofai-billing/sdk/admin/subscriptions";
 import { type WaffoPayMethod, waffoFeature } from "@talesofai-billing/sdk/admin/waffo";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
 import { createHash, randomUUID } from "node:crypto";
@@ -27,13 +32,18 @@ import {
   type BillingFeatureEntitlement,
   type BillingFeatureLimitCheck,
   type BillingFeatureLimitInput,
+  type BillingHistoryListInput,
   type BillingOpenOverageList,
   type BillingOpenOverageListInput,
   type BillingOpenOverageStatus,
   type BillingOperations,
+  type BillingOrderList,
+  type BillingOrderStatus,
   type BillingPluginStatus,
   type BillingRedemptionInput,
   type BillingRedemptionResult,
+  type BillingSubscriptionHistoryList,
+  type BillingSubscriptionHistoryStatus,
   type BillingUsagePreflight,
   type BillingUsagePreflightInput,
   type BillingUsageRecordList,
@@ -94,12 +104,20 @@ const CHECKOUT_LOCK_RETRY_COUNT = 24;
 const CREDIT_LIST_PAGE_LIMIT = 100;
 const CREDIT_LIST_MAX_PAGES = 20;
 const CREDIT_GRANT_DISPLAY_STATUSES = ["active", "depleted", "expired"] as const;
-const BILLING_CURRENT_SUBSCRIPTION_STATUSES = ["active"] as const;
+const BILLING_CURRENT_SUBSCRIPTION_STATUSES = ["trialing", "active"] as const;
 const BILLING_BLOCKING_SUBSCRIPTION_STATUSES = [
   "trialing",
   "active",
   "past_due",
   "payment_conflicted",
+] as const;
+const BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
+const BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES = [
+  "MERCHANT_CANCELLED",
+  "USER_CANCELLED",
+  "CHANNEL_CANCELLED",
+  "CLOSE",
+  "EXPIRED",
 ] as const;
 const CREDIT_BENEFIT_DISPLAY_NAMES: Record<string, string> = {
   free_monthly_credits: "Free Plan Credits",
@@ -441,6 +459,130 @@ function minorAmountToUsd(amount: number): number {
   return Number((amount / 100).toFixed(2));
 }
 
+function normalizeBillingPage(value: number | undefined): number {
+  return Math.max(1, Math.floor(value ?? 1));
+}
+
+function normalizeBillingLimit(value: number | undefined): number {
+  return Math.min(10, Math.max(1, Math.floor(value ?? 10)));
+}
+
+function billingApiError(statusCode: number, message: string, code?: string): ApiError {
+  return new ApiError({
+    status: statusCode,
+    message,
+    code,
+    responseBody: { message, code },
+  });
+}
+
+function getCheckoutUnavailableReason(checkout: OrderCheckout | SubscriptionCheckout | undefined): string | null {
+  if (checkout?.checkout_usable === true && checkout.checkout_url) return null;
+  return checkout?.message ?? null;
+}
+
+function isProviderTerminalSubscriptionStatus(value: string | null): boolean {
+  if (!value) return false;
+  return BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES.includes(
+    value.toUpperCase() as typeof BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES[number],
+  );
+}
+
+function isProviderBackedSubscriptionCheckout(checkout: SubscriptionCheckout | undefined): boolean {
+  return checkout?.provider_key === "waffo";
+}
+
+function mapOrderStatus(order: Order, checkout?: OrderCheckout): BillingOrderStatus {
+  const canPay = order.status === "pending_checkout" && checkout?.checkout_usable === true && !!checkout.checkout_url;
+  return {
+    id: order.id,
+    externalUserId: order.external_user_id,
+    productKey: order.product_key_snapshot,
+    productName: order.product_name_snapshot,
+    subscriptionId: order.subscription_id,
+    status: order.status,
+    billingReason: order.billing_reason,
+    amountMinor: order.amount_snapshot,
+    amountUsd: minorAmountToUsd(order.amount_snapshot),
+    paidAmountMinor: order.paid_amount_snapshot,
+    paidAmountUsd: minorAmountToUsd(order.paid_amount_snapshot),
+    currency: order.currency_snapshot,
+    refundedAmountMinor: order.refunded_amount,
+    refundedAmountUsd: minorAmountToUsd(order.refunded_amount),
+    fulfillmentSource: order.fulfillment_source,
+    checkoutExpiresAt: order.checkout_expires_at ?? null,
+    paidAt: order.paid_at,
+    checkoutCanceledAt: order.checkout_canceled_at,
+    checkoutExpiredAt: order.checkout_expired_at,
+    paymentConflictedAt: order.payment_conflicted_at,
+    createdAt: order.created_at,
+    updatedAt: order.updated_at,
+    providerStatus: checkout?.order_status ?? checkout?.provider_request_status ?? null,
+    checkoutStatus: checkout?.status ?? null,
+    actions: {
+      canPay,
+      checkoutUrl: canPay ? checkout?.checkout_url ?? null : null,
+      checkoutUsable: canPay,
+      canCancelCheckout: order.status === "pending_checkout",
+      canCancelAutoRenew: false,
+      unavailableReason: canPay ? null : getCheckoutUnavailableReason(checkout),
+    },
+  };
+}
+
+function mapSubscriptionHistoryStatus(
+  subscription: Subscription,
+  checkout?: SubscriptionCheckout,
+): BillingSubscriptionHistoryStatus {
+  const providerStatus = checkout?.subscription_status ?? checkout?.provider_request_status ?? null;
+  const providerTerminal = isProviderTerminalSubscriptionStatus(providerStatus);
+  const canPay = subscription.status === "pending_checkout" && checkout?.checkout_usable === true && !!checkout.checkout_url;
+  const canCancelAutoRenew =
+    BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES.includes(
+      subscription.status as typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES[number],
+    ) &&
+    subscription.cancel_at_period_end === false &&
+    subscription.current_period_end !== null &&
+    isProviderBackedSubscriptionCheckout(checkout) &&
+    !providerTerminal;
+  return {
+    id: subscription.id,
+    externalUserId: subscription.external_user_id,
+    productKey: subscription.product_key_snapshot,
+    productName: subscription.product_name_snapshot,
+    status: subscription.status,
+    amountMinor: subscription.amount_snapshot,
+    amountUsd: minorAmountToUsd(subscription.amount_snapshot),
+    paidAmountMinor: subscription.paid_amount_snapshot,
+    paidAmountUsd: minorAmountToUsd(subscription.paid_amount_snapshot),
+    currency: subscription.currency_snapshot,
+    billingPeriod: subscription.billing_period_snapshot,
+    billingIntervalCount: subscription.billing_interval_count_snapshot,
+    currentPeriodStart: subscription.current_period_start,
+    currentPeriodEnd: subscription.current_period_end,
+    cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    canceledAt: subscription.canceled_at,
+    checkoutExpiresAt: subscription.checkout_expires_at,
+    checkoutCanceledAt: subscription.checkout_canceled_at,
+    checkoutExpiredAt: subscription.checkout_expired_at,
+    paymentConflictedAt: subscription.payment_conflicted_at,
+    endedAt: subscription.ended_at,
+    createdAt: subscription.created_at,
+    updatedAt: subscription.updated_at,
+    providerStatus,
+    providerTerminal,
+    checkoutStatus: checkout?.status ?? null,
+    actions: {
+      canPay,
+      checkoutUrl: canPay ? checkout?.checkout_url ?? null : null,
+      checkoutUsable: canPay,
+      canCancelCheckout: subscription.status === "pending_checkout",
+      canCancelAutoRenew,
+      unavailableReason: canPay ? null : getCheckoutUnavailableReason(checkout),
+    },
+  };
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -588,6 +730,12 @@ function mapSubscriptionSummary(subscription: Subscription) {
     currentPeriodEnd: subscription.current_period_end,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
   };
+}
+
+function isSubscriptionExpiredAfterCancel(subscription: Subscription, now = new Date()): boolean {
+  if (!subscription.cancel_at_period_end || !subscription.current_period_end) return false;
+  const currentPeriodEnd = Date.parse(subscription.current_period_end);
+  return !Number.isNaN(currentPeriodEnd) && currentPeriodEnd <= now.getTime();
 }
 
 function isAvailableWaffoPayMethod(method: WaffoPayMethod): boolean {
@@ -801,6 +949,44 @@ function emptyCatalog(input: {
   };
 }
 
+function emptyOrderList(input: {
+  userId: string;
+  status: BillingPluginStatus;
+  page: number;
+  limit: number;
+}): BillingOrderList {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    page: input.page,
+    limit: input.limit,
+    items: [],
+    pagination: {
+      maxPage: 0,
+      totalCount: 0,
+    },
+  };
+}
+
+function emptySubscriptionHistoryList(input: {
+  userId: string;
+  status: BillingPluginStatus;
+  page: number;
+  limit: number;
+}): BillingSubscriptionHistoryList {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    page: input.page,
+    limit: input.limit,
+    items: [],
+    pagination: {
+      maxPage: 0,
+      totalCount: 0,
+    },
+  };
+}
+
 function disabledCheckoutResult(input: {
   userId: string;
   productKey: string;
@@ -899,6 +1085,24 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       });
     },
 
+    async listOrders(input: BillingHistoryListInput): Promise<BillingOrderList> {
+      return emptyOrderList({
+        userId: input.userId,
+        status,
+        page: input.page ?? 1,
+        limit: input.limit ?? 10,
+      });
+    },
+
+    async listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList> {
+      return emptySubscriptionHistoryList({
+        userId: input.userId,
+        status,
+        page: input.page ?? 1,
+        limit: input.limit ?? 10,
+      });
+    },
+
     async purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult> {
       return disabledCheckoutResult({
         userId: input.userId,
@@ -915,6 +1119,18 @@ export function createDisabledBillingOperations(reason = "billing configuration 
         status,
         reason: status.reason ?? "Billing integration is not configured",
       });
+    },
+
+    async cancelOrderCheckout(): Promise<BillingOrderStatus> {
+      throw billingApiError(503, status.reason ?? "Billing integration is not configured", "billing_unavailable");
+    },
+
+    async cancelSubscriptionCheckout(): Promise<BillingSubscriptionHistoryStatus> {
+      throw billingApiError(503, status.reason ?? "Billing integration is not configured", "billing_unavailable");
+    },
+
+    async cancelSubscriptionAutoRenew(): Promise<BillingSubscriptionHistoryStatus> {
+      throw billingApiError(503, status.reason ?? "Billing integration is not configured", "billing_unavailable");
     },
 
     async redeemCode(input: BillingRedemptionInput): Promise<BillingRedemptionResult> {
@@ -1224,10 +1440,12 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
   };
 
   const listCurrentSubscriptions = async (userId: string): Promise<Subscription[]> =>
-    listSubscriptionsByStatuses(userId, BILLING_CURRENT_SUBSCRIPTION_STATUSES);
+    (await listSubscriptionsByStatuses(userId, BILLING_CURRENT_SUBSCRIPTION_STATUSES))
+      .filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
 
   const listBlockingSubscriptions = async (userId: string): Promise<Subscription[]> => {
-    return listSubscriptionsByStatuses(userId, BILLING_BLOCKING_SUBSCRIPTION_STATUSES);
+    return (await listSubscriptionsByStatuses(userId, BILLING_BLOCKING_SUBSCRIPTION_STATUSES))
+      .filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
   };
 
   const getCatalog = async (input: BillingUserRef): Promise<BillingCatalog> => {
@@ -1472,6 +1690,218 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     });
   };
 
+  const shouldInspectSubscriptionForHistory = (subscription: Subscription): boolean => {
+    if (subscription.status === "pending_checkout") return true;
+    return (
+      BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES.includes(
+        subscription.status as typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES[number],
+      ) &&
+      subscription.cancel_at_period_end === false &&
+      subscription.current_period_end !== null
+    );
+  };
+
+  const listOrders = async (input: BillingHistoryListInput): Promise<BillingOrderList> => {
+    const page = normalizeBillingPage(input.page);
+    const limit = normalizeBillingLimit(input.limit);
+    await ensureCustomer({ userId: input.userId });
+    const response = await sdk.admin.orders.list({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      sorting: "-created_at",
+      page,
+      limit,
+    });
+    const items = await Promise.all(response.items.map(async (order) => {
+      if (order.status !== "pending_checkout") return mapOrderStatus(order);
+      try {
+        const inspected = await sdk.admin.orders.inspect({
+          order_id: order.id,
+          business_key: businessKey,
+        });
+        return mapOrderStatus(inspected.order, inspected.checkout);
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+        return mapOrderStatus(order);
+      }
+    }));
+    return {
+      userId: input.userId,
+      billing: status,
+      page,
+      limit,
+      items,
+      pagination: {
+        maxPage: response.pagination.max_page,
+        totalCount: response.pagination.total_count,
+      },
+    };
+  };
+
+  const listSubscriptions = async (
+    input: BillingHistoryListInput,
+  ): Promise<BillingSubscriptionHistoryList> => {
+    const page = normalizeBillingPage(input.page);
+    const limit = normalizeBillingLimit(input.limit);
+    await ensureCustomer({ userId: input.userId });
+    const response = await sdk.admin.subscriptions.list({
+      business_key: businessKey,
+      external_user_id: input.userId,
+      sorting: "-created_at",
+      page,
+      limit,
+    });
+    const items = await Promise.all(response.items.map(async (subscription) => {
+      if (!shouldInspectSubscriptionForHistory(subscription)) {
+        return mapSubscriptionHistoryStatus(subscription);
+      }
+      try {
+        const inspected = await sdk.admin.subscriptions.inspect({
+          subscription_id: subscription.id,
+          business_key: businessKey,
+        });
+        return mapSubscriptionHistoryStatus(inspected.subscription, inspected.checkout);
+      } catch (error) {
+        if (!isNotFound(error)) throw error;
+        return mapSubscriptionHistoryStatus(subscription);
+      }
+    }));
+    return {
+      userId: input.userId,
+      billing: status,
+      page,
+      limit,
+      items,
+      pagination: {
+        maxPage: response.pagination.max_page,
+        totalCount: response.pagination.total_count,
+      },
+    };
+  };
+
+  const getOwnedOrder = async (input: { userId: string; orderId: string }): Promise<Order> => {
+    try {
+      const order = await sdk.admin.orders.get({
+        order_id: input.orderId,
+        business_key: businessKey,
+      });
+      if (order.external_user_id !== input.userId) {
+        throw billingApiError(404, "Order not found", "order_not_found");
+      }
+      return order;
+    } catch (error) {
+      if (isNotFound(error)) throw billingApiError(404, "Order not found", "order_not_found");
+      throw error;
+    }
+  };
+
+  const getOwnedSubscription = async (input: {
+    userId: string;
+    subscriptionId: string;
+  }): Promise<Subscription> => {
+    try {
+      const subscription = await sdk.admin.subscriptions.get({
+        subscription_id: input.subscriptionId,
+        business_key: businessKey,
+      });
+      if (subscription.external_user_id !== input.userId) {
+        throw billingApiError(404, "Subscription not found", "subscription_not_found");
+      }
+      return subscription;
+    } catch (error) {
+      if (isNotFound(error)) throw billingApiError(404, "Subscription not found", "subscription_not_found");
+      throw error;
+    }
+  };
+
+  const cancelOrderCheckout = async (input: BillingUserRef & { orderId: string }): Promise<BillingOrderStatus> => {
+    const order = await getOwnedOrder(input);
+    if (order.status !== "pending_checkout") {
+      throw billingApiError(409, "Only pending checkout orders can be canceled", "order_not_cancelable");
+    }
+    const canceled = await sdk.admin.orders.cancelCheckout(
+      { order_id: input.orderId },
+      { business_key: businessKey },
+      { idempotencyKey: `cohub:billing:order-cancel-checkout:${input.userId}:${input.orderId}` },
+    );
+    return mapOrderStatus(canceled);
+  };
+
+  const cancelSubscriptionCheckout = async (
+    input: BillingUserRef & { subscriptionId: string },
+  ): Promise<BillingSubscriptionHistoryStatus> => {
+    const subscription = await getOwnedSubscription(input);
+    if (subscription.status !== "pending_checkout") {
+      throw billingApiError(
+        409,
+        "Only pending checkout subscriptions can be canceled",
+        "subscription_checkout_not_cancelable",
+      );
+    }
+    const canceled = await sdk.admin.subscriptions.cancelCheckout(
+      { subscription_id: input.subscriptionId },
+      { business_key: businessKey },
+      { idempotencyKey: `cohub:billing:subscription-cancel-checkout:${input.userId}:${input.subscriptionId}` },
+    );
+    return mapSubscriptionHistoryStatus(canceled);
+  };
+
+  const cancelSubscriptionAutoRenew = async (
+    input: BillingUserRef & { subscriptionId: string },
+  ): Promise<BillingSubscriptionHistoryStatus> => {
+    const subscription = await getOwnedSubscription(input);
+    if (
+      !BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES.includes(
+        subscription.status as typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES[number],
+      ) ||
+      subscription.cancel_at_period_end ||
+      subscription.current_period_end === null
+    ) {
+      throw billingApiError(
+        409,
+        "Subscription auto-renew cannot be canceled",
+        "subscription_auto_renew_not_cancelable",
+      );
+    }
+
+    const inspected = await sdk.admin.subscriptions.inspect({
+      subscription_id: input.subscriptionId,
+      business_key: businessKey,
+    });
+    if (!isProviderBackedSubscriptionCheckout(inspected.checkout)) {
+      throw billingApiError(
+        409,
+        "Subscription auto-renew cannot be canceled",
+        "subscription_auto_renew_not_cancelable",
+      );
+    }
+    const providerStatus = inspected.checkout?.subscription_status ?? inspected.checkout?.provider_request_status ?? null;
+    if (isProviderTerminalSubscriptionStatus(providerStatus)) {
+      throw billingApiError(
+        409,
+        "Subscription provider status is already terminal",
+        "subscription_provider_terminal",
+      );
+    }
+
+    const response = await sdk.admin.subscriptions.cancel(
+      { subscription_id: input.subscriptionId },
+      { business_key: businessKey },
+      { idempotencyKey: `cohub:billing:subscription-cancel-auto-renew:${input.userId}:${input.subscriptionId}` },
+    );
+    const cancellationCheckout = response.cancellation
+      ? ({
+        provider_key: response.cancellation.provider_key,
+        provider_config_id: response.cancellation.provider_config_id,
+        status: response.cancellation.status,
+        message: response.cancellation.message,
+        acquiring_subscription_id: response.cancellation.acquiring_subscription_id,
+        subscription_status: response.cancellation.subscription_status,
+      } satisfies SubscriptionCheckout)
+      : inspected.checkout;
+    return mapSubscriptionHistoryStatus(response.subscription, cancellationCheckout);
+  };
+
   const redeemCode = async (input: BillingRedemptionInput): Promise<BillingRedemptionResult> => {
     const code = normalizeRedemptionCode(input.code);
     if (!code) {
@@ -1547,15 +1977,26 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
 
     getCatalog,
 
+    listOrders,
+
+    listSubscriptions,
+
     purchaseAddon,
 
     createSubscription,
+
+    cancelOrderCheckout,
+
+    cancelSubscriptionCheckout,
+
+    cancelSubscriptionAutoRenew,
 
     redeemCode,
 
     async preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight> {
       const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       const estimatedAmountUsd = roundUsd(input.estimatedAmountUsd, getCreditUnit(tokenType).usdDecimalPlaces);
+      const estimatedAmount = usdToAmount(estimatedAmountUsd, tokenType);
       if (estimatedAmountUsd === 0) {
         return {
           allowed: true,
@@ -1567,18 +2008,29 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         };
       }
 
-      const state = await getCreditsAfterEnsure(input.userId);
-      const balance = findBalance(state.credits, tokenType);
-      const availableBalance = amountToUsd(balance?.availableBalance ?? 0, tokenType);
-      const netBalance = amountToUsd(balance?.netBalance ?? 0, tokenType);
-      const shortfall = Math.max(0, estimatedAmountUsd - netBalance);
+      await ensureCustomer({ userId: input.userId });
+      const preview = await sdk.admin.credits.previewConsume({
+        business_key: businessKey,
+        external_user_id: input.userId,
+        token_type: tokenType,
+        amount: estimatedAmount,
+        source_type: "usage",
+        source_id: `preflight:${input.usageType}`,
+        usage_type: input.usageType,
+      });
+      const availableBalance = amountToUsd(preview.available_before, tokenType);
+      const netBalance = amountToUsd(
+        Math.max(0, preview.available_before - preview.historical_overage_settlement_amount),
+        tokenType,
+      );
+      const shortfall = amountToUsd(preview.uncovered_current_usage_amount, tokenType);
       return {
-        allowed: shortfall === 0,
+        allowed: !preview.would_create_overage && preview.uncovered_current_usage_amount === 0,
         tokenType,
         estimatedAmountUsd,
         availableBalance,
         netBalance,
-        shortfall: roundUsd(shortfall, getCreditUnit(tokenType).usdDecimalPlaces),
+        shortfall,
       };
     },
 

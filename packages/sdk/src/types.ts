@@ -227,6 +227,96 @@ export type BillingCatalog = {
   defaultPlanProductKey: string | null;
 };
 
+export type BillingHistoryPagination = {
+  maxPage: number;
+  totalCount: number;
+};
+
+export type BillingCheckoutActionState = {
+  canPay: boolean;
+  checkoutUrl: string | null;
+  checkoutUsable: boolean;
+  canCancelCheckout: boolean;
+  canCancelAutoRenew: boolean;
+  unavailableReason: string | null;
+};
+
+export type BillingOrderStatus = {
+  id: string;
+  externalUserId: string;
+  productKey: string;
+  productName: string;
+  subscriptionId: string | null;
+  status: string;
+  billingReason: string;
+  amountMinor: number;
+  amountUsd: number;
+  paidAmountMinor: number;
+  paidAmountUsd: number;
+  currency: string;
+  refundedAmountMinor: number;
+  refundedAmountUsd: number;
+  fulfillmentSource: string;
+  checkoutExpiresAt: string | null;
+  paidAt: string | null;
+  checkoutCanceledAt: string | null;
+  checkoutExpiredAt: string | null;
+  paymentConflictedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  providerStatus: string | null;
+  checkoutStatus: string | null;
+  actions: BillingCheckoutActionState;
+};
+
+export type BillingOrderList = {
+  userId: string;
+  billing: BillingPluginStatus;
+  page: number;
+  limit: number;
+  items: BillingOrderStatus[];
+  pagination: BillingHistoryPagination;
+};
+
+export type BillingSubscriptionHistoryStatus = {
+  id: string;
+  externalUserId: string;
+  productKey: string;
+  productName: string;
+  status: string;
+  amountMinor: number;
+  amountUsd: number;
+  paidAmountMinor: number;
+  paidAmountUsd: number;
+  currency: string;
+  billingPeriod: string;
+  billingIntervalCount: number;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  canceledAt: string | null;
+  checkoutExpiresAt: string | null;
+  checkoutCanceledAt: string | null;
+  checkoutExpiredAt: string | null;
+  paymentConflictedAt: string | null;
+  endedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  providerStatus: string | null;
+  providerTerminal: boolean;
+  checkoutStatus: string | null;
+  actions: BillingCheckoutActionState;
+};
+
+export type BillingSubscriptionHistoryList = {
+  userId: string;
+  billing: BillingPluginStatus;
+  page: number;
+  limit: number;
+  items: BillingSubscriptionHistoryStatus[];
+  pagination: BillingHistoryPagination;
+};
+
 export type BillingCheckoutResult = {
   userId: string;
   billing: BillingPluginStatus;

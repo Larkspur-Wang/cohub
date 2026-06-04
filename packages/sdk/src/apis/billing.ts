@@ -3,7 +3,11 @@ import type {
   BillingCheckoutResult,
   BillingCreditStatus,
   BillingOpenOverageList,
+  BillingOrderList,
+  BillingOrderStatus,
   BillingRedemptionResult,
+  BillingSubscriptionHistoryList,
+  BillingSubscriptionHistoryStatus,
   BillingUsageRecordList,
 } from "../types.js";
 import type { HttpTransport } from "../transport.js";
@@ -48,6 +52,26 @@ export class BillingApi {
     );
   }
 
+  async getOrders(input?: { page?: number; limit?: number }) {
+    const params = new URLSearchParams();
+    if (input?.page) params.set("page", String(input.page));
+    if (input?.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return this.transport.request<{ orders: BillingOrderList }>(
+      `/api/billing/orders${query ? `?${query}` : ""}`,
+    );
+  }
+
+  async getSubscriptions(input?: { page?: number; limit?: number }) {
+    const params = new URLSearchParams();
+    if (input?.page) params.set("page", String(input.page));
+    if (input?.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return this.transport.request<{ subscriptions: BillingSubscriptionHistoryList }>(
+      `/api/billing/subscriptions${query ? `?${query}` : ""}`,
+    );
+  }
+
   async purchaseAddon(productKey: string, input?: { returnUrl?: string }) {
     return this.transport.request<{ checkout: BillingCheckoutResult }>(
       `/api/billing/addons/${encodeURIComponent(productKey)}/purchase`,
@@ -58,6 +82,13 @@ export class BillingApi {
     );
   }
 
+  async cancelOrderCheckout(orderId: string) {
+    return this.transport.request<{ order: BillingOrderStatus }>(
+      `/api/billing/orders/${encodeURIComponent(orderId)}/cancel-checkout`,
+      { method: "POST" },
+    );
+  }
+
   async subscribePlan(productKey: string, input?: { returnUrl?: string }) {
     return this.transport.request<{ checkout: BillingCheckoutResult }>(
       `/api/billing/plans/${encodeURIComponent(productKey)}/subscribe`,
@@ -65,6 +96,20 @@ export class BillingApi {
         method: "POST",
         body: JSON.stringify(input ?? {}),
       },
+    );
+  }
+
+  async cancelSubscriptionCheckout(subscriptionId: string) {
+    return this.transport.request<{ subscription: BillingSubscriptionHistoryStatus }>(
+      `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel-checkout`,
+      { method: "POST" },
+    );
+  }
+
+  async cancelSubscriptionAutoRenew(subscriptionId: string) {
+    return this.transport.request<{ subscription: BillingSubscriptionHistoryStatus }>(
+      `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel-auto-renew`,
+      { method: "POST" },
     );
   }
 

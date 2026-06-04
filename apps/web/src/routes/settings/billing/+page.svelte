@@ -4,7 +4,11 @@ import type {
 	BillingCatalogProduct,
 	BillingCreditStatus,
 	BillingOpenOverageList,
+	BillingOrderList,
+	BillingOrderStatus,
 	BillingProductBillingInterval,
+	BillingSubscriptionHistoryList,
+	BillingSubscriptionHistoryStatus,
 	BillingUsageRecordList,
 } from "@neta-art/cohub";
 import {
@@ -34,19 +38,27 @@ let balanceCredit = $state<BillingCreditStatus | null>(null);
 let balanceOverages = $state<BillingOpenOverageList | null>(null);
 let balanceUsage = $state<BillingUsageRecordList | null>(null);
 let billingCatalog = $state<BillingCatalog | null>(null);
+let billingOrders = $state<BillingOrderList | null>(null);
+let billingSubscriptions = $state<BillingSubscriptionHistoryList | null>(null);
 let creditLoading = $state(true);
 let overageLoading = $state(true);
 let usageLoading = $state(true);
 let catalogLoading = $state(true);
+let ordersLoading = $state(true);
+let subscriptionsLoading = $state(true);
 let creditError = $state("");
 let overageError = $state("");
 let usageError = $state("");
 let catalogError = $state("");
+let ordersError = $state("");
+let subscriptionsError = $state("");
 let checkoutError = $state("");
 let redemptionError = $state("");
 let redemptionSuccess = $state("");
 let overagePage = $state(1);
 let usagePage = $state(1);
+let ordersPage = $state(1);
+let subscriptionsPage = $state(1);
 let activeBillingTab = $state<BillingTab>("balance");
 let redemptionCode = $state("");
 let selectedPlanInterval =
@@ -54,14 +66,22 @@ let selectedPlanInterval =
 		Extract<BillingProductBillingInterval, "monthly" | "quarterly" | "yearly">
 	>("monthly");
 let checkoutBusyKey = $state<string | null>(null);
+let billingActionBusyKey = $state<string | null>(null);
 let redemptionLoading = $state(false);
+let checkoutNow = $state(Date.now());
 let creditRequest: Promise<void> | null = null;
 let overageRequest: Promise<void> | null = null;
 let usageRequest: Promise<void> | null = null;
 let catalogRequest: Promise<void> | null = null;
+let ordersRequest: Promise<void> | null = null;
+let subscriptionsRequest: Promise<void> | null = null;
+let checkoutExpiryRefreshRequest: Promise<void> | null = null;
+const refreshedExpiredCheckoutKeys = new Set<string>();
 
 const balanceConfigured = $derived(
 	billingCatalog?.billing.configured ??
+		billingOrders?.billing.configured ??
+		billingSubscriptions?.billing.configured ??
 		balanceCredit?.billing.configured ??
 		balanceOverages?.billing.configured ??
 		balanceUsage?.billing.configured ??
@@ -70,6 +90,8 @@ const balanceConfigured = $derived(
 const billingStatusKnown = $derived(
 	Boolean(
 		billingCatalog?.billing ||
+			billingOrders?.billing ||
+			billingSubscriptions?.billing ||
 			balanceCredit?.billing ||
 			balanceOverages?.billing ||
 			balanceUsage?.billing,
@@ -81,11 +103,21 @@ const overageTotalPages = $derived(
 const usageTotalPages = $derived(
 	Math.max(1, balanceUsage?.pagination.maxPage ?? 1),
 );
+const ordersTotalPages = $derived(
+	Math.max(1, billingOrders?.pagination.maxPage ?? 1),
+);
+const subscriptionsTotalPages = $derived(
+	Math.max(1, billingSubscriptions?.pagination.maxPage ?? 1),
+);
 const anyBalanceLoading = $derived(
 	creditLoading || overageLoading || usageLoading,
 );
 const anyBillingLoading = $derived(
-	anyBalanceLoading || catalogLoading || redemptionLoading,
+	anyBalanceLoading ||
+		catalogLoading ||
+		ordersLoading ||
+		subscriptionsLoading ||
+		redemptionLoading,
 );
 const routeBillingTab = $derived(
 	parseBillingTab(page.url.searchParams.get("tab")),
@@ -96,7 +128,11 @@ const selectedPlanProducts = $derived.by(() =>
 const currentSubscription = $derived(
 	billingCatalog?.currentSubscriptions.find(
 		(subscription) => subscription.status === "active",
-	) ?? null,
+	) ??
+		billingCatalog?.currentSubscriptions.find(
+			(subscription) => subscription.status === "trialing",
+		) ??
+		null,
 );
 const defaultPlanProduct = $derived.by(() => {
 	const catalog = billingCatalog;
@@ -107,12 +143,24 @@ const defaultPlanProduct = $derived.by(() => {
 		) ?? null
 	);
 });
+const pendingCheckoutExpirations = $derived.by(() => {
+	const expirations: number[] = [];
+	for (const order of billingOrders?.items ?? []) {
+		const expiresAt = getPendingCheckoutExpiration(order);
+		if (expiresAt !== null) expirations.push(expiresAt);
+	}
+	for (const subscription of billingSubscriptions?.items ?? []) {
+		const expiresAt = getPendingCheckoutExpiration(subscription);
+		if (expiresAt !== null) expirations.push(expiresAt);
+	}
+	return expirations;
+});
 
 function formatUsdAmount(value: number): string {
 	const sign = value < 0 ? "-" : "";
 	const absolute = Math.abs(value);
 	return `${sign}$${absolute.toLocaleString("en-US", {
-		minimumFractionDigits: 8,
+		minimumFractionDigits: 0,
 		maximumFractionDigits: 8,
 	})}`;
 }
@@ -226,6 +274,18 @@ function isCurrentPlanProduct(product: BillingCatalogProduct): boolean {
 	return !currentSubscription && defaultPlanProduct?.key === product.key;
 }
 
+function currentSubscriptionLine(): string {
+	if (!currentSubscription) return "";
+	const parts = [formatHistoryStatus(currentSubscription.status)];
+	if (!currentSubscription.currentPeriodEnd) return parts.join(" - ");
+	parts.push(
+		currentSubscription.cancelAtPeriodEnd
+			? `auto-renew canceled, ends ${formatBillingDate(currentSubscription.currentPeriodEnd)}`
+			: `renews ${formatBillingDate(currentSubscription.currentPeriodEnd)}`,
+	);
+	return parts.join(" - ");
+}
+
 function returnUrl() {
 	if (typeof window === "undefined") return undefined;
 	return new URL("/settings/billing", window.location.origin).toString();
@@ -242,6 +302,83 @@ function formatBillingDate(value: string | null | undefined): string {
 		hour: "numeric",
 		minute: "2-digit",
 	}).format(date);
+}
+
+function formatHistoryStatus(value: string): string {
+	return value
+		.split(/[._-]/g)
+		.filter(Boolean)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(" ");
+}
+
+function formatPeriod(subscription: BillingSubscriptionHistoryStatus): string {
+	if (!subscription.currentPeriodStart && !subscription.currentPeriodEnd)
+		return "No active period";
+	if (!subscription.currentPeriodStart)
+		return `Until ${formatBillingDate(subscription.currentPeriodEnd)}`;
+	if (!subscription.currentPeriodEnd)
+		return `From ${formatBillingDate(subscription.currentPeriodStart)}`;
+	return `${formatBillingDate(subscription.currentPeriodStart)} - ${formatBillingDate(subscription.currentPeriodEnd)}`;
+}
+
+function getPendingCheckoutExpiration(
+	item: BillingOrderStatus | BillingSubscriptionHistoryStatus,
+): number | null {
+	if (item.status !== "pending_checkout" || !item.checkoutExpiresAt)
+		return null;
+	const expiresAt = Date.parse(item.checkoutExpiresAt);
+	return Number.isNaN(expiresAt) ? null : expiresAt;
+}
+
+function getPendingCheckoutRefreshKey(
+	item: BillingOrderStatus | BillingSubscriptionHistoryStatus,
+): string | null {
+	if (item.status !== "pending_checkout" || !item.checkoutExpiresAt)
+		return null;
+	return `${item.id}:${item.checkoutExpiresAt}`;
+}
+
+function formatCheckoutCountdown(
+	item: BillingOrderStatus | BillingSubscriptionHistoryStatus,
+): string | null {
+	const expiresAt = getPendingCheckoutExpiration(item);
+	if (expiresAt === null) return null;
+	const remainingMs = expiresAt - checkoutNow;
+	if (remainingMs <= 0) return "Expired";
+	const totalSeconds = Math.ceil(remainingMs / 1000);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+	if (minutes > 0) return `${minutes}m ${seconds}s`;
+	return `${seconds}s`;
+}
+
+function isCheckoutExpired(
+	item: BillingOrderStatus | BillingSubscriptionHistoryStatus,
+): boolean {
+	const expiresAt = getPendingCheckoutExpiration(item);
+	return expiresAt !== null && expiresAt <= checkoutNow;
+}
+
+function canPayCheckout(
+	item: BillingOrderStatus | BillingSubscriptionHistoryStatus,
+): boolean {
+	return (
+		item.actions.canPay &&
+		!!item.actions.checkoutUrl &&
+		!isCheckoutExpired(item)
+	);
+}
+
+function historyAmount(value: {
+	paidAmountUsd: number;
+	amountUsd: number;
+}): string {
+	return formatProductPrice(
+		value.paidAmountUsd > 0 ? value.paidAmountUsd : value.amountUsd,
+	);
 }
 
 function formatUsageType(value: string | null): string {
@@ -437,11 +574,109 @@ async function loadCatalog(options: { force?: boolean } = {}) {
 	return catalogRequest;
 }
 
+async function loadOrdersPage(
+	page = ordersPage,
+	options: { force?: boolean } = {},
+) {
+	if (ordersRequest) {
+		if (!options.force) return ordersRequest;
+		await ordersRequest;
+	}
+	ordersLoading = true;
+	ordersError = "";
+	ordersRequest = (async () => {
+		if (
+			!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))
+		) {
+			return;
+		}
+		try {
+			const nextPage = Math.max(1, Math.floor(page));
+			const { orders } = await sdk.billing.getOrders({
+				page: nextPage,
+				limit: 10,
+			});
+			billingOrders = orders;
+			ordersPage = orders.page;
+		} catch (error) {
+			if (
+				await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
+			) {
+				return;
+			}
+			ordersError =
+				error instanceof Error ? error.message : "Failed to load orders";
+			console.error("[billing] Failed to load orders:", error);
+		} finally {
+			ordersLoading = false;
+			ordersRequest = null;
+		}
+	})();
+	return ordersRequest;
+}
+
+async function loadSubscriptionsPage(
+	page = subscriptionsPage,
+	options: { force?: boolean } = {},
+) {
+	if (subscriptionsRequest) {
+		if (!options.force) return subscriptionsRequest;
+		await subscriptionsRequest;
+	}
+	subscriptionsLoading = true;
+	subscriptionsError = "";
+	subscriptionsRequest = (async () => {
+		if (
+			!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))
+		) {
+			return;
+		}
+		try {
+			const nextPage = Math.max(1, Math.floor(page));
+			const { subscriptions } = await sdk.billing.getSubscriptions({
+				page: nextPage,
+				limit: 10,
+			});
+			billingSubscriptions = subscriptions;
+			subscriptionsPage = subscriptions.page;
+		} catch (error) {
+			if (
+				await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
+			) {
+				return;
+			}
+			subscriptionsError =
+				error instanceof Error ? error.message : "Failed to load subscriptions";
+			console.error("[billing] Failed to load subscriptions:", error);
+		} finally {
+			subscriptionsLoading = false;
+			subscriptionsRequest = null;
+		}
+	})();
+	return subscriptionsRequest;
+}
+
 function refreshBilling() {
 	void loadCatalog({ force: true });
 	void loadCreditStatus({ force: true });
 	void loadOveragesPage(overagePage, { force: true });
 	void loadUsagePage(usagePage, { force: true });
+	void loadOrdersPage(ordersPage, { force: true });
+	void loadSubscriptionsPage(subscriptionsPage, { force: true });
+}
+
+async function refreshExpiredPendingCheckouts() {
+	if (checkoutExpiryRefreshRequest) return checkoutExpiryRefreshRequest;
+	checkoutExpiryRefreshRequest = Promise.all([
+		loadCatalog({ force: true }),
+		loadOrdersPage(ordersPage, { force: true }),
+		loadSubscriptionsPage(subscriptionsPage, { force: true }),
+	])
+		.then(() => undefined)
+		.finally(() => {
+			checkoutExpiryRefreshRequest = null;
+		});
+	return checkoutExpiryRefreshRequest;
 }
 
 async function redeemCode(event: SubmitEvent) {
@@ -465,6 +700,8 @@ async function redeemCode(event: SubmitEvent) {
 			loadCreditStatus({ force: true }),
 			loadOveragesPage(1, { force: true }),
 			loadUsagePage(1, { force: true }),
+			loadOrdersPage(1, { force: true }),
+			loadSubscriptionsPage(1, { force: true }),
 		]);
 	} catch (error) {
 		if (
@@ -544,6 +781,91 @@ async function purchaseAddon(product: BillingCatalogProduct) {
 	}
 }
 
+function payCheckout(
+	item: BillingOrderStatus | BillingSubscriptionHistoryStatus,
+) {
+	if (!canPayCheckout(item) || !item.actions.checkoutUrl) return;
+	window.location.href = item.actions.checkoutUrl;
+}
+
+async function cancelOrderCheckout(order: BillingOrderStatus) {
+	if (!order.actions.canCancelCheckout || billingActionBusyKey) return;
+	if (!window.confirm("Cancel this checkout?")) return;
+	billingActionBusyKey = `order:${order.id}:cancel-checkout`;
+	checkoutError = "";
+	try {
+		await sdk.billing.cancelOrderCheckout(order.id);
+		await Promise.all([
+			loadOrdersPage(ordersPage, { force: true }),
+			loadCatalog({ force: true }),
+			loadCreditStatus({ force: true }),
+		]);
+	} catch (error) {
+		if (
+			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
+		) {
+			return;
+		}
+		checkoutError =
+			error instanceof Error ? error.message : "Failed to cancel checkout";
+	} finally {
+		billingActionBusyKey = null;
+	}
+}
+
+async function cancelSubscriptionCheckout(
+	subscription: BillingSubscriptionHistoryStatus,
+) {
+	if (!subscription.actions.canCancelCheckout || billingActionBusyKey) return;
+	if (!window.confirm("Cancel this checkout?")) return;
+	billingActionBusyKey = `subscription:${subscription.id}:cancel-checkout`;
+	checkoutError = "";
+	try {
+		await sdk.billing.cancelSubscriptionCheckout(subscription.id);
+		await Promise.all([
+			loadSubscriptionsPage(subscriptionsPage, { force: true }),
+			loadCatalog({ force: true }),
+			loadCreditStatus({ force: true }),
+		]);
+	} catch (error) {
+		if (
+			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
+		) {
+			return;
+		}
+		checkoutError =
+			error instanceof Error ? error.message : "Failed to cancel checkout";
+	} finally {
+		billingActionBusyKey = null;
+	}
+}
+
+async function cancelSubscriptionAutoRenew(
+	subscription: BillingSubscriptionHistoryStatus,
+) {
+	if (!subscription.actions.canCancelAutoRenew || billingActionBusyKey) return;
+	if (!window.confirm("Cancel auto-renew for this subscription?")) return;
+	billingActionBusyKey = `subscription:${subscription.id}:cancel-auto-renew`;
+	checkoutError = "";
+	try {
+		await sdk.billing.cancelSubscriptionAutoRenew(subscription.id);
+		await Promise.all([
+			loadSubscriptionsPage(subscriptionsPage, { force: true }),
+			loadCatalog({ force: true }),
+		]);
+	} catch (error) {
+		if (
+			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
+		) {
+			return;
+		}
+		checkoutError =
+			error instanceof Error ? error.message : "Failed to cancel auto-renew";
+	} finally {
+		billingActionBusyKey = null;
+	}
+}
+
 function goToOveragePage(page: number) {
 	if (overageLoading) return;
 	void loadOveragesPage(page);
@@ -554,11 +876,58 @@ function goToUsagePage(page: number) {
 	void loadUsagePage(page);
 }
 
+function goToOrdersPage(page: number) {
+	if (ordersLoading) return;
+	void loadOrdersPage(page);
+}
+
+function goToSubscriptionsPage(page: number) {
+	if (subscriptionsLoading) return;
+	void loadSubscriptionsPage(page);
+}
+
 onMount(() => {
 	void loadCatalog();
 	void loadCreditStatus();
 	void loadOveragesPage();
 	void loadUsagePage();
+	void loadOrdersPage();
+	void loadSubscriptionsPage();
+	const interval = window.setInterval(() => {
+		checkoutNow = Date.now();
+	}, 1000);
+	return () => window.clearInterval(interval);
+});
+
+$effect(() => {
+	if (pendingCheckoutExpirations.length === 0) return;
+	const nextExpiration = Math.min(...pendingCheckoutExpirations);
+	const delay = nextExpiration - checkoutNow;
+	if (delay <= 0) {
+		const expiredKeys = [
+			...(billingOrders?.items ?? []),
+			...(billingSubscriptions?.items ?? []),
+		]
+			.filter((item) => {
+				const expiresAt = getPendingCheckoutExpiration(item);
+				return expiresAt !== null && expiresAt <= checkoutNow;
+			})
+			.map(getPendingCheckoutRefreshKey)
+			.filter((key): key is string => key !== null)
+			.filter((key) => !refreshedExpiredCheckoutKeys.has(key));
+		if (expiredKeys.length === 0) return;
+		void refreshExpiredPendingCheckouts().then(() => {
+			for (const key of expiredKeys) refreshedExpiredCheckoutKeys.add(key);
+		});
+		return;
+	}
+	const timeout = window.setTimeout(
+		() => {
+			checkoutNow = Date.now();
+		},
+		Math.max(250, delay),
+	);
+	return () => window.clearTimeout(timeout);
 });
 </script>
 
@@ -610,7 +979,7 @@ onMount(() => {
 					</div>
 					{#if currentSubscription}
 						<div class="mt-1 truncate text-[11px] text-text-tertiary">
-							{currentSubscription.status}{currentSubscription.currentPeriodEnd ? ` - renews ${formatBillingDate(currentSubscription.currentPeriodEnd)}` : ""}
+							{currentSubscriptionLine()}
 						</div>
 					{:else if defaultPlanProduct}
 						<div class="mt-1 truncate text-[11px] text-text-tertiary">
@@ -746,6 +1115,90 @@ onMount(() => {
 				{:else}
 					<p class="mt-4 text-[12px] text-text-tertiary">No public plans in this billing period.</p>
 				{/if}
+
+				<div class="mt-6 border-t border-border-subtle pt-5">
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<h2 class="text-[14px] font-medium text-text-primary">Subscriptions</h2>
+							<p class="mt-1 text-[11px] text-text-tertiary">{billingSubscriptions?.pagination.totalCount ?? 0} records</p>
+						</div>
+						<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
+							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage - 1)} disabled={subscriptionsLoading || subscriptionsPage <= 1} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Previous subscriptions page">
+								<ChevronLeft class="h-3.5 w-3.5" />
+							</button>
+							<span>Page {subscriptionsPage} of {subscriptionsTotalPages}</span>
+							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage + 1)} disabled={subscriptionsLoading || subscriptionsPage >= subscriptionsTotalPages} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next subscriptions page">
+								<ChevronRight class="h-3.5 w-3.5" />
+							</button>
+						</div>
+					</div>
+
+					{#if subscriptionsError}
+						<div class="mt-3 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
+							<AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+							<span class="break-all">{subscriptionsError}</span>
+						</div>
+					{/if}
+
+					{#if subscriptionsLoading && !billingSubscriptions}
+						<div class="mt-3 h-32 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
+					{:else if !balanceConfigured}
+						<p class="mt-4 text-[12px] text-text-tertiary">Billing is not available in this environment.</p>
+					{:else if !billingSubscriptions || billingSubscriptions.items.length === 0}
+						<p class="mt-4 text-[12px] text-text-tertiary">No subscriptions yet.</p>
+					{:else}
+						<div class="mt-3 divide-y divide-border-subtle rounded-[6px] border border-border-subtle">
+							{#each billingSubscriptions.items as subscription (subscription.id)}
+								<div class="grid gap-3 px-3 py-3 text-[12px] md:grid-cols-[1.2fr_0.9fr_1.4fr_0.7fr_auto] md:items-center">
+									<div class="min-w-0">
+										<div class="truncate font-medium text-text-primary">{subscription.productName}</div>
+										<div class="mt-0.5 truncate font-mono text-[10px] text-text-placeholder">{shortIdentifier(subscription.id)}</div>
+									</div>
+									<div class="min-w-0">
+										<div class="truncate text-text-secondary">{formatHistoryStatus(subscription.status)}</div>
+										{#if subscription.cancelAtPeriodEnd}
+											<div class="mt-0.5 text-[11px] text-text-tertiary">Auto-renew canceled</div>
+										{:else if subscription.providerStatus}
+											<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{formatHistoryStatus(subscription.providerStatus)}</div>
+										{/if}
+									</div>
+									<div class="min-w-0 text-text-tertiary">
+										<div class="truncate">{formatPeriod(subscription)}</div>
+										{#if formatCheckoutCountdown(subscription)}
+											<div class="mt-0.5 flex items-center gap-1.5 text-[11px] {formatCheckoutCountdown(subscription) === 'Expired' ? 'text-error-soft' : 'text-text-tertiary'}">
+												<Clock class="h-3 w-3 shrink-0" />
+												<span>Checkout {formatCheckoutCountdown(subscription)}</span>
+											</div>
+										{/if}
+									</div>
+									<div class="font-mono text-text-primary md:text-right">{historyAmount(subscription)}</div>
+									<div class="flex flex-wrap gap-2 md:justify-end">
+										{#if canPayCheckout(subscription)}
+											<button type="button" onclick={() => payCheckout(subscription)} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover">Pay</button>
+										{/if}
+										{#if subscription.actions.canCancelCheckout}
+											<button type="button" onclick={() => cancelSubscriptionCheckout(subscription)} disabled={billingActionBusyKey !== null} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+												{#if billingActionBusyKey === `subscription:${subscription.id}:cancel-checkout`}
+													<Loader2 class="mr-1 h-3 w-3 animate-spin" />
+												{/if}
+												<span>Cancel</span>
+											</button>
+										{:else if subscription.actions.canCancelAutoRenew}
+											<button type="button" onclick={() => cancelSubscriptionAutoRenew(subscription)} disabled={billingActionBusyKey !== null} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+												{#if billingActionBusyKey === `subscription:${subscription.id}:cancel-auto-renew`}
+													<Loader2 class="mr-1 h-3 w-3 animate-spin" />
+												{/if}
+												<span>Cancel auto-renew</span>
+											</button>
+										{:else}
+											<span class="self-center text-[11px] text-text-placeholder">No actions</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			</section>
 			{/if}
 
@@ -789,6 +1242,81 @@ onMount(() => {
 						{/each}
 					</div>
 				{/if}
+
+				<div class="mt-6 border-t border-border-subtle pt-5">
+					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<h2 class="text-[14px] font-medium text-text-primary">Orders</h2>
+							<p class="mt-1 text-[11px] text-text-tertiary">{billingOrders?.pagination.totalCount ?? 0} records</p>
+						</div>
+						<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
+							<button type="button" onclick={() => goToOrdersPage(ordersPage - 1)} disabled={ordersLoading || ordersPage <= 1} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Previous orders page">
+								<ChevronLeft class="h-3.5 w-3.5" />
+							</button>
+							<span>Page {ordersPage} of {ordersTotalPages}</span>
+							<button type="button" onclick={() => goToOrdersPage(ordersPage + 1)} disabled={ordersLoading || ordersPage >= ordersTotalPages} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next orders page">
+								<ChevronRight class="h-3.5 w-3.5" />
+							</button>
+						</div>
+					</div>
+
+					{#if ordersError}
+						<div class="mt-3 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
+							<AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+							<span class="break-all">{ordersError}</span>
+						</div>
+					{/if}
+
+					{#if ordersLoading && !billingOrders}
+						<div class="mt-3 h-32 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
+					{:else if !balanceConfigured}
+						<p class="mt-4 text-[12px] text-text-tertiary">Billing is not available in this environment.</p>
+					{:else if !billingOrders || billingOrders.items.length === 0}
+						<p class="mt-4 text-[12px] text-text-tertiary">No orders yet.</p>
+					{:else}
+						<div class="mt-3 divide-y divide-border-subtle rounded-[6px] border border-border-subtle">
+							{#each billingOrders.items as order (order.id)}
+								<div class="grid gap-3 px-3 py-3 text-[12px] md:grid-cols-[1.2fr_0.9fr_1fr_0.8fr_auto] md:items-center">
+									<div class="min-w-0">
+										<div class="truncate font-medium text-text-primary">{order.productName}</div>
+										<div class="mt-0.5 truncate font-mono text-[10px] text-text-placeholder">{shortIdentifier(order.id)}</div>
+									</div>
+									<div class="min-w-0">
+										<div class="truncate text-text-secondary">{formatHistoryStatus(order.status)}</div>
+										<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{formatHistoryStatus(order.billingReason)}</div>
+									</div>
+									<div class="min-w-0 text-text-tertiary">
+										<div class="truncate">Created {formatBillingDate(order.createdAt)}</div>
+										{#if order.paidAt}
+											<div class="mt-0.5 truncate text-[11px]">Paid {formatBillingDate(order.paidAt)}</div>
+										{:else if formatCheckoutCountdown(order)}
+											<div class="mt-0.5 flex items-center gap-1.5 text-[11px] {formatCheckoutCountdown(order) === 'Expired' ? 'text-error-soft' : 'text-text-tertiary'}">
+												<Clock class="h-3 w-3 shrink-0" />
+												<span>Checkout {formatCheckoutCountdown(order)}</span>
+											</div>
+										{/if}
+									</div>
+									<div class="font-mono text-text-primary md:text-right">{historyAmount(order)}</div>
+									<div class="flex flex-wrap gap-2 md:justify-end">
+										{#if canPayCheckout(order)}
+											<button type="button" onclick={() => payCheckout(order)} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover">Pay</button>
+										{/if}
+										{#if order.actions.canCancelCheckout}
+											<button type="button" onclick={() => cancelOrderCheckout(order)} disabled={billingActionBusyKey !== null} class="inline-flex h-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+												{#if billingActionBusyKey === `order:${order.id}:cancel-checkout`}
+													<Loader2 class="mr-1 h-3 w-3 animate-spin" />
+												{/if}
+												<span>Cancel</span>
+											</button>
+										{:else}
+											<span class="self-center text-[11px] text-text-placeholder">No actions</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			</section>
 			{/if}
 
