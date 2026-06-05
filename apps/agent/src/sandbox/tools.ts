@@ -401,7 +401,7 @@ function createRemoteBashOperations(): BashOperations {
             const toolCtx = getCurrentToolExecutionContext();
             incrementToolCallCount(toolCtx?.metrics);
             const toolCallId = randomUUID();
-            return runWithToolExecutionContext({
+            await runWithToolExecutionContext({
               spaceId: toolCtx?.spaceId ?? spaceId,
               sessionId: toolCtx?.sessionId ?? "",
               turnId: toolCtx?.turnId,
