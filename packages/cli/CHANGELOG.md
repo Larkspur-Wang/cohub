@@ -1,5 +1,16 @@
 # @neta-art/cohub-cli
 
+## 1.13.0
+
+### Minor Changes
+
+- Release v1.48.0 with background task controls, billing account expansion, session queue stability, active label highlighting, file preview support, and agent wakeup hardening.
+
+### Patch Changes
+
+- Updated dependencies
+  - @neta-art/cohub@1.23.0
+
 ## 1.12.1
 
 ### Patch Changes

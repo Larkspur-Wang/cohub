@@ -37,7 +37,6 @@ export type ClaimResult =
   | { kind: "busy"; activeTurnId: string; activeUpdatedAt: Date | null; activeStatus: string }
   | { kind: "noop" };
 
-const ACTIVE = new Set(["running", "abort_requested"]);
 const STALE_ACTIVE_TURN_MS = env.AGENT_STALE_ACTIVE_TURN_MS;
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
