@@ -1268,14 +1268,7 @@ export class SpaceClient {
     return this.update({ name });
   }
 
-  profile(body: {
-    description?: string | null;
-    avatarUrl?: string | null;
-    landing?: {
-      defaultTab?: "overview" | "readme";
-      readmePath?: string | null;
-    } | null;
-  }) {
+  profile(body: { description?: string | null; avatarUrl?: string | null }) {
     return this.transport.request<{ space: SpaceRecord }>(
       `/api/spaces/${this.id}/profile`,
       {

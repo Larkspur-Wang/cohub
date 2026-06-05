@@ -534,14 +534,8 @@ export type SpaceConfig = {
   sandbox?: SpaceSandboxConfig;
 };
 
-export type SpaceHomeTab = "overview" | "readme";
-
 export type SpacePublicProfile = {
   avatarUrl: string | null;
-  landing?: {
-    defaultTab?: SpaceHomeTab;
-    readmePath?: string | null;
-  } | null;
 };
 
 export type SpaceMeta = JsonObject & {

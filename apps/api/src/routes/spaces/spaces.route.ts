@@ -251,9 +251,7 @@ const DEFAULT_SPACE_SANDBOX_AUTO_DESTROY: SpaceSandboxAutoDestroyPolicy = {
 const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;
 const MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_SPACE_DESCRIPTION_LENGTH = 10_000;
-const MAX_SPACE_README_PATH_LENGTH = 512;
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
-const SPACE_README_PATH_PATTERN = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\0?#]*\.(?:md|markdown)$/i;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -318,30 +316,6 @@ const normalizeSpaceConfigInput = (input?: SpaceConfigInput | null): SpaceConfig
   const policy = input?.sandbox?.autoDestroy;
   if (!policy) return { sandbox: { autoDestroy: DEFAULT_SPACE_SANDBOX_AUTO_DESTROY } };
   return { sandbox: { autoDestroy: normalizeSpaceSandboxAutoDestroyPolicy(policy) } };
-};
-
-const normalizeSpaceLandingInput = (value: unknown) => {
-  if (value === null) return null;
-  if (!isRecord(value)) throw new Error("landing must be an object or null");
-  const defaultTab = value.defaultTab;
-  if (defaultTab !== undefined && defaultTab !== "overview" && defaultTab !== "readme") {
-    throw new Error("landing.defaultTab must be overview or readme");
-  }
-  const rawReadmePath = value.readmePath;
-  let readmePath: string | null | undefined;
-  if (rawReadmePath !== undefined && rawReadmePath !== null) {
-    if (typeof rawReadmePath !== "string") throw new Error("landing.readmePath must be a string or null");
-    readmePath = rawReadmePath.trim() || "README.md";
-    if (readmePath.length > MAX_SPACE_README_PATH_LENGTH || !SPACE_README_PATH_PATTERN.test(readmePath)) {
-      throw new Error("landing.readmePath must be a safe relative Markdown path");
-    }
-  } else if (rawReadmePath === null) {
-    readmePath = null;
-  }
-  return {
-    ...(defaultTab !== undefined ? { defaultTab } : {}),
-    ...(readmePath !== undefined ? { readmePath } : {}),
-  };
 };
 
 const mergeSpaceConfig = (space: typeof spaces.$inferSelect, patch: SpaceConfigInput) => {
@@ -1008,19 +982,6 @@ router.patch("/:id/profile", async (c) => {
     }
     nextProfile.avatarUrl = avatarUrl;
     delete nextProfile.pictureUrl;
-  }
-
-  if ("landing" in body) {
-    try {
-      const landing = normalizeSpaceLandingInput(body.landing);
-      if (landing === null) delete nextProfile.landing;
-      else nextProfile.landing = {
-        ...(isRecord(nextProfile.landing) ? nextProfile.landing : {}),
-        ...landing,
-      };
-    } catch (error) {
-      return c.json({ message: error instanceof Error ? error.message : "invalid landing" }, 400);
-    }
   }
 
   const [updated] = await db

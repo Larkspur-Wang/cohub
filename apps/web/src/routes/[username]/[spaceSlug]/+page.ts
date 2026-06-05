@@ -17,6 +17,5 @@ export const load: PageLoad = async ({ params, url }) => {
 				: ("space" as const),
 		sessionId,
 		filePath,
-		homeTab: url.searchParams.get("tab"),
 	};
 };
