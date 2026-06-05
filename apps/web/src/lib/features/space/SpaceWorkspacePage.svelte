@@ -121,6 +121,7 @@ import {
 	MAX_COMPOSER_ATTACHMENTS,
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
+import SpaceHomePage from "$lib/features/space/SpaceHomePage.svelte";
 import {
 	extractGenerationMediaItems,
 	extractGenerationPromptPreview,
@@ -240,6 +241,7 @@ type Props = {
 		taskId?: string | null;
 		turnSequence?: string | null;
 		sessionMode?: string | null;
+		homeTab?: string | null;
 	};
 };
 type SelectedModel = {
@@ -285,6 +287,7 @@ const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
 const routeCronjobId = $derived(data.cronjobId ?? null);
 const routeTaskId = $derived(data.taskId ?? null);
+const routeHomeTab = $derived(data.homeTab ?? null);
 const routeTurnSequence = $derived.by(() => {
 	const value = data.turnSequence;
 	if (!value) return null;
@@ -1546,6 +1549,14 @@ const bootstrapErrorMessage = $derived.by<string | null>(() => {
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
 const canCreateSession = $derived(Boolean(space && !creatingSession));
+const activeSpaceHomeTab = $derived<"overview" | "readme">(
+	routeHomeTab === "overview" || routeHomeTab === "readme"
+		? routeHomeTab
+		: space?.publicProfile?.landing?.defaultTab === "overview" ||
+				space?.publicProfile?.landing?.defaultTab === "readme"
+			? space.publicProfile.landing.defaultTab
+			: "readme",
+);
 const firstCatalogModel = $derived(
 	modelsCatalog && modelsCatalog.length > 0
 		? {
@@ -6157,6 +6168,14 @@ function getHeaderResourceLabel() {
 	return getHeaderFileActionPath() ? "file" : "chat";
 }
 
+function updateSpaceHomeTab(tab: "overview" | "readme") {
+	const target =
+		tab === (space?.publicProfile?.landing?.defaultTab ?? "readme")
+			? buildSpaceDetailRoute(spaceId)
+			: `${buildSpaceDetailRoute(spaceId)}?tab=${tab}`;
+	void goto(target, { replaceState: true, noScroll: true });
+}
+
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	creatingSession = true;
@@ -7388,7 +7407,17 @@ $effect(() => {
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    {#if routeView === 'checkpoint-new'}
+    {#if routeView === 'space'}
+      <SpaceHomePage
+        {spaceId}
+        {space}
+        activeTab={activeSpaceHomeTab}
+        canEditSpace={canEditSpaceProfile}
+        canCreateSession={canCreateSession}
+        onTabChange={updateSpaceHomeTab}
+        onCreateSession={handleCreateNewSession}
+      />
+    {:else if routeView === 'checkpoint-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
         {#if spaceLoadError && !spaceHasMinimalAccess}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
@@ -8167,7 +8196,7 @@ $effect(() => {
           <div class="text-[12px]">Loading space…</div>
         </div>
       </div>
-    {:else if !activeSessionState && routeView === "space"}
+    {:else if !activeSessionState}
       <div class="flex-1 overflow-y-auto px-4 py-6">
         <div class="mx-auto flex w-full max-w-3xl flex-col gap-5">
           {#if spaceStatusNotice}

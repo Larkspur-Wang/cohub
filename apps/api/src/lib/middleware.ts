@@ -138,6 +138,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const MAX_PUBLIC_AVATAR_URL_LENGTH = 2048;
+const SPACE_HOME_TABS = new Set(["overview", "readme"]);
 
 export const normalizePublicAvatarUrl = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
@@ -155,7 +156,17 @@ export const normalizePublicAvatarUrl = (value: unknown): string | null => {
 export const getSpacePublicProfile = (space: Pick<typeof spaces.$inferSelect, "meta">) => {
   const meta = isRecord(space.meta) ? space.meta : {};
   const profile = isRecord(meta.publicProfile) ? meta.publicProfile : {};
-  return { avatarUrl: normalizePublicAvatarUrl(profile.avatarUrl) };
+  const landing = isRecord(profile.landing) ? profile.landing : null;
+  const defaultTab = typeof landing?.defaultTab === "string" && SPACE_HOME_TABS.has(landing.defaultTab)
+    ? landing.defaultTab
+    : undefined;
+  const readmePath = typeof landing?.readmePath === "string" && landing.readmePath.trim()
+    ? landing.readmePath.trim()
+    : undefined;
+  return {
+    avatarUrl: normalizePublicAvatarUrl(profile.avatarUrl),
+    landing: landing ? { defaultTab, readmePath } : null,
+  };
 };
 
 export const buildSpaceListItem = async (space: typeof spaces.$inferSelect) => {
