@@ -5,6 +5,7 @@ import type {
 	CronJobRecord,
 	LabelAssignmentListItem,
 	LabelListItem,
+	LabelResourceType,
 	SessionForkRecord,
 	SessionRecord,
 	SpaceRecord,
@@ -278,6 +279,30 @@ const activeCronjob = $derived(
 const activeTaskId = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/tasks\/([^/]+)/);
 	return match?.[1] ?? null;
+});
+
+const activeLabelResource = $derived.by<{
+	type: LabelResourceType;
+	ref: string;
+} | null>(() => {
+	const sessionMatch = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
+	if (sessionMatch?.[1]) {
+		return { type: "session", ref: sessionMatch[1] };
+	}
+
+	const checkpointMatch = currentPath.match(
+		/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/,
+	);
+	if (checkpointMatch?.[1] && checkpointMatch[1] !== "new") {
+		return { type: "checkpoint", ref: checkpointMatch[1] };
+	}
+
+	const fileMatch = currentPath.match(/^\/spaces\/[^/]+\/files\/(.+)$/);
+	if (fileMatch?.[1]) {
+		return { type: "file", ref: decodeRoutePath(fileMatch[1]) };
+	}
+
+	return null;
 });
 
 const currentSpaceId = $derived.by(() => {
@@ -1204,6 +1229,34 @@ function labelAssignmentHref(item: LabelAssignmentListItem) {
 	return item.href;
 }
 
+function decodeRoutePath(path: string) {
+	try {
+		return path
+			.split("/")
+			.map((segment) => decodeURIComponent(segment))
+			.join("/");
+	} catch {
+		return path;
+	}
+}
+
+function normalizeFileRef(path: string) {
+	return decodeRoutePath(path).replace(/^\/+/, "");
+}
+
+function isLabelAssignmentActive(item: LabelAssignmentListItem) {
+	if (!activeLabelResource || item.resourceType !== activeLabelResource.type) {
+		return false;
+	}
+	if (item.resourceType === "file") {
+		return (
+			normalizeFileRef(item.resourceRef) ===
+			normalizeFileRef(activeLabelResource.ref)
+		);
+	}
+	return item.resourceRef === activeLabelResource.ref;
+}
+
 function getLabelAssignmentIcon(item: LabelAssignmentListItem) {
 	if (item.resourceType === "session") return MessageSquare;
 	if (item.resourceType === "checkpoint") return History;
@@ -2010,9 +2063,11 @@ $effect(() => {
 			{#each items as item (item.id)}
 				{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
 				{@const ItemIcon = getLabelAssignmentIcon(item)}
+				{@const isActive = isLabelAssignmentActive(item)}
 				<a
 					href={labelAssignmentHref(item)}
-					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
+					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'} {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
+					aria-current={isActive ? "page" : undefined}
 					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
 					title={item.resource?.subtitle ?? item.resourceRef}
 					draggable={!isMobile && itemDraggable}
