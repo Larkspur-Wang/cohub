@@ -32,7 +32,7 @@ import { createAgentExecutionToken } from "./execution-grants.js";
 const sessionHandles = new Map<string, SessionHandle>();
 const tools = createSandboxCodingTools();
 const agentTracer = getAgentTracer();
-type RetryReason = "session_busy" | "session_locked";
+type RetryReason = "session_busy";
 
 const retryAttemptsByKey = new Map<string, number>();
 const BUSY_RETRY_BASE_DELAY_MS = env.AGENT_BUSY_RETRY_BASE_DELAY_MS;
@@ -50,7 +50,6 @@ function nextRetryDelayMs(key: string) {
 
 function clearRetryState(data: AgentTurnJobData) {
   retryAttemptsByKey.delete(getRetryKey(data, "session_busy"));
-  retryAttemptsByKey.delete(getRetryKey(data, "session_locked"));
 }
 
 async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?: Job<AgentTurnJobData>, meta?: Record<string, unknown>) {
@@ -624,9 +623,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     if (queueWaitMs != null) jobSpan.addEvent("agent.queue.dequeued", { "agent.queue.wait_ms": queueWaitMs });
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) {
-      const result = await requeueTurnJob(data, "session_locked", job);
-      logger.info(`[Agent] session locked; requeued sessionId=${data.sessionId} retryInMs=${result.retryInMs}`);
-      return result;
+      logger.info(`[Agent] session locked; skipped wakeup sessionId=${data.sessionId} reason=${data.reason ?? "prompt"}`);
+      return { skipped: "session_locked", jobId: job.id ?? null };
     }
     let activeTurn: { id: string; controller: AbortController } | null = null;
     let drainAfterRelease: PostReleaseDrain = null;
