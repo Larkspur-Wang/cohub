@@ -81,6 +81,18 @@ export type GenerationStreamTurnUpdatedEvent = {
   rawEvent: WebsocketEventPayload;
 };
 
+export type GenerationStreamLifecycleEvent = {
+  type: "lifecycle";
+  phase: "llm_call_started";
+  turnId: string | null;
+  anchorUserMessageId: string | null;
+  llmRound: number;
+  provider: string | null;
+  model: string | null;
+  at: string;
+  rawEvent: WebsocketEventPayload;
+};
+
 export type GenerationStreamErrorEvent = {
   type: "error";
   message: string;
@@ -100,6 +112,7 @@ export type GenerationStreamEvent =
   | GenerationStreamCommitEvent
   | GenerationStreamFinalizedEvent
   | GenerationStreamTurnUpdatedEvent
+  | GenerationStreamLifecycleEvent
   | GenerationStreamErrorEvent
   | GenerationStreamOutOfSyncEvent;
 
@@ -109,6 +122,7 @@ export type GenerationStreamSubscriptionHandlers = {
   commit?: (event: GenerationStreamCommitEvent) => void;
   finalized?: (event: GenerationStreamFinalizedEvent) => void;
   turnUpdated?: (event: GenerationStreamTurnUpdatedEvent) => void;
+  lifecycle?: (event: GenerationStreamLifecycleEvent) => void;
   error?: (event: GenerationStreamErrorEvent) => void;
   outOfSync?: (event: GenerationStreamOutOfSyncEvent) => void;
 };
@@ -239,6 +253,7 @@ export class SessionGenerationStreamClient {
     if (event.type === "commit") handlers.commit?.(event);
     if (event.type === "finalized") handlers.finalized?.(event);
     if (event.type === "turn_updated") handlers.turnUpdated?.(event);
+    if (event.type === "lifecycle") handlers.lifecycle?.(event);
     if (event.type === "error") handlers.error?.(event);
     if (event.type === "out_of_sync") handlers.outOfSync?.(event);
   }
@@ -501,6 +516,25 @@ export class SessionGenerationStreamClient {
         this.emit(handlers, {
           type: "turn_updated",
           turn: turn as Partial<SessionTurnRecord>,
+          rawEvent: event,
+        });
+        return;
+      }
+      case "session.turn.lifecycle": {
+        const payload = event.payload;
+        if (payload.phase !== "llm_call_started") return;
+        this.emit(handlers, {
+          type: "lifecycle",
+          phase: "llm_call_started",
+          turnId: typeof payload.turnId === "string" ? payload.turnId : null,
+          anchorUserMessageId:
+            typeof payload.anchorUserMessageId === "string"
+              ? payload.anchorUserMessageId
+              : null,
+          llmRound: typeof payload.llmRound === "number" ? payload.llmRound : 1,
+          provider: typeof payload.provider === "string" ? payload.provider : null,
+          model: typeof payload.model === "string" ? payload.model : null,
+          at: typeof payload.at === "string" ? payload.at : new Date(event.timestamp).toISOString(),
           rawEvent: event,
         });
         return;

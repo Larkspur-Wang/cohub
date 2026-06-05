@@ -16,6 +16,14 @@ export type SessionStreamSnapshotMessage = {
 
 export type EnrichedSessionStreamSnapshotMessage = SessionStreamSnapshotMessage & Partial<StoredIntermediateMessage>;
 
+export type SessionStreamSnapshotLifecycle = {
+  phase: "llm_call_started";
+  llmRound: number;
+  provider: string | null;
+  model: string | null;
+  at: string;
+};
+
 export type SessionStreamSnapshot = {
   version: 2;
   spaceId: string;
@@ -25,6 +33,7 @@ export type SessionStreamSnapshot = {
   seq: number;
   current: SessionStreamSnapshotMessage & { appendPath: string | null };
   intermediateMessages: EnrichedSessionStreamSnapshotMessage[];
+  lifecycle?: SessionStreamSnapshotLifecycle | null;
   updatedAt: number;
 };
 
@@ -38,15 +47,29 @@ const isSnapshotMessage = (value: unknown, current = false): value is SessionStr
   return true;
 };
 
+const isSnapshotLifecycle = (value: unknown): value is SessionStreamSnapshotLifecycle => {
+  if (value == null) return true;
+  if (typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return record.phase === "llm_call_started" &&
+    typeof record.llmRound === "number" &&
+    Number.isInteger(record.llmRound) &&
+    record.llmRound > 0 &&
+    (record.provider === null || typeof record.provider === "string") &&
+    (record.model === null || typeof record.model === "string") &&
+    typeof record.at === "string";
+};
+
 export const parseSessionStreamSnapshot = (raw: string | null): SessionStreamSnapshot | null => {
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as Partial<SessionStreamSnapshot>;
     if (value.version !== 2) return null;
     if (!value.spaceId || !value.sessionId) return null;
-    if (typeof value.seq !== "number" || value.seq <= 0) return null;
+    if (typeof value.seq !== "number" || value.seq < 0) return null;
     if (!isSnapshotMessage(value.current, true)) return null;
     if (!Array.isArray(value.intermediateMessages) || !value.intermediateMessages.every((message) => isSnapshotMessage(message))) return null;
+    if (!isSnapshotLifecycle(value.lifecycle)) return null;
     return value as SessionStreamSnapshot;
   } catch {
     return null;

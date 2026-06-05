@@ -4,6 +4,7 @@ import { createAssistantMessageEventStream, streamSimple, type Api, type Context
 import { context, trace, type Span } from "@opentelemetry/api";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { logger } from "../logger.js";
+import { sendOutput } from "../redis.js";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
@@ -323,6 +324,24 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
         }
         const headers = modelRegistry.getHeaders(model.provider, model.id);
         const streamHeaders = headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers;
+        if (toolCtx?.spaceId && toolCtx.sessionId) {
+          const at = new Date().toISOString();
+          await sendOutput({
+            type: "turn_lifecycle",
+            spaceId: toolCtx.spaceId,
+            sessionId: toolCtx.sessionId,
+            turnId: toolCtx.turnId ?? null,
+            anchorUserMessageId: toolCtx.anchorUserMessageId ?? null,
+            phase: "llm_call_started",
+            llmRound: round,
+            provider: model.provider,
+            model: model.id,
+            at,
+            timestamp: Date.now(),
+          }).catch((error) => {
+            logger.warn(`[Agent] failed to publish llm_call_started lifecycle sessionId=${toolCtx.sessionId} turnId=${toolCtx.turnId ?? "unknown"}:`, error);
+          });
+        }
         const stream = await streamSimple(model, ctx, {
           ...options,
           headers: model.provider === "cohub"

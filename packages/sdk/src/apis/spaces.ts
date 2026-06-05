@@ -91,7 +91,7 @@ export type SessionSubscriptionHandlers = {
   event?: (event: WebsocketEventPayload) => void;
 };
 
-export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
+export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
 export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "task.created" | "task.updated" | "event";
 
 type SessionSendMessageInput = {
@@ -114,6 +114,8 @@ const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventNa
       return "turn.patch";
     case "session.turn.error":
       return "turn.error";
+    case "session.turn.lifecycle":
+      return "turn.lifecycle";
     case "session.turn.updated":
       return "turn.updated";
     case "session.turn.finalized":

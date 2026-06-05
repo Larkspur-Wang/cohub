@@ -216,6 +216,27 @@ export type SessionTurnErrorEvent = {
   payload: { turnId?: string | null; anchorUserMessageId: string | null; error: string };
 };
 
+export type SessionTurnLifecyclePhase = "llm_call_started";
+
+export type SessionTurnLifecycleEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.lifecycle";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    turnId: string | null;
+    anchorUserMessageId: string | null;
+    phase: SessionTurnLifecyclePhase;
+    llmRound: number;
+    provider: string | null;
+    model: string | null;
+    at: string;
+  };
+};
+
 export type RealtimeTurnRecord = Partial<Pick<
   SessionTurnRecord,
   | "id"
@@ -404,6 +425,7 @@ export type RealtimeServerEvent =
   | SessionTurnCreatedEvent
   | SessionTurnPatchEvent
   | SessionTurnErrorEvent
+  | SessionTurnLifecycleEvent
   | SessionTurnUpdatedEvent
   | SessionTurnFinalizedEvent
   | SessionMessagePersistedEvent

@@ -173,7 +173,7 @@ $effect(() => {
 							forking={forkingTurnId === forkTurn?.id}
 					/>
 				{:else if item.kind === 'process' && item.turn}
-						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
+						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} {onOpenFile} />
 				{/if}

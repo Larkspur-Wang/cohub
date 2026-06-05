@@ -1637,6 +1637,8 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 						contentBlocks: activeGenerationState.contentBlocks,
 						finalizedPreview: activeGenerationState.finalizedPreview,
 						status: activeGenerationState.status,
+						runtimePhase: activeGenerationState.runtimePhase,
+						runtimeModel: activeGenerationState.runtimeModel,
 					}
 				: null,
 	});
@@ -3985,6 +3987,7 @@ async function restoreSessionStreamSnapshot(
 				anchorUserMessageId: snapshot.anchorUserMessageId,
 				current: snapshot.current,
 				intermediateMessages: snapshot.intermediateMessages,
+				lifecycle: snapshot.lifecycle ?? null,
 			});
 			return result.applied;
 		} catch (error) {
@@ -8587,6 +8590,8 @@ $effect(() => {
               contentBlocks: activeGenerationState.contentBlocks,
               finalizedPreview: activeGenerationState.finalizedPreview,
               status: activeGenerationState.status,
+              runtimePhase: activeGenerationState.runtimePhase,
+              runtimeModel: activeGenerationState.runtimeModel,
             } : null}
             onSelectTurn={(sequence) => { void jumpToTurnAndUpdateUrl(sequence, { mode: 'split' }); }}
             onJumpToChat={(sequence) => { void openTurnInChat(sequence); }}

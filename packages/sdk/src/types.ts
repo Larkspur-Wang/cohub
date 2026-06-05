@@ -692,6 +692,13 @@ export type SessionTurnStreamSnapshotResponse = {
       meta?: Record<string, unknown> | null;
       createdAt?: string;
     }>;
+    lifecycle?: {
+      phase: "llm_call_started";
+      llmRound: number;
+      provider: string | null;
+      model: string | null;
+      at: string;
+    } | null;
     updatedAt: number;
   } | null;
 };

@@ -58,6 +58,7 @@ export type {
   GenerationStreamEvent,
   GenerationStreamFinalizedEvent,
   GenerationStreamIntermediateMessage,
+  GenerationStreamLifecycleEvent,
   GenerationStreamOutOfSyncEvent,
   GenerationStreamStateEvent,
   GenerationStreamSubscriptionHandlers,

@@ -63,6 +63,8 @@ export type TimelineItem =
 			summary?: SessionTurnIntermediateSummary;
 			intermediateMessages?: import("@cohub/protocol/model").StoredIntermediateMessage[];
 			streaming?: boolean;
+			runtimePhase?: "llm_call_started" | null;
+			runtimeModel?: string | null;
 	  };
 
 export const stringifyUnknown = (value: unknown) => {

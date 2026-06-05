@@ -50,6 +50,8 @@ type StreamingTurnState = {
 	intermediateMessages?: StoredIntermediateMessage[];
 	finalizedPreview?: boolean;
 	status?: string;
+	runtimePhase?: "llm_call_started" | null;
+	runtimeModel?: string | null;
 } | null;
 
 type Props = {

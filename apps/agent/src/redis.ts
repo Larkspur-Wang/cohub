@@ -3,7 +3,7 @@ import { context, trace, type Span } from "@opentelemetry/api";
 import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { RealtimeEnvelope, SessionStreamError, SessionStreamEvent } from "@cohub/protocol/realtime";
+import type { RealtimeEnvelope, SessionStreamError, SessionStreamEvent, SessionTurnLifecycleOutput } from "@cohub/protocol/realtime";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { SpacePortsChangedPayload } from "@cohub/protocol/ports";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -29,6 +29,14 @@ type SessionStreamSnapshotMessage = {
   content: ContentBlock[];
 };
 
+type SessionStreamSnapshotLifecycle = {
+  phase: "llm_call_started";
+  llmRound: number;
+  provider: string | null;
+  model: string | null;
+  at: string;
+};
+
 type SessionStreamSnapshot = {
   version: 2;
   spaceId: string;
@@ -38,6 +46,7 @@ type SessionStreamSnapshot = {
   seq: number;
   current: SessionStreamSnapshotMessage & { appendPath: string | null };
   intermediateMessages: SessionStreamSnapshotMessage[];
+  lifecycle?: SessionStreamSnapshotLifecycle | null;
   updatedAt: number;
 };
 
@@ -135,7 +144,7 @@ const pruneLocalSessionStreamSnapshots = () => {
   }
 };
 
-const getLocalSessionStreamSnapshot = async (key: string, event: SessionStreamEvent) => {
+const getLocalSessionStreamSnapshot = async (key: string, event: Pick<SessionStreamEvent, "baseSeq">) => {
   const local = sessionStreamSnapshotStates.get(key);
   if (local) return local.snapshot;
   if (event.baseSeq === 0) return null;
@@ -189,6 +198,7 @@ const cacheSessionStreamSnapshot = async (event: SessionStreamEvent) => {
     seq: event.seq,
     current: incoming,
     intermediateMessages,
+    lifecycle: null,
     updatedAt: Date.now(),
   };
 
@@ -200,6 +210,52 @@ const cacheSessionStreamSnapshot = async (event: SessionStreamEvent) => {
   });
 
   await scheduleSessionStreamSnapshotPersist(key, event.baseSeq === 0 || event.turnEnd === true || messageChanged);
+};
+
+const cacheSessionTurnLifecycleSnapshot = async (event: SessionTurnLifecycleOutput) => {
+  pruneLocalSessionStreamSnapshots();
+
+  const key = getSessionStreamSnapshotKey(event.spaceId, event.sessionId);
+  const existing = await getLocalSessionStreamSnapshot(key, { baseSeq: 1 });
+  const sameTurnSnapshot = existing &&
+    existing.spaceId === event.spaceId &&
+    existing.sessionId === event.sessionId &&
+    existing.turnId === (event.turnId ?? null)
+    ? existing
+    : null;
+
+  const snapshot: SessionStreamSnapshot = {
+    version: 2,
+    spaceId: event.spaceId,
+    sessionId: event.sessionId,
+    turnId: event.turnId ?? null,
+    anchorUserMessageId: event.anchorUserMessageId ?? sameTurnSnapshot?.anchorUserMessageId ?? null,
+    seq: sameTurnSnapshot?.seq ?? 0,
+    current: sameTurnSnapshot?.current ?? {
+      messageId: null,
+      messageOrdinal: null,
+      content: [],
+      appendPath: null,
+    },
+    intermediateMessages: sameTurnSnapshot?.intermediateMessages ?? [],
+    lifecycle: {
+      phase: event.phase,
+      llmRound: event.llmRound,
+      provider: event.provider ?? null,
+      model: event.model ?? null,
+      at: event.at,
+    },
+    updatedAt: Date.now(),
+  };
+
+  const currentState = sessionStreamSnapshotStates.get(key);
+  sessionStreamSnapshotStates.set(key, {
+    snapshot,
+    lastPersistedAt: currentState?.lastPersistedAt ?? 0,
+    persistTimer: currentState?.persistTimer ?? null,
+  });
+
+  await scheduleSessionStreamSnapshotPersist(key, true);
 };
 
 const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) => {
@@ -243,7 +299,7 @@ const pruneExpiredStreamTelemetry = () => {
   }
 };
 
-const recordStreamPublishSuccess = (span: Span, event: SessionStreamEvent | SessionStreamError, envelopeBytes = 0) => {
+const recordStreamPublishSuccess = (span: Span, event: SessionStreamEvent | SessionStreamError | SessionTurnLifecycleOutput, envelopeBytes = 0) => {
   const { metrics } = getStreamTelemetry(span);
   if (event.type === "stream_update") {
     metrics.patchCount += 1;
@@ -274,6 +330,14 @@ const recordStreamPublishSuccess = (span: Span, event: SessionStreamEvent | Sess
         "agent.output.patch_count": metrics.patchCount,
       });
     }
+  } else if (event.type === "turn_lifecycle") {
+    span.addEvent("agent.output.lifecycle_publish", {
+      "cohub.space_id": event.spaceId,
+      "cohub.session_id": event.sessionId,
+      "agent.turn_id": event.turnId ?? "",
+      "agent.lifecycle.phase": event.phase,
+      "agent.llm_round": event.llmRound,
+    });
   } else {
     span.addEvent("agent.output.error_publish", {
       "cohub.space_id": event.spaceId,
@@ -334,6 +398,19 @@ const sendOutputSchema = z.union([
     anchorUserMessageId: z.string().uuid().nullable().optional(),
   }),
   z.object({
+    type: z.literal("turn_lifecycle"),
+    spaceId: z.string().uuid(),
+    sessionId: z.string().uuid(),
+    turnId: z.string().uuid().nullable().optional(),
+    anchorUserMessageId: z.string().uuid().nullable().optional(),
+    phase: z.literal("llm_call_started"),
+    llmRound: z.number().int().positive(),
+    provider: z.string().nullable().optional(),
+    model: z.string().nullable().optional(),
+    at: z.string(),
+    timestamp: z.number(),
+  }),
+  z.object({
     type: z.literal("error"),
     spaceId: z.string().uuid(),
     sessionId: z.string().uuid().nullable(),
@@ -341,7 +418,7 @@ const sendOutputSchema = z.union([
   }),
 ]);
 
-export async function sendOutput(data: SessionStreamEvent | SessionStreamError) {
+export async function sendOutput(data: SessionStreamEvent | SessionStreamError | SessionTurnLifecycleOutput) {
   const parsed = sendOutputSchema.safeParse(data);
   if (!parsed.success) {
     logger.error("[Redis] Invalid session output event:", parsed.error.issues);
@@ -354,7 +431,7 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
   }
 
   const activeSpan = trace.getActiveSpan();
-  const event = parsed.data as SessionStreamEvent | SessionStreamError;
+  const event = parsed.data as SessionStreamEvent | SessionStreamError | SessionTurnLifecycleOutput;
 
   try {
     const traceCarrier = injectTrace();
@@ -382,6 +459,27 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError) 
           seq: event.seq,
           baseSeq: event.baseSeq,
           ops,
+        },
+      };
+    } else if (event.type === "turn_lifecycle") {
+      await cacheSessionTurnLifecycleSnapshot(event).catch((error) => {
+        logger.warn("[SessionStreamSnapshot] failed to cache lifecycle snapshot:", error);
+      });
+      envelope = {
+        id: randomUUID(),
+        timestamp: Date.now(),
+        domain: "session",
+        type: "session.turn.lifecycle",
+        spaceId: event.spaceId,
+        sessionId: event.sessionId,
+        payload: {
+          turnId: event.turnId ?? null,
+          anchorUserMessageId: event.anchorUserMessageId ?? null,
+          phase: event.phase,
+          llmRound: event.llmRound,
+          provider: event.provider ?? null,
+          model: event.model ?? null,
+          at: event.at,
         },
       };
     } else {

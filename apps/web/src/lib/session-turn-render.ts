@@ -180,6 +180,8 @@ export function buildTurnTimelineItems(input: {
 		intermediateMessages?: StoredIntermediateMessage[];
 		truncatedStart?: boolean;
 		status?: string;
+		runtimePhase?: "llm_call_started" | null;
+		runtimeModel?: string | null;
 		finalizedPreview?: boolean;
 	} | null;
 }): TimelineItem[] {
@@ -213,8 +215,10 @@ export function buildTurnTimelineItems(input: {
 		) {
 			const processIntermediateMessages =
 				input.streaming?.intermediateMessages ?? [];
+			const showRuntimeStatus =
+				input.streaming?.runtimePhase === "llm_call_started";
 			streamingProcessInserted = true;
-			if (processIntermediateMessages.length > 0) {
+			if (processIntermediateMessages.length > 0 || showRuntimeStatus) {
 				const summary = {
 					messageCount: processIntermediateMessages.length,
 					toolCallCount: processIntermediateMessages.reduce(
@@ -232,6 +236,8 @@ export function buildTurnTimelineItems(input: {
 					summary,
 					intermediateMessages: processIntermediateMessages,
 					streaming: true,
+					runtimePhase: input.streaming?.runtimePhase ?? null,
+					runtimeModel: input.streaming?.runtimeModel ?? null,
 				});
 			}
 		}
@@ -287,7 +293,9 @@ export function buildTurnTimelineItems(input: {
 				} satisfies SessionTurnRecord);
 		const processIntermediateMessages =
 			input.streaming?.intermediateMessages ?? [];
-		if (processIntermediateMessages.length > 0) {
+		const showRuntimeStatus =
+			input.streaming?.runtimePhase === "llm_call_started";
+		if (processIntermediateMessages.length > 0 || showRuntimeStatus) {
 			items.push({
 				id: `turn:${turn.id}:process:streaming`,
 				kind: "process",
@@ -304,12 +312,17 @@ export function buildTurnTimelineItems(input: {
 				},
 				intermediateMessages: processIntermediateMessages,
 				streaming: true,
+				runtimePhase: input.streaming?.runtimePhase ?? null,
+				runtimeModel: input.streaming?.runtimeModel ?? null,
 			});
 		}
 	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
+	const showWaitingModel = input.streaming?.runtimePhase === "llm_call_started";
 	const showPendingPlaceholder =
-		input.streaming?.status === "pending" && streamingBlocks.length === 0;
+		input.streaming?.status === "pending" &&
+		streamingBlocks.length === 0 &&
+		!showWaitingModel;
 	if (streamingBlocks.length > 0 || showPendingPlaceholder) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.anchorUserMessageId ?? null,
@@ -322,7 +335,9 @@ export function buildTurnTimelineItems(input: {
 		const effectiveBlocks =
 			blocks.length > 0
 				? blocks
-				: ([{ type: "thinking", thinking: "Thinking…" }] as ContentBlock[]);
+				: ([
+						{ type: "thinking", thinking: "Starting agent…" },
+					] as ContentBlock[]);
 		items.push({
 			id: renderKey,
 			kind: "message",

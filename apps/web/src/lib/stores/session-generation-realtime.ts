@@ -1,6 +1,7 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	GenerationStreamEvent,
+	GenerationStreamLifecycleEvent,
 	GenerationStreamStateEvent,
 } from "@neta-art/cohub";
 import type { StreamingIntermediateMessage } from "./session-generation.svelte";
@@ -143,6 +144,13 @@ export function applyGenerationStreamSnapshot(
 			content: ContentBlock[];
 		};
 		intermediateMessages?: StreamingIntermediateMessage[];
+		lifecycle?: {
+			phase: "llm_call_started";
+			llmRound: number;
+			provider: string | null;
+			model: string | null;
+			at: string;
+		} | null;
 	},
 ) {
 	const current = sessionGenerationStore.get(sessionId);
@@ -154,6 +162,27 @@ export function applyGenerationStreamSnapshot(
 		current.patchSeq > input.seq
 	) {
 		return { applied: false, reason: "stale_snapshot" as const };
+	}
+	const hasSnapshotContent =
+		input.current.content.length > 0 ||
+		(input.intermediateMessages?.length ?? 0) > 0;
+	if (!hasSnapshotContent) {
+		if (input.lifecycle?.phase === "llm_call_started") {
+			sessionGenerationStore.markRuntimePhase(sessionId, {
+				phase: "llm_call_started",
+				at: input.lifecycle.at,
+				llmRound: input.lifecycle.llmRound,
+				provider: input.lifecycle.provider,
+				model: input.lifecycle.model,
+				spaceId: input.spaceId ?? current?.spaceId ?? null,
+				turnId: resolvedTurnId,
+				anchorUserMessageId:
+					input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
+			});
+		}
+		return input.lifecycle
+			? { applied: true as const }
+			: { applied: false as const, reason: "empty_snapshot" as const };
 	}
 	// Skip contentBlocks update when textually identical to avoid
 	// resetting the StreamingMarkdownController's typing animation.
@@ -181,13 +210,51 @@ export function applyGenerationStreamSnapshot(
 		patchSeq: input.seq,
 		turnId: resolvedTurnId,
 	});
+	if (input.lifecycle?.phase === "llm_call_started") {
+		sessionGenerationStore.markRuntimePhase(sessionId, {
+			phase: "llm_call_started",
+			at: input.lifecycle.at,
+			llmRound: input.lifecycle.llmRound,
+			provider: input.lifecycle.provider,
+			model: input.lifecycle.model,
+			spaceId: input.spaceId ?? current?.spaceId ?? null,
+			turnId: resolvedTurnId,
+			anchorUserMessageId:
+				input.anchorUserMessageId ?? current?.anchorUserMessageId ?? null,
+		});
+	}
 	return { applied: true as const };
+}
+
+function applyGenerationLifecycle(
+	sessionId: string,
+	event: GenerationStreamLifecycleEvent,
+) {
+	sessionGenerationStore.markRuntimePhase(sessionId, {
+		phase: event.phase,
+		at: event.at,
+		llmRound: event.llmRound,
+		provider: event.provider,
+		model: event.model,
+		turnId: event.turnId,
+		anchorUserMessageId: event.anchorUserMessageId,
+	});
 }
 
 export function applyGenerationStreamEvent(
 	sessionId: string,
 	event: GenerationStreamEvent,
 ): GenerationRealtimeEffect {
+	if (event.type === "lifecycle") {
+		applyGenerationLifecycle(sessionId, event);
+		return handledEffect({
+			shouldScroll: false,
+			shouldReconcile: false,
+			shouldRestoreSnapshot: false,
+			shouldRefreshSessions: false,
+		});
+	}
+
 	if (event.type === "state") {
 		applyGenerationState(sessionId, event);
 		return handledEffect({

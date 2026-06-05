@@ -15,6 +15,7 @@ export type ToolExecutionContext = {
   sessionId: string;
   turnId?: string;
   turnSeq?: number;
+  anchorUserMessageId?: string | null;
   llmRound?: number;
   toolCallId?: string;
   actorUserId?: string | null;

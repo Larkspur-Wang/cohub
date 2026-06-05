@@ -9,6 +9,8 @@ export type SessionGenerationStatus =
 	| "failed"
 	| "interrupted";
 
+export type SessionGenerationRuntimePhase = "llm_call_started";
+
 export type StreamingIntermediateMessage = {
 	messageId?: string | null;
 	messageOrdinal?: number | null;
@@ -44,6 +46,11 @@ export type SessionGenerationState = {
 	truncatedStart: boolean;
 	patchSeq: number;
 	turnId: string | null;
+	runtimePhase: SessionGenerationRuntimePhase | null;
+	runtimePhaseAt: number | null;
+	llmRound: number | null;
+	runtimeProvider: string | null;
+	runtimeModel: string | null;
 	finalizedPreview: boolean;
 };
 
@@ -80,6 +87,11 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	truncatedStart: false,
 	patchSeq: 0,
 	turnId: null,
+	runtimePhase: null,
+	runtimePhaseAt: null,
+	llmRound: null,
+	runtimeProvider: null,
+	runtimeModel: null,
 	finalizedPreview: false,
 });
 
@@ -204,6 +216,19 @@ function parsePersistedState(raw: string): SessionGenerationState | null {
 			truncatedStart: Boolean(parsed.truncatedStart),
 			patchSeq: typeof parsed.patchSeq === "number" ? parsed.patchSeq : 0,
 			turnId: typeof parsed.turnId === "string" ? parsed.turnId : null,
+			runtimePhase:
+				parsed.runtimePhase === "llm_call_started" ? "llm_call_started" : null,
+			runtimePhaseAt:
+				typeof parsed.runtimePhaseAt === "number"
+					? parsed.runtimePhaseAt
+					: null,
+			llmRound: typeof parsed.llmRound === "number" ? parsed.llmRound : null,
+			runtimeProvider:
+				typeof parsed.runtimeProvider === "string"
+					? parsed.runtimeProvider
+					: null,
+			runtimeModel:
+				typeof parsed.runtimeModel === "string" ? parsed.runtimeModel : null,
 			finalizedPreview: Boolean(parsed.finalizedPreview),
 		};
 		return isFresh(state) ? state : null;
@@ -344,6 +369,11 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: 0,
 			turnId: input?.turnId ?? null,
+			runtimePhase: null,
+			runtimePhaseAt: null,
+			llmRound: null,
+			runtimeProvider: null,
+			runtimeModel: null,
 			finalizedPreview: false,
 		});
 	}
@@ -371,6 +401,11 @@ class SessionGenerationStore {
 			anchorUserMessageId:
 				input?.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
 			turnId: input?.turnId ?? current.turnId ?? null,
+			runtimePhase: current.runtimePhase ?? null,
+			runtimePhaseAt: current.runtimePhaseAt ?? null,
+			llmRound: current.llmRound ?? null,
+			runtimeProvider: current.runtimeProvider ?? null,
+			runtimeModel: current.runtimeModel ?? null,
 			finalizedPreview:
 				input?.finalizedPreview ?? current.finalizedPreview ?? false,
 		});
@@ -415,7 +450,51 @@ class SessionGenerationStore {
 			truncatedStart: input.truncatedStart ?? current.truncatedStart,
 			patchSeq: input.patchSeq ?? current.patchSeq,
 			turnId: input.turnId ?? current.turnId ?? null,
+			runtimePhase: null,
+			runtimePhaseAt: null,
+			llmRound: null,
+			runtimeProvider: null,
+			runtimeModel: null,
 			finalizedPreview: input.finalizedPreview ?? false,
+		});
+	}
+
+	markRuntimePhase(
+		sessionId: string,
+		input: {
+			phase: SessionGenerationRuntimePhase;
+			at?: string | number | null;
+			llmRound?: number | null;
+			provider?: string | null;
+			model?: string | null;
+			spaceId?: string | null;
+			turnId?: string | null;
+			anchorUserMessageId?: string | null;
+		},
+	) {
+		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		const atMs =
+			typeof input.at === "number"
+				? input.at
+				: typeof input.at === "string"
+					? Date.parse(input.at)
+					: Date.now();
+		this.setState(sessionId, {
+			...current,
+			sessionId,
+			spaceId: input.spaceId ?? current.spaceId ?? null,
+			status: current.status === "idle" ? "pending" : current.status,
+			error: null,
+			startedAt: current.startedAt ?? Date.now(),
+			lastEventAt: Date.now(),
+			turnId: input.turnId ?? current.turnId ?? null,
+			anchorUserMessageId:
+				input.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
+			runtimePhase: input.phase,
+			runtimePhaseAt: Number.isFinite(atMs) ? atMs : Date.now(),
+			llmRound: input.llmRound ?? current.llmRound ?? null,
+			runtimeProvider: input.provider ?? current.runtimeProvider ?? null,
+			runtimeModel: input.model ?? current.runtimeModel ?? null,
 		});
 	}
 
@@ -460,6 +539,11 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+			runtimePhase: null,
+			runtimePhaseAt: null,
+			llmRound: null,
+			runtimeProvider: null,
+			runtimeModel: null,
 			finalizedPreview: false,
 		});
 	}
@@ -479,6 +563,11 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+			runtimePhase: null,
+			runtimePhaseAt: null,
+			llmRound: null,
+			runtimeProvider: null,
+			runtimeModel: null,
 			finalizedPreview: false,
 		});
 	}
@@ -498,6 +587,11 @@ class SessionGenerationStore {
 			truncatedStart: false,
 			patchSeq: current.patchSeq,
 			turnId: current.turnId,
+			runtimePhase: null,
+			runtimePhaseAt: null,
+			llmRound: null,
+			runtimeProvider: null,
+			runtimeModel: null,
 			finalizedPreview: false,
 		});
 	}

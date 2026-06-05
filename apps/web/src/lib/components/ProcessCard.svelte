@@ -6,6 +6,7 @@ import type {
 	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
+import GenerationRuntimeStatusRow from "$lib/components/GenerationRuntimeStatusRow.svelte";
 import IntermediateMessageBubble from "$lib/components/IntermediateMessageBubble.svelte";
 import {
 	formatDurationDetail,
@@ -24,6 +25,8 @@ type Props = {
 	summary?: SessionTurnIntermediateSummary;
 	intermediateMessages?: StoredIntermediateMessage[] | null;
 	streaming?: boolean;
+	runtimePhase?: "llm_call_started" | null;
+	runtimeModel?: string | null;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadIntermediate?: (
 		turn: SessionTurnRecord,
@@ -40,6 +43,8 @@ const {
 	summary,
 	intermediateMessages: liveIntermediateMessages = null,
 	streaming = false,
+	runtimePhase = null,
+	runtimeModel = null,
 	modelsCatalog,
 	onLoadIntermediate,
 	onLoadToolCalls,
@@ -144,16 +149,26 @@ const usageTitle = $derived.by(() => {
 	if (durationTitle) parts.push(durationTitle);
 	return parts.join(" · ");
 });
+const waitingLabel = $derived(
+	runtimePhase === "llm_call_started"
+		? runtimeModel?.trim()
+			? `waiting ${runtimeModel.trim()}`
+			: "waiting model"
+		: "",
+);
 const labelParts = $derived(
 	[
 		messageCount > 0
 			? `${messageCount} step${messageCount > 1 ? "s" : ""}`
-			: streaming
-				? "Running"
-				: "",
+			: waitingLabel
+				? ""
+				: streaming
+					? "Starting agent"
+					: "",
 		toolCallCount > 0
 			? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}`
 			: "",
+		waitingLabel,
 		usageBreakdownLabel ||
 			(usageTokens > 0 ? `${formatTokenCount(usageTokens)} tokens` : ""),
 		durationLabel,
@@ -184,6 +199,11 @@ const summaryLabel = $derived(
 			{#each expandedMessages as msg (msg.id)}
 				<IntermediateMessageBubble message={msg} streaming={streaming} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} {onOpenFile} />
 			{/each}
+			{#if runtimePhase === 'llm_call_started'}
+				<div class="pl-5">
+					<GenerationRuntimeStatusRow model={runtimeModel} />
+				</div>
+			{/if}
 		</div>
 		<button type="button" class="flex items-center gap-1.5 px-2 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer text-text-placeholder hover:text-text-tertiary rounded-md self-start" onclick={() => void toggle()}>
 			<ChevronRight class="w-3 h-3" />

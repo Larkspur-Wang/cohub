@@ -4,6 +4,7 @@ import type { SessionGenerationState } from "$lib/stores/session-generation.svel
 export type SessionSidebarActivityPhase =
 	| "idle"
 	| "pending"
+	| "waiting_model"
 	| "streaming"
 	| "thinking"
 	| "tool"
@@ -195,11 +196,21 @@ export function getSessionSidebarActivity(
 			progressKey: "interrupted",
 		};
 	}
+	if (state.runtimePhase === "llm_call_started") {
+		const model = compactInlineText(state.runtimeModel, 42);
+		return {
+			active: true,
+			phase: "waiting_model",
+			label: model ? `waiting ${model}` : "waiting model",
+			text: null,
+			progressKey: `waiting:${state.turnId ?? state.sessionId}:${state.llmRound ?? 1}`,
+		};
+	}
 	if (state.status === "pending") {
 		return {
 			active: true,
 			phase: "pending",
-			label: "pending",
+			label: "starting agent",
 			text: null,
 			progressKey: state.turnId ?? "pending",
 		};
