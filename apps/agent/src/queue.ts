@@ -47,13 +47,13 @@ export const buildRunCommandJobId = buildAgentRunCommandJobId;
 
 export async function enqueueAgentTurnJob(data: AgentTurnJobData, options: JobsOptions = {}) {
   const trace = injectTrace();
-  const jobId = options.jobId ?? `agent-session-wakeup-${data.sessionId}`;
+  const jobId = options.jobId ?? (data.reason === "drain" ? null : `agent-session-wakeup-${data.sessionId}`);
   return agentTurnQueue.add(AGENT_TURN_JOB_NAME, {
     ...data,
     requestId: getCurrentRequestId() ?? data.requestId ?? null,
     trace: Object.keys(trace).length > 0 ? trace : data.trace,
   }, {
-    jobId,
+    ...(jobId ? { jobId } : {}),
     attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
     removeOnComplete: true,
