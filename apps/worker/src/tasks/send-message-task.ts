@@ -6,22 +6,15 @@ import { assignLabelsToSession } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import type { PromptAccessMode, SubmitSessionPromptContext } from "@cohub/core/sessions";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
-import { createExecutionGrantService } from "@cohub/core/security";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
 import { createLogger } from "@cohub/infra/logging";
-import { config } from "../config.js";
 import { db } from "../db.js";
 import { dispatchLabelAssignmentsUpdated } from "../label-events.js";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 
-const executionGrantService = createExecutionGrantService({
-  signingKey: config.executionGrantSigningKey,
-});
-
 const sessionPromptService = getSessionDomainServices({
-  executionGrantService,
   promptTemplateService: getPromptTemplateService(),
 });
 

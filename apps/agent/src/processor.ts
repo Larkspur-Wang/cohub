@@ -17,7 +17,7 @@ import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, persistInterruptedAssistantSnapshot, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
-import { claimTurnBatch, buildUserMessagesForBatch, enqueueNextQueuedTurn } from "./batch.js";
+import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
 import { getAbortEvent } from "./abort.js";
@@ -26,6 +26,7 @@ import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 import type { PromptAccessMode } from "@cohub/core/sessions";
+import { createAgentExecutionToken } from "./execution-grants.js";
 
 
 const sessionHandles = new Map<string, SessionHandle>();
@@ -38,7 +39,7 @@ const BUSY_RETRY_BASE_DELAY_MS = env.AGENT_BUSY_RETRY_BASE_DELAY_MS;
 const BUSY_RETRY_MAX_DELAY_MS = env.AGENT_BUSY_RETRY_MAX_DELAY_MS;
 
 function getRetryKey(data: AgentTurnJobData, reason: RetryReason) {
-  return `${reason}:${data.sessionId}:${data.turnIds.join(",")}`;
+  return `${reason}:${data.sessionId}`;
 }
 
 function nextRetryDelayMs(key: string) {
@@ -53,12 +54,10 @@ function clearRetryState(data: AgentTurnJobData) {
 }
 
 async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?: Job<AgentTurnJobData>, meta?: Record<string, unknown>) {
-  const firstTurnId = data.turnIds[0];
-  if (!firstTurnId) return { skipped: reason, retryInMs: 0, jobId: job?.id ?? null, ...meta };
   const retryKey = getRetryKey(data, reason);
   const delay = nextRetryDelayMs(retryKey);
-  await enqueueAgentTurnJob(data, {
-    jobId: `agent-turn-retry-${reason}-${firstTurnId}-${Math.max(1, Math.ceil(Date.now() / delay))}`,
+  await enqueueAgentTurnJob({ ...data, reason: "retry" }, {
+    jobId: `agent-session-retry-${reason}-${data.sessionId}-${Math.max(1, Math.ceil(Date.now() / delay))}`,
     delay,
     removeOnComplete: true,
     removeOnFail: true,
@@ -70,13 +69,13 @@ type DrainNextQueuedResult = { enqueued: boolean; turnId: string | null };
 
 async function drainNextQueuedTurn(input: { spaceId: string; sessionId: string; reason: string }): Promise<DrainNextQueuedResult> {
   try {
-    const turnId = await enqueueNextQueuedTurn({
+    const turnId = await enqueueNextRunnableTurn({
       spaceId: input.spaceId,
       sessionId: input.sessionId,
       enqueue: enqueueAgentTurnJob,
     });
     if (turnId) {
-      logger.info(`[Agent] enqueued next queued turn sessionId=${input.sessionId} turnId=${turnId} reason=${input.reason}`);
+      logger.info(`[Agent] enqueued next runnable turn sessionId=${input.sessionId} turnId=${turnId} reason=${input.reason}`);
     }
     return { enqueued: Boolean(turnId), turnId: turnId ?? null };
   } catch (error) {
@@ -541,6 +540,24 @@ function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): Pro
     : "full_access";
 }
 
+async function createTurnExecutionToken(input: {
+  accessMode: PromptAccessMode;
+  actorUserId: string;
+  spaceId: string;
+  sessionId: string;
+  turnId: string;
+  source: unknown;
+}) {
+  if (input.accessMode !== "full_access") return null;
+  return createAgentExecutionToken({
+    actorUserId: input.actorUserId,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    source: typeof input.source === "string" && input.source.trim() ? input.source.trim() : "agent_turn",
+  });
+}
+
 function filterToolsForAccessMode(allTools: AgentTool[], accessMode: PromptAccessMode) {
   if (accessMode === "full_access") return allTools;
   const readOnlyTools = new Set(["read", "ls", "find", "grep"]);
@@ -608,14 +625,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     const lock = await acquireSessionLock(data.sessionId);
     if (!lock) {
       const result = await requeueTurnJob(data, "session_locked", job);
-      logger.info(`[Agent] session locked; requeued sessionId=${data.sessionId} turnIds=${data.turnIds.join(",")} retryInMs=${result.retryInMs}`);
+      logger.info(`[Agent] session locked; requeued sessionId=${data.sessionId} retryInMs=${result.retryInMs}`);
       return result;
     }
     let activeTurn: { id: string; controller: AbortController } | null = null;
     let drainAfterRelease: PostReleaseDrain = null;
 
     try {
-      const claim = await claimTurnBatch(data);
+      const claim = await claimNextTurnBatch(data);
       if (claim.kind === "noop") {
         clearRetryState(data);
         return { skipped: "noop" };
@@ -627,7 +644,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           activeUpdatedAt: claim.activeUpdatedAt?.toISOString() ?? null,
         });
         if ((result.retryInMs ?? 0) >= BUSY_RETRY_MAX_DELAY_MS) {
-          logger.warn(`[Agent] session busy retry delayed sessionId=${data.sessionId} turnIds=${data.turnIds.join(",")} activeTurnId=${claim.activeTurnId} delayMs=${result.retryInMs}`);
+          logger.warn(`[Agent] session busy retry delayed sessionId=${data.sessionId} activeTurnId=${claim.activeTurnId} delayMs=${result.retryInMs}`);
         }
         return result;
       }
@@ -638,11 +655,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         ? batch.ownerTurn.meta as Record<string, unknown>
         : {});
       const actorUserId = resolveActorUserId(ownerMeta);
+      if (!actorUserId) throw new Error("Agent turn requires actorUserId for execution token");
       const accessMode = resolveBatchAccessMode(batch);
       const generationPolicy = normalizeGenerationPolicy(ownerMeta.generationPolicy);
-      const executionAuth = (ownerMeta.executionAuth && typeof ownerMeta.executionAuth === "object" && !Array.isArray(ownerMeta.executionAuth)
-        ? ownerMeta.executionAuth as { token?: string; expiresAt?: number }
-        : null) ?? data.executionAuth ?? null;
       const abortEvent = await getAbortEvent(batch.ownerTurn.id);
       if (abortEvent) {
         if (abortEvent.reason === "interrupt" && abortEvent.continuedByTurnId) {
@@ -701,7 +716,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
 
       const ownerUserMessageId = batch.executionBatch.anchorUserMessageId ?? turnUserMessages.at(-1)?.userMessageId ?? null;
-      const executionToken = executionAuth?.token?.trim() || null;
+      const executionToken = await createTurnExecutionToken({
+        accessMode,
+        actorUserId,
+        spaceId: data.spaceId,
+        sessionId: data.sessionId,
+        turnId: batch.ownerTurn.id,
+        source: ownerMeta.source,
+      });
       const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
       const assistantMessageTiming = { startedAt: null as string | null };
       const abortController = new AbortController();

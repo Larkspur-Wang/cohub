@@ -116,11 +116,6 @@ export type ExpandedPromptTemplate = {
   rawInput: string;
 };
 
-export type ExecutionGrant = {
-  token: string;
-  expiresAt: number;
-};
-
 export type SessionPromptDependencies = {
   randomUUID(): string;
   expandPromptTemplate(input: {
@@ -128,12 +123,6 @@ export type SessionPromptDependencies = {
     userId: string;
     spaceId: string;
   }): Promise<ExpandedPromptTemplate | null>;
-  createExecutionGrant(input: {
-    actorUserId: string;
-    spaceId: string;
-    sessionId: string;
-    source: string;
-  }): Promise<ExecutionGrant>;
   sandboxRecovery?: {
     maybeRecoverForPrompt(input: {
       spaceId: string;
@@ -263,15 +252,6 @@ export const submitSessionPrompt = async (
   }
   const inputIntent = isDirectShellCommand ? "shell_command" : "prompt";
   const turnIntent: SessionTurnIntent = isDirectShellCommand ? "steer" : (input.intent ?? "followup");
-  const executionGrant = accessMode === "full_access"
-    ? await deps.createExecutionGrant({
-      actorUserId: userId,
-      spaceId: input.spaceId,
-      sessionId: input.sessionId,
-      source: input.source,
-    })
-    : null;
-
   const userMessageId = deps.randomUUID();
   const baseMeta = {
     source: input.source,
@@ -287,7 +267,6 @@ export const submitSessionPrompt = async (
     generationPolicy: input.generationPolicy ?? null,
     accessMode,
     context: input.context ?? null,
-    executionAuth: executionGrant,
   };
 
   const turn = await deps.createSessionTurn({

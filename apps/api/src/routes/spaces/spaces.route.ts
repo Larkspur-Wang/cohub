@@ -147,7 +147,7 @@ async function promoteQueuedTurnToSteer(input: {
   });
 
   try {
-    await enqueueAgentTurnJob({ spaceId: input.spaceId, sessionId: input.sessionId, turnIds: [result.targetId] });
+    await enqueueAgentTurnJob({ spaceId: input.spaceId, sessionId: input.sessionId, reason: "steer" });
   } catch (error) {
     const failedAt = new Date();
     await db.update(sessionTurns).set({

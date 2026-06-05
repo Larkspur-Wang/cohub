@@ -23,6 +23,7 @@ export type ExecutionAuthPrincipal = {
   actorUserId: string | null;
   spaceId: string;
   sessionId: string | null;
+  turnId: string | null;
   source: string;
   expiresAt: number;
 };
@@ -39,6 +40,7 @@ function toExecutionAuthPrincipal(grant: ExecutionGrantPayload): ExecutionAuthPr
     actorUserId: grant.actorUserId,
     spaceId: grant.spaceId,
     sessionId: grant.sessionId,
+    turnId: grant.turnId,
     source: grant.source,
     expiresAt: grant.exp * 1000,
   };

@@ -7,6 +7,7 @@ export type ExecutionGrantPayload = {
   actorUserId: string | null;
   spaceId: string;
   sessionId: string | null;
+  turnId: string | null;
   source: string;
   exp: number;
   iat: number;
@@ -19,10 +20,11 @@ export type SessionExecutionGrant = {
 
 export type ExecutionGrantService = {
   createExecutionGrant(input: {
-    actorUserId?: string | null;
+    actorUserId: string | null;
     spaceId: string;
-    sessionId?: string | null;
-    source?: string | null;
+    sessionId: string | null;
+    turnId: string | null;
+    source: string;
   }): Promise<SessionExecutionGrant>;
   verifyExecutionGrant(token: string): Promise<ExecutionGrantPayload | null>;
 };
@@ -53,6 +55,7 @@ export function createExecutionGrantService(input: {
         actorUserId: grantInput.actorUserId?.trim() || null,
         spaceId,
         sessionId: grantInput.sessionId?.trim() || null,
+        turnId: grantInput.turnId?.trim() || null,
         source: grantInput.source?.trim() || "prompt",
         iat: nowSeconds,
         exp: nowSeconds + EXECUTION_GRANT_TTL_SECONDS,
@@ -96,9 +99,10 @@ export function createExecutionGrantService(input: {
 
       return {
         actorUserId: typeof parsedPayload.actorUserId === "string" && parsedPayload.actorUserId.trim() ? parsedPayload.actorUserId.trim() : null,
-        spaceId: parsedPayload.spaceId,
+        spaceId: parsedPayload.spaceId.trim(),
         sessionId: typeof parsedPayload.sessionId === "string" && parsedPayload.sessionId.trim() ? parsedPayload.sessionId.trim() : null,
-        source: parsedPayload.source,
+        turnId: typeof parsedPayload.turnId === "string" && parsedPayload.turnId.trim() ? parsedPayload.turnId.trim() : null,
+        source: parsedPayload.source.trim(),
         exp: parsedPayload.exp,
         iat: parsedPayload.iat,
       };

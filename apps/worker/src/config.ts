@@ -6,7 +6,7 @@ export interface WorkerConfig {
   giteaToken?: string;
   giteaOrg: string;
   workerSecret: string;
-  executionGrantSigningKey: string;
+  appEncryptionKey: string;
   spaceStorageRoot: string;
   spaceSystemRoot: string;
   checkpointCacheRoot: string;
@@ -51,7 +51,7 @@ export const config: WorkerConfig = {
   giteaToken: process.env.GITEA_TOKEN,
   giteaOrg: process.env.GITEA_ORG ?? "cohub-spaces",
   workerSecret: process.env.WORKER_SECRET ?? "",
-  executionGrantSigningKey: process.env.EXECUTION_GRANT_SIGNING_KEY ?? process.env.APP_ENCRYPTION_KEY ?? "",
+  appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
   checkpointCacheRoot: process.env.CHECKPOINT_CACHE_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
@@ -80,7 +80,7 @@ export const assertRequiredConfig = () => {
   if (!config.databaseUrl) throw new Error("Missing required env: DATABASE_URL");
   if (!config.giteaBaseUrl) throw new Error("Missing required env: GITEA_BASE_URL");
   if (!config.workerSecret) throw new Error("Missing required env: WORKER_SECRET");
-  if (!config.executionGrantSigningKey) throw new Error("Missing required env: EXECUTION_GRANT_SIGNING_KEY (or APP_ENCRYPTION_KEY fallback)");
+  if (!config.appEncryptionKey) throw new Error("Missing required env: APP_ENCRYPTION_KEY");
   if (!config.spaceStorageRoot) throw new Error("Missing required env: SPACE_STORAGE_ROOT");
   if (!config.spaceSystemRoot) throw new Error("Missing required env: SPACE_SYSTEM_ROOT");
   if (!config.checkpointCacheRoot) throw new Error("Missing required env: CHECKPOINT_CACHE_ROOT");

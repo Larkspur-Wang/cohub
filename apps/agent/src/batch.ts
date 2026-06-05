@@ -37,7 +37,6 @@ export type ClaimResult =
   | { kind: "busy"; activeTurnId: string; activeUpdatedAt: Date | null; activeStatus: string }
   | { kind: "noop" };
 
-const TERMINAL = new Set(["completed", "failed", "interrupted", "merged", "cancelled"]);
 const ACTIVE = new Set(["running", "abort_requested"]);
 const STALE_ACTIVE_TURN_MS = env.AGENT_STALE_ACTIVE_TURN_MS;
 
@@ -80,29 +79,6 @@ function getUserMessageId(turn: TurnRow): string {
   return getMetaString(turn, "userMessageId") ?? getMetaString(turn, "messageId") ?? turn.id;
 }
 
-function getExecutionBatch(turn: TurnRow): ExecutionBatchMeta | null {
-  const batch = asRecord(turn.meta).executionBatch;
-  if (!batch || typeof batch !== "object" || Array.isArray(batch)) return null;
-  const record = batch as Record<string, unknown>;
-  if (typeof record.ownerTurnId !== "string") return null;
-  if (!Array.isArray(record.turnIds)) return null;
-  return {
-    ownerTurnId: record.ownerTurnId,
-    turnIds: record.turnIds.filter((item): item is string => typeof item === "string"),
-    mergedTurnIds: Array.isArray(record.mergedTurnIds) ? record.mergedTurnIds.filter((item): item is string => typeof item === "string") : [],
-    userMessageIds: Array.isArray(record.userMessageIds) ? record.userMessageIds.filter((item): item is string => typeof item === "string") : [],
-    anchorUserMessageId: typeof record.anchorUserMessageId === "string" ? record.anchorUserMessageId : null,
-  };
-}
-
-function toPgUuidArrayParam(ids: string[]) {
-  return `{${ids.join(",")}}`;
-}
-
-function isActiveStatus(status: string) {
-  return ACTIVE.has(status);
-}
-
 function isStaleActiveTurn(turn: TurnRow) {
   const updatedAt = turn.updatedAt?.getTime();
   return updatedAt != null && Number.isFinite(updatedAt) && Date.now() - updatedAt > STALE_ACTIVE_TURN_MS;
@@ -121,71 +97,69 @@ async function markStaleTurnInterrupted(tx: Transaction, turn: TurnRow) {
   `);
 }
 
-async function selectTurnsByIds(ids: string[]) {
-  if (ids.length === 0) return [];
-  const rows = await db.execute(sql`
-    select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
-    from v2.session_turns
-    where id = any(${toPgUuidArrayParam(ids)}::uuid[])
-    order by sequence asc
-  `);
-  return rows.map((row) => normalizeTurn(row as Record<string, unknown>));
+function createExecutionBatch(queued: TurnRow[]): ExecutionBatchMeta {
+  const userMessageIds = queued.map(getUserMessageId).filter((value): value is string => Boolean(value));
+  const owner = queued.at(-1);
+  if (!owner) throw new Error("queued turns are required");
+  return {
+    ownerTurnId: owner.id,
+    turnIds: queued.map((turn) => turn.id),
+    mergedTurnIds: queued.slice(0, -1).map((turn) => turn.id),
+    userMessageIds,
+    anchorUserMessageId: userMessageIds.at(-1) ?? null,
+  };
 }
 
-export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select id from v2.space_sessions where id = ${job.sessionId} for update`);
+async function claimQueuedTurns(tx: Transaction, queued: TurnRow[]): Promise<ClaimedTurnBatch | null> {
+  const owner = queued.at(-1);
+  if (!owner) throw new Error("queued turns are required");
+  const merged = queued.slice(0, -1);
+  const executionBatch = createExecutionBatch(queued);
 
-    const requestedRows = await tx.execute(sql`
-      select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
-      from v2.session_turns
-      where id = any(${toPgUuidArrayParam(job.turnIds)}::uuid[])
-      order by sequence asc
+  const ownerMeta = { ...asRecord(owner.meta), executionBatch };
+  const updatedRows = await tx.execute(sql`
+    update v2.session_turns
+    set status = 'running',
+        started_at = coalesce(started_at, now()),
+        updated_at = now(),
+        meta = ${JSON.stringify(ownerMeta)}::jsonb
+    where id = ${owner.id} and status = 'queued'
+    returning id
+  `);
+  if (updatedRows.length === 0) return null;
+
+  for (const turn of merged) {
+    const mergedRows = await tx.execute(sql`
+      update v2.session_turns
+      set status = 'merged',
+          stop_reason = 'merged',
+          summary = ${JSON.stringify({ finishReason: "merged", reason: "merge", mergedIntoTurnId: owner.id })}::jsonb,
+          meta = coalesce(meta, '{}'::jsonb) || ${JSON.stringify({ mergedIntoTurnId: owner.id, mergedAt: new Date().toISOString() })}::jsonb,
+          completed_at = now(),
+          updated_at = now()
+      where id = ${turn.id} and status = 'queued'
+      returning id
     `);
-    const requested = requestedRows.map((row) => normalizeTurn(row as Record<string, unknown>));
-    if (requested.length === 0) return { kind: "noop" as const };
+    if (mergedRows.length === 0) throw new Error(`failed to merge queued turn ${turn.id}`);
+  }
 
-    const requestedNonTerminal = requested.filter((turn) => !TERMINAL.has(turn.status));
-    const requestedMaxSequence = requested.reduce((max, turn) => Math.max(max, turn.sequence), 0);
-    if (requestedNonTerminal.length === 0) {
-      const ownerId = requested
-        .map((turn) => asRecord(turn.meta).mergedIntoTurnId)
-        .find((value): value is string => typeof value === "string" && value.trim().length > 0);
-      if (ownerId) {
-        const ownerRows = await tx.execute(sql`
-          select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
-          from v2.session_turns
-          where id = ${ownerId}
-          limit 1
-        `);
-        const owner = ownerRows[0] ? normalizeTurn(ownerRows[0] as Record<string, unknown>) : null;
-        if (owner && isActiveStatus(owner.status)) {
-          if (isStaleActiveTurn(owner)) {
-            await markStaleTurnInterrupted(tx, owner);
-            return { kind: "noop" as const };
-          }
-          const batch = getExecutionBatch(owner);
-          if (batch?.turnIds.some((turnId) => job.turnIds.includes(turnId))) {
-            const rows = await selectTurnsByIds(batch.turnIds);
-            return {
-              kind: "claimed" as const,
-              batch: {
-                ownerTurn: owner,
-                turns: rows,
-                mergedTurns: rows.filter((turn) => turn.id !== owner.id),
-                executionBatch: batch,
-              },
-            };
-          }
-        }
-      }
-      return { kind: "noop" as const };
-    }
+  const updatedOwner = { ...owner, status: "running", meta: ownerMeta, updatedAt: new Date() };
+  return {
+    ownerTurn: updatedOwner,
+    turns: [...merged, updatedOwner],
+    mergedTurns: merged,
+    executionBatch,
+  };
+}
+
+export async function claimNextTurnBatch(input: Pick<AgentTurnJobData, "sessionId">): Promise<ClaimResult> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select id from v2.space_sessions where id = ${input.sessionId} for update`);
 
     const activeRows = await tx.execute(sql`
       select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
-      where session_id = ${job.sessionId} and status in ('running', 'abort_requested')
+      where session_id = ${input.sessionId} and status in ('running', 'abort_requested')
       order by sequence asc
       limit 1
     `);
@@ -194,100 +168,51 @@ export async function claimTurnBatch(job: AgentTurnJobData): Promise<ClaimResult
       if (isStaleActiveTurn(active)) {
         await markStaleTurnInterrupted(tx, active);
       } else {
-        const batch = getExecutionBatch(active);
-        if (batch?.turnIds.some((turnId) => job.turnIds.includes(turnId))) {
-          const rows = await selectTurnsByIds(batch.turnIds);
-          return {
-            kind: "claimed" as const,
-            batch: {
-              ownerTurn: active,
-              turns: rows,
-              mergedTurns: rows.filter((turn) => turn.id !== active.id),
-              executionBatch: batch,
-            },
-          };
-        }
         return { kind: "busy" as const, activeTurnId: active.id, activeUpdatedAt: active.updatedAt, activeStatus: active.status };
       }
     }
 
-    const queuedRows = await tx.execute(sql`
+    const steerRows = await tx.execute(sql`
       select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
       from v2.session_turns
-      where session_id = ${job.sessionId} and status = 'queued' and sequence <= ${requestedMaxSequence}
+      where session_id = ${input.sessionId} and status = 'queued' and intent = 'steer'
+      order by updated_at asc, sequence asc
+      limit 1
+    `);
+    const steer = steerRows[0] ? normalizeTurn(steerRows[0] as Record<string, unknown>) : null;
+    if (steer) {
+      const batch = await claimQueuedTurns(tx, [steer]);
+      return batch ? { kind: "claimed" as const, batch } : { kind: "noop" as const };
+    }
+
+    const followupRows = await tx.execute(sql`
+      select id, session_id, user_uuid, sequence, status, intent, user_content, user_text, meta, updated_at
+      from v2.session_turns
+      where session_id = ${input.sessionId} and status = 'queued' and intent = 'followup'
       order by sequence asc
     `);
-    let queued = queuedRows.map((row) => normalizeTurn(row as Record<string, unknown>));
-    const requestedHasSteer = requestedNonTerminal.some((turn) => turn.intent === "steer");
-    if (requestedHasSteer) {
-      const requestedIds = new Set(job.turnIds);
-      queued = queued.filter((turn) => requestedIds.has(turn.id));
-    } else {
-      queued = queued.filter((turn) => turn.intent === "followup");
-    }
-    if (queued.length === 0) return { kind: "noop" as const };
+    const followups = followupRows.map((row) => normalizeTurn(row as Record<string, unknown>));
+    if (followups.length === 0) return { kind: "noop" as const };
 
-    const owner = queued[queued.length - 1];
-    if (!owner) return { kind: "noop" as const };
-    const merged = queued.slice(0, -1);
-    const userMessageIds = queued.map(getUserMessageId).filter((value): value is string => Boolean(value));
-    const executionBatch: ExecutionBatchMeta = {
-      ownerTurnId: owner.id,
-      turnIds: queued.map((turn) => turn.id),
-      mergedTurnIds: merged.map((turn) => turn.id),
-      userMessageIds,
-      anchorUserMessageId: userMessageIds.at(-1) ?? null,
-    };
-
-    for (const turn of merged) {
-      await tx.execute(sql`
-        update v2.session_turns
-        set status = 'merged',
-            stop_reason = 'merged',
-            summary = ${JSON.stringify({ finishReason: "merged", reason: "merge", mergedIntoTurnId: owner.id })}::jsonb,
-            meta = coalesce(meta, '{}'::jsonb) || ${JSON.stringify({ mergedIntoTurnId: owner.id, mergedAt: new Date().toISOString() })}::jsonb,
-            completed_at = now(),
-            updated_at = now()
-        where id = ${turn.id}
-      `);
-    }
-
-    const ownerMeta = { ...asRecord(owner.meta), executionBatch };
-    await tx.execute(sql`
-      update v2.session_turns
-      set status = 'running',
-          started_at = coalesce(started_at, now()),
-          updated_at = now(),
-          meta = ${JSON.stringify(ownerMeta)}::jsonb
-      where id = ${owner.id}
-    `);
-
-    const updatedOwner = { ...owner, status: "running", meta: ownerMeta, updatedAt: new Date() };
-    return {
-      kind: "claimed" as const,
-      batch: {
-        ownerTurn: updatedOwner,
-        turns: [...merged, updatedOwner],
-        mergedTurns: merged,
-        executionBatch,
-      },
-    };
+    const batch = await claimQueuedTurns(tx, followups);
+    return batch ? { kind: "claimed" as const, batch } : { kind: "noop" as const };
   });
 }
 
-export async function enqueueNextQueuedTurn(input: { spaceId: string; sessionId: string; enqueue: (data: AgentTurnJobData) => Promise<unknown> }) {
+export async function enqueueNextRunnableTurn(input: { spaceId: string; sessionId: string; enqueue: (data: AgentTurnJobData) => Promise<unknown> }) {
   const rows = await db.execute(sql`
     select id
     from v2.session_turns
-    where session_id = ${input.sessionId} and status = 'queued' and intent = 'followup'
-    order by sequence asc
+    where session_id = ${input.sessionId} and status = 'queued' and intent in ('steer', 'followup')
+    order by case when intent = 'steer' then 0 else 1 end, updated_at asc, sequence asc
+    limit 1
   `);
-  const ids = rows
+  const turnId = rows
     .map((row) => (row as Record<string, unknown>).id)
-    .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
-  if (ids.length === 0) return null;
-  await input.enqueue({ spaceId: input.spaceId, sessionId: input.sessionId, turnIds: ids });
-  return ids[0] ?? null;
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (!turnId) return null;
+  await input.enqueue({ spaceId: input.spaceId, sessionId: input.sessionId, reason: "drain" });
+  return turnId;
 }
 
 export function buildUserMessagesForBatch(batch: ClaimedTurnBatch) {

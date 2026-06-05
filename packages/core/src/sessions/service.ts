@@ -6,7 +6,6 @@ import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "../content/sanitize.js";
 import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
-import type { ExecutionGrantService } from "../security/index.js";
 import { recomputeSpaceWsUsers } from "../spaces/index.js";
 import { submitSessionPrompt, type ExpandedPromptTemplate, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
 
@@ -33,11 +32,10 @@ export type AgentTurnQueue = {
   enqueue(input: {
     spaceId: string;
     sessionId: string;
-    turnIds: string[];
-    executionAuth?: { token: string; expiresAt: number } | null;
+    reason?: "prompt" | "steer" | "drain" | "retry" | "recovery";
     requestId?: string | null;
     trace?: Record<string, unknown>;
-    jobId: string;
+    jobId?: string;
   }): Promise<unknown>;
 };
 
@@ -67,7 +65,6 @@ const deriveMessagePreviewText = (input: { content: ContentBlock[] }) => input.c
 export function createSessionServices(input: {
   db: DrizzleDb;
   redis: RedisClient;
-  executionGrantService: ExecutionGrantService;
   promptTemplateService: PromptTemplateService;
   sandboxRecovery?: {
     maybeRecoverForPrompt(input: {
@@ -247,7 +244,6 @@ export function createSessionServices(input: {
       }).catch((error) => logger.warn(`[AgentTurn] failed to publish abort for turn=${activeTurn.id}:`, error));
     }
 
-    const executionAuth = promptInput.meta.executionAuth as { token: string; expiresAt: number } | undefined;
     const metaContext = promptInput.meta.context && typeof promptInput.meta.context === "object" && !Array.isArray(promptInput.meta.context)
       ? promptInput.meta.context as Record<string, unknown>
       : null;
@@ -259,11 +255,9 @@ export function createSessionServices(input: {
     await input.agentTurnQueue.enqueue({
       spaceId: promptInput.spaceId,
       sessionId: promptInput.sessionId,
-      turnIds: [promptInput.turnId],
-      executionAuth,
+      reason: dispatchIntent === "steer" ? "steer" : "prompt",
       requestId: requestId ?? null,
       trace: injectTrace(),
-      jobId: `agent-turn-${promptInput.turnId}`,
     });
   }
 
@@ -271,7 +265,6 @@ export function createSessionServices(input: {
     return submitSessionPrompt({
       randomUUID,
       expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
-      createExecutionGrant: ({ actorUserId, spaceId, sessionId, source }) => input.executionGrantService.createExecutionGrant({ actorUserId, spaceId, sessionId, source }),
       createSessionTurn,
       enqueueSpacePrompt,
       failSessionTurn,

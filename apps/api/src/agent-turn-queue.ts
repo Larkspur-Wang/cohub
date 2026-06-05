@@ -9,8 +9,7 @@ export const AGENT_SESSION_FORK_JOB_NAME = "agent_session_fork";
 export type AgentTurnJobData = {
   spaceId: string;
   sessionId: string;
-  turnIds: string[];
-  executionAuth?: { token: string; expiresAt: number } | null;
+  reason?: "prompt" | "steer" | "drain" | "retry" | "recovery";
   requestId?: string | null;
   trace?: Record<string, unknown>;
 };
@@ -37,14 +36,12 @@ export async function enqueueAgentTurnJob(
   data: AgentTurnJobData,
   options: JobsOptions = {},
 ) {
-  const firstTurnId = data.turnIds[0];
-  if (!firstTurnId) throw new Error("turnIds is required");
   return agentTurnQueue.add(AGENT_TURN_JOB_NAME, data, {
-    jobId: `agent-turn-${firstTurnId}`,
+    jobId: `agent-session-wakeup-${data.sessionId}`,
     attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
-    removeOnComplete: { age: 24 * 3600, count: 10_000 },
-    removeOnFail: { age: 7 * 24 * 3600 },
+    removeOnComplete: true,
+    removeOnFail: true,
     ...options,
   });
 }

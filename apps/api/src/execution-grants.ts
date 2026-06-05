@@ -4,8 +4,7 @@ import { createExecutionGrantService } from "@cohub/core/security";
 export type { ExecutionGrantPayload } from "@cohub/core/security";
 
 const executionGrantService = createExecutionGrantService({
-  signingKey: config.executionGrantSigningKey,
+  signingKey: config.appEncryptionKey,
 });
 
-export const createExecutionGrant = executionGrantService.createExecutionGrant;
 export const verifyExecutionGrant = executionGrantService.verifyExecutionGrant;

@@ -15,6 +15,7 @@ import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { logger } from "./logger.js";
 import type { AgentRunCommandJobData } from "./queue.js";
+import { createAgentExecutionToken } from "./execution-grants.js";
 
 const tools = createSandboxCodingTools();
 const tracer = getAgentTracer();
@@ -88,6 +89,16 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
   const toolCallId = `run_command_${randomUUID()}`;
   const timeout = clampTimeout(data.timeout);
   const contextSessionId = data.origin?.sessionId ?? data.sessionId ?? "";
+  const actorUserId = data.userId?.trim();
+  const executionToken = actorUserId
+    ? await createAgentExecutionToken({
+        actorUserId,
+        spaceId: data.spaceId,
+        sessionId: contextSessionId || null,
+        turnId: data.origin?.turnId ?? null,
+        source: "run_command",
+      })
+    : null;
   let latestOutput = "";
   let lastProgressAt = 0;
   let lastProgressSignature = "";
@@ -128,7 +139,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
     sessionId: contextSessionId,
     turnId: data.origin?.turnId,
     actorUserId: data.userId ?? null,
-    executionToken: data.executionToken ?? null,
+    executionToken,
     generationPolicy: data.generationPolicy ?? null,
     llmRound: 0,
     toolCallId,

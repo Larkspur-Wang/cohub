@@ -55,6 +55,7 @@ export const EnvSchema = z.object({
   ENV: z.enum(["dev", "prod"]).default("dev"),
   AGENT_VERSION: z.string().optional(),
   WORKER_SECRET: z.string().optional(),
+  APP_ENCRYPTION_KEY: z.string().min(1),
   SESSIONS_NAMESPACE: z.string().min(1),
 });
 

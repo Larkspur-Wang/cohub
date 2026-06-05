@@ -10,7 +10,6 @@ import { RUN_COMMAND_TASK_TYPE, RUN_COMMAND_TIMEOUT_SECONDS, MAX_RUN_COMMAND_TIM
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
-import { createExecutionGrantService } from "@cohub/core/security";
 import { config } from "../config.js";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
@@ -18,10 +17,8 @@ import { registerTask } from "./registry.js";
 
 const agentQueue = createAgentTurnsQueue<AgentRunCommandJobData, AgentRunCommandJobResult>(config.bullmqRedisUrl, "cohub-worker-run-command");
 const BACKGROUND_BASH_TASK_SOURCE = "background_bash_task";
-const executionGrantService = createExecutionGrantService({ signingKey: config.executionGrantSigningKey });
 
 const sessionPromptService = getSessionDomainServices({
-  executionGrantService,
   promptTemplateService: getPromptTemplateService(),
 });
 
@@ -166,15 +163,6 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
 
   const taskRunId = getJobId(job);
   const userId = payload.userId?.trim() || null;
-  const commandSessionId = origin?.sessionId ?? payload.sessionId ?? null;
-  const executionGrant = userId && commandSessionId
-    ? await executionGrantService.createExecutionGrant({
-        actorUserId: userId,
-        spaceId,
-        sessionId: commandSessionId,
-        source: notify?.source ?? RUN_COMMAND_TASK_TYPE,
-      })
-    : null;
   const agentJob = await enqueueAgentRunCommandJob(agentQueue, {
     spaceId,
     sessionId: payload.sessionId ?? null,
@@ -183,7 +171,6 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
     cwd,
     ...(timeout !== undefined ? { timeout } : {}),
     ...(userId ? { userId } : {}),
-    ...(executionGrant?.token ? { executionToken: executionGrant.token } : {}),
     ...(generationPolicy ? { generationPolicy } : {}),
     requestId: origin?.requestId ?? null,
     origin,
