@@ -82,6 +82,7 @@ function createHandle(session: FakeSession): SessionHandle {
     turnTracer: getAgentTracer(),
     currentTurnId: null,
     currentTurnSeq: null,
+    currentExecutionTurnIds: new Set(),
     currentTurnPatchSeq: null,
     currentAssistantMessageOrdinal: null,
     currentStreamMessageId: null,

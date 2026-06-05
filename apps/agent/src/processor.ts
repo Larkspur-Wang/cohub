@@ -203,6 +203,7 @@ function clearActiveTurnContext(handle: SessionHandle, sessionId: string) {
   handle.currentLlmRound = null;
   handle.currentTurnId = null;
   handle.currentTurnSeq = null;
+  handle.currentExecutionTurnIds.clear();
   handle.currentTurnPatchSeq = null;
   handle.currentAssistantMessageOrdinal = null;
   handle.currentStreamMessageId = null;
@@ -740,6 +741,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         userMeta: ownerMeta,
         llmRound: 0,
       });
+      handle.currentExecutionTurnIds = new Set(batch.executionBatch.turnIds);
       await drainStreamStateBeforeReset(handle);
       resetStreamState(handle);
 

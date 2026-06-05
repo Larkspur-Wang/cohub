@@ -108,6 +108,7 @@ export type SessionHandle = {
   turnTracer: ReturnType<typeof getAgentTracer>;
   currentTurnId?: string | null;
   currentTurnSeq?: number | null;
+  currentExecutionTurnIds: Set<string>;
   currentTurnPatchSeq?: number | null;
   currentAssistantMessageOrdinal?: number | null;
   currentStreamMessageId?: string | null;
@@ -772,7 +773,8 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         const pending = handle.pendingUserMessages.shift();
         if (pending) {
           const nextTurnId = pending.turnId ?? (typeof pending.meta?.turnId === "string" ? pending.meta.turnId : null);
-          if (previousTurnId && nextTurnId && previousTurnId !== nextTurnId) {
+          const sameExecutionBatch = previousTurnId && nextTurnId && handle.currentExecutionTurnIds.has(previousTurnId) && handle.currentExecutionTurnIds.has(nextTurnId);
+          if (previousTurnId && nextTurnId && previousTurnId !== nextTurnId && !sameExecutionBatch) {
             void interruptSessionTurn({
               spaceId: handle.spaceId,
               sessionId: handle.sessionId,
@@ -997,6 +999,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       handle.currentLlmRound = null;
       handle.currentTurnId = null;
       handle.currentTurnSeq = null;
+      handle.currentExecutionTurnIds.clear();
       handle.currentTurnPatchSeq = null;
       handle.currentAssistantMessageOrdinal = null;
       handle.currentStreamMessageId = null;
@@ -1098,6 +1101,7 @@ export async function loadOrCreateSessionHandle(input: {
     turnTracer: getAgentTracer(),
     currentTurnId: null,
     currentTurnSeq: null,
+    currentExecutionTurnIds: new Set(),
     currentTurnPatchSeq: null,
     currentAssistantMessageOrdinal: null,
     currentStreamMessageId: null,
