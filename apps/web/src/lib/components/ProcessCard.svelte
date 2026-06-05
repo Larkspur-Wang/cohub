@@ -162,6 +162,10 @@ const startingLabel = $derived(
 		: "",
 );
 const runtimeLabel = $derived(waitingLabel || startingLabel);
+const runtimeDisplayLabel = $derived(runtimeLabel ? `${runtimeLabel}...` : "");
+const isRuntimeOnly = $derived(
+	Boolean(runtimeLabel && messageCount === 0 && toolCallCount === 0),
+);
 const labelParts = $derived(
 	[
 		messageCount > 0
@@ -186,10 +190,16 @@ const summaryLabel = $derived(
 </script>
 
 {#if !expanded}
-	<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()} title={usageTitle || undefined}>
-		{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-		<span class="text-[13px] text-text-tertiary tabular-nums">{summaryLabel}</span>
-	</button>
+	{#if isRuntimeOnly}
+		<div class="px-2 py-1.5">
+			<GenerationRuntimeStatusRow label={runtimeDisplayLabel} compact />
+		</div>
+	{:else}
+		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()} title={usageTitle || undefined}>
+			{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
+			<span class="text-[13px] text-text-tertiary tabular-nums">{summaryLabel}</span>
+		</button>
+	{/if}
 {:else}
 	<div class="flex flex-col gap-0">
 		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md" onclick={() => void toggle()} title={usageTitle || undefined}>
@@ -207,7 +217,7 @@ const summaryLabel = $derived(
 			{/each}
 			{#if runtimeLabel}
 				<div class="pl-5">
-					<GenerationRuntimeStatusRow label={runtimeLabel} />
+					<GenerationRuntimeStatusRow label={runtimeDisplayLabel} />
 				</div>
 			{/if}
 		</div>
