@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.23.1
+
+### Patch Changes
+
+- Expose generation waiting lifecycle updates and refine runtime status rendering.
+
 ## 1.23.0
 
 ### Minor Changes
