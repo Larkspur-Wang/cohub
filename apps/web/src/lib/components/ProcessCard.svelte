@@ -156,19 +156,25 @@ const waitingLabel = $derived(
 			: "waiting model"
 		: "",
 );
+const startingLabel = $derived(
+	streaming && !waitingLabel && effectiveMessages.length === 0
+		? "starting agent"
+		: "",
+);
+const runtimeLabel = $derived(waitingLabel || startingLabel);
 const labelParts = $derived(
 	[
 		messageCount > 0
 			? `${messageCount} step${messageCount > 1 ? "s" : ""}`
-			: waitingLabel
+			: runtimeLabel
 				? ""
 				: streaming
-					? "Starting agent"
+					? "starting agent"
 					: "",
 		toolCallCount > 0
 			? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}`
 			: "",
-		waitingLabel,
+		runtimeLabel,
 		usageBreakdownLabel ||
 			(usageTokens > 0 ? `${formatTokenCount(usageTokens)} tokens` : ""),
 		durationLabel,
@@ -199,9 +205,9 @@ const summaryLabel = $derived(
 			{#each expandedMessages as msg (msg.id)}
 				<IntermediateMessageBubble message={msg} streaming={streaming} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} {onOpenFile} />
 			{/each}
-			{#if runtimePhase === 'llm_call_started'}
+			{#if runtimeLabel}
 				<div class="pl-5">
-					<GenerationRuntimeStatusRow model={runtimeModel} />
+					<GenerationRuntimeStatusRow label={runtimeLabel} />
 				</div>
 			{/if}
 		</div>

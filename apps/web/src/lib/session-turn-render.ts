@@ -217,8 +217,15 @@ export function buildTurnTimelineItems(input: {
 				input.streaming?.intermediateMessages ?? [];
 			const showRuntimeStatus =
 				input.streaming?.runtimePhase === "llm_call_started";
+			const showStartingStatus =
+				input.streaming?.status === "pending" &&
+				(input.streaming?.contentBlocks.length ?? 0) === 0;
 			streamingProcessInserted = true;
-			if (processIntermediateMessages.length > 0 || showRuntimeStatus) {
+			if (
+				processIntermediateMessages.length > 0 ||
+				showRuntimeStatus ||
+				showStartingStatus
+			) {
 				const summary = {
 					messageCount: processIntermediateMessages.length,
 					toolCallCount: processIntermediateMessages.reduce(
@@ -295,7 +302,14 @@ export function buildTurnTimelineItems(input: {
 			input.streaming?.intermediateMessages ?? [];
 		const showRuntimeStatus =
 			input.streaming?.runtimePhase === "llm_call_started";
-		if (processIntermediateMessages.length > 0 || showRuntimeStatus) {
+		const showStartingStatus =
+			input.streaming?.status === "pending" &&
+			(input.streaming?.contentBlocks.length ?? 0) === 0;
+		if (
+			processIntermediateMessages.length > 0 ||
+			showRuntimeStatus ||
+			showStartingStatus
+		) {
 			items.push({
 				id: `turn:${turn.id}:process:streaming`,
 				kind: "process",
@@ -318,11 +332,7 @@ export function buildTurnTimelineItems(input: {
 		}
 	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
-	const showWaitingModel = input.streaming?.runtimePhase === "llm_call_started";
-	const showPendingPlaceholder =
-		input.streaming?.status === "pending" &&
-		streamingBlocks.length === 0 &&
-		!showWaitingModel;
+	const showPendingPlaceholder = false;
 	if (streamingBlocks.length > 0 || showPendingPlaceholder) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.anchorUserMessageId ?? null,
