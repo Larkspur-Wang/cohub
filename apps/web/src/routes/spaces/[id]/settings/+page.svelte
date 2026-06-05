@@ -105,6 +105,11 @@ let sandboxIdleTtlSeconds = $state(defaultIdleTtlSeconds);
 let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
+let homepageDefaultTab = $state<"overview" | "readme">("readme");
+let homepageReadmePath = $state("README.md");
+let homepageSaving = $state(false);
+let homepageMessage = $state("");
+let homepageError = $state("");
 
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
@@ -130,6 +135,38 @@ function applySandboxConfigFromSpace(record: SpaceRecord | null) {
 	sandboxAutoDestroyMode = policy.mode;
 	sandboxIdleTtlSeconds =
 		policy.mode === "idle" ? policy.ttlSeconds : defaultIdleTtlSeconds;
+}
+
+function applyHomepageConfigFromSpace(record: SpaceRecord | null) {
+	const landing = record?.publicProfile?.landing;
+	homepageDefaultTab =
+		landing?.defaultTab === "overview" || landing?.defaultTab === "readme"
+			? landing.defaultTab
+			: "readme";
+	homepageReadmePath = landing?.readmePath?.trim() || "README.md";
+}
+
+async function saveHomepageConfig() {
+	homepageSaving = true;
+	homepageMessage = "";
+	homepageError = "";
+	try {
+		const result = await sdk.space(spaceId).profile({
+			landing: {
+				defaultTab: homepageDefaultTab,
+				readmePath: homepageReadmePath.trim() || "README.md",
+			},
+		});
+		space = result.space;
+		cacheSpaceRecordSoon(result.space);
+		applyHomepageConfigFromSpace(result.space);
+		homepageMessage = "Homepage settings saved.";
+	} catch (err) {
+		homepageError =
+			err instanceof Error ? err.message : "Failed to save homepage settings";
+	} finally {
+		homepageSaving = false;
+	}
 }
 
 function formatTtl(seconds: number): string {
@@ -374,6 +411,7 @@ async function loadPage() {
 		sandbox = sandboxResult?.sandbox ?? null;
 		invitations = invitationResult.items;
 		applySandboxConfigFromSpace(spaceResult);
+		applyHomepageConfigFromSpace(spaceResult);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to load settings";
 	} finally {
@@ -731,6 +769,34 @@ $effect(() => {
 			{:else if error}
 				<div class="rounded-[8px] border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
 			{:else}
+				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
+					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+						<div class="flex min-w-0 items-center gap-2.5">
+							<Globe class="h-4 w-4 text-text-tertiary" />
+							<div class="min-w-0">
+								<div class="text-[15px] font-medium text-text-primary">Homepage</div>
+								<div class="text-[12px] text-text-tertiary">Default tab for visitors and README display.</div>
+							</div>
+						</div>
+						<button type="button" onclick={saveHomepageConfig} disabled={homepageSaving} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{homepageSaving ? 'Saving…' : 'Save homepage'}</button>
+					</div>
+					<div class="space-y-3 p-4 sm:p-5">
+						<div class="grid gap-3 sm:grid-cols-2">
+							<label class="block rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+								<span class="text-[12px] font-medium text-text-secondary">Default tab</span>
+								<select bind:value={homepageDefaultTab} class="mt-2 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="readme">README</option><option value="overview">Overview</option></select>
+							</label>
+							<label class="block rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+								<span class="text-[12px] font-medium text-text-secondary">README path</span>
+								<input bind:value={homepageReadmePath} placeholder="README.md" class="mt-2 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+							</label>
+						</div>
+						<p class="text-[12px] leading-5 text-text-tertiary">README is rendered as a public home tab with Markdown, local images, and video files. Settings remain available only to users with edit access.</p>
+						{#if homepageError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{homepageError}</div>{/if}
+						{#if homepageMessage}<div class="rounded-[6px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{homepageMessage}</div>{/if}
+					</div>
+				</section>
+
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
 					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
 						<div class="flex min-w-0 items-center gap-2.5">
