@@ -62,7 +62,7 @@ import type {
   CanvasBootstrapResponse,
   CanvasCreateInput,
   CanvasDocumentRecord,
-  CanvasNodeInput,
+  CanvasTransactionInput,
 } from "../types.js";
 import { SpaceInvitationsApi } from "./invitations.js";
 
@@ -96,7 +96,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "canvas.tx.applied" | "canvas.tx.ack" | "canvas.tx.error" | "task.created" | "task.updated" | "event";
 
 type SessionSendMessageInput = {
   content: ContentBlock[];
@@ -797,6 +797,18 @@ export class SpaceEventsApi {
         handler(event);
         return;
       }
+      if (type === "canvas.tx.applied" && event.type === "canvas.tx.applied") {
+        handler(event);
+        return;
+      }
+      if (type === "canvas.tx.ack" && event.type === "canvas.tx.ack") {
+        handler(event);
+        return;
+      }
+      if (type === "canvas.tx.error" && event.type === "canvas.tx.error") {
+        handler(event);
+        return;
+      }
       if (type === "task.created" && event.type === "task.created") {
         handler(event);
         return;
@@ -1211,16 +1223,17 @@ export class SpaceCanvasApi {
     );
   }
 
-  replaceNodes(documentId: string, nodes: CanvasNodeInput[], input?: { clientId?: string; undoGroupId?: string }) {
+  sendTransaction(documentId: string, input: CanvasTransactionInput) {
     return this.transport.request<CanvasBootstrapResponse>(
-      `/api/spaces/${this.spaceId}/canvas/${documentId}/nodes`,
+      `/api/spaces/${this.spaceId}/canvas/${documentId}/ops`,
       {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nodes, ...input }),
+        body: JSON.stringify(input),
       },
     );
   }
+
 }
 
 export class SpaceCheckpointsApi {
@@ -1318,6 +1331,47 @@ export class SpaceClient {
 
   rename(name: string) {
     return this.update({ name });
+  }
+
+  async sendCanvasTransactionRealtime(documentId: string, input: CanvasTransactionInput) {
+    if (!this.websocketClient) return this.canvas.sendTransaction(documentId, input);
+    const requestId = `canvas-${input.txId}`;
+    const result = new Promise<{ document: { version: number } }>((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        if (timeout) clearTimeout(timeout);
+        cleanupAck?.();
+        cleanupError?.();
+        fn();
+      };
+      const cleanupAck = this.websocketClient?.on("event", (event) => {
+        if (event.type !== "canvas.tx.ack" || event.requestId !== requestId) return;
+        const version = event.payload.version;
+        settle(() => {
+          if (typeof version === "number") resolve({ document: { version } });
+          else reject(new Error("Invalid canvas ack"));
+        });
+      });
+      const cleanupError = this.websocketClient?.on("event", (event) => {
+        if (event.type !== "canvas.tx.error" || event.requestId !== requestId) return;
+        settle(() => reject(new Error(typeof event.payload.message === "string" ? event.payload.message : "Canvas sync failed")));
+      });
+      timeout = setTimeout(() => settle(() => reject(new Error("Canvas sync timed out"))), 15_000);
+    });
+    await this.websocketClient.sendCanvasTransaction({
+      spaceId: this.id,
+      documentId,
+      txId: input.txId,
+      baseVersion: input.baseVersion ?? null,
+      clientId: input.clientId ?? null,
+      undoGroupId: input.undoGroupId ?? null,
+      ops: input.ops,
+      requestId,
+    });
+    return result;
   }
 
   profile(body: { description?: string | null; avatarUrl?: string | null }) {

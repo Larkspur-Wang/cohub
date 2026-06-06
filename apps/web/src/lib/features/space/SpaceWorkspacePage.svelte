@@ -434,6 +434,7 @@ let inlineCanvas = $state<{
 	error: string | null;
 } | null>(null);
 let inlineCanvasRequestToken = $state(0);
+let inlineCanvasSyncVersion = $state<number | null>(null);
 const selectedFilePath = $derived(
 	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
 );
@@ -5948,6 +5949,7 @@ async function openInlineCanvas(path: string) {
 			inlineCanvas?.path !== path
 		)
 			return;
+		inlineCanvasSyncVersion = bootstrap.document.version;
 		inlineCanvas = {
 			path,
 			documentId: bootstrap.document.id,
@@ -5977,25 +5979,25 @@ function closeInlineCanvas() {
 	inlineCanvas = null;
 	closePreviewFocusMode();
 }
-async function saveInlineCanvas(document: CovasDocument) {
+async function commitInlineCanvas(
+	document: CovasDocument,
+	ops: import("@neta-art/cohub").CanvasSemanticOp[],
+) {
 	if (!inlineCanvas?.documentId) return;
 	const savingPath = inlineCanvas.path;
 	markFileSavePending(savingPath);
 	inlineCanvas.saving = true;
 	inlineCanvas.error = null;
 	try {
-		const saved = await sdk
+		const result = await sdk
 			.space(spaceId)
-			.canvas.replaceNodes(
-				inlineCanvas.documentId,
-				document.items.map(canvasItemToNode),
-			);
-		inlineCanvas = {
-			...inlineCanvas,
-			document: canvasBootstrapToDocument(saved),
-			saving: false,
-			error: null,
-		};
+			.sendCanvasTransactionRealtime(inlineCanvas.documentId, {
+				txId: crypto.randomUUID(),
+				baseVersion: inlineCanvasSyncVersion,
+				ops,
+			});
+		inlineCanvasSyncVersion = result.document.version;
+		inlineCanvas = { ...inlineCanvas, document, saving: false, error: null };
 	} catch (error) {
 		if (inlineCanvas) {
 			inlineCanvas = { ...inlineCanvas, saving: false };
@@ -6433,6 +6435,48 @@ onMount(() => {
 			}
 		})
 		.catch(() => undefined);
+	const offCanvasTxApplied = sdk
+		.space(spaceId)
+		.on("canvas.tx.applied", (event) => {
+			const payload = event.payload as {
+				documentId?: unknown;
+				version?: unknown;
+				actorId?: unknown;
+			};
+			if (
+				typeof payload.documentId !== "string" ||
+				payload.documentId !== inlineCanvas?.documentId
+			)
+				return;
+			if (inlineCanvas?.saving) return;
+			void sdk
+				.space(spaceId)
+				.canvas.bootstrap(payload.documentId)
+				.then((bootstrap) => {
+					if (
+						inlineCanvas?.documentId !== payload.documentId ||
+						!inlineCanvas ||
+						inlineCanvas.saving
+					)
+						return;
+					inlineCanvasSyncVersion = bootstrap.document.version;
+					inlineCanvas = {
+						...inlineCanvas,
+						document: canvasBootstrapToDocument(bootstrap),
+						saving: false,
+						error: null,
+					};
+				})
+				.catch((error) => {
+					if (inlineCanvas?.documentId !== payload.documentId || !inlineCanvas)
+						return;
+					inlineCanvas = {
+						...inlineCanvas,
+						error:
+							error instanceof Error ? error.message : "Failed to sync canvas",
+					};
+				});
+		});
 	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
 		({ spaceId: updatedSpaceId, runs }) => {
 			if (updatedSpaceId !== spaceId) return;
@@ -6539,6 +6583,7 @@ onMount(() => {
 	return () => {
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
+		offCanvasTxApplied();
 		offTaskRunsCacheUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
@@ -9111,7 +9156,7 @@ $effect(() => {
           saving={inlineCanvas.saving}
           focused={previewFocusMode}
           onToggleFocus={togglePreviewFocusMode}
-          onSave={(document) => saveInlineCanvas(document)}
+          onCommit={(document, ops) => commitInlineCanvas(document, ops)}
           onClose={closeInlineCanvas}
         />
       {:else}

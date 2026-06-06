@@ -28,7 +28,7 @@ const {
 }: {
 	document: CovasDocument;
 	selectedItemIds: string[];
-	onChange: (document: CovasDocument) => void;
+	onChange: (document: CovasDocument, options?: { commit?: boolean }) => void;
 	onSelect: (ids: string[]) => void;
 } = $props();
 
@@ -97,8 +97,12 @@ function getPalette(): CanvasRenderPalette {
 	};
 }
 
-function patchFrame(id: string, frame: CanvasFrame) {
-	onChange(moveCanvasItem(canvasDocument, id, frame));
+function patchFrame(
+	id: string,
+	frame: CanvasFrame,
+	options?: { commit?: boolean },
+) {
+	onChange(moveCanvasItem(canvasDocument, id, frame), options);
 }
 
 function updateViewport(next: CovasDocument["viewport"]) {
@@ -267,6 +271,7 @@ function handleDrop(event: DragEvent) {
 			canvasDocument,
 			createSpaceFileCanvasItem(path, point.x, point.y),
 		),
+		{ commit: true },
 	);
 }
 
@@ -298,11 +303,15 @@ onMount(async () => {
 		if (drag) {
 			const dx = (event.global.x - drag.startX) / viewport.zoom;
 			const dy = (event.global.y - drag.startY) / viewport.zoom;
-			patchFrame(drag.id, {
-				...drag.frame,
-				x: drag.frame.x + dx,
-				y: drag.frame.y + dy,
-			});
+			patchFrame(
+				drag.id,
+				{
+					...drag.frame,
+					x: drag.frame.x + dx,
+					y: drag.frame.y + dy,
+				},
+				{ commit: false },
+			);
 		} else if (panning) {
 			updateViewport({
 				...viewport,
@@ -312,10 +321,18 @@ onMount(async () => {
 		}
 	});
 	app.stage.on("pointerup", () => {
+		if (drag) {
+			const current = canvasDocument.items.find((item) => item.id === drag?.id);
+			if (current) patchFrame(current.id, current.frame, { commit: true });
+		}
 		drag = null;
 		panning = null;
 	});
 	app.stage.on("pointerupoutside", () => {
+		if (drag) {
+			const current = canvasDocument.items.find((item) => item.id === drag?.id);
+			if (current) patchFrame(current.id, current.frame, { commit: true });
+		}
 		drag = null;
 		panning = null;
 	});

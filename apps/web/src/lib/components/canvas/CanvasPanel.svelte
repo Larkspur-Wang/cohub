@@ -1,7 +1,12 @@
 <script lang="ts">
+import type { CanvasSemanticOp } from "@neta-art/cohub";
 import { onMount } from "svelte";
 import { deleteCanvasItem } from "$lib/canvas/actions/canvas-document-actions";
-
+import {
+	applyCanvasOps,
+	diffCanvasDocuments,
+	invertCanvasOps,
+} from "$lib/canvas/canvas-document";
 import { getCanvasTitle } from "$lib/canvas/canvas-file";
 import { clampZoom } from "$lib/canvas/canvas-geometry";
 import {
@@ -21,7 +26,7 @@ const {
 	saving = false,
 	focused = false,
 	onToggleFocus,
-	onSave,
+	onCommit,
 	onClose,
 }: {
 	path: string;
@@ -29,14 +34,20 @@ const {
 	saving?: boolean;
 	focused?: boolean;
 	onToggleFocus?: () => void;
-	onSave: (document: CovasDocument) => void | Promise<void>;
+	onCommit: (
+		document: CovasDocument,
+		ops: CanvasSemanticOp[],
+	) => void | Promise<void>;
 	onClose: () => void;
 } = $props();
 
 let documentState = $state<CovasDocument | null>(null);
+let baselineDocument = $state<CovasDocument | null>(null);
 let selectedItemIds = $state<string[]>([]);
 let dirty = $state(false);
 let saveError = $state<string | null>(null);
+let undoStack = $state<CanvasSemanticOp[][]>([]);
+let redoStack = $state<CanvasSemanticOp[][]>([]);
 
 const selectedItem = $derived.by<CanvasItem | null>(() => {
 	if (!documentState || selectedItemIds.length !== 1) return null;
@@ -47,14 +58,68 @@ const selectedItem = $derived.by<CanvasItem | null>(() => {
 
 function loadDocument(nextDocument: CovasDocument) {
 	documentState = nextDocument;
+	baselineDocument = nextDocument;
 	dirty = false;
 	selectedItemIds = [];
 }
 
-function updateDocument(next: CovasDocument) {
+function updateDocument(next: CovasDocument, options?: { commit?: boolean }) {
 	documentState = next;
 	dirty = true;
 	saveError = null;
+	if (options?.commit) void commit(next);
+}
+
+async function commit(
+	next = documentState,
+	options?: { recordUndo?: boolean },
+) {
+	if (!next || !baselineDocument) return;
+	const ops = diffCanvasDocuments(baselineDocument, next);
+	if (ops.length === 0) {
+		dirty = false;
+		return;
+	}
+	saveError = null;
+	try {
+		await onCommit(next, ops);
+		baselineDocument = next;
+		dirty = false;
+		if (options?.recordUndo !== false) {
+			undoStack = [...undoStack, ops];
+			redoStack = [];
+		}
+	} catch (error) {
+		saveError =
+			error instanceof Error ? error.message : "Failed to sync canvas";
+	}
+}
+
+function applyLocalOps(
+	ops: CanvasSemanticOp[],
+	options?: { recordUndo?: boolean },
+) {
+	if (!documentState) return;
+	const next = applyCanvasOps(documentState, ops);
+	documentState = next;
+	dirty = true;
+	void commit(next, options);
+}
+
+function undo() {
+	const ops = undoStack.at(-1);
+	if (!ops) return;
+	undoStack = undoStack.slice(0, -1);
+	redoStack = [...redoStack, ops];
+	applyLocalOps(invertCanvasOps(ops), { recordUndo: false });
+}
+
+function redo() {
+	const ops = redoStack.at(-1);
+	if (!ops) return;
+	redoStack = redoStack.slice(0, -1);
+	undoStack = [...undoStack, ops];
+	applyLocalOps(ops, { recordUndo: false });
 }
 
 function currentCenter() {
@@ -70,13 +135,16 @@ function addFile() {
 	const path = prompt("Space file path");
 	if (!path?.trim()) return;
 	const point = currentCenter();
-	updateDocument({
-		...documentState,
-		items: [
-			...documentState.items,
-			createSpaceFileCanvasItem(path.trim(), point.x, point.y),
-		],
-	});
+	updateDocument(
+		{
+			...documentState,
+			items: [
+				...documentState.items,
+				createSpaceFileCanvasItem(path.trim(), point.x, point.y),
+			],
+		},
+		{ commit: true },
+	);
 }
 
 function addUrl() {
@@ -90,13 +158,16 @@ function addUrl() {
 		return;
 	}
 	const point = currentCenter();
-	updateDocument({
-		...documentState,
-		items: [
-			...documentState.items,
-			createRemoteUrlCanvasItem(url.trim(), point.x, point.y),
-		],
-	});
+	updateDocument(
+		{
+			...documentState,
+			items: [
+				...documentState.items,
+				createRemoteUrlCanvasItem(url.trim(), point.x, point.y),
+			],
+		},
+		{ commit: true },
+	);
 }
 
 function addText() {
@@ -105,7 +176,10 @@ function addText() {
 	if (!text?.trim()) return;
 	const point = currentCenter();
 	const item = createTextCanvasItem(text.trim(), point.x, point.y);
-	updateDocument({ ...documentState, items: [...documentState.items, item] });
+	updateDocument(
+		{ ...documentState, items: [...documentState.items, item] },
+		{ commit: true },
+	);
 	selectedItemIds = [item.id];
 }
 
@@ -115,17 +189,20 @@ function editText(id: string) {
 	if (item?.type !== "text") return;
 	const next = prompt("Edit text", item.text);
 	if (next == null) return;
-	updateDocument({
-		...documentState,
-		items: documentState.items.map((candidate) =>
-			candidate.id === id ? { ...candidate, text: next } : candidate,
-		),
-	});
+	updateDocument(
+		{
+			...documentState,
+			items: documentState.items.map((candidate) =>
+				candidate.id === id ? { ...candidate, text: next } : candidate,
+			),
+		},
+		{ commit: true },
+	);
 }
 
 function deleteItem(id: string) {
 	if (!documentState) return;
-	updateDocument(deleteCanvasItem(documentState, id));
+	updateDocument(deleteCanvasItem(documentState, id), { commit: true });
 	selectedItemIds = selectedItemIds.filter((selectedId) => selectedId !== id);
 }
 
@@ -145,20 +222,7 @@ function fit() {
 	updateDocument({ ...documentState, viewport: { x: 0, y: 0, zoom: 1 } });
 }
 
-async function save() {
-	if (!documentState || !dirty) return;
-	saveError = null;
-	try {
-		await onSave(documentState);
-		dirty = false;
-	} catch (error) {
-		saveError =
-			error instanceof Error ? error.message : "Failed to save canvas";
-	}
-}
-
 function close() {
-	if (dirty && !confirm("Close canvas without saving changes?")) return;
 	onClose();
 }
 
@@ -181,9 +245,12 @@ $effect(() => {
     onZoomIn={() => zoomBy(1.15)}
     onZoomOut={() => zoomBy(0.85)}
     onFit={fit}
+    canUndo={undoStack.length > 0}
+    canRedo={redoStack.length > 0}
+    onUndo={undo}
+    onRedo={redo}
     {focused}
     {onToggleFocus}
-    onSave={() => void save()}
     onClose={close}
   />
 

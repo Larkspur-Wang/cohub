@@ -356,6 +356,32 @@ export class WebsocketClient {
     this.patchStreamBuffers.clear();
   }
 
+  async sendCanvasTransaction(input: {
+    spaceId: string;
+    documentId: string;
+    txId: string;
+    ops: Array<Record<string, unknown>>;
+    baseVersion?: number | null;
+    clientId?: string | null;
+    undoGroupId?: string | null;
+    requestId?: string;
+  }) {
+    await this.ensureOpen();
+    this.send({
+      type: "canvas.tx",
+      requestId: input.requestId,
+      payload: {
+        spaceId: input.spaceId,
+        documentId: input.documentId,
+        txId: input.txId,
+        baseVersion: input.baseVersion ?? null,
+        clientId: input.clientId ?? null,
+        undoGroupId: input.undoGroupId ?? null,
+        ops: input.ops,
+      },
+    });
+  }
+
   async sendMessage(input: {
     spaceId: string;
     sessionId: string;

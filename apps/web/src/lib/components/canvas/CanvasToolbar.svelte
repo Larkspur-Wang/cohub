@@ -8,8 +8,9 @@ import {
 	Minus,
 	MousePointer2,
 	Plus,
-	Save,
+	Redo2,
 	Type,
+	Undo2,
 	X,
 } from "lucide-svelte";
 
@@ -24,9 +25,12 @@ const {
 	onZoomIn,
 	onZoomOut,
 	onFit,
+	canUndo = false,
+	canRedo = false,
+	onUndo,
+	onRedo,
 	focused = false,
 	onToggleFocus,
-	onSave,
 	onClose,
 }: {
 	title: string;
@@ -39,9 +43,12 @@ const {
 	onZoomIn: () => void;
 	onZoomOut: () => void;
 	onFit: () => void;
+	canUndo?: boolean;
+	canRedo?: boolean;
+	onUndo?: () => void;
+	onRedo?: () => void;
 	focused?: boolean;
 	onToggleFocus?: () => void;
-	onSave: () => void;
 	onClose: () => void;
 } = $props();
 </script>
@@ -53,7 +60,7 @@ const {
     </div>
     <div class="min-w-0">
       <div class="truncate text-[12px] font-medium text-text-primary">{title}</div>
-      <div class="text-[10px] uppercase tracking-[0.12em] text-text-tertiary">{dirty ? "Unsaved" : "Canvas"}</div>
+      <div class="text-[10px] uppercase tracking-[0.12em] text-text-tertiary">{saving ? "Syncing" : dirty ? "Pending" : "Synced"}</div>
     </div>
   </div>
 
@@ -71,15 +78,15 @@ const {
       <span class="hidden sm:inline">Text</span>
     </button>
     <div class="mx-1 h-5 w-px bg-border-subtle"></div>
+    <button type="button" class="canvas-icon" onclick={onUndo} disabled={!canUndo} title="Undo"><Undo2 class="h-3.5 w-3.5" /></button>
+    <button type="button" class="canvas-icon" onclick={onRedo} disabled={!canRedo} title="Redo"><Redo2 class="h-3.5 w-3.5" /></button>
+    <div class="mx-1 h-5 w-px bg-border-subtle"></div>
     <button type="button" class="canvas-icon" onclick={onZoomOut} title="Zoom out"><Minus class="h-3.5 w-3.5" /></button>
     <span class="w-10 text-center text-[11px] tabular-nums text-text-tertiary">{Math.round(zoom * 100)}%</span>
     <button type="button" class="canvas-icon" onclick={onZoomIn} title="Zoom in"><Plus class="h-3.5 w-3.5" /></button>
     <button type="button" class="canvas-icon" onclick={onFit} title="Reset view"><LocateFixed class="h-3.5 w-3.5" /></button>
     <div class="mx-1 h-5 w-px bg-border-subtle"></div>
-    <button type="button" class="canvas-tool primary" onclick={onSave} disabled={saving || !dirty} title="Save canvas">
-      <Save class="h-3.5 w-3.5" />
-      <span>{saving ? "Saving" : "Save"}</span>
-    </button>
+    <span class="canvas-sync-state">{saving ? "Syncing" : dirty ? "Pending" : "Synced"}</span>
     {#if onToggleFocus}
       <button type="button" class="canvas-icon" onclick={onToggleFocus} title={focused ? "Exit preview focus" : "Focus preview"} aria-label={focused ? "Exit preview focus" : "Focus preview"}>
         {#if focused}
@@ -112,6 +119,16 @@ const {
   .canvas-icon { width: 1.75rem; padding: 0; }
   .canvas-tool:hover,
   .canvas-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .canvas-tool.primary { border-color: var(--brand-border); background: var(--brand-bg); color: var(--brand-muted-fg); }
   .canvas-tool:disabled { cursor: not-allowed; opacity: 0.45; }
+  .canvas-sync-state {
+    display: inline-flex;
+    align-items: center;
+    height: 1.75rem;
+    padding: 0 0.4rem;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
 </style>

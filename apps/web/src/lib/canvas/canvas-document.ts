@@ -2,6 +2,7 @@ import type {
 	CanvasDocumentRecord,
 	CanvasNodeInput,
 	CanvasNodeRecord,
+	CanvasSemanticOp,
 } from "@neta-art/cohub";
 import {
 	CANVAS_DOCUMENT_KIND,
@@ -162,4 +163,137 @@ export function canvasBootstrapToDocument(input: {
 		viewport: { x: 0, y: 0, zoom: 1 },
 		items: input.nodes.map(canvasNodeToItem),
 	});
+}
+
+function nodeInputToItem(node: CanvasNodeInput): CanvasItem {
+	return canvasNodeToItem({
+		documentId: "",
+		version: 0,
+		createdAt: null,
+		updatedAt: null,
+		deletedAt: null,
+		...node,
+	});
+}
+
+const sameJson = (a: unknown, b: unknown) =>
+	JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+function nodePatch(before: CanvasNodeInput, after: CanvasNodeInput) {
+	const patch: Record<string, unknown> = {};
+	const inverse: Record<string, unknown> = {};
+	const keys = [
+		"type",
+		"parentId",
+		"orderKey",
+		"x",
+		"y",
+		"width",
+		"height",
+		"rotation",
+		"refKind",
+		"refPath",
+		"refUrl",
+		"view",
+		"style",
+		"animation",
+		"data",
+	] as const;
+	for (const key of keys) {
+		if (!sameJson(before[key], after[key])) {
+			patch[key] = after[key] ?? null;
+			inverse[key] = before[key] ?? null;
+		}
+	}
+	return Object.keys(patch).length ? { patch, inverse } : null;
+}
+
+export function diffCanvasDocuments(
+	before: CovasDocument,
+	after: CovasDocument,
+): CanvasSemanticOp[] {
+	const beforeNodes = new Map(
+		before.items.map((item, index) => [item.id, canvasItemToNode(item, index)]),
+	);
+	const afterNodes = new Map(
+		after.items.map((item, index) => [item.id, canvasItemToNode(item, index)]),
+	);
+	const ops: CanvasSemanticOp[] = [];
+	for (const [nodeId, node] of afterNodes) {
+		const previous = beforeNodes.get(nodeId);
+		if (!previous) {
+			ops.push({ type: "node.create", payload: { node }, inverse: { nodeId } });
+			continue;
+		}
+		const diff = nodePatch(previous, node);
+		if (diff)
+			ops.push({
+				type: "node.patch",
+				payload: { nodeId, patch: diff.patch },
+				inverse: diff.inverse,
+			});
+	}
+	for (const [nodeId, node] of beforeNodes) {
+		if (!afterNodes.has(nodeId))
+			ops.push({ type: "node.delete", payload: { nodeId }, inverse: { node } });
+	}
+	return ops;
+}
+
+export function invertCanvasOps(ops: CanvasSemanticOp[]): CanvasSemanticOp[] {
+	return [...ops].reverse().map((op) => {
+		if (op.type === "node.create") {
+			const node = op.payload.node as CanvasNodeInput | undefined;
+			return {
+				type: "node.delete",
+				payload: { nodeId: node?.nodeId },
+				inverse: op.payload,
+			};
+		}
+		if (op.type === "node.delete") {
+			return {
+				type: "node.create",
+				payload: { node: op.inverse?.node },
+				inverse: op.payload,
+			};
+		}
+		return {
+			type: "node.patch",
+			payload: { nodeId: op.payload.nodeId, patch: op.inverse ?? {} },
+			inverse: op.payload.patch as Record<string, unknown>,
+		};
+	});
+}
+
+export function applyCanvasOps(
+	document: CovasDocument,
+	ops: CanvasSemanticOp[],
+): CovasDocument {
+	let items = [...document.items];
+	for (const op of ops) {
+		if (op.type === "node.create") {
+			const node = op.payload.node as CanvasNodeInput | undefined;
+			if (node && !items.some((item) => item.id === node.nodeId))
+				items = [...items, nodeInputToItem(node)];
+			continue;
+		}
+		if (op.type === "node.delete") {
+			const nodeId = op.payload.nodeId;
+			if (typeof nodeId === "string")
+				items = items.filter((item) => item.id !== nodeId);
+			continue;
+		}
+		const nodeId = op.payload.nodeId;
+		const patch = op.payload.patch as Partial<CanvasNodeInput> | undefined;
+		if (typeof nodeId !== "string" || !patch) continue;
+		items = items.map((item, index) => {
+			if (item.id !== nodeId) return item;
+			return nodeInputToItem({
+				...canvasItemToNode(item, index),
+				...patch,
+				nodeId,
+			});
+		});
+	}
+	return { ...document, items };
 }

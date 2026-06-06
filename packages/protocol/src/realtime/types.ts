@@ -9,6 +9,7 @@ export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
 export type WsClientEvent =
   | { type: "auth"; requestId?: string; payload: { token: string; capabilities?: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string } }
+  | { type: "canvas.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
 
@@ -353,6 +354,53 @@ export type SpacePortsChangedEvent = {
   payload: SpacePortsChangedPayload;
 };
 
+export type CanvasTransactionAppliedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "canvas.tx.applied";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+  payload: {
+    documentId: string;
+    actorId: string;
+    txId: string;
+    version: number;
+    ops: Array<Record<string, unknown>>;
+  };
+};
+
+export type CanvasTransactionAckEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "canvas.tx.ack";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+  payload: {
+    documentId: string;
+    txId: string;
+    version: number;
+  };
+};
+
+export type CanvasTransactionErrorEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "canvas.tx.error";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: {
+    documentId?: string | null;
+    txId?: string | null;
+    message: string;
+  };
+};
+
 export type RealtimeTaskRecord = {
   id: string;
   type: string;
@@ -431,6 +479,9 @@ export type RealtimeServerEvent =
   | SessionMessagePersistedEvent
   | SpaceFsChangedEvent
   | SpacePortsChangedEvent
+  | CanvasTransactionAppliedEvent
+  | CanvasTransactionAckEvent
+  | CanvasTransactionErrorEvent
   | TaskCreatedEvent
   | TaskUpdatedEvent
   | LabelAssignmentsUpdatedEvent;

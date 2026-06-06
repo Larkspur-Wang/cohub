@@ -642,6 +642,21 @@ export type CanvasNodeRecord = {
 
 export type CanvasNodeInput = Omit<CanvasNodeRecord, "documentId" | "version" | "createdAt" | "updatedAt" | "deletedAt">;
 
+export type CanvasSemanticOp = {
+  opId?: string;
+  type: "node.create" | "node.patch" | "node.delete";
+  payload: Record<string, unknown>;
+  inverse?: Record<string, unknown>;
+};
+
+export type CanvasTransactionInput = {
+  txId: string;
+  baseVersion?: number | null;
+  clientId?: string | null;
+  undoGroupId?: string | null;
+  ops: CanvasSemanticOp[];
+};
+
 export type CanvasCreateInput = {
   path: string;
   title?: string;

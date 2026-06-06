@@ -61,6 +61,43 @@ export const authenticateRealtimeToken = async (input: { token: string }): Promi
   };
 };
 
+export const submitCanvasTransaction = async (input: {
+  userId: string;
+  spaceId: string;
+  documentId: string;
+  txId: string;
+  baseVersion?: number | null;
+  clientId?: string | null;
+  undoGroupId?: string | null;
+  ops: Array<Record<string, unknown>>;
+}): Promise<{ document: { version: number }; nodes: unknown[] }> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/canvas/${input.spaceId}/${input.documentId}/tx`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify({
+      actorId: input.userId,
+      txId: input.txId,
+      baseVersion: input.baseVersion ?? null,
+      clientId: input.clientId ?? null,
+      undoGroupId: input.undoGroupId ?? null,
+      ops: input.ops,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Internal canvas transaction failed ${response.status}: ${text}`);
+  }
+  const data = await parseJson<{ document?: { version?: number }; nodes?: unknown[] }>(response);
+  if (!data?.document || typeof data.document.version !== "number" || !Array.isArray(data.nodes)) {
+    throw new Error("Internal canvas transaction returned an invalid response");
+  }
+  return { document: { version: data.document.version }, nodes: data.nodes };
+};
+
 export const submitInternalSessionPrompt = async (input: {
   spaceId: string;
   sessionId: string;
