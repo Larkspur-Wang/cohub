@@ -111,7 +111,6 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "space.view",
     "space.label.view",
     "session.view",
-    "session.prompt.readonly",
     "file.view.filtered",
     "checkpoint.view",
   ]),
