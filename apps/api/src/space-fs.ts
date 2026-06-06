@@ -1,6 +1,6 @@
 
 import type { Stats } from "node:fs";
-import { chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   buildPreparingFile,
@@ -479,6 +479,25 @@ export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInp
   await mkdir(dirname(target), { recursive: true });
   const data = input.encoding === "base64" ? Buffer.from(input.content, "base64") : Buffer.from(input.content, "utf8");
   await writeFile(target, data);
+  const file = await stat(target);
+  return { path: relativePath, size: file.size, mtimeMs: file.mtimeMs };
+}
+
+export async function createSpaceFileExclusive(spaceId: string, input: SpaceFsWriteFileInput) {
+  const { target, relativePath } = await resolveTarget(spaceId, input.path);
+  await mkdir(dirname(target), { recursive: true });
+  const data = input.encoding === "base64" ? Buffer.from(input.content, "base64") : Buffer.from(input.content, "utf8");
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    handle = await open(target, "wx");
+    await handle.writeFile(data);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    if (code === "EEXIST") throw new SpaceFsError(409, "path_exists", "A file already exists at this path.");
+    throw error;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
   const file = await stat(target);
   return { path: relativePath, size: file.size, mtimeMs: file.mtimeMs };
 }

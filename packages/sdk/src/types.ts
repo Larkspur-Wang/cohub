@@ -604,6 +604,55 @@ export type SpaceConfigResponse = {
   config: Required<Pick<SpaceConfig, "sandbox">>;
 };
 
+export type CanvasDocumentRecord = {
+  id: string;
+  spaceId: string;
+  filePath: string;
+  title: string;
+  version: number;
+  meta?: Record<string, unknown> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  deletedAt?: string | null;
+};
+
+export type CanvasNodeRecord = {
+  documentId: string;
+  nodeId: string;
+  type: string;
+  parentId?: string | null;
+  orderKey?: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  refKind?: string | null;
+  refPath?: string | null;
+  refUrl?: string | null;
+  view: Record<string, unknown>;
+  style: Record<string, unknown>;
+  animation: Record<string, unknown>;
+  data: Record<string, unknown>;
+  version: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+  deletedAt?: string | null;
+};
+
+export type CanvasNodeInput = Omit<CanvasNodeRecord, "documentId" | "version" | "createdAt" | "updatedAt" | "deletedAt">;
+
+export type CanvasCreateInput = {
+  path: string;
+  title?: string;
+  nodes?: CanvasNodeInput[];
+};
+
+export type CanvasBootstrapResponse = {
+  document: CanvasDocumentRecord;
+  nodes: CanvasNodeRecord[];
+};
+
 export type SpaceCreateResponse = {
   space: SpaceRecord;
   taskRunId: string;

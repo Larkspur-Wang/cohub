@@ -155,6 +155,13 @@
       "when": 1780398882931,
       "tag": "0021_lively_living_mummy",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1780727975221,
+      "tag": "0022_right_champions",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import {
   jsonb,
   uniqueIndex,
   check,
+  doublePrecision,
 } from "drizzle-orm/pg-core";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { TaskPayload } from "@cohub/protocol/task";
@@ -215,6 +216,95 @@ export const checkpoints = v2.table(
       table.spaceId,
       table.commitHash,
     ),
+  }),
+);
+
+export const canvasDocuments = v2.table(
+  "canvas_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    filePath: text("file_path").notNull(),
+    title: text("title").notNull(),
+    version: integer("version").notNull().default(0),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    spaceIdx: index("v2_idx_canvas_documents_space_id").on(table.spaceId),
+    spacePathUniqueIdx: uniqueIndex("v2_uq_canvas_documents_space_path").on(table.spaceId, table.filePath),
+  }),
+);
+
+export const canvasNodes = v2.table(
+  "canvas_nodes",
+  {
+    documentId: uuid("document_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    type: varchar("type", { length: 40 }).notNull(),
+    parentId: text("parent_id"),
+    orderKey: text("order_key"),
+    x: doublePrecision("x").notNull().default(0),
+    y: doublePrecision("y").notNull().default(0),
+    width: doublePrecision("width").notNull().default(240),
+    height: doublePrecision("height").notNull().default(160),
+    rotation: doublePrecision("rotation").notNull().default(0),
+    refKind: varchar("ref_kind", { length: 40 }),
+    refPath: text("ref_path"),
+    refUrl: text("ref_url"),
+    view: jsonb("view").$type<Record<string, unknown>>().notNull().default({}),
+    style: jsonb("style").$type<Record<string, unknown>>().notNull().default({}),
+    animation: jsonb("animation").$type<Record<string, unknown>>().notNull().default({}),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    version: integer("version").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => ({
+    primary: uniqueIndex("v2_uq_canvas_nodes_document_node").on(table.documentId, table.nodeId),
+    documentIdx: index("v2_idx_canvas_nodes_document_id").on(table.documentId),
+    viewportIdx: index("v2_idx_canvas_nodes_viewport").on(table.documentId, table.x, table.y, table.width, table.height),
+    refPathIdx: index("v2_idx_canvas_nodes_ref_path").on(table.documentId, table.refPath),
+  }),
+);
+
+export const canvasUpdates = v2.table(
+  "canvas_updates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id").notNull(),
+    version: integer("version").notNull(),
+    actorId: varchar("actor_id", { length: 255 }).notNull(),
+    clientId: text("client_id"),
+    type: varchar("type", { length: 80 }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    undoGroupId: text("undo_group_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    documentVersionUniqueIdx: uniqueIndex("v2_uq_canvas_updates_document_version").on(table.documentId, table.version),
+    documentIdx: index("v2_idx_canvas_updates_document_id").on(table.documentId),
+  }),
+);
+
+export const canvasCheckpointSnapshots = v2.table(
+  "canvas_checkpoint_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    checkpointId: uuid("checkpoint_id").notNull(),
+    sourceDocumentId: uuid("source_document_id").notNull(),
+    sourceSpaceId: uuid("source_space_id").notNull(),
+    sourceFilePath: text("source_file_path").notNull(),
+    sourceVersion: integer("source_version").notNull(),
+    manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    checkpointPathUniqueIdx: uniqueIndex("v2_uq_canvas_checkpoint_snapshots_path").on(table.checkpointId, table.sourceFilePath),
+    checkpointIdx: index("v2_idx_canvas_checkpoint_snapshots_checkpoint_id").on(table.checkpointId),
   }),
 );
 

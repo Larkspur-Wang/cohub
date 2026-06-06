@@ -13,6 +13,7 @@ import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
 import { uploadAssetIfMissing } from "../checkpoint/assets.js";
 import { ensureGitRepo, runGit, runGitWithOutput } from "../checkpoint/git.js";
 import { collectUserGitRepos } from "../checkpoint/git-bundles.js";
+import { saveCanvasCheckpointSnapshots } from "../checkpoint/canvas.js";
 import { materializeLatest } from "../checkpoint/materialize.js";
 import { CHECKPOINT_ASSET_MANIFEST_PATH, CHECKPOINT_META_PATH, USER_GIT_REPOS_PATH, ensureCheckpointDirs, getCheckpointLatestSubPath } from "../checkpoint/paths.js";
 import { syncSystemRepo, type CheckpointAsset } from "../checkpoint/repo-sync.js";
@@ -179,6 +180,8 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   }).returning());
 
   if (!checkpoint) throw new Error("failed to create checkpoint record");
+  const canvasSnapshots = await timeIt(timings, "saveCanvasCheckpointSnapshots", () => saveCanvasCheckpointSnapshots({ checkpointId: checkpoint.id, spaceId }));
+  await timeIt(timings, "updateCheckpointCanvasMeta", () => db.update(checkpoints).set({ meta: { ...(checkpoint.meta as Record<string, unknown> | null), timings, canvas: { snapshotCount: canvasSnapshots.count } } }).where(eq(checkpoints.id, checkpoint.id)));
   await timeIt(timings, "updateSpaceHead", () => db.update(spaces).set({ headCheckpointId: checkpoint.id, updatedAt: new Date() }).where(eq(spaces.id, spaceId)));
 
   await progress("mirror_gitea");

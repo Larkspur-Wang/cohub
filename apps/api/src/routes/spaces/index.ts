@@ -7,6 +7,7 @@ import usageRouter from "./usage.route.js";
 import invitationsRouter from "./invitations.route.js";
 import labelsRouter, { getResourceLabels, setResourceLabels } from "./labels.route.js";
 import modsRouter from "./mods.route.js";
+import canvasRouter from "./canvas.route.js";
 
 const router = new Hono();
 
@@ -20,5 +21,6 @@ router.route("/:id/labels", labelsRouter);
 router.get("/:id/resources/:resourceType/labels", getResourceLabels);
 router.put("/:id/resources/:resourceType/labels", setResourceLabels);
 router.route("/:id/mods", modsRouter);
+router.route("/:id/canvas", canvasRouter);
 
 export default router;

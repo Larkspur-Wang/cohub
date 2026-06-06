@@ -59,6 +59,10 @@ import type {
   CreateSpaceInput,
   SpaceConfigInput,
   SpaceConfigResponse,
+  CanvasBootstrapResponse,
+  CanvasCreateInput,
+  CanvasDocumentRecord,
+  CanvasNodeInput,
 } from "../types.js";
 import { SpaceInvitationsApi } from "./invitations.js";
 
@@ -1175,6 +1179,50 @@ export class SpaceLabelsApi {
   }
 }
 
+export class SpaceCanvasApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  create(input: CanvasCreateInput) {
+    return this.transport.request<CanvasBootstrapResponse>(
+      `/api/spaces/${this.spaceId}/canvas`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  getByPath(path: string, customFetch?: Fetch) {
+    const params = new URLSearchParams({ path });
+    return this.transport.request<{ document: CanvasDocumentRecord }>(
+      `/api/spaces/${this.spaceId}/canvas/by-path?${params.toString()}`,
+      { fetch: customFetch },
+    );
+  }
+
+  bootstrap(documentId: string, customFetch?: Fetch) {
+    return this.transport.request<CanvasBootstrapResponse>(
+      `/api/spaces/${this.spaceId}/canvas/${documentId}/bootstrap`,
+      { fetch: customFetch },
+    );
+  }
+
+  replaceNodes(documentId: string, nodes: CanvasNodeInput[], input?: { clientId?: string; undoGroupId?: string }) {
+    return this.transport.request<CanvasBootstrapResponse>(
+      `/api/spaces/${this.spaceId}/canvas/${documentId}/nodes`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes, ...input }),
+      },
+    );
+  }
+}
+
 export class SpaceCheckpointsApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -1219,6 +1267,7 @@ export class SpaceClient {
   readonly sandbox: SpaceSandboxApi;
   readonly invitations: SpaceInvitationsApi;
   readonly labels: SpaceLabelsApi;
+  readonly canvas: SpaceCanvasApi;
 
   constructor(
     readonly id: string,
@@ -1237,6 +1286,7 @@ export class SpaceClient {
     this.sandbox = new SpaceSandboxApi(transport, id);
     this.invitations = new SpaceInvitationsApi(transport, id);
     this.labels = new SpaceLabelsApi(transport, id);
+    this.canvas = new SpaceCanvasApi(transport, id);
   }
 
   get(customFetch?: Fetch) {

@@ -1,10 +1,7 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import { deleteCanvasItem } from "$lib/canvas/actions/canvas-document-actions";
-import {
-	parseCovasDocument,
-	serializeCovasDocument,
-} from "$lib/canvas/canvas-document";
+
 import { getCanvasTitle } from "$lib/canvas/canvas-file";
 import { clampZoom } from "$lib/canvas/canvas-geometry";
 import {
@@ -20,7 +17,7 @@ import CanvasToolbar from "$lib/components/canvas/CanvasToolbar.svelte";
 
 const {
 	path,
-	content,
+	document: initialDocument,
 	saving = false,
 	focused = false,
 	onToggleFocus,
@@ -28,15 +25,14 @@ const {
 	onClose,
 }: {
 	path: string;
-	content: string;
+	document: CovasDocument;
 	saving?: boolean;
 	focused?: boolean;
 	onToggleFocus?: () => void;
-	onSave: (content: string) => void | Promise<void>;
+	onSave: (document: CovasDocument) => void | Promise<void>;
 	onClose: () => void;
 } = $props();
 
-let parseError = $state<string | null>(null);
 let documentState = $state<CovasDocument | null>(null);
 let selectedItemIds = $state<string[]>([]);
 let dirty = $state(false);
@@ -49,15 +45,8 @@ const selectedItem = $derived.by<CanvasItem | null>(() => {
 	);
 });
 
-function loadContent(nextContent: string) {
-	const parsed = parseCovasDocument(nextContent);
-	if (!parsed.ok) {
-		parseError = parsed.error;
-		documentState = null;
-		return;
-	}
-	parseError = null;
-	documentState = parsed.document;
+function loadDocument(nextDocument: CovasDocument) {
+	documentState = nextDocument;
 	dirty = false;
 	selectedItemIds = [];
 }
@@ -160,7 +149,7 @@ async function save() {
 	if (!documentState || !dirty) return;
 	saveError = null;
 	try {
-		await onSave(serializeCovasDocument(documentState));
+		await onSave(documentState);
 		dirty = false;
 	} catch (error) {
 		saveError =
@@ -173,10 +162,10 @@ function close() {
 	onClose();
 }
 
-onMount(() => loadContent(content));
+onMount(() => loadDocument(initialDocument));
 
 $effect(() => {
-	loadContent(content);
+	loadDocument(initialDocument);
 });
 </script>
 
@@ -198,12 +187,7 @@ $effect(() => {
     onClose={close}
   />
 
-  {#if parseError}
-    <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">
-      <div class="font-medium">Cannot open canvas</div>
-      <div class="mt-1 text-xs">{parseError}</div>
-    </div>
-  {:else if documentState}
+  {#if documentState}
     {#if saveError}
       <div class="border-b border-error-soft/30 bg-error-bg px-3 py-2 text-xs text-error-soft">{saveError}</div>
     {/if}
@@ -214,7 +198,5 @@ $effect(() => {
       {/if}
       <CanvasCardInspector item={selectedItem} onDelete={deleteItem} onEditText={editText} />
     </div>
-  {:else}
-    <div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading canvas…</div>
   {/if}
 </div>

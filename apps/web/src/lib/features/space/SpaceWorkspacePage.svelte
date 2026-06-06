@@ -80,10 +80,13 @@ import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
 import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
 import {
+	canvasBootstrapToDocument,
+	canvasItemToNode,
 	createEmptyCovasDocument,
-	serializeCovasDocument,
+	parseCovasManifest,
 } from "$lib/canvas/canvas-document";
 import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
+import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import CodeEditor from "$lib/components/CodeEditor.svelte";
@@ -424,7 +427,8 @@ let inlineFile = $state<{
 } | null>(null);
 let inlineCanvas = $state<{
 	path: string;
-	content: string;
+	documentId: string | null;
+	document: CovasDocument | null;
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
@@ -5727,10 +5731,10 @@ async function handleCreateCanvas(parentPath: string) {
 	const fileName = ensureCovasExtension(name);
 	const path = parentPath ? `${parentPath}/${fileName}` : fileName;
 	try {
-		await sdk.space(spaceId).files.write({
+		await sdk.space(spaceId).canvas.create({
 			path,
-			content: serializeCovasDocument(createEmptyCovasDocument()),
-			encoding: "utf-8",
+			title: fileName,
+			nodes: createEmptyCovasDocument().items.map(canvasItemToNode),
 		});
 		await patchFsDirectory(parentPath, (entries) => [
 			...entries,
@@ -5918,7 +5922,8 @@ async function openInlineCanvas(path: string) {
 	inlinePortPreview = null;
 	inlineCanvas = {
 		path,
-		content: "",
+		documentId: null,
+		document: null,
 		loading: true,
 		saving: false,
 		error: null,
@@ -5931,11 +5936,22 @@ async function openInlineCanvas(path: string) {
 		)
 			return;
 		if (!("content" in file) || file.kind !== "text") {
-			throw new Error("Canvas file must be a text JSON file.");
+			throw new Error("Canvas manifest must be a text file.");
 		}
+		const manifest = parseCovasManifest(file.content);
+		if (!manifest) throw new Error("Canvas manifest is invalid.");
+		const bootstrap = await sdk
+			.space(spaceId)
+			.canvas.bootstrap(manifest.documentId);
+		if (
+			requestToken !== inlineCanvasRequestToken ||
+			inlineCanvas?.path !== path
+		)
+			return;
 		inlineCanvas = {
 			path,
-			content: file.content,
+			documentId: bootstrap.document.id,
+			document: canvasBootstrapToDocument(bootstrap),
 			loading: false,
 			saving: false,
 			error: null,
@@ -5948,7 +5964,8 @@ async function openInlineCanvas(path: string) {
 			return;
 		inlineCanvas = {
 			path,
-			content: "",
+			documentId: null,
+			document: null,
 			loading: false,
 			saving: false,
 			error: error instanceof Error ? error.message : "Failed to open canvas",
@@ -5960,26 +5977,25 @@ function closeInlineCanvas() {
 	inlineCanvas = null;
 	closePreviewFocusMode();
 }
-async function saveInlineCanvas(content: string) {
-	if (!inlineCanvas) return;
+async function saveInlineCanvas(document: CovasDocument) {
+	if (!inlineCanvas?.documentId) return;
 	const savingPath = inlineCanvas.path;
 	markFileSavePending(savingPath);
 	inlineCanvas.saving = true;
 	inlineCanvas.error = null;
 	try {
-		await sdk.space(spaceId).files.write({
-			path: savingPath,
-			content,
-			encoding: "utf-8",
-		});
-		inlineCanvas = { ...inlineCanvas, content, saving: false, error: null };
-		await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
-			entries.map((entry) =>
-				entry.path === savingPath
-					? { ...entry, size: new Blob([content]).size, mtimeMs: Date.now() }
-					: entry,
-			),
-		);
+		const saved = await sdk
+			.space(spaceId)
+			.canvas.replaceNodes(
+				inlineCanvas.documentId,
+				document.items.map(canvasItemToNode),
+			);
+		inlineCanvas = {
+			...inlineCanvas,
+			document: canvasBootstrapToDocument(saved),
+			saving: false,
+			error: null,
+		};
 	} catch (error) {
 		if (inlineCanvas) {
 			inlineCanvas = { ...inlineCanvas, saving: false };
@@ -9088,16 +9104,24 @@ $effect(() => {
           </div>
           <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{inlineCanvas.error}</div>
         </div>
-      {:else}
+      {:else if inlineCanvas.document}
         <CanvasPanel
           path={inlineCanvas.path}
-          content={inlineCanvas.content}
+          document={inlineCanvas.document}
           saving={inlineCanvas.saving}
           focused={previewFocusMode}
           onToggleFocus={togglePreviewFocusMode}
-          onSave={(content) => saveInlineCanvas(content)}
+          onSave={(document) => saveInlineCanvas(document)}
           onClose={closeInlineCanvas}
         />
+      {:else}
+        <div class="flex h-full min-w-0 flex-col bg-bg-content">
+          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
+            <span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{inlineCanvas.path}</span>
+            <button type="button" class="icon-btn" onclick={closeInlineCanvas} title="Close canvas"><X class="w-4 h-4" /></button>
+          </div>
+          <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">Canvas data is unavailable.</div>
+        </div>
       {/if}
     </WorkspacePreviewPane>
   {/if}
