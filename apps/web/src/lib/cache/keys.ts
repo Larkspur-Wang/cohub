@@ -39,6 +39,15 @@ export function resourceLabelsKey(
 		.join(":");
 }
 
+export function canvasPendingTransactionKey(
+	userKey: string,
+	spaceId: string,
+	documentId: string,
+	txId: string,
+) {
+	return [userKey, spaceId, documentId, txId].map(encodeKeyPart).join(":");
+}
+
 export function taskRunKey(
 	userKey: string,
 	spaceId: string,

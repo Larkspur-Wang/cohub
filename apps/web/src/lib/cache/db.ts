@@ -3,6 +3,7 @@ import type {
 	SessionTurnRecord,
 } from "@cohub/protocol/model";
 import type {
+	CanvasSemanticOp,
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
 	LabelAssignmentRecord,
@@ -15,7 +16,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -128,6 +129,20 @@ export type TaskRunSummaryCacheRecord = {
 	lastAccessedAt: number;
 };
 
+export type CanvasPendingTransactionCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	documentId: string;
+	txId: string;
+	baseVersion: number | null;
+	ops: CanvasSemanticOp[];
+	attemptCount: number;
+	createdAt: number;
+	updatedAt: number;
+	lastAttemptAt: number | null;
+};
+
 export type TaskRunDetailCacheRecord = {
 	key: string;
 	userKey: string;
@@ -150,6 +165,7 @@ type StoreName =
 	| "label_trees"
 	| "label_items"
 	| "resource_labels"
+	| "canvas_pending_txs"
 	| "task_run_summaries"
 	| "task_run_details";
 
@@ -240,6 +256,14 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 					keyPath: ["userKey", "spaceId", "resourceType", "resourceRef"],
 				},
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+			]);
+			createStore(db, "canvas_pending_txs", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_document",
+					keyPath: ["userKey", "spaceId", "documentId"],
+				},
+				{ name: "by_created_at", keyPath: "createdAt" },
 			]);
 			createStore(db, "task_run_summaries", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },

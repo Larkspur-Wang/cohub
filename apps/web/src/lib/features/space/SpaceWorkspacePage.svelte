@@ -13,6 +13,7 @@ import type {
 } from "@cohub/protocol/model";
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
+import type { CanvasSemanticOp } from "@neta-art/cohub";
 import {
 	type CheckpointRecord,
 	type CronJobRecord,
@@ -75,6 +76,12 @@ import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import type { SessionListForkRecord } from "$lib/cache/db";
+import {
+	deleteCanvasPendingTransaction,
+	listCanvasPendingTransactions,
+	markCanvasPendingTransactionAttempt,
+	writeCanvasPendingTransaction,
+} from "$lib/cache/repositories/canvas-pending-tx-repo";
 import { sessionTurnsRepo } from "$lib/cache/repositories/session-turns-repo";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
@@ -435,6 +442,8 @@ let inlineCanvas = $state<{
 } | null>(null);
 let inlineCanvasRequestToken = $state(0);
 let inlineCanvasSyncVersion = $state<number | null>(null);
+let inlineCanvasPendingFlush = false;
+let inlineCanvasPendingFlushRequested = false;
 const selectedFilePath = $derived(
 	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
 );
@@ -5958,6 +5967,18 @@ async function openInlineCanvas(path: string) {
 			saving: false,
 			error: null,
 		};
+		void flushInlineCanvasPendingTransactions(bootstrap.document.id).catch(
+			(error) => {
+				if (inlineCanvas?.documentId !== bootstrap.document.id) return;
+				inlineCanvas = {
+					...inlineCanvas,
+					error:
+						error instanceof Error
+							? error.message
+							: "Canvas changes are saved locally and will retry.",
+				};
+			},
+		);
 	} catch (error) {
 		if (
 			requestToken !== inlineCanvasRequestToken ||
@@ -5979,30 +6000,78 @@ function closeInlineCanvas() {
 	inlineCanvas = null;
 	closePreviewFocusMode();
 }
+async function flushInlineCanvasPendingTransactions(documentId: string) {
+	if (inlineCanvasPendingFlush) {
+		inlineCanvasPendingFlushRequested = true;
+		return;
+	}
+	inlineCanvasPendingFlush = true;
+	try {
+		do {
+			inlineCanvasPendingFlushRequested = false;
+			while (true) {
+				const pending = await listCanvasPendingTransactions(
+					spaceId,
+					documentId,
+				);
+				if (pending.length === 0) break;
+				const tx = pending[0];
+				if (!tx) break;
+				await markCanvasPendingTransactionAttempt(tx);
+				const result = await sdk
+					.space(spaceId)
+					.sendCanvasTransactionRealtime(documentId, {
+						txId: tx.txId,
+						baseVersion: tx.baseVersion,
+						ops: tx.ops,
+					});
+				inlineCanvasSyncVersion = result.document.version;
+				await deleteCanvasPendingTransaction({
+					spaceId,
+					documentId,
+					txId: tx.txId,
+				});
+			}
+		} while (inlineCanvasPendingFlushRequested);
+	} finally {
+		inlineCanvasPendingFlush = false;
+	}
+}
+
 async function commitInlineCanvas(
 	document: CovasDocument,
-	ops: import("@neta-art/cohub").CanvasSemanticOp[],
+	ops: CanvasSemanticOp[],
 ) {
-	if (!inlineCanvas?.documentId) return;
+	if (!inlineCanvas?.documentId || ops.length === 0) return;
+	const documentId = inlineCanvas.documentId;
 	const savingPath = inlineCanvas.path;
+	const txId = crypto.randomUUID();
 	markFileSavePending(savingPath);
 	inlineCanvas.saving = true;
 	inlineCanvas.error = null;
+	await writeCanvasPendingTransaction({
+		spaceId,
+		documentId,
+		txId,
+		baseVersion: inlineCanvasSyncVersion,
+		ops,
+	});
+	inlineCanvas = { ...inlineCanvas, document };
 	try {
-		const result = await sdk
-			.space(spaceId)
-			.sendCanvasTransactionRealtime(inlineCanvas.documentId, {
-				txId: crypto.randomUUID(),
-				baseVersion: inlineCanvasSyncVersion,
-				ops,
-			});
-		inlineCanvasSyncVersion = result.document.version;
-		inlineCanvas = { ...inlineCanvas, document, saving: false, error: null };
+		await flushInlineCanvasPendingTransactions(documentId);
+		if (inlineCanvas)
+			inlineCanvas = { ...inlineCanvas, saving: false, error: null };
 	} catch (error) {
 		if (inlineCanvas) {
-			inlineCanvas = { ...inlineCanvas, saving: false };
+			inlineCanvas = {
+				...inlineCanvas,
+				saving: false,
+				error:
+					error instanceof Error
+						? error.message
+						: "Canvas changes are saved locally and will retry.",
+			};
 		}
-		throw error;
 	} finally {
 		clearFileSavePendingSoon(savingPath);
 	}
@@ -6505,6 +6574,11 @@ onMount(() => {
 			recoveryCoordinator.onTransportOpen();
 			wsConnectionState = "open";
 			wsCanRecover = false;
+			if (inlineCanvas?.documentId) {
+				void flushInlineCanvasPendingTransactions(
+					inlineCanvas.documentId,
+				).catch(() => undefined);
+			}
 			const connectionId = state.connectionId ?? null;
 			const recoveredFromDisconnect =
 				previousState === "reconnecting" ||
@@ -6553,6 +6627,11 @@ onMount(() => {
 		scheduleStatusRefresh();
 		if (wsConnectionState === "open") {
 			void refreshSessionsList(false);
+		}
+		if (inlineCanvas?.documentId) {
+			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
+				() => undefined,
+			);
 		}
 	};
 	const handleOffline = () => {
