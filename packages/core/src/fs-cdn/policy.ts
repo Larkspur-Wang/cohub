@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import { basename, extname } from "node:path";
+import { SPACE_CUSTOM_THEME_CSS_PATH } from "@cohub/protocol";
 import { FS_CDN_LARGE_FILE_THRESHOLD_BYTES, type FsCdnEnvironment } from "./types.js";
+
+const forcedCdnPaths = new Set([SPACE_CUSTOM_THEME_CSS_PATH]);
+
+const normalizeFsCdnPath = (path: string) => path.replace(/\\/g, "/").replace(/^\.\/+/, "");
+
+export function isForcedFsCdnPath(path: string) {
+  return forcedCdnPaths.has(normalizeFsCdnPath(path));
+}
 
 const mediaExtensions = new Set([
   ".png",
@@ -31,7 +40,7 @@ export function isFsCdnMediaLike(path: string, mimeType: string | null) {
 }
 
 export function shouldUseFsCdnCache(input: { path: string; mimeType: string | null; size: number }) {
-  return isFsCdnMediaLike(input.path, input.mimeType) || input.size >= FS_CDN_LARGE_FILE_THRESHOLD_BYTES;
+  return isForcedFsCdnPath(input.path) || isFsCdnMediaLike(input.path, input.mimeType) || input.size >= FS_CDN_LARGE_FILE_THRESHOLD_BYTES;
 }
 
 export function fsCdnPathHash(path: string) {

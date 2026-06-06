@@ -50,6 +50,10 @@
       "types": "./dist/sandbox/index.d.ts",
       "default": "./dist/sandbox/index.js"
     },
+    "./space-style": {
+      "types": "./dist/space-style.d.ts",
+      "default": "./dist/space-style.js"
+    },
     "./gateway/types": {
       "types": "./dist/gateway/types.d.ts",
       "default": "./dist/gateway/types.js"

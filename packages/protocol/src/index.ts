@@ -9,3 +9,4 @@ export * from "./fs/index.js";
 export * from "./ports/index.js";
 export * from "./generation/index.js";
 export * from "./platform/default-space-mods.js";
+export * from "./space-style.js";

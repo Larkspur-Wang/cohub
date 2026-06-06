@@ -163,6 +163,12 @@ import {
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
+import {
+	activateSpaceStyle,
+	deactivateSpaceStyle,
+	isSpaceStylePath,
+	refreshSpaceStyle,
+} from "$lib/space-style";
 import { uploadSpaceEntries } from "$lib/space-upload";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
@@ -4149,6 +4155,15 @@ async function reconnectSync() {
 	});
 	return reconnectSyncInFlight;
 }
+function spaceStyleChanged(
+	changes: Array<{ path?: string; oldPath?: string }> | undefined,
+) {
+	return changes?.some(
+		(change) =>
+			isSpaceStylePath(change.path) || isSpaceStylePath(change.oldPath),
+	);
+}
+
 async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const eventPayload = payload.payload as {
 		source?: string;
@@ -4162,6 +4177,9 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			size?: number;
 		}>;
 	};
+	const shouldRefreshSpaceStyle =
+		eventPayload.resync || spaceStyleChanged(eventPayload.changes);
+	if (shouldRefreshSpaceStyle) refreshSpaceStyle(spaceId);
 	const { refreshDirs: dirsToRefresh } = await spaceFsRepo.applyFsChanged(
 		spaceId,
 		eventPayload as Parameters<typeof spaceFsRepo.applyFsChanged>[1],
@@ -6697,6 +6715,7 @@ onMount(() => {
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
 		previewPanelResizeCleanup?.();
+		deactivateSpaceStyle();
 	};
 });
 // React to space changes: reset state and reload data
@@ -6705,6 +6724,7 @@ $effect(() => {
 	if (!pageMounted || !currentSpaceId || loadedSpaceId === currentSpaceId)
 		return;
 	loadedSpaceId = currentSpaceId;
+	activateSpaceStyle(currentSpaceId);
 	// Reset space-specific state
 	space = null;
 	spaceLoadError = "";
