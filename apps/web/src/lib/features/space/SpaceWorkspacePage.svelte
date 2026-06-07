@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { SpacePreviewPanelMode } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	GenerationParameterConstraint,
@@ -212,6 +213,7 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import { spaceLayoutState } from "$lib/stores/space-layout.svelte";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
@@ -342,6 +344,7 @@ const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
 // True when the backend returned only minimal info (session-level access only)
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 const canEditSpaceProfile = $derived(hasAccessPermission("space.edit"));
+const canEditFiles = $derived(hasAccessPermission("file.edit"));
 let spaceSessions = $state<SessionRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
@@ -408,6 +411,7 @@ let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
+let previewLayoutMenuOpen = $state(false);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
 	ref: string;
@@ -523,6 +527,19 @@ const activePreviewKind = $derived(
 				? "file"
 				: null,
 );
+const activePreviewPanelLayout = $derived.by(() => {
+	if (inlineCanvas) return spaceLayoutState.effective.panels.canvas;
+	if (inlinePortPreview) return spaceLayoutState.effective.panels.ports;
+	return spaceLayoutState.effective.panels.preview;
+});
+const activePreviewLayoutPanelId = $derived.by(() => {
+	if (inlineCanvas) return "canvas" as const;
+	if (inlinePortPreview) return "ports" as const;
+	return "preview" as const;
+});
+const activePreviewMode = $derived(activePreviewPanelLayout.mode);
+const activePreviewChrome = $derived(activePreviewPanelLayout.chrome);
+const previewIsLayered = $derived(activePreviewMode !== "dock");
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
 	return !hasRenderedFilePreview(file);
@@ -540,12 +557,24 @@ let inlineFileCopied = $state(false);
 let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let previewPanelWidth = $state(480);
-let previewFocusMode = $state(false);
+let previewPanelWidth = $state(spaceLayoutState.effective.panels.preview.width);
 let splitTurnListWidth = $state(SPLIT_TURN_LIST_DEFAULT_WIDTH);
 let sessionModePreferenceRedirectKey = $state("");
 let previewPanelResizeCleanup: (() => void) | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
+$effect(() => {
+	const files = spaceLayoutState.effective.panels.files;
+	const nextFilesCollapsed = files.collapsed || files.mode === "hidden";
+	if (uiState.rightSidebarWidth !== files.width) {
+		uiState.setRightSidebarWidth(files.width);
+	}
+	if (uiState.rightSidebarCollapsed !== nextFilesCollapsed) {
+		uiState.setRightSidebarCollapsed(nextFilesCollapsed);
+	}
+	if (previewPanelWidth !== activePreviewPanelLayout.width) {
+		previewPanelWidth = activePreviewPanelLayout.width;
+	}
+});
 const CHAT_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
@@ -586,6 +615,7 @@ function handleUploadFiles(
 	files: File[] | LocalUploadEntry[],
 	targetDir: string,
 ) {
+	if (!canEditFiles) return;
 	uploadPaneTargetDir = targetDir;
 	if (isLocalUploadEntries(files)) {
 		pendingUploadEntries = files;
@@ -4193,6 +4223,15 @@ function spaceStyleChanged(
 			isSpaceStylePath(change.path) || isSpaceStylePath(change.oldPath),
 	);
 }
+function spaceLayoutChanged(
+	changes: Array<{ path?: string; oldPath?: string }> | undefined,
+) {
+	return changes?.some(
+		(change) =>
+			change.path === ".cohub/space.layout.json" ||
+			change.oldPath === ".cohub/space.layout.json",
+	);
+}
 
 async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const eventPayload = payload.payload as {
@@ -4210,6 +4249,9 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const shouldRefreshSpaceStyle =
 		eventPayload.resync || spaceStyleChanged(eventPayload.changes);
 	if (shouldRefreshSpaceStyle) refreshSpaceStyle(spaceId);
+	if (eventPayload.resync || spaceLayoutChanged(eventPayload.changes)) {
+		spaceLayoutState.refresh();
+	}
 	const { refreshDirs: dirsToRefresh } = await spaceFsRepo.applyFsChanged(
 		spaceId,
 		eventPayload as Parameters<typeof spaceFsRepo.applyFsChanged>[1],
@@ -5488,6 +5530,7 @@ function beginRightSidebarResize(event: PointerEvent) {
 			Math.max(RIGHT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
 		);
 		uiState.setRightSidebarWidth(nextWidth);
+		spaceLayoutState.updateLocalPanel("files", { width: nextWidth });
 	};
 	const stop = () => {
 		if (target?.hasPointerCapture?.(event.pointerId)) {
@@ -5522,30 +5565,32 @@ function setPreviewPanelWidth(width: number) {
 		Math.max(PREVIEW_PANEL_MIN_WIDTH, width),
 		getMaxPreviewPanelWidth(),
 	);
+	spaceLayoutState.updateLocalPanel(activePreviewLayoutPanelId, {
+		width: previewPanelWidth,
+	});
 }
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
-async function togglePreviewFocusMode() {
-	previewFocusMode = !previewFocusMode;
-	if (!previewFocusMode) {
+function setPreviewLayoutMode(mode: SpacePreviewPanelMode) {
+	spaceLayoutState.updateLocalPanel(activePreviewLayoutPanelId, { mode });
+	if (mode === "dock") ensurePreviewPanelFits();
+}
+function togglePreviewFocusMode() {
+	const nextMode = activePreviewMode === "dock" ? "fill" : "dock";
+	setPreviewLayoutMode(nextMode);
+	if (nextMode === "dock") {
 		ensurePreviewPanelFits();
 		return;
 	}
 	uiState.setLeftSidebarCollapsed(true);
-	uiState.setRightSidebarCollapsed(true);
-	await tick();
-	setPreviewPanelWidth(getMaxPreviewPanelWidth());
 }
 function closePreviewFocusMode() {
-	previewFocusMode = false;
+	if (activePreviewMode !== "dock") setPreviewLayoutMode("dock");
 }
 function handlePreviewWindowResize() {
-	if (previewFocusMode) {
-		setPreviewPanelWidth(getMaxPreviewPanelWidth());
-		return;
-	}
-	if (activePreviewKind) ensurePreviewPanelFits();
+	if (activePreviewKind && activePreviewMode === "dock")
+		ensurePreviewPanelFits();
 }
 async function toggleRightSidebar() {
 	if (window.innerWidth < 1024) {
@@ -5555,6 +5600,7 @@ async function toggleRightSidebar() {
 	const nextCollapsed = !uiState.rightSidebarCollapsed;
 	const rightWidth = uiState.rightSidebarWidth;
 	uiState.setRightSidebarCollapsed(nextCollapsed);
+	spaceLayoutState.updateLocalPanel("files", { collapsed: nextCollapsed });
 	if (!activePreviewKind) return;
 	closePreviewFocusMode();
 	await tick();
@@ -5564,8 +5610,7 @@ async function toggleRightSidebar() {
 }
 function beginPreviewPanelResize(event: PointerEvent) {
 	event.preventDefault();
-	if (window.innerWidth < 1024) return;
-	previewFocusMode = false;
+	if (window.innerWidth < 1024 || activePreviewMode !== "dock") return;
 	const target = event.currentTarget as HTMLElement | null;
 	target?.setPointerCapture?.(event.pointerId);
 	previewPanelResizeCleanup?.();
@@ -5734,7 +5779,7 @@ async function openFileFromUrl(path: string) {
 	}
 }
 async function saveOpenFile() {
-	if (openFile?.kind !== "text") return;
+	if (!canEditFiles || openFile?.kind !== "text") return;
 	const savingPath = openFile.path;
 	markFileSavePending(savingPath);
 	openFileSaving = true;
@@ -5772,6 +5817,7 @@ async function saveOpenFile() {
 	}
 }
 async function handleCreateFile(parentPath: string) {
+	if (!canEditFiles) return;
 	const name = prompt("New file name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -5791,6 +5837,7 @@ async function handleCreateFile(parentPath: string) {
 	}
 }
 async function handleCreateCanvas(parentPath: string) {
+	if (!canEditFiles) return;
 	const name = prompt("New canvas name", "Untitled.covas");
 	if (!name?.trim()) return;
 	const fileName = ensureCovasExtension(name);
@@ -5812,6 +5859,7 @@ async function handleCreateCanvas(parentPath: string) {
 	}
 }
 async function handleCreateDir(parentPath: string) {
+	if (!canEditFiles) return;
 	const name = prompt("New folder name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -5827,6 +5875,7 @@ async function handleCreateDir(parentPath: string) {
 	}
 }
 async function handleRenameNode(node: SpaceFsNode) {
+	if (!canEditFiles) return;
 	const nextName = prompt("Rename", node.name);
 	if (!nextName?.trim() || nextName.trim() === node.name) return;
 	const parent = node.path.includes("/")
@@ -5889,6 +5938,7 @@ async function handleDownloadNode(node: SpaceFsNode) {
 	}
 }
 async function handleDeleteNode(node: SpaceFsNode) {
+	if (!canEditFiles) return;
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
@@ -6165,7 +6215,7 @@ async function downloadInlineFile() {
 	);
 }
 async function saveInlineFile() {
-	if (inlineFile?.response?.kind !== "text") return;
+	if (!canEditFiles || inlineFile?.response?.kind !== "text") return;
 	const savingPath = inlineFile.path;
 	const nextContent = inlineFile.draft;
 	markFileSavePending(savingPath);
@@ -6699,11 +6749,19 @@ onMount(() => {
 		void openInlineFile(custom.detail.path);
 	};
 	const handleResourceActionMenuKeydown = (e: KeyboardEvent) => {
-		if (e.key === "Escape") closeResourceActionMenu();
+		if (e.key === "Escape") {
+			closeResourceActionMenu();
+			previewLayoutMenuOpen = false;
+			fileActionMenuOpenPath = null;
+		}
 	};
 	const handleResourceActionMenuClickOutside = (e: MouseEvent) => {
 		const target = e.target as HTMLElement;
-		if (!target.closest("[data-resource-actions]")) closeResourceActionMenu();
+		if (!target.closest("[data-resource-actions]")) {
+			closeResourceActionMenu();
+			previewLayoutMenuOpen = false;
+			fileActionMenuOpenPath = null;
+		}
 	};
 	window.addEventListener("visibilitychange", handleVisibility);
 	window.addEventListener("online", handleOnline);
@@ -6762,6 +6820,7 @@ $effect(() => {
 		return;
 	loadedSpaceId = currentSpaceId;
 	activateSpaceStyle(currentSpaceId);
+	spaceLayoutState.load(currentSpaceId);
 	// Reset space-specific state
 	space = null;
 	spaceLoadError = "";
@@ -7330,19 +7389,42 @@ $effect(() => {
 {/snippet}
 
 {#snippet PreviewFocusButton()}
-	<button
-		type="button"
-		class="icon-btn"
-		onclick={togglePreviewFocusMode}
-		title={previewFocusMode ? "Exit preview focus" : "Focus preview"}
-		aria-label={previewFocusMode ? "Exit preview focus" : "Focus preview"}
-	>
-		{#if previewFocusMode}
-			<Minimize2 class="w-4 h-4" />
-		{:else}
-			<Maximize2 class="w-4 h-4" />
+	<div class="relative shrink-0" data-resource-actions>
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={(event) => {
+				event.stopPropagation();
+				previewLayoutMenuOpen = !previewLayoutMenuOpen;
+			}}
+			title="Preview layout"
+			aria-label="Preview layout"
+			aria-haspopup="menu"
+			aria-expanded={previewLayoutMenuOpen}
+		>
+			{#if activePreviewMode === "dock"}
+				<Maximize2 class="w-4 h-4" />
+			{:else}
+				<Minimize2 class="w-4 h-4" />
+			{/if}
+		</button>
+		{#if previewLayoutMenuOpen}
+			<div class="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
+				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = false; }} role="menuitem">
+					<PanelRightOpen class="w-3.5 h-3.5" />
+					<span>Dock right</span>
+				</button>
+				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = false; }} role="menuitem">
+					<Maximize2 class="w-3.5 h-3.5" />
+					<span>Fill workspace</span>
+				</button>
+				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fullscreen"); previewLayoutMenuOpen = false; }} role="menuitem">
+					<ExternalLink class="w-3.5 h-3.5" />
+					<span>Full screen</span>
+				</button>
+			</div>
 		{/if}
-	</button>
+	</div>
 {/snippet}
 
 {#snippet PanelLoadingState(label: string, compact = false)}
@@ -7555,6 +7637,52 @@ $effect(() => {
         {/if}
       </div>
     {/if}
+    <div class="relative" data-resource-actions>
+      <button
+        type="button"
+        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+        onclick={(event) => {
+          event.stopPropagation();
+          previewLayoutMenuOpen = !previewLayoutMenuOpen;
+        }}
+        title="Layout"
+        aria-haspopup="menu"
+        aria-expanded={previewLayoutMenuOpen}
+      >
+        <Maximize2 class="w-4 h-4 shrink-0" />
+        <span class="hidden 2xl:inline text-[13px] font-medium">Layout</span>
+      </button>
+      {#if previewLayoutMenuOpen}
+        <div class="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
+          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = false; }} role="menuitem">
+            <PanelRightOpen class="w-3.5 h-3.5" />
+            <span>Dock preview</span>
+          </button>
+          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = false; }} role="menuitem">
+            <Maximize2 class="w-3.5 h-3.5" />
+            <span>Fill workspace</span>
+          </button>
+          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "dock", anchor: "right" }); previewLayoutMenuOpen = false; }} role="menuitem">
+            <PanelRightOpen class="w-3.5 h-3.5" />
+            <span>Dock files</span>
+          </button>
+          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "floating", anchor: "right", collapsed: false }); previewLayoutMenuOpen = false; }} role="menuitem">
+            <PanelRightClose class="w-3.5 h-3.5" />
+            <span>Float files</span>
+          </button>
+          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.resetLocal(); previewLayoutMenuOpen = false; }} role="menuitem">
+            <RefreshCw class="w-3.5 h-3.5" />
+            <span>Reset my layout</span>
+          </button>
+          {#if canEditFiles}
+            <button type="button" class="menu-item" onclick={() => { void spaceLayoutState.saveToSpace(); previewLayoutMenuOpen = false; }} disabled={spaceLayoutState.saving} role="menuitem">
+              {#if spaceLayoutState.saving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Save class="w-3.5 h-3.5" />{/if}
+              <span>Save layout to space</span>
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
     <!-- Toggle right sidebar -->
     {#if !spaceHasMinimalAccess}
       <div class="relative">
@@ -7599,8 +7727,13 @@ $effect(() => {
 		</div>
 	</div>
 {/if}
-<div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex bg-bg-content">
-  <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
+<div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
+  <div
+    class={previewIsLayered && activePreviewKind && !isMobile
+      ? "absolute right-3 top-3 bottom-3 z-20 flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-bg-content shadow-[0_16px_48px_color-mix(in_srgb,var(--overlay-scrim-strong)_18%,transparent)]"
+      : "flex-1 flex flex-col min-w-0 bg-bg-content"}
+    style={previewIsLayered && activePreviewKind && !isMobile ? `width: ${spaceLayoutState.effective.panels.chat.width}px` : undefined}
+  >
     {#if routeView === 'checkpoint-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
         {#if spaceLoadError && !spaceHasMinimalAccess}
@@ -8232,7 +8365,7 @@ $effect(() => {
                 type="button"
                 class="action-btn"
                 onclick={saveOpenFile}
-                disabled={openFileSaving || !fileDirty}
+                disabled={openFileSaving || !fileDirty || !canEditFiles}
                 title="Save (Ctrl+S)"
               >
                 <Save class="w-3.5 h-3.5 shrink-0" />
@@ -8248,6 +8381,7 @@ $effect(() => {
                   value={openFileDraft}
                   language={openFileExt}
                   onInput={(v) => openFileDraft = v}
+                  readonly={!canEditFiles}
                 />
               {:else if openFileHasRenderedPreview}
                 <RenderedFilePreview
@@ -9007,13 +9141,13 @@ $effect(() => {
             <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
               {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
             </button>
-            <button type="button" class="action-btn" onclick={() => void saveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty} title="Save">
+            <button type="button" class="action-btn" onclick={() => void saveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles} title="Save">
               <Save class="w-4 h-4 shrink-0" />
             </button>
           </div>
           <div class="flex-1 min-h-0">
             {#if inlineFileEdit}
-              <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} />
+              <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles} />
             {:else if inlineFileHasRenderedPreview}
               <RenderedFilePreview
                 name={inlineFile.response.name}
@@ -9054,10 +9188,12 @@ $effect(() => {
     </div>
     <!-- Desktop side panel -->
     <WorkspacePreviewPane
-      desktopOnly={true}
+      desktopOnly={activePreviewMode === "dock"}
       width={previewPanelWidth}
       ariaLabel="File preview"
       onResizeStart={beginPreviewPanelResize}
+      mode={activePreviewMode}
+      chrome={activePreviewChrome}
     >
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
@@ -9155,7 +9291,7 @@ $effect(() => {
                 type="button"
                 class="action-btn"
                 onclick={() => void saveInlineFile()}
-                disabled={inlineFile.saving || !inlineFileDirty}
+                disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles}
                 title="Save (Ctrl+S)"
               >
                 <Save class="w-3.5 h-3.5 shrink-0" />
@@ -9172,6 +9308,7 @@ $effect(() => {
                   value={inlineFile.draft}
                   language={inlineFileExt}
                   onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
+                  readonly={!canEditFiles}
                 />
               {:else if inlineFileHasRenderedPreview}
                 <RenderedFilePreview
@@ -9291,6 +9428,8 @@ $effect(() => {
       width={previewPanelWidth}
       ariaLabel={`Canvas ${inlineCanvas.path}`}
       onResizeStart={beginPreviewPanelResize}
+      mode={activePreviewMode}
+      chrome={activePreviewChrome}
     >
       {#if inlineCanvas.loading}
         <div class="flex h-full min-w-0 flex-col bg-bg-content">
@@ -9310,7 +9449,7 @@ $effect(() => {
           path={inlineCanvas.path}
           document={inlineCanvas.document}
           saving={inlineCanvas.saving}
-          focused={previewFocusMode}
+          focused={activePreviewMode !== "dock"}
           onToggleFocus={togglePreviewFocusMode}
           onCommit={(document, ops) => commitInlineCanvas(document, ops)}
           onClose={closeInlineCanvas}
@@ -9331,13 +9470,15 @@ $effect(() => {
       width={previewPanelWidth}
       ariaLabel={`Port ${inlinePortPreview.port} preview`}
       onResizeStart={beginPreviewPanelResize}
+      mode={activePreviewMode}
+      chrome={activePreviewChrome}
     >
       <PortPreview
         port={inlinePortPreview.port}
         url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
         status={inlinePortEndpoint?.status ?? "unknown"}
         observedAt={inlinePortEndpoint?.observedAt}
-        focused={previewFocusMode}
+        focused={activePreviewMode !== "dock"}
         onToggleFocus={togglePreviewFocusMode}
         onClose={closeInlinePort}
       />
@@ -9345,7 +9486,14 @@ $effect(() => {
   {/if}
   <!-- Desktop right sidebar — file tree only -->
   {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
-    <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
+    <div
+      class={spaceLayoutState.effective.panels.files.mode === "floating" && !isMobile
+        ? "absolute top-3 bottom-3 z-30 hidden overflow-hidden rounded-[10px] border border-border-subtle bg-bg-content shadow-[0_16px_48px_color-mix(in_srgb,var(--overlay-scrim-strong)_18%,transparent)] lg:flex"
+        : "hidden shrink-0 lg:flex border-l border-border-subtle"}
+      style={spaceLayoutState.effective.panels.files.mode === "floating" && !isMobile
+        ? `${spaceLayoutState.effective.panels.files.anchor}: 12px; width: ${uiState.rightSidebarWidth}px`
+        : `width: ${uiState.rightSidebarWidth}px`}
+    >
       <div class="w-full relative">
         <SpaceFileSidebar
           nodes={fileTree}
@@ -9367,7 +9515,7 @@ $effect(() => {
           activePort={inlinePortPreview?.port ?? null}
           draggable={true}
           showItemActions={true}
-          canWrite={true}
+          canWrite={canEditFiles}
           previewEndpoints={previewEndpoints}
         />
         <FileUploadPane
@@ -9415,7 +9563,7 @@ $effect(() => {
         activePort={inlinePortPreview?.port ?? null}
         draggable={false}
         showItemActions={false}
-        canWrite={true}
+        canWrite={canEditFiles}
         previewEndpoints={previewEndpoints}
       />
       <FileUploadPane
