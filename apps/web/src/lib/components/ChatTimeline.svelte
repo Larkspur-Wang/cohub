@@ -22,8 +22,14 @@ type Props = {
 	/** Number of unseen items at the visual top before triggering preload */
 	preloadThreshold?: number;
 	onFirstVisible?: (index: number) => void;
+	/** Whether the initial/tail turn window is loading */
+	loading?: boolean;
+	/** Whether cached turns are being refreshed in place */
+	refreshing?: boolean;
 	/** Whether older turns are currently being loaded (scroll-up pagination) */
 	loadingOlder?: boolean;
+	/** Whether newer turns are being synced after cached content */
+	loadingNewer?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
@@ -44,7 +50,10 @@ let {
 	bindListEl = $bindable(null),
 	preloadThreshold = 10,
 	onFirstVisible,
+	loading = false,
+	refreshing = false,
 	loadingOlder = false,
+	loadingNewer = false,
 	modelsCatalog,
 	onMarkdownRenderStart,
 	onMarkdownRendered,
@@ -134,9 +143,22 @@ $effect(() => {
 
 <div
 	bind:this={bindListEl}
-	class="chat-timeline-scroll flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
+	class="chat-timeline-scroll relative flex-1 min-h-0 overflow-y-auto bg-bg-content px-4 sm:px-6"
 >
+	{#if (refreshing || loadingNewer) && timeline.length > 0}
+		<div class="pointer-events-none sticky top-2 z-10 flex justify-center">
+			<div class="rounded-full border border-border-subtle/80 bg-bg-primary/90 p-1 shadow-sm backdrop-blur-sm">
+				<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" aria-label="Syncing" />
+			</div>
+		</div>
+	{/if}
 	<div class={`mx-auto max-w-4xl flex flex-col [&>*]:mt-2 pt-6 pb-6`}>
+		{#if loading && timeline.length === 0}
+			<div class="flex min-h-[42vh] items-center justify-center gap-2 text-[12px] text-text-tertiary">
+				<Loader2 class="h-4 w-4 animate-spin" aria-label="Loading turns" />
+				<span>Loading turns…</span>
+			</div>
+		{/if}
 		{#each timeline as item, idx (item.id)}
 			{@const originalIdx = idx}
 			<div
@@ -180,9 +202,8 @@ $effect(() => {
 			</div>
 		{/each}
 		{#if loadingOlder}
-			<div class="flex items-center justify-center gap-1.5 py-3">
-				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" />
-				<span class="text-[12px] text-text-tertiary">Loading turns…</span>
+			<div class="flex items-center justify-center py-3">
+				<Loader2 class="w-3.5 h-3.5 animate-spin text-text-tertiary" aria-label="Loading turns" />
 			</div>
 		{/if}
 	</div>

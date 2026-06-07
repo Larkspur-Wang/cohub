@@ -247,7 +247,12 @@ $effect(() => {
     ondragleave={() => { rootDragOver = false; }}
     ondrop={handleRootDrop}
   >
-    {#if nodes.length === 0 && !loading}
+    {#if nodes.length === 0 && loading}
+      <div class="flex items-center gap-2 px-2 py-3 text-[12px] text-text-tertiary">
+        <RefreshCw class="h-3 w-3 animate-spin" />
+        <span>Loading files…</span>
+      </div>
+    {:else if nodes.length === 0}
       <div class="px-2 py-3 text-[12px] text-text-tertiary">No files</div>
     {:else}
       {#each nodes as node (node.path)}

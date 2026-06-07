@@ -801,6 +801,7 @@ let taskRunDetailError = $state("");
 let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let taskRunRefreshInFlight: Promise<void> | null = null;
+let taskRunRefreshInFlightTaskId: string | null = null;
 let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
 let backgroundBashTaskRunById = $state<Record<string, TaskRunRecord>>({});
 let backgroundBashHydrateKey = "";
@@ -971,17 +972,26 @@ async function loadSpaceCheckpoints() {
 }
 
 async function loadCheckpointDetail(checkpointId: string) {
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId &&
+		routeView === "checkpoint" &&
+		routeCheckpointId === checkpointId;
 	checkpointDetailLoading = true;
 	checkpointDetailError = "";
 	try {
-		const result = await sdk.space(spaceId).checkpoints.get(checkpointId);
+		const result = await sdk
+			.space(requestSpaceId)
+			.checkpoints.get(checkpointId);
+		if (!isCurrentRequest()) return;
 		checkpointDetail = result.checkpoint;
 	} catch (error) {
+		if (!isCurrentRequest()) return;
 		checkpointDetail = null;
 		checkpointDetailError =
 			error instanceof Error ? error.message : "Failed to load save";
 	} finally {
-		checkpointDetailLoading = false;
+		if (isCurrentRequest()) checkpointDetailLoading = false;
 	}
 }
 let checkpointIdCopied = $state(false);
@@ -1044,11 +1054,17 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 }
 // ─── Cronjob detail & actions ───
 async function loadCronjobDetail(cronjobId: string) {
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId &&
+		routeView === "cronjob" &&
+		routeCronjobId === cronjobId;
 	cronjobDetailLoading = true;
 	cronjobDetailError = "";
 	cronjobToggleError = "";
 	try {
-		const { jobs } = await sdk.cronJobs.list(spaceId);
+		const { jobs } = await sdk.cronJobs.list(requestSpaceId);
+		if (!isCurrentRequest()) return;
 		const job = jobs.find((j) => j.id === cronjobId) ?? null;
 		if (!job) {
 			cronjobDetail = null;
@@ -1057,14 +1073,16 @@ async function loadCronjobDetail(cronjobId: string) {
 		}
 		cronjobDetail = job;
 		const { runs } = await sdk.cronJobs.runs(cronjobId);
+		if (!isCurrentRequest()) return;
 		cronjobRuns = runs;
-		mergeCachedCronJobTaskRuns(spaceId, cronjobId, runs);
+		mergeCachedCronJobTaskRuns(requestSpaceId, cronjobId, runs);
 	} catch (error) {
+		if (!isCurrentRequest()) return;
 		cronjobDetail = null;
 		cronjobDetailError =
 			error instanceof Error ? error.message : "Failed to load scheduled job";
 	} finally {
-		cronjobDetailLoading = false;
+		if (isCurrentRequest()) cronjobDetailLoading = false;
 	}
 }
 async function handleToggleCronjob(enabled: boolean) {
@@ -1331,29 +1349,41 @@ function upsertBackgroundBashTaskRun(run: TaskRunRecord) {
 	backgroundBashTaskRunById = { ...backgroundBashTaskRunById, [run.id]: run };
 }
 async function refreshTaskDetail(taskId: string, loading = false) {
-	if (taskRunRefreshInFlight) return taskRunRefreshInFlight;
+	if (taskRunRefreshInFlight && taskRunRefreshInFlightTaskId === taskId)
+		return taskRunRefreshInFlight;
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId &&
+		routeView === "task" &&
+		routeTaskId === taskId;
 	const run = (async () => {
 		if (loading) taskRunDetailLoading = true;
 		taskRunDetailError = "";
 		try {
 			const { run, progress } = await sdk.tasks.get(taskId);
+			if (!isCurrentRequest()) return;
 			taskRunDetail = run;
 			taskRunProgress = progress;
 			if (run.spaceId) mergeCachedTaskRun(run.spaceId, run);
 			if (run.status !== "pending" && run.status !== "running")
 				clearTaskRunPoll();
 		} catch (error) {
+			if (!isCurrentRequest()) return;
 			taskRunDetail = null;
 			taskRunProgress = null;
 			taskRunDetailError =
 				error instanceof Error ? error.message : "Failed to load task run";
 			clearTaskRunPoll();
 		} finally {
-			if (loading) taskRunDetailLoading = false;
+			if (loading && isCurrentRequest()) taskRunDetailLoading = false;
 		}
 	})();
+	taskRunRefreshInFlightTaskId = taskId;
 	taskRunRefreshInFlight = run.finally(() => {
-		if (taskRunRefreshInFlight === run) taskRunRefreshInFlight = null;
+		if (taskRunRefreshInFlight === run) {
+			taskRunRefreshInFlight = null;
+			taskRunRefreshInFlightTaskId = null;
+		}
 	});
 	return taskRunRefreshInFlight;
 }
@@ -5667,12 +5697,18 @@ async function refreshFileTree() {
 	await loadFileTree(true);
 }
 async function openFileFromUrl(path: string) {
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId &&
+		routeView === "file" &&
+		routeFilePath === path;
 	inlinePortPreview = null;
 	openFileLoading = true;
 	openFileError = null;
 	openFileTooLarge = false;
 	try {
-		const file = await sdk.space(spaceId).files.read(path);
+		const file = await sdk.space(requestSpaceId).files.read(path);
+		if (!isCurrentRequest()) return;
 		if (!("content" in file)) {
 			openFile = null;
 			openFileDraft = "";
@@ -5683,6 +5719,7 @@ async function openFileFromUrl(path: string) {
 		openFile = file;
 		openFileDraft = file.kind === "text" ? file.content : "";
 	} catch (error) {
+		if (!isCurrentRequest()) return;
 		if (error instanceof HttpError && error.status === 413) {
 			openFileTooLarge = true;
 			openFile = null;
@@ -5693,7 +5730,7 @@ async function openFileFromUrl(path: string) {
 				error instanceof Error ? error.message : "Failed to open file";
 		}
 	} finally {
-		openFileLoading = false;
+		if (isCurrentRequest()) openFileLoading = false;
 	}
 }
 async function saveOpenFile() {
@@ -7308,6 +7345,13 @@ $effect(() => {
 	</button>
 {/snippet}
 
+{#snippet PanelLoadingState(label: string, compact = false)}
+	<div class={compact ? "flex min-h-36 items-center justify-center gap-2 text-[12px] text-text-tertiary" : "flex min-h-[42vh] flex-1 items-center justify-center gap-2 text-[12px] text-text-tertiary"}>
+		<Loader2 class="h-4 w-4 animate-spin" aria-label={label} />
+		<span>{label}</span>
+	</div>
+{/snippet}
+
 <PageHeader>
   {#snippet left()}
     <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
@@ -7372,6 +7416,9 @@ $effect(() => {
             >
               {getSessionTitle(activeSessionState.session)}
             </button>
+            {#if activeSessionState.loading && activeSessionState.loaded}
+              <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />
+            {/if}
             {#if wsConnectionState === 'reconnecting'}
               <span class="inline-flex shrink-0 items-center text-[12px] text-warning">
                 Reconnecting...
@@ -7387,6 +7434,7 @@ $effect(() => {
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
+        {#if checkpointDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else if routeView === "checkpoint-new"}
         <button
           type="button"
@@ -7403,6 +7451,7 @@ $effect(() => {
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">{cronjobDetail.title}</span>
+        {#if cronjobDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else if routeView === "cronjob-new"}
         <button
           type="button"
@@ -7419,6 +7468,7 @@ $effect(() => {
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
         <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
         <span class="text-[13px] text-text-secondary truncate">Task run</span>
+        {#if taskRunDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else}
         <button
           type="button"
@@ -7605,14 +7655,11 @@ $effect(() => {
       </div>
     {:else if routeView === 'checkpoint'}
       <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl">
-        {#if checkpointDetailLoading}
-          <div class="flex items-center gap-3 rounded-md border border-border-subtle bg-bg-surface p-4 text-[13px] text-text-tertiary">
-            <Loader2 class="w-4 h-4 animate-spin shrink-0" />
-            Loading checkpoint…
-          </div>
+        {#if checkpointDetailLoading && checkpointDetail?.id !== routeCheckpointId}
+          {@render PanelLoadingState("Loading save…")}
         {:else if checkpointDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
-        {:else if checkpointDetail}
+        {:else if checkpointDetail && checkpointDetail.id === routeCheckpointId}
           <div class="border border-border-subtle rounded-md bg-bg-surface">
             <!-- Hero section: ID + description -->
             <div class="p-5 space-y-4">
@@ -7782,14 +7829,11 @@ $effect(() => {
     {:else if routeView === 'cronjob'}
       <div class="flex-1 min-h-0 overflow-y-auto px-5 py-6 lg:px-8">
         <div class="max-w-5xl">
-        {#if cronjobDetailLoading}
-          <div class="flex items-center gap-2 text-[12px] text-text-tertiary">
-            <Loader2 class="w-3.5 h-3.5 animate-spin" />
-            Loading scheduled job...
-          </div>
+        {#if cronjobDetailLoading && cronjobDetail?.id !== routeCronjobId}
+          {@render PanelLoadingState("Loading scheduled…")}
         {:else if cronjobDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
-        {:else if cronjobDetail}
+        {:else if cronjobDetail && cronjobDetail.id === routeCronjobId}
           <div class="space-y-8">
             <div class="flex flex-col gap-5 border-b border-border-subtle/70 pb-6 lg:flex-row lg:items-start lg:justify-between">
               <div class="min-w-0 space-y-3">
@@ -7963,13 +8007,11 @@ $effect(() => {
       </div>
     {:else if routeView === 'task'}
       <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:p-4 max-w-4xl w-full space-y-4">
-        {#if taskRunDetailLoading}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">
-            Loading task run...
-          </div>
+        {#if taskRunDetailLoading && taskRunDetail?.id !== routeTaskId}
+          {@render PanelLoadingState("Loading task…")}
         {:else if taskRunDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{taskRunDetailError}</div>
-        {:else if taskRunDetail}
+        {:else if taskRunDetail && taskRunDetail.id === routeTaskId}
           {@const badge = taskRunStatusBadge(taskRunDetail)}
           {#if taskRunDetail.taskType === "run_command"}
             {@const commandInfo = runCommandPayload(taskRunDetail)}
@@ -8094,8 +8136,8 @@ $effect(() => {
       </div>
     {:else if fileMode === 'file'}
       <!-- File Viewer -->
-      {#if openFileLoading}
-        <div class="flex-1 flex items-center justify-center text-[12px] text-text-tertiary">Loading file…</div>
+      {#if openFileLoading && openFile?.path !== routeFilePath}
+        {@render PanelLoadingState("Loading file…")}
       {:else if openFileError}
         <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
           {openFileError}
@@ -8535,7 +8577,12 @@ $effect(() => {
                 <Activity class="w-4 h-4 text-text-tertiary" />
                 <div>
                   <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Usage</div>
-                  <div class="mt-0.5 text-[15px] font-medium text-text-primary">Token consumption & cost</div>
+                  <div class="mt-0.5 flex items-center gap-2 text-[15px] font-medium text-text-primary">
+                    <span>Token consumption & cost</span>
+                    {#if tokenUsageLoading && tokenUsage}
+                      <Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" aria-label="Syncing" />
+                    {/if}
+                  </div>
                 </div>
               </div>
               <div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-primary p-0.5">
@@ -8551,7 +8598,9 @@ $effect(() => {
                 {/each}
               </div>
             </div>
-            {#if tokenUsageError}
+            {#if tokenUsageLoading && !tokenUsage}
+              {@render PanelLoadingState("Loading usage…", true)}
+            {:else if tokenUsageError}
               <div class="mt-4 rounded-[6px] border border-error-soft/20 bg-error-bg px-3 py-2 text-[12px] text-error-soft">
                 Failed to load usage: {tokenUsageError}
               </div>
@@ -8779,7 +8828,10 @@ $effect(() => {
             onMarkdownRendered={handleTimelineMarkdownRendered}
             onForkTurn={handleForkTurn}
             forkingTurnId={forkingTurnId}
+            loading={activeSessionState?.loading ?? false}
+            refreshing={Boolean(activeSessionState?.loading && activeSessionState.loaded)}
             loadingOlder={activeSessionState?.loadingOlder ?? false}
+            loadingNewer={activeSessionState?.loadingNewer ?? false}
             onOpenFile={openInlineFile}
             modelsCatalog={modelsCatalog ?? undefined}
           />
@@ -8925,7 +8977,7 @@ $effect(() => {
         {/if}
       </div>
       {#if inlineFile.loading}
-        <div class="flex flex-1 items-center justify-center text-sm text-text-tertiary">Loading…</div>
+        {@render PanelLoadingState("Loading file…")}
       {:else if inlineFile.error}
         <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-sm text-error-soft">
           {inlineFile.error}
@@ -9010,9 +9062,14 @@ $effect(() => {
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
-            <span class="text-xs text-text-tertiary">Loading file…</span>
+            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+            {@render FileHeaderCoreActions(inlineFile.path)}
+            {@render PreviewFocusButton()}
+            <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+              <X class="w-4 h-4" />
+            </button>
           </div>
-          <div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
+          {@render PanelLoadingState("Loading file…")}
         {:else if inlineFile.error}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>

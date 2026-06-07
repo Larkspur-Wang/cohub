@@ -188,16 +188,20 @@ let showNewLabelPopover = $state(false);
 let loadingSessions = $state(false);
 let loadingSessionsSpaceId = $state<string | null>(null);
 let loadingMoreSessions = $state(false);
+let refreshingSessions = $state(false);
 let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 	hasMore: false,
 	nextCursor: null,
 });
 let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
+let loadingLabels = $state(false);
+let refreshingLabels = $state(false);
 let loadingCheckpointsSpaceId = $state<string | null>(null);
 let billingCredit = $state<BillingCreditStatus | null>(null);
 let billingCreditLoading = $state(false);
 let billingCreditError = $state<string | null>(null);
+let refreshingSpaces = $state(false);
 let billingCreditUserId = $state<string | null>(null);
 let billingConfigured = $state<boolean | null>(null);
 
@@ -239,9 +243,12 @@ let deletingLabelId = $state<string | null>(null);
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
 let loadingCronjobs = $state(false);
+let refreshingCheckpoints = $state(false);
 let loadingCronjobsSpaceId = $state<string | null>(null);
 let loadingTasks = $state(false);
+let refreshingCronjobs = $state(false);
 let loadingTasksSpaceId = $state<string | null>(null);
+let refreshingTasks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
 const currentSessionViewMode = $derived<"chat" | "split">(
@@ -607,6 +614,7 @@ async function loadSpaces(force = false) {
 	const shouldFetch = force || !cacheMeta || cacheMeta.isStale;
 	if (!shouldFetch) return;
 
+	refreshingSpaces = spaces.length > 0;
 	try {
 		const listedSpaces = await fetchSpaceListWithCache(
 			async () => await sdk.spaces.list(),
@@ -623,6 +631,8 @@ async function loadSpaces(force = false) {
 			return;
 		}
 		console.warn("[sidebar] Failed to load spaces", error);
+	} finally {
+		refreshingSpaces = false;
 	}
 
 	await loadCurrentSpaceFromUrl(requestedSpaceId);
@@ -645,6 +655,8 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 	if (shouldShowLoading) {
 		loadingSessions = true;
 		loadingSessionsSpaceId = spaceId;
+	} else {
+		refreshingSessions = true;
 	}
 
 	const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
@@ -653,6 +665,7 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			loadingSessions = false;
 			loadingSessionsSpaceId = null;
 		}
+		refreshingSessions = false;
 		return;
 	}
 	const shouldFetch = force || !cachedSnapshot || cachedSnapshot.stale;
@@ -661,6 +674,7 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			loadingSessions = false;
 			loadingSessionsSpaceId = null;
 		}
+		refreshingSessions = false;
 		return;
 	}
 
@@ -692,6 +706,7 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			loadingSessions = false;
 			loadingSessionsSpaceId = null;
 		}
+		refreshingSessions = false;
 	}
 }
 
@@ -741,6 +756,8 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 	if (shouldShowLoading) {
 		loadingCheckpoints = true;
 		loadingCheckpointsSpaceId = spaceId;
+	} else {
+		refreshingCheckpoints = true;
 	}
 	try {
 		const result = await sdk.space(spaceId).checkpoints.list();
@@ -752,6 +769,7 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 			loadingCheckpoints = false;
 			loadingCheckpointsSpaceId = null;
 		}
+		refreshingCheckpoints = false;
 	}
 }
 
@@ -766,6 +784,8 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (cached && !cached.stale) return;
 	}
 
+	if (labels.length === 0) loadingLabels = true;
+	else refreshingLabels = true;
 	try {
 		const next = await fetchSpaceLabelsFresh(spaceId);
 		if (spaceId === currentSpaceId) {
@@ -774,6 +794,11 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
+	} finally {
+		if (spaceId === currentSpaceId) {
+			loadingLabels = false;
+			refreshingLabels = false;
+		}
 	}
 }
 
@@ -841,15 +866,13 @@ async function loadLabelItems(
 		}
 	}
 
-	if (append) {
-		loadingLabelIdsBySpace = {
-			...loadingLabelIdsBySpace,
-			[spaceId]: new Set([
-				...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
-				labelId,
-			]),
-		};
-	}
+	loadingLabelIdsBySpace = {
+		...loadingLabelIdsBySpace,
+		[spaceId]: new Set([
+			...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
+			labelId,
+		]),
+	};
 	try {
 		const labelRef = await getLabelRefById(spaceId, labelId);
 		if (!labelRef) return;
@@ -1275,6 +1298,8 @@ async function loadCronjobsForSpace(spaceId: string, force = false) {
 	if (shouldShowLoading) {
 		loadingCronjobs = true;
 		loadingCronjobsSpaceId = spaceId;
+	} else {
+		refreshingCronjobs = true;
 	}
 	try {
 		const result = await sdk.cronJobs.list(spaceId);
@@ -1286,6 +1311,7 @@ async function loadCronjobsForSpace(spaceId: string, force = false) {
 			loadingCronjobs = false;
 			loadingCronjobsSpaceId = null;
 		}
+		refreshingCronjobs = false;
 	}
 }
 
@@ -1295,6 +1321,8 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 	if (shouldShowLoading) {
 		loadingTasks = true;
 		loadingTasksSpaceId = spaceId;
+	} else {
+		refreshingTasks = true;
 	}
 	try {
 		const result = await sdk.tasks.list({ spaceId });
@@ -1309,6 +1337,7 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 			loadingTasks = false;
 			loadingTasksSpaceId = null;
 		}
+		refreshingTasks = false;
 	}
 }
 
@@ -1986,12 +2015,18 @@ $effect(() => {
 		exhaustedFallbackSessionCursor = null;
 		loadingSessions = false;
 		loadingSessionsSpaceId = null;
+		refreshingSessions = false;
+		loadingLabels = false;
+		refreshingLabels = false;
 		loadingCheckpoints = false;
 		loadingCheckpointsSpaceId = null;
+		refreshingCheckpoints = false;
 		loadingCronjobs = false;
 		loadingCronjobsSpaceId = null;
+		refreshingCronjobs = false;
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
+		refreshingTasks = false;
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
@@ -2017,12 +2052,18 @@ $effect(() => {
 		tasks = [];
 		loadingSessions = false;
 		loadingSessionsSpaceId = null;
+		refreshingSessions = false;
+		loadingLabels = false;
+		refreshingLabels = false;
 		loadingCheckpoints = false;
 		loadingCheckpointsSpaceId = null;
+		refreshingCheckpoints = false;
 		loadingCronjobs = false;
 		loadingCronjobsSpaceId = null;
+		refreshingCronjobs = false;
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
+		refreshingTasks = false;
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
@@ -2044,6 +2085,12 @@ $effect(() => {
 });
 </script>
 
+{#snippet syncSpinner(active: boolean, className = "")}
+	{#if active}
+		<Loader2 class={`h-3 w-3 animate-spin text-text-placeholder ${className}`} aria-label="Syncing" />
+	{/if}
+{/snippet}
+
 {#snippet sidebarEmptyState(message: string, loading = false)}
 	<div class="flex min-h-8 items-center gap-2 rounded-[6px] px-2 py-2 text-[12px] text-text-placeholder">
 		{#if loading}
@@ -2058,7 +2105,11 @@ $effect(() => {
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
 		{#if items.length === 0 && !hasChildLabels}
-			<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
+			{#if currentLoadingLabelIds.has(label.id)}
+				<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
+			{:else}
+				<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
+			{/if}
 		{:else if items.length > 0}
 			{#each items as item (item.id)}
 				{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
@@ -2126,9 +2177,10 @@ $effect(() => {
 				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {labelsCollapsed ? 'rotate-180' : ''}" />
 				<Tags class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 				<span class="text-[11px] text-text-placeholder select-none">Labels</span>
+				{@render syncSpinner(refreshingLabels, canManageLabels ? "ml-auto" : "ml-auto")}
 				{#if canManageLabels}
 					<span
-						class="ml-auto rounded p-0.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
+						class="{refreshingLabels ? '' : 'ml-auto'} rounded p-0.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
 						title="New label"
 						onclick={(event) => { event.stopPropagation(); showNewLabelPopover = true; }}
 						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.stopPropagation(); event.preventDefault(); showNewLabelPopover = true; } }}
@@ -2144,7 +2196,9 @@ $effect(() => {
 			<div class="label-drop-message" role="status">{labelDropErrorMessage}</div>
 		{/if}
 		{#if !showHeader || !labelsCollapsed}
-			{#if labels.length === 0}
+			{#if loadingLabels && labels.length === 0}
+				{@render sidebarEmptyState("Loading labels…", true)}
+			{:else if labels.length === 0}
 				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 			{:else}
 				<div class="mt-1 space-y-[1px]">
@@ -2608,6 +2662,7 @@ $effect(() => {
         {#if currentSpace}
           <SpaceAvatar name={currentSpace.name || currentSpace.title || currentSpace.id} profile={currentSpace.publicProfile} size="sm" />
           <span class="flex-1 text-[13px] font-medium text-text-primary truncate text-left">{currentSpace.name || currentSpace.title || currentSpace.id.slice(0, 12)}</span>
+          {@render syncSpinner(refreshingSpaces)}
         {:else}
           <span class="flex-1 text-[13px] text-text-placeholder truncate text-left">Select a space</span>
         {/if}
@@ -2679,6 +2734,7 @@ $effect(() => {
             <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {sessionsCollapsed ? 'rotate-180' : ''}" />
             <MessageSquare class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
             <span class="text-[11px] text-text-placeholder select-none">Chats</span>
+            {@render syncSpinner(refreshingSessions, "ml-auto")}
           </button>
 
           {#if !sessionsCollapsed}
@@ -2897,6 +2953,7 @@ $effect(() => {
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {checkpointsCollapsed ? 'rotate-180' : ''}" />
               <History class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Saves</span>
+              {@render syncSpinner(refreshingCheckpoints, "ml-auto")}
             </button>
 
             {#if !checkpointsCollapsed}
@@ -2951,8 +3008,9 @@ $effect(() => {
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {cronjobsCollapsed ? 'rotate-180' : ''}" />
               <Clock class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Scheduled</span>
+              {@render syncSpinner(refreshingCronjobs, "ml-auto")}
               <span
-                class="ml-auto p-0.5 rounded hover:bg-bg-hover text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
+                class="{refreshingCronjobs ? '' : 'ml-auto'} p-0.5 rounded hover:bg-bg-hover text-text-placeholder hover:text-text-secondary transition-colors cursor-pointer"
                 onclick={(e) => { e.stopPropagation(); handleNavigateToNewCronjob(); }}
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); handleNavigateToNewCronjob(); } }}
                 title="New scheduled"
@@ -3013,6 +3071,7 @@ $effect(() => {
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {tasksCollapsed ? 'rotate-180' : ''}" />
               <Activity class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
               <span class="text-[11px] text-text-placeholder select-none">Tasks</span>
+              {@render syncSpinner(refreshingTasks, "ml-auto")}
             </button>
 
             {#if !tasksCollapsed}
