@@ -5,6 +5,7 @@ import type {
 } from "@cohub/protocol/model";
 import { Loader2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import TurnNavigatorPanel from "$lib/components/TurnNavigatorPanel.svelte";
 
 type Marker = {
 	turn: SessionTurnIndexItem;
@@ -28,6 +29,7 @@ type Props = {
 	hasMoreOlder?: boolean;
 	hasMoreNewer?: boolean;
 	loadingOlder?: boolean;
+	loadingNewer?: boolean;
 	currentSequence?: number | null;
 	loadingSequence?: number | null;
 	onJump?: (sequence: number) => void;
@@ -51,6 +53,7 @@ let {
 	hasMoreOlder = false,
 	hasMoreNewer = false,
 	loadingOlder = false,
+	loadingNewer = false,
 	currentSequence = null,
 	loadingSequence = null,
 	onJump,
@@ -60,11 +63,13 @@ let {
 	onLoadNewer,
 }: Props = $props();
 
-let hovered = $state<Marker | null>(null);
+let navigatorOpen = $state(false);
+let railEl = $state<HTMLDivElement | null>(null);
 let trackEl = $state<HTMLElement | null>(null);
 let thumbEl = $state<HTMLDivElement | null>(null);
 let dragging = $state(false);
 let dragOffsetPx = 0;
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const loadedSequences = $derived(
 	new Set(loadedTurns.map((turn) => turn.sequence)),
@@ -139,6 +144,7 @@ function startScrollDrag(event: PointerEvent, fromThumb: boolean) {
 	if (!canScroll) return;
 	event.preventDefault();
 	event.stopPropagation();
+	closeNavigator();
 	dragging = true;
 	if (fromThumb && thumbEl) {
 		dragOffsetPx = event.clientY - thumbEl.getBoundingClientRect().top;
@@ -159,28 +165,56 @@ function statusClass(status: SessionTurnIndexItem["status"]) {
 	return "bg-text-tertiary";
 }
 
-function turnLabel(turn: SessionTurnIndexItem) {
-	return `#${turn.sequence}`;
-}
-
 function countLabel(count: number) {
 	if (count <= 0) return "more";
 	return Intl.NumberFormat("en", { notation: "compact" }).format(count);
 }
 
-function metaLabel(turn: SessionTurnIndexItem) {
-	const parts: string[] = [turn.status];
-	if (turn.model) parts.push(turn.model);
-	const total = turn.totalUsage?.totalTokens ?? turn.finalUsage?.totalTokens;
-	if (total) {
-		parts.push(
-			`${Intl.NumberFormat("en", { notation: "compact" }).format(total)} tokens`,
-		);
+function clearCloseTimer() {
+	if (!closeTimer) return;
+	clearTimeout(closeTimer);
+	closeTimer = null;
+}
+
+function openNavigator() {
+	if (dragging) return;
+	clearCloseTimer();
+	navigatorOpen = true;
+}
+
+function closeNavigator() {
+	clearCloseTimer();
+	navigatorOpen = false;
+}
+
+function jumpFromNavigator(sequence: number) {
+	closeNavigator();
+	onJump?.(sequence);
+}
+
+function scheduleNavigatorClose() {
+	clearCloseTimer();
+	closeTimer = setTimeout(() => {
+		navigatorOpen = false;
+		closeTimer = null;
+	}, 120);
+}
+
+function handleFocusOut(event: FocusEvent) {
+	const nextTarget = event.relatedTarget;
+	if (nextTarget instanceof Node && railEl?.contains(nextTarget)) return;
+	scheduleNavigatorClose();
+}
+
+function handleKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.stopPropagation();
+		closeNavigator();
 	}
-	return parts.join(" · ");
 }
 
 onDestroy(() => {
+	clearCloseTimer();
 	window.removeEventListener("pointermove", handleScrollPointerMove);
 	window.removeEventListener("pointerup", endScrollDrag);
 	window.removeEventListener("pointercancel", endScrollDrag);
@@ -189,8 +223,15 @@ onDestroy(() => {
 
 {#if shouldShow}
 	<div
+		bind:this={railEl}
 		class="group/rail pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
+		role="presentation"
 		style:bottom={`${bottomOffset}px`}
+		onmouseenter={openNavigator}
+		onmouseleave={scheduleNavigatorClose}
+		onfocusin={openNavigator}
+		onfocusout={handleFocusOut}
+		onkeydown={handleKeydown}
 	>
 		<div class="absolute right-[13.5px] top-0 h-full w-px bg-border-subtle/65 transition-colors duration-150 group-hover/rail:bg-border-subtle"></div>
 		{#if canScroll}
@@ -242,10 +283,6 @@ onDestroy(() => {
 				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
-				onmouseenter={() => { hovered = marker; }}
-				onmouseleave={() => { hovered = null; }}
-				onfocus={() => { hovered = marker; }}
-				onblur={() => { hovered = null; }}
 				onclick={() => onJump?.(marker.turn.sequence)}
 			>
 				<span
@@ -273,19 +310,19 @@ onDestroy(() => {
 				</span>
 			</button>
 		{/if}
-		{#if hovered}
-			<div
-				class="pointer-events-none absolute right-8 w-72 -translate-y-1/2 rounded-lg border border-border-subtle/90 bg-bg-primary/98 px-3 py-2 shadow-[0_10px_32px_rgba(0,0,0,0.24)]"
-				style:top={`${Math.min(96, Math.max(4, hovered.top))}%`}
-			>
-				<div class="flex items-center justify-between gap-3">
-					<div class="text-[11px] font-medium text-text-primary">{turnLabel(hovered.turn)}</div>
-					<div class="text-[10px] uppercase tracking-wide text-text-placeholder">{hovered.loaded ? 'loaded' : 'indexed'}</div>
-				</div>
-				<div class="mt-1 line-clamp-2 text-[12px] leading-relaxed text-text-secondary">
-					{hovered.turn.userPreview ?? "Empty user message"}
-				</div>
-				<div class="mt-1.5 truncate text-[10px] text-text-tertiary">{metaLabel(hovered.turn)}</div>
+		{#if navigatorOpen && !dragging}
+			<div class="pointer-events-auto absolute right-8 top-0 z-50">
+				<TurnNavigatorPanel
+					turns={turns}
+					currentSequence={effectiveCurrent}
+					hasMoreOlder={hasMoreOlder}
+					hasMoreNewer={hasMoreNewer}
+					loadingOlder={loadingOlder}
+					loadingNewer={loadingNewer}
+					onJump={jumpFromNavigator}
+					onLoadOlder={onLoadOlder}
+					onLoadNewer={onLoadNewer}
+				/>
 			</div>
 		{/if}
 	</div>

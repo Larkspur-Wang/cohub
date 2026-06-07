@@ -83,7 +83,6 @@ import {
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
-	buildSpaceSessionModeRoute,
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
@@ -98,7 +97,6 @@ import {
 	setCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import { loadSpaceSessionModePreference } from "$lib/stores/session-view-preferences";
 import {
 	getCachedExpandedLabelIds,
 	setCachedExpandedLabelIds,
@@ -251,9 +249,6 @@ let loadingTasksSpaceId = $state<string | null>(null);
 let refreshingTasks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
-const currentSessionViewMode = $derived<"chat" | "split">(
-	page.url.searchParams.get("mode") === "split" ? "split" : "chat",
-);
 const activeSession = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
 	const activeSessionId = match?.[1] ?? null;
@@ -1410,11 +1405,7 @@ function openSpacePalette() {
 }
 
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
-	const preferredMode = loadSpaceSessionModePreference(spaceId);
-	const mode = preferredMode ?? currentSessionViewMode;
-	return mode === "split"
-		? buildSpaceSessionModeRoute(spaceId, sessionId, "split")
-		: buildSpaceSessionRoute(spaceId, sessionId);
+	return buildSpaceSessionRoute(spaceId, sessionId);
 }
 
 async function handleNavigateToSession(sessionId: string) {

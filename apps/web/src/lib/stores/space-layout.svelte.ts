@@ -33,7 +33,7 @@ function writeLocalOverride(
 ) {
 	if (typeof window === "undefined") return;
 	try {
-		if (!value || !value.panels || Object.keys(value.panels).length === 0) {
+		if (!value?.panels || Object.keys(value.panels).length === 0) {
 			window.localStorage.removeItem(storageKey(spaceId));
 			return;
 		}

@@ -7,6 +7,5 @@ export const load: PageLoad = async ({ params, url }) => {
 		sessionId: params.sessionId,
 		filePath: null,
 		turnSequence: url.searchParams.get("turn"),
-		sessionMode: url.searchParams.get("mode"),
 	};
 };

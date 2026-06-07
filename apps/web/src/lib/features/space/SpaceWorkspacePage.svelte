@@ -108,7 +108,6 @@ import PortPreview from "$lib/components/PortPreview.svelte";
 import RenderedFilePreview from "$lib/components/RenderedFilePreview.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SessionSplitMode from "$lib/components/SessionSplitMode.svelte";
 import SessionTaskTray, {
 	type GenerationTaskNotice,
 	type SessionTaskNotice,
@@ -159,7 +158,6 @@ import {
 	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
-	buildSpaceSessionModeRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
@@ -196,17 +194,6 @@ import {
 } from "$lib/stores/session-list-cache";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import {
-	clampSplitTurnListWidth,
-	loadSpaceSessionModePreference,
-	loadSpaceSplitTurnListWidth,
-	type SessionViewMode,
-	SPLIT_TURN_LIST_DEFAULT_WIDTH,
-	SPLIT_TURN_LIST_MAX_WIDTH,
-	SPLIT_TURN_LIST_MIN_WIDTH,
-	saveSpaceSessionModePreference,
-	saveSpaceSplitTurnListWidth,
-} from "$lib/stores/session-view-preferences";
 import {
 	clearCachedSpaceFsSubtree,
 	fetchSpaceFsDirWithCache,
@@ -257,7 +244,6 @@ type Props = {
 		cronjobId?: string | null;
 		taskId?: string | null;
 		turnSequence?: string | null;
-		sessionMode?: string | null;
 	};
 };
 type SelectedModel = {
@@ -311,7 +297,6 @@ const routeTurnSequence = $derived.by(() => {
 		? Math.floor(sequence)
 		: null;
 });
-// Reactive mobile detection – split mode is disabled on small viewports.
 const MOBILE_BREAKPOINT = 1024;
 let isMobile = $state(
 	typeof window !== "undefined"
@@ -321,15 +306,12 @@ let isMobile = $state(
 $effect(() => {
 	if (typeof window === "undefined") return;
 	const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
-	const handler = (e: MediaQueryListEvent) => {
-		isMobile = e.matches;
+	const handler = (event: MediaQueryListEvent) => {
+		isMobile = event.matches;
 	};
 	mql.addEventListener("change", handler);
 	return () => mql.removeEventListener("change", handler);
 });
-const routeSessionMode = $derived<SessionViewMode>(
-	isMobile ? "chat" : data.sessionMode === "split" ? "split" : "chat",
-);
 const fileMode = $derived<"chat" | "file">(
 	routeView === "file" ? "file" : "chat",
 );
@@ -558,8 +540,6 @@ let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let previewPanelWidth = $state(spaceLayoutState.effective.panels.preview.width);
-let splitTurnListWidth = $state(SPLIT_TURN_LIST_DEFAULT_WIDTH);
-let sessionModePreferenceRedirectKey = $state("");
 let previewPanelResizeCleanup: (() => void) | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 $effect(() => {
@@ -2304,10 +2284,7 @@ function handleModelSelect(model: { provider: string; id: string }) {
 	showModelSelector = false;
 }
 function buildPreferredSessionRoute(sessionId: string) {
-	const preferredMode = loadSpaceSessionModePreference(spaceId);
-	return preferredMode === "split"
-		? buildSpaceSessionModeRoute(spaceId, sessionId, "split")
-		: buildSpaceSessionRoute(spaceId, sessionId);
+	return buildSpaceSessionRoute(spaceId, sessionId);
 }
 function navigateToSession(
 	sessionId: string,
@@ -3847,52 +3824,21 @@ async function jumpToTurn(sequence: number) {
 			error instanceof Error ? error.message : "Failed to jump to turn";
 	}
 }
-function updateSessionModeUrl(
-	mode: "chat" | "split",
-	sequence = currentTurnSequence ?? routeTurnSequence,
-) {
+async function jumpToTurnAndUpdateUrl(sequence: number) {
 	if (!activeSessionId) return;
-	saveSpaceSessionModePreference(spaceId, mode);
-	void goto(
-		buildSpaceSessionModeRoute(spaceId, activeSessionId, mode, sequence),
-		{
+	try {
+		appliedRouteTurnKey = `${activeSessionId}:${sequence}`;
+		await goto(buildSpaceSessionTurnRoute(spaceId, activeSessionId, sequence), {
 			replaceState: true,
 			keepFocus: true,
 			noScroll: true,
-		},
-	);
-}
-function setSplitTurnListWidth(width: number) {
-	const next = clampSplitTurnListWidth(width);
-	splitTurnListWidth = next;
-	saveSpaceSplitTurnListWidth(spaceId, next);
-}
-async function jumpToTurnAndUpdateUrl(
-	sequence: number,
-	options?: { mode?: "chat" | "split" },
-) {
-	if (!activeSessionId) return;
-	appliedRouteTurnKey = `${activeSessionId}:${sequence}`;
-	void goto(
-		buildSpaceSessionTurnRoute(spaceId, activeSessionId, sequence, {
-			mode: options?.mode ?? routeSessionMode,
-		}),
-		{
-			replaceState: true,
-			keepFocus: true,
-			noScroll: true,
-		},
-	);
-	if (options?.mode === "split") {
-		await ensureTurnWindowLoaded(activeSessionId, sequence);
-		return;
+		});
+		await jumpToTurn(sequence);
+	} catch (error) {
+		console.warn("[jumpToTurnAndUpdateUrl] Failed to jump to turn:", error);
+		composerError =
+			error instanceof Error ? error.message : "Failed to jump to turn";
 	}
-	await jumpToTurn(sequence);
-}
-async function openTurnInChat(sequence: number) {
-	updateSessionModeUrl("chat", sequence);
-	await tick();
-	await jumpToTurn(sequence);
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
 	const inFlight = syncSessionNewerInFlight.get(sessionId);
@@ -5022,9 +4968,6 @@ async function handleSend() {
 		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
 			session: activeSessionState.session,
 		});
-		if (routeSessionMode === "split") {
-			void jumpToTurnAndUpdateUrl(sequenceHint, { mode: "split" });
-		}
 		if (!hasActiveTurn)
 			startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
 		const sendResult = await sdk.space(spaceId).prompt({
@@ -5047,9 +4990,6 @@ async function handleSend() {
 			nextTurnId: acceptedTurn.id,
 			confirmedTurn: acceptedTurn,
 		});
-		if (routeSessionMode === "split") {
-			void jumpToTurnAndUpdateUrl(acceptedTurn.sequence, { mode: "split" });
-		}
 		const current = sessionStateById[sessionId];
 		if (current) {
 			const snapshot = await sessionTurnsRepo.mergeTurns(
@@ -6589,7 +6529,6 @@ onMount(() => {
 	pageVisible = !document.hidden;
 	pageOnline = navigator.onLine;
 	loadSessionScrollAnchors();
-	splitTurnListWidth = loadSpaceSplitTurnListWidth(spaceId);
 	window.addEventListener("keydown", handleSessionVimKeydown);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
@@ -6964,31 +6903,6 @@ $effect(() => {
 });
 $effect(() => {
 	const sessionId = routeSessionId;
-	if (
-		!pageMounted ||
-		routeView !== "session" ||
-		!sessionId ||
-		data.sessionMode ||
-		isMobile
-	)
-		return;
-	const key = `${spaceId}:${sessionId}`;
-	if (sessionModePreferenceRedirectKey === key) return;
-	const preferredMode = loadSpaceSessionModePreference(spaceId);
-	if (preferredMode !== "split") return;
-	sessionModePreferenceRedirectKey = key;
-	void goto(
-		buildSpaceSessionModeRoute(
-			spaceId,
-			sessionId,
-			preferredMode,
-			routeTurnSequence,
-		),
-		{ replaceState: true, keepFocus: true, noScroll: true },
-	);
-});
-$effect(() => {
-	const sessionId = routeSessionId;
 	const sequence = routeTurnSequence;
 	if (
 		!pageMounted ||
@@ -6998,16 +6912,6 @@ $effect(() => {
 		!sequence
 	)
 		return;
-	if (routeSessionMode === "split") {
-		const state = sessionStateById[sessionId];
-		if (!state?.loaded || state.loading) return;
-		if (state.turns.length === 0) return;
-		const key = `${sessionId}:${sequence}`;
-		if (appliedRouteTurnKey === key) return;
-		appliedRouteTurnKey = key;
-		void ensureTurnWindowLoaded(sessionId, sequence);
-		return;
-	}
 	const key = `${sessionId}:${sequence}`;
 	if (appliedRouteTurnKey === key) return;
 	appliedRouteTurnKey = key;
@@ -7560,26 +7464,6 @@ $effect(() => {
     </div>
   {/snippet}
   {#snippet right()}
-    {#if routeView === "session" && activeSessionId && !isMobile}
-      <div class="flex items-center rounded-[6px] border border-border-subtle bg-bg-input p-[2px]">
-        <button
-          type="button"
-          class={`h-7 rounded-[4px] px-2 text-[12px] transition-colors ${routeSessionMode === 'chat' ? 'bg-bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}`}
-          onclick={() => updateSessionModeUrl('chat')}
-          aria-pressed={routeSessionMode === 'chat'}
-        >
-          Chat
-        </button>
-        <button
-          type="button"
-          class={`h-7 rounded-[4px] px-2 text-[12px] transition-colors ${routeSessionMode === 'split' ? 'bg-bg-hover-strong text-text-primary' : 'text-text-tertiary hover:text-text-secondary'}`}
-          onclick={() => updateSessionModeUrl('split')}
-          aria-pressed={routeSessionMode === 'split'}
-        >
-          Split
-        </button>
-      </div>
-    {/if}
     <!-- Session Share -->
     {#if activeSessionId && canManageSessionAccess}
       {@const isPublic = hasSessionPermission(activeSessionId)}
@@ -8909,48 +8793,7 @@ $effect(() => {
         </div>
       {/if}
       <div class="relative flex-1 min-h-0 flex flex-col">
-        {#if routeSessionMode === 'split' && activeSessionId}
-          <SessionSplitMode
-            sessionId={activeSessionId}
-            turns={activeSessionState.turns}
-            turnIndexItems={activeTurnRailItems}
-            selectedSequence={routeTurnSequence}
-            olderCount={unloadedOlderTurnCount}
-            newerCount={unloadedNewerTurnCount}
-            hasMoreOlder={activeSessionState.hasMore}
-            hasMoreNewer={activeSessionState.hasMoreNewer}
-            loadingOlder={activeSessionState.loadingOlder}
-            loadingNewer={activeSessionState.loadingNewer}
-            listWidth={splitTurnListWidth}
-            listMinWidth={SPLIT_TURN_LIST_MIN_WIDTH}
-            listMaxWidth={SPLIT_TURN_LIST_MAX_WIDTH}
-            onListWidthChange={setSplitTurnListWidth}
-            streaming={activeGenerationState && (activeGenerationState.status === "streaming" || activeGenerationState.status === "pending" || !TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status)) ? {
-              sessionId: activeSessionId,
-              turnId: activeGenerationState.turnId ?? null,
-              anchorUserMessageId: activeGenerationState.anchorUserMessageId ?? null,
-              intermediateMessages: activeStreamingIntermediateMessages,
-              contentBlocks: activeGenerationState.contentBlocks,
-              finalizedPreview: activeGenerationState.finalizedPreview,
-              status: activeGenerationState.status,
-              runtimePhase: activeGenerationState.runtimePhase,
-              runtimeModel: activeGenerationState.runtimeModel,
-            } : null}
-            onSelectTurn={(sequence) => { void jumpToTurnAndUpdateUrl(sequence, { mode: 'split' }); }}
-            onJumpToChat={(sequence) => { void openTurnInChat(sequence); }}
-            onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
-            onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
-            onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
-            onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
-            onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
-            onMarkdownRendered={handleTimelineMarkdownRendered}
-            onForkTurn={handleForkTurn}
-            forkingTurnId={forkingTurnId}
-            onOpenFile={openInlineFile}
-            modelsCatalog={modelsCatalog ?? undefined}
-          />
-        {:else}
-          <ChatTimeline
+        <ChatTimeline
             bind:this={chatTimelineRef}
             bind:bindListEl={listEl}
             timeline={timeline}
@@ -9001,6 +8844,7 @@ $effect(() => {
             hasMoreOlder={activeSessionState.hasMore}
             hasMoreNewer={activeSessionState.hasMoreNewer}
             loadingOlder={activeSessionState.loadingOlder}
+            loadingNewer={activeSessionState.loadingNewer}
             currentSequence={currentTurnSequence}
             loadingSequence={loadingTurnSequence}
             onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
@@ -9009,7 +8853,6 @@ $effect(() => {
             onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
             onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
           />
-        {/if}
         {#if highlightedTurnSequence}
           <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
         {/if}
