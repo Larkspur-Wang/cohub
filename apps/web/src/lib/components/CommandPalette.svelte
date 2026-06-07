@@ -94,6 +94,9 @@ const searchPlan = $derived({
 	labelRef: parsedQuery.labelRef,
 });
 const trimmedQuery = $derived(searchPlan.query.trim());
+const hasLabelScope = $derived(
+	Boolean(searchPlan.labelRef && searchPlan.resourceTypes?.includes("label")),
+);
 const typeLabel = $derived(typeLabelFor(searchPlan.resourceTypes));
 const recentItems = $derived.by(() => {
 	const items = getRecentCommandItems();
@@ -101,7 +104,7 @@ const recentItems = $derived.by(() => {
 	return items.filter((item) => searchPlan.resourceTypes?.includes(item.type));
 });
 const mergedItems = $derived.by(() => {
-	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
+	if (trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope) {
 		return defaultItems.length > 0 ? defaultItems : recentItems;
 	}
 	return mergeCommandResults({
@@ -120,7 +123,7 @@ const showingSettledItems = $derived(
 const runBlocks = $derived(runResult ?? runProgress ?? []);
 const statusText = $derived.by(() => {
 	const label = typeLabel ?? "Turns, Sessions, Spaces, Labels, and Commands";
-	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
+	if (trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope) {
 		return renderedItems.length > 0
 			? `${label} · type to filter`
 			: `Search ${label.toLowerCase()}`;
@@ -292,12 +295,12 @@ async function refreshSpaceListForDefaultItems(token: number) {
 
 function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	const q = plan.query.trim();
-	const hasLabelScope = Boolean(
+	const isLabelScope = Boolean(
 		plan.labelRef && plan.resourceTypes?.includes("label"),
 	);
 	resetSearch();
 	const token = ++searchToken;
-	if (q.length < MIN_QUERY_LENGTH && !hasLabelScope) {
+	if (q.length < MIN_QUERY_LENGTH && !isLabelScope) {
 		defaultDone = false;
 		localController = new AbortController();
 		void refreshSpaceListForDefaultItems(token);
@@ -635,10 +638,10 @@ onMount(() => {
 							<div class="command-empty-mark"><CornerDownRight class="h-4 w-4" /></div>
 							<div>
 								<div class="text-[13px] font-medium text-text-secondary">
-									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
+									{trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope ? "Command lens ready" : "No matching results"}
 								</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">
-									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try label:bug for labels, a: for spaces, or t: for turns." : "Try a different phrase or type filter."}
+									{trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope ? "Try label:bug for labels, a: for spaces, or t: for turns." : "Try a different phrase or type filter."}
 								</div>
 							</div>
 						</div>
