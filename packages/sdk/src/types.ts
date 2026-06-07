@@ -810,7 +810,7 @@ export type SpaceChannelBindingInput = {
   config?: ChannelConfig | null;
 };
 
-export type GlobalSearchType = "turn" | "session" | "space";
+export type GlobalSearchType = "turn" | "session" | "space" | "label";
 
 export type GlobalSearchResult = {
   type: GlobalSearchType;
@@ -825,13 +825,17 @@ export type GlobalSearchResult = {
   sessionTitle?: string | null;
   ownerProfile?: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
   spaceProfile?: SpacePublicProfile | null;
-  matchedField: "userText" | "title" | "name" | "description";
+  matchedField: "userText" | "title" | "name" | "description" | "labelName" | "labelItemContent";
   href: string;
   score: number;
   textScore: number;
   recencyScore: number;
   typePriorityScore: number;
   membershipPriorityScore?: number;
+  labelRef?: string | null;
+  labelName?: string | null;
+  labelResourceType?: LabelResourceType | null;
+  labelResourceRef?: string | null;
   updatedAt: string | null;
   source: "remote";
 };

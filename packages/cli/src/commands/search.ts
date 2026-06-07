@@ -7,13 +7,14 @@ const DEFAULT_LIMIT = 20;
 const MAX_TITLE_LENGTH = 72;
 const MAX_CONTEXT_LENGTH = 42;
 
-const SEARCH_TYPES = new Set<GlobalSearchType>(["turn", "session", "space"]);
+const SEARCH_TYPES = new Set<GlobalSearchType>(["turn", "session", "space", "label"]);
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type SearchCliOptions = {
   limit?: string;
   types?: string;
   spaceId?: string;
+  labelRef?: string;
   json?: boolean;
 };
 
@@ -51,7 +52,7 @@ function parseSearchInput(opts: SearchCliOptions) {
   const types = parseTypes(opts.types);
   const spaceId = opts.spaceId?.trim();
   if (spaceId && !UUID_PATTERN.test(spaceId)) throw new Error("Invalid space id");
-  return { types, spaceId: spaceId || undefined };
+  return { types, spaceId: spaceId || undefined, labelRef: opts.labelRef?.trim() || undefined };
 }
 
 function rowsFor(items: GlobalSearchResult[]): Row[] {
@@ -68,11 +69,12 @@ function rowsFor(items: GlobalSearchResult[]): Row[] {
 export function registerSearch(program: Command): void {
   program
     .command("search")
-    .description("Search spaces, chats, and turns")
-    .argument("<query>", "Search query")
+    .description("Search spaces, chats, turns, and label items")
+    .argument("[query]", "Search query")
     .option("--limit <n>", "Maximum results, 1-50", String(DEFAULT_LIMIT))
-    .option("--types <types>", "Comma-separated result types: turn,session,space")
+    .option("--types <types>", "Comma-separated result types: turn,session,space,label")
     .option("--space-id <id>", "Limit search to a space")
+    .option("--label-ref <ref>", "Search items under an exact label ref")
     .option("--json", "Output as JSON")
     .addHelpText("after", `
 
@@ -80,17 +82,22 @@ Examples:
   cohub search "release notes"
   cohub search "failing tests" --limit 10
   cohub search "bug" --types turn,session --space-id <spaceId>
+  cohub search --types label --label-ref bug
+  cohub search "login" --types label --label-ref bug
   cohub search "design review" --json
 `)
-    .action(async (query: string, opts: SearchCliOptions) => {
+    .action(async (query: string | undefined, opts: SearchCliOptions) => {
       const client = createClient();
       try {
         const input = parseSearchInput(opts);
+        const q = query ?? "";
+        if (!q.trim() && !input.labelRef) return error("Search query is required unless --label-ref is provided.");
         const result = await client.search.query({
-          q: query,
+          q,
           limit: clampLimit(opts.limit),
           types: input.types,
           spaceId: input.spaceId,
+          labelRef: input.labelRef,
         });
         if (jsonRequested(opts)) return outJson(result);
 

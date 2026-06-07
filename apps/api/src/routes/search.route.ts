@@ -14,11 +14,11 @@ const MAX_LIMIT = 50;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-const SEARCH_RESOURCE_TYPES = ["turn", "session", "space"] as const;
+const SEARCH_RESOURCE_TYPES = ["turn", "session", "space", "label"] as const;
 const SEARCH_RESOURCE_TYPE_SET = new Set<string>(SEARCH_RESOURCE_TYPES);
 
 type SearchResourceType = (typeof SEARCH_RESOURCE_TYPES)[number];
-type SearchMatchedField = "userText" | "title" | "name" | "description";
+type SearchMatchedField = "userText" | "title" | "name" | "description" | "labelName" | "labelItemContent";
 
 type SearchResultRow = {
   type: SearchResourceType;
@@ -39,6 +39,10 @@ type SearchResultRow = {
   recencyScore: number;
   typePriorityScore: number;
   membershipPriorityScore: number;
+  labelRef: string | null;
+  labelName: string | null;
+  labelResourceType: string | null;
+  labelResourceRef: string | null;
   score: number;
 };
 
@@ -58,6 +62,14 @@ function escapeLikePattern(value: string) {
 
 function hasInformativeQuery(value: string) {
   return /[\p{L}\p{N}]/u.test(value);
+}
+
+function normalizeLabelRef(value: string | undefined) {
+  return (value ?? "")
+    .split("/")
+    .map((part) => part.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .join("/");
 }
 
 function parseSearchTypes(typeValues: string[] | undefined, typesValue: string | undefined) {
@@ -89,6 +101,12 @@ function toIso(value: Date | string | null) {
 function hrefFor(row: SearchResultRow) {
   if (row.type === "space") return `/spaces/${row.spaceId}`;
   if (row.type === "session") return `/spaces/${row.spaceId}/sessions/${row.sessionId}`;
+  if (row.type === "label") {
+    if (row.labelResourceType === "session") return `/spaces/${row.spaceId}/sessions/${row.labelResourceRef}`;
+    if (row.labelResourceType === "checkpoint") return `/spaces/${row.spaceId}/checkpoints/${row.labelResourceRef}`;
+    if (row.labelResourceType === "file") return `/spaces/${row.spaceId}/files/${(row.labelResourceRef ?? "").split("/").map(encodeURIComponent).join("/")}`;
+    return `/spaces/${row.spaceId}`;
+  }
   return `/spaces/${row.spaceId}/sessions/${row.sessionId}?turn=${row.sequence}`;
 }
 
@@ -118,6 +136,11 @@ function mapRow(row: SearchResultRow, profiles?: Awaited<ReturnType<typeof getPr
     textScore: Number(row.textScore ?? 0),
     recencyScore: Number(row.recencyScore ?? 0),
     typePriorityScore: Number(row.typePriorityScore ?? 0),
+    membershipPriorityScore: Number(row.membershipPriorityScore ?? 0),
+    labelRef: row.labelRef,
+    labelName: row.labelName,
+    labelResourceType: row.labelResourceType,
+    labelResourceRef: row.labelResourceRef,
     updatedAt: toIso(row.updatedAt),
     source: "remote" as const,
   };
@@ -133,11 +156,13 @@ router.get("/", async (c) => {
   const includeTurns = parsedTypes.types.has("turn");
   const includeSessions = parsedTypes.types.has("session");
   const includeSpaces = parsedTypes.types.has("space");
+  const includeLabels = parsedTypes.types.has("label");
+  const labelRef = normalizeLabelRef(c.req.query("labelRef"));
   const parsedSpaceId = parseSpaceId(c.req.query("spaceId"));
   if ("error" in parsedSpaceId) return c.json({ message: parsedSpaceId.error }, 400);
   const spaceId = parsedSpaceId.spaceId;
 
-  if (q.length < MIN_QUERY_LENGTH || !hasInformativeQuery(q)) {
+  if ((!includeLabels || !labelRef) && (q.length < MIN_QUERY_LENGTH || !hasInformativeQuery(q))) {
     return c.json({ items: [], query: q, source: "remote" });
   }
 
@@ -212,7 +237,11 @@ router.get("/", async (c) => {
         coalesce(s.updated_at, s.created_at) AS updated_at,
         GREATEST(scores.name_text_score, scores.description_text_score) AS text_score,
         1.00::double precision AS type_priority_score,
-        s.membership_priority_score AS membership_priority_score
+        s.membership_priority_score AS membership_priority_score,
+        NULL::text AS label_ref,
+        NULL::text AS label_name,
+        NULL::text AS label_resource_type,
+        NULL::text AS label_resource_ref
       FROM visible_spaces s
       CROSS JOIN LATERAL (
         SELECT
@@ -261,7 +290,11 @@ router.get("/", async (c) => {
           ELSE similarity(coalesce(sess.title, ''), ${q}) * 0.70
         END * 0.94 AS text_score,
         0.74::double precision AS type_priority_score,
-        sess.membership_priority_score AS membership_priority_score
+        sess.membership_priority_score AS membership_priority_score,
+        NULL::text AS label_ref,
+        NULL::text AS label_name,
+        NULL::text AS label_resource_type,
+        NULL::text AS label_resource_ref
       FROM visible_sessions sess
       WHERE
         ${includeSessions}
@@ -293,7 +326,11 @@ router.get("/", async (c) => {
           ELSE similarity(coalesce(t.user_text, ''), ${q}) * 0.70
         END AS text_score,
         0.66::double precision AS type_priority_score,
-        sess.membership_priority_score AS membership_priority_score
+        sess.membership_priority_score AS membership_priority_score,
+        NULL::text AS label_ref,
+        NULL::text AS label_name,
+        NULL::text AS label_resource_type,
+        NULL::text AS label_resource_ref
       FROM v2.session_turns t
       JOIN visible_sessions sess ON sess.id = t.session_id
       WHERE
@@ -304,12 +341,114 @@ router.get("/", async (c) => {
           OR similarity(t.user_text, ${q}) > 0.2
         )
     ),
+    label_matches AS (
+      SELECT
+        l.*,
+        sp.name AS space_name,
+        sp.user_uuid AS owner_user_uuid,
+        jsonb_build_object('avatarUrl', nullif(trim(coalesce(sp.meta #>> '{publicProfile,avatarUrl}', '')), '')) AS space_profile,
+        sp.membership_priority_score,
+        CASE
+          WHEN parent.id IS NULL THEN l.name
+          ELSE parent.name || '/' || l.name
+        END AS label_ref
+      FROM v2.labels l
+      JOIN visible_spaces sp ON sp.id::text = l.scope_id
+      LEFT JOIN v2.labels parent
+        ON parent.id = l.parent_id AND parent.scope_type = l.scope_type AND parent.scope_id = l.scope_id
+      WHERE
+        ${includeLabels}
+        AND ${labelRef} <> ''
+        AND l.scope_type = 'space'
+        AND (
+          lower(CASE WHEN parent.id IS NULL THEN l.name ELSE parent.name || '/' || l.name END) = lower(${labelRef})
+          OR lower(l.name) = lower(${labelRef})
+        )
+    ),
+    label_results AS (
+      SELECT
+        'label'::text AS type,
+        la.id AS id,
+        lm.scope_id::uuid AS space_id,
+        CASE WHEN la.resource_type = 'session' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END AS session_id,
+        NULL::uuid AS turn_id,
+        NULL::int AS sequence,
+        CASE
+          WHEN la.resource_type = 'session' THEN coalesce(nullif(sess.title, ''), sess.latest_message_text, 'New chat')
+          WHEN la.resource_type = 'checkpoint' THEN coalesce(nullif(cp.description, ''), left(cp.commit_hash, 12))
+          WHEN la.resource_type = 'file' THEN coalesce(nullif(split_part(la.resource_ref, '/', array_length(string_to_array(la.resource_ref, '/'), 1)), ''), la.resource_ref)
+          ELSE la.resource_ref
+        END AS title,
+        CASE
+          WHEN la.resource_type = 'session' THEN left(regexp_replace(coalesce(sess.latest_message_text, ''), '\\s+', ' ', 'g'), 260)
+          WHEN la.resource_type = 'checkpoint' THEN cp.commit_hash
+          WHEN la.resource_type = 'file' THEN la.resource_ref
+          ELSE NULL::text
+        END AS excerpt,
+        lm.space_name AS space_name,
+        lm.owner_user_uuid AS owner_user_uuid,
+        lm.space_profile AS space_profile,
+        sess.title AS session_title,
+        CASE WHEN ${q} = '' THEN 'labelName'::text ELSE 'labelItemContent'::text END AS matched_field,
+        coalesce(sess.last_message_at, sess.updated_at, cp.created_at, la.updated_at, la.created_at) AS updated_at,
+        CASE
+          WHEN ${q} = '' THEN 1.00
+          WHEN lower(coalesce(sess.title, '')) = lower(${q}) THEN 1.00
+          WHEN lower(coalesce(sess.latest_message_text, '')) = lower(${q}) THEN 0.96
+          WHEN lower(coalesce(cp.description, '')) = lower(${q}) THEN 0.94
+          WHEN lower(la.resource_ref) = lower(${q}) THEN 0.92
+          WHEN coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.78
+          WHEN coalesce(sess.latest_message_text, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
+          WHEN coalesce(cp.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
+          WHEN la.resource_ref ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.72
+          ELSE GREATEST(
+            similarity(coalesce(sess.title, ''), ${q}) * 0.72,
+            similarity(coalesce(sess.latest_message_text, ''), ${q}) * 0.66,
+            similarity(coalesce(cp.description, ''), ${q}) * 0.66,
+            similarity(la.resource_ref, ${q}) * 0.64
+          )
+        END AS text_score,
+        0.72::double precision AS type_priority_score,
+        lm.membership_priority_score AS membership_priority_score,
+        lm.label_ref AS label_ref,
+        lm.name AS label_name,
+        la.resource_type AS label_resource_type,
+        la.resource_ref AS label_resource_ref
+      FROM label_matches lm
+      JOIN v2.label_assignments la
+        ON la.label_id = lm.id AND la.scope_type = 'space' AND la.scope_id = lm.scope_id
+      LEFT JOIN visible_sessions sess
+        ON sess.id = CASE WHEN la.resource_type = 'session' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END
+      LEFT JOIN v2.checkpoints cp
+        ON cp.space_id = lm.scope_id::uuid AND cp.id = CASE WHEN la.resource_type = 'checkpoint' AND la.resource_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' THEN la.resource_ref::uuid ELSE NULL::uuid END
+      WHERE
+        ${includeLabels}
+        AND (
+          (la.resource_type = 'session' AND sess.id IS NOT NULL)
+          OR (la.resource_type = 'checkpoint' AND cp.id IS NOT NULL)
+          OR la.resource_type = 'file'
+        )
+        AND (
+          ${q} = ''
+          OR coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR coalesce(sess.latest_message_text, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR coalesce(cp.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR cp.commit_hash ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR la.resource_ref ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR similarity(coalesce(sess.title, ''), ${q}) > 0.2
+          OR similarity(coalesce(sess.latest_message_text, ''), ${q}) > 0.2
+          OR similarity(coalesce(cp.description, ''), ${q}) > 0.2
+          OR similarity(la.resource_ref, ${q}) > 0.2
+        )
+    ),
     combined AS (
       SELECT * FROM turn_results
       UNION ALL
       SELECT * FROM session_results
       UNION ALL
       SELECT * FROM space_results
+      UNION ALL
+      SELECT * FROM label_results
     ),
     scored AS (
       SELECT
@@ -336,6 +475,10 @@ router.get("/", async (c) => {
       recency_score AS "recencyScore",
       type_priority_score AS "typePriorityScore",
       membership_priority_score AS "membershipPriorityScore",
+      label_ref AS "labelRef",
+      label_name AS "labelName",
+      label_resource_type AS "labelResourceType",
+      label_resource_ref AS "labelResourceRef",
       (text_score * 0.68 + recency_score * 0.16 + type_priority_score * 0.05 + membership_priority_score * 0.11) AS score
     FROM scored
     ORDER BY score DESC, membership_priority_score DESC, text_score DESC, type_priority_score DESC, updated_at DESC

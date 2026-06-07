@@ -4,6 +4,7 @@ const TYPE_PRIORITY: Record<CommandPaletteItemType, number> = {
 	command: 1,
 	space: 0.88,
 	session: 0.74,
+	label: 0.72,
 	turn: 0.66,
 };
 
@@ -12,6 +13,8 @@ const FIELD_WEIGHT: Record<string, number> = {
 	command: 0.98,
 	title: 0.94,
 	name: 0.9,
+	labelName: 0.88,
+	labelItemContent: 0.86,
 	description: 0.68,
 };
 

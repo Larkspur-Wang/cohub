@@ -6,18 +6,21 @@ import type {
 export type CommandPaletteSearchPlan = {
 	query: string;
 	resourceTypes?: CommandPaletteResourceType[];
+	labelRef?: string;
 };
 
 const REMOTE_TYPES = new Set<CommandPaletteResourceType>([
 	"turn",
 	"session",
 	"space",
+	"label",
 ]);
 
 const TYPE_LABELS: Record<CommandPaletteResourceType, string> = {
 	turn: "Turns",
 	session: "Sessions",
 	space: "Spaces",
+	label: "Labels",
 	command: "Commands",
 };
 

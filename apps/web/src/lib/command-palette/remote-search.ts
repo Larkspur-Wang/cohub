@@ -29,10 +29,11 @@ export async function searchRemoteCommandItems(
 		limit?: number;
 		types?: GlobalSearchType[];
 		spaceId?: string;
+		labelRef?: string;
 	},
 ) {
 	const q = query.trim();
-	if (q.length < 2) return [];
+	if (q.length < 2 && !options?.labelRef) return [];
 	const fetcher: typeof fetch = (input, init) =>
 		fetch(input, { ...init, signal: options?.signal });
 	const result = await sdk.search.query(
@@ -41,6 +42,7 @@ export async function searchRemoteCommandItems(
 			limit: options?.limit ?? 30,
 			types: options?.types,
 			spaceId: options?.spaceId,
+			labelRef: options?.labelRef,
 		},
 		fetcher,
 	);

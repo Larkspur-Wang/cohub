@@ -1,7 +1,14 @@
 import type { SessionTurnRecord } from "@cohub/protocol/model";
-import type { SessionRecord, SpaceRecord } from "@neta-art/cohub";
+import type {
+	LabelAssignmentListItem,
+	LabelListItem,
+	SessionRecord,
+	SpaceRecord,
+} from "@neta-art/cohub";
 import {
 	idbGetAllByIndex,
+	type LabelItemsCacheRecord,
+	type LabelTreeCacheRecord,
 	type SessionListCacheRecord,
 	type SessionTurnsCacheRecord,
 	type SpaceRecordCacheRecord,
@@ -17,11 +24,31 @@ import type { CommandPaletteItem } from "./types";
 const LOCAL_LIMIT = 40;
 
 function hrefFor(
-	item: Pick<CommandPaletteItem, "type" | "spaceId" | "sessionId" | "sequence">,
+	item: Pick<
+		CommandPaletteItem,
+		| "type"
+		| "spaceId"
+		| "sessionId"
+		| "sequence"
+		| "labelResourceType"
+		| "labelResourceRef"
+	>,
 ) {
 	if (item.type === "space") return `/spaces/${item.spaceId}`;
 	if (item.type === "session")
 		return `/spaces/${item.spaceId}/sessions/${item.sessionId}`;
+	if (item.type === "label") {
+		if (item.labelResourceType === "session")
+			return `/spaces/${item.spaceId}/sessions/${item.labelResourceRef}`;
+		if (item.labelResourceType === "checkpoint")
+			return `/spaces/${item.spaceId}/checkpoints/${item.labelResourceRef}`;
+		if (item.labelResourceType === "file")
+			return `/spaces/${item.spaceId}/files/${(item.labelResourceRef ?? "")
+				.split("/")
+				.map(encodeURIComponent)
+				.join("/")}`;
+		return `/spaces/${item.spaceId}`;
+	}
 	return `/spaces/${item.spaceId}/sessions/${item.sessionId}?turn=${item.sequence}`;
 }
 
@@ -110,6 +137,105 @@ function sessionToItem(input: {
 	};
 }
 
+type LabelWithRef = LabelListItem & { ref: string };
+
+function normalizeLabelRef(value: string | null | undefined) {
+	return (value ?? "")
+		.split("/")
+		.map((part) => part.replace(/\s+/g, " ").trim())
+		.filter(Boolean)
+		.join("/")
+		.toLowerCase();
+}
+
+function flattenLabelsWithRefs(labels: LabelListItem[]) {
+	const result: LabelWithRef[] = [];
+	const visit = (items: LabelListItem[], parentRef = "") => {
+		for (const label of items) {
+			const ref = parentRef ? `${parentRef}/${label.name}` : label.name;
+			result.push({ ...label, ref });
+			if (label.children?.length) visit(label.children, ref);
+		}
+	};
+	visit(labels);
+	return result;
+}
+
+function labelItemText(item: LabelAssignmentListItem) {
+	return [
+		item.resource?.title,
+		item.resource?.subtitle,
+		item.resource?.status,
+		item.resourceRef,
+	]
+		.filter(Boolean)
+		.join(" ");
+}
+
+function labelAssignmentToItem(input: {
+	assignment: LabelAssignmentListItem;
+	label: LabelWithRef;
+	spaceName: string | null;
+	spaceProfile?: CommandPaletteItem["spaceProfile"];
+	query: string;
+}): CommandPaletteItem | null {
+	const query = input.query.trim();
+	const text = labelItemText(input.assignment);
+	const textScore = query ? textMatchScore(text, query) : 1;
+	if (query && textScore <= 0) return null;
+	const updatedAt =
+		input.assignment.updatedAt ?? input.assignment.createdAt ?? null;
+	const scored = query
+		? scoreCommandItem({
+				type: "label",
+				query,
+				primary: text,
+				matchedField: "labelItemContent",
+				updatedAt,
+			})
+		: {
+				score: 0.72 + Math.min(0.2, (1000 - input.assignment.rank) / 10000),
+				textScore: 1,
+				recencyScore: 0.5,
+				typePriorityScore: 0.72,
+			};
+	const partial = {
+		type: "label" as const,
+		spaceId: input.assignment.scopeId,
+		sessionId:
+			input.assignment.resourceType === "session"
+				? input.assignment.resourceRef
+				: null,
+		sequence: null,
+		labelResourceType: input.assignment.resourceType,
+		labelResourceRef: input.assignment.resourceRef,
+	};
+	return {
+		...partial,
+		id: input.assignment.id,
+		turnId: null,
+		title: input.assignment.resource?.title ?? input.assignment.resourceRef,
+		excerpt: compactText(
+			input.assignment.resource?.subtitle ?? input.assignment.resourceRef,
+			220,
+		),
+		spaceName: input.spaceName,
+		spaceProfile: input.spaceProfile ?? null,
+		sessionTitle:
+			input.assignment.resourceType === "session"
+				? (input.assignment.resource?.title ?? null)
+				: null,
+		matchedField: query ? "labelItemContent" : "labelName",
+		href: hrefFor(partial),
+		updatedAt,
+		source: "local",
+		localScore: scored.score,
+		labelRef: input.label.ref,
+		labelName: input.label.name,
+		...scored,
+	};
+}
+
 function turnToItem(input: {
 	turn: SessionTurnRecord;
 	session: SessionRecord | null;
@@ -165,14 +291,18 @@ export async function searchLocalCommandItems(
 	options?: {
 		signal?: AbortSignal;
 		resourceTypes?: CommandPaletteSearchPlan["resourceTypes"];
+		labelRef?: string;
 	},
 ): Promise<CommandPaletteItem[]> {
 	const normalized = query.trim();
-	if (normalized.length < 2) return [];
 	const plan: CommandPaletteSearchPlan = {
 		query: normalized,
 		resourceTypes: options?.resourceTypes,
+		labelRef: options?.labelRef,
 	};
+	const includeLabels = allowsResourceType(plan, "label");
+	const labelRef = normalizeLabelRef(plan.labelRef);
+	if (normalized.length < 2 && !(includeLabels && labelRef)) return [];
 	const includeSpaces = allowsResourceType(plan, "space");
 	const includeSessions = allowsResourceType(plan, "session");
 	const includeTurns = allowsResourceType(plan, "turn");
@@ -225,6 +355,54 @@ export async function searchLocalCommandItems(
 		if (processed % 10 === 0) {
 			shouldAbort(options?.signal);
 			await yieldToUi();
+		}
+	}
+
+	if (includeLabels && labelRef) {
+		const labelTrees = await idbGetAllByIndex<LabelTreeCacheRecord>(
+			"label_trees",
+			"by_updated_at",
+			IDBKeyRange.lowerBound(0),
+		);
+		shouldAbort(options?.signal);
+		const labelsBySpaceAndId = new Map<string, LabelWithRef>();
+		for (const record of labelTrees) {
+			if (record.userKey !== userKey) continue;
+			for (const label of flattenLabelsWithRefs(record.labels)) {
+				if (
+					normalizeLabelRef(label.ref) !== labelRef &&
+					normalizeLabelRef(label.name) !== labelRef
+				) {
+					continue;
+				}
+				labelsBySpaceAndId.set(`${record.spaceId}:${label.id}`, label);
+			}
+		}
+		if (labelsBySpaceAndId.size > 0) {
+			const labelItemRecords = await idbGetAllByIndex<LabelItemsCacheRecord>(
+				"label_items",
+				"by_updated_at",
+				IDBKeyRange.lowerBound(0),
+			);
+			shouldAbort(options?.signal);
+			for (const record of labelItemRecords) {
+				if (record.userKey !== userKey) continue;
+				const label = labelsBySpaceAndId.get(
+					`${record.spaceId}:${record.labelId}`,
+				);
+				if (!label) continue;
+				const space = spacesById.get(record.spaceId);
+				for (const assignment of record.items) {
+					const item = labelAssignmentToItem({
+						assignment,
+						label,
+						spaceName: space?.name ?? null,
+						spaceProfile: space ? getSpacePublicProfile(space) : null,
+						query: normalized,
+					});
+					if (item) items.push(item);
+				}
+			}
 		}
 	}
 

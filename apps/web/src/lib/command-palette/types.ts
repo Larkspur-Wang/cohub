@@ -1,5 +1,6 @@
 import type {
 	GlobalSearchType,
+	LabelResourceType,
 	SpacePublicProfile,
 	UserProfile,
 } from "@neta-art/cohub";
@@ -30,13 +31,24 @@ export type CommandPaletteItem = {
 	> | null;
 	spaceProfile?: SpacePublicProfile | null;
 	sessionTitle: string | null;
-	matchedField: "userText" | "title" | "name" | "description" | "command";
+	matchedField:
+		| "userText"
+		| "title"
+		| "name"
+		| "description"
+		| "command"
+		| "labelName"
+		| "labelItemContent";
 	href: string;
 	score: number;
 	textScore: number;
 	recencyScore: number;
 	typePriorityScore: number;
 	membershipPriorityScore?: number;
+	labelRef?: string | null;
+	labelName?: string | null;
+	labelResourceType?: LabelResourceType | null;
+	labelResourceRef?: string | null;
 	updatedAt: string | null;
 	source: CommandPaletteItemSource;
 	localScore?: number;

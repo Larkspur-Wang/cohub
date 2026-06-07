@@ -7,6 +7,8 @@ const TYPE_ALIASES = new Map<string, CommandPaletteResourceType>([
 	["sessions", "session"],
 	["space", "space"],
 	["spaces", "space"],
+	["label", "label"],
+	["labels", "label"],
 	["command", "command"],
 	["commands", "command"],
 ]);
@@ -15,6 +17,7 @@ const SHORT_PREFIX_TYPES = new Map<string, CommandPaletteResourceType>([
 	["t", "turn"],
 	["s", "session"],
 	["a", "space"],
+	["l", "label"],
 	["c", "command"],
 ]);
 
@@ -22,11 +25,29 @@ export type ParsedCommandPaletteQuery = {
 	raw: string;
 	query: string;
 	resourceTypes?: CommandPaletteResourceType[];
+	labelRef?: string;
 	explicitTypeFilter: boolean;
 };
 
 function uniqueTypes(values: CommandPaletteResourceType[]) {
 	return [...new Set(values)];
+}
+
+function normalizeLabelRef(value: string) {
+	return value
+		.split("/")
+		.map((part) => part.replace(/\s+/g, " ").trim())
+		.filter(Boolean)
+		.join("/");
+}
+
+function parseLabelScope(value: string) {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	const [labelRef = "", ...rest] = trimmed.split(/\s+/);
+	const normalizedRef = normalizeLabelRef(labelRef);
+	if (!normalizedRef) return null;
+	return { labelRef: normalizedRef, query: rest.join(" ").trim() };
 }
 
 function parseTypeList(value: string) {
@@ -50,26 +71,57 @@ export function parseCommandPaletteQuery(
 	const raw = input;
 	const trimmedStart = input.trimStart();
 
-	const longMatch = /^type:([^\s]+)(?:\s+)?(.*)$/i.exec(trimmedStart);
-	if (longMatch) {
-		const resourceTypes = parseTypeList(longMatch[1] ?? "");
-		if (resourceTypes) {
+	const labelScopeMatch = /^label:(\S+)(?:\s+)?(.*)$/i.exec(trimmedStart);
+	if (labelScopeMatch) {
+		const labelRef = normalizeLabelRef(labelScopeMatch[1] ?? "");
+		if (labelRef) {
 			return {
 				raw,
-				query: (longMatch[2] ?? "").trim(),
-				resourceTypes,
+				query: (labelScopeMatch[2] ?? "").trim(),
+				resourceTypes: ["label"],
+				labelRef,
 				explicitTypeFilter: true,
 			};
 		}
 	}
 
-	const shortMatch = /^([tsac]):(?:\s+)?(.*)$/i.exec(trimmedStart);
+	const longMatch = /^type:([^\s]+)(?:\s+)?(.*)$/i.exec(trimmedStart);
+	if (longMatch) {
+		const resourceTypes = parseTypeList(longMatch[1] ?? "");
+		if (resourceTypes) {
+			const value = longMatch[2] ?? "";
+			const scoped =
+				resourceTypes.length === 1 && resourceTypes[0] === "label"
+					? parseLabelScope(value)
+					: null;
+			return {
+				raw,
+				query: scoped?.query ?? value.trim(),
+				resourceTypes,
+				labelRef: scoped?.labelRef,
+				explicitTypeFilter: true,
+			};
+		}
+	}
+
+	const shortMatch = /^([tsacl]):(?:\s+)?(.*)$/i.exec(trimmedStart);
 	if (shortMatch) {
 		const type = SHORT_PREFIX_TYPES.get((shortMatch[1] ?? "").toLowerCase());
 		if (type) {
+			const value = shortMatch[2] ?? "";
+			if (type === "label") {
+				const scoped = parseLabelScope(value);
+				return {
+					raw,
+					query: scoped?.query ?? value.trim(),
+					resourceTypes: [type],
+					labelRef: scoped?.labelRef,
+					explicitTypeFilter: true,
+				};
+			}
 			return {
 				raw,
-				query: (shortMatch[2] ?? "").trim(),
+				query: value.trim(),
 				resourceTypes: [type],
 				explicitTypeFilter: true,
 			};

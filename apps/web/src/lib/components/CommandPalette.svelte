@@ -7,6 +7,7 @@ import {
 	MessageSquare,
 	Plus,
 	Search,
+	Tag,
 	TerminalSquare,
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
@@ -39,7 +40,8 @@ const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
 const POINTER_HOVER_ARM_MS = 220;
-const DEFAULT_PLACEHOLDER = "Search turns, sessions, spaces… Try a: for spaces";
+const DEFAULT_PLACEHOLDER =
+	"Search turns, sessions, spaces, labels… Try label:bug";
 
 type OpenCommandPaletteDetail = {
 	query?: string;
@@ -89,6 +91,7 @@ const parsedQuery = $derived(parseCommandPaletteQuery(query));
 const searchPlan = $derived({
 	query: parsedQuery.query,
 	resourceTypes: parsedQuery.resourceTypes,
+	labelRef: parsedQuery.labelRef,
 });
 const trimmedQuery = $derived(searchPlan.query.trim());
 const typeLabel = $derived(typeLabelFor(searchPlan.resourceTypes));
@@ -116,7 +119,7 @@ const showingSettledItems = $derived(
 );
 const runBlocks = $derived(runResult ?? runProgress ?? []);
 const statusText = $derived.by(() => {
-	const label = typeLabel ?? "Turns, Sessions, Spaces, and Commands";
+	const label = typeLabel ?? "Turns, Sessions, Spaces, Labels, and Commands";
 	if (trimmedQuery.length < MIN_QUERY_LENGTH) {
 		return renderedItems.length > 0
 			? `${label} · type to filter`
@@ -181,6 +184,7 @@ function handleCommandInput(event: Event) {
 function typeMeta(type: CommandPaletteItem["type"]) {
 	if (type === "turn") return { className: "turn", icon: MessageSquare };
 	if (type === "session") return { className: "session", icon: TerminalSquare };
+	if (type === "label") return { className: "label", icon: Tag };
 	if (type === "command") return { className: "command", icon: Plus };
 	return { className: "space", icon: FolderKanban };
 }
@@ -188,6 +192,8 @@ function typeMeta(type: CommandPaletteItem["type"]) {
 function contextFor(item: CommandPaletteItem) {
 	if (item.type === "command") return item.excerpt ?? "Command";
 	if (item.type === "space") return item.excerpt ?? "Space";
+	if (item.type === "label")
+		return `Label: ${item.labelRef ?? item.labelName ?? "Label"}${item.spaceName ? ` · ${item.spaceName}` : ""}`;
 	if (item.type === "session") return item.spaceName ?? "Session";
 	return `${item.spaceName ?? "Space"}${item.sessionTitle ? ` / ${item.sessionTitle}` : ""} · Turn #${item.sequence ?? "?"}`;
 }
@@ -286,9 +292,12 @@ async function refreshSpaceListForDefaultItems(token: number) {
 
 function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	const q = plan.query.trim();
+	const hasLabelScope = Boolean(
+		plan.labelRef && plan.resourceTypes?.includes("label"),
+	);
 	resetSearch();
 	const token = ++searchToken;
-	if (q.length < MIN_QUERY_LENGTH) {
+	if (q.length < MIN_QUERY_LENGTH && !hasLabelScope) {
 		defaultDone = false;
 		localController = new AbortController();
 		void refreshSpaceListForDefaultItems(token);
@@ -318,6 +327,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	void searchLocalCommandItems(q, {
 		signal: localController.signal,
 		resourceTypes: plan.resourceTypes,
+		labelRef: plan.labelRef,
 	})
 		.then((items) => {
 			if (token !== searchToken) return;
@@ -342,6 +352,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 			signal: remoteController?.signal,
 			limit: RESULT_LIMIT,
 			types: remoteResourceTypes,
+			labelRef: plan.labelRef,
 		})
 			.then((items) => {
 				if (token !== searchToken) return;
@@ -627,7 +638,7 @@ onMount(() => {
 									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Command lens ready" : "No matching results"}
 								</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">
-									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try a: for spaces, t: for turns, or Run Command." : "Try a different phrase or type filter."}
+									{trimmedQuery.length < MIN_QUERY_LENGTH ? "Try label:bug for labels, a: for spaces, or t: for turns." : "Try a different phrase or type filter."}
 								</div>
 							</div>
 						</div>
@@ -830,6 +841,11 @@ onMount(() => {
 	.command-type-mark.turn {
 		color: color-mix(in oklch, var(--text-tertiary) 72%, var(--brand) 28%);
 		background: color-mix(in oklch, var(--text-tertiary) 7%, var(--bg-primary) 93%);
+	}
+
+	.command-type-mark.label {
+		color: color-mix(in oklch, var(--brand) 76%, var(--text-secondary) 24%);
+		background: color-mix(in oklch, var(--brand) 9%, var(--bg-primary) 91%);
 	}
 
 	.command-type-mark.command {
