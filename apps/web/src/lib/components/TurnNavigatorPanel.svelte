@@ -27,6 +27,7 @@ let {
 }: Props = $props();
 
 let query = $state("");
+let scrollEl = $state<HTMLDivElement | null>(null);
 
 function normalizedPreview(turn: SessionTurnIndexItem) {
 	return turn.userPreview?.trim() || "Empty user message";
@@ -41,6 +42,14 @@ const filteredTurns = $derived.by(() => {
 		return normalizedPreview(turn).toLowerCase().includes(value);
 	});
 });
+
+$effect(() => {
+	if (!scrollEl || currentSequence == null) return;
+	const item = scrollEl.querySelector<HTMLElement>(
+		`[data-turn-sequence="${currentSequence}"]`,
+	);
+	item?.scrollIntoView({ block: "nearest" });
+});
 </script>
 
 <div
@@ -48,10 +57,6 @@ const filteredTurns = $derived.by(() => {
 	role="dialog"
 	aria-label="Turns"
 >
-	<div class="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface/40 px-3">
-		<div class="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em] text-text-secondary">Turns</div>
-	</div>
-
 	<div class="shrink-0 border-b border-border-subtle/70 px-2 py-2">
 		<label class="flex h-8 items-center gap-2 rounded-md border border-border-subtle bg-bg-input px-2 text-text-placeholder transition-colors focus-within:border-border-strong focus-within:text-text-tertiary">
 			<Search class="h-3.5 w-3.5 shrink-0" />
@@ -65,7 +70,7 @@ const filteredTurns = $derived.by(() => {
 		</label>
 	</div>
 
-	<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
+	<div bind:this={scrollEl} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
 		{#if hasMoreOlder || loadingOlder}
 			<button
 				type="button"
@@ -84,6 +89,7 @@ const filteredTurns = $derived.by(() => {
 				{#each filteredTurns as turn (turn.id)}
 					<button
 						type="button"
+						data-turn-sequence={turn.sequence}
 						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-2 rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
 						onclick={() => onJump?.(turn.sequence)}
 					>

@@ -68,6 +68,7 @@ let railEl = $state<HTMLDivElement | null>(null);
 let trackEl = $state<HTMLElement | null>(null);
 let thumbEl = $state<HTMLDivElement | null>(null);
 let dragging = $state(false);
+let hoveredSequence = $state<number | null>(null);
 let dragOffsetPx = 0;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -185,6 +186,7 @@ function openNavigator() {
 function closeNavigator() {
 	clearCloseTimer();
 	navigatorOpen = false;
+	hoveredSequence = null;
 }
 
 function jumpFromNavigator(sequence: number) {
@@ -196,6 +198,7 @@ function scheduleNavigatorClose() {
 	clearCloseTimer();
 	closeTimer = setTimeout(() => {
 		navigatorOpen = false;
+		hoveredSequence = null;
 		closeTimer = null;
 	}, 120);
 }
@@ -283,6 +286,12 @@ onDestroy(() => {
 				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
+				onmouseenter={() => {
+					hoveredSequence = marker.turn.sequence;
+				}}
+				onfocus={() => {
+					hoveredSequence = marker.turn.sequence;
+				}}
 				onclick={() => onJump?.(marker.turn.sequence)}
 			>
 				<span
@@ -314,7 +323,7 @@ onDestroy(() => {
 			<div class="pointer-events-auto absolute right-8 top-0 z-50">
 				<TurnNavigatorPanel
 					turns={turns}
-					currentSequence={effectiveCurrent}
+					currentSequence={hoveredSequence ?? effectiveCurrent}
 					hasMoreOlder={hasMoreOlder}
 					hasMoreNewer={hasMoreNewer}
 					loadingOlder={loadingOlder}
