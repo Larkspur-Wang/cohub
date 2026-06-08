@@ -130,6 +130,102 @@ async function highlightCodeTokens(tokens: Token[]) {
 	}
 }
 
+const AUDIO_EXTENSIONS = new Set([
+	"aac",
+	"flac",
+	"m4a",
+	"mp3",
+	"oga",
+	"ogg",
+	"opus",
+	"wav",
+]);
+const VIDEO_EXTENSIONS = new Set(["m4v", "mov", "mp4", "ogv", "webm"]);
+
+type MarkdownMediaType = "audio" | "video";
+
+function getMediaTypeFromHref(href: string): MarkdownMediaType | null {
+	try {
+		const url = new URL(
+			href,
+			typeof window === "undefined"
+				? "https://cohub.local"
+				: window.location.href,
+		);
+		const extension = url.pathname.split(".").pop()?.toLowerCase();
+		if (!extension) return null;
+		if (AUDIO_EXTENSIONS.has(extension)) return "audio";
+		if (VIDEO_EXTENSIONS.has(extension)) return "video";
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+function renderMediaPreviewHtml(input: {
+	href: string;
+	title?: string | null;
+	label?: string;
+	type: MarkdownMediaType;
+}) {
+	const src = escapeHtml(input.href);
+	const title = input.title ? ` title="${escapeHtml(input.title)}"` : "";
+	const label = input.label?.trim();
+	const caption = label ? `<figcaption>${escapeHtml(label)}</figcaption>` : "";
+
+	if (input.type === "audio") {
+		return `<figure class="markdown-media markdown-audio"><audio controls preload="metadata" src="${src}"${title}></audio>${caption}</figure>`;
+	}
+
+	const ariaLabel = label ? escapeHtml(label) : "Video preview";
+	return `<figure class="markdown-media markdown-video"><video controls playsinline preload="metadata" src="${src}" aria-label="${ariaLabel}"${title}></video>${caption}</figure>`;
+}
+
+function getStandaloneMediaToken(token: Token) {
+	if (token.type !== "paragraph" || !("tokens" in token)) return null;
+	const inlineTokens = token.tokens;
+	if (!Array.isArray(inlineTokens) || inlineTokens.length !== 1) return null;
+
+	const inlineToken = inlineTokens[0];
+	if (!inlineToken || !("href" in inlineToken)) return null;
+	if (inlineToken.type !== "image" && inlineToken.type !== "link") return null;
+
+	const href = String(inlineToken.href ?? "");
+	const type = getMediaTypeFromHref(href);
+	if (!type) return null;
+
+	const label =
+		"text" in inlineToken && typeof inlineToken.text === "string"
+			? inlineToken.text
+			: "";
+	const title =
+		"title" in inlineToken && typeof inlineToken.title === "string"
+			? inlineToken.title
+			: null;
+
+	return { href, label, title, type };
+}
+
+function enhanceMediaPreviewTokens(tokens: Token[]) {
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i];
+		const media = getStandaloneMediaToken(token);
+		if (media) {
+			tokens[i] = {
+				type: "html",
+				raw: token.raw,
+				text: renderMediaPreviewHtml(media),
+				pre: false,
+			} as Tokens.HTML;
+			continue;
+		}
+
+		if ("tokens" in token && Array.isArray(token.tokens)) {
+			enhanceMediaPreviewTokens(token.tokens);
+		}
+	}
+}
+
 function normalizeNestedMarkdownCodeFences(source: string) {
 	const lines = source.split(/(\r?\n)/);
 	const output: string[] = [];
@@ -201,6 +297,7 @@ async function renderMarkdownHtml(
 	const tokens = marked.lexer(normalizeNestedMarkdownCodeFences(source), {
 		gfm: true,
 	});
+	enhanceMediaPreviewTokens(tokens);
 	if (options?.highlight !== false) await highlightCodeTokens(tokens);
 	return marked.parser(tokens);
 }
