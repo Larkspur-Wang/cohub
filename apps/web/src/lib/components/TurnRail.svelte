@@ -67,8 +67,11 @@ let navigatorOpen = $state(false);
 let railEl = $state<HTMLDivElement | null>(null);
 let trackEl = $state<HTMLElement | null>(null);
 let thumbEl = $state<HTMLDivElement | null>(null);
+let navigatorEl = $state<HTMLDivElement | null>(null);
 let dragging = $state(false);
 let hoveredSequence = $state<number | null>(null);
+let navigatorTop = $state(8);
+let navigatorAnchorOffset = $state(42);
 let dragOffsetPx = 0;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -114,9 +117,31 @@ const shouldShow = $derived(
 		hasMoreNewer ||
 		loadingOlder,
 );
+const navigatorSequence = $derived(hoveredSequence ?? effectiveCurrent);
+const navigatorAnchorPercent = $derived.by(() => {
+	if (navigatorSequence == null) return 0;
+	return (
+		markers.find((marker) => marker.turn.sequence === navigatorSequence)?.top ??
+		0
+	);
+});
 
 function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value));
+}
+
+function updateNavigatorPosition() {
+	if (!railEl || !navigatorEl) return;
+	const railHeight = railEl.getBoundingClientRect().height;
+	const panelHeight = navigatorEl.getBoundingClientRect().height;
+	if (railHeight <= 0 || panelHeight <= 0) return;
+
+	const anchorY = (railHeight * navigatorAnchorPercent) / 100;
+	const minTop = 8;
+	const maxTop = Math.max(minTop, railHeight - panelHeight - 8);
+	const nextTop = clamp(anchorY - panelHeight * 0.34, minTop, maxTop);
+	navigatorTop = nextTop;
+	navigatorAnchorOffset = clamp(anchorY - nextTop, 18, panelHeight - 18);
 }
 
 function trackScrollTopForClientY(clientY: number, offsetPx: number) {
@@ -215,6 +240,22 @@ function handleKeydown(event: KeyboardEvent) {
 		closeNavigator();
 	}
 }
+
+$effect(() => {
+	const anchorPercent = navigatorAnchorPercent;
+	if (!navigatorOpen || dragging) return;
+	const frame = requestAnimationFrame(() => {
+		void anchorPercent;
+		updateNavigatorPosition();
+	});
+	return () => cancelAnimationFrame(frame);
+});
+
+$effect(() => {
+	if (typeof window === "undefined") return;
+	window.addEventListener("resize", updateNavigatorPosition);
+	return () => window.removeEventListener("resize", updateNavigatorPosition);
+});
 
 onDestroy(() => {
 	clearCloseTimer();
@@ -320,7 +361,19 @@ onDestroy(() => {
 			</button>
 		{/if}
 		{#if navigatorOpen && !dragging}
-			<div class="pointer-events-auto absolute right-8 top-0 z-50">
+			<div
+				bind:this={navigatorEl}
+				class="pointer-events-auto absolute right-8 z-50"
+				style:top={`${navigatorTop}px`}
+			>
+				<span
+					class="pointer-events-none absolute -right-2 h-px w-2 bg-border-subtle/80"
+					style:top={`${navigatorAnchorOffset}px`}
+				></span>
+				<span
+					class="pointer-events-none absolute -right-[10px] h-1.5 w-1.5 -translate-y-[2.5px] rounded-full border border-border-subtle bg-bg-primary"
+					style:top={`${navigatorAnchorOffset}px`}
+				></span>
 				<TurnNavigatorPanel
 					turns={turns}
 					currentSequence={hoveredSequence ?? effectiveCurrent}

@@ -28,6 +28,7 @@ let {
 
 let query = $state("");
 let scrollEl = $state<HTMLDivElement | null>(null);
+let lastScrolledSequence: number | null = null;
 
 function normalizedPreview(turn: SessionTurnIndexItem) {
 	return turn.userPreview?.trim() || "Empty user message";
@@ -45,6 +46,8 @@ const filteredTurns = $derived.by(() => {
 
 $effect(() => {
 	if (!scrollEl || currentSequence == null) return;
+	if (lastScrolledSequence === currentSequence) return;
+	lastScrolledSequence = currentSequence;
 	const item = scrollEl.querySelector<HTMLElement>(
 		`[data-turn-sequence="${currentSequence}"]`,
 	);
@@ -58,7 +61,7 @@ $effect(() => {
 	aria-label="Turns"
 >
 	<div class="shrink-0 border-b border-border-subtle/70 px-2 py-2">
-		<label class="flex h-8 items-center gap-2 rounded-md border border-border-subtle bg-bg-input px-2 text-text-placeholder transition-colors focus-within:border-border-strong focus-within:text-text-tertiary">
+		<label class="flex h-8 items-center gap-2 rounded-md border border-border-subtle bg-bg-input px-2 text-text-placeholder transition-colors duration-150 focus-within:border-border-strong focus-within:text-text-tertiary">
 			<Search class="h-3.5 w-3.5 shrink-0" />
 			<input
 				bind:value={query}
@@ -70,7 +73,7 @@ $effect(() => {
 		</label>
 	</div>
 
-	<div bind:this={scrollEl} class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2">
+	<div bind:this={scrollEl} class="min-h-0 flex-1 scroll-py-2 overflow-y-auto overscroll-contain px-2 py-2">
 		{#if hasMoreOlder || loadingOlder}
 			<button
 				type="button"
@@ -90,7 +93,7 @@ $effect(() => {
 					<button
 						type="button"
 						data-turn-sequence={turn.sequence}
-						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-2 rounded-md px-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
+						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-2 rounded-md px-2 py-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
 						onclick={() => onJump?.(turn.sequence)}
 					>
 						<span class={`mt-0.5 w-9 shrink-0 font-mono text-[11px] leading-5 ${currentSequence === turn.sequence ? 'text-brand' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}>#{turn.sequence}</span>
