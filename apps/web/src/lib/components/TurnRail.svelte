@@ -202,9 +202,10 @@ function clearCloseTimer() {
 	closeTimer = null;
 }
 
-function openNavigator() {
+function openNavigatorForSequence(sequence: number) {
 	if (dragging) return;
 	clearCloseTimer();
+	hoveredSequence = sequence;
 	navigatorOpen = true;
 }
 
@@ -271,9 +272,7 @@ onDestroy(() => {
 		class="group/rail pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
 		role="presentation"
 		style:bottom={`${bottomOffset}px`}
-		onmouseenter={openNavigator}
 		onmouseleave={scheduleNavigatorClose}
-		onfocusin={openNavigator}
 		onfocusout={handleFocusOut}
 		onkeydown={handleKeydown}
 	>
@@ -327,17 +326,14 @@ onDestroy(() => {
 				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
-				onmouseenter={() => {
-					hoveredSequence = marker.turn.sequence;
-				}}
-				onfocus={() => {
-					hoveredSequence = marker.turn.sequence;
-				}}
+				onfocus={() => openNavigatorForSequence(marker.turn.sequence)}
 				onclick={() => onJump?.(marker.turn.sequence)}
 			>
 				<span
+					role="presentation"
 					class={`block rounded-full ring-1 ring-bg-content/90 transition-[width,height,opacity,background-color,box-shadow] duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-85' : 'opacity-35'} ${marker.current ? 'w-3 bg-brand opacity-100 shadow-[0_0_0_3px_rgba(255,62,0,0.20)]' : 'w-1.5 group-hover:w-2.5 group-hover:opacity-100'}`}
 					style:height={`${marker.current ? Math.max(12, marker.height) : marker.height}px`}
+					onmouseenter={() => openNavigatorForSequence(marker.turn.sequence)}
 				></span>
 				{#if loadingSequence === marker.turn.sequence}
 					<Loader2 class="absolute h-3 w-3 animate-spin text-brand" />

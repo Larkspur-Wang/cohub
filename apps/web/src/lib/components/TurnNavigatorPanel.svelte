@@ -88,12 +88,12 @@ $effect(() => {
 		{#if filteredTurns.length === 0}
 			<div class="flex min-h-28 items-center justify-center text-[12px] text-text-placeholder">No turns found</div>
 		{:else}
-			<div class="space-y-1">
+			<div class="space-y-0.5">
 				{#each filteredTurns as turn (turn.id)}
 					<button
 						type="button"
 						data-turn-sequence={turn.sequence}
-						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-1 rounded-md px-2 py-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
+						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-1 rounded-md px-2 py-1.5 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
 						onclick={() => onJump?.(turn.sequence)}
 					>
 						<span class={`w-[1.65rem] shrink-0 font-mono text-[11px] leading-relaxed ${currentSequence === turn.sequence ? 'text-brand' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}>#{turn.sequence}</span>
