@@ -256,6 +256,9 @@ type InlinePortPreview = {
 	url: string;
 	autoOpened: boolean;
 };
+type ActiveFsSource =
+	| { kind: "live" }
+	| { kind: "checkpoint"; checkpointId: string };
 type PortReadyToast = {
 	port: string;
 	url: string;
@@ -287,6 +290,23 @@ const routeView = $derived(data.view);
 const routeSessionId = $derived(data.sessionId ?? null);
 const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
+const activeFsSource = $derived.by(
+	(): ActiveFsSource =>
+		routeView === "checkpoint" && routeCheckpointId
+			? { kind: "checkpoint", checkpointId: routeCheckpointId }
+			: { kind: "live" },
+);
+const activeFsSourceKey = $derived(
+	activeFsSource.kind === "checkpoint"
+		? `checkpoint:${activeFsSource.checkpointId}`
+		: "live",
+);
+const activeFsReadonly = $derived(activeFsSource.kind === "checkpoint");
+const activeFsSidebarSubtitle = $derived(
+	activeFsSource.kind === "checkpoint"
+		? `Saved snapshot · ${activeFsSource.checkpointId.slice(0, 8)}`
+		: "Space files",
+);
 const routeCronjobId = $derived(data.cronjobId ?? null);
 const routeTaskId = $derived(data.taskId ?? null);
 const routeTurnSequence = $derived.by(() => {
@@ -400,6 +420,8 @@ let labelPickerResource = $state<{
 } | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let fileTree = $state<SpaceFsNode[]>([]);
+let fileTreeBySource = $state<Record<string, SpaceFsNode[]>>({});
+let fileTreeSourceKey = $state("live");
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
@@ -432,6 +454,7 @@ let inlineCanvas = $state<{
 	saving: boolean;
 	error: string | null;
 } | null>(null);
+let inlineFileRequestToken = $state(0);
 let inlineCanvasRequestToken = $state(0);
 let inlineCanvasSyncVersion = $state<number | null>(null);
 let inlineCanvasPendingFlush = false;
@@ -595,7 +618,7 @@ function handleUploadFiles(
 	files: File[] | LocalUploadEntry[],
 	targetDir: string,
 ) {
-	if (!canEditFiles) return;
+	if (activeFsReadonly || !canEditFiles) return;
 	uploadPaneTargetDir = targetDir;
 	if (isLocalUploadEntries(files)) {
 		pendingUploadEntries = files;
@@ -2535,7 +2558,29 @@ function getParentDirPath(path: string): string {
 	return normalizedPath.slice(0, normalizedPath.lastIndexOf("/"));
 }
 function updateRootFsEntries(entries: SpaceFsEntry[]) {
-	fileTree = makeFsNodes(entries, fileTree);
+	setActiveFileTree(makeFsNodes(entries, fileTree));
+}
+function setActiveFileTree(nodes: SpaceFsNode[]) {
+	fileTree = nodes;
+	fileTreeBySource = { ...fileTreeBySource, [activeFsSourceKey]: nodes };
+}
+function listActiveFsDir(path: string) {
+	if (activeFsSource.kind === "checkpoint") {
+		return sdk
+			.space(spaceId)
+			.checkpoints(activeFsSource.checkpointId)
+			.files.list(path);
+	}
+	return sdk.space(spaceId).files.list(path);
+}
+function readActiveFsFile(path: string) {
+	if (activeFsSource.kind === "checkpoint") {
+		return sdk
+			.space(spaceId)
+			.checkpoints(activeFsSource.checkpointId)
+			.files.read(path);
+	}
+	return sdk.space(spaceId).files.read(path);
 }
 async function patchFsDirectory(
 	dirPath: string,
@@ -2546,7 +2591,9 @@ async function patchFsDirectory(
 		updateRootFsEntries(nextEntries);
 		return nextEntries;
 	}
-	fileTree = replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries));
+	setActiveFileTree(
+		replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries)),
+	);
 	return nextEntries;
 }
 function mergeFsNodeLists(
@@ -4180,6 +4227,9 @@ function spaceLayoutChanged(
 }
 
 async function handleSpaceFsChanged(payload: ChannelEnvelope) {
+	const sourceKey = activeFsSourceKey;
+	const shouldPatchVisibleTree = () =>
+		activeFsSource.kind === "live" && activeFsSourceKey === sourceKey;
 	const eventPayload = payload.payload as {
 		source?: string;
 		resync?: boolean;
@@ -4204,15 +4254,14 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	);
 	for (const dir of dirsToRefresh) {
 		const snapshot = await spaceFsRepo.getDir(spaceId, dir);
-		if (!snapshot) continue;
+		if (!snapshot || !shouldPatchVisibleTree()) continue;
 		if (dir === "") updateRootFsEntries(snapshot.entries);
 		else
-			fileTree = replaceNodeChildren(
-				fileTree,
-				dir,
-				makeFsNodes(snapshot.entries),
+			setActiveFileTree(
+				replaceNodeChildren(fileTree, dir, makeFsNodes(snapshot.entries)),
 			);
 	}
+	if (!shouldPatchVisibleTree()) return;
 	if (eventPayload.resync) {
 		await loadFileTree(true);
 		if (routeView === "file" && routeFilePath && !fileDirty) {
@@ -4260,14 +4309,18 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 		}
 	}
 	if (dirsToRefresh.has("")) await loadFileTree(true);
+	if (!shouldPatchVisibleTree()) return;
 	for (const dir of dirsToRefresh) {
 		if (!dir) continue;
 		const node = findFsNode(fileTree, dir);
 		if (node?.isOpen) {
-			fileTree = updateNodeState(fileTree, dir, (item) => ({
-				...item,
-				isLoaded: false,
-			}));
+			if (!shouldPatchVisibleTree()) return;
+			setActiveFileTree(
+				updateNodeState(fileTree, dir, (item) => ({
+					...item,
+					isLoaded: false,
+				})),
+			);
 			await expandDirectory({ ...node, isOpen: false, isLoaded: false });
 		}
 	}
@@ -5577,13 +5630,24 @@ function beginPreviewPanelResize(event: PointerEvent) {
 	window.addEventListener("pointercancel", stop);
 }
 async function loadFileTree(force = false) {
+	const source = activeFsSource;
+	const sourceKey = activeFsSourceKey;
 	const requestToken = fileTreeRequestToken + 1;
 	fileTreeRequestToken = requestToken;
 	if (!force) {
-		const cached = await getCachedSpaceFsDir(spaceId, "");
-		if (requestToken !== fileTreeRequestToken) return;
-		if (cached && cached.length > 0) {
-			fileTree = makeFsNodes(cached, fileTree);
+		if (source.kind === "live") {
+			const cached = await getCachedSpaceFsDir(spaceId, "");
+			if (
+				requestToken !== fileTreeRequestToken ||
+				sourceKey !== activeFsSourceKey
+			)
+				return;
+			if (cached && cached.length > 0) {
+				setActiveFileTree(makeFsNodes(cached, fileTree));
+			}
+		} else {
+			const cached = fileTreeBySource[sourceKey];
+			if (cached) setActiveFileTree(cached);
 		}
 	}
 	if (fileTreeLoading && !force) return;
@@ -5593,23 +5657,42 @@ async function loadFileTree(force = false) {
 	}
 	fileTreeError = null;
 	try {
-		const entries = await fetchSpaceFsDirWithCache(
-			spaceId,
-			"",
-			async () => {
-				const tree = await sdk.space(spaceId).files.list("");
-				return tree.entries;
-			},
-			{ force: true },
-		);
-		if (requestToken !== fileTreeRequestToken) return;
-		fileTree = makeFsNodes(entries, fileTree);
+		const entries =
+			source.kind === "live"
+				? await fetchSpaceFsDirWithCache(
+						spaceId,
+						"",
+						async () => {
+							const tree = await sdk.space(spaceId).files.list("");
+							return tree.entries;
+						},
+						{ force: true },
+					)
+				: (
+						await sdk
+							.space(spaceId)
+							.checkpoints(source.checkpointId)
+							.files.list("")
+					).entries;
+		if (
+			requestToken !== fileTreeRequestToken ||
+			sourceKey !== activeFsSourceKey
+		)
+			return;
+		setActiveFileTree(makeFsNodes(entries, fileTree));
 	} catch (error) {
-		if (requestToken !== fileTreeRequestToken) return;
+		if (
+			requestToken !== fileTreeRequestToken ||
+			sourceKey !== activeFsSourceKey
+		)
+			return;
 		fileTreeError =
 			error instanceof Error ? error.message : "Failed to load files";
 	} finally {
-		if (requestToken === fileTreeRequestToken) {
+		if (
+			requestToken === fileTreeRequestToken &&
+			sourceKey === activeFsSourceKey
+		) {
 			fileTreeLoading = false;
 		}
 	}
@@ -5621,11 +5704,13 @@ async function expandDirectory(node: SpaceFsNode) {
 			...directoryLoadTokenByPath,
 			[node.path]: (directoryLoadTokenByPath[node.path] ?? 0) + 1,
 		};
-		fileTree = updateNodeState(fileTree, node.path, (item) => ({
-			...item,
-			isOpen: false,
-			isLoading: false,
-		}));
+		setActiveFileTree(
+			updateNodeState(fileTree, node.path, (item) => ({
+				...item,
+				isOpen: false,
+				isLoading: false,
+			})),
+		);
 		return;
 	}
 
@@ -5635,38 +5720,63 @@ async function expandDirectory(node: SpaceFsNode) {
 		[node.path]: requestToken,
 	};
 
+	const source = activeFsSource;
+	const sourceKey = activeFsSourceKey;
 	const hasExistingChildren = node.children.length > 0;
-	const cached = await getCachedSpaceFsDir(spaceId, node.path);
+	const cached =
+		source.kind === "live"
+			? await getCachedSpaceFsDir(spaceId, node.path)
+			: null;
 	if (directoryLoadTokenByPath[node.path] !== requestToken) return;
 
 	if (cached) {
-		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(cached));
+		setActiveFileTree(
+			replaceNodeChildren(fileTree, node.path, makeFsNodes(cached)),
+		);
 	} else {
-		fileTree = updateNodeState(fileTree, node.path, (item) => ({
-			...item,
-			isLoading: !hasExistingChildren,
-			isOpen: true,
-		}));
+		setActiveFileTree(
+			updateNodeState(fileTree, node.path, (item) => ({
+				...item,
+				isLoading: !hasExistingChildren,
+				isOpen: true,
+			})),
+		);
 	}
 
 	try {
-		const entries = await fetchSpaceFsDirWithCache(
-			spaceId,
-			node.path,
-			async () => {
-				const tree = await sdk.space(spaceId).files.list(node.path);
-				return tree.entries;
-			},
-			{ force: true },
+		const entries =
+			source.kind === "live"
+				? await fetchSpaceFsDirWithCache(
+						spaceId,
+						node.path,
+						async () => {
+							const tree = await sdk.space(spaceId).files.list(node.path);
+							return tree.entries;
+						},
+						{ force: true },
+					)
+				: (
+						await sdk
+							.space(spaceId)
+							.checkpoints(source.checkpointId)
+							.files.list(node.path)
+					).entries;
+		if (
+			directoryLoadTokenByPath[node.path] !== requestToken ||
+			sourceKey !== activeFsSourceKey
+		)
+			return;
+		setActiveFileTree(
+			replaceNodeChildren(fileTree, node.path, makeFsNodes(entries)),
 		);
-		if (directoryLoadTokenByPath[node.path] !== requestToken) return;
-		fileTree = replaceNodeChildren(fileTree, node.path, makeFsNodes(entries));
 	} catch (error) {
 		if (directoryLoadTokenByPath[node.path] !== requestToken) return;
-		fileTree = updateNodeState(fileTree, node.path, (item) => ({
-			...item,
-			isLoading: false,
-		}));
+		setActiveFileTree(
+			updateNodeState(fileTree, node.path, (item) => ({
+				...item,
+				isLoading: false,
+			})),
+		);
 		fileTreeError =
 			error instanceof Error ? error.message : "Failed to load directory";
 	}
@@ -5757,7 +5867,7 @@ async function saveOpenFile() {
 	}
 }
 async function handleCreateFile(parentPath: string) {
-	if (!canEditFiles) return;
+	if (activeFsReadonly || !canEditFiles) return;
 	const name = prompt("New file name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -5777,7 +5887,7 @@ async function handleCreateFile(parentPath: string) {
 	}
 }
 async function handleCreateCanvas(parentPath: string) {
-	if (!canEditFiles) return;
+	if (activeFsReadonly || !canEditFiles) return;
 	const name = prompt("New canvas name", "Untitled.covas");
 	if (!name?.trim()) return;
 	const fileName = ensureCovasExtension(name);
@@ -5799,7 +5909,7 @@ async function handleCreateCanvas(parentPath: string) {
 	}
 }
 async function handleCreateDir(parentPath: string) {
-	if (!canEditFiles) return;
+	if (activeFsReadonly || !canEditFiles) return;
 	const name = prompt("New folder name");
 	if (!name?.trim()) return;
 	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
@@ -5815,6 +5925,7 @@ async function handleCreateDir(parentPath: string) {
 	}
 }
 async function handleRenameNode(node: SpaceFsNode) {
+	if (activeFsReadonly) return;
 	if (!canEditFiles) return;
 	const nextName = prompt("Rename", node.name);
 	if (!nextName?.trim() || nextName.trim() === node.name) return;
@@ -5878,7 +5989,7 @@ async function handleDownloadNode(node: SpaceFsNode) {
 	}
 }
 async function handleDeleteNode(node: SpaceFsNode) {
-	if (!canEditFiles) return;
+	if (activeFsReadonly || !canEditFiles) return;
 	if (!confirm(`Delete ${node.name}?`)) return;
 	try {
 		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
@@ -5903,6 +6014,9 @@ function closeFile() {
 	});
 }
 async function openInlineFile(path: string) {
+	const sourceKey = activeFsSourceKey;
+	const requestToken = inlineFileRequestToken + 1;
+	inlineFileRequestToken = requestToken;
 	closePreviewFocusMode();
 	ensurePreviewPanelFits();
 	inlinePortPreview = null;
@@ -5917,7 +6031,12 @@ async function openInlineFile(path: string) {
 		tooLarge: false,
 	};
 	try {
-		const file = await sdk.space(spaceId).files.read(path);
+		const file = await readActiveFsFile(path);
+		if (
+			requestToken !== inlineFileRequestToken ||
+			sourceKey !== activeFsSourceKey
+		)
+			return;
 		if (!("content" in file)) {
 			inlineFile = {
 				response: null,
@@ -5941,6 +6060,11 @@ async function openInlineFile(path: string) {
 			tooLarge: false,
 		};
 	} catch (error) {
+		if (
+			requestToken !== inlineFileRequestToken ||
+			sourceKey !== activeFsSourceKey
+		)
+			return;
 		if (error instanceof HttpError && error.status === 413) {
 			inlineFile = {
 				response: null,
@@ -5965,10 +6089,12 @@ async function openInlineFile(path: string) {
 	}
 }
 function closeInlineFile() {
+	inlineFileRequestToken += 1;
 	inlineFile = null;
 	closePreviewFocusMode();
 }
 async function openInlineCanvas(path: string) {
+	const sourceKey = activeFsSourceKey;
 	closePreviewFocusMode();
 	ensurePreviewPanelFits();
 	const requestToken = inlineCanvasRequestToken + 1;
@@ -5984,10 +6110,11 @@ async function openInlineCanvas(path: string) {
 		error: null,
 	};
 	try {
-		const file = await sdk.space(spaceId).files.read(path);
+		const file = await readActiveFsFile(path);
 		if (
 			requestToken !== inlineCanvasRequestToken ||
-			inlineCanvas?.path !== path
+			inlineCanvas?.path !== path ||
+			sourceKey !== activeFsSourceKey
 		)
 			return;
 		if (!("content" in file) || file.kind !== "text") {
@@ -6000,7 +6127,8 @@ async function openInlineCanvas(path: string) {
 			.canvas.bootstrap(manifest.documentId);
 		if (
 			requestToken !== inlineCanvasRequestToken ||
-			inlineCanvas?.path !== path
+			inlineCanvas?.path !== path ||
+			sourceKey !== activeFsSourceKey
 		)
 			return;
 		inlineCanvasSyncVersion = bootstrap.document.version;
@@ -6027,7 +6155,8 @@ async function openInlineCanvas(path: string) {
 	} catch (error) {
 		if (
 			requestToken !== inlineCanvasRequestToken ||
-			inlineCanvas?.path !== path
+			inlineCanvas?.path !== path ||
+			sourceKey !== activeFsSourceKey
 		)
 			return;
 		inlineCanvas = {
@@ -6155,7 +6284,12 @@ async function downloadInlineFile() {
 	);
 }
 async function saveInlineFile() {
-	if (!canEditFiles || inlineFile?.response?.kind !== "text") return;
+	if (
+		activeFsReadonly ||
+		!canEditFiles ||
+		inlineFile?.response?.kind !== "text"
+	)
+		return;
 	const savingPath = inlineFile.path;
 	const nextContent = inlineFile.draft;
 	markFileSavePending(savingPath);
@@ -6784,6 +6918,8 @@ $effect(() => {
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
 	fileTree = [];
+	fileTreeBySource = {};
+	fileTreeSourceKey = "live";
 	fileTreeLoading = false;
 	fileTreeError = null;
 	previewEndpoints = {};
@@ -7142,6 +7278,22 @@ $effect(() => {
 		return;
 	}
 	void openFileFromUrl(routeFilePath);
+});
+$effect(() => {
+	const sourceKey = activeFsSourceKey;
+	if (fileTreeSourceKey === sourceKey) return;
+	fileTreeBySource = { ...fileTreeBySource, [fileTreeSourceKey]: fileTree };
+	fileTreeSourceKey = sourceKey;
+	fileTree = fileTreeBySource[sourceKey] ?? [];
+	directoryLoadTokenByPath = {};
+	fileTreeError = null;
+	fileTreeLoading = false;
+	fileTreeRequestToken += 1;
+	inlineFileRequestToken += 1;
+	inlineCanvasRequestToken += 1;
+	inlineFile = null;
+	inlineCanvas = null;
+	void loadFileTree(false);
 });
 $effect(() => {
 	if (routeView === "checkpoint" && routeCheckpointId) {
@@ -8984,13 +9136,17 @@ $effect(() => {
             <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
               {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
             </button>
-            <button type="button" class="action-btn" onclick={() => void saveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles} title="Save">
-              <Save class="w-4 h-4 shrink-0" />
-            </button>
+            {#if !activeFsReadonly}
+              <button type="button" class="action-btn" onclick={() => void saveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles} title="Save">
+                <Save class="w-4 h-4 shrink-0" />
+              </button>
+            {:else}
+              <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
+            {/if}
           </div>
           <div class="flex-1 min-h-0">
             {#if inlineFileEdit}
-              <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles} />
+              <CodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles || activeFsReadonly} />
             {:else if inlineFileHasRenderedPreview}
               <RenderedFilePreview
                 name={inlineFile.response.name}
@@ -9343,6 +9499,7 @@ $effect(() => {
           selectedPath={selectedFilePath}
           loading={fileTreeLoading}
           error={fileTreeError}
+          subtitle={activeFsSidebarSubtitle}
           onToggle={expandDirectory}
           onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); } }}
           onRefresh={refreshFileTree}
@@ -9357,8 +9514,8 @@ $effect(() => {
           onOpenPort={(port, url) => openInlinePort(port, url)}
           activePort={inlinePortPreview?.port ?? null}
           draggable={true}
-          showItemActions={true}
-          canWrite={canEditFiles}
+          showItemActions={!activeFsReadonly}
+          canWrite={canEditFiles && !activeFsReadonly}
           previewEndpoints={previewEndpoints}
         />
         <FileUploadPane
@@ -9391,6 +9548,7 @@ $effect(() => {
         selectedPath={selectedFilePath}
         loading={fileTreeLoading}
         error={fileTreeError}
+        subtitle={activeFsSidebarSubtitle}
         onToggle={expandDirectory}
         onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
         onRefresh={refreshFileTree}
@@ -9406,7 +9564,7 @@ $effect(() => {
         activePort={inlinePortPreview?.port ?? null}
         draggable={false}
         showItemActions={false}
-        canWrite={canEditFiles}
+        canWrite={canEditFiles && !activeFsReadonly}
         previewEndpoints={previewEndpoints}
       />
       <FileUploadPane

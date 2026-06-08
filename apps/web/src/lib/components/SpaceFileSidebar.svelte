@@ -41,6 +41,8 @@ const {
 	showItemActions = true,
 	canWrite = true,
 	previewEndpoints = {},
+	title = "Files",
+	subtitle = "Space files",
 }: {
 	nodes: SpaceFsNode[];
 	selectedPath: string;
@@ -63,6 +65,8 @@ const {
 	showItemActions?: boolean;
 	canWrite?: boolean;
 	previewEndpoints?: SpacePublicEndpoints;
+	title?: string;
+	subtitle?: string;
 } = $props();
 
 let treeScrollContainer: HTMLDivElement | null = $state(null);
@@ -171,8 +175,8 @@ $effect(() => {
 <div class="flex h-full flex-col bg-bg-primary min-w-0 relative">
   <div class="flex items-center gap-2 border-b border-border-subtle px-3 py-2 shrink-0 [&_button]:cursor-pointer">
     <div class="min-w-0 flex-1">
-      <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Files</div>
-      <div class="text-[12px] text-text-secondary">Space files</div>
+      <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">{title}</div>
+      <div class="truncate text-[12px] text-text-secondary">{subtitle}</div>
     </div>
     {#if canWrite}
       <div class="relative">
