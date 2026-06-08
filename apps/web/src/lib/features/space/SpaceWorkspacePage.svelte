@@ -393,7 +393,7 @@ let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
-let previewLayoutMenuOpen = $state(false);
+let previewLayoutMenuOpen = $state<"header" | "preview" | null>(null);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
 	ref: string;
@@ -6690,7 +6690,7 @@ onMount(() => {
 	const handleResourceActionMenuKeydown = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			closeResourceActionMenu();
-			previewLayoutMenuOpen = false;
+			previewLayoutMenuOpen = null;
 			fileActionMenuOpenPath = null;
 		}
 	};
@@ -6698,7 +6698,7 @@ onMount(() => {
 		const target = e.target as HTMLElement;
 		if (!target.closest("[data-resource-actions]")) {
 			closeResourceActionMenu();
-			previewLayoutMenuOpen = false;
+			previewLayoutMenuOpen = null;
 			fileActionMenuOpenPath = null;
 		}
 	};
@@ -7299,12 +7299,12 @@ $effect(() => {
 			class="icon-btn"
 			onclick={(event) => {
 				event.stopPropagation();
-				previewLayoutMenuOpen = !previewLayoutMenuOpen;
+				previewLayoutMenuOpen = previewLayoutMenuOpen === "preview" ? null : "preview";
 			}}
 			title="Preview layout"
 			aria-label="Preview layout"
 			aria-haspopup="menu"
-			aria-expanded={previewLayoutMenuOpen}
+			aria-expanded={previewLayoutMenuOpen === "preview"}
 		>
 			{#if activePreviewMode === "dock"}
 				<Maximize2 class="w-4 h-4" />
@@ -7312,17 +7312,17 @@ $effect(() => {
 				<Minimize2 class="w-4 h-4" />
 			{/if}
 		</button>
-		{#if previewLayoutMenuOpen}
+		{#if previewLayoutMenuOpen === "preview"}
 			<div class="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = false; }} role="menuitem">
+				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = null; }} role="menuitem">
 					<PanelRightOpen class="w-3.5 h-3.5" />
 					<span>Dock right</span>
 				</button>
-				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = false; }} role="menuitem">
+				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = null; }} role="menuitem">
 					<Maximize2 class="w-3.5 h-3.5" />
 					<span>Fill workspace</span>
 				</button>
-				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fullscreen"); previewLayoutMenuOpen = false; }} role="menuitem">
+				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fullscreen"); previewLayoutMenuOpen = null; }} role="menuitem">
 					<ExternalLink class="w-3.5 h-3.5" />
 					<span>Full screen</span>
 				</button>
@@ -7527,39 +7527,39 @@ $effect(() => {
         class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
         onclick={(event) => {
           event.stopPropagation();
-          previewLayoutMenuOpen = !previewLayoutMenuOpen;
+          previewLayoutMenuOpen = previewLayoutMenuOpen === "header" ? null : "header";
         }}
         title="Layout"
         aria-haspopup="menu"
-        aria-expanded={previewLayoutMenuOpen}
+        aria-expanded={previewLayoutMenuOpen === "header"}
       >
         <Maximize2 class="w-4 h-4 shrink-0" />
         <span class="hidden 2xl:inline text-[13px] font-medium">Layout</span>
       </button>
-      {#if previewLayoutMenuOpen}
+      {#if previewLayoutMenuOpen === "header"}
         <div class="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = false; }} role="menuitem">
+          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = null; }} role="menuitem">
             <PanelRightOpen class="w-3.5 h-3.5" />
             <span>Dock preview</span>
           </button>
-          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = false; }} role="menuitem">
+          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = null; }} role="menuitem">
             <Maximize2 class="w-3.5 h-3.5" />
             <span>Fill workspace</span>
           </button>
-          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "dock", anchor: "right" }); previewLayoutMenuOpen = false; }} role="menuitem">
+          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "dock", anchor: "right" }); previewLayoutMenuOpen = null; }} role="menuitem">
             <PanelRightOpen class="w-3.5 h-3.5" />
             <span>Dock files</span>
           </button>
-          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "floating", anchor: "right", collapsed: false }); previewLayoutMenuOpen = false; }} role="menuitem">
+          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "floating", anchor: "right", collapsed: false }); previewLayoutMenuOpen = null; }} role="menuitem">
             <PanelRightClose class="w-3.5 h-3.5" />
             <span>Float files</span>
           </button>
-          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.resetLocal(); previewLayoutMenuOpen = false; }} role="menuitem">
+          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.resetLocal(); previewLayoutMenuOpen = null; }} role="menuitem">
             <RefreshCw class="w-3.5 h-3.5" />
             <span>Reset my layout</span>
           </button>
           {#if canEditFiles}
-            <button type="button" class="menu-item" onclick={() => { void spaceLayoutState.saveToSpace(); previewLayoutMenuOpen = false; }} disabled={spaceLayoutState.saving} role="menuitem">
+            <button type="button" class="menu-item" onclick={() => { void spaceLayoutState.saveToSpace(); previewLayoutMenuOpen = null; }} disabled={spaceLayoutState.saving} role="menuitem">
               {#if spaceLayoutState.saving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Save class="w-3.5 h-3.5" />{/if}
               <span>Save layout to space</span>
             </button>
