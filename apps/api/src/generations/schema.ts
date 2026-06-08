@@ -22,7 +22,7 @@ export const createGenerationTaskRequestSchema = z.object({
   model: z.string().min(1),
   content: z.array(generationContentBlockSchema).min(1),
   parameters: z.record(z.string(), z.unknown()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type CreateGenerationTaskRequestInput = z.infer<typeof createGenerationTaskRequestSchema>;

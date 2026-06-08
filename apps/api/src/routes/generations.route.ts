@@ -69,7 +69,7 @@ router.post("/", async (c) => {
       model: request.model,
       content: request.content,
       parameters: request.parameters,
-      metadata: request.metadata,
+      meta: request.meta,
     });
     parameters = resolved.parameters;
   } catch (error) {
@@ -91,7 +91,7 @@ router.post("/", async (c) => {
         model: request.model,
         content: request.content,
         parameters,
-        metadata: request.metadata,
+        meta: request.meta,
       },
     }, {
       attempts: 1,

@@ -17,7 +17,7 @@ type CreateGenerationTaskRequest = {
   model: string;
   content: GenerationContentBlock[];
   parameters?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
 };
 ```
 
@@ -88,6 +88,7 @@ See the full examples:
 - [`docs/examples/generations/gemini-3.1-flash-image-preview.yaml`](./examples/generations/gemini-3.1-flash-image-preview.yaml)
 - [`docs/examples/generations/seedance-2-0-fast.yaml`](./examples/generations/seedance-2-0-fast.yaml)
 - [`docs/examples/generations/seedance-2-0.yaml`](./examples/generations/seedance-2-0.yaml)
+- [`docs/examples/generations/suno_music.yaml`](./examples/generations/suno_music.yaml)
 
 ## CLI
 
@@ -114,4 +115,13 @@ cohub generate "a cat playing piano in a cozy jazz club" \
   --model seedance-2-0-fast \
   --param duration=5 \
   --param resolution=720p
+
+cohub generate "uplifting cinematic pop with warm piano and clear chorus" \
+  --model suno_music \
+  --param operation=music \
+  --meta '{"title":"Warm Horizon","tags":"cinematic pop, warm piano","make_instrumental":false}'
+
+cohub generate "write a hopeful chorus about sunrise after a storm" \
+  --model suno_music \
+  --param operation=lyrics
 ```

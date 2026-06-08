@@ -33,14 +33,14 @@ function parseGenerationTaskData(data: unknown): GenerationTaskData {
   if (data.parameters !== undefined && !isRecord(data.parameters)) {
     throw new Error("Invalid generation task payload: parameters must be an object");
   }
-  if (data.metadata !== undefined && !isRecord(data.metadata)) {
-    throw new Error("Invalid generation task payload: metadata must be an object");
+  if (data.meta !== undefined && !isRecord(data.meta)) {
+    throw new Error("Invalid generation task payload: meta must be an object");
   }
   return {
     model: data.model,
     content: data.content as GenerationTaskData["content"],
     parameters: data.parameters,
-    metadata: data.metadata,
+    meta: data.meta,
   };
 }
 
@@ -77,13 +77,13 @@ function providerStatusMessage(status: number | undefined): string | null {
   return "Generation provider request failed";
 }
 
-function mergeCohubMetadata(
-  metadata: Record<string, unknown> | undefined,
+function mergeCohubMeta(
+  meta: Record<string, unknown> | undefined,
   cohub: Record<string, unknown>,
 ): Record<string, unknown> {
-  const existingCohub = metadata?.cohub;
+  const existingCohub = meta?.cohub;
   return {
-    ...(metadata ?? {}),
+    ...(meta ?? {}),
     cohub: {
       ...(existingCohub && typeof existingCohub === "object" && !Array.isArray(existingCohub) ? existingCohub : {}),
       ...cohub,
@@ -121,7 +121,7 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
   if (!userId) throw new Error("Invalid generation task payload: userId is required");
   const data = parseGenerationTaskData(payload.data);
   const taskRunId = context?.taskRunId ?? String(job.id ?? "");
-  const metadata = mergeCohubMetadata(data.metadata, {
+  const meta = mergeCohubMeta(data.meta, {
     taskRunId,
     spaceId,
     sessionId: sessionId ?? null,
@@ -140,13 +140,13 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
       model: data.model,
       content: data.content,
       parameters: data.parameters,
-      metadata,
+      meta,
     });
 
     return {
       model: data.model,
       output,
-      metadata,
+      meta,
     } satisfies GenerationTaskResult;
   } catch (error) {
     throw normalizeGenerationError(error);

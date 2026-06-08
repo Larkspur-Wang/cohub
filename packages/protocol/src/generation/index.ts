@@ -20,7 +20,7 @@ export type CreateGenerationTaskRequest = {
   model: string;
   content: GenerationContentBlock[];
   parameters?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
 };
 
 export type CreateGenerationTaskResponse = {
@@ -33,13 +33,13 @@ export type GenerationTaskData = {
   model: string;
   content: GenerationContentBlock[];
   parameters?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
 };
 
 export type GenerationTaskResult = {
   model: string;
   output: GenerationContentBlock[];
-  metadata?: Record<string, unknown>;
+  meta?: Record<string, unknown>;
 };
 
 export type GenerationExampleRequest = Omit<CreateGenerationTaskRequest, "spaceId">;

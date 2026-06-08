@@ -183,32 +183,32 @@ function envValue(name: string): string | undefined {
   return value || undefined;
 }
 
-function parseMetadata(value?: string): Record<string, unknown> | undefined {
+function parseMeta(value?: string): Record<string, unknown> | undefined {
   if (!value) return undefined;
   let parsed: unknown;
   try {
     parsed = JSON.parse(value) as unknown;
   } catch {
-    return error("Invalid metadata", "--metadata must be a JSON object");
+    return error("Invalid meta", "--meta must be a JSON object");
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return error("Invalid metadata", "--metadata must be a JSON object");
+    return error("Invalid meta", "--meta must be a JSON object");
   }
   return parsed as Record<string, unknown>;
 }
 
-function mergeCohubMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+function mergeCohubMeta(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   const sessionId = envValue("COHUB_SESSION_ID");
   const turnId = envValue("COHUB_TURN_ID");
   const toolCallId = envValue("COHUB_TOOL_CALL_ID");
-  if (!sessionId && !turnId && !toolCallId) return metadata;
+  if (!sessionId && !turnId && !toolCallId) return meta;
 
-  const existingCohub = metadata?.cohub;
+  const existingCohub = meta?.cohub;
   const cohub = existingCohub && typeof existingCohub === "object" && !Array.isArray(existingCohub)
     ? existingCohub as Record<string, unknown>
     : {};
   return {
-    ...(metadata ?? {}),
+    ...(meta ?? {}),
     cohub: {
       ...cohub,
       ...(sessionId ? { sessionId } : {}),
@@ -229,7 +229,7 @@ export function registerGenerations(program: Command): void {
     .option("--audio <path-or-url>", "Audio input file path or URL; repeatable", collect, [])
     .option("--param <key=value>", "Generation parameter; repeatable, values may be JSON/number/boolean", collect, [])
     .option("--parameters <json>", "Generation parameters as a JSON object")
-    .option("--metadata <json>", "Metadata as a JSON object")
+    .option("--meta <json>", "Meta as a JSON object")
     .option("-o, --output <path>", "Save generated output to a file or directory")
     .option("--async", "Queue the generation task and return immediately")
     .option("--timeout-ms <ms>", "Maximum time to wait in synchronous mode")
@@ -249,7 +249,7 @@ Examples:
       audio: string[];
       param: string[];
       parameters?: string;
-      metadata?: string;
+      meta?: string;
       output?: string;
       async?: boolean;
       timeoutMs?: string;
@@ -274,7 +274,7 @@ Examples:
           throw policyError;
         }
 
-        const metadata = mergeCohubMetadata(parseMetadata(opts.metadata));
+        const meta = mergeCohubMeta(parseMeta(opts.meta));
         const client = createClient();
         const created = await client.generations.create({
           spaceId,
@@ -283,7 +283,7 @@ Examples:
           model: opts.model,
           content,
           parameters,
-          metadata,
+          meta,
         });
 
         if (opts.async) {
