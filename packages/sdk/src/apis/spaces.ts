@@ -1236,35 +1236,77 @@ export class SpaceCanvasApi {
 
 }
 
-export class SpaceCheckpointsApi {
+export class SpaceCheckpointFilesApi {
   constructor(
     private readonly transport: HttpTransport,
     private readonly spaceId: string,
+    private readonly checkpointId: string,
   ) {}
 
-  create(description?: string | null) {
-    return this.transport.request<{ ok: true; taskRunId: string }>(
-      `/api/spaces/${this.spaceId}/checkpoints`,
+  list(path = "", customFetch?: Fetch) {
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    const query = params.toString();
+    return this.transport.request<SpaceFsTreeResponse>(
+      `/api/spaces/${this.spaceId}/checkpoints/${this.checkpointId}/fs/tree${query ? `?${query}` : ""}`,
+      { fetch: customFetch },
+    );
+  }
+
+  read(path: string, customFetch?: Fetch) {
+    const params = new URLSearchParams({ path });
+    return this.transport.request<SpaceFsFileResponse>(
+      `/api/spaces/${this.spaceId}/checkpoints/${this.checkpointId}/fs/file?${params.toString()}`,
+      { fetch: customFetch },
+    );
+  }
+}
+
+export class SpaceCheckpointApi {
+  readonly files: SpaceCheckpointFilesApi;
+
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+    readonly id: string,
+  ) {
+    this.files = new SpaceCheckpointFilesApi(transport, spaceId, id);
+  }
+
+  get(customFetch?: Fetch) {
+    return this.transport.request<SpaceCheckpointDetailResponse>(
+      `/api/spaces/${this.spaceId}/checkpoints/${this.id}`,
+      { fetch: customFetch },
+    );
+  }
+}
+
+export type SpaceCheckpointsApi = ((checkpointId: string) => SpaceCheckpointApi) & {
+  checkpoint: (checkpointId: string) => SpaceCheckpointApi;
+  latest: () => SpaceCheckpointApi;
+  create: (description?: string | null) => Promise<{ ok: true; taskRunId: string }>;
+  list: () => Promise<{ checkpoints: CheckpointRecord[] }>;
+  get: (checkpointId: string, customFetch?: Fetch) => Promise<SpaceCheckpointDetailResponse>;
+};
+
+function createSpaceCheckpointsApi(transport: HttpTransport, spaceId: string): SpaceCheckpointsApi {
+  const checkpoint = (checkpointId: string) => new SpaceCheckpointApi(transport, spaceId, checkpointId);
+  return Object.assign(checkpoint, {
+    checkpoint,
+    latest: () => checkpoint("latest"),
+    create: (description?: string | null) => transport.request<{ ok: true; taskRunId: string }>(
+      `/api/spaces/${spaceId}/checkpoints`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: description ?? null }),
       },
-    );
-  }
-
-  list() {
-    return this.transport.request<{ checkpoints: CheckpointRecord[] }>(
-      `/api/spaces/${this.spaceId}/checkpoints`,
-    );
-  }
-
-  get(checkpointId: string, customFetch?: Fetch) {
-    return this.transport.request<SpaceCheckpointDetailResponse>(
-      `/api/spaces/${this.spaceId}/checkpoints/${checkpointId}`,
-      { fetch: customFetch },
-    );
-  }
+    ),
+    list: () => transport.request<{ checkpoints: CheckpointRecord[] }>(
+      `/api/spaces/${spaceId}/checkpoints`,
+    ),
+    get: (checkpointId: string, customFetch?: Fetch) => checkpoint(checkpointId).get(customFetch),
+  });
 }
 
 export class SpaceClient {
@@ -1291,7 +1333,7 @@ export class SpaceClient {
     this.sessions = new SpaceSessionsApi(transport, id, websocketClient);
     this.members = new SpaceMembersApi(transport, id);
     this.access = new SpaceAccessApi(transport, id);
-    this.checkpoints = new SpaceCheckpointsApi(transport, id);
+    this.checkpoints = createSpaceCheckpointsApi(transport, id);
     this.usage = new SpaceUsageApi(transport, id);
     this.channels = new SpaceChannelsApi(transport, id);
     this.mods = new SpaceModsApi(transport, id);

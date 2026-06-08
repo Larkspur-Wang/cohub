@@ -42,6 +42,7 @@ import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCrea
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
+import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
@@ -1075,6 +1076,36 @@ router.get("/:id/checkpoints/:checkpointId", async (c) => {
   if (!checkpoint) return c.json({ message: "checkpoint not found" }, 404);
 
   return c.json({ checkpoint });
+});
+
+router.get("/:id/checkpoints/:checkpointId/fs/tree", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  const checkpointId = c.req.param("checkpointId");
+  if (!requireValidId(spaceId) || (checkpointId !== "latest" && !requireValidId(checkpointId))) return c.json({ code: "checkpoint_not_found", message: "Checkpoint not found." }, 404);
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
+
+  try {
+    return c.json(await listCheckpointDirectory({ spaceId, checkpointId, path: c.req.query("path") ?? "" }));
+  } catch (error) {
+    const { status, body } = checkpointFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+router.get("/:id/checkpoints/:checkpointId/fs/file", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  const checkpointId = c.req.param("checkpointId");
+  if (!requireValidId(spaceId) || (checkpointId !== "latest" && !requireValidId(checkpointId))) return c.json({ code: "checkpoint_not_found", message: "Checkpoint not found." }, 404);
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
+
+  try {
+    return c.json(await readCheckpointFile({ spaceId, checkpointId, path: c.req.query("path") ?? "" }));
+  } catch (error) {
+    const { status, body } = checkpointFsJsonError(error);
+    return c.json(body, status as never);
+  }
 });
 
 // ── Env ──────────────────────────────────────────────────────────────────────

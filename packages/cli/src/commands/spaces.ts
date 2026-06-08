@@ -1436,4 +1436,50 @@ function registerCheckpoints(spacesCmd: Command): void {
         handleHttp(e);
       }
     });
+
+  cpCmd
+    .command("ls-tree <checkpointId> [path]")
+    .description("List checkpoint tree")
+    .option("--json", "Output as JSON")
+    .action(async (checkpointId: string, path: string | undefined, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const tree = await client.space(spaceId).checkpoints(checkpointId).files.list(path ?? "");
+        if (jsonRequested(opts)) return outJson(tree);
+        if (tree.entries.length === 0) {
+          console.log("  (empty)");
+          return;
+        }
+        table(tree.entries, [
+          { key: "name", label: "Name" },
+          { key: "type", label: "Type" },
+          { key: "size", label: "Size" },
+          { key: "mimeType", label: "MIME" },
+          { key: "mtimeMs", label: "Modified" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cpCmd
+    .command("show <checkpointId> <path>")
+    .description("Show checkpoint file content")
+    .option("--json", "Output as JSON")
+    .action(async (checkpointId: string, path: string, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const file = await client.space(spaceId).checkpoints(checkpointId).files.read(path);
+        if (jsonRequested(opts)) return outJson(file);
+        if (file.delivery === "url" && file.url) {
+          console.log(file.url);
+          return;
+        }
+        console.log(file.content);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
 }

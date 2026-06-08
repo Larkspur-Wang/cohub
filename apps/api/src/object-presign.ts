@@ -36,7 +36,8 @@ export const getBucketPublicEndpoint = (storage: PresignStorageConfig) => {
   return parsed.toString().replace(/\/+$/, "");
 };
 
-export const createPresignedPutObjectUrl = (
+const createPresignedObjectUrl = (
+  method: "GET" | "PUT",
   storage: PresignStorageConfig,
   objectKey: string,
   contentType?: string | null,
@@ -65,7 +66,7 @@ export const createPresignedPutObjectUrl = (
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join("&");
   const canonicalRequest = [
-    "PUT",
+    method,
     url.pathname,
     canonicalQuery,
     `host:${url.host}\n`,
@@ -82,10 +83,27 @@ export const createPresignedPutObjectUrl = (
   url.searchParams.set("X-Amz-Signature", signature);
 
   return {
-    uploadUrl: url.toString(),
+    url: url.toString(),
     expiresAt: new Date(now.getTime() + PRESIGN_TTL_SECONDS * 1000).toISOString(),
-    headers: contentType ? { "content-type": contentType } : undefined,
+    headers: method === "PUT" && contentType ? { "content-type": contentType } : undefined,
   };
+};
+
+export const createPresignedPutObjectUrl = (
+  storage: PresignStorageConfig,
+  objectKey: string,
+  contentType?: string | null,
+) => {
+  const signed = createPresignedObjectUrl("PUT", storage, objectKey, contentType);
+  return { uploadUrl: signed.url, expiresAt: signed.expiresAt, headers: signed.headers };
+};
+
+export const createPresignedGetObjectUrl = (
+  storage: PresignStorageConfig,
+  objectKey: string,
+) => {
+  const signed = createPresignedObjectUrl("GET", storage, objectKey);
+  return { downloadUrl: signed.url, expiresAt: signed.expiresAt };
 };
 
 export type PresignedPostObject = {

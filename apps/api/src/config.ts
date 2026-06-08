@@ -16,6 +16,7 @@ export type AppConfig = {
   spaceStorageRoot: string;
   spaceStoragePvc: string;
   checkpointCachePvc: string;
+  spaceSystemRoot: string;
   spaceStorageSubpath: string;
   configsSubpath: string;
   platformConfigRoot: string;
@@ -33,6 +34,12 @@ export type AppConfig = {
   publicAssetOssAccessKeyId?: string;
   publicAssetOssSecretAccessKey?: string;
   publicAssetCdnBaseUrl?: string;
+  checkpointAssetOssEndpoint?: string;
+  checkpointAssetOssPublicEndpoint?: string;
+  checkpointAssetOssRegion: string;
+  checkpointAssetOssBucket?: string;
+  checkpointAssetOssAccessKeyId?: string;
+  checkpointAssetOssSecretAccessKey?: string;
 };
 
 const getSessionsNamespace = (env: string): string => {
@@ -65,6 +72,7 @@ export const config: AppConfig = {
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStoragePvc: process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
   checkpointCachePvc: process.env.CHECKPOINT_CACHE_PVC ?? process.env.SPACE_STORAGE_PVC ?? "cohub-spaces-pvc",
+  spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
   configsSubpath: process.env.CONFIGS_SUBPATH ?? (env === "prod" ? "configs/prod" : "configs/dev"),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
@@ -82,6 +90,12 @@ export const config: AppConfig = {
   publicAssetOssAccessKeyId: process.env.PUBLIC_ASSET_OSS_ACCESS_KEY_ID,
   publicAssetOssSecretAccessKey: process.env.PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY,
   publicAssetCdnBaseUrl: process.env.PUBLIC_ASSET_CDN_BASE_URL?.replace(/\/+$/, ""),
+  checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
+  checkpointAssetOssPublicEndpoint: process.env.CHECKPOINT_ASSET_OSS_PUBLIC_ENDPOINT ?? process.env.TURN_OBJECT_S3_PUBLIC_ENDPOINT,
+  checkpointAssetOssRegion: process.env.CHECKPOINT_ASSET_OSS_REGION ?? process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
+  checkpointAssetOssBucket: process.env.CHECKPOINT_ASSET_OSS_BUCKET ?? process.env.TURN_OBJECT_S3_BUCKET,
+  checkpointAssetOssAccessKeyId: process.env.CHECKPOINT_ASSET_OSS_ACCESS_KEY_ID ?? process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
+  checkpointAssetOssSecretAccessKey: process.env.CHECKPOINT_ASSET_OSS_SECRET_ACCESS_KEY ?? process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
 };
 
 export const sessionsNamespace = getSessionsNamespace(config.env);
