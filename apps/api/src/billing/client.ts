@@ -1,9 +1,26 @@
-import { benefitsFeature, type Benefit, type CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
+import {
+  benefitsFeature,
+  type Benefit,
+  type CreditsBenefit,
+} from "@talesofai-billing/sdk/admin/benefits";
 import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
-import { creditsFeature, type CreditGrant, type CreditTransaction, type UsageOverage } from "@talesofai-billing/sdk/admin/credits";
+import {
+  creditsFeature,
+  type CreditGrant,
+  type CreditTransaction,
+  type UsageOverage,
+} from "@talesofai-billing/sdk/admin/credits";
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
-import { type CreateOrderResponse, type Order, type OrderCheckout, ordersFeature } from "@talesofai-billing/sdk/admin/orders";
-import { type Product, productsFeature } from "@talesofai-billing/sdk/admin/products";
+import {
+  type CreateOrderResponse,
+  type Order,
+  type OrderCheckout,
+  ordersFeature,
+} from "@talesofai-billing/sdk/admin/orders";
+import {
+  type Product,
+  productsFeature,
+} from "@talesofai-billing/sdk/admin/products";
 import { redemptionCodesFeature } from "@talesofai-billing/sdk/admin/redemption-codes";
 import {
   type CreateSubscriptionResponse,
@@ -11,7 +28,10 @@ import {
   type SubscriptionCheckout,
   subscriptionsFeature,
 } from "@talesofai-billing/sdk/admin/subscriptions";
-import { type WaffoPayMethod, waffoFeature } from "@talesofai-billing/sdk/admin/waffo";
+import {
+  type WaffoPayMethod,
+  waffoFeature,
+} from "@talesofai-billing/sdk/admin/waffo";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
 import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.js";
@@ -103,7 +123,11 @@ const CHECKOUT_LOCK_RETRY_DELAY_MS = 250;
 const CHECKOUT_LOCK_RETRY_COUNT = 24;
 const CREDIT_LIST_PAGE_LIMIT = 100;
 const CREDIT_LIST_MAX_PAGES = 20;
-const CREDIT_GRANT_DISPLAY_STATUSES = ["active", "depleted", "expired"] as const;
+const CREDIT_GRANT_DISPLAY_STATUSES = [
+  "active",
+  "depleted",
+  "expired",
+] as const;
 const BILLING_CURRENT_SUBSCRIPTION_STATUSES = ["trialing", "active"] as const;
 const BILLING_BLOCKING_SUBSCRIPTION_STATUSES = [
   "trialing",
@@ -111,7 +135,10 @@ const BILLING_BLOCKING_SUBSCRIPTION_STATUSES = [
   "past_due",
   "payment_conflicted",
 ] as const;
-const BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
+const BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES = [
+  "active",
+  "trialing",
+] as const;
 const BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES = [
   "MERCHANT_CANCELLED",
   "USER_CANCELLED",
@@ -129,7 +156,7 @@ type BillingListPage<T> = {
     max_page: number;
   };
 };
-type CreditGrantDisplayStatus = typeof CREDIT_GRANT_DISPLAY_STATUSES[number];
+type CreditGrantDisplayStatus = (typeof CREDIT_GRANT_DISPLAY_STATUSES)[number];
 
 function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
@@ -144,18 +171,27 @@ function normalizeRedemptionCode(value: string): string {
   return value.trim();
 }
 
-function redemptionIdempotencyKey(input: { userId: string; code: string }): string {
-  const codeHash = createHash("sha256").update(normalizeRedemptionCode(input.code)).digest("hex");
+function redemptionIdempotencyKey(input: {
+  userId: string;
+  code: string;
+}): string {
+  const codeHash = createHash("sha256")
+    .update(normalizeRedemptionCode(input.code))
+    .digest("hex");
   return `cohub:billing:redemption:${input.userId}:${codeHash}`;
 }
 
-function roundUsd(value: number, decimalPlaces = COHUB_BILLING_CREDIT_UNITS.usdMicroCent.usdDecimalPlaces): number {
+function roundUsd(
+  value: number,
+  decimalPlaces = COHUB_BILLING_CREDIT_UNITS.usdMicroCent.usdDecimalPlaces,
+): number {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(decimalPlaces));
 }
 
 function getCreditUnit(tokenType: string) {
-  if (tokenType === COHUB_BILLING_TOKEN_TYPES.usdMicroCent) return COHUB_BILLING_CREDIT_UNITS.usdMicroCent;
+  if (tokenType === COHUB_BILLING_TOKEN_TYPES.usdMicroCent)
+    return COHUB_BILLING_CREDIT_UNITS.usdMicroCent;
   return {
     tokenType,
     displayCurrency: "USD" as const,
@@ -178,7 +214,9 @@ function usdToAmount(amountUsd: number, tokenType: string): number {
   return Math.round(roundedUsd * unit.unitsPerUsd);
 }
 
-function mapCreditBalance(summary: BillingCreditBalance["raw"]): BillingCreditBalance {
+function mapCreditBalance(
+  summary: BillingCreditBalance["raw"],
+): BillingCreditBalance {
   return {
     tokenType: summary.token_type,
     availableBalance: summary.available_balance,
@@ -200,7 +238,8 @@ function mergeFeatureMetadata(
       continue;
     }
     if (typeof value === "number") {
-      merged[key] = typeof existing === "number" ? Math.max(existing, value) : value;
+      merged[key] =
+        typeof existing === "number" ? Math.max(existing, value) : value;
       continue;
     }
     if (existing === undefined) {
@@ -210,7 +249,9 @@ function mergeFeatureMetadata(
   return merged;
 }
 
-function mapFeatureEntitlements(activeBenefits: BillingFeatureEntitlement["grants"]): BillingFeatureEntitlement[] {
+function mapFeatureEntitlements(
+  activeBenefits: BillingFeatureEntitlement["grants"],
+): BillingFeatureEntitlement[] {
   const byKey = new Map<string, BillingFeatureEntitlement>();
   for (const benefit of activeBenefits) {
     const metadata = benefit.config.metadata ?? {};
@@ -277,7 +318,9 @@ async function getCustomerEntitlementsOrEmpty(input: {
   sdk: ConfiguredBillingSdk;
   businessKey: string;
   userId: string;
-}): Promise<(BillingUserRef & { entitlements: BillingFeatureEntitlement[] }) | null> {
+}): Promise<
+  (BillingUserRef & { entitlements: BillingFeatureEntitlement[] }) | null
+> {
   try {
     const entitlements = await input.sdk.admin.customers.getEntitlements({
       external_user_id: input.userId,
@@ -293,18 +336,26 @@ async function getCustomerEntitlementsOrEmpty(input: {
   }
 }
 
-function findBalance(credits: BillingCreditBalance[], tokenType: string): BillingCreditBalance | null {
+function findBalance(
+  credits: BillingCreditBalance[],
+  tokenType: string,
+): BillingCreditBalance | null {
   return credits.find((credit) => credit.tokenType === tokenType) ?? null;
 }
 
-function daysUntil(expiresAt: string | null | undefined, now = new Date()): number | null {
+function daysUntil(
+  expiresAt: string | null | undefined,
+  now = new Date(),
+): number | null {
   if (!expiresAt) return null;
   const expires = new Date(expiresAt);
   if (Number.isNaN(expires.getTime())) return null;
   return Math.ceil((expires.getTime() - now.getTime()) / 86_400_000);
 }
 
-function getExpiryGroupKey(daysRemaining: number | null): BillingCreditExpiryGroup["key"] {
+function getExpiryGroupKey(
+  daysRemaining: number | null,
+): BillingCreditExpiryGroup["key"] {
   if (daysRemaining === null) return "never";
   if (daysRemaining <= 0) return "expired";
   if (daysRemaining <= 7) return "lt_7d";
@@ -340,7 +391,9 @@ function resolveCreditGrantBenefitName(grant: CreditGrant): string | null {
   if (benefitName) return benefitName;
   const benefitKey = grant.benefit_key?.trim();
   if (!benefitKey) return null;
-  return CREDIT_BENEFIT_DISPLAY_NAMES[benefitKey] ?? humanizeIdentifier(benefitKey);
+  return (
+    CREDIT_BENEFIT_DISPLAY_NAMES[benefitKey] ?? humanizeIdentifier(benefitKey)
+  );
 }
 
 function optionalAmount(value: number | undefined, tokenType: string) {
@@ -351,16 +404,52 @@ function optionalAmount(value: number | undefined, tokenType: string) {
   };
 }
 
-function mapCreditGrant(grant: CreditGrant, now = new Date()): BillingCreditGrantStatus {
+function getCreditGrantUnavailableReasons(
+  grant: CreditGrant,
+): string[] {
+  return Array.isArray(grant.unavailable_reasons)
+    ? grant.unavailable_reasons
+    : [];
+}
+
+function isCreditGrantDisplayable(grant: CreditGrant): boolean {
+  if (grant.available_now !== false) return true;
+  const reasons = getCreditGrantUnavailableReasons(grant);
+  return reasons.length > 0 && reasons.every((reason) => reason === "depleted");
+}
+
+function mapCreditGrant(
+  grant: CreditGrant,
+  now = new Date(),
+): BillingCreditGrantStatus {
   const daysRemaining = daysUntil(grant.expires_at ?? null, now);
   const consumed = optionalAmount(grant.consumed_amount, grant.token_type);
-  const usageConsumed = optionalAmount(grant.usage_consumed_amount, grant.token_type);
-  const settledOverage = optionalAmount(grant.settled_overage_amount, grant.token_type);
-  const originalAmount = typeof grant.original_amount === "number" ? normalizeAmount(grant.original_amount) : null;
-  const originalAmountUsd = typeof grant.original_amount === "number" ? amountToUsd(grant.original_amount, grant.token_type) : null;
-  const consumedPercent = originalAmount && consumed.amount !== null
-    ? Math.min(100, Math.max(0, Number(((consumed.amount / originalAmount) * 100).toFixed(1))))
-    : null;
+  const usageConsumed = optionalAmount(
+    grant.usage_consumed_amount,
+    grant.token_type,
+  );
+  const settledOverage = optionalAmount(
+    grant.settled_overage_amount,
+    grant.token_type,
+  );
+  const originalAmount =
+    typeof grant.original_amount === "number"
+      ? normalizeAmount(grant.original_amount)
+      : null;
+  const originalAmountUsd =
+    typeof grant.original_amount === "number"
+      ? amountToUsd(grant.original_amount, grant.token_type)
+      : null;
+  const consumedPercent =
+    originalAmount && consumed.amount !== null
+      ? Math.min(
+          100,
+          Math.max(
+            0,
+            Number(((consumed.amount / originalAmount) * 100).toFixed(1)),
+          ),
+        )
+      : null;
   return {
     id: grant.id,
     tokenType: grant.token_type,
@@ -370,6 +459,8 @@ function mapCreditGrant(grant: CreditGrant, now = new Date()): BillingCreditGran
     sourceType: grant.source_type ?? null,
     sourceId: grant.source_id ?? null,
     status: grant.status,
+    availableNow: grant.available_now ?? null,
+    unavailableReasons: getCreditGrantUnavailableReasons(grant),
     remainingAmount: normalizeAmount(grant.remaining_amount),
     remainingAmountUsd: amountToUsd(grant.remaining_amount, grant.token_type),
     originalAmount,
@@ -388,7 +479,10 @@ function mapCreditGrant(grant: CreditGrant, now = new Date()): BillingCreditGran
   };
 }
 
-function createdAtDesc(left: BillingCreditGrantStatus, right: BillingCreditGrantStatus): number {
+function createdAtDesc(
+  left: BillingCreditGrantStatus,
+  right: BillingCreditGrantStatus,
+): number {
   const leftTime = Date.parse(left.createdAt);
   const rightTime = Date.parse(right.createdAt);
   const leftValue = Number.isNaN(leftTime) ? 0 : leftTime;
@@ -396,9 +490,20 @@ function createdAtDesc(left: BillingCreditGrantStatus, right: BillingCreditGrant
   return rightValue - leftValue;
 }
 
-function groupCreditGrants(grants: BillingCreditGrantStatus[]): BillingCreditExpiryGroup[] {
-  const orderedKeys: BillingCreditExpiryGroup["key"][] = ["lt_7d", "lt_30d", "gte_30d", "never", "expired"];
-  const byKey = new Map<BillingCreditExpiryGroup["key"], BillingCreditExpiryGroup>();
+function groupCreditGrants(
+  grants: BillingCreditGrantStatus[],
+): BillingCreditExpiryGroup[] {
+  const orderedKeys: BillingCreditExpiryGroup["key"][] = [
+    "lt_7d",
+    "lt_30d",
+    "gte_30d",
+    "never",
+    "expired",
+  ];
+  const byKey = new Map<
+    BillingCreditExpiryGroup["key"],
+    BillingCreditExpiryGroup
+  >();
   for (const key of orderedKeys) {
     byKey.set(key, {
       key,
@@ -411,7 +516,9 @@ function groupCreditGrants(grants: BillingCreditGrantStatus[]): BillingCreditExp
     const key = getExpiryGroupKey(grant.daysRemaining);
     const group = byKey.get(key);
     if (!group) continue;
-    group.remainingAmountUsd = normalizeAmount(group.remainingAmountUsd + grant.remainingAmountUsd);
+    group.remainingAmountUsd = normalizeAmount(
+      group.remainingAmountUsd + grant.remainingAmountUsd,
+    );
     group.grants.push(grant);
   }
   for (const group of byKey.values()) {
@@ -419,7 +526,10 @@ function groupCreditGrants(grants: BillingCreditGrantStatus[]): BillingCreditExp
   }
   return orderedKeys
     .map((key) => byKey.get(key))
-    .filter((group): group is BillingCreditExpiryGroup => !!group && group.grants.length > 0);
+    .filter(
+      (group): group is BillingCreditExpiryGroup =>
+        !!group && group.grants.length > 0,
+    );
 }
 
 function mapUsageOverage(overage: UsageOverage): BillingOpenOverageStatus {
@@ -431,7 +541,10 @@ function mapUsageOverage(overage: UsageOverage): BillingOpenOverageStatus {
     sourceId: overage.source_id,
     operationId: overage.operation_id,
     originalAmountUsd: amountToUsd(overage.original_amount, overage.token_type),
-    remainingAmountUsd: amountToUsd(overage.remaining_amount, overage.token_type),
+    remainingAmountUsd: amountToUsd(
+      overage.remaining_amount,
+      overage.token_type,
+    ),
     settledAmountUsd: amountToUsd(overage.settled_amount, overage.token_type),
     status: overage.status,
     reason: overage.reason ?? null,
@@ -439,7 +552,9 @@ function mapUsageOverage(overage: UsageOverage): BillingOpenOverageStatus {
   };
 }
 
-function mapUsageRecord(transaction: CreditTransaction): BillingUsageRecordStatus {
+function mapUsageRecord(
+  transaction: CreditTransaction,
+): BillingUsageRecordStatus {
   return {
     id: transaction.id,
     tokenType: transaction.token_type,
@@ -467,7 +582,11 @@ function normalizeBillingLimit(value: number | undefined): number {
   return Math.min(10, Math.max(1, Math.floor(value ?? 10)));
 }
 
-function billingApiError(statusCode: number, message: string, code?: string): ApiError {
+function billingApiError(
+  statusCode: number,
+  message: string,
+  code?: string,
+): ApiError {
   return new ApiError({
     status: statusCode,
     message,
@@ -476,7 +595,9 @@ function billingApiError(statusCode: number, message: string, code?: string): Ap
   });
 }
 
-function getCheckoutUnavailableReason(checkout: OrderCheckout | SubscriptionCheckout | undefined): string | null {
+function getCheckoutUnavailableReason(
+  checkout: OrderCheckout | SubscriptionCheckout | undefined,
+): string | null {
   if (checkout?.checkout_usable === true && checkout.checkout_url) return null;
   return checkout?.message ?? null;
 }
@@ -484,16 +605,24 @@ function getCheckoutUnavailableReason(checkout: OrderCheckout | SubscriptionChec
 function isProviderTerminalSubscriptionStatus(value: string | null): boolean {
   if (!value) return false;
   return BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES.includes(
-    value.toUpperCase() as typeof BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES[number],
+    value.toUpperCase() as (typeof BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES)[number],
   );
 }
 
-function isProviderBackedSubscriptionCheckout(checkout: SubscriptionCheckout | undefined): boolean {
+function isProviderBackedSubscriptionCheckout(
+  checkout: SubscriptionCheckout | undefined,
+): boolean {
   return checkout?.provider_key === "waffo";
 }
 
-function mapOrderStatus(order: Order, checkout?: OrderCheckout): BillingOrderStatus {
-  const canPay = order.status === "pending_checkout" && checkout?.checkout_usable === true && !!checkout.checkout_url;
+function mapOrderStatus(
+  order: Order,
+  checkout?: OrderCheckout,
+): BillingOrderStatus {
+  const canPay =
+    order.status === "pending_checkout" &&
+    checkout?.checkout_usable === true &&
+    !!checkout.checkout_url;
   return {
     id: order.id,
     externalUserId: order.external_user_id,
@@ -517,11 +646,12 @@ function mapOrderStatus(order: Order, checkout?: OrderCheckout): BillingOrderSta
     paymentConflictedAt: order.payment_conflicted_at,
     createdAt: order.created_at,
     updatedAt: order.updated_at,
-    providerStatus: checkout?.order_status ?? checkout?.provider_request_status ?? null,
+    providerStatus:
+      checkout?.order_status ?? checkout?.provider_request_status ?? null,
     checkoutStatus: checkout?.status ?? null,
     actions: {
       canPay,
-      checkoutUrl: canPay ? checkout?.checkout_url ?? null : null,
+      checkoutUrl: canPay ? (checkout?.checkout_url ?? null) : null,
       checkoutUsable: canPay,
       canCancelCheckout: order.status === "pending_checkout",
       canCancelAutoRenew: false,
@@ -534,12 +664,16 @@ function mapSubscriptionHistoryStatus(
   subscription: Subscription,
   checkout?: SubscriptionCheckout,
 ): BillingSubscriptionHistoryStatus {
-  const providerStatus = checkout?.subscription_status ?? checkout?.provider_request_status ?? null;
+  const providerStatus =
+    checkout?.subscription_status ?? checkout?.provider_request_status ?? null;
   const providerTerminal = isProviderTerminalSubscriptionStatus(providerStatus);
-  const canPay = subscription.status === "pending_checkout" && checkout?.checkout_usable === true && !!checkout.checkout_url;
+  const canPay =
+    subscription.status === "pending_checkout" &&
+    checkout?.checkout_usable === true &&
+    !!checkout.checkout_url;
   const canCancelAutoRenew =
     BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES.includes(
-      subscription.status as typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES[number],
+      subscription.status as (typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES)[number],
     ) &&
     subscription.cancel_at_period_end === false &&
     subscription.current_period_end !== null &&
@@ -574,7 +708,7 @@ function mapSubscriptionHistoryStatus(
     checkoutStatus: checkout?.status ?? null,
     actions: {
       canPay,
-      checkoutUrl: canPay ? checkout?.checkout_url ?? null : null,
+      checkoutUrl: canPay ? (checkout?.checkout_url ?? null) : null,
       checkoutUsable: canPay,
       canCancelCheckout: subscription.status === "pending_checkout",
       canCancelAutoRenew,
@@ -585,7 +719,7 @@ function mapSubscriptionHistoryStatus(
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 
@@ -600,20 +734,35 @@ function optionalNumber(value: unknown): number | null {
 
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return value.filter(
+    (item): item is string =>
+      typeof item === "string" && item.trim().length > 0,
+  );
 }
 
 function uniqueStringArray(value: unknown): string[] {
-  return [...new Set(stringArray(value).map((item) => item.trim()).filter(Boolean))];
+  return [
+    ...new Set(
+      stringArray(value)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getProductInterval(product: Product): BillingCatalogProduct["interval"] {
+function getProductInterval(
+  product: Product,
+): BillingCatalogProduct["interval"] {
   if (product.billing_type === "one_time") return "one_time";
-  if (product.billing_type !== "recurring" || product.billing_period !== "month") return "other";
+  if (
+    product.billing_type !== "recurring" ||
+    product.billing_period !== "month"
+  )
+    return "other";
   switch (product.billing_interval_count) {
     case 1:
       return "monthly";
@@ -630,13 +779,19 @@ function isCreditsBenefit(benefit: Benefit): benefit is CreditsBenefit {
   return benefit.type === "credits";
 }
 
-function isProductCreditsBenefit(product: Product, benefit: CreditsBenefit): boolean {
-  const grantKind = product.billing_type === "recurring" ? "plan_period" : "purchased";
+function isProductCreditsBenefit(
+  product: Product,
+  benefit: CreditsBenefit,
+): boolean {
+  const grantKind =
+    product.billing_type === "recurring" ? "plan_period" : "purchased";
   if (benefit.config.grant_kind !== grantKind) return false;
   const meta = asRecord(product.meta) ?? {};
   const display = asRecord(meta.display) ?? {};
   const configuredKeys = uniqueStringArray(
-    display.credit_benefit_keys ?? display.creditBenefitKeys ?? meta.credit_benefit_keys,
+    display.credit_benefit_keys ??
+      display.creditBenefitKeys ??
+      meta.credit_benefit_keys,
   );
   if (configuredKeys.length > 0) return configuredKeys.includes(benefit.key);
   const productKey = product.key.toLowerCase();
@@ -647,14 +802,20 @@ function isProductCreditsBenefit(product: Product, benefit: CreditsBenefit): boo
     `${productKey}_credits_benefit`,
   ]);
   if (exactKeys.has(benefitKey)) return true;
-  return benefitKey.startsWith(`${productKey}_`) && benefitKey.includes("credit");
+  return (
+    benefitKey.startsWith(`${productKey}_`) && benefitKey.includes("credit")
+  );
 }
 
-function mapProductCreditBenefit(product: Product, benefit: CreditsBenefit): BillingProductCreditBenefit {
+function mapProductCreditBenefit(
+  product: Product,
+  benefit: CreditsBenefit,
+): BillingProductCreditBenefit {
   const cycleAmount = benefit.config.amount;
-  const multiplier = benefit.config.grant_kind === "plan_period"
-    ? Math.max(1, product.billing_interval_count)
-    : 1;
+  const multiplier =
+    benefit.config.grant_kind === "plan_period"
+      ? Math.max(1, product.billing_interval_count)
+      : 1;
   const periodAmount = cycleAmount * multiplier;
   return {
     key: benefit.key,
@@ -666,7 +827,10 @@ function mapProductCreditBenefit(product: Product, benefit: CreditsBenefit): Bil
     cycleAmountUsd: amountToUsd(cycleAmount, benefit.config.token_type),
     periodAmount,
     periodAmountUsd: amountToUsd(periodAmount, benefit.config.token_type),
-    expiresInDays: benefit.config.expires_in_days ?? null,
+    expiresInDays:
+      "expires_in_days" in benefit.config
+        ? (benefit.config.expires_in_days ?? null)
+        : null,
   };
 }
 
@@ -685,9 +849,13 @@ function mapCatalogProduct(
   const productCreditBenefits = creditBenefits
     .filter((benefit) => isProductCreditsBenefit(product, benefit))
     .map((benefit) => mapProductCreditBenefit(product, benefit));
-  const creditsAmount = productCreditBenefits.length > 0
-    ? productCreditBenefits.reduce((sum, benefit) => sum + benefit.periodAmount, 0)
-    : null;
+  const creditsAmount =
+    productCreditBenefits.length > 0
+      ? productCreditBenefits.reduce(
+          (sum, benefit) => sum + benefit.periodAmount,
+          0,
+        )
+      : null;
   return {
     id: product.id,
     key: product.key,
@@ -705,7 +873,10 @@ function mapCatalogProduct(
       amountMinor: product.amount,
       amountUsd: minorAmountToUsd(product.amount),
       compareAtAmountMinor,
-      compareAtAmountUsd: compareAtAmountMinor === null ? null : minorAmountToUsd(compareAtAmountMinor),
+      compareAtAmountUsd:
+        compareAtAmountMinor === null
+          ? null
+          : minorAmountToUsd(compareAtAmountMinor),
       discountLabel: optionalString(pricing.discount_label),
       discountRate: optionalNumber(pricing.discount_rate),
     },
@@ -713,7 +884,8 @@ function mapCatalogProduct(
       description: optionalString(display.description) ?? product.description,
       benefits: stringArray(display.benefits),
       creditsAmount,
-      validity: optionalString(display.validity) ?? optionalString(meta.validity),
+      validity:
+        optionalString(display.validity) ?? optionalString(meta.validity),
       creditBenefits: productCreditBenefits,
     },
     isDefaultPlan: product.key === defaultPlanProductKey,
@@ -732,8 +904,12 @@ function mapSubscriptionSummary(subscription: Subscription) {
   };
 }
 
-function isSubscriptionExpiredAfterCancel(subscription: Subscription, now = new Date()): boolean {
-  if (!subscription.cancel_at_period_end || !subscription.current_period_end) return false;
+function isSubscriptionExpiredAfterCancel(
+  subscription: Subscription,
+  now = new Date(),
+): boolean {
+  if (!subscription.cancel_at_period_end || !subscription.current_period_end)
+    return false;
   const currentPeriodEnd = Date.parse(subscription.current_period_end);
   return !Number.isNaN(currentPeriodEnd) && currentPeriodEnd <= now.getTime();
 }
@@ -757,14 +933,19 @@ async function resolvePaymentStatus(sdk: ConfiguredBillingSdk) {
         reason: response.message ?? "Waffo payMethods query failed",
       };
     }
-    const availablePayMethodCount = response.pay_methods.filter(isAvailableWaffoPayMethod).length;
+    const availablePayMethodCount = response.pay_methods.filter(
+      isAvailableWaffoPayMethod,
+    ).length;
     return availablePayMethodCount > 0
       ? { available: true, reason: null }
       : { available: false, reason: "No available Waffo payment methods" };
   } catch (error) {
     return {
       available: false,
-      reason: error instanceof Error ? error.message : "Waffo payMethods query failed",
+      reason:
+        error instanceof Error
+          ? error.message
+          : "Waffo payMethods query failed",
     };
   }
 }
@@ -777,7 +958,8 @@ function checkoutResultFromOrder(input: {
   reused?: boolean;
 }): BillingCheckoutResult {
   const checkout = input.response.checkout;
-  const checkoutUsable = checkout?.checkout_usable === true && !!checkout.checkout_url;
+  const checkoutUsable =
+    checkout?.checkout_usable === true && !!checkout.checkout_url;
   return {
     userId: input.userId,
     billing: input.status,
@@ -785,7 +967,7 @@ function checkoutResultFromOrder(input: {
       available: checkoutUsable,
       reason: checkoutUsable
         ? null
-        : checkout?.message ?? "Waffo checkout is not currently usable",
+        : (checkout?.message ?? "Waffo checkout is not currently usable"),
     },
     productKey: input.productKey,
     checkoutUrl: checkout?.checkout_url ?? null,
@@ -804,7 +986,8 @@ function checkoutResultFromSubscription(input: {
   status: BillingPluginStatus;
 }): BillingCheckoutResult {
   const checkout = input.response.checkout;
-  const checkoutUsable = checkout?.checkout_usable === true && !!checkout.checkout_url;
+  const checkoutUsable =
+    checkout?.checkout_usable === true && !!checkout.checkout_url;
   return {
     userId: input.userId,
     billing: input.status,
@@ -812,7 +995,7 @@ function checkoutResultFromSubscription(input: {
       available: checkoutUsable,
       reason: checkoutUsable
         ? null
-        : checkout?.message ?? "Waffo checkout is not currently usable",
+        : (checkout?.message ?? "Waffo checkout is not currently usable"),
     },
     productKey: input.productKey,
     checkoutUrl: checkout?.checkout_url ?? null,
@@ -825,7 +1008,8 @@ function checkoutResultFromSubscription(input: {
 }
 
 function checkoutRedirects(returnUrl: string | undefined) {
-  const resolved = returnUrl && /^https?:\/\//i.test(returnUrl) ? returnUrl : undefined;
+  const resolved =
+    returnUrl && /^https?:\/\//i.test(returnUrl) ? returnUrl : undefined;
   return {
     success_redirect_url: resolved,
     failed_redirect_url: resolved,
@@ -833,7 +1017,10 @@ function checkoutRedirects(returnUrl: string | undefined) {
   };
 }
 
-async function withRedisCheckoutLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+async function withRedisCheckoutLock<T>(
+  key: string,
+  run: () => Promise<T>,
+): Promise<T> {
   const lockKey = `billing:checkout:lock:${key}`;
   const lockValue = randomUUID();
   for (let attempt = 0; attempt < CHECKOUT_LOCK_RETRY_COUNT; attempt += 1) {
@@ -1034,11 +1221,15 @@ function checkFeatureLimitFromEntitlement(input: {
 }): BillingFeatureLimitCheck {
   const unlimited = input.entitlement?.metadata.unlimited === true;
   const rawLimit = input.entitlement?.metadata[input.metadataKey];
-  const entitlementLimit = typeof rawLimit === "number" && Number.isFinite(rawLimit) ? rawLimit : null;
-  const limit = unlimited ? null : entitlementLimit ?? input.fallbackLimit ?? null;
-  const allowed = input.entitlement === null && limit === null
-    ? input.missingEntitlementPolicy !== "deny"
-    : unlimited || (limit !== null && input.quantity <= limit);
+  const entitlementLimit =
+    typeof rawLimit === "number" && Number.isFinite(rawLimit) ? rawLimit : null;
+  const limit = unlimited
+    ? null
+    : (entitlementLimit ?? input.fallbackLimit ?? null);
+  const allowed =
+    input.entitlement === null && limit === null
+      ? input.missingEntitlementPolicy !== "deny"
+      : unlimited || (limit !== null && input.quantity <= limit);
   return {
     allowed,
     quantity: input.quantity,
@@ -1048,8 +1239,14 @@ function checkFeatureLimitFromEntitlement(input: {
   };
 }
 
-export function createDisabledBillingOperations(reason = "billing configuration is missing"): BillingOperations {
-  const status: BillingPluginStatus = { provider: "disabled", configured: false, reason };
+export function createDisabledBillingOperations(
+  reason = "billing configuration is missing",
+): BillingOperations {
+  const status: BillingPluginStatus = {
+    provider: "disabled",
+    configured: false,
+    reason,
+  };
   return {
     status,
 
@@ -1061,13 +1258,19 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       return { userId: input.userId, credits: [], entitlements: [] };
     },
 
-    async getCreditStatus(input: BillingUserRef & { tokenType?: string }): Promise<BillingCreditStatus> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    async getCreditStatus(
+      input: BillingUserRef & { tokenType?: string },
+    ): Promise<BillingCreditStatus> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       return emptyCreditStatus({ userId: input.userId, tokenType, status });
     },
 
-    async listOpenOverages(input: BillingOpenOverageListInput): Promise<BillingOpenOverageList> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    async listOpenOverages(
+      input: BillingOpenOverageListInput,
+    ): Promise<BillingOpenOverageList> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       return emptyOpenOverageList({
         userId: input.userId,
         tokenType,
@@ -1085,7 +1288,9 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       });
     },
 
-    async listOrders(input: BillingHistoryListInput): Promise<BillingOrderList> {
+    async listOrders(
+      input: BillingHistoryListInput,
+    ): Promise<BillingOrderList> {
       return emptyOrderList({
         userId: input.userId,
         status,
@@ -1094,7 +1299,9 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       });
     },
 
-    async listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList> {
+    async listSubscriptions(
+      input: BillingHistoryListInput,
+    ): Promise<BillingSubscriptionHistoryList> {
       return emptySubscriptionHistoryList({
         userId: input.userId,
         status,
@@ -1103,7 +1310,9 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       });
     },
 
-    async purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult> {
+    async purchaseAddon(
+      input: BillingCheckoutInput,
+    ): Promise<BillingCheckoutResult> {
       return disabledCheckoutResult({
         userId: input.userId,
         productKey: input.productKey,
@@ -1112,7 +1321,9 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       });
     },
 
-    async createSubscription(input: BillingCheckoutInput): Promise<BillingCheckoutResult> {
+    async createSubscription(
+      input: BillingCheckoutInput,
+    ): Promise<BillingCheckoutResult> {
       return disabledCheckoutResult({
         userId: input.userId,
         productKey: input.productKey,
@@ -1122,18 +1333,32 @@ export function createDisabledBillingOperations(reason = "billing configuration 
     },
 
     async cancelOrderCheckout(): Promise<BillingOrderStatus> {
-      throw billingApiError(503, status.reason ?? "Billing integration is not configured", "billing_unavailable");
+      throw billingApiError(
+        503,
+        status.reason ?? "Billing integration is not configured",
+        "billing_unavailable",
+      );
     },
 
     async cancelSubscriptionCheckout(): Promise<BillingSubscriptionHistoryStatus> {
-      throw billingApiError(503, status.reason ?? "Billing integration is not configured", "billing_unavailable");
+      throw billingApiError(
+        503,
+        status.reason ?? "Billing integration is not configured",
+        "billing_unavailable",
+      );
     },
 
     async cancelSubscriptionAutoRenew(): Promise<BillingSubscriptionHistoryStatus> {
-      throw billingApiError(503, status.reason ?? "Billing integration is not configured", "billing_unavailable");
+      throw billingApiError(
+        503,
+        status.reason ?? "Billing integration is not configured",
+        "billing_unavailable",
+      );
     },
 
-    async redeemCode(input: BillingRedemptionInput): Promise<BillingRedemptionResult> {
+    async redeemCode(
+      input: BillingRedemptionInput,
+    ): Promise<BillingRedemptionResult> {
       return disabledRedemptionResult({
         userId: input.userId,
         status,
@@ -1141,30 +1366,45 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       });
     },
 
-    async preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    async preflightUsage(
+      input: BillingUsagePreflightInput,
+    ): Promise<BillingUsagePreflight> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       return {
         allowed: true,
         tokenType,
-        estimatedAmountUsd: roundUsd(input.estimatedAmountUsd, getCreditUnit(tokenType).usdDecimalPlaces),
+        estimatedAmountUsd: roundUsd(
+          input.estimatedAmountUsd,
+          getCreditUnit(tokenType).usdDecimalPlaces,
+        ),
         availableBalance: 0,
         netBalance: 0,
         shortfall: 0,
       };
     },
 
-    async recordUsage(input: BillingUsageRecordInput): Promise<BillingUsageRecordResult> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    async recordUsage(
+      input: BillingUsageRecordInput,
+    ): Promise<BillingUsageRecordResult> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       return {
         tokenType,
-        amountUsd: roundUsd(input.amountUsd, getCreditUnit(tokenType).usdDecimalPlaces),
+        amountUsd: roundUsd(
+          input.amountUsd,
+          getCreditUnit(tokenType).usdDecimalPlaces,
+        ),
         status: "disabled",
         response: null,
       };
     },
 
-    async listUsageRecords(input: BillingUsageRecordListInput): Promise<BillingUsageRecordList> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    async listUsageRecords(
+      input: BillingUsageRecordListInput,
+    ): Promise<BillingUsageRecordList> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       return emptyUsageRecordList({
         userId: input.userId,
         tokenType,
@@ -1178,11 +1418,14 @@ export function createDisabledBillingOperations(reason = "billing configuration 
       return null;
     },
 
-    async checkFeatureLimit(input: BillingFeatureLimitInput): Promise<BillingFeatureLimitCheck> {
+    async checkFeatureLimit(
+      input: BillingFeatureLimitInput,
+    ): Promise<BillingFeatureLimitCheck> {
       const limit = input.fallbackLimit ?? null;
-      const allowed = limit === null
-        ? input.missingEntitlementPolicy !== "deny"
-        : input.quantity <= limit;
+      const allowed =
+        limit === null
+          ? input.missingEntitlementPolicy !== "deny"
+          : input.quantity <= limit;
       return {
         allowed,
         quantity: input.quantity,
@@ -1194,11 +1437,19 @@ export function createDisabledBillingOperations(reason = "billing configuration 
   };
 }
 
-export function createTalesofaiBillingOperations(clientConfig: BillingClientConfig): BillingOperations {
+export function createTalesofaiBillingOperations(
+  clientConfig: BillingClientConfig,
+): BillingOperations {
   const sdk = createConfiguredSdk(clientConfig);
   const businessKey = clientConfig.businessKey;
-  const status: BillingPluginStatus = { provider: "talesofai", configured: true };
-  const ensuredCustomers = new Map<string, { value: BillingUserRef; expiresAt: number }>();
+  const status: BillingPluginStatus = {
+    provider: "talesofai",
+    configured: true,
+  };
+  const ensuredCustomers = new Map<
+    string,
+    { value: BillingUserRef; expiresAt: number }
+  >();
   const inflightEnsures = new Map<string, Promise<BillingUserRef>>();
   const inflightCheckouts = new Map<string, Promise<BillingCheckoutResult>>();
 
@@ -1227,7 +1478,9 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     ensuredCustomers.delete(userId);
   };
 
-  const ensureCustomer = async (input: BillingUserRef): Promise<BillingUserRef> => {
+  const ensureCustomer = async (
+    input: BillingUserRef,
+  ): Promise<BillingUserRef> => {
     const cached = ensuredCustomers.get(input.userId);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
 
@@ -1245,7 +1498,9 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         return value;
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
-        const customer = await sdk.admin.customers.get({ external_user_id: input.userId });
+        const customer = await sdk.admin.customers.get({
+          external_user_id: input.userId,
+        });
         const value = { userId: customer.external_user_id };
         cacheEnsuredCustomer(value);
         return value;
@@ -1260,36 +1515,62 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     }
   };
 
-  const getStateAfterEnsure = async (userId: string): Promise<BillingAccountState> => {
+  const getStateAfterEnsure = async (
+    userId: string,
+  ): Promise<BillingAccountState> => {
     await ensureCustomer({ userId });
     const state = await getCustomerStateOrEmpty({ sdk, businessKey, userId });
     if (state) return state;
 
     forgetEnsuredCustomer(userId);
     await ensureCustomer({ userId });
-    return await getCustomerStateOrEmpty({ sdk, businessKey, userId }) ?? { userId, credits: [], entitlements: [] };
+    return (
+      (await getCustomerStateOrEmpty({ sdk, businessKey, userId })) ?? {
+        userId,
+        credits: [],
+        entitlements: [],
+      }
+    );
   };
 
-  const getCreditsAfterEnsure = async (userId: string): Promise<BillingUserRef & { credits: BillingCreditBalance[] }> => {
+  const getCreditsAfterEnsure = async (
+    userId: string,
+  ): Promise<BillingUserRef & { credits: BillingCreditBalance[] }> => {
     await ensureCustomer({ userId });
     const state = await getCustomerCreditsOrEmpty({ sdk, businessKey, userId });
     if (state) return state;
 
     forgetEnsuredCustomer(userId);
     await ensureCustomer({ userId });
-    return await getCustomerCreditsOrEmpty({ sdk, businessKey, userId }) ?? { userId, credits: [] };
+    return (
+      (await getCustomerCreditsOrEmpty({ sdk, businessKey, userId })) ?? {
+        userId,
+        credits: [],
+      }
+    );
   };
 
   const getEntitlementsAfterEnsure = async (
     userId: string,
-  ): Promise<BillingUserRef & { entitlements: BillingFeatureEntitlement[] }> => {
+  ): Promise<
+    BillingUserRef & { entitlements: BillingFeatureEntitlement[] }
+  > => {
     await ensureCustomer({ userId });
-    const state = await getCustomerEntitlementsOrEmpty({ sdk, businessKey, userId });
+    const state = await getCustomerEntitlementsOrEmpty({
+      sdk,
+      businessKey,
+      userId,
+    });
     if (state) return state;
 
     forgetEnsuredCustomer(userId);
     await ensureCustomer({ userId });
-    return await getCustomerEntitlementsOrEmpty({ sdk, businessKey, userId }) ?? { userId, entitlements: [] };
+    return (
+      (await getCustomerEntitlementsOrEmpty({ sdk, businessKey, userId })) ?? {
+        userId,
+        entitlements: [],
+      }
+    );
   };
 
   const getFeatureEntitlement = async (input: {
@@ -1297,10 +1578,17 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     featureKey: string;
   }): Promise<BillingFeatureEntitlement | null> => {
     const state = await getEntitlementsAfterEnsure(input.userId);
-    return state.entitlements.find((entitlement) => entitlement.key === input.featureKey && entitlement.enabled) ?? null;
+    return (
+      state.entitlements.find(
+        (entitlement) =>
+          entitlement.key === input.featureKey && entitlement.enabled,
+      ) ?? null
+    );
   };
 
-  const listAllPages = async <T>(fetchPage: (page: number, limit: number) => Promise<BillingListPage<T>>): Promise<T[]> => {
+  const listAllPages = async <T>(
+    fetchPage: (page: number, limit: number) => Promise<BillingListPage<T>>,
+  ): Promise<T[]> => {
     const items: T[] = [];
     for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
       const response = await fetchPage(page, CREDIT_LIST_PAGE_LIMIT);
@@ -1323,10 +1611,12 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         status: input.status,
         page,
         limit,
-      })
+      }),
     );
 
-  const listUsageRecords = async (input: BillingUsageRecordListInput): Promise<BillingUsageRecordList> => {
+  const listUsageRecords = async (
+    input: BillingUsageRecordListInput,
+  ): Promise<BillingUsageRecordList> => {
     const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
     const page = Math.max(1, Math.floor(input.page ?? 1));
     const limit = Math.min(10, Math.max(1, Math.floor(input.limit ?? 10)));
@@ -1355,7 +1645,9 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     };
   };
 
-  const listOpenOverages = async (input: BillingOpenOverageListInput): Promise<BillingOpenOverageList> => {
+  const listOpenOverages = async (
+    input: BillingOpenOverageListInput,
+  ): Promise<BillingOpenOverageList> => {
     const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
     const page = Math.max(1, Math.floor(input.page ?? 1));
     const limit = Math.min(10, Math.max(1, Math.floor(input.limit ?? 10)));
@@ -1390,9 +1682,12 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         business_key: businessKey,
         page,
         limit,
-      })
+      }),
     );
-    return products.filter((product) => product.status === "active" && product.visibility === "public");
+    return products.filter(
+      (product) =>
+        product.status === "active" && product.visibility === "public",
+    );
   };
 
   const listActiveCreditsBenefits = async (): Promise<CreditsBenefit[]> => {
@@ -1401,20 +1696,26 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         business_key: businessKey,
         page,
         limit,
-      })
+      }),
     );
-    return benefits.filter((benefit): benefit is CreditsBenefit =>
-      isCreditsBenefit(benefit) && benefit.status === "active"
+    return benefits.filter(
+      (benefit): benefit is CreditsBenefit =>
+        isCreditsBenefit(benefit) && benefit.status === "active",
     );
   };
 
-  const getDefaultPlanProductKey = async (products: Product[]): Promise<string | null> => {
+  const getDefaultPlanProductKey = async (
+    products: Product[],
+  ): Promise<string | null> => {
     try {
       const defaultPlan = await sdk.admin.businesses.getDefaultPlan({
         business_key: businessKey,
       });
       if (defaultPlan.status !== "enabled") return null;
-      return products.find((product) => product.id === defaultPlan.product_id)?.key ?? null;
+      return (
+        products.find((product) => product.id === defaultPlan.product_id)
+          ?.key ?? null
+      );
     } catch (error) {
       if (!isNotFound(error)) throw error;
       return null;
@@ -1432,25 +1733,43 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         sorting: "-created_at",
         page,
         limit,
-      })
+      }),
     );
     return subscriptions.filter((subscription) =>
-      statuses.includes(subscription.status)
+      statuses.includes(subscription.status),
     );
   };
 
-  const listCurrentSubscriptions = async (userId: string): Promise<Subscription[]> =>
-    (await listSubscriptionsByStatuses(userId, BILLING_CURRENT_SUBSCRIPTION_STATUSES))
-      .filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
+  const listCurrentSubscriptions = async (
+    userId: string,
+  ): Promise<Subscription[]> =>
+    (
+      await listSubscriptionsByStatuses(
+        userId,
+        BILLING_CURRENT_SUBSCRIPTION_STATUSES,
+      )
+    ).filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
 
-  const listBlockingSubscriptions = async (userId: string): Promise<Subscription[]> => {
-    return (await listSubscriptionsByStatuses(userId, BILLING_BLOCKING_SUBSCRIPTION_STATUSES))
-      .filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
+  const listBlockingSubscriptions = async (
+    userId: string,
+  ): Promise<Subscription[]> => {
+    return (
+      await listSubscriptionsByStatuses(
+        userId,
+        BILLING_BLOCKING_SUBSCRIPTION_STATUSES,
+      )
+    ).filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
   };
 
   const getCatalog = async (input: BillingUserRef): Promise<BillingCatalog> => {
     await ensureCustomer({ userId: input.userId });
-    const [products, payment, currentSubscriptions, blockingSubscriptions, creditBenefits] = await Promise.all([
+    const [
+      products,
+      payment,
+      currentSubscriptions,
+      blockingSubscriptions,
+      creditBenefits,
+    ] = await Promise.all([
       listPublicProducts(),
       resolvePaymentStatus(sdk),
       listCurrentSubscriptions(input.userId),
@@ -1459,8 +1778,12 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     ]);
     const defaultPlanProductKey = await getDefaultPlanProductKey(products);
     const mappedProducts = products
-      .map((product) => mapCatalogProduct(product, defaultPlanProductKey, creditBenefits))
-      .sort((left, right) => left.pricing.amountMinor - right.pricing.amountMinor);
+      .map((product) =>
+        mapCatalogProduct(product, defaultPlanProductKey, creditBenefits),
+      )
+      .sort(
+        (left, right) => left.pricing.amountMinor - right.pricing.amountMinor,
+      );
     const plans = mappedProducts.filter((product) => product.kind === "plan");
     const addons = mappedProducts.filter((product) => product.kind === "addon");
     return {
@@ -1473,8 +1796,8 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       currentSubscriptions: currentSubscriptions.map(mapSubscriptionSummary),
       hasActiveSubscription: blockingSubscriptions.some((subscription) =>
         BILLING_BLOCKING_SUBSCRIPTION_STATUSES.includes(
-          subscription.status as typeof BILLING_BLOCKING_SUBSCRIPTION_STATUSES[number],
-        )
+          subscription.status as (typeof BILLING_BLOCKING_SUBSCRIPTION_STATUSES)[number],
+        ),
       ),
       defaultPlanProductKey,
     };
@@ -1489,7 +1812,8 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         business_key: businessKey,
         product_key: input.productKey,
       });
-      const expectedBillingType = input.kind === "addon" ? "one_time" : "recurring";
+      const expectedBillingType =
+        input.kind === "addon" ? "one_time" : "recurring";
       if (
         product.status !== "active" ||
         product.visibility !== "public" ||
@@ -1536,7 +1860,10 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
           order_id: order.id,
           business_key: businessKey,
         });
-        if (inspected.checkout?.checkout_usable === true && inspected.checkout.checkout_url) {
+        if (
+          inspected.checkout?.checkout_usable === true &&
+          inspected.checkout.checkout_url
+        ) {
           return checkoutResultFromOrder({
             userId: input.userId,
             productKey: input.productKey,
@@ -1571,7 +1898,10 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
           subscription_id: subscription.id,
           business_key: businessKey,
         });
-        if (inspected.checkout?.checkout_usable === true && inspected.checkout.checkout_url) {
+        if (
+          inspected.checkout?.checkout_usable === true &&
+          inspected.checkout.checkout_url
+        ) {
           return checkoutResultFromSubscription({
             userId: input.userId,
             productKey: input.productKey,
@@ -1586,15 +1916,22 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     return null;
   };
 
-  const purchaseAddon = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
+  const purchaseAddon = async (
+    input: BillingCheckoutInput,
+  ): Promise<BillingCheckoutResult> => {
     return runCheckoutSingleflight(
       { kind: "addon", userId: input.userId, productKey: input.productKey },
       () => purchaseAddonUnprotected(input),
     );
   };
 
-  const purchaseAddonUnprotected = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
-    const product = await findCheckoutProduct({ productKey: input.productKey, kind: "addon" });
+  const purchaseAddonUnprotected = async (
+    input: BillingCheckoutInput,
+  ): Promise<BillingCheckoutResult> => {
+    const product = await findCheckoutProduct({
+      productKey: input.productKey,
+      kind: "addon",
+    });
     if (!product) {
       return createUnavailableCheckout({
         userId: input.userId,
@@ -1634,15 +1971,22 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     });
   };
 
-  const createSubscription = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
+  const createSubscription = async (
+    input: BillingCheckoutInput,
+  ): Promise<BillingCheckoutResult> => {
     return runCheckoutSingleflight(
       { kind: "plan", userId: input.userId, productKey: input.productKey },
       () => createSubscriptionUnprotected(input),
     );
   };
 
-  const createSubscriptionUnprotected = async (input: BillingCheckoutInput): Promise<BillingCheckoutResult> => {
-    const product = await findCheckoutProduct({ productKey: input.productKey, kind: "plan" });
+  const createSubscriptionUnprotected = async (
+    input: BillingCheckoutInput,
+  ): Promise<BillingCheckoutResult> => {
+    const product = await findCheckoutProduct({
+      productKey: input.productKey,
+      kind: "plan",
+    });
     if (!product) {
       return createUnavailableCheckout({
         userId: input.userId,
@@ -1690,18 +2034,22 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     });
   };
 
-  const shouldInspectSubscriptionForHistory = (subscription: Subscription): boolean => {
+  const shouldInspectSubscriptionForHistory = (
+    subscription: Subscription,
+  ): boolean => {
     if (subscription.status === "pending_checkout") return true;
     return (
       BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES.includes(
-        subscription.status as typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES[number],
+        subscription.status as (typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES)[number],
       ) &&
       subscription.cancel_at_period_end === false &&
       subscription.current_period_end !== null
     );
   };
 
-  const listOrders = async (input: BillingHistoryListInput): Promise<BillingOrderList> => {
+  const listOrders = async (
+    input: BillingHistoryListInput,
+  ): Promise<BillingOrderList> => {
     const page = normalizeBillingPage(input.page);
     const limit = normalizeBillingLimit(input.limit);
     await ensureCustomer({ userId: input.userId });
@@ -1712,19 +2060,21 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       page,
       limit,
     });
-    const items = await Promise.all(response.items.map(async (order) => {
-      if (order.status !== "pending_checkout") return mapOrderStatus(order);
-      try {
-        const inspected = await sdk.admin.orders.inspect({
-          order_id: order.id,
-          business_key: businessKey,
-        });
-        return mapOrderStatus(inspected.order, inspected.checkout);
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
-        return mapOrderStatus(order);
-      }
-    }));
+    const items = await Promise.all(
+      response.items.map(async (order) => {
+        if (order.status !== "pending_checkout") return mapOrderStatus(order);
+        try {
+          const inspected = await sdk.admin.orders.inspect({
+            order_id: order.id,
+            business_key: businessKey,
+          });
+          return mapOrderStatus(inspected.order, inspected.checkout);
+        } catch (error) {
+          if (!isNotFound(error)) throw error;
+          return mapOrderStatus(order);
+        }
+      }),
+    );
     return {
       userId: input.userId,
       billing: status,
@@ -1751,21 +2101,26 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       page,
       limit,
     });
-    const items = await Promise.all(response.items.map(async (subscription) => {
-      if (!shouldInspectSubscriptionForHistory(subscription)) {
-        return mapSubscriptionHistoryStatus(subscription);
-      }
-      try {
-        const inspected = await sdk.admin.subscriptions.inspect({
-          subscription_id: subscription.id,
-          business_key: businessKey,
-        });
-        return mapSubscriptionHistoryStatus(inspected.subscription, inspected.checkout);
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
-        return mapSubscriptionHistoryStatus(subscription);
-      }
-    }));
+    const items = await Promise.all(
+      response.items.map(async (subscription) => {
+        if (!shouldInspectSubscriptionForHistory(subscription)) {
+          return mapSubscriptionHistoryStatus(subscription);
+        }
+        try {
+          const inspected = await sdk.admin.subscriptions.inspect({
+            subscription_id: subscription.id,
+            business_key: businessKey,
+          });
+          return mapSubscriptionHistoryStatus(
+            inspected.subscription,
+            inspected.checkout,
+          );
+        } catch (error) {
+          if (!isNotFound(error)) throw error;
+          return mapSubscriptionHistoryStatus(subscription);
+        }
+      }),
+    );
     return {
       userId: input.userId,
       billing: status,
@@ -1779,7 +2134,10 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     };
   };
 
-  const getOwnedOrder = async (input: { userId: string; orderId: string }): Promise<Order> => {
+  const getOwnedOrder = async (input: {
+    userId: string;
+    orderId: string;
+  }): Promise<Order> => {
     try {
       const order = await sdk.admin.orders.get({
         order_id: input.orderId,
@@ -1790,7 +2148,8 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       }
       return order;
     } catch (error) {
-      if (isNotFound(error)) throw billingApiError(404, "Order not found", "order_not_found");
+      if (isNotFound(error))
+        throw billingApiError(404, "Order not found", "order_not_found");
       throw error;
     }
   };
@@ -1805,24 +2164,41 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         business_key: businessKey,
       });
       if (subscription.external_user_id !== input.userId) {
-        throw billingApiError(404, "Subscription not found", "subscription_not_found");
+        throw billingApiError(
+          404,
+          "Subscription not found",
+          "subscription_not_found",
+        );
       }
       return subscription;
     } catch (error) {
-      if (isNotFound(error)) throw billingApiError(404, "Subscription not found", "subscription_not_found");
+      if (isNotFound(error))
+        throw billingApiError(
+          404,
+          "Subscription not found",
+          "subscription_not_found",
+        );
       throw error;
     }
   };
 
-  const cancelOrderCheckout = async (input: BillingUserRef & { orderId: string }): Promise<BillingOrderStatus> => {
+  const cancelOrderCheckout = async (
+    input: BillingUserRef & { orderId: string },
+  ): Promise<BillingOrderStatus> => {
     const order = await getOwnedOrder(input);
     if (order.status !== "pending_checkout") {
-      throw billingApiError(409, "Only pending checkout orders can be canceled", "order_not_cancelable");
+      throw billingApiError(
+        409,
+        "Only pending checkout orders can be canceled",
+        "order_not_cancelable",
+      );
     }
     const canceled = await sdk.admin.orders.cancelCheckout(
       { order_id: input.orderId },
       { business_key: businessKey },
-      { idempotencyKey: `cohub:billing:order-cancel-checkout:${input.userId}:${input.orderId}` },
+      {
+        idempotencyKey: `cohub:billing:order-cancel-checkout:${input.userId}:${input.orderId}`,
+      },
     );
     return mapOrderStatus(canceled);
   };
@@ -1841,7 +2217,9 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     const canceled = await sdk.admin.subscriptions.cancelCheckout(
       { subscription_id: input.subscriptionId },
       { business_key: businessKey },
-      { idempotencyKey: `cohub:billing:subscription-cancel-checkout:${input.userId}:${input.subscriptionId}` },
+      {
+        idempotencyKey: `cohub:billing:subscription-cancel-checkout:${input.userId}:${input.subscriptionId}`,
+      },
     );
     return mapSubscriptionHistoryStatus(canceled);
   };
@@ -1852,7 +2230,7 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     const subscription = await getOwnedSubscription(input);
     if (
       !BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES.includes(
-        subscription.status as typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES[number],
+        subscription.status as (typeof BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES)[number],
       ) ||
       subscription.cancel_at_period_end ||
       subscription.current_period_end === null
@@ -1875,7 +2253,10 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         "subscription_auto_renew_not_cancelable",
       );
     }
-    const providerStatus = inspected.checkout?.subscription_status ?? inspected.checkout?.provider_request_status ?? null;
+    const providerStatus =
+      inspected.checkout?.subscription_status ??
+      inspected.checkout?.provider_request_status ??
+      null;
     if (isProviderTerminalSubscriptionStatus(providerStatus)) {
       throw billingApiError(
         409,
@@ -1887,22 +2268,30 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
     const response = await sdk.admin.subscriptions.cancel(
       { subscription_id: input.subscriptionId },
       { business_key: businessKey },
-      { idempotencyKey: `cohub:billing:subscription-cancel-auto-renew:${input.userId}:${input.subscriptionId}` },
+      {
+        idempotencyKey: `cohub:billing:subscription-cancel-auto-renew:${input.userId}:${input.subscriptionId}`,
+      },
     );
     const cancellationCheckout = response.cancellation
       ? ({
-        provider_key: response.cancellation.provider_key,
-        provider_config_id: response.cancellation.provider_config_id,
-        status: response.cancellation.status,
-        message: response.cancellation.message,
-        acquiring_subscription_id: response.cancellation.acquiring_subscription_id,
-        subscription_status: response.cancellation.subscription_status,
-      } satisfies SubscriptionCheckout)
+          provider_key: response.cancellation.provider_key,
+          provider_config_id: response.cancellation.provider_config_id,
+          status: response.cancellation.status,
+          message: response.cancellation.message,
+          acquiring_subscription_id:
+            response.cancellation.acquiring_subscription_id,
+          subscription_status: response.cancellation.subscription_status,
+        } satisfies SubscriptionCheckout)
       : inspected.checkout;
-    return mapSubscriptionHistoryStatus(response.subscription, cancellationCheckout);
+    return mapSubscriptionHistoryStatus(
+      response.subscription,
+      cancellationCheckout,
+    );
   };
 
-  const redeemCode = async (input: BillingRedemptionInput): Promise<BillingRedemptionResult> => {
+  const redeemCode = async (
+    input: BillingRedemptionInput,
+  ): Promise<BillingRedemptionResult> => {
     const code = normalizeRedemptionCode(input.code);
     if (!code) {
       return {
@@ -1920,7 +2309,12 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
         code,
         external_user_id: input.userId,
       },
-      { idempotencyKey: redemptionIdempotencyKey({ userId: input.userId, code }) },
+      {
+        idempotencyKey: redemptionIdempotencyKey({
+          userId: input.userId,
+          code,
+        }),
+      },
     );
     return {
       userId: input.userId,
@@ -1940,16 +2334,26 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       return getStateAfterEnsure(input.userId);
     },
 
-    async getCreditStatus(input: BillingUserRef & { tokenType?: string }): Promise<BillingCreditStatus> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    async getCreditStatus(
+      input: BillingUserRef & { tokenType?: string },
+    ): Promise<BillingCreditStatus> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
       const state = await getCreditsAfterEnsure(input.userId);
       const balance = findBalance(state.credits, tokenType);
-      const grants = (await listAllCreditGrants({ userId: input.userId, tokenType }))
-        .filter((grant) =>
-          CREDIT_GRANT_DISPLAY_STATUSES.includes(grant.status as CreditGrantDisplayStatus)
-        );
+      const grants = (
+        await listAllCreditGrants({ userId: input.userId, tokenType })
+      ).filter(
+        (grant) =>
+          CREDIT_GRANT_DISPLAY_STATUSES.includes(
+            grant.status as CreditGrantDisplayStatus,
+          ) && isCreditGrantDisplayable(grant),
+      );
       const grantStatuses = grants.map((grant) => mapCreditGrant(grant));
-      const openOverageUsd = amountToUsd(balance?.openOverageBalance ?? 0, tokenType);
+      const openOverageUsd = amountToUsd(
+        balance?.openOverageBalance ?? 0,
+        tokenType,
+      );
       const netUsd = balance
         ? amountToUsd(balance.netBalance, tokenType)
         : -openOverageUsd;
@@ -1993,9 +2397,15 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
 
     redeemCode,
 
-    async preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
-      const estimatedAmountUsd = roundUsd(input.estimatedAmountUsd, getCreditUnit(tokenType).usdDecimalPlaces);
+    async preflightUsage(
+      input: BillingUsagePreflightInput,
+    ): Promise<BillingUsagePreflight> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+      const estimatedAmountUsd = roundUsd(
+        input.estimatedAmountUsd,
+        getCreditUnit(tokenType).usdDecimalPlaces,
+      );
       const estimatedAmount = usdToAmount(estimatedAmountUsd, tokenType);
       if (estimatedAmountUsd === 0) {
         return {
@@ -2020,12 +2430,21 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       });
       const availableBalance = amountToUsd(preview.available_before, tokenType);
       const netBalance = amountToUsd(
-        Math.max(0, preview.available_before - preview.historical_overage_settlement_amount),
+        Math.max(
+          0,
+          preview.available_before -
+            preview.historical_overage_settlement_amount,
+        ),
         tokenType,
       );
-      const shortfall = amountToUsd(preview.uncovered_current_usage_amount, tokenType);
+      const shortfall = amountToUsd(
+        preview.uncovered_current_usage_amount,
+        tokenType,
+      );
       return {
-        allowed: !preview.would_create_overage && preview.uncovered_current_usage_amount === 0,
+        allowed:
+          !preview.would_create_overage &&
+          preview.uncovered_current_usage_amount === 0,
         tokenType,
         estimatedAmountUsd,
         availableBalance,
@@ -2034,26 +2453,35 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
       };
     },
 
-    async recordUsage(input: BillingUsageRecordInput): Promise<BillingUsageRecordResult> {
-      const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
-      const amountUsd = roundUsd(input.amountUsd, getCreditUnit(tokenType).usdDecimalPlaces);
+    async recordUsage(
+      input: BillingUsageRecordInput,
+    ): Promise<BillingUsageRecordResult> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+      const amountUsd = roundUsd(
+        input.amountUsd,
+        getCreditUnit(tokenType).usdDecimalPlaces,
+      );
       const amount = usdToAmount(amountUsd, tokenType);
       if (amount === 0) {
         return { tokenType, amountUsd, status: "skipped", response: null };
       }
 
       await ensureCustomer({ userId: input.userId });
-      const response = await sdk.admin.credits.consume({
-        business_key: businessKey,
-        external_user_id: input.userId,
-        token_type: tokenType,
-        amount,
-        source_type: "usage",
-        source_id: input.sourceId,
-        usage_type: input.usageType,
-        operation_id: input.operationId,
-        reason: input.reason,
-      }, { idempotencyKey: input.operationId });
+      const response = await sdk.admin.credits.consume(
+        {
+          business_key: businessKey,
+          external_user_id: input.userId,
+          token_type: tokenType,
+          amount,
+          source_type: "usage",
+          source_id: input.sourceId,
+          usage_type: input.usageType,
+          operation_id: input.operationId,
+          reason: input.reason,
+        },
+        { idempotencyKey: input.operationId },
+      );
 
       return {
         tokenType,
@@ -2067,7 +2495,9 @@ export function createTalesofaiBillingOperations(clientConfig: BillingClientConf
 
     getFeatureEntitlement,
 
-    async checkFeatureLimit(input: BillingFeatureLimitInput): Promise<BillingFeatureLimitCheck> {
+    async checkFeatureLimit(
+      input: BillingFeatureLimitInput,
+    ): Promise<BillingFeatureLimitCheck> {
       const entitlement = await getFeatureEntitlement(input);
       return checkFeatureLimitFromEntitlement({
         entitlement,

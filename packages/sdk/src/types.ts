@@ -72,6 +72,8 @@ export type BillingCreditGrantStatus = {
   sourceType: string | null;
   sourceId: string | null;
   status: string;
+  availableNow: boolean | null;
+  unavailableReasons: string[];
   remainingAmount: number;
   remainingAmountUsd: number;
   originalAmount: number | null;
