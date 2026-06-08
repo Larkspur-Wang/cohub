@@ -94,6 +94,16 @@ const mimeByExt: Record<string, string> = {
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
   ".ogg": "audio/ogg",
+  ".zip": "application/zip",
+  ".gz": "application/gzip",
+  ".tar": "application/x-tar",
+  ".rar": "application/vnd.rar",
+  ".7z": "application/x-7z-compressed",
+  ".pdf": "application/pdf",
+  ".exe": "application/x-msdownload",
+  ".dmg": "application/x-apple-diskimage",
+  ".deb": "application/vnd.debian.binary-package",
+  ".rpm": "application/x-rpm",
 };
 
 export function getMimeType(path: string) {
@@ -105,7 +115,7 @@ export function getMimeType(path: string) {
 }
 
 function isTextMime(mimeType: string | null) {
-  if (!mimeType) return true;
+  if (!mimeType) return false;
   return (
     mimeType.startsWith("text/") ||
     mimeType === "application/json" ||
