@@ -93,10 +93,10 @@ $effect(() => {
 					<button
 						type="button"
 						data-turn-sequence={turn.sequence}
-						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-2 rounded-md px-2 py-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
+						class={`group/sidebar-flyout-item sidebar-flyout-item flex w-full gap-1.5 rounded-md px-2 py-2 text-left outline-none transition-colors duration-100 focus-visible:ring-2 focus-visible:ring-brand/35 ${currentSequence === turn.sequence ? 'bg-bg-active text-text-primary' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}
 						onclick={() => onJump?.(turn.sequence)}
 					>
-						<span class={`mt-0.5 w-9 shrink-0 font-mono text-[11px] leading-5 ${currentSequence === turn.sequence ? 'text-brand' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}>#{turn.sequence}</span>
+						<span class={`mt-0.5 w-7 shrink-0 font-mono text-[11px] leading-5 ${currentSequence === turn.sequence ? 'text-brand' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}>#{turn.sequence}</span>
 						<span class="line-clamp-4 min-w-0 flex-1 text-[12px] leading-relaxed tracking-[-0.01em]">
 							{normalizedPreview(turn)}
 						</span>
