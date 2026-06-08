@@ -370,14 +370,6 @@ onDestroy(() => {
 					style:top={`${navigatorAnchorOffset}px`}
 					aria-hidden="true"
 				></span>
-				<span
-					class="pointer-events-none absolute -right-2 h-px w-2 bg-border-subtle/80"
-					style:top={`${navigatorAnchorOffset}px`}
-				></span>
-				<span
-					class="pointer-events-none absolute -right-[10px] h-1.5 w-1.5 -translate-y-[2.5px] rounded-full border border-border-subtle bg-bg-primary"
-					style:top={`${navigatorAnchorOffset}px`}
-				></span>
 				<TurnNavigatorPanel
 					turns={turns}
 					currentSequence={hoveredSequence ?? effectiveCurrent}
