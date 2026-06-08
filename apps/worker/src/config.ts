@@ -11,6 +11,7 @@ export interface WorkerConfig {
   spaceSystemRoot: string;
   checkpointCacheRoot: string;
   spaceStorageSubpath: string;
+  checkpointCacheSubpath: string;
   checkpointAssetThresholdBytes: number;
   platformConfigRoot: string;
   platformSpaceId: string;
@@ -56,6 +57,7 @@ export const config: WorkerConfig = {
   spaceSystemRoot: process.env.SPACE_SYSTEM_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
   checkpointCacheRoot: process.env.CHECKPOINT_CACHE_ROOT ?? process.env.SPACE_STORAGE_ROOT ?? "",
   spaceStorageSubpath: process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev"),
+  checkpointCacheSubpath: process.env.CHECKPOINT_CACHE_SUBPATH ?? `${process.env.SPACE_STORAGE_SUBPATH ?? (env === "prod" ? "cohub-prod" : "cohub-dev")}/checkpoints`,
   checkpointAssetThresholdBytes: Number(process.env.CHECKPOINT_ASSET_THRESHOLD_BYTES ?? 4 * 1024 * 1024),
   platformConfigRoot: process.env.PLATFORM_CONFIG_ROOT ?? "/configs",
   platformSpaceId: process.env.PLATFORM_SPACE_ID ?? "",

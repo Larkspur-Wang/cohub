@@ -44,6 +44,10 @@ __IMAGE_PULL_SECRETS_BLOCK__
               subPath: __SPACE_STORAGE_SUBPATH__
             - name: checkpoint-cache
               mountPath: /checkpoint-cache
+              subPath: __CHECKPOINT_CACHE_SUBPATH__
+            - name: system-storage
+              mountPath: /system-storage
+              subPath: __SPACE_SYSTEM_SUBPATH__
             - name: space-storage
               mountPath: /configs
               subPath: __CONFIGS_SUBPATH__
@@ -77,3 +81,6 @@ __IMAGE_PULL_SECRETS_BLOCK__
         - name: checkpoint-cache
           persistentVolumeClaim:
             claimName: __CHECKPOINT_CACHE_PVC__
+        - name: system-storage
+          persistentVolumeClaim:
+            claimName: __SPACE_SYSTEM_PVC__

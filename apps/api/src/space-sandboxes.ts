@@ -377,7 +377,7 @@ export const reconcileSpaceSandbox = async (input: {
       ...enabledMods.map((mod) => ({
         name: "checkpoint-cache",
         mountPath: mod.mountPath,
-        subPath: `${config.spaceStorageSubpath}/checkpoints/${mod.modSpaceId}/latest`,
+        subPath: `${config.checkpointCacheSubpath}/${mod.modSpaceId}/latest`,
         readOnly: true,
       })),
     ];

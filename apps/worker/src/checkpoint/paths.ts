@@ -1,12 +1,10 @@
 import { chmod, mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { config } from "../config.js";
 
 export const CHECKPOINT_ASSET_MANIFEST_PATH = ".cohub/system/checkpoint-assets.v1.json";
 export const CHECKPOINT_META_PATH = ".cohub/system/checkpoint-meta.v1.json";
 export const USER_GIT_REPOS_PATH = ".cohub/system/user-git-repos.v1.json";
-
-const rootWithSubpath = (root: string) => resolve(root, config.spaceStorageSubpath);
 
 export const getCheckpointWorkspaceDir = (spaceId: string) =>
   join(config.spaceStorageRoot, spaceId, "workspace");
@@ -21,10 +19,10 @@ export const getCheckpointSystemTmpDir = (spaceId: string) =>
   join(getCheckpointSystemDir(spaceId), "tmp");
 
 export const getCheckpointLatestDir = (spaceId: string) =>
-  join(rootWithSubpath(config.checkpointCacheRoot), "checkpoints", spaceId, "latest");
+  join(config.checkpointCacheRoot, spaceId, "latest");
 
 export const getCheckpointLatestSubPath = (spaceId: string) =>
-  `${config.spaceStorageSubpath}/checkpoints/${spaceId}/latest`;
+  `${config.checkpointCacheSubpath}/${spaceId}/latest`;
 
 export const ensureCheckpointDirs = async (spaceId: string) => {
   const workspaceDir = getCheckpointWorkspaceDir(spaceId);

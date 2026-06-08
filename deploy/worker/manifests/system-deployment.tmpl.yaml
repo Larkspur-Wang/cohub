@@ -50,9 +50,10 @@ __IMAGE_PULL_SECRETS_BLOCK__
               subPath: __SPACE_STORAGE_SUBPATH__
             - name: checkpoint-cache
               mountPath: /checkpoint-cache
+              subPath: __CHECKPOINT_CACHE_SUBPATH__
             - name: system-storage
               mountPath: /system-storage
-              subPath: __SPACE_STORAGE_SUBPATH__
+              subPath: __SPACE_SYSTEM_SUBPATH__
           resources:
             requests:
               cpu: "__SYSTEM_REQUEST_CPU__"
