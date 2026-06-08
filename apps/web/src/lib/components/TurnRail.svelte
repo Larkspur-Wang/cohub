@@ -226,7 +226,7 @@ function scheduleNavigatorClose() {
 		navigatorOpen = false;
 		hoveredSequence = null;
 		closeTimer = null;
-	}, 120);
+	}, 180);
 }
 
 function handleFocusOut(event: FocusEvent) {
@@ -360,8 +360,16 @@ onDestroy(() => {
 			<div
 				bind:this={navigatorEl}
 				class="pointer-events-auto absolute right-8 z-50"
+				role="presentation"
 				style:top={`${navigatorTop}px`}
+				onmouseenter={clearCloseTimer}
+				onmouseleave={scheduleNavigatorClose}
 			>
+				<span
+					class="absolute -right-8 h-8 w-8 -translate-y-1/2"
+					style:top={`${navigatorAnchorOffset}px`}
+					aria-hidden="true"
+				></span>
 				<span
 					class="pointer-events-none absolute -right-2 h-px w-2 bg-border-subtle/80"
 					style:top={`${navigatorAnchorOffset}px`}
