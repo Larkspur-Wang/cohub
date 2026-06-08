@@ -1,5 +1,16 @@
 # @neta-art/cohub-cli
 
+## 1.14.0
+
+### Minor Changes
+
+- Release v1.49.0 with realtime canvas persistence and operation sync, space layout customization, custom space styles, label-scoped search, guest prompt access hardening, loading state refinements, and turn navigator polish.
+
+### Patch Changes
+
+- Updated dependencies
+  - @neta-art/cohub@1.24.0
+
 ## 1.13.1
 
 ### Patch Changes

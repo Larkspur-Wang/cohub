@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.24.0
+
+### Minor Changes
+
+- Release v1.49.0 with realtime canvas persistence and operation sync, space layout customization, custom space styles, label-scoped search, guest prompt access hardening, loading state refinements, and turn navigator polish.
+
 ## 1.23.1
 
 ### Patch Changes
