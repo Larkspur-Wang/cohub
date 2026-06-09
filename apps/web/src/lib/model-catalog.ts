@@ -1,8 +1,12 @@
 export type ModelCatalogItem = {
 	provider: string;
 	id: string;
-	model: Record<string, unknown>;
+	model: Record<string, unknown> & { hidden?: boolean };
 };
+
+export function isModelHidden(item: ModelCatalogItem): boolean {
+	return item.model.hidden === true;
+}
 
 export type ModelCatalogIndex = {
 	byProviderAndId: Map<string, ModelCatalogItem>;

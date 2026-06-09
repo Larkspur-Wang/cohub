@@ -1,8 +1,9 @@
-import type { ModelCatalogItem } from "$lib/model-catalog";
+import { isModelHidden, type ModelCatalogItem } from "$lib/model-catalog";
 import { sdk } from "$lib/sdk";
 
 class ModelsCatalogStore {
 	items = $state<ModelCatalogItem[] | null>(null);
+	visibleItems = $state<ModelCatalogItem[] | null>(null);
 	loading = $state(false);
 	error = $state<string | null>(null);
 	private loadPromise: Promise<ModelCatalogItem[]> | null = null;
@@ -21,6 +22,7 @@ class ModelsCatalogStore {
 					for (const entry of entries) items.push(entry);
 				}
 				this.items = items;
+				this.visibleItems = items.filter((item) => !isModelHidden(item));
 				return items;
 			})
 			.catch((error) => {

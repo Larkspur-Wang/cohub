@@ -381,6 +381,7 @@ let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let composerError = $state("");
 const modelsCatalog = $derived(modelsCatalogStore.items);
+const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
 let generationModelsCatalog = $state<PublicGenerationDeclaration[] | null>(
 	null,
 );
@@ -1631,11 +1632,11 @@ const bootstrapErrorMessage = $derived.by<string | null>(() => {
 });
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 const firstCatalogModel = $derived(
-	modelsCatalog && modelsCatalog.length > 0
+	visibleModelsCatalog && visibleModelsCatalog.length > 0
 		? {
-				provider: modelsCatalog[0].provider,
-				id: modelsCatalog[0].id,
-				name: modelsCatalog[0].model.name as string | undefined,
+				provider: visibleModelsCatalog[0].provider,
+				id: visibleModelsCatalog[0].id,
+				name: visibleModelsCatalog[0].model.name as string | undefined,
 			}
 		: null,
 );

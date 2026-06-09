@@ -18,6 +18,8 @@ export type ModelDef = {
   api?: string;
   baseUrl?: string;
   reasoning?: boolean;
+  /** Hide this model from UI pickers while keeping it available for runtime use. */
+  hidden?: boolean;
   input?: Array<"text" | "image">;
   cost?: ModelCost;
   contextWindow?: number;

@@ -7,7 +7,7 @@ import { isComposingKeyboardEvent } from "$lib/keyboard";
 type ModelItem = {
 	provider: string;
 	id: string;
-	model: Record<string, unknown>;
+	model: Record<string, unknown> & { hidden?: boolean };
 };
 
 type NumericGenerationConstraint = {
@@ -114,6 +114,10 @@ function getDisplayName(item: ModelItem): string {
 function hasVision(item: ModelItem): boolean {
 	const input = item.model.input as string[] | undefined;
 	return input?.includes("image") ?? false;
+}
+
+function isHiddenModel(item: ModelItem): boolean {
+	return item.model.hidden === true;
 }
 
 const MODEL_COST_CURRENCY_PREFIX = "$";
@@ -396,10 +400,16 @@ function toggleGenerationModel(model: string, selected: boolean) {
 }
 
 const filteredModels = $derived.by(() => {
-	let result = models;
+	const queryRaw = searchQuery.trim();
+	const exactHiddenMatches = queryRaw
+		? models.filter((item) => isHiddenModel(item) && item.id === queryRaw)
+		: [];
+	let result = exactHiddenMatches.length
+		? [...models.filter((item) => !isHiddenModel(item)), ...exactHiddenMatches]
+		: models.filter((item) => !isHiddenModel(item));
 
-	if (searchQuery.trim()) {
-		const query = searchQuery.toLowerCase().replace(/\s+/g, "");
+	if (queryRaw) {
+		const query = queryRaw.toLowerCase().replace(/\s+/g, "");
 		const scored = result
 			.map((item) => {
 				const text =
@@ -413,7 +423,7 @@ const filteredModels = $derived.by(() => {
 	}
 
 	// When not searching, current model first
-	if (!searchQuery.trim() && currentModel) {
+	if (!queryRaw && currentModel) {
 		result = [...result].sort((a, b) => {
 			const aIsCurrent =
 				a.provider === currentModel.provider && a.id === currentModel.id;
