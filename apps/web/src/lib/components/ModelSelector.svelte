@@ -116,6 +116,47 @@ function hasVision(item: ModelItem): boolean {
 	return input?.includes("image") ?? false;
 }
 
+const MODEL_COST_CURRENCY_PREFIX = "$";
+
+type ModelCost = {
+	input?: unknown;
+	output?: unknown;
+	cacheRead?: unknown;
+	cacheWrite?: unknown;
+};
+
+function getModelCost(item: ModelItem): ModelCost | null {
+	const cost = item.model.cost;
+	return cost && typeof cost === "object" ? (cost as ModelCost) : null;
+}
+
+function formatModelCostValue(value: unknown): string | null {
+	if (typeof value !== "number" || !Number.isFinite(value)) return null;
+	if (value === 0) return `${MODEL_COST_CURRENCY_PREFIX}0`;
+	if (Math.abs(value) < 0.01)
+		return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(4)}`;
+	if (Math.abs(value) < 1)
+		return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(2)}`;
+	return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(2).replace(/\.00$/, "")}`;
+}
+
+function formatModelCost(item: ModelItem): string {
+	const cost = getModelCost(item);
+	if (!cost) return "";
+
+	const parts = [
+		["input", cost.input],
+		["output", cost.output],
+		["cache read", cost.cacheRead],
+		["cache write", cost.cacheWrite],
+	].flatMap(([label, value]) => {
+		const formatted = formatModelCostValue(value);
+		return formatted ? [`${formatted}/M ${label}`] : [];
+	});
+
+	return parts.join(" · ");
+}
+
 function getGenerationModelTitle(model: PublicGenerationDeclaration): string {
 	return model.title?.trim() || model.model;
 }
@@ -551,6 +592,7 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 				</div>
 			{:else}
 				{#each filteredModels as item, index (item.provider + "/" + item.id)}
+					{@const costText = formatModelCost(item)}
 					<button
 						type="button"
 						class={`group relative w-full cursor-pointer px-4 py-2 text-left transition-colors duration-100 ${
@@ -569,17 +611,24 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 						{#if isCurrentModel(item)}
 							<span class="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-brand"></span>
 						{/if}
-						<div class="flex items-center justify-between gap-3">
-							<div class="flex min-w-0 items-center gap-1.5">
-								<span class="truncate text-[13px] font-medium text-text-primary">
-									{getDisplayName(item)}
-								</span>
-								{#if hasVision(item)}
-									<Image class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+						<div class="flex items-start justify-between gap-3">
+							<div class="min-w-0 flex-1">
+								<div class="flex min-w-0 items-center gap-1.5">
+									<span class="truncate text-[13px] font-medium text-text-primary">
+										{getDisplayName(item)}
+									</span>
+									{#if hasVision(item)}
+										<Image class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+									{/if}
+								</div>
+								{#if costText}
+									<div class="mt-0.5 truncate text-[11px] tabular-nums text-text-tertiary/75">
+										{costText}
+									</div>
 								{/if}
 							</div>
 
-							<span class="shrink-0 text-[11px] text-text-tertiary/70">
+							<span class="shrink-0 pt-0.5 text-[11px] text-text-tertiary/70">
 								{item.provider}
 							</span>
 						</div>
