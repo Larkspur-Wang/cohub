@@ -48,7 +48,9 @@ import {
 	ListTree,
 	Loader2,
 	Lock,
+	Maximize2,
 	MessageSquare,
+	Minimize2,
 	MoreHorizontal,
 	Network,
 	PanelRightClose,
@@ -523,8 +525,6 @@ const activePreviewKind = $derived(
 				? "file"
 				: null,
 );
-const activePreviewMode = "dock";
-const activePreviewChrome = "default";
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
 	return !hasRenderedFilePreview(file);
@@ -543,6 +543,12 @@ let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let previewPanelWidth = $state(480);
+let previewFocusMode = $state(false);
+let previewFocusSnapshot: {
+	leftSidebarCollapsed: boolean;
+	rightSidebarCollapsed: boolean;
+	previewPanelWidth: number;
+} | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const CHAT_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
@@ -5510,11 +5516,44 @@ function setPreviewPanelWidth(width: number) {
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
-function togglePreviewFocusMode() {}
-function closePreviewFocusMode() {}
+function restorePreviewFocusSnapshot() {
+	const snapshot = previewFocusSnapshot;
+	previewFocusSnapshot = null;
+	if (!snapshot) return;
+	uiState.setLeftSidebarCollapsed(snapshot.leftSidebarCollapsed);
+	uiState.setRightSidebarCollapsed(snapshot.rightSidebarCollapsed);
+	previewPanelWidth = snapshot.previewPanelWidth;
+	ensurePreviewPanelFits();
+}
+async function togglePreviewFocusMode() {
+	if (isMobile) return;
+	if (previewFocusMode) {
+		previewFocusMode = false;
+		restorePreviewFocusSnapshot();
+		return;
+	}
+	previewFocusSnapshot = {
+		leftSidebarCollapsed: uiState.leftSidebarCollapsed,
+		rightSidebarCollapsed: uiState.rightSidebarCollapsed,
+		previewPanelWidth,
+	};
+	previewFocusMode = true;
+	uiState.setLeftSidebarCollapsed(true);
+	uiState.setRightSidebarCollapsed(true);
+	await tick();
+	setPreviewPanelWidth(getMaxPreviewPanelWidth());
+}
+function closePreviewFocusMode() {
+	if (!previewFocusMode && !previewFocusSnapshot) return;
+	previewFocusMode = false;
+	restorePreviewFocusSnapshot();
+}
 function handlePreviewWindowResize() {
-	if (activePreviewKind && activePreviewMode === "dock")
-		ensurePreviewPanelFits();
+	if (previewFocusMode) {
+		setPreviewPanelWidth(getMaxPreviewPanelWidth());
+		return;
+	}
+	if (activePreviewKind) ensurePreviewPanelFits();
 }
 async function toggleRightSidebar() {
 	if (window.innerWidth < 1024) {
@@ -7342,6 +7381,24 @@ $effect(() => {
 	</div>
 {/snippet}
 
+{#snippet PreviewFocusButton()}
+	{#if !isMobile}
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={() => void togglePreviewFocusMode()}
+			title={previewFocusMode ? "Exit preview focus" : "Focus preview"}
+			aria-label={previewFocusMode ? "Exit preview focus" : "Focus preview"}
+		>
+			{#if previewFocusMode}
+				<Minimize2 class="w-4 h-4" />
+			{:else}
+				<Maximize2 class="w-4 h-4" />
+			{/if}
+		</button>
+	{/if}
+{/snippet}
+
 {#snippet PanelLoadingState(label: string, compact = false)}
 	<div class={compact ? "flex min-h-36 items-center justify-center gap-2 text-[12px] text-text-tertiary" : "flex min-h-[42vh] flex-1 items-center justify-center gap-2 text-[12px] text-text-tertiary"}>
 		<Loader2 class="h-4 w-4 animate-spin" aria-label={label} />
@@ -8995,17 +9052,16 @@ $effect(() => {
     </div>
     <!-- Desktop side panel -->
     <WorkspacePreviewPane
-      desktopOnly={activePreviewMode === "dock"}
+      desktopOnly={true}
       width={previewPanelWidth}
       ariaLabel="File preview"
-      mode={activePreviewMode}
-      chrome={activePreviewChrome}
     >
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
+            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -9015,6 +9071,7 @@ $effect(() => {
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
+            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -9030,6 +9087,7 @@ $effect(() => {
               <Download class="w-3.5 h-3.5 shrink-0" />
               <span class="hidden sm:inline">Download</span>
             </a>
+            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -9100,6 +9158,7 @@ $effect(() => {
                 <Save class="w-3.5 h-3.5 shrink-0" />
                 <span class="hidden sm:inline">Save</span>
               </button>
+              {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -9149,6 +9208,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -9180,6 +9240,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -9205,6 +9266,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
+              {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -9226,8 +9288,6 @@ $effect(() => {
     <WorkspacePreviewPane
       width={previewPanelWidth}
       ariaLabel={`Canvas ${inlineCanvas.path}`}
-      mode={activePreviewMode}
-      chrome={activePreviewChrome}
     >
       {#if inlineCanvas.loading}
         <div class="flex h-full min-w-0 flex-col bg-bg-content">
@@ -9247,8 +9307,8 @@ $effect(() => {
           path={inlineCanvas.path}
           document={inlineCanvas.document}
           saving={inlineCanvas.saving}
-          focused={activePreviewMode !== "dock"}
-          onToggleFocus={togglePreviewFocusMode}
+          focused={previewFocusMode}
+          onToggleFocus={isMobile ? undefined : togglePreviewFocusMode}
           onCommit={(document, ops) => commitInlineCanvas(document, ops)}
           onClose={closeInlineCanvas}
         />
@@ -9267,16 +9327,14 @@ $effect(() => {
     <WorkspacePreviewPane
       width={previewPanelWidth}
       ariaLabel={`Port ${inlinePortPreview.port} preview`}
-      mode={activePreviewMode}
-      chrome={activePreviewChrome}
     >
       <PortPreview
         port={inlinePortPreview.port}
         url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
         status={inlinePortEndpoint?.status ?? "unknown"}
         observedAt={inlinePortEndpoint?.observedAt}
-        focused={activePreviewMode !== "dock"}
-        onToggleFocus={togglePreviewFocusMode}
+        focused={previewFocusMode}
+        onToggleFocus={isMobile ? undefined : togglePreviewFocusMode}
         onClose={closeInlinePort}
       />
     </WorkspacePreviewPane>
