@@ -543,6 +543,7 @@ let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let previewPanelWidth = $state(480);
+let previewPanelResizeCleanup: (() => void) | null = null;
 let previewFocusMode = $state(false);
 let previewFocusSnapshot: {
 	leftSidebarCollapsed: boolean;
@@ -5555,6 +5556,36 @@ function handlePreviewWindowResize() {
 	}
 	if (activePreviewKind) ensurePreviewPanelFits();
 }
+function beginPreviewPanelResize(event: PointerEvent) {
+	event.preventDefault();
+	if (window.innerWidth < 1024) return;
+	previewFocusMode = false;
+	previewFocusSnapshot = null;
+	const target = event.currentTarget as HTMLElement | null;
+	target?.setPointerCapture?.(event.pointerId);
+	previewPanelResizeCleanup?.();
+	const startX = event.clientX;
+	const startWidth = previewPanelWidth;
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		const delta = startX - moveEvent.clientX;
+		setPreviewPanelWidth(startWidth + delta);
+	};
+	const stop = () => {
+		if (target?.hasPointerCapture?.(event.pointerId)) {
+			target.releasePointerCapture(event.pointerId);
+		}
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (previewPanelResizeCleanup === stop) previewPanelResizeCleanup = null;
+	};
+	previewPanelResizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
+}
 async function toggleRightSidebar() {
 	if (window.innerWidth < 1024) {
 		uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
@@ -6821,6 +6852,7 @@ onMount(() => {
 		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
+		previewPanelResizeCleanup?.();
 		deactivateSpaceStyle();
 	};
 });
@@ -9055,6 +9087,7 @@ $effect(() => {
       desktopOnly={true}
       width={previewPanelWidth}
       ariaLabel="File preview"
+      onResizeStart={beginPreviewPanelResize}
     >
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
@@ -9288,6 +9321,7 @@ $effect(() => {
     <WorkspacePreviewPane
       width={previewPanelWidth}
       ariaLabel={`Canvas ${inlineCanvas.path}`}
+      onResizeStart={beginPreviewPanelResize}
     >
       {#if inlineCanvas.loading}
         <div class="flex h-full min-w-0 flex-col bg-bg-content">
@@ -9327,6 +9361,7 @@ $effect(() => {
     <WorkspacePreviewPane
       width={previewPanelWidth}
       ariaLabel={`Port ${inlinePortPreview.port} preview`}
+      onResizeStart={beginPreviewPanelResize}
     >
       <PortPreview
         port={inlinePortPreview.port}
