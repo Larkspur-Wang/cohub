@@ -17,5 +17,9 @@ export const load: PageLoad = async ({ params, url }) => {
 				: ("space" as const),
 		sessionId,
 		filePath,
+		layoutMode:
+			url.searchParams.get("layout") === "default"
+				? ("default" as const)
+				: ("custom" as const),
 	};
 };

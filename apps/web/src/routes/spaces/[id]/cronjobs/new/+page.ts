@@ -1,6 +1,6 @@
 import type { PageLoad } from "./$types";
 
-export const load: PageLoad = async ({ params }) => {
+export const load: PageLoad = async ({ params, url }) => {
 	return {
 		spaceId: params.id,
 		view: "cronjob-new" as const,
@@ -9,5 +9,9 @@ export const load: PageLoad = async ({ params }) => {
 		checkpointId: null,
 		cronjobId: null,
 		taskId: null,
+		layoutMode:
+			url.searchParams.get("layout") === "default"
+				? ("default" as const)
+				: ("custom" as const),
 	};
 };

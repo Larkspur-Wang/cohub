@@ -1,235 +1,410 @@
 export const SPACE_LAYOUT_MANIFEST_PATH = ".cohub/space.layout.json";
 
-export type SpaceLayoutVersion = 1;
-export type SpaceChatPanelMode = "main" | "floating" | "hidden";
-export type SpaceSidePanelMode = "dock" | "floating" | "hidden";
-export type SpacePreviewPanelMode = "dock" | "fill" | "fullscreen";
-export type SpacePanelAnchor = "left" | "right";
-export type SpacePanelChrome = "default" | "minimal";
+export type SpaceLayoutVersion = 2;
+export type SpaceLayoutComponentType =
+  | "chat"
+  | "fileBrowser"
+  | "fileViewer"
+  | "canvas"
+  | "portsPreview"
+  | "spaceProfile"
+  | "custom";
+export type SpaceLayoutPlacementMode = "dock" | "floating" | "fullscreen" | "hidden";
+export type SpaceLayoutEdge = "left" | "right" | "top" | "bottom";
+export type SpaceLayoutAnchor = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+export type SpaceLayoutUnit = "px" | "ratio";
+export type SpaceLayoutChromeVariant = "default" | "minimal" | "bare";
+export type SpaceLayoutShadow = "none" | "soft" | "medium";
+export type SpaceRuntimeSystemBarVisibility = "always" | "immersiveOnly";
+export type SpaceRuntimeSystemBarPlacement = "floating" | "top" | "right" | "bottom" | "left";
+export type SpaceRuntimeSystemBarPosition = SpaceLayoutAnchor;
 
-export type SpaceChatLayoutConfig = {
-  mode?: SpaceChatPanelMode;
-  anchor?: SpacePanelAnchor;
-  width?: number;
-  collapsed?: boolean;
+export type SpaceLayoutPosition = {
+  x: number;
+  y: number;
+  unit?: SpaceLayoutUnit;
 };
 
-export type SpaceSidePanelLayoutConfig = {
-  mode?: SpaceSidePanelMode;
-  anchor?: SpacePanelAnchor;
+export type SpaceLayoutPlacement =
+  | {
+      mode: "dock";
+      edge?: SpaceLayoutEdge;
+      order?: number;
+    }
+  | {
+      mode: "floating";
+      anchor?: SpaceLayoutAnchor;
+      position?: SpaceLayoutPosition;
+      z?: number;
+    }
+  | { mode: "fullscreen" }
+  | { mode: "hidden" };
+
+export type SpaceLayoutSize = {
   width?: number;
-  collapsed?: boolean;
+  height?: number;
+  unit?: SpaceLayoutUnit;
 };
 
-export type SpacePreviewLayoutConfig = {
-  mode?: SpacePreviewPanelMode;
-  chrome?: SpacePanelChrome;
-  width?: number;
+export type SpaceLayoutConstraints = {
+  minWidth?: number;
+  minHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
 };
 
-export type SpaceLayoutPanels = {
-  chat?: SpaceChatLayoutConfig;
-  files?: SpaceSidePanelLayoutConfig;
-  preview?: SpacePreviewLayoutConfig;
-  canvas?: SpacePreviewLayoutConfig;
-  ports?: SpacePreviewLayoutConfig;
+export type SpaceLayoutChrome = {
+  variant?: SpaceLayoutChromeVariant;
+  header?: boolean;
+  border?: boolean;
+  shadow?: SpaceLayoutShadow;
+};
+
+export type SpaceLayoutComponent = {
+  id: string;
+  type: SpaceLayoutComponentType;
+  title?: string;
+  placement: SpaceLayoutPlacement;
+  size?: SpaceLayoutSize;
+  constraints?: SpaceLayoutConstraints;
+  chrome?: SpaceLayoutChrome;
+};
+
+export type SpaceRuntimeSystemBarContent = {
+  brand?: boolean;
+  spaceProfile?: boolean;
+  editLayout?: boolean;
+  defaultLayout?: boolean;
+};
+
+export type SpaceRuntimeSystemBar = {
+  visibility?: SpaceRuntimeSystemBarVisibility;
+  placement?: SpaceRuntimeSystemBarPlacement;
+  position?: SpaceRuntimeSystemBarPosition;
+  content?: SpaceRuntimeSystemBarContent;
 };
 
 export type SpaceLayoutManifest = {
   version: SpaceLayoutVersion;
-  panels?: SpaceLayoutPanels;
-};
-
-export type NormalizedSpaceLayout = {
-  version: SpaceLayoutVersion;
-  panels: {
-    chat: Required<SpaceChatLayoutConfig>;
-    files: Required<SpaceSidePanelLayoutConfig>;
-    preview: Required<SpacePreviewLayoutConfig>;
-    canvas: Required<SpacePreviewLayoutConfig>;
-    ports: Required<SpacePreviewLayoutConfig>;
+  name?: string;
+  layout?: {
+    canvas?: {
+      background?: "default";
+      density?: "compact" | "comfortable";
+    };
+    components?: SpaceLayoutComponent[];
+  };
+  runtime?: {
+    systemBar?: SpaceRuntimeSystemBar;
   };
 };
 
-export const SPACE_LAYOUT_WIDTH_LIMITS = {
-  chat: { min: 320, max: 720 },
-  files: { min: 260, max: 520 },
-  preview: { min: 280, max: 1400 },
-  canvas: { min: 280, max: 1400 },
-  ports: { min: 280, max: 1400 },
-} as const;
-
-export const DEFAULT_SPACE_LAYOUT = {
-  version: 1,
-  panels: {
-    chat: {
-      mode: "main",
-      anchor: "left",
-      width: 420,
-      collapsed: false,
-    },
-    files: {
-      mode: "dock",
-      anchor: "right",
-      width: 320,
-      collapsed: false,
-    },
-    preview: {
-      mode: "dock",
-      chrome: "default",
-      width: 480,
-    },
+export type NormalizedSpaceLayout = Required<Pick<SpaceLayoutManifest, "version">> & {
+  name: string;
+  layout: {
     canvas: {
-      mode: "dock",
-      chrome: "default",
-      width: 480,
-    },
-    ports: {
-      mode: "dock",
-      chrome: "default",
-      width: 480,
-    },
-  },
-} satisfies NormalizedSpaceLayout;
+      background: "default";
+      density: "compact" | "comfortable";
+    };
+    components: SpaceLayoutComponent[];
+  };
+  runtime: {
+    systemBar: Required<Omit<SpaceRuntimeSystemBar, "content">> & {
+      content: Required<SpaceRuntimeSystemBarContent>;
+    };
+  };
+};
 
-type PanelId = keyof NormalizedSpaceLayout["panels"];
+export type SpaceLayoutPanelId = "chat" | "fileBrowser" | "fileViewer" | "canvas" | "portsPreview";
 
-const CHAT_MODES = new Set<SpaceChatPanelMode>(["main", "floating", "hidden"]);
-const SIDE_MODES = new Set<SpaceSidePanelMode>(["dock", "floating", "hidden"]);
-const PREVIEW_MODES = new Set<SpacePreviewPanelMode>(["dock", "fill", "fullscreen"]);
-const ANCHORS = new Set<SpacePanelAnchor>(["left", "right"]);
-const CHROMES = new Set<SpacePanelChrome>(["default", "minimal"]);
+const COMPONENT_TYPES = new Set<SpaceLayoutComponentType>([
+  "chat",
+  "fileBrowser",
+  "fileViewer",
+  "canvas",
+  "portsPreview",
+  "spaceProfile",
+  "custom",
+]);
+const PLACEMENT_MODES = new Set<SpaceLayoutPlacementMode>(["dock", "floating", "fullscreen", "hidden"]);
+const EDGES = new Set<SpaceLayoutEdge>(["left", "right", "top", "bottom"]);
+const ANCHORS = new Set<SpaceLayoutAnchor>(["top-left", "top-right", "bottom-left", "bottom-right"]);
+const UNITS = new Set<SpaceLayoutUnit>(["px", "ratio"]);
+const CHROME_VARIANTS = new Set<SpaceLayoutChromeVariant>(["default", "minimal", "bare"]);
+const SHADOWS = new Set<SpaceLayoutShadow>(["none", "soft", "medium"]);
+const SYSTEM_BAR_VISIBILITIES = new Set<SpaceRuntimeSystemBarVisibility>(["always", "immersiveOnly"]);
+const SYSTEM_BAR_PLACEMENTS = new Set<SpaceRuntimeSystemBarPlacement>(["floating", "top", "right", "bottom", "left"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
+function finiteNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function readWidth(value: unknown, panelId: PanelId) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-  const limits = SPACE_LAYOUT_WIDTH_LIMITS[panelId];
-  return Math.round(clamp(value, limits.min, limits.max));
+function finiteInteger(value: unknown) {
+  const number = finiteNumber(value);
+  return number === undefined ? undefined : Math.round(number);
 }
 
-function readBoolean(value: unknown) {
+function booleanValue(value: unknown) {
   return typeof value === "boolean" ? value : undefined;
 }
 
-function readAnchor(value: unknown) {
-  return typeof value === "string" && ANCHORS.has(value as SpacePanelAnchor)
-    ? (value as SpacePanelAnchor)
-    : undefined;
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function normalizeChatPanel(value: unknown): SpaceChatLayoutConfig | undefined {
+function enumValue<T extends string>(value: unknown, values: Set<T>) {
+  return typeof value === "string" && values.has(value as T) ? (value as T) : undefined;
+}
+
+function normalizePosition(value: unknown): SpaceLayoutPosition | undefined {
   if (!isRecord(value)) return undefined;
-  const next: SpaceChatLayoutConfig = {};
-  if (typeof value.mode === "string" && CHAT_MODES.has(value.mode as SpaceChatPanelMode)) next.mode = value.mode as SpaceChatPanelMode;
-  const anchor = readAnchor(value.anchor);
-  if (anchor) next.anchor = anchor;
-  const width = readWidth(value.width, "chat");
-  if (width !== undefined) next.width = width;
-  const collapsed = readBoolean(value.collapsed);
-  if (collapsed !== undefined) next.collapsed = collapsed;
-  return Object.keys(next).length > 0 ? next : undefined;
-}
-
-function normalizeSidePanel(value: unknown): SpaceSidePanelLayoutConfig | undefined {
-  if (!isRecord(value)) return undefined;
-  const next: SpaceSidePanelLayoutConfig = {};
-  if (typeof value.mode === "string" && SIDE_MODES.has(value.mode as SpaceSidePanelMode)) next.mode = value.mode as SpaceSidePanelMode;
-  const anchor = readAnchor(value.anchor);
-  if (anchor) next.anchor = anchor;
-  const width = readWidth(value.width, "files");
-  if (width !== undefined) next.width = width;
-  const collapsed = readBoolean(value.collapsed);
-  if (collapsed !== undefined) next.collapsed = collapsed;
-  return Object.keys(next).length > 0 ? next : undefined;
-}
-
-function normalizePreviewPanel(value: unknown, panelId: "preview" | "canvas" | "ports"): SpacePreviewLayoutConfig | undefined {
-  if (!isRecord(value)) return undefined;
-  const next: SpacePreviewLayoutConfig = {};
-  if (typeof value.mode === "string" && PREVIEW_MODES.has(value.mode as SpacePreviewPanelMode)) next.mode = value.mode as SpacePreviewPanelMode;
-  if (typeof value.chrome === "string" && CHROMES.has(value.chrome as SpacePanelChrome)) next.chrome = value.chrome as SpacePanelChrome;
-  const width = readWidth(value.width, panelId);
-  if (width !== undefined) next.width = width;
-  return Object.keys(next).length > 0 ? next : undefined;
-}
-
-export function normalizeSpaceLayoutManifest(input: unknown): SpaceLayoutManifest | null {
-  if (!isRecord(input)) return null;
-  const panelsInput = isRecord(input.panels) ? input.panels : {};
-  const panels: SpaceLayoutPanels = {};
-
-  const chat = normalizeChatPanel(panelsInput.chat);
-  if (chat) panels.chat = chat;
-  const files = normalizeSidePanel(panelsInput.files);
-  if (files) panels.files = files;
-  const preview = normalizePreviewPanel(panelsInput.preview, "preview");
-  if (preview) panels.preview = preview;
-  const canvas = normalizePreviewPanel(panelsInput.canvas, "canvas");
-  if (canvas) panels.canvas = canvas;
-  const ports = normalizePreviewPanel(panelsInput.ports, "ports");
-  if (ports) panels.ports = ports;
-
+  const x = finiteNumber(value.x);
+  const y = finiteNumber(value.y);
+  if (x === undefined || y === undefined) return undefined;
   return {
-    version: 1,
-    ...(Object.keys(panels).length > 0 ? { panels } : {}),
+    x,
+    y,
+    unit: enumValue(value.unit, UNITS) ?? "ratio",
   };
 }
 
-function cloneDefaultSpaceLayout(): NormalizedSpaceLayout {
+function normalizePlacement(value: unknown): SpaceLayoutPlacement | undefined {
+  if (!isRecord(value)) return undefined;
+  const mode = enumValue(value.mode, PLACEMENT_MODES);
+  if (!mode) return undefined;
+  if (mode === "dock") {
+    return {
+      mode,
+      edge: enumValue(value.edge, EDGES) ?? "right",
+      ...(finiteInteger(value.order) !== undefined ? { order: finiteInteger(value.order) } : {}),
+    };
+  }
+  if (mode === "floating") {
+    return {
+      mode,
+      anchor: enumValue(value.anchor, ANCHORS) ?? "top-right",
+      ...(normalizePosition(value.position) ? { position: normalizePosition(value.position) } : {}),
+      ...(finiteInteger(value.z) !== undefined ? { z: finiteInteger(value.z) } : {}),
+    };
+  }
+  return { mode };
+}
+
+function normalizeSize(value: unknown): SpaceLayoutSize | undefined {
+  if (!isRecord(value)) return undefined;
+  const width = finiteNumber(value.width);
+  const height = finiteNumber(value.height);
+  const unit = enumValue(value.unit, UNITS) ?? "px";
+  const next: SpaceLayoutSize = { unit };
+  if (width !== undefined) next.width = width;
+  if (height !== undefined) next.height = height;
+  return width !== undefined || height !== undefined ? next : undefined;
+}
+
+function normalizeConstraints(value: unknown): SpaceLayoutConstraints | undefined {
+  if (!isRecord(value)) return undefined;
+  const next: SpaceLayoutConstraints = {};
+  const minWidth = finiteNumber(value.minWidth);
+  const minHeight = finiteNumber(value.minHeight);
+  const maxWidth = finiteNumber(value.maxWidth);
+  const maxHeight = finiteNumber(value.maxHeight);
+  if (minWidth !== undefined) next.minWidth = minWidth;
+  if (minHeight !== undefined) next.minHeight = minHeight;
+  if (maxWidth !== undefined) next.maxWidth = maxWidth;
+  if (maxHeight !== undefined) next.maxHeight = maxHeight;
+  return Object.keys(next).length ? next : undefined;
+}
+
+function normalizeChrome(value: unknown): SpaceLayoutChrome | undefined {
+  if (!isRecord(value)) return undefined;
+  const next: SpaceLayoutChrome = {};
+  const variant = enumValue(value.variant, CHROME_VARIANTS);
+  const header = booleanValue(value.header);
+  const border = booleanValue(value.border);
+  const shadow = enumValue(value.shadow, SHADOWS);
+  if (variant) next.variant = variant;
+  if (header !== undefined) next.header = header;
+  if (border !== undefined) next.border = border;
+  if (shadow) next.shadow = shadow;
+  return Object.keys(next).length ? next : undefined;
+}
+
+function normalizeComponent(value: unknown): SpaceLayoutComponent | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = stringValue(value.id);
+  const type = enumValue(value.type, COMPONENT_TYPES);
+  const placement = normalizePlacement(value.placement);
+  if (!id || !type || !placement) return undefined;
   return {
-    version: 1,
-    panels: {
-      chat: { ...DEFAULT_SPACE_LAYOUT.panels.chat },
-      files: { ...DEFAULT_SPACE_LAYOUT.panels.files },
-      preview: { ...DEFAULT_SPACE_LAYOUT.panels.preview },
-      canvas: { ...DEFAULT_SPACE_LAYOUT.panels.canvas },
-      ports: { ...DEFAULT_SPACE_LAYOUT.panels.ports },
+    id,
+    type,
+    ...(stringValue(value.title) ? { title: stringValue(value.title) } : {}),
+    placement,
+    ...(normalizeSize(value.size) ? { size: normalizeSize(value.size) } : {}),
+    ...(normalizeConstraints(value.constraints) ? { constraints: normalizeConstraints(value.constraints) } : {}),
+    ...(normalizeChrome(value.chrome) ? { chrome: normalizeChrome(value.chrome) } : {}),
+  };
+}
+
+function normalizeSystemBar(value: unknown): SpaceRuntimeSystemBar | undefined {
+  if (!isRecord(value)) return undefined;
+  const contentInput = isRecord(value.content) ? value.content : {};
+  return {
+    ...(enumValue(value.visibility, SYSTEM_BAR_VISIBILITIES) ? { visibility: enumValue(value.visibility, SYSTEM_BAR_VISIBILITIES) } : {}),
+    ...(enumValue(value.placement, SYSTEM_BAR_PLACEMENTS) ? { placement: enumValue(value.placement, SYSTEM_BAR_PLACEMENTS) } : {}),
+    ...(enumValue(value.position, ANCHORS) ? { position: enumValue(value.position, ANCHORS) } : {}),
+    content: {
+      ...(booleanValue(contentInput.brand) !== undefined ? { brand: booleanValue(contentInput.brand) } : {}),
+      ...(booleanValue(contentInput.spaceProfile) !== undefined ? { spaceProfile: booleanValue(contentInput.spaceProfile) } : {}),
+      ...(booleanValue(contentInput.editLayout) !== undefined ? { editLayout: booleanValue(contentInput.editLayout) } : {}),
+      ...(booleanValue(contentInput.defaultLayout) !== undefined ? { defaultLayout: booleanValue(contentInput.defaultLayout) } : {}),
     },
   };
 }
 
-export function mergeSpaceLayouts(...layouts: Array<SpaceLayoutManifest | NormalizedSpaceLayout | null | undefined>): NormalizedSpaceLayout {
-  const result: NormalizedSpaceLayout = cloneDefaultSpaceLayout();
-  for (const layout of layouts) {
-    if (!layout?.panels) continue;
-    for (const panelId of Object.keys(layout.panels) as PanelId[]) {
-      const patch = layout.panels[panelId];
-      if (!patch) continue;
-      result.panels[panelId] = { ...result.panels[panelId], ...patch } as never;
-    }
+export const DEFAULT_SPACE_LAYOUT = {
+  version: 2,
+  name: "Default",
+  layout: {
+    canvas: {
+      background: "default",
+      density: "compact",
+    },
+    components: [
+      {
+        id: "chat",
+        type: "chat",
+        title: "Chat",
+        placement: { mode: "dock", edge: "left", order: 10 },
+        size: { width: 420, unit: "px" },
+        constraints: { minWidth: 280, minHeight: 240 },
+        chrome: { variant: "default", header: true, border: true, shadow: "none" },
+      },
+      {
+        id: "file-viewer",
+        type: "fileViewer",
+        title: "File viewer",
+        placement: { mode: "dock", edge: "right", order: 20 },
+        size: { width: 480, unit: "px" },
+        constraints: { minWidth: 280, minHeight: 240 },
+        chrome: { variant: "default", header: true, border: true, shadow: "none" },
+      },
+      {
+        id: "canvas",
+        type: "canvas",
+        title: "Canvas",
+        placement: { mode: "dock", edge: "right", order: 21 },
+        size: { width: 480, unit: "px" },
+        constraints: { minWidth: 280, minHeight: 240 },
+        chrome: { variant: "default", header: true, border: true, shadow: "none" },
+      },
+      {
+        id: "ports-preview",
+        type: "portsPreview",
+        title: "Ports preview",
+        placement: { mode: "dock", edge: "right", order: 22 },
+        size: { width: 480, unit: "px" },
+        constraints: { minWidth: 280, minHeight: 240 },
+        chrome: { variant: "default", header: true, border: true, shadow: "none" },
+      },
+      {
+        id: "file-browser",
+        type: "fileBrowser",
+        title: "File browser",
+        placement: { mode: "dock", edge: "right", order: 30 },
+        size: { width: 320, unit: "px" },
+        constraints: { minWidth: 220, minHeight: 240 },
+        chrome: { variant: "default", header: true, border: true, shadow: "none" },
+      },
+    ],
+  },
+  runtime: {
+    systemBar: {
+      visibility: "immersiveOnly",
+      placement: "floating",
+      position: "top-right",
+      content: {
+        brand: true,
+        spaceProfile: true,
+        editLayout: true,
+        defaultLayout: true,
+      },
+    },
+  },
+} satisfies NormalizedSpaceLayout;
+
+function cloneDefaultSpaceLayout(): NormalizedSpaceLayout {
+  return JSON.parse(JSON.stringify(DEFAULT_SPACE_LAYOUT)) as NormalizedSpaceLayout;
+}
+
+export function normalizeSpaceLayoutManifest(input: unknown): SpaceLayoutManifest | null {
+  if (!isRecord(input)) return null;
+  const layoutInput = isRecord(input.layout) ? input.layout : {};
+  const canvasInput = isRecord(layoutInput.canvas) ? layoutInput.canvas : {};
+  const componentsInput = Array.isArray(layoutInput.components) ? layoutInput.components : [];
+  const components = componentsInput.map(normalizeComponent).filter((item): item is SpaceLayoutComponent => Boolean(item));
+  const runtimeInput = isRecord(input.runtime) ? input.runtime : {};
+  const systemBar = normalizeSystemBar(runtimeInput.systemBar);
+  return {
+    version: 2,
+    ...(stringValue(input.name) ? { name: stringValue(input.name) } : {}),
+    layout: {
+      canvas: {
+        background: "default",
+        density: canvasInput.density === "comfortable" ? "comfortable" : "compact",
+      },
+      ...(components.length ? { components } : {}),
+    },
+    ...(systemBar ? { runtime: { systemBar } } : {}),
+  };
+}
+
+export function normalizeSpaceLayout(input: unknown): NormalizedSpaceLayout {
+  const manifest = normalizeSpaceLayoutManifest(input);
+  const result = cloneDefaultSpaceLayout();
+  if (!manifest) return result;
+  result.name = manifest.name ?? result.name;
+  result.layout.canvas = { ...result.layout.canvas, ...manifest.layout?.canvas };
+  if (manifest.layout?.components?.length) result.layout.components = manifest.layout.components;
+  const systemBar = manifest.runtime?.systemBar;
+  if (systemBar) {
+    result.runtime.systemBar = {
+      ...result.runtime.systemBar,
+      ...systemBar,
+      content: {
+        ...result.runtime.systemBar.content,
+        ...systemBar.content,
+      },
+    };
   }
   return result;
 }
 
-function compactPanel<T extends Record<string, unknown>>(panel: T, defaults: T): Partial<T> | undefined {
-  const next: Partial<T> = {};
-  for (const key of Object.keys(panel) as Array<keyof T>) {
-    if (panel[key] !== defaults[key]) next[key] = panel[key];
-  }
-  return Object.keys(next).length > 0 ? next : undefined;
+export function compactSpaceLayout(layout: NormalizedSpaceLayout | SpaceLayoutManifest): SpaceLayoutManifest {
+  const normalized = normalizeSpaceLayout(layout);
+  return {
+    version: 2,
+    name: normalized.name,
+    layout: normalized.layout,
+    runtime: normalized.runtime,
+  };
 }
 
-export function compactSpaceLayout(layout: NormalizedSpaceLayout): SpaceLayoutManifest {
-  const panels: SpaceLayoutPanels = {};
-  const chat = compactPanel(layout.panels.chat, DEFAULT_SPACE_LAYOUT.panels.chat);
-  if (chat) panels.chat = chat;
-  const files = compactPanel(layout.panels.files, DEFAULT_SPACE_LAYOUT.panels.files);
-  if (files) panels.files = files;
-  const preview = compactPanel(layout.panels.preview, DEFAULT_SPACE_LAYOUT.panels.preview);
-  if (preview) panels.preview = preview;
-  const canvas = compactPanel(layout.panels.canvas, DEFAULT_SPACE_LAYOUT.panels.canvas);
-  if (canvas) panels.canvas = canvas;
-  const ports = compactPanel(layout.panels.ports, DEFAULT_SPACE_LAYOUT.panels.ports);
-  if (ports) panels.ports = ports;
-  return {
-    version: 1,
-    ...(Object.keys(panels).length > 0 ? { panels } : {}),
-  };
+export function getSpaceLayoutComponent(
+  layout: NormalizedSpaceLayout,
+  type: SpaceLayoutComponentType,
+): SpaceLayoutComponent | undefined {
+  return layout.layout.components.find((component) => component.type === type);
+}
+
+export function getSpaceLayoutPanelComponent(
+  layout: NormalizedSpaceLayout,
+  panelId: SpaceLayoutPanelId,
+): SpaceLayoutComponent | undefined {
+  const type = panelId === "fileViewer" ? "fileViewer" : panelId;
+  return getSpaceLayoutComponent(layout, type);
 }

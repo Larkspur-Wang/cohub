@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SpacePreviewPanelMode } from "@cohub/protocol";
+import type { SpaceLayoutComponent } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	GenerationParameterConstraint,
@@ -49,19 +49,16 @@ import {
 	ListTree,
 	Loader2,
 	Lock,
-	Maximize2,
 	MessageSquare,
-	Minimize2,
 	MoreHorizontal,
 	Network,
-	PanelLeftClose,
 	PanelRightClose,
 	PanelRightOpen,
+	PanelTop,
 	Pencil,
 	Plus,
 	Power,
 	PowerOff,
-	RefreshCw,
 	Rocket,
 	Save,
 	Settings,
@@ -112,7 +109,6 @@ import SessionTaskTray, {
 	type GenerationTaskNotice,
 	type SessionTaskNotice,
 } from "$lib/components/SessionTaskTray.svelte";
-// SettingsOverlay removed — settings merged inline into detail page
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
@@ -131,6 +127,8 @@ import {
 	MAX_COMPOSER_ATTACHMENTS,
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
+// SettingsOverlay removed — settings merged inline into detail page
+import CohubSystemBar from "$lib/features/space/CohubSystemBar.svelte";
 import {
 	extractGenerationMediaItems,
 	extractGenerationPromptPreview,
@@ -245,6 +243,7 @@ type Props = {
 		cronjobId?: string | null;
 		taskId?: string | null;
 		turnSequence?: string | null;
+		layoutMode?: "custom" | "default";
 	};
 };
 type SelectedModel = {
@@ -411,7 +410,6 @@ let promptTemplatesLoaded = $state(false);
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
-let previewLayoutMenuOpen = $state<"header" | "preview" | null>(null);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
 	ref: string;
@@ -530,19 +528,48 @@ const activePreviewKind = $derived(
 				? "file"
 				: null,
 );
-const activePreviewPanelLayout = $derived.by(() => {
-	if (inlineCanvas) return spaceLayoutState.effective.panels.canvas;
-	if (inlinePortPreview) return spaceLayoutState.effective.panels.ports;
-	return spaceLayoutState.effective.panels.preview;
-});
-const activePreviewLayoutPanelId = $derived.by(() => {
+function getLayoutComponent(type: SpaceLayoutComponent["type"]) {
+	return spaceLayoutState.effective.layout.components.find(
+		(component) => component.type === type,
+	);
+}
+function getComponentWidth(
+	component: SpaceLayoutComponent | undefined,
+	fallback: number,
+) {
+	const width = component?.size?.width;
+	if (typeof width !== "number" || !Number.isFinite(width)) return fallback;
+	if (component?.size?.unit === "ratio" && typeof window !== "undefined") {
+		return Math.max(160, Math.round(window.innerWidth * width));
+	}
+	return Math.max(160, Math.round(width));
+}
+function getPreviewComponentType() {
 	if (inlineCanvas) return "canvas" as const;
-	if (inlinePortPreview) return "ports" as const;
-	return "preview" as const;
+	if (inlinePortPreview) return "portsPreview" as const;
+	return "fileViewer" as const;
+}
+const filesLayoutComponent = $derived(getLayoutComponent("fileBrowser"));
+const chatLayoutComponent = $derived(getLayoutComponent("chat"));
+const activePreviewPanelLayout = $derived(
+	getLayoutComponent(getPreviewComponentType()),
+);
+const activePreviewMode = $derived.by(() => {
+	const mode = activePreviewPanelLayout?.placement.mode ?? "dock";
+	return mode === "fullscreen"
+		? "fullscreen"
+		: mode === "floating"
+			? "fill"
+			: "dock";
 });
-const activePreviewMode = $derived(activePreviewPanelLayout.mode);
-const activePreviewChrome = $derived(activePreviewPanelLayout.chrome);
+const activePreviewChrome = $derived.by(() => {
+	const chrome = activePreviewPanelLayout?.chrome?.variant ?? "default";
+	return chrome === "minimal" ? "minimal" : "default";
+});
 const previewIsLayered = $derived(activePreviewMode !== "dock");
+const isImmersiveLayout = $derived(
+	Boolean(activePreviewKind && activePreviewMode === "fullscreen"),
+);
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
 	return !hasRenderedFilePreview(file);
@@ -560,20 +587,23 @@ let inlineFileCopied = $state(false);
 let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let previewPanelWidth = $state(spaceLayoutState.effective.panels.preview.width);
-let previewPanelResizeCleanup: (() => void) | null = null;
+let previewPanelWidth = $state(
+	getComponentWidth(getLayoutComponent("fileViewer"), 480),
+);
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 $effect(() => {
-	const files = spaceLayoutState.effective.panels.files;
-	const nextFilesCollapsed = files.collapsed || files.mode === "hidden";
-	if (uiState.rightSidebarWidth !== files.width) {
-		uiState.setRightSidebarWidth(files.width);
+	const files = filesLayoutComponent;
+	const nextFilesCollapsed = files?.placement.mode === "hidden";
+	const filesWidth = getComponentWidth(files, 320);
+	if (uiState.rightSidebarWidth !== filesWidth) {
+		uiState.setRightSidebarWidth(filesWidth);
 	}
 	if (uiState.rightSidebarCollapsed !== nextFilesCollapsed) {
 		uiState.setRightSidebarCollapsed(nextFilesCollapsed);
 	}
-	if (previewPanelWidth !== activePreviewPanelLayout.width) {
-		previewPanelWidth = activePreviewPanelLayout.width;
+	const nextPreviewWidth = getComponentWidth(activePreviewPanelLayout, 480);
+	if (previewPanelWidth !== nextPreviewWidth) {
+		previewPanelWidth = nextPreviewWidth;
 	}
 });
 const CHAT_PANEL_MIN_WIDTH = 320;
@@ -5517,7 +5547,6 @@ function beginRightSidebarResize(event: PointerEvent) {
 			Math.max(RIGHT_SIDEBAR_MIN, Math.min(startWidth + delta, viewportLimit)),
 		);
 		uiState.setRightSidebarWidth(nextWidth);
-		spaceLayoutState.updateLocalPanel("files", { width: nextWidth });
 	};
 	const stop = () => {
 		if (target?.hasPointerCapture?.(event.pointerId)) {
@@ -5552,28 +5581,24 @@ function setPreviewPanelWidth(width: number) {
 		Math.max(PREVIEW_PANEL_MIN_WIDTH, width),
 		getMaxPreviewPanelWidth(),
 	);
-	spaceLayoutState.updateLocalPanel(activePreviewLayoutPanelId, {
-		width: previewPanelWidth,
-	});
 }
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
-function setPreviewLayoutMode(mode: SpacePreviewPanelMode) {
-	spaceLayoutState.updateLocalPanel(activePreviewLayoutPanelId, { mode });
-	if (mode === "dock") ensurePreviewPanelFits();
+function openLayoutEditor() {
+	void goto(`/spaces/${spaceId}/settings/layout`);
+}
+function openDefaultLayout() {
+	if (typeof window === "undefined") return;
+	const url = new URL(window.location.href);
+	url.searchParams.set("layout", "default");
+	void goto(`${url.pathname}${url.search}${url.hash}`);
 }
 function togglePreviewFocusMode() {
-	const nextMode = activePreviewMode === "dock" ? "fill" : "dock";
-	setPreviewLayoutMode(nextMode);
-	if (nextMode === "dock") {
-		ensurePreviewPanelFits();
-		return;
-	}
-	uiState.setLeftSidebarCollapsed(true);
+	openLayoutEditor();
 }
 function closePreviewFocusMode() {
-	if (activePreviewMode !== "dock") setPreviewLayoutMode("dock");
+	// Runtime layout is read-only. Persistent changes belong in the layout editor.
 }
 function handlePreviewWindowResize() {
 	if (activePreviewKind && activePreviewMode === "dock")
@@ -5587,41 +5612,12 @@ async function toggleRightSidebar() {
 	const nextCollapsed = !uiState.rightSidebarCollapsed;
 	const rightWidth = uiState.rightSidebarWidth;
 	uiState.setRightSidebarCollapsed(nextCollapsed);
-	spaceLayoutState.updateLocalPanel("files", { collapsed: nextCollapsed });
 	if (!activePreviewKind) return;
 	closePreviewFocusMode();
 	await tick();
 	setPreviewPanelWidth(
 		previewPanelWidth + (nextCollapsed ? rightWidth : -rightWidth),
 	);
-}
-function beginPreviewPanelResize(event: PointerEvent) {
-	event.preventDefault();
-	if (window.innerWidth < 1024 || activePreviewMode !== "dock") return;
-	const target = event.currentTarget as HTMLElement | null;
-	target?.setPointerCapture?.(event.pointerId);
-	previewPanelResizeCleanup?.();
-	const startX = event.clientX;
-	const startWidth = previewPanelWidth;
-	const onPointerMove = (moveEvent: PointerEvent) => {
-		const delta = startX - moveEvent.clientX;
-		setPreviewPanelWidth(startWidth + delta);
-	};
-	const stop = () => {
-		if (target?.hasPointerCapture?.(event.pointerId)) {
-			target.releasePointerCapture(event.pointerId);
-		}
-		document.body.classList.remove("sidebar-resizing");
-		window.removeEventListener("pointermove", onPointerMove);
-		window.removeEventListener("pointerup", stop);
-		window.removeEventListener("pointercancel", stop);
-		if (previewPanelResizeCleanup === stop) previewPanelResizeCleanup = null;
-	};
-	previewPanelResizeCleanup = stop;
-	document.body.classList.add("sidebar-resizing");
-	window.addEventListener("pointermove", onPointerMove);
-	window.addEventListener("pointerup", stop);
-	window.addEventListener("pointercancel", stop);
 }
 async function loadFileTree(force = false) {
 	const source = activeFsSource;
@@ -6818,7 +6814,6 @@ onMount(() => {
 	const handleResourceActionMenuKeydown = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			closeResourceActionMenu();
-			previewLayoutMenuOpen = null;
 			fileActionMenuOpenPath = null;
 		}
 	};
@@ -6826,7 +6821,6 @@ onMount(() => {
 		const target = e.target as HTMLElement;
 		if (!target.closest("[data-resource-actions]")) {
 			closeResourceActionMenu();
-			previewLayoutMenuOpen = null;
 			fileActionMenuOpenPath = null;
 		}
 	};
@@ -6876,7 +6870,6 @@ onMount(() => {
 		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
-		previewPanelResizeCleanup?.();
 		deactivateSpaceStyle();
 	};
 });
@@ -6887,7 +6880,9 @@ $effect(() => {
 		return;
 	loadedSpaceId = currentSpaceId;
 	activateSpaceStyle(currentSpaceId);
-	spaceLayoutState.load(currentSpaceId);
+	spaceLayoutState.load(currentSpaceId, {
+		useDefault: data.layoutMode === "default",
+	});
 	// Reset space-specific state
 	space = null;
 	spaceLoadError = "";
@@ -7439,42 +7434,11 @@ $effect(() => {
 {/snippet}
 
 {#snippet PreviewFocusButton()}
-	<div class="relative shrink-0" data-resource-actions>
-		<button
-			type="button"
-			class="icon-btn"
-			onclick={(event) => {
-				event.stopPropagation();
-				previewLayoutMenuOpen = previewLayoutMenuOpen === "preview" ? null : "preview";
-			}}
-			title="Preview layout"
-			aria-label="Preview layout"
-			aria-haspopup="menu"
-			aria-expanded={previewLayoutMenuOpen === "preview"}
-		>
-			{#if activePreviewMode === "dock"}
-				<Maximize2 class="w-4 h-4" />
-			{:else}
-				<Minimize2 class="w-4 h-4" />
-			{/if}
+	{#if canEditFiles}
+		<button type="button" class="icon-btn" onclick={openLayoutEditor} title="Edit layout" aria-label="Edit layout">
+			<PanelTop class="w-4 h-4" />
 		</button>
-		{#if previewLayoutMenuOpen === "preview"}
-			<div class="absolute right-0 top-full z-50 mt-1 w-48 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = null; }} role="menuitem">
-					<PanelRightOpen class="w-3.5 h-3.5" />
-					<span>Dock right</span>
-				</button>
-				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = null; }} role="menuitem">
-					<Maximize2 class="w-3.5 h-3.5" />
-					<span>Fill workspace</span>
-				</button>
-				<button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fullscreen"); previewLayoutMenuOpen = null; }} role="menuitem">
-					<ExternalLink class="w-3.5 h-3.5" />
-					<span>Full screen</span>
-				</button>
-			</div>
-		{/if}
-	</div>
+	{/if}
 {/snippet}
 
 {#snippet PanelLoadingState(label: string, compact = false)}
@@ -7667,52 +7631,17 @@ $effect(() => {
         {/if}
       </div>
     {/if}
-    <div class="relative" data-resource-actions>
+    {#if canEditFiles}
       <button
         type="button"
         class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-        onclick={(event) => {
-          event.stopPropagation();
-          previewLayoutMenuOpen = previewLayoutMenuOpen === "header" ? null : "header";
-        }}
-        title="Layout"
-        aria-haspopup="menu"
-        aria-expanded={previewLayoutMenuOpen === "header"}
+        onclick={openLayoutEditor}
+        title="Edit layout"
       >
-        <Maximize2 class="w-4 h-4 shrink-0" />
-        <span class="hidden 2xl:inline text-[13px] font-medium">Layout</span>
+        <PanelTop class="w-4 h-4 shrink-0" />
+        <span class="hidden 2xl:inline text-[13px] font-medium">Edit layout</span>
       </button>
-      {#if previewLayoutMenuOpen === "header"}
-        <div class="absolute right-0 top-full z-50 mt-1 w-52 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("dock"); previewLayoutMenuOpen = null; }} role="menuitem">
-            <PanelRightOpen class="w-3.5 h-3.5" />
-            <span>Dock preview</span>
-          </button>
-          <button type="button" class="menu-item" onclick={() => { setPreviewLayoutMode("fill"); previewLayoutMenuOpen = null; }} role="menuitem">
-            <Maximize2 class="w-3.5 h-3.5" />
-            <span>Fill workspace</span>
-          </button>
-          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "dock", anchor: "right" }); previewLayoutMenuOpen = null; }} role="menuitem">
-            <PanelRightOpen class="w-3.5 h-3.5" />
-            <span>Dock files</span>
-          </button>
-          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.updateLocalPanel("files", { mode: "floating", anchor: "right", collapsed: false }); previewLayoutMenuOpen = null; }} role="menuitem">
-            <PanelRightClose class="w-3.5 h-3.5" />
-            <span>Float files</span>
-          </button>
-          <button type="button" class="menu-item" onclick={() => { spaceLayoutState.resetLocal(); previewLayoutMenuOpen = null; }} role="menuitem">
-            <RefreshCw class="w-3.5 h-3.5" />
-            <span>Reset my layout</span>
-          </button>
-          {#if canEditFiles}
-            <button type="button" class="menu-item" onclick={() => { void spaceLayoutState.saveToSpace(); previewLayoutMenuOpen = null; }} disabled={spaceLayoutState.saving} role="menuitem">
-              {#if spaceLayoutState.saving}<Loader2 class="w-3.5 h-3.5 animate-spin" />{:else}<Save class="w-3.5 h-3.5" />{/if}
-              <span>Save layout to space</span>
-            </button>
-          {/if}
-        </div>
-      {/if}
-    </div>
+    {/if}
     <!-- Toggle right sidebar -->
     {#if !spaceHasMinimalAccess}
       <div class="relative">
@@ -7758,11 +7687,20 @@ $effect(() => {
 	</div>
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
+	<CohubSystemBar
+		space={space}
+		{spaceId}
+		config={spaceLayoutState.effective.runtime.systemBar}
+		immersive={isImmersiveLayout}
+		canEditLayout={canEditFiles}
+		onEditLayout={openLayoutEditor}
+		onDefaultMode={openDefaultLayout}
+	/>
   <div
     class={previewIsLayered && activePreviewKind && !isMobile
       ? "absolute right-3 top-3 bottom-3 z-20 flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-bg-content shadow-[0_16px_48px_color-mix(in_srgb,var(--overlay-scrim-strong)_18%,transparent)]"
       : "flex-1 flex flex-col min-w-0 bg-bg-content"}
-    style={previewIsLayered && activePreviewKind && !isMobile ? `width: ${spaceLayoutState.effective.panels.chat.width}px` : undefined}
+    style={previewIsLayered && activePreviewKind && !isMobile ? `width: ${getComponentWidth(chatLayoutComponent, 420)}px` : undefined}
   >
     {#if routeView === 'checkpoint-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
@@ -9184,7 +9122,6 @@ $effect(() => {
       desktopOnly={activePreviewMode === "dock"}
       width={previewPanelWidth}
       ariaLabel="File preview"
-      onResizeStart={beginPreviewPanelResize}
       mode={activePreviewMode}
       chrome={activePreviewChrome}
     >
@@ -9420,7 +9357,6 @@ $effect(() => {
     <WorkspacePreviewPane
       width={previewPanelWidth}
       ariaLabel={`Canvas ${inlineCanvas.path}`}
-      onResizeStart={beginPreviewPanelResize}
       mode={activePreviewMode}
       chrome={activePreviewChrome}
     >
@@ -9462,7 +9398,6 @@ $effect(() => {
     <WorkspacePreviewPane
       width={previewPanelWidth}
       ariaLabel={`Port ${inlinePortPreview.port} preview`}
-      onResizeStart={beginPreviewPanelResize}
       mode={activePreviewMode}
       chrome={activePreviewChrome}
     >
@@ -9478,13 +9413,13 @@ $effect(() => {
     </WorkspacePreviewPane>
   {/if}
   <!-- Desktop right sidebar — file tree only -->
-  {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
+  {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess && filesLayoutComponent?.placement.mode !== "hidden"}
     <div
-      class={spaceLayoutState.effective.panels.files.mode === "floating" && !isMobile
+      class={filesLayoutComponent?.placement.mode === "floating" && !isMobile
         ? "absolute top-3 bottom-3 z-30 hidden overflow-hidden rounded-[10px] border border-border-subtle bg-bg-content shadow-[0_16px_48px_color-mix(in_srgb,var(--overlay-scrim-strong)_18%,transparent)] lg:flex"
         : "hidden shrink-0 lg:flex border-l border-border-subtle"}
-      style={spaceLayoutState.effective.panels.files.mode === "floating" && !isMobile
-        ? `${spaceLayoutState.effective.panels.files.anchor}: 12px; width: ${uiState.rightSidebarWidth}px`
+      style={filesLayoutComponent?.placement.mode === "floating" && !isMobile
+        ? `${filesLayoutComponent?.placement.mode === "floating" && "anchor" in filesLayoutComponent.placement ? (filesLayoutComponent.placement.anchor?.includes("left") ? "left" : "right") : "right"}: 12px; width: ${uiState.rightSidebarWidth}px`
         : `width: ${uiState.rightSidebarWidth}px`}
     >
       <div class="w-full relative">
