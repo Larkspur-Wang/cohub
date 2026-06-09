@@ -7,8 +7,7 @@ import { db } from "../db.js";
 import { checkpoints, spaces } from "@cohub/db";
 import { assertDirectoryEmpty, ensureSpaceWorkspaceReady, getSpaceWorkspaceDir, runGit } from "../git.js";
 import { publishSpaceFsChanged } from "../space-events.js";
-import { saveCheckpointWithLock } from "../checkpoint/save.js";
-import { saveCheckpointForSpace } from "./save-checkpoint-task.js";
+import { enqueueTask } from "./enqueue.js";
 import { restoreCanvasCheckpointSnapshots } from "../checkpoint/canvas.js";
 import { restoreWorkspaceFromCheckpoint, restoreSystemRepoFromCheckpoint } from "../checkpoint/restore.js";
 import { ensureCheckpointDirs, getCheckpointLatestSubPath } from "../checkpoint/paths.js";
@@ -64,11 +63,13 @@ const updateBootstrap = async (input: {
   startedAt?: string;
   finishedAt?: string;
   stageTimings?: Record<string, number>;
+  initialCheckpointTaskRunId?: string | null;
 }) => {
   const { meta, bootstrap: existingBootstrap } = getBootstrapMeta(input.space);
   const nextMeta = {
     ...meta,
     bootstrap: {
+      ...existingBootstrap,
       taskRunId: input.taskRunId,
       source: input.source,
       status: input.status,
@@ -77,6 +78,7 @@ const updateBootstrap = async (input: {
       startedAt: input.startedAt ?? existingBootstrap?.startedAt ?? (input.status === "running" ? new Date().toISOString() : null),
       finishedAt: input.finishedAt ?? (input.status === "ready" || input.status === "failed" ? new Date().toISOString() : null),
       stageTimings: input.stageTimings ?? existingBootstrap?.stageTimings ?? {},
+      ...("initialCheckpointTaskRunId" in input ? { initialCheckpointTaskRunId: input.initialCheckpointTaskRunId } : {}),
     },
   };
   const [updated] = await db.update(spaces).set({ meta: nextMeta, updatedAt: new Date() }).where(eq(spaces.id, input.space.id)).returning();
@@ -159,6 +161,19 @@ async function createCheckpointAlias(input: {
   const [updated] = await db.update(spaces).set({ headCheckpointId: alias.id, baseCheckpointId: input.sourceCheckpoint.id, updatedAt: new Date() }).where(eq(spaces.id, input.targetSpace.id)).returning();
   await db.update(checkpoints).set({ forkCount: sql`${checkpoints.forkCount} + 1` }).where(eq(checkpoints.id, input.sourceCheckpoint.id));
   return { alias, space: updated ?? input.targetSpace };
+}
+
+async function enqueueInitialCheckpoint(input: { space: typeof spaces.$inferSelect }) {
+  const { taskRunId } = await enqueueTask({
+    type: "save_checkpoint",
+    spaceId: input.space.id,
+    userId: input.space.userUuid,
+    data: {
+      description: "Initialize space",
+      reason: "create_space_init",
+    },
+  });
+  return taskRunId ?? null;
 }
 
 async function postCheckpointRestore(input: {
@@ -244,17 +259,13 @@ const createSpaceHandler = async (job: Job) => {
         await progress("prepare_blank_workspace");
       }
 
-      await progress("save_initial_checkpoint");
-      const { result: checkpointResult, duration: checkpointDuration } = await timeIt("saveInitialCheckpoint", async () => {
-        const saved = await saveCheckpointWithLock({ spaceId: currentSpace.id, userId: currentSpace.userUuid, description: "Initialize space", reason: "create_space_init", onProgress: (saveProgress) => progress("save_initial_checkpoint", { saveProgress }) }, saveCheckpointForSpace);
-        if ("skipped" in saved) throw new Error("initial checkpoint save lock is busy");
-        return saved;
-      });
-      stageTimings.saveInitialCheckpoint = checkpointDuration;
-      await progress("bootstrap_ready", { checkpointId: checkpointResult.checkpointId });
-      currentSpace = await updateBootstrap({ space: currentSpace, taskRunId, source, status: "ready", stage: "finalize", finishedAt: new Date().toISOString(), stageTimings });
+      await progress("enqueue_initial_checkpoint");
+      const { result: initialCheckpointTaskRunId, duration: enqueueInitialCheckpointDuration } = await timeIt("enqueueInitialCheckpoint", () => enqueueInitialCheckpoint({ space: currentSpace }));
+      stageTimings.enqueueInitialCheckpoint = enqueueInitialCheckpointDuration;
+      await progress("bootstrap_ready", { initialCheckpointTaskRunId });
+      currentSpace = await updateBootstrap({ space: currentSpace, taskRunId, source, status: "ready", stage: "finalize", finishedAt: new Date().toISOString(), stageTimings, initialCheckpointTaskRunId });
       await publishSpaceFsChanged(currentSpace.id, { source: "bootstrap", resync: true, changes: [] }).catch((error) => logger.warn(`[CreateSpace] Failed to publish bootstrap fs resync for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`));
-      result = { ok: true, spaceId: currentSpace.id, branch: checkpointResult.branch, commitHash: checkpointResult.commitHash, checkpointId: checkpointResult.checkpointId, source };
+      result = { ok: true, spaceId: currentSpace.id, source, initialCheckpointTaskRunId };
     }
 
     return result;
