@@ -220,6 +220,11 @@ function jumpFromNavigator(sequence: number) {
 	onJump?.(sequence);
 }
 
+function jumpFromMarker(sequence: number) {
+	closeNavigator();
+	onJump?.(sequence);
+}
+
 function scheduleNavigatorClose() {
 	clearCloseTimer();
 	closeTimer = setTimeout(() => {
@@ -281,7 +286,7 @@ onDestroy(() => {
 			<button
 				type="button"
 				bind:this={trackEl}
-				class="group/scroll pointer-events-auto absolute right-[4px] top-0 h-full w-5 cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
+				class="group/scroll pointer-events-auto absolute right-[4px] top-0 z-0 h-full w-5 cursor-pointer rounded-full border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-brand/25"
 				aria-label="Scroll session"
 				tabindex="-1"
 				onpointerdown={(event) =>
@@ -323,11 +328,15 @@ onDestroy(() => {
 		{#each markers as marker (marker.turn.id)}
 			<button
 				type="button"
-				class="group pointer-events-auto absolute right-[2px] flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
+				class="group pointer-events-auto absolute right-[2px] z-20 flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
 				onfocus={() => openNavigatorForSequence(marker.turn.sequence)}
-				onclick={() => onJump?.(marker.turn.sequence)}
+				onpointerdown={(event) => event.stopPropagation()}
+				onclick={(event) => {
+					event.stopPropagation();
+					jumpFromMarker(marker.turn.sequence);
+				}}
 			>
 				<span
 					role="presentation"
