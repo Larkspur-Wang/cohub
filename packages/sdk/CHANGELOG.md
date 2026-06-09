@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.25.0
+
+### Minor Changes
+
+- Add checkpoint file browsing APIs and CLI support, plus Suno music generation compatibility.
+
 ## 1.24.0
 
 ### Minor Changes
