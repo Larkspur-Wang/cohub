@@ -242,8 +242,6 @@ const createSpaceHandler = async (job: Job) => {
         stageTimings.bootstrapFromGitRepo = duration;
       } else {
         await progress("prepare_blank_workspace");
-        const { duration } = await timeIt("assertWorkspaceEmpty", () => assertDirectoryEmpty(workspaceDir));
-        stageTimings.assertWorkspaceEmpty = duration;
       }
 
       await progress("save_initial_checkpoint");
