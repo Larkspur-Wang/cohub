@@ -5584,6 +5584,9 @@ function setPreviewPanelWidth(width: number) {
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
+function openLayoutEditor() {
+	void goto(`/spaces/${spaceId}/settings/layout`);
+}
 function openDefaultLayout() {
 	if (typeof window === "undefined") return;
 	const url = new URL(window.location.href);
@@ -7670,6 +7673,7 @@ $effect(() => {
 		config={spaceLayoutState.effective.runtime.systemBar}
 		immersive={isImmersiveLayout}
 		canEditLayout={canEditFiles}
+		onEditLayout={openLayoutEditor}
 		onDefaultMode={openDefaultLayout}
 	/>
   <div
