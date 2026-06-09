@@ -5632,6 +5632,7 @@ function beginPreviewPanelResize(event: PointerEvent) {
 async function loadFileTree(force = false) {
 	const source = activeFsSource;
 	const sourceKey = activeFsSourceKey;
+	if (fileTreeLoading && !force) return;
 	const requestToken = fileTreeRequestToken + 1;
 	fileTreeRequestToken = requestToken;
 	if (!force) {
@@ -5650,7 +5651,6 @@ async function loadFileTree(force = false) {
 			if (cached) setActiveFileTree(cached);
 		}
 	}
-	if (fileTreeLoading && !force) return;
 	const shouldShowLoading = fileTree.length === 0 || force;
 	if (shouldShowLoading) {
 		fileTreeLoading = true;
