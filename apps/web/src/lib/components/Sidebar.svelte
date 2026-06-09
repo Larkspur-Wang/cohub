@@ -75,7 +75,6 @@ import {
 	removeResourceFromLabel,
 } from "$lib/labels/resource-label-actions";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
-import type { ModelCatalogItem } from "$lib/model-catalog";
 import { sdk } from "$lib/sdk";
 import { getSessionSortTime } from "$lib/session-sort";
 import {
@@ -89,6 +88,7 @@ import {
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
+import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
 import {
 	clearAllCachedSessionLists,
@@ -203,7 +203,7 @@ let billingCreditError = $state<string | null>(null);
 let refreshingSpaces = $state(false);
 let billingCreditUserId = $state<string | null>(null);
 let billingConfigured = $state<boolean | null>(null);
-let modelsCatalog = $state<ModelCatalogItem[] | null>(null);
+const modelsCatalog = $derived(modelsCatalogStore.items);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
@@ -1858,22 +1858,10 @@ function handleGlobalNewChatKeydown(event: KeyboardEvent) {
 	}
 }
 
-async function loadModelsCatalog() {
-	if (modelsCatalog) return;
-	try {
-		const catalog = await sdk.models.list();
-		const items: ModelCatalogItem[] = [];
-		for (const entries of Object.values(catalog)) {
-			for (const entry of entries) items.push(entry);
-		}
-		modelsCatalog = items;
-	} catch (error) {
-		console.error("Failed to load models catalog:", error);
-	}
-}
-
 onMount(() => {
-	void loadModelsCatalog();
+	void modelsCatalogStore.load().catch((error) => {
+		console.error("Failed to load models catalog:", error);
+	});
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
 	let offSpaceLabelsCacheUpdated = () => {};

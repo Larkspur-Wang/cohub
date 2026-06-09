@@ -141,7 +141,6 @@ import {
 	syncResourceLabelsToCache,
 } from "$lib/labels/resource-label-cache-sync";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
-import type { ModelCatalogItem } from "$lib/model-catalog";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
@@ -172,6 +171,7 @@ import {
 import { uploadSpaceEntries } from "$lib/space-upload";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
+import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	buildStreamingStoredIntermediateMessages,
@@ -380,7 +380,7 @@ let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let composerError = $state("");
-let modelsCatalog = $state<ModelCatalogItem[] | null>(null);
+const modelsCatalog = $derived(modelsCatalogStore.items);
 let generationModelsCatalog = $state<PublicGenerationDeclaration[] | null>(
 	null,
 );
@@ -2080,14 +2080,8 @@ function ensureSessionModelLoaded(sessionId: string) {
 	};
 }
 async function loadModelsCatalog() {
-	if (modelsCatalog) return;
 	try {
-		const catalog = await sdk.models.list();
-		const items: ModelCatalogItem[] = [];
-		for (const entries of Object.values(catalog)) {
-			for (const entry of entries) items.push(entry);
-		}
-		modelsCatalog = items;
+		await modelsCatalogStore.load();
 	} catch (error) {
 		console.error("Failed to load models catalog:", error);
 	}
