@@ -1,5 +1,4 @@
 <script lang="ts">
-import type { SpaceLayoutComponent } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	GenerationParameterConstraint,
@@ -127,7 +126,6 @@ import {
 	readComposerTextAttachment,
 } from "$lib/composer-attachments";
 // SettingsOverlay removed — settings merged inline into detail page
-import CohubSystemBar from "$lib/features/space/CohubSystemBar.svelte";
 import {
 	extractGenerationMediaItems,
 	extractGenerationPromptPreview,
@@ -198,7 +196,6 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
-import { spaceLayoutState } from "$lib/stores/space-layout.svelte";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
@@ -242,7 +239,6 @@ type Props = {
 		cronjobId?: string | null;
 		taskId?: string | null;
 		turnSequence?: string | null;
-		layoutMode?: "custom" | "default";
 	};
 };
 type SelectedModel = {
@@ -527,48 +523,8 @@ const activePreviewKind = $derived(
 				? "file"
 				: null,
 );
-function getLayoutComponent(type: SpaceLayoutComponent["type"]) {
-	return spaceLayoutState.effective.layout.components.find(
-		(component) => component.type === type,
-	);
-}
-function getComponentWidth(
-	component: SpaceLayoutComponent | undefined,
-	fallback: number,
-) {
-	const width = component?.size?.width;
-	if (typeof width !== "number" || !Number.isFinite(width)) return fallback;
-	if (component?.size?.unit === "ratio" && typeof window !== "undefined") {
-		return Math.max(160, Math.round(window.innerWidth * width));
-	}
-	return Math.max(160, Math.round(width));
-}
-function getPreviewComponentType() {
-	if (inlineCanvas) return "canvas" as const;
-	if (inlinePortPreview) return "portsPreview" as const;
-	return "fileViewer" as const;
-}
-const filesLayoutComponent = $derived(getLayoutComponent("fileBrowser"));
-const chatLayoutComponent = $derived(getLayoutComponent("chat"));
-const activePreviewPanelLayout = $derived(
-	getLayoutComponent(getPreviewComponentType()),
-);
-const activePreviewMode = $derived.by(() => {
-	const mode = activePreviewPanelLayout?.placement.mode ?? "dock";
-	return mode === "fullscreen"
-		? "fullscreen"
-		: mode === "floating"
-			? "fill"
-			: "dock";
-});
-const activePreviewChrome = $derived.by(() => {
-	const chrome = activePreviewPanelLayout?.chrome?.variant ?? "default";
-	return chrome === "minimal" ? "minimal" : "default";
-});
-const previewIsLayered = $derived(activePreviewMode !== "dock");
-const isImmersiveLayout = $derived(
-	Boolean(activePreviewKind && activePreviewMode === "fullscreen"),
-);
+const activePreviewMode = "dock";
+const activePreviewChrome = "default";
 let inlineFileEdit = $state(true);
 function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
 	return !hasRenderedFilePreview(file);
@@ -586,25 +542,8 @@ let inlineFileCopied = $state(false);
 let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let openFileCopied = $state(false);
 let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let previewPanelWidth = $state(
-	getComponentWidth(getLayoutComponent("fileViewer"), 480),
-);
+let previewPanelWidth = $state(480);
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
-$effect(() => {
-	const files = filesLayoutComponent;
-	const nextFilesCollapsed = files?.placement.mode === "hidden";
-	const filesWidth = getComponentWidth(files, 320);
-	if (uiState.rightSidebarWidth !== filesWidth) {
-		uiState.setRightSidebarWidth(filesWidth);
-	}
-	if (uiState.rightSidebarCollapsed !== nextFilesCollapsed) {
-		uiState.setRightSidebarCollapsed(nextFilesCollapsed);
-	}
-	const nextPreviewWidth = getComponentWidth(activePreviewPanelLayout, 480);
-	if (previewPanelWidth !== nextPreviewWidth) {
-		previewPanelWidth = nextPreviewWidth;
-	}
-});
 const CHAT_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
 const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
@@ -4239,16 +4178,6 @@ function spaceStyleChanged(
 			isSpaceStylePath(change.path) || isSpaceStylePath(change.oldPath),
 	);
 }
-function spaceLayoutChanged(
-	changes: Array<{ path?: string; oldPath?: string }> | undefined,
-) {
-	return changes?.some(
-		(change) =>
-			change.path === ".cohub/space.layout.json" ||
-			change.oldPath === ".cohub/space.layout.json",
-	);
-}
-
 async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const sourceKey = activeFsSourceKey;
 	const shouldPatchVisibleTree = () =>
@@ -4268,9 +4197,6 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const shouldRefreshSpaceStyle =
 		eventPayload.resync || spaceStyleChanged(eventPayload.changes);
 	if (shouldRefreshSpaceStyle) refreshSpaceStyle(spaceId);
-	if (eventPayload.resync || spaceLayoutChanged(eventPayload.changes)) {
-		spaceLayoutState.refresh();
-	}
 	const { refreshDirs: dirsToRefresh } = await spaceFsRepo.applyFsChanged(
 		spaceId,
 		eventPayload as Parameters<typeof spaceFsRepo.applyFsChanged>[1],
@@ -5584,21 +5510,8 @@ function setPreviewPanelWidth(width: number) {
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
-function openLayoutEditor() {
-	void goto(`/spaces/${spaceId}/settings/layout`);
-}
-function openDefaultLayout() {
-	if (typeof window === "undefined") return;
-	const url = new URL(window.location.href);
-	url.searchParams.set("layout", "default");
-	void goto(`${url.pathname}${url.search}${url.hash}`);
-}
-function togglePreviewFocusMode() {
-	// Runtime layout is read-only. Persistent changes belong in Space settings.
-}
-function closePreviewFocusMode() {
-	// Runtime layout is read-only. Persistent changes belong in the layout editor.
-}
+function togglePreviewFocusMode() {}
+function closePreviewFocusMode() {}
 function handlePreviewWindowResize() {
 	if (activePreviewKind && activePreviewMode === "dock")
 		ensurePreviewPanelFits();
@@ -6879,9 +6792,6 @@ $effect(() => {
 		return;
 	loadedSpaceId = currentSpaceId;
 	activateSpaceStyle(currentSpaceId);
-	spaceLayoutState.load(currentSpaceId, {
-		useDefault: data.layoutMode === "default",
-	});
 	// Reset space-specific state
 	space = null;
 	spaceLoadError = "";
@@ -7667,21 +7577,7 @@ $effect(() => {
 	</div>
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
-	<CohubSystemBar
-		space={space}
-		{spaceId}
-		config={spaceLayoutState.effective.runtime.systemBar}
-		immersive={isImmersiveLayout}
-		canEditLayout={canEditFiles}
-		onEditLayout={openLayoutEditor}
-		onDefaultMode={openDefaultLayout}
-	/>
-  <div
-    class={previewIsLayered && activePreviewKind && !isMobile
-      ? "absolute right-3 top-3 bottom-3 z-20 flex min-w-0 flex-col overflow-hidden rounded-[10px] border border-border-subtle bg-bg-content shadow-[0_16px_48px_color-mix(in_srgb,var(--overlay-scrim-strong)_18%,transparent)]"
-      : "flex-1 flex flex-col min-w-0 bg-bg-content"}
-    style={previewIsLayered && activePreviewKind && !isMobile ? `width: ${getComponentWidth(chatLayoutComponent, 420)}px` : undefined}
-  >
+  <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if routeView === 'checkpoint-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
         {#if spaceLoadError && !spaceHasMinimalAccess}
@@ -9386,15 +9282,8 @@ $effect(() => {
     </WorkspacePreviewPane>
   {/if}
   <!-- Desktop right sidebar — file tree only -->
-  {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess && filesLayoutComponent?.placement.mode !== "hidden"}
-    <div
-      class={filesLayoutComponent?.placement.mode === "floating" && !isMobile
-        ? "absolute top-3 bottom-3 z-30 hidden overflow-hidden rounded-[10px] border border-border-subtle bg-bg-content shadow-[0_16px_48px_color-mix(in_srgb,var(--overlay-scrim-strong)_18%,transparent)] lg:flex"
-        : "hidden shrink-0 lg:flex border-l border-border-subtle"}
-      style={filesLayoutComponent?.placement.mode === "floating" && !isMobile
-        ? `${filesLayoutComponent?.placement.mode === "floating" && "anchor" in filesLayoutComponent.placement ? (filesLayoutComponent.placement.anchor?.includes("left") ? "left" : "right") : "right"}: 12px; width: ${uiState.rightSidebarWidth}px`
-        : `width: ${uiState.rightSidebarWidth}px`}
-    >
+  {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
+    <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
       <div class="w-full relative">
         <SpaceFileSidebar
           nodes={fileTree}

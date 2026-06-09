@@ -21,7 +21,6 @@ import {
 	Loader2,
 	Network,
 	PackagePlus,
-	PanelTop,
 	Pencil,
 	Plus,
 	RefreshCw,
@@ -725,20 +724,6 @@ $effect(() => {
 
 	<main class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
 		<div class="mx-auto w-full max-w-4xl space-y-4 sm:space-y-5">
-			<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-				<div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-					<div class="flex min-w-0 items-center gap-2.5">
-						<PanelTop class="h-4 w-4 text-text-tertiary" />
-						<div class="min-w-0">
-							<div class="text-[15px] font-medium text-text-primary">Layout</div>
-							<div class="text-[12px] text-text-tertiary">Workspace components and immersive system bar.</div>
-						</div>
-					</div>
-					<button type="button" onclick={() => goto(`/spaces/${spaceId}/settings/layout`)} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">
-						<PanelTop class="h-3.5 w-3.5" /> Edit layout
-					</button>
-				</div>
-			</section>
 			{#if loading}
 				<div class="flex items-center gap-2 rounded-[8px] border border-border-subtle bg-bg-surface px-4 py-3 text-[13px] text-text-tertiary">
 					<Loader2 class="h-4 w-4 animate-spin" /> Loading settings…
