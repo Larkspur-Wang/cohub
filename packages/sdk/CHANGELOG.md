@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.25.1
+
+### Patch Changes
+
+- Expose the existing checkpoint save response flag in the SDK type.
+
 ## 1.25.0
 
 ### Minor Changes
