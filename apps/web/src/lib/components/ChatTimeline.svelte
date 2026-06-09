@@ -8,13 +8,8 @@ import { Loader2 } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
-
-type ModelCatalogItem = {
-	provider: string;
-	id: string;
-	model: Record<string, unknown>;
-};
 
 type Props = {
 	timeline: TimelineItem[];
@@ -195,7 +190,7 @@ $effect(() => {
 							forking={forkingTurnId === forkTurn?.id}
 					/>
 				{:else if item.kind === 'process' && item.turn}
-						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
+						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeProvider={item.runtimeProvider} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} {onOpenFile} />
 				{/if}

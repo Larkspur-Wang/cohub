@@ -4,13 +4,8 @@ import type {
 	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { ChatMessage } from "$lib/session-tree";
-
-type ModelCatalogItem = {
-	provider: string;
-	id: string;
-	model: Record<string, unknown>;
-};
 
 type Props = {
 	message: StoredIntermediateMessage;

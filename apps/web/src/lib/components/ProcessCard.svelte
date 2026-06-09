@@ -13,12 +13,7 @@ import {
 	formatDurationMs,
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
-
-type ModelCatalogItem = {
-	provider: string;
-	id: string;
-	model: Record<string, unknown>;
-};
+import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
 
 type Props = {
 	turn: SessionTurnRecord;
@@ -26,6 +21,7 @@ type Props = {
 	intermediateMessages?: StoredIntermediateMessage[] | null;
 	streaming?: boolean;
 	runtimePhase?: "llm_call_started" | null;
+	runtimeProvider?: string | null;
 	runtimeModel?: string | null;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadIntermediate?: (
@@ -44,6 +40,7 @@ const {
 	intermediateMessages: liveIntermediateMessages = null,
 	streaming = false,
 	runtimePhase = null,
+	runtimeProvider = null,
 	runtimeModel = null,
 	modelsCatalog,
 	onLoadIntermediate,
@@ -149,10 +146,16 @@ const usageTitle = $derived.by(() => {
 	if (durationTitle) parts.push(durationTitle);
 	return parts.join(" · ");
 });
+const runtimeModelDisplayName = $derived(
+	getModelDisplayName(modelsCatalog, {
+		provider: runtimeProvider ?? turn.provider,
+		model: runtimeModel,
+	}),
+);
 const waitingLabel = $derived(
 	runtimePhase === "llm_call_started"
-		? runtimeModel?.trim()
-			? `waiting ${runtimeModel.trim()}`
+		? runtimeModelDisplayName
+			? `waiting ${runtimeModelDisplayName}`
 			: "waiting model"
 		: "",
 );

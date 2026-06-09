@@ -75,6 +75,7 @@ import {
 	removeResourceFromLabel,
 } from "$lib/labels/resource-label-actions";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import { sdk } from "$lib/sdk";
 import { getSessionSortTime } from "$lib/session-sort";
 import {
@@ -202,6 +203,7 @@ let billingCreditError = $state<string | null>(null);
 let refreshingSpaces = $state(false);
 let billingCreditUserId = $state<string | null>(null);
 let billingConfigured = $state<boolean | null>(null);
+let modelsCatalog = $state<ModelCatalogItem[] | null>(null);
 
 let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
@@ -1856,7 +1858,22 @@ function handleGlobalNewChatKeydown(event: KeyboardEvent) {
 	}
 }
 
+async function loadModelsCatalog() {
+	if (modelsCatalog) return;
+	try {
+		const catalog = await sdk.models.list();
+		const items: ModelCatalogItem[] = [];
+		for (const entries of Object.values(catalog)) {
+			for (const entry of entries) items.push(entry);
+		}
+		modelsCatalog = items;
+	} catch (error) {
+		console.error("Failed to load models catalog:", error);
+	}
+}
+
 onMount(() => {
+	void loadModelsCatalog();
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
 	let offSpaceLabelsCacheUpdated = () => {};
@@ -2323,7 +2340,7 @@ $effect(() => {
 					title={item.titleText || sourceTooltip(session.source) || undefined}
 					aria-label={item.ariaLabel}
 				>
-					<SessionSidebarRowContent {session} title={item.displayTitle} />
+					<SessionSidebarRowContent {session} title={item.displayTitle} modelsCatalog={modelsCatalog ?? undefined} />
 					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
 						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Insert" onclick={(e) => { e.preventDefault(); e.stopPropagation(); insertPathReference(`/sessions/${session.id}.jsonl`); }}>
 							<TextCursorInput class="h-3.5 w-3.5" />
@@ -2795,7 +2812,7 @@ $effect(() => {
                       title={item.titleText || sourceTooltip(session.source) || undefined}
                       aria-label={item.ariaLabel}
                     >
-                      <SessionSidebarRowContent {session} title={item.displayTitle} {isMobile} />
+                      <SessionSidebarRowContent {session} title={item.displayTitle} {isMobile} modelsCatalog={modelsCatalog ?? undefined} />
                       <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                         <button
                           type="button"
@@ -2901,7 +2918,7 @@ $effect(() => {
 				ondragend={handleResourceDragEnd}
                 title={sourceTooltip(activeSession.source) || undefined}
               >
-                <SessionSidebarRowContent session={activeSession} title={getSessionTitle(activeSession, 0)} {isMobile} />
+                <SessionSidebarRowContent session={activeSession} title={getSessionTitle(activeSession, 0)} {isMobile} modelsCatalog={modelsCatalog ?? undefined} />
                 <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
                   <button
                     type="button"

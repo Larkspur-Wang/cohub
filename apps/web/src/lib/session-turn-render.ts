@@ -181,6 +181,7 @@ export function buildTurnTimelineItems(input: {
 		truncatedStart?: boolean;
 		status?: string;
 		runtimePhase?: "llm_call_started" | null;
+		runtimeProvider?: string | null;
 		runtimeModel?: string | null;
 		finalizedPreview?: boolean;
 	} | null;
@@ -244,6 +245,7 @@ export function buildTurnTimelineItems(input: {
 					intermediateMessages: processIntermediateMessages,
 					streaming: true,
 					runtimePhase: input.streaming?.runtimePhase ?? null,
+					runtimeProvider: input.streaming?.runtimeProvider ?? null,
 					runtimeModel: input.streaming?.runtimeModel ?? null,
 				});
 			}
@@ -327,6 +329,7 @@ export function buildTurnTimelineItems(input: {
 				intermediateMessages: processIntermediateMessages,
 				streaming: true,
 				runtimePhase: input.streaming?.runtimePhase ?? null,
+				runtimeProvider: input.streaming?.runtimeProvider ?? null,
 				runtimeModel: input.streaming?.runtimeModel ?? null,
 			});
 		}

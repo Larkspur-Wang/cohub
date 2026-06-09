@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { SessionRecord } from "@neta-art/cohub";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import { getSessionSidebarActivity } from "$lib/session-sidebar-activity";
 import { getSessionActivityAt } from "$lib/session-sort";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -11,14 +12,19 @@ const {
 	session,
 	title,
 	isMobile = false,
+	modelsCatalog,
 }: {
 	session: SessionRecord;
 	title: string;
 	isMobile?: boolean;
+	modelsCatalog?: ModelCatalogItem[] | null;
 } = $props();
 
 const activity = $derived(
-	getSessionSidebarActivity(sessionGenerationStore.get(session.id)),
+	getSessionSidebarActivity(
+		sessionGenerationStore.get(session.id),
+		modelsCatalog,
+	),
 );
 const badge = $derived(activity.active ? "" : sourceBadge(session.source));
 const participants = $derived(getSessionParticipants(session));

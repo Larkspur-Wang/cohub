@@ -7,17 +7,16 @@ import {
 	formatDurationMs,
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
+import {
+	findModelCatalogItem,
+	getModelDisplayName,
+	type ModelCatalogItem,
+} from "$lib/model-catalog";
 import type { ChatMessage } from "$lib/session-tree";
 import {
 	formatCompactAbsoluteTime,
 	formatFullAbsoluteTime,
 } from "$lib/time-format";
-
-type ModelCatalogItem = {
-	provider: string;
-	id: string;
-	model: Record<string, unknown>;
-};
 
 type Props = {
 	message: ChatMessage;
@@ -173,16 +172,18 @@ const fullDateTime = $derived(
 );
 
 // Model display: default show model name (matched from catalog), fallback to model id
-const modelMatch = $derived.by(() => {
-	if (!message.meta?.provider || !message.meta?.model) return null;
-	return modelsCatalog?.find(
-		(m) =>
-			m.provider === message.meta?.provider && m.id === message.meta?.model,
-	);
-});
+const modelMatch = $derived(
+	findModelCatalogItem(modelsCatalog, {
+		provider: message.meta?.provider,
+		model: message.meta?.model,
+	}),
+);
 
 const modelName = $derived(
-	(modelMatch?.model?.name as string | undefined) ?? message.meta?.model ?? "",
+	getModelDisplayName(modelsCatalog, {
+		provider: message.meta?.provider,
+		model: message.meta?.model,
+	}),
 );
 
 const modelDisplayName = $derived(message.meta?.model ? modelName : "");

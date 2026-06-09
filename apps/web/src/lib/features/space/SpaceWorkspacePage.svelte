@@ -141,6 +141,7 @@ import {
 	syncResourceLabelsToCache,
 } from "$lib/labels/resource-label-cache-sync";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
@@ -379,11 +380,7 @@ let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let composerError = $state("");
-let modelsCatalog = $state<Array<{
-	provider: string;
-	id: string;
-	model: Record<string, unknown>;
-}> | null>(null);
+let modelsCatalog = $state<ModelCatalogItem[] | null>(null);
 let generationModelsCatalog = $state<PublicGenerationDeclaration[] | null>(
 	null,
 );
@@ -1725,6 +1722,7 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 						finalizedPreview: activeGenerationState.finalizedPreview,
 						status: activeGenerationState.status,
 						runtimePhase: activeGenerationState.runtimePhase,
+						runtimeProvider: activeGenerationState.runtimeProvider,
 						runtimeModel: activeGenerationState.runtimeModel,
 					}
 				: null,
@@ -2085,11 +2083,7 @@ async function loadModelsCatalog() {
 	if (modelsCatalog) return;
 	try {
 		const catalog = await sdk.models.list();
-		const items: Array<{
-			provider: string;
-			id: string;
-			model: Record<string, unknown>;
-		}> = [];
+		const items: ModelCatalogItem[] = [];
 		for (const entries of Object.values(catalog)) {
 			for (const entry of entries) items.push(entry);
 		}

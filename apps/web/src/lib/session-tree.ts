@@ -64,6 +64,7 @@ export type TimelineItem =
 			intermediateMessages?: import("@cohub/protocol/model").StoredIntermediateMessage[];
 			streaming?: boolean;
 			runtimePhase?: "llm_call_started" | null;
+			runtimeProvider?: string | null;
 			runtimeModel?: string | null;
 	  };
 

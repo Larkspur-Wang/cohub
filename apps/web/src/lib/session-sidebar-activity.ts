@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@cohub/protocol/core";
+import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
 import type { SessionGenerationState } from "$lib/stores/session-generation.svelte";
 
 export type SessionSidebarActivityPhase =
@@ -168,6 +169,7 @@ function findLatestSignal(blocks: ContentBlock[]) {
 
 export function getSessionSidebarActivity(
 	state: SessionGenerationState | null | undefined,
+	modelsCatalog?: ModelCatalogItem[] | null,
 ): SessionSidebarActivity {
 	if (!state) {
 		return {
@@ -197,7 +199,13 @@ export function getSessionSidebarActivity(
 		};
 	}
 	if (state.runtimePhase === "llm_call_started") {
-		const model = compactInlineText(state.runtimeModel, 42);
+		const model = compactInlineText(
+			getModelDisplayName(modelsCatalog, {
+				provider: state.runtimeProvider,
+				model: state.runtimeModel,
+			}),
+			42,
+		);
 		return {
 			active: true,
 			phase: "waiting_model",
