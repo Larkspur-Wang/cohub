@@ -196,7 +196,10 @@ export function buildTurnTimelineItems(input: {
 	);
 	let streamingProcessInserted = false;
 	for (const turn of dedupeRenderableTurnsByClientMessageId(input.turns)) {
-		if (isQueuedFollowupTurn(turn)) continue;
+		// Keep the active turn visible while the server-side queued record is
+		// reconciling with the local optimistic one. Other queued follow-ups are
+		// rendered by the follow-up queue instead of the main timeline.
+		if (isQueuedFollowupTurn(turn) && turn.id !== streamingTurnId) continue;
 		items.push({
 			id: `turn:${turn.id}:user`,
 			kind: "message",
