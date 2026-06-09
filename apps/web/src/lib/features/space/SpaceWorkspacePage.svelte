@@ -1079,8 +1079,12 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 		}
 		await goto(buildSpaceDetailRoute(spaceId));
 	} catch (error) {
-		checkpointCreateError =
-			error instanceof Error ? error.message : "Failed to save checkpoint";
+		if (error instanceof HttpError && error.status === 409) {
+			checkpointCreateError = "Checkpoint save in progress.";
+		} else {
+			checkpointCreateError =
+				error instanceof Error ? error.message : "Failed to save checkpoint";
+		}
 	} finally {
 		checkpointCreateSubmitting = false;
 	}

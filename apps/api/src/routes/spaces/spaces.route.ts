@@ -55,9 +55,11 @@ import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
 import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput } from "../../space-mods.js";
+import { redisCommandClient } from "../../redis.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
+const getSpaceSaveCheckpointLockKey = (spaceId: string) => `cohub:space:${spaceId}:save-checkpoint`;
 
 const router = new Hono();
 const { CronExpressionParser } = cronParser;
@@ -1031,6 +1033,14 @@ router.post("/:id/checkpoints", async (c) => {
     .orderBy(desc(taskRuns.createdAt))
     .limit(1);
   if (existingSave[0]) return c.json({ ok: true, taskRunId: existingSave[0].id, existing: true });
+
+  const saveLockBusy = await redisCommandClient.exists(getSpaceSaveCheckpointLockKey(spaceId)).catch((error) => {
+    logger.warn(`[Checkpoints] failed to check save lock for space=${spaceId}`, error);
+    return 0;
+  });
+  if (saveLockBusy) {
+    return c.json({ message: "Checkpoint save in progress.", reason: "save_checkpoint_lock_busy" }, 409);
+  }
 
   const { taskRunId } = await enqueueTask({
     type: "save_checkpoint",

@@ -1284,7 +1284,7 @@ export class SpaceCheckpointApi {
 export type SpaceCheckpointsApi = ((checkpointId: string) => SpaceCheckpointApi) & {
   checkpoint: (checkpointId: string) => SpaceCheckpointApi;
   latest: () => SpaceCheckpointApi;
-  create: (description?: string | null) => Promise<{ ok: true; taskRunId: string }>;
+  create: (description?: string | null) => Promise<{ ok: true; taskRunId: string; existing?: boolean }>;
   list: () => Promise<{ checkpoints: CheckpointRecord[] }>;
   get: (checkpointId: string, customFetch?: Fetch) => Promise<SpaceCheckpointDetailResponse>;
 };
@@ -1294,7 +1294,7 @@ function createSpaceCheckpointsApi(transport: HttpTransport, spaceId: string): S
   return Object.assign(checkpoint, {
     checkpoint,
     latest: () => checkpoint("latest"),
-    create: (description?: string | null) => transport.request<{ ok: true; taskRunId: string }>(
+    create: (description?: string | null) => transport.request<{ ok: true; taskRunId: string; existing?: boolean }>(
       `/api/spaces/${spaceId}/checkpoints`,
       {
         method: "POST",
