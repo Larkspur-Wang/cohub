@@ -274,7 +274,7 @@ onDestroy(() => {
 {#if shouldShow}
 	<div
 		bind:this={railEl}
-		class="group/rail pointer-events-none absolute right-1 top-0 z-10 hidden w-7 lg:block"
+		class="group/rail pointer-events-none absolute right-1 top-0 z-10 hidden w-7 isolate lg:block"
 		role="presentation"
 		style:bottom={`${bottomOffset}px`}
 		onmouseleave={scheduleNavigatorClose}
@@ -332,6 +332,7 @@ onDestroy(() => {
 				style:top={`${marker.top}%`}
 				aria-label={`Jump to turn ${marker.turn.sequence}`}
 				onfocus={() => openNavigatorForSequence(marker.turn.sequence)}
+				onmouseenter={() => openNavigatorForSequence(marker.turn.sequence)}
 				onpointerdown={(event) => event.stopPropagation()}
 				onclick={(event) => {
 					event.stopPropagation();
@@ -340,9 +341,8 @@ onDestroy(() => {
 			>
 				<span
 					role="presentation"
-					class={`block rounded-full ring-1 ring-bg-content/90 transition-[width,height,opacity,background-color,box-shadow] duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-85' : 'opacity-35'} ${marker.current ? 'w-3 bg-brand opacity-100 shadow-[0_0_0_3px_rgba(255,62,0,0.20)]' : 'w-1.5 group-hover:w-2.5 group-hover:opacity-100'}`}
+					class={`pointer-events-none block rounded-full ring-1 ring-bg-content/90 transition-[width,height,opacity,background-color,box-shadow] duration-150 ${statusClass(marker.turn.status)} ${marker.loaded ? 'opacity-85' : 'opacity-35'} ${marker.current ? 'w-3 bg-brand opacity-100 shadow-[0_0_0_3px_rgba(255,62,0,0.20)]' : 'w-1.5 group-hover:w-2.5 group-hover:opacity-100'}`}
 					style:height={`${marker.current ? Math.max(12, marker.height) : marker.height}px`}
-					onmouseenter={() => openNavigatorForSequence(marker.turn.sequence)}
 				></span>
 				{#if loadingSequence === marker.turn.sequence}
 					<Loader2 class="absolute h-3 w-3 animate-spin text-brand" />
