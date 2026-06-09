@@ -2305,6 +2305,7 @@ function handleModelSelect(model: { provider: string; id: string }) {
 	};
 	saveSessionModel(activeSessionId, selected);
 	showModelSelector = false;
+	focusComposerSoon();
 }
 function buildPreferredSessionRoute(sessionId: string) {
 	return buildSpaceSessionRoute(spaceId, sessionId);
