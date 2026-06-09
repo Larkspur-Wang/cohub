@@ -131,8 +131,8 @@ function getModelCost(item: ModelItem): ModelCost | null {
 }
 
 function formatModelCostValue(value: unknown): string | null {
-	if (typeof value !== "number" || !Number.isFinite(value)) return null;
-	if (value === 0) return `${MODEL_COST_CURRENCY_PREFIX}0`;
+	if (typeof value !== "number" || !Number.isFinite(value) || value === 0)
+		return null;
 	if (Math.abs(value) < 0.01)
 		return `${MODEL_COST_CURRENCY_PREFIX}${value.toFixed(4)}`;
 	if (Math.abs(value) < 1)
