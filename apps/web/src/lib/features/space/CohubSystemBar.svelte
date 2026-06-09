@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { SpaceRuntimeSystemBar } from "@cohub/protocol";
 import type { SpaceRecord } from "@neta-art/cohub";
-import { PanelTop, RotateCcw } from "lucide-svelte";
+import { RotateCcw } from "lucide-svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 
 type Props = {
@@ -10,7 +10,6 @@ type Props = {
 	config?: SpaceRuntimeSystemBar;
 	immersive?: boolean;
 	canEditLayout?: boolean;
-	onEditLayout?: () => void;
 	onDefaultMode?: () => void;
 };
 
@@ -20,7 +19,6 @@ let {
 	config,
 	immersive = false,
 	canEditLayout = false,
-	onEditLayout,
 	onDefaultMode,
 }: Props = $props();
 const systemBar = $derived(config ?? {});
@@ -32,9 +30,6 @@ const placement = $derived(systemBar.placement ?? "floating");
 const position = $derived(systemBar.position ?? "top-right");
 const showBrand = $derived(content.brand !== false);
 const showSpace = $derived(content.spaceProfile !== false);
-const showEdit = $derived(
-	Boolean(canEditLayout && content.editLayout !== false),
-);
 const showDefault = $derived(
 	Boolean(canEditLayout && content.defaultLayout !== false),
 );
@@ -59,12 +54,6 @@ const rootClass = $derived.by(() => {
 				<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="xs" />
 				<span class="hidden max-w-40 truncate md:inline">{spaceName}</span>
 			</div>
-		{/if}
-		{#if showEdit}
-			<button type="button" class="cohub-system-bar__action" onclick={() => onEditLayout?.()} title="Edit layout">
-				<PanelTop class="h-3.5 w-3.5" />
-				<span class="hidden lg:inline">Edit layout</span>
-			</button>
 		{/if}
 		{#if showDefault}
 			<button type="button" class="cohub-system-bar__action" onclick={() => onDefaultMode?.()} title="Default layout">

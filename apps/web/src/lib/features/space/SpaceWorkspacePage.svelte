@@ -54,7 +54,6 @@ import {
 	Network,
 	PanelRightClose,
 	PanelRightOpen,
-	PanelTop,
 	Pencil,
 	Plus,
 	Power,
@@ -5585,9 +5584,6 @@ function setPreviewPanelWidth(width: number) {
 function ensurePreviewPanelFits() {
 	setPreviewPanelWidth(previewPanelWidth);
 }
-function openLayoutEditor() {
-	void goto(`/spaces/${spaceId}/settings/layout`);
-}
 function openDefaultLayout() {
 	if (typeof window === "undefined") return;
 	const url = new URL(window.location.href);
@@ -5595,7 +5591,7 @@ function openDefaultLayout() {
 	void goto(`${url.pathname}${url.search}${url.hash}`);
 }
 function togglePreviewFocusMode() {
-	openLayoutEditor();
+	// Runtime layout is read-only. Persistent changes belong in Space settings.
 }
 function closePreviewFocusMode() {
 	// Runtime layout is read-only. Persistent changes belong in the layout editor.
@@ -7433,14 +7429,6 @@ $effect(() => {
 	</div>
 {/snippet}
 
-{#snippet PreviewFocusButton()}
-	{#if canEditFiles}
-		<button type="button" class="icon-btn" onclick={openLayoutEditor} title="Edit layout" aria-label="Edit layout">
-			<PanelTop class="w-4 h-4" />
-		</button>
-	{/if}
-{/snippet}
-
 {#snippet PanelLoadingState(label: string, compact = false)}
 	<div class={compact ? "flex min-h-36 items-center justify-center gap-2 text-[12px] text-text-tertiary" : "flex min-h-[42vh] flex-1 items-center justify-center gap-2 text-[12px] text-text-tertiary"}>
 		<Loader2 class="h-4 w-4 animate-spin" aria-label={label} />
@@ -7631,17 +7619,6 @@ $effect(() => {
         {/if}
       </div>
     {/if}
-    {#if canEditFiles}
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-        onclick={openLayoutEditor}
-        title="Edit layout"
-      >
-        <PanelTop class="w-4 h-4 shrink-0" />
-        <span class="hidden 2xl:inline text-[13px] font-medium">Edit layout</span>
-      </button>
-    {/if}
     <!-- Toggle right sidebar -->
     {#if !spaceHasMinimalAccess}
       <div class="relative">
@@ -7693,7 +7670,6 @@ $effect(() => {
 		config={spaceLayoutState.effective.runtime.systemBar}
 		immersive={isImmersiveLayout}
 		canEditLayout={canEditFiles}
-		onEditLayout={openLayoutEditor}
 		onDefaultMode={openDefaultLayout}
 	/>
   <div
@@ -9130,7 +9106,6 @@ $effect(() => {
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -9140,7 +9115,6 @@ $effect(() => {
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -9156,7 +9130,6 @@ $effect(() => {
               <Download class="w-3.5 h-3.5 shrink-0" />
               <span class="hidden sm:inline">Download</span>
             </a>
-            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -9227,8 +9200,7 @@ $effect(() => {
                 <Save class="w-3.5 h-3.5 shrink-0" />
                 <span class="hidden sm:inline">Save</span>
               </button>
-              {@render PreviewFocusButton()}
-              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -9277,8 +9249,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
-              {@render PreviewFocusButton()}
-              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -9309,8 +9280,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
-              {@render PreviewFocusButton()}
-              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -9335,8 +9305,7 @@ $effect(() => {
               >
                 <Download class="w-4 h-4" />
               </a>
-              {@render PreviewFocusButton()}
-              <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
+                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>

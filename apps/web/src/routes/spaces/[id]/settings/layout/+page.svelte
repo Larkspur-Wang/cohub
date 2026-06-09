@@ -227,7 +227,7 @@ function patchSystemBar(
 }
 
 function patchSystemBarContent(
-	key: "brand" | "spaceProfile" | "editLayout" | "defaultLayout",
+	key: "brand" | "spaceProfile" | "defaultLayout",
 	value: boolean,
 ) {
 	draft = normalizeSpaceLayout({
@@ -372,7 +372,6 @@ $effect(() => {
 						<div class="inspector-section"><label for="system-bar-position">Position</label><select id="system-bar-position" value={draft.runtime.systemBar.position} onchange={(event) => patchSystemBar("position", (event.currentTarget as HTMLSelectElement).value)}><option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option></select></div>
 						<label class="check-row"><input type="checkbox" checked={draft.runtime.systemBar.content.brand} onchange={(event) => patchSystemBarContent("brand", (event.currentTarget as HTMLInputElement).checked)} /> Brand</label>
 						<label class="check-row"><input type="checkbox" checked={draft.runtime.systemBar.content.spaceProfile} onchange={(event) => patchSystemBarContent("spaceProfile", (event.currentTarget as HTMLInputElement).checked)} /> Space profile</label>
-						<label class="check-row"><input type="checkbox" checked={draft.runtime.systemBar.content.editLayout} onchange={(event) => patchSystemBarContent("editLayout", (event.currentTarget as HTMLInputElement).checked)} /> Edit layout</label>
 						<label class="check-row"><input type="checkbox" checked={draft.runtime.systemBar.content.defaultLayout} onchange={(event) => patchSystemBarContent("defaultLayout", (event.currentTarget as HTMLInputElement).checked)} /> Default layout</label>
 					</div>
 					{#if saveMessage}<div class="mt-4 flex items-center gap-2 rounded-[6px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft"><Check class="h-3.5 w-3.5" /> {saveMessage}</div>{/if}

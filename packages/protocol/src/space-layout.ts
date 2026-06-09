@@ -73,7 +73,6 @@ export type SpaceLayoutComponent = {
 export type SpaceRuntimeSystemBarContent = {
   brand?: boolean;
   spaceProfile?: boolean;
-  editLayout?: boolean;
   defaultLayout?: boolean;
 };
 
@@ -260,7 +259,6 @@ function normalizeSystemBar(value: unknown): SpaceRuntimeSystemBar | undefined {
     content: {
       ...(booleanValue(contentInput.brand) !== undefined ? { brand: booleanValue(contentInput.brand) } : {}),
       ...(booleanValue(contentInput.spaceProfile) !== undefined ? { spaceProfile: booleanValue(contentInput.spaceProfile) } : {}),
-      ...(booleanValue(contentInput.editLayout) !== undefined ? { editLayout: booleanValue(contentInput.editLayout) } : {}),
       ...(booleanValue(contentInput.defaultLayout) !== undefined ? { defaultLayout: booleanValue(contentInput.defaultLayout) } : {}),
     },
   };
@@ -330,7 +328,6 @@ export const DEFAULT_SPACE_LAYOUT = {
       content: {
         brand: true,
         spaceProfile: true,
-        editLayout: true,
         defaultLayout: true,
       },
     },
