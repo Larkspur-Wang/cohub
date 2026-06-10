@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.15.2
+
+### Patch Changes
+
+- Publish work sharing and publishing updates.
+- Updated dependencies
+  - @neta-art/cohub@1.25.2
+
 ## 1.15.1
 
 ### Patch Changes

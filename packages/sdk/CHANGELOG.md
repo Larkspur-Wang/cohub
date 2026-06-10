@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.25.2
+
+### Patch Changes
+
+- Publish work sharing and publishing updates.
+
 ## 1.25.1
 
 ### Patch Changes
