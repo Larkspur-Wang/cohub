@@ -6,6 +6,7 @@ import {
 	FolderOpen,
 	MoreHorizontal,
 	Pencil,
+	Rocket,
 	TextCursorInput,
 	Trash2,
 	Upload,
@@ -33,6 +34,7 @@ const {
 	onDownload,
 	onUpload,
 	onInsertReference,
+	onPublishDirectory,
 	draggable = true,
 	showItemActions = true,
 	canWrite = true,
@@ -50,6 +52,7 @@ const {
 	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
 	onInsertReference?: (path: string) => void;
+	onPublishDirectory?: (path: string) => void;
 	draggable?: boolean;
 	showItemActions?: boolean;
 	canWrite?: boolean;
@@ -250,6 +253,10 @@ $effect(() => {
                 <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateCanvas(node.path))}>New canvas</button>
               {/if}
               <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onCreateDir(node.path))}>New folder</button>
+              {#if onPublishDirectory}
+                <div class="dropdown-sep"></div>
+                <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onPublishDirectory(node.path))}><Rocket class="w-3.5 h-3.5" /> Publish</button>
+              {/if}
               <div class="dropdown-sep"></div>
               <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}>Delete</button>
             </div>
@@ -291,6 +298,7 @@ $effect(() => {
       {onDownload}
       {onUpload}
       {onInsertReference}
+      {onPublishDirectory}
       {draggable}
       {showItemActions}
       {canWrite}

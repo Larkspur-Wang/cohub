@@ -35,6 +35,7 @@ const {
 	onDownload,
 	onUpload,
 	onInsertReference,
+	onPublishDirectory,
 	onOpenPort,
 	activePort = null,
 	draggable = true,
@@ -59,6 +60,7 @@ const {
 	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
 	onInsertReference?: (path: string) => void;
+	onPublishDirectory?: (path: string) => void;
 	onOpenPort?: (port: string, url: string) => void;
 	activePort?: string | null;
 	draggable?: boolean;
@@ -274,6 +276,7 @@ $effect(() => {
           {onDownload}
           {onUpload}
           {onInsertReference}
+          {onPublishDirectory}
           {draggable}
           {showItemActions}
           {canWrite}

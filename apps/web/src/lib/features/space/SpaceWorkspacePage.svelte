@@ -9421,6 +9421,7 @@ $effect(() => {
           onDownload={handleDownloadNode}
           onUpload={handleUploadFiles}
           onInsertReference={insertPathReference}
+          onPublishDirectory={(path) => openWorkPublish("directory", path)}
           onOpenPort={(port, url) => openInlinePort(port, url)}
           activePort={inlinePortPreview?.port ?? null}
           draggable={true}
@@ -9470,6 +9471,7 @@ $effect(() => {
         onDownload={handleDownloadNode}
         onUpload={handleUploadFiles}
         onInsertReference={insertPathReference}
+        onPublishDirectory={(path) => { openWorkPublish("directory", path); uiState.mobileRightDrawerOpen = false; }}
         onOpenPort={(port, url) => { openInlinePort(port, url); uiState.mobileRightDrawerOpen = false; }}
         activePort={inlinePortPreview?.port ?? null}
         draggable={false}
