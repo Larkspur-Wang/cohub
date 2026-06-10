@@ -8,6 +8,12 @@ import type {
 import { Check, Copy, ExternalLink, Loader2, Rocket } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { sdk } from "$lib/sdk";
+import {
+	normalizePublicSlugInput,
+	normalizeUsernameInput,
+	validatePublicSlugInput,
+	validateUsernameInput,
+} from "$lib/slug-rules";
 import { authStore } from "$lib/stores/auth.svelte";
 
 const {
@@ -47,15 +53,27 @@ const allowedViewerScopes = $state<Record<string, boolean>>({
 	"session.prompt.readonly": true,
 	"session.prompt.fullaccess": false,
 });
-const currentUsername = $derived(
-	ownerUsername?.trim() || normalizeUsername(usernameDraft),
-);
-const currentSpaceSlug = $derived(
-	spaceSlug?.trim() || normalizeSlugInput(spaceSlugDraft),
-);
-const currentWorkSlug = $derived(normalizeSlugInput(slug));
 const missingUsername = $derived(!ownerUsername?.trim());
 const missingSpaceSlug = $derived(!spaceSlug?.trim());
+const usernameValidation = $derived(
+	validateUsernameInput(usernameDraft, { required: missingUsername }),
+);
+const spaceSlugValidation = $derived(
+	validatePublicSlugInput(spaceSlugDraft, {
+		required: missingSpaceSlug,
+		label: "Space slug",
+	}),
+);
+const workSlugValidation = $derived(
+	validatePublicSlugInput(slug, { required: true, label: "Work slug" }),
+);
+const currentUsername = $derived(
+	ownerUsername?.trim() || usernameValidation.value || "",
+);
+const currentSpaceSlug = $derived(
+	spaceSlug?.trim() || spaceSlugValidation.value || "",
+);
+const currentWorkSlug = $derived(workSlugValidation.value || "");
 const canPublish = $derived(
 	Boolean(
 		currentUsername && currentSpaceSlug && currentWorkSlug && !publishing,
@@ -88,7 +106,7 @@ $effect(() => {
 				.filter(Boolean)
 				.pop()
 				?.replace(/\.[^.]+$/, "") || "work";
-		slug = normalizeSlugInput(base) || "work";
+		slug = normalizePublicSlugInput(base) || "work";
 		published = null;
 		error = null;
 		copied = false;
@@ -98,24 +116,6 @@ $effect(() => {
 	if (!missingSpaceSlug) spaceSlugDraft = spaceSlug ?? "";
 });
 
-function normalizeSlugInput(value: string) {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9_-]+/g, "-")
-		.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
-		.slice(0, 80);
-}
-
-function normalizeUsername(value: string) {
-	return value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9-]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.slice(0, 39);
-}
-
 function selectedScopes(source: Record<string, boolean>) {
 	return Object.entries(source)
 		.filter(([, enabled]) => enabled)
@@ -124,8 +124,11 @@ function selectedScopes(source: Record<string, boolean>) {
 
 async function ensurePublicAddress() {
 	if (missingUsername) {
-		const nextUsername = normalizeUsername(usernameDraft);
-		if (!nextUsername) throw new Error("Username is required.");
+		const { value: nextUsername, error } = validateUsernameInput(
+			usernameDraft,
+			{ required: true },
+		);
+		if (!nextUsername) throw new Error(error ?? "Username is required.");
 		const currentProfile = authStore.profile;
 		await authStore.updateProfile({
 			displayName: currentProfile?.displayName ?? "User",
@@ -135,8 +138,11 @@ async function ensurePublicAddress() {
 		usernameDraft = nextUsername;
 	}
 	if (missingSpaceSlug) {
-		const nextSpaceSlug = normalizeSlugInput(spaceSlugDraft);
-		if (!nextSpaceSlug) throw new Error("Space slug is required.");
+		const { value: nextSpaceSlug, error } = validatePublicSlugInput(
+			spaceSlugDraft,
+			{ required: true, label: "Space slug" },
+		);
+		if (!nextSpaceSlug) throw new Error(error ?? "Space slug is required.");
 		const result = await sdk.space(spaceId).update({ slug: nextSpaceSlug });
 		onSpaceUpdated?.(result.space);
 		spaceSlugDraft = result.space.slug ?? nextSpaceSlug;
@@ -148,7 +154,8 @@ async function publish() {
 	error = null;
 	try {
 		await ensurePublicAddress();
-		if (!currentWorkSlug) throw new Error("Work slug is required.");
+		if (!currentWorkSlug)
+			throw new Error(workSlugValidation.error ?? "Work slug is required.");
 		const result = await sdk.works.create({
 			spaceId,
 			slug: currentWorkSlug,
@@ -200,28 +207,28 @@ async function copyUrl() {
 				<div class="section-label">Public URL</div>
 				<div class="url-preview">{publicPath}</div>
 				<div class="address-grid">
-					<label class="field" class:field-required={missingUsername && !currentUsername}>
+					<label class="field" class:field-required={Boolean(usernameValidation.error)}>
 						<span>Username</span>
 						{#if missingUsername}
-							<input class="form-input font-mono" bind:value={usernameDraft} oninput={() => usernameDraft = normalizeUsername(usernameDraft)} placeholder="Required" maxlength="39" aria-invalid={!currentUsername} />
-							{#if !currentUsername}<div class="field-hint">Required for public URL</div>{/if}
+							<input class="form-input font-mono" bind:value={usernameDraft} oninput={() => usernameDraft = normalizeUsernameInput(usernameDraft)} placeholder="Required" maxlength="39" aria-invalid={Boolean(usernameValidation.error)} />
+							{#if usernameValidation.error}<div class="field-hint">{usernameValidation.error}</div>{/if}
 						{:else}
 							<div class="readonly-value">{ownerUsername}</div>
 						{/if}
 					</label>
-					<label class="field" class:field-required={missingSpaceSlug && !currentSpaceSlug}>
+					<label class="field" class:field-required={Boolean(spaceSlugValidation.error)}>
 						<span>Space slug</span>
 						{#if missingSpaceSlug}
-							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = normalizeSlugInput(spaceSlugDraft)} placeholder="Required" maxlength="80" aria-invalid={!currentSpaceSlug} />
-							{#if !currentSpaceSlug}<div class="field-hint">Required for public URL</div>{/if}
+							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = normalizePublicSlugInput(spaceSlugDraft)} placeholder="Required" maxlength="80" aria-invalid={Boolean(spaceSlugValidation.error)} />
+							{#if spaceSlugValidation.error}<div class="field-hint">{spaceSlugValidation.error}</div>{/if}
 						{:else}
 							<div class="readonly-value">{spaceSlug}</div>
 						{/if}
 					</label>
-					<label class="field" class:field-required={!currentWorkSlug}>
+					<label class="field" class:field-required={Boolean(workSlugValidation.error)}>
 						<span>Work slug</span>
-						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = normalizeSlugInput(slug)} placeholder="Required" maxlength="80" aria-invalid={!currentWorkSlug} />
-						{#if !currentWorkSlug}<div class="field-hint">Required</div>{/if}
+						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = normalizePublicSlugInput(slug)} placeholder="Required" maxlength="80" aria-invalid={Boolean(workSlugValidation.error)} />
+						{#if workSlugValidation.error}<div class="field-hint">{workSlugValidation.error}</div>{/if}
 					</label>
 				</div>
 			</section>

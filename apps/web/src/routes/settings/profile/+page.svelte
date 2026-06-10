@@ -19,6 +19,7 @@ import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
+import { validateUsernameInput } from "$lib/slug-rules";
 import { authStore } from "$lib/stores/auth.svelte";
 import { getTheme, setTheme } from "$lib/theme.svelte";
 import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
@@ -141,6 +142,13 @@ async function saveEditingField() {
 	if (!nextDisplayName) {
 		inlineError = "Display name is required.";
 		return;
+	}
+	if (field === "username") {
+		const result = validateUsernameInput(nextUsername);
+		if (result.error) {
+			inlineError = result.error;
+			return;
+		}
 	}
 
 	savingField = field;

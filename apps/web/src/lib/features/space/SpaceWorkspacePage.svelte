@@ -145,6 +145,7 @@ import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
+import { validatePublicSlugInput } from "$lib/slug-rules";
 import {
 	buildSpaceFileDownloadUrl,
 	downloadSpaceFile,
@@ -281,7 +282,6 @@ const DEFAULT_IMAGE_MEDIA_TYPE = "image/webp";
 const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
-const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -3277,14 +3277,9 @@ function cancelSpaceSlugEdit() {
 	spaceSlugError = "";
 }
 function validateSpaceSlug(value: string): string | null {
-	const slug = value.trim();
-	if (!slug) return null;
-	if (!SPACE_SLUG_PATTERN.test(slug)) {
-		throw new Error(
-			"Slug must be 1–80 characters: lowercase letters, numbers, hyphens, or underscores. It cannot start or end with a separator.",
-		);
-	}
-	return slug;
+	const result = validatePublicSlugInput(value);
+	if (result.error) throw new Error(result.error);
+	return result.value;
 }
 function handleSpaceSlugKeydown(event: KeyboardEvent) {
 	if (event.key === "Escape") {

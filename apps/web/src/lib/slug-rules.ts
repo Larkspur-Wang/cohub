@@ -1,0 +1,84 @@
+const USERNAME_PATTERN = /^(?!-)(?!.*--)[a-z0-9-]{1,39}(?<!-)$/;
+const PUBLIC_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
+const RESERVED_USERNAMES = new Set([
+	"api",
+	"auth",
+	"admin",
+	"assets",
+	"callback",
+	"explore",
+	"favicon.ico",
+	"invite",
+	"login",
+	"logout",
+	"new",
+	"org",
+	"settings",
+	"spaces",
+	"static",
+	"trending",
+	"u",
+	"user",
+	"users",
+	"teams",
+]);
+
+export const USERNAME_RULE_HINT =
+	"Use 1-39 lowercase letters, numbers, or hyphens. No leading, trailing, or repeated hyphens.";
+export const PUBLIC_SLUG_RULE_HINT =
+	"Use 1-80 lowercase letters, numbers, hyphens, or underscores. No leading or trailing separators.";
+
+export function normalizeUsernameInput(value: string) {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9-]+/g, "-")
+		.replace(/-{2,}/g, "-")
+		.replace(/^-+|-+$/g, "")
+		.slice(0, 39);
+}
+
+export function normalizePublicSlugInput(value: string) {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9_-]+/g, "-")
+		.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
+		.slice(0, 80);
+}
+
+export function validateUsernameInput(
+	value: string,
+	options?: { required?: boolean },
+) {
+	const username = normalizeUsernameInput(value);
+	if (!username) {
+		return options?.required
+			? { value: null, error: "Username is required." }
+			: { value: null, error: null };
+	}
+	if (!USERNAME_PATTERN.test(username)) {
+		return { value: null, error: USERNAME_RULE_HINT };
+	}
+	if (RESERVED_USERNAMES.has(username)) {
+		return { value: null, error: "This username is reserved." };
+	}
+	return { value: username, error: null };
+}
+
+export function validatePublicSlugInput(
+	value: string,
+	options?: { required?: boolean; label?: string },
+) {
+	const label = options?.label ?? "Slug";
+	const slug = normalizePublicSlugInput(value);
+	if (!slug) {
+		return options?.required
+			? { value: null, error: `${label} is required.` }
+			: { value: null, error: null };
+	}
+	if (!PUBLIC_SLUG_PATTERN.test(slug)) {
+		return { value: null, error: PUBLIC_SLUG_RULE_HINT };
+	}
+	return { value: slug, error: null };
+}
