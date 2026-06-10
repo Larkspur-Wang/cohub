@@ -210,8 +210,7 @@ async function copyUrl() {
 					<label class="field" class:field-required={Boolean(usernameValidation.error)}>
 						<span>Username</span>
 						{#if missingUsername}
-							<input class="form-input font-mono" bind:value={usernameDraft} oninput={() => usernameDraft = normalizeUsernameInput(usernameDraft)} placeholder="Required" maxlength="39" aria-invalid={Boolean(usernameValidation.error)} />
-							{#if usernameValidation.error}<div class="field-hint">{usernameValidation.error}</div>{/if}
+							<input class="form-input font-mono" bind:value={usernameDraft} oninput={() => usernameDraft = normalizeUsernameInput(usernameDraft)} placeholder="Required" maxlength="39" aria-invalid={Boolean(usernameValidation.error)} title={usernameValidation.error ?? "Username"} aria-label={usernameValidation.error ?? "Username"} />
 						{:else}
 							<div class="readonly-value">{ownerUsername}</div>
 						{/if}
@@ -219,16 +218,14 @@ async function copyUrl() {
 					<label class="field" class:field-required={Boolean(spaceSlugValidation.error)}>
 						<span>Space slug</span>
 						{#if missingSpaceSlug}
-							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = normalizePublicSlugInput(spaceSlugDraft)} placeholder="Required" maxlength="80" aria-invalid={Boolean(spaceSlugValidation.error)} />
-							{#if spaceSlugValidation.error}<div class="field-hint">{spaceSlugValidation.error}</div>{/if}
+							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = normalizePublicSlugInput(spaceSlugDraft)} placeholder="Required" maxlength="80" aria-invalid={Boolean(spaceSlugValidation.error)} title={spaceSlugValidation.error ?? "Space slug"} aria-label={spaceSlugValidation.error ?? "Space slug"} />
 						{:else}
 							<div class="readonly-value">{spaceSlug}</div>
 						{/if}
 					</label>
 					<label class="field" class:field-required={Boolean(workSlugValidation.error)}>
 						<span>Work slug</span>
-						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = normalizePublicSlugInput(slug)} placeholder="Required" maxlength="80" aria-invalid={Boolean(workSlugValidation.error)} />
-						{#if workSlugValidation.error}<div class="field-hint">{workSlugValidation.error}</div>{/if}
+						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = normalizePublicSlugInput(slug)} placeholder="Required" maxlength="80" aria-invalid={Boolean(workSlugValidation.error)} title={workSlugValidation.error ?? "Work slug"} aria-label={workSlugValidation.error ?? "Work slug"} />
 					</label>
 				</div>
 			</section>
@@ -279,7 +276,6 @@ async function copyUrl() {
 	.form-input:focus { border-color: var(--brand); }
 	.field-required .form-input { border-color: color-mix(in srgb, var(--brand) 55%, var(--border-subtle)); background: color-mix(in srgb, var(--brand) 7%, var(--bg-input)); }
 	.field-required span { color: var(--text-secondary); }
-	.field-hint { font-size: 10px; color: var(--text-placeholder); }
 	.readonly-value { display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); }
 	.source-ref { display: flex; min-width: 0; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
 	.source-ref span { color: var(--text-placeholder); }
