@@ -47,9 +47,13 @@ const allowedViewerScopes = $state<Record<string, boolean>>({
 	"session.prompt.readonly": true,
 	"session.prompt.fullaccess": false,
 });
-const currentUsername = $derived(ownerUsername?.trim() || usernameDraft.trim());
-const currentSpaceSlug = $derived(spaceSlug?.trim() || spaceSlugDraft.trim());
-const currentWorkSlug = $derived(slugify(slug));
+const currentUsername = $derived(
+	ownerUsername?.trim() || normalizeUsername(usernameDraft),
+);
+const currentSpaceSlug = $derived(
+	spaceSlug?.trim() || normalizeSlugInput(spaceSlugDraft),
+);
+const currentWorkSlug = $derived(normalizeSlugInput(slug));
 const missingUsername = $derived(!ownerUsername?.trim());
 const missingSpaceSlug = $derived(!spaceSlug?.trim());
 const canPublish = $derived(
@@ -84,7 +88,7 @@ $effect(() => {
 				.filter(Boolean)
 				.pop()
 				?.replace(/\.[^.]+$/, "") || "work";
-		slug = slugify(base);
+		slug = normalizeSlugInput(base) || "work";
 		published = null;
 		error = null;
 		copied = false;
@@ -94,15 +98,13 @@ $effect(() => {
 	if (!missingSpaceSlug) spaceSlugDraft = spaceSlug ?? "";
 });
 
-function slugify(value: string) {
-	return (
-		value
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-z0-9_-]+/g, "-")
-			.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
-			.slice(0, 80) || "work"
-	);
+function normalizeSlugInput(value: string) {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9_-]+/g, "-")
+		.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "")
+		.slice(0, 80);
 }
 
 function normalizeUsername(value: string) {
@@ -133,7 +135,7 @@ async function ensurePublicAddress() {
 		usernameDraft = nextUsername;
 	}
 	if (missingSpaceSlug) {
-		const nextSpaceSlug = slugify(spaceSlugDraft);
+		const nextSpaceSlug = normalizeSlugInput(spaceSlugDraft);
 		if (!nextSpaceSlug) throw new Error("Space slug is required.");
 		const result = await sdk.space(spaceId).update({ slug: nextSpaceSlug });
 		onSpaceUpdated?.(result.space);
@@ -146,6 +148,7 @@ async function publish() {
 	error = null;
 	try {
 		await ensurePublicAddress();
+		if (!currentWorkSlug) throw new Error("Work slug is required.");
 		const result = await sdk.works.create({
 			spaceId,
 			slug: currentWorkSlug,
@@ -197,25 +200,28 @@ async function copyUrl() {
 				<div class="section-label">Public URL</div>
 				<div class="url-preview">{publicPath}</div>
 				<div class="address-grid">
-					<label class="field">
+					<label class="field" class:field-required={missingUsername && !currentUsername}>
 						<span>Username</span>
 						{#if missingUsername}
-							<input class="form-input font-mono" bind:value={usernameDraft} oninput={() => usernameDraft = normalizeUsername(usernameDraft)} placeholder="username" maxlength="39" />
+							<input class="form-input font-mono" bind:value={usernameDraft} oninput={() => usernameDraft = normalizeUsername(usernameDraft)} placeholder="Required" maxlength="39" aria-invalid={!currentUsername} />
+							{#if !currentUsername}<div class="field-hint">Required for public URL</div>{/if}
 						{:else}
 							<div class="readonly-value">{ownerUsername}</div>
 						{/if}
 					</label>
-					<label class="field">
+					<label class="field" class:field-required={missingSpaceSlug && !currentSpaceSlug}>
 						<span>Space slug</span>
 						{#if missingSpaceSlug}
-							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = slugify(spaceSlugDraft)} placeholder="space" maxlength="80" />
+							<input class="form-input font-mono" bind:value={spaceSlugDraft} oninput={() => spaceSlugDraft = normalizeSlugInput(spaceSlugDraft)} placeholder="Required" maxlength="80" aria-invalid={!currentSpaceSlug} />
+							{#if !currentSpaceSlug}<div class="field-hint">Required for public URL</div>{/if}
 						{:else}
 							<div class="readonly-value">{spaceSlug}</div>
 						{/if}
 					</label>
-					<label class="field">
+					<label class="field" class:field-required={!currentWorkSlug}>
 						<span>Work slug</span>
-						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = slugify(slug)} placeholder="work" maxlength="80" />
+						<input class="form-input font-mono" bind:value={slug} oninput={() => slug = normalizeSlugInput(slug)} placeholder="Required" maxlength="80" aria-invalid={!currentWorkSlug} />
+						{#if !currentWorkSlug}<div class="field-hint">Required</div>{/if}
 					</label>
 				</div>
 			</section>
@@ -262,7 +268,11 @@ async function copyUrl() {
 	.field { display: grid; gap: 5px; min-width: 0; }
 	.field span { font-size: 11px; color: var(--text-tertiary); }
 	.form-input, .readonly-value { height: 34px; min-width: 0; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-input); padding: 0 9px; color: var(--text-primary); font-size: 12px; outline: none; }
+	.form-input::placeholder { color: var(--text-placeholder); }
 	.form-input:focus { border-color: var(--brand); }
+	.field-required .form-input { border-color: color-mix(in srgb, var(--brand) 55%, var(--border-subtle)); background: color-mix(in srgb, var(--brand) 7%, var(--bg-input)); }
+	.field-required span { color: var(--text-secondary); }
+	.field-hint { font-size: 10px; color: var(--text-placeholder); }
 	.readonly-value { display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); }
 	.source-ref { display: flex; min-width: 0; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
 	.source-ref span { color: var(--text-placeholder); }
