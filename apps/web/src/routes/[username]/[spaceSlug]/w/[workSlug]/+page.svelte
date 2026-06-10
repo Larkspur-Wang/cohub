@@ -15,7 +15,7 @@ const props = $props<{
 			workScopes: string[];
 			allowedViewerScopes: string[];
 		};
-		space: {
+		space?: {
 			id: string;
 			slug: string | null;
 			name: string | null;
@@ -42,9 +42,8 @@ let pendingAuth = $state<{
 let authError = $state<string | null>(null);
 
 const work = $derived(props.data.work);
-const spaceName = $derived(
-	props.data.space.name || props.data.space.slug || "Space",
-);
+const space = $derived(props.data.space ?? null);
+const spaceName = $derived(space?.name || space?.slug || "Space");
 const publisherName = $derived(props.data.owner?.displayName ?? "Cohub");
 const publisherAvatarUrl = $derived(
 	props.data.owner?.avatarUrl?.trim() || null,
@@ -262,7 +261,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 				<img src="/favicon.svg" alt="Cohub" class="h-5 w-5 shrink-0 rounded-[5px]" />
 				<div class="hidden h-4 w-px bg-border-subtle sm:block"></div>
 				<div class="min-w-0 flex items-center gap-2">
-					<SpaceAvatar name={spaceName} profile={props.data.space.publicProfile} size="xs" />
+					<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="xs" />
 					<span class="truncate font-medium text-text-secondary">{spaceName}</span>
 					<span class="hidden text-text-tertiary sm:inline">/</span>
 					<span class="hidden truncate font-medium text-text-primary sm:inline">{work.slug}</span>

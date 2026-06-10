@@ -14,6 +14,7 @@ export const load: PageLoad = async ({ params, fetch }) => {
 	const content = response.ok ? await response.json() : null;
 	return {
 		work: result.work,
+		space: result.space,
 		owner: result.owner,
 		content,
 	};
