@@ -169,6 +169,13 @@
       "when": 1781057577392,
       "tag": "0023_works",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1781076065924,
+      "tag": "0024_stiff_shatterstar",
+      "breakpoints": true
     }
   ]
 }

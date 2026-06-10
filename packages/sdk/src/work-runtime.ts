@@ -1,7 +1,7 @@
 import type { Permission } from "./types.js";
 
 export type WorkRuntimeContext = {
-  work: { id: string; name: string; slug: string; url?: string | null };
+  work: { id: string; slug: string; url?: string | null };
   space: { id: string; name?: string | null };
   viewer?: { userUuid: string } | null;
   permissions?: { scopes: Permission[]; workScopes: Permission[]; viewerScopes: Permission[] };

@@ -8,7 +8,6 @@ const props = $props<{
 		work: {
 			id: string;
 			spaceId: string;
-			name: string;
 			slug: string;
 			targetType: "file" | "directory" | "port";
 			targetRef: string;
@@ -146,7 +145,6 @@ async function handleMessage(event: MessageEvent) {
 				context: {
 					work: {
 						id: work.id,
-						name: work.name,
 						slug: work.slug,
 						url: location.href,
 					},
@@ -211,7 +209,7 @@ onMount(() => window.addEventListener("message", handleMessage));
 onDestroy(() => window.removeEventListener("message", handleMessage));
 </script>
 
-<svelte:head><title>{work.name} · Cohub</title></svelte:head>
+<svelte:head><title>{work.slug} · Cohub</title></svelte:head>
 
 <div class="flex min-h-screen flex-col bg-bg-content text-text-primary">
 	<div class="min-h-0 flex-1">
@@ -219,7 +217,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 			<iframe
 				bind:this={frame}
 				class="h-[calc(100vh-34px)] w-full border-0 bg-bg-primary"
-				title={work.name}
+				title={work.slug}
 				sandbox={frameSandbox}
 				src={iframeSrc}
 			></iframe>
@@ -230,7 +228,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 		{/if}
 	</div>
 	<footer class="flex h-[34px] items-center justify-between border-t border-border-subtle bg-bg-surface px-3 text-[11px] text-text-tertiary">
-		<div class="truncate">{work.name} by {props.data.owner?.displayName ?? "Cohub"}</div>
+		<div class="truncate">{work.slug} by {props.data.owner?.displayName ?? "Cohub"}</div>
 		<div class="flex items-center gap-3">
 			<span>Powered by Cohub</span>
 			<button type="button" class="text-text-secondary hover:text-text-primary">Remix</button>

@@ -55,9 +55,7 @@ const serializeWork = (work: typeof works.$inferSelect) => ({
   id: work.id,
   spaceId: work.spaceId,
   userUuid: work.userUuid,
-  name: work.name,
   slug: work.slug,
-  description: work.description,
   status: work.status,
   targetType: work.targetType,
   targetRef: work.targetRef,
@@ -117,7 +115,6 @@ router.post("/", async (c) => {
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
 
-  const name = typeof body?.name === "string" && body.name.trim() ? body.name.trim().slice(0, 120) : "Untitled work";
   const slug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : "";
   if (!SLUG_RE.test(slug)) return c.json({ message: "slug must use lowercase letters, numbers, hyphens, or underscores" }, 400);
   const targetType = typeof body?.targetType === "string" ? body.targetType : "";
@@ -177,9 +174,7 @@ router.post("/", async (c) => {
   const [work] = await db.insert(works).values({
     spaceId,
     userUuid: user.uuid,
-    name,
     slug,
-    description: typeof body?.description === "string" ? body.description : null,
     status,
     targetType,
     targetRef,

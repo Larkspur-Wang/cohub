@@ -2480,7 +2480,7 @@ $effect(() => {
 				{@const isActive = activeWork?.id === work.id}
 				<a href={href ?? "#"} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work); }}>
 					<Rocket class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{work.name}</div><div class="mt-0.5 font-mono text-[10px] text-text-placeholder">/w/{work.slug}</div></div>
+					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{work.slug}</div></div>
 				</a>
 			{/each}
 		</div>
@@ -3131,8 +3131,7 @@ $effect(() => {
                     >
                       <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
-                        <div class="truncate leading-tight">{work.name}</div>
-                        <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">/w/{work.slug}</div>
+                        <div class="truncate font-mono leading-tight">{work.slug}</div>
                       </div>
                     </a>
                   {/each}
@@ -3147,7 +3146,7 @@ $effect(() => {
               >
                 <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                 <div class="min-w-0 flex-1">
-                  <div class="truncate leading-tight">{activeWork.name}</div>
+                  <div class="truncate font-mono leading-tight">{activeWork.slug}</div>
                 </div>
               </a>
             {/if}
