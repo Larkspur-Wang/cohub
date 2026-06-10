@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
+import { page } from "$app/state";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -68,13 +69,17 @@ function isAllowedFrameOrigin(origin: string, targetType: string) {
 const frameOrigin = $derived.by(() => {
 	if (!iframeSrc) return null;
 	try {
-		const origin = new URL(iframeSrc, location.href).origin;
+		const origin = new URL(iframeSrc, page.url).origin;
 		return isAllowedFrameOrigin(origin, work.targetType) ? origin : null;
 	} catch {
 		return null;
 	}
 });
-const frameReplyTarget = $derived(frameOrigin ?? location.origin);
+const frameReplyTarget = $derived(frameOrigin ?? page.url.origin);
+const framePreconnectOrigin = $derived.by(() => {
+	if (!frameOrigin || frameOrigin === page.url.origin) return null;
+	return frameOrigin;
+});
 const frameSandbox =
 	"allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals";
 
@@ -238,7 +243,12 @@ onMount(() => window.addEventListener("message", handleMessage));
 onDestroy(() => window.removeEventListener("message", handleMessage));
 </script>
 
-<svelte:head><title>{work.slug} · Cohub</title></svelte:head>
+<svelte:head>
+	<title>{work.slug} · Cohub</title>
+	{#if framePreconnectOrigin}
+		<link rel="preconnect" href={framePreconnectOrigin} crossorigin="anonymous" />
+	{/if}
+</svelte:head>
 
 <div class="relative min-h-screen overflow-hidden bg-bg-content text-text-primary">
 	{#if iframeSrc}
@@ -256,30 +266,30 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 	{/if}
 
 	<footer class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 sm:pb-4">
-		<div class="pointer-events-auto flex h-11 w-full max-w-[820px] items-center justify-between gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-3 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface">
-			<div class="min-w-0 flex items-center gap-2.5">
-				<img src="/favicon.svg" alt="Cohub" class="h-5 w-5 shrink-0 rounded-[5px]" />
-				<div class="hidden h-4 w-px bg-border-subtle sm:block"></div>
-				<div class="min-w-0 flex items-center gap-2">
-					<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="xs" />
-					<span class="truncate font-medium text-text-secondary">{spaceName}</span>
-					<span class="hidden text-text-tertiary sm:inline">/</span>
-					<span class="hidden truncate font-medium text-text-primary sm:inline">{work.slug}</span>
+		<div class="work-bar pointer-events-auto flex h-12 w-full max-w-[860px] items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-2.5 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface sm:px-3">
+			<div class="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">
+				<img src="/favicon.svg" alt="Cohub" class="block h-5 w-5 shrink-0 rounded-[5px]" />
+				<div class="hidden h-4 w-px shrink-0 bg-border-subtle sm:block"></div>
+				<div class="flex min-w-0 items-center gap-2 overflow-hidden">
+					<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="xs" class="translate-y-0" />
+					<span class="min-w-0 truncate font-medium leading-none text-text-secondary">{spaceName}</span>
+					<span class="hidden shrink-0 leading-none text-text-tertiary sm:inline">/</span>
+					<span class="hidden min-w-0 truncate font-medium leading-none text-text-primary sm:inline">{work.slug}</span>
 				</div>
 			</div>
-			<div class="flex shrink-0 items-center gap-2.5">
-				<div class="hidden items-center gap-2 sm:flex">
-					<span class="text-text-tertiary">Published by</span>
-					<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-elevated text-[8px] font-semibold text-text-secondary">
+			<div class="flex shrink-0 items-center gap-2">
+				<div class="flex min-w-0 items-center gap-2 overflow-hidden">
+					<span class="hidden shrink-0 leading-none text-text-tertiary md:inline">Published by</span>
+					<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-elevated text-[8px] font-semibold leading-none text-text-secondary shadow-[inset_0_1px_0_var(--color-border-subtle)]">
 						{#if publisherAvatarUrl}
-							<img src={publisherAvatarUrl} alt="" class="h-full w-full object-cover" loading="lazy" />
+							<img src={publisherAvatarUrl} alt="" class="block h-full w-full object-cover" loading="lazy" />
 						{:else}
-							<span class="translate-y-px">{profileInitials(publisherName)}</span>
+							<span>{profileInitials(publisherName)}</span>
 						{/if}
 					</span>
-					<span class="max-w-32 truncate font-medium text-text-secondary">{publisherName}</span>
+					<span class="hidden max-w-32 truncate font-medium leading-none text-text-secondary sm:inline">{publisherName}</span>
 				</div>
-				<button type="button" class="rounded-md px-2 py-1 font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60">
+				<button type="button" class="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2.5 font-medium leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:pointer-events-none disabled:opacity-50">
 					Remix
 				</button>
 			</div>
@@ -305,3 +315,15 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 		</div>
 	</div>
 {/if}
+
+<style>
+	.work-bar {
+		max-width: min(860px, calc(100vw - 24px));
+	}
+
+	@media (max-width: 420px) {
+		.work-bar {
+			gap: 0.5rem;
+		}
+	}
+</style>

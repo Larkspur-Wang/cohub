@@ -73,6 +73,20 @@ async function getWorkById(id: string) {
   return work ?? null;
 }
 
+const getWorkContent = (work: typeof works.$inferSelect) => {
+  if (work.targetType === "port") {
+    const portRef = normalizePortRef(work.targetRef);
+    if (!portRef) return null;
+    const url = getSandboxPublicEndpoints(work.spaceId)[portRef]?.url;
+    if (!url || !isAllowedWorkContentUrl(url, "port")) return null;
+    return { url, targetType: "port" as const, port: portRef };
+  }
+  if (!work.assetKey) return null;
+  const url = createWorkAssetPublicUrl(work.assetKey);
+  if (!isAllowedWorkContentUrl(url, "asset")) return null;
+  return { url, targetType: work.targetType, path: work.targetRef };
+};
+
 router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
   const username = c.req.param("username");
   const spaceSlug = c.req.param("spaceSlug");
@@ -96,6 +110,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
     work: serializeWork(row.work),
     space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
     owner: row.owner,
+    content: getWorkContent(row.work),
   });
 });
 
@@ -190,26 +205,6 @@ router.post("/", async (c) => {
   });
   if (!work) return c.json({ message: "slug already exists" }, 409);
   return c.json({ work: serializeWork(work) }, 201);
-});
-
-router.get("/:id/content", async (c) => {
-  const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
-  const work = await getWorkById(id);
-  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
-  if (work.targetType === "port") {
-    const portRef = normalizePortRef(work.targetRef);
-    if (!portRef) return c.json({ message: "work port is unavailable" }, 409);
-    const url = getSandboxPublicEndpoints(work.spaceId)[portRef]?.url;
-    if (!url || !isAllowedWorkContentUrl(url, "port")) return c.json({ message: "work port is unavailable" }, 409);
-    return c.json({ url, targetType: "port", port: portRef });
-  }
-  if (work.assetKey) {
-    const url = createWorkAssetPublicUrl(work.assetKey);
-    if (!isAllowedWorkContentUrl(url, "asset")) return c.json({ message: "work asset is unavailable" }, 409);
-    return c.json({ url, targetType: work.targetType, path: work.targetRef });
-  }
-  return c.json({ message: "work asset is unavailable" }, 409);
 });
 
 router.post("/:id/session", async (c) => {

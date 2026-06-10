@@ -33,6 +33,10 @@ export type WorkCreateInput = {
   meta?: Record<string, unknown> | null;
 };
 
+export type WorkContent =
+  | { url: string; targetType: "port"; port: string }
+  | { url: string; targetType: WorkTargetType; path: string };
+
 export type WorkSessionResponse = {
   token: string;
   expiresIn: number;
@@ -61,6 +65,7 @@ export class WorksApi {
       work: WorkRecord;
       space: { id: string; slug: string | null; name: string | null; userUuid: string; publicProfile?: SpacePublicProfile | null };
       owner: { userUuid: string; username: string | null; displayName: string; avatarUrl?: string | null };
+      content?: WorkContent | null;
     }>(
       `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(workSlug)}`,
     );
