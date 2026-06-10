@@ -39,8 +39,9 @@ const isHome = $derived(currentPath === "/");
 const isTrending = $derived(currentPath === "/trending");
 const isExplore = $derived(currentPath === "/explore");
 const isInvite = $derived(currentPath.startsWith("/invite"));
+const isWorkShare = $derived(/^\/[^/]+\/[^/]+\/w\/[^/]+\/?$/.test(currentPath));
 const isStandalonePage = $derived(
-	isLogin || isHome || isTrending || isInvite || isExplore,
+	isLogin || isHome || isTrending || isInvite || isExplore || isWorkShare,
 );
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",

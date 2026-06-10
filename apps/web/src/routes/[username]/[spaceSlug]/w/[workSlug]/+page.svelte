@@ -2,6 +2,7 @@
 import { onDestroy, onMount } from "svelte";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 
 const props = $props<{
 	data: {
@@ -14,7 +15,18 @@ const props = $props<{
 			workScopes: string[];
 			allowedViewerScopes: string[];
 		};
-		owner: { username: string | null; displayName: string } | null;
+		space: {
+			id: string;
+			slug: string | null;
+			name: string | null;
+			userUuid: string;
+			publicProfile?: { avatarUrl: string | null } | null;
+		};
+		owner: {
+			username: string | null;
+			displayName: string;
+			avatarUrl?: string | null;
+		} | null;
 		content: { url?: string; targetType?: string; path?: string } | null;
 	};
 }>();
@@ -30,6 +42,13 @@ let pendingAuth = $state<{
 let authError = $state<string | null>(null);
 
 const work = $derived(props.data.work);
+const spaceName = $derived(
+	props.data.space.name || props.data.space.slug || "Space",
+);
+const publisherName = $derived(props.data.owner?.displayName ?? "Cohub");
+const publisherAvatarUrl = $derived(
+	props.data.owner?.avatarUrl?.trim() || null,
+);
 const iframeSrc = $derived.by(
 	() =>
 		props.data.content?.url ??
@@ -113,6 +132,17 @@ function reply(requestId: string, payload: Record<string, unknown>) {
 		{ requestId, ...payload },
 		frameReplyTarget,
 	);
+}
+
+function profileInitials(value: string | null | undefined) {
+	const text = (value ?? "").replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
+	if (!text) return "CO";
+	const parts = text.split(" ").filter(Boolean);
+	const letters =
+		parts.length >= 2
+			? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
+			: text.slice(0, 2);
+	return letters.toUpperCase();
 }
 
 function replyAuthCancel() {
@@ -211,27 +241,49 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 
 <svelte:head><title>{work.slug} · Cohub</title></svelte:head>
 
-<div class="flex min-h-screen flex-col bg-bg-content text-text-primary">
-	<div class="min-h-0 flex-1">
-		{#if iframeSrc}
-			<iframe
-				bind:this={frame}
-				class="h-[calc(100vh-34px)] w-full border-0 bg-bg-primary"
-				title={work.slug}
-				sandbox={frameSandbox}
-				src={iframeSrc}
-			></iframe>
-		{:else}
-			<div class="flex h-[calc(100vh-34px)] items-center justify-center p-6 text-sm text-text-tertiary">
-				Work asset is unavailable.
+<div class="relative min-h-screen overflow-hidden bg-bg-content text-text-primary">
+	{#if iframeSrc}
+		<iframe
+			bind:this={frame}
+			class="h-screen w-full border-0 bg-bg-primary"
+			title={work.slug}
+			sandbox={frameSandbox}
+			src={iframeSrc}
+		></iframe>
+	{:else}
+		<div class="flex h-screen items-center justify-center p-6 text-sm text-text-tertiary">
+			Work asset is unavailable.
+		</div>
+	{/if}
+
+	<footer class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 sm:pb-4">
+		<div class="pointer-events-auto flex h-11 w-full max-w-[820px] items-center justify-between gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-3 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface">
+			<div class="min-w-0 flex items-center gap-2.5">
+				<img src="/favicon.svg" alt="Cohub" class="h-5 w-5 shrink-0 rounded-[5px]" />
+				<div class="hidden h-4 w-px bg-border-subtle sm:block"></div>
+				<div class="min-w-0 flex items-center gap-2">
+					<SpaceAvatar name={spaceName} profile={props.data.space.publicProfile} size="xs" />
+					<span class="truncate font-medium text-text-secondary">{spaceName}</span>
+					<span class="hidden text-text-tertiary sm:inline">/</span>
+					<span class="hidden truncate font-medium text-text-primary sm:inline">{work.slug}</span>
+				</div>
 			</div>
-		{/if}
-	</div>
-	<footer class="flex h-[34px] items-center justify-between border-t border-border-subtle bg-bg-surface px-3 text-[11px] text-text-tertiary">
-		<div class="truncate">{work.slug} by {props.data.owner?.displayName ?? "Cohub"}</div>
-		<div class="flex items-center gap-3">
-			<span>Powered by Cohub</span>
-			<button type="button" class="text-text-secondary hover:text-text-primary">Remix</button>
+			<div class="flex shrink-0 items-center gap-2.5">
+				<div class="hidden items-center gap-2 sm:flex">
+					<span class="text-text-tertiary">Published by</span>
+					<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-elevated text-[8px] font-semibold text-text-secondary">
+						{#if publisherAvatarUrl}
+							<img src={publisherAvatarUrl} alt="" class="h-full w-full object-cover" loading="lazy" />
+						{:else}
+							<span class="translate-y-px">{profileInitials(publisherName)}</span>
+						{/if}
+					</span>
+					<span class="max-w-32 truncate font-medium text-text-secondary">{publisherName}</span>
+				</div>
+				<button type="button" class="rounded-md px-2 py-1 font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60">
+					Remix
+				</button>
+			</div>
 		</div>
 	</footer>
 </div>

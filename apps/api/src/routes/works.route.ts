@@ -5,7 +5,7 @@ import { readSpaceDirectoryFiles, readSpaceFile, SpaceFsError, spaceFsJsonError 
 import { createWorkAssetPublicUrl, isConfiguredWorkAssetPublicUrl, writeWorkHtmlAsset, writeWorkSiteAssets } from "../work-asset-storage.js";
 import type { Permission } from "@cohub/core/permissions";
 import { db } from "../db/index.js";
-import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
+import { authzDenied, getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
@@ -81,7 +81,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
 
   const [row] = await db
     .select({
-      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName },
+      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName, avatarUrl: userProfiles.avatarUrl },
       space: spaces,
       work: works,
     })
@@ -94,7 +94,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
 
   return c.json({
     work: serializeWork(row.work),
-    space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid },
+    space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
     owner: row.owner,
   });
 });

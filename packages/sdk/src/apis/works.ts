@@ -1,5 +1,5 @@
 import type { HttpTransport } from "../transport.js";
-import type { Permission } from "../types.js";
+import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
 export type WorkStatus = "draft" | "published";
@@ -59,8 +59,8 @@ export class WorksApi {
   getBySlug(username: string, spaceSlug: string, workSlug: string) {
     return this.transport.request<{
       work: WorkRecord;
-      space: { id: string; slug: string | null; name: string | null; userUuid: string };
-      owner: { userUuid: string; username: string | null; displayName: string };
+      space: { id: string; slug: string | null; name: string | null; userUuid: string; publicProfile?: SpacePublicProfile | null };
+      owner: { userUuid: string; username: string | null; displayName: string; avatarUrl?: string | null };
     }>(
       `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(workSlug)}`,
     );
