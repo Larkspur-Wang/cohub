@@ -28,6 +28,7 @@ import {
 	type SpaceRecord,
 	type SpaceUsageResponse,
 	type TaskRunRecord,
+	type WorkRecord,
 } from "@neta-art/cohub";
 import {
 	Activity,
@@ -114,6 +115,7 @@ import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
+import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import {
 	buildComposerTextContentBlock,
@@ -422,6 +424,10 @@ let previewEndpoints = $state<SpacePublicEndpoints>({});
 let inlinePortPreview = $state<InlinePortPreview | null>(null);
 let portReadyToast = $state<PortReadyToast | null>(null);
 let portReadyToastTimer: ReturnType<typeof setTimeout> | null = null;
+let workPublishTarget = $state<{
+	targetType: "file" | "directory" | "port";
+	targetRef: string;
+} | null>(null);
 let directoryLoadTokenByPath = $state<Record<string, number>>({});
 let openFile = $state<SpaceFsFileResponse | null>(null);
 let openFileDraft = $state("");
@@ -466,6 +472,18 @@ const isMarkdownPath = (path: string) => /\.md$/i.test(path);
 const isHtmlPath = (path: string) => /\.html?$/i.test(path);
 const hasRenderedFilePreview = (file: SpaceFsFileResponse) =>
 	file.kind === "text" && (isMarkdownPath(file.path) || isHtmlPath(file.path));
+const openWorkPublish = (
+	targetType: "file" | "directory" | "port",
+	targetRef: string,
+) => {
+	workPublishTarget = { targetType, targetRef };
+};
+const publishOpenFile = () => {
+	if (openFile) openWorkPublish("file", openFile.path);
+};
+const publishInlineFile = () => {
+	if (inlineFile?.response) openWorkPublish("file", inlineFile.response.path);
+};
 
 const inlineFileIsMarkdown = $derived(
 	Boolean(
@@ -8278,6 +8296,12 @@ $effect(() => {
                 </div>
               {/if}
               {@render FileHeaderCoreActions(openFile.path)}
+              {#if openFileIsHtml && !fileEdit}
+                <button type="button" class="action-btn" onclick={publishOpenFile} title="Publish work">
+                  <Rocket class="w-3.5 h-3.5 shrink-0" />
+                  <span class="hidden sm:inline">Publish</span>
+                </button>
+              {/if}
               <a
                 href={openFileDownloadUrl}
                 download={openFileDownloadName}
@@ -9143,6 +9167,12 @@ $effect(() => {
                 {inlineFile.response.path}
               </div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
+              {#if inlineFileIsHtml && !inlineFileEdit}
+                <button type="button" class="action-btn" onclick={publishInlineFile} title="Publish work">
+                  <Rocket class="w-3.5 h-3.5 shrink-0" />
+                  <span class="hidden sm:inline">Publish</span>
+                </button>
+              {/if}
               {#if inlineFileHasRenderedPreview}
                 <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
                   <button
@@ -9370,6 +9400,7 @@ $effect(() => {
         observedAt={inlinePortEndpoint?.observedAt}
         focused={previewFocusMode}
         onToggleFocus={isMobile ? undefined : togglePreviewFocusMode}
+        onPublish={() => openWorkPublish("port", inlinePortPreview!.url)}
         onClose={closeInlinePort}
       />
     </WorkspacePreviewPane>
@@ -9462,6 +9493,13 @@ $effect(() => {
       />
     {/if}
   </MobileRightDrawer>
+  <WorkPublishDialog
+    open={Boolean(workPublishTarget)}
+    {spaceId}
+    targetType={workPublishTarget?.targetType ?? "file"}
+    targetRef={workPublishTarget?.targetRef ?? ""}
+    onClose={() => workPublishTarget = null}
+  />
   <!-- Share Modal -->
   <Dialog open={showShareModal && !!shareModalSessionId} onClose={() => { showShareModal = false; }} title={hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'} maxWidth="380px">
     <div class="p-4 space-y-4">

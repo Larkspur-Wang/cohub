@@ -390,6 +390,7 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
     spaceId,
     sessionId,
     userId: ctx.userId,
+    authToken: ctx.token,
     clientMessageId,
     content,
     source: "websocket",

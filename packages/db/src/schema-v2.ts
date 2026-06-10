@@ -219,6 +219,60 @@ export const checkpoints = v2.table(
   }),
 );
 
+export const works = v2.table(
+  "works",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    spaceId: uuid("space_id").notNull(),
+    userUuid: varchar("user_uuid", { length: 255 }).notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    slug: varchar("slug", { length: 80 }).notNull(),
+    description: text("description"),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    targetType: varchar("target_type", { length: 20 }).notNull(),
+    targetRef: text("target_ref").notNull(),
+    assetKey: text("asset_key"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    workScopes: jsonb("work_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    allowedViewerScopes: jsonb("allowed_viewer_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    spaceIdx: index("v2_idx_works_space_id").on(table.spaceId),
+    userUuidIdx: index("v2_idx_works_user_uuid").on(table.userUuid),
+    statusIdx: index("v2_idx_works_status").on(table.status),
+    userSlugUniqueIdx: uniqueIndex("v2_uq_works_user_slug").on(table.userUuid, table.slug),
+    slugFormatCheck: check(
+      "v2_chk_works_slug_format",
+      sql`length(${table.slug}) between 1 and 80 and ${table.slug} !~ '[^a-z0-9_-]' and left(${table.slug}, 1) ~ '[a-z0-9]' and right(${table.slug}, 1) ~ '[a-z0-9]'`,
+    ),
+  }),
+);
+
+export const workViewerGrants = v2.table(
+  "work_viewer_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workId: uuid("work_id").notNull(),
+    spaceId: uuid("space_id").notNull(),
+    viewerUserUuid: varchar("viewer_user_uuid", { length: 255 }).notNull(),
+    scopes: jsonb("scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    workIdx: index("v2_idx_work_viewer_grants_work_id").on(table.workId),
+    spaceIdx: index("v2_idx_work_viewer_grants_space_id").on(table.spaceId),
+    viewerIdx: index("v2_idx_work_viewer_grants_viewer_user_uuid").on(table.viewerUserUuid),
+    workViewerUniqueIdx: uniqueIndex("v2_uq_work_viewer_grants_work_viewer").on(table.workId, table.viewerUserUuid),
+  }),
+);
+
 export const canvasDocuments = v2.table(
   "canvas_documents",
   {

@@ -18,6 +18,7 @@ import { abortSessionTurn, failSessionTurn, interruptSessionTurn } from "../../s
 import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized } from "../../session-output.js";
 import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
+import { verifyWorkSessionToken } from "../../work-sessions.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
@@ -377,6 +378,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
     .req.json<{
       content: ContentBlock[];
       userId?: string | null;
+      authToken?: string | null;
       clientMessageId?: string | null;
       source?: string | null;
       model?: string | null;
@@ -395,7 +397,11 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
     return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
   }
   const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
-  if (!(await hasPermission({ uuid: userId }, promptPermission, { spaceId, sessionId }))) {
+  const workSession = body.authToken ? verifyWorkSessionToken(body.authToken) : null;
+  const permissionSubject = workSession && workSession.userUuid === userId
+    ? ({ uuid: userId, workSession } as { uuid: string; workSession: typeof workSession })
+    : { uuid: userId };
+  if (!(await hasPermission(permissionSubject, promptPermission, { spaceId, sessionId }))) {
     return c.json({ message: "forbidden" }, 403);
   }
   const clientMessageId = body.clientMessageId?.trim();

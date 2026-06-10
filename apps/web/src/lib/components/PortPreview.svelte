@@ -8,6 +8,7 @@ import {
 	Maximize2,
 	Minimize2,
 	RefreshCw,
+	Rocket,
 	X,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
@@ -19,6 +20,7 @@ const {
 	observedAt,
 	focused = false,
 	onToggleFocus,
+	onPublish,
 	onClose,
 }: {
 	port: string;
@@ -27,6 +29,7 @@ const {
 	observedAt?: number;
 	focused?: boolean;
 	onToggleFocus?: () => void;
+	onPublish?: () => void;
 	onClose: () => void;
 } = $props();
 
@@ -122,6 +125,11 @@ onDestroy(() => {
 				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
 			{/if}
 		</button>
+		{#if onPublish}
+			<button type="button" class="preview-icon-btn" onclick={onPublish} title="Publish work" disabled={!url}>
+				<Rocket class="h-4 w-4" />
+			</button>
+		{/if}
 		<a class="preview-icon-btn" href={url} target="_blank" rel="noreferrer" title="Open externally" aria-disabled={!url}>
 			<ExternalLink class="h-4 w-4" />
 		</a>

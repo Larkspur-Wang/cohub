@@ -11,11 +11,14 @@ import { SearchApi } from "./apis/search.js";
 import { SpaceClient, SpacesApi, type WebSocketConnectionState } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
+import { WorksApi } from "./apis/works.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { createWebsocketClient } from "./websocket.js";
 import { VoiceApi } from "./voice-input.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
+import { createWorkRuntime, type WorkRuntimeApi } from "./work-runtime.js";
+import type { Permission } from "./types.js";
 
 export class CohubClient {
   readonly spaces: SpacesApi;
@@ -33,25 +36,30 @@ export class CohubClient {
   readonly explore: ExploreApi;
   readonly invite: PublicInviteApi;
   readonly voice: VoiceApi;
+  readonly works: WorksApi;
 
   private readonly transport: HttpTransport;
   private readonly websocketClient: ReturnType<typeof createWebsocketClient>;
+  private readonly workRuntime: WorkRuntimeApi;
 
   constructor(options: CohubClientOptions = {}) {
     const apiBaseUrl = resolveApiBaseUrl(options);
-    this.transport = new HttpTransport(options);
+    this.workRuntime = createWorkRuntime();
+    const getAccessToken = options.getAccessToken ?? ((tokenOptions?: { forceRefresh?: boolean }) => this.workRuntime.getAccessToken(tokenOptions));
+    const resolvedOptions = { ...options, getAccessToken };
+    this.transport = new HttpTransport(resolvedOptions);
     this.websocketClient = createWebsocketClient({
       url: resolveWebsocketUrl({
         env: options.websocket?.env ?? options.env,
         url: options.websocket?.url,
       }),
       ...options.websocket,
-      getAccessToken: options.websocket?.getAccessToken ?? options.getAccessToken,
+      getAccessToken: options.websocket?.getAccessToken ?? getAccessToken,
     });
     this.voice = new VoiceApi({
       env: options.voice?.env ?? options.env,
       url: options.voice?.url,
-      getAccessToken: options.voice?.getAccessToken ?? options.getAccessToken,
+      getAccessToken: options.voice?.getAccessToken ?? getAccessToken,
       WebSocketImpl: options.voice?.WebSocketImpl,
       connectionTimeoutMs: options.voice?.connectionTimeoutMs,
       idleConnectionTimeoutMs: options.voice?.idleConnectionTimeoutMs,
@@ -75,7 +83,16 @@ export class CohubClient {
     this.cronJobs = new CronJobsApi(this.transport);
     this.explore = new ExploreApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
+    this.works = new WorksApi(this.transport);
   }
+
+  context() {
+    return this.workRuntime.context();
+  }
+
+  readonly auth = {
+    request: (input: { scopes: Permission[]; reason?: string }) => this.workRuntime.requestAuthorization(input),
+  };
 
   space(spaceId: string) {
     return new SpaceClient(spaceId, this.transport, this.websocketClient);

@@ -43,21 +43,58 @@ export const authenticateRealtimeToken = async (input: { token: string }): Promi
   let user: AuthUserProfile;
   try {
     user = await verifyUserAccessToken({ token: input.token, logtoEndpoint: gatewayConfig.logtoEndpoint });
+    return {
+      ok: true,
+      user,
+    };
   } catch (error) {
     const status = error instanceof AuthorizationError ? error.status : 401;
+    if (status === 403) {
+      return {
+        ok: false,
+        status,
+        error: {
+          message: "Forbidden",
+          type: "authentication_error",
+        },
+      };
+    }
+  }
+
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/api/me`, {
+    headers: {
+      authorization: `Bearer ${input.token}`,
+      ...buildTraceHeaders(),
+    },
+  }).catch(() => null);
+  if (!response?.ok) {
     return {
       ok: false,
-      status,
+      status: response?.status === 403 ? 403 : 401,
       error: {
-        message: status === 403 ? "Forbidden" : "Unauthorized",
+        message: response?.status === 403 ? "Forbidden" : "Unauthorized",
         type: "authentication_error",
       },
     };
   }
-
+  const data = await parseJson<{ uuid?: string; profile?: { displayName?: string | null; avatarUrl?: string | null } }>(response);
+  if (!data?.uuid) {
+    return {
+      ok: false,
+      status: 401,
+      error: {
+        message: "Unauthorized",
+        type: "authentication_error",
+      },
+    };
+  }
   return {
     ok: true,
-    user,
+    user: {
+      uuid: data.uuid,
+      nick_name: data.profile?.displayName ?? undefined,
+      avatar_url: data.profile?.avatarUrl ?? undefined,
+    },
   };
 };
 
@@ -102,6 +139,7 @@ export const submitInternalSessionPrompt = async (input: {
   spaceId: string;
   sessionId: string;
   userId: string;
+  authToken?: string | null;
   clientMessageId: string;
   content: ContentBlock[];
   source: string;
@@ -120,6 +158,7 @@ export const submitInternalSessionPrompt = async (input: {
     body: JSON.stringify({
       content: input.content,
       userId: input.userId,
+      authToken: input.authToken ?? null,
       clientMessageId: input.clientMessageId,
       source: input.source,
       model: input.model ?? null,

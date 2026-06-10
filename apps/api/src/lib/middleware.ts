@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthUserProfile } from "../auth.js";
 import type { ExecutionAuthPrincipal } from "../auth.js";
+import type { WorkSessionPrincipal } from "../work-sessions.js";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
 export type AuthUser = AuthUserProfile & { uuid: string };
@@ -15,7 +16,8 @@ export class UnauthorizedError extends Error {
 }
 export type RequestPrincipal =
   | { type: "user"; user: AuthUser }
-  | { type: "execution"; execution: ExecutionAuthPrincipal };
+  | { type: "execution"; execution: ExecutionAuthPrincipal }
+  | { type: "work_session"; workSession: WorkSessionPrincipal };
 
 import { config } from "../config.js";
 import { getProfilesByUuids } from "../user-profiles.js";
@@ -35,6 +37,16 @@ const principalToAuthUser = (principal: RequestPrincipal | null | undefined): Au
       phone_num: undefined,
       avatar_url: undefined,
     } satisfies AuthUser;
+  }
+  if (principal?.type === "work_session") {
+    return {
+      uuid: principal.workSession.userUuid,
+      id: undefined,
+      nick_name: undefined,
+      phone_num: undefined,
+      avatar_url: undefined,
+      workSession: principal.workSession,
+    } as AuthUser & { workSession: WorkSessionPrincipal };
   }
   return null;
 };
@@ -89,6 +101,11 @@ export const authzDenied = (c: Context) => {
 export const getExecutionPrincipal = (c: Context): ExecutionAuthPrincipal | null => {
   const principal = c.get("principal") as RequestPrincipal | null | undefined;
   return principal?.type === "execution" ? principal.execution : null;
+};
+
+export const getWorkSessionPrincipal = (c: Context): WorkSessionPrincipal | null => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  return principal?.type === "work_session" ? principal.workSession : null;
 };
 
 // ── Internal request validation ──────────────────────────────────────────────

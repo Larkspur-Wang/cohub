@@ -10,6 +10,7 @@ import type {
 	SessionRecord,
 	SpaceRecord,
 	TaskRunRecord,
+	WorkRecord,
 } from "@neta-art/cohub";
 import {
 	Activity,
@@ -36,6 +37,7 @@ import {
 	PanelLeftOpen,
 	Pencil,
 	Plus,
+	Rocket,
 	Save,
 	Search,
 	Settings,
@@ -223,6 +225,7 @@ let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
 let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 let cronjobsCollapsed = $state(false);
 let tasksCollapsed = $state(false);
+let worksCollapsed = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
 const sidebarFlyoutPreviewLimit = 24;
@@ -242,6 +245,7 @@ let deletingLabelId = $state<string | null>(null);
 
 let cronjobs = $state<CronJobRecord[]>([]);
 let tasks = $state<TaskRunRecord[]>([]);
+let works = $state<WorkRecord[]>([]);
 let loadingCronjobs = $state(false);
 let refreshingCheckpoints = $state(false);
 let loadingCronjobsSpaceId = $state<string | null>(null);
@@ -249,6 +253,9 @@ let loadingTasks = $state(false);
 let refreshingCronjobs = $state(false);
 let loadingTasksSpaceId = $state<string | null>(null);
 let refreshingTasks = $state(false);
+let loadingWorks = $state(false);
+let loadingWorksSpaceId = $state<string | null>(null);
+let refreshingWorks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
 const activeSession = $derived.by(() => {
@@ -256,6 +263,14 @@ const activeSession = $derived.by(() => {
 	const activeSessionId = match?.[1] ?? null;
 	return sessions.find((s) => s.id === activeSessionId) ?? null;
 });
+const activeWorkSlug = $derived.by(() => {
+	const match = currentPath.match(/^\/[^/]+\/w\/([^/]+)/);
+	return match?.[1] ?? null;
+});
+const activeWork = $derived(
+	works.find((work) => work.slug === activeWorkSlug) ?? null,
+);
+
 const activeCheckpointId = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/checkpoints\/([^/]+)/);
 	const id = match?.[1] ?? null;
@@ -1338,6 +1353,29 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 	}
 }
 
+async function loadWorksForSpace(spaceId: string, force = false) {
+	if (!force && loadingWorks && loadingWorksSpaceId === spaceId) return;
+	const shouldShowLoading = works.length === 0;
+	if (shouldShowLoading) {
+		loadingWorks = true;
+		loadingWorksSpaceId = spaceId;
+	} else {
+		refreshingWorks = true;
+	}
+	try {
+		const result = await sdk.works.listBySpace(spaceId);
+		if (spaceId === currentSpaceId) works = result.works ?? [];
+	} catch (error) {
+		console.warn("[sidebar] Failed to load works", { spaceId, error });
+	} finally {
+		if (loadingWorksSpaceId === spaceId) {
+			loadingWorks = false;
+			loadingWorksSpaceId = null;
+		}
+		refreshingWorks = false;
+	}
+}
+
 async function handleNavigate(
 	href: string,
 	options?: { keepSettingsReturn?: boolean },
@@ -1446,6 +1484,28 @@ async function handleNavigateToTask(taskId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
 	await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
+}
+
+function getWorkOwnerUsername() {
+	return (
+		currentSpace?.ownerProfile?.username ??
+		(currentSpace?.userUuid === authStore.userUuid
+			? authStore.profile?.username
+			: null)
+	);
+}
+
+function buildWorkRoute(work: WorkRecord) {
+	const username = getWorkOwnerUsername();
+	return username
+		? `/${encodeURIComponent(username)}/w/${encodeURIComponent(work.slug)}`
+		: null;
+}
+
+async function handleNavigateToWork(work: WorkRecord) {
+	onClose?.();
+	const href = buildWorkRoute(work);
+	if (href) await goto(href);
 }
 
 async function handleCreateNewSession() {
@@ -2007,6 +2067,7 @@ $effect(() => {
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
+		works = [];
 		sessionsPageInfo = { hasMore: false, nextCursor: null };
 		exhaustedFallbackSessionCursor = null;
 		loadingSessions = false;
@@ -2023,6 +2084,9 @@ $effect(() => {
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
 		refreshingTasks = false;
+		loadingWorks = false;
+		loadingWorksSpaceId = null;
+		refreshingWorks = false;
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
@@ -2036,6 +2100,7 @@ $effect(() => {
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
 			void loadTasksForSpace(id, true);
+			void loadWorksForSpace(id, true);
 		});
 	} else {
 		sessions = [];
@@ -2046,6 +2111,7 @@ $effect(() => {
 		checkpoints = [];
 		cronjobs = [];
 		tasks = [];
+		works = [];
 		loadingSessions = false;
 		loadingSessionsSpaceId = null;
 		refreshingSessions = false;
@@ -2388,6 +2454,25 @@ $effect(() => {
 	{/if}
 {/snippet}
 
+{#snippet worksFlyoutList()}
+	{#if loadingWorks && works.length === 0}
+		{@render sidebarEmptyState("Loading works…", true)}
+	{:else if works.length === 0}
+		{@render sidebarEmptyState("No works")}
+	{:else}
+		<div class="space-y-[2px]">
+			{#each works.slice(0, sidebarFlyoutPreviewLimit) as work (work.id)}
+				{@const href = buildWorkRoute(work)}
+				{@const isActive = activeWork?.id === work.id}
+				<a href={href ?? "#"} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work); }}>
+					<Rocket class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{work.name}</div><div class="mt-0.5 font-mono text-[10px] text-text-placeholder">/w/{work.slug}</div></div>
+				</a>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet tasksFlyoutList()}
 	{#if loadingTasks && tasks.length === 0}
 		{@render sidebarEmptyState("Loading tasks…", true)}
@@ -2523,6 +2608,12 @@ $effect(() => {
                 <History class="h-4 w-4" />
               {/snippet}
               {@render checkpointsFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Works" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <Rocket class="h-4 w-4" />
+              {/snippet}
+              {@render worksFlyoutList()}
             </SidebarFlyout>
             <SidebarFlyout label="Scheduled" active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
@@ -2986,6 +3077,63 @@ $effect(() => {
                 <div class="min-w-0 flex-1">
                   <div class="truncate leading-tight">{getCheckpointTitle(activeCheckpoint)}</div>
                   <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{activeCheckpoint.commitHash.slice(0, 12)}</div>
+                </div>
+              </a>
+            {/if}
+          </div>
+
+
+          <!-- Works -->
+          <div class="mt-3">
+            <button
+              type="button"
+              class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+              onclick={() => { worksCollapsed = !worksCollapsed; }}
+              title={worksCollapsed ? "Expand works" : "Collapse works"}
+            >
+              <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {worksCollapsed ? 'rotate-180' : ''}" />
+              <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+              <span class="text-[11px] text-text-placeholder select-none">Works</span>
+              {@render syncSpinner(refreshingWorks, "ml-auto")}
+            </button>
+
+            {#if !worksCollapsed}
+              {#if loadingWorks && works.length === 0}
+                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                  <Loader2 class="w-3 h-3 animate-spin" />
+                  Loading works...
+                </div>
+              {:else if works.length === 0}
+                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No works</div>
+              {:else}
+                <div class="space-y-[2px] mt-1">
+                  {#each works.slice(0, 20) as work (work.id)}
+                    {@const href = buildWorkRoute(work)}
+                    {@const isActive = activeWork?.id === work.id}
+                    <a
+                      href={href ?? "#"}
+                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work); }}
+                    >
+                      <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate leading-tight">{work.name}</div>
+                        <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">/w/{work.slug}</div>
+                      </div>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            {:else if activeWork}
+              {@const href = buildWorkRoute(activeWork)}
+              <a
+                href={href ?? "#"}
+                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork); }}
+              >
+                <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate leading-tight">{activeWork.name}</div>
                 </div>
               </a>
             {/if}

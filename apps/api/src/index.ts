@@ -13,6 +13,7 @@ import { applyTraceResponseHeaders, getActiveTraceIdentifiers, getOrCreateReques
 import { verifyUserAccessToken } from "@cohub/identity";
 
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
+import { verifyWorkSessionToken, type WorkSessionPrincipal } from "./work-sessions.js";
 import { UnauthorizedError } from "./lib/middleware.js";
 import { assertRequiredConfig, config } from "./config.js";
 
@@ -26,7 +27,8 @@ const app = new Hono<{
     token: string | null;
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
-    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | null;
+    workSession: WorkSessionPrincipal | null;
+    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | { type: "work_session"; workSession: WorkSessionPrincipal } | null;
     requestId: string;
     traceId: string | null;
   };
@@ -66,6 +68,7 @@ app.use(async (c, next) => {
   c.set("token", token);
   c.set("authUser", null);
   c.set("executionAuth", null);
+  c.set("workSession", null);
   c.set("principal", null);
 
   if (token) {
@@ -76,6 +79,14 @@ app.use(async (c, next) => {
     if (executionAuth) {
       c.set("executionAuth", executionAuth);
       c.set("principal", { type: "execution", execution: executionAuth });
+      await next();
+      return;
+    }
+
+    const workSession = verifyWorkSessionToken(token);
+    if (workSession) {
+      c.set("workSession", workSession);
+      c.set("principal", { type: "work_session", workSession });
       await next();
       return;
     }
