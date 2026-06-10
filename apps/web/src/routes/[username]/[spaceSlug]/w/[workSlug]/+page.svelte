@@ -36,15 +36,28 @@ const iframeSrc = $derived.by(
 		props.data.content?.url ??
 		(work.targetType === "port" ? work.targetRef : ""),
 );
+function isAllowedFrameOrigin(origin: string, targetType: string) {
+	try {
+		const { protocol, hostname } = new URL(origin);
+		if (protocol !== "https:") return false;
+		if (targetType === "port")
+			return hostname === "cohub.run" || hostname.endsWith(".cohub.run");
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 const frameOrigin = $derived.by(() => {
 	if (!iframeSrc) return null;
 	try {
-		return new URL(iframeSrc, location.href).origin;
+		const origin = new URL(iframeSrc, location.href).origin;
+		return isAllowedFrameOrigin(origin, work.targetType) ? origin : null;
 	} catch {
 		return null;
 	}
 });
-const frameReplyTarget = $derived(frameOrigin ?? "*");
+const frameReplyTarget = $derived(frameOrigin ?? location.origin);
 const frameSandbox =
 	"allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals";
 
@@ -96,10 +109,22 @@ async function authorize(scopes: string[]) {
 }
 
 function reply(requestId: string, payload: Record<string, unknown>) {
+	if (!frameOrigin) return;
 	frame?.contentWindow?.postMessage(
 		{ requestId, ...payload },
 		frameReplyTarget,
 	);
+}
+
+function replyAuthCancel() {
+	if (!pendingAuth) return;
+	reply(pendingAuth.requestId, {
+		type: "cohub.work.authorize.result",
+		token: null,
+	});
+	authOpen = false;
+	pendingAuth = null;
+	authError = null;
 }
 
 async function handleMessage(event: MessageEvent) {
@@ -139,9 +164,19 @@ async function handleMessage(event: MessageEvent) {
 			reply(data.requestId, { type: "cohub.work.token.result", token });
 		}
 		if (data.type === "cohub.work.authorize") {
+			const scopes = (data.scopes ?? []).filter((scope) =>
+				work.allowedViewerScopes.includes(scope),
+			);
+			if (scopes.length === 0) {
+				reply(data.requestId, {
+					type: "cohub.work.error",
+					message: "No allowed scopes requested.",
+				});
+				return;
+			}
 			pendingAuth = {
 				requestId: data.requestId,
-				scopes: data.scopes ?? [],
+				scopes,
 				reason: data.reason,
 			};
 			authError = null;
@@ -215,7 +250,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 				{#if authError}<div class="rounded-md border border-error-soft/30 bg-error-bg p-2 text-xs text-error-soft">{authError}</div>{/if}
 			</div>
 			<div class="flex justify-end gap-2 border-t border-border-subtle p-3">
-				<button type="button" class="action-btn" onclick={() => { authOpen = false; pendingAuth = null; }}>Cancel</button>
+				<button type="button" class="action-btn" onclick={replyAuthCancel}>Cancel</button>
 				<button type="button" class="action-btn primary" onclick={() => void confirmAuth()}>Allow</button>
 			</div>
 		</div>

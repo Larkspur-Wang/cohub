@@ -1508,6 +1508,12 @@ async function handleNavigateToWork(work: WorkRecord) {
 	if (href) await goto(href);
 }
 
+function handleWorksChanged(event: Event) {
+	const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
+	if (!currentSpaceId || detail?.spaceId !== currentSpaceId) return;
+	void loadWorksForSpace(currentSpaceId, true);
+}
+
 async function handleCreateNewSession() {
 	if (!currentSpaceId || creatingSession) return;
 	creatingSession = true;
@@ -1954,6 +1960,10 @@ onMount(() => {
 			tasks = runs;
 		});
 		window.addEventListener("keydown", handleGlobalNewChatKeydown);
+		window.addEventListener(
+			"cohub:works-changed",
+			handleWorksChanged as EventListener,
+		);
 		void (async () => {
 			await loadSpaces();
 
@@ -2014,6 +2024,10 @@ onMount(() => {
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
 			window.removeEventListener("keydown", handleGlobalNewChatKeydown);
+			window.removeEventListener(
+				"cohub:works-changed",
+				handleWorksChanged as EventListener,
+			);
 			window.removeEventListener(
 				"cohub:space-created",
 				handleSpaceCreated as EventListener,

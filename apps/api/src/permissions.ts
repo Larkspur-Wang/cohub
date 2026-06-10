@@ -27,17 +27,27 @@ const scopeListHasPermission = (scopes: readonly Permission[], permission: Permi
   return false;
 };
 
-const hasActiveViewerGrantPermission = async (workSession: WorkSessionPrincipal, permission: Permission) => {
-  if (!workSession.workViewerGrantId) return false;
-  if (!scopeListHasPermission(workSession.viewerScopes, permission)) return false;
+const getActiveViewerGrantScopes = async (workSession: WorkSessionPrincipal) => {
+  if (!workSession.workViewerGrantId) return [] as Permission[];
   const [grant] = await db
     .select({ scopes: workViewerGrants.scopes, expiresAt: workViewerGrants.expiresAt, revokedAt: workViewerGrants.revokedAt })
     .from(workViewerGrants)
     .where(eq(workViewerGrants.id, workSession.workViewerGrantId))
     .limit(1);
-  if (!grant || grant.revokedAt) return false;
-  if (grant.expiresAt && grant.expiresAt.getTime() <= Date.now()) return false;
-  return scopeListHasPermission(grant.scopes as Permission[], permission);
+  if (!grant || grant.revokedAt) return [];
+  if (grant.expiresAt && grant.expiresAt.getTime() <= Date.now()) return [];
+  const tokenScopes = new Set(workSession.viewerScopes);
+  return (grant.scopes as Permission[]).filter((scope) => tokenScopes.has(scope));
+};
+
+const hasActiveViewerGrantPermission = async (workSession: WorkSessionPrincipal, permission: Permission) => {
+  if (!scopeListHasPermission(workSession.viewerScopes, permission)) return false;
+  return scopeListHasPermission(await getActiveViewerGrantScopes(workSession), permission);
+};
+
+const resolveWorkSessionScopes = async (workSession: WorkSessionPrincipal) => {
+  const viewerScopes = await getActiveViewerGrantScopes(workSession);
+  return Array.from(new Set([...workSession.workScopes, ...viewerScopes]));
 };
 
 const hasWorkSessionScopedPermission = async (workSession: WorkSessionPrincipal, permission: Permission, spaceId: string) => {
@@ -71,7 +81,7 @@ export async function resolvePermissionAccess(
 ): Promise<PermissionAccess> {
   const workSession = getUserWorkSession(user);
   if (workSession && workSession.spaceId === context.spaceId) {
-    return { role: null, permissions: workSession.scopes };
+    return { role: null, permissions: await resolveWorkSessionScopes(workSession) };
   }
   return resolveSharedPermissionAccess({
     store: permissionStore,

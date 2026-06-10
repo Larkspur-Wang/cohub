@@ -92,6 +92,9 @@ async function publish() {
 			allowedViewerScopes: selectedScopes(allowedViewerScopes),
 		});
 		published = result.work;
+		window.dispatchEvent(
+			new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
+		);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Publish failed.";
 	} finally {

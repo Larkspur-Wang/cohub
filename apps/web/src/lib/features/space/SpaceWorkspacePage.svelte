@@ -9400,7 +9400,7 @@ $effect(() => {
         observedAt={inlinePortEndpoint?.observedAt}
         focused={previewFocusMode}
         onToggleFocus={isMobile ? undefined : togglePreviewFocusMode}
-        onPublish={() => openWorkPublish("port", inlinePortPreview!.url)}
+        onPublish={() => openWorkPublish("port", inlinePortPreview!.port)}
         onClose={closeInlinePort}
       />
     </WorkspacePreviewPane>
