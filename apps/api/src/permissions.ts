@@ -6,6 +6,10 @@ import type { Permission, AccessPolicy, PermissionAccess } from "@cohub/core/per
 import type { WorkSessionPrincipal } from "./work-sessions.js";
 import { eq } from "drizzle-orm";
 
+type CachedWorkSessionPrincipal = WorkSessionPrincipal & {
+  activeViewerGrantScopes?: Promise<Permission[]>;
+};
+
 const permissionStore = createBatchDrizzlePermissionStore(db);
 
 export type { Audience, Permission } from "@cohub/core/permissions";
@@ -14,8 +18,8 @@ export async function getSpaceMemberRole(spaceId: string, userId: string): Promi
   return permissionStore.getSpaceMemberRole(spaceId, userId);
 }
 
-const getUserWorkSession = (user: AuthUserProfile | null): WorkSessionPrincipal | null => {
-  const session = (user as (AuthUserProfile & { workSession?: WorkSessionPrincipal }) | null)?.workSession;
+const getUserWorkSession = (user: AuthUserProfile | null): CachedWorkSessionPrincipal | null => {
+  const session = (user as (AuthUserProfile & { workSession?: CachedWorkSessionPrincipal }) | null)?.workSession;
   if (!session || user?.uuid !== session.userUuid) return null;
   return session;
 };
@@ -27,7 +31,7 @@ const scopeListHasPermission = (scopes: readonly Permission[], permission: Permi
   return false;
 };
 
-const getActiveViewerGrantScopes = async (workSession: WorkSessionPrincipal) => {
+const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
   if (!workSession.workViewerGrantId) return [] as Permission[];
   const [grant] = await db
     .select({ scopes: workViewerGrants.scopes, expiresAt: workViewerGrants.expiresAt, revokedAt: workViewerGrants.revokedAt })
@@ -40,17 +44,22 @@ const getActiveViewerGrantScopes = async (workSession: WorkSessionPrincipal) => 
   return (grant.scopes as Permission[]).filter((scope) => tokenScopes.has(scope));
 };
 
-const hasActiveViewerGrantPermission = async (workSession: WorkSessionPrincipal, permission: Permission) => {
+const getActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
+  workSession.activeViewerGrantScopes ??= loadActiveViewerGrantScopes(workSession);
+  return workSession.activeViewerGrantScopes;
+};
+
+const hasActiveViewerGrantPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission) => {
   if (!scopeListHasPermission(workSession.viewerScopes, permission)) return false;
   return scopeListHasPermission(await getActiveViewerGrantScopes(workSession), permission);
 };
 
-const resolveWorkSessionScopes = async (workSession: WorkSessionPrincipal) => {
+const resolveWorkSessionScopes = async (workSession: CachedWorkSessionPrincipal) => {
   const viewerScopes = await getActiveViewerGrantScopes(workSession);
   return Array.from(new Set([...workSession.workScopes, ...viewerScopes]));
 };
 
-const hasWorkSessionScopedPermission = async (workSession: WorkSessionPrincipal, permission: Permission, spaceId: string) => {
+const hasWorkSessionScopedPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission, spaceId: string) => {
   if (workSession.spaceId !== spaceId) return false;
   if (scopeListHasPermission(workSession.workScopes, permission)) return true;
   return hasActiveViewerGrantPermission(workSession, permission);

@@ -79,23 +79,23 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
   const workSlug = c.req.param("workSlug");
   if (!username || !SLUG_RE.test(spaceSlug) || !SLUG_RE.test(workSlug)) return c.json({ message: "work not found" }, 404);
 
-  const [owner] = await db
-    .select({ userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName })
+  const [row] = await db
+    .select({
+      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName },
+      space: spaces,
+      work: works,
+    })
     .from(userProfiles)
+    .innerJoin(spaces, and(eq(spaces.userUuid, userProfiles.userUuid), eq(spaces.slug, spaceSlug)))
+    .innerJoin(works, and(eq(works.spaceId, spaces.id), eq(works.slug, workSlug), eq(works.status, "published")))
     .where(eq(userProfiles.username, username))
     .limit(1);
-  if (!owner) return c.json({ message: "work not found" }, 404);
-
-  const [space] = await db.select().from(spaces).where(and(eq(spaces.userUuid, owner.userUuid), eq(spaces.slug, spaceSlug))).limit(1);
-  if (!space) return c.json({ message: "work not found" }, 404);
-
-  const [work] = await db.select().from(works).where(and(eq(works.spaceId, space.id), eq(works.slug, workSlug))).limit(1);
-  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (!row) return c.json({ message: "work not found" }, 404);
 
   return c.json({
-    work: serializeWork(work),
-    space: { id: space.id, slug: space.slug, name: space.name, userUuid: space.userUuid },
-    owner,
+    work: serializeWork(row.work),
+    space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid },
+    owner: row.owner,
   });
 });
 
