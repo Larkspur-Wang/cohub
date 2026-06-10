@@ -3,17 +3,20 @@ import type { Permission, WorkRecord, WorkTargetType } from "@neta-art/cohub";
 import { Check, Copy, Loader2 } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { sdk } from "$lib/sdk";
-import { authStore } from "$lib/stores/auth.svelte";
 
 const {
 	open,
 	spaceId,
+	ownerUsername,
+	spaceSlug,
 	targetType,
 	targetRef,
 	onClose,
 }: {
 	open: boolean;
 	spaceId: string;
+	ownerUsername: string | null;
+	spaceSlug: string | null;
 	targetType: WorkTargetType;
 	targetRef: string;
 	onClose: () => void;
@@ -34,10 +37,9 @@ const allowedViewerScopes = $state<Record<string, boolean>>({
 	"session.prompt.readonly": true,
 	"session.prompt.fullaccess": false,
 });
-const username = $derived(authStore.profile?.username ?? null);
 const workUrl = $derived.by(() => {
-	if (!username || !published) return "";
-	return `${window.location.origin}/${username}/w/${published.slug}`;
+	if (!ownerUsername || !spaceSlug || !published) return "";
+	return `${window.location.origin}/${ownerUsername}/${spaceSlug}/w/${published.slug}`;
 });
 
 $effect(() => {
@@ -72,8 +74,8 @@ function selectedScopes(source: Record<string, boolean>) {
 }
 
 async function publish() {
-	if (!username) {
-		error = "Set a username in Profile before publishing.";
+	if (!ownerUsername || !spaceSlug) {
+		error = "Set a space slug before publishing.";
 		return;
 	}
 	publishing = true;
@@ -133,7 +135,7 @@ async function copyUrl() {
 				<label class="grid gap-1.5">
 					<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Slug</span>
 					<input class="form-input font-mono" bind:value={slug} oninput={() => slug = slugify(slug)} placeholder="agent-dashboard" />
-					<div class="text-[11px] text-text-placeholder">/{username ?? "username"}/w/{slug || "work"}</div>
+					<div class="text-[11px] text-text-placeholder">/{ownerUsername ?? "user"}/{spaceSlug ?? "space"}/w/{slug || "work"}</div>
 				</label>
 			</div>
 

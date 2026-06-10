@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
-import { works, workViewerGrants, userProfiles } from "@cohub/db";
+import { spaces, works, workViewerGrants, userProfiles } from "@cohub/db";
 import { readSpaceFile, spaceFsJsonError } from "../space-fs.js";
 import { createWorkAssetPublicUrl, writeWorkHtmlAsset } from "../work-asset-storage.js";
 import type { Permission } from "@cohub/core/permissions";
@@ -52,18 +52,30 @@ async function getWorkById(id: string) {
   return work ?? null;
 }
 
-router.get("/by-slug/:username/:slug", async (c) => {
+router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
   const username = c.req.param("username");
-  const slug = c.req.param("slug");
-  if (!username || !SLUG_RE.test(slug)) return c.json({ message: "work not found" }, 404);
+  const spaceSlug = c.req.param("spaceSlug");
+  const workSlug = c.req.param("workSlug");
+  if (!username || !SLUG_RE.test(spaceSlug) || !SLUG_RE.test(workSlug)) return c.json({ message: "work not found" }, 404);
 
-  const [profile] = await db.select({ userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName }).from(userProfiles).where(eq(userProfiles.username, username)).limit(1);
-  if (!profile) return c.json({ message: "work not found" }, 404);
+  const [owner] = await db
+    .select({ userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName })
+    .from(userProfiles)
+    .where(eq(userProfiles.username, username))
+    .limit(1);
+  if (!owner) return c.json({ message: "work not found" }, 404);
 
-  const [work] = await db.select().from(works).where(and(eq(works.userUuid, profile.userUuid), eq(works.slug, slug))).limit(1);
-  if (!work || work.status !== "published") return c.json({ message: "work not found" }, 404);
+  const [space] = await db.select().from(spaces).where(and(eq(spaces.userUuid, owner.userUuid), eq(spaces.slug, spaceSlug))).limit(1);
+  if (!space) return c.json({ message: "work not found" }, 404);
 
-  return c.json({ work: serializeWork(work), owner: profile });
+  const [work] = await db.select().from(works).where(and(eq(works.spaceId, space.id), eq(works.slug, workSlug))).limit(1);
+  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
+
+  return c.json({
+    work: serializeWork(work),
+    space: { id: space.id, slug: space.slug, name: space.name, userUuid: space.userUuid },
+    owner,
+  });
 });
 
 router.get("/space/:spaceId", async (c) => {
@@ -96,7 +108,7 @@ router.post("/", async (c) => {
   const [existingWork] = await db
     .select({ id: works.id })
     .from(works)
-    .where(and(eq(works.userUuid, user.uuid), eq(works.slug, slug)))
+    .where(and(eq(works.spaceId, spaceId), eq(works.slug, slug)))
     .limit(1);
   if (existingWork) return c.json({ message: "slug already exists" }, 409);
 
@@ -146,7 +158,7 @@ router.get("/:id/content", async (c) => {
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
-  if (!work || work.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
   if (work.targetType === "port") return c.json({ url: work.targetRef, targetType: "port" });
   if (work.assetKey) {
     return c.json({ url: createWorkAssetPublicUrl(work.assetKey), targetType: work.targetType, path: work.targetRef });
@@ -159,7 +171,7 @@ router.post("/:id/session", async (c) => {
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
-  if (!work || work.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
   const token = createWorkSessionToken({
     userUuid: user.uuid,
     workId: work.id,
@@ -174,7 +186,7 @@ router.post("/:id/authorize", async (c) => {
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
-  if (!work || work.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
   const body = await c.req.json().catch(() => null) as { scopes?: unknown } | null;
   const requested = normalizeScopes(body?.scopes, ALLOWED_VIEWER_SCOPES);
   if (requested.length === 0) return c.json({ message: "no valid scopes requested" }, 400);

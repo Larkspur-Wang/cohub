@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS "v2_idx_works_user_uuid" ON "v2"."works" USING btree 
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v2_idx_works_status" ON "v2"."works" USING btree ("status");
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "v2_uq_works_user_slug" ON "v2"."works" USING btree ("user_uuid","slug");
+CREATE UNIQUE INDEX IF NOT EXISTS "v2_uq_works_space_slug" ON "v2"."works" USING btree ("space_id","slug");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "v2_idx_work_viewer_grants_work_id" ON "v2"."work_viewer_grants" USING btree ("work_id");
 --> statement-breakpoint

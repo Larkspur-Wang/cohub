@@ -15,7 +15,7 @@ const props = $props<{
 			workScopes: string[];
 			allowedViewerScopes: string[];
 		};
-		owner: { username: string | null; displayName: string };
+		owner: { username: string | null; displayName: string } | null;
 		content: { url?: string; targetType?: string; path?: string } | null;
 	};
 }>();
@@ -195,7 +195,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 		{/if}
 	</div>
 	<footer class="flex h-[34px] items-center justify-between border-t border-border-subtle bg-bg-surface px-3 text-[11px] text-text-tertiary">
-		<div class="truncate">{work.name} by {props.data.owner.displayName}</div>
+		<div class="truncate">{work.name} by {props.data.owner?.displayName ?? "Cohub"}</div>
 		<div class="flex items-center gap-3">
 			<span>Powered by Cohub</span>
 			<button type="button" class="text-text-secondary hover:text-text-primary">Remix</button>

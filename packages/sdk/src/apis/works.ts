@@ -60,9 +60,13 @@ export class WorksApi {
     return this.transport.request<{ works: WorkRecord[] }>(`/api/works/space/${spaceId}`);
   }
 
-  getBySlug(username: string, slug: string) {
-    return this.transport.request<{ work: WorkRecord; owner: { userUuid: string; username: string | null; displayName: string } }>(
-      `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(slug)}`,
+  getBySlug(username: string, spaceSlug: string, workSlug: string) {
+    return this.transport.request<{
+      work: WorkRecord;
+      space: { id: string; slug: string | null; name: string | null; userUuid: string };
+      owner: { userUuid: string; username: string | null; displayName: string };
+    }>(
+      `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(workSlug)}`,
     );
   }
 

@@ -243,7 +243,7 @@ export const works = v2.table(
     spaceIdx: index("v2_idx_works_space_id").on(table.spaceId),
     userUuidIdx: index("v2_idx_works_user_uuid").on(table.userUuid),
     statusIdx: index("v2_idx_works_status").on(table.status),
-    userSlugUniqueIdx: uniqueIndex("v2_uq_works_user_slug").on(table.userUuid, table.slug),
+    spaceSlugUniqueIdx: uniqueIndex("v2_uq_works_space_slug").on(table.spaceId, table.slug),
     slugFormatCheck: check(
       "v2_chk_works_slug_format",
       sql`length(${table.slug}) between 1 and 80 and ${table.slug} !~ '[^a-z0-9_-]' and left(${table.slug}, 1) ~ '[a-z0-9]' and right(${table.slug}, 1) ~ '[a-z0-9]'`,

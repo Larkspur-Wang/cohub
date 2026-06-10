@@ -16,12 +16,23 @@ const getStorage = (): PresignStorageConfig => ({
   secretAccessKey: config.publicAssetOssSecretAccessKey,
 });
 
-const requireStorage = () => {
+const requireStorage = (): PresignStorageConfig & {
+  bucket: string;
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+} => {
   const storage = getStorage();
   if (!storage.bucket || !storage.endpoint || !storage.accessKeyId || !storage.secretAccessKey) {
     throw new Error("work asset storage is not configured");
   }
-  return storage;
+  return {
+    ...storage,
+    bucket: storage.bucket,
+    endpoint: storage.endpoint,
+    accessKeyId: storage.accessKeyId,
+    secretAccessKey: storage.secretAccessKey,
+  };
 };
 
 const getS3Client = () => {
@@ -31,19 +42,23 @@ const getS3Client = () => {
     region: storage.region,
     forcePathStyle: false,
     credentials: {
-      accessKeyId: storage.accessKeyId!,
-      secretAccessKey: storage.secretAccessKey!,
+      accessKeyId: storage.accessKeyId,
+      secretAccessKey: storage.secretAccessKey,
     },
   });
   return s3Client;
 };
 
 const envPrefix = () => (config.env === "prod" ? "" : `${config.env}/`);
+const encodeObjectKeyPath = (objectKey: string) => objectKey.split("/").map(encodeURIComponent).join("/");
 
 export const buildWorkAssetObjectKey = (input: { spaceId: string; workSlug: string }) =>
-  `${envPrefix()}works/${input.spaceId}/${input.workSlug}-${cacheBuster()}/index.html`;
+  `${envPrefix()}w/${input.spaceId}/${input.workSlug}/${cacheBuster()}/index.html`;
 
-export const createWorkAssetPublicUrl = (objectKey: string) => buildPublicObjectUrl(requireStorage(), objectKey);
+export const createWorkAssetPublicUrl = (objectKey: string) => {
+  if (config.publicAssetCdnBaseUrl) return `${config.publicAssetCdnBaseUrl}/${encodeObjectKeyPath(objectKey)}`;
+  return buildPublicObjectUrl(requireStorage(), objectKey);
+};
 
 export const writeWorkHtmlAsset = async (input: {
   spaceId: string;

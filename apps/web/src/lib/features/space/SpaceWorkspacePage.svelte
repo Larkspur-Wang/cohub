@@ -9496,6 +9496,8 @@ $effect(() => {
   <WorkPublishDialog
     open={Boolean(workPublishTarget)}
     {spaceId}
+    ownerUsername={space?.ownerProfile?.username ?? (space?.userUuid === authStore.userUuid ? (authStore.profile?.username ?? null) : null)}
+    spaceSlug={space?.slug ?? null}
     targetType={workPublishTarget?.targetType ?? "file"}
     targetRef={workPublishTarget?.targetRef ?? ""}
     onClose={() => workPublishTarget = null}

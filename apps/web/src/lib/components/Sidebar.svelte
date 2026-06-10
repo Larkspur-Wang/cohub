@@ -264,7 +264,7 @@ const activeSession = $derived.by(() => {
 	return sessions.find((s) => s.id === activeSessionId) ?? null;
 });
 const activeWorkSlug = $derived.by(() => {
-	const match = currentPath.match(/^\/[^/]+\/w\/([^/]+)/);
+	const match = currentPath.match(/^\/[^/]+\/[^/]+\/w\/([^/]+)/);
 	return match?.[1] ?? null;
 });
 const activeWork = $derived(
@@ -1486,7 +1486,7 @@ async function handleNavigateToTask(taskId: string) {
 	await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
 }
 
-function getWorkOwnerUsername() {
+function getCurrentSpaceOwnerUsername() {
 	return (
 		currentSpace?.ownerProfile?.username ??
 		(currentSpace?.userUuid === authStore.userUuid
@@ -1496,9 +1496,9 @@ function getWorkOwnerUsername() {
 }
 
 function buildWorkRoute(work: WorkRecord) {
-	const username = getWorkOwnerUsername();
-	return username
-		? `/${encodeURIComponent(username)}/w/${encodeURIComponent(work.slug)}`
+	const ownerUsername = getCurrentSpaceOwnerUsername();
+	return ownerUsername && currentSpace?.slug
+		? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(currentSpace.slug)}/w/${encodeURIComponent(work.slug)}`
 		: null;
 }
 

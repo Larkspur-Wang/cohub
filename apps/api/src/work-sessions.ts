@@ -17,7 +17,6 @@ export type WorkSessionPayload = {
 
 export type WorkSessionPrincipal = WorkSessionPayload & { type: "work_session" };
 
-const encoder = new TextEncoder();
 const base64url = (input: Buffer | string) => Buffer.from(input).toString("base64url");
 const fromBase64urlJson = <T>(value: string): T => JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as T;
 
