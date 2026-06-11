@@ -68,6 +68,7 @@ import {
 	type LabelAssignableCohubResource,
 	setCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
+import { extractGenerationPromptPreview } from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
 import {
@@ -129,10 +130,13 @@ import {
 	getCachedSpaceRecord,
 } from "$lib/stores/space-record-cache";
 import {
+	getCachedTaskRuns,
 	onTaskRunsCacheUpdated,
+	restoreCachedTaskRuns,
 	setCachedTaskRuns,
 } from "$lib/stores/task-runs-cache";
 import { uiState } from "$lib/stores/ui.svelte";
+import { formatCompactAbsoluteTime } from "$lib/time-format";
 
 const {
 	isMobile = false,
@@ -147,6 +151,7 @@ const {
 } = $props();
 
 const SESSION_PAGE_SIZE = 20;
+const TASK_PAGE_SIZE = 10;
 
 let showUserMenu = $state(false);
 let spaces = $state<SpaceRecord[]>([]);
@@ -225,7 +230,7 @@ let activeLabelDragOrigin: LabelDragOrigin | null = null;
 let labelAutoExpandTimer: ReturnType<typeof setTimeout> | null = null;
 let labelDropFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 let cronjobsCollapsed = $state(false);
-let tasksCollapsed = $state(false);
+let tasksCollapsed = $state(true);
 let worksCollapsed = $state(false);
 let creatingSession = $state(false);
 let createSessionError = $state("");
@@ -256,6 +261,11 @@ let loadingTasks = $state(false);
 let refreshingCronjobs = $state(false);
 let loadingTasksSpaceId = $state<string | null>(null);
 let refreshingTasks = $state(false);
+let loadingMoreTasks = $state(false);
+let tasksPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
+	hasMore: false,
+	nextCursor: null,
+});
 let loadingWorks = $state(false);
 let loadingWorksSpaceId = $state<string | null>(null);
 let refreshingWorks = $state(false);
@@ -501,16 +511,86 @@ function getTaskRunBadge(status: TaskRunRecord["status"]) {
 }
 
 function formatTaskRunTime(run: TaskRunRecord) {
-	const rawDate = run.createdAt ?? run.scheduledAt;
-	if (!rawDate) return "—";
-	const date = new Date(rawDate);
-	if (Number.isNaN(date.getTime())) return "—";
-	return date.toLocaleString("en-US", {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
+	return formatCompactAbsoluteTime(run.createdAt ?? run.scheduledAt) || "—";
+}
+
+function asTaskRecord(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function readTaskString(
+	record: Record<string, unknown> | null,
+	keys: string[],
+) {
+	if (!record) return null;
+	for (const key of keys) {
+		const value = record[key];
+		if (typeof value === "string" && value.trim()) return value.trim();
+	}
+	return null;
+}
+
+function compactTaskText(value: string, limit = 72) {
+	const compact = value.replace(/\s+/g, " ").trim();
+	if (compact.length <= limit) return compact;
+	return `${compact.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
+function formatTaskTypeLabel(taskType: string | null | undefined) {
+	const normalized = taskType?.trim() || "task";
+	return normalized
+		.split(/[_\s-]+/)
+		.filter(Boolean)
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(" ");
+}
+
+function getTaskRunPayloadData(run: Pick<TaskRunRecord, "payload">) {
+	const payload = asTaskRecord(run.payload);
+	return asTaskRecord(payload?.data) ?? payload;
+}
+
+function getTaskRunTitle(run: TaskRunRecord) {
+	const payload = asTaskRecord(run.payload);
+	const data = getTaskRunPayloadData(run);
+	const explicitTitle = readTaskString(data, ["title", "name", "description"]);
+	if (explicitTitle) return compactTaskText(explicitTitle);
+	if (run.taskType === "generation") {
+		const prompt = extractGenerationPromptPreview(run.payload);
+		return prompt ? compactTaskText(prompt) : "Generation";
+	}
+	if (run.taskType === "send_message") {
+		const content = data?.content;
+		if (Array.isArray(content)) {
+			const text = content
+				.filter((block): block is Record<string, unknown> =>
+					Boolean(asTaskRecord(block)),
+				)
+				.map((block) => readTaskString(block, ["text", "content", "value"]))
+				.filter(Boolean)
+				.join(" ");
+			if (text.trim()) return compactTaskText(text);
+		}
+		return "Send message";
+	}
+	if (run.taskType === "run_command") {
+		const command = readTaskString(data, ["command", "rawText"]);
+		return command ? compactTaskText(command) : "Run command";
+	}
+	if (run.taskType === "save_checkpoint") {
+		return compactTaskText(
+			readTaskString(data, ["description"]) ?? "Save checkpoint",
+		);
+	}
+	return formatTaskTypeLabel(
+		(payload?.type as string | undefined) ?? run.taskType,
+	);
+}
+
+function getTaskRunMeta(run: TaskRunRecord) {
+	return `${formatTaskTypeLabel(run.taskType)} · ${run.status} · ${formatTaskRunTime(run)}`;
 }
 
 function getFallbackSessionCursor(sessionList: SessionRecord[]) {
@@ -1330,6 +1410,23 @@ async function loadCronjobsForSpace(spaceId: string, force = false) {
 	}
 }
 
+async function restoreTasksForSpace(spaceId: string) {
+	const cachedRuns = getCachedTaskRuns(spaceId);
+	if (cachedRuns.length > 0 && spaceId === currentSpaceId) {
+		tasks = cachedRuns.slice(0, TASK_PAGE_SIZE);
+	}
+	try {
+		const restoredRuns = await restoreCachedTaskRuns(spaceId);
+		if (spaceId === currentSpaceId)
+			tasks = restoredRuns.slice(0, TASK_PAGE_SIZE);
+	} catch (error) {
+		console.warn("[sidebar] Failed to restore cached tasks", {
+			spaceId,
+			error,
+		});
+	}
+}
+
 async function loadTasksForSpace(spaceId: string, force = false) {
 	if (!force && loadingTasks && loadingTasksSpaceId === spaceId) return;
 	const shouldShowLoading = tasks.length === 0;
@@ -1340,9 +1437,10 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 		refreshingTasks = true;
 	}
 	try {
-		const result = await sdk.tasks.list({ spaceId });
+		const result = await sdk.tasks.list({ spaceId, limit: TASK_PAGE_SIZE });
 		if (spaceId === currentSpaceId) {
 			tasks = result.runs ?? [];
+			tasksPageInfo = result.pageInfo ?? { hasMore: false, nextCursor: null };
 			setCachedTaskRuns(spaceId, tasks);
 		}
 	} catch (error) {
@@ -1353,6 +1451,35 @@ async function loadTasksForSpace(spaceId: string, force = false) {
 			loadingTasksSpaceId = null;
 		}
 		refreshingTasks = false;
+	}
+}
+
+async function loadMoreTasksForSpace(spaceId: string) {
+	if (loadingMoreTasks) return;
+	const cursor = tasksPageInfo.nextCursor;
+	if (!cursor) return;
+	loadingMoreTasks = true;
+	try {
+		const result = await sdk.tasks.list({
+			spaceId,
+			limit: TASK_PAGE_SIZE,
+			cursor,
+		});
+		if (spaceId !== currentSpaceId) return;
+		const moreRuns = result.runs ?? [];
+		const runById = new Map(tasks.map((run) => [run.id, run]));
+		for (const run of moreRuns) runById.set(run.id, run);
+		tasks = Array.from(runById.values()).sort(
+			(a, b) =>
+				(Date.parse(b.createdAt ?? b.updatedAt ?? "") || 0) -
+				(Date.parse(a.createdAt ?? a.updatedAt ?? "") || 0),
+		);
+		tasksPageInfo = result.pageInfo ?? { hasMore: false, nextCursor: null };
+		setCachedTaskRuns(spaceId, tasks);
+	} catch (error) {
+		console.warn("[sidebar] Failed to load more tasks", { spaceId, error });
+	} finally {
+		loadingMoreTasks = false;
 	}
 }
 
@@ -2123,6 +2250,8 @@ $effect(() => {
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
 		refreshingTasks = false;
+		loadingMoreTasks = false;
+		tasksPageInfo = { hasMore: false, nextCursor: null };
 		loadingWorks = false;
 		loadingWorksSpaceId = null;
 		refreshingWorks = false;
@@ -2138,7 +2267,6 @@ $effect(() => {
 			void loadLabelsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);
-			void loadTasksForSpace(id, true);
 			void loadWorksForSpace(id, true);
 		});
 	} else {
@@ -2165,6 +2293,8 @@ $effect(() => {
 		loadingTasks = false;
 		loadingTasksSpaceId = null;
 		refreshingTasks = false;
+		loadingMoreTasks = false;
+		tasksPageInfo = { hasMore: false, nextCursor: null };
 		labelDropTargetId = null;
 		labelDropBusyId = null;
 		labelDropErrorMessage = null;
@@ -3250,7 +3380,14 @@ $effect(() => {
             <button
               type="button"
               class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
-              onclick={() => { tasksCollapsed = !tasksCollapsed; }}
+              onclick={() => {
+                const nextCollapsed = !tasksCollapsed;
+                tasksCollapsed = nextCollapsed;
+                if (!nextCollapsed && currentSpaceId) {
+                  void restoreTasksForSpace(currentSpaceId);
+                  void loadTasksForSpace(currentSpaceId);
+                }
+              }}
               title={tasksCollapsed ? "Expand tasks" : "Collapse tasks"}
             >
               <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {tasksCollapsed ? 'rotate-180' : ''}" />
@@ -3269,21 +3406,37 @@ $effect(() => {
                 <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No tasks</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
-                  {#each tasks.slice(0, 15) as run (run.id)}
+                  {#each tasks as run (run.id)}
                     {@const isActive = activeTaskId === run.id}
                     {@const badge = getTaskRunBadge(run.status)}
                     <a
                       href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
                       class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
+                      title={getTaskRunMeta(run)}
                     >
                       <div class="min-w-0 flex-1">
-                        <div class="truncate leading-tight text-[12px] capitalize {badge.color}">{run.status}</div>
-                        <div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div>
+                        <div class="truncate leading-tight text-[12px] text-text-secondary">{getTaskRunTitle(run)}</div>
+                        <div class="mt-0.5 truncate text-[10px] {badge.color}">{getTaskRunMeta(run)}</div>
                       </div>
                       <span class="w-[6px] h-[6px] rounded-full shrink-0 {badge.dot}"></span>
                     </a>
                   {/each}
+                  {#if tasksPageInfo.hasMore && tasksPageInfo.nextCursor}
+                    <button
+                      type="button"
+                      class="mt-1 flex w-full items-center justify-center gap-1.5 rounded-[6px] px-1.5 py-1.5 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={loadingMoreTasks}
+                      onclick={() => currentSpaceId && void loadMoreTasksForSpace(currentSpaceId)}
+                    >
+                      {#if loadingMoreTasks}
+                        <Loader2 class="h-3 w-3 animate-spin" />
+                        Loading...
+                      {:else}
+                        Show more
+                      {/if}
+                    </button>
+                  {/if}
                 </div>
               {/if}
             {:else if activeTaskId}
