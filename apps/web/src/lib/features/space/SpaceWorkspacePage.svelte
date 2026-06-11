@@ -3200,10 +3200,81 @@ function runCommandContent(run: TaskRunRecord): ContentBlock[] {
 }
 
 function taskOutputContent(run: TaskRunRecord): ContentBlock[] {
+	if (run.taskType === "generation") return [];
 	if (run.taskType === "run_command") return runCommandContent(run);
 	const resultContent = contentBlocksFrom(run.result);
 	if (resultContent.length > 0) return resultContent;
 	return contentBlocksFrom(taskRunProgress);
+}
+
+function generationOutputBlocks(run: TaskRunRecord): Record<string, unknown>[] {
+	if (run.taskType !== "generation") return [];
+	const result = asRecord(run.result);
+	const output = result?.output;
+	return Array.isArray(output)
+		? (output.filter((block) => !!asRecord(block)) as Record<string, unknown>[])
+		: [];
+}
+
+function generationBlockText(block: Record<string, unknown>): string | null {
+	if (block.type !== "text") return null;
+	const text = block.text ?? block.content ?? block.value;
+	return typeof text === "string" ? text : null;
+}
+
+function generationBlockSource(block: Record<string, unknown>): string | null {
+	const source = asRecord(block.source);
+	const directUrl = source?.url ?? source?.src ?? block.url ?? block.src;
+	if (typeof directUrl === "string" && directUrl.trim())
+		return directUrl.trim();
+	const data =
+		source?.data ??
+		source?.base64 ??
+		source?.contentBase64 ??
+		block.data ??
+		block.base64 ??
+		block.contentBase64;
+	if (typeof data !== "string" || !data.trim()) return null;
+	const mediaType =
+		source?.mediaType ??
+		source?.media_type ??
+		source?.mimeType ??
+		block.mediaType ??
+		block.media_type ??
+		block.mimeType;
+	const fallbackType =
+		block.type === "audio"
+			? "audio/mpeg"
+			: block.type === "video"
+				? "video/mp4"
+				: "image/png";
+	return `data:${typeof mediaType === "string" ? mediaType : fallbackType};base64,${data}`;
+}
+
+function generationBlockLabel(
+	block: Record<string, unknown>,
+	index: number,
+): string {
+	const name = block.name ?? block.filename ?? block.alt;
+	return typeof name === "string" && name.trim()
+		? name.trim()
+		: `Output ${index + 1}`;
+}
+
+function generationBlockMeta(block: Record<string, unknown>): string | null {
+	const source = asRecord(block.source);
+	const mediaType =
+		source?.mediaType ??
+		source?.media_type ??
+		source?.mimeType ??
+		block.mediaType ??
+		block.media_type ??
+		block.mimeType;
+	const parts = [
+		typeof block.type === "string" ? block.type : null,
+		typeof mediaType === "string" ? mediaType : null,
+	].filter(Boolean);
+	return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function taskRawResult(run: TaskRunRecord): unknown {
@@ -8337,6 +8408,7 @@ $effect(() => {
           {@const commandInfo = runCommandPayload(taskRunDetail)}
           {@const commandMeta = runCommandResultMeta(taskRunDetail)}
           {@const outputContent = taskOutputContent(taskRunDetail)}
+          {@const generationBlocks = generationOutputBlocks(taskRunDetail)}
           {@const rawResult = taskRawResult(taskRunDetail)}
           <div class="space-y-6 sm:space-y-8">
             <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
@@ -8435,7 +8507,37 @@ $effect(() => {
 
             <section class="space-y-5 sm:space-y-6">
               <div class="min-w-0 space-y-6">
-                {#if outputContent.length > 0}
+                {#if generationBlocks.length > 0}
+                  <div class="space-y-3">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
+                    <div class="space-y-3">
+                      {#each generationBlocks as block, index}
+                        {@const blockText = generationBlockText(block)}
+                        {@const blockSrc = generationBlockSource(block)}
+                        {@const blockMeta = generationBlockMeta(block)}
+                        <div class="rounded-[8px] bg-bg-elevated/35 p-3">
+                          <div class="mb-2 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
+                            <span class="truncate">{generationBlockLabel(block, index)}</span>
+                            {#if blockMeta}<span class="shrink-0 font-mono text-text-placeholder">{blockMeta}</span>{/if}
+                          </div>
+                          {#if blockText !== null}
+                            <div class="whitespace-pre-wrap break-words text-[13px] leading-6 text-text-secondary">{blockText}</div>
+                          {:else if block.type === "image" && blockSrc}
+                            <img src={blockSrc} alt={generationBlockLabel(block, index)} class="max-h-[60vh] w-full rounded-[6px] object-contain" loading="lazy" />
+                          {:else if block.type === "video" && blockSrc}
+                            <video src={blockSrc} controls class="max-h-[60vh] w-full rounded-[6px]">
+                              <track kind="captions" label="Generated video" />
+                            </video>
+                          {:else if block.type === "audio" && blockSrc}
+                            <audio src={blockSrc} controls class="w-full"></audio>
+                          {:else}
+                            <pre class="max-h-[40vh] overflow-auto text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(block, { maxStringLength: 12_000 })}</pre>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {:else if outputContent.length > 0}
                   <div class="space-y-2">
                     <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
                     <MessageContentFlow content={outputContent} thinkingExpanded={true} isStreaming={taskIsStreaming(taskRunDetail)} defaultExpandToolCalls />
