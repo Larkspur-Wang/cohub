@@ -14,6 +14,7 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import { setCachedSpaceList } from "$lib/stores/space-list-cache";
@@ -186,10 +187,7 @@ onMount(() => {
       {#if loadError}
         <div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if isLoading}
-        <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
-          <Loader2 class="w-4 h-4 animate-spin mr-2" />
-          Loading user rules...
-        </div>
+        <CenteredLoading label="Loading user rules…" size="compact" />
       {:else}
         <div class="mt-6 grid gap-3 sm:grid-cols-3">
           <div class="rounded-md border border-border-subtle bg-bg-surface p-3">

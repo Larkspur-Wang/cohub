@@ -1,8 +1,9 @@
 <script lang="ts">
-import { Compass, Loader2, LogIn, Terminal } from "lucide-svelte";
+import { Compass, LogIn, Terminal } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import { setCachedSpaceList } from "$lib/stores/space-list-cache";
@@ -51,15 +52,9 @@ onMount(async () => {
 <div class="flex-1 flex flex-col min-h-0 overflow-y-auto">
   <div class="flex-1 flex flex-col items-center justify-center p-6 text-center">
     {#if isLoading}
-      <div class="flex items-center gap-2 text-text-tertiary">
-        <Loader2 class="w-5 h-5 animate-spin" />
-        <span class="text-[13px]">Loading...</span>
-      </div>
+      <CenteredLoading label="Loading…" size="compact" />
     {:else if spaceCount > 0}
-      <div class="flex items-center gap-2 text-text-tertiary">
-        <Loader2 class="w-5 h-5 animate-spin" />
-        <span class="text-[13px]">Redirecting...</span>
-      </div>
+      <CenteredLoading label="Redirecting…" size="compact" />
     {:else}
       <!-- Brand -->
       <div class="w-14 h-14 bg-brand rounded-[10px] flex items-center justify-center font-bold text-2xl text-brand-contrast-fg mb-5">

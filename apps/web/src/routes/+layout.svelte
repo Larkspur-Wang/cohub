@@ -3,6 +3,7 @@ import "../app.css";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { scheduleCacheCleanup } from "$lib/cache/cleanup";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import CommandPalette from "$lib/components/CommandPalette.svelte";
 import HelpPanel from "$lib/components/HelpPanel.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
@@ -483,8 +484,8 @@ onMount(() => {
     {@render children?.()}
   </main>
 {:else if !authReady}
-  <main class="min-h-screen bg-bg-primary text-text-primary flex items-center justify-center">
-    <div class="w-8 h-8 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
+  <main class="min-h-screen bg-bg-primary text-text-primary">
+    <CenteredLoading label="Loading…" size="page" />
   </main>
 {:else}
   <div class="h-screen flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">

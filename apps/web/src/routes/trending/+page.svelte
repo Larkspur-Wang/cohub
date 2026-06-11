@@ -1,4 +1,5 @@
 <script lang="ts">
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import type { ModelRow, SpaceRow, UserProfile, UserRow } from "$lib/trending";
 import { fetchModels, fetchSpaces, fetchUsers } from "$lib/trending";
@@ -151,14 +152,7 @@ const hasData = $derived(
 	<!-- Content -->
 	<div class="flex-1 px-4 pb-6 overflow-y-auto sm:px-6">
 		{#if loading}
-			<div class="flex items-center justify-center py-24">
-				<div class="flex items-center gap-2 text-text-tertiary">
-					<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-					</svg>
-					<span class="text-[13px]">Loading...</span>
-				</div>
-			</div>
+			<CenteredLoading label="Loading…" />
 		{:else if !hasData}
 			<div class="py-20">
 				<div class="text-[13px] text-text-tertiary">

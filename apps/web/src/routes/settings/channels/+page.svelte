@@ -11,6 +11,7 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
 
 const currentPath = $derived(page.url.pathname);
@@ -92,10 +93,7 @@ async function handleDelete(id: string) {
 
       <!-- Channel List -->
       {#if isLoading}
-        <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
-          <div class="w-4 h-4 rounded-full border-2 border-border-subtle border-t-brand animate-spin mr-2"></div>
-          Loading channels...
-        </div>
+        <CenteredLoading label="Loading channels…" size="compact" />
       {:else if loadError}
         <div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if channels.length === 0}

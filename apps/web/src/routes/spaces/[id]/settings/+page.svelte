@@ -32,6 +32,7 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
@@ -725,9 +726,7 @@ $effect(() => {
 	<main class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
 		<div class="mx-auto w-full max-w-4xl space-y-4 sm:space-y-5">
 			{#if loading}
-				<div class="flex items-center gap-2 rounded-[8px] border border-border-subtle bg-bg-surface px-4 py-3 text-[13px] text-text-tertiary">
-					<Loader2 class="h-4 w-4 animate-spin" /> Loading settings…
-				</div>
+				<CenteredLoading label="Loading settings…" size="compact" variant="surface" />
 			{:else if error}
 				<div class="rounded-[8px] border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
 			{:else}

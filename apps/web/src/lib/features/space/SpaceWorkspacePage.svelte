@@ -93,9 +93,11 @@ import {
 } from "$lib/canvas/canvas-document";
 import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
+import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
@@ -3185,8 +3187,10 @@ function isContentBlockArray(value: unknown): value is ContentBlock[] {
 
 function contentBlocksFrom(value: unknown): ContentBlock[] {
 	if (!value || typeof value !== "object") return [];
-	const content = (value as { content?: unknown }).content;
-	return isContentBlockArray(content) ? content : [];
+	const record = value as { content?: unknown; output?: unknown };
+	if (isContentBlockArray(record.content)) return record.content;
+	if (isContentBlockArray(record.output)) return record.output;
+	return [];
 }
 
 function runCommandContent(run: TaskRunRecord): ContentBlock[] {
@@ -7657,10 +7661,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet PanelLoadingState(label: string, compact = false)}
-	<div class={compact ? "flex min-h-36 items-center justify-center gap-2 text-[12px] text-text-tertiary" : "flex min-h-[42vh] flex-1 items-center justify-center gap-2 text-[12px] text-text-tertiary"}>
-		<Loader2 class="h-4 w-4 animate-spin" aria-label={label} />
-		<span>{label}</span>
-	</div>
+	<CenteredLoading label={label} size={compact ? "compact" : "panel"} />
 {/snippet}
 
 <PageHeader>
@@ -8342,7 +8343,12 @@ $effect(() => {
               <div class="min-w-0 space-y-3">
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="inline-flex items-center gap-1.5 rounded-full bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary">
-                    <span class="h-1.5 w-1.5 rounded-full {badge.dot}"></span>
+                    <span class="relative flex h-1.5 w-1.5 shrink-0">
+                      {#if taskIsStreaming(taskRunDetail)}
+                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full {badge.dot} opacity-40"></span>
+                      {/if}
+                      <span class="relative inline-flex h-1.5 w-1.5 rounded-full {badge.dot}"></span>
+                    </span>
                     {badge.label}
                   </span>
                   <button
@@ -8376,7 +8382,7 @@ $effect(() => {
               </div>
             </header>
 
-            {#if taskRunProgress !== null && taskRunProgress !== undefined}
+            {#if taskIsStreaming(taskRunDetail) && taskRunProgress !== null && taskRunProgress !== undefined}
               <section class="space-y-2">
                 <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Progress</div>
                 <pre class="max-h-[42vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-80">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
@@ -8432,7 +8438,7 @@ $effect(() => {
                 {#if outputContent.length > 0}
                   <div class="space-y-2">
                     <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
-                    <ToolCallList content={outputContent} streaming={taskIsStreaming(taskRunDetail)} defaultExpanded flush />
+                    <MessageContentFlow content={outputContent} thinkingExpanded={true} isStreaming={taskIsStreaming(taskRunDetail)} defaultExpandToolCalls />
                   </div>
                 {:else if taskIsStreaming(taskRunDetail)}
                   <div class="py-6 text-[13px] text-text-tertiary">Waiting for output…</div>
@@ -8769,12 +8775,7 @@ $effect(() => {
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
     {/if}
     {#if bootstrapping && !activeSessionState}
-      <div class="flex-1 flex items-center justify-center">
-        <div class="flex flex-col items-center gap-3 text-text-tertiary">
-          <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
-          <div class="text-[12px]">Loading space…</div>
-        </div>
-      </div>
+      <CenteredLoading label="Loading space…" />
     {:else if !activeSessionState && routeView === "space"}
       <div class="flex-1 overflow-y-auto px-4 py-6">
         <div class="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -9165,12 +9166,7 @@ $effect(() => {
         {/if}
       </div>
     {:else if activeSessionState.loading && !activeSessionState.loaded}
-      <div class="flex-1 flex items-center justify-center">
-        <div class="flex flex-col items-center gap-3 text-text-tertiary">
-          <div class="w-6 h-6 rounded-full border-2 border-border-subtle border-t-brand animate-spin"></div>
-          <div class="text-[12px]">Loading turns…</div>
-        </div>
-      </div>
+      <CenteredLoading label="Loading turns…" />
     {:else}
       {#if activeSessionState.error}
         <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">

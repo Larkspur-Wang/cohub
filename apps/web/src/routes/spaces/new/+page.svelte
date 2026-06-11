@@ -18,6 +18,7 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
 import { ensureAuth } from "$lib/auth";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
@@ -261,10 +262,7 @@ async function handleSubmit(event: SubmitEvent) {
 
   <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
     {#if isLoading}
-      <div class="flex items-center justify-center py-12 text-[12px] text-text-tertiary">
-        <Loader2 class="w-4 h-4 animate-spin mr-2" />
-        Loading form...
-      </div>
+      <CenteredLoading label="Loading form…" size="compact" />
     {:else if loadError}
       <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
     {:else}

@@ -5,12 +5,12 @@ import {
 	GitFork,
 	Grid2X2,
 	LayoutList,
-	Loader2,
 	Pin,
 	Save,
 	Sparkles,
 } from "lucide-svelte";
 import { page } from "$app/state";
+import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import { sdk } from "$lib/sdk";
 
@@ -165,10 +165,7 @@ $effect(() => {
 			</section>
 
 			{#if loading}
-				<div class="flex items-center gap-2 rounded-[14px] border border-border-subtle bg-bg-surface px-4 py-4 text-[13px] text-text-tertiary">
-					<Loader2 class="h-4 w-4 animate-spin" />
-					Loading spaces…
-				</div>
+				<CenteredLoading label="Loading spaces…" size="compact" variant="surface" />
 			{:else if error}
 				<div class="rounded-[14px] border border-error-soft/30 bg-error-bg px-4 py-4 text-[13px] text-error-soft">{error}</div>
 			{:else if spaces.length === 0}
