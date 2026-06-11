@@ -1,6 +1,6 @@
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { Queue, JobsOptions, QueueOptions } from "bullmq";
-import { COHUB_AGENT_TURNS_QUEUE, createBullmqConnectionOptions, createBullmqQueue } from "../bullmq/index.js";
+import { COHUB_AGENT_TURNS_QUEUE, createBullmqConnectionOptions, createBullmqQueue, defaultJobRetention } from "../bullmq/index.js";
 
 export const AGENT_SANDBOX_BASH_JOB_NAME = "sandbox_bash" as const;
 export const AGENT_RUN_COMMAND_JOB_NAME = "run_command" as const;
@@ -88,8 +88,7 @@ export function enqueueAgentRunCommandJob(queue: Queue, input: AgentRunCommandJo
   return queue.add(AGENT_RUN_COMMAND_JOB_NAME, input, {
     jobId: buildAgentRunCommandJobId(input.taskRunId),
     attempts: 1,
-    removeOnComplete: { age: 24 * 3600, count: 10_000 },
-    removeOnFail: { age: 7 * 24 * 3600 },
+    ...defaultJobRetention,
     ...options,
   });
 }

@@ -1,4 +1,4 @@
-import { createBullmqQueue } from "@cohub/infra/bullmq";
+import { createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import {
   FS_CDN_QUEUE_NAME,
@@ -23,7 +23,6 @@ export async function enqueueFsCdnWarmFile(payload: FsCdnWarmFileJob) {
     }),
     attempts: 2,
     backoff: { type: "exponential", delay: 2000 },
-    removeOnComplete: { age: 3600, count: 10_000 },
-    removeOnFail: { age: 6 * 3600, count: 10_000 },
+    ...defaultJobRetention,
   });
 }

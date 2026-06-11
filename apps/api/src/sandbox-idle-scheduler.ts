@@ -1,4 +1,4 @@
-import { createBullmqQueue } from "@cohub/infra/bullmq";
+import { createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import {
   SANDBOX_IDLE_CHECK_JOB,
@@ -18,8 +18,7 @@ export async function enqueueSandboxIdleCheck(spaceId: string, delayMs: number) 
     delay: Math.max(0, delayMs),
     attempts: 3,
     backoff: { type: "exponential", delay: 60_000 },
-    removeOnComplete: { age: 24 * 3600, count: 10_000 },
-    removeOnFail: { age: 7 * 24 * 3600, count: 10_000 },
+    ...defaultJobRetention,
   });
 }
 

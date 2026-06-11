@@ -1,4 +1,4 @@
-import { COHUB_AGENT_TURNS_QUEUE } from "@cohub/infra/bullmq";
+import { COHUB_AGENT_TURNS_QUEUE, defaultJobRetention } from "@cohub/infra/bullmq";
 import type { JobsOptions } from "bullmq";
 import { getCurrentRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -71,8 +71,7 @@ export async function enqueueAgentSessionForkJob(data: AgentSessionForkJobData, 
     jobId: `agent-session-fork-${data.sessionId}-${data.anchorEntryId}`,
     attempts: 3,
     backoff: { type: "fixed", delay: 1000 },
-    removeOnComplete: { age: 24 * 3600, count: 10_000 },
-    removeOnFail: { age: 7 * 24 * 3600 },
+    ...defaultJobRetention,
     ...options,
   });
 }

@@ -1,4 +1,4 @@
-import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
+import { COHUB_TASKS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import type { JobsOptions } from "bullmq";
 import { enqueueTaskRun } from "@cohub/core/tasks";
 import { eq } from "drizzle-orm";
@@ -78,8 +78,7 @@ export const createCronJob = async (params: {
           tz: params.schedule.timezone ?? "Asia/Shanghai",
         },
         jobId: `cron-${cronJob.id}`,
-        removeOnComplete: { age: 7 * 24 * 3600 },
-        removeOnFail: { age: 30 * 24 * 3600 },
+        ...defaultJobRetention,
         attempts: 3,
         backoff: { type: "exponential", delay: 60_000 },
       },
@@ -161,8 +160,7 @@ export const enableCronJob = async (cronJobId: string, bullJobKey: string, jobDa
     {
       repeat: { pattern: jobData.cronExpression, tz: jobData.timezone },
       jobId: `cron-${cronJobId}`,
-      removeOnComplete: { age: 7 * 24 * 3600 },
-      removeOnFail: { age: 30 * 24 * 3600 },
+      ...defaultJobRetention,
       attempts: 3,
       backoff: { type: "exponential", delay: 60_000 },
     },

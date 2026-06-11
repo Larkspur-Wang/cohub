@@ -1,5 +1,5 @@
 import { QueueEvents } from "bullmq";
-import { COHUB_AGENT_TURNS_QUEUE, createBullmqConnectionOptions, createBullmqQueue } from "@cohub/infra/bullmq";
+import { COHUB_AGENT_TURNS_QUEUE, createBullmqConnectionOptions, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { getCurrentRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { config } from "./config.js";
@@ -54,8 +54,7 @@ export async function enqueueSandboxUploadFilesJob(input: Omit<SandboxBashUpload
     jobId: `sandbox-bash-${input.uploadId}`,
     attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
-    removeOnComplete: { age: 24 * 3600, count: 10_000 },
-    removeOnFail: { age: 7 * 24 * 3600 },
+    ...defaultJobRetention,
   });
 
   return job.waitUntilFinished(sandboxBashQueueEvents, 60 * 60 * 1000) as Promise<SandboxBashUploadJobResult>;

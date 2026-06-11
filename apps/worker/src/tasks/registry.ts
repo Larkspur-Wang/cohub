@@ -1,7 +1,7 @@
 import type { Job } from "bullmq";
 import { recordJobFailure } from "@cohub/infra/bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "../db.js";
 import { taskRuns } from "@cohub/db";
 import { dispatchTaskCreated, dispatchTaskUpdated } from "../realtime-events.js";
@@ -29,6 +29,30 @@ const registry = new Map<string, TaskHandler>();
  *   - On success: update to completed
  *   - On failure: update to failed (then rethrow for BullMQ retry)
  */
+export const markTaskRunFailed = async (job: Job, error: unknown) => {
+  const jobId = job.id;
+  if (!jobId) return;
+
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const [taskRun] = await db
+    .update(taskRuns)
+    .set({
+      status: "failed",
+      errorMessage,
+      finishedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(taskRuns.jobId, jobId), ne(taskRuns.status, "failed")))
+    .returning();
+
+  if (taskRun) {
+    await dispatchTaskUpdated({
+      task: taskRun,
+      changed: ["status", "errorMessage", "finishedAt"],
+    }).catch((dispatchError) => logger.warn("[Realtime] failed to dispatch task.updated", dispatchError));
+  }
+};
+
 export const registerTask = (type: string, handler: TaskHandler) => {
   const wrapped: TaskHandler = async (job) => {
     const jobId = job.id;
@@ -131,22 +155,7 @@ export const registerTask = (type: string, handler: TaskHandler) => {
         },
       });
 
-      const [taskRun] = await db
-        .update(taskRuns)
-        .set({
-          status: "failed",
-          errorMessage,
-          finishedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(taskRuns.jobId, jobId))
-        .returning();
-      if (taskRun) {
-        await dispatchTaskUpdated({
-          task: taskRun,
-          changed: ["status", "errorMessage", "finishedAt"],
-        }).catch((error) => logger.warn("[Realtime] failed to dispatch task.updated", error));
-      }
+      await markTaskRunFailed(job, error);
 
       throw error; // Rethrow so BullMQ handles retry/backoff
     }

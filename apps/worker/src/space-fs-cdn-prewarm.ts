@@ -1,4 +1,4 @@
-import { createBullmqQueue } from "@cohub/infra/bullmq";
+import { createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import type { SpaceFsChange } from "@cohub/protocol/fs";
 import {
   buildFsCdnFailKey,
@@ -27,8 +27,7 @@ async function enqueueFsCdnWarmFile(payload: FsCdnWarmFileJob) {
     }),
     attempts: 2,
     backoff: { type: "exponential", delay: 2000 },
-    removeOnComplete: { age: 3600, count: 10_000 },
-    removeOnFail: { age: 6 * 3600, count: 10_000 },
+    ...defaultJobRetention,
   });
 }
 

@@ -16,7 +16,7 @@ import {
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { config, assertRequiredConfig } from "./config.js";
-import { getTaskHandler, getRegisteredTasks } from "./tasks/registry.js";
+import { getTaskHandler, getRegisteredTasks, markTaskRunFailed } from "./tasks/registry.js";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 // Auto-register all tasks
@@ -66,6 +66,13 @@ attachWorkerEventLogger(taskWorker, {
   serviceName: "Worker",
   queueName: COHUB_TASKS_QUEUE,
   logCompletedResult: true,
+});
+
+taskWorker.on("failed", (job, error) => {
+  if (!job) return;
+  void markTaskRunFailed(job, error).catch((updateError) => {
+    logger.error("[Worker] failed to sync BullMQ failure to task_runs", updateError);
+  });
 });
 
 logger.info("[Worker] Starting task worker...");

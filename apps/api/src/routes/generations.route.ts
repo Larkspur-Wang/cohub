@@ -8,6 +8,7 @@ import { createGenerationTaskRequestSchema } from "../generations/schema.js";
 import { getSpaceSessionById } from "../space-sessions.js";
 import { getSessionTurnById } from "../session-turns.js";
 import { enqueueTask } from "../tasks.js";
+import { defaultJobRetention } from "@cohub/infra/bullmq";
 import { createLogger } from "@cohub/infra/logging";
 
 
@@ -95,8 +96,7 @@ router.post("/", async (c) => {
       },
     }, {
       attempts: 1,
-      removeOnComplete: { age: 7 * 24 * 3600 },
-      removeOnFail: { age: 30 * 24 * 3600 },
+      ...defaultJobRetention,
     });
     taskRunId = enqueued.taskRunId;
   } catch (error) {

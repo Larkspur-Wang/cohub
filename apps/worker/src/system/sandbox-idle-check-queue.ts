@@ -1,4 +1,4 @@
-import { COHUB_SYSTEM_FS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_FS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import {
   SANDBOX_IDLE_CHECK_JOB,
   buildSandboxIdleCheckJobId,
@@ -19,8 +19,7 @@ export async function enqueueSandboxIdleCheckAt(spaceId: string, dueAt: Date) {
     delay: delayMs,
     attempts: 3,
     backoff: { type: "exponential", delay: 60_000 },
-    removeOnComplete: { age: 24 * 3600, count: 10_000 },
-    removeOnFail: { age: 7 * 24 * 3600, count: 10_000 },
+    ...defaultJobRetention,
     deduplication: {
       id: dedupeId,
       replace: true,
