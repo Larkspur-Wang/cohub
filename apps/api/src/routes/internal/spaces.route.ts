@@ -10,6 +10,7 @@ import {
   getSpaceById,
   getSpaceSessionById,
   persistMessageNode,
+  recordPersistedMessageSideEffects,
   updateSpaceSessionInfo,
   updateSpaceStatus,
   SandboxNotReadyError,
@@ -295,6 +296,20 @@ router.post("/:spaceId/sessions/:sessionId/messages", async (c) => {
   });
 
   return c.json({ ok: true, message: messageNode });
+});
+
+// POST /internal/spaces/:spaceId/sessions/:sessionId/messages/:messageId/side-effects
+router.post("/:spaceId/sessions/:sessionId/messages/:messageId/side-effects", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const spaceId = c.req.param("spaceId");
+  const sessionId = c.req.param("sessionId");
+  const messageId = c.req.param("messageId");
+  if (!requireValidId(spaceId) || !requireValidId(sessionId) || !requireValidId(messageId)) return c.json({ message: "message not found" }, 404);
+
+  const result = await recordPersistedMessageSideEffects({ spaceId, sessionId, messageId });
+  return c.json(result);
 });
 
 // POST /internal/spaces/:spaceId/sessions/:sessionId/turns/:turnId/interrupt

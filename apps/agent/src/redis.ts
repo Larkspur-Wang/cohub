@@ -13,9 +13,11 @@ import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-agent" });
-const redis = new Redis(env.REDIS_URL);
+export const redis = new Redis(env.REDIS_URL);
 
-export { redis };
+export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: (string | number)[]) => {
+  return client.xadd(streamKey, "MAXLEN", "~", 2000, ...args);
+};
 
 const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
@@ -266,6 +268,8 @@ const clearSessionStreamSnapshot = async (spaceId: string, sessionId: string) =>
   await redis.del(key).catch(() => undefined);
 };
 
+export const clearPersistedSessionStreamSnapshot = clearSessionStreamSnapshot;
+
 type StreamTelemetryMetrics = {
   patchCount: number;
   publishErrorCount: number;
@@ -511,6 +515,29 @@ export async function sendOutput(data: SessionStreamEvent | SessionStreamError |
     if (error instanceof Error) activeSpan?.recordException(error);
     throw error;
   }
+}
+
+export async function publishRealtimeEnvelope(input: {
+  domain: "session" | "space" | "system" | string;
+  type: string;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: Record<string, unknown>;
+  requestId?: string | null;
+}) {
+  const traceCarrier = injectTrace();
+  const message = JSON.stringify({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: input.domain,
+    type: input.type,
+    requestId: input.requestId ?? null,
+    spaceId: input.spaceId ?? null,
+    sessionId: input.sessionId ?? null,
+    payload: input.payload,
+    trace: traceCarrier,
+  });
+  await context.with(trace.deleteSpan(context.active()), () => redis.publish(REALTIME_OUTBOUND_CHANNEL, message));
 }
 
 export async function sendSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {

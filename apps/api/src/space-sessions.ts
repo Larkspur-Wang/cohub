@@ -715,6 +715,42 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   return messageNode;
 };
 
+export const recordPersistedMessageSideEffects = async (input: { spaceId: string; sessionId: string; messageId: string }) => {
+  const [session] = await db.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).limit(1);
+  if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
+
+  const [message] = await db.select({
+    id: sessionMessages.id,
+    sessionId: sessionMessages.sessionId,
+    role: sessionMessages.role,
+    meta: sessionMessages.meta,
+    provider: sessionMessages.provider,
+    model: sessionMessages.model,
+    usage: sessionMessages.usage,
+    stopReason: sessionMessages.stopReason,
+    errorMessage: sessionMessages.errorMessage,
+  }).from(sessionMessages).where(and(eq(sessionMessages.id, input.messageId), eq(sessionMessages.sessionId, input.sessionId))).limit(1);
+  if (!message) throw new Error("Message not found");
+  if (message.role !== "assistant") return { ok: true, skipped: "non_assistant" as const };
+
+  const meta = normalizeRecord(message.meta);
+  const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
+  const actorUserId = await resolveActorUserId({ sessionId: input.sessionId, anchorUserMessageId });
+  const usage = normalizeUsage(message.usage as Usage | null);
+
+  await recordLlmUsageBilling({
+    messageId: message.id,
+    userId: actorUserId,
+    provider: message.provider ?? null,
+    model: message.model ?? null,
+    usage,
+    stopReason: message.stopReason ?? null,
+    errorMessage: message.errorMessage ?? null,
+  });
+
+  return { ok: true };
+};
+
 export const updateSpaceSessionInfo = async (input: UpdateSessionInfoInput) => {
   const session = await getSpaceSessionById(input.sessionId);
   if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");

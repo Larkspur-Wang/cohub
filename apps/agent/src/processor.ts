@@ -8,7 +8,8 @@ import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttri
 import { wrapAgentTurn } from "@cohub/infra/tracing/agent";
 import { runInActiveSpan, extractTrace } from "@cohub/infra/tracing/propagator";
 import { getAgentTracer } from "@cohub/infra/tracing/agent";
-import { getSpace, abortSessionTurn, failSessionTurn, interruptSessionTurn, persistAssistantMessage, persistUserMessage } from "./api.js";
+import { getSpace } from "./api.js";
+import { abortSessionTurn, failSessionTurn, interruptSessionTurn, persistAssistantMessage, persistUserMessage } from "./persistence.js";
 import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";

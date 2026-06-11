@@ -24,6 +24,10 @@
       "types": "./dist/sessions/index.d.ts",
       "default": "./dist/sessions/index.js"
     },
+    "./sessions/content": {
+      "types": "./dist/sessions/content.d.ts",
+      "default": "./dist/sessions/content.js"
+    },
     "./sessions/prompt": {
       "types": "./dist/sessions/prompt.d.ts",
       "default": "./dist/sessions/prompt.js"
