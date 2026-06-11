@@ -1,5 +1,16 @@
 # @neta-art/cohub-cli
 
+## 1.16.0
+
+### Minor Changes
+
+- Release scheduled job management updates, including SDK support for cron job detail, patch updates, and paginated run listing, plus CLI commands for scheduled job inspection and updates.
+
+### Patch Changes
+
+- Updated dependencies
+  - @neta-art/cohub@1.26.0
+
 ## 1.15.2
 
 ### Patch Changes
