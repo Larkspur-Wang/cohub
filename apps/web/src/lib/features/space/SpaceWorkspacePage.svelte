@@ -9164,9 +9164,7 @@ $effect(() => {
             onForkTurn={handleForkTurn}
             forkingTurnId={forkingTurnId}
             loading={activeSessionState?.loading ?? false}
-            refreshing={Boolean(activeSessionState?.loading && activeSessionState.loaded)}
             loadingOlder={activeSessionState?.loadingOlder ?? false}
-            loadingNewer={activeSessionState?.loadingNewer ?? false}
             onOpenFile={openInlineFile}
             modelsCatalog={modelsCatalog ?? undefined}
           />
