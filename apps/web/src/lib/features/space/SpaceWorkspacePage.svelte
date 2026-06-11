@@ -3193,6 +3193,117 @@ function runCommandContent(run: TaskRunRecord): ContentBlock[] {
 	return contentBlocksFrom(taskRunProgress);
 }
 
+function taskOutputContent(run: TaskRunRecord): ContentBlock[] {
+	if (run.taskType === "run_command") return runCommandContent(run);
+	const resultContent = contentBlocksFrom(run.result);
+	if (resultContent.length > 0) return resultContent;
+	return contentBlocksFrom(taskRunProgress);
+}
+
+function taskRawResult(run: TaskRunRecord): unknown {
+	return run.result ?? null;
+}
+
+function taskContextLabel(run: TaskRunRecord): string {
+	if (run.cronJobId) return "From cronjob";
+	if (run.sessionId) return "Session task";
+	return "One-time task";
+}
+
+function taskIsStreaming(run: TaskRunRecord): boolean {
+	return run.status === "pending" || run.status === "running";
+}
+
+type DisplaySafeJsonOptions = {
+	maxStringLength?: number;
+	maxArrayItems?: number;
+	maxObjectKeys?: number;
+	maxDepth?: number;
+};
+
+const DEFAULT_DISPLAY_SAFE_JSON_OPTIONS: Required<DisplaySafeJsonOptions> = {
+	maxStringLength: 24_000,
+	maxArrayItems: 200,
+	maxObjectKeys: 200,
+	maxDepth: 10,
+};
+
+function toDisplaySafeJsonValue(
+	value: unknown,
+	options: Required<DisplaySafeJsonOptions> = DEFAULT_DISPLAY_SAFE_JSON_OPTIONS,
+	depth = 0,
+	seen = new WeakSet<object>(),
+): unknown {
+	if (typeof value === "string") {
+		if (value.length <= options.maxStringLength) return value;
+		const omitted = value.length - options.maxStringLength;
+		return `${value.slice(0, options.maxStringLength)}\n… [truncated ${omitted.toLocaleString()} chars]`;
+	}
+	if (
+		value === null ||
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "undefined"
+	) {
+		return value;
+	}
+	if (typeof value === "bigint") return value.toString();
+	if (typeof value === "function") return "[function]";
+	if (typeof value !== "object") return String(value);
+	if (depth >= options.maxDepth) return "[max depth reached]";
+	if (seen.has(value)) return "[circular]";
+	seen.add(value);
+	if (Array.isArray(value)) {
+		const items = value
+			.slice(0, options.maxArrayItems)
+			.map((item) => toDisplaySafeJsonValue(item, options, depth + 1, seen));
+		if (value.length > options.maxArrayItems) {
+			items.push(`[truncated ${value.length - options.maxArrayItems} items]`);
+		}
+		seen.delete(value);
+		return items;
+	}
+	const entries = Object.entries(value as Record<string, unknown>);
+	const safeEntries = entries
+		.slice(0, options.maxObjectKeys)
+		.map(([key, item]) => [
+			key,
+			toDisplaySafeJsonValue(item, options, depth + 1, seen),
+		]);
+	if (entries.length > options.maxObjectKeys) {
+		safeEntries.push([
+			"__truncated__",
+			`truncated ${entries.length - options.maxObjectKeys} keys`,
+		]);
+	}
+	seen.delete(value);
+	return Object.fromEntries(safeEntries);
+}
+
+function displaySafeJson(
+	value: unknown,
+	options?: DisplaySafeJsonOptions,
+): string {
+	const merged = { ...DEFAULT_DISPLAY_SAFE_JSON_OPTIONS, ...options };
+	return JSON.stringify(toDisplaySafeJsonValue(value, merged), null, 2);
+}
+
+function taskSystemFields(run: TaskRunRecord) {
+	return [
+		["Run ID", run.id],
+		["Job ID", run.jobId],
+		["Space", run.spaceId],
+		["Session", run.sessionId],
+		["Turn", run.turnId],
+		["Cronjob", run.cronJobId],
+		["User", run.userUuid],
+		["Created", formatDateTime(run.createdAt)],
+		["Updated", formatDateTime(run.updatedAt)],
+	].filter(
+		([, value]) => value !== null && value !== undefined && value !== "",
+	);
+}
+
 function runCommandPayload(run: TaskRunRecord) {
 	const payload =
 		run.payload && typeof run.payload === "object"
@@ -8206,163 +8317,176 @@ $effect(() => {
         </div>
       </div>
     {:else if routeView === 'task'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:p-4 max-w-4xl w-full space-y-4">
+      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+        <div class="max-w-4xl">
         {#if taskRunDetailLoading && taskRunDetail?.id !== routeTaskId}
           {@render PanelLoadingState("Loading task…")}
         {:else if taskRunDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{taskRunDetailError}</div>
         {:else if taskRunDetail && taskRunDetail.id === routeTaskId}
           {@const badge = taskRunStatusBadge(taskRunDetail)}
-          {#if taskRunDetail.taskType === "run_command"}
-            {@const commandInfo = runCommandPayload(taskRunDetail)}
-            {@const commandMeta = runCommandResultMeta(taskRunDetail)}
-            {@const commandContent = runCommandContent(taskRunDetail)}
-            <div class="mx-auto w-full max-w-4xl px-1 sm:px-2">
-              <div class="border-b border-border-subtle/80 pb-4 sm:pb-5">
-                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div class="min-w-0 space-y-2">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Run Command</span>
-                      <span class="inline-flex items-center gap-1.5 rounded-full bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary">
-                        <span class="h-1.5 w-1.5 rounded-full {badge.dot}"></span>
-                        {badge.label}
-                      </span>
-                      {#if commandMeta.exitCode !== null}
-                        <span class="rounded-full bg-bg-elevated px-2 py-1 font-mono text-[11px] text-text-secondary">exit {commandMeta.exitCode}</span>
-                      {/if}
-                    </div>
-                    <pre class="max-w-full whitespace-pre-wrap break-words font-mono text-[14px] leading-relaxed text-text-primary sm:text-[15px]">{commandInfo.command}</pre>
-                  </div>
-                  <div class="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-tertiary sm:justify-end">
+          {@const resultCheckpointId = checkpointIdFromTaskRun(taskRunDetail)}
+          {@const saveStageLabel = taskRunDetail.taskType === "save_checkpoint" ? saveCheckpointProgressLabel(taskRunProgress) : null}
+          {@const commandInfo = runCommandPayload(taskRunDetail)}
+          {@const commandMeta = runCommandResultMeta(taskRunDetail)}
+          {@const outputContent = taskOutputContent(taskRunDetail)}
+          {@const rawResult = taskRawResult(taskRunDetail)}
+          <div class="space-y-8">
+            <header class="flex flex-col gap-5 border-b border-border-subtle/70 pb-6 lg:flex-row lg:items-start lg:justify-between">
+              <div class="min-w-0 space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Task Run</span>
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary">
+                    <span class="h-1.5 w-1.5 rounded-full {badge.dot}"></span>
+                    {badge.label}
+                  </span>
+                  {#if taskRunDetail.taskType === "run_command" && commandMeta.exitCode !== null}
+                    <span class="rounded-full bg-bg-elevated px-2 py-1 font-mono text-[11px] text-text-secondary">exit {commandMeta.exitCode}</span>
+                  {/if}
+                  <span class="font-mono text-[11px] text-text-placeholder">{taskRunDetail.id}</span>
+                </div>
+                <div>
+                  <h1 class="text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">{taskTypeLabel(taskRunDetail.taskType)}</h1>
+                  <p class="mt-2 text-[13px] text-text-tertiary">
+                    {taskContextLabel(taskRunDetail)}
+                    {#if taskRunDetail.cronJobId}
+                      ·
+                      <a
+                        href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
+                        class="text-text-primary transition-colors hover:text-brand"
+                        onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
+                      >view cronjob</a>
+                    {/if}
+                  </p>
+                </div>
+              </div>
+            </header>
+
+            {#if taskRunProgress !== null && taskRunProgress !== undefined}
+              <section class="space-y-2">
+                <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Progress</div>
+                <pre class="max-h-80 overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
+              </section>
+            {/if}
+
+            {#if taskRunDetail.taskType === "run_command"}
+              <section class="space-y-2">
+                <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Command</div>
+                <div class="rounded-[8px] bg-bg-elevated/35 px-4 py-3">
+                  <pre class="max-w-full whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-primary sm:text-[14px]">{commandInfo.command}</pre>
+                  <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-tertiary">
                     <span class="font-mono">{commandInfo.cwd}</span>
                     <span>{formatDurationMs(commandMeta.durationMs)}</span>
                     <span>{formatDateTime(taskRunDetail.createdAt)}</span>
                   </div>
                 </div>
-              </div>
+              </section>
+            {/if}
 
-              <div class="py-4 sm:py-5">
-                {#if commandContent.length > 0}
-                  <ToolCallList content={commandContent} streaming={taskRunDetail.status === "pending" || taskRunDetail.status === "running"} defaultExpanded flush />
-                {:else}
-                  <div class="py-8 text-[13px] text-text-tertiary">Waiting for command output…</div>
+            {#if taskRunDetail.taskType === "save_checkpoint"}
+              <section class="flex flex-col gap-3 rounded-[8px] bg-bg-elevated/35 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0">
+                  <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Checkpoint</div>
+                  <div class="mt-1 text-[13px] text-text-secondary">
+                    {#if resultCheckpointId}
+                      Save completed and checkpoint is ready.
+                    {:else if saveStageLabel}
+                      {saveStageLabel}
+                    {:else}
+                      Waiting for checkpoint result…
+                    {/if}
+                  </div>
+                </div>
+                {#if resultCheckpointId}
+                  <a
+                    href={buildSpaceCheckpointRoute(spaceId, resultCheckpointId)}
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
+                    onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
+                  >
+                    <GitCommitHorizontal class="w-3.5 h-3.5" />
+                    <span>View checkpoint</span>
+                  </a>
+                {/if}
+              </section>
+            {/if}
+
+            <section class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
+              <div class="min-w-0 space-y-6">
+                {#if outputContent.length > 0}
+                  <div class="space-y-2">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
+                    <ToolCallList content={outputContent} streaming={taskIsStreaming(taskRunDetail)} defaultExpanded flush />
+                  </div>
+                {:else if taskIsStreaming(taskRunDetail)}
+                  <div class="py-6 text-[13px] text-text-tertiary">Waiting for output…</div>
+                {/if}
+
+                <div class="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                  <div class="space-y-1">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Scheduled</div>
+                    <div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
+                  </div>
+                  <div class="space-y-1">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Duration</div>
+                    <div class="text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
+                  </div>
+                  <div class="space-y-1">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Started</div>
+                    <div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div>
+                  </div>
+                  <div class="space-y-1">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Finished</div>
+                    <div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div>
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
+                  <pre class="max-h-[520px] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(taskRunDetail.payload)}</pre>
+                </div>
+
+                {#if rawResult}
+                  <div class="space-y-2">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
+                    <pre class="max-h-[520px] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(rawResult)}</pre>
+                  </div>
+                {/if}
+
+                {#if taskRunDetail.errorMessage}
+                  <div class="rounded-[7px] bg-error-bg p-4">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-error-soft">Error</div>
+                    <div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
+                  </div>
                 {/if}
               </div>
 
-              {#if taskRunDetail.errorMessage}
-                <div class="border-t border-error-soft/30 py-4 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
-              {/if}
-            </div>
-          {:else}
-            {@const resultCheckpointId = checkpointIdFromTaskRun(taskRunDetail)}
-            {@const saveStageLabel = taskRunDetail.taskType === "save_checkpoint" ? saveCheckpointProgressLabel(taskRunProgress) : null}
-            <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
-              <div class="space-y-1">
-                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Task Run</div>
-                <div class="flex items-center gap-3">
-                  <span class="flex items-center gap-2">
-                    <span class="w-3 h-3 rounded-full {badge.dot}"></span>
-                    <span class="text-[16px] font-semibold text-text-primary {badge.color}">{badge.label}</span>
-                  </span>
+              <aside class="space-y-4 text-[12px] text-text-tertiary">
+                <div class="space-y-1.5">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Attempts</div>
+                  <div class="text-text-secondary">{taskRunDetail.attemptCount}</div>
                 </div>
-                <p class="text-[13px] text-text-tertiary">
-                  {#if taskRunDetail.cronJobId}
-                    From cronjob
-                    <a
-                      href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
-                      class="text-text-primary hover:text-brand transition-colors"
-                      onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
-                    >view</a>
-                  {:else}
-                    One-time task
-                  {/if}
-                </p>
-                {#if taskRunDetail.taskType === "save_checkpoint"}
-                  <div class="mt-3 rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
-                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="space-y-1.5">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Type</div>
+                  <div class="font-mono text-[11px] text-text-secondary">{taskRunDetail.taskType}</div>
+                </div>
+                <div class="space-y-2">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Fields</div>
+                  <div class="space-y-2">
+                    {#each taskSystemFields(taskRunDetail) as [label, value]}
                       <div class="min-w-0">
-                        <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint</div>
-                        <div class="mt-1 text-[13px] text-text-secondary">
-                          {#if resultCheckpointId}
-                            Save completed and checkpoint is ready.
-                          {:else if saveStageLabel}
-                            {saveStageLabel}
-                          {:else}
-                            Waiting for checkpoint result…
-                          {/if}
-                        </div>
+                        <div class="text-[10px] text-text-placeholder">{label}</div>
+                        <div class="mt-0.5 font-mono text-[11px] leading-snug text-text-secondary break-all">{value}</div>
                       </div>
-                      {#if resultCheckpointId}
-                        <a
-                          href={buildSpaceCheckpointRoute(spaceId, resultCheckpointId)}
-                          class="inline-flex shrink-0 items-center gap-1.5 rounded-[5px] bg-brand-muted px-2.5 py-1.5 text-[12px] text-brand transition-colors hover:bg-brand-muted-hover"
-                          onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
-                        >
-                          <GitCommitHorizontal class="w-3.5 h-3.5" />
-                          <span>View checkpoint</span>
-                        </a>
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
-              </div>
-              <div class="grid gap-3 md:grid-cols-2">
-                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Task Type</div>
-                  <div class="mt-2 text-[13px] text-text-primary">{taskTypeLabel(taskRunDetail.taskType)}</div>
-                </div>
-                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Attempts</div>
-                  <div class="mt-2 text-[13px] text-text-primary">{taskRunDetail.attemptCount}</div>
-                </div>
-                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                  <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                    <Clock class="w-3.5 h-3.5" />
-                    Scheduled
-                  </div>
-                  <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
-                </div>
-                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                  <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                    <Clock3 class="w-3.5 h-3.5" />
-                    Duration
-                  </div>
-                  <div class="mt-2 text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
-                </div>
-              </div>
-              {#if taskRunDetail.startedAt || taskRunDetail.finishedAt}
-                <div class="grid gap-3 md:grid-cols-2">
-                  <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Started At</div>
-                    <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div>
-                  </div>
-                  <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
-                    <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Finished At</div>
-                    <div class="mt-2 text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div>
+                    {/each}
                   </div>
                 </div>
-              {/if}
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
-                <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Payload</div>
-                <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.payload, null, 2)}</pre>
-              </div>
-              {#if taskRunDetail.result}
-                <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/20 p-4">
-                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Result</div>
-                  <pre class="mt-2 text-[12px] font-mono text-text-secondary whitespace-pre-wrap break-all">{JSON.stringify(taskRunDetail.result, null, 2)}</pre>
-                </div>
-              {/if}
-              {#if taskRunDetail.errorMessage}
-                <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-4">
-                  <div class="text-[11px] uppercase tracking-wider text-error-soft font-medium">Error</div>
-                  <div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
-                </div>
-              {/if}
-            </div>
-          {/if}
+              </aside>
+            </section>
+          </div>
         {:else}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[12px] text-text-tertiary">Task run not found.</div>
+          <div class="text-[12px] text-text-tertiary">Task run not found.</div>
         {/if}
+        </div>
       </div>
     {:else if fileMode === 'file'}
       <!-- File Viewer -->

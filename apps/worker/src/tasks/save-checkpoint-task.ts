@@ -173,6 +173,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
         }))),
       ],
       source: input.reason ?? "save_checkpoint",
+      sourceTaskRunId: input.sourceTaskRunId ?? null,
       savedBy: input.userId ?? null,
       mirror: { status: "queued" },
     },
@@ -218,13 +219,13 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount, detectedGitRepoCount, timings, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}) };
 };
 
-const saveCheckpointHandler = async (job: Job) => {
+const saveCheckpointHandler = async (job: Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
   if (!spaceId) throw new Error("spaceId is required for save_checkpoint task");
   const description = (payload.data?.description as string | undefined) ?? null;
   const reason = (payload.data?.reason as string | undefined) ?? "save_checkpoint";
-  return saveCheckpointWithLock({ spaceId, userId: payload.userId, description, reason, onProgress: (progress) => job.updateProgress(progress) }, saveCheckpointForSpace);
+  return saveCheckpointWithLock({ spaceId, userId: payload.userId, description, reason, sourceTaskRunId: context?.taskRunId ?? null, onProgress: (progress) => job.updateProgress(progress) }, saveCheckpointForSpace);
 };
 
 registerTask("save_checkpoint", saveCheckpointHandler);

@@ -7,6 +7,7 @@ export type SaveCheckpointInput = {
   userId?: string | null;
   description?: string | null;
   reason?: string;
+  sourceTaskRunId?: string | null;
   onProgress?: (progress: SaveCheckpointProgress) => Promise<void> | void;
 };
 

@@ -142,7 +142,6 @@ export const registerTask = (type: string, handler: TaskHandler) => {
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
       await recordJobFailure(job, error, {
         reason: "task_failed",
         meta: {
