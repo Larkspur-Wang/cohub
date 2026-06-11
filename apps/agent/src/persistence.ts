@@ -8,7 +8,7 @@ import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from 
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "@cohub/core/sessions";
 import { getReadableUserIdsForSpace } from "@cohub/core/spaces";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
-import { normalizeAssistantTurn } from "./api.js";
+import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
 import { db } from "./db.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
@@ -475,7 +475,10 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   };
   const persisted = await persistMessageNode({ spaceId: input.spaceId, sessionId: input.spaceSessionId, previousMessageId: input.userMessageId, anchorUserMessageId: input.userMessageId, userId: input.userId ?? null, idempotencyKey: await buildAssistantIdempotencyKey({ previousMessageId: input.userMessageId, message }), message });
   const record = toMessageRecord(persisted.message);
-  if (!persisted.created) return { ok: true, message: record, created: false };
+  if (!persisted.created) {
+    await notifyMessageSideEffects({ spaceId: input.spaceId, sessionId: input.spaceSessionId, messageId: record.id });
+    return { ok: true, message: record, created: false };
+  }
   await publishMessagePersisted(input.spaceId, record);
   if (record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error") {
     const turnId = typeof record.meta.turnId === "string" ? record.meta.turnId : null;

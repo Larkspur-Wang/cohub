@@ -7,7 +7,7 @@ process.env.SESSIONS_DIR ??= "/tmp";
 process.env.PLATFORM_CONFIG_ROOT ??= "/tmp";
 process.env.ENV ??= "dev";
 
-const { normalizeAssistantTurn } = await import("../api.js");
+const { normalizeAssistantTurn } = await import("../assistant-message-normalizer.js");
 
 const case1 = normalizeAssistantTurn(
   {
