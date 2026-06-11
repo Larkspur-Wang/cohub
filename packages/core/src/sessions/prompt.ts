@@ -175,6 +175,18 @@ function normalizeDirectShellCommandContent(content: ContentBlock[]): ContentBlo
   return [{ type: "shell_command", command, rawText } satisfies ContentBlock];
 }
 
+function normalizePromptModelProvider(input: Pick<SubmitSessionPromptInput, "model" | "provider">): {
+  model: string | null;
+  provider: string | null;
+} {
+  const model = input.model?.trim() || null;
+  const provider = input.provider?.trim() || null;
+  return {
+    model,
+    provider: provider ?? (model ? "cohub" : null),
+  };
+}
+
 export const expandPromptContent = async (
   deps: Pick<SessionPromptDependencies, "expandPromptTemplate">,
   input: {
@@ -253,6 +265,7 @@ export const submitSessionPrompt = async (
   const inputIntent = isDirectShellCommand ? "shell_command" : "prompt";
   const turnIntent: SessionTurnIntent = isDirectShellCommand ? "steer" : (input.intent ?? "followup");
   const userMessageId = deps.randomUUID();
+  const modelProvider = normalizePromptModelProvider(input);
   const baseMeta = {
     source: input.source,
     userId,
@@ -261,8 +274,8 @@ export const submitSessionPrompt = async (
     intent: inputIntent,
     dispatchIntent: turnIntent,
     llm: isDirectShellCommand ? false : undefined,
-    model: input.model ?? null,
-    provider: input.provider ?? null,
+    model: modelProvider.model,
+    provider: modelProvider.provider,
     promptTemplate,
     generationPolicy: input.generationPolicy ?? null,
     accessMode,
