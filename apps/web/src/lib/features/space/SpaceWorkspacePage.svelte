@@ -287,6 +287,10 @@ const routeSessionId = $derived(data.sessionId ?? null);
 const isNewSessionRoute = $derived(
 	routeView === "session" && routeSessionId === "new",
 );
+let resolvedNewSessionId = $state<string | null>(null);
+const isDraftNewSessionRoute = $derived(
+	isNewSessionRoute && !resolvedNewSessionId,
+);
 const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
 const activeFsSource = $derived.by(
@@ -1505,7 +1509,7 @@ async function makeSessionPrivate() {
 	}
 }
 const draftSessionState = $derived<SessionViewState | null>(
-	isNewSessionRoute
+	isDraftNewSessionRoute
 		? {
 				session: undefined,
 				turns: [],
@@ -1521,7 +1525,7 @@ const draftSessionState = $derived<SessionViewState | null>(
 		: null,
 );
 const activeSessionState = $derived(
-	isNewSessionRoute
+	isDraftNewSessionRoute
 		? draftSessionState
 		: activeSessionId
 			? (sessionStateById[activeSessionId] ?? null)
@@ -4959,7 +4963,7 @@ async function handleSend() {
 				...sessionStateById,
 				[newSession.id]: targetSessionState,
 			};
-			await updateUrlSession(newSession.id);
+			resolvedNewSessionId = newSession.id;
 			activeSessionId = newSession.id;
 			if (draftSessionModel) {
 				sessionModelById = {
@@ -4971,6 +4975,12 @@ async function handleSend() {
 			sessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
+			void updateUrlSession(newSession.id).catch((error) => {
+				console.warn(
+					"[NewChat] failed to update URL after session creation",
+					error,
+				);
+			});
 		}
 		if (!sessionId || !targetSessionState?.session) {
 			throw new Error("Failed to create session");
@@ -7118,6 +7128,9 @@ $effect(() => {
 	appliedRouteTurnKey = null;
 });
 $effect(() => {
+	if (!isNewSessionRoute) resolvedNewSessionId = null;
+});
+$effect(() => {
 	if (routeView === "session" && activeSessionId) return;
 	showTurnBottomSheet = false;
 });
@@ -7180,7 +7193,7 @@ $effect(() => {
 		return;
 	}
 	if (
-		(routeView !== "session" || routeSessionId === "new") &&
+		(routeView !== "session" || (isDraftNewSessionRoute && activeSessionId)) &&
 		activeSessionId
 	) {
 		activeSessionId = null;
