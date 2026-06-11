@@ -104,9 +104,13 @@ export function getStreamingRenderKey(
 	anchorUserMessageId: string | null,
 	sessionId: string,
 	turnId?: string | null,
+	clientMessageId?: string | null,
 ) {
-	if (turnId?.trim()) return `turn:${turnId.trim()}:assistant`;
+	if (clientMessageId?.trim())
+		return `client:${clientMessageId.trim()}:assistant`;
 	return anchorUserMessageId?.trim()
 		? `assistant-final:${anchorUserMessageId.trim()}`
-		: `assistant-streaming:${sessionId}`;
+		: turnId?.trim()
+			? `turn:${turnId.trim()}:assistant`
+			: `assistant-streaming:${sessionId}`;
 }

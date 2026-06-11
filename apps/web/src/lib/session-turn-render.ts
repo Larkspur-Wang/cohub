@@ -14,7 +14,12 @@ function getTurnContextWindow(turn: SessionTurnRecord) {
 
 function getTurnClientMessageId(turn: Pick<SessionTurnRecord, "meta">) {
 	const value = turn.meta?.clientMessageId;
-	return typeof value === "string" && value.trim() ? value : null;
+	return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function getTurnRenderKey(turn: Pick<SessionTurnRecord, "id" | "meta">) {
+	const clientMessageId = getTurnClientMessageId(turn);
+	return clientMessageId ? `client:${clientMessageId}` : `turn:${turn.id}`;
 }
 
 function isOptimisticTurn(turn: Pick<SessionTurnRecord, "meta">) {
@@ -73,8 +78,9 @@ function getFinalMessageDurationMs(turn: SessionTurnRecord) {
 
 export function turnToUserMessage(turn: SessionTurnRecord): ChatMessage {
 	const meta = turn.meta ?? {};
+	const renderKey = getTurnRenderKey(turn);
 	return {
-		id: `turn:${turn.id}:user`,
+		id: `${renderKey}:user`,
 		sourceId: turn.id,
 		role: "user",
 		content: turn.userContent,
@@ -109,7 +115,7 @@ export function turnToAssistantMessage(
 			? [{ type: "text", text: turn.assistantText } satisfies ContentBlock]
 			: []);
 	return {
-		id: `turn:${turn.id}:assistant`,
+		id: `${getTurnRenderKey(turn)}:assistant`,
 		sourceId: turn.id,
 		role: "assistant",
 		content,
@@ -176,6 +182,7 @@ export function buildTurnTimelineItems(input: {
 		sessionId: string;
 		turnId?: string | null;
 		anchorUserMessageId?: string | null;
+		clientMessageId?: string | null;
 		contentBlocks: ContentBlock[];
 		intermediateMessages?: StoredIntermediateMessage[];
 		truncatedStart?: boolean;
@@ -196,18 +203,19 @@ export function buildTurnTimelineItems(input: {
 	);
 	let streamingProcessInserted = false;
 	for (const turn of dedupeRenderableTurnsByClientMessageId(input.turns)) {
+		const turnRenderKey = getTurnRenderKey(turn);
 		// Keep the active turn visible while the server-side queued record is
 		// reconciling with the local optimistic one. Other queued follow-ups are
 		// rendered by the follow-up queue instead of the main timeline.
 		if (isQueuedFollowupTurn(turn) && turn.id !== streamingTurnId) continue;
 		items.push({
-			id: `turn:${turn.id}:user`,
+			id: `${turnRenderKey}:user`,
 			kind: "message",
 			message: turnToUserMessage(turn),
 		});
 		if (turn.intermediateSummary && turn.intermediateSummary.messageCount > 0) {
 			items.push({
-				id: `turn:${turn.id}:process`,
+				id: `${turnRenderKey}:process`,
 				kind: "process",
 				turn,
 				summary: turn.intermediateSummary,
@@ -241,7 +249,7 @@ export function buildTurnTimelineItems(input: {
 					),
 				} satisfies SessionTurnIntermediateSummary;
 				items.push({
-					id: `turn:${turn.id}:process:streaming`,
+					id: `${turnRenderKey}:process:streaming`,
 					kind: "process",
 					turn,
 					summary,
@@ -263,7 +271,7 @@ export function buildTurnTimelineItems(input: {
 				// and then reappear on the next fetch.
 			} else {
 				items.push({
-					id: `turn:${turn.id}:assistant`,
+					id: `${turnRenderKey}:assistant`,
 					kind: "message",
 					message: assistant,
 				});
@@ -316,7 +324,7 @@ export function buildTurnTimelineItems(input: {
 			showStartingStatus
 		) {
 			items.push({
-				id: `turn:${turn.id}:process:streaming`,
+				id: `${getTurnRenderKey(turn)}:process:streaming`,
 				kind: "process",
 				turn,
 				summary: {
@@ -344,6 +352,7 @@ export function buildTurnTimelineItems(input: {
 			input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
 			input.streaming?.turnId ?? null,
+			input.streaming?.clientMessageId ?? null,
 		);
 		const blocks = buildStreamingPreviewBlocks(streamingBlocks, {
 			truncatedStart: input.streaming?.truncatedStart,

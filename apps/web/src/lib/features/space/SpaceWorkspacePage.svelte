@@ -282,6 +282,7 @@ const DEFAULT_IMAGE_MEDIA_TYPE = "image/webp";
 const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
+const SESSION_INITIAL_LOADING_DELAY_MS = 160;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -710,6 +711,7 @@ let statusRefreshInFlight = false;
 let creatingSession = $state(false);
 let createSessionError = $state("");
 let loadingSessionIds = $state<Record<string, boolean>>({});
+let visibleInitialLoadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1734,6 +1736,9 @@ const activeSessionState = $derived(
 			? (sessionStateById[activeSessionId] ?? null)
 			: null,
 );
+const activeSessionInitialLoadingVisible = $derived.by(() =>
+	Boolean(activeSessionId && visibleInitialLoadingSessionIds[activeSessionId]),
+);
 const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 	if (!activeSessionId) return [];
 	return [
@@ -1901,6 +1906,16 @@ const activeStreamingIntermediateMessages = $derived.by(() => {
 		intermediateMessages: activeGenerationState.intermediateMessages,
 	});
 });
+const activeGenerationClientMessageId = $derived.by(() => {
+	const turnId = activeGenerationState?.turnId;
+	if (!turnId) return null;
+	return getTurnClientMessageId(
+		activeSessionState?.turns.find((turn) => turn.id === turnId) ??
+			activeSessionState?.turns.find(
+				(turn) => getTurnClientMessageId(turn) === turnId,
+			) ?? { meta: null },
+	);
+});
 const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");
 const activeSessionIsRunning = $derived.by(() =>
 	Boolean(
@@ -1925,6 +1940,7 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 						turnId: activeGenerationState.turnId ?? null,
 						anchorUserMessageId:
 							activeGenerationState.anchorUserMessageId ?? null,
+						clientMessageId: activeGenerationClientMessageId,
 						intermediateMessages: activeStreamingIntermediateMessages,
 						contentBlocks: activeGenerationState.contentBlocks,
 						finalizedPreview: activeGenerationState.finalizedPreview,
@@ -4061,6 +4077,19 @@ async function loadSessionState(sessionId: string, force = false) {
 			};
 		}
 		loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
+		visibleInitialLoadingSessionIds = {
+			...visibleInitialLoadingSessionIds,
+			[sessionId]: false,
+		};
+		const loadSpaceId = spaceId;
+		const loadingTimer = setTimeout(() => {
+			if (spaceId !== loadSpaceId) return;
+			if (sessionStateById[sessionId]?.loaded) return;
+			visibleInitialLoadingSessionIds = {
+				...visibleInitialLoadingSessionIds,
+				[sessionId]: true,
+			};
+		}, SESSION_INITIAL_LOADING_DELAY_MS);
 		const currentSeed = sessionStateById[sessionId];
 		sessionStateById = {
 			...sessionStateById,
@@ -4138,6 +4167,10 @@ async function loadSessionState(sessionId: string, force = false) {
 				},
 			};
 		} finally {
+			clearTimeout(loadingTimer);
+			const nextVisibleLoading = { ...visibleInitialLoadingSessionIds };
+			delete nextVisibleLoading[sessionId];
+			visibleInitialLoadingSessionIds = nextVisibleLoading;
 			loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
 		}
 	})();
@@ -4774,7 +4807,7 @@ function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
 
 function getTurnClientMessageId(turn: Pick<SessionTurnRecord, "meta">) {
 	const value = turn.meta?.clientMessageId;
-	return typeof value === "string" && value.trim() ? value : null;
+	return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function isOptimisticTurn(turn: Pick<SessionTurnRecord, "meta">) {
@@ -7370,6 +7403,7 @@ $effect(() => {
 	spaceSessions = [];
 	sessionStateById = {};
 	loadingSessionIds = {};
+	visibleInitialLoadingSessionIds = {};
 	sessionLoadInFlight.clear();
 	turnWindowLoadInFlight.clear();
 	syncSessionNewerInFlight.clear();
@@ -9551,7 +9585,7 @@ $effect(() => {
           </button>
         {/if}
       </div>
-    {:else if activeSessionState.loading && !activeSessionState.loaded}
+    {:else if activeSessionState.loading && !activeSessionState.loaded && activeSessionInitialLoadingVisible}
       <CenteredLoading label="Loading turns…" />
     {:else}
       {#if activeSessionState.error}
@@ -9572,7 +9606,7 @@ $effect(() => {
             onMarkdownRendered={handleTimelineMarkdownRendered}
             onForkTurn={handleForkTurn}
             forkingTurnId={forkingTurnId}
-            loading={activeSessionState?.loading ?? false}
+            loading={activeSessionInitialLoadingVisible}
             loadingOlder={activeSessionState?.loadingOlder ?? false}
             onOpenFile={openInlineFile}
             modelsCatalog={modelsCatalog ?? undefined}
