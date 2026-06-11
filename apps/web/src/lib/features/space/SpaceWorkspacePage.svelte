@@ -1504,8 +1504,28 @@ async function makeSessionPrivate() {
 		shareModalSaving = false;
 	}
 }
+const draftSessionState = $derived<SessionViewState | null>(
+	isNewSessionRoute
+		? {
+				session: undefined,
+				turns: [],
+				loading: false,
+				loaded: true,
+				error: "",
+				hasMore: false,
+				hasMoreNewer: false,
+				loadingOlder: false,
+				loadingNewer: false,
+				oldestCursor: undefined,
+			}
+		: null,
+);
 const activeSessionState = $derived(
-	activeSessionId ? (sessionStateById[activeSessionId] ?? null) : null,
+	isNewSessionRoute
+		? draftSessionState
+		: activeSessionId
+			? (sessionStateById[activeSessionId] ?? null)
+			: null,
 );
 const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 	if (!activeSessionId) return [];
@@ -7516,7 +7536,7 @@ $effect(() => {
 <PageHeader>
   {#snippet left()}
     <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
-      {#if routeView === "session" && activeSessionState?.session}
+      {#if routeView === "session" && (activeSessionState?.session || isNewSessionRoute)}
         <button
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
@@ -7526,7 +7546,7 @@ $effect(() => {
           <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />
         </button>
         <div class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
-          {#if sessionRenaming}
+          {#if sessionRenaming && activeSessionState?.session}
             <input
               bind:this={sessionRenameInputEl}
               bind:value={sessionRenameValue}
@@ -7572,12 +7592,12 @@ $effect(() => {
             <button
               type="button"
               class="min-w-0 flex-1 truncate text-[13px] text-text-secondary hover:text-text-primary transition-colors"
-              onclick={startSessionRename}
-              title="Click to rename"
+              onclick={activeSessionState?.session ? startSessionRename : undefined}
+              title={activeSessionState?.session ? "Click to rename" : "New chat"}
             >
-              {getSessionTitle(activeSessionState.session)}
+              {activeSessionState?.session ? getSessionTitle(activeSessionState.session) : "New chat"}
             </button>
-            {#if activeSessionState.loading && activeSessionState.loaded}
+            {#if activeSessionState?.loading && activeSessionState.loaded}
               <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />
             {/if}
             {#if wsConnectionState === 'reconnecting'}
