@@ -12,6 +12,15 @@ import { createLogger } from "@cohub/infra/logging";
 import { db } from "../db.js";
 import { dispatchLabelAssignmentsUpdated } from "../label-events.js";
 
+const MAX_TASK_SOURCE_LENGTH = 255;
+
+const normalizeTaskSource = (value: unknown) => {
+  if (typeof value !== "string") return "scheduled_task";
+  const source = value.trim();
+  if (!source) return "scheduled_task";
+  return source.length > MAX_TASK_SOURCE_LENGTH ? source.slice(0, MAX_TASK_SOURCE_LENGTH) : source;
+};
+
 const logger = createLogger({ serviceName: "cohub-worker" });
 
 const sessionPromptService = getSessionDomainServices({
@@ -21,10 +30,11 @@ const sessionPromptService = getSessionDomainServices({
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, model, provider, clientMessageId, generationPolicy, accessMode, intent, labelIds } = (payload.data ?? {}) as {
+  const { content, sessionId, title, source: payloadSource, model, provider, clientMessageId, generationPolicy, accessMode, intent, labelIds } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
+    source?: unknown;
     model?: string;
     provider?: string;
     clientMessageId?: string;
@@ -43,7 +53,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
   const taskRunId = (context?.taskRunId ?? String(job.id ?? "")).trim();
   if (!taskRunId) throw new Error("taskRunId is required for send_message task");
 
-  const source = "scheduled_task";
+  const source = normalizeTaskSource(payloadSource);
   const targetSessionId = sessionId?.trim() || null;
   const createdSession = targetSessionId ? null : await sessionPromptService.registerCronjobSession(spaceId, { source, title: title ?? null, userUuid: userId });
   const promptSessionId = targetSessionId ?? createdSession?.id;

@@ -85,6 +85,7 @@ import {
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
+	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
@@ -1522,22 +1523,19 @@ function handleWorksChanged(event: Event) {
 
 async function handleCreateNewSession() {
 	if (!currentSpaceId || creatingSession) return;
-	creatingSession = true;
 	createSessionError = "";
 	try {
-		const result = await sdk
-			.space(currentSpaceId)
-			.sessions.create({ source: "web" });
-		sessions = await patchCachedSessionList(currentSpaceId, (current) => [
-			result.session,
-			...current.filter((session) => session.id !== result.session.id),
-		]);
-		await handleNavigateToSession(result.session.id);
+		await goto(buildSpaceNewSessionRoute(currentSpaceId), {
+			keepFocus: true,
+			noScroll: true,
+		});
+		onClose?.();
+		requestAnimationFrame(() => {
+			window.dispatchEvent(new CustomEvent("cohub:composer-focus"));
+		});
 	} catch (error) {
 		createSessionError =
-			error instanceof Error ? error.message : "Failed to create session";
-	} finally {
-		creatingSession = false;
+			error instanceof Error ? error.message : "Failed to open new chat";
 	}
 }
 

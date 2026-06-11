@@ -20,6 +20,7 @@ type ModOptions = {
 type PromptOptions = {
   session?: string;
   title?: string;
+  source?: string;
   model?: string;
   provider?: string;
   readOnly?: boolean;
@@ -218,6 +219,7 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
     const result = await client.space(spaceId).prompt({
       sessionId: opts.session,
       title: opts.title,
+      source: opts.source?.trim() || "cli",
       content: [{ type: "text", text: content }],
       model: opts.model,
       provider: opts.provider,
@@ -241,6 +243,7 @@ export function registerPrompt(program: Command): void {
     .description("Send or schedule a prompt in a space")
     .option("--session <id>", "Target session ID")
     .option("--title <title>", "Title for a newly created session or schedule")
+    .option("--source <source>", "Prompt source for newly created sessions", "cli")
     .option("-m, --model <model>", "Model name")
     .option("-p, --provider <provider>", "Provider name")
     .option("--read-only", "Use read-only tools")

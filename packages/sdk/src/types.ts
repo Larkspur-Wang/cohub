@@ -872,6 +872,7 @@ export type PromptAccessMode = "read_only" | "full_access";
 export type CreateSpacePromptInput = {
   sessionId?: string | null;
   title?: string | null;
+  source?: string | null;
   content: ContentBlock[];
   model?: string | null;
   provider?: string | null;

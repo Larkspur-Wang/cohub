@@ -3,6 +3,9 @@ export const buildSpaceDetailRoute = (spaceId: string) => `/spaces/${spaceId}`;
 export const buildSpaceSessionRoute = (spaceId: string, sessionId: string) =>
 	`/spaces/${spaceId}/sessions/${sessionId}`;
 
+export const buildSpaceNewSessionRoute = (spaceId: string) =>
+	buildSpaceSessionRoute(spaceId, "new");
+
 export const buildSpaceSessionTurnRoute = (
 	spaceId: string,
 	sessionId: string,

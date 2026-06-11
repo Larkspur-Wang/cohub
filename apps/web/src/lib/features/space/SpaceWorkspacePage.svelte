@@ -93,7 +93,6 @@ import {
 } from "$lib/canvas/canvas-document";
 import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
-import { pollCheckpointJob } from "$lib/checkpoints";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
@@ -155,6 +154,7 @@ import {
 	buildSpaceCronjobRoute,
 	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
+	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
@@ -284,6 +284,9 @@ const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
 const routeView = $derived(data.view);
 const routeSessionId = $derived(data.sessionId ?? null);
+const isNewSessionRoute = $derived(
+	routeView === "session" && routeSessionId === "new",
+);
 const routeFilePath = $derived(data.filePath ?? null);
 const routeCheckpointId = $derived(data.checkpointId ?? null);
 const activeFsSource = $derived.by(
@@ -411,6 +414,7 @@ let labelPickerResource = $state<{
 	ref: string;
 } | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
+let draftSessionModel = $state<SelectedModel | null>(null);
 let fileTree = $state<SpaceFsNode[]>([]);
 let fileTreeBySource = $state<Record<string, SpaceFsNode[]>>({});
 let fileTreeSourceKey = $state("live");
@@ -1050,22 +1054,7 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 		const { taskRunId } = await sdk
 			.space(spaceId)
 			.checkpoints.create(checkpointCreateDescription.trim() || null);
-		const run = await pollCheckpointJob(taskRunId);
-		const checkpointId =
-			typeof run.result === "object" &&
-			run.result !== null &&
-			"checkpointId" in run.result &&
-			typeof run.result.checkpointId === "string"
-				? run.result.checkpointId
-				: null;
-		window.dispatchEvent(
-			new CustomEvent("cohub:checkpoints-updated", { detail: { spaceId } }),
-		);
-		if (checkpointId) {
-			await goto(buildSpaceCheckpointRoute(spaceId, checkpointId));
-			return;
-		}
-		await goto(buildSpaceDetailRoute(spaceId));
+		await goto(buildSpaceTaskRoute(spaceId, taskRunId));
 	} catch (error) {
 		if (error instanceof HttpError && error.status === 409) {
 			checkpointCreateError = "Checkpoint save in progress.";
@@ -1560,6 +1549,7 @@ const browserTabTitle = $derived.by(() => {
 	const routeTitle = (() => {
 		if (routeView === "space") return null;
 		if (routeView === "session") {
+			if (isNewSessionRoute) return "New chat";
 			return activeSessionState?.session
 				? normalizeTabTitleSegment(
 						getSessionTitle(activeSessionState.session),
@@ -1637,7 +1627,7 @@ const TERMINAL_GENERATION_STATUSES = new Set([
 	"interrupted",
 ]);
 const activeSessionModel = $derived.by(() => {
-	if (!activeSessionId) return null;
+	if (!activeSessionId) return draftSessionModel ?? firstCatalogModel;
 	return sessionModelById[activeSessionId] ?? firstCatalogModel;
 });
 const activeGenerationState = $derived.by(() =>
@@ -2273,7 +2263,6 @@ async function loadPromptTemplates() {
 	}
 }
 function handleModelSelect(model: { provider: string; id: string }) {
-	if (!activeSessionId) return;
 	const catalogItem = modelsCatalog?.find(
 		(item) => item.provider === model.provider && item.id === model.id,
 	);
@@ -2282,6 +2271,12 @@ function handleModelSelect(model: { provider: string; id: string }) {
 		id: model.id,
 		name: catalogItem?.model.name as string | undefined,
 	} satisfies SelectedModel;
+	if (!activeSessionId) {
+		draftSessionModel = selected;
+		showModelSelector = false;
+		focusComposerSoon();
+		return;
+	}
 	sessionModelById = {
 		...sessionModelById,
 		[activeSessionId]: selected,
@@ -3108,7 +3103,45 @@ function makeImagePanHandlers(
 }
 function taskTypeLabel(taskType: string) {
 	if (taskType === "run_command") return "Run Command";
+	if (taskType === "save_checkpoint") return "Save Checkpoint";
 	return taskType;
+}
+
+function checkpointIdFromTaskRun(
+	run: TaskRunRecord | null | undefined,
+): string | null {
+	const result = asRecord(run?.result);
+	const checkpointId = result?.checkpointId;
+	return typeof checkpointId === "string" && checkpointId.trim()
+		? checkpointId
+		: null;
+}
+
+function saveCheckpointProgressLabel(progress: unknown): string | null {
+	const stage = asRecord(progress)?.stage;
+	if (typeof stage !== "string" || !stage.trim()) return null;
+	const labels: Record<string, string> = {
+		prepare: "Preparing workspace",
+		scan_workspace: "Scanning workspace",
+		upload_assets: "Uploading assets",
+		bundle_git_repos: "Bundling git repositories",
+		commit_checkpoint: "Committing checkpoint",
+		materialize_latest: "Materializing latest files",
+		write_checkpoint_record: "Writing checkpoint record",
+		mirror_gitea: "Mirroring repository",
+		completed: "Completed",
+	};
+	return labels[stage] ?? stage.replaceAll("_", " ");
+}
+
+function sourceTaskRunIdFromCheckpoint(
+	checkpoint: CheckpointRecord | null | undefined,
+): string | null {
+	const meta = asRecord(checkpoint?.meta);
+	const sourceTaskRunId = meta?.sourceTaskRunId;
+	return typeof sourceTaskRunId === "string" && sourceTaskRunId.trim()
+		? sourceTaskRunId
+		: null;
 }
 
 function isContentBlockArray(value: unknown): value is ContentBlock[] {
@@ -4853,7 +4886,7 @@ async function uploadComposerFileAttachments(
 
 async function handleSend() {
 	if (
-		!activeSessionState?.session ||
+		(!activeSessionState?.session && !isNewSessionRoute) ||
 		(!input.trim() && attachments.length === 0) ||
 		sending ||
 		!space
@@ -4862,7 +4895,8 @@ async function handleSend() {
 	sending = true;
 	composerError = "";
 	clearGenerationError(activeSessionId);
-	const sessionId = activeSessionState.session.id;
+	let sessionId = activeSessionState?.session?.id ?? null;
+	let targetSessionState = activeSessionState;
 	const pendingInput = input;
 	const pendingAttachments = attachments;
 	const optimisticTurnId = crypto.randomUUID();
@@ -4879,6 +4913,48 @@ async function handleSend() {
 	let optimisticTurn: SessionTurnRecord | null = null;
 	let hasActiveTurn = false;
 	try {
+		if (!sessionId) {
+			const result = await sdk
+				.space(spaceId)
+				.sessions.create({ source: "web" });
+			const newSession = result.session;
+			const nextSessions = await patchCachedSessionList(spaceId, (current) => [
+				newSession,
+				...current.filter((session) => session.id !== newSession.id),
+			]);
+			seedSessions(nextSessions);
+			targetSessionState = {
+				session: newSession,
+				turns: [],
+				loading: false,
+				loaded: true,
+				error: "",
+				hasMore: false,
+				hasMoreNewer: false,
+				loadingOlder: false,
+				loadingNewer: false,
+				oldestCursor: undefined,
+			};
+			sessionStateById = {
+				...sessionStateById,
+				[newSession.id]: targetSessionState,
+			};
+			await updateUrlSession(newSession.id);
+			activeSessionId = newSession.id;
+			if (draftSessionModel) {
+				sessionModelById = {
+					...sessionModelById,
+					[newSession.id]: draftSessionModel,
+				};
+				saveSessionModel(newSession.id, draftSessionModel);
+			}
+			sessionId = newSession.id;
+			ensureSessionModelLoaded(newSession.id);
+			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
+		}
+		if (!sessionId || !targetSessionState?.session) {
+			throw new Error("Failed to create session");
+		}
 		const fileAttachments = attachments.filter(
 			(attachment): attachment is ComposerFileAttachment =>
 				attachment.kind === "file",
@@ -4935,7 +5011,7 @@ async function handleSend() {
 		attachments = [];
 		const model = activeSessionModel;
 		const now = new Date().toISOString();
-		const sequenceHint = (activeSessionState?.turns.at(-1)?.sequence ?? 0) + 1;
+		const sequenceHint = (targetSessionState.turns.at(-1)?.sequence ?? 0) + 1;
 		hasActiveTurn = activeSessionIsRunning;
 		optimisticTurn = {
 			id: optimisticTurnId,
@@ -4972,8 +5048,8 @@ async function handleSend() {
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
-				...activeSessionState,
-				turns: mergeTurnsById(activeSessionState.turns, [optimisticTurn], {
+				...targetSessionState,
+				turns: mergeTurnsById(targetSessionState.turns, [optimisticTurn], {
 					preferIncoming: true,
 				}),
 			},
@@ -4985,7 +5061,7 @@ async function handleSend() {
 		await tick();
 		requestBottomFollow({ immediate: true });
 		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
-			session: activeSessionState.session,
+			session: targetSessionState.session,
 		});
 		if (!hasActiveTurn)
 			startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
@@ -4996,6 +5072,8 @@ async function handleSend() {
 			provider: model?.provider,
 			clientMessageId,
 			generationPolicy: buildTurnGenerationPolicy(),
+			accessMode: "full_access",
+			source: "web",
 			intent: "followup",
 			schedule: { mode: "immediate" },
 		});
@@ -5064,13 +5142,14 @@ async function handleSend() {
 				: "Upload failed. Please try again."
 			: sendError;
 		composerError = displayError;
-		failGeneration(sessionId, sendError);
-		const current = sessionStateById[sessionId];
-		if (current && optimisticTurn) {
+		if (sessionId) failGeneration(sessionId, sendError);
+		const current = sessionId ? sessionStateById[sessionId] : null;
+		const failedSessionId = sessionId;
+		if (current && optimisticTurn && failedSessionId) {
 			const failedAt = new Date().toISOString();
 			const failedTurn = {
 				id: optimisticTurnId,
-				sessionId,
+				sessionId: failedSessionId,
 				userUuid: currentUser.uuid,
 				sequence: optimisticTurn.sequence,
 				status: hasActiveTurn ? "cancelled" : "failed",
@@ -5102,7 +5181,7 @@ async function handleSend() {
 			} as SessionTurnRecord;
 			sessionStateById = {
 				...sessionStateById,
-				[sessionId]: {
+				[failedSessionId]: {
 					...current,
 					turns: mergeTurnsById(
 						current.turns.filter((turn) => turn.id !== optimisticTurnId),
@@ -6410,56 +6489,24 @@ function getHeaderResourceLabel() {
 
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
-	creatingSession = true;
 	createSessionError = "";
-	const createSpaceId = space.id;
-	void sdk
-		.space(createSpaceId)
-		.sessions.create({ source: "web" })
-		.then(async (result) => {
-			const newSession = result.session;
-			const nextSessions = await patchCachedSessionList(
-				createSpaceId,
-				(current) => [
-					newSession,
-					...current.filter((session) => session.id !== newSession.id),
-				],
-			);
-			seedSessions(nextSessions);
-			// New session has no turns yet — seed it before navigation so the route
-			// loader does not issue an unnecessary listPaginated request for split mode.
-			sessionStateById = {
-				...sessionStateById,
-				[newSession.id]: {
-					session: newSession,
-					turns: [],
-					loading: false,
-					loaded: true,
-					error: "",
-					hasMore: false,
-					hasMoreNewer: false,
-					loadingOlder: false,
-					loadingNewer: false,
-					oldestCursor: undefined,
-				},
-			};
-			// Navigate before switching the local active session. Otherwise split mode
-			// can briefly combine the new empty session with the previous URL/turn and
-			// try to load that old turn from the new session.
-			await updateUrlSession(newSession.id);
-			activeSessionId = newSession.id;
-			ensureSessionModelLoaded(newSession.id);
-			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
+	void goto(buildSpaceNewSessionRoute(space.id), {
+		keepFocus: true,
+		noScroll: true,
+	})
+		.then(() => {
+			activeSessionId = null;
+			pendingRestoreSessionId = null;
+			activeAnchorRestore = null;
+			anchorRestoreWaitingForMarkdown = false;
+			currentTurnSequence = null;
+			showTurnBottomSheet = false;
 			shouldAutoFollow = true;
-			await forceScrollToBottom();
 			focusComposerSoon();
 		})
 		.catch((error) => {
 			createSessionError =
-				error instanceof Error ? error.message : "Failed to create session";
-		})
-		.finally(() => {
-			creatingSession = false;
+				error instanceof Error ? error.message : "Failed to open new chat";
 		});
 }
 function focusComposerSoon() {
@@ -6925,7 +6972,11 @@ $effect(() => {
 			let sessionLoad: Promise<void> | null = null;
 			let hasCachedSpace = false;
 			try {
-				if (routeView === "session" && routeSessionId) {
+				if (
+					routeView === "session" &&
+					routeSessionId &&
+					routeSessionId !== "new"
+				) {
 					prepareRouteSession(routeSessionId);
 					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
 				}
@@ -6935,7 +6986,11 @@ $effect(() => {
 				if (cachedSessions && cachedSessions.length > 0) {
 					seedSessions(cachedSessions);
 				}
-				if (routeView === "session" && routeSessionId) {
+				if (
+					routeView === "session" &&
+					routeSessionId &&
+					routeSessionId !== "new"
+				) {
 					prepareRouteSession(routeSessionId);
 				}
 				const cachedSessionLoad = sessionLoad;
@@ -6955,7 +7010,11 @@ $effect(() => {
 				void loadFileTree();
 				void loadSpaceCheckpoints();
 				if (routeView === "space") void loadTokenUsage(7);
-				if (routeView === "session" && routeSessionId) {
+				if (
+					routeView === "session" &&
+					routeSessionId &&
+					routeSessionId !== "new"
+				) {
 					prepareRouteSession(routeSessionId);
 					await cachedSessionLoad;
 					void loadTurnIndex(routeSessionId);
@@ -7023,6 +7082,7 @@ $effect(() => {
 		!pageMounted ||
 		routeView !== "session" ||
 		!sessionId ||
+		sessionId === "new" ||
 		activeSessionId !== sessionId ||
 		!sequence
 	)
@@ -7033,7 +7093,8 @@ $effect(() => {
 	void jumpToTurn(sequence);
 });
 $effect(() => {
-	if (routeView === "session" && routeSessionId) return;
+	if (routeView === "session" && routeSessionId && routeSessionId !== "new")
+		return;
 	appliedRouteTurnKey = null;
 });
 $effect(() => {
@@ -7083,6 +7144,7 @@ $effect(() => {
 	if (
 		routeView === "session" &&
 		routeSessionId &&
+		routeSessionId !== "new" &&
 		routeSessionId !== activeSessionId
 	) {
 		prepareRouteSession(routeSessionId);
@@ -7097,7 +7159,10 @@ $effect(() => {
 		});
 		return;
 	}
-	if (routeView !== "session" && activeSessionId) {
+	if (
+		(routeView !== "session" || routeSessionId === "new") &&
+		activeSessionId
+	) {
 		activeSessionId = null;
 		pendingRestoreSessionId = null;
 		activeAnchorRestore = null;
@@ -7730,104 +7795,130 @@ $effect(() => {
         {/if}
       </div>
     {:else if routeView === 'checkpoint'}
-      <div class="flex-1 min-h-0 overflow-y-auto p-4 max-w-3xl">
+      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+        <div class="max-w-4xl">
         {#if checkpointDetailLoading && checkpointDetail?.id !== routeCheckpointId}
           {@render PanelLoadingState("Loading save…")}
         {:else if checkpointDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
         {:else if checkpointDetail && checkpointDetail.id === routeCheckpointId}
-          <div class="border border-border-subtle rounded-md bg-bg-surface">
-            <!-- Hero section: ID + description -->
-            <div class="p-5 space-y-4">
-              <div class="space-y-2">
-                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint ID</div>
-                <div class="flex items-center gap-3">
-                  <div class="font-mono text-[18px] font-semibold text-text-primary tracking-tight break-all leading-snug">{checkpointDetail.id}</div>
-                  <div class="flex shrink-0 items-center gap-2">
+          {@const sourceTaskRunId = sourceTaskRunIdFromCheckpoint(checkpointDetail)}
+          <div class="space-y-8">
+            <header class="flex flex-col gap-5 border-b border-border-subtle/70 pb-6 lg:flex-row lg:items-start lg:justify-between">
+              <div class="min-w-0 space-y-3">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
+                    <GitCommitHorizontal class="h-3 w-3" />
+                    Checkpoint
+                  </span>
+                  <span class="font-mono text-[11px] text-text-placeholder">{formatCheckpointTimestamp(checkpointDetail.createdAt)}</span>
+                </div>
+                <div class="space-y-2">
+                  <h1 class="font-mono text-[18px] font-semibold leading-snug tracking-tight text-text-primary break-all sm:text-[22px]">{checkpointDetail.id}</h1>
+                  {#if checkpointDetail.description?.trim()}
+                    <p class="max-w-2xl text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</p>
+                  {:else}
+                    <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
+                  {/if}
+                </div>
+              </div>
+              <div class="flex shrink-0 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
+                  onclick={handleForkCheckpoint}
+                >
+                  <Rocket class="w-3.5 h-3.5" />
+                  <span>New space</span>
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                  onclick={handleCopyCheckpointId}
+                >
+                  {#if checkpointIdCopied}
+                    <Check class="w-3.5 h-3.5 text-success-soft" />
+                    <span class="text-success-soft">Copied</span>
+                  {:else}
+                    <Copy class="w-3.5 h-3.5" />
+                    <span>Copy ID</span>
+                  {/if}
+                </button>
+              </div>
+            </header>
+
+            <section class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
+              <div class="min-w-0 space-y-5">
+                <div class="space-y-2">
+                  <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
+                    <GitCommitHorizontal class="w-3.5 h-3.5 shrink-0" />
+                    Commit
+                  </div>
+                  <div class="group flex items-start justify-between gap-3 rounded-[6px] bg-bg-elevated/35 px-3 py-2.5">
+                    <div class="min-w-0 font-mono text-[12px] leading-snug text-text-secondary break-all">{checkpointDetail.commitHash}</div>
                     <button
                       type="button"
-                      class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] bg-brand-muted border border-brand-border text-[12px] text-brand hover:bg-brand-muted-hover transition-colors"
-                      onclick={handleForkCheckpoint}
+                      class="shrink-0 rounded-[4px] p-1.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
+                      onclick={handleCopyCheckpointCommitHash}
+                      title="Copy commit hash"
                     >
-                      <Rocket class="w-3.5 h-3.5" />
-                      <span>New space</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-                      onclick={handleCopyCheckpointId}
-                    >
-                      {#if checkpointIdCopied}
-                        <Check class="w-3.5 h-3.5 text-success-soft" />
-                        <span class="text-success-soft">Copied</span>
+                      {#if checkpointCopied}
+                        <Check class="w-3 h-3 text-success-soft" />
                       {:else}
-                        <Copy class="w-3.5 h-3.5" />
-                        <span>Copy</span>
+                        <Copy class="w-3 h-3" />
                       {/if}
                     </button>
                   </div>
                 </div>
-              </div>
-              {#if checkpointDetail.description?.trim()}
-                <div class="text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</div>
-              {/if}
-              <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> · {formatCheckpointTimestamp(checkpointDetail.createdAt)}</p>
-            </div>
-            <!-- Divider -->
-            <div class="border-t border-border-subtle"></div>
-            <!-- Metadata: flattened label-value list -->
-            <div class="p-5">
-              <div class="space-y-4">
-                <!-- Commit Hash -->
-                <div class="flex items-start justify-between gap-4">
-                  <div class="min-w-0">
-                    <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
-                      <GitCommitHorizontal class="w-3.5 h-3.5 shrink-0" />
-                      Commit Hash
-                    </div>
-                    <div class="mt-1.5 font-mono text-[12px] text-text-secondary break-all leading-snug">{checkpointDetail.commitHash}</div>
-                  </div>
-                  <button
-                    type="button"
-                    class="shrink-0 inline-flex items-center gap-1 px-2 py-1.5 rounded-[4px] text-[11px] text-text-placeholder hover:text-text-secondary hover:bg-bg-hover transition-colors"
-                    onclick={handleCopyCheckpointCommitHash}
-                  >
-                    {#if checkpointCopied}
-                      <Check class="w-3 h-3 text-success-soft" />
-                    {:else}
-                      <Copy class="w-3 h-3" />
-                    {/if}
-                  </button>
-                </div>
-                <!-- Parent Checkpoint -->
-                <div>
-                  <div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-placeholder font-medium">
+
+                <div class="space-y-2">
+                  <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
                     <Network class="w-3.5 h-3.5 shrink-0" />
-                    Parent
+                    Lineage
                   </div>
-                  <div class="mt-1.5">
-                    {#if checkpointDetail.parentCheckpointId}
-                      <a
-                        href="/spaces/{spaceId}/checkpoints/{checkpointDetail.parentCheckpointId}"
-                        class="font-mono text-[12px] text-brand hover:underline break-all leading-snug"
-                        data-sveltekit-preload-data="hover"
-                      >{checkpointDetail.parentCheckpointId}</a>
-                    {:else}
-                      <span class="text-[12px] text-text-secondary">None (root checkpoint)</span>
-                    {/if}
+                  <div class="space-y-2 text-[13px]">
+                    <div class="flex items-start gap-3">
+                      <span class="w-20 shrink-0 text-text-tertiary">Parent</span>
+                      {#if checkpointDetail.parentCheckpointId}
+                        <a
+                          href="/spaces/{spaceId}/checkpoints/{checkpointDetail.parentCheckpointId}"
+                          class="min-w-0 font-mono text-[12px] leading-snug text-brand transition-colors hover:text-brand-hover break-all"
+                          data-sveltekit-preload-data="hover"
+                        >{checkpointDetail.parentCheckpointId}</a>
+                      {:else}
+                        <span class="text-text-secondary">Root checkpoint</span>
+                      {/if}
+                    </div>
+                    <div class="flex items-start gap-3">
+                      <span class="w-20 shrink-0 text-text-tertiary">Forks</span>
+                      <span class="text-text-secondary">{checkpointDetail.forkCount}</span>
+                    </div>
                   </div>
-                </div>
-                <!-- Fork Count -->
-                <div>
-                  <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Forks</div>
-                  <div class="mt-1.5 text-[13px] text-text-secondary">{checkpointDetail.forkCount}</div>
                 </div>
               </div>
-            </div>
+
+              <aside class="space-y-3 text-[12px] text-text-tertiary">
+                <div class="space-y-1.5">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Saved from</div>
+                  <div class="truncate text-text-secondary" title={space?.name ?? space?.title ?? spaceId}>{space?.name ?? space?.title ?? spaceId}</div>
+                </div>
+                {#if sourceTaskRunId}
+                  <a
+                    href={buildSpaceTaskRoute(spaceId, sourceTaskRunId)}
+                    class="inline-flex items-center gap-1.5 text-text-tertiary transition-colors hover:text-brand"
+                    onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, sourceTaskRunId)); }}
+                  >
+                    <Activity class="w-3.5 h-3.5" />
+                    <span>View save task</span>
+                  </a>
+                {/if}
+              </aside>
+            </section>
           </div>
         {:else}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 text-[13px] text-text-tertiary">Checkpoint not found.</div>
+          <div class="text-[13px] text-text-tertiary">Checkpoint not found.</div>
         {/if}
+        </div>
       </div>
     {:else if routeView === 'cronjob-new'}
       <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
@@ -8130,6 +8221,8 @@ $effect(() => {
               {/if}
             </div>
           {:else}
+            {@const resultCheckpointId = checkpointIdFromTaskRun(taskRunDetail)}
+            {@const saveStageLabel = taskRunDetail.taskType === "save_checkpoint" ? saveCheckpointProgressLabel(taskRunProgress) : null}
             <div class="border border-border-subtle rounded-md bg-bg-surface p-5 space-y-4">
               <div class="space-y-1">
                 <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Task Run</div>
@@ -8151,6 +8244,34 @@ $effect(() => {
                     One-time task
                   {/if}
                 </p>
+                {#if taskRunDetail.taskType === "save_checkpoint"}
+                  <div class="mt-3 rounded-[6px] border border-border-subtle bg-bg-elevated/30 p-3">
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div class="min-w-0">
+                        <div class="text-[11px] uppercase tracking-wider text-text-placeholder font-medium">Checkpoint</div>
+                        <div class="mt-1 text-[13px] text-text-secondary">
+                          {#if resultCheckpointId}
+                            Save completed and checkpoint is ready.
+                          {:else if saveStageLabel}
+                            {saveStageLabel}
+                          {:else}
+                            Waiting for checkpoint result…
+                          {/if}
+                        </div>
+                      </div>
+                      {#if resultCheckpointId}
+                        <a
+                          href={buildSpaceCheckpointRoute(spaceId, resultCheckpointId)}
+                          class="inline-flex shrink-0 items-center gap-1.5 rounded-[5px] bg-brand-muted px-2.5 py-1.5 text-[12px] text-brand transition-colors hover:bg-brand-muted-hover"
+                          onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
+                        >
+                          <GitCommitHorizontal class="w-3.5 h-3.5" />
+                          <span>View checkpoint</span>
+                        </a>
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
               </div>
               <div class="grid gap-3 md:grid-cols-2">
                 <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/40 p-3">
@@ -8990,7 +9111,7 @@ $effect(() => {
         <div bind:this={composerHostEl}>
           <SessionComposer
             bind:value={input}
-            disabled={!activeSessionState}
+            disabled={!activeSessionState && !isNewSessionRoute}
             sending={sending}
             isRunning={activeSessionIsRunning}
             aborting={aborting}

@@ -84,6 +84,16 @@ const normalizePromptAccessMode = (value: unknown): PromptAccessMode | null => {
   return value === "read_only" || value === "full_access" ? value : null;
 };
 
+const MAX_PROMPT_SOURCE_LENGTH = 255;
+
+const normalizePromptSource = (value: unknown): { source: string; error?: string } => {
+  if (value === undefined || value === null) return { source: "public_api" };
+  if (typeof value !== "string") return { source: "public_api", error: "source must be a string" };
+  const source = value.trim() || "public_api";
+  if (source.length > MAX_PROMPT_SOURCE_LENGTH) return { source, error: "source must be at most 255 characters" };
+  return { source };
+};
+
 type SpacePromptIntent = "followup" | "steer";
 
 const normalizeSpacePromptIntent = (value: unknown): SpacePromptIntent | null => {
@@ -225,6 +235,7 @@ async function cancelQueuedTurn(input: {
 type SpacePromptInput = {
   sessionId?: string | null;
   title?: string | null;
+  source?: string | null;
   content?: ContentBlock[];
   model?: string | null;
   provider?: string | null;
@@ -1424,6 +1435,9 @@ router.post("/:id/prompt", async (c) => {
 
   const content = body.content;
   const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
+  const sourceResult = normalizePromptSource(body.source);
+  if (sourceResult.error) return c.json({ message: sourceResult.error }, 400);
+  const source = sourceResult.source;
 
   const taskData = {
     content,
@@ -1431,6 +1445,7 @@ router.post("/:id/prompt", async (c) => {
     ...(generationPolicy ? { generationPolicy } : {}),
     ...(promptIntent !== "followup" ? { intent: promptIntent } : {}),
     ...(accessMode !== "full_access" ? { accessMode } : {}),
+    ...(source !== "scheduled_task" ? { source } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(body.title ? { title: body.title } : {}),
     ...(body.model ? { model: body.model } : {}),
@@ -1445,7 +1460,7 @@ router.post("/:id/prompt", async (c) => {
         sessionId: crypto.randomUUID(),
         userUuid: user.uuid,
         title: body.title ?? null,
-        source: "public_api",
+        source,
         externalSessionId: null,
         meta: { createdBy: "api_space_prompt" },
       });
@@ -1471,7 +1486,7 @@ router.post("/:id/prompt", async (c) => {
         userId: user.uuid,
         clientMessageId,
         content,
-        source: "public_api",
+        source,
         model: body.model ?? null,
         provider: body.provider ?? null,
         generationPolicy,
