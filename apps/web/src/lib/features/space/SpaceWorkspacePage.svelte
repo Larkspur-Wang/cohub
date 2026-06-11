@@ -831,6 +831,8 @@ let taskRunProgress = $state<unknown>(null);
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let taskRunRefreshInFlight: Promise<void> | null = null;
 let taskRunRefreshInFlightTaskId: string | null = null;
+let taskCopiedField = $state<"id" | "payload" | "result" | null>(null);
+let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
 let backgroundBashTaskRunById = $state<Record<string, TaskRunRecord>>({});
 let backgroundBashHydrateKey = "";
@@ -3206,12 +3208,32 @@ function taskRawResult(run: TaskRunRecord): unknown {
 
 function taskContextLabel(run: TaskRunRecord): string {
 	if (run.cronJobId) return "From cronjob";
-	if (run.sessionId) return "Session task";
 	return "One-time task";
 }
 
 function taskIsStreaming(run: TaskRunRecord): boolean {
 	return run.status === "pending" || run.status === "running";
+}
+
+async function copyTaskField(
+	field: "id" | "payload" | "result",
+	value: unknown,
+) {
+	const text = typeof value === "string" ? value : displaySafeJson(value);
+	await navigator.clipboard.writeText(text);
+	taskCopiedField = field;
+	if (taskCopiedTimer) clearTimeout(taskCopiedTimer);
+	taskCopiedTimer = setTimeout(() => {
+		taskCopiedField = null;
+	}, 1600);
+}
+
+function taskHasResult(run: TaskRunRecord): boolean {
+	return run.result !== null && run.result !== undefined;
+}
+
+function taskAttemptsLabel(run: TaskRunRecord): string {
+	return `${run.attemptCount} attempt${run.attemptCount === 1 ? "" : "s"}`;
 }
 
 type DisplaySafeJsonOptions = {
@@ -3286,22 +3308,6 @@ function displaySafeJson(
 ): string {
 	const merged = { ...DEFAULT_DISPLAY_SAFE_JSON_OPTIONS, ...options };
 	return JSON.stringify(toDisplaySafeJsonValue(value, merged), null, 2);
-}
-
-function taskSystemFields(run: TaskRunRecord) {
-	return [
-		["Run ID", run.id],
-		["Job ID", run.jobId],
-		["Space", run.spaceId],
-		["Session", run.sessionId],
-		["Turn", run.turnId],
-		["Cronjob", run.cronJobId],
-		["User", run.userUuid],
-		["Created", formatDateTime(run.createdAt)],
-		["Updated", formatDateTime(run.updatedAt)],
-	].filter(
-		([, value]) => value !== null && value !== undefined && value !== "",
-	);
 }
 
 function runCommandPayload(run: TaskRunRecord) {
@@ -7734,45 +7740,45 @@ $effect(() => {
       {:else if routeView === "checkpoint" && checkpointDetail}
         <button
           type="button"
-          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-          title="Space details"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
+          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+          title={space?.name || space?.title || spaceId}
+          aria-label="Space details"
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
         {#if checkpointDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else if routeView === "checkpoint-new"}
         <button
           type="button"
-          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-          title="Space details"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">New save</span>
+          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+          title={space?.name || space?.title || spaceId}
+          aria-label="Space details"
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">New save</span>
       {:else if routeView === "cronjob" && cronjobDetail}
         <button
           type="button"
-          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-          title="Space details"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">{cronjobDetail.title}</span>
+          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+          title={space?.name || space?.title || spaceId}
+          aria-label="Space details"
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">{cronjobDetail.title}</span>
         {#if cronjobDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else if routeView === "cronjob-new"}
         <button
           type="button"
-          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-          title="Space details"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">New cronjob</span>
+          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+          title={space?.name || space?.title || spaceId}
+          aria-label="Space details"
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">New cronjob</span>
       {:else if routeView === "task" && taskRunDetail}
         <button
           type="button"
-          class="inline-flex max-w-[35%] items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-          title="Space details"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-        <span class="text-text-tertiary shrink-0 text-[13px] select-none">/</span>
-        <span class="text-[13px] text-text-secondary truncate">Task run</span>
+          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+          title={space?.name || space?.title || spaceId}
+          aria-label="Space details"
+        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">{taskTypeLabel(taskRunDetail.taskType)}</span>
         {#if taskRunDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else}
         <button
@@ -7939,7 +7945,7 @@ $effect(() => {
         {/if}
       </div>
     {:else if routeView === 'checkpoint'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+      <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
         <div class="max-w-4xl">
         {#if checkpointDetailLoading && checkpointDetail?.id !== routeCheckpointId}
           {@render PanelLoadingState("Loading save…")}
@@ -7947,8 +7953,8 @@ $effect(() => {
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
         {:else if checkpointDetail && checkpointDetail.id === routeCheckpointId}
           {@const sourceTaskRunId = sourceTaskRunIdFromCheckpoint(checkpointDetail)}
-          <div class="space-y-8">
-            <header class="flex flex-col gap-5 border-b border-border-subtle/70 pb-6 lg:flex-row lg:items-start lg:justify-between">
+          <div class="space-y-6 sm:space-y-8">
+            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
               <div class="min-w-0 space-y-3">
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
@@ -7966,10 +7972,10 @@ $effect(() => {
                   {/if}
                 </div>
               </div>
-              <div class="flex shrink-0 flex-wrap items-center gap-2">
+              <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
+                  class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto"
                   onclick={handleForkCheckpoint}
                 >
                   <Rocket class="w-3.5 h-3.5" />
@@ -7977,7 +7983,7 @@ $effect(() => {
                 </button>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+                  class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto"
                   onclick={handleCopyCheckpointId}
                 >
                   {#if checkpointIdCopied}
@@ -7991,14 +7997,14 @@ $effect(() => {
               </div>
             </header>
 
-            <section class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
+            <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-8">
               <div class="min-w-0 space-y-5">
                 <div class="space-y-2">
                   <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
                     <GitCommitHorizontal class="w-3.5 h-3.5 shrink-0" />
                     Commit
                   </div>
-                  <div class="group flex items-start justify-between gap-3 rounded-[6px] bg-bg-elevated/35 px-3 py-2.5">
+                  <div class="group flex flex-col gap-2 rounded-[6px] bg-bg-elevated/35 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
                     <div class="min-w-0 font-mono text-[12px] leading-snug text-text-secondary break-all">{checkpointDetail.commitHash}</div>
                     <button
                       type="button"
@@ -8317,7 +8323,7 @@ $effect(() => {
         </div>
       </div>
     {:else if routeView === 'task'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+      <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
         <div class="max-w-4xl">
         {#if taskRunDetailLoading && taskRunDetail?.id !== routeTaskId}
           {@render PanelLoadingState("Loading task…")}
@@ -8331,24 +8337,32 @@ $effect(() => {
           {@const commandMeta = runCommandResultMeta(taskRunDetail)}
           {@const outputContent = taskOutputContent(taskRunDetail)}
           {@const rawResult = taskRawResult(taskRunDetail)}
-          <div class="space-y-8">
-            <header class="flex flex-col gap-5 border-b border-border-subtle/70 pb-6 lg:flex-row lg:items-start lg:justify-between">
+          <div class="space-y-6 sm:space-y-8">
+            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
               <div class="min-w-0 space-y-3">
                 <div class="flex flex-wrap items-center gap-2">
-                  <span class="text-[10px] uppercase tracking-[0.18em] text-text-placeholder font-medium">Task Run</span>
                   <span class="inline-flex items-center gap-1.5 rounded-full bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary">
                     <span class="h-1.5 w-1.5 rounded-full {badge.dot}"></span>
                     {badge.label}
                   </span>
-                  {#if taskRunDetail.taskType === "run_command" && commandMeta.exitCode !== null}
-                    <span class="rounded-full bg-bg-elevated px-2 py-1 font-mono text-[11px] text-text-secondary">exit {commandMeta.exitCode}</span>
-                  {/if}
-                  <span class="font-mono text-[11px] text-text-placeholder">{taskRunDetail.id}</span>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-8 min-w-0 max-w-full items-center gap-1.5 rounded-[4px] px-2 py-1 font-mono text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
+                    onclick={() => void copyTaskField("id", taskRunDetail!.id)}
+                    title="Copy task ID"
+                  >
+                    <span class="truncate">{taskRunDetail.id}</span>
+                    {#if taskCopiedField === "id"}
+                      <Check class="h-3 w-3 text-success-soft" />
+                    {:else}
+                      <Copy class="h-3 w-3" />
+                    {/if}
+                  </button>
                 </div>
                 <div>
                   <h1 class="text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">{taskTypeLabel(taskRunDetail.taskType)}</h1>
                   <p class="mt-2 text-[13px] text-text-tertiary">
-                    {taskContextLabel(taskRunDetail)}
+                    {taskContextLabel(taskRunDetail)} · {taskAttemptsLabel(taskRunDetail)}
                     {#if taskRunDetail.cronJobId}
                       ·
                       <a
@@ -8365,7 +8379,7 @@ $effect(() => {
             {#if taskRunProgress !== null && taskRunProgress !== undefined}
               <section class="space-y-2">
                 <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Progress</div>
-                <pre class="max-h-80 overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
+                <pre class="max-h-[42vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-80">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
               </section>
             {/if}
 
@@ -8376,6 +8390,9 @@ $effect(() => {
                   <pre class="max-w-full whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-primary sm:text-[14px]">{commandInfo.command}</pre>
                   <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-tertiary">
                     <span class="font-mono">{commandInfo.cwd}</span>
+                    {#if commandMeta.exitCode !== null}
+                      <span class="font-mono">exit {commandMeta.exitCode}</span>
+                    {/if}
                     <span>{formatDurationMs(commandMeta.durationMs)}</span>
                     <span>{formatDateTime(taskRunDetail.createdAt)}</span>
                   </div>
@@ -8400,7 +8417,7 @@ $effect(() => {
                 {#if resultCheckpointId}
                   <a
                     href={buildSpaceCheckpointRoute(spaceId, resultCheckpointId)}
-                    class="inline-flex shrink-0 items-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
+                    class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
                     onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
                   >
                     <GitCommitHorizontal class="w-3.5 h-3.5" />
@@ -8410,7 +8427,7 @@ $effect(() => {
               </section>
             {/if}
 
-            <section class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_240px]">
+            <section class="space-y-5 sm:space-y-6">
               <div class="min-w-0 space-y-6">
                 {#if outputContent.length > 0}
                   <div class="space-y-2">
@@ -8441,14 +8458,46 @@ $effect(() => {
                 </div>
 
                 <div class="space-y-2">
-                  <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
-                  <pre class="max-h-[520px] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(taskRunDetail.payload)}</pre>
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
+                    <button
+                      type="button"
+                      class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
+                      onclick={() => void copyTaskField("payload", taskRunDetail!.payload)}
+                      title="Copy payload"
+                    >
+                      {#if taskCopiedField === "payload"}
+                        <Check class="h-3 w-3 text-success-soft" />
+                        <span class="text-success-soft">Copied</span>
+                      {:else}
+                        <Copy class="h-3 w-3" />
+                        <span>Copy</span>
+                      {/if}
+                    </button>
+                  </div>
+                  <pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(taskRunDetail.payload)}</pre>
                 </div>
 
                 {#if rawResult}
                   <div class="space-y-2">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
-                    <pre class="max-h-[520px] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(rawResult)}</pre>
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
+                      <button
+                        type="button"
+                        class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
+                        onclick={() => void copyTaskField("result", rawResult)}
+                        title="Copy result"
+                      >
+                        {#if taskCopiedField === "result"}
+                          <Check class="h-3 w-3 text-success-soft" />
+                          <span class="text-success-soft">Copied</span>
+                        {:else}
+                          <Copy class="h-3 w-3" />
+                          <span>Copy</span>
+                        {/if}
+                      </button>
+                    </div>
+                    <pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(rawResult)}</pre>
                   </div>
                 {/if}
 
@@ -8459,28 +8508,6 @@ $effect(() => {
                   </div>
                 {/if}
               </div>
-
-              <aside class="space-y-4 text-[12px] text-text-tertiary">
-                <div class="space-y-1.5">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Attempts</div>
-                  <div class="text-text-secondary">{taskRunDetail.attemptCount}</div>
-                </div>
-                <div class="space-y-1.5">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Type</div>
-                  <div class="font-mono text-[11px] text-text-secondary">{taskRunDetail.taskType}</div>
-                </div>
-                <div class="space-y-2">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Fields</div>
-                  <div class="space-y-2">
-                    {#each taskSystemFields(taskRunDetail) as [label, value]}
-                      <div class="min-w-0">
-                        <div class="text-[10px] text-text-placeholder">{label}</div>
-                        <div class="mt-0.5 font-mono text-[11px] leading-snug text-text-secondary break-all">{value}</div>
-                      </div>
-                    {/each}
-                  </div>
-                </div>
-              </aside>
             </section>
           </div>
         {:else}
