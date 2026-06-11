@@ -9,7 +9,7 @@ import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
-import { getCurrentToolExecutionContext } from "../tool-context.js";
+import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolExecutionContext } from "../tool-context.js";
 import { isToolFailureDetails } from "./tools/index.js";
 
 import type { SpaceModListItem } from "@cohub/core/space-mods";
@@ -33,7 +33,7 @@ export type CohubAgentSession = {
   reload(): Promise<void>;
   abort(): Promise<void>;
   dispose(): void;
-  subscribe(listener: (event: CohubAgentSessionEvent) => void): () => void;
+  subscribe(listener: (event: CohubAgentSessionEvent) => void | Promise<void>): () => void;
 };
 
 type ToolLike = AgentTool;
@@ -41,6 +41,8 @@ type ToolLike = AgentTool;
 const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
   if (message?.stopReason !== "error" || !message.errorMessage) return false;
@@ -476,68 +478,78 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
 
   let lastAssistantMessage: AssistantMessage | undefined;
   let retryAttempt = 0;
-  let retryPromise: Promise<void> | null = null;
-  let retryResolve: (() => void) | null = null;
-  let retryReject: ((error: Error) => void) | null = null;
-  let retryFailure: Error | null = null;
-  let retryScheduled = false;
   let retryCancelled = false;
-  let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+  let retryPending = false;
+  let retryInProgress = false;
+  let retryRunPromise: Promise<void> | null = null;
+  let retryContext: ToolExecutionContext | null = null;
 
-  const ensureRetryPromise = () => {
-    if (retryPromise) return retryPromise;
-    retryPromise = new Promise<void>((resolve, reject) => {
-      retryResolve = resolve;
-      retryReject = reject;
-    });
-    retryPromise.catch(() => {});
-    return retryPromise;
-  };
-
-  const clearRetryTimer = () => {
-    if (!retryTimeout) return;
-    clearTimeout(retryTimeout);
-    retryTimeout = null;
-  };
-
-  const finishRetry = () => {
-    retryScheduled = false;
+  const clearRetryState = () => {
+    retryAttempt = 0;
+    retryPending = false;
+    retryInProgress = false;
+    retryRunPromise = null;
     retryCancelled = false;
-    clearRetryTimer();
-    retryFailure = null;
-    retryResolve?.();
-    retryResolve = null;
-    retryReject = null;
-    retryPromise = null;
-  };
-
-  const failRetry = (error: Error) => {
-    retryFailure = error;
-    retryScheduled = false;
-    retryCancelled = false;
-    clearRetryTimer();
-    retryReject?.(error);
-    retryResolve = null;
-    retryReject = null;
-    retryPromise = null;
+    retryContext = null;
   };
 
   const getRecentMessageRoles = () => agent.state.messages.slice(-8).map((message) => message.role).join(",");
 
-  const waitForRetryIfNeeded = async () => {
-    const pendingRetry = retryPromise;
-    if (pendingRetry) {
-      try {
-        await pendingRetry;
-      } catch (error) {
-        retryFailure = null;
-        throw error;
+  const runPendingRetries = async () => {
+    if (retryRunPromise) return retryRunPromise;
+    if (!retryPending) return;
+
+    retryRunPromise = (async () => {
+      while (retryPending) {
+        const attempt = retryAttempt;
+        const contextSnapshot = retryContext ?? getCurrentToolExecutionContext();
+        const delayMs = AGENT_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1);
+        retryPending = false;
+        retryInProgress = true;
+
+        await sleep(delayMs);
+        if (retryCancelled) {
+          clearRetryState();
+          return;
+        }
+
+        const run = async () => {
+          logger.info(`[AgentRetry] continue:start sessionId=${getCurrentToolExecutionContext()?.sessionId ?? "unknown"} turnId=${getCurrentToolExecutionContext()?.turnId ?? "unknown"} attempt=${attempt} roles=${getRecentMessageRoles()}`);
+          await agent.continue();
+          await agent.waitForIdle();
+        };
+
+        try {
+          if (contextSnapshot) {
+            await runWithToolExecutionContext(contextSnapshot, run);
+          } else {
+            await run();
+          }
+        } catch (error) {
+          const normalized = error instanceof Error ? error : new Error(String(error));
+          logger.error("[AgentRetry] continue:failed", {
+            sessionId: contextSnapshot?.sessionId ?? getCurrentToolExecutionContext()?.sessionId ?? "unknown",
+            turnId: contextSnapshot?.turnId ?? getCurrentToolExecutionContext()?.turnId ?? null,
+            retryAttempt: attempt,
+            retryCancelled,
+            agentIsStreaming: agent.state.isStreaming,
+            recentRoles: getRecentMessageRoles(),
+            errorName: normalized.name,
+            errorMessage: normalized.message,
+            stack: normalized.stack,
+          });
+          clearRetryState();
+          throw normalized;
+        } finally {
+          retryInProgress = false;
+        }
       }
-    }
-    if (retryFailure) {
-      const error = retryFailure;
-      retryFailure = null;
-      throw error;
+    })();
+
+    try {
+      await retryRunPromise;
+    } finally {
+      retryRunPromise = null;
     }
   };
 
@@ -557,8 +569,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
           (event.message as unknown as Record<string, unknown>).sessionEntryId = entryId;
         }
         if (shouldResetAssistantRetryState(assistantMessage)) {
-          retryAttempt = 0;
-          finishRetry();
+          clearRetryState();
         }
       } else if (message.role === "user" || message.role === "toolResult") {
         const entryId = options.sessionManager.appendMessage(event.message as never);
@@ -572,44 +583,18 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       lastAssistantMessage = undefined;
       if (AGENT_RETRY_ENABLED && isRetryableAssistantFailure(assistantMessage) && retryAttempt < AGENT_RETRY_MAX_RETRIES) {
         retryAttempt += 1;
-        retryScheduled = true;
-        ensureRetryPromise();
+        retryPending = true;
+        const currentContext = getCurrentToolExecutionContext();
+        retryContext = currentContext ? { ...currentContext } : retryContext;
 
         const messages = agent.state.messages;
         if (messages.length > 0 && messages[messages.length - 1]?.role === "assistant") {
           agent.state.messages = messages.slice(0, -1);
         }
-
-        const delayMs = AGENT_RETRY_BASE_DELAY_MS * 2 ** (retryAttempt - 1);
-        retryCancelled = false;
-        retryTimeout = setTimeout(() => {
-          retryTimeout = null;
-          if (retryCancelled) return;
-          logger.info(`[AgentRetry] continue:start sessionId=${getCurrentToolExecutionContext()?.sessionId ?? "unknown"} turnId=${getCurrentToolExecutionContext()?.turnId ?? "unknown"} attempt=${retryAttempt} roles=${getRecentMessageRoles()}`);
-          void agent.continue().catch((error) => {
-            const normalized = error instanceof Error ? error : new Error(String(error));
-            logger.error("[AgentRetry] continue:failed", {
-              sessionId: getCurrentToolExecutionContext()?.sessionId ?? "unknown",
-              turnId: getCurrentToolExecutionContext()?.turnId ?? null,
-              retryAttempt,
-              retryCancelled,
-              agentIsStreaming: agent.state.isStreaming,
-              recentRoles: getRecentMessageRoles(),
-              lastAssistantStopReason: assistantMessage.stopReason ?? null,
-              lastAssistantErrorMessage: assistantMessage.errorMessage ?? null,
-              lastAssistantContentLength: Array.isArray(assistantMessage.content) ? assistantMessage.content.length : null,
-              errorName: normalized.name,
-              errorMessage: normalized.message,
-              stack: normalized.stack,
-            });
-            failRetry(normalized);
-          });
-        }, delayMs);
         return;
       }
 
-      retryAttempt = 0;
-      finishRetry();
+      clearRetryState();
     }
   });
 
@@ -621,7 +606,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       return agent.state.isStreaming;
     },
     get isRetrying() {
-      return retryScheduled || retryPromise !== null;
+      return retryPending || retryInProgress || retryRunPromise !== null;
     },
     shouldDeferErrorPersistence(message) {
       const assistantMessage = message as unknown as AssistantMessage;
@@ -632,13 +617,13 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     async prompt(text, inputOptions) {
       await agent.prompt(text, inputOptions?.images);
       await agent.waitForIdle();
-      await waitForRetryIfNeeded();
+      await runPendingRetries();
       await agent.waitForIdle();
     },
     async promptMessages(messages) {
       await agent.prompt(messages);
       await agent.waitForIdle();
-      await waitForRetryIfNeeded();
+      await runPendingRetries();
       await agent.waitForIdle();
     },
     async steer(text, images) {
@@ -650,7 +635,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async waitForIdle() {
       await agent.waitForIdle();
-      await waitForRetryIfNeeded();
+      await runPendingRetries();
       await agent.waitForIdle();
     },
     async setModel(nextModel) {
@@ -666,24 +651,23 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     async abort() {
       retryCancelled = true;
-      clearRetryTimer();
-      if (retryPromise) finishRetry();
+      retryPending = false;
       agent.abort();
       await agent.waitForIdle();
-      retryAttempt = 0;
-      finishRetry();
+      clearRetryState();
     },
     dispose() {
       unsubscribe();
       retryCancelled = true;
-      clearRetryTimer();
-      if (retryPromise) finishRetry();
+      retryPending = false;
+      retryContext = null;
       retryAttempt = 0;
+      retryInProgress = false;
       agent.abort();
     },
     subscribe(listener) {
       return agent.subscribe((event: AgentEvent) => {
-        listener(event);
+        return listener(event);
       });
     },
   };

@@ -150,6 +150,7 @@ export type SessionHandle = {
     pendingBoundary?: boolean;
     flushPromise?: Promise<void> | null;
     flushTimer?: ReturnType<typeof setTimeout> | null;
+    assistantContext?: AssistantMessageContext | null;
   };
   interruptedSnapshotTurnIds: Set<string>;
   sessionFileSignature: SessionFileSignature | null;
@@ -241,8 +242,9 @@ function addLifecycleEvent(name: string, attributes?: Record<string, string | nu
 const STREAM_UPDATE_DEBOUNCE_MS = Number(process.env.AGENT_STREAM_UPDATE_DEBOUNCE_MS ?? 100);
 
 async function emitProviderRenderUpdate(handle: SessionHandle) {
-  const assistantContext = handle.activeAssistantContext;
-  const sourceMessageId = assistantContext?.userMessageId?.trim() || handle.currentUserMessageId?.trim() || null;
+  const assistantContext = handle.streamState.assistantContext ?? handle.activeAssistantContext;
+  if (!assistantContext) return;
+  const sourceMessageId = assistantContext.userMessageId?.trim() || null;
   if (!sourceMessageId) return;
 
   if (handle.streamState.flushPromise) {
@@ -292,13 +294,13 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
         type: "stream_update",
         spaceId: handle.spaceId,
         sessionId: handle.sessionId,
-        turnId: assistantContext?.turnId ?? handle.currentTurnId ?? null,
+        turnId: assistantContext.turnId,
         seq,
         baseSeq,
         content: delta,
         snapshotContent: full,
-        messageId: assistantContext?.streamMessageId ?? handle.currentStreamMessageId ?? null,
-        messageOrdinal: assistantContext?.assistantOrdinal ?? handle.currentAssistantMessageOrdinal ?? null,
+        messageId: assistantContext.streamMessageId,
+        messageOrdinal: assistantContext.assistantOrdinal,
         sourceMessageId,
         anchorUserMessageId: sourceMessageId,
         timestamp: Date.now(),
@@ -426,6 +428,7 @@ export function resetStreamState(handle: SessionHandle) {
     dirty: false,
     flushPromise: null,
     flushTimer: null,
+    assistantContext: null,
   };
 }
 
@@ -804,6 +807,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
       if (message.role === "assistant") {
         await drainStreamStateBeforeReset(handle);
         resetStreamState(handle);
+        handle.streamState.assistantContext = handle.activeAssistantContext;
         handle.streamState.pendingBoundary = true;
         flushProviderRenderUpdate(handle, "assistant_message_start");
       }
@@ -929,12 +933,28 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         "agent.tool_count": toolCount,
       });
       const completedAt = new Date().toISOString();
-      const assistantContext = handle.activeAssistantContext;
-      const currentUserMessageId = assistantContext?.userMessageId ?? handle.currentUserMessageId;
-      if (!currentUserMessageId) return;
+      const assistantContext = handle.activeAssistantContext ?? handle.streamState.assistantContext ?? null;
+      if (!assistantContext?.userMessageId) return;
+      const currentUserMessageId = assistantContext.userMessageId;
       const currentModel = handle.session.agent.state.model;
       const rawMessage = event.message as unknown as Record<string, unknown>;
-
+      const rawMeta = rawMessage.meta && typeof rawMessage.meta === "object" && !Array.isArray(rawMessage.meta)
+        ? rawMessage.meta as Record<string, unknown>
+        : {};
+      const rawTurnId = typeof rawMeta.turnId === "string" ? rawMeta.turnId : null;
+      if (rawTurnId && assistantContext.turnId && rawTurnId !== assistantContext.turnId) {
+        logger.error("[Session] assistant turn identity mismatch; refusing to persist", {
+          sessionId: handle.sessionId,
+          eventTurnId: rawTurnId,
+          contextTurnId: assistantContext.turnId,
+          userMessageId: currentUserMessageId,
+        });
+        await drainStreamStateBeforeReset(handle);
+        resetStreamState(handle);
+        if (handle.activeAssistantContext === assistantContext) handle.activeAssistantContext = null;
+        clearAssistantMessageTiming();
+        return;
+      }
 
       if (handle.session.shouldDeferErrorPersistence(rawMessage)) {
         await drainStreamStateBeforeReset(handle);
@@ -970,9 +990,9 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             spaceSessionId: handle.sessionId,
             userMessageId: currentUserMessageId,
             event: enrichedEvent as Record<string, unknown>,
-            userId: ((assistantContext?.userMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
-            turnId: typeof assistantContext?.userMeta?.turnId === "string" ? assistantContext.userMeta.turnId : assistantContext?.turnId ?? handle.currentTurnId ?? null,
-            startedAt: assistantContext?.startedAt ?? null,
+            userId: ((assistantContext.userMeta as Record<string, unknown> | null | undefined)?.userId as string | null | undefined) ?? null,
+            turnId: assistantContext.turnId,
+            startedAt: assistantContext.startedAt,
             completedAt,
           });
         } catch (error) {
@@ -1135,6 +1155,7 @@ export async function loadOrCreateSessionHandle(input: {
       dirty: false,
       flushPromise: null,
       flushTimer: null,
+      assistantContext: null,
     },
     interruptedSnapshotTurnIds: new Set(),
     sessionFileSignature: fileSignature,
