@@ -987,7 +987,7 @@ $effect(() => {
 						</div>
 					{:else if billingCatalog?.payment.available === false}
 						<div class="mt-1 truncate text-[11px] text-text-tertiary">
-							Payment unavailable: {billingCatalog.payment.reason ?? "No available Waffo payment methods"}
+							Payment unavailable: {billingCatalog.payment.reason ?? "No available payment provider"}
 						</div>
 					{/if}
 				</div>
@@ -1158,8 +1158,6 @@ $effect(() => {
 										<div class="truncate text-text-secondary">{formatHistoryStatus(subscription.status)}</div>
 										{#if subscription.cancelAtPeriodEnd}
 											<div class="mt-0.5 text-[11px] text-text-tertiary">Auto-renew canceled</div>
-										{:else if subscription.providerStatus}
-											<div class="mt-0.5 truncate text-[11px] text-text-tertiary">{formatHistoryStatus(subscription.providerStatus)}</div>
 										{/if}
 									</div>
 									<div class="min-w-0 text-text-tertiary">

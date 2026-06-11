@@ -22,16 +22,13 @@ import {
   productsFeature,
 } from "@talesofai-billing/sdk/admin/products";
 import { redemptionCodesFeature } from "@talesofai-billing/sdk/admin/redemption-codes";
+import { providersFeature } from "@talesofai-billing/sdk/admin/providers";
 import {
   type CreateSubscriptionResponse,
   type Subscription,
   type SubscriptionCheckout,
   subscriptionsFeature,
 } from "@talesofai-billing/sdk/admin/subscriptions";
-import {
-  type WaffoPayMethod,
-  waffoFeature,
-} from "@talesofai-billing/sdk/admin/waffo";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
 import { createHash, randomUUID } from "node:crypto";
 import { config } from "../config.js";
@@ -112,7 +109,7 @@ function createConfiguredSdk(input: BillingClientConfig) {
     .useAdmin(ordersFeature())
     .useAdmin(redemptionCodesFeature())
     .useAdmin(subscriptionsFeature())
-    .useAdmin(waffoFeature());
+    .useAdmin(providersFeature());
 }
 
 type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
@@ -138,13 +135,6 @@ const BILLING_BLOCKING_SUBSCRIPTION_STATUSES = [
 const BILLING_AUTO_RENEW_CANCELABLE_SUBSCRIPTION_STATUSES = [
   "active",
   "trialing",
-] as const;
-const BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES = [
-  "MERCHANT_CANCELLED",
-  "USER_CANCELLED",
-  "CHANNEL_CANCELLED",
-  "CLOSE",
-  "EXPIRED",
 ] as const;
 const CREDIT_BENEFIT_DISPLAY_NAMES: Record<string, string> = {
   free_monthly_credits: "Free Plan Credits",
@@ -602,17 +592,10 @@ function getCheckoutUnavailableReason(
   return checkout?.message ?? null;
 }
 
-function isProviderTerminalSubscriptionStatus(value: string | null): boolean {
-  if (!value) return false;
-  return BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES.includes(
-    value.toUpperCase() as (typeof BILLING_PROVIDER_TERMINAL_SUBSCRIPTION_STATUSES)[number],
-  );
-}
-
 function isProviderBackedSubscriptionCheckout(
   checkout: SubscriptionCheckout | undefined,
 ): boolean {
-  return checkout?.provider_key === "waffo";
+  return optionalString(checkout?.provider_key) !== null;
 }
 
 function mapOrderStatus(
@@ -666,7 +649,6 @@ function mapSubscriptionHistoryStatus(
 ): BillingSubscriptionHistoryStatus {
   const providerStatus =
     checkout?.subscription_status ?? checkout?.provider_request_status ?? null;
-  const providerTerminal = isProviderTerminalSubscriptionStatus(providerStatus);
   const canPay =
     subscription.status === "pending_checkout" &&
     checkout?.checkout_usable === true &&
@@ -677,8 +659,7 @@ function mapSubscriptionHistoryStatus(
     ) &&
     subscription.cancel_at_period_end === false &&
     subscription.current_period_end !== null &&
-    isProviderBackedSubscriptionCheckout(checkout) &&
-    !providerTerminal;
+    isProviderBackedSubscriptionCheckout(checkout);
   return {
     id: subscription.id,
     externalUserId: subscription.external_user_id,
@@ -704,7 +685,7 @@ function mapSubscriptionHistoryStatus(
     createdAt: subscription.created_at,
     updatedAt: subscription.updated_at,
     providerStatus,
-    providerTerminal,
+    providerTerminal: false,
     checkoutStatus: checkout?.status ?? null,
     actions: {
       canPay,
@@ -914,38 +895,26 @@ function isSubscriptionExpiredAfterCancel(
   return !Number.isNaN(currentPeriodEnd) && currentPeriodEnd <= now.getTime();
 }
 
-function isAvailableWaffoPayMethod(method: WaffoPayMethod): boolean {
-  const currentStatus = optionalString(method.currentStatus);
-  if (currentStatus === "1") return true;
-  if (currentStatus === "0") return false;
-
-  const payMethodStatus = optionalString(method.payMethodStatus);
-  if (!payMethodStatus) return false;
-  return payMethodStatus.toUpperCase() === "ACTIVE";
-}
-
 async function resolvePaymentStatus(sdk: ConfiguredBillingSdk) {
   try {
-    const response = await sdk.admin.waffo.payMethods();
-    if (response.status !== "pay_methods_inquired") {
+    const response = await sdk.admin.providers.status();
+    if (response.status !== "available" || !response.checkout_available) {
       return {
         available: false,
-        reason: response.message ?? "Waffo payMethods query failed",
+        reason:
+          response.active_provider_key === "not_configured"
+            ? "No active payment provider"
+            : "Checkout is currently unavailable",
       };
     }
-    const availablePayMethodCount = response.pay_methods.filter(
-      isAvailableWaffoPayMethod,
-    ).length;
-    return availablePayMethodCount > 0
-      ? { available: true, reason: null }
-      : { available: false, reason: "No available Waffo payment methods" };
+    return { available: true, reason: null };
   } catch (error) {
     return {
       available: false,
       reason:
         error instanceof Error
           ? error.message
-          : "Waffo payMethods query failed",
+          : "Provider status query failed",
     };
   }
 }
@@ -967,7 +936,7 @@ function checkoutResultFromOrder(input: {
       available: checkoutUsable,
       reason: checkoutUsable
         ? null
-        : (checkout?.message ?? "Waffo checkout is not currently usable"),
+        : (checkout?.message ?? "Checkout is not currently usable"),
     },
     productKey: input.productKey,
     checkoutUrl: checkout?.checkout_url ?? null,
@@ -995,7 +964,7 @@ function checkoutResultFromSubscription(input: {
       available: checkoutUsable,
       reason: checkoutUsable
         ? null
-        : (checkout?.message ?? "Waffo checkout is not currently usable"),
+        : (checkout?.message ?? "Checkout is not currently usable"),
     },
     productKey: input.productKey,
     checkoutUrl: checkout?.checkout_url ?? null,
@@ -1952,7 +1921,7 @@ export function createTalesofaiBillingOperations(
       return createUnavailableCheckout({
         userId: input.userId,
         productKey: product.key,
-        reason: payment.reason ?? "No available Waffo payment methods",
+        reason: payment.reason ?? "No available payment provider",
       });
     }
 
@@ -2016,7 +1985,7 @@ export function createTalesofaiBillingOperations(
       return createUnavailableCheckout({
         userId: input.userId,
         productKey: product.key,
-        reason: payment.reason ?? "No available Waffo payment methods",
+        reason: payment.reason ?? "No available payment provider",
       });
     }
 
@@ -2253,18 +2222,6 @@ export function createTalesofaiBillingOperations(
         "subscription_auto_renew_not_cancelable",
       );
     }
-    const providerStatus =
-      inspected.checkout?.subscription_status ??
-      inspected.checkout?.provider_request_status ??
-      null;
-    if (isProviderTerminalSubscriptionStatus(providerStatus)) {
-      throw billingApiError(
-        409,
-        "Subscription provider status is already terminal",
-        "subscription_provider_terminal",
-      );
-    }
-
     const response = await sdk.admin.subscriptions.cancel(
       { subscription_id: input.subscriptionId },
       { business_key: businessKey },

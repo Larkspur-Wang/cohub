@@ -16,8 +16,8 @@ importers:
         specifier: ^2.31.0
         version: 2.31.0(@types/node@25.9.1)
       '@talesofai-billing/cli':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260527.2
         version: 7.0.0-dev.20260527.2
@@ -188,8 +188,8 @@ importers:
         specifier: ^1.41.1
         version: 1.41.1
       '@talesofai-billing/sdk':
-        specifier: ^1.4.0
-        version: 1.4.0
+        specifier: ^1.5.0
+        version: 1.5.0
       bullmq:
         specifier: ^5.77.6
         version: 5.77.6
@@ -3479,13 +3479,12 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@talesofai-billing/cli@1.4.0':
-    resolution: {integrity: sha512-+b65q47ZmVVISKxmY4aGdymlFV+n53/FsermAvrZDMJl4xsF/FPmW3Exi1jTmVfxZdTDlnh+ec4iKHC8rCJAoA==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fcli/-/1.4.0/cli-1.4.0.tgz}
-    engines: {node: '>=20'}
+  '@talesofai-billing/cli@1.5.0':
+    resolution: {integrity: sha512-CQ7mpso92vIk6neuBpm2drkMcWCOuxClPjmpn9EvqZPxtfppEFVTOYJ3a+ptPrlt7sAe77uz37wixG1HmGkuVw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fcli/-/1.5.0/cli-1.5.0.tgz}
     hasBin: true
 
-  '@talesofai-billing/sdk@1.4.0':
-    resolution: {integrity: sha512-DRWm2svZF/Tb/OYPY6qsqIV04iIgQ+vueLkS4CK5jS3MLoEwnhwQgqDqwrd2Bg1v1yNH8G9dJwomubkQgd6yRw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.4.0/sdk-1.4.0.tgz}
+  '@talesofai-billing/sdk@1.5.0':
+    resolution: {integrity: sha512-JrhNxM+Upb2wdD5JaSV2tYUcMXULVSJMcYhHU93mZboOnLqMCzsxsjkhxX8sbdp75X/KS6p1DPR0MegvKlpkHQ==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.5.0/sdk-1.5.0.tgz}
     engines: {node: '>=18'}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
@@ -9003,13 +9002,13 @@ snapshots:
       tailwindcss: 4.3.0
       vite: 8.0.14(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
 
-  '@talesofai-billing/cli@1.4.0':
+  '@talesofai-billing/cli@1.5.0':
     dependencies:
       '@commander-js/extra-typings': 14.0.0(commander@14.0.3)
-      '@talesofai-billing/sdk': 1.4.0
+      '@talesofai-billing/sdk': 1.5.0
       commander: 14.0.3
 
-  '@talesofai-billing/sdk@1.4.0':
+  '@talesofai-billing/sdk@1.5.0':
     dependencies:
       zod: 4.4.3
 
