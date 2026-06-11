@@ -82,6 +82,7 @@ router.get("/:id", async (c) => {
       id: space.id,
       userUuid: space.userUuid,
       name: space.name,
+      meta: space.meta,
     },
   });
 });

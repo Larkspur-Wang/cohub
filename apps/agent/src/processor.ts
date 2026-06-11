@@ -18,7 +18,7 @@ import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.j
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, persistInterruptedAssistantSnapshot, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
-import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn } from "./batch.js";
+import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn, type ClaimedTurnBatch } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
 import { defaultJobRetention } from "@cohub/infra/bullmq";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
@@ -591,9 +591,25 @@ async function failActiveTurn(input: {
       turnId: input.turnId,
       errorMessage,
     });
+    return true;
   } catch (failError) {
     logger.error(`[Agent] failed to mark turn failed sessionId=${input.sessionId} turnId=${input.turnId}:`, failError);
+    return false;
   }
+}
+
+function getSpaceBootstrapMeta(meta: unknown) {
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const bootstrap = (meta as Record<string, unknown>).bootstrap;
+  if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) return null;
+  return bootstrap as Record<string, unknown>;
+}
+
+function logSpaceBootstrapWarning(spaceId: string, meta: unknown) {
+  const bootstrap = getSpaceBootstrapMeta(meta);
+  const status = typeof bootstrap?.status === "string" ? bootstrap.status : null;
+  if (!status || status === "ready") return;
+  logger.warn(`[Agent] space bootstrap is not ready; continuing execution spaceId=${spaceId} status=${status} stage=${typeof bootstrap?.stage === "string" ? bootstrap.stage : ""} error=${typeof bootstrap?.errorMessage === "string" ? bootstrap.errorMessage : ""}`);
 }
 
 type PostReleaseDrain = { spaceId: string; sessionId: string; reason: string } | null;
@@ -630,6 +646,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       return { skipped: "session_locked", jobId: job.id ?? null };
     }
     let activeTurn: { id: string; controller: AbortController } | null = null;
+    let claimedBatch: ClaimedTurnBatch | null = null;
+    let terminalHandled = false;
+    let caughtError: unknown = null;
     let drainAfterRelease: PostReleaseDrain = null;
 
     try {
@@ -652,6 +671,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
 
       clearRetryState(data);
       const { batch } = claim;
+      claimedBatch = batch;
       const ownerMeta = (batch.ownerTurn.meta && typeof batch.ownerTurn.meta === "object" && !Array.isArray(batch.ownerTurn.meta)
         ? batch.ownerTurn.meta as Record<string, unknown>
         : {});
@@ -677,10 +697,12 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             actorUserId,
           });
         }
+        terminalHandled = true;
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "abort_precheck" };
         return { skipped: "abort_requested", turnId: batch.ownerTurn.id };
       }
       const spaceInfo = await getSpace({ spaceId: data.spaceId }).catch(() => null);
+      logSpaceBootstrapWarning(data.spaceId, spaceInfo?.space?.meta);
       const ownerUserId = spaceInfo?.space?.userUuid?.trim() || null;
       const handle = await prepareHandle({
         spaceId: data.spaceId,
@@ -807,6 +829,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         await handle.persistenceChain;
         await handle.sessionManager.flush().catch((error) => logger.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
         await refreshSessionHandleFileSignature(handle);
+        if (!abortController.signal.aborted) terminalHandled = true;
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "direct_shell_complete" };
         clearRetryState(data);
         return {
@@ -887,14 +910,16 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
                   sessionId: data.sessionId,
                   turnId: batch.ownerTurn.id,
                   continuedByTurnId: abortEvent.continuedByTurnId,
-                }).catch(() => undefined);
+                });
+                terminalHandled = true;
               } else {
                 await abortSessionTurn({
                   spaceId: data.spaceId,
                   sessionId: data.sessionId,
                   turnId: batch.ownerTurn.id,
                   actorUserId,
-                }).catch(() => undefined);
+                });
+                terminalHandled = true;
               }
               await handle.sessionManager.flush().catch(() => undefined);
               await refreshSessionHandleFileSignature(handle).catch(() => undefined);
@@ -911,6 +936,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       await handle.persistenceChain;
       await handle.sessionManager.flush().catch((error) => logger.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
       await refreshSessionHandleFileSignature(handle);
+      if (!abortController.signal.aborted) terminalHandled = true;
       drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_complete" };
       clearRetryState(data);
       return {
@@ -919,12 +945,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         userMessageCount: turnUserMessages.length,
       };
     } catch (error) {
-      if (activeTurn) {
-        logger.error(`[Agent] turn failed sessionId=${data.sessionId} turnId=${activeTurn.id}:`, error);
-        await failActiveTurn({
+      caughtError = error;
+      const ownerTurnId = activeTurn?.id ?? claimedBatch?.ownerTurn.id ?? null;
+      if (ownerTurnId) {
+        logger.error(`[Agent] turn failed sessionId=${data.sessionId} turnId=${ownerTurnId}:`, error);
+        terminalHandled = await failActiveTurn({
           spaceId: data.spaceId,
           sessionId: data.sessionId,
-          turnId: activeTurn.id,
+          turnId: ownerTurnId,
           error,
         });
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_failed" };
@@ -932,6 +960,16 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       throw error;
     } finally {
       if (activeTurn) clearActiveAbortController(activeTurn.id, activeTurn.controller);
+      const ownerTurnId = claimedBatch?.ownerTurn.id ?? null;
+      if (ownerTurnId && !terminalHandled) {
+        const reconciled = await failActiveTurn({
+          spaceId: data.spaceId,
+          sessionId: data.sessionId,
+          turnId: ownerTurnId,
+          error: caughtError ?? new Error("Agent turn exited without terminal state."),
+        });
+        if (reconciled) drainAfterRelease = drainAfterRelease ?? { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_reconciled" };
+      }
       await lock.release();
       if (drainAfterRelease) await drainNextQueuedTurn(drainAfterRelease);
     }

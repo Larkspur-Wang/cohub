@@ -474,6 +474,7 @@ export async function getSpace(input: { spaceId: string }) {
       id: string;
       userUuid: string;
       name: string;
+      meta?: unknown;
     } | null;
   } | null>;
 }
