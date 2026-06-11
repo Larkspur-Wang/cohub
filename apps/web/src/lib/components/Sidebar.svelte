@@ -1636,12 +1636,6 @@ function buildWorkRoute(work: WorkRecord) {
 		: null;
 }
 
-async function handleNavigateToWork(work: WorkRecord) {
-	onClose?.();
-	const href = buildWorkRoute(work);
-	if (href) await goto(href);
-}
-
 function handleWorksChanged(event: Event) {
 	const detail = (event as CustomEvent<{ spaceId?: string }>).detail;
 	if (!currentSpaceId || detail?.spaceId !== currentSpaceId) return;
@@ -2634,8 +2628,7 @@ $effect(() => {
 			{#each works.slice(0, sidebarFlyoutPreviewLimit) as work (work.id)}
 				{@const href = buildWorkRoute(work)}
 				{@const isActive = activeWork?.id === work.id}
-				<a href={href ?? "#"} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work); }}>
-					<Rocket class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+				<a href={href ?? "#"} target="_blank" rel="noopener" class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={() => { onClose?.(); }}>
 					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{work.slug}</div></div>
 				</a>
 			{/each}
@@ -3284,10 +3277,11 @@ $effect(() => {
                     {@const isActive = activeWork?.id === work.id}
                     <a
                       href={href ?? "#"}
+                      target="_blank"
+                      rel="noopener"
                       class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                      onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work); }}
+                      onclick={() => { onClose?.(); }}
                     >
-                      <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                       <div class="min-w-0 flex-1">
                         <div class="truncate font-mono leading-tight">{work.slug}</div>
                       </div>
@@ -3299,10 +3293,11 @@ $effect(() => {
               {@const href = buildWorkRoute(activeWork)}
               <a
                 href={href ?? "#"}
+                target="_blank"
+                rel="noopener"
                 class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
-                onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork); }}
+                onclick={() => { onClose?.(); }}
               >
-                <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
                 <div class="min-w-0 flex-1">
                   <div class="truncate font-mono leading-tight">{activeWork.slug}</div>
                 </div>
