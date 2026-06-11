@@ -969,6 +969,7 @@ export type TaskRunRecord = {
   sessionId: string | null;
   turnId: string | null;
   userUuid: string | null;
+  userProfile?: UserProfile;
   scheduledAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;

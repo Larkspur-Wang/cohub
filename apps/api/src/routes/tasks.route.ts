@@ -5,6 +5,7 @@ import { eq, and, desc, inArray, lt, or } from "drizzle-orm";
 import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { taskQueue } from "../tasks.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
 
 const router = new Hono();
 
@@ -43,6 +44,16 @@ function applyTaskFilters(input: {
   }
 }
 
+function hydrateTaskRunUserProfiles<T extends { userUuid: string | null }>(runs: T[]) {
+  const userUuids = runs.map((run) => run.userUuid).filter((value): value is string => Boolean(value));
+  return getProfilesByUuids(userUuids).then((profiles) =>
+    runs.map((run) => ({
+      ...run,
+      userProfile: run.userUuid ? profiles.get(run.userUuid) ?? fallbackPublicUserProfile(run.userUuid) : undefined,
+    })),
+  );
+}
+
 router.get("/", async (c) => {
   const cronJobId = c.req.query("cronJobId");
   const spaceId = c.req.query("spaceId");
@@ -74,7 +85,7 @@ router.get("/", async (c) => {
       .where(and(...conditions))
       .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
       .limit(limit + 1);
-    const runs = rows.slice(0, limit);
+    const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit));
     return c.json({ runs, pageInfo: { hasMore: rows.length > limit, nextCursor: rows.length > limit ? buildTaskCursor(runs.at(-1)) : null } });
   }
 
@@ -88,7 +99,7 @@ router.get("/", async (c) => {
     .where(and(...conditions))
     .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
     .limit(limit + 1);
-  const runs = rows.slice(0, limit);
+  const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit));
 
   return c.json({ runs, pageInfo: { hasMore: rows.length > limit, nextCursor: rows.length > limit ? buildTaskCursor(runs.at(-1)) : null } });
 });
@@ -111,7 +122,8 @@ router.get("/:taskId", async (c) => {
   }
 
   const job = await taskQueue.getJob(run.jobId).catch(() => null);
-  return c.json({ run, progress: job?.progress ?? null });
+  const [hydratedRun] = await hydrateTaskRunUserProfiles([run]);
+  return c.json({ run: hydratedRun, progress: job?.progress ?? null });
 });
 
 export default router;

@@ -28,6 +28,7 @@ import {
 	type SpaceRecord,
 	type SpaceUsageResponse,
 	type TaskRunRecord,
+	type UserProfile,
 	type WorkRecord,
 } from "@neta-art/cohub";
 import {
@@ -835,6 +836,8 @@ let cronjobFormStructuredPrompt = $state(false);
 let cronjobFormSubmitting = $state(false);
 let cronjobFormError = $state("");
 let cronjobModelSelectorOpen = $state(false);
+let cronjobCopiedId = $state(false);
+let cronjobCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
@@ -1464,6 +1467,7 @@ function mergeTaskRunRecord(
 		sessionId: patch.sessionId ?? current?.sessionId ?? null,
 		turnId: patch.turnId ?? current?.turnId ?? null,
 		userUuid: patch.userUuid ?? patch.userId ?? current?.userUuid ?? null,
+		userProfile: patch.userProfile ?? current?.userProfile,
 		scheduledAt: patch.scheduledAt ?? current?.scheduledAt ?? null,
 		startedAt: patch.startedAt ?? current?.startedAt ?? null,
 		finishedAt: patch.finishedAt ?? current?.finishedAt ?? null,
@@ -3279,6 +3283,20 @@ function fallbackUserName(userUuid: string | null | undefined): string {
 	const compact = userUuid.replaceAll("-", "");
 	return compact.slice(0, 8) || "User";
 }
+function displayUserName(
+	profile: UserProfile | null | undefined,
+	userUuid: string | null | undefined,
+): string {
+	return profile?.displayName?.trim() || fallbackUserName(userUuid);
+}
+function userTitle(
+	profile: UserProfile | null | undefined,
+	userUuid: string | null | undefined,
+): string {
+	return [displayUserName(profile, userUuid), userUuid]
+		.filter(Boolean)
+		.join(" · ");
+}
 function formatFileSize(bytes: number): string {
 	if (bytes === 0) return "0 B";
 	const units = ["B", "KB", "MB", "GB"];
@@ -3483,6 +3501,15 @@ function taskContextLabel(run: TaskRunRecord): string {
 
 function taskIsStreaming(run: TaskRunRecord): boolean {
 	return run.status === "pending" || run.status === "running";
+}
+
+async function copyCronjobId(id: string) {
+	await navigator.clipboard.writeText(id);
+	cronjobCopiedId = true;
+	if (cronjobCopiedIdTimer) clearTimeout(cronjobCopiedIdTimer);
+	cronjobCopiedIdTimer = setTimeout(() => {
+		cronjobCopiedId = false;
+	}, 1600);
 }
 
 async function copyTaskField(
@@ -7960,6 +7987,37 @@ $effect(() => {
 	<CenteredLoading label={label} size={compact ? "compact" : "panel"} />
 {/snippet}
 
+{#snippet UserMetaItem(profile: UserProfile | null | undefined, userUuid: string | null | undefined)}
+	{#if userUuid}
+		<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-text-tertiary" title={userTitle(profile, userUuid)}>
+			{#if profile?.avatarUrl}
+				<img src={profile.avatarUrl} alt="" class="h-4 w-4 shrink-0 rounded-full object-cover" />
+			{:else}
+				<span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-placeholder">
+					<UserRound class="h-3 w-3" aria-hidden="true" />
+				</span>
+			{/if}
+			<span class="min-w-0 truncate">{displayUserName(profile, userUuid)}</span>
+		</span>
+	{/if}
+{/snippet}
+
+{#snippet CopyIdMetaItem(id: string, copied: boolean, onCopy: () => void, label = "Copy ID")}
+	<button
+		type="button"
+		class="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1.5 font-mono text-[11px] text-text-placeholder transition-colors hover:text-text-secondary"
+		onclick={onCopy}
+		title={label}
+	>
+		<span class="truncate">{id}</span>
+		{#if copied}
+			<Check class="h-3 w-3 shrink-0 text-success-soft" />
+		{:else}
+			<Copy class="h-3 w-3 shrink-0" />
+		{/if}
+	</button>
+{/snippet}
+
 <PageHeader>
   {#snippet left()}
     <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
@@ -8433,7 +8491,7 @@ $effect(() => {
       <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
         <div class="max-w-5xl">
         {#if cronjobDetailLoading && cronjobDetail?.id !== routeCronjobId}
-          {@render PanelLoadingState("Loading scheduled prompt…")}
+          {@render PanelLoadingState("Loading cronjob…")}
         {:else if cronjobDetailError}
           <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
         {:else if cronjobDetail && cronjobDetail.id === routeCronjobId}
@@ -8441,17 +8499,16 @@ $effect(() => {
           <div class="space-y-6 sm:space-y-8">
             <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
               <div class="min-w-0 space-y-3">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
-                    <span class="h-1.5 w-1.5 rounded-full {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
-                    {cronjobDetail.enabled ? 'Active' : 'Paused'}
-                  </span>
-                  <span class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">{cronjobDetail.taskType === 'send_message' ? 'Scheduled prompt' : 'Cron job'}</span>
-                  <span class="font-mono text-[11px] text-text-placeholder">{cronjobDetail.id}</span>
-                </div>
                 <div>
                   <h1 class="text-[24px] font-semibold tracking-tight text-text-primary break-words sm:text-[30px]">{cronjobDetail.title}</h1>
-                  <p class="mt-2 max-w-2xl text-[13px] leading-6 text-text-tertiary">Runs on a recurring schedule in <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
+                  <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand">
+                      <span class="h-1.5 w-1.5 rounded-full {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
+                      {cronjobDetail.enabled ? 'Active' : 'Paused'}
+                    </span>
+                    {@render UserMetaItem(cronjobDetail.userProfile, cronjobDetail.userUuid)}
+                    {@render CopyIdMetaItem(cronjobDetail.id, cronjobCopiedId, () => void copyCronjobId(cronjobDetail!.id), 'Copy cronjob ID')}
+                  </div>
                 </div>
               </div>
               <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -8578,21 +8635,7 @@ $effect(() => {
                       <div class="text-text-placeholder">Updated</div><div class="text-text-secondary">{formatDateTime(cronjobDetail.updatedAt)}</div>
                     </div>
                   </div>
-                  <div class="h-px bg-border-subtle/70"></div>
-                  <div class="space-y-2">
-                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Owner</div>
-                    <div class="flex min-w-0 items-center gap-2">
-                      {#if cronjobDetail.userProfile?.avatarUrl}
-                        <img src={cronjobDetail.userProfile.avatarUrl} alt="" class="h-7 w-7 shrink-0 rounded-full object-cover" />
-                      {:else}
-                        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand"><UserRound class="h-4 w-4" aria-hidden="true" /></span>
-                      {/if}
-                      <div class="min-w-0">
-                        <div class="truncate text-[13px] font-medium text-text-primary">{cronjobDetail.userProfile?.displayName?.trim() || fallbackUserName(cronjobDetail.userUuid)}</div>
-                        <div class="truncate font-mono text-[10px] text-text-placeholder" title={cronjobDetail.userUuid}>{cronjobDetail.userUuid}</div>
-                      </div>
-                    </div>
-                  </div>
+
                 </aside>
               </section>
             {/if}
@@ -8640,7 +8683,7 @@ $effect(() => {
             </section>
           </div>
         {:else}
-          <div class="text-[12px] text-text-tertiary">Scheduled prompt not found.</div>
+          <div class="text-[12px] text-text-tertiary">Cronjob not found.</div>
         {/if}
         </div>
       </div>
@@ -8663,43 +8706,34 @@ $effect(() => {
           <div class="space-y-6 sm:space-y-8">
             <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
               <div class="min-w-0 space-y-3">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="inline-flex items-center gap-1.5 rounded-full bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary">
-                    <span class="relative flex h-1.5 w-1.5 shrink-0">
-                      {#if taskIsStreaming(taskRunDetail)}
-                        <span class="absolute inline-flex h-full w-full animate-ping rounded-full {badge.dot} opacity-40"></span>
-                      {/if}
-                      <span class="relative inline-flex h-1.5 w-1.5 rounded-full {badge.dot}"></span>
-                    </span>
-                    {badge.label}
-                  </span>
-                  <button
-                    type="button"
-                    class="inline-flex min-h-8 min-w-0 max-w-full items-center gap-1.5 rounded-[4px] px-2 py-1 font-mono text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-                    onclick={() => void copyTaskField("id", taskRunDetail!.id)}
-                    title="Copy task ID"
-                  >
-                    <span class="truncate">{taskRunDetail.id}</span>
-                    {#if taskCopiedField === "id"}
-                      <Check class="h-3 w-3 text-success-soft" />
-                    {:else}
-                      <Copy class="h-3 w-3" />
-                    {/if}
-                  </button>
-                </div>
                 <div>
                   <h1 class="text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">{taskTypeLabel(taskRunDetail.taskType)}</h1>
-                  <p class="mt-2 text-[13px] text-text-tertiary">
-                    {taskContextLabel(taskRunDetail)} · {taskAttemptsLabel(taskRunDetail)}
+                  <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span class="inline-flex items-center gap-1.5 text-[11px] font-medium {badge.color}">
+                      <span class="relative flex h-1.5 w-1.5 shrink-0">
+                        {#if taskIsStreaming(taskRunDetail)}
+                          <span class="absolute inline-flex h-full w-full animate-ping rounded-full {badge.dot} opacity-40"></span>
+                        {/if}
+                        <span class="relative inline-flex h-1.5 w-1.5 rounded-full {badge.dot}"></span>
+                      </span>
+                      {badge.label}
+                    </span>
+                    {@render UserMetaItem(taskRunDetail.userProfile, taskRunDetail.userUuid)}
+                    {@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void copyTaskField("id", taskRunDetail!.id), "Copy task ID")}
+                  </div>
+                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
+                    <span>{taskContextLabel(taskRunDetail)}</span>
+                    <span class="text-text-placeholder">·</span>
+                    <span>{taskAttemptsLabel(taskRunDetail)}</span>
                     {#if taskRunDetail.cronJobId}
-                      ·
+                      <span class="text-text-placeholder">·</span>
                       <a
                         href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
-                        class="text-text-primary transition-colors hover:text-brand"
+                        class="text-text-secondary transition-colors hover:text-brand"
                         onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
                       >view cronjob</a>
                     {/if}
-                  </p>
+                  </div>
                 </div>
               </div>
             </header>
