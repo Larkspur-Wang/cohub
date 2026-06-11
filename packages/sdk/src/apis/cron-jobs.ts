@@ -1,12 +1,41 @@
 import type { HttpTransport } from "../transport.js";
-import type { CronJobRecord, TaskRunRecord } from "../types.js";
+import type { CronJobRecord, CronJobUpdatePatch, CursorPageInfo, TaskRunRecord } from "../types.js";
+
+export type CronJobRunsOptions = {
+  limit?: number;
+  cursor?: string | null;
+};
+
+const toQuery = (params: Record<string, string | number | null | undefined>) => {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
+  }
+  const text = query.toString();
+  return text ? `?${text}` : "";
+};
 
 export class CronJobsApi {
   constructor(private readonly transport: HttpTransport) {}
 
   list(spaceId?: string) {
-    const query = spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : "";
+    const query = toQuery({ spaceId });
     return this.transport.request<{ jobs: CronJobRecord[] }>(`/api/cron-jobs${query}`);
+  }
+
+  get<TPayload extends Record<string, unknown> = Record<string, unknown>>(id: string) {
+    return this.transport.request<{ job: CronJobRecord<TPayload> }>(`/api/cron-jobs/${id}`);
+  }
+
+  update<TPayload extends Record<string, unknown> = Record<string, unknown>>(
+    id: string,
+    patch: CronJobUpdatePatch<TPayload>,
+  ) {
+    return this.transport.request<{ ok: true; job: CronJobRecord<TPayload> }>(`/api/cron-jobs/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
   }
 
   delete(id: string) {
@@ -16,16 +45,13 @@ export class CronJobsApi {
   }
 
   toggle(id: string, enabled: boolean) {
-    return this.transport.request<{ ok: true }>(`/api/cron-jobs/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled }),
-    });
+    return this.update(id, { enabled });
   }
 
-  runs(cronJobId: string) {
-    return this.transport.request<{ runs: TaskRunRecord[] }>(
-      `/api/cron-jobs/${cronJobId}/runs`,
+  runs(cronJobId: string, options: CronJobRunsOptions = {}) {
+    const query = toQuery({ limit: options.limit, cursor: options.cursor });
+    return this.transport.request<{ runs: TaskRunRecord[]; pageInfo: CursorPageInfo }>(
+      `/api/cron-jobs/${cronJobId}/runs${query}`,
     );
   }
 }

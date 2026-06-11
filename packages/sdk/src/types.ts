@@ -904,13 +904,42 @@ export type CreateSpacePromptResponse =
       sessionId: string | null;
     };
 
-export type CronJobRecord = {
+export type CronJobPayload = Record<string, unknown>;
+
+export type SendMessageCronJobPayload = CronJobPayload & {
+  content: ContentBlock[];
+  clientMessageId?: string;
+  generationPolicy?: unknown;
+  intent?: "followup" | "steer" | string;
+  accessMode?: "read_only" | "full_access";
+  source?: string;
+  sessionId?: string;
+  title?: string;
+  model?: string;
+  provider?: string;
+  labelIds?: string[];
+};
+
+export type CronJobUpdatePatch<TPayload extends CronJobPayload = CronJobPayload> = {
+  title?: string;
+  payload?: TPayload;
+  cronExpression?: string;
+  timezone?: string;
+  enabled?: boolean;
+};
+
+export type CursorPageInfo = {
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+export type CronJobRecord<TPayload extends CronJobPayload = CronJobPayload> = {
   id: string;
   userUuid: string;
   userProfile?: UserProfile;
   title: string;
   taskType: string;
-  payload: Record<string, unknown>;
+  payload: TPayload;
   cronExpression: string;
   timezone: string;
   bullJobKey: string;
