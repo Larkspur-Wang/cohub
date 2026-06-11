@@ -1,8 +1,10 @@
 <script lang="ts">
+import { AlertTriangle, Check, Loader2, ShieldCheck } from "lucide-svelte";
 import { onDestroy, onMount } from "svelte";
 import { page } from "$app/state";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
+import Dialog from "$lib/components/Dialog.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 
 const props = $props<{
@@ -41,6 +43,7 @@ let pendingAuth = $state<{
 	reason?: string;
 } | null>(null);
 let authError = $state<string | null>(null);
+let authSaving = $state(false);
 
 const work = $derived(props.data.work);
 const space = $derived(props.data.space ?? null);
@@ -149,7 +152,28 @@ function profileInitials(value: string | null | undefined) {
 	return letters.toUpperCase();
 }
 
+function formatScopeLabel(scope: string) {
+	const labels: Record<string, string> = {
+		"session.prompt.readonly": "Prompt read-only",
+		"session.prompt.fullaccess": "Prompt full access",
+	};
+	return labels[scope] ?? scope;
+}
+
+function formatScopeDescription(scope: string) {
+	const descriptions: Record<string, string> = {
+		"session.prompt.readonly":
+			"Read prompts and session context without making changes.",
+		"session.prompt.fullaccess":
+			"Send prompts and act in the session with your approval.",
+	};
+	return (
+		descriptions[scope] ?? "Grant this work the requested Cohub permission."
+	);
+}
+
 function replyAuthCancel() {
+	if (authSaving) return;
 	if (!pendingAuth) return;
 	reply(pendingAuth.requestId, {
 		type: "cohub.work.authorize.result",
@@ -158,6 +182,7 @@ function replyAuthCancel() {
 	authOpen = false;
 	pendingAuth = null;
 	authError = null;
+	authSaving = false;
 }
 
 async function handleMessage(event: MessageEvent) {
@@ -223,8 +248,9 @@ async function handleMessage(event: MessageEvent) {
 }
 
 async function confirmAuth() {
-	if (!pendingAuth) return;
+	if (!pendingAuth || authSaving) return;
 	authError = null;
+	authSaving = true;
 	try {
 		const token = await authorize(pendingAuth.scopes);
 		reply(pendingAuth.requestId, {
@@ -236,6 +262,8 @@ async function confirmAuth() {
 	} catch (error) {
 		authError =
 			error instanceof Error ? error.message : "Authorization failed.";
+	} finally {
+		authSaving = false;
 	}
 }
 
@@ -297,33 +325,228 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 	</footer>
 </div>
 
-{#if authOpen && pendingAuth}
-	<div class="fixed inset-0 z-[100] flex items-center justify-center bg-overlay-scrim p-4">
-		<div class="w-full max-w-[420px] rounded-xl border border-border-subtle bg-bg-primary shadow-2xl">
-			<div class="border-b border-border-subtle px-4 py-3 text-sm font-medium text-text-primary">Allow work access?</div>
-			<div class="space-y-3 p-4 text-sm text-text-secondary">
-				<div>{pendingAuth.reason || "This work wants to use Cohub on your behalf."}</div>
-				<ul class="space-y-1 text-xs text-text-tertiary">
-					{#each pendingAuth.scopes as scope}<li>• {scope}</li>{/each}
-				</ul>
-				{#if authError}<div class="rounded-md border border-error-soft/30 bg-error-bg p-2 text-xs text-error-soft">{authError}</div>{/if}
+<Dialog open={authOpen && !!pendingAuth} onClose={replyAuthCancel} title="Work access" maxWidth="440px">
+	{#if pendingAuth}
+		<div class="auth-panel">
+			<div class="auth-intro">
+				<div class="auth-icon"><ShieldCheck class="h-4 w-4" /></div>
+				<div class="min-w-0">
+					<div class="auth-title">Allow work access?</div>
+					<p class="auth-copy">{pendingAuth.reason || "This work wants to use Cohub on your behalf."}</p>
+				</div>
 			</div>
-			<div class="flex justify-end gap-2 border-t border-border-subtle p-3">
-				<button type="button" class="action-btn" onclick={replyAuthCancel}>Cancel</button>
-				<button type="button" class="action-btn primary" onclick={() => void confirmAuth()}>Allow</button>
+
+			<section class="auth-section">
+				<div class="auth-section-label">Requested permissions</div>
+				<div class="auth-scope-list">
+					{#each pendingAuth.scopes as scope}
+						<div class="auth-scope-row">
+							<div class="auth-scope-check"><Check class="h-3 w-3" /></div>
+							<div class="min-w-0">
+								<div class="auth-scope-name">{formatScopeLabel(scope)}</div>
+								<div class="auth-scope-description">{formatScopeDescription(scope)}</div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</section>
+
+			{#if authError}
+				<div class="auth-error"><AlertTriangle class="h-3.5 w-3.5" />{authError}</div>
+			{/if}
+
+			<div class="auth-actions">
+				<button type="button" class="auth-button secondary" onclick={replyAuthCancel} disabled={authSaving}>Cancel</button>
+				<button type="button" class="auth-button primary" onclick={() => void confirmAuth()} disabled={authSaving}>
+					{#if authSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<ShieldCheck class="h-3.5 w-3.5" />{/if}
+					Allow access
+				</button>
 			</div>
 		</div>
-	</div>
-{/if}
+	{/if}
+</Dialog>
 
 <style>
 	.work-bar {
 		max-width: min(860px, calc(100vw - 24px));
 	}
 
+	.auth-panel {
+		display: grid;
+		gap: 14px;
+		padding: 16px;
+	}
+
+	.auth-intro {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+	}
+
+	.auth-icon {
+		display: grid;
+		width: 32px;
+		height: 32px;
+		flex: 0 0 auto;
+		place-items: center;
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--brand) 14%, var(--bg-surface));
+		color: var(--brand);
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 28%, transparent);
+	}
+
+	.auth-title {
+		font-size: 15px;
+		font-weight: 600;
+		line-height: 1.25;
+		color: var(--text-primary);
+	}
+
+	.auth-copy {
+		margin-top: 5px;
+		font-size: 13px;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.auth-section {
+		display: grid;
+		gap: 8px;
+	}
+
+	.auth-section-label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.auth-scope-list {
+		display: grid;
+		gap: 8px;
+	}
+
+	.auth-scope-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 9px;
+		min-width: 0;
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-surface);
+		padding: 10px;
+	}
+
+	.auth-scope-check {
+		display: grid;
+		width: 18px;
+		height: 18px;
+		flex: 0 0 auto;
+		place-items: center;
+		border-radius: 5px;
+		background: color-mix(in srgb, var(--brand) 12%, var(--bg-input));
+		color: var(--brand);
+	}
+
+	.auth-scope-name {
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1.25;
+		color: var(--text-primary);
+	}
+
+	.auth-scope-description {
+		margin-top: 3px;
+		font-size: 11px;
+		line-height: 1.45;
+		color: var(--text-tertiary);
+	}
+
+	.auth-error {
+		display: flex;
+		align-items: flex-start;
+		gap: 7px;
+		border-radius: 6px;
+		border: 1px solid color-mix(in srgb, var(--error-soft) 30%, transparent);
+		background: var(--error-bg);
+		padding: 8px 10px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: var(--error-soft);
+	}
+
+	.auth-error :global(svg) {
+		flex: 0 0 auto;
+		margin-top: 1px;
+	}
+
+	.auth-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 8px;
+		border-top: 1px solid var(--border-subtle);
+		padding-top: 12px;
+	}
+
+	.auth-button {
+		display: inline-flex;
+		min-height: 34px;
+		align-items: center;
+		justify-content: center;
+		gap: 7px;
+		border-radius: 6px;
+		padding: 0 12px;
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1;
+		transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+	}
+
+	.auth-button:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--brand) 60%, transparent);
+		outline-offset: 2px;
+	}
+
+	.auth-button:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.auth-button.primary {
+		border: 1px solid var(--brand);
+		background: var(--brand);
+		color: var(--brand-contrast-fg);
+	}
+
+	.auth-button.primary:hover:not(:disabled) {
+		opacity: 0.92;
+	}
+
+	.auth-button.secondary {
+		border: 1px solid var(--border-subtle);
+		background: var(--bg-surface);
+		color: var(--text-secondary);
+	}
+
+	.auth-button.secondary:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
 	@media (max-width: 420px) {
 		.work-bar {
 			gap: 0.5rem;
+		}
+
+		.auth-actions {
+			grid-template-columns: 1fr 1fr;
+			display: grid;
+		}
+
+		.auth-button {
+			min-height: 44px;
+			font-size: 13px;
 		}
 	}
 </style>

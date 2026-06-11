@@ -294,4 +294,12 @@ async function copyUrl() {
 	.secondary-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 	.success-block { display: flex; align-items: center; gap: 10px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-surface); padding: 12px; }
 	.success-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--brand); color: var(--brand-contrast-fg); }
+
+	@media (max-width: 639px) {
+		.form-input, .readonly-value { height: 44px; padding: 0 11px; font-size: 14px; }
+		.permission-row { min-height: 40px; align-items: center; }
+		.permission-row input { width: 16px; height: 16px; }
+		.button-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
+		.primary-btn, .secondary-btn { width: 100%; min-height: 44px; font-size: 13px; }
+	}
 </style>
