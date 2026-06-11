@@ -1,4 +1,4 @@
-import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
+import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices } from "@cohub/core/sessions";
 import { db } from "./db.js";
@@ -40,7 +40,7 @@ export function getSessionDomainServices(input: {
         attempts: 2,
         backoff: { type: "fixed", delay: 1000 },
         removeOnComplete: true,
-        removeOnFail: true,
+        removeOnFail: defaultJobRetention.removeOnFail,
       }),
     },
     logger: console,

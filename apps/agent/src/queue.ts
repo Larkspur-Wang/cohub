@@ -57,7 +57,7 @@ export async function enqueueAgentTurnJob(data: AgentTurnJobData, options: JobsO
     attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
     removeOnComplete: true,
-    removeOnFail: true,
+    removeOnFail: defaultJobRetention.removeOnFail,
     ...options,
   });
 }

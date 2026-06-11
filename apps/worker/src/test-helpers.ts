@@ -1,4 +1,4 @@
-import { COHUB_TASKS_QUEUE, createBullmqRedisConnection } from "@cohub/infra/bullmq";
+import { COHUB_TASKS_QUEUE, createBullmqRedisConnection, defaultJobRetention } from "@cohub/infra/bullmq";
 import { Queue, type JobsOptions } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 
@@ -20,7 +20,7 @@ export const triggerTask = async (
   const queue = createQueue();
   const job = await queue.add(payload.type, payload, {
     removeOnComplete: true,
-    removeOnFail: true,
+    removeOnFail: defaultJobRetention.removeOnFail,
     attempts: 1,
     ...opts,
   });

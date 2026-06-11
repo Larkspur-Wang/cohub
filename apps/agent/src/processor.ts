@@ -20,6 +20,7 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, persistInterruptedAssistantSnapshot, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
 import { claimNextTurnBatch, buildUserMessagesForBatch, enqueueNextRunnableTurn } from "./batch.js";
 import { acquireSessionLock } from "./session-lock.js";
+import { defaultJobRetention } from "@cohub/infra/bullmq";
 import { enqueueAgentTurnJob, type AgentTurnJobData } from "./queue.js";
 import { getAbortEvent } from "./abort.js";
 import { setActiveAbortController, clearActiveAbortController, getActiveAbortEvent, setActiveAbortEvent } from "./active-turns.js";
@@ -60,7 +61,7 @@ async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?:
     jobId: `agent-session-retry-${reason}-${data.sessionId}-${Math.max(1, Math.ceil(Date.now() / delay))}`,
     delay,
     removeOnComplete: true,
-    removeOnFail: true,
+    removeOnFail: defaultJobRetention.removeOnFail,
   });
   return { skipped: reason, retryInMs: delay, jobId: job?.id ?? null, ...meta };
 }
