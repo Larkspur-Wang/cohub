@@ -49,7 +49,8 @@ import {
 } from "../runtime/paths.js";
 import { getCurrentSessionExecutionAuth } from "../runtime/session-execution-auth.js";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type TurnTelemetryMetrics } from "../tool-context.js";
-import { assertSpaceFileViewAccess } from "../runtime/cross-space-query-access.js";
+import { resolveSpaceFileVisibility } from "../runtime/cross-space-query-access.js";
+import { createWorkspaceVisibilityFilter, type AgentFileVisibility, type AgentWorkspaceVisibilityFilter } from "../runtime/workspace-visibility.js";
 import {
   createSpaceAwareFindTool,
   createSpaceAwareGrepTool,
@@ -303,6 +304,7 @@ function createRemoteReadOperations(): ReadOperations {
       }, async () => {
         const connection = await getCurrentConnection();
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+        await assertSandboxPathVisible(path);
         logger.debug(`[Tool:read] path=${path}`);
         // Use binary mode so sandbox detects MIME type and returns base64 for binary files.
         const result = await tracedRpc(connection, "fs.read", { path, binary: true });
@@ -314,11 +316,14 @@ function createRemoteReadOperations(): ReadOperations {
     },
     async access(absolutePath) {
       const connection = await getCurrentConnection();
-      await tracedRpc(connection, "fs.read", { path: mapLocalAbsolutePathToSandboxPath(absolutePath), offset: 1, limit: 1 });
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      await assertSandboxPathVisible(path);
+      await tracedRpc(connection, "fs.read", { path, offset: 1, limit: 1 });
     },
     async detectImageMimeType(absolutePath) {
       const connection = await getCurrentConnection();
       const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      await assertSandboxPathVisible(path);
       const result = await tracedRpc(connection, "fs.read", { path, binary: true });
       const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
       // Only return supported raster image MIME types. The upstream read tool
@@ -328,6 +333,7 @@ function createRemoteReadOperations(): ReadOperations {
     async detectUnsupportedImageMimeType(absolutePath) {
       const connection = await getCurrentConnection();
       const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      await assertSandboxPathVisible(path);
       const result = await tracedRpc(connection, "fs.read", { path, binary: true });
       const mimeType = typeof result.mimeType === "string" ? result.mimeType : null;
       return detectUnsupportedReadImageMimeType(mimeType);
@@ -561,13 +567,18 @@ function createRemoteLsOperations(): LsOperations {
   const tracer = getAgentTracer();
   return {
     async exists(absolutePath) {
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      const relativePath = sandboxWorkspaceRelativePath(path);
+      if (relativePath != null && !(await createCurrentWorkspaceVisibilityFilter(undefined, relativePath)).isVisible(relativePath)) return false;
       const connection = await getCurrentConnection();
-      const result = await tracedRpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
+      const result = await tracedRpc(connection, "fs.stat", { path });
       return result.exists;
     },
     async stat(absolutePath) {
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      await assertSandboxPathVisible(path);
       const connection = await getCurrentConnection();
-      const result = await tracedRpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
+      const result = await tracedRpc(connection, "fs.stat", { path });
       return {
         isDirectory: () => result.isDirectory,
       };
@@ -588,10 +599,17 @@ function createRemoteLsOperations(): LsOperations {
         ...getCurrentTraceContext(),
       }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+        await assertSandboxPathVisible(path, { isDirectory: true });
         logger.debug(`[Tool:ls] path=${path}`);
         const connection = await getCurrentConnection();
         const result = await tracedRpc(connection, "fs.ls", { path });
-        return result.entries.map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
+        const filter = await createCurrentWorkspaceVisibilityFilter(undefined, sandboxWorkspaceRelativePath(path) ?? "");
+        return result.entries
+          .filter((entry) => {
+            const relativePath = workspaceChildPath(path, entry);
+            return relativePath == null || filter.isVisible(relativePath, { isDirectory: entry.endsWith("/") });
+          })
+          .map((entry) => entry.endsWith("/") ? entry.slice(0, -1) : entry);
       }));
     },
   };
@@ -601,8 +619,11 @@ function createRemoteFindOperations(): FindOperations {
   const tracer = getAgentTracer();
   return {
     async exists(absolutePath) {
+      const path = mapLocalAbsolutePathToSandboxPath(absolutePath);
+      const relativePath = sandboxWorkspaceRelativePath(path);
+      if (relativePath != null && !(await createCurrentWorkspaceVisibilityFilter(undefined, relativePath)).isVisible(relativePath)) return false;
       const connection = await getCurrentConnection();
-      const result = await tracedRpc(connection, "fs.stat", { path: mapLocalAbsolutePathToSandboxPath(absolutePath) });
+      const result = await tracedRpc(connection, "fs.stat", { path });
       return result.exists;
     },
     async glob(pattern, cwd, options) {
@@ -621,6 +642,7 @@ function createRemoteFindOperations(): FindOperations {
         ...getCurrentTraceContext(),
       }, async () => {
         const path = mapLocalAbsolutePathToSandboxPath(cwd);
+        await assertSandboxPathVisible(path, { isDirectory: true });
         logger.debug(`[Tool:find] pattern=${pattern} path=${path}`);
 
         // Agent owns tool semantics: match pi-coding-agent fd behavior.
@@ -715,13 +737,17 @@ function createRemoteGrepTool() {
       }
 
       const connection = await getCurrentConnection();
+      const searchPath = mapSandboxInputPath(grepInput.path);
+      if (searchPath.startsWith(SANDBOX_WORKSPACE_PATH) || !searchPath.startsWith("/")) {
+        await assertSandboxPathVisible(searchPath.startsWith("/") ? searchPath : `${SANDBOX_WORKSPACE_PATH}/${searchPath}`, { isDirectory: true });
+      }
       try {
         const result = await tracedRpc(
           connection,
           "fs.grep",
           {
             pattern: grepInput.pattern,
-            path: mapSandboxInputPath(grepInput.path),
+            path: searchPath,
             glob: grepInput.glob,
             ignoreCase: grepInput.ignoreCase,
             literal: grepInput.literal,
@@ -748,7 +774,7 @@ function createRemoteGrepTool() {
           throw new Error("Operation aborted");
         }
 
-          return formatRgJsonGrepResult({ lines: result.lines, searchPath: grepInput.path, limit: effectiveLimit });
+        return formatRgJsonGrepResult({ lines: result.lines, searchPath: grepInput.path, limit: effectiveLimit });
       } finally {
         if (signal) signal.removeEventListener("abort", onAbort);
       }
@@ -779,10 +805,41 @@ function getCurrentActorUserId() {
   return null;
 }
 
-async function assertCurrentActorCanViewSpaceFiles(spaceId: string) {
+async function resolveCurrentFileVisibility(spaceId: string): Promise<AgentFileVisibility> {
+  const ctx = getCurrentToolExecutionContext();
+  if (ctx?.fileVisibility) return ctx.fileVisibility;
   const actorUserId = getCurrentActorUserId();
   if (!actorUserId?.trim()) throw new Error("Access denied: an authenticated user is required.");
-  await assertSpaceFileViewAccess({ actorUserId: actorUserId.trim(), spaceId });
+  return resolveSpaceFileVisibility({ actorUserId: actorUserId.trim(), spaceId });
+}
+
+async function createCurrentWorkspaceVisibilityFilter(spaceId = getCurrentSpaceId(), basePath = ""): Promise<AgentWorkspaceVisibilityFilter> {
+  return createWorkspaceVisibilityFilter(getSpaceWorkspaceDir(spaceId), await resolveCurrentFileVisibility(spaceId), basePath);
+}
+
+function sandboxWorkspaceRelativePath(sandboxPath: string) {
+  if (sandboxPath === SANDBOX_WORKSPACE_PATH) return "";
+  if (sandboxPath.startsWith(`${SANDBOX_WORKSPACE_PATH}/`)) return sandboxPath.slice(SANDBOX_WORKSPACE_PATH.length + 1);
+  return null;
+}
+
+function workspaceChildPath(parent: string, entry: string) {
+  const base = sandboxWorkspaceRelativePath(parent);
+  if (base == null) return null;
+  const name = entry.endsWith("/") ? entry.slice(0, -1) : entry;
+  return base ? `${base}/${name}` : name;
+}
+
+async function assertSandboxPathVisible(sandboxPath: string, options?: { isDirectory?: boolean }) {
+  const relativePath = sandboxWorkspaceRelativePath(sandboxPath);
+  if (relativePath == null) return;
+  (await createCurrentWorkspaceVisibilityFilter(undefined, relativePath)).assertVisible(relativePath, options);
+}
+
+async function assertCurrentActorCanViewSpaceFiles(spaceId: string): Promise<AgentFileVisibility> {
+  const actorUserId = getCurrentActorUserId();
+  if (!actorUserId?.trim()) throw new Error("Access denied: an authenticated user is required.");
+  return resolveSpaceFileVisibility({ actorUserId: actorUserId.trim(), spaceId });
 }
 
 function withSandboxFailureResult<T extends AgentTool>(tool: T): T {

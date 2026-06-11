@@ -14,6 +14,7 @@ import {
   toWorkspaceRelative,
   type WorkspaceScope,
 } from "../workspace-scope.js";
+import { createWorkspaceVisibilityFilter } from "../workspace-visibility.js";
 import {
   createFindTool,
   createGrepToolDefinition,
@@ -59,6 +60,18 @@ async function resolveToolPath(path: string) {
   return resolveExistingWorkspacePath(scope, toWorkspaceInputPath(path));
 }
 
+async function getCurrentVisibilityFilter(basePath = "") {
+  const scope = await getCurrentWorkspaceScope();
+  return { scope, filter: await createWorkspaceVisibilityFilter(scope.rootReal, getCurrentToolExecutionContext()?.fileVisibility ?? "full", basePath) };
+}
+
+async function resolveVisibleToolPath(path: string) {
+  const resolved = await resolveToolPath(path);
+  const filter = await createWorkspaceVisibilityFilter((await getCurrentWorkspaceScope()).rootReal, getCurrentToolExecutionContext()?.fileVisibility ?? "full", resolved.relativePath);
+  filter.assertVisible(resolved.relativePath);
+  return resolved;
+}
+
 function normalizeExecError(error: unknown, tool: string) {
   const err = error as ExecError;
   if (err?.code === "ENOENT") throw new Error(`${tool} is not installed in agent image.`);
@@ -91,6 +104,11 @@ function splitNonEmptyLines(output: string) {
   return output.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+function isGitPath(path: string) {
+  const normalized = normalizeWorkspaceInputPath(path);
+  return normalized === ".git" || normalized.startsWith(".git/");
+}
+
 async function filterWorkspaceRelativeResults(scope: WorkspaceScope, baseRealPath: string, lines: string[]) {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -98,7 +116,7 @@ async function filterWorkspaceRelativeResults(scope: WorkspaceScope, baseRealPat
     const rel = normalizeWorkspaceInputPath(line);
     const abs = resolve(scope.rootReal, rel === "." ? "" : rel);
     const real = await assertResolvedOutputInsideWorkspace(scope, abs);
-    if (!real) continue;
+    if (!real || isGitPath(toWorkspaceRelative(scope, abs))) continue;
     const display = toWorkspaceRelative({ ...scope, rootReal: baseRealPath }, abs);
     if (!seen.has(display)) {
       seen.add(display);
@@ -131,21 +149,21 @@ async function assertRgJsonLinesInsideWorkspace(scope: WorkspaceScope, lines: st
 export function createLocalCrossSpaceReadTool(): AgentTool {
   const operations: ReadOperations = {
     async readFile(absolutePath) {
-      const resolved = await resolveToolPath(absolutePath);
+      const resolved = await resolveVisibleToolPath(absolutePath);
       return readFile(resolved.realPath);
     },
     async access(absolutePath) {
-      const resolved = await resolveToolPath(absolutePath);
+      const resolved = await resolveVisibleToolPath(absolutePath);
       const info = await stat(resolved.realPath);
       if (info.isDirectory()) throw new Error(`Path is a directory: ${toWorkspaceDisplayPath(resolved.relativePath)}`);
     },
     async detectImageMimeType(absolutePath) {
-      const resolved = await resolveToolPath(absolutePath);
+      const resolved = await resolveVisibleToolPath(absolutePath);
       const mimeType = detectReadImageMimeType(resolved.realPath, await readFile(resolved.realPath));
       return isSupportedReadImageMimeType(mimeType) ? mimeType : null;
     },
     async detectUnsupportedImageMimeType(absolutePath) {
-      const resolved = await resolveToolPath(absolutePath);
+      const resolved = await resolveVisibleToolPath(absolutePath);
       return detectUnsupportedReadImageMimeType(detectReadImageMimeType(resolved.realPath, await readFile(resolved.realPath)));
     },
     unsupportedImageMimeTypeMessage: unsupportedReadImageMimeTypeMessage,
@@ -156,18 +174,22 @@ export function createLocalCrossSpaceReadTool(): AgentTool {
 export function createLocalCrossSpaceLsTool(): AgentTool {
   const operations: LsOperations = {
     async exists(absolutePath) {
-      return Boolean(await resolveToolPath(absolutePath).catch(() => null));
+      return Boolean(await resolveVisibleToolPath(absolutePath).catch(() => null));
     },
     async stat(absolutePath) {
-      const resolved = await resolveToolPath(absolutePath);
+      const resolved = await resolveVisibleToolPath(absolutePath);
       const info = await stat(resolved.realPath);
       return { isDirectory: () => info.isDirectory() };
     },
     async readdir(absolutePath) {
-      const resolved = await safeLstatWorkspacePath(await getCurrentWorkspaceScope(), toWorkspaceInputPath(absolutePath));
+      const scope = await getCurrentWorkspaceScope();
+      const resolved = await safeLstatWorkspacePath(scope, toWorkspaceInputPath(absolutePath));
+      const filter = (await getCurrentVisibilityFilter(resolved.relativePath)).filter;
+      filter.assertVisible(resolved.relativePath, { isDirectory: true });
       if (!resolved.info.isDirectory()) throw new Error(`Not a directory: ${toWorkspaceDisplayPath(resolved.relativePath)}`);
       const entries = await readdir(resolved.realPath, { withFileTypes: true });
       return entries
+        .filter((entry) => filter.isVisible(resolved.relativePath === "." ? entry.name : `${resolved.relativePath}/${entry.name}`, { isDirectory: entry.isDirectory() }))
         .map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`)
         .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
     },
@@ -178,11 +200,13 @@ export function createLocalCrossSpaceLsTool(): AgentTool {
 export function createLocalCrossSpaceFindTool(): AgentTool {
   const operations: FindOperations = {
     async exists(absolutePath) {
-      return Boolean(await resolveToolPath(absolutePath).catch(() => null));
+      return Boolean(await resolveVisibleToolPath(absolutePath).catch(() => null));
     },
     async glob(pattern, cwd, options) {
       const scope = await getCurrentWorkspaceScope();
       const resolved = await resolveExistingWorkspacePath(scope, toWorkspaceInputPath(cwd));
+      const visibilityFilter = await createWorkspaceVisibilityFilter(scope.rootReal, getCurrentToolExecutionContext()?.fileVisibility ?? "full", resolved.relativePath);
+      visibilityFilter.assertVisible(resolved.relativePath, { isDirectory: true });
       const info = await stat(resolved.realPath);
       if (!info.isDirectory()) throw new Error(`Not a directory: ${toWorkspaceDisplayPath(resolved.relativePath)}`);
 
@@ -193,7 +217,7 @@ export function createLocalCrossSpaceFindTool(): AgentTool {
       }
 
       const searchPath = resolved.relativePath === "." ? "." : resolved.relativePath;
-      const args = ["--color=never", "--glob", "--hidden", "--no-require-git"];
+      const args = ["--color=never", "--glob", "--hidden", "--no-require-git", "--exclude", ".git"];
       if (useFullPath) args.push("--full-path");
       for (const ignore of options.ignore ?? []) args.push("--exclude", ignore);
       args.push("--max-results", String(options.limit), effectivePattern, searchPath);
@@ -214,9 +238,11 @@ export function createLocalCrossSpaceGrepTool(): AgentTool {
     const params = input as GrepToolInput;
     const scope = await getCurrentWorkspaceScope();
     const resolved = await resolveExistingWorkspacePath(scope, toWorkspaceInputPath(params.path));
+    const filter = (await getCurrentVisibilityFilter(resolved.relativePath)).filter;
+    filter.assertVisible(resolved.relativePath, { isDirectory: true });
     const searchPath = resolved.relativePath === "." ? "." : resolved.relativePath;
     const effectiveLimit = Math.max(1, params.limit ?? 100);
-    const args = ["--line-number", "--color=never", "--hidden", "--no-require-git", "--json"];
+    const args = ["--line-number", "--color=never", "--hidden", "--no-require-git", "--glob", "!.git/**", "--json"];
     if (params.context && params.context > 0) args.push("--context", String(params.context));
     if (params.ignoreCase) args.push("--ignore-case");
     if (params.literal) args.push("--fixed-strings");

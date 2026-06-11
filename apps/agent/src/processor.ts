@@ -14,6 +14,7 @@ import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
+import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.js";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
 import { runWithToolExecutionContext } from "./tool-context.js";
 import { loadOrCreateSessionHandle, ensurePendingUserMessage, hasSessionUserMessage, removePendingUserMessage, resetStreamState, drainStreamStateBeforeReset, persistInterruptedAssistantSnapshot, refreshSessionHandleFileSignature, type SessionHandle } from "./session.js";
@@ -655,6 +656,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         : {});
       const actorUserId = resolveActorUserId(ownerMeta);
       if (!actorUserId) throw new Error("Agent turn requires actorUserId for execution token");
+      const fileVisibility = await resolveSpaceFileVisibility({ actorUserId, spaceId: data.spaceId });
       const accessMode = resolveBatchAccessMode(batch);
       const generationPolicy = normalizeGenerationPolicy(ownerMeta.generationPolicy);
       const abortEvent = await getAbortEvent(batch.ownerTurn.id);
@@ -774,6 +776,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             llmRound: 0,
             actorUserId,
             executionToken,
+            fileVisibility,
             requestId,
             metrics: turnMetrics,
             assistantMessageTiming,
@@ -838,6 +841,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           llmRound: 0,
           actorUserId,
           executionToken,
+          fileVisibility,
           requestId,
           metrics: turnMetrics,
           assistantMessageTiming,

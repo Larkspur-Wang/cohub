@@ -1,11 +1,12 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../../tool-context.js";
+import type { AgentFileVisibility } from "../workspace-visibility.js";
 import { assertCrossSpaceQueryPathAllowed } from "./query-path-policy.js";
 
 const SPACE_ID_DESCRIPTION = "Only set when querying another space by id";
 
-type AccessCheck = (spaceId: string) => Promise<void>;
+type AccessCheck = (spaceId: string) => Promise<AgentFileVisibility>;
 
 type SpaceAwareToolOptions = {
   sandboxTool: AgentTool;
@@ -40,14 +41,16 @@ function routeExecute({ sandboxTool, crossSpaceTool, checkAccess }: SpaceAwareTo
     const requestedSpaceId = getRequestedSpaceId(params);
     const targetSpaceId = requestedSpaceId ?? ctx.spaceId;
     const tool = targetSpaceId === ctx.spaceId ? sandboxTool : crossSpaceTool;
+    let visibility = ctx.fileVisibility;
     if (targetSpaceId !== ctx.spaceId) {
       assertCrossSpaceQueryPathAllowed(getQueryPath(params));
-      await checkAccess(targetSpaceId);
+      visibility = await checkAccess(targetSpaceId);
     }
 
     return runWithToolExecutionContext({
       ...ctx,
       spaceId: targetSpaceId,
+      ...(visibility ? { fileVisibility: visibility } : {}),
     }, () => tool.execute(toolCallId, withoutSpaceId(params), signal, onUpdate));
   };
 }

@@ -93,6 +93,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+      ignore:
+        specifier: ^7.0.5
+        version: 7.0.5
       ioredis:
         specifier: 5.10.1
         version: 5.10.1
@@ -3478,10 +3481,12 @@ packages:
 
   '@talesofai-billing/cli@1.4.0':
     resolution: {integrity: sha512-+b65q47ZmVVISKxmY4aGdymlFV+n53/FsermAvrZDMJl4xsF/FPmW3Exi1jTmVfxZdTDlnh+ec4iKHC8rCJAoA==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fcli/-/1.4.0/cli-1.4.0.tgz}
+    engines: {node: '>=20'}
     hasBin: true
 
   '@talesofai-billing/sdk@1.4.0':
     resolution: {integrity: sha512-DRWm2svZF/Tb/OYPY6qsqIV04iIgQ+vueLkS4CK5jS3MLoEwnhwQgqDqwrd2Bg1v1yNH8G9dJwomubkQgd6yRw==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.4.0/sdk-1.4.0.tgz}
+    engines: {node: '>=18'}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     resolution: {integrity: sha512-/67zpWDBLV+oYAEL682s1ktXL0HgqX76f6gaVGkGnVZlBbm1zd0v4Bz8MFF2GGhoX9rvfq3KSQHubFHwa6w6/Q==}

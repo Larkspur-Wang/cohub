@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
+import type { AgentFileVisibility } from "./runtime/workspace-visibility.js";
 
 export type TurnTelemetryMetrics = {
   llmRoundCount: number;
@@ -24,6 +25,7 @@ export type ToolExecutionContext = {
   metrics?: TurnTelemetryMetrics;
   assistantMessageTiming?: AssistantMessageTimingContext;
   generationPolicy?: GenerationPolicy | null;
+  fileVisibility?: AgentFileVisibility;
 };
 
 const storage = new AsyncLocalStorage<ToolExecutionContext>();
