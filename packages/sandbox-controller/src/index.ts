@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { spaceSandboxes, spaces } from "@cohub/db";
 import type { RpcMethod, SandboxHeartbeat, SandboxStatus } from "@cohub/protocol/sandbox";
@@ -24,11 +24,13 @@ export const SANDBOX_RUNTIME_STATUSES = [
 ] as const;
 export type SandboxRuntimeStatus = (typeof SANDBOX_RUNTIME_STATUSES)[number];
 
-export const SANDBOX_STOP_REASONS = ["idle", "manual", "replaced"] as const;
+export const SANDBOX_STOP_REASONS = ["idle", "manual", "replaced", "cleanup"] as const;
 export type SandboxStopReason = (typeof SANDBOX_STOP_REASONS)[number];
 
 export type SandboxActivityReason = "rpc" | "manual" | "resume";
 export type SandboxResumeReason = "rpc" | "new_message" | "manual" | "auto_recover";
+
+const STALE_SANDBOX_CLEANUP_GRACE_MS = 30 * 60_000;
 
 export type RedisLike = {
   set(key: string, value: string, ...args: unknown[]): Promise<unknown>;
@@ -61,6 +63,14 @@ const resolvedEnv = (typeof process !== "undefined" && process.env?.ENV === "pro
 export const DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS = getDefaultSandboxIdleTtl(resolvedEnv);
 export const MIN_SPACE_SANDBOX_IDLE_TTL_SECONDS = 60;
 export const MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS = 30 * 24 * 60 * 60;
+const AUTO_DESTROY_TTL_SQL = sql`
+  case
+    when (${spaces.meta}->'config'->'sandbox'->'autoDestroy'->>'ttlSeconds') ~ '^[0-9]+$'
+      and (${spaces.meta}->'config'->'sandbox'->'autoDestroy'->>'ttlSeconds')::numeric between ${MIN_SPACE_SANDBOX_IDLE_TTL_SECONDS} and ${MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS}
+      then (${spaces.meta}->'config'->'sandbox'->'autoDestroy'->>'ttlSeconds')::int
+    else ${DEFAULT_SPACE_SANDBOX_IDLE_TTL_SECONDS}
+  end
+`;
 
 export type SpaceSandboxAutoDestroyPolicy =
   | { mode: "idle"; ttlSeconds: number }
@@ -257,6 +267,29 @@ export function createSandboxLifecycleController(input: {
     return sandbox ?? null;
   }
 
+  async function deletePublicNetworkBestEffort(spaceId: string, context: string) {
+    if (!infra?.deletePublicNetwork) return {};
+
+    try {
+      await infra.deletePublicNetwork({ spaceId });
+      return {
+        publicNetworkStatus: "stopped",
+        publicNetworkDeletedAt: nowDate().toISOString(),
+        publicNetworkCleanupLastError: null,
+        publicNetworkCleanupFailedAt: null,
+        publicNetworkLastError: null,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`[SandboxLifecycle] failed to delete ${context} sandbox public network spaceId=${spaceId}: ${message}`);
+      return {
+        publicNetworkStatus: "cleanup_error",
+        publicNetworkCleanupLastError: "public network cleanup failed; see system logs",
+        publicNetworkCleanupFailedAt: nowDate().toISOString(),
+      };
+    }
+  }
+
   async function ensureRunning(input: { spaceId: string; reason: SandboxResumeReason }) {
     const sandbox = await getSandbox(input.spaceId);
     if (sandbox && isSandboxUsableStatus(sandbox.status)) return { ok: true as const, status: sandbox.status, resumed: false };
@@ -302,27 +335,7 @@ export function createSandboxLifecycleController(input: {
       const deleted = await infra.waitForPodDeleted({ podName, timeoutMs: 120_000 });
       if (!deleted) throw new Error(`timed out waiting for sandbox pod deletion: ${podName}`);
 
-      let publicNetworkMeta: Record<string, unknown> = {};
-      try {
-        await infra.deletePublicNetwork?.({ spaceId: input.spaceId });
-        if (infra.deletePublicNetwork) {
-          publicNetworkMeta = {
-            publicNetworkStatus: "stopped",
-            publicNetworkDeletedAt: nowDate().toISOString(),
-            publicNetworkCleanupLastError: null,
-            publicNetworkCleanupFailedAt: null,
-            publicNetworkLastError: null,
-          };
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn(`[SandboxLifecycle] failed to delete sandbox public network spaceId=${input.spaceId}: ${message}`);
-        publicNetworkMeta = {
-          publicNetworkStatus: "cleanup_error",
-          publicNetworkCleanupLastError: "public network cleanup failed; see system logs",
-          publicNetworkCleanupFailedAt: nowDate().toISOString(),
-        };
-      }
+      const publicNetworkMeta = await deletePublicNetworkBestEffort(input.spaceId, input.reason);
 
       const stoppedAt = nowDate();
       const [updated] = await db.update(spaceSandboxes).set({
@@ -361,12 +374,64 @@ export function createSandboxLifecycleController(input: {
     return { ...stopped, dueAt: dueAt.toISOString() };
   }
 
+  async function cleanupStaleSandbox(input: { spaceId: string; podName: string | null; status: string }) {
+    if (!infra) throw new Error("sandbox infra adapter is not configured");
+    const podName = input.podName ?? `sandbox-${input.spaceId}`;
+    const result = await withLock(`sandbox:cleanup:${input.spaceId}`, async () => {
+      await infra.deletePod({ podName });
+      const deleted = await infra.waitForPodDeleted({ podName, timeoutMs: 120_000 });
+      if (!deleted) throw new Error(`timed out waiting for stale sandbox pod deletion: ${podName}`);
+
+      const publicNetworkMeta = await deletePublicNetworkBestEffort(input.spaceId, "stale");
+
+      const stoppedAt = nowDate();
+      const [updated] = await db.update(spaceSandboxes).set({
+        status: "stopped",
+        runtimeStatus: "unknown",
+        podName: null,
+        stoppedAt,
+        stopReason: "cleanup",
+        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ stoppedAt: stoppedAt.toISOString(), stopReason: "cleanup", cleanupFromStatus: input.status, ...publicNetworkMeta })}::jsonb`,
+        updatedAt: stoppedAt,
+      }).where(eq(spaceSandboxes.spaceId, input.spaceId)).returning();
+      return { ok: true as const, status: updated?.status ?? "stopped", stoppedAt };
+    });
+    return "locked" in result ? { ok: true as const, status: input.status, skipped: true, locked: true } : result;
+  }
+
   async function reapIdleSandboxes(input: { limit?: number; now?: Date } = {}) {
     const now = input.now ?? nowDate();
     const limit = input.limit ?? 50;
-    const candidates = await db.select({ spaceId: spaceSandboxes.spaceId }).from(spaceSandboxes).where(inArray(spaceSandboxes.status, ["ready", "running"])).orderBy(asc(spaceSandboxes.lastActivityAt), asc(spaceSandboxes.createdAt)).limit(limit);
+    const candidates = await db
+      .select({ spaceId: spaceSandboxes.spaceId })
+      .from(spaceSandboxes)
+      .innerJoin(spaces, eq(spaceSandboxes.spaceId, spaces.id))
+      .where(sql`
+        ${spaceSandboxes.status} in ('ready', 'running')
+        and coalesce(${spaces.meta}->'config'->'sandbox'->'autoDestroy'->>'mode', 'idle') <> 'never'
+        and coalesce(${spaceSandboxes.lastActivityAt}, ${spaceSandboxes.lastHeartbeatAt}, ${spaceSandboxes.createdAt}) is not null
+        and coalesce(${spaceSandboxes.lastActivityAt}, ${spaceSandboxes.lastHeartbeatAt}, ${spaceSandboxes.createdAt})
+          + (${AUTO_DESTROY_TTL_SQL} || ' seconds')::interval <= ${now.toISOString()}::timestamptz
+      `)
+      .orderBy(sql`
+        coalesce(${spaceSandboxes.lastActivityAt}, ${spaceSandboxes.lastHeartbeatAt}, ${spaceSandboxes.createdAt})
+          + (${AUTO_DESTROY_TTL_SQL} || ' seconds')::interval
+      `)
+      .limit(limit);
+    const staleBefore = new Date(now.getTime() - STALE_SANDBOX_CLEANUP_GRACE_MS);
+    const staleCandidates = await db
+      .select({ spaceId: spaceSandboxes.spaceId, status: spaceSandboxes.status, podName: spaceSandboxes.podName })
+      .from(spaceSandboxes)
+      .where(sql`
+        ${spaceSandboxes.status} in ('stopping', 'error')
+        and ${spaceSandboxes.podName} is not null
+        and coalesce(${spaceSandboxes.updatedAt}, ${spaceSandboxes.createdAt}) <= ${staleBefore.toISOString()}::timestamptz
+      `)
+      .orderBy(asc(spaceSandboxes.updatedAt), asc(spaceSandboxes.createdAt))
+      .limit(limit);
     const stopped: Array<{ spaceId: string; status: string }> = [];
     const skipped: Array<{ spaceId: string; status: string; reason: string }> = [];
+    const cleaned: Array<{ spaceId: string; status: string }> = [];
     const failed: Array<{ spaceId: string; error: string }> = [];
 
     for (const candidate of candidates) {
@@ -386,7 +451,23 @@ export function createSandboxLifecycleController(input: {
       }
     }
 
-    return { scanned: candidates.length, stopped, skipped, failed };
+    for (const candidate of staleCandidates) {
+      try {
+        const result = await cleanupStaleSandbox({ spaceId: candidate.spaceId, podName: candidate.podName, status: candidate.status });
+        if (result.ok && !("skipped" in result)) {
+          cleaned.push({ spaceId: candidate.spaceId, status: result.status ?? "unknown" });
+        } else {
+          const reason = "locked" in result ? "locked" : "unknown";
+          skipped.push({ spaceId: candidate.spaceId, status: candidate.status, reason });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failed.push({ spaceId: candidate.spaceId, error: message });
+        logger.error(`[SandboxReaper] failed to clean stale sandbox spaceId=${candidate.spaceId}: ${message}`);
+      }
+    }
+
+    return { scanned: candidates.length, staleScanned: staleCandidates.length, stopped, cleaned, skipped, failed };
   }
 
   return { getSandbox, recordActivity, recordHeartbeat, ensureRunning, stopSandbox, checkIdleSandbox, reapIdleSandboxes };

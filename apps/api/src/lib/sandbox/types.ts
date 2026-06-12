@@ -15,4 +15,4 @@ export type SpaceSandboxRuntimeStatus =
   | "degraded"
   | "unhealthy";
 
-export type SpaceSandboxStopReason = "idle" | "manual" | "replaced";
+export type SpaceSandboxStopReason = "idle" | "manual" | "replaced" | "cleanup";
