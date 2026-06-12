@@ -827,6 +827,7 @@ let cronjobRunsNextCursor = $state<string | null>(null);
 let cronjobRunsError = $state("");
 let cronjobRunsSectionEl = $state<HTMLElement | null>(null);
 let cronjobActionInProgress = $state(false);
+let cronjobDeleteInProgress = $state(false);
 let cronjobToggleError = $state("");
 let cronjobEditMode = $state(false);
 let cronjobFormTitle = $state("");
@@ -1267,12 +1268,19 @@ async function loadCronjobRuns(options: { reset?: boolean } = {}) {
 		cronjobRunsLoadingMore = false;
 	}
 }
+function notifyCronjobsUpdated() {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(
+		new CustomEvent("cohub:cronjobs-updated", { detail: { spaceId } }),
+	);
+}
 async function handleToggleCronjob(enabled: boolean) {
 	if (!cronjobDetail || cronjobActionInProgress) return;
 	cronjobActionInProgress = true;
 	try {
 		const { job } = await sdk.cronJobs.toggle(cronjobDetail.id, enabled);
 		cronjobDetail = job;
+		notifyCronjobsUpdated();
 		syncCronjobFormFromDetail();
 	} catch (error) {
 		cronjobToggleError =
@@ -1285,17 +1293,27 @@ async function handleToggleCronjob(enabled: boolean) {
 async function handleDeleteCronjob() {
 	if (
 		!cronjobDetail ||
+		cronjobActionInProgress ||
+		cronjobDeleteInProgress ||
 		!confirm("Are you sure you want to delete this scheduled prompt?")
 	)
 		return;
+	const deletedCronjobId = cronjobDetail.id;
 	cronjobActionInProgress = true;
+	cronjobDeleteInProgress = true;
+	cronjobDetailError = "";
+	cronjobToggleError = "";
 	try {
-		await sdk.cronJobs.delete(cronjobDetail.id);
-		await goto(buildSpaceDetailRoute(spaceId));
+		await sdk.cronJobs.delete(deletedCronjobId);
+		cronjobDetail = null;
+		cronjobRuns = [];
+		notifyCronjobsUpdated();
+		await goto(buildSpaceDetailRoute(spaceId), { replaceState: true });
 	} catch (error) {
 		cronjobDetailError =
 			error instanceof Error ? error.message : "Failed to delete";
 		cronjobActionInProgress = false;
+		cronjobDeleteInProgress = false;
 	}
 }
 async function handleUpdateCronjobSubmit(event: SubmitEvent) {
@@ -1326,6 +1344,7 @@ async function handleUpdateCronjobSubmit(event: SubmitEvent) {
 		});
 		cronjobDetail = job;
 		cronjobEditMode = false;
+		notifyCronjobsUpdated();
 		syncCronjobFormFromDetail();
 	} catch (error) {
 		cronjobFormError =
@@ -1365,6 +1384,7 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 			},
 		});
 		if (response.mode === "repeat") {
+			notifyCronjobsUpdated();
 			await goto(buildSpaceCronjobRoute(spaceId, response.cronJobId));
 		} else {
 			await goto(buildSpaceDetailRoute(spaceId));
@@ -7863,6 +7883,8 @@ $effect(() => {
 	}
 	cronjobDetail = null;
 	cronjobDetailError = "";
+	cronjobActionInProgress = false;
+	cronjobDeleteInProgress = false;
 	cronjobRuns = [];
 	cronjobRunsLoaded = false;
 	cronjobRunsHasMore = false;
@@ -8556,9 +8578,9 @@ $effect(() => {
                   {#if cronjobActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if cronjobDetail.enabled}<Power class="h-3.5 w-3.5" />{:else}<PowerOff class="h-3.5 w-3.5" />{/if}
                   <span>{cronjobDetail.enabled ? 'Pause' : 'Resume'}</span>
                 </button>
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={handleDeleteCronjob} disabled={cronjobActionInProgress}>
-                  <Trash2 class="h-3.5 w-3.5" />
-                  <span>Delete</span>
+                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={handleDeleteCronjob} disabled={cronjobActionInProgress || cronjobDeleteInProgress}>
+                  {#if cronjobDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+                  <span>{cronjobDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
                 </button>
               </div>
             </header>

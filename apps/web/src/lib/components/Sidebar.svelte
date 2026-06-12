@@ -2122,6 +2122,10 @@ onMount(() => {
 				handleCheckpointsUpdated as EventListener,
 			);
 			window.addEventListener(
+				"cohub:cronjobs-updated",
+				handleCronjobsUpdated as EventListener,
+			);
+			window.addEventListener(
 				"cohub:label-assignments-updated",
 				handleLabelAssignmentsUpdated as EventListener,
 			);
@@ -2136,6 +2140,13 @@ onMount(() => {
 		const custom = e as CustomEvent;
 		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
 			void loadCheckpointsForSpace(currentSpaceId, true);
+		}
+	}
+
+	function handleCronjobsUpdated(e: Event) {
+		const custom = e as CustomEvent;
+		if (custom.detail?.spaceId === currentSpaceId && currentSpaceId) {
+			void loadCronjobsForSpace(currentSpaceId, true);
 		}
 	}
 
@@ -2181,6 +2192,10 @@ onMount(() => {
 			window.removeEventListener(
 				"cohub:checkpoints-updated",
 				handleCheckpointsUpdated as EventListener,
+			);
+			window.removeEventListener(
+				"cohub:cronjobs-updated",
+				handleCronjobsUpdated as EventListener,
 			);
 			window.removeEventListener(
 				"cohub:label-assignments-updated",
