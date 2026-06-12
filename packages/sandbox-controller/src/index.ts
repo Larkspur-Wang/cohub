@@ -44,6 +44,7 @@ type ControllerDb = PostgresJsDatabase<Record<string, unknown>>;
 export type SandboxInfraAdapter = {
   deletePod(input: { podName: string }): Promise<void>;
   waitForPodDeleted(input: { podName: string; timeoutMs?: number }): Promise<boolean>;
+  deletePublicNetwork?(input: { spaceId: string }): Promise<void>;
   resumeSandbox(input: { spaceId: string; reason: SandboxResumeReason }): Promise<unknown>;
 };
 
@@ -64,6 +65,18 @@ export const MAX_SPACE_SANDBOX_IDLE_TTL_SECONDS = 30 * 24 * 60 * 60;
 export type SpaceSandboxAutoDestroyPolicy =
   | { mode: "idle"; ttlSeconds: number }
   | { mode: "never" };
+
+export const SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP = "gateway.networking.k8s.io";
+export const SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION = "v1";
+export const SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_PLURAL = "httproutes";
+
+export function getSandboxPublicServiceName(spaceId: string) {
+  return `sandbox-${spaceId}`;
+}
+
+export function getSandboxPublicRouteName(spaceId: string, port: number) {
+  return `sandbox-${spaceId}-p${port}-route`;
+}
 
 export const SANDBOX_IDLE_CHECK_JOB = "sandbox.idle_check";
 export type SandboxIdleCheckJobData = { spaceId: string };
@@ -289,6 +302,28 @@ export function createSandboxLifecycleController(input: {
       const deleted = await infra.waitForPodDeleted({ podName, timeoutMs: 120_000 });
       if (!deleted) throw new Error(`timed out waiting for sandbox pod deletion: ${podName}`);
 
+      let publicNetworkMeta: Record<string, unknown> = {};
+      try {
+        await infra.deletePublicNetwork?.({ spaceId: input.spaceId });
+        if (infra.deletePublicNetwork) {
+          publicNetworkMeta = {
+            publicNetworkStatus: "stopped",
+            publicNetworkDeletedAt: nowDate().toISOString(),
+            publicNetworkCleanupLastError: null,
+            publicNetworkCleanupFailedAt: null,
+            publicNetworkLastError: null,
+          };
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn(`[SandboxLifecycle] failed to delete sandbox public network spaceId=${input.spaceId}: ${message}`);
+        publicNetworkMeta = {
+          publicNetworkStatus: "cleanup_error",
+          publicNetworkCleanupLastError: "public network cleanup failed; see system logs",
+          publicNetworkCleanupFailedAt: nowDate().toISOString(),
+        };
+      }
+
       const stoppedAt = nowDate();
       const [updated] = await db.update(spaceSandboxes).set({
         status: "stopped",
@@ -296,7 +331,7 @@ export function createSandboxLifecycleController(input: {
         podName: null,
         stoppedAt,
         stopReason: input.reason,
-        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ stoppedAt: stoppedAt.toISOString(), stopReason: input.reason })}::jsonb`,
+        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ stoppedAt: stoppedAt.toISOString(), stopReason: input.reason, ...publicNetworkMeta })}::jsonb`,
         updatedAt: stoppedAt,
       }).where(eq(spaceSandboxes.spaceId, input.spaceId)).returning();
       return { ok: true as const, status: updated?.status ?? "stopped", stoppedAt };

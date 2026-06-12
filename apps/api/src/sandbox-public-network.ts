@@ -1,18 +1,24 @@
 import type { V1Service } from "@kubernetes/client-node";
 import { SANDBOX_PUBLIC_PORTS, type SpacePublicEndpoints } from "@cohub/protocol/ports";
+import {
+  getSandboxPublicRouteName,
+  getSandboxPublicServiceName,
+  SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP,
+  SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_PLURAL,
+  SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION,
+} from "@cohub/sandbox-controller";
 import { config, sessionsNamespace } from "./config.js";
 import { k8sCoreApi, k8sCustomObjectsApi } from "./k8s.js";
 
+export { getSandboxPublicRouteName, getSandboxPublicServiceName } from "@cohub/sandbox-controller";
+
 type SandboxPublicPort = (typeof SANDBOX_PUBLIC_PORTS)[number];
-const HTTP_ROUTE_GROUP = "gateway.networking.k8s.io";
-const HTTP_ROUTE_VERSION = "v1";
-const HTTP_ROUTE_PLURAL = "httproutes";
 const GATEWAY_NAMESPACE = "kube-system";
 const GATEWAY_NAME = "traefik-gateway";
 const SANDBOX_PUBLIC_DOMAIN = "cohub.run";
 
 type HttpRouteObject = {
-  apiVersion: `${typeof HTTP_ROUTE_GROUP}/${typeof HTTP_ROUTE_VERSION}`;
+  apiVersion: `${typeof SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP}/${typeof SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION}`;
   kind: "HTTPRoute";
   metadata: {
     name: string;
@@ -37,10 +43,6 @@ const getK8sStatusCode = (error: unknown) => {
     ?? (error as { statusCode?: number; code?: number }).code
     ?? null;
 };
-
-export const getSandboxPublicServiceName = (spaceId: string) => `sandbox-${spaceId}`;
-
-export const getSandboxPublicRouteName = (spaceId: string, port: SandboxPublicPort) => `sandbox-${spaceId}-p${port}-route`;
 
 export const getSandboxPublicHostname = (spaceId: string, port: SandboxPublicPort) => {
   const prefix = config.env === "prod" ? "s" : "d";
@@ -120,7 +122,7 @@ const buildSandboxPublicService = (spaceId: string): V1Service => ({
 });
 
 const buildSandboxPublicRoute = (spaceId: string, port: SandboxPublicPort): HttpRouteObject => ({
-  apiVersion: `${HTTP_ROUTE_GROUP}/${HTTP_ROUTE_VERSION}`,
+  apiVersion: `${SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP}/${SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION}`,
   kind: "HTTPRoute",
   metadata: {
     name: getSandboxPublicRouteName(spaceId, port),
@@ -194,28 +196,28 @@ const reconcileSandboxPublicRoute = async (spaceId: string, port: SandboxPublicP
 
   try {
     const existing = await k8sCustomObjectsApi.getNamespacedCustomObject({
-      group: HTTP_ROUTE_GROUP,
-      version: HTTP_ROUTE_VERSION,
+      group: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP,
+      version: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION,
       namespace: sessionsNamespace,
-      plural: HTTP_ROUTE_PLURAL,
+      plural: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_PLURAL,
       name,
     }) as { metadata?: { resourceVersion?: string } };
     desired.metadata.resourceVersion = existing.metadata?.resourceVersion;
     await k8sCustomObjectsApi.replaceNamespacedCustomObject({
-      group: HTTP_ROUTE_GROUP,
-      version: HTTP_ROUTE_VERSION,
+      group: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP,
+      version: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION,
       namespace: sessionsNamespace,
-      plural: HTTP_ROUTE_PLURAL,
+      plural: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_PLURAL,
       name,
       body: desired,
     });
   } catch (error: unknown) {
     if (getK8sStatusCode(error) !== 404) throw error;
     await k8sCustomObjectsApi.createNamespacedCustomObject({
-      group: HTTP_ROUTE_GROUP,
-      version: HTTP_ROUTE_VERSION,
+      group: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP,
+      version: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION,
       namespace: sessionsNamespace,
-      plural: HTTP_ROUTE_PLURAL,
+      plural: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_PLURAL,
       body: desired,
     });
   }
@@ -231,10 +233,10 @@ export const deleteSandboxPublicNetwork = async (spaceId: string) => {
     ...SANDBOX_PUBLIC_PORTS.map(async (port) => {
       try {
         await k8sCustomObjectsApi.deleteNamespacedCustomObject({
-          group: HTTP_ROUTE_GROUP,
-          version: HTTP_ROUTE_VERSION,
+          group: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_GROUP,
+          version: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_VERSION,
           namespace: sessionsNamespace,
-          plural: HTTP_ROUTE_PLURAL,
+          plural: SANDBOX_PUBLIC_NETWORK_HTTP_ROUTE_PLURAL,
           name: getSandboxPublicRouteName(spaceId, port),
         });
       } catch (error: unknown) {
