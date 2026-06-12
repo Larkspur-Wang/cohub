@@ -9739,6 +9739,7 @@ $effect(() => {
             attachments={attachments}
             currentModel={activeSessionModel}
             currentSpaceId={spaceId}
+            mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
             promptTemplates={promptTemplates}
             promptTemplatesLoaded={promptTemplatesLoaded}
             onpickattachment={handlePickAttachments}

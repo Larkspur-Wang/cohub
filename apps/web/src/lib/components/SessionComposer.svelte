@@ -65,6 +65,7 @@ type Props = {
 	promptTemplates?: PromptTemplateCatalogEntry[];
 	promptTemplatesLoaded?: boolean;
 	currentSpaceId?: string | null;
+	mobileAutoFocusOnMount?: boolean;
 	onsubmit: () => void;
 	onabort?: () => void;
 	onpickattachment?: (
@@ -87,6 +88,7 @@ let {
 	promptTemplates = [],
 	promptTemplatesLoaded = true,
 	currentSpaceId = null,
+	mobileAutoFocusOnMount = false,
 	onsubmit,
 	onabort,
 	onpickattachment,
@@ -312,6 +314,7 @@ function collapseComposer() {
 function submitDraft() {
 	if (submitDisabled || !hasDraft) return;
 	onsubmit();
+	textareaEl?.blur();
 	collapseComposer();
 }
 
@@ -660,7 +663,7 @@ function handlePaste(event: ClipboardEvent) {
 }
 
 onMount(() => {
-	focusComposer();
+	if (mobileAutoFocusOnMount || !isMobile()) focusComposer();
 	const handleComposerInsert = (event: Event) => {
 		const custom = event as CustomEvent<{ snippet?: string }>;
 		const snippet = custom.detail?.snippet;
