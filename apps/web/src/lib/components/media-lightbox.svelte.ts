@@ -5,6 +5,7 @@ export interface MediaItem {
 	type: MediaType;
 	alt?: string;
 	poster?: string;
+	deferred?: boolean;
 }
 
 const state = $state({

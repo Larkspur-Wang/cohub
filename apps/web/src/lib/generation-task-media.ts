@@ -2,11 +2,17 @@ import type { MediaItem } from "$lib/components/media-lightbox";
 
 type RecordValue = Record<string, unknown>;
 
+type ExtractGenerationMediaOptions = {
+	deferBase64?: boolean;
+};
+
+const BASE64_KEYS = ["data", "base64", "contentBase64"] as const;
+
 function isRecord(value: unknown): value is RecordValue {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function readString(record: RecordValue | undefined, keys: string[]) {
+function readString(record: RecordValue | undefined, keys: readonly string[]) {
 	if (!record) return null;
 	for (const key of keys) {
 		const value = record[key];
@@ -15,20 +21,49 @@ function readString(record: RecordValue | undefined, keys: string[]) {
 	return null;
 }
 
-function mediaSourceUrl(block: RecordValue) {
+function hasBase64Payload(record: RecordValue | undefined) {
+	return BASE64_KEYS.some(
+		(key) => typeof record?.[key] === "string" && record[key].trim(),
+	);
+}
+
+function hasDeferredBase64(
+	block: RecordValue,
+	source: RecordValue | undefined,
+) {
+	return block.deferredBase64 === true || source?.deferredBase64 === true;
+}
+
+function mediaTypeForBlock(
+	block: RecordValue,
+	source: RecordValue | undefined,
+) {
+	return (
+		readString(source, ["mediaType", "media_type", "mimeType"]) ??
+		readString(block, ["mediaType", "media_type", "mimeType"]) ??
+		(block.type === "video" ? "video/mp4" : "image/png")
+	);
+}
+
+function mediaSourceUrl(
+	block: RecordValue,
+	options: ExtractGenerationMediaOptions,
+) {
 	const source = isRecord(block.source) ? block.source : undefined;
 	const url =
 		readString(source, ["url", "src"]) ?? readString(block, ["url", "src"]);
-	if (url) return url;
+	if (url) return { src: url, deferred: false };
 	const data =
-		readString(source, ["data", "base64", "contentBase64"]) ??
-		readString(block, ["data", "base64", "contentBase64"]);
-	if (!data) return null;
-	const mediaType =
-		readString(source, ["mediaType", "media_type", "mimeType"]) ??
-		readString(block, ["mediaType", "media_type", "mimeType"]) ??
-		(block.type === "video" ? "video/mp4" : "image/png");
-	return `data:${mediaType};base64,${data}`;
+		readString(source, BASE64_KEYS) ?? readString(block, BASE64_KEYS);
+	if (data) {
+		if (options.deferBase64) return { src: "", deferred: true };
+		return {
+			src: `data:${mediaTypeForBlock(block, source)};base64,${data}`,
+			deferred: false,
+		};
+	}
+	if (hasDeferredBase64(block, source)) return { src: "", deferred: true };
+	return null;
 }
 
 function normalizeOutputBlocks(result: unknown): RecordValue[] {
@@ -38,12 +73,15 @@ function normalizeOutputBlocks(result: unknown): RecordValue[] {
 	return [];
 }
 
-export function extractGenerationMediaItems(result: unknown): MediaItem[] {
+export function extractGenerationMediaItems(
+	result: unknown,
+	options: ExtractGenerationMediaOptions = {},
+): MediaItem[] {
 	return normalizeOutputBlocks(result)
 		.map((block, index): MediaItem | null => {
 			if (block.type !== "image" && block.type !== "video") return null;
-			const src = mediaSourceUrl(block);
-			if (!src) return null;
+			const source = mediaSourceUrl(block, options);
+			if (!source) return null;
 			const alt =
 				readString(block, ["alt", "name", "filename"]) ??
 				`Generation ${index + 1}`;
@@ -51,7 +89,13 @@ export function extractGenerationMediaItems(result: unknown): MediaItem[] {
 				block.type === "video"
 					? (readString(block, ["poster", "thumbnail"]) ?? undefined)
 					: undefined;
-			return { src, type: block.type, alt, poster };
+			return {
+				src: source.src,
+				type: block.type,
+				alt,
+				poster,
+				deferred: source.deferred || undefined,
+			};
 		})
 		.filter((item): item is MediaItem => Boolean(item));
 }
@@ -76,4 +120,16 @@ export function extractGenerationPromptPreview(
 		.replace(/\s+/g, " ")
 		.trim();
 	return text || null;
+}
+
+export function hasGenerationBase64Media(result: unknown) {
+	return normalizeOutputBlocks(result).some((block) => {
+		if (block.type !== "image" && block.type !== "video") return false;
+		const source = isRecord(block.source) ? block.source : undefined;
+		return (
+			hasBase64Payload(block) ||
+			hasBase64Payload(source) ||
+			hasDeferredBase64(block, source)
+		);
+	});
 }

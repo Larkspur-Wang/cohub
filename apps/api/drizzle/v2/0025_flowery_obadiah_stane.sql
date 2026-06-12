@@ -1,0 +1,4 @@
+CREATE INDEX "v2_idx_task_runs_task_type" ON "v2"."task_runs" USING btree ("task_type");--> statement-breakpoint
+CREATE INDEX "v2_idx_task_runs_space_session_type_status_created" ON "v2"."task_runs" USING btree ("space_id","session_id","task_type","status","created_at","id");--> statement-breakpoint
+CREATE INDEX "v2_idx_task_runs_user_session_type_status_created" ON "v2"."task_runs" USING btree ("user_uuid","session_id","task_type","status","created_at","id");--> statement-breakpoint
+CREATE INDEX "v2_idx_task_runs_cron_job_status_created" ON "v2"."task_runs" USING btree ("cron_job_id","status","created_at","id");

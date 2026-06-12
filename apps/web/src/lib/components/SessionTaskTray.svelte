@@ -34,6 +34,11 @@ export type GenerationTaskNotice = SessionTaskNotice & { kind: "generation" };
 
 type Props = {
 	notices: SessionTaskNotice[];
+	hasMore?: boolean;
+	loadingMore?: boolean;
+	onExpand?: () => void;
+	onLoadMore?: () => void;
+	onOpenGenerationMedia?: (notice: GenerationTaskNotice) => void;
 };
 
 const props: Props = $props();
@@ -55,7 +60,10 @@ const counts = $derived.by(() => ({
 		.length,
 	total: sortedNotices.length,
 }));
-const summaryText = $derived.by(() => {
+const summaryText = $derived.by(() =>
+	counts.running ? `Running ${counts.running}` : `Tasks ${counts.total}`,
+);
+const expandedSummaryText = $derived.by(() => {
 	const parts = [
 		counts.running ? `Running ${counts.running}` : null,
 		counts.ready ? `Ready ${counts.ready}` : null,
@@ -117,6 +125,13 @@ function isActive(notice: SessionTaskNotice) {
 	return notice.status === "pending" || notice.status === "running";
 }
 
+function isDeferredGeneration(notice: SessionTaskNotice) {
+	return (
+		isCompletedGeneration(notice) &&
+		notice.mediaItems.some((item) => item.deferred)
+	);
+}
+
 function isInteractive(notice: SessionTaskNotice) {
 	return (
 		isCompletedGeneration(notice) ||
@@ -156,10 +171,20 @@ function handleNoticeDragStart(event: DragEvent, notice: SessionTaskNotice) {
 
 function handleCardClick(notice: SessionTaskNotice) {
 	if (isCompletedGeneration(notice)) {
+		if (isDeferredGeneration(notice)) {
+			props.onOpenGenerationMedia?.(notice as GenerationTaskNotice);
+			return;
+		}
 		mediaLightbox.show(notice.mediaItems);
 		return;
 	}
 	void goto(buildSpaceTaskRoute(notice.spaceId, notice.id));
+}
+
+function handleToggle() {
+	const nextCollapsed = !collapsed;
+	collapsed = nextCollapsed;
+	if (!nextCollapsed) props.onExpand?.();
 }
 
 onMount(() => {
@@ -182,11 +207,9 @@ $effect(() => {
 				type="button"
 				tabindex="-1"
 				class={`flex h-7 items-center gap-1.5 px-2 text-left text-[11px] leading-none transition duration-150 hover:bg-bg-hover/60 hover:text-text-primary ${collapsed ? "w-fit" : "w-full"}`}
-				onclick={() => {
-					collapsed = !collapsed;
-				}}
+				onclick={handleToggle}
 				aria-expanded={!collapsed}
-				aria-label={collapsed ? `Expand tasks: ${summaryText}` : `Collapse tasks: ${summaryText}`}
+				aria-label={collapsed ? `Expand tasks: ${summaryText}` : `Collapse tasks: ${expandedSummaryText}`}
 			>
 				{#if counts.commands > 0 && counts.generations === 0}
 					<Terminal class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
@@ -195,12 +218,12 @@ $effect(() => {
 				{/if}
 				<span class="sr-only">Tasks</span>
 				{#if collapsed}
-					{#each statusItems as item (item.key)}
-						<span class="inline-flex shrink-0 items-center gap-1" title={`${item.label} ${item.count}`}>
-							<span class={`h-1.5 w-1.5 rounded-full ${item.dotClass}`}></span>
-							<span class="text-text-tertiary tabular-nums">{item.count}</span>
+					{#if counts.running > 0}
+						<span class="inline-flex shrink-0 items-center gap-1" title={`Running ${counts.running}`}>
+							<span class="h-1.5 w-1.5 rounded-full bg-brand shadow-[0_0_0_3px_var(--brand-muted)]"></span>
+							<span class="text-text-tertiary tabular-nums">{counts.running}</span>
 						</span>
-					{/each}
+					{/if}
 				{:else}
 					<div class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
 						{#each statusItems as item (item.key)}
@@ -242,6 +265,23 @@ $effect(() => {
 							{/if}
 						{/each}
 					</div>
+					{#if props.hasMore}
+						<div class="border-t border-border-subtle/45 bg-bg-primary/70 p-1">
+							<button
+								type="button"
+								class="flex h-7 w-full items-center justify-center gap-1.5 rounded-[4px] text-[11px] text-text-tertiary transition hover:bg-bg-hover hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
+								disabled={props.loadingMore}
+								onclick={() => props.onLoadMore?.()}
+							>
+								{#if props.loadingMore}
+									<Loader2 class="h-3.5 w-3.5 animate-spin" />
+									Loading
+								{:else}
+									Load more
+								{/if}
+							</button>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</section>
@@ -251,8 +291,14 @@ $effect(() => {
 {#snippet CardInner(notice: SessionTaskNotice, elapsed: number)}
 	{#if isCompletedGeneration(notice)}
 		{@const first = notice.mediaItems[0]}
-		<div class="relative w-full bg-bg-surface">
-			{#if first.type === "image"}
+		<div class="relative flex aspect-[4/3] w-full items-center justify-center bg-bg-surface text-text-tertiary">
+			{#if first.deferred}
+				<div class="flex flex-col items-center gap-2 px-3 text-center">
+					<Video class="h-5 w-5" />
+					<div class="text-[11px] font-medium text-text-secondary">Media ready</div>
+					<div class="text-[10px] leading-snug text-text-placeholder">Open preview to load media</div>
+				</div>
+			{:else if first.type === "image"}
 				<img src={first.src} alt={first.alt ?? "Generation preview"} class="block h-auto w-full object-cover" />
 			{:else}
 				{#if first.poster}

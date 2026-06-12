@@ -176,6 +176,13 @@
       "when": 1781076065924,
       "tag": "0024_stiff_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1781246770932,
+      "tag": "0025_flowery_obadiah_stane",
+      "breakpoints": true
     }
   ]
 }

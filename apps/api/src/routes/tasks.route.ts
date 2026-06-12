@@ -44,13 +44,62 @@ function applyTaskFilters(input: {
   }
 }
 
-function hydrateTaskRunUserProfiles<T extends { userUuid: string | null }>(runs: T[]) {
+function sanitizeGenerationResultForList(result: unknown) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  const root = result as Record<string, unknown>;
+  const output = root.output;
+  if (!Array.isArray(output)) return result;
+  let changed = false;
+  const nextOutput = output.map((block) => {
+    if (!block || typeof block !== "object" || Array.isArray(block)) return block;
+    const current = block as Record<string, unknown>;
+    if (current.type !== "image" && current.type !== "video") return block;
+    const nextBlock = { ...current };
+    let blockChanged = false;
+    for (const key of ["data", "base64", "contentBase64"]) {
+      if (typeof nextBlock[key] === "string" && nextBlock[key]) {
+        delete nextBlock[key];
+        nextBlock.deferredBase64 = true;
+        blockChanged = true;
+      }
+    }
+    if (nextBlock.source && typeof nextBlock.source === "object" && !Array.isArray(nextBlock.source)) {
+      const nextSource = { ...(nextBlock.source as Record<string, unknown>) };
+      let sourceChanged = false;
+      for (const key of ["data", "base64", "contentBase64"]) {
+        if (typeof nextSource[key] === "string" && nextSource[key]) {
+          delete nextSource[key];
+          nextSource.deferredBase64 = true;
+          sourceChanged = true;
+        }
+      }
+      if (sourceChanged) {
+        nextBlock.source = nextSource;
+        blockChanged = true;
+      }
+    }
+    if (blockChanged) changed = true;
+    return blockChanged ? nextBlock : block;
+  });
+  return changed ? { ...root, output: nextOutput } : result;
+}
+
+function sanitizeTaskRunForList<T extends { taskType: string; result: unknown }>(run: T): T {
+  if (run.taskType !== "generation") return run;
+  const result = sanitizeGenerationResultForList(run.result);
+  return result === run.result ? run : { ...run, result };
+}
+
+function hydrateTaskRunUserProfiles<T extends { userUuid: string | null; taskType: string; result: unknown }>(runs: T[], options?: { sanitizeForList?: boolean }) {
   const userUuids = runs.map((run) => run.userUuid).filter((value): value is string => Boolean(value));
   return getProfilesByUuids(userUuids).then((profiles) =>
-    runs.map((run) => ({
-      ...run,
-      userProfile: run.userUuid ? profiles.get(run.userUuid) ?? fallbackPublicUserProfile(run.userUuid) : undefined,
-    })),
+    runs.map((run) => {
+      const sanitized = options?.sanitizeForList ? sanitizeTaskRunForList(run) : run;
+      return {
+        ...sanitized,
+        userProfile: sanitized.userUuid ? profiles.get(sanitized.userUuid) ?? fallbackPublicUserProfile(sanitized.userUuid) : undefined,
+      };
+    }),
   );
 }
 
@@ -85,7 +134,7 @@ router.get("/", async (c) => {
       .where(and(...conditions))
       .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
       .limit(limit + 1);
-    const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit));
+    const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit), { sanitizeForList: true });
     return c.json({ runs, pageInfo: { hasMore: rows.length > limit, nextCursor: rows.length > limit ? buildTaskCursor(runs.at(-1)) : null } });
   }
 
@@ -99,7 +148,7 @@ router.get("/", async (c) => {
     .where(and(...conditions))
     .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
     .limit(limit + 1);
-  const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit));
+  const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit), { sanitizeForList: true });
 
   return c.json({ runs, pageInfo: { hasMore: rows.length > limit, nextCursor: rows.length > limit ? buildTaskCursor(runs.at(-1)) : null } });
 });

@@ -101,6 +101,7 @@ import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
+import { mediaLightbox } from "$lib/components/media-lightbox";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
@@ -863,8 +864,19 @@ let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
 let backgroundBashTaskRunById = $state<Record<string, TaskRunRecord>>({});
 let backgroundBashHydrateKey = "";
+let sessionTaskRecentHydrateKey = "";
+const SESSION_TASK_TYPES = ["generation", "run_command"] as const;
+type SessionTaskType = (typeof SESSION_TASK_TYPES)[number];
+const SESSION_TASK_PAGE_LIMIT = 8;
 const taskHydrateRetryCounts = new Map<string, number>();
 const taskHydrateRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let sessionTaskRecentLoading = $state(false);
+let sessionTaskRecentCursors = $state<
+	Partial<Record<SessionTaskType, string | null>>
+>({});
+let sessionTaskRecentHasMoreByType = $state<
+	Partial<Record<SessionTaskType, boolean>>
+>({});
 let pendingFollowupActionIds = $state<Set<string>>(new Set());
 // ─── Token Usage ───
 type TokenUsageData = SpaceUsageResponse;
@@ -1422,18 +1434,10 @@ const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
 	return asRecord(asRecord(run.payload)?.data);
 }
-function getBackgroundBashOrigin(run: Pick<TaskRunRecord, "payload">) {
-	const origin = asRecord(getTaskPayloadData(run)?.origin);
-	return origin?.kind === "bash_tool_call" ? origin : null;
-}
 function isBackgroundBashTaskRun(
 	run: (Partial<TaskRunRecord> & { type?: string }) | null | undefined,
 ): run is TaskRunRecord {
-	return (
-		(run?.taskType ?? run?.type) === "run_command" &&
-		!!run?.sessionId &&
-		!!getBackgroundBashOrigin(run as Pick<TaskRunRecord, "payload">)
-	);
+	return (run?.taskType ?? run?.type) === "run_command" && !!run?.sessionId;
 }
 function tailText(value: unknown, limit = 420) {
 	if (typeof value !== "string") return null;
@@ -1547,7 +1551,7 @@ function toGenerationTaskNotice(
 					: "Generating",
 		subtitle: null,
 		preview: extractGenerationPromptPreview(run.payload),
-		mediaItems: extractGenerationMediaItems(run.result),
+		mediaItems: extractGenerationMediaItems(run.result, { deferBase64: true }),
 		createdAt: run.createdAt,
 		startedAt: run.startedAt,
 		updatedAt: run.updatedAt,
@@ -1669,21 +1673,132 @@ async function hydrateTaskRun(taskId: string) {
 		taskHydrateRetryTimers.set(taskId, timer);
 	}
 }
+function ingestSessionTaskRun(run: TaskRunRecord) {
+	mergeCachedTaskRun(spaceId, run);
+	if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
+	if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
+}
+async function fetchSessionTasksByType(
+	sessionId: string,
+	taskType: SessionTaskType,
+	options: {
+		status?: "active";
+		cursor?: string | null;
+	},
+) {
+	const { runs, pageInfo } = await sdk.tasks.list({
+		spaceId,
+		sessionId,
+		taskType,
+		status: options.status,
+		limit: SESSION_TASK_PAGE_LIMIT,
+		cursor: options.cursor ?? undefined,
+	});
+	return {
+		runs,
+		pageInfo: pageInfo ?? { hasMore: false, nextCursor: null },
+	};
+}
 async function hydrateActiveSessionTasks(sessionId: string) {
+	const requestSpaceId = spaceId;
 	try {
-		const { runs } = await sdk.tasks.list({
-			spaceId,
-			sessionId,
-			status: "active",
-			limit: 50,
-		});
-		for (const run of runs) {
-			mergeCachedTaskRun(spaceId, run);
-			if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
-			if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
+		const results = await Promise.all(
+			SESSION_TASK_TYPES.map((taskType) =>
+				fetchSessionTasksByType(sessionId, taskType, { status: "active" }),
+			),
+		);
+		if (spaceId !== requestSpaceId || activeSessionId !== sessionId) return;
+		for (const result of results) {
+			for (const run of result.runs) ingestSessionTaskRun(run);
 		}
 	} catch (error) {
-		console.warn("Failed to load session tasks:", error);
+		console.warn("Failed to load active session tasks:", error);
+	}
+}
+function resetRecentSessionTaskPagination() {
+	sessionTaskRecentHydrateKey = "";
+	sessionTaskRecentCursors = {};
+	sessionTaskRecentHasMoreByType = {};
+	sessionTaskRecentLoading = false;
+}
+async function loadRecentSessionTaskPage(sessionId: string) {
+	if (sessionTaskRecentLoading) return;
+	const requestSpaceId = spaceId;
+	const hydrateKey = `${requestSpaceId}:${sessionId}`;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId && activeSessionId === sessionId;
+	sessionTaskRecentLoading = true;
+	try {
+		const results = await Promise.all(
+			SESSION_TASK_TYPES.map(async (taskType) => {
+				if (
+					sessionTaskRecentHydrateKey === hydrateKey &&
+					sessionTaskRecentHasMoreByType[taskType] === false
+				) {
+					return { taskType, runs: [], pageInfo: null };
+				}
+				const { runs, pageInfo } = await fetchSessionTasksByType(
+					sessionId,
+					taskType,
+					{
+						cursor:
+							sessionTaskRecentHydrateKey === hydrateKey
+								? sessionTaskRecentCursors[taskType]
+								: undefined,
+					},
+				);
+				return { taskType, runs, pageInfo };
+			}),
+		);
+		if (!isCurrentRequest()) return;
+		for (const result of results) {
+			for (const run of result.runs) ingestSessionTaskRun(run);
+		}
+		const nextCursors: Partial<Record<SessionTaskType, string | null>> = {
+			...(sessionTaskRecentHydrateKey === hydrateKey
+				? sessionTaskRecentCursors
+				: {}),
+		};
+		const nextHasMore: Partial<Record<SessionTaskType, boolean>> = {
+			...(sessionTaskRecentHydrateKey === hydrateKey
+				? sessionTaskRecentHasMoreByType
+				: {}),
+		};
+		for (const result of results) {
+			if (!result.pageInfo) continue;
+			nextCursors[result.taskType] = result.pageInfo.nextCursor;
+			nextHasMore[result.taskType] = result.pageInfo.hasMore;
+		}
+		sessionTaskRecentHydrateKey = hydrateKey;
+		sessionTaskRecentCursors = nextCursors;
+		sessionTaskRecentHasMoreByType = nextHasMore;
+	} catch (error) {
+		if (isCurrentRequest())
+			console.warn("Failed to load recent session tasks:", error);
+	} finally {
+		if (isCurrentRequest()) sessionTaskRecentLoading = false;
+	}
+}
+function handleSessionTaskTrayExpand() {
+	if (!activeSessionId) return;
+	void loadRecentSessionTaskPage(activeSessionId);
+}
+function handleSessionTaskTrayLoadMore() {
+	if (!activeSessionId) return;
+	void loadRecentSessionTaskPage(activeSessionId);
+}
+async function handleOpenGenerationTaskMedia(notice: GenerationTaskNotice) {
+	const hasDeferredMedia = notice.mediaItems.some((item) => item.deferred);
+	if (!hasDeferredMedia) {
+		mediaLightbox.show(notice.mediaItems);
+		return;
+	}
+	try {
+		const detail = await sdk.tasks.get(notice.id);
+		const mediaItems = extractGenerationMediaItems(detail.run.result);
+		if (mediaItems.length > 0) mediaLightbox.show(mediaItems);
+	} catch (error) {
+		console.warn("Failed to load generation media:", error);
 	}
 }
 function openShareModal(sessionId: string) {
@@ -1773,15 +1888,22 @@ const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 		.filter((notice): notice is SessionTaskNotice => notice !== null)
 		.sort((a, b) => taskRunSortTime(a) - taskRunSortTime(b));
 });
+const sessionTaskHasMore = $derived.by(() =>
+	SESSION_TASK_TYPES.some(
+		(taskType) => sessionTaskRecentHasMoreByType[taskType],
+	),
+);
 $effect(() => {
 	const sessionId = activeSessionId;
 	if (!sessionId) {
 		backgroundBashHydrateKey = "";
+		resetRecentSessionTaskPagination();
 		return;
 	}
 	const hydrateKey = `${spaceId}:${sessionId}`;
 	if (backgroundBashHydrateKey !== hydrateKey) {
 		backgroundBashHydrateKey = hydrateKey;
+		resetRecentSessionTaskPagination();
 		void restoreCachedTaskRuns(spaceId, sessionId)
 			.then((runs) => {
 				for (const run of runs) {
@@ -9652,7 +9774,14 @@ $effect(() => {
             onOpenFile={openInlineFile}
             modelsCatalog={modelsCatalog ?? undefined}
           />
-          <SessionTaskTray notices={sessionTaskNotices} />
+          <SessionTaskTray
+            notices={sessionTaskNotices}
+            hasMore={sessionTaskHasMore}
+            loadingMore={sessionTaskRecentLoading}
+            onExpand={handleSessionTaskTrayExpand}
+            onLoadMore={handleSessionTaskTrayLoadMore}
+            onOpenGenerationMedia={handleOpenGenerationTaskMedia}
+          />
           {#if followupQueue.length > 0}
             <div class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6">
               <div class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder">
