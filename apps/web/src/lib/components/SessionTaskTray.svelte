@@ -202,11 +202,11 @@ $effect(() => {
 
 {#if sortedNotices.length > 0}
 	<div class="pointer-events-none absolute right-3 top-3 z-30 flex w-[calc(100vw-1.5rem)] justify-end sm:right-10 sm:top-4 lg:right-12">
-		<section class={`pointer-events-auto overflow-hidden rounded-[9px] border border-border-subtle/50 bg-bg-primary/76 text-text-secondary opacity-90 shadow-[0_10px_26px_rgba(0,0,0,0.08)] backdrop-blur-md transition-opacity duration-150 hover:opacity-100 ${collapsed ? "w-fit" : "w-full max-w-[560px]"}`}>
+		<section class={`pointer-events-auto overflow-hidden rounded-[9px] border border-border-primary bg-bg-elevated text-text-secondary shadow-[0_16px_36px_rgba(0,0,0,0.14)] transition-shadow duration-150 ${collapsed ? "w-fit" : "w-full max-w-[560px]"}`}>
 			<button
 				type="button"
 				tabindex="-1"
-				class={`flex h-7 items-center gap-1.5 px-2 text-left text-[11px] leading-none transition duration-150 hover:bg-bg-hover/60 hover:text-text-primary ${collapsed ? "w-fit" : "w-full"}`}
+				class={`flex h-7 items-center gap-1.5 px-2 text-left text-[11px] leading-none transition duration-150 hover:bg-bg-hover hover:text-text-primary ${collapsed ? "w-fit" : "w-full"}`}
 				onclick={handleToggle}
 				aria-expanded={!collapsed}
 				aria-label={collapsed ? `Expand tasks: ${summaryText}` : `Collapse tasks: ${expandedSummaryText}`}
@@ -239,7 +239,7 @@ $effect(() => {
 			</button>
 
 			{#if !collapsed}
-				<div class="border-t border-border-subtle/45 bg-bg-surface/25 p-px">
+				<div class="border-t border-border-primary bg-bg-primary p-px">
 					<div class="max-h-[min(64vh,560px)] columns-1 gap-px overflow-y-auto overscroll-contain sm:max-w-[560px] sm:columns-2">
 						{#each sortedNotices as notice (notice.id)}
 							{#if isInteractive(notice)}
@@ -247,7 +247,7 @@ $effect(() => {
 									type="button"
 									tabindex="-1"
 									draggable={true}
-									class="group mb-px block w-full break-inside-avoid overflow-hidden rounded-[3px] border border-transparent bg-bg-primary/72 text-left transition duration-150 hover:border-border-strong/65 hover:bg-bg-primary/90"
+									class="group mb-px block w-full break-inside-avoid overflow-hidden rounded-[3px] border border-border-subtle bg-bg-surface text-left transition duration-150 hover:border-border-primary hover:bg-bg-surface-hover"
 									onclick={() => handleCardClick(notice)}
 									ondragstart={(e) => handleNoticeDragStart(e, notice)}
 								>
@@ -257,7 +257,7 @@ $effect(() => {
 								<div
 									role="status"
 									draggable={true}
-									class="group mb-px break-inside-avoid overflow-hidden rounded-[3px] border border-transparent bg-bg-primary/72 text-left transition duration-150"
+									class="group mb-px break-inside-avoid overflow-hidden rounded-[3px] border border-border-subtle bg-bg-surface text-left transition duration-150"
 									ondragstart={(e) => handleNoticeDragStart(e, notice)}
 								>
 									{@render CardInner(notice, elapsedSeconds(notice))}
@@ -266,7 +266,7 @@ $effect(() => {
 						{/each}
 					</div>
 					{#if props.hasMore}
-						<div class="border-t border-border-subtle/45 bg-bg-primary/70 p-1">
+						<div class="border-t border-border-primary bg-bg-elevated p-1">
 							<button
 								type="button"
 								class="flex h-7 w-full items-center justify-center gap-1.5 rounded-[4px] text-[11px] text-text-tertiary transition hover:bg-bg-hover hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
