@@ -5,12 +5,14 @@
 ```text
 deploy/agent/
 ├── manifests/
+│   ├── configmap.tmpl.yaml
 │   ├── deployment.tmpl.yaml
 │   └── service.tmpl.yaml
 ├── prod/
-│   ├── values.yaml
-│   └── secrets.template.yaml
+│   ├── secrets.template.yaml
+│   └── values.yaml
 └── dev/
+    ├── secrets.template.yaml
     └── values.yaml
 ```
 

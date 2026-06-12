@@ -16,6 +16,7 @@
     "smoke:runtime": "tsx scripts/smoke-runtime.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1056.0",
     "@cohub/core": "workspace:*",
     "@cohub/db": "workspace:*",
     "@cohub/infra": "workspace:*",

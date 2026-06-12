@@ -33,6 +33,12 @@ CONFIGS_SUBPATH=$(get_value "configsSubpath")
 SESSIONS_NAMESPACE=$(get_value "sessionsNamespace")
 AGENT_WORKER_CONCURRENCY=$(get_value "agentWorkerConcurrency")
 AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS=$(get_value "agentShutdownDrainTimeoutMs")
+TURN_OBJECT_S3_ENDPOINT=$(get_value "TURN_OBJECT_S3_ENDPOINT")
+TURN_OBJECT_S3_REGION=$(get_value "TURN_OBJECT_S3_REGION")
+TURN_OBJECT_S3_BUCKET=$(get_value "TURN_OBJECT_S3_BUCKET")
+TURN_OBJECT_S3_TIMEOUT_MS=$(get_value "TURN_OBJECT_S3_TIMEOUT_MS")
+TURN_OBJECT_S3_MAX_ATTEMPTS=$(get_value "TURN_OBJECT_S3_MAX_ATTEMPTS")
+TURN_OBJECT_CDN_BASE_URL=$(get_value "TURN_OBJECT_CDN_BASE_URL")
 REPLICAS=$(get_value "replicas")
 MAX_UNAVAILABLE=$(get_value "maxUnavailable")
 MAX_SURGE=$(get_value "maxSurge")
@@ -68,6 +74,12 @@ require_value "configsSubpath" "$CONFIGS_SUBPATH"
 require_value "sessionsNamespace" "$SESSIONS_NAMESPACE"
 require_value "agentWorkerConcurrency" "$AGENT_WORKER_CONCURRENCY"
 require_value "agentShutdownDrainTimeoutMs" "$AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS"
+require_value "TURN_OBJECT_S3_ENDPOINT" "$TURN_OBJECT_S3_ENDPOINT"
+require_value "TURN_OBJECT_S3_REGION" "$TURN_OBJECT_S3_REGION"
+require_value "TURN_OBJECT_S3_BUCKET" "$TURN_OBJECT_S3_BUCKET"
+require_value "TURN_OBJECT_S3_TIMEOUT_MS" "$TURN_OBJECT_S3_TIMEOUT_MS"
+require_value "TURN_OBJECT_S3_MAX_ATTEMPTS" "$TURN_OBJECT_S3_MAX_ATTEMPTS"
+require_value "TURN_OBJECT_CDN_BASE_URL" "$TURN_OBJECT_CDN_BASE_URL"
 require_value "replicas" "$REPLICAS"
 require_value "maxUnavailable" "$MAX_UNAVAILABLE"
 require_value "maxSurge" "$MAX_SURGE"
@@ -114,6 +126,12 @@ sed -i.bak \
   -e "s|{{AGENT_WORKER_CONCURRENCY}}|${AGENT_WORKER_CONCURRENCY}|g" \
   -e "s|{{AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS}}|${AGENT_SHUTDOWN_DRAIN_TIMEOUT_MS}|g" \
   -e "s|{{PLATFORM_CONFIG_ROOT}}|${PLATFORM_CONFIG_ROOT}|g" \
+  -e "s|{{TURN_OBJECT_S3_ENDPOINT}}|${TURN_OBJECT_S3_ENDPOINT}|g" \
+  -e "s|{{TURN_OBJECT_S3_REGION}}|${TURN_OBJECT_S3_REGION}|g" \
+  -e "s|{{TURN_OBJECT_S3_BUCKET}}|${TURN_OBJECT_S3_BUCKET}|g" \
+  -e "s|{{TURN_OBJECT_S3_TIMEOUT_MS}}|${TURN_OBJECT_S3_TIMEOUT_MS}|g" \
+  -e "s|{{TURN_OBJECT_S3_MAX_ATTEMPTS}}|${TURN_OBJECT_S3_MAX_ATTEMPTS}|g" \
+  -e "s|{{TURN_OBJECT_CDN_BASE_URL}}|${TURN_OBJECT_CDN_BASE_URL}|g" \
   -e "s|{{SPACE_STORAGE_PVC}}|${SPACE_STORAGE_PVC}|g" \
   -e "s|{{WORKSPACE_SUBPATH}}|${WORKSPACE_SUBPATH}|g" \
   -e "s|{{SESSIONS_SUBPATH}}|${SESSIONS_SUBPATH}|g" \

@@ -57,6 +57,14 @@ export const EnvSchema = z.object({
   WORKER_SECRET: z.string().optional(),
   APP_ENCRYPTION_KEY: z.string().min(1),
   SESSIONS_NAMESPACE: z.string().min(1),
+  TURN_OBJECT_S3_ENDPOINT: z.string().min(1).default("https://oss-us-west-1-internal.aliyuncs.com"),
+  TURN_OBJECT_S3_REGION: z.string().min(1).default("us-west-1"),
+  TURN_OBJECT_S3_BUCKET: z.string().min(1).default("cohub-sessions"),
+  TURN_OBJECT_S3_ACCESS_KEY_ID: z.string().optional(),
+  TURN_OBJECT_S3_SECRET_ACCESS_KEY: z.string().optional(),
+  TURN_OBJECT_S3_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+  TURN_OBJECT_S3_MAX_ATTEMPTS: z.coerce.number().int().positive().default(3),
+  TURN_OBJECT_CDN_BASE_URL: z.string().optional().transform((value) => value?.replace(/\/+$/, "")),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

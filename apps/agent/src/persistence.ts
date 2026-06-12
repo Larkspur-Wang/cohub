@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
-import type { MessageRecord, PersistMessageInput, SessionTurnRecord, SessionTurnStatus } from "@cohub/protocol/model";
+import type { MessageRecord, MessageToolCallsFile, PersistMessageInput, SessionTurnRecord, SessionTurnStatus, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile } from "@cohub/protocol/model";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, tokenUsageStatsHourly, userChannels } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
@@ -13,6 +13,7 @@ import { db } from "./db.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 import { redis, publishRealtimeEnvelope, clearPersistedSessionStreamSnapshot, xaddWithMaxlen } from "./redis.js";
+import { buildTurnObjectPrefix, writeTurnObjectJson } from "./turn-object-storage.js";
 
 const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 
@@ -317,34 +318,214 @@ const addUsage = (a: Usage | null | undefined, b: Usage | null | undefined): Usa
   };
 };
 
-const buildIntermediateSummary = async (input: { sessionId: string; turnId: string }) => {
-  const rows = await db.select({ content: sessionMessages.content, text: sessionMessages.text, usage: sessionMessages.usage, durationMs: sessionMessages.durationMs, errorMessage: sessionMessages.errorMessage, meta: sessionMessages.meta, role: sessionMessages.role }).from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`)).orderBy(asc(sessionMessages.sequence));
-  let usage: Usage | null = null;
-  let durationMs: number | null = null;
+const addDurationMs = (a: number | null, b: number | null | undefined) => {
+  if (typeof b !== "number" || !Number.isFinite(b)) return a;
+  return (a ?? 0) + Math.max(0, Math.floor(b));
+};
+
+const truncateText = (text: string, limit: number) => {
+  if (text.length <= limit) return { value: text, truncated: false, originalLength: text.length };
+  return { value: `${text.slice(0, Math.max(0, limit - 1))}…`, truncated: true, originalLength: text.length };
+};
+
+const summarizeValue = (value: unknown, limit = 240): unknown => {
+  if (typeof value === "string") {
+    const truncated = truncateText(value, limit);
+    return truncated.truncated ? { preview: truncated.value, _truncated: true, originalLength: truncated.originalLength } : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
+  try {
+    const text = JSON.stringify(value);
+    const truncated = truncateText(text, limit);
+    return { preview: truncated.value, ...(truncated.truncated ? { _truncated: true, originalLength: truncated.originalLength } : {}) };
+  } catch {
+    const text = String(value);
+    const truncated = truncateText(text, limit);
+    return { preview: truncated.value, ...(truncated.truncated ? { _truncated: true, originalLength: truncated.originalLength } : {}) };
+  }
+};
+
+const summarizeToolInput = (input: Record<string, unknown>) => Object.fromEntries(
+  Object.entries(input).map(([key, value]) => [key, summarizeValue(value)]),
+) as Record<string, unknown>;
+
+const getContentLengthMeta = (content: string | ContentBlock[]) => typeof content === "string"
+  ? { originalContentKind: "string", originalLength: content.length }
+  : { originalContentKind: "content_blocks", originalBlockCount: content.length };
+
+const extractToolCalls = (content: ContentBlock[]): StoredToolCall[] => {
+  const byId = new Map<string, StoredToolCall>();
+  for (const block of content) {
+    if (block.type === "tool_use") {
+      byId.set(block.id, {
+        id: block.id,
+        name: block.name,
+        input: block.input,
+        meta: normalizeRecord(block._meta),
+        result: null,
+      });
+    }
+  }
+  for (const block of content) {
+    if (block.type === "tool_result") {
+      const existing = byId.get(block.tool_use_id);
+      if (existing) {
+        byId.set(block.tool_use_id, {
+          ...existing,
+          result: {
+            content: block.content,
+            isError: Boolean(block.is_error),
+            meta: normalizeRecord(block._meta),
+          },
+        });
+      }
+    }
+  }
+  return [...byId.values()];
+};
+
+const summarizeIntermediateContent = (content: ContentBlock[], tools: StoredToolCall[]): ContentBlock[] => {
+  const byId = new Map(tools.map((tool) => [tool.id, tool]));
+  return content.map((block) => {
+    if (block.type === "tool_use") {
+      const tool = byId.get(block.id);
+      return {
+        ...block,
+        input: summarizeToolInput(tool?.input ?? block.input),
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+          inputDetail: "summary",
+          toolStatus: tool?.result ? (tool.result.isError ? "failed" : "done") : "running",
+        },
+      };
+    }
+    if (block.type === "tool_result") {
+      return {
+        ...block,
+        content: [],
+        _meta: {
+          ...(block._meta ?? {}),
+          contentDetail: "summary",
+          resultDetail: "omitted",
+          ...getContentLengthMeta(block.content),
+        },
+      };
+    }
+    return block;
+  });
+};
+
+const writeTurnObjects = async (files: Array<{ objectKey: string; value: unknown }>) => {
+  const concurrency = Math.min(4, files.length);
+  await Promise.all(Array.from({ length: concurrency }, async (_, workerIndex) => {
+    for (let index = workerIndex; index < files.length; index += concurrency) {
+      const file = files[index];
+      if (!file) continue;
+      await writeTurnObjectJson(file.objectKey, file.value);
+    }
+  }));
+};
+
+const buildIntermediateObjectsForTurn = async (input: { spaceId: string; sessionId: string; turnId: string }) => {
+  const rows = await db.select().from(sessionMessages).where(and(
+    eq(sessionMessages.sessionId, input.sessionId),
+    sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`,
+  )).orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
+
+  const intermediateRows = rows.filter((row) => {
+    if (row.role === "user") return false;
+    const meta = normalizeRecord(row.meta);
+    return meta?.messageKind !== "assistant_final" && meta?.messageKind !== "assistant_error";
+  });
+
+  const prefix = buildTurnObjectPrefix(input);
+  const toolCallsBaseObjectKey = `${prefix}intermediate/messages/`;
+  let totalUsage: Usage | null = null;
+  let totalDurationMs: number | null = null;
   let toolCallCount = 0;
   let hasError = false;
-  let count = 0;
-  let lastMessageText: string | null = null;
-  for (const row of rows) {
-    if (row.role === "user") continue;
-    const meta = normalizeRecord(row.meta);
-    if (meta?.messageKind === "assistant_final" || meta?.messageKind === "assistant_error") continue;
-    count += 1;
+
+  const messages: StoredIntermediateMessage[] = [];
+  const toolFiles: Array<{ objectKey: string; value: MessageToolCallsFile }> = [];
+  for (const row of intermediateRows) {
     const content = row.content as ContentBlock[];
-    toolCallCount += countToolCallsInContent(content);
-    usage = addUsage(usage, row.usage as Usage | null);
-    durationMs = durationMs == null ? row.durationMs ?? null : durationMs + (row.durationMs ?? 0);
-    hasError ||= Boolean(row.errorMessage);
-    lastMessageText = row.text ?? lastMessageText;
+    const details = extractToolCalls(content);
+    toolCallCount += details.length;
+    totalUsage = addUsage(totalUsage, row.usage as Usage | null | undefined);
+    totalDurationMs = addDurationMs(totalDurationMs, row.durationMs ?? null);
+    hasError = hasError || Boolean(row.errorMessage) || details.some((tool) => tool.result?.isError);
+    const toolCallsObjectKey = details.length > 0 ? `${toolCallsBaseObjectKey}${row.id}/tool-calls.json` : null;
+    if (toolCallsObjectKey) {
+      toolFiles.push({
+        objectKey: toolCallsObjectKey,
+        value: {
+          version: 1,
+          spaceId: input.spaceId,
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          messageId: row.id,
+          toolCalls: details,
+        },
+      });
+    }
+    messages.push({
+      id: row.id,
+      sessionId: row.sessionId,
+      role: row.role as "user" | "assistant" | "system",
+      content: summarizeIntermediateContent(content, details),
+      text: row.text ?? null,
+      provider: row.provider ?? null,
+      model: row.model ?? null,
+      stopReason: row.stopReason ?? null,
+      errorMessage: row.errorMessage ?? null,
+      usage: row.usage as Usage | null,
+      durationMs: row.durationMs ?? null,
+      toolCallsObjectKey,
+      meta: normalizeRecord(row.meta),
+      createdAt: toIso(row.createdAt),
+    });
   }
-  return { messageCount: count, toolCallCount, usage, durationMs, lastMessageText, hasError };
+
+  const summary = {
+    messageCount: messages.length,
+    toolCallCount,
+    usage: totalUsage,
+    durationMs: totalDurationMs,
+    lastMessageText: messages.at(-1)?.text ?? null,
+    hasError,
+  };
+  if (messages.length === 0) return { index: null, summary };
+
+  try {
+    await writeTurnObjects(toolFiles);
+    const messagesObjectKey = `${prefix}intermediate/messages.json`;
+    const file: TurnIntermediateMessagesFile = {
+      version: 1,
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      summary,
+      messages,
+    };
+    const written = await writeTurnObjectJson(messagesObjectKey, file);
+    return {
+      index: {
+        version: 1 as const,
+        messagesObjectKey,
+        messagesSizeBytes: written.sizeBytes,
+        toolCallsBaseObjectKey,
+      },
+      summary,
+    };
+  } catch (error) {
+    logger.warn("[SessionTurn] failed to write intermediate objects", error);
+    return { index: null, summary };
+  }
 };
 
 async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionId: string; turnId: string; status: Exclude<SessionTurnStatus, "running">; assistantContent: ContentBlock[]; assistantText: string | null; provider: string | null; model: string | null; stopReason: string | null; errorMessage: string | null; usage: Usage | null; metaPatch?: Record<string, unknown> | null }) {
-  const intermediateSummary = await buildIntermediateSummary(input).catch((error) => {
-    logger.warn("[SessionTurn] failed to build intermediate summary", error);
-    return null;
-  });
+  const intermediate = await buildIntermediateObjectsForTurn(input);
   const completedAt = new Date();
   const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({
@@ -356,10 +537,11 @@ async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionI
     stopReason: input.stopReason,
     errorMessage: input.errorMessage,
     finalUsage: input.usage,
-    totalUsage: addUsage(intermediateSummary?.usage, input.usage),
+    totalUsage: addUsage(intermediate?.summary.usage, input.usage),
     ...(input.metaPatch && Object.keys(input.metaPatch).length > 0 ? { meta: sql`coalesce(${sessionTurns.meta}, '{}'::jsonb) || ${JSON.stringify(input.metaPatch)}::jsonb` } : {}),
     summary: { text: input.assistantText, finishReason: input.status === "interrupted" ? "interrupted" : input.status === "failed" ? "failed" : "completed" },
-    intermediateSummary,
+    intermediateIndex: intermediate?.index ?? null,
+    intermediateSummary: intermediate?.summary ?? null,
     completedAt,
     durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
@@ -497,9 +679,10 @@ async function finalizeInterruptedTurn(input: { spaceId: string; sessionId: stri
   if (!existing) return null;
   if (!["running", "abort_requested", "interrupted"].includes(existing.status)) return toTurnRecord(existing);
   const [last] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.role, "assistant"), sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`)).orderBy(desc(sessionMessages.sequence)).limit(1);
+  const intermediate = await buildIntermediateObjectsForTurn(input);
   const completedAt = new Date();
   const completedAtIso = completedAt.toISOString();
-  const [row] = await db.update(sessionTurns).set({ status: "interrupted", assistantContent: last?.content ?? null, assistantText: last?.text ?? null, provider: last?.provider ?? null, model: last?.model ?? null, stopReason: input.stopReason, errorMessage: null, finalUsage: last?.usage as Usage | null ?? null, summary: input.summary, intermediateSummary: await buildIntermediateSummary(input).catch(() => null), completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
+  const [row] = await db.update(sessionTurns).set({ status: "interrupted", assistantContent: last?.content ?? null, assistantText: last?.text ?? null, provider: last?.provider ?? null, model: last?.model ?? null, stopReason: input.stopReason, errorMessage: null, finalUsage: last?.usage as Usage | null ?? null, totalUsage: intermediate?.summary.usage ?? null, summary: input.summary, intermediateIndex: intermediate?.index ?? null, intermediateSummary: intermediate?.summary ?? null, completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
   return row ? toTurnRecord(row) : null;
 }
 

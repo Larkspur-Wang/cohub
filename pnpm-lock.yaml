@@ -36,6 +36,9 @@ importers:
 
   apps/agent:
     dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1056.0
+        version: 3.1056.0
       '@cohub/core':
         specifier: workspace:*
         version: link:../../packages/core
