@@ -228,12 +228,14 @@ $effect(() => {
     <span class="loading">...</span>
   {/if}
 
-  {#if showItemActions && canWrite}
+  {#if showItemActions && (canWrite || (!isDir && onDownload))}
     <span class="actions">
-      {#if onInsertReference}
+      {#if canWrite && onInsertReference}
         <button type="button" class="action" title="Insert" onclick={stop(() => onInsertReference(node.path))}><TextCursorInput class="w-3.5 h-3.5" /></button>
       {/if}
-      <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3.5 h-3.5" /></button>
+      {#if canWrite}
+        <button type="button" class="action" title="Rename" onclick={stop(() => onRename(node))}><Pencil class="w-3.5 h-3.5" /></button>
+      {/if}
       {#if isDir}
         {#if onUpload}
           <button type="button" class="action" title="Upload files" onclick={stop(handleUploadClick)}><Upload class="w-3.5 h-3.5" /></button>
@@ -271,9 +273,13 @@ $effect(() => {
             <div class="dropdown" bind:this={menuEl}>
               {#if onDownload}
                 <button type="button" class="dropdown-item" onclick={stopAndCloseMenu(() => onDownload(node))}><Download class="w-3.5 h-3.5" /> Download</button>
-                <div class="dropdown-sep"></div>
+                {#if canWrite}
+                  <div class="dropdown-sep"></div>
+                {/if}
               {/if}
-              <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}><Trash2 class="w-3.5 h-3.5" /> Delete</button>
+              {#if canWrite}
+                <button type="button" class="dropdown-item danger" onclick={stopAndCloseMenu(() => onDelete(node))}><Trash2 class="w-3.5 h-3.5" /> Delete</button>
+              {/if}
             </div>
           {/if}
         </span>
