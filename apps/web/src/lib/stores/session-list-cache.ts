@@ -116,24 +116,48 @@ function normalizeSessionListFetchResult(result: SessionListCacheFetchResult): {
 	return Array.isArray(result) ? { sessions: result } : result;
 }
 
+const sessionListRefreshInFlight = new Map<string, Promise<SessionRecord[]>>();
+
+function refreshSessionListCache(
+	spaceId: string,
+	fetcher: () => Promise<SessionListCacheFetchResult>,
+): Promise<SessionRecord[]> {
+	const inFlight = sessionListRefreshInFlight.get(spaceId);
+	if (inFlight) return inFlight;
+
+	const run = sessionListRepo
+		.refreshRecent(spaceId, async () => {
+			const result = normalizeSessionListFetchResult(await fetcher());
+			return {
+				sessions: result.sessions,
+				forks: result.forks,
+				pageInfo: result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
+			};
+		})
+		.then((snapshot) => snapshot.sessions)
+		.finally(() => {
+			if (sessionListRefreshInFlight.get(spaceId) === run) {
+				sessionListRefreshInFlight.delete(spaceId);
+			}
+		});
+
+	sessionListRefreshInFlight.set(spaceId, run);
+	return run;
+}
+
 export async function fetchSessionListWithCache(
 	spaceId: string,
 	fetcher: () => Promise<SessionListCacheFetchResult>,
 	options?: { force?: boolean },
 ): Promise<SessionRecord[]> {
-	if (!options?.force) {
-		const cached = await sessionListRepo.getRecent(spaceId);
-		if (cached && !cached.stale) return cached.sessions;
+	const cached = !options?.force
+		? await sessionListRepo.getRecent(spaceId).catch(() => null)
+		: null;
+	if (cached) {
+		void refreshSessionListCache(spaceId, fetcher).catch(() => undefined);
+		return cached.sessions;
 	}
-	const snapshot = await sessionListRepo.refreshRecent(spaceId, async () => {
-		const result = normalizeSessionListFetchResult(await fetcher());
-		return {
-			sessions: result.sessions,
-			forks: result.forks,
-			pageInfo: result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
-		};
-	});
-	return snapshot.sessions;
+	return refreshSessionListCache(spaceId, fetcher);
 }
 
 export async function fetchSessionListWithPageInfoCache(

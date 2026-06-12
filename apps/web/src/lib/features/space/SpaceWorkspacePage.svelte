@@ -283,6 +283,7 @@ const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SESSION_INITIAL_LOADING_DELAY_MS = 160;
+const LOCAL_BOOTSTRAP_CACHE_TIMEOUT_MS = 180;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -3021,8 +3022,8 @@ async function refreshSessionsList(force = true) {
 				{ force },
 			);
 			applySessionsSnapshot(sessions);
-		} catch {
-			// Non-blocking
+		} catch (error) {
+			console.warn("[space] Failed to refresh sessions:", error);
 		}
 	})();
 	refreshSessionsListInFlight = run.finally(() => {
@@ -3179,16 +3180,33 @@ function applyPortsChanged(payload: ChannelEnvelope) {
 }
 
 async function loadSpace() {
+	const currentSpaceId = spaceId;
 	spaceLoadError = "";
 	try {
-		const nextSpace = await sdk.space(spaceId).get();
+		const nextSpace = await sdk.space(currentSpaceId).get();
+		if (spaceId !== currentSpaceId) return false;
 		space = nextSpace;
 		previewEndpoints = extractPublicEndpoints(nextSpace);
 		cacheSpaceRecordSoon(nextSpace);
+		return true;
 	} catch (error) {
+		if (spaceId !== currentSpaceId) return false;
 		spaceLoadError =
 			error instanceof Error ? error.message : "Failed to load space";
+		return false;
 	}
+}
+
+function withBootstrapCacheTimeout<T>(promise: Promise<T>): Promise<T | null> {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	return Promise.race([
+		promise.catch(() => null),
+		new Promise<null>((resolve) => {
+			timer = setTimeout(resolve, LOCAL_BOOTSTRAP_CACHE_TIMEOUT_MS, null);
+		}),
+	]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
 }
 
 function showSpaceStatusNotice(message: string) {
@@ -7468,7 +7486,7 @@ $effect(() => {
 	untrack(() => {
 		void (async () => {
 			let sessionLoad: Promise<void> | null = null;
-			let hasCachedSpace = false;
+			const spaceLoad = loadSpace();
 			try {
 				if (
 					routeView === "session" &&
@@ -7478,8 +7496,13 @@ $effect(() => {
 					prepareRouteSession(routeSessionId);
 					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
 				}
-				const cachedSpace = await spaceRecordRepo.getCached(spaceId);
-				const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
+				const [cachedSpace, cachedSnapshot] = await Promise.all([
+					withBootstrapCacheTimeout(spaceRecordRepo.getCached(currentSpaceId)),
+					withBootstrapCacheTimeout(
+						getCachedSessionListSnapshot(currentSpaceId),
+					),
+				]);
+				if (spaceId !== currentSpaceId) return;
 				const cachedSessions = cachedSnapshot?.sessions;
 				if (cachedSessions && cachedSessions.length > 0) {
 					seedSessions(cachedSessions);
@@ -7492,15 +7515,11 @@ $effect(() => {
 					prepareRouteSession(routeSessionId);
 				}
 				const cachedSessionLoad = sessionLoad;
-				if (cachedSpace?.space) {
+				if (cachedSpace?.space && !space) {
 					space = cachedSpace.space;
 					previewEndpoints = extractPublicEndpoints(cachedSpace.space);
-					hasCachedSpace = true;
-				}
-				if (hasCachedSpace) {
-					void loadSpace();
-				} else {
-					await loadSpace();
+				} else if (!space) {
+					await spaceLoad;
 				}
 				if (spaceId !== currentSpaceId) return;
 				void refreshSessionsList(false);
