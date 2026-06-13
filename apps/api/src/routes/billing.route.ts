@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
 import { billingOperations, COHUB_BILLING_TOKEN_TYPES } from "../billing/index.js";
 import { config } from "../config.js";
-import { useAuth } from "../lib/middleware.js";
+import { getOptionalAuth, useAuth } from "../lib/middleware.js";
 
 const router = new Hono();
 const BILLING_PAGE_SIZE = 10;
@@ -95,11 +95,11 @@ router.get("/overages", async (c) => {
 });
 
 router.get("/catalog", async (c) => {
-  const user = useAuth(c);
+  const user = getOptionalAuth(c);
   try {
-    const catalog = await billingOperations.getCatalog({
-      userId: user.uuid,
-    });
+    const catalog = await billingOperations.getCatalog(
+      user?.uuid ? { userId: user.uuid } : undefined,
+    );
     return c.json({ catalog });
   } catch (error) {
     if (error instanceof ApiError) return billingApiErrorResponse(c, error);

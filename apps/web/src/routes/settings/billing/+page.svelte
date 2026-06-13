@@ -217,7 +217,7 @@ function getDiscountText(product: BillingCatalogProduct): string | null {
 	return null;
 }
 
-function getProductCreditText(product: BillingCatalogProduct): string | null {
+function getProductBalanceText(product: BillingCatalogProduct): string | null {
 	if (product.display.creditBenefits.length > 0) {
 		return product.display.creditBenefits
 			.map((benefit) => {
@@ -941,7 +941,7 @@ $effect(() => {
 			<div class="flex flex-col gap-3 border-b border-border-subtle pb-5 sm:flex-row sm:items-center sm:justify-between">
 				<div>
 					<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Billing</h1>
-					<p class="mt-1 max-w-xl text-[13px] leading-5 text-text-tertiary">Balance, subscriptions, and one-time credit packs.</p>
+					<p class="mt-1 max-w-xl text-[13px] leading-5 text-text-tertiary">Usage balance, subscriptions, and one-time balance packs.</p>
 				</div>
 				<button type="button" onclick={refreshBilling} disabled={anyBillingLoading} class="inline-flex w-fit items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" title="Refresh billing">
 					{#if anyBillingLoading}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if}
@@ -1038,7 +1038,7 @@ $effect(() => {
 				<div class="flex gap-1">
 					<button type="button" onclick={() => setBillingTab("balance")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'balance' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Balance</button>
 					<button type="button" onclick={() => setBillingTab("plans")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'plans' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Plans</button>
-					<button type="button" onclick={() => setBillingTab("addons")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'addons' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Addons</button>
+					<button type="button" onclick={() => setBillingTab("addons")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'addons' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Balance Packs</button>
 					<button type="button" onclick={() => setBillingTab("redeem")} class="border-b-2 px-3 py-2 text-[12px] font-medium transition-colors {activeBillingTab === 'redeem' ? 'border-brand text-text-primary' : 'border-transparent text-text-tertiary hover:text-text-secondary'}">Redeem</button>
 				</div>
 			</div>
@@ -1063,7 +1063,7 @@ $effect(() => {
 						<div class="h-48 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
 					</div>
 				{:else if billingCatalog && billingCatalog.plans.length === 0}
-					<p class="mt-4 text-[12px] text-text-tertiary">No public subscription plans.</p>
+					<p class="mt-4 text-[12px] text-text-tertiary">No available subscription plans.</p>
 				{:else if selectedPlanProducts.length > 0}
 					<div class="mt-3 grid gap-3 md:grid-cols-3">
 						{#each selectedPlanProducts as product (product.key)}
@@ -1080,8 +1080,8 @@ $effect(() => {
 										<div class="text-[11px] text-text-tertiary">Discount {getDiscountText(product)}</div>
 									{/if}
 									<div class="text-[18px] font-semibold text-text-primary">{formatProductPrice(product.pricing.amountUsd)}</div>
-									{#if getProductCreditText(product)}
-										<div class="text-[11px] text-text-secondary">Credits included: {getProductCreditText(product)}</div>
+									{#if getProductBalanceText(product)}
+										<div class="text-[11px] text-text-secondary">Balance included: {getProductBalanceText(product)}</div>
 									{/if}
 								</div>
 								<button type="button" onclick={() => subscribePlan(product)} disabled={checkoutBusyKey !== null || isCurrentPlanProduct(product) || billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false} class="mt-3 inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
@@ -1113,7 +1113,7 @@ $effect(() => {
 						{/each}
 					</div>
 				{:else}
-					<p class="mt-4 text-[12px] text-text-tertiary">No public plans in this billing period.</p>
+					<p class="mt-4 text-[12px] text-text-tertiary">No available plans in this billing period.</p>
 				{/if}
 
 				<div class="mt-6 border-t border-border-subtle pt-5">
@@ -1202,7 +1202,7 @@ $effect(() => {
 
 			{#if activeBillingTab === "addons"}
 			<section class="border-t border-border-subtle py-5">
-				<h2 class="text-[14px] font-medium text-text-primary">Addons</h2>
+				<h2 class="text-[14px] font-medium text-text-primary">Balance Packs</h2>
 				{#if catalogLoading && !billingCatalog}
 					<div class="mt-3 grid gap-3 md:grid-cols-3">
 						<div class="h-36 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
@@ -1210,7 +1210,7 @@ $effect(() => {
 						<div class="h-36 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
 					</div>
 				{:else if !billingCatalog || billingCatalog.addons.length === 0}
-					<p class="mt-4 text-[12px] text-text-tertiary">No public one-time products.</p>
+					<p class="mt-4 text-[12px] text-text-tertiary">No available balance packs.</p>
 				{:else}
 					<div class="mt-3 grid gap-3 md:grid-cols-3">
 						{#each sortProductsByPrice(billingCatalog.addons) as product (product.key)}
@@ -1220,8 +1220,8 @@ $effect(() => {
 								{#if getDiscountText(product)}
 									<div class="mt-1 text-[11px] text-text-tertiary">{getDiscountText(product)}</div>
 								{/if}
-								{#if getProductCreditText(product)}
-									<div class="mt-2 text-[11px] text-text-secondary">Credits included: {getProductCreditText(product)}</div>
+								{#if getProductBalanceText(product)}
+									<div class="mt-2 text-[11px] text-text-secondary">Balance included: {getProductBalanceText(product)}</div>
 								{/if}
 								{#if productDescription(product)}
 									<p class="mt-2 text-[12px] leading-5 text-text-secondary">{productDescription(product)}</p>
@@ -1369,9 +1369,9 @@ $effect(() => {
 				<div class="py-6 text-[13px] text-text-tertiary">Billing is not available in this environment.</div>
 			{:else if balanceCredit}
 				<section class="py-5">
-					<h2 class="text-[13px] font-medium text-text-primary">Credits by Expiration</h2>
+					<h2 class="text-[13px] font-medium text-text-primary">Balance by Expiration</h2>
 					{#if balanceCredit.groups.length === 0}
-						<p class="mt-3 text-[12px] text-text-tertiary">No credit grants.</p>
+						<p class="mt-3 text-[12px] text-text-tertiary">No balance sources.</p>
 					{:else}
 						<div class="mt-3 divide-y divide-border-subtle rounded-[6px] border border-border-subtle">
 							{#each balanceCredit.groups as group (group.key)}
@@ -1389,7 +1389,7 @@ $effect(() => {
 												<div class="grid gap-1 sm:grid-cols-[1fr_auto]">
 													<div class="min-w-0">
 														<div class="flex min-w-0 items-center gap-2">
-															<div class="truncate text-text-secondary">{grant.benefitName ?? grant.grantKind ?? "Credit grant"}</div>
+															<div class="truncate text-text-secondary">{grant.benefitName ?? grant.grantKind ?? "Balance source"}</div>
 															<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] leading-none {isGrantDisplayActive(grant) ? 'text-text-tertiary' : 'text-text-placeholder'}">{getGrantDisplayStatus(grant)}</span>
 														</div>
 														<div class="mt-0.5 flex min-w-0 items-center gap-1.5 text-text-tertiary">

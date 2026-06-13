@@ -1249,9 +1249,9 @@ export function createDisabledBillingOperations(
       });
     },
 
-    async getCatalog(input: BillingUserRef): Promise<BillingCatalog> {
+    async getCatalog(input?: BillingUserRef): Promise<BillingCatalog> {
       return emptyCatalog({
-        userId: input.userId,
+        userId: input?.userId ?? "anonymous",
         status,
         paymentReason: status.reason ?? "Billing integration is not configured",
       });
@@ -1659,6 +1659,34 @@ export function createTalesofaiBillingOperations(
     );
   };
 
+  const getProductOrNull = async (productKey: string): Promise<Product | null> => {
+    try {
+      return await sdk.admin.products.get({
+        business_key: businessKey,
+        product_key: productKey,
+      });
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      return null;
+    }
+  };
+
+  const appendReferencedSubscriptionProducts = async (input: {
+    products: Product[];
+    subscriptions: Subscription[];
+  }): Promise<Product[]> => {
+    const byKey = new Map(input.products.map((product) => [product.key, product]));
+    const missingKeys = [...new Set(input.subscriptions
+      .map((subscription) => subscription.product_key_snapshot)
+      .filter((key): key is string => Boolean(key && !byKey.has(key))))];
+    if (missingKeys.length === 0) return input.products;
+    const referencedProducts = await Promise.all(missingKeys.map(getProductOrNull));
+    for (const product of referencedProducts) {
+      if (product?.status === "active") byKey.set(product.key, product);
+    }
+    return [...byKey.values()];
+  };
+
   const listActiveCreditsBenefits = async (): Promise<CreditsBenefit[]> => {
     const benefits = await listAllPages((page, limit) =>
       sdk.admin.benefits.list({
@@ -1730,10 +1758,11 @@ export function createTalesofaiBillingOperations(
     ).filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
   };
 
-  const getCatalog = async (input: BillingUserRef): Promise<BillingCatalog> => {
-    await ensureCustomer({ userId: input.userId });
+  const getCatalog = async (input?: BillingUserRef): Promise<BillingCatalog> => {
+    const userId = input?.userId ?? "anonymous";
+    if (input?.userId) await ensureCustomer({ userId: input.userId });
     const [
-      products,
+      publicProducts,
       payment,
       currentSubscriptions,
       blockingSubscriptions,
@@ -1741,10 +1770,16 @@ export function createTalesofaiBillingOperations(
     ] = await Promise.all([
       listPublicProducts(),
       resolvePaymentStatus(sdk),
-      listCurrentSubscriptions(input.userId),
-      listBlockingSubscriptions(input.userId),
+      input?.userId ? listCurrentSubscriptions(input.userId) : Promise.resolve([]),
+      input?.userId ? listBlockingSubscriptions(input.userId) : Promise.resolve([]),
       listActiveCreditsBenefits(),
     ]);
+    const products = input?.userId
+      ? await appendReferencedSubscriptionProducts({
+          products: publicProducts,
+          subscriptions: [...currentSubscriptions, ...blockingSubscriptions],
+        })
+      : publicProducts;
     const defaultPlanProductKey = await getDefaultPlanProductKey(products);
     const mappedProducts = products
       .map((product) =>
@@ -1756,7 +1791,7 @@ export function createTalesofaiBillingOperations(
     const plans = mappedProducts.filter((product) => product.kind === "plan");
     const addons = mappedProducts.filter((product) => product.kind === "addon");
     return {
-      userId: input.userId,
+      userId,
       billing: status,
       payment,
       products: mappedProducts,

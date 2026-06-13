@@ -463,7 +463,7 @@ export interface BillingOperations {
   getState(input: BillingUserRef): Promise<BillingAccountState>;
   getCreditStatus(input: BillingUserRef & { tokenType?: CohubBillingTokenType }): Promise<BillingCreditStatus>;
   listOpenOverages(input: BillingOpenOverageListInput): Promise<BillingOpenOverageList>;
-  getCatalog(input: BillingUserRef): Promise<BillingCatalog>;
+  getCatalog(input?: BillingUserRef): Promise<BillingCatalog>;
   listOrders(input: BillingHistoryListInput): Promise<BillingOrderList>;
   listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList>;
   purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
