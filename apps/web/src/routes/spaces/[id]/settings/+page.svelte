@@ -1,4 +1,9 @@
 <script lang="ts">
+import {
+	type DefaultSpaceModDefinition,
+	getDefaultSpaceModsForEnv,
+	normalizeCohubRuntimeEnv,
+} from "@cohub/protocol";
 import type {
 	Channel,
 	SpaceAccessPolicy,
@@ -32,6 +37,7 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import { PUBLIC_COHUB_ENV } from "$env/static/public";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
@@ -54,6 +60,9 @@ type SandboxInfo = {
 const props = $props<{ data: { spaceId: string } }>();
 const spaceId = $derived(props.data.spaceId);
 const defaultIdleTtlSeconds = import.meta.env.DEV ? 10 * 60 : 12 * 60 * 60;
+const recommendedBaseMod =
+	getDefaultSpaceModsForEnv(normalizeCohubRuntimeEnv(PUBLIC_COHUB_ENV))[0] ??
+	null;
 
 let space = $state<SpaceRecord | null>(null);
 let access = $state<SpaceAccessPolicy | null>(null);
@@ -106,6 +115,11 @@ let sandboxIdleTtlSeconds = $state(defaultIdleTtlSeconds);
 let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
+const shouldShowBaseModRecommendation = $derived(
+	recommendedBaseMod
+		? !mods.some((mod) => mod.modSpaceId === recommendedBaseMod.modSpaceId)
+		: false,
+);
 
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
@@ -623,6 +637,10 @@ async function unbindChannel(channelId: string) {
 async function addMod() {
 	const target = modSpaceId.trim();
 	if (!target || modSaving) return;
+	if (mods.some((mod) => mod.modSpaceId === target)) {
+		modError = "Mod space is already mounted";
+		return;
+	}
 	if (!confirmModRestart()) return;
 	modSaving = true;
 	modError = "";
@@ -645,6 +663,13 @@ async function addMod() {
 	} finally {
 		modSaving = false;
 	}
+}
+
+function fillRecommendedMod(mod: DefaultSpaceModDefinition) {
+	modSpaceId = mod.modSpaceId;
+	modName = mod.name ?? "";
+	modMountSlug = mod.mountSlug ?? "";
+	modError = "";
 }
 
 async function toggleMod(mod: SpaceModListItem) {
@@ -840,6 +865,18 @@ $effect(() => {
 						<div class="border-t border-border-subtle pt-5 space-y-3">
 							<div class="flex items-center gap-2 text-[12px] font-medium text-text-secondary"><PackagePlus class="h-3.5 w-3.5 text-text-tertiary" /> Mounted spaces</div>
 							<p class="max-w-2xl text-[11px] leading-relaxed text-text-tertiary">Mounted spaces are read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Prompts and skills are available to the agent. Changes restart the sandbox.</p>
+							{#if shouldShowBaseModRecommendation && recommendedBaseMod}
+								<div class="flex flex-col gap-2 rounded-[7px] border border-border-subtle bg-bg-primary px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+									<div class="min-w-0">
+										<div class="flex flex-wrap items-center gap-2">
+											<span class="rounded bg-brand-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-muted-fg">Recommended</span>
+											<span class="text-[12px] font-medium text-text-secondary">{recommendedBaseMod.name} is not mounted</span>
+										</div>
+										<div class="mt-1 break-all font-mono text-[10px] text-text-placeholder">/mods/{recommendedBaseMod.mountSlug} · {recommendedBaseMod.modSpaceId}</div>
+									</div>
+									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex min-h-8 shrink-0 items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input px-3 py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40">Use recommended mod</button>
+								</div>
+							{/if}
 							<div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]"><input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={modName} placeholder="Display name" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={modMountSlug} placeholder="Mount slug" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
 							{#if modError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}{#if modRestartMessage}<div class="rounded-[6px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
 							<div class="space-y-1.5">{#each mods as mod (mod.id)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 md:grid-cols-[1fr_auto]"><div class="min-w-0"><div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div><div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div><input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-2 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /></div><div class="flex items-center justify-end gap-2 md:justify-start"><span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span><button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button><button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No mounted spaces.</div>{/each}</div>
