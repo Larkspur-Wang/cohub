@@ -62,9 +62,9 @@ let subscriptionsPage = $state(1);
 let activeBillingTab = $state<BillingTab>("balance");
 let redemptionCode = $state("");
 let selectedPlanInterval =
-	$state<
-		Extract<BillingProductBillingInterval, "monthly" | "quarterly" | "yearly">
-	>("monthly");
+	$state<Extract<BillingProductBillingInterval, "monthly" | "yearly">>(
+		"monthly",
+	);
 let checkoutBusyKey = $state<string | null>(null);
 let billingActionBusyKey = $state<string | null>(null);
 let redemptionLoading = $state(false);
@@ -248,10 +248,7 @@ function sortProductsByPrice(products: BillingCatalogProduct[]) {
 }
 
 function getPlanProductsForInterval(
-	interval: Extract<
-		BillingProductBillingInterval,
-		"monthly" | "quarterly" | "yearly"
-	>,
+	interval: Extract<BillingProductBillingInterval, "monthly" | "yearly">,
 ) {
 	if (!billingCatalog) return [];
 	const defaultPlan = billingCatalog.defaultPlanProductKey
@@ -1051,7 +1048,6 @@ $effect(() => {
 					</div>
 					<div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
 						<button type="button" onclick={() => (selectedPlanInterval = "monthly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'monthly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">Monthly</button>
-						<button type="button" onclick={() => (selectedPlanInterval = "quarterly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'quarterly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">Quarterly</button>
 						<button type="button" onclick={() => (selectedPlanInterval = "yearly")} class="rounded-[5px] px-2.5 py-1.5 transition-colors {selectedPlanInterval === 'yearly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}">Yearly</button>
 					</div>
 				</div>

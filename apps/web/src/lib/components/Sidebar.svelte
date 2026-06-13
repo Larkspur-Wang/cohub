@@ -46,6 +46,7 @@ import {
 	Trash2,
 	User,
 	X,
+	Zap,
 } from "lucide-svelte";
 import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
@@ -211,6 +212,7 @@ let billingCreditError = $state<string | null>(null);
 let refreshingSpaces = $state(false);
 let billingCreditUserId = $state<string | null>(null);
 let billingConfigured = $state<boolean | null>(null);
+let billingSubscriptionName = $state<string | null>(null);
 const modelsCatalog = $derived(modelsCatalogStore.items);
 
 let sessionsCollapsed = $state(false);
@@ -387,6 +389,7 @@ const showBillingBalanceEntry = $derived(
 			Boolean(billingCredit) ||
 			Boolean(billingCreditError)),
 );
+const currentPlanName = $derived(billingSubscriptionName);
 
 function clearBillingCredit() {
 	billingCredit = null;
@@ -394,6 +397,7 @@ function clearBillingCredit() {
 	billingCreditError = null;
 	billingCreditUserId = null;
 	billingConfigured = null;
+	billingSubscriptionName = null;
 }
 
 function markBillingUnavailable() {
@@ -402,6 +406,7 @@ function markBillingUnavailable() {
 	billingCreditError = null;
 	billingCreditUserId = authStore.userUuid;
 	billingConfigured = false;
+	billingSubscriptionName = null;
 }
 
 function formatUsdAmount(value: number | null | undefined) {
@@ -425,6 +430,7 @@ async function refreshBillingCredit() {
 			billingCredit = credit;
 			billingCreditUserId = authStore.userUuid;
 			billingConfigured = true;
+			void refreshBillingPlan();
 			return true;
 		} catch (error) {
 			if (await handleUnauthorizedError(error)) {
@@ -440,6 +446,19 @@ async function refreshBillingCredit() {
 		}
 	})();
 	return billingCreditRequest;
+}
+
+async function refreshBillingPlan() {
+	try {
+		const { catalog } = await sdk.billing.getCatalog();
+		const sub =
+			catalog.currentSubscriptions.find((s) => s.status === "active") ??
+			catalog.currentSubscriptions.find((s) => s.status === "trialing");
+		billingSubscriptionName = sub?.productName ?? null;
+	} catch (error) {
+		if (await handleUnauthorizedError(error)) return;
+		console.warn("[sidebar] Failed to load billing plan", error);
+	}
 }
 
 const baseSettingsTabs = [
@@ -2219,6 +2238,7 @@ $effect(() => {
 	if (!showUserMenu && mode !== "settings") return;
 	untrack(() => {
 		void refreshBillingCredit();
+		void refreshBillingPlan();
 	});
 });
 
@@ -2851,6 +2871,15 @@ $effect(() => {
                   <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
                 {/if}
               </div>
+            {/if}
+            {#if billingConfigured !== false}
+              <a href="/pricing" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/pricing'); }}>
+                <Zap class="h-3.5 w-3.5" />
+                <span>{currentPlanName ?? "Free Plan"}</span>
+                {#if !currentPlanName}
+                  <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+                {/if}
+              </a>
             {/if}
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
@@ -3531,6 +3560,19 @@ $effect(() => {
               <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
             {/if}
           </div>
+        {/if}
+        {#if billingConfigured !== false}
+          <a
+            href="/pricing"
+            class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+            onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/pricing'); }}
+          >
+            <Zap class="w-3.5 h-3.5" />
+            <span>{currentPlanName ?? "Free Plan"}</span>
+            {#if !currentPlanName}
+              <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+            {/if}
+          </a>
         {/if}
         {#if mode === "space"}
           <a
