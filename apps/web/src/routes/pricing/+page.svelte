@@ -67,6 +67,32 @@ function getProductPeriod(product: BillingCatalogProduct): string | undefined {
 	return product.billingPeriod || undefined;
 }
 
+function formatValidityDays(days: number): string {
+	if (days % 365 === 0)
+		return `Valid for ${days / 365} year${days === 365 ? "" : "s"}`;
+	if (days % 30 === 0)
+		return `Valid for ${days / 30} month${days === 30 ? "" : "s"}`;
+	return `Valid for ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function getBalanceValidity(product: BillingCatalogProduct): string {
+	if (product.kind === "plan") return "Resets each billing cycle";
+	const expirations = [
+		...new Set(
+			product.display.creditBenefits.map(
+				(benefit) => benefit.expiresInDays ?? null,
+			),
+		),
+	];
+	if (expirations.length === 1) {
+		const [expiresInDays] = expirations;
+		return expiresInDays === null
+			? "No expiration"
+			: formatValidityDays(expiresInDays);
+	}
+	return "Validity varies by balance source";
+}
+
 function mapCatalogOffer(product: BillingCatalogProduct): Offer {
 	const balance = getProductBalance(product) ?? product.pricing.amountUsd;
 	return {
@@ -84,9 +110,7 @@ function mapCatalogOffer(product: BillingCatalogProduct): Offer {
 				? product.display.benefits
 				: [
 						`${formatUsd(balance)} usage balance${product.kind === "plan" ? " / cycle" : ""}`,
-						product.kind === "plan"
-							? "Resets each billing cycle"
-							: "Valid for 24 months",
+						getBalanceValidity(product),
 					],
 		kind: product.kind === "plan" ? "plan" : "pack",
 		productKey: product.key,
@@ -202,7 +226,7 @@ onMount(() => {
 				<div class="text-[11px] uppercase tracking-[0.18em] text-text-tertiary">How balance works</div>
 				<div class="mt-4 grid gap-3 text-[13px] text-text-secondary">
 					<div class="flex gap-3"><Check class="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>Monthly balance resets each billing cycle and does not roll over.</span></div>
-					<div class="flex gap-3"><Check class="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>Purchased balance is valid for 24 months.</span></div>
+					<div class="flex gap-3"><Check class="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>Purchased balance validity is defined by each pack.</span></div>
 					<div class="flex gap-3"><Check class="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>Balance that expires sooner is used first.</span></div>
 				</div>
 			</div>
@@ -241,7 +265,7 @@ onMount(() => {
 					<h2 class="text-[18px] font-semibold tracking-tight">Balance Packs</h2>
 					<p class="mt-1 text-[13px] text-text-tertiary">Top up without changing your plan.</p>
 				</div>
-				<div class="text-[12px] text-text-tertiary">{catalogLoading ? "Loading live packs" : "Purchased balance is valid for 24 months."}</div>
+				<div class="text-[12px] text-text-tertiary">{catalogLoading ? "Loading live packs" : "Validity is shown on each pack."}</div>
 			</div>
 			{#if !catalogLoading && visiblePackOffers.length === 0}
 				<div class="mt-5 rounded-[6px] border border-border-subtle bg-bg-subtle px-3 py-4 text-[12px] text-text-tertiary">No balance packs are available.</div>
