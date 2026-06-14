@@ -190,13 +190,6 @@ function getPackTitle(product: BillingCatalogProduct): string {
 	return `${formatUsd(getBalance(product))} Balance Pack`;
 }
 
-function getPackNote(product: BillingCatalogProduct): string {
-	const multiplier = getMultiplier(product);
-	return multiplier
-		? `${multiplier} value · one-time top-up`
-		: "One-time top-up";
-}
-
 function isRecommended(product: BillingCatalogProduct): boolean {
 	return getPlanTier(product) === "pro";
 }
@@ -306,9 +299,6 @@ onMount(() => {
 			<h1 class="text-[clamp(34px,6vw,60px)] font-semibold leading-[0.98] tracking-[-0.055em] text-text-primary">
 				Pay for the agent work you run.
 			</h1>
-			<p class="mt-5 max-w-xl text-[14px] leading-6 text-text-tertiary">
-				Plans include monthly balance. Add packs when a workspace needs more room.
-			</p>
 		</div>
 
 		{#if checkoutError}
@@ -391,15 +381,13 @@ onMount(() => {
 								{#if annualNote}
 									<p class="mt-1 text-[11px] text-text-placeholder">{annualNote}</p>
 								{/if}
-								<p class="mt-3 text-[13px] font-medium text-text-secondary">
-									{getPlanFeatureLabel(product)}
-									{#if multiplier}
-										<span class="ml-1 text-[11px] font-normal text-text-tertiary">({multiplier} value)</span>
-									{/if}
-								</p>
 							</div>
 
 							<ul class="mt-5 flex-1 space-y-2.5">
+								<li class="flex items-start gap-2 text-[12px] leading-[18px] text-text-tertiary">
+									<Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
+									<span>{getPlanFeatureLabel(product)}</span>
+								</li>
 								{#each copy.features as feature}
 									<li class="flex items-start gap-2 text-[12px] leading-[18px] text-text-tertiary">
 										<Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
@@ -432,7 +420,6 @@ onMount(() => {
 		<section id="packs" class="mt-16">
 			<div class="mb-4">
 				<h2 class="text-[15px] font-semibold tracking-tight">Balance Packs</h2>
-				<p class="mt-1 text-[12px] text-text-tertiary">Add balance without changing your plan.</p>
 			</div>
 
 			{#if catalogLoading}
@@ -446,21 +433,13 @@ onMount(() => {
 			{:else}
 				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each packs as product (product.key)}
-						{@const multiplier = getMultiplier(product)}
-						<div class="relative flex min-h-[220px] flex-col rounded-[10px] border border-border-subtle bg-bg-content px-5 py-5 transition-colors hover:border-border-strong">
-							<div class="space-y-2">
-								<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{getPackTitle(product)}</h3>
-								<p class="text-[12px] leading-[18px] text-text-tertiary">{getPackNote(product)}</p>
-							</div>
+						<div class="relative flex min-h-[198px] flex-col rounded-[10px] border border-border-subtle bg-bg-content px-5 py-5 transition-colors hover:border-border-strong">
+							<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{getPackTitle(product)}</h3>
 
 							<div class="mt-5 border-t border-border-subtle/70 pt-5">
 								<div class="text-[34px] font-semibold tracking-[-0.045em] text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
 								<p class="mt-1 text-[12px] text-text-placeholder">One-time purchase</p>
 							</div>
-
-							{#if multiplier}
-								<div class="mt-4 text-[12px] font-medium text-text-secondary">More balance than price</div>
-							{/if}
 
 							<button
 								type="button"
