@@ -20,6 +20,39 @@ let checkoutBusyKey = $state<string | null>(null);
 let checkoutError = $state("");
 let interval = $state<PlanInterval>("monthly");
 
+const CHECKOUT_BUTTON_BASE =
+	"inline-flex h-10 w-full items-center justify-center rounded-[6px] text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const CHECKOUT_BUTTON_PRIMARY =
+	"bg-brand text-brand-contrast-fg hover:bg-brand-hover";
+const CHECKOUT_BUTTON_SECONDARY =
+	"border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover";
+const CHECKOUT_BUTTON_SECONDARY_MUTED =
+	"border border-border-subtle bg-bg-input text-text-secondary hover:bg-bg-hover hover:text-text-primary";
+const PRICING_CARD_BASE =
+	"relative flex flex-col rounded-[8px] border bg-bg-content px-5 py-5 transition-colors";
+const PRICING_CARD_FEATURED = "border-brand/50";
+const PRICING_CARD_DEFAULT = "border-border-subtle hover:border-border-strong";
+const POPULAR_RAIL_CLASS = "absolute -top-px left-5 right-5 h-px bg-brand/60";
+const POPULAR_BADGE_CLASS =
+	"absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg";
+
+function getCheckoutButtonClass(
+	emphasized: boolean,
+	options: { muted?: boolean; alignBottom?: boolean } = {},
+): string {
+	const spacing = options.alignBottom ? "mt-auto" : "mt-5";
+	const variant = emphasized
+		? CHECKOUT_BUTTON_PRIMARY
+		: options.muted
+			? CHECKOUT_BUTTON_SECONDARY_MUTED
+			: CHECKOUT_BUTTON_SECONDARY;
+	return `${spacing} ${CHECKOUT_BUTTON_BASE} ${variant}`;
+}
+
+function getPricingCardClass(emphasized: boolean): string {
+	return `${PRICING_CARD_BASE} ${emphasized ? PRICING_CARD_FEATURED : PRICING_CARD_DEFAULT}`;
+}
+
 const pricingReturnPath = $derived(`${page.url.pathname}${page.url.search}`);
 const hasYearly = $derived(yearlyPlans.length > 0);
 const visiblePlans = $derived.by(() => {
@@ -282,10 +315,10 @@ onMount(() => {
 						{@const multiplier = getMultiplier(product)}
 						{@const annualNote = getAnnualNote(product)}
 						{@const discount = getDiscount(product)}
-						<div class="relative flex flex-col rounded-[8px] border px-5 py-5 transition-colors {recommended ? 'border-brand/50 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
+						<div class={getPricingCardClass(recommended)}>
 							{#if recommended}
-								<div class="absolute -top-px left-5 right-5 h-px bg-brand/60"></div>
-								<span class="absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Most popular</span>
+								<div class={POPULAR_RAIL_CLASS}></div>
+								<span class={POPULAR_BADGE_CLASS}>Most popular</span>
 							{/if}
 
 							<div class="mt-1">
@@ -334,12 +367,7 @@ onMount(() => {
 								type="button"
 								onclick={() => startCheckout(product)}
 								disabled={checkoutBusyKey !== null}
-								class="mt-5 inline-flex h-10 w-full items-center justify-center rounded-[6px] text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50
-									{recommended
-										? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover'
-										: free
-											? 'border border-border-subtle bg-bg-input text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-											: 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}"
+								class={getCheckoutButtonClass(recommended, { muted: free })}
 							>
 								{#if checkoutBusyKey === product.key}
 									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -376,10 +404,10 @@ onMount(() => {
 						{@const balance = getBalance(product)}
 						{@const multiplier = getMultiplier(product)}
 						{@const packRecommended = isRecommended(product)}
-						<div class="relative flex flex-col rounded-[8px] border px-5 py-5 transition-colors {packRecommended ? 'border-brand/40 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
+						<div class={getPricingCardClass(packRecommended)}>
 							{#if packRecommended}
-								<div class="absolute -top-px left-5 right-5 h-px bg-brand/60"></div>
-								<span class="absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Most popular</span>
+								<div class={POPULAR_RAIL_CLASS}></div>
+								<span class={POPULAR_BADGE_CLASS}>Most popular</span>
 							{/if}
 							<div class="flex items-start justify-between gap-2">
 								<h3 class="text-[13px] font-semibold text-text-primary">{product.name}</h3>
@@ -388,17 +416,14 @@ onMount(() => {
 								{/if}
 							</div>
 							<div class="mt-4">
-								<div class="text-[28px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
+								<div class="text-[32px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
 								<div class="mt-1.5 text-[13px] text-text-secondary">{formatUsd(balance)} balance</div>
 							</div>
 							<button
 								type="button"
 								onclick={() => startCheckout(product)}
 								disabled={checkoutBusyKey !== null}
-								class="mt-auto pt-5 inline-flex h-10 w-full items-center justify-center rounded-[6px] text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50
-								{packRecommended
-									? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover'
-									: 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}"
+								class={getCheckoutButtonClass(packRecommended, { alignBottom: true })}
 							>
 								{#if checkoutBusyKey === product.key}
 									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
