@@ -945,6 +945,30 @@ function uniqueStringArray(value: unknown): string[] {
   ];
 }
 
+function recordArray(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = asRecord(item);
+    return record ? [record] : [];
+  });
+}
+
+function firstOptionalNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    const number = optionalNumber(value);
+    if (number !== null) return number;
+  }
+  return null;
+}
+
+function firstOptionalString(...values: unknown[]): string | null {
+  for (const value of values) {
+    const string = optionalString(value);
+    if (string !== null) return string;
+  }
+  return null;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1029,6 +1053,89 @@ function mapProductCreditBenefit(
   };
 }
 
+function mapMetaCreditBenefit(
+  product: Product,
+  record: Record<string, unknown>,
+  index: number,
+): BillingProductCreditBenefit | null {
+  const config = asRecord(record.config) ?? {};
+  const tokenType =
+    firstOptionalString(
+      record.tokenType,
+      record.token_type,
+      config.token_type,
+    ) ?? "cohub_credit";
+  const grantKind =
+    firstOptionalString(
+      record.grantKind,
+      record.grant_kind,
+      config.grant_kind,
+    ) ?? (product.billing_type === "recurring" ? "plan_period" : "purchased");
+  const scope =
+    firstOptionalString(record.scope, config.scope) ??
+    (product.billing_type === "recurring" ? "business" : "global");
+  const cycleAmount = firstOptionalNumber(
+    record.cycleAmount,
+    record.cycle_amount,
+    record.amount,
+    config.amount,
+  );
+  const cycleAmountUsd = firstOptionalNumber(
+    record.cycleAmountUsd,
+    record.cycle_amount_usd,
+    record.amountUsd,
+    record.amount_usd,
+    record.usageBalanceUsd,
+    record.usage_balance_usd,
+  );
+  if (cycleAmount === null && cycleAmountUsd === null) return null;
+  const multiplier =
+    grantKind === "plan_period" ? Math.max(1, product.billing_interval_count) : 1;
+  const resolvedCycleAmount = cycleAmount ?? 0;
+  const resolvedCycleAmountUsd =
+    cycleAmountUsd ?? amountToUsd(resolvedCycleAmount, tokenType);
+  const periodAmount =
+    firstOptionalNumber(record.periodAmount, record.period_amount) ??
+    resolvedCycleAmount * multiplier;
+  const periodAmountUsd =
+    firstOptionalNumber(record.periodAmountUsd, record.period_amount_usd) ??
+    resolvedCycleAmountUsd * multiplier;
+  return {
+    key:
+      firstOptionalString(record.key, record.benefitKey, record.benefit_key) ??
+      `${product.key}_credit_${index + 1}`,
+    name: firstOptionalString(record.name) ?? "Usage balance",
+    tokenType,
+    grantKind,
+    scope,
+    cycleAmount: resolvedCycleAmount,
+    cycleAmountUsd: resolvedCycleAmountUsd,
+    periodAmount,
+    periodAmountUsd,
+    expiresInDays: firstOptionalNumber(
+      record.expiresInDays,
+      record.expires_in_days,
+      config.expires_in_days,
+    ),
+  };
+}
+
+function mapProductMetaCreditBenefits(
+  product: Product,
+): BillingProductCreditBenefit[] {
+  const meta = asRecord(product.meta) ?? {};
+  const display = asRecord(meta.display) ?? {};
+  return recordArray(
+    meta.creditBenefits ??
+      meta.credit_benefits ??
+      display.creditBenefits ??
+      display.credit_benefits,
+  ).flatMap((record, index) => {
+    const benefit = mapMetaCreditBenefit(product, record, index);
+    return benefit ? [benefit] : [];
+  });
+}
+
 function mapCatalogProduct(
   product: Product,
   defaultPlanProductKey: string | null,
@@ -1041,9 +1148,13 @@ function mapCatalogProduct(
     optionalNumber(pricing.compare_at_amount_minor) ??
     optionalNumber(pricing.compare_at_amount) ??
     null;
-  const productCreditBenefits = creditBenefits
-    .filter((benefit) => isProductCreditsBenefit(product, benefit))
-    .map((benefit) => mapProductCreditBenefit(product, benefit));
+  const configuredCreditBenefits = mapProductMetaCreditBenefits(product);
+  const productCreditBenefits =
+    configuredCreditBenefits.length > 0
+      ? configuredCreditBenefits
+      : creditBenefits
+          .filter((benefit) => isProductCreditsBenefit(product, benefit))
+          .map((benefit) => mapProductCreditBenefit(product, benefit));
   const creditsAmount =
     productCreditBenefits.length > 0
       ? productCreditBenefits.reduce(

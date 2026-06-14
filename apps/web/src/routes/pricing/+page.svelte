@@ -9,13 +9,6 @@ import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 
 type PlanInterval = "monthly" | "yearly";
-type PlanTier = "free" | "plus" | "pro" | "max" | "custom";
-
-type PlanCopy = {
-	name: string;
-	description: string;
-	features: string[];
-};
 
 let freePlan = $state<BillingCatalogProduct | null>(null);
 let monthlyPlans = $state<BillingCatalogProduct[]>([]);
@@ -36,45 +29,18 @@ const CHECKOUT_BUTTON_SECONDARY =
 const CHECKOUT_BUTTON_SECONDARY_MUTED =
 	"border border-border-subtle bg-bg-primary text-text-secondary hover:bg-bg-hover hover:text-text-primary";
 const PRICING_CARD_BASE =
-	"relative flex min-h-[344px] flex-col rounded-[10px] border bg-bg-content px-5 py-5 transition-colors";
+	"relative flex min-h-[296px] flex-col rounded-[10px] border bg-bg-content px-5 py-5 transition-colors";
 const PRICING_CARD_FEATURED = "border-brand/55 bg-bg-content";
 const PRICING_CARD_DEFAULT = "border-border-subtle hover:border-border-strong";
 const POPULAR_RAIL_CLASS = "absolute -top-px left-5 right-5 h-px bg-brand/70";
 const POPULAR_BADGE_CLASS =
 	"absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg";
 
-const PLAN_COPY: Record<Exclude<PlanTier, "custom">, PlanCopy> = {
-	free: {
-		name: "Free",
-		description: "Try Cohub with a small monthly balance.",
-		features: ["Basic access", "Good for evaluation"],
-	},
-	plus: {
-		name: "Plus",
-		description: "For steady personal agent work.",
-		features: ["Higher everyday limits", "Standard support"],
-	},
-	pro: {
-		name: "Pro",
-		description: "For active builders and small teams.",
-		features: ["Advanced capabilities", "Priority support"],
-	},
-	max: {
-		name: "Max",
-		description: "For heavier self-serve workloads.",
-		features: [
-			"Highest self-serve limits",
-			"Priority queue",
-			"Dedicated support",
-		],
-	},
-};
-
 function getCheckoutButtonClass(
 	emphasized: boolean,
 	options: { muted?: boolean; alignBottom?: boolean } = {},
 ): string {
-	const spacing = options.alignBottom ? "mt-auto" : "mt-5";
+	const spacing = options.alignBottom ? "mt-auto" : "mt-7";
 	const variant = emphasized
 		? CHECKOUT_BUTTON_PRIMARY
 		: options.muted
@@ -119,24 +85,6 @@ function getBalance(product: BillingCatalogProduct): number {
 	}
 	return product.pricing.amountUsd;
 }
-
-function getTotalPeriodBalance(product: BillingCatalogProduct): number {
-	if (product.display.creditBenefits.length > 0) {
-		return product.display.creditBenefits.reduce(
-			(sum, b) => sum + b.periodAmountUsd,
-			0,
-		);
-	}
-	return getBalance(product);
-}
-
-function getMultiplier(product: BillingCatalogProduct): string | null {
-	const totalBalance = getTotalPeriodBalance(product);
-	const price = product.pricing.amountUsd;
-	if (price <= 0 || totalBalance <= price * 1.005) return null;
-	return `${(totalBalance / price).toFixed(2)}×`;
-}
-
 function getAnnualNote(product: BillingCatalogProduct): string | null {
 	if (product.interval !== "yearly") return null;
 	const annual = product.pricing.amountUsd;
@@ -144,46 +92,47 @@ function getAnnualNote(product: BillingCatalogProduct): string | null {
 	return `${formatUsd(annual)} billed yearly · ${formatUsd(monthly)}/mo`;
 }
 
-// Yearly savings, derived from catalog prices instead of catalog copy.
-const yearlySavingsLabel = $derived.by(() => {
-	for (const yearly of yearlyPlans) {
-		const monthly = monthlyPlans.find(
-			(plan) => getPlanTier(plan) === getPlanTier(yearly),
+function getYearlySavings(product: BillingCatalogProduct): string | null {
+	if (product.interval !== "yearly") return null;
+	if (
+		typeof product.pricing.discountRate === "number" &&
+		product.pricing.discountRate > 0
+	) {
+		return `Save ${Math.round(product.pricing.discountRate * 100)}%`;
+	}
+	const compareAt = product.pricing.compareAtAmountUsd;
+	if (typeof compareAt === "number" && compareAt > product.pricing.amountUsd) {
+		const percent = Math.round(
+			((compareAt - product.pricing.amountUsd) / compareAt) * 100,
 		);
-		if (!monthly || monthly.pricing.amountUsd <= 0) continue;
-		const annualized = monthly.pricing.amountUsd * 12;
-		const saved = annualized - yearly.pricing.amountUsd;
-		if (saved <= 0) continue;
-		const percent = Math.round((saved / annualized) * 100);
-		if (percent >= 1) return `Save ${percent}%`;
-		return `Save ${formatUsd(saved)}`;
+		return percent > 0 ? `Save ${percent}%` : null;
+	}
+	const monthly = monthlyPlans.find(
+		(plan) => getPlanTier(plan) === getPlanTier(product),
+	);
+	if (!monthly || monthly.pricing.amountUsd <= 0) return null;
+	const annualized = monthly.pricing.amountUsd * 12;
+	const saved = annualized - product.pricing.amountUsd;
+	if (saved <= 0) return null;
+	const percent = Math.round((saved / annualized) * 100);
+	return percent > 0 ? `Save ${percent}%` : null;
+}
+
+const yearlySavingsLabel = $derived.by(() => {
+	for (const plan of yearlyPlans) {
+		const savings = getYearlySavings(plan);
+		if (savings) return savings;
 	}
 	return null;
 });
 
-function getPlanTier(product: BillingCatalogProduct): PlanTier {
-	const key = product.key.toLowerCase();
-	const name = product.name.toLowerCase();
-	const source = `${key} ${name}`;
+function getPlanTier(product: BillingCatalogProduct): string {
+	const source = `${product.key} ${product.name}`.toLowerCase();
 	if (isFree(product) || source.includes("free")) return "free";
 	if (source.includes("max")) return "max";
 	if (source.includes("pro") || source.includes("standard")) return "pro";
 	if (source.includes("plus")) return "plus";
-	return "custom";
-}
-
-function getPlanCopy(product: BillingCatalogProduct): PlanCopy {
-	const tier = getPlanTier(product);
-	if (tier !== "custom") return PLAN_COPY[tier];
-	return {
-		name: product.name,
-		description: "Flexible agent balance for your workspace.",
-		features: ["Workspace access", "Usage-based balance"],
-	};
-}
-
-function getPlanFeatureLabel(product: BillingCatalogProduct): string {
-	return `${formatUsd(getBalance(product))} balance / mo`;
+	return product.key;
 }
 
 function getPackTitle(product: BillingCatalogProduct): string {
@@ -295,7 +244,6 @@ onMount(() => {
 
 	<main class="mx-auto w-full max-w-6xl px-5 pb-20 pt-8 sm:px-8 sm:pt-14">
 		<div class="mb-10 max-w-3xl sm:mb-12">
-			<p class="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-placeholder">Pricing</p>
 			<h1 class="text-[clamp(34px,6vw,60px)] font-semibold leading-[0.98] tracking-[-0.055em] text-text-primary">
 				Pay for the agent work you run.
 			</h1>
@@ -313,7 +261,6 @@ onMount(() => {
 			<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 				<div>
 					<h2 class="text-[15px] font-semibold tracking-tight">Plans</h2>
-					<p class="mt-1 text-[12px] text-text-tertiary">Monthly balance for ongoing work.</p>
 				</div>
 				{#if !catalogLoading}
 					<div class="inline-flex w-fit rounded-[7px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
@@ -350,9 +297,8 @@ onMount(() => {
 					{#each visiblePlans as product (product.key)}
 						{@const recommended = isRecommended(product)}
 						{@const free = isFree(product)}
-						{@const multiplier = getMultiplier(product)}
 						{@const annualNote = getAnnualNote(product)}
-						{@const copy = getPlanCopy(product)}
+						{@const yearlySavings = getYearlySavings(product)}
 						<div class={getPricingCardClass(recommended)}>
 							{#if recommended}
 								<div class={POPULAR_RAIL_CLASS}></div>
@@ -361,12 +307,11 @@ onMount(() => {
 
 							<div class="space-y-2">
 								<div class="flex items-start justify-between gap-3">
-									<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{copy.name}</h3>
-									{#if product.interval === "yearly"}
-										<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">Yearly</span>
+									<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{product.name}</h3>
+									{#if yearlySavings}
+										<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">{yearlySavings}</span>
 									{/if}
 								</div>
-								<p class="min-h-9 text-[12px] leading-[18px] text-text-tertiary">{copy.description}</p>
 							</div>
 
 							<div class="mt-5 border-t border-border-subtle/70 pt-5">
@@ -386,12 +331,12 @@ onMount(() => {
 							<ul class="mt-5 flex-1 space-y-2.5">
 								<li class="flex items-start gap-2 text-[12px] leading-[18px] text-text-tertiary">
 									<Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
-									<span>{getPlanFeatureLabel(product)}</span>
+									<span>{formatUsd(getBalance(product))} balance / mo</span>
 								</li>
-								{#each copy.features as feature}
+								{#each product.display.benefits.slice(0, 3) as benefit}
 									<li class="flex items-start gap-2 text-[12px] leading-[18px] text-text-tertiary">
 										<Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
-										<span>{feature}</span>
+										<span>{benefit}</span>
 									</li>
 								{/each}
 							</ul>
@@ -433,7 +378,7 @@ onMount(() => {
 			{:else}
 				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each packs as product (product.key)}
-						<div class="relative flex min-h-[198px] flex-col rounded-[10px] border border-border-subtle bg-bg-content px-5 py-5 transition-colors hover:border-border-strong">
+						<div class="relative flex min-h-[232px] flex-col rounded-[10px] border border-border-subtle bg-bg-content px-5 py-5 transition-colors hover:border-border-strong">
 							<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{getPackTitle(product)}</h3>
 
 							<div class="mt-5 border-t border-border-subtle/70 pt-5">
