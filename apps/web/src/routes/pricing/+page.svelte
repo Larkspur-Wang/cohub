@@ -43,7 +43,7 @@ function formatUsd(value: number): string {
 function getBalance(product: BillingCatalogProduct): number {
 	if (product.display.creditBenefits.length > 0) {
 		return product.display.creditBenefits.reduce(
-			(sum, b) => sum + b.periodAmountUsd,
+			(sum, b) => sum + b.cycleAmountUsd,
 			0,
 		);
 	}
@@ -53,11 +53,21 @@ function getBalance(product: BillingCatalogProduct): number {
 	return product.pricing.amountUsd;
 }
 
+function getTotalPeriodBalance(product: BillingCatalogProduct): number {
+	if (product.display.creditBenefits.length > 0) {
+		return product.display.creditBenefits.reduce(
+			(sum, b) => sum + b.periodAmountUsd,
+			0,
+		);
+	}
+	return getBalance(product);
+}
+
 function getMultiplier(product: BillingCatalogProduct): string | null {
-	const balance = getBalance(product);
+	const totalBalance = getTotalPeriodBalance(product);
 	const price = product.pricing.amountUsd;
-	if (price <= 0 || balance <= price * 1.005) return null;
-	return `${(balance / price).toFixed(2)}×`;
+	if (price <= 0 || totalBalance <= price * 1.005) return null;
+	return `${(totalBalance / price).toFixed(2)}×`;
 }
 
 function getAnnualNote(product: BillingCatalogProduct): string | null {
@@ -80,9 +90,8 @@ const yearlySavingsLabel = $derived.by(() => {
 			const annualized = monthly.pricing.amountUsd * 12;
 			const saved = annualized - plan.pricing.amountUsd;
 			if (saved > 0) {
-				const freeMonths = Math.round(saved / monthly.pricing.amountUsd);
-				if (freeMonths >= 1)
-					return `${freeMonths} month${freeMonths === 1 ? "" : "s"} free`;
+				const percent = Math.round((saved / annualized) * 100);
+				if (percent >= 1) return `Save ${percent}%`;
 				return `Save ${formatUsd(saved)}`;
 			}
 		}
@@ -98,7 +107,7 @@ function getDiscount(product: BillingCatalogProduct): string | null {
 		typeof product.pricing.discountRate === "number" &&
 		product.pricing.discountRate > 0
 	)
-		return `${Math.round(product.pricing.discountRate * 100)}% off`;
+		return `Save ${Math.round(product.pricing.discountRate * 100)}%`;
 	return null;
 }
 
@@ -138,8 +147,6 @@ async function loadCatalog() {
 			catalog.plans.filter((p) => p.interval === "yearly" && p.key !== freeKey),
 		);
 		packs = sortByPrice(catalog.addons);
-		// Default to yearly if available
-		if (yearlyPlans.length > 0) interval = "yearly";
 	} catch (error) {
 		catalogError = "Failed to load pricing.";
 		console.warn("[pricing] Failed to load billing catalog", error);
@@ -300,9 +307,9 @@ onMount(() => {
 								{/if}
 								<div class="mt-3 text-[13px] text-text-secondary">
 									{#if free}
-										{formatUsd(balance)} usage balance / month
+										{formatUsd(balance)} balance / month
 									{:else}
-										{formatUsd(balance)} balance / cycle
+										{formatUsd(balance)} balance / mo
 										{#if multiplier}
 											<span class="ml-1 text-[11px] text-text-tertiary">({multiplier} value)</span>
 										{/if}
@@ -383,7 +390,10 @@ onMount(() => {
 								type="button"
 								onclick={() => startCheckout(product)}
 								disabled={checkoutBusyKey !== null}
-								class="mt-auto pt-5 inline-flex h-10 w-full items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input text-[13px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+								class="mt-auto pt-5 inline-flex h-10 w-full items-center justify-center rounded-[6px] text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50
+								{packRecommended
+									? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover'
+									: 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}"
 							>
 								{#if checkoutBusyKey === product.key}
 									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
