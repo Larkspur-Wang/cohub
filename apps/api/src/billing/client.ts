@@ -37,6 +37,9 @@ import {
   COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_TOKEN_TYPES,
   type BillingAccountState,
+  type BillingBalanceActivity,
+  type BillingBalanceActivityList,
+  type BillingBalanceActivityListInput,
   type BillingCatalog,
   type BillingCatalogProduct,
   type BillingCheckoutInput,
@@ -520,6 +523,217 @@ function groupCreditGrants(
       (group): group is BillingCreditExpiryGroup =>
         !!group && group.grants.length > 0,
     );
+}
+
+type UsageActivityDraft = {
+  id: string;
+  tokenType: string;
+  usageType: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  operationId: string | null;
+  reason: string | null;
+  createdAt: string;
+  coveredAmountUsd: number;
+  overageAmountUsd: number;
+};
+
+function balanceActivityCreatedAtDesc(a: { createdAt: string }, b: { createdAt: string }): number {
+  const leftTime = Date.parse(a.createdAt);
+  const rightTime = Date.parse(b.createdAt);
+  const leftValue = Number.isNaN(leftTime) ? 0 : leftTime;
+  const rightValue = Number.isNaN(rightTime) ? 0 : rightTime;
+  return rightValue - leftValue;
+}
+
+function formatBillingLabel(value: string | null): string {
+  if (!value) return "Usage";
+  return value
+    .split(/[._-]/g)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function transactionActivityTitle(type: CreditTransaction["type"]): string {
+  switch (type) {
+    case "grant":
+      return "Credits added";
+    case "refund":
+      return "Refund";
+    case "expire":
+      return "Credits expired";
+    case "revoke":
+      return "Credits revoked";
+    case "adjust":
+      return "Balance adjusted";
+    default:
+      return "Balance activity";
+  }
+}
+
+function transactionActivityAmountUsd(transaction: CreditTransaction): number {
+  const amountUsd = amountToUsd(transaction.amount, transaction.token_type);
+  switch (transaction.type) {
+    case "consume":
+    case "expire":
+    case "revoke":
+      return -amountUsd;
+    case "grant":
+    case "refund":
+    case "adjust":
+      return amountUsd;
+    case "settlement":
+      return 0;
+    default:
+      return amountUsd;
+  }
+}
+
+function mapTransactionActivity(
+  transaction: CreditTransaction,
+): BillingBalanceActivity | null {
+  if (transaction.type === "consume" || transaction.type === "settlement") {
+    return null;
+  }
+  const amountUsd = transactionActivityAmountUsd(transaction);
+  if (amountUsd === 0) return null;
+  return {
+    id: `transaction:${transaction.id}`,
+    kind: transaction.type,
+    tokenType: transaction.token_type,
+    title: transactionActivityTitle(transaction.type),
+    description: transaction.reason ?? transaction.source_type ?? null,
+    sourceType: transaction.source_type ?? null,
+    sourceId: transaction.source_id ?? null,
+    operationId: transaction.operation_id ?? null,
+    amountUsd,
+    status: null,
+    createdAt: transaction.created_at,
+  };
+}
+
+function getUsageActivityDraft(
+  drafts: Map<string, UsageActivityDraft>,
+  input: {
+    id: string;
+    tokenType: string;
+    usageType: string | null;
+    sourceType: string | null;
+    sourceId: string | null;
+    operationId: string | null;
+    reason: string | null;
+    createdAt: string;
+  },
+): UsageActivityDraft {
+  const key = input.operationId ? `operation:${input.operationId}` : input.id;
+  const existing = drafts.get(key);
+  if (existing) {
+    if (new Date(input.createdAt).getTime() > new Date(existing.createdAt).getTime()) {
+      existing.createdAt = input.createdAt;
+    }
+    existing.usageType ??= input.usageType;
+    existing.sourceType ??= input.sourceType;
+    existing.sourceId ??= input.sourceId;
+    existing.reason ??= input.reason;
+    return existing;
+  }
+  const draft: UsageActivityDraft = {
+    id: key,
+    tokenType: input.tokenType,
+    usageType: input.usageType,
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    operationId: input.operationId,
+    reason: input.reason,
+    createdAt: input.createdAt,
+    coveredAmountUsd: 0,
+    overageAmountUsd: 0,
+  };
+  drafts.set(key, draft);
+  return draft;
+}
+
+function mapUsageActivity(draft: UsageActivityDraft): BillingBalanceActivity | null {
+  const totalAmountUsd = roundUsd(draft.coveredAmountUsd + draft.overageAmountUsd);
+  if (totalAmountUsd <= 0) return null;
+  const hasCovered = draft.coveredAmountUsd > 0;
+  const hasOverage = draft.overageAmountUsd > 0;
+  return {
+    id: `usage:${draft.id}`,
+    kind: "usage",
+    tokenType: draft.tokenType,
+    title: formatBillingLabel(draft.usageType),
+    description: draft.reason ?? draft.sourceType,
+    sourceType: draft.sourceType,
+    sourceId: draft.sourceId,
+    operationId: draft.operationId,
+    amountUsd: -totalAmountUsd,
+    status: hasCovered && hasOverage ? "partial" : hasOverage ? "overage" : "covered",
+    createdAt: draft.createdAt,
+  };
+}
+
+function addUsageTransactionDraft(
+  drafts: Map<string, UsageActivityDraft>,
+  transaction: CreditTransaction,
+): void {
+  const draft = getUsageActivityDraft(drafts, {
+    id: `transaction:${transaction.id}`,
+    tokenType: transaction.token_type,
+    usageType: transaction.usage_type ?? null,
+    sourceType: transaction.source_type ?? null,
+    sourceId: transaction.source_id ?? null,
+    operationId: transaction.operation_id ?? null,
+    reason: transaction.reason ?? null,
+    createdAt: transaction.created_at,
+  });
+  draft.coveredAmountUsd = roundUsd(
+    draft.coveredAmountUsd + amountToUsd(transaction.amount, transaction.token_type),
+  );
+}
+
+function addUsageOverageDraft(
+  drafts: Map<string, UsageActivityDraft>,
+  overage: UsageOverage,
+): void {
+  const draft = getUsageActivityDraft(drafts, {
+    id: `overage:${overage.id}`,
+    tokenType: overage.token_type,
+    usageType: overage.usage_type ?? null,
+    sourceType: overage.source_type,
+    sourceId: overage.source_id,
+    operationId: overage.operation_id,
+    reason: overage.reason ?? null,
+    createdAt: overage.created_at,
+  });
+  draft.overageAmountUsd = roundUsd(
+    draft.overageAmountUsd + amountToUsd(overage.original_amount, overage.token_type),
+  );
+}
+
+function buildBalanceActivities(input: {
+  transactions: CreditTransaction[];
+  overages: UsageOverage[];
+}): BillingBalanceActivity[] {
+  const usageDrafts = new Map<string, UsageActivityDraft>();
+  const activities: BillingBalanceActivity[] = [];
+  for (const transaction of input.transactions) {
+    if (transaction.type === "consume") {
+      addUsageTransactionDraft(usageDrafts, transaction);
+      continue;
+    }
+    const activity = mapTransactionActivity(transaction);
+    if (activity) activities.push(activity);
+  }
+  for (const overage of input.overages) {
+    addUsageOverageDraft(usageDrafts, overage);
+  }
+  for (const draft of usageDrafts.values()) {
+    const activity = mapUsageActivity(draft);
+    if (activity) activities.push(activity);
+  }
+  return activities.sort(balanceActivityCreatedAtDesc);
 }
 
 function mapUsageOverage(overage: UsageOverage): BillingOpenOverageStatus {
@@ -1062,6 +1276,28 @@ function emptyUsageRecordList(input: {
   };
 }
 
+function emptyBalanceActivityList(input: {
+  userId: string;
+  tokenType: string;
+  status: BillingPluginStatus;
+  page: number;
+  limit: number;
+}): BillingBalanceActivityList {
+  return {
+    userId: input.userId,
+    billing: input.status,
+    tokenType: input.tokenType,
+    unit: getCreditUnit(input.tokenType),
+    page: input.page,
+    limit: input.limit,
+    items: [],
+    pagination: {
+      maxPage: 0,
+      totalCount: 0,
+    },
+  };
+}
+
 function emptyOpenOverageList(input: {
   userId: string;
   tokenType: string;
@@ -1383,6 +1619,20 @@ export function createDisabledBillingOperations(
       });
     },
 
+    async listBalanceActivities(
+      input: BillingBalanceActivityListInput,
+    ): Promise<BillingBalanceActivityList> {
+      const tokenType =
+        input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+      return emptyBalanceActivityList({
+        userId: input.userId,
+        tokenType,
+        status,
+        page: input.page ?? 1,
+        limit: input.limit ?? 10,
+      });
+    },
+
     async getFeatureEntitlement(): Promise<BillingFeatureEntitlement | null> {
       return null;
     },
@@ -1610,6 +1860,53 @@ export function createTalesofaiBillingOperations(
       pagination: {
         maxPage: response.pagination.max_page,
         totalCount: response.pagination.total_count,
+      },
+    };
+  };
+
+  const listBalanceActivities = async (
+    input: BillingBalanceActivityListInput,
+  ): Promise<BillingBalanceActivityList> => {
+    const tokenType = input.tokenType ?? COHUB_BILLING_TOKEN_TYPES.usdMicroCent;
+    const page = Math.max(1, Math.floor(input.page ?? 1));
+    const limit = Math.min(10, Math.max(1, Math.floor(input.limit ?? 10)));
+    await ensureCustomer({ userId: input.userId });
+    const [transactions, overages] = await Promise.all([
+      listAllPages((nextPage, nextLimit) =>
+        sdk.admin.credits.listTransactions({
+          business_key: businessKey,
+          external_user_id: input.userId,
+          token_type: tokenType,
+          sorting: "-created_at",
+          page: nextPage,
+          limit: nextLimit,
+        }),
+      ),
+      listAllPages((nextPage, nextLimit) =>
+        sdk.admin.credits.listUsageOverages({
+          business_key: businessKey,
+          external_user_id: input.userId,
+          token_type: tokenType,
+          sorting: "-created_at",
+          page: nextPage,
+          limit: nextLimit,
+        }),
+      ),
+    ]);
+    const activities = buildBalanceActivities({ transactions, overages });
+    const start = (page - 1) * limit;
+    const items = activities.slice(start, start + limit);
+    return {
+      userId: input.userId,
+      billing: status,
+      tokenType,
+      unit: getCreditUnit(tokenType),
+      page,
+      limit,
+      items,
+      pagination: {
+        maxPage: Math.ceil(activities.length / limit),
+        totalCount: activities.length,
       },
     };
   };
@@ -2484,6 +2781,8 @@ export function createTalesofaiBillingOperations(
     },
 
     listUsageRecords,
+
+    listBalanceActivities,
 
     getFeatureEntitlement,
 

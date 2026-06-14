@@ -1,4 +1,5 @@
 import type {
+  BillingBalanceActivityList,
   BillingCatalog,
   BillingCheckoutResult,
   BillingCreditStatus,
@@ -21,6 +22,17 @@ export class BillingApi {
       : "";
     return this.transport.request<{ credit: BillingCreditStatus }>(
       `/api/billing/credits${query}`,
+    );
+  }
+
+  async getBalanceActivities(input?: { tokenType?: string; page?: number; limit?: number }) {
+    const params = new URLSearchParams();
+    if (input?.tokenType) params.set("tokenType", input.tokenType);
+    if (input?.page) params.set("page", String(input.page));
+    if (input?.limit) params.set("limit", String(input.limit));
+    const query = params.toString();
+    return this.transport.request<{ activities: BillingBalanceActivityList }>(
+      `/api/billing/balance-activities${query ? `?${query}` : ""}`,
     );
   }
 

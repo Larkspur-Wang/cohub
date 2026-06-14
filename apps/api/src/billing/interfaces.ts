@@ -390,6 +390,49 @@ export type BillingUsagePreflight = {
   shortfall: number;
 };
 
+export type BillingBalanceActivityKind =
+  | "grant"
+  | "usage"
+  | "refund"
+  | "expire"
+  | "revoke"
+  | "adjust";
+
+export type BillingBalanceActivityStatus = "covered" | "overage" | "partial" | null;
+
+export type BillingBalanceActivity = {
+  id: string;
+  kind: BillingBalanceActivityKind;
+  tokenType: string;
+  title: string;
+  description: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  operationId: string | null;
+  amountUsd: number;
+  status: BillingBalanceActivityStatus;
+  createdAt: string;
+};
+
+export type BillingBalanceActivityList = BillingUserRef & {
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  page: number;
+  limit: number;
+  items: BillingBalanceActivity[];
+  pagination: {
+    maxPage: number;
+    totalCount: number;
+  };
+};
+
+export type BillingBalanceActivityListInput = BillingUserRef & {
+  tokenType?: CohubBillingTokenType;
+  page?: number;
+  limit?: number;
+};
+
 export type BillingUsageRecordInput = BillingUserRef & {
   amountUsd: number;
   usageType: CohubBillingUsageType;
@@ -475,6 +518,7 @@ export interface BillingOperations {
   preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight>;
   recordUsage(input: BillingUsageRecordInput): Promise<BillingUsageRecordResult>;
   listUsageRecords(input: BillingUsageRecordListInput): Promise<BillingUsageRecordList>;
+  listBalanceActivities(input: BillingBalanceActivityListInput): Promise<BillingBalanceActivityList>;
   getFeatureEntitlement(input: BillingFeatureEntitlementInput): Promise<BillingFeatureEntitlement | null>;
   checkFeatureLimit(input: BillingFeatureLimitInput): Promise<BillingFeatureLimitCheck>;
 }

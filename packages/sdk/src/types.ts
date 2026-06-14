@@ -341,6 +341,44 @@ export type BillingRedemptionResult = {
   itemCount: number;
 };
 
+export type BillingBalanceActivityKind =
+  | "grant"
+  | "usage"
+  | "refund"
+  | "expire"
+  | "revoke"
+  | "adjust";
+
+export type BillingBalanceActivityStatus = "covered" | "overage" | "partial" | null;
+
+export type BillingBalanceActivity = {
+  id: string;
+  kind: BillingBalanceActivityKind;
+  tokenType: string;
+  title: string;
+  description: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  operationId: string | null;
+  amountUsd: number;
+  status: BillingBalanceActivityStatus;
+  createdAt: string;
+};
+
+export type BillingBalanceActivityList = {
+  userId: string;
+  billing: BillingPluginStatus;
+  tokenType: string;
+  unit: BillingCreditUnit;
+  page: number;
+  limit: number;
+  items: BillingBalanceActivity[];
+  pagination: {
+    maxPage: number;
+    totalCount: number;
+  };
+};
+
 export type BillingUsageRecordStatus = {
   id: string;
   tokenType: string;

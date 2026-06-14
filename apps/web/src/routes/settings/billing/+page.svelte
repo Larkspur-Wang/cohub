@@ -1,25 +1,22 @@
 <script lang="ts">
 import type {
+	BillingBalanceActivityList,
 	BillingCatalog,
 	BillingCatalogProduct,
 	BillingCreditStatus,
-	BillingOpenOverageList,
 	BillingOrderList,
 	BillingOrderStatus,
 	BillingProductBillingInterval,
 	BillingSubscriptionHistoryList,
 	BillingSubscriptionHistoryStatus,
-	BillingUsageRecordList,
 } from "@neta-art/cohub";
 import {
 	AlertCircle,
 	ChevronLeft,
 	ChevronRight,
 	Clock,
-	CreditCard,
 	Gift,
 	Loader2,
-	ReceiptText,
 	RefreshCw,
 	Wallet,
 } from "lucide-svelte";
@@ -35,28 +32,24 @@ const currentSearch = $derived(page.url.search);
 type BillingTab = "balance" | "plans" | "addons" | "redeem";
 
 let balanceCredit = $state<BillingCreditStatus | null>(null);
-let balanceOverages = $state<BillingOpenOverageList | null>(null);
-let balanceUsage = $state<BillingUsageRecordList | null>(null);
+let balanceActivities = $state<BillingBalanceActivityList | null>(null);
 let billingCatalog = $state<BillingCatalog | null>(null);
 let billingOrders = $state<BillingOrderList | null>(null);
 let billingSubscriptions = $state<BillingSubscriptionHistoryList | null>(null);
 let creditLoading = $state(true);
-let overageLoading = $state(true);
-let usageLoading = $state(true);
+let activityLoading = $state(true);
 let catalogLoading = $state(true);
 let ordersLoading = $state(true);
 let subscriptionsLoading = $state(true);
 let creditError = $state("");
-let overageError = $state("");
-let usageError = $state("");
+let activityError = $state("");
 let catalogError = $state("");
 let ordersError = $state("");
 let subscriptionsError = $state("");
 let checkoutError = $state("");
 let redemptionError = $state("");
 let redemptionSuccess = $state("");
-let overagePage = $state(1);
-let usagePage = $state(1);
+let activityPage = $state(1);
 let ordersPage = $state(1);
 let subscriptionsPage = $state(1);
 let activeBillingTab = $state<BillingTab>("balance");
@@ -70,8 +63,7 @@ let billingActionBusyKey = $state<string | null>(null);
 let redemptionLoading = $state(false);
 let checkoutNow = $state(Date.now());
 let creditRequest: Promise<void> | null = null;
-let overageRequest: Promise<void> | null = null;
-let usageRequest: Promise<void> | null = null;
+let activityRequest: Promise<void> | null = null;
 let catalogRequest: Promise<void> | null = null;
 let ordersRequest: Promise<void> | null = null;
 let subscriptionsRequest: Promise<void> | null = null;
@@ -83,8 +75,7 @@ const balanceConfigured = $derived(
 		billingOrders?.billing.configured ??
 		billingSubscriptions?.billing.configured ??
 		balanceCredit?.billing.configured ??
-		balanceOverages?.billing.configured ??
-		balanceUsage?.billing.configured ??
+		balanceActivities?.billing.configured ??
 		true,
 );
 const billingStatusKnown = $derived(
@@ -93,15 +84,11 @@ const billingStatusKnown = $derived(
 			billingOrders?.billing ||
 			billingSubscriptions?.billing ||
 			balanceCredit?.billing ||
-			balanceOverages?.billing ||
-			balanceUsage?.billing,
+			balanceActivities?.billing,
 	),
 );
-const overageTotalPages = $derived(
-	Math.max(1, balanceOverages?.pagination.maxPage ?? 1),
-);
-const usageTotalPages = $derived(
-	Math.max(1, balanceUsage?.pagination.maxPage ?? 1),
+const activityTotalPages = $derived(
+	Math.max(1, balanceActivities?.pagination.maxPage ?? 1),
 );
 const ordersTotalPages = $derived(
 	Math.max(1, billingOrders?.pagination.maxPage ?? 1),
@@ -109,9 +96,7 @@ const ordersTotalPages = $derived(
 const subscriptionsTotalPages = $derived(
 	Math.max(1, billingSubscriptions?.pagination.maxPage ?? 1),
 );
-const anyBalanceLoading = $derived(
-	creditLoading || overageLoading || usageLoading,
-);
+const anyBalanceLoading = $derived(creditLoading || activityLoading);
 const anyBillingLoading = $derived(
 	anyBalanceLoading ||
 		catalogLoading ||
@@ -378,13 +363,10 @@ function historyAmount(value: {
 	);
 }
 
-function formatUsageType(value: string | null): string {
-	if (!value) return "Usage";
-	return value
-		.split(/[._-]/g)
-		.filter(Boolean)
-		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-		.join(" ");
+function activityStatusLabel(value: string | null): string {
+	if (value === "overage") return "Overage";
+	if (value === "partial") return "Partial";
+	return "";
 }
 
 function shortIdentifier(value: string | null): string {
@@ -454,17 +436,17 @@ async function loadCreditStatus(options: { force?: boolean } = {}) {
 	return creditRequest;
 }
 
-async function loadOveragesPage(
-	page = overagePage,
+async function loadActivityPage(
+	page = activityPage,
 	options: { force?: boolean } = {},
 ) {
-	if (overageRequest) {
-		if (!options.force) return overageRequest;
-		await overageRequest;
+	if (activityRequest) {
+		if (!options.force) return activityRequest;
+		await activityRequest;
 	}
-	overageLoading = true;
-	overageError = "";
-	overageRequest = (async () => {
+	activityLoading = true;
+	activityError = "";
+	activityRequest = (async () => {
 		if (
 			!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))
 		) {
@@ -472,68 +454,27 @@ async function loadOveragesPage(
 		}
 		try {
 			const nextPage = Math.max(1, Math.floor(page));
-			const { overages } = await sdk.billing.getOverages({
+			const { activities } = await sdk.billing.getBalanceActivities({
 				page: nextPage,
 				limit: 10,
 			});
-			balanceOverages = overages;
-			overagePage = overages.page;
+			balanceActivities = activities;
+			activityPage = activities.page;
 		} catch (error) {
 			if (
 				await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
 			) {
 				return;
 			}
-			overageError =
-				error instanceof Error ? error.message : "Failed to load overages";
-			console.error("[balance] Failed to load open overages:", error);
+			activityError =
+				error instanceof Error ? error.message : "Failed to load activity";
+			console.error("[balance] Failed to load activity:", error);
 		} finally {
-			overageLoading = false;
-			overageRequest = null;
+			activityLoading = false;
+			activityRequest = null;
 		}
 	})();
-	return overageRequest;
-}
-
-async function loadUsagePage(
-	page = usagePage,
-	options: { force?: boolean } = {},
-) {
-	if (usageRequest) {
-		if (!options.force) return usageRequest;
-		await usageRequest;
-	}
-	usageLoading = true;
-	usageError = "";
-	usageRequest = (async () => {
-		if (
-			!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` }))
-		) {
-			return;
-		}
-		try {
-			const nextPage = Math.max(1, Math.floor(page));
-			const { usage } = await sdk.billing.getUsageRecords({
-				page: nextPage,
-				limit: 10,
-			});
-			balanceUsage = usage;
-			usagePage = usage.page;
-		} catch (error) {
-			if (
-				await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
-			) {
-				return;
-			}
-			usageError =
-				error instanceof Error ? error.message : "Failed to load usage records";
-			console.error("[balance] Failed to load usage records:", error);
-		} finally {
-			usageLoading = false;
-			usageRequest = null;
-		}
-	})();
-	return usageRequest;
+	return activityRequest;
 }
 
 async function loadCatalog(options: { force?: boolean } = {}) {
@@ -656,8 +597,7 @@ async function loadSubscriptionsPage(
 function refreshBilling() {
 	void loadCatalog({ force: true });
 	void loadCreditStatus({ force: true });
-	void loadOveragesPage(overagePage, { force: true });
-	void loadUsagePage(usagePage, { force: true });
+	void loadActivityPage(activityPage, { force: true });
 	void loadOrdersPage(ordersPage, { force: true });
 	void loadSubscriptionsPage(subscriptionsPage, { force: true });
 }
@@ -695,8 +635,7 @@ async function redeemCode(event: SubmitEvent) {
 		await Promise.all([
 			loadCatalog({ force: true }),
 			loadCreditStatus({ force: true }),
-			loadOveragesPage(1, { force: true }),
-			loadUsagePage(1, { force: true }),
+			loadActivityPage(1, { force: true }),
 			loadOrdersPage(1, { force: true }),
 			loadSubscriptionsPage(1, { force: true }),
 		]);
@@ -863,14 +802,9 @@ async function cancelSubscriptionAutoRenew(
 	}
 }
 
-function goToOveragePage(page: number) {
-	if (overageLoading) return;
-	void loadOveragesPage(page);
-}
-
-function goToUsagePage(page: number) {
-	if (usageLoading) return;
-	void loadUsagePage(page);
+function goToActivityPage(page: number) {
+	if (activityLoading) return;
+	void loadActivityPage(page);
 }
 
 function goToOrdersPage(page: number) {
@@ -886,8 +820,7 @@ function goToSubscriptionsPage(page: number) {
 onMount(() => {
 	void loadCatalog();
 	void loadCreditStatus();
-	void loadOveragesPage();
-	void loadUsagePage();
+	void loadActivityPage();
 	void loadOrdersPage();
 	void loadSubscriptionsPage();
 	const interval = window.setInterval(() => {
@@ -960,7 +893,7 @@ $effect(() => {
 				</div>
 			{/if}
 
-			<section class="grid gap-3 py-5 md:grid-cols-4">
+			<section class="grid gap-3 py-5 md:grid-cols-3">
 				<div class="rounded-[6px] border border-border-subtle px-3 py-3 md:col-span-2">
 					<div class="text-[11px] uppercase tracking-wider text-text-tertiary">Subscription</div>
 					<div class="mt-2 truncate text-[14px] font-semibold text-text-primary">
@@ -991,7 +924,7 @@ $effect(() => {
 				<div class="rounded-[6px] border border-border-subtle px-3 py-3">
 					<div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-tertiary">
 						<Wallet class="h-3.5 w-3.5" />
-						<span>Net Balance</span>
+						<span>Balance</span>
 					</div>
 					<div class="mt-2 font-mono text-[18px] font-semibold tracking-tight {balanceCredit && balanceCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-primary'}">
 						{#if creditLoading && !balanceCredit}
@@ -1001,35 +934,7 @@ $effect(() => {
 						{/if}
 					</div>
 				</div>
-				<div class="grid gap-3 sm:grid-cols-2 md:grid-cols-1">
-					<div class="rounded-[6px] border border-border-subtle px-3 py-3">
-							<div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-tertiary">
-								<CreditCard class="h-3.5 w-3.5" />
-								<span>Available</span>
-							</div>
-							<div class="mt-2 font-mono text-[13px] font-semibold text-text-primary">
-								{#if creditLoading && !balanceCredit}
-									<span class="text-text-tertiary">Loading</span>
-								{:else}
-									{formatUsdAmount(balanceCredit?.balance.availableUsd ?? 0)}
-								{/if}
-							</div>
-						</div>
-						<div class="rounded-[6px] border border-border-subtle px-3 py-3">
-							<div class="flex items-center gap-2 text-[11px] uppercase tracking-wider text-text-tertiary">
-								<ReceiptText class="h-3.5 w-3.5" />
-								<span>Open Overage</span>
-							</div>
-							<div class="mt-2 font-mono text-[13px] font-semibold {balanceCredit?.overage.hasOpenOverage ? 'text-error-soft' : 'text-text-primary'}">
-								{#if creditLoading && !balanceCredit}
-									<span class="text-text-tertiary">Loading</span>
-								{:else}
-									{formatUsdAmount(balanceCredit?.balance.openOverageUsd ?? 0)}
-								{/if}
-							</div>
-						</div>
-					</div>
-				</section>
+			</section>
 
 			<div class="border-b border-border-subtle">
 				<div class="flex gap-1">
@@ -1429,93 +1334,57 @@ $effect(() => {
 				<section class="border-t border-border-subtle py-5">
 					<div class="flex items-center justify-between gap-3">
 						<div>
-							<h2 class="text-[13px] font-medium text-text-primary">Open Overage</h2>
-							<p class="mt-1 text-[11px] text-text-tertiary">{balanceOverages?.pagination.totalCount ?? 0} records</p>
+							<h2 class="text-[13px] font-medium text-text-primary">Activity</h2>
+							<p class="mt-1 text-[11px] text-text-tertiary">{balanceActivities?.pagination.totalCount ?? 0} records</p>
 						</div>
 						<div class="flex items-center gap-1">
-							<button type="button" onclick={() => goToOveragePage(overagePage - 1)} disabled={overageLoading || overagePage <= 1} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Previous page">
+							<button type="button" onclick={() => goToActivityPage(activityPage - 1)} disabled={activityLoading || activityPage <= 1} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Previous page">
 								<ChevronLeft class="h-3.5 w-3.5" />
 							</button>
-							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">{overagePage}/{overageTotalPages}</span>
-							<button type="button" onclick={() => goToOveragePage(overagePage + 1)} disabled={overageLoading || overagePage >= overageTotalPages} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Next page">
+							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">{activityPage}/{activityTotalPages}</span>
+							<button type="button" onclick={() => goToActivityPage(activityPage + 1)} disabled={activityLoading || activityPage >= activityTotalPages} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Next page">
 								<ChevronRight class="h-3.5 w-3.5" />
 							</button>
 						</div>
 					</div>
 
-					{#if overageError}
+					{#if activityError}
 						<div class="mt-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
 							<AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-							<span class="break-all">{overageError}</span>
+							<span class="break-all">{activityError}</span>
 						</div>
-					{:else if overageLoading && !balanceOverages}
+					{:else if activityLoading && !balanceActivities}
 						<div class="mt-3 h-20 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
-					{:else if !balanceOverages || balanceOverages.items.length === 0}
-						<p class="mt-4 text-[12px] text-text-tertiary">No open overage.</p>
-					{:else}
-						<div class="mt-3 divide-y divide-border-subtle rounded-[6px] border border-border-subtle">
-							{#each balanceOverages.items as item (item.id)}
-								<div class="grid gap-2 px-3 py-3 text-[12px] sm:grid-cols-[1fr_auto]">
-									<div class="min-w-0">
-										<div class="truncate font-medium text-text-primary">{formatUsageType(item.usageType)}</div>
-										<div class="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">{shortIdentifier(item.operationId)}</div>
-									</div>
-									<div class="font-mono text-error-soft sm:text-right">{formatUsdAmount(item.remainingAmountUsd)}</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</section>
-
-				<section class="border-t border-border-subtle py-5">
-					<div class="flex items-center justify-between gap-3">
-						<div>
-							<h2 class="text-[13px] font-medium text-text-primary">Usage Records</h2>
-							<p class="mt-1 text-[11px] text-text-tertiary">{balanceUsage?.pagination.totalCount ?? 0} records</p>
-						</div>
-						<div class="flex items-center gap-1">
-							<button type="button" onclick={() => goToUsagePage(usagePage - 1)} disabled={usageLoading || usagePage <= 1} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Previous page">
-								<ChevronLeft class="h-3.5 w-3.5" />
-							</button>
-							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">{usagePage}/{usageTotalPages}</span>
-							<button type="button" onclick={() => goToUsagePage(usagePage + 1)} disabled={usageLoading || usagePage >= usageTotalPages} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Next page">
-								<ChevronRight class="h-3.5 w-3.5" />
-							</button>
-						</div>
-					</div>
-
-					{#if usageError}
-						<div class="mt-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
-							<AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-							<span class="break-all">{usageError}</span>
-						</div>
-					{:else if usageLoading && !balanceUsage}
-						<div class="mt-3 h-20 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
-					{:else if !balanceUsage || balanceUsage.items.length === 0}
-						<p class="mt-4 text-[12px] text-text-tertiary">No usage records yet.</p>
+					{:else if !balanceActivities || balanceActivities.items.length === 0}
+						<p class="mt-4 text-[12px] text-text-tertiary">No activity yet.</p>
 					{:else}
 						<div class="mt-3 overflow-hidden rounded-[6px] border border-border-subtle">
 							<div class="grid grid-cols-[minmax(0,1fr)_8rem] gap-3 border-b border-border-subtle bg-bg-subtle px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-text-tertiary sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_8rem]">
-								<span>Usage</span>
-								<span class="hidden sm:block">Operation</span>
-								<span class="text-right">Amount</span>
+								<span>Activity</span>
+								<span class="hidden sm:block">Reference</span>
+								<span class="text-right">Change</span>
 							</div>
 							<div class="divide-y divide-border-subtle">
-								{#each balanceUsage.items as item (item.id)}
+								{#each balanceActivities.items as item (item.id)}
 									<div class="grid grid-cols-[minmax(0,1fr)_8rem] gap-3 px-3 py-3 text-[12px] sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_8rem]">
 										<div class="min-w-0">
-											<div class="truncate font-medium text-text-primary">{formatUsageType(item.usageType)}</div>
+											<div class="flex min-w-0 items-center gap-2">
+												<div class="truncate font-medium text-text-primary">{item.title}</div>
+												{#if activityStatusLabel(item.status)}
+													<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] leading-none text-text-tertiary">{activityStatusLabel(item.status)}</span>
+												{/if}
+											</div>
 											<div class="mt-0.5 text-[11px] text-text-tertiary">{formatBillingDate(item.createdAt)}</div>
 											<div class="mt-1 min-w-0 sm:hidden">
 												<div class="truncate font-mono text-[11px] text-text-tertiary" title={item.operationId ?? item.sourceId ?? ""}>{shortIdentifier(item.operationId ?? item.sourceId)}</div>
-												<div class="mt-0.5 truncate text-[11px] text-text-placeholder">{item.reason ?? item.sourceType ?? ""}</div>
+												<div class="mt-0.5 truncate text-[11px] text-text-placeholder">{item.description ?? item.sourceType ?? ""}</div>
 											</div>
 										</div>
 										<div class="hidden min-w-0 sm:block">
 											<div class="truncate font-mono text-[11px] text-text-tertiary" title={item.operationId ?? item.sourceId ?? ""}>{shortIdentifier(item.operationId ?? item.sourceId)}</div>
-											<div class="mt-0.5 truncate text-[11px] text-text-placeholder">{item.reason ?? item.sourceType ?? ""}</div>
+											<div class="mt-0.5 truncate text-[11px] text-text-placeholder">{item.description ?? item.sourceType ?? ""}</div>
 										</div>
-										<div class="font-mono text-[12px] text-text-primary sm:text-right">{formatUsdAmount(-Math.abs(item.amountUsd))}</div>
+										<div class="font-mono text-[12px] {item.amountUsd < 0 ? 'text-text-primary' : 'text-success-soft'} sm:text-right">{formatUsdAmount(item.amountUsd)}</div>
 									</div>
 								{/each}
 							</div>
