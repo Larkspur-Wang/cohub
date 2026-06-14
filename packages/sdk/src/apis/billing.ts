@@ -84,50 +84,53 @@ export class BillingApi {
     );
   }
 
-  async purchaseAddon(productKey: string, input?: { returnUrl?: string }) {
+  async createOrder(productKey: string, input?: { returnUrl?: string }) {
     return this.transport.request<{ checkout: BillingCheckoutResult }>(
-      `/api/billing/addons/${encodeURIComponent(productKey)}/purchase`,
+      "/api/billing/orders",
       {
         method: "POST",
-        body: JSON.stringify(input ?? {}),
+        body: JSON.stringify({ ...(input ?? {}), productKey }),
       },
     );
   }
 
   async cancelOrderCheckout(orderId: string) {
     return this.transport.request<{ order: BillingOrderStatus }>(
-      `/api/billing/orders/${encodeURIComponent(orderId)}/cancel-checkout`,
-      { method: "POST" },
+      `/api/billing/orders/${encodeURIComponent(orderId)}/checkout`,
+      { method: "DELETE" },
     );
   }
 
-  async subscribePlan(productKey: string, input?: { returnUrl?: string }) {
+  async createSubscription(productKey: string, input?: { returnUrl?: string }) {
     return this.transport.request<{ checkout: BillingCheckoutResult }>(
-      `/api/billing/plans/${encodeURIComponent(productKey)}/subscribe`,
+      "/api/billing/subscriptions",
       {
         method: "POST",
-        body: JSON.stringify(input ?? {}),
+        body: JSON.stringify({ ...(input ?? {}), productKey }),
       },
     );
   }
 
   async cancelSubscriptionCheckout(subscriptionId: string) {
     return this.transport.request<{ subscription: BillingSubscriptionHistoryStatus }>(
-      `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel-checkout`,
-      { method: "POST" },
+      `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/checkout`,
+      { method: "DELETE" },
     );
   }
 
   async cancelSubscriptionAutoRenew(subscriptionId: string) {
     return this.transport.request<{ subscription: BillingSubscriptionHistoryStatus }>(
-      `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel-auto-renew`,
-      { method: "POST" },
+      `/api/billing/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ cancelAtPeriodEnd: true }),
+      },
     );
   }
 
-  async redeemCode(input: { code: string }) {
+  async createRedemption(input: { code: string }) {
     return this.transport.request<{ redemption: BillingRedemptionResult }>(
-      "/api/billing/redemption-codes/redeem",
+      "/api/billing/redemptions",
       {
         method: "POST",
         body: JSON.stringify(input),

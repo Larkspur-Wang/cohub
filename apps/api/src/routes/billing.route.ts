@@ -41,11 +41,16 @@ function parseReturnUrl(value: unknown) {
   }
 }
 
-async function readCheckoutBody(c: { req: { json: () => Promise<unknown> } }) {
+async function readCheckoutBody(c: Context) {
   try {
     return await c.req.json();
   } catch {
-    return {};
+    throw new ApiError({
+      status: 400,
+      message: "Invalid JSON body",
+      code: "invalid_json_body",
+      responseBody: null,
+    });
   }
 }
 
@@ -150,13 +155,18 @@ router.get("/subscriptions", async (c) => {
   }
 });
 
-router.post("/addons/:productKey/purchase", async (c) => {
+router.post("/orders", async (c) => {
   const user = useAuth(c);
-  const body = await readCheckoutBody(c);
   try {
+    const body = await readCheckoutBody(c);
+    const productKey =
+      typeof (body as { productKey?: unknown }).productKey === "string"
+        ? (body as { productKey: string }).productKey.trim()
+        : "";
+    if (!productKey) return c.json({ message: "Product key is required" }, 400);
     const checkout = await billingOperations.purchaseAddon({
       userId: user.uuid,
-      productKey: c.req.param("productKey"),
+      productKey,
       returnUrl: parseReturnUrl((body as { returnUrl?: unknown }).returnUrl),
     });
     return c.json({ checkout });
@@ -166,7 +176,7 @@ router.post("/addons/:productKey/purchase", async (c) => {
   }
 });
 
-router.post("/orders/:orderId/cancel-checkout", async (c) => {
+router.delete("/orders/:orderId/checkout", async (c) => {
   const user = useAuth(c);
   try {
     const order = await billingOperations.cancelOrderCheckout({
@@ -180,13 +190,18 @@ router.post("/orders/:orderId/cancel-checkout", async (c) => {
   }
 });
 
-router.post("/plans/:productKey/subscribe", async (c) => {
+router.post("/subscriptions", async (c) => {
   const user = useAuth(c);
-  const body = await readCheckoutBody(c);
   try {
+    const body = await readCheckoutBody(c);
+    const productKey =
+      typeof (body as { productKey?: unknown }).productKey === "string"
+        ? (body as { productKey: string }).productKey.trim()
+        : "";
+    if (!productKey) return c.json({ message: "Product key is required" }, 400);
     const checkout = await billingOperations.createSubscription({
       userId: user.uuid,
-      productKey: c.req.param("productKey"),
+      productKey,
       returnUrl: parseReturnUrl((body as { returnUrl?: unknown }).returnUrl),
     });
     return c.json({ checkout });
@@ -196,7 +211,7 @@ router.post("/plans/:productKey/subscribe", async (c) => {
   }
 });
 
-router.post("/subscriptions/:subscriptionId/cancel-checkout", async (c) => {
+router.delete("/subscriptions/:subscriptionId/checkout", async (c) => {
   const user = useAuth(c);
   try {
     const subscription = await billingOperations.cancelSubscriptionCheckout({
@@ -210,9 +225,13 @@ router.post("/subscriptions/:subscriptionId/cancel-checkout", async (c) => {
   }
 });
 
-router.post("/subscriptions/:subscriptionId/cancel-auto-renew", async (c) => {
+router.patch("/subscriptions/:subscriptionId", async (c) => {
   const user = useAuth(c);
   try {
+    const body = await readCheckoutBody(c);
+    if ((body as { cancelAtPeriodEnd?: unknown }).cancelAtPeriodEnd !== true) {
+      return c.json({ message: "cancelAtPeriodEnd must be true" }, 400);
+    }
     const subscription = await billingOperations.cancelSubscriptionAutoRenew({
       userId: user.uuid,
       subscriptionId: c.req.param("subscriptionId"),
@@ -224,12 +243,12 @@ router.post("/subscriptions/:subscriptionId/cancel-auto-renew", async (c) => {
   }
 });
 
-router.post("/redemption-codes/redeem", async (c) => {
+router.post("/redemptions", async (c) => {
   const user = useAuth(c);
-  const body = await readCheckoutBody(c);
-  const code = parseRedemptionCode((body as { code?: unknown }).code);
-  if (!code) return c.json({ message: "Redemption code is required" }, 400);
   try {
+    const body = await readCheckoutBody(c);
+    const code = parseRedemptionCode((body as { code?: unknown }).code);
+    if (!code) return c.json({ message: "Redemption code is required" }, 400);
     const redemption = await billingOperations.redeemCode({
       userId: user.uuid,
       code,

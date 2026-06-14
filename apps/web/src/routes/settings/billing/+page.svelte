@@ -600,7 +600,7 @@ async function refreshExpiredPendingCheckouts() {
 	return checkoutExpiryRefreshRequest;
 }
 
-async function redeemCode(event: SubmitEvent) {
+async function createRedemption(event: SubmitEvent) {
 	event.preventDefault();
 	const code = redemptionCode.trim();
 	if (redemptionLoading || !code || !balanceConfigured || !billingStatusKnown)
@@ -609,7 +609,7 @@ async function redeemCode(event: SubmitEvent) {
 	redemptionError = "";
 	redemptionSuccess = "";
 	try {
-		const { redemption } = await sdk.billing.redeemCode({ code });
+		const { redemption } = await sdk.billing.createRedemption({ code });
 		if (!redemption.redeemed) {
 			redemptionError = redemption.message ?? "Redemption is not available";
 			return;
@@ -636,7 +636,7 @@ async function redeemCode(event: SubmitEvent) {
 	}
 }
 
-async function subscribePlan(product: BillingCatalogProduct) {
+async function createSubscription(product: BillingCatalogProduct) {
 	if (
 		checkoutBusyKey ||
 		isCurrentPlanProduct(product) ||
@@ -648,7 +648,7 @@ async function subscribePlan(product: BillingCatalogProduct) {
 	checkoutBusyKey = product.key;
 	checkoutError = "";
 	try {
-		const { checkout } = await sdk.billing.subscribePlan(product.key, {
+		const { checkout } = await sdk.billing.createSubscription(product.key, {
 			returnUrl: returnUrl(),
 		});
 		if (checkout.checkoutUsable && checkout.checkoutUrl) {
@@ -672,12 +672,12 @@ async function subscribePlan(product: BillingCatalogProduct) {
 	}
 }
 
-async function purchaseAddon(product: BillingCatalogProduct) {
+async function createOrder(product: BillingCatalogProduct) {
 	if (checkoutBusyKey || billingCatalog?.payment.available === false) return;
 	checkoutBusyKey = product.key;
 	checkoutError = "";
 	try {
-		const { checkout } = await sdk.billing.purchaseAddon(product.key, {
+		const { checkout } = await sdk.billing.createOrder(product.key, {
 			returnUrl: returnUrl(),
 		});
 		if (checkout.checkoutUsable && checkout.checkoutUrl) {
@@ -965,7 +965,7 @@ $effect(() => {
 										<div class="text-[11px] text-text-secondary">Balance included: {getProductBalanceText(product)}</div>
 									{/if}
 								</div>
-								<button type="button" onclick={() => subscribePlan(product)} disabled={checkoutBusyKey !== null || isCurrentPlanProduct(product) || billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false} class="mt-3 inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+								<button type="button" onclick={() => createSubscription(product)} disabled={checkoutBusyKey !== null || isCurrentPlanProduct(product) || billingCatalog?.hasActiveSubscription || billingCatalog?.payment.available === false} class="mt-3 inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 									{#if checkoutBusyKey === product.key}
 										<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
 										<span>Processing</span>
@@ -1107,7 +1107,7 @@ $effect(() => {
 								{#if productDescription(product)}
 									<p class="mt-2 text-[12px] leading-5 text-text-secondary">{productDescription(product)}</p>
 								{/if}
-								<button type="button" onclick={() => purchaseAddon(product)} disabled={checkoutBusyKey !== null || billingCatalog.payment.available === false} class="mt-auto inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+								<button type="button" onclick={() => createOrder(product)} disabled={checkoutBusyKey !== null || billingCatalog.payment.available === false} class="mt-auto inline-flex h-8 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 									{#if checkoutBusyKey === product.key}
 										<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
 										<span>Processing</span>
@@ -1203,7 +1203,7 @@ $effect(() => {
 			<section class="border-t border-border-subtle py-5">
 				<div class="max-w-xl">
 					<h2 class="text-[14px] font-medium text-text-primary">Redeem Code</h2>
-					<form class="mt-4 flex flex-col gap-2 sm:flex-row" onsubmit={redeemCode}>
+					<form class="mt-4 flex flex-col gap-2 sm:flex-row" onsubmit={createRedemption}>
 						<label class="sr-only" for="billing-redemption-code">Redemption code</label>
 						<input id="billing-redemption-code" bind:value={redemptionCode} autocomplete="off" spellcheck="false" disabled={redemptionLoading || !balanceConfigured || !billingStatusKnown} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-brand disabled:cursor-not-allowed disabled:opacity-55" placeholder="Redemption code" />
 						<button type="submit" disabled={redemptionLoading || !redemptionCode.trim() || !balanceConfigured || !billingStatusKnown} class="inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">

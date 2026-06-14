@@ -1998,17 +1998,26 @@ export function createTalesofaiBillingOperations(
     );
   };
 
-  const getDefaultPlanProductKey = async (
-    products: Product[],
-  ): Promise<string | null> => {
+  const getDefaultPlanProduct = async (): Promise<Product | null> => {
     try {
       const defaultPlan = await sdk.admin.businesses.getDefaultPlan({
         business_key: businessKey,
       });
       if (defaultPlan.status !== "enabled") return null;
+      const products = await listAllPages((page, limit) =>
+        sdk.admin.products.list({
+          business_key: businessKey,
+          page,
+          limit,
+        }),
+      );
       return (
-        products.find((product) => product.id === defaultPlan.product_id)
-          ?.key ?? null
+        products.find(
+          (product) =>
+            product.id === defaultPlan.product_id &&
+            product.status === "active" &&
+            product.billing_type === "recurring",
+        ) ?? null
       );
     } catch (error) {
       if (!isNotFound(error)) throw error;
@@ -2064,20 +2073,36 @@ export function createTalesofaiBillingOperations(
       currentSubscriptions,
       blockingSubscriptions,
       creditBenefits,
+      defaultPlanProduct,
     ] = await Promise.all([
       listPublicProducts(),
       resolvePaymentStatus(sdk),
       input?.userId ? listCurrentSubscriptions(input.userId) : Promise.resolve([]),
       input?.userId ? listBlockingSubscriptions(input.userId) : Promise.resolve([]),
       listActiveCreditsBenefits(),
+      getDefaultPlanProduct(),
     ]);
+    const hasActiveSubscription = blockingSubscriptions.some((subscription) =>
+      BILLING_BLOCKING_SUBSCRIPTION_STATUSES.includes(
+        subscription.status as (typeof BILLING_BLOCKING_SUBSCRIPTION_STATUSES)[number],
+      ),
+    );
+    const defaultPlanProductKey = input?.userId ? (defaultPlanProduct?.key ?? null) : null;
+    const catalogProducts =
+      input?.userId && defaultPlanProduct && !hasActiveSubscription
+        ? [
+            ...publicProducts.filter(
+              (product) => product.key !== defaultPlanProduct.key,
+            ),
+            defaultPlanProduct,
+          ]
+        : publicProducts;
     const products = input?.userId
       ? await appendReferencedSubscriptionProducts({
-          products: publicProducts,
+          products: catalogProducts,
           subscriptions: [...currentSubscriptions, ...blockingSubscriptions],
         })
-      : publicProducts;
-    const defaultPlanProductKey = await getDefaultPlanProductKey(products);
+      : catalogProducts;
     const mappedProducts = products
       .map((product) =>
         mapCatalogProduct(product, defaultPlanProductKey, creditBenefits),
@@ -2095,11 +2120,7 @@ export function createTalesofaiBillingOperations(
       plans,
       addons,
       currentSubscriptions: currentSubscriptions.map(mapSubscriptionSummary),
-      hasActiveSubscription: blockingSubscriptions.some((subscription) =>
-        BILLING_BLOCKING_SUBSCRIPTION_STATUSES.includes(
-          subscription.status as (typeof BILLING_BLOCKING_SUBSCRIPTION_STATUSES)[number],
-        ),
-      ),
+      hasActiveSubscription,
       defaultPlanProductKey,
     };
   };

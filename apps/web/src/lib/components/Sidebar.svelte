@@ -390,7 +390,7 @@ const showBillingBalanceEntry = $derived(
 			Boolean(billingCredit) ||
 			Boolean(billingCreditError)),
 );
-const currentPlanName = $derived(billingSubscriptionName);
+const currentSubscriptionName = $derived(billingSubscriptionName);
 
 function clearBillingCredit() {
 	billingCredit = null;
@@ -2860,9 +2860,9 @@ $effect(() => {
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
             {#if billingConfigured !== false}
               <div class="border-b border-border-subtle pb-1">
-                <a href={currentPlanName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentPlanName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
+                <a href={currentSubscriptionName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentSubscriptionName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
                   <CreditCard class="h-3.5 w-3.5" />
-                  <span>{currentPlanName ?? "Free Plan"}</span>
+                  <span>{currentSubscriptionName ?? "Free Plan"}</span>
                   {#if showBillingBalanceEntry}
                     <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                       {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
@@ -2873,7 +2873,7 @@ $effect(() => {
                         <span class="text-text-placeholder">—</span>
                       {/if}
                     </span>
-                  {:else if !currentPlanName}
+                  {:else if !currentSubscriptionName}
                     <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
                   {/if}
                 </a>
@@ -3540,13 +3540,13 @@ $effect(() => {
         {#if billingConfigured !== false}
           <div class="border-b border-border-subtle pb-1">
             <a
-              href={currentPlanName ? "/settings/billing" : "/pricing"}
+              href={currentSubscriptionName ? "/settings/billing" : "/pricing"}
               class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-              title={currentPlanName ? "Open billing details" : "View plans"}
-              onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}
+              title={currentSubscriptionName ? "Open billing details" : "View plans"}
+              onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}
             >
               <CreditCard class="w-3.5 h-3.5" />
-              <span>{currentPlanName ?? "Free Plan"}</span>
+              <span>{currentSubscriptionName ?? "Free Plan"}</span>
               {#if showBillingBalanceEntry}
                 <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                   {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
@@ -3557,7 +3557,7 @@ $effect(() => {
                     <span class="text-text-placeholder">—</span>
                   {/if}
                 </span>
-              {:else if !currentPlanName}
+              {:else if !currentSubscriptionName}
                 <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
               {/if}
             </a>

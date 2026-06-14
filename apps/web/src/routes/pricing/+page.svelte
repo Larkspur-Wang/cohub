@@ -215,8 +215,8 @@ async function startCheckout(product: BillingCatalogProduct) {
 		const input = { returnUrl: `${window.location.origin}/settings/billing` };
 		const { checkout } =
 			product.kind === "plan"
-				? await sdk.billing.subscribePlan(product.key, input)
-				: await sdk.billing.purchaseAddon(product.key, input);
+				? await sdk.billing.createSubscription(product.key, input)
+				: await sdk.billing.createOrder(product.key, input);
 		if (checkout.checkoutUsable && checkout.checkoutUrl) {
 			window.location.href = checkout.checkoutUrl;
 			return;
