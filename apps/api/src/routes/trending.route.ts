@@ -1,11 +1,48 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { sql, and, gte, lt } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as schema from "@cohub/db";
 import { getSpacePublicProfile } from "../lib/middleware.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
+import { redisCommandClient } from "../redis.js";
 
 const router = new Hono();
+
+const TRENDING_HTTP_CACHE_MAX_AGE_SECONDS = 5 * 60;
+const TRENDING_REDIS_CACHE_TTL_SECONDS = 24 * 60 * 60;
+const TRENDING_STALE_WHILE_REVALIDATE_SECONDS = 60 * 60;
+
+function setTrendingCacheHeaders(c: Context) {
+  c.header(
+    "Cache-Control",
+    `public, max-age=${TRENDING_HTTP_CACHE_MAX_AGE_SECONDS}, stale-while-revalidate=${TRENDING_STALE_WHILE_REVALIDATE_SECONDS}`,
+  );
+}
+
+function getTrendingCacheKey(name: string) {
+  return `api:trending:${name}:${getYesterdayWindow().todayStart.toISOString()}`;
+}
+
+async function getCachedTrending<T>(name: string, load: () => Promise<T>): Promise<T> {
+  const key = getTrendingCacheKey(name);
+
+  try {
+    const cached = await redisCommandClient.get(key);
+    if (cached) return JSON.parse(cached) as T;
+  } catch {
+    // Redis should not block the page.
+  }
+
+  const value = await load();
+
+  try {
+    await redisCommandClient.set(key, JSON.stringify(value), "EX", TRENDING_REDIS_CACHE_TTL_SECONDS);
+  } catch {
+    // Best-effort cache write.
+  }
+
+  return value;
+}
 
 /** Calculate yesterday's start (00:00) and today's start (00:00) as JS Dates */
 function getYesterdayWindow() {
@@ -17,9 +54,7 @@ function getYesterdayWindow() {
   return { yesterdayStart, todayStart };
 }
 
-// ─── Spaces ───────────────────────────────────────────────────────────
-
-router.get("/spaces", async (c) => {
+async function loadTrendingSpaces() {
   const { yesterdayStart, todayStart } = getYesterdayWindow();
 
   const rows = await db
@@ -42,7 +77,7 @@ router.get("/spaces", async (c) => {
     .limit(10);
 
   if (rows.length === 0) {
-    return c.json([]);
+    return [];
   }
 
   const spaceIds = rows.map((r) => r.spaceId as string);
@@ -62,7 +97,7 @@ router.get("/spaces", async (c) => {
   const spaceProfileMap = new Map(spaces.map((s) => [s.id, getSpacePublicProfile(s)]));
   const profileMap = await getProfilesByUuids(spaces.map((s) => s.userUuid));
 
-  const result = rows.map((r, i) => {
+  return rows.map((r, i) => {
     const uid = userMap.get(r.spaceId as string) ?? "";
     const userProfile = profileMap.get(uid) ?? fallbackPublicUserProfile(uid);
     return {
@@ -79,13 +114,9 @@ router.get("/spaces", async (c) => {
       requestCount: r.requestCount ?? 0,
     };
   });
+}
 
-  return c.json(result);
-});
-
-// ─── Users ────────────────────────────────────────────────────────────
-
-router.get("/users", async (c) => {
+async function loadTrendingUsers() {
   const { yesterdayStart, todayStart } = getYesterdayWindow();
 
   const rows = await db
@@ -111,7 +142,7 @@ router.get("/users", async (c) => {
     rows.map((r) => r.userId).filter((userId): userId is string => Boolean(userId)),
   );
 
-  const result = rows.map((r, i) => {
+  return rows.map((r, i) => {
     const userId = r.userId ?? "";
     const userProfile = profileMap.get(userId) ?? fallbackPublicUserProfile(userId);
     return {
@@ -125,13 +156,9 @@ router.get("/users", async (c) => {
       requestCount: r.requestCount ?? 0,
     };
   });
+}
 
-  return c.json(result);
-});
-
-// ─── Models ───────────────────────────────────────────────────────────
-
-router.get("/models", async (c) => {
+async function loadTrendingModels() {
   const { yesterdayStart, todayStart } = getYesterdayWindow();
 
   const rows = await db
@@ -154,7 +181,7 @@ router.get("/models", async (c) => {
     .orderBy(sql`total_tokens DESC`)
     .limit(10);
 
-  const result = rows.map((r, i) => ({
+  return rows.map((r, i) => ({
     rank: i + 1,
     provider: r.provider ?? "unknown",
     model: r.model ?? "unknown",
@@ -164,9 +191,27 @@ router.get("/models", async (c) => {
     sessionCount: Number(r.sessionCount),
     requestCount: r.requestCount ?? 0,
   }));
+}
 
-  return c.json(result);
+// ─── Spaces ───────────────────────────────────────────────────────────
+
+router.get("/spaces", async (c) => {
+  setTrendingCacheHeaders(c);
+  return c.json(await getCachedTrending("spaces", loadTrendingSpaces));
 });
 
+// ─── Users ────────────────────────────────────────────────────────────
+
+router.get("/users", async (c) => {
+  setTrendingCacheHeaders(c);
+  return c.json(await getCachedTrending("users", loadTrendingUsers));
+});
+
+// ─── Models ───────────────────────────────────────────────────────────
+
+router.get("/models", async (c) => {
+  setTrendingCacheHeaders(c);
+  return c.json(await getCachedTrending("models", loadTrendingModels));
+});
 
 export default router;
