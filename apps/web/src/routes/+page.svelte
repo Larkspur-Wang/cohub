@@ -85,7 +85,7 @@ onMount(async () => {
           class="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-brand-muted border border-brand-border text-[13px] text-brand font-medium hover:bg-brand-muted-hover transition-colors"
         >
           <Compass class="w-[14px] h-[14px]" />
-          Explore Wall
+          Explore
         </a>
         <a
           href="/spaces/new"

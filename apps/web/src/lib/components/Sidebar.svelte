@@ -2852,11 +2852,11 @@ $effect(() => {
       <div class="relative mt-auto w-full pt-2">
         {#if showUserMenu}
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
-            {#if showBillingBalanceEntry}
-              <div class="border-b border-border-subtle pb-1">
-                <a href="/settings/billing" class="rail-menu-item" title="Open billing details" onclick={(e) => { e.preventDefault(); openBillingSettings(); }}>
-                  <CreditCard class="h-3.5 w-3.5" />
-                  <span>Balance</span>
+            {#if billingConfigured !== false}
+              <a href={currentPlanName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentPlanName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
+                <Zap class="h-3.5 w-3.5" />
+                <span>{currentPlanName ?? "Free Plan"}</span>
+                {#if showBillingBalanceEntry}
                   <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                     {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
                       <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
@@ -2866,27 +2866,20 @@ $effect(() => {
                       <span class="text-text-placeholder">—</span>
                     {/if}
                   </span>
-                </a>
-                {#if billingCreditError}
-                  <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
-                {/if}
-              </div>
-            {/if}
-            {#if billingConfigured !== false}
-              <a href="/pricing" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/pricing'); }}>
-                <Zap class="h-3.5 w-3.5" />
-                <span>{currentPlanName ?? "Free Plan"}</span>
-                {#if !currentPlanName}
+                {:else if !currentPlanName}
                   <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
                 {/if}
               </a>
+              {#if showBillingBalanceEntry && billingCreditError}
+                <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
+              {/if}
             {/if}
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
             {:else}
               <a href="/" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
             {/if}
-            <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore Wall</span></a>
+            <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore</span></a>
             <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
             <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
             <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
@@ -3536,16 +3529,16 @@ $effect(() => {
         data-user-menu
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
-        {#if showBillingBalanceEntry}
-          <div class="border-b border-border-subtle">
-            <a
-              href="/settings/billing"
-              class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-              title="Open billing details"
-              onclick={(e) => { e.preventDefault(); openBillingSettings(); }}
-            >
-              <CreditCard class="w-3.5 h-3.5" />
-              <span>Balance</span>
+        {#if billingConfigured !== false}
+          <a
+            href={currentPlanName ? "/settings/billing" : "/pricing"}
+            class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+            title={currentPlanName ? "Open billing details" : "View plans"}
+            onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}
+          >
+            <Zap class="w-3.5 h-3.5" />
+            <span>{currentPlanName ?? "Free Plan"}</span>
+            {#if showBillingBalanceEntry}
               <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                 {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
                   <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
@@ -3555,24 +3548,13 @@ $effect(() => {
                   <span class="text-text-placeholder">—</span>
                 {/if}
               </span>
-            </a>
-            {#if billingCreditError}
-              <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
-            {/if}
-          </div>
-        {/if}
-        {#if billingConfigured !== false}
-          <a
-            href="/pricing"
-            class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-            onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/pricing'); }}
-          >
-            <Zap class="w-3.5 h-3.5" />
-            <span>{currentPlanName ?? "Free Plan"}</span>
-            {#if !currentPlanName}
+            {:else if !currentPlanName}
               <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
             {/if}
           </a>
+          {#if showBillingBalanceEntry && billingCreditError}
+            <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
+          {/if}
         {/if}
         {#if mode === "space"}
           <a
@@ -3599,7 +3581,7 @@ $effect(() => {
           onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}
         >
           <Compass class="w-3.5 h-3.5" />
-          <span>Explore Wall</span>
+          <span>Explore</span>
         </a>
         <a
           href="/trending"
