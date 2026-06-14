@@ -90,39 +90,6 @@ const yearlySavingsLabel = $derived.by(() => {
 	return null;
 });
 
-function formatValidity(days: number): string {
-	if (days % 365 === 0) {
-		const years = days / 365;
-		return `Valid for ${years} year${years === 1 ? "" : "s"}`;
-	}
-	if (days % 30 === 0) {
-		const months = days / 30;
-		return `Valid for ${months} month${months === 1 ? "" : "s"}`;
-	}
-	return `Valid for ${days} day${days === 1 ? "" : "s"}`;
-}
-
-function getPackValidity(product: BillingCatalogProduct): string | null {
-	const days = [
-		...new Set(
-			product.display.creditBenefits.map((b) => b.expiresInDays ?? null),
-		),
-	];
-	if (days.length === 1) {
-		const [only] = days;
-		return only === null ? "No expiration" : formatValidity(only);
-	}
-	return null;
-}
-
-// Shared validity across all packs, for the section subtitle.
-const packsValidityLabel = $derived.by(() => {
-	const labels = new Set(
-		packs.map((p) => getPackValidity(p)).filter((v): v is string => v !== null),
-	);
-	return labels.size === 1 ? [...labels][0] : null;
-});
-
 function getDiscount(product: BillingCatalogProduct): string | null {
 	const label = product.pricing.discountLabel?.trim();
 	if (label && !["none", "no discount", "null"].includes(label.toLowerCase()))
@@ -147,10 +114,8 @@ function isFree(product: BillingCatalogProduct): boolean {
 function getBenefits(product: BillingCatalogProduct): string[] {
 	if (product.display.benefits.length > 0)
 		return product.display.benefits.slice(0, 4);
-	const balance = getBalance(product);
-	const lines: string[] = [`${formatUsd(balance)} usage balance / cycle`];
-	if (product.display.description) lines.push(product.display.description);
-	return lines;
+	if (product.display.description) return [product.display.description];
+	return [];
 }
 
 async function loadCatalog() {
@@ -240,33 +205,23 @@ onMount(() => {
 
 <div class="min-h-screen bg-bg-primary text-text-primary">
 	<!-- Header -->
-	<header class="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-5 sm:px-8">
+	<header class="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
 		<a href="/" class="flex items-center gap-2" aria-label="Cohub home">
 			<div class="flex h-7 w-7 items-center justify-center rounded-[6px] bg-brand text-[12px] font-semibold text-brand-contrast-fg">C</div>
 			<span class="text-[13px] font-semibold tracking-tight">Cohub</span>
 		</a>
-		<nav class="flex items-center gap-3 text-[12px] text-text-tertiary">
-			<a href="/explore?view=wall" class="hidden transition-colors hover:text-text-secondary sm:inline">Explore</a>
-			<a href="/settings/billing" class="transition-colors hover:text-text-secondary">Billing</a>
-			<a href="/" class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">
-				Open app
-				<ChevronRight class="h-3.5 w-3.5" />
-			</a>
-		</nav>
+		<a href="/" class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">
+			Open app
+			<ChevronRight class="h-3.5 w-3.5" />
+		</a>
 	</header>
 
-	<main class="mx-auto w-full max-w-5xl px-5 pb-20 pt-10 sm:px-8 sm:pt-16">
+	<main class="mx-auto w-full max-w-6xl px-5 pb-20 pt-10 sm:px-8 sm:pt-16">
 		<!-- Hero -->
 		<div class="mb-12">
 			<h1 class="text-[clamp(32px,6vw,60px)] font-semibold leading-[1.0] tracking-[-0.05em] text-text-primary">
 				Pay for what your agents<br class="hidden sm:block" /> actually use.
 			</h1>
-			<p class="mt-4 text-[15px] leading-relaxed text-text-secondary">
-				Usage balance, not tokens. Plans for recurring work, packs to top up anytime.
-			</p>
-			<p class="mt-2 text-[12px] text-text-tertiary">
-				Every account includes a small free monthly balance.
-			</p>
 		</div>
 
 		{#if checkoutError}
@@ -304,15 +259,15 @@ onMount(() => {
 			</div>
 
 			{#if catalogLoading}
-				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each [1, 2, 3, 4] as i (i)}
-						<div class="h-64 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
+						<div class="h-72 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
 					{/each}
 				</div>
 			{:else if visiblePlans.length === 0}
 				<div class="rounded-[6px] border border-border-subtle bg-bg-subtle px-4 py-5 text-[13px] text-text-tertiary">No plans available.</div>
 			{:else}
-				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each visiblePlans as product (product.key)}
 						{@const recommended = isRecommended(product)}
 						{@const free = isFree(product)}
@@ -320,22 +275,19 @@ onMount(() => {
 						{@const multiplier = getMultiplier(product)}
 						{@const annualNote = getAnnualNote(product)}
 						{@const discount = getDiscount(product)}
-						<div class="relative flex flex-col rounded-[8px] border px-4 py-4 transition-colors {recommended ? 'border-brand/50 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
+						<div class="relative flex flex-col rounded-[8px] border px-5 py-5 transition-colors {recommended ? 'border-brand/50 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
 							{#if recommended}
-								<div class="absolute -top-px left-4 right-4 h-px bg-brand/60"></div>
-								<span class="absolute -top-2.5 left-4 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Most popular</span>
+								<div class="absolute -top-px left-5 right-5 h-px bg-brand/60"></div>
+								<span class="absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Most popular</span>
 							{/if}
 
 							<div class="mt-1">
 								<h3 class="text-[13px] font-semibold text-text-primary">{product.name}</h3>
-								{#if product.display.description}
-									<p class="mt-1 text-[11px] leading-[1.5] text-text-tertiary">{product.display.description}</p>
-								{/if}
 							</div>
 
 							<div class="mt-4">
 								<div class="flex items-baseline gap-1">
-									<span class="text-[26px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
+									<span class="text-[32px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
 									{#if !free}
 										<span class="text-[12px] text-text-tertiary">/ {product.interval === "yearly" ? "yr" : "mo"}</span>
 									{/if}
@@ -346,7 +298,7 @@ onMount(() => {
 								{#if discount}
 									<span class="mt-1.5 inline-block rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{discount}</span>
 								{/if}
-								<div class="mt-2 text-[12px] text-text-secondary">
+								<div class="mt-3 text-[13px] text-text-secondary">
 									{#if free}
 										{formatUsd(balance)} usage balance / month
 									{:else}
@@ -358,7 +310,7 @@ onMount(() => {
 								</div>
 							</div>
 
-							<ul class="mt-4 flex-1 space-y-1.5">
+							<ul class="mt-5 flex-1 space-y-2">
 								{#each getBenefits(product) as benefit}
 									<li class="flex items-start gap-2 text-[12px] text-text-tertiary">
 										<Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
@@ -371,7 +323,7 @@ onMount(() => {
 								type="button"
 								onclick={() => startCheckout(product)}
 								disabled={checkoutBusyKey !== null}
-								class="mt-5 inline-flex h-8 w-full items-center justify-center rounded-[6px] text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50
+								class="mt-5 inline-flex h-10 w-full items-center justify-center rounded-[6px] text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50
 									{recommended
 										? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover'
 										: free
@@ -394,30 +346,28 @@ onMount(() => {
 		</section>
 
 		<!-- Balance Packs -->
-		<section id="packs" class="mt-14">
+		<section id="packs" class="mt-16">
 			<div class="mb-5">
 				<h2 class="text-[15px] font-semibold tracking-tight">Balance Packs</h2>
-				<p class="mt-1 text-[13px] text-text-tertiary">Top up without changing your plan.{#if packsValidityLabel} {packsValidityLabel}.{/if}</p>
 			</div>
 
 			{#if catalogLoading}
-				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each [1, 2, 3, 4] as i (i)}
-						<div class="h-44 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
+						<div class="h-48 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
 					{/each}
 				</div>
 			{:else if packs.length === 0}
 				<div class="rounded-[6px] border border-border-subtle bg-bg-subtle px-4 py-5 text-[13px] text-text-tertiary">No balance packs available.</div>
 			{:else}
-				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each packs as product (product.key)}
 						{@const balance = getBalance(product)}
 						{@const multiplier = getMultiplier(product)}
 						{@const packRecommended = isRecommended(product)}
-						{@const validity = packsValidityLabel ? null : getPackValidity(product)}
-						<div class="relative flex flex-col rounded-[8px] border px-4 py-4 transition-colors {packRecommended ? 'border-brand/40 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
+						<div class="relative flex flex-col rounded-[8px] border px-5 py-5 transition-colors {packRecommended ? 'border-brand/40 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
 							{#if packRecommended}
-								<div class="absolute -top-px left-4 right-4 h-px bg-brand/60"></div>
+								<div class="absolute -top-px left-5 right-5 h-px bg-brand/60"></div>
 							{/if}
 							<div class="flex items-start justify-between gap-2">
 								<h3 class="text-[13px] font-semibold text-text-primary">{product.name}</h3>
@@ -425,21 +375,15 @@ onMount(() => {
 									<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{multiplier}</span>
 								{/if}
 							</div>
-							<div class="mt-3">
-								<div class="text-[24px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
-								<div class="mt-1 text-[12px] text-text-secondary">Get {formatUsd(balance)} balance</div>
+							<div class="mt-4">
+								<div class="text-[28px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
+								<div class="mt-1.5 text-[13px] text-text-secondary">{formatUsd(balance)} balance</div>
 							</div>
-							{#if product.display.description}
-								<p class="mt-2 text-[11px] leading-[1.5] text-text-tertiary">{product.display.description}</p>
-							{/if}
-							{#if validity}
-								<p class="mt-2 text-[11px] text-text-tertiary">{validity}</p>
-							{/if}
 							<button
 								type="button"
 								onclick={() => startCheckout(product)}
 								disabled={checkoutBusyKey !== null}
-								class="mt-auto pt-4 inline-flex h-8 w-full items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+								class="mt-auto pt-5 inline-flex h-10 w-full items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input text-[13px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
 							>
 								{#if checkoutBusyKey === product.key}
 									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -454,9 +398,5 @@ onMount(() => {
 			{/if}
 		</section>
 
-		<!-- Fine print -->
-		<p class="mt-14 border-t border-border-subtle pt-6 text-[11px] leading-6 text-text-placeholder">
-			Usage balance is applied to Cohub services and cannot be withdrawn. Balance nearest expiration is consumed first. Monthly plan balance resets each cycle and does not roll over. Each pack's validity is shown on the pack.
-		</p>
 	</main>
 </div>
