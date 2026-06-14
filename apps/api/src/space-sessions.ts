@@ -52,21 +52,26 @@ export class SpaceEnvValidationError extends Error {
 const normalizeRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
+const finiteNumberOrUndefined = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const finiteNumberOrZero = (value: unknown): number => finiteNumberOrUndefined(value) ?? 0;
+
 const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage | null => {
   if (!usage || typeof usage !== "object") return null;
   return {
-    input: typeof usage.input === "number" ? usage.input : undefined,
-    output: typeof usage.output === "number" ? usage.output : undefined,
-    cacheRead: typeof usage.cacheRead === "number" ? usage.cacheRead : undefined,
-    cacheWrite: typeof usage.cacheWrite === "number" ? usage.cacheWrite : undefined,
-    totalTokens: typeof usage.totalTokens === "number" ? usage.totalTokens : undefined,
+    input: finiteNumberOrUndefined(usage.input),
+    output: finiteNumberOrUndefined(usage.output),
+    cacheRead: finiteNumberOrUndefined(usage.cacheRead),
+    cacheWrite: finiteNumberOrUndefined(usage.cacheWrite),
+    totalTokens: finiteNumberOrUndefined(usage.totalTokens),
     cost: usage.cost && typeof usage.cost === "object"
       ? {
-          input: typeof usage.cost.input === "number" ? usage.cost.input : undefined,
-          output: typeof usage.cost.output === "number" ? usage.cost.output : undefined,
-          cacheRead: typeof usage.cost.cacheRead === "number" ? usage.cost.cacheRead : undefined,
-          cacheWrite: typeof usage.cost.cacheWrite === "number" ? usage.cost.cacheWrite : undefined,
-          total: typeof usage.cost.total === "number" ? usage.cost.total : undefined,
+          input: finiteNumberOrUndefined(usage.cost.input),
+          output: finiteNumberOrUndefined(usage.cost.output),
+          cacheRead: finiteNumberOrUndefined(usage.cost.cacheRead),
+          cacheWrite: finiteNumberOrUndefined(usage.cost.cacheWrite),
+          total: finiteNumberOrUndefined(usage.cost.total),
         }
       : null,
   };
@@ -178,6 +183,17 @@ const updateTokenUsageStatsHourly = async (input: {
   success: boolean;
 }) => {
   const usage = input.usage;
+  const inputTokens = finiteNumberOrZero(usage?.input);
+  const outputTokens = finiteNumberOrZero(usage?.output);
+  const cacheReadTokens = finiteNumberOrZero(usage?.cacheRead);
+  const cacheWriteTokens = finiteNumberOrZero(usage?.cacheWrite);
+  const totalTokens = finiteNumberOrZero(usage?.totalTokens);
+  const costInput = finiteNumberOrZero(usage?.cost?.input);
+  const costOutput = finiteNumberOrZero(usage?.cost?.output);
+  const costCacheRead = finiteNumberOrZero(usage?.cost?.cacheRead);
+  const costCacheWrite = finiteNumberOrZero(usage?.cost?.cacheWrite);
+  const costTotal = finiteNumberOrZero(usage?.cost?.total);
+
   await db.insert(tokenUsageStatsHourly).values({
     bucketStartAt: input.bucketStartAt,
     userId: input.userId,
@@ -188,16 +204,16 @@ const updateTokenUsageStatsHourly = async (input: {
     requestCount: 1,
     successCount: input.success ? 1 : 0,
     errorCount: input.success ? 0 : 1,
-    inputTokens: usage?.input ?? 0,
-    outputTokens: usage?.output ?? 0,
-    cacheReadTokens: usage?.cacheRead ?? 0,
-    cacheWriteTokens: usage?.cacheWrite ?? 0,
-    totalTokens: usage?.totalTokens ?? 0,
-    costInput: String(usage?.cost?.input ?? 0),
-    costOutput: String(usage?.cost?.output ?? 0),
-    costCacheRead: String(usage?.cost?.cacheRead ?? 0),
-    costCacheWrite: String(usage?.cost?.cacheWrite ?? 0),
-    costTotal: String(usage?.cost?.total ?? 0),
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens,
+    costInput: String(costInput),
+    costOutput: String(costOutput),
+    costCacheRead: String(costCacheRead),
+    costCacheWrite: String(costCacheWrite),
+    costTotal: String(costTotal),
     updatedAt: new Date(),
   }).onConflictDoUpdate({
     target: [
@@ -212,16 +228,16 @@ const updateTokenUsageStatsHourly = async (input: {
       requestCount: sql`${tokenUsageStatsHourly.requestCount} + 1`,
       successCount: sql`${tokenUsageStatsHourly.successCount} + ${input.success ? 1 : 0}`,
       errorCount: sql`${tokenUsageStatsHourly.errorCount} + ${input.success ? 0 : 1}`,
-      inputTokens: sql`${tokenUsageStatsHourly.inputTokens} + ${usage?.input ?? 0}`,
-      outputTokens: sql`${tokenUsageStatsHourly.outputTokens} + ${usage?.output ?? 0}`,
-      cacheReadTokens: sql`${tokenUsageStatsHourly.cacheReadTokens} + ${usage?.cacheRead ?? 0}`,
-      cacheWriteTokens: sql`${tokenUsageStatsHourly.cacheWriteTokens} + ${usage?.cacheWrite ?? 0}`,
-      totalTokens: sql`${tokenUsageStatsHourly.totalTokens} + ${usage?.totalTokens ?? 0}`,
-      costInput: sql`${tokenUsageStatsHourly.costInput} + ${String(usage?.cost?.input ?? 0)}::numeric`,
-      costOutput: sql`${tokenUsageStatsHourly.costOutput} + ${String(usage?.cost?.output ?? 0)}::numeric`,
-      costCacheRead: sql`${tokenUsageStatsHourly.costCacheRead} + ${String(usage?.cost?.cacheRead ?? 0)}::numeric`,
-      costCacheWrite: sql`${tokenUsageStatsHourly.costCacheWrite} + ${String(usage?.cost?.cacheWrite ?? 0)}::numeric`,
-      costTotal: sql`${tokenUsageStatsHourly.costTotal} + ${String(usage?.cost?.total ?? 0)}::numeric`,
+      inputTokens: sql`${tokenUsageStatsHourly.inputTokens} + ${inputTokens}`,
+      outputTokens: sql`${tokenUsageStatsHourly.outputTokens} + ${outputTokens}`,
+      cacheReadTokens: sql`${tokenUsageStatsHourly.cacheReadTokens} + ${cacheReadTokens}`,
+      cacheWriteTokens: sql`${tokenUsageStatsHourly.cacheWriteTokens} + ${cacheWriteTokens}`,
+      totalTokens: sql`${tokenUsageStatsHourly.totalTokens} + ${totalTokens}`,
+      costInput: sql`${tokenUsageStatsHourly.costInput} + ${String(costInput)}::numeric`,
+      costOutput: sql`${tokenUsageStatsHourly.costOutput} + ${String(costOutput)}::numeric`,
+      costCacheRead: sql`${tokenUsageStatsHourly.costCacheRead} + ${String(costCacheRead)}::numeric`,
+      costCacheWrite: sql`${tokenUsageStatsHourly.costCacheWrite} + ${String(costCacheWrite)}::numeric`,
+      costTotal: sql`${tokenUsageStatsHourly.costTotal} + ${String(costTotal)}::numeric`,
       updatedAt: new Date(),
     },
   });

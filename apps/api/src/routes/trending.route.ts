@@ -12,6 +12,11 @@ const TRENDING_HTTP_CACHE_MAX_AGE_SECONDS = 5 * 60;
 const TRENDING_REDIS_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const TRENDING_STALE_WHILE_REVALIDATE_SECONDS = 60 * 60;
 
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
 function setTrendingCacheHeaders(c: Context) {
   c.header(
     "Cache-Control",
@@ -108,10 +113,10 @@ async function loadTrendingSpaces() {
       userDisplay: userProfile.displayName,
       userProfile,
       spaceProfile: spaceProfileMap.get(r.spaceId as string) ?? { avatarUrl: null },
-      totalTokens: r.totalTokens ?? 0,
-      costTotal: Number(r.costTotal ?? 0),
-      sessionCount: Number(r.sessionCount),
-      requestCount: r.requestCount ?? 0,
+      totalTokens: toFiniteNumber(r.totalTokens),
+      costTotal: toFiniteNumber(r.costTotal),
+      sessionCount: toFiniteNumber(r.sessionCount),
+      requestCount: toFiniteNumber(r.requestCount),
     };
   });
 }
@@ -150,10 +155,10 @@ async function loadTrendingUsers() {
       userId,
       userDisplay: userProfile.displayName,
       userProfile,
-      totalTokens: r.totalTokens ?? 0,
-      costTotal: Number(r.costTotal ?? 0),
-      sessionCount: Number(r.sessionCount),
-      requestCount: r.requestCount ?? 0,
+      totalTokens: toFiniteNumber(r.totalTokens),
+      costTotal: toFiniteNumber(r.costTotal),
+      sessionCount: toFiniteNumber(r.sessionCount),
+      requestCount: toFiniteNumber(r.requestCount),
     };
   });
 }
@@ -186,10 +191,10 @@ async function loadTrendingModels() {
     provider: r.provider ?? "unknown",
     model: r.model ?? "unknown",
     modelDisplay: `${r.provider ?? "unknown"}/${r.model ?? "unknown"}`,
-    totalTokens: r.totalTokens ?? 0,
-    costTotal: Number(r.costTotal ?? 0),
-    sessionCount: Number(r.sessionCount),
-    requestCount: r.requestCount ?? 0,
+    totalTokens: toFiniteNumber(r.totalTokens),
+    costTotal: toFiniteNumber(r.costTotal),
+    sessionCount: toFiniteNumber(r.sessionCount),
+    requestCount: toFiniteNumber(r.requestCount),
   }));
 }
 

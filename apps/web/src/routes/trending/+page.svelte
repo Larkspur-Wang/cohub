@@ -20,16 +20,27 @@ let loading = $state(true);
 let loaded = $state(false);
 let prevTab = $state<Tab>("spaces");
 
+function toFiniteNumber(value: unknown, fallback = 0): number {
+	const numberValue = Number(value);
+	return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
 function formatNumber(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
+	const value = toFiniteNumber(n);
+	if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+	if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+	return String(value);
 }
 
 function formatCost(n: number): string {
+	const value = toFiniteNumber(n);
 	const formatted =
-		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
-	return `$${formatted}`;
+		value >= 1
+			? value.toFixed(2)
+			: value >= 0.01
+				? value.toFixed(3)
+				: value.toFixed(4);
+	return `${formatted}`;
 }
 
 function getDisplayName(tab: Tab, row: SpaceRow | UserRow | ModelRow): string {

@@ -1,10 +1,23 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { mergeModelsConfigs, type ModelsConfig } from "@cohub/infra/config-runtime/models";
+import { mergeModelsConfigs, type ModelDef, type ModelsConfig } from "@cohub/infra/config-runtime/models";
 
 function resolveApiKey(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const envValue = process.env[value];
   return envValue && envValue.trim().length > 0 ? envValue.trim() : value;
+}
+
+function finiteNumberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function normalizeModelCost(cost: ModelDef["cost"] | undefined): Model<Api>["cost"] {
+  return {
+    input: finiteNumberOrZero(cost?.input),
+    output: finiteNumberOrZero(cost?.output),
+    cacheRead: finiteNumberOrZero(cost?.cacheRead),
+    cacheWrite: finiteNumberOrZero(cost?.cacheWrite),
+  };
 }
 
 export class CohubModelRegistry {
@@ -45,7 +58,7 @@ export class CohubModelRegistry {
           baseUrl,
           reasoning: modelDef.reasoning ?? false,
           input: modelDef.input ?? ["text"],
-          cost: modelDef.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          cost: normalizeModelCost(modelDef.cost),
           contextWindow: modelDef.contextWindow ?? 128000,
           maxTokens: modelDef.maxTokens ?? 16384,
           headers: modelDef.headers,
