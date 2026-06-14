@@ -383,6 +383,7 @@ const userDisplayName = $derived(
 );
 
 let billingCreditRequest: Promise<boolean> | null = null;
+let billingPlanRequest: Promise<void> | null = null;
 const showBillingBalanceEntry = $derived(
 	billingConfigured !== false &&
 		(billingCreditLoading ||
@@ -430,7 +431,6 @@ async function refreshBillingCredit() {
 			billingCredit = credit;
 			billingCreditUserId = authStore.userUuid;
 			billingConfigured = true;
-			void refreshBillingPlan();
 			return true;
 		} catch (error) {
 			if (await handleUnauthorizedError(error)) {
@@ -449,16 +449,22 @@ async function refreshBillingCredit() {
 }
 
 async function refreshBillingPlan() {
-	try {
-		const { catalog } = await sdk.billing.getCatalog();
-		const sub =
-			catalog.currentSubscriptions.find((s) => s.status === "active") ??
-			catalog.currentSubscriptions.find((s) => s.status === "trialing");
-		billingSubscriptionName = sub?.productName ?? null;
-	} catch (error) {
-		if (await handleUnauthorizedError(error)) return;
-		console.warn("[sidebar] Failed to load billing plan", error);
-	}
+	if (billingPlanRequest) return billingPlanRequest;
+	billingPlanRequest = (async () => {
+		try {
+			const { catalog } = await sdk.billing.getCatalog();
+			const sub =
+				catalog.currentSubscriptions.find((s) => s.status === "active") ??
+				catalog.currentSubscriptions.find((s) => s.status === "trialing");
+			billingSubscriptionName = sub?.productName ?? null;
+		} catch (error) {
+			if (await handleUnauthorizedError(error)) return;
+			console.warn("[sidebar] Failed to load billing plan", error);
+		} finally {
+			billingPlanRequest = null;
+		}
+	})();
+	return billingPlanRequest;
 }
 
 const baseSettingsTabs = [
@@ -2235,7 +2241,7 @@ $effect(() => {
 	if (billingCreditUserId && billingCreditUserId !== userId) {
 		clearBillingCredit();
 	}
-	if (!showUserMenu && mode !== "settings") return;
+	if (!showUserMenu) return;
 	untrack(() => {
 		void refreshBillingCredit();
 		void refreshBillingPlan();
@@ -2853,26 +2859,28 @@ $effect(() => {
         {#if showUserMenu}
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
             {#if billingConfigured !== false}
-              <a href={currentPlanName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentPlanName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
-                <Zap class="h-3.5 w-3.5" />
-                <span>{currentPlanName ?? "Free Plan"}</span>
-                {#if showBillingBalanceEntry}
-                  <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
-                    {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
-                      <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
-                    {:else if billingCredit}
-                      {formatUsdAmount(billingCredit.balance.netUsd)}
-                    {:else}
-                      <span class="text-text-placeholder">—</span>
-                    {/if}
-                  </span>
-                {:else if !currentPlanName}
-                  <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+              <div class="border-b border-border-subtle pb-1">
+                <a href={currentPlanName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentPlanName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
+                  <CreditCard class="h-3.5 w-3.5" />
+                  <span>{currentPlanName ?? "Free Plan"}</span>
+                  {#if showBillingBalanceEntry}
+                    <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                      {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
+                        <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+                      {:else if billingCredit}
+                        {formatUsdAmount(billingCredit.balance.netUsd)}
+                      {:else}
+                        <span class="text-text-placeholder">—</span>
+                      {/if}
+                    </span>
+                  {:else if !currentPlanName}
+                    <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+                  {/if}
+                </a>
+                {#if showBillingBalanceEntry && billingCreditError}
+                  <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
                 {/if}
-              </a>
-              {#if showBillingBalanceEntry && billingCreditError}
-                <div class="px-2.5 pb-1 text-[11px] text-text-placeholder">{billingCreditError}</div>
-              {/if}
+              </div>
             {/if}
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
@@ -3530,31 +3538,33 @@ $effect(() => {
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
         {#if billingConfigured !== false}
-          <a
-            href={currentPlanName ? "/settings/billing" : "/pricing"}
-            class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-            title={currentPlanName ? "Open billing details" : "View plans"}
-            onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}
-          >
-            <Zap class="w-3.5 h-3.5" />
-            <span>{currentPlanName ?? "Free Plan"}</span>
-            {#if showBillingBalanceEntry}
-              <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
-                {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
-                  <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
-                {:else if billingCredit}
-                  {formatUsdAmount(billingCredit.balance.netUsd)}
-                {:else}
-                  <span class="text-text-placeholder">—</span>
-                {/if}
-              </span>
-            {:else if !currentPlanName}
-              <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+          <div class="border-b border-border-subtle pb-1">
+            <a
+              href={currentPlanName ? "/settings/billing" : "/pricing"}
+              class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+              title={currentPlanName ? "Open billing details" : "View plans"}
+              onclick={(e) => { e.preventDefault(); if (currentPlanName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}
+            >
+              <CreditCard class="w-3.5 h-3.5" />
+              <span>{currentPlanName ?? "Free Plan"}</span>
+              {#if showBillingBalanceEntry}
+                <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                  {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
+                    <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
+                  {:else if billingCredit}
+                    {formatUsdAmount(billingCredit.balance.netUsd)}
+                  {:else}
+                    <span class="text-text-placeholder">—</span>
+                  {/if}
+                </span>
+              {:else if !currentPlanName}
+                <span class="ml-auto text-[10px] font-medium text-brand">Upgrade</span>
+              {/if}
+            </a>
+            {#if showBillingBalanceEntry && billingCreditError}
+              <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
             {/if}
-          </a>
-          {#if showBillingBalanceEntry && billingCreditError}
-            <div class="px-2.5 pb-2 text-[11px] text-text-placeholder">{billingCreditError}</div>
-          {/if}
+          </div>
         {/if}
         {#if mode === "space"}
           <a

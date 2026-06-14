@@ -17,7 +17,6 @@ import {
 	Clock,
 	Gift,
 	Loader2,
-	RefreshCw,
 	Wallet,
 } from "lucide-svelte";
 import { onMount } from "svelte";
@@ -97,13 +96,6 @@ const subscriptionsTotalPages = $derived(
 	Math.max(1, billingSubscriptions?.pagination.maxPage ?? 1),
 );
 const anyBalanceLoading = $derived(creditLoading || activityLoading);
-const anyBillingLoading = $derived(
-	anyBalanceLoading ||
-		catalogLoading ||
-		ordersLoading ||
-		subscriptionsLoading ||
-		redemptionLoading,
-);
 const routeBillingTab = $derived(
 	parseBillingTab(page.url.searchParams.get("tab")),
 );
@@ -594,14 +586,6 @@ async function loadSubscriptionsPage(
 	return subscriptionsRequest;
 }
 
-function refreshBilling() {
-	void loadCatalog({ force: true });
-	void loadCreditStatus({ force: true });
-	void loadActivityPage(activityPage, { force: true });
-	void loadOrdersPage(ordersPage, { force: true });
-	void loadSubscriptionsPage(subscriptionsPage, { force: true });
-}
-
 async function refreshExpiredPendingCheckouts() {
 	if (checkoutExpiryRefreshRequest) return checkoutExpiryRefreshRequest;
 	checkoutExpiryRefreshRequest = Promise.all([
@@ -873,10 +857,6 @@ $effect(() => {
 					<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Billing</h1>
 					<p class="mt-1 max-w-xl text-[13px] leading-5 text-text-tertiary">Usage balance, subscriptions, and one-time balance packs.</p>
 				</div>
-				<button type="button" onclick={refreshBilling} disabled={anyBillingLoading} class="inline-flex w-fit items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" title="Refresh billing">
-					{#if anyBillingLoading}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if}
-					<span>Refresh</span>
-				</button>
 			</div>
 
 			{#if catalogError}
