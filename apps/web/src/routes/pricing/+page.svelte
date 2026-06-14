@@ -294,7 +294,11 @@ onMount(() => {
 
 							<div class="mt-4">
 								<div class="flex items-baseline gap-1">
-									<span class="text-[32px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
+									{#if free}
+										<span class="text-[32px] font-semibold tracking-tight text-text-primary">Free</span>
+									{:else}
+										<span class="text-[32px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
+									{/if}
 									{#if !free}
 										<span class="text-[12px] text-text-tertiary">/ {product.interval === "yearly" ? "yr" : "mo"}</span>
 									{/if}
@@ -375,6 +379,7 @@ onMount(() => {
 						<div class="relative flex flex-col rounded-[8px] border px-5 py-5 transition-colors {packRecommended ? 'border-brand/40 bg-bg-content' : 'border-border-subtle bg-bg-content hover:border-border-strong'}">
 							{#if packRecommended}
 								<div class="absolute -top-px left-5 right-5 h-px bg-brand/60"></div>
+								<span class="absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Most popular</span>
 							{/if}
 							<div class="flex items-start justify-between gap-2">
 								<h3 class="text-[13px] font-semibold text-text-primary">{product.name}</h3>
