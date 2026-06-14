@@ -9,6 +9,13 @@ import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 
 type PlanInterval = "monthly" | "yearly";
+type PlanTier = "free" | "plus" | "pro" | "max" | "custom";
+
+type PlanCopy = {
+	name: string;
+	description: string;
+	features: string[];
+};
 
 let freePlan = $state<BillingCatalogProduct | null>(null);
 let monthlyPlans = $state<BillingCatalogProduct[]>([]);
@@ -27,14 +34,41 @@ const CHECKOUT_BUTTON_PRIMARY =
 const CHECKOUT_BUTTON_SECONDARY =
 	"border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover";
 const CHECKOUT_BUTTON_SECONDARY_MUTED =
-	"border border-border-subtle bg-bg-input text-text-secondary hover:bg-bg-hover hover:text-text-primary";
+	"border border-border-subtle bg-bg-primary text-text-secondary hover:bg-bg-hover hover:text-text-primary";
 const PRICING_CARD_BASE =
-	"relative flex flex-col rounded-[8px] border bg-bg-content px-5 py-5 transition-colors";
-const PRICING_CARD_FEATURED = "border-brand/50";
+	"relative flex min-h-[344px] flex-col rounded-[10px] border bg-bg-content px-5 py-5 transition-colors";
+const PRICING_CARD_FEATURED = "border-brand/55 bg-bg-content";
 const PRICING_CARD_DEFAULT = "border-border-subtle hover:border-border-strong";
-const POPULAR_RAIL_CLASS = "absolute -top-px left-5 right-5 h-px bg-brand/60";
+const POPULAR_RAIL_CLASS = "absolute -top-px left-5 right-5 h-px bg-brand/70";
 const POPULAR_BADGE_CLASS =
 	"absolute -top-2.5 left-5 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg";
+
+const PLAN_COPY: Record<Exclude<PlanTier, "custom">, PlanCopy> = {
+	free: {
+		name: "Free",
+		description: "Try Cohub with a small monthly balance.",
+		features: ["Basic access", "Good for evaluation"],
+	},
+	plus: {
+		name: "Plus",
+		description: "For steady personal agent work.",
+		features: ["Higher everyday limits", "Standard support"],
+	},
+	pro: {
+		name: "Pro",
+		description: "For active builders and small teams.",
+		features: ["Advanced capabilities", "Priority support"],
+	},
+	max: {
+		name: "Max",
+		description: "For heavier self-serve workloads.",
+		features: [
+			"Highest self-serve limits",
+			"Priority queue",
+			"Dedicated support",
+		],
+	},
+};
 
 function getCheckoutButtonClass(
 	emphasized: boolean,
@@ -110,54 +144,65 @@ function getAnnualNote(product: BillingCatalogProduct): string | null {
 	return `${formatUsd(annual)} billed yearly · ${formatUsd(monthly)}/mo`;
 }
 
-// Yearly savings, derived from catalog data rather than hardcoded.
+// Yearly savings, derived from catalog prices instead of catalog copy.
 const yearlySavingsLabel = $derived.by(() => {
-	for (const plan of yearlyPlans) {
-		const discount = getDiscount(plan);
-		if (discount) return discount;
-		// Compare a paired monthly plan's annualized price to the yearly price.
+	for (const yearly of yearlyPlans) {
 		const monthly = monthlyPlans.find(
-			(m) => getBalance(m) === getBalance(plan),
+			(plan) => getPlanTier(plan) === getPlanTier(yearly),
 		);
-		if (monthly && monthly.pricing.amountUsd > 0) {
-			const annualized = monthly.pricing.amountUsd * 12;
-			const saved = annualized - plan.pricing.amountUsd;
-			if (saved > 0) {
-				const percent = Math.round((saved / annualized) * 100);
-				if (percent >= 1) return `Save ${percent}%`;
-				return `Save ${formatUsd(saved)}`;
-			}
-		}
+		if (!monthly || monthly.pricing.amountUsd <= 0) continue;
+		const annualized = monthly.pricing.amountUsd * 12;
+		const saved = annualized - yearly.pricing.amountUsd;
+		if (saved <= 0) continue;
+		const percent = Math.round((saved / annualized) * 100);
+		if (percent >= 1) return `Save ${percent}%`;
+		return `Save ${formatUsd(saved)}`;
 	}
 	return null;
 });
 
-function getDiscount(product: BillingCatalogProduct): string | null {
-	const label = product.pricing.discountLabel?.trim();
-	if (label && !["none", "no discount", "null"].includes(label.toLowerCase()))
-		return label;
-	if (
-		typeof product.pricing.discountRate === "number" &&
-		product.pricing.discountRate > 0
-	)
-		return `Save ${Math.round(product.pricing.discountRate * 100)}%`;
-	return null;
+function getPlanTier(product: BillingCatalogProduct): PlanTier {
+	const key = product.key.toLowerCase();
+	const name = product.name.toLowerCase();
+	const source = `${key} ${name}`;
+	if (isFree(product) || source.includes("free")) return "free";
+	if (source.includes("max")) return "max";
+	if (source.includes("pro") || source.includes("standard")) return "pro";
+	if (source.includes("plus")) return "plus";
+	return "custom";
+}
+
+function getPlanCopy(product: BillingCatalogProduct): PlanCopy {
+	const tier = getPlanTier(product);
+	if (tier !== "custom") return PLAN_COPY[tier];
+	return {
+		name: product.name,
+		description: "Flexible agent balance for your workspace.",
+		features: ["Workspace access", "Usage-based balance"],
+	};
+}
+
+function getPlanFeatureLabel(product: BillingCatalogProduct): string {
+	return `${formatUsd(getBalance(product))} balance / mo`;
+}
+
+function getPackTitle(product: BillingCatalogProduct): string {
+	return `${formatUsd(getBalance(product))} Balance Pack`;
+}
+
+function getPackNote(product: BillingCatalogProduct): string {
+	const multiplier = getMultiplier(product);
+	return multiplier
+		? `${multiplier} value · one-time top-up`
+		: "One-time top-up";
 }
 
 function isRecommended(product: BillingCatalogProduct): boolean {
-	const key = product.key.toLowerCase();
-	return key.includes("pro") || key.includes("standard");
+	return getPlanTier(product) === "pro";
 }
 
 function isFree(product: BillingCatalogProduct): boolean {
 	return product.pricing.amountUsd === 0;
-}
-
-function getBenefits(product: BillingCatalogProduct): string[] {
-	if (product.display.benefits.length > 0)
-		return product.display.benefits.slice(0, 4);
-	if (product.display.description) return [product.display.description];
-	return [];
 }
 
 async function loadCatalog() {
@@ -244,7 +289,6 @@ onMount(() => {
 </svelte:head>
 
 <div class="min-h-screen bg-bg-primary text-text-primary">
-	<!-- Header -->
 	<header class="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
 		<a href="/" class="flex items-center gap-2" aria-label="Cohub home">
 			<div class="flex h-7 w-7 items-center justify-center rounded-[6px] bg-brand text-[12px] font-semibold text-brand-contrast-fg">C</div>
@@ -256,12 +300,15 @@ onMount(() => {
 		</a>
 	</header>
 
-	<main class="mx-auto w-full max-w-6xl px-5 pb-20 pt-10 sm:px-8 sm:pt-16">
-		<!-- Hero -->
-		<div class="mb-12">
-			<h1 class="text-[clamp(32px,6vw,60px)] font-semibold leading-[1.0] tracking-[-0.05em] text-text-primary">
-				Pay for what your agents<br class="hidden sm:block" /> actually use.
+	<main class="mx-auto w-full max-w-6xl px-5 pb-20 pt-8 sm:px-8 sm:pt-14">
+		<div class="mb-10 max-w-3xl sm:mb-12">
+			<p class="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-text-placeholder">Pricing</p>
+			<h1 class="text-[clamp(34px,6vw,60px)] font-semibold leading-[0.98] tracking-[-0.055em] text-text-primary">
+				Pay for the agent work you run.
 			</h1>
+			<p class="mt-5 max-w-xl text-[14px] leading-6 text-text-tertiary">
+				Plans include monthly balance. Add packs when a workspace needs more room.
+			</p>
 		</div>
 
 		{#if checkoutError}
@@ -272,12 +319,14 @@ onMount(() => {
 			<div class="mb-6 rounded-[6px] border border-border-subtle bg-bg-subtle px-3 py-2 text-[12px] text-text-tertiary">{catalogError}</div>
 		{/if}
 
-		<!-- Plans -->
 		<section id="plans">
-			<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-				<h2 class="text-[15px] font-semibold tracking-tight">Plans</h2>
+			<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+				<div>
+					<h2 class="text-[15px] font-semibold tracking-tight">Plans</h2>
+					<p class="mt-1 text-[12px] text-text-tertiary">Monthly balance for ongoing work.</p>
+				</div>
 				{#if !catalogLoading}
-					<div class="inline-flex rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
+					<div class="inline-flex w-fit rounded-[7px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
 						<button
 							type="button"
 							onclick={() => (interval = "monthly")}
@@ -304,61 +353,57 @@ onMount(() => {
 						<div class="h-72 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
 					{/each}
 				</div>
-			{:else if visiblePlans.length === 0}
+			{:else if visiblePlans.length === 0 && !catalogError}
 				<div class="rounded-[6px] border border-border-subtle bg-bg-subtle px-4 py-5 text-[13px] text-text-tertiary">No plans available.</div>
 			{:else}
 				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each visiblePlans as product (product.key)}
 						{@const recommended = isRecommended(product)}
 						{@const free = isFree(product)}
-						{@const balance = getBalance(product)}
 						{@const multiplier = getMultiplier(product)}
 						{@const annualNote = getAnnualNote(product)}
-						{@const discount = getDiscount(product)}
+						{@const copy = getPlanCopy(product)}
 						<div class={getPricingCardClass(recommended)}>
 							{#if recommended}
 								<div class={POPULAR_RAIL_CLASS}></div>
 								<span class={POPULAR_BADGE_CLASS}>Most popular</span>
 							{/if}
 
-							<div class="mt-1">
-								<h3 class="text-[13px] font-semibold text-text-primary">{product.name}</h3>
+							<div class="space-y-2">
+								<div class="flex items-start justify-between gap-3">
+									<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{copy.name}</h3>
+									{#if product.interval === "yearly"}
+										<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-text-tertiary">Yearly</span>
+									{/if}
+								</div>
+								<p class="min-h-9 text-[12px] leading-[18px] text-text-tertiary">{copy.description}</p>
 							</div>
 
-							<div class="mt-4">
-								<div class="flex items-baseline gap-1">
+							<div class="mt-5 border-t border-border-subtle/70 pt-5">
+								<div class="flex items-baseline gap-1.5">
 									{#if free}
-										<span class="text-[32px] font-semibold tracking-tight text-text-primary">Free</span>
+										<span class="text-[34px] font-semibold tracking-[-0.045em] text-text-primary">Free</span>
 									{:else}
-										<span class="text-[32px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
-									{/if}
-									{#if !free}
+										<span class="text-[34px] font-semibold tracking-[-0.045em] text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
 										<span class="text-[12px] text-text-tertiary">/ {product.interval === "yearly" ? "yr" : "mo"}</span>
 									{/if}
 								</div>
 								{#if annualNote}
-									<p class="mt-0.5 text-[11px] text-text-tertiary">{annualNote}</p>
+									<p class="mt-1 text-[11px] text-text-placeholder">{annualNote}</p>
 								{/if}
-								{#if discount}
-									<span class="mt-1.5 inline-block rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{discount}</span>
-								{/if}
-								<div class="mt-3 text-[13px] text-text-secondary">
-									{#if free}
-										{formatUsd(balance)} balance / month
-									{:else}
-										{formatUsd(balance)} balance / mo
-										{#if multiplier}
-											<span class="ml-1 text-[11px] text-text-tertiary">({multiplier} value)</span>
-										{/if}
+								<p class="mt-3 text-[13px] font-medium text-text-secondary">
+									{getPlanFeatureLabel(product)}
+									{#if multiplier}
+										<span class="ml-1 text-[11px] font-normal text-text-tertiary">({multiplier} value)</span>
 									{/if}
-								</div>
+								</p>
 							</div>
 
-							<ul class="mt-5 flex-1 space-y-2">
-								{#each getBenefits(product) as benefit}
-									<li class="flex items-start gap-2 text-[12px] text-text-tertiary">
+							<ul class="mt-5 flex-1 space-y-2.5">
+								{#each copy.features as feature}
+									<li class="flex items-start gap-2 text-[12px] leading-[18px] text-text-tertiary">
 										<Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand" />
-										<span>{benefit}</span>
+										<span>{feature}</span>
 									</li>
 								{/each}
 							</ul>
@@ -373,7 +418,7 @@ onMount(() => {
 									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
 									Processing
 								{:else if free}
-									Get started free
+									Get started
 								{:else}
 									Subscribe
 								{/if}
@@ -384,10 +429,10 @@ onMount(() => {
 			{/if}
 		</section>
 
-		<!-- Balance Packs -->
 		<section id="packs" class="mt-16">
-			<div class="mb-5">
+			<div class="mb-4">
 				<h2 class="text-[15px] font-semibold tracking-tight">Balance Packs</h2>
+				<p class="mt-1 text-[12px] text-text-tertiary">Add balance without changing your plan.</p>
 			</div>
 
 			{#if catalogLoading}
@@ -396,34 +441,32 @@ onMount(() => {
 						<div class="h-48 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
 					{/each}
 				</div>
-			{:else if packs.length === 0}
+			{:else if packs.length === 0 && !catalogError}
 				<div class="rounded-[6px] border border-border-subtle bg-bg-subtle px-4 py-5 text-[13px] text-text-tertiary">No balance packs available.</div>
 			{:else}
 				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 					{#each packs as product (product.key)}
-						{@const balance = getBalance(product)}
 						{@const multiplier = getMultiplier(product)}
-						{@const packRecommended = isRecommended(product)}
-						<div class={getPricingCardClass(packRecommended)}>
-							{#if packRecommended}
-								<div class={POPULAR_RAIL_CLASS}></div>
-								<span class={POPULAR_BADGE_CLASS}>Most popular</span>
+						<div class="relative flex min-h-[220px] flex-col rounded-[10px] border border-border-subtle bg-bg-content px-5 py-5 transition-colors hover:border-border-strong">
+							<div class="space-y-2">
+								<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{getPackTitle(product)}</h3>
+								<p class="text-[12px] leading-[18px] text-text-tertiary">{getPackNote(product)}</p>
+							</div>
+
+							<div class="mt-5 border-t border-border-subtle/70 pt-5">
+								<div class="text-[34px] font-semibold tracking-[-0.045em] text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
+								<p class="mt-1 text-[12px] text-text-placeholder">One-time purchase</p>
+							</div>
+
+							{#if multiplier}
+								<div class="mt-4 text-[12px] font-medium text-text-secondary">More balance than price</div>
 							{/if}
-							<div class="flex items-start justify-between gap-2">
-								<h3 class="text-[13px] font-semibold text-text-primary">{product.name}</h3>
-								{#if multiplier}
-									<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] text-text-tertiary">{multiplier}</span>
-								{/if}
-							</div>
-							<div class="mt-4">
-								<div class="text-[32px] font-semibold tracking-tight text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
-								<div class="mt-1.5 text-[13px] text-text-secondary">{formatUsd(balance)} balance</div>
-							</div>
+
 							<button
 								type="button"
 								onclick={() => startCheckout(product)}
 								disabled={checkoutBusyKey !== null}
-								class={getCheckoutButtonClass(packRecommended, { alignBottom: true })}
+								class={getCheckoutButtonClass(false, { alignBottom: true })}
 							>
 								{#if checkoutBusyKey === product.key}
 									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
