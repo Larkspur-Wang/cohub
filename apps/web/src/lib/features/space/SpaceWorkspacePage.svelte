@@ -171,6 +171,10 @@ import {
 } from "$lib/space-style";
 import { uploadSpaceEntries } from "$lib/space-upload";
 import { authStore } from "$lib/stores/auth.svelte";
+import {
+	billingConversion,
+	isBillingAccessBlockedCode,
+} from "$lib/stores/billing-conversion.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
@@ -388,6 +392,35 @@ let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let composerError = $state("");
+let composerErrorCode = $state<string | null>(null);
+
+function clearComposerError() {
+	composerError = "";
+	composerErrorCode = null;
+}
+
+function setComposerError(message: string, code: string | null = null) {
+	composerError = message;
+	composerErrorCode = code;
+}
+
+function getHttpErrorCode(error: unknown): string | null {
+	if (!(error instanceof HttpError)) return null;
+	const body = error.body;
+	if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+	const record = body as Record<string, unknown>;
+	const directError = record.error;
+	if (
+		directError &&
+		typeof directError === "object" &&
+		!Array.isArray(directError)
+	) {
+		const code = (directError as Record<string, unknown>).code;
+		if (typeof code === "string") return code;
+	}
+	const code = record.code;
+	return typeof code === "string" ? code : null;
+}
 const modelsCatalog = $derived(modelsCatalogStore.items);
 const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
 let generationModelsCatalog = $state<PublicGenerationDeclaration[] | null>(
@@ -1985,6 +2018,13 @@ const bootstrapErrorMessage = $derived.by<string | null>(() => {
 	const value = bootstrapMeta?.errorMessage;
 	return typeof value === "string" && value.trim().length > 0 ? value : null;
 });
+const bootstrapErrorCode = $derived.by<string | null>(() => {
+	const value = bootstrapMeta?.errorCode;
+	return typeof value === "string" && value.trim().length > 0 ? value : null;
+});
+const bootstrapNeedsBillingAction = $derived(
+	isBillingAccessBlockedCode(bootstrapErrorCode),
+);
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 const firstCatalogModel = $derived(
 	visibleModelsCatalog && visibleModelsCatalog.length > 0
@@ -2060,13 +2100,20 @@ const activeGenerationClientMessageId = $derived.by(() => {
 	);
 });
 const activeStreamError = $derived.by(() => activeGenerationState?.error ?? "");
+const activeStreamErrorCode = $derived.by(
+	() => activeGenerationState?.errorCode ?? null,
+);
+const composerNotice = $derived.by(() => activeStreamError || composerError);
+const composerShowsBillingAction = $derived(
+	isBillingAccessBlockedCode(activeStreamErrorCode) ||
+		isBillingAccessBlockedCode(composerErrorCode),
+);
 const activeSessionIsRunning = $derived.by(() =>
 	Boolean(
 		activeGenerationState &&
 			!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status),
 	),
 );
-const composerNotice = $derived.by(() => activeStreamError || composerError);
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
@@ -2154,7 +2201,7 @@ function removeQueuedFollowupDuplicates(
 }
 
 async function refreshSessionAfterStaleFollowupAction(sessionId: string) {
-	composerError = "";
+	clearComposerError();
 	await syncSessionNewer(sessionId, null).catch(() => undefined);
 }
 
@@ -2163,7 +2210,7 @@ async function handleSteerFollowup(turnId: string) {
 		return;
 	const sessionId = activeSessionId;
 	pendingFollowupActionIds = new Set([...pendingFollowupActionIds, turnId]);
-	composerError = "";
+	clearComposerError();
 	try {
 		const result = await sdk
 			.space(spaceId)
@@ -2192,8 +2239,9 @@ async function handleSteerFollowup(turnId: string) {
 			await refreshSessionAfterStaleFollowupAction(sessionId);
 			return;
 		}
-		composerError =
-			error instanceof Error ? error.message : "Failed to steer follow-up";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to steer follow-up",
+		);
 	} finally {
 		const next = new Set(pendingFollowupActionIds);
 		next.delete(turnId);
@@ -2206,7 +2254,7 @@ async function handleCancelFollowup(turnId: string) {
 		return;
 	const sessionId = activeSessionId;
 	pendingFollowupActionIds = new Set([...pendingFollowupActionIds, turnId]);
-	composerError = "";
+	clearComposerError();
 	try {
 		const result = await sdk
 			.space(spaceId)
@@ -2231,8 +2279,9 @@ async function handleCancelFollowup(turnId: string) {
 			await refreshSessionAfterStaleFollowupAction(sessionId);
 			return;
 		}
-		composerError =
-			error instanceof Error ? error.message : "Failed to cancel follow-up";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to cancel follow-up",
+		);
 	} finally {
 		const next = new Set(pendingFollowupActionIds);
 		next.delete(turnId);
@@ -4503,15 +4552,16 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 async function jumpToTurn(sequence: number) {
 	if (!activeSessionId) return;
 	try {
-		composerError = "";
+		clearComposerError();
 		if (scrollToTurnAnchor(sequence)) return;
 		await ensureTurnWindowLoaded(activeSessionId, sequence);
 		await tick();
 		requestAnimationFrame(() => scrollToTurnAnchor(sequence));
 	} catch (error) {
 		console.warn("[jumpToTurn] Failed to jump to turn:", error);
-		composerError =
-			error instanceof Error ? error.message : "Failed to jump to turn";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to jump to turn",
+		);
 	}
 }
 async function jumpToTurnAndUpdateUrl(sequence: number) {
@@ -4526,8 +4576,9 @@ async function jumpToTurnAndUpdateUrl(sequence: number) {
 		await jumpToTurn(sequence);
 	} catch (error) {
 		console.warn("[jumpToTurnAndUpdateUrl] Failed to jump to turn:", error);
-		composerError =
-			error instanceof Error ? error.message : "Failed to jump to turn";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to jump to turn",
+		);
 	}
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
@@ -5271,12 +5322,30 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		if (payload.type === "session.request.error") {
 			const requestError = payload.payload as {
+				code?: string;
 				message?: string;
 				clientMessageId?: string | null;
 			};
 			const message = requestError.message?.trim() || "Message request failed";
-			failGeneration(targetSessionId, message);
-			if (isActiveSession) composerError = message;
+			const code =
+				typeof requestError.code === "string" ? requestError.code : null;
+			if (isBillingAccessBlockedCode(code)) {
+				billingConversion.openFromIntent({
+					level: "hard",
+					reason: "negative_balance_limit_exceeded",
+					audience: "unknown",
+					preferredOfferKind: "mixed",
+					title: "Add credits to continue",
+					message: "Add credits or choose a plan to resume AI requests.",
+					primaryAction: {
+						label: "Add credits now",
+						action: "open_billing_conversion",
+					},
+					source: "session_request_error",
+				});
+			}
+			failGeneration(targetSessionId, message, { errorCode: code });
+			if (isActiveSession) setComposerError(message, code);
 			clearPostSendRecovery(targetSessionId);
 			return;
 		}
@@ -5437,7 +5506,7 @@ async function handleGenerationStreamEvent(
 async function handleForkTurn(turn: SessionTurnRecord) {
 	if (!activeSessionId || forkingTurnId) return;
 	forkingTurnId = turn.id;
-	composerError = "";
+	clearComposerError();
 	try {
 		const response = await sdk
 			.space(spaceId)
@@ -5454,8 +5523,9 @@ async function handleForkTurn(turn: SessionTurnRecord) {
 		).catch(() => undefined);
 		await goto(buildSpaceSessionRoute(spaceId, response.session.id));
 	} catch (error) {
-		composerError =
-			error instanceof Error ? error.message : "Failed to fork session";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to fork session",
+		);
 	} finally {
 		forkingTurnId = null;
 	}
@@ -5465,7 +5535,7 @@ async function handleAbort() {
 	if (!activeSessionId || !activeSessionState?.session || !space || aborting)
 		return;
 	aborting = true;
-	composerError = "";
+	clearComposerError();
 	try {
 		await sdk
 			.space(spaceId)
@@ -5475,8 +5545,9 @@ async function handleAbort() {
 			});
 		interruptGeneration(activeSessionId);
 	} catch (error) {
-		composerError =
-			error instanceof Error ? error.message : "Failed to stop generation";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to stop generation",
+		);
 	} finally {
 		aborting = false;
 	}
@@ -5524,7 +5595,7 @@ async function handleSend() {
 	)
 		return;
 	sending = true;
-	composerError = "";
+	clearComposerError();
 	clearGenerationError(activeSessionId);
 	let sessionId = activeSessionState?.session?.id ?? null;
 	let targetSessionState = activeSessionState;
@@ -5773,13 +5844,15 @@ async function handleSend() {
 		}
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
+		const sendErrorCode = getHttpErrorCode(error);
 		const displayError = hadFileUpload
 			? fileUploadCompleted
 				? "Message failed. Files were uploaded."
 				: "Upload failed. Please try again."
 			: sendError;
-		composerError = displayError;
-		if (sessionId) failGeneration(sessionId, sendError);
+		setComposerError(displayError, sendErrorCode);
+		if (sessionId)
+			failGeneration(sessionId, sendError, { errorCode: sendErrorCode });
 		const current = sessionId ? sessionStateById[sessionId] : null;
 		const failedSessionId = sessionId;
 		if (current && optimisticTurn && failedSessionId) {
@@ -6103,21 +6176,23 @@ async function handlePickAttachments(
 				? (files as LocalUploadEntry[])
 				: entriesFromFiles(Array.from(files as FileList | File[]));
 	} catch {
-		composerError = "Invalid upload path.";
+		setComposerError("Invalid upload path.");
 		return;
 	}
 	if (pickedEntries.length === 0) return;
 
 	const remainingSlots = MAX_COMPOSER_ATTACHMENTS - attachments.length;
 	if (remainingSlots <= 0) {
-		composerError = `You can attach up to ${MAX_COMPOSER_ATTACHMENTS} files.`;
+		setComposerError(`You can attach up to ${MAX_COMPOSER_ATTACHMENTS} files.`);
 		return;
 	}
 	const acceptedEntries = pickedEntries.slice(0, remainingSlots);
 	if (acceptedEntries.length < pickedEntries.length) {
-		composerError = `Only the first ${remainingSlots} file${remainingSlots === 1 ? "" : "s"} were attached.`;
+		setComposerError(
+			`Only the first ${remainingSlots} file${remainingSlots === 1 ? "" : "s"} were attached.`,
+		);
 	} else {
-		composerError = "";
+		clearComposerError();
 	}
 
 	try {
@@ -6181,8 +6256,9 @@ async function handlePickAttachments(
 		);
 		attachments = [...attachments, ...nextAttachments];
 	} catch (error) {
-		composerError =
-			error instanceof Error ? error.message : "Failed to read attachment";
+		setComposerError(
+			error instanceof Error ? error.message : "Failed to read attachment",
+		);
 	}
 }
 function handleRemoveAttachment(id: string) {
@@ -9550,7 +9626,12 @@ $effect(() => {
                   Initialization failed
                 </div>
                 {#if bootstrapErrorMessage}
-                  <div class="text-[11px] font-mono text-error-soft/80 break-all">{bootstrapErrorMessage}</div>
+                  <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div class="min-w-0 break-all font-mono text-[11px] text-error-soft/80">{bootstrapErrorMessage}</div>
+                    {#if bootstrapNeedsBillingAction}
+                      <button type="button" class="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-error-soft/30 bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => billingConversion.openFallbackHard()}>Add credits now</button>
+                    {/if}
+                  </div>
                 {/if}
               </div>
             {/if}
@@ -9882,6 +9963,7 @@ $effect(() => {
             isRunning={activeSessionIsRunning}
             aborting={aborting}
             streamError={composerNotice}
+            showBillingAction={composerShowsBillingAction}
             attachments={attachments}
             currentModel={activeSessionModel}
             currentSpaceId={spaceId}

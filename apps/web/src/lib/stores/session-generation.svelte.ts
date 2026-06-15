@@ -36,6 +36,7 @@ export type SessionGenerationState = {
 	status: SessionGenerationStatus | string;
 	requestId?: string | null;
 	error?: string | null;
+	errorCode?: string | null;
 	startedAt?: number;
 	lastEventAt?: number;
 	contentBlocks: ContentBlock[];
@@ -77,6 +78,7 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	status: "idle",
 	requestId: null,
 	error: null,
+	errorCode: null,
 	startedAt: undefined,
 	lastEventAt: undefined,
 	contentBlocks: [],
@@ -187,6 +189,7 @@ function parsePersistedState(raw: string): SessionGenerationState | null {
 			status: parsed.status,
 			requestId: typeof parsed.requestId === "string" ? parsed.requestId : null,
 			error: sanitizeError(parsed.error),
+			errorCode: typeof parsed.errorCode === "string" ? parsed.errorCode : null,
 			startedAt:
 				typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
 			lastEventAt:
@@ -359,6 +362,7 @@ class SessionGenerationStore {
 			status: "pending",
 			requestId: input?.requestId ?? current.requestId ?? null,
 			error: null,
+			errorCode: null,
 			startedAt: current.startedAt ?? Date.now(),
 			lastEventAt: Date.now(),
 			contentBlocks: [],
@@ -396,6 +400,7 @@ class SessionGenerationStore {
 			spaceId: input?.spaceId ?? current.spaceId ?? null,
 			status: "pending",
 			error: null,
+			errorCode: null,
 			startedAt: current.startedAt ?? Date.now(),
 			lastEventAt: Date.now(),
 			anchorUserMessageId:
@@ -432,6 +437,7 @@ class SessionGenerationStore {
 			spaceId: input.spaceId ?? current.spaceId ?? null,
 			status: "streaming",
 			error: null,
+			errorCode: null,
 			startedAt: current.startedAt ?? Date.now(),
 			lastEventAt: Date.now(),
 			contentBlocks: input.contentBlocks,
@@ -485,6 +491,7 @@ class SessionGenerationStore {
 			spaceId: input.spaceId ?? current.spaceId ?? null,
 			status: current.status === "idle" ? "pending" : current.status,
 			error: null,
+			errorCode: null,
 			startedAt: current.startedAt ?? Date.now(),
 			lastEventAt: Date.now(),
 			turnId: input.turnId ?? current.turnId ?? null,
@@ -530,6 +537,7 @@ class SessionGenerationStore {
 			...current,
 			status: "completed",
 			error: null,
+			errorCode: null,
 			lastEventAt: Date.now(),
 			contentBlocks: [],
 			intermediateMessages: [],
@@ -548,12 +556,17 @@ class SessionGenerationStore {
 		});
 	}
 
-	fail(sessionId: string, error?: string | null) {
+	fail(
+		sessionId: string,
+		error?: string | null,
+		input?: { errorCode?: string | null },
+	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
 		this.setState(sessionId, {
 			...current,
 			status: "failed",
 			error: sanitizeError(error ?? current.error),
+			errorCode: input?.errorCode ?? current.errorCode ?? null,
 			lastEventAt: Date.now(),
 			contentBlocks: [],
 			intermediateMessages: [],
@@ -578,6 +591,7 @@ class SessionGenerationStore {
 			...current,
 			status: "interrupted",
 			error: null,
+			errorCode: null,
 			lastEventAt: Date.now(),
 			contentBlocks: [],
 			intermediateMessages: [],
@@ -603,6 +617,7 @@ class SessionGenerationStore {
 		this.setState(sessionId, {
 			...current,
 			error: null,
+			errorCode: null,
 		});
 	}
 

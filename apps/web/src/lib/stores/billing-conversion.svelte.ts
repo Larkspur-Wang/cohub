@@ -50,6 +50,28 @@ function extractWarningFromBody(body: unknown): BillingAccessWarning | null {
 	return billing as BillingAccessWarning;
 }
 
+export const BILLING_ACCESS_BLOCKED_CODE = "billing_credit_limit_exceeded";
+
+export function isBillingAccessBlockedCode(value: string | null | undefined) {
+	return value === BILLING_ACCESS_BLOCKED_CODE;
+}
+
+function defaultHardIntent(): BillingConversionIntent {
+	return {
+		level: "hard",
+		reason: "negative_balance_limit_exceeded",
+		audience: "unknown",
+		preferredOfferKind: "mixed",
+		title: "Add credits to continue",
+		message: "Add credits or choose a plan to resume AI requests.",
+		primaryAction: {
+			label: "Add credits now",
+			action: "open_billing_conversion",
+		},
+		source: "client_fallback",
+	};
+}
+
 class BillingConversionStore {
 	private state = $state<BillingConversionState>({
 		open: false,
@@ -109,8 +131,17 @@ class BillingConversionStore {
 	}
 
 	openReminder() {
-		if (!this.state.intent) return;
+		if (!this.state.intent) this.state.intent = defaultHardIntent();
+		this.state.level = this.state.intent.level;
 		this.state.open = true;
+	}
+
+	openFallbackHard() {
+		this.showHard(
+			this.state.intent?.level === "hard"
+				? this.state.intent
+				: defaultHardIntent(),
+		);
 	}
 
 	clear() {

@@ -40,6 +40,7 @@ import {
 	searchRemoteSpaceMentions,
 } from "$lib/mentions/space-search";
 import { sdk } from "$lib/sdk";
+import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import {
 	entriesFromDataTransfer,
 	entriesFromFiles,
@@ -59,6 +60,7 @@ type Props = {
 	isRunning?: boolean;
 	aborting?: boolean;
 	streamError?: string;
+	showBillingAction?: boolean;
 	placeholder?: string;
 	attachments?: ComposerAttachment[];
 	currentModel?: SelectedModel | null;
@@ -82,6 +84,7 @@ let {
 	isRunning = false,
 	aborting = false,
 	streamError = "",
+	showBillingAction = false,
 	placeholder = "Send a message...",
 	attachments = [],
 	currentModel = null,
@@ -750,8 +753,11 @@ $effect(() => {
 <div class="px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:px-6 sm:pb-4">
 	<div class={`relative mx-auto transition-[max-width] duration-200 ${isComposerExpanded ? 'max-w-5xl' : 'max-w-4xl'}`}>
 		{#if streamError}
-			<div class="mb-3 rounded-2xl border border-error-soft/25 bg-error-bg px-3 py-2 text-[11px] text-error-soft">
-				{streamError}
+			<div class="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-error-soft/25 bg-error-bg px-3 py-2 text-[11px] text-error-soft">
+				<span class="min-w-0 break-words">{streamError}</span>
+				{#if showBillingAction}
+					<button type="button" class="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-error-soft/30 bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => billingConversion.openFallbackHard()}>Add credits now</button>
+				{/if}
 			</div>
 		{/if}
 

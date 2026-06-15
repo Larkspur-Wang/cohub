@@ -61,8 +61,12 @@ export function startGenerationRequest(
 	sessionGenerationStore.startPending(sessionId, input);
 }
 
-export function failGeneration(sessionId: string, error?: string | null) {
-	sessionGenerationStore.fail(sessionId, error ?? "Generation failed");
+export function failGeneration(
+	sessionId: string,
+	error?: string | null,
+	input?: { errorCode?: string | null },
+) {
+	sessionGenerationStore.fail(sessionId, error ?? "Generation failed", input);
 }
 
 export function interruptGeneration(sessionId: string) {

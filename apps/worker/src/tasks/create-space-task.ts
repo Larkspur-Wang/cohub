@@ -1,3 +1,4 @@
+import { isBillingAccessBlockedError } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 import { eq, sql } from "drizzle-orm";
 import type { Job } from "bullmq";
@@ -47,6 +48,11 @@ const sanitizeBootstrapError = (value: unknown) => {
   return message.replace(/(https?:\/\/[^:\s/@]+:)([^@\s]+)(@)/g, "$1***$3");
 };
 
+const getBootstrapErrorCode = (value: unknown) => {
+  if (isBillingAccessBlockedError(value)) return value.code;
+  return null;
+};
+
 const ensureValidGitRef = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed || !SAFE_GIT_REF_REGEX.test(trimmed) || trimmed.startsWith("-") || trimmed.includes("..")) throw new Error("invalid git ref");
@@ -60,6 +66,7 @@ const updateBootstrap = async (input: {
   status: BootstrapStatus;
   stage?: BootstrapStage;
   errorMessage?: string | null;
+  errorCode?: string | null;
   startedAt?: string;
   finishedAt?: string;
   stageTimings?: Record<string, number>;
@@ -75,6 +82,7 @@ const updateBootstrap = async (input: {
       status: input.status,
       stage: input.stage ?? null,
       errorMessage: input.errorMessage ?? null,
+      errorCode: input.errorCode ?? null,
       startedAt: input.startedAt ?? existingBootstrap?.startedAt ?? (input.status === "running" ? new Date().toISOString() : null),
       finishedAt: input.finishedAt ?? (input.status === "ready" || input.status === "failed" ? new Date().toISOString() : null),
       stageTimings: input.stageTimings ?? existingBootstrap?.stageTimings ?? {},
@@ -270,7 +278,7 @@ const createSpaceHandler = async (job: Job) => {
 
     return result;
   } catch (error) {
-    await updateBootstrap({ space: currentSpace, taskRunId, source, status: "failed", errorMessage: sanitizeBootstrapError(error), stageTimings, finishedAt: new Date().toISOString() }).catch(() => undefined);
+    await updateBootstrap({ space: currentSpace, taskRunId, source, status: "failed", errorMessage: sanitizeBootstrapError(error), errorCode: getBootstrapErrorCode(error), stageTimings, finishedAt: new Date().toISOString() }).catch(() => undefined);
     throw error;
   }
 };
