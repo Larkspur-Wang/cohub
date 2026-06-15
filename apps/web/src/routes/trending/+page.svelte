@@ -171,23 +171,23 @@ const hasData = $derived(
 				</div>
 			</div>
 		{:else}
-			<!-- Table header — subdued, uppercase, tracking -->
-			<div class="grid grid-cols-[28px_minmax(0,1fr)_auto] gap-x-2 px-0 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle sm:grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] sm:gap-x-4 sm:pb-3">
-				<span></span>
-				<span class="truncate">Name</span>
-				<span class="text-right">Tokens</span>
-				<span class="hidden text-right sm:block">Cost</span>
-				<span class="hidden text-right sm:block">Sessions</span>
-				<span class="hidden text-right sm:block">Reqs</span>
-			</div>
+			<!-- Table — header and rows share one adaptive grid -->
+			<div class="trending-table">
+				<div class="trending-table-row px-0 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle sm:pb-3">
+					<span></span>
+					<span class="truncate">Name</span>
+					<span class="text-right">Tokens</span>
+					<span class="hidden text-right sm:block">Cost</span>
+					<span class="hidden text-right sm:block">Sessions</span>
+					<span class="hidden text-right sm:block">Reqs</span>
+				</div>
 
-			<!-- Rows — staggered fade-in, varied visual treatment by rank -->
-			<div class="mt-0">
+				<!-- Rows — staggered fade-in, varied visual treatment by rank -->
 				{#each currentRows as row, i (row.rank)}
 					{@const userProfile = getUserProfile(activeTab, row)}
 					{@const spaceHref = getSpaceHref(activeTab, row)}
 					<div
-						class="grid grid-cols-[28px_minmax(0,1fr)_auto] gap-x-2 px-0 transition-all duration-300 ease-out sm:grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] sm:gap-x-4"
+						class="trending-table-row px-0 transition-all duration-300 ease-out"
 						class:row-top={row.rank <= 3}
 						class:row-data={row.rank > 3}
 						style="--row-index: {i}; animation: rowFadeIn 0.35s ease-out both; animation-delay: {i * 35}ms;"
@@ -305,6 +305,19 @@ const hasData = $derived(
 		}
 	}
 
+	.trending-table {
+		display: grid;
+		grid-template-columns: 28px minmax(0, 1fr) auto;
+		column-gap: 0.5rem;
+	}
+
+	.trending-table-row {
+		grid-column: 1 / -1;
+		display: grid;
+		grid-template-columns: subgrid;
+		column-gap: inherit;
+	}
+
 	.trending-name {
 		display: -webkit-box;
 		overflow: hidden;
@@ -322,6 +335,11 @@ const hasData = $derived(
 	}
 
 	@media (min-width: 640px) {
+		.trending-table {
+			grid-template-columns: 28px minmax(0, 1fr) minmax(64px, auto) minmax(64px, auto) minmax(48px, auto) minmax(48px, auto);
+			column-gap: 1rem;
+		}
+
 		.trending-name {
 			display: block;
 			-webkit-line-clamp: unset;
