@@ -139,6 +139,40 @@ function discountText(product: BillingCatalogProduct): string | null {
 	return null;
 }
 
+function getYearlySavings(product: BillingCatalogProduct): string | null {
+	if (product.interval !== "yearly") return null;
+	if (
+		typeof product.pricing.discountRate === "number" &&
+		product.pricing.discountRate > 0
+	) {
+		return `Save ${Math.round(product.pricing.discountRate * 100)}%`;
+	}
+	const compareAt = product.pricing.compareAtAmountUsd;
+	if (typeof compareAt === "number" && compareAt > product.pricing.amountUsd) {
+		const percent = Math.round(
+			((compareAt - product.pricing.amountUsd) / compareAt) * 100,
+		);
+		return percent > 0 ? `Save ${percent}%` : null;
+	}
+	const monthly = monthlyPlans.find(
+		(plan) => getPlanTier(plan) === getPlanTier(product),
+	);
+	if (!monthly || monthly.pricing.amountUsd <= 0) return null;
+	const annualized = monthly.pricing.amountUsd * 12;
+	const saved = annualized - product.pricing.amountUsd;
+	if (saved <= 0) return null;
+	const percent = Math.round((saved / annualized) * 100);
+	return percent > 0 ? `Save ${percent}%` : null;
+}
+
+const yearlySavingsLabel = $derived.by(() => {
+	for (const plan of yearlyPlans) {
+		const savings = getYearlySavings(plan);
+		if (savings) return savings;
+	}
+	return null;
+});
+
 function includedBalanceText(product: BillingCatalogProduct): string | null {
 	if (product.display.creditBenefits.length > 0) {
 		return product.display.creditBenefits
@@ -279,7 +313,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 	<div class="fixed inset-0 z-[110] flex items-end justify-center lg:items-center lg:p-4" role="dialog" aria-modal="true">
 		<button class="absolute inset-0 cursor-default bg-overlay-scrim" aria-label="Close billing options" onclick={() => billingConversion.close()}></button>
 		<section class="relative flex max-h-[88vh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[14px] border-border-subtle bg-bg-primary shadow-2xl lg:rounded-[14px] lg:border">
-			<header class="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
+			<header class="flex items-center justify-between gap-4 border-b border-border-subtle px-5 py-3">
 				<div class="min-w-0">
 					<h2 class="text-[18px] font-semibold leading-6 text-text-primary">{headline}</h2>
 				</div>
@@ -300,7 +334,12 @@ async function startCheckout(product: BillingCatalogProduct) {
 					{#if catalog && !hasActivePaidPlan && (monthlyPlans.length > 0 || yearlyPlans.length > 0)}
 						<div class="inline-flex rounded-[7px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
 							<button type="button" onclick={() => (selectedPlanInterval = "monthly")} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'monthly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'}">Monthly</button>
-							<button type="button" onclick={() => (selectedPlanInterval = "yearly")} disabled={!hasYearlyPlans} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'yearly' && hasYearlyPlans ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'} disabled:cursor-not-allowed disabled:opacity-40">Yearly</button>
+							<button type="button" onclick={() => (selectedPlanInterval = "yearly")} disabled={!hasYearlyPlans} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'yearly' && hasYearlyPlans ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'} disabled:cursor-not-allowed disabled:opacity-40">
+								Yearly
+								{#if hasYearlyPlans && yearlySavingsLabel}
+									<span class="ml-1.5 rounded-[4px] bg-brand/15 px-1 py-0.5 text-[10px] font-medium text-brand">{yearlySavingsLabel}</span>
+								{/if}
+							</button>
 						</div>
 					{/if}
 				</div>
