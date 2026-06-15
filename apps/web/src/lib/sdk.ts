@@ -27,7 +27,9 @@ function shouldInspectBillingResponse(
 				: input.url;
 	return (
 		response.status < 300 &&
-		/\/api\/(sessions\/[^/]+\/messages|generations)(?:[?#/]|$)/.test(url)
+		/\/api\/(spaces\/[^/]+\/prompt|sessions\/[^/]+\/messages|generations)(?:[?#/]|$)/.test(
+			url,
+		)
 	);
 }
 
