@@ -2854,7 +2854,7 @@ $effect(() => {
         {#if showUserMenu}
           <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
             {#if billingConfigured !== false}
-              <div class="border-b border-border-subtle pb-1">
+              <div class="border-b border-border-subtle">
                 <a href={currentSubscriptionName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentSubscriptionName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
                   <CreditCard class="h-3.5 w-3.5" />
                   <span>{currentSubscriptionName ?? "Free Plan"}</span>
@@ -3533,7 +3533,7 @@ $effect(() => {
         class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
       >
         {#if billingConfigured !== false}
-          <div class="border-b border-border-subtle pb-1">
+          <div class="border-b border-border-subtle">
             <a
               href={currentSubscriptionName ? "/settings/billing" : "/pricing"}
               class="flex w-full items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
