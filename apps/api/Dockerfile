@@ -10,6 +10,9 @@ COPY .npmrc pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json .
 COPY packages/identity/package.json ./packages/identity/package.json
 COPY packages/identity/tsconfig.json ./packages/identity/tsconfig.json
 COPY packages/identity/tsconfig.build.json ./packages/identity/tsconfig.build.json
+COPY packages/billing/package.json ./packages/billing/package.json
+COPY packages/billing/tsconfig.json ./packages/billing/tsconfig.json
+COPY packages/billing/tsconfig.build.json ./packages/billing/tsconfig.build.json
 COPY packages/core/package.json ./packages/core/package.json
 COPY packages/core/tsconfig.json ./packages/core/tsconfig.json
 COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
@@ -45,6 +48,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   fi
 
 COPY packages/identity ./packages/identity
+COPY packages/billing ./packages/billing
 COPY packages/core ./packages/core
 COPY packages/sandbox-controller ./packages/sandbox-controller
 COPY packages/protocol ./packages/protocol
