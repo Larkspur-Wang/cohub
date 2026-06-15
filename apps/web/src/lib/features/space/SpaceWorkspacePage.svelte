@@ -8409,10 +8409,8 @@ $effect(() => {
         >
           {#if uiState.rightSidebarCollapsed}
             <PanelRightOpen class="w-4 h-4 shrink-0" />
-            <span class="hidden 2xl:inline text-[13px] font-medium">Show files</span>
           {:else}
             <PanelRightClose class="w-4 h-4 shrink-0" />
-            <span class="hidden 2xl:inline text-[13px] font-medium">Hide files</span>
           {/if}
         </button>
       </div>
