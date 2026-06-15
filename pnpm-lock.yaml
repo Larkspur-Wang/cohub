@@ -164,8 +164,8 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
       '@neta-art/generation':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -506,8 +506,8 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
       '@neta-art/generation':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -598,8 +598,8 @@ importers:
         specifier: workspace:*
         version: link:../sdk
       '@neta-art/generation':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -674,8 +674,8 @@ importers:
         specifier: ^2.1.0
         version: 2.1.0(@opentelemetry/api@1.9.1)(drizzle-orm@0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9))
       '@neta-art/generation':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -729,8 +729,8 @@ importers:
   packages/protocol:
     dependencies:
       '@neta-art/generation':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.4
+        version: 0.1.4
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -2725,8 +2725,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@neta-art/generation@0.1.3':
-    resolution: {integrity: sha512-kVsrVbRbQvrVtp/6I8PtN/XVTLFZLKOtcRWBXqikI5ejGo0v1kZZX5QJ8KNzzo2Q/PQe3wVz70siwdK4nHp8Xw==}
+  '@neta-art/generation@0.1.4':
+    resolution: {integrity: sha512-ync7G3XQmFohFQfzhiMWDCYWuTdpRghtJZY0tv7/PbdHuHE+N7D17CwjK9Uob3xnUCE6uzTV89sO5XbmuTtQWg==}
     engines: {node: '>=20.0.0'}
     hasBin: true
 
@@ -3437,10 +3437,12 @@ packages:
 
   '@talesofai-billing/cli@1.6.0':
     resolution: {integrity: sha512-dxDRKN7NrxaNZf0slEhnYY6Sb1n/OBzi1FqEbTZBHfsC+qhnEXIvI1BtCJGzUcXfZ+/8E+z68BnwowShMhH+eA==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fcli/-/1.6.0/cli-1.6.0.tgz}
+    engines: {node: '>=20'}
     hasBin: true
 
   '@talesofai-billing/sdk@1.6.0':
     resolution: {integrity: sha512-GqqhTzlzpnJeR4jTC47RXwL/TWHNOZL1HSK/+BelbCeAa57T6y9jdq3KKvDmco0qRgSViykUuDJ5t45Xs6y13Q==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.6.0/sdk-1.6.0.tgz}
+    engines: {node: '>=18'}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     resolution: {integrity: sha512-/67zpWDBLV+oYAEL682s1ktXL0HgqX76f6gaVGkGnVZlBbm1zd0v4Bz8MFF2GGhoX9rvfq3KSQHubFHwa6w6/Q==}
@@ -8325,7 +8327,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.2
     optional: true
 
-  '@neta-art/generation@0.1.3':
+  '@neta-art/generation@0.1.4':
     dependencies:
       yaml: 2.9.0
 
