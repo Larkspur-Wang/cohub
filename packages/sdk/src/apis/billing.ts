@@ -3,8 +3,6 @@ import type {
   BillingCatalog,
   BillingCheckoutResult,
   BillingCreditStatus,
-  BillingOrderList,
-  BillingOrderStatus,
   BillingRedemptionResult,
   BillingSubscriptionHistoryList,
   BillingSubscriptionHistoryStatus,
@@ -40,16 +38,6 @@ export class BillingApi {
     );
   }
 
-  async getOrders(input?: { page?: number; limit?: number }) {
-    const params = new URLSearchParams();
-    if (input?.page) params.set("page", String(input.page));
-    if (input?.limit) params.set("limit", String(input.limit));
-    const query = params.toString();
-    return this.transport.request<{ orders: BillingOrderList }>(
-      `/api/billing/orders${query ? `?${query}` : ""}`,
-    );
-  }
-
   async getSubscriptions(input?: { page?: number; limit?: number }) {
     const params = new URLSearchParams();
     if (input?.page) params.set("page", String(input.page));
@@ -67,13 +55,6 @@ export class BillingApi {
         method: "POST",
         body: JSON.stringify({ ...(input ?? {}), productKey }),
       },
-    );
-  }
-
-  async cancelOrderCheckout(orderId: string) {
-    return this.transport.request<{ order: BillingOrderStatus }>(
-      `/api/billing/orders/${encodeURIComponent(orderId)}/checkout`,
-      { method: "DELETE" },
     );
   }
 

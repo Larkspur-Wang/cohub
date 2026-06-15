@@ -209,42 +209,6 @@ export type BillingHistoryListInput = BillingUserRef & {
   limit?: number;
 };
 
-export type BillingOrderStatus = {
-  id: string;
-  externalUserId: string;
-  productKey: string;
-  productName: string;
-  subscriptionId: string | null;
-  status: string;
-  billingReason: string;
-  amountMinor: number;
-  amountUsd: number;
-  paidAmountMinor: number;
-  paidAmountUsd: number;
-  currency: string;
-  refundedAmountMinor: number;
-  refundedAmountUsd: number;
-  fulfillmentSource: string;
-  checkoutExpiresAt: string | null;
-  paidAt: string | null;
-  checkoutCanceledAt: string | null;
-  checkoutExpiredAt: string | null;
-  paymentConflictedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  providerStatus: string | null;
-  checkoutStatus: string | null;
-  actions: BillingCheckoutActionState;
-};
-
-export type BillingOrderList = BillingUserRef & {
-  billing: BillingPluginStatus;
-  page: number;
-  limit: number;
-  items: BillingOrderStatus[];
-  pagination: BillingHistoryPagination;
-};
-
 export type BillingSubscriptionHistoryStatus = {
   id: string;
   externalUserId: string;
@@ -424,11 +388,9 @@ export interface BillingOperations {
   getState(input: BillingUserRef): Promise<BillingAccountState>;
   getCreditStatus(input: BillingUserRef & { tokenType?: CohubBillingTokenType }): Promise<BillingCreditStatus>;
   getCatalog(input?: BillingUserRef): Promise<BillingCatalog>;
-  listOrders(input: BillingHistoryListInput): Promise<BillingOrderList>;
   listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList>;
   purchaseAddon(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
   createSubscription(input: BillingCheckoutInput): Promise<BillingCheckoutResult>;
-  cancelOrderCheckout(input: BillingUserRef & { orderId: string }): Promise<BillingOrderStatus>;
   cancelSubscriptionCheckout(input: BillingUserRef & { subscriptionId: string }): Promise<BillingSubscriptionHistoryStatus>;
   cancelSubscriptionAutoRenew(input: BillingUserRef & { subscriptionId: string }): Promise<BillingSubscriptionHistoryStatus>;
   redeemCode(input: BillingRedemptionInput): Promise<BillingRedemptionResult>;

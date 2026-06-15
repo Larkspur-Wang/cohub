@@ -200,43 +200,6 @@ export type BillingCheckoutActionState = {
   unavailableReason: string | null;
 };
 
-export type BillingOrderStatus = {
-  id: string;
-  externalUserId: string;
-  productKey: string;
-  productName: string;
-  subscriptionId: string | null;
-  status: string;
-  billingReason: string;
-  amountMinor: number;
-  amountUsd: number;
-  paidAmountMinor: number;
-  paidAmountUsd: number;
-  currency: string;
-  refundedAmountMinor: number;
-  refundedAmountUsd: number;
-  fulfillmentSource: string;
-  checkoutExpiresAt: string | null;
-  paidAt: string | null;
-  checkoutCanceledAt: string | null;
-  checkoutExpiredAt: string | null;
-  paymentConflictedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  providerStatus: string | null;
-  checkoutStatus: string | null;
-  actions: BillingCheckoutActionState;
-};
-
-export type BillingOrderList = {
-  userId: string;
-  billing: BillingPluginStatus;
-  page: number;
-  limit: number;
-  items: BillingOrderStatus[];
-  pagination: BillingHistoryPagination;
-};
-
 export type BillingSubscriptionHistoryStatus = {
   id: string;
   externalUserId: string;

@@ -13,8 +13,6 @@ import {
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
 import {
   type CreateOrderResponse,
-  type Order,
-  type OrderCheckout,
   ordersFeature,
 } from "@talesofai-billing/sdk/admin/orders";
 import {
@@ -53,8 +51,6 @@ import {
   type BillingFeatureLimitInput,
   type BillingHistoryListInput,
   type BillingOperations,
-  type BillingOrderList,
-  type BillingOrderStatus,
   type BillingPluginStatus,
   type BillingRedemptionInput,
   type BillingRedemptionResult,
@@ -157,8 +153,7 @@ const CREDIT_BENEFIT_DISPLAY_NAMES: Record<string, string> = {
 type BillingListPage<T> = {
   items: T[];
   pagination: {
-    page?: number;
-    has_more: boolean;
+    max_page: number;
   };
 };
 type CreditGrantDisplayStatus = (typeof CREDIT_GRANT_DISPLAY_STATUSES)[number];
@@ -759,7 +754,7 @@ function billingApiError(
 }
 
 function getCheckoutUnavailableReason(
-  checkout: OrderCheckout | SubscriptionCheckout | undefined,
+  checkout: SubscriptionCheckout | undefined,
 ): string | null {
   if (checkout?.checkout_usable === true && checkout.checkout_url) return null;
   return checkout?.message ?? null;
@@ -769,51 +764,6 @@ function isProviderBackedSubscriptionCheckout(
   checkout: SubscriptionCheckout | undefined,
 ): boolean {
   return optionalString(checkout?.provider_key) !== null;
-}
-
-function mapOrderStatus(
-  order: Order,
-  checkout?: OrderCheckout,
-): BillingOrderStatus {
-  const canPay =
-    order.status === "pending_checkout" &&
-    checkout?.checkout_usable === true &&
-    !!checkout.checkout_url;
-  return {
-    id: order.id,
-    externalUserId: order.external_user_id,
-    productKey: order.product_key_snapshot,
-    productName: order.product_name_snapshot,
-    subscriptionId: order.subscription_id,
-    status: order.status,
-    billingReason: order.billing_reason,
-    amountMinor: order.amount_snapshot,
-    amountUsd: minorAmountToUsd(order.amount_snapshot),
-    paidAmountMinor: order.paid_amount_snapshot,
-    paidAmountUsd: minorAmountToUsd(order.paid_amount_snapshot),
-    currency: order.currency_snapshot,
-    refundedAmountMinor: order.refunded_amount,
-    refundedAmountUsd: minorAmountToUsd(order.refunded_amount),
-    fulfillmentSource: order.fulfillment_source,
-    checkoutExpiresAt: order.checkout_expires_at ?? null,
-    paidAt: order.paid_at,
-    checkoutCanceledAt: order.checkout_canceled_at,
-    checkoutExpiredAt: order.checkout_expired_at,
-    paymentConflictedAt: order.payment_conflicted_at,
-    createdAt: order.created_at,
-    updatedAt: order.updated_at,
-    providerStatus:
-      checkout?.order_status ?? checkout?.provider_request_status ?? null,
-    checkoutStatus: checkout?.status ?? null,
-    actions: {
-      canPay,
-      checkoutUrl: canPay ? (checkout?.checkout_url ?? null) : null,
-      checkoutUsable: canPay,
-      canCancelCheckout: order.status === "pending_checkout",
-      canCancelAutoRenew: false,
-      unavailableReason: canPay ? null : getCheckoutUnavailableReason(checkout),
-    },
-  };
 }
 
 function mapSubscriptionHistoryStatus(
@@ -1351,25 +1301,6 @@ function emptyCatalog(input: {
   };
 }
 
-function emptyOrderList(input: {
-  userId: string;
-  status: BillingPluginStatus;
-  page: number;
-  limit: number;
-}): BillingOrderList {
-  return {
-    userId: input.userId,
-    billing: input.status,
-    page: input.page,
-    limit: input.limit,
-    items: [],
-    pagination: {
-      hasMore: false,
-      nextPage: null,
-    },
-  };
-}
-
 function emptySubscriptionHistoryList(input: {
   userId: string;
   status: BillingPluginStatus;
@@ -1485,17 +1416,6 @@ export function createDisabledBillingOperations(
       });
     },
 
-    async listOrders(
-      input: BillingHistoryListInput,
-    ): Promise<BillingOrderList> {
-      return emptyOrderList({
-        userId: input.userId,
-        status,
-        page: input.page ?? 1,
-        limit: input.limit ?? 10,
-      });
-    },
-
     async listSubscriptions(
       input: BillingHistoryListInput,
     ): Promise<BillingSubscriptionHistoryList> {
@@ -1527,14 +1447,6 @@ export function createDisabledBillingOperations(
         status,
         reason: status.reason ?? "Billing integration is not configured",
       });
-    },
-
-    async cancelOrderCheckout(): Promise<BillingOrderStatus> {
-      throw billingApiError(
-        503,
-        status.reason ?? "Billing integration is not configured",
-        "billing_unavailable",
-      );
     },
 
     async cancelSubscriptionCheckout(): Promise<BillingSubscriptionHistoryStatus> {
@@ -1790,7 +1702,7 @@ export function createTalesofaiBillingOperations(
     for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
       const response = await fetchPage(page, CREDIT_LIST_PAGE_LIMIT);
       items.push(...response.items);
-      if (!response.pagination.has_more) break;
+      if (page >= response.pagination.max_page) break;
     }
     return items;
   };
@@ -2295,48 +2207,6 @@ export function createTalesofaiBillingOperations(
     );
   };
 
-  const listOrders = async (
-    input: BillingHistoryListInput,
-  ): Promise<BillingOrderList> => {
-    const page = normalizeBillingPage(input.page);
-    const limit = normalizeBillingLimit(input.limit);
-    await ensureCustomer({ userId: input.userId });
-    const response = await sdk.admin.orders.list({
-      business_key: businessKey,
-      external_user_id: input.userId,
-      sorting: "-created_at",
-      include_count: false,
-      page,
-      limit,
-    });
-    const items = await Promise.all(
-      response.items.map(async (order) => {
-        if (order.status !== "pending_checkout") return mapOrderStatus(order);
-        try {
-          const inspected = await sdk.admin.orders.inspect({
-            order_id: order.id,
-            business_key: businessKey,
-          });
-          return mapOrderStatus(inspected.order, inspected.checkout);
-        } catch (error) {
-          if (!isNotFound(error)) throw error;
-          return mapOrderStatus(order);
-        }
-      }),
-    );
-    return {
-      userId: input.userId,
-      billing: status,
-      page,
-      limit,
-      items,
-      pagination: {
-        hasMore: response.pagination.has_more,
-        nextPage: response.pagination.has_more ? page + 1 : null,
-      },
-    };
-  };
-
   const listSubscriptions = async (
     input: BillingHistoryListInput,
   ): Promise<BillingSubscriptionHistoryList> => {
@@ -2378,30 +2248,10 @@ export function createTalesofaiBillingOperations(
       limit,
       items,
       pagination: {
-        hasMore: response.pagination.has_more,
-        nextPage: response.pagination.has_more ? page + 1 : null,
+        hasMore: page < response.pagination.max_page,
+        nextPage: page < response.pagination.max_page ? page + 1 : null,
       },
     };
-  };
-
-  const getOwnedOrder = async (input: {
-    userId: string;
-    orderId: string;
-  }): Promise<Order> => {
-    try {
-      const order = await sdk.admin.orders.get({
-        order_id: input.orderId,
-        business_key: businessKey,
-      });
-      if (order.external_user_id !== input.userId) {
-        throw billingApiError(404, "Order not found", "order_not_found");
-      }
-      return order;
-    } catch (error) {
-      if (isNotFound(error))
-        throw billingApiError(404, "Order not found", "order_not_found");
-      throw error;
-    }
   };
 
   const getOwnedSubscription = async (input: {
@@ -2430,27 +2280,6 @@ export function createTalesofaiBillingOperations(
         );
       throw error;
     }
-  };
-
-  const cancelOrderCheckout = async (
-    input: BillingUserRef & { orderId: string },
-  ): Promise<BillingOrderStatus> => {
-    const order = await getOwnedOrder(input);
-    if (order.status !== "pending_checkout") {
-      throw billingApiError(
-        409,
-        "Only pending checkout orders can be canceled",
-        "order_not_cancelable",
-      );
-    }
-    const canceled = await sdk.admin.orders.cancelCheckout(
-      { order_id: input.orderId },
-      { business_key: businessKey },
-      {
-        idempotencyKey: `cohub:billing:order-cancel-checkout:${input.userId}:${input.orderId}`,
-      },
-    );
-    return mapOrderStatus(canceled);
   };
 
   const cancelSubscriptionCheckout = async (
@@ -2604,15 +2433,11 @@ export function createTalesofaiBillingOperations(
 
     getCatalog,
 
-    listOrders,
-
     listSubscriptions,
 
     purchaseAddon,
 
     createSubscription,
-
-    cancelOrderCheckout,
 
     cancelSubscriptionCheckout,
 

@@ -181,7 +181,9 @@ async function startCheckout(product: BillingCatalogProduct) {
 	}
 	if (!product.key) {
 		await signInWithRedirectPath(
-			`/settings/billing?tab=${product.kind === "plan" ? "plans" : "addons"}`,
+			product.kind === "plan"
+				? "/settings/billing?tab=plans"
+				: "/settings/billing",
 		);
 		return;
 	}
