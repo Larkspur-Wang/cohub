@@ -12,19 +12,24 @@ function isRecord(value: unknown): value is RecordValue {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function hasText(value: string) {
+	return /\S/.test(value);
+}
+
 function readString(record: RecordValue | undefined, keys: readonly string[]) {
 	if (!record) return null;
 	for (const key of keys) {
 		const value = record[key];
-		if (typeof value === "string" && value.trim()) return value.trim();
+		if (typeof value === "string" && hasText(value)) return value.trim();
 	}
 	return null;
 }
 
 function hasBase64Payload(record: RecordValue | undefined) {
-	return BASE64_KEYS.some(
-		(key) => typeof record?.[key] === "string" && record[key].trim(),
-	);
+	return BASE64_KEYS.some((key) => {
+		const value = record?.[key];
+		return typeof value === "string" && hasText(value);
+	});
 }
 
 function hasDeferredBase64(
@@ -45,6 +50,10 @@ function mediaTypeForBlock(
 	);
 }
 
+export function isInlineMediaUrl(value: string | null | undefined) {
+	return /^(data|blob):/i.test(value?.trim() ?? "");
+}
+
 function mediaSourceUrl(
 	block: RecordValue,
 	options: ExtractGenerationMediaOptions,
@@ -52,7 +61,18 @@ function mediaSourceUrl(
 	const source = isRecord(block.source) ? block.source : undefined;
 	const url =
 		readString(source, ["url", "src"]) ?? readString(block, ["url", "src"]);
-	if (url) return { src: url, deferred: false };
+	if (url) {
+		if (options.deferBase64 && isInlineMediaUrl(url)) {
+			return { src: "", deferred: true };
+		}
+		return { src: url, deferred: false };
+	}
+	if (
+		options.deferBase64 &&
+		(hasBase64Payload(source) || hasBase64Payload(block))
+	) {
+		return { src: "", deferred: true };
+	}
 	const data =
 		readString(source, BASE64_KEYS) ?? readString(block, BASE64_KEYS);
 	if (data) {

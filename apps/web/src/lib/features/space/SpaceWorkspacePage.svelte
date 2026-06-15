@@ -133,6 +133,7 @@ import {
 import {
 	extractGenerationMediaItems,
 	extractGenerationPromptPreview,
+	isInlineMediaUrl,
 } from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {
@@ -1821,7 +1822,12 @@ function handleSessionTaskTrayLoadMore() {
 	void loadRecentSessionTaskPage(activeSessionId);
 }
 async function handleOpenGenerationTaskMedia(notice: GenerationTaskNotice) {
-	const hasDeferredMedia = notice.mediaItems.some((item) => item.deferred);
+	const hasDeferredMedia = notice.mediaItems.some(
+		(item) =>
+			item.deferred ||
+			isInlineMediaUrl(item.src) ||
+			isInlineMediaUrl(item.poster),
+	);
 	if (!hasDeferredMedia) {
 		mediaLightbox.show(notice.mediaItems);
 		return;
