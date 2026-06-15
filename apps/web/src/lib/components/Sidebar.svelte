@@ -423,12 +423,7 @@ async function refreshBillingCredit() {
 	billingCreditError = null;
 	billingCreditRequest = (async () => {
 		try {
-			const { credit } = await sdk.billing.getCredits();
-			if (!credit.billing.configured) {
-				markBillingUnavailable();
-				return false;
-			}
-			billingCredit = credit;
+			billingCredit = await sdk.billing.getCredits();
 			billingCreditUserId = authStore.userUuid;
 			billingConfigured = true;
 			return true;
@@ -2864,11 +2859,11 @@ $effect(() => {
                   <CreditCard class="h-3.5 w-3.5" />
                   <span>{currentSubscriptionName ?? "Free Plan"}</span>
                   {#if showBillingBalanceEntry}
-                    <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                    <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                       {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
                         <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
                       {:else if billingCredit}
-                        {formatUsdAmount(billingCredit.balance.netUsd)}
+                        {formatUsdAmount(billingCredit.netUsd)}
                       {:else}
                         <span class="text-text-placeholder">—</span>
                       {/if}
@@ -3548,11 +3543,11 @@ $effect(() => {
               <CreditCard class="w-3.5 h-3.5" />
               <span>{currentSubscriptionName ?? "Free Plan"}</span>
               {#if showBillingBalanceEntry}
-                <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
+                <span class="ml-auto font-mono text-[11px] {billingCredit && billingCredit.netUsd < 0 ? 'text-error-soft' : 'text-text-secondary'}">
                   {#if billingCreditLoading || (!billingCredit && !billingCreditError)}
                     <Loader2 class="h-3.5 w-3.5 animate-spin text-text-tertiary" />
                   {:else if billingCredit}
-                    {formatUsdAmount(billingCredit.balance.netUsd)}
+                    {formatUsdAmount(billingCredit.netUsd)}
                   {:else}
                     <span class="text-text-placeholder">—</span>
                   {/if}

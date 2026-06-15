@@ -93,56 +93,13 @@ export type BillingCreditGrantStatus = {
 
 export type BillingCreditExpiryGroup = {
   key: "expired" | "lt_7d" | "lt_30d" | "gte_30d" | "never";
-  label: string;
   remainingAmountUsd: number;
   grants: BillingCreditGrantStatus[];
 };
 
-export type BillingOpenOverageStatus = {
-  id: string;
-  tokenType: string;
-  usageType: string | null;
-  sourceType: string;
-  sourceId: string;
-  operationId: string;
-  originalAmountUsd: number;
-  remainingAmountUsd: number;
-  settledAmountUsd: number;
-  status: string;
-  reason: string | null;
-  createdAt: string;
-};
-
 export type BillingCreditStatus = {
-  userId: string;
-  billing: BillingPluginStatus;
-  tokenType: string;
-  unit: BillingCreditUnit;
-  balance: {
-    availableUsd: number;
-    openOverageUsd: number;
-    netUsd: number;
-  };
-  overage: {
-    hasOpenOverage: boolean;
-    openAmountUsd: number;
-    items: BillingOpenOverageStatus[];
-  };
+  netUsd: number;
   groups: BillingCreditExpiryGroup[];
-};
-
-export type BillingOpenOverageList = {
-  userId: string;
-  billing: BillingPluginStatus;
-  tokenType: string;
-  unit: BillingCreditUnit;
-  page: number;
-  limit: number;
-  items: BillingOpenOverageStatus[];
-  pagination: {
-    maxPage: number;
-    totalCount: number;
-  };
 };
 
 export type BillingProductKind = "plan" | "addon";
@@ -373,33 +330,6 @@ export type BillingBalanceActivityList = {
   page: number;
   limit: number;
   items: BillingBalanceActivity[];
-  pagination: {
-    maxPage: number;
-    totalCount: number;
-  };
-};
-
-export type BillingUsageRecordStatus = {
-  id: string;
-  tokenType: string;
-  usageType: string | null;
-  sourceType: string | null;
-  sourceId: string | null;
-  operationId: string | null;
-  amount: number;
-  amountUsd: number;
-  reason: string | null;
-  createdAt: string;
-};
-
-export type BillingUsageRecordList = {
-  userId: string;
-  billing: BillingPluginStatus;
-  tokenType: string;
-  unit: BillingCreditUnit;
-  page: number;
-  limit: number;
-  items: BillingUsageRecordStatus[];
   pagination: {
     maxPage: number;
     totalCount: number;

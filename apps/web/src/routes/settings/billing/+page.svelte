@@ -69,23 +69,6 @@ let subscriptionsRequest: Promise<void> | null = null;
 let checkoutExpiryRefreshRequest: Promise<void> | null = null;
 const refreshedExpiredCheckoutKeys = new Set<string>();
 
-const balanceConfigured = $derived(
-	billingCatalog?.billing.configured ??
-		billingOrders?.billing.configured ??
-		billingSubscriptions?.billing.configured ??
-		balanceCredit?.billing.configured ??
-		balanceActivities?.billing.configured ??
-		true,
-);
-const billingStatusKnown = $derived(
-	Boolean(
-		billingCatalog?.billing ||
-			billingOrders?.billing ||
-			billingSubscriptions?.billing ||
-			balanceCredit?.billing ||
-			balanceActivities?.billing,
-	),
-);
 const activityTotalPages = $derived(
 	Math.max(1, balanceActivities?.pagination.maxPage ?? 1),
 );
@@ -175,6 +158,23 @@ function formatProductPrice(value: number): string {
 
 function formatCreditAmount(value: number): string {
 	return formatUsdAmount(value * 0.00000001);
+}
+
+function getExpiryGroupLabel(
+	key: BillingCreditStatus["groups"][number]["key"],
+): string {
+	switch (key) {
+		case "expired":
+			return "Expired";
+		case "lt_7d":
+			return "Expires within 7 days";
+		case "lt_30d":
+			return "Expires within 30 days";
+		case "gte_30d":
+			return "Expires after 30 days";
+		case "never":
+			return "No expiration";
+	}
 }
 
 function getDiscountText(product: BillingCatalogProduct): string | null {
@@ -409,8 +409,7 @@ async function loadCreditStatus(options: { force?: boolean } = {}) {
 			return;
 		}
 		try {
-			const { credit } = await sdk.billing.getCredits();
-			balanceCredit = credit;
+			balanceCredit = await sdk.billing.getCredits();
 		} catch (error) {
 			if (
 				await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
@@ -603,8 +602,7 @@ async function refreshExpiredPendingCheckouts() {
 async function createRedemption(event: SubmitEvent) {
 	event.preventDefault();
 	const code = redemptionCode.trim();
-	if (redemptionLoading || !code || !balanceConfigured || !billingStatusKnown)
-		return;
+	if (redemptionLoading || !code) return;
 	redemptionLoading = true;
 	redemptionError = "";
 	redemptionSuccess = "";
@@ -906,11 +904,11 @@ $effect(() => {
 						<Wallet class="h-3.5 w-3.5" />
 						<span>Balance</span>
 					</div>
-					<div class="mt-2 font-mono text-[18px] font-semibold tracking-tight {balanceCredit && balanceCredit.balance.netUsd < 0 ? 'text-error-soft' : 'text-text-primary'}">
+					<div class="mt-2 font-mono text-[18px] font-semibold tracking-tight {balanceCredit && balanceCredit.netUsd < 0 ? 'text-error-soft' : 'text-text-primary'}">
 						{#if creditLoading && !balanceCredit}
 							<span class="text-text-tertiary">Loading</span>
 						{:else}
-							{formatUsdAmount(balanceCredit?.balance.netUsd ?? 0)}
+							{formatUsdAmount(balanceCredit?.netUsd ?? 0)}
 						{/if}
 					</div>
 				</div>
@@ -1023,8 +1021,6 @@ $effect(() => {
 
 					{#if subscriptionsLoading && !billingSubscriptions}
 						<div class="mt-3 h-32 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
-					{:else if !balanceConfigured}
-						<p class="mt-4 text-[12px] text-text-tertiary">Billing is not available in this environment.</p>
 					{:else if !billingSubscriptions || billingSubscriptions.items.length === 0}
 						<p class="mt-4 text-[12px] text-text-tertiary">No subscriptions yet.</p>
 					{:else}
@@ -1148,8 +1144,6 @@ $effect(() => {
 
 					{#if ordersLoading && !billingOrders}
 						<div class="mt-3 h-32 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
-					{:else if !balanceConfigured}
-						<p class="mt-4 text-[12px] text-text-tertiary">Billing is not available in this environment.</p>
 					{:else if !billingOrders || billingOrders.items.length === 0}
 						<p class="mt-4 text-[12px] text-text-tertiary">No orders yet.</p>
 					{:else}
@@ -1205,8 +1199,8 @@ $effect(() => {
 					<h2 class="text-[14px] font-medium text-text-primary">Redeem Code</h2>
 					<form class="mt-4 flex flex-col gap-2 sm:flex-row" onsubmit={createRedemption}>
 						<label class="sr-only" for="billing-redemption-code">Redemption code</label>
-						<input id="billing-redemption-code" bind:value={redemptionCode} autocomplete="off" spellcheck="false" disabled={redemptionLoading || !balanceConfigured || !billingStatusKnown} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-brand disabled:cursor-not-allowed disabled:opacity-55" placeholder="Redemption code" />
-						<button type="submit" disabled={redemptionLoading || !redemptionCode.trim() || !balanceConfigured || !billingStatusKnown} class="inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
+						<input id="billing-redemption-code" bind:value={redemptionCode} autocomplete="off" spellcheck="false" disabled={redemptionLoading} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary outline-none transition-colors placeholder:text-text-placeholder focus:border-brand disabled:cursor-not-allowed disabled:opacity-55" placeholder="Redemption code" />
+						<button type="submit" disabled={redemptionLoading || !redemptionCode.trim()} class="inline-flex h-9 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-55">
 							{#if redemptionLoading}
 								<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
 								<span>Redeeming</span>
@@ -1216,9 +1210,6 @@ $effect(() => {
 							{/if}
 						</button>
 					</form>
-					{#if !balanceConfigured}
-						<div class="mt-3 text-[12px] text-text-tertiary">Billing is not available in this environment.</div>
-					{/if}
 					{#if redemptionError}
 						<div class="mt-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
 							<AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -1246,8 +1237,6 @@ $effect(() => {
 
 			{#if creditLoading && !balanceCredit}
 				<div class="mt-3 h-24 rounded-[6px] bg-bg-hover-strong" aria-hidden="true"></div>
-			{:else if !balanceConfigured}
-				<div class="py-6 text-[13px] text-text-tertiary">Billing is not available in this environment.</div>
 			{:else if balanceCredit}
 				<section class="py-5">
 					<h2 class="text-[13px] font-medium text-text-primary">Balance by Expiration</h2>
@@ -1259,7 +1248,7 @@ $effect(() => {
 								<div class="px-3 py-3">
 									<div class="flex min-w-0 items-center justify-between gap-3">
 										<div class="min-w-0">
-											<div class="truncate text-[12px] font-medium text-text-primary">{group.label}</div>
+											<div class="truncate text-[12px] font-medium text-text-primary">{getExpiryGroupLabel(group.key)}</div>
 											<div class="mt-0.5 text-[11px] text-text-tertiary">{group.grants.length} grant{group.grants.length === 1 ? "" : "s"}</div>
 										</div>
 										<div class="shrink-0 font-mono text-[13px] text-text-primary">{formatUsdAmount(group.remainingAmountUsd)}</div>

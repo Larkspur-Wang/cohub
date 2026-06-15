@@ -3,13 +3,11 @@ import type {
   BillingCatalog,
   BillingCheckoutResult,
   BillingCreditStatus,
-  BillingOpenOverageList,
   BillingOrderList,
   BillingOrderStatus,
   BillingRedemptionResult,
   BillingSubscriptionHistoryList,
   BillingSubscriptionHistoryStatus,
-  BillingUsageRecordList,
 } from "../types.js";
 import type { HttpTransport } from "../transport.js";
 
@@ -20,7 +18,7 @@ export class BillingApi {
     const query = input?.tokenType
       ? `?tokenType=${encodeURIComponent(input.tokenType)}`
       : "";
-    return this.transport.request<{ credit: BillingCreditStatus }>(
+    return this.transport.request<BillingCreditStatus>(
       `/api/billing/credits${query}`,
     );
   }
@@ -33,28 +31,6 @@ export class BillingApi {
     const query = params.toString();
     return this.transport.request<{ activities: BillingBalanceActivityList }>(
       `/api/billing/balance-activities${query ? `?${query}` : ""}`,
-    );
-  }
-
-  async getUsageRecords(input?: { tokenType?: string; page?: number; limit?: number }) {
-    const params = new URLSearchParams();
-    if (input?.tokenType) params.set("tokenType", input.tokenType);
-    if (input?.page) params.set("page", String(input.page));
-    if (input?.limit) params.set("limit", String(input.limit));
-    const query = params.toString();
-    return this.transport.request<{ usage: BillingUsageRecordList }>(
-      `/api/billing/usage-records${query ? `?${query}` : ""}`,
-    );
-  }
-
-  async getOverages(input?: { tokenType?: string; page?: number; limit?: number }) {
-    const params = new URLSearchParams();
-    if (input?.tokenType) params.set("tokenType", input.tokenType);
-    if (input?.page) params.set("page", String(input.page));
-    if (input?.limit) params.set("limit", String(input.limit));
-    const query = params.toString();
-    return this.transport.request<{ overages: BillingOpenOverageList }>(
-      `/api/billing/overages${query ? `?${query}` : ""}`,
     );
   }
 

@@ -70,7 +70,7 @@ router.get("/credits", async (c) => {
     userId: user.uuid,
     tokenType: resolved.tokenType,
   });
-  return c.json({ credit });
+  return c.json(credit);
 });
 
 router.get("/balance-activities", async (c) => {
@@ -84,32 +84,6 @@ router.get("/balance-activities", async (c) => {
     limit: parsePositiveInt(c.req.query("limit"), BILLING_PAGE_SIZE, BILLING_PAGE_SIZE),
   });
   return c.json({ activities });
-});
-
-router.get("/usage-records", async (c) => {
-  const user = useAuth(c);
-  const resolved = resolveTokenType(c.req.query("tokenType"));
-  if ("error" in resolved) return c.json({ message: resolved.error }, 400);
-  const usage = await billingOperations.listUsageRecords({
-    userId: user.uuid,
-    tokenType: resolved.tokenType,
-    page: parsePositiveInt(c.req.query("page"), 1, 10_000),
-    limit: parsePositiveInt(c.req.query("limit"), BILLING_PAGE_SIZE, BILLING_PAGE_SIZE),
-  });
-  return c.json({ usage });
-});
-
-router.get("/overages", async (c) => {
-  const user = useAuth(c);
-  const resolved = resolveTokenType(c.req.query("tokenType"));
-  if ("error" in resolved) return c.json({ message: resolved.error }, 400);
-  const overages = await billingOperations.listOpenOverages({
-    userId: user.uuid,
-    tokenType: resolved.tokenType,
-    page: parsePositiveInt(c.req.query("page"), 1, 10_000),
-    limit: parsePositiveInt(c.req.query("limit"), BILLING_PAGE_SIZE, BILLING_PAGE_SIZE),
-  });
-  return c.json({ overages });
 });
 
 router.get("/catalog", async (c) => {
