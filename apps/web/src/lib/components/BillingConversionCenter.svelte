@@ -4,9 +4,11 @@ import type {
 	BillingCatalogProduct,
 	BillingCreditStatus,
 } from "@neta-art/cohub";
-import { AlertCircle, CreditCard, Loader2, X } from "lucide-svelte";
+import { AlertCircle, Check, CreditCard, Loader2, X } from "lucide-svelte";
 import { sdk } from "$lib/sdk";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
+
+type PlanInterval = "monthly" | "yearly";
 
 let catalog = $state<BillingCatalog | null>(null);
 let loading = $state(false);
@@ -18,6 +20,7 @@ let creditLoading = $state(false);
 let creditError = $state("");
 let loadedOnce = false;
 let wasOpen = false;
+let selectedPlanInterval = $state<PlanInterval>("monthly");
 
 const open = $derived(billingConversion.open);
 const intent = $derived(billingConversion.intent);
@@ -54,14 +57,18 @@ const monthlyPlans = $derived.by(() =>
 const yearlyPlans = $derived.by(() =>
 	paidPlans.filter((product) => product.interval === "yearly"),
 );
-const addons = $derived.by(() => sortProducts(catalog?.addons ?? []));
+const hasYearlyPlans = $derived(yearlyPlans.length > 0);
+const activePlanInterval = $derived(
+	selectedPlanInterval === "yearly" && hasYearlyPlans ? "yearly" : "monthly",
+);
+const visiblePlanProducts = $derived.by(() => {
+	if (activePlanInterval === "yearly") return yearlyPlans;
+	if (monthlyPlans.length === 0 && hasYearlyPlans) return yearlyPlans;
+	return monthlyPlans;
+});
 const primaryProducts = $derived.by(() => {
 	if (!catalog) return [];
-	return hasActivePaidPlan ? addons.slice(0, 3) : paidPlans.slice(0, 6);
-});
-const secondaryProducts = $derived.by(() => {
-	if (!catalog) return [];
-	return hasActivePaidPlan ? paidPlans.slice(0, 4) : addons.slice(0, 2);
+	return hasActivePaidPlan ? paidPlans.slice(0, 4) : visiblePlanProducts;
 });
 const headline = $derived(
 	intent?.title ?? (isHard ? "Add credits to continue" : "Balance below zero"),
@@ -80,10 +87,10 @@ const balanceLabel = $derived(
 			: null,
 );
 const primaryLabel = $derived(
-	hasActivePaidPlan ? "Add capacity" : "Choose a plan",
+	hasActivePaidPlan ? "Plan options" : "Choose a plan",
 );
-const secondaryLabel = $derived(
-	hasActivePaidPlan ? "Plan options" : "One-time top-ups",
+const selectedIntervalLabel = $derived(
+	visiblePlanProducts === yearlyPlans ? "Yearly" : "Monthly",
 );
 
 $effect(() => {
@@ -153,6 +160,24 @@ function productSubtitle(product: BillingCatalogProduct) {
 	const credits = includedBalanceText(product);
 	if (credits) return `${credits} included credits`;
 	return product.kind === "addon" ? "One-time credit pack" : "Workspace plan";
+}
+
+function getPlanTier(product: BillingCatalogProduct): string {
+	const source = `${product.key} ${product.name}`.toLowerCase();
+	if (source.includes("free")) return "free";
+	if (source.includes("max")) return "max";
+	if (source.includes("pro") || source.includes("standard")) return "pro";
+	if (source.includes("plus")) return "plus";
+	return product.key;
+}
+
+function isRecommended(product: BillingCatalogProduct): boolean {
+	return getPlanTier(product) === "pro";
+}
+
+function annualNote(product: BillingCatalogProduct): string | null {
+	if (product.interval !== "yearly") return null;
+	return `${formatUsd(product.pricing.amountUsd)} billed yearly`;
 }
 
 function returnUrl() {
@@ -253,24 +278,24 @@ async function startCheckout(product: BillingCatalogProduct) {
 					<h2 class="text-[18px] font-semibold leading-6 text-text-primary">{headline}</h2>
 					<p class="mt-1 max-w-[560px] text-[13px] leading-5 text-text-secondary">{message}</p>
 				</div>
-				<button type="button" class="cursor-pointer rounded-[6px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => billingConversion.close()} aria-label="Close">
+				<button type="button" class="cursor-pointer rounded-[6px] p-2 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40" onclick={() => billingConversion.close()} aria-label="Close">
 					<X class="h-4 w-4" />
 				</button>
 			</header>
 
 			<div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-				<div class="mb-4 grid gap-2 sm:grid-cols-2">
-					<div class="rounded-[8px] border border-border-subtle bg-bg-secondary px-3 py-2">
+				<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+					<div>
 						<div class="text-[11px] text-text-tertiary">Current balance</div>
-						<div class="mt-1 font-mono text-[13px] text-text-primary">{creditLoading && !balanceLabel ? "Loading" : (balanceLabel ?? "—")}</div>
+						<div class="mt-1 font-mono text-[14px] text-text-primary">{creditLoading && !balanceLabel ? "Loading" : (balanceLabel ?? "—")}</div>
 						{#if creditError && !balanceLabel}
 							<div class="mt-1 text-[11px] text-error">{creditError}</div>
 						{/if}
 					</div>
-					{#if catalog && !hasActivePaidPlan && paidPlans.length > 0}
-						<div class="rounded-[8px] border border-border-subtle bg-bg-secondary px-3 py-2">
-							<div class="text-[11px] text-text-tertiary">Plans available</div>
-							<div class="mt-1 text-[13px] text-text-primary">{monthlyPlans.length} monthly · {yearlyPlans.length} yearly</div>
+					{#if catalog && !hasActivePaidPlan && (monthlyPlans.length > 0 || yearlyPlans.length > 0)}
+						<div class="inline-flex rounded-[7px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
+							<button type="button" onclick={() => (selectedPlanInterval = "monthly")} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'monthly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'}">Monthly</button>
+							<button type="button" onclick={() => (selectedPlanInterval = "yearly")} disabled={!hasYearlyPlans} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'yearly' && hasYearlyPlans ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'} disabled:cursor-not-allowed disabled:opacity-40">Yearly</button>
 						</div>
 					{/if}
 				</div>
@@ -285,46 +310,60 @@ async function startCheckout(product: BillingCatalogProduct) {
 				{:else if catalog}
 					{#if !hasActivePaidPlan && (monthlyPlans.length > 0 || yearlyPlans.length > 0)}
 						<section>
-							<div class="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">Plans</div>
-							<div class="grid gap-3 md:grid-cols-2">
-								{#each [{ label: "Monthly", products: monthlyPlans }, { label: "Yearly", products: yearlyPlans }] as group}
-									{#if group.products.length > 0}
-										<div class="rounded-[10px] border border-border-subtle bg-bg-secondary p-2.5">
-											<div class="mb-2 flex items-center justify-between gap-2 px-0.5">
-												<div class="text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">{group.label}</div>
-												<div class="text-[11px] text-text-placeholder">{group.products.length} options</div>
+							<div class="mb-2 flex items-center justify-between gap-3">
+								<div class="text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">{selectedIntervalLabel} plans</div>
+								{#if activePlanInterval === "yearly" && hasYearlyPlans}
+									<div class="text-[11px] text-brand">Best value</div>
+								{/if}
+							</div>
+							<div class="grid gap-3 sm:grid-cols-2">
+								{#each visiblePlanProducts as product (product.key)}
+									{@const recommended = isRecommended(product)}
+									{@const note = annualNote(product)}
+									<div class="relative flex min-h-[218px] flex-col rounded-[10px] border bg-bg-content px-4 py-4 transition-colors {recommended ? 'border-brand/55' : 'border-border-subtle hover:border-border-strong'}">
+										{#if recommended}
+											<div class="absolute -top-px left-4 right-4 h-px bg-brand/70"></div>
+											<span class="absolute -top-2.5 left-4 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Popular</span>
+										{/if}
+
+										<div class="flex items-start justify-between gap-3">
+											<div class="min-w-0">
+												<h3 class="truncate text-[14px] font-semibold tracking-tight text-text-primary">{product.name}</h3>
+												<p class="mt-1 line-clamp-2 text-[12px] leading-4 text-text-tertiary">{productSubtitle(product)}</p>
 											</div>
-											<div class="grid gap-2">
-												{#each group.products as product (product.key)}
-													<button type="button" class="group cursor-pointer rounded-[8px] border border-border-subtle bg-bg-primary p-3 text-left transition-colors hover:border-brand/70 hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
-														<div class="flex items-start justify-between gap-3">
-															<div class="min-w-0">
-																<div class="truncate text-[13px] font-medium text-text-primary">{product.name}</div>
-																<div class="mt-1 text-[12px] leading-4 text-text-tertiary">{productSubtitle(product)}</div>
-															</div>
-															<div class="shrink-0 text-right">
-																<div class="font-mono text-[12px] text-text-primary">{productPrice(product)}</div>
-																{#if discountText(product)}
-																	<div class="mt-1 text-[10px] text-brand">{discountText(product)}</div>
-																{/if}
-															</div>
-														</div>
-														{#if includedBalanceText(product)}
-															<div class="mt-2 text-[11px] text-text-secondary">Balance included: {includedBalanceText(product)}</div>
-														{/if}
-														{#if product.display.benefits.length > 0}
-															<ul class="mt-2 grid gap-1 text-[11px] text-text-tertiary">
-																{#each product.display.benefits.slice(0, 3) as benefit}
-																	<li class="flex gap-1.5"><span class="mt-1 h-1 w-1 shrink-0 rounded-full bg-text-placeholder"></span><span>{benefit}</span></li>
-																{/each}
-															</ul>
-														{/if}
-														<div class="mt-3 flex items-center gap-1.5 text-[12px] text-brand"><CreditCard class="h-3.5 w-3.5" /> {busyKey === product.key ? "Starting" : "Subscribe"}</div>
-													</button>
-												{/each}
-											</div>
+											{#if discountText(product)}
+												<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-brand">{discountText(product)}</span>
+											{/if}
 										</div>
-									{/if}
+
+										<div class="mt-4 border-t border-border-subtle/70 pt-4">
+											<div class="flex items-baseline gap-1.5">
+												<span class="text-[28px] font-semibold tracking-[-0.045em] text-text-primary">{formatUsd(product.pricing.amountUsd)}</span>
+												<span class="text-[11px] text-text-tertiary">/ {product.interval === "yearly" ? "yr" : "mo"}</span>
+											</div>
+											{#if note}
+												<p class="mt-1 text-[10px] text-text-placeholder">{note}</p>
+											{/if}
+										</div>
+
+										<ul class="mt-3 flex-1 space-y-1.5">
+											{#if includedBalanceText(product)}
+												<li class="flex items-start gap-2 text-[11px] leading-4 text-text-tertiary"><Check class="mt-0.5 h-3 w-3 shrink-0 text-brand" /><span>{includedBalanceText(product)} balance</span></li>
+											{/if}
+											{#each product.display.benefits.slice(0, 2) as benefit}
+												<li class="flex items-start gap-2 text-[11px] leading-4 text-text-tertiary"><Check class="mt-0.5 h-3 w-3 shrink-0 text-brand" /><span class="line-clamp-1">{benefit}</span></li>
+											{/each}
+										</ul>
+
+										<button type="button" class="mt-4 inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-[6px] px-3 text-[12px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8 {recommended ? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover' : 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
+											{#if busyKey === product.key}
+												<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
+												Starting
+											{:else}
+												Subscribe
+											{/if}
+										</button>
+									</div>
 								{/each}
 							</div>
 						</section>
@@ -351,28 +390,14 @@ async function startCheckout(product: BillingCatalogProduct) {
 					</section>
 					{/if}
 
-					{#if secondaryProducts.length > 0}
-						<section class="mt-5">
-							<div class="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">{secondaryLabel}</div>
-							<div class="grid gap-2 sm:grid-cols-2">
-								{#each secondaryProducts as product (product.key)}
-									<button type="button" class="flex cursor-pointer items-center justify-between gap-3 rounded-[8px] border border-border-subtle px-3 py-2 text-left transition-colors hover:border-border-strong hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
-										<span class="min-w-0 truncate text-[12px] text-text-secondary">{product.name}</span>
-										<span class="shrink-0 font-mono text-[12px] text-text-primary">{productPrice(product)}</span>
-									</button>
-								{/each}
-							</div>
-						</section>
-					{/if}
-
 					{#if checkoutError || catalog.payment.available === false}
 						<p class="mt-4 text-[12px] text-error">{checkoutError || catalog.payment.reason || "Payment is not available"}</p>
 					{/if}
 				{/if}
 			</div>
 
-			<footer class="flex justify-end gap-2 border-t border-border-subtle px-5 py-3">
-				<button type="button" class="inline-flex h-8 cursor-pointer items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => billingConversion.close()}>Not now</button>
+			<footer class="flex justify-end px-5 py-3">
+				<button type="button" class="cursor-pointer rounded-[5px] px-2 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => billingConversion.close()}>Not now</button>
 			</footer>
 		</section>
 	</div>

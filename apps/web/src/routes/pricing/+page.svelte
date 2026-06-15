@@ -13,7 +13,6 @@ type PlanInterval = "monthly" | "yearly";
 let freePlan = $state<BillingCatalogProduct | null>(null);
 let monthlyPlans = $state<BillingCatalogProduct[]>([]);
 let yearlyPlans = $state<BillingCatalogProduct[]>([]);
-let packs = $state<BillingCatalogProduct[]>([]);
 let catalogLoading = $state(true);
 let catalogError = $state("");
 let checkoutBusyKey = $state<string | null>(null);
@@ -135,10 +134,6 @@ function getPlanTier(product: BillingCatalogProduct): string {
 	return product.key;
 }
 
-function getPackTitle(product: BillingCatalogProduct): string {
-	return `${formatUsd(getBalance(product))} Balance Pack`;
-}
-
 function isRecommended(product: BillingCatalogProduct): boolean {
 	return getPlanTier(product) === "pro";
 }
@@ -166,7 +161,6 @@ async function loadCatalog() {
 		yearlyPlans = sortByPrice(
 			catalog.plans.filter((p) => p.interval === "yearly" && p.key !== freeKey),
 		);
-		packs = sortByPrice(catalog.addons);
 	} catch (error) {
 		catalogError = "Failed to load pricing.";
 		console.warn("[pricing] Failed to load billing catalog", error);
@@ -354,49 +348,6 @@ onMount(() => {
 									Get started
 								{:else}
 									Subscribe
-								{/if}
-							</button>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</section>
-
-		<section id="packs" class="mt-16">
-			<div class="mb-4">
-				<h2 class="text-[15px] font-semibold tracking-tight">Balance Packs</h2>
-			</div>
-
-			{#if catalogLoading}
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-					{#each [1, 2, 3, 4] as i (i)}
-						<div class="h-48 animate-pulse rounded-[8px] bg-bg-hover-strong"></div>
-					{/each}
-				</div>
-			{:else if packs.length === 0 && !catalogError}
-				<div class="rounded-[6px] border border-border-subtle bg-bg-subtle px-4 py-5 text-[13px] text-text-tertiary">No balance packs available.</div>
-			{:else}
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-					{#each packs as product (product.key)}
-						<div class="relative flex min-h-[232px] flex-col rounded-[10px] border border-border-subtle bg-bg-content px-5 py-5 transition-colors hover:border-border-strong">
-							<h3 class="text-[15px] font-semibold tracking-tight text-text-primary">{getPackTitle(product)}</h3>
-
-							<div class="mt-5 border-t border-border-subtle/70 pt-5">
-								<div class="text-[34px] font-semibold tracking-[-0.045em] text-text-primary">{formatUsd(product.pricing.amountUsd)}</div>
-								<p class="mt-1 text-[12px] text-text-placeholder">One-time purchase</p>
-							</div>
-
-							<button
-								type="button"
-								onclick={() => startCheckout(product)}
-								disabled={checkoutBusyKey !== null}
-								class={getCheckoutButtonClass(false, { alignBottom: true })}
-							>
-								{#if checkoutBusyKey === product.key}
-									<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
-									Processing
-								{:else}
-									Purchase
 								{/if}
 							</button>
 						</div>
