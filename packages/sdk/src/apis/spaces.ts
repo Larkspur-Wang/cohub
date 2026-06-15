@@ -1,5 +1,4 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
-import type { GenerationPolicy } from "@cohub/protocol/generation";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
@@ -14,7 +13,6 @@ import {
 } from "../session-generation-stream.js";
 import type {
   CheckpointRecord,
-  ContentBlock,
   SessionForkRecord,
   SessionMessageResponse,
   SessionMessagesPaginatedResponse,
@@ -66,7 +64,6 @@ import type {
 } from "../types.js";
 import { SpaceInvitationsApi } from "./invitations.js";
 
-const DEFAULT_DEDUP_WINDOW_MS = 2000;
 
 const getFilenameFromContentDisposition = (value: string | null) => {
   if (!value) return null;
@@ -97,14 +94,6 @@ export type SessionSubscriptionHandlers = {
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
 export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "canvas.tx.applied" | "canvas.tx.ack" | "canvas.tx.error" | "task.created" | "task.updated" | "event";
-
-type SessionSendMessageInput = {
-  content: ContentBlock[];
-  model?: string;
-  provider?: string;
-  clientMessageId?: string;
-  generationPolicy?: GenerationPolicy | null;
-};
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
@@ -410,37 +399,6 @@ class SessionMessagesClient {
     );
   }
 
-  async send(input: SessionSendMessageInput) {
-    const signature = JSON.stringify({ sessionId: this.sessionId, input });
-    const now = Date.now();
-    if (
-      this.sessionId === this.lastSentSessionId &&
-      signature === this.lastSentSignature &&
-      now - this.lastSentAt < DEFAULT_DEDUP_WINDOW_MS
-    ) {
-      throw new Error("Duplicate message ignored");
-    }
-    this.lastSentSessionId = this.sessionId;
-    this.lastSentSignature = signature;
-    this.lastSentAt = now;
-
-    return this.transport.request<SessionTurnResponse>(
-      `/api/sessions/${this.sessionId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content: input.content,
-          model: input.model,
-          provider: input.provider,
-          clientMessageId: input.clientMessageId,
-          generationPolicy: input.generationPolicy,
-        }),
-      },
-    );
-  }
 }
 
 class SessionTurnsClient {

@@ -1,7 +1,5 @@
-import { BillingAccessBlockedError } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 import { randomUUID } from "node:crypto";
-import type { ContentBlock } from "@cohub/protocol/core";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
 import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/middleware.js";
@@ -11,7 +9,6 @@ import {
   getSessionMessageById,
   hydrateSessionParticipantProfiles,
   listSessionMessages,
-  SandboxNotReadyError,
   enqueueSessionAbort,
   enqueueSessionFork,
   updateSpaceSessionInfo,
@@ -19,54 +16,12 @@ import {
 import { markMessageAsFull, summarizeMessageForHistory } from "../session-content.js";
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
-import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
-import type { PromptAccessMode } from "@cohub/core/sessions";
-import { submitSessionPrompt } from "../session-prompts.js";
 import { createSessionFork, listSessionForksForSessions } from "../session-forks.js";
 import { buildSessionTurnResponse } from "../session-turn-response.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
-
-function validatePromptContentBlocks(content: unknown): content is ContentBlock[] {
-  if (!Array.isArray(content) || content.length === 0) return false;
-  return content.every((block) => block && typeof block === "object" && !Array.isArray(block) && typeof (block as { type?: unknown }).type === "string");
-}
-
-function billingBlockedResponse(error: BillingAccessBlockedError) {
-  return {
-    error: {
-      code: error.code,
-      message: error.message,
-      details: {
-        decision: {
-          status: error.decision.status,
-          netUsd: error.decision.netUsd,
-          hardNegativeLimitUsd: error.decision.hardNegativeLimitUsd,
-        },
-        conversion: error.decision.conversion,
-      },
-    },
-  };
-}
-
-function promptInputError(error: unknown): string | null {
-  if (error instanceof SandboxNotReadyError) return null;
-  if (!(error instanceof Error)) return String(error);
-  if (
-    error.message.includes("content") ||
-    error.message.includes("clientMessageId") ||
-    error.message.includes("userId") ||
-    error.message.includes("Invalid image") ||
-    error.message.includes("Invalid content block") ||
-    error.message.includes("shell command is empty") ||
-    error.message.includes("shell_command is not allowed")
-  ) {
-    return error.message;
-  }
-  return null;
-}
 
 router.post("/:id/turns/:turnId/fork", async (c) => {
   const user = useAuth(c);
@@ -421,75 +376,6 @@ router.post("/:id/abort", async (c) => {
   });
 
   return c.json({ ok: true });
-});
-
-router.post("/:id/messages", async (c) => {
-  const user = useAuth(c);
-  const sessionId = c.req.param("id");
-  if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
-
-  const session = await getSpaceSessionById(sessionId);
-  if (!session) return c.json({ message: "session not found" }, 404);
-
-  const body = await c.req.json<{
-    content: ContentBlock[];
-    model?: string;
-    provider?: string;
-    clientMessageId?: string | null;
-    generationPolicy?: unknown;
-    accessMode?: PromptAccessMode | null;
-  }>().catch(() => null);
-
-  if (!validatePromptContentBlocks(body?.content)) {
-    return c.json({ message: "content must be a non-empty ContentBlock array" }, 400);
-  }
-  const accessMode = body.accessMode ?? "full_access";
-  if (accessMode !== "read_only" && accessMode !== "full_access") {
-    return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
-  }
-  const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
-  if (!(await hasPermission(user, promptPermission, { spaceId: session.spaceId, sessionId: session.id }))) {
-    return authzDenied(c);
-  }
-
-  const space = await getSpaceById(session.spaceId);
-  if (!space) return c.json({ message: "space not found" }, 404);
-
-  const generationPolicy = body?.generationPolicy === undefined || body.generationPolicy === null
-    ? null
-    : normalizeGenerationPolicy(body.generationPolicy);
-  if (body?.generationPolicy !== undefined && body.generationPolicy !== null && !generationPolicy) {
-    return c.json({ message: "generationPolicy is invalid" }, 400);
-  }
-
-  try {
-    const { turnId } = await submitSessionPrompt({
-      spaceId: space.id,
-      sessionId: session.id,
-      userId: user.uuid,
-      clientMessageId: body.clientMessageId?.trim() || randomUUID(),
-      content: body.content,
-      source: "web_app",
-      model: body.model ?? null,
-      provider: body.provider ?? null,
-      generationPolicy,
-      accessMode,
-      context: { kind: "web_app" },
-    });
-    const response = await buildSessionTurnResponse(session, turnId);
-    if (!response) return c.json({ message: "turn not found" }, 500);
-    return c.json(response);
-  } catch (error) {
-    if (error instanceof BillingAccessBlockedError) {
-      return c.json(billingBlockedResponse(error), 402);
-    }
-    if (error instanceof SandboxNotReadyError) {
-      return c.json({ message: "sandbox is not ready" }, 503);
-    }
-    const inputError = promptInputError(error);
-    if (inputError) return c.json({ message: inputError }, 400);
-    throw error;
-  }
 });
 
 export default router;
