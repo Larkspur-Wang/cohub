@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1056.0",
+    "@cohub/billing": "workspace:*",
     "@cohub/core": "workspace:*",
     "@cohub/db": "workspace:*",
     "@cohub/identity": "workspace:*",

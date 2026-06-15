@@ -31,7 +31,7 @@ import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
-import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "./billing/index.js";
+import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "@cohub/billing";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });

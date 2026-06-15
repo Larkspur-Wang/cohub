@@ -31,8 +31,7 @@ import {
 } from "@talesofai-billing/sdk/admin/subscriptions";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
 import { createHash, randomUUID } from "node:crypto";
-import { config } from "../config.js";
-import { redisCommandClient } from "../redis.js";
+import type { Redis } from "ioredis";
 import {
   COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_TOKEN_TYPES,
@@ -74,6 +73,25 @@ export type BillingClientConfig = {
   adminApiKey: string;
 };
 
+export type BillingRuntimeConfig = {
+  talesofaiBillingBaseUrl?: string;
+  talesofaiBillingBusinessKey?: string;
+  talesofaiBillingAdminApiKey?: string;
+};
+
+export type BillingRedisClient = Pick<Redis, "set" | "eval">;
+
+let runtimeConfig: BillingRuntimeConfig = {};
+let checkoutLockRedis: BillingRedisClient | null = null;
+
+export function configureBillingRuntime(input: {
+  config?: BillingRuntimeConfig;
+  redis?: BillingRedisClient | null;
+}) {
+  runtimeConfig = input.config ?? {};
+  checkoutLockRedis = input.redis ?? null;
+}
+
 export class BillingConfigurationError extends Error {
   constructor(message = "Talesofai Billing is not configured") {
     super(message);
@@ -81,7 +99,7 @@ export class BillingConfigurationError extends Error {
   }
 }
 
-export function resolveBillingClientConfig(): BillingClientConfig | null {
+export function resolveBillingClientConfig(config: BillingRuntimeConfig = runtimeConfig): BillingClientConfig | null {
   const baseUrl = config.talesofaiBillingBaseUrl?.trim();
   const businessKey = config.talesofaiBillingBusinessKey?.trim();
   const adminApiKey = config.talesofaiBillingAdminApiKey?.trim();
@@ -1258,15 +1276,17 @@ async function withRedisCheckoutLock<T>(
 ): Promise<T> {
   const lockKey = `billing:checkout:lock:${key}`;
   const lockValue = randomUUID();
+  const redis = checkoutLockRedis;
+  if (!redis) return run();
   for (let attempt = 0; attempt < CHECKOUT_LOCK_RETRY_COUNT; attempt += 1) {
-    const locked = await redisCommandClient
+    const locked = await redis
       .set(lockKey, lockValue, "PX", CHECKOUT_LOCK_TTL_MS, "NX")
       .catch(() => null);
     if (locked === "OK") {
       try {
         return await run();
       } finally {
-        await redisCommandClient
+        await redis
           .eval(
             "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
             1,
@@ -2701,6 +2721,8 @@ export function createTalesofaiBillingOperations(
   };
 }
 
+let defaultBillingOperations: BillingOperations | null = null;
+
 export function createBillingOperations(): BillingOperations {
   const clientConfig = resolveBillingClientConfig();
   return clientConfig
@@ -2708,4 +2730,13 @@ export function createBillingOperations(): BillingOperations {
     : createDisabledBillingOperations();
 }
 
-export const billingOperations = createBillingOperations();
+export function getBillingOperations(): BillingOperations {
+  defaultBillingOperations ??= createBillingOperations();
+  return defaultBillingOperations;
+}
+
+export const billingOperations = new Proxy({} as BillingOperations, {
+  get(_target, property, receiver) {
+    return Reflect.get(getBillingOperations(), property, receiver);
+  },
+});

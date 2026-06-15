@@ -4,6 +4,9 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
+      "@cohub/billing": [
+        "../../packages/billing/dist/index.d.ts"
+      ],
       "@cohub/db": [
         "../../packages/db/dist/index.d.ts"
       ],

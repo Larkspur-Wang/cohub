@@ -6,6 +6,7 @@ import {
 	setAuthToken,
 } from "$lib/auth";
 import { getCurrentRedirectPath, redirectToSignIn } from "$lib/auth-redirect";
+import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 
 const handleUnauthorized = async () => {
 	if (typeof window !== "undefined") {
@@ -13,14 +14,48 @@ const handleUnauthorized = async () => {
 	}
 };
 
-const createWebSdk = (options: Partial<CohubClientOptions> = {}) =>
-	createCohubClient({
+function shouldInspectBillingResponse(
+	input: RequestInfo | URL,
+	response: Response,
+) {
+	if (response.status === 402) return true;
+	const url =
+		typeof input === "string"
+			? input
+			: input instanceof URL
+				? input.pathname
+				: input.url;
+	return (
+		response.status < 300 &&
+		/\/api\/(sessions\/[^/]+\/messages|generations)(?:[?#/]|$)/.test(url)
+	);
+}
+
+const createBillingAwareFetch =
+	(fetcher: typeof fetch): typeof fetch =>
+	async (input, init) => {
+		const response = await fetcher(input, init);
+		if (!shouldInspectBillingResponse(input, response)) return response;
+		const contentType = response.headers.get("content-type") ?? "";
+		if (!contentType.includes("application/json")) return response;
+		const body = await response
+			.clone()
+			.json()
+			.catch(() => null);
+		if (body) billingConversion.handleResponseBody(body);
+		return response;
+	};
+
+const createWebSdk = (options: Partial<CohubClientOptions> = {}) => {
+	const baseFetch = options.fetch ?? fetch;
+	return createCohubClient({
 		baseUrl: options.baseUrl ?? PUBLIC_API_ORIGIN ?? "",
 		getAccessToken: options.getAccessToken ?? resolveAccessToken,
 		onUnauthorized: options.onUnauthorized ?? handleUnauthorized,
 		setStoredAuthToken: options.setStoredAuthToken ?? setAuthToken,
 		clearStoredAuthToken: options.clearStoredAuthToken ?? clearAuthToken,
 		...options,
+		fetch: createBillingAwareFetch(baseFetch),
 		websocket: {
 			url: PUBLIC_GATEWAY_ORIGIN ?? undefined,
 			getAccessToken: resolveAccessToken,
@@ -32,6 +67,7 @@ const createWebSdk = (options: Partial<CohubClientOptions> = {}) =>
 			...options.voice,
 		},
 	});
+};
 
 export const sdk = createWebSdk();
 export const createWebClient = createWebSdk;

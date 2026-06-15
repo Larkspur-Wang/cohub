@@ -3,6 +3,7 @@ import "../app.css";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { scheduleCacheCleanup } from "$lib/cache/cleanup";
+import BillingConversionCenter from "$lib/components/BillingConversionCenter.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import CommandPalette from "$lib/components/CommandPalette.svelte";
 import HelpPanel from "$lib/components/HelpPanel.svelte";
@@ -534,6 +535,7 @@ onMount(() => {
   <MediaLightbox />
   <CommandPalette />
   <HelpPanel open={showHelpPanel} onClose={() => { showHelpPanel = false; }} />
+  <BillingConversionCenter />
 
 {/if}
 

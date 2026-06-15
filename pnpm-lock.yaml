@@ -133,6 +133,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1056.0
         version: 3.1056.0
+      '@cohub/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@cohub/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -481,6 +484,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.1056.0
         version: 3.1056.0
+      '@cohub/billing':
+        specifier: workspace:*
+        version: link:../../packages/billing
       '@cohub/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -570,6 +576,22 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  packages/billing:
+    dependencies:
+      '@talesofai-billing/sdk':
+        specifier: ^1.5.0
+        version: 1.5.0
+      ioredis:
+        specifier: 5.10.1
+        version: 5.10.1
+    devDependencies:
+      '@types/node':
+        specifier: 25.9.1
+        version: 25.9.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   packages/cli:
     dependencies:
       '@neta-art/cohub':
@@ -594,6 +616,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@cohub/billing':
+        specifier: workspace:*
+        version: link:../billing
       '@cohub/db':
         specifier: workspace:*
         version: link:../db
@@ -3417,7 +3442,6 @@ packages:
 
   '@talesofai-billing/sdk@1.5.0':
     resolution: {integrity: sha512-JrhNxM+Upb2wdD5JaSV2tYUcMXULVSJMcYhHU93mZboOnLqMCzsxsjkhxX8sbdp75X/KS6p1DPR0MegvKlpkHQ==, tarball: https://git.talesofai.com/api/packages/talesofai/npm/%40talesofai-billing%2Fsdk/-/1.5.0/sdk-1.5.0.tgz}
-    engines: {node: '>=18'}
 
   '@trickfilm400/rollup-plugin-off-main-thread@3.0.0-pre1':
     resolution: {integrity: sha512-/67zpWDBLV+oYAEL682s1ktXL0HgqX76f6gaVGkGnVZlBbm1zd0v4Bz8MFF2GGhoX9rvfq3KSQHubFHwa6w6/Q==}

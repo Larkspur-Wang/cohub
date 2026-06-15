@@ -1,3 +1,4 @@
+import { BillingAccessBlockedError } from "@cohub/billing";
 import type { Job } from "bullmq";
 import { recordJobFailure } from "@cohub/infra/bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
@@ -29,15 +30,35 @@ const registry = new Map<string, TaskHandler>();
  *   - On success: update to completed
  *   - On failure: update to failed (then rethrow for BullMQ retry)
  */
+function billingFailureResult(error: unknown) {
+  if (!(error instanceof BillingAccessBlockedError)) return null;
+  return {
+    error: {
+      code: error.code,
+      message: error.message,
+      details: {
+        decision: {
+          status: error.decision.status,
+          netUsd: error.decision.netUsd,
+          hardNegativeLimitUsd: error.decision.hardNegativeLimitUsd,
+        },
+        conversion: error.decision.conversion,
+      },
+    },
+  };
+}
+
 export const markTaskRunFailed = async (job: Job, error: unknown) => {
   const jobId = job.id;
   if (!jobId) return;
 
   const errorMessage = error instanceof Error ? error.message : String(error);
+  const result = billingFailureResult(error);
   const [taskRun] = await db
     .update(taskRuns)
     .set({
       status: "failed",
+      result,
       errorMessage,
       finishedAt: new Date(),
       updatedAt: new Date(),
@@ -48,7 +69,7 @@ export const markTaskRunFailed = async (job: Job, error: unknown) => {
   if (taskRun) {
     await dispatchTaskUpdated({
       task: taskRun,
-      changed: ["status", "errorMessage", "finishedAt"],
+      changed: ["status", "result", "errorMessage", "finishedAt"],
     }).catch((dispatchError) => logger.warn("[Realtime] failed to dispatch task.updated", dispatchError));
   }
 };

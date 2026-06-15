@@ -1,3 +1,4 @@
+import { billingOperations, createBillingUsageGate } from "@cohub/billing";
 import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -36,6 +37,12 @@ const agentTurnQueue = createBullmqQueue<{
 });
 
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
+const billingUsageGate = createBillingUsageGate({
+  operations: billingOperations,
+  onEvaluationError: (error, gateInput) => {
+    logger.warn("[BillingGate] fail-open after billing evaluation error", { error, gateInput });
+  },
+});
 
 let defaultSessionDomainServices: ReturnType<typeof createSessionServices> | null = null;
 
@@ -50,6 +57,7 @@ export function getSessionDomainServices(input?: {
     db,
     redis: redisCommandClient,
     promptTemplateService: input?.promptTemplateService ?? defaultPromptTemplateService,
+    billingUsageGate,
     sandboxRecovery: {
       maybeRecoverForPrompt: async ({ spaceId, userId, source }) => {
         const sandbox = await sandboxLifecycle.getSandbox(spaceId);

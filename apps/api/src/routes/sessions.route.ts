@@ -1,3 +1,4 @@
+import { BillingAccessBlockedError } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
@@ -31,6 +32,23 @@ const router = new Hono();
 function validatePromptContentBlocks(content: unknown): content is ContentBlock[] {
   if (!Array.isArray(content) || content.length === 0) return false;
   return content.every((block) => block && typeof block === "object" && !Array.isArray(block) && typeof (block as { type?: unknown }).type === "string");
+}
+
+function billingBlockedResponse(error: BillingAccessBlockedError) {
+  return {
+    error: {
+      code: error.code,
+      message: error.message,
+      details: {
+        decision: {
+          status: error.decision.status,
+          netUsd: error.decision.netUsd,
+          hardNegativeLimitUsd: error.decision.hardNegativeLimitUsd,
+        },
+        conversion: error.decision.conversion,
+      },
+    },
+  };
 }
 
 function promptInputError(error: unknown): string | null {
@@ -462,6 +480,9 @@ router.post("/:id/messages", async (c) => {
     if (!response) return c.json({ message: "turn not found" }, 500);
     return c.json(response);
   } catch (error) {
+    if (error instanceof BillingAccessBlockedError) {
+      return c.json(billingBlockedResponse(error), 402);
+    }
     if (error instanceof SandboxNotReadyError) {
       return c.json({ message: "sandbox is not ready" }, 503);
     }

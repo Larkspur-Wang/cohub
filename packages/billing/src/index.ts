@@ -3,11 +3,13 @@ export {
   billingOperations,
   createBillingOperations,
   createDisabledBillingOperations,
+  configureBillingRuntime,
   createTalesofaiBillingOperations,
+  getBillingOperations,
   isBillingConfigured,
   resolveBillingClientConfig,
 } from "./client.js";
-export type { BillingClientConfig } from "./client.js";
+export type { BillingClientConfig, BillingRedisClient, BillingRuntimeConfig } from "./client.js";
 export type {
   BillingAccountState,
   BillingCatalog,
@@ -50,3 +52,21 @@ export {
   COHUB_BILLING_TOKEN_TYPES,
   COHUB_BILLING_USAGE_TYPES,
 } from "./interfaces.js";
+export { COHUB_BILLING_POLICY } from "./constants.js";
+export { createBillingConversionIntent } from "./conversion.js";
+export type {
+  BillingConversionAudience,
+  BillingConversionIntent,
+  BillingConversionLevel,
+  BillingConversionReason,
+  BillingPreferredOfferKind,
+} from "./conversion.js";
+export { BillingAccessBlockedError, isBillingAccessBlockedError } from "./errors.js";
+export { createBillingUsageGate } from "./usage-gate.js";
+export type {
+  BillingAccessDecision,
+  BillingUsageGate,
+  BillingUsageGateInput,
+  BillingUsageKind,
+  BillingUsageSource,
+} from "./usage-gate.js";

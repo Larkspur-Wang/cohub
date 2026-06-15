@@ -1,5 +1,6 @@
 import "dotenv/config";
 import "./tracing.js";
+import { configureBillingRuntime } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 
 
@@ -143,6 +144,10 @@ app.onError((error, c) => {
 
 const port = Number(process.env.PORT ?? 8787);
 assertRequiredConfig();
+configureBillingRuntime({
+  config,
+  redis: (await import("./redis.js")).redisCommandClient,
+});
 const server = serve({
   fetch: app.fetch,
   port,

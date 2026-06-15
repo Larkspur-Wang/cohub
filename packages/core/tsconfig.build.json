@@ -5,6 +5,7 @@
     "rootDir": "src",
     "types": ["node"],
     "paths": {
+      "@cohub/billing": ["../billing/dist/index.d.ts"],
       "@cohub/db": ["../db/dist/index.d.ts"],
       "@cohub/db/schema": ["../db/dist/index.d.ts"],
       "@cohub/db/schema-v2": ["../db/dist/schema-v2.d.ts"],

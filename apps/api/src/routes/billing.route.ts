@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
-import { billingOperations, COHUB_BILLING_TOKEN_TYPES } from "../billing/index.js";
+import { billingOperations, COHUB_BILLING_TOKEN_TYPES } from "@cohub/billing";
 import { config } from "../config.js";
 import { getOptionalAuth, useAuth } from "../lib/middleware.js";
 

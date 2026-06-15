@@ -1,3 +1,4 @@
+import { BillingAccessBlockedError, type BillingAccessDecision, type BillingUsageGate } from "@cohub/billing";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
@@ -152,6 +153,7 @@ export type SessionPromptDependencies = {
     turnId: string;
     errorMessage: string;
   }): Promise<unknown>;
+  billingUsageGate?: BillingUsageGate;
 };
 
 export class SubmitSessionPromptError extends Error {
@@ -266,6 +268,20 @@ export const submitSessionPrompt = async (
   const turnIntent: SessionTurnIntent = isDirectShellCommand ? "steer" : (input.intent ?? "followup");
   const userMessageId = deps.randomUUID();
   const modelProvider = normalizePromptModelProvider(input);
+  const billingDecision: BillingAccessDecision | null = isDirectShellCommand
+    ? null
+    : (await deps.billingUsageGate?.evaluate({
+      userId,
+      usageKind: "llm.turn",
+      source: input.context?.kind === "scheduled_task" ? "scheduled_prompt" : "session_prompt",
+      model: modelProvider.model,
+      provider: modelProvider.provider,
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+    })) ?? null;
+  if (billingDecision?.status === "blocked") {
+    throw new BillingAccessBlockedError(billingDecision);
+  }
   const baseMeta = {
     source: input.source,
     userId,
@@ -279,6 +295,7 @@ export const submitSessionPrompt = async (
     promptTemplate,
     generationPolicy: input.generationPolicy ?? null,
     accessMode,
+    billing: billingDecision?.status === "allowed_with_debt" ? billingDecision : null,
     context: input.context ?? null,
   };
 

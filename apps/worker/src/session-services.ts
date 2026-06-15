@@ -1,3 +1,4 @@
+import { billingOperations, createBillingUsageGate } from "@cohub/billing";
 import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices } from "@cohub/core/sessions";
@@ -7,6 +8,13 @@ import { config } from "./config.js";
 import type { PromptTemplateService } from "./prompt-templates.js";
 
 const AGENT_TURN_JOB_NAME = "agent_turns";
+
+const billingUsageGate = createBillingUsageGate({
+  operations: billingOperations,
+  onEvaluationError: (error, gateInput) => {
+    console.warn("[BillingGate] fail-open after worker prompt billing evaluation error", { error, gateInput });
+  },
+});
 
 const agentTurnQueue = createBullmqQueue<{
   spaceId: string;
@@ -26,6 +34,7 @@ export function getSessionDomainServices(input: {
     db,
     redis: redisCommandClient,
     promptTemplateService: input.promptTemplateService,
+    billingUsageGate,
     injectTrace,
     getRequestId: () => null,
     agentTurnQueue: {

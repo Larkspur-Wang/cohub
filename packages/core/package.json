@@ -98,6 +98,7 @@
     "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@cohub/billing": "workspace:*",
     "@cohub/db": "workspace:*",
     "@cohub/protocol": "workspace:*",
     "@cohub/sandbox-controller": "workspace:*",

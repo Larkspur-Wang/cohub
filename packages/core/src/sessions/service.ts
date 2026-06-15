@@ -1,3 +1,4 @@
+import type { BillingUsageGate } from "@cohub/billing";
 import { randomUUID as defaultRandomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -66,6 +67,7 @@ export function createSessionServices(input: {
   db: DrizzleDb;
   redis: RedisClient;
   promptTemplateService: PromptTemplateService;
+  billingUsageGate?: BillingUsageGate;
   sandboxRecovery?: {
     maybeRecoverForPrompt(input: {
       spaceId: string;
@@ -268,6 +270,7 @@ export function createSessionServices(input: {
       createSessionTurn,
       enqueueSpacePrompt,
       failSessionTurn,
+      billingUsageGate: input.billingUsageGate,
     }, promptInput, hooks);
   }
 

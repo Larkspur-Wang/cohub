@@ -29,9 +29,21 @@ function toSessionRecord(session: SessionRow): SessionRecord {
   };
 }
 
+function extractBillingWarning(meta: unknown) {
+  const record = normalizeRecord(meta);
+  const billing = normalizeRecord(record?.billing);
+  if (billing?.status !== "allowed_with_debt") return null;
+  return billing;
+}
+
 export async function buildSessionTurnResponse(session: SessionRow, turnId: string) {
   const turn = await getSessionTurnById(session.id, turnId);
   if (!turn) return null;
   const [hydratedTurn] = await hydrateTurnAuthorProfiles([turn]);
-  return { session: toSessionRecord(session), turn: hydratedTurn ?? turn };
+  const responseTurn = hydratedTurn ?? turn;
+  return {
+    session: toSessionRecord(session),
+    turn: responseTurn,
+    billing: extractBillingWarning(responseTurn.meta),
+  };
 }

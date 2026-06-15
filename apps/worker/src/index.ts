@@ -1,5 +1,6 @@
 import "dotenv/config";
 import "./tracing.js";
+import { configureBillingRuntime } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 
 
@@ -23,6 +24,10 @@ const logger = createLogger({ serviceName: "cohub-worker" });
 import "./tasks/index.js";
 
 assertRequiredConfig();
+configureBillingRuntime({
+  config,
+  redis: (await import("./redis.js")).redisCommandClient,
+});
 
 const connection = createBullmqRedisConnection(config.bullmqRedisUrl);
 

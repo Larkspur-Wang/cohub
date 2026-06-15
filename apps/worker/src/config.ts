@@ -27,6 +27,9 @@ export interface WorkerConfig {
   checkpointAssetOssBucket?: string;
   checkpointAssetOssAccessKeyId?: string;
   checkpointAssetOssSecretAccessKey?: string;
+  talesofaiBillingBaseUrl?: string;
+  talesofaiBillingBusinessKey?: string;
+  talesofaiBillingAdminApiKey?: string;
   env: "dev" | "prod";
 }
 
@@ -73,6 +76,9 @@ export const config: WorkerConfig = {
   checkpointAssetOssBucket: process.env.CHECKPOINT_ASSET_OSS_BUCKET ?? process.env.TURN_OBJECT_S3_BUCKET,
   checkpointAssetOssAccessKeyId: process.env.CHECKPOINT_ASSET_OSS_ACCESS_KEY_ID ?? process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   checkpointAssetOssSecretAccessKey: process.env.CHECKPOINT_ASSET_OSS_SECRET_ACCESS_KEY ?? process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
+  talesofaiBillingBaseUrl: process.env.TALESOFAI_BILLING_BASE_URL?.replace(/\/+$/, ""),
+  talesofaiBillingBusinessKey: process.env.TALESOFAI_BILLING_BUSINESS_KEY,
+  talesofaiBillingAdminApiKey: process.env.TALESOFAI_BILLING_ADMIN_API_KEY,
   env,
 };
 

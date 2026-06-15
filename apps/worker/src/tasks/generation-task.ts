@@ -1,3 +1,4 @@
+import { BillingAccessBlockedError, billingOperations, createBillingUsageGate } from "@cohub/billing";
 import type { Job } from "bullmq";
 import {
   createGenerationClient,
@@ -16,6 +17,12 @@ import { registerTask } from "./registry.js";
 const loader = createGenerationDeclarationLoader({
   platformConfigRoot: config.platformConfigRoot,
   redis: redisCommandClient,
+});
+const billingUsageGate = createBillingUsageGate({
+  operations: billingOperations,
+  onEvaluationError: (error, gateInput) => {
+    console.warn("[BillingGate] fail-open after worker generation billing evaluation error", { error, gateInput });
+  },
 });
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -131,6 +138,17 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
   try {
     const declaration = await loader.loadGenerationDeclaration(userId, data.model);
     if (!declaration) throw new Error(`Generation model is unavailable: ${data.model}`);
+
+    const billingDecision = await billingUsageGate.evaluate({
+      userId,
+      usageKind: "generation",
+      source: "generation_task",
+      model: data.model,
+      spaceId,
+      sessionId: sessionId ?? null,
+      turnId: turnId ?? null,
+    });
+    if (billingDecision.status === "blocked") throw new BillingAccessBlockedError(billingDecision);
 
     const output = await createGenerationClient({
       models: [declaration],

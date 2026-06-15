@@ -298,6 +298,28 @@ export type BillingRedemptionResult = {
   itemCount: number;
 };
 
+export type BillingConversionIntent = {
+  level: "soft" | "hard";
+  reason: "negative_balance" | "negative_balance_limit_exceeded";
+  audience: "free" | "paid" | "unknown";
+  preferredOfferKind: "plan" | "upgrade" | "addon" | "mixed";
+  title: string;
+  message: string;
+  primaryAction: {
+    label: string;
+    action: "open_billing_conversion";
+  };
+  source: string;
+};
+
+export type BillingAccessWarning = {
+  status: "allowed_with_debt";
+  balanceState: "negative";
+  netUsd: number;
+  hardNegativeLimitUsd: number;
+  conversion: BillingConversionIntent;
+};
+
 export type BillingBalanceActivityKind =
   | "grant"
   | "usage"
@@ -689,6 +711,7 @@ export type SessionTurnWindowResponse = {
 export type SessionTurnResponse = {
   session: SessionRecord;
   turn: SessionTurnRecord;
+  billing?: BillingAccessWarning | null;
 };
 
 export type SessionTurnSignedUrlsResponse = {

@@ -4,6 +4,9 @@
     "noEmit": true,
     "rootDir": "../..",
     "paths": {
+      "@cohub/billing": [
+        "../../packages/billing/src/index.ts"
+      ],
       "@cohub/db": [
         "../../packages/db/src/index.ts"
       ],
