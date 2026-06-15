@@ -153,7 +153,7 @@ const CREDIT_BENEFIT_DISPLAY_NAMES: Record<string, string> = {
 type BillingListPage<T> = {
   items: T[];
   pagination: {
-    max_page: number;
+    has_more: boolean;
   };
 };
 type CreditGrantDisplayStatus = (typeof CREDIT_GRANT_DISPLAY_STATUSES)[number];
@@ -1702,7 +1702,7 @@ export function createTalesofaiBillingOperations(
     for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
       const response = await fetchPage(page, CREDIT_LIST_PAGE_LIMIT);
       items.push(...response.items);
-      if (page >= response.pagination.max_page) break;
+      if (!response.pagination.has_more) break;
     }
     return items;
   };
@@ -2241,6 +2241,7 @@ export function createTalesofaiBillingOperations(
         }
       }),
     );
+    const hasMore = response.pagination.has_more;
     return {
       userId: input.userId,
       billing: status,
@@ -2248,8 +2249,8 @@ export function createTalesofaiBillingOperations(
       limit,
       items,
       pagination: {
-        hasMore: page < response.pagination.max_page,
-        nextPage: page < response.pagination.max_page ? page + 1 : null,
+        hasMore,
+        nextPage: hasMore ? page + 1 : null,
       },
     };
   };
