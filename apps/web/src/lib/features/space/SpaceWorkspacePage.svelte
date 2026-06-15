@@ -9626,12 +9626,11 @@ $effect(() => {
                   Initialization failed
                 </div>
                 {#if bootstrapErrorMessage}
-                  <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div class="min-w-0 break-all font-mono text-[11px] text-error-soft/80">{bootstrapErrorMessage}</div>
-                    {#if bootstrapNeedsBillingAction}
-                      <button type="button" class="inline-flex h-7 shrink-0 cursor-pointer items-center justify-center rounded-[6px] border border-error-soft/30 bg-bg-input px-2.5 text-[11px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => billingConversion.openFallbackHard()}>Add credits now</button>
-                    {/if}
-                  </div>
+                  {#if bootstrapNeedsBillingAction}
+                    <button type="button" class="w-full cursor-pointer rounded-[6px] border border-error-soft/20 bg-error-bg px-3 py-2 text-left font-mono text-[11px] text-error-soft/80 transition-colors hover:border-error-soft/35 hover:bg-error-bg/80 focus:outline-none focus:ring-1 focus:ring-error-soft/40" onclick={() => billingConversion.openFallbackHard()}>{bootstrapErrorMessage}</button>
+                  {:else}
+                    <div class="break-all font-mono text-[11px] text-error-soft/80">{bootstrapErrorMessage}</div>
+                  {/if}
                 {/if}
               </div>
             {/if}

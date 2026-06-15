@@ -26,6 +26,12 @@ const open = $derived(billingConversion.open);
 const intent = $derived(billingConversion.intent);
 const warning = $derived(billingConversion.warning);
 const isHard = $derived(intent?.level === "hard");
+const currentSubscription = $derived(
+	catalog?.currentSubscriptions.find(
+		(subscription) =>
+			subscription.status === "active" || subscription.status === "trialing",
+	) ?? null,
+);
 const hasActivePaidPlan = $derived.by(() => {
 	if (!catalog?.hasActiveSubscription) return false;
 	const defaultKey = catalog.defaultPlanProductKey;
@@ -72,12 +78,6 @@ const primaryProducts = $derived.by(() => {
 });
 const headline = $derived(
 	intent?.title ?? (isHard ? "Add credits to continue" : "Balance below zero"),
-);
-const message = $derived(
-	intent?.message ??
-		(isHard
-			? "Add credits to resume AI requests."
-			: "Your work can continue for now. Add credits to avoid interruption."),
 );
 const balanceLabel = $derived(
 	warning
@@ -175,6 +175,10 @@ function isRecommended(product: BillingCatalogProduct): boolean {
 	return getPlanTier(product) === "pro";
 }
 
+function isCurrentPlanProduct(product: BillingCatalogProduct): boolean {
+	return currentSubscription?.productKey === product.key;
+}
+
 function annualNote(product: BillingCatalogProduct): string | null {
 	if (product.interval !== "yearly") return null;
 	return `${formatUsd(product.pricing.amountUsd)} billed yearly`;
@@ -221,7 +225,13 @@ async function loadCatalog(options: { force?: boolean } = {}) {
 }
 
 async function startCheckout(product: BillingCatalogProduct) {
-	if (busyKey || catalog?.payment.available === false) return;
+	if (
+		busyKey ||
+		catalog?.payment.available === false ||
+		isCurrentPlanProduct(product)
+	) {
+		return;
+	}
 	busyKey = product.key;
 	checkoutError = "";
 	try {
@@ -271,12 +281,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 		<section class="relative flex max-h-[88vh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[14px] border-border-subtle bg-bg-primary shadow-2xl lg:rounded-[14px] lg:border">
 			<header class="flex items-start justify-between gap-4 border-b border-border-subtle px-5 py-4">
 				<div class="min-w-0">
-					<div class="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-text-tertiary">
-						<span class="h-1.5 w-1.5 rounded-full {isHard ? 'bg-error' : 'bg-brand'}"></span>
-						Billing
-					</div>
 					<h2 class="text-[18px] font-semibold leading-6 text-text-primary">{headline}</h2>
-					<p class="mt-1 max-w-[560px] text-[13px] leading-5 text-text-secondary">{message}</p>
 				</div>
 				<button type="button" class="cursor-pointer rounded-[6px] p-2 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40" onclick={() => billingConversion.close()} aria-label="Close">
 					<X class="h-4 w-4" />
@@ -319,6 +324,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 							<div class="grid gap-3 sm:grid-cols-2">
 								{#each visiblePlanProducts as product (product.key)}
 									{@const recommended = isRecommended(product)}
+									{@const current = isCurrentPlanProduct(product)}
 									{@const note = annualNote(product)}
 									<div class="relative flex min-h-[218px] flex-col rounded-[10px] border bg-bg-content px-4 py-4 transition-colors {recommended ? 'border-brand/55' : 'border-border-subtle hover:border-border-strong'}">
 										{#if recommended}
@@ -331,7 +337,9 @@ async function startCheckout(product: BillingCatalogProduct) {
 												<h3 class="truncate text-[14px] font-semibold tracking-tight text-text-primary">{product.name}</h3>
 												<p class="mt-1 line-clamp-2 text-[12px] leading-4 text-text-tertiary">{productSubtitle(product)}</p>
 											</div>
-											{#if discountText(product)}
+											{#if current}
+												<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">Current</span>
+											{:else if discountText(product)}
 												<span class="shrink-0 rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium text-brand">{discountText(product)}</span>
 											{/if}
 										</div>
@@ -355,8 +363,10 @@ async function startCheckout(product: BillingCatalogProduct) {
 											{/each}
 										</ul>
 
-										<button type="button" class="mt-4 inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-[6px] px-3 text-[12px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8 {recommended ? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover' : 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
-											{#if busyKey === product.key}
+										<button type="button" class="mt-4 inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-[6px] px-3 text-[12px] font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-8 {recommended && !current ? 'bg-brand text-brand-contrast-fg hover:bg-brand-hover' : 'border border-border-subtle bg-bg-input text-text-primary hover:bg-bg-hover'}" disabled={!!busyKey || catalog.payment.available === false || current} onclick={() => startCheckout(product)}>
+											{#if current}
+												Current plan
+											{:else if busyKey === product.key}
 												<Loader2 class="mr-1.5 h-3.5 w-3.5 animate-spin" />
 												Starting
 											{:else}
@@ -396,9 +406,6 @@ async function startCheckout(product: BillingCatalogProduct) {
 				{/if}
 			</div>
 
-			<footer class="flex justify-end px-5 py-3">
-				<button type="button" class="cursor-pointer rounded-[5px] px-2 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => billingConversion.close()}>Not now</button>
-			</footer>
 		</section>
 	</div>
 {/if}
