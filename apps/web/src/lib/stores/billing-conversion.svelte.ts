@@ -72,6 +72,8 @@ function defaultHardIntent(): BillingConversionIntent {
 	};
 }
 
+const SOFT_DISMISS_COOLDOWN_MS = 30 * 60 * 1000;
+
 class BillingConversionStore {
 	private state = $state<BillingConversionState>({
 		open: false,
@@ -116,7 +118,14 @@ class BillingConversionStore {
 		this.state.warning = warning;
 		this.state.intent = warning.conversion;
 		this.state.level = "soft";
-		if (!this.state.dismissedSoftAt) this.state.open = true;
+		const dismissedSoftAt = this.state.dismissedSoftAt;
+		if (
+			!dismissedSoftAt ||
+			Date.now() - dismissedSoftAt >= SOFT_DISMISS_COOLDOWN_MS
+		) {
+			this.state.dismissedSoftAt = null;
+			this.state.open = true;
+		}
 	}
 
 	showHard(intent: BillingConversionIntent) {

@@ -297,18 +297,6 @@ async function startCheckout(product: BillingCatalogProduct) {
 }
 </script>
 
-{#if billingConversion.hasSoftReminder && !open}
-	<button
-		type="button"
-		class="fixed bottom-4 right-4 z-[80] flex max-w-[calc(100vw-2rem)] cursor-pointer items-center gap-2 rounded-full border border-border-subtle bg-bg-primary px-3 py-2 text-[12px] text-text-secondary shadow-2xl transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
-		onclick={() => billingConversion.openReminder()}
-	>
-		<span class="h-1.5 w-1.5 rounded-full bg-brand"></span>
-		<span>Balance below zero</span>
-		<span class="text-text-tertiary">Add credits</span>
-	</button>
-{/if}
-
 {#if open && intent}
 	<div class="fixed inset-0 z-[110] flex items-end justify-center lg:items-center lg:p-4" role="dialog" aria-modal="true">
 		<button class="absolute inset-0 cursor-default bg-overlay-scrim" aria-label="Close billing options" onclick={() => billingConversion.close()}></button>
