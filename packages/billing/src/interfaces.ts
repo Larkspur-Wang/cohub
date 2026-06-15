@@ -191,8 +191,8 @@ export type BillingCatalog = BillingUserRef & {
 };
 
 export type BillingHistoryPagination = {
-  maxPage: number;
-  totalCount: number;
+  hasMore: boolean;
+  nextPage: number | null;
 };
 
 export type BillingCheckoutActionState = {
@@ -374,10 +374,7 @@ export type BillingBalanceActivityList = BillingUserRef & {
   page: number;
   limit: number;
   items: BillingBalanceActivity[];
-  pagination: {
-    maxPage: number;
-    totalCount: number;
-  };
+  pagination: BillingHistoryPagination;
 };
 
 export type BillingBalanceActivityListInput = BillingUserRef & {

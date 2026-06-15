@@ -158,7 +158,7 @@ type BillingListPage<T> = {
   items: T[];
   pagination: {
     page?: number;
-    max_page: number;
+    has_more: boolean;
   };
 };
 type CreditGrantDisplayStatus = (typeof CREDIT_GRANT_DISPLAY_STATUSES)[number];
@@ -1324,8 +1324,8 @@ function emptyBalanceActivityList(input: {
     limit: input.limit,
     items: [],
     pagination: {
-      maxPage: 0,
-      totalCount: 0,
+      hasMore: false,
+      nextPage: null,
     },
   };
 }
@@ -1364,8 +1364,8 @@ function emptyOrderList(input: {
     limit: input.limit,
     items: [],
     pagination: {
-      maxPage: 0,
-      totalCount: 0,
+      hasMore: false,
+      nextPage: null,
     },
   };
 }
@@ -1383,8 +1383,8 @@ function emptySubscriptionHistoryList(input: {
     limit: input.limit,
     items: [],
     pagination: {
-      maxPage: 0,
-      totalCount: 0,
+      hasMore: false,
+      nextPage: null,
     },
   };
 }
@@ -1790,7 +1790,7 @@ export function createTalesofaiBillingOperations(
     for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
       const response = await fetchPage(page, CREDIT_LIST_PAGE_LIMIT);
       items.push(...response.items);
-      if (page >= response.pagination.max_page) break;
+      if (!response.pagination.has_more) break;
     }
     return items;
   };
@@ -1806,6 +1806,7 @@ export function createTalesofaiBillingOperations(
         external_user_id: input.userId,
         token_type: input.tokenType,
         status: input.status,
+        include_count: false,
         page,
         limit,
       }),
@@ -1825,6 +1826,7 @@ export function createTalesofaiBillingOperations(
           external_user_id: input.userId,
           token_type: tokenType,
           sorting: "-created_at",
+          include_count: false,
           page: nextPage,
           limit: nextLimit,
         }),
@@ -1835,6 +1837,7 @@ export function createTalesofaiBillingOperations(
           external_user_id: input.userId,
           token_type: tokenType,
           sorting: "-created_at",
+          include_count: false,
           page: nextPage,
           limit: nextLimit,
         }),
@@ -1843,6 +1846,7 @@ export function createTalesofaiBillingOperations(
     const activities = buildBalanceActivities({ transactions, overages });
     const start = (page - 1) * limit;
     const items = activities.slice(start, start + limit);
+    const hasMore = activities.length > start + limit;
     return {
       userId: input.userId,
       billing: status,
@@ -1852,8 +1856,8 @@ export function createTalesofaiBillingOperations(
       limit,
       items,
       pagination: {
-        maxPage: Math.ceil(activities.length / limit),
-        totalCount: activities.length,
+        hasMore,
+        nextPage: hasMore ? page + 1 : null,
       },
     };
   };
@@ -1862,6 +1866,7 @@ export function createTalesofaiBillingOperations(
     const products = await listAllPages((page, limit) =>
       sdk.admin.products.list({
         business_key: businessKey,
+        include_count: false,
         page,
         limit,
       }),
@@ -1904,6 +1909,7 @@ export function createTalesofaiBillingOperations(
     const benefits = await listAllPages((page, limit) =>
       sdk.admin.benefits.list({
         business_key: businessKey,
+        include_count: false,
         page,
         limit,
       }),
@@ -1923,6 +1929,7 @@ export function createTalesofaiBillingOperations(
       const products = await listAllPages((page, limit) =>
         sdk.admin.products.list({
           business_key: businessKey,
+          include_count: false,
           page,
           limit,
         }),
@@ -1950,6 +1957,7 @@ export function createTalesofaiBillingOperations(
         business_key: businessKey,
         external_user_id: userId,
         sorting: "-created_at",
+        include_count: false,
         page,
         limit,
       }),
@@ -2089,6 +2097,7 @@ export function createTalesofaiBillingOperations(
       status: "pending_checkout",
       billing_reason: "purchase",
       sorting: "-created_at",
+      include_count: false,
       page: 1,
       limit: 10,
     });
@@ -2127,6 +2136,7 @@ export function createTalesofaiBillingOperations(
       product_key: input.productKey,
       status: "pending_checkout",
       sorting: "-created_at",
+      include_count: false,
       page: 1,
       limit: 10,
     });
@@ -2295,6 +2305,7 @@ export function createTalesofaiBillingOperations(
       business_key: businessKey,
       external_user_id: input.userId,
       sorting: "-created_at",
+      include_count: false,
       page,
       limit,
     });
@@ -2320,8 +2331,8 @@ export function createTalesofaiBillingOperations(
       limit,
       items,
       pagination: {
-        maxPage: response.pagination.max_page,
-        totalCount: response.pagination.total_count,
+        hasMore: response.pagination.has_more,
+        nextPage: response.pagination.has_more ? page + 1 : null,
       },
     };
   };
@@ -2336,6 +2347,7 @@ export function createTalesofaiBillingOperations(
       business_key: businessKey,
       external_user_id: input.userId,
       sorting: "-created_at",
+      include_count: false,
       page,
       limit,
     });
@@ -2366,8 +2378,8 @@ export function createTalesofaiBillingOperations(
       limit,
       items,
       pagination: {
-        maxPage: response.pagination.max_page,
-        totalCount: response.pagination.total_count,
+        hasMore: response.pagination.has_more,
+        nextPage: response.pagination.has_more ? page + 1 : null,
       },
     };
   };

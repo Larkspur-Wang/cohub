@@ -69,14 +69,12 @@ let subscriptionsRequest: Promise<void> | null = null;
 let checkoutExpiryRefreshRequest: Promise<void> | null = null;
 const refreshedExpiredCheckoutKeys = new Set<string>();
 
-const activityTotalPages = $derived(
-	Math.max(1, balanceActivities?.pagination.maxPage ?? 1),
+const activityHasMore = $derived(
+	Boolean(balanceActivities?.pagination.hasMore),
 );
-const ordersTotalPages = $derived(
-	Math.max(1, billingOrders?.pagination.maxPage ?? 1),
-);
-const subscriptionsTotalPages = $derived(
-	Math.max(1, billingSubscriptions?.pagination.maxPage ?? 1),
+const ordersHasMore = $derived(Boolean(billingOrders?.pagination.hasMore));
+const subscriptionsHasMore = $derived(
+	Boolean(billingSubscriptions?.pagination.hasMore),
 );
 const anyBalanceLoading = $derived(creditLoading || activityLoading);
 const routeBillingTab = $derived(
@@ -999,14 +997,13 @@ $effect(() => {
 					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 						<div>
 							<h2 class="text-[14px] font-medium text-text-primary">Subscriptions</h2>
-							<p class="mt-1 text-[11px] text-text-tertiary">{billingSubscriptions?.pagination.totalCount ?? 0} records</p>
 						</div>
 						<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
 							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage - 1)} disabled={subscriptionsLoading || subscriptionsPage <= 1} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Previous subscriptions page">
 								<ChevronLeft class="h-3.5 w-3.5" />
 							</button>
-							<span>Page {subscriptionsPage} of {subscriptionsTotalPages}</span>
-							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage + 1)} disabled={subscriptionsLoading || subscriptionsPage >= subscriptionsTotalPages} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next subscriptions page">
+							<span>Page {subscriptionsPage}</span>
+							<button type="button" onclick={() => goToSubscriptionsPage(subscriptionsPage + 1)} disabled={subscriptionsLoading || !subscriptionsHasMore} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next subscriptions page">
 								<ChevronRight class="h-3.5 w-3.5" />
 							</button>
 						</div>
@@ -1122,14 +1119,13 @@ $effect(() => {
 					<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 						<div>
 							<h2 class="text-[14px] font-medium text-text-primary">Orders</h2>
-							<p class="mt-1 text-[11px] text-text-tertiary">{billingOrders?.pagination.totalCount ?? 0} records</p>
 						</div>
 						<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
 							<button type="button" onclick={() => goToOrdersPage(ordersPage - 1)} disabled={ordersLoading || ordersPage <= 1} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Previous orders page">
 								<ChevronLeft class="h-3.5 w-3.5" />
 							</button>
-							<span>Page {ordersPage} of {ordersTotalPages}</span>
-							<button type="button" onclick={() => goToOrdersPage(ordersPage + 1)} disabled={ordersLoading || ordersPage >= ordersTotalPages} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next orders page">
+							<span>Page {ordersPage}</span>
+							<button type="button" onclick={() => goToOrdersPage(ordersPage + 1)} disabled={ordersLoading || !ordersHasMore} class="inline-flex h-7 w-7 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input transition-colors hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-45" title="Next orders page">
 								<ChevronRight class="h-3.5 w-3.5" />
 							</button>
 						</div>
@@ -1304,14 +1300,13 @@ $effect(() => {
 					<div class="flex items-center justify-between gap-3">
 						<div>
 							<h2 class="text-[13px] font-medium text-text-primary">Activity</h2>
-							<p class="mt-1 text-[11px] text-text-tertiary">{balanceActivities?.pagination.totalCount ?? 0} records</p>
 						</div>
 						<div class="flex items-center gap-1">
 							<button type="button" onclick={() => goToActivityPage(activityPage - 1)} disabled={activityLoading || activityPage <= 1} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Previous page">
 								<ChevronLeft class="h-3.5 w-3.5" />
 							</button>
-							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">{activityPage}/{activityTotalPages}</span>
-							<button type="button" onclick={() => goToActivityPage(activityPage + 1)} disabled={activityLoading || activityPage >= activityTotalPages} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Next page">
+							<span class="min-w-14 text-center font-mono text-[11px] text-text-tertiary">Page {activityPage}</span>
+							<button type="button" onclick={() => goToActivityPage(activityPage + 1)} disabled={activityLoading || !activityHasMore} class="rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40" title="Next page">
 								<ChevronRight class="h-3.5 w-3.5" />
 							</button>
 						</div>
