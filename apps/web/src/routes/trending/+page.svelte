@@ -172,7 +172,7 @@ const hasData = $derived(
 			</div>
 		{:else}
 			<!-- Table header — subdued, uppercase, tracking -->
-			<div class="grid grid-cols-[28px_minmax(0,1fr)_auto] gap-x-2 px-0 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle sm:grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] sm:gap-x-4 sm:pb-3">
+			<div class="grid grid-cols-[28px_minmax(0,1fr)_auto] gap-x-2 px-0 pb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-placeholder border-b border-border-subtle sm:grid-cols-[28px_minmax(0,1fr)_72px_72px_64px_64px] sm:gap-x-4 sm:pb-3 md:grid-cols-[28px_minmax(0,1fr)_88px_80px_72px_72px]">
 				<span></span>
 				<span class="sm:sr-only">Name</span>
 				<span class="text-right">Tokens</span>
@@ -187,7 +187,7 @@ const hasData = $derived(
 					{@const userProfile = getUserProfile(activeTab, row)}
 					{@const spaceHref = getSpaceHref(activeTab, row)}
 					<div
-						class="grid grid-cols-[28px_minmax(0,1fr)_auto] gap-x-2 px-0 transition-all duration-300 ease-out sm:grid-cols-[28px_1fr_minmax(64px,auto)_minmax(64px,auto)_minmax(48px,auto)_minmax(48px,auto)] sm:gap-x-4"
+						class="grid grid-cols-[28px_minmax(0,1fr)_auto] gap-x-2 px-0 transition-all duration-300 ease-out sm:grid-cols-[28px_minmax(0,1fr)_72px_72px_64px_64px] sm:gap-x-4 md:grid-cols-[28px_minmax(0,1fr)_88px_80px_72px_72px]"
 						class:row-top={row.rank <= 3}
 						class:row-data={row.rank > 3}
 						style="--row-index: {i}; animation: rowFadeIn 0.35s ease-out both; animation-delay: {i * 35}ms;"
