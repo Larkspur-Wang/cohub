@@ -688,6 +688,50 @@ function createRemoteLsOperations(): LsOperations {
   };
 }
 
+const FD_FIND_TIMEOUT_SECS = 30;
+const FD_FIND_MAX_STDOUT_BYTES = DEFAULT_MAX_BYTES * 4;
+const FD_FIND_MAX_STDERR_BYTES = 8 * 1024;
+const FD_FIND_OUTPUT_LIMIT_MESSAGE = "Find output limit reached. Refine pattern or path.";
+
+function buildFdFindArgv(input: { pattern: string; path: string; limit: number; ignore?: string[] }) {
+  const useFullPath = input.pattern.includes("/");
+  let effectivePattern = input.pattern;
+  if (useFullPath && !effectivePattern.startsWith("/") && !effectivePattern.startsWith("**/") && effectivePattern !== "**") {
+    effectivePattern = `**/${effectivePattern}`;
+  }
+
+  const argv = [
+    "fd",
+    "--color=never",
+    "--glob",
+    "--hidden",
+    "--no-require-git",
+    "--exclude",
+    ".git",
+  ];
+  if (useFullPath) argv.push("--full-path");
+  for (const ignore of input.ignore ?? []) {
+    if (ignore) argv.push("--exclude", ignore);
+  }
+  argv.push("--max-results", String(input.limit), "--", effectivePattern, input.path);
+  return argv;
+}
+
+function splitNonEmptyLines(output: string) {
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function formatFdFindPath(filePath: string, searchPath: string) {
+  const file = toPosixPath(filePath).replace(/\/$/, "");
+  const search = toPosixPath(searchPath).replace(/\/$/, "");
+  if (file === search) return ".";
+  if (file.startsWith(`${search}/`)) return file.slice(search.length + 1);
+  return file.replace(/^\.\//, "");
+}
+
 function createRemoteFindOperations(): FindOperations {
   const tracer = getAgentTracer();
   return {
@@ -718,6 +762,106 @@ function createRemoteFindOperations(): FindOperations {
         await assertSandboxPathVisible(path, { isDirectory: true });
         logger.debug(`[Tool:find] pattern=${pattern} path=${path}`);
 
+        const connection = await getCurrentConnection();
+        if (connection.capabilities?.processStartArgv) {
+          const argv = buildFdFindArgv({ pattern, path, limit: options.limit, ignore: options.ignore });
+          const stdoutChunks: string[] = [];
+          const stderrChunks: string[] = [];
+          let stdoutBytes = 0;
+          let stderrBytes = 0;
+          let stdoutLimitReached = false;
+          let activeProcessId: string | null = null;
+          let abortSent = false;
+          const rpcContext = captureToolRpcContext({ toolCallId });
+          const unregisterProcessAborts: Array<() => void> = [];
+          const abortProcess = (processId: string) => {
+            if (abortSent) return;
+            abortSent = true;
+            logger.info(`[Tool:find] abort requested processId=${processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+            void tracedRpcAbortProcess(connection, processId, rpcContext);
+          };
+          const onAbort = () => {
+            if (activeProcessId) abortProcess(activeProcessId);
+          };
+          if (toolCtx?.abortSignal) {
+            if (toolCtx.abortSignal.aborted) onAbort();
+            else toolCtx.abortSignal.addEventListener("abort", onAbort, { once: true });
+          }
+
+          try {
+            const result = await tracedRpc(
+              connection,
+              "process.start",
+              {
+                argv,
+                cwd: SANDBOX_WORKSPACE_PATH,
+                timeoutSecs: FD_FIND_TIMEOUT_SECS,
+              },
+              {
+                context: rpcContext,
+                onEvent(event) {
+                  if (event.type === "started") {
+                    activeProcessId = event.processId;
+                    logger.info(`[Tool:find] process started processId=${event.processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+                    if (rpcContext.turnId) {
+                      unregisterProcessAborts.push(registerActiveAbortHandle(rpcContext.turnId, {
+                        id: `find:${toolCallId}:${event.processId}`,
+                        kind: "tool",
+                        toolName: "find",
+                        abort: () => abortProcess(event.processId),
+                      }));
+                    }
+                    if (toolCtx?.abortSignal?.aborted) abortProcess(event.processId);
+                    return;
+                  }
+
+                  if (event.type === "stdout") {
+                    stdoutBytes += Buffer.byteLength(event.chunk, "utf8");
+                    if (stdoutBytes > FD_FIND_MAX_STDOUT_BYTES) {
+                      stdoutLimitReached = true;
+                      if (activeProcessId) abortProcess(activeProcessId);
+                      return;
+                    }
+                    stdoutChunks.push(event.chunk);
+                    return;
+                  }
+
+                  if (event.type === "stderr") {
+                    stderrBytes += Buffer.byteLength(event.chunk, "utf8");
+                    if (stderrBytes <= FD_FIND_MAX_STDERR_BYTES) stderrChunks.push(event.chunk);
+                  }
+                },
+              },
+            );
+
+            if (toolCtx?.abortSignal?.aborted) throw new Error("Operation aborted");
+            if (stdoutLimitReached) throw new Error(FD_FIND_OUTPUT_LIMIT_MESSAGE);
+
+            const termination = result.termination;
+            if (termination && termination.reason !== "exited") {
+              throw new Error(termination.message || `fd ${termination.reason}`);
+            }
+            if (result.exitCode == null) throw new Error("fd exited without an exit code");
+            const exitCode = result.exitCode;
+            const stderr = stderrChunks.join("").trim();
+            if (exitCode !== 0) throw new Error(stderr || `fd exited with code ${exitCode}`);
+
+            const matches = splitNonEmptyLines(stdoutChunks.join(""))
+              .map((match) => formatFdFindPath(match, path))
+              .slice(0, options.limit);
+            const baseRelative = sandboxWorkspaceRelativePath(path);
+            const filter = await createCurrentWorkspaceVisibilityFilter(undefined, baseRelative ?? "");
+            return matches.filter((match) => {
+              if (baseRelative == null) return true;
+              const relativePath = match === "." ? baseRelative : baseRelative ? `${baseRelative}/${match}` : match;
+              return filter.isVisible(relativePath);
+            });
+          } finally {
+            if (toolCtx?.abortSignal) toolCtx.abortSignal.removeEventListener("abort", onAbort);
+            for (const unregister of unregisterProcessAborts) unregister();
+          }
+        }
+
         // Agent owns tool semantics: match pi-coding-agent fd behavior.
         // In --full-path mode fd matches against the absolute candidate path,
         // so a path-containing pattern like 'src/**/*.spec.ts' needs a leading
@@ -728,7 +872,6 @@ function createRemoteFindOperations(): FindOperations {
           effectivePattern = `**/${pattern}`;
         }
 
-        const connection = await getCurrentConnection();
         const result = await tracedRpc(connection, "fs.find", {
           pattern: effectivePattern,
           path,
