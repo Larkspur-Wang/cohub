@@ -1,5 +1,11 @@
 # @neta-art/cohub-cli
 
+## 1.17.1
+
+### Patch Changes
+
+- Release the CLI with the latest generation SDK dependency update.
+
 ## 1.17.0
 
 ### Minor Changes
