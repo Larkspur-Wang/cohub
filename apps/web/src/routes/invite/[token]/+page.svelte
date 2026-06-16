@@ -11,6 +11,7 @@ import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { ensureAuth } from "$lib/auth";
 import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 
 const props = $props<{
@@ -90,7 +91,7 @@ async function handleAccept() {
 
 		// Redirect to the space after a short delay
 		setTimeout(() => {
-			void goto(`/spaces/${result.spaceId}`);
+			void goto(buildSpaceLandingRoute(result.spaceId));
 		}, 1500);
 	} catch (err: unknown) {
 		actionStatus = "error";
@@ -101,7 +102,7 @@ async function handleAccept() {
 			actionStatus = "joined";
 			actionError = "Already a member — redirecting to space...";
 			setTimeout(() => {
-				void goto(spaceId ? `/spaces/${spaceId}` : "/");
+				void goto(spaceId ? buildSpaceLandingRoute(spaceId) : "/");
 			}, 1500);
 			return;
 		}

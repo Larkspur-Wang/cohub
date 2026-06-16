@@ -32,15 +32,20 @@ import {
 	Settings,
 	Terminal,
 	Trash2,
+	Upload,
 	Users,
 	X,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
+import { normalizeAvatarToWebp } from "$lib/avatar-image";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
+import { validatePublicSlugInput } from "$lib/slug-rules";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 type SandboxInfo = {
@@ -92,6 +97,9 @@ let copiedMemberTimer: ReturnType<typeof setTimeout> | null = null;
 let addingMemberUuid = $state("");
 let addingMemberRole = $state<SpaceRole>("guest");
 let savingMember = $state(false);
+let accessError = $state("");
+let envError = $state("");
+let channelError = $state("");
 let addingMemberError = $state("");
 let updatingMemberUserId = $state<string | null>(null);
 let removingMemberUserId = $state<string | null>(null);
@@ -115,10 +123,41 @@ let sandboxIdleTtlSeconds = $state(defaultIdleTtlSeconds);
 let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
+let renamingSpace = $state(false);
+let renameInput = $state("");
+let renameSaving = $state(false);
+let renameError = $state("");
+let spaceDescriptionDraft = $state("");
+let spaceDescriptionSaving = $state(false);
+let spaceProfileError = $state("");
+let spaceAvatarUploading = $state(false);
+let editingSpaceSlug = $state(false);
+let spaceSlugDraft = $state("");
+let spaceSlugSaving = $state(false);
+let spaceSlugError = $state("");
+let copiedSpaceId = $state(false);
+let copiedSpaceIdTimer: ReturnType<typeof setTimeout> | null = null;
+let copiedSpaceSlugLink = $state(false);
+let copiedSpaceSlugLinkTimer: ReturnType<typeof setTimeout> | null = null;
 const shouldShowBaseModRecommendation = $derived(
 	recommendedBaseMod
 		? !mods.some((mod) => mod.modSpaceId === recommendedBaseMod.modSpaceId)
 		: false,
+);
+const canEditSpaceProfile = $derived(
+	space?.access?.permissions.includes("space.edit") === true,
+);
+const canManageSpaceMembers = $derived(
+	space?.access?.permissions.includes("member.manage") === true,
+);
+const canManageSpaceChannels = $derived(
+	space?.access?.permissions.includes("channel.manage") === true,
+);
+const canManageSpaceMods = $derived(
+	space?.access?.permissions.includes("mod.manage") === true,
+);
+const canManageSpaceSandbox = $derived(
+	space?.access?.permissions.includes("sandbox.manage") === true,
 );
 
 onDestroy(() => {
@@ -126,6 +165,8 @@ onDestroy(() => {
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
+	if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
+	if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 });
 
 function getSpaceAutoDestroyPolicy(
@@ -155,6 +196,7 @@ function formatTtl(seconds: number): string {
 }
 
 async function saveSandboxConfig() {
+	if (!canManageSpaceSandbox) return;
 	savingSandboxConfig = true;
 	sandboxConfigMessage = "";
 	sandboxConfigError = "";
@@ -281,6 +323,208 @@ function getSandboxHeartbeatTitle(): string {
 	return `Sandbox self-report\nLast heartbeat: ${formatTime(sandbox?.lastHeartbeatAt)}\nHeartbeat only means the sandbox runtime recently reported itself alive.`;
 }
 
+function getSpaceOwnerUsername(record: SpaceRecord | null): string {
+	return record?.ownerProfile?.username?.trim() ?? "";
+}
+
+function getSpaceSlug(record: SpaceRecord | null): string {
+	return record?.slug?.trim() ?? "";
+}
+
+function getSpacePublicPath(record: SpaceRecord | null): string {
+	const username = getSpaceOwnerUsername(record);
+	const slug = getSpaceSlug(record);
+	return username && slug ? `/${username}/${slug}` : "";
+}
+
+function getSpacePrettyUrlHint(record: SpaceRecord | null): string {
+	const hasUsername = Boolean(getSpaceOwnerUsername(record));
+	const hasSlug = Boolean(getSpaceSlug(record));
+	if (hasUsername && hasSlug) return "";
+	if (!hasUsername && !hasSlug)
+		return "Add a space slug and username for a cleaner URL.";
+	if (!hasUsername)
+		return "Add username in Profile to complete the pretty URL.";
+	return "Add a space slug for a cleaner URL.";
+}
+
+function formatCompactId(id: string): string {
+	if (!id) return "";
+	if (id.length <= 13) return id;
+	return `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+
+async function handleRenameSpace(newName: string) {
+	renameSaving = true;
+	renameError = "";
+	try {
+		const result = await sdk.space(spaceId).rename(newName);
+		space = result.space;
+		cacheSpaceRecordSoon(result.space);
+		renamingSpace = false;
+	} catch (err) {
+		renameError = err instanceof Error ? err.message : "Failed to rename space";
+	} finally {
+		renameSaving = false;
+	}
+}
+
+function beginSpaceSlugEdit() {
+	if (!canEditSpaceProfile || spaceSlugSaving) return;
+	spaceSlugDraft = space?.slug ?? "";
+	spaceSlugError = "";
+	editingSpaceSlug = true;
+}
+
+function cancelSpaceSlugEdit() {
+	if (spaceSlugSaving) return;
+	editingSpaceSlug = false;
+	spaceSlugDraft = "";
+	spaceSlugError = "";
+}
+
+function handleSpaceSlugKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape") {
+		event.preventDefault();
+		cancelSpaceSlugEdit();
+		return;
+	}
+	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
+		event.preventDefault();
+		void saveSpaceSlug();
+	}
+}
+
+async function saveSpaceSlug() {
+	if (!space || spaceSlugSaving) return;
+	spaceSlugError = "";
+	const result = validatePublicSlugInput(spaceSlugDraft);
+	if (result.error) {
+		spaceSlugError = result.error;
+		return;
+	}
+	const nextSlug = result.value;
+	if (nextSlug === space.slug) {
+		editingSpaceSlug = false;
+		return;
+	}
+	spaceSlugSaving = true;
+	try {
+		const updateResult = await sdk.space(spaceId).update({ slug: nextSlug });
+		space = updateResult.space;
+		cacheSpaceRecordSoon(updateResult.space);
+		editingSpaceSlug = false;
+		spaceSlugDraft = "";
+	} catch (err) {
+		spaceSlugError =
+			err instanceof Error ? err.message : "Failed to save space slug";
+	} finally {
+		spaceSlugSaving = false;
+	}
+}
+
+async function copySpaceId() {
+	try {
+		await navigator.clipboard.writeText(spaceId);
+		copiedSpaceId = true;
+		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
+		copiedSpaceIdTimer = setTimeout(() => {
+			copiedSpaceId = false;
+		}, 2000);
+	} catch {
+		// Clipboard failures are non-critical.
+	}
+}
+
+async function copySpacePublicLink() {
+	const path = getSpacePublicPath(space);
+	if (!path) return;
+	try {
+		await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+		copiedSpaceSlugLink = true;
+		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
+		copiedSpaceSlugLinkTimer = setTimeout(() => {
+			copiedSpaceSlugLink = false;
+		}, 2000);
+	} catch {
+		// Clipboard failures are non-critical.
+	}
+}
+
+async function saveSpaceDescription() {
+	if (spaceDescriptionSaving) return;
+	spaceDescriptionSaving = true;
+	spaceProfileError = "";
+	try {
+		const result = await sdk.space(spaceId).profile({
+			description: spaceDescriptionDraft.trim() || null,
+		});
+		space = result.space;
+		cacheSpaceRecordSoon(result.space);
+	} catch (err) {
+		spaceProfileError =
+			err instanceof Error ? err.message : "Failed to save space profile";
+	} finally {
+		spaceDescriptionSaving = false;
+	}
+}
+
+function handleDescriptionKeydown(event: KeyboardEvent) {
+	if (
+		(event.metaKey || event.ctrlKey) &&
+		event.key === "Enter" &&
+		!isComposingKeyboardEvent(event)
+	) {
+		event.preventDefault();
+		void saveSpaceDescription();
+	}
+}
+
+async function uploadSpaceAvatar(file: File) {
+	if (!canEditSpaceProfile || spaceAvatarUploading) return;
+	spaceAvatarUploading = true;
+	spaceProfileError = "";
+	try {
+		const avatarFile = await normalizeAvatarToWebp(file);
+		const plan = await sdk.publicAssets.createUpload({
+			purpose: "space_avatar",
+			spaceId,
+			file: {
+				size: avatarFile.size,
+				mimeType: "image/webp",
+			},
+		});
+		const formData = new FormData();
+		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
+			formData.append(key, value);
+		}
+		formData.append("file", avatarFile);
+		const response = await fetch(plan.asset.uploadUrl, {
+			method: plan.asset.uploadMethod,
+			body: formData,
+		});
+		if (!response.ok) throw new Error("Failed to upload avatar image.");
+		const result = await sdk.space(spaceId).profile({
+			description: space?.description ?? null,
+			avatarUrl: plan.asset.publicUrl,
+		});
+		space = result.space;
+		cacheSpaceRecordSoon(result.space);
+	} catch (err) {
+		spaceProfileError =
+			err instanceof Error ? err.message : "Failed to upload space avatar";
+	} finally {
+		spaceAvatarUploading = false;
+	}
+}
+
+function handleSpaceAvatarFileChange(event: Event) {
+	const input = event.currentTarget as HTMLInputElement;
+	const file = input.files?.[0];
+	input.value = "";
+	if (file) void uploadSpaceAvatar(file);
+}
+
 async function loadSandbox() {
 	const result = await sdk
 		.space(spaceId)
@@ -310,7 +554,7 @@ async function loadMods() {
 }
 
 async function forceRecoverSandbox() {
-	if (recoveringSandbox) return;
+	if (recoveringSandbox || !canManageSpaceSandbox) return;
 	const confirmed = window.confirm(
 		"Force recovery will recreate the Sandbox and stop any running processes. Workspace files will be preserved. Continue?",
 	);
@@ -379,6 +623,7 @@ async function loadPage() {
 				.catch(() => ({ items: [] })),
 		]);
 		space = spaceResult;
+		spaceDescriptionDraft = spaceResult.description ?? "";
 		cacheSpaceRecordSoon(spaceResult);
 		access = accessResult;
 		members = memberResult.items;
@@ -400,22 +645,39 @@ async function setAccess(body: {
 	signed_in_user?: SpaceRole | null;
 	anonymous_user?: SpaceRole | null;
 }) {
-	access = await sdk.space(spaceId).access.set(body);
+	if (!canManageSpaceMembers) return;
+	accessError = "";
+	try {
+		access = await sdk.space(spaceId).access.set(body);
+	} catch (err) {
+		accessError = err instanceof Error ? err.message : "Failed to save access";
+	}
 }
 
 async function addEnv() {
-	if (!envName.trim()) return;
-	const result = await sdk
-		.space(spaceId)
-		.env.create({ name: envName.trim(), value: envValue });
-	env = result.env;
-	envName = "";
-	envValue = "";
+	if (!canEditSpaceProfile || !envName.trim()) return;
+	envError = "";
+	try {
+		const result = await sdk
+			.space(spaceId)
+			.env.create({ name: envName.trim(), value: envValue });
+		env = result.env;
+		envName = "";
+		envValue = "";
+	} catch (err) {
+		envError = err instanceof Error ? err.message : "Failed to add variable";
+	}
 }
 
 async function removeEnv(name: string) {
-	const result = await sdk.space(spaceId).env.remove(name);
-	env = result.env;
+	if (!canEditSpaceProfile) return;
+	envError = "";
+	try {
+		const result = await sdk.space(spaceId).env.remove(name);
+		env = result.env;
+	} catch (err) {
+		envError = err instanceof Error ? err.message : "Failed to remove variable";
+	}
 }
 
 function toggleEnvReveal(name: string) {
@@ -439,7 +701,8 @@ async function loadMembers() {
 }
 
 async function addMember() {
-	if (!addingMemberUuid.trim() || savingMember) return;
+	if (!canManageSpaceMembers || !addingMemberUuid.trim() || savingMember)
+		return;
 	savingMember = true;
 	addingMemberError = "";
 	try {
@@ -506,6 +769,7 @@ async function copyMemberUuid(member: SpaceMember) {
 }
 
 async function updateMemberRole(userId: string, role: SpaceRole) {
+	if (!canManageSpaceMembers) return;
 	updatingMemberUserId = userId;
 	addingMemberError = "";
 	try {
@@ -520,6 +784,7 @@ async function updateMemberRole(userId: string, role: SpaceRole) {
 }
 
 async function removeMember(userId: string) {
+	if (!canManageSpaceMembers) return;
 	if (!window.confirm("Remove this member from the space?")) return;
 	removingMemberUserId = userId;
 	addingMemberError = "";
@@ -549,7 +814,7 @@ async function loadInvitations() {
 }
 
 async function createInvite() {
-	if (creatingInvite) return;
+	if (creatingInvite || !canManageSpaceMembers) return;
 	if (inviteMaxUses < 0 || inviteMaxUses > 10000) {
 		inviteCreateError = "Max uses must be between 0 and 10000";
 		return;
@@ -610,6 +875,7 @@ async function copyInviteLink(token: string) {
 }
 
 async function revokeInvite(token: string) {
+	if (!canManageSpaceMembers) return;
 	if (!window.confirm("Revoke this invitation link? It will no longer work."))
 		return;
 	invitationsError = "";
@@ -623,18 +889,32 @@ async function revokeInvite(token: string) {
 }
 
 async function bindChannel() {
-	if (!selectedChannelId) return;
-	await sdk.space(spaceId).channels.bind(selectedChannelId);
-	channels = await sdk.space(spaceId).channels.list();
-	selectedChannelId = "";
+	if (!canManageSpaceChannels || !selectedChannelId) return;
+	channelError = "";
+	try {
+		await sdk.space(spaceId).channels.bind(selectedChannelId);
+		channels = await sdk.space(spaceId).channels.list();
+		selectedChannelId = "";
+	} catch (err) {
+		channelError =
+			err instanceof Error ? err.message : "Failed to bind channel";
+	}
 }
 
 async function unbindChannel(channelId: string) {
-	await sdk.space(spaceId).channels.unbind(channelId);
-	channels = await sdk.space(spaceId).channels.list();
+	if (!canManageSpaceChannels) return;
+	channelError = "";
+	try {
+		await sdk.space(spaceId).channels.unbind(channelId);
+		channels = await sdk.space(spaceId).channels.list();
+	} catch (err) {
+		channelError =
+			err instanceof Error ? err.message : "Failed to unbind channel";
+	}
 }
 
 async function addMod() {
+	if (!canManageSpaceMods) return;
 	const target = modSpaceId.trim();
 	if (!target || modSaving) return;
 	if (mods.some((mod) => mod.modSpaceId === target)) {
@@ -666,6 +946,7 @@ async function addMod() {
 }
 
 function fillRecommendedMod(mod: DefaultSpaceModDefinition) {
+	if (!canManageSpaceMods) return;
 	modSpaceId = mod.modSpaceId;
 	modName = mod.name ?? "";
 	modMountSlug = mod.mountSlug ?? "";
@@ -673,6 +954,7 @@ function fillRecommendedMod(mod: DefaultSpaceModDefinition) {
 }
 
 async function toggleMod(mod: SpaceModListItem) {
+	if (!canManageSpaceMods) return;
 	if (!confirmModRestart()) return;
 	modUpdatingId = mod.id;
 	modError = "";
@@ -691,6 +973,7 @@ async function toggleMod(mod: SpaceModListItem) {
 }
 
 async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
+	if (!canManageSpaceMods) return;
 	if (!confirmModRestart()) return;
 	modUpdatingId = mod.id;
 	modError = "";
@@ -709,6 +992,7 @@ async function updateModMountSlug(mod: SpaceModListItem, mountSlug: string) {
 }
 
 async function removeMod(mod: SpaceModListItem) {
+	if (!canManageSpaceMods) return;
 	if (!confirmModRestart()) return;
 	modUpdatingId = mod.id;
 	modError = "";
@@ -738,7 +1022,7 @@ $effect(() => {
 				type="button"
 				class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40"
 				aria-label="Back to space"
-				onclick={() => goto(`/spaces/${spaceId}`)}
+				onclick={() => goto(buildSpaceLandingRoute(spaceId))}
 			>
 				<ArrowLeft class="h-4 w-4" />
 			</button>
@@ -758,6 +1042,92 @@ $effect(() => {
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
 					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
 						<div class="flex min-w-0 items-center gap-2.5">
+							<Globe class="h-4 w-4 text-text-tertiary" />
+							<div class="min-w-0">
+								<div class="text-[15px] font-medium text-text-primary">Profile</div>
+								<div class="text-[12px] text-text-tertiary">Name, avatar, description, public URL.</div>
+							</div>
+						</div>
+					</div>
+					<div class="space-y-5 p-4 sm:p-5">
+						<div class="flex flex-col gap-4 sm:flex-row sm:items-start">
+							<div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
+								{#if canEditSpaceProfile}
+									<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title="Change space avatar" aria-label="Change space avatar">
+										<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-full w-full rounded-full border-0 shadow-none" />
+										<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+											{#if spaceAvatarUploading}<Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />{:else}<Upload class="h-4 w-4 text-overlay-control-text" />{/if}
+										</span>
+										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+									</label>
+									<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-50' : ''}">
+										{#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
+										<span>{space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
+										<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+									</label>
+								{:else}
+									<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
+								{/if}
+							</div>
+							<div class="min-w-0 flex-1 space-y-4">
+								<div class="min-w-0">
+									<div class="flex min-w-0 items-center gap-1.5">
+										{#if renamingSpace && canEditSpaceProfile}
+											<input type="text" bind:value={renameInput} disabled={renameSaving} class="min-w-0 flex-1 rounded-[6px] border border-brand/40 bg-bg-input px-2 py-1 text-[20px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60" onkeydown={(event) => { if (event.key === 'Enter' && !renameSaving && !isComposingKeyboardEvent(event)) { event.preventDefault(); const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } } if (event.key === 'Escape' && !renameSaving) { renamingSpace = false; renameError = ''; } }} />
+											<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save" disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } }}>{#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
+											<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel" disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ''; }}><X class="h-3.5 w-3.5" /></button>
+										{:else if canEditSpaceProfile}
+											<button type="button" onclick={() => { renameInput = space?.name ?? ''; renamingSpace = true; renameError = ''; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Rename space"><span class="min-w-0 truncate text-[20px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span><Pencil class="h-3.5 w-3.5 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" /></button>
+										{:else}
+											<h2 class="min-w-0 truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h2>
+										{/if}
+									</div>
+									{#if renameError}<div class="mt-1 text-[11px] text-error-soft">{renameError}</div>{/if}
+								</div>
+
+								<div class="grid gap-3 md:grid-cols-2">
+									<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+										<div class="mb-1 text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Space ID</div>
+										<button type="button" onclick={() => void copySpaceId()} class="inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-left font-mono text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy space ID"><span class="min-w-0 truncate">{formatCompactId(spaceId)}</span>{#if copiedSpaceId}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
+									</div>
+									<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+										<div class="mb-1 text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Public URL</div>
+										{#if editingSpaceSlug && canEditSpaceProfile}
+											<div class="flex min-w-0 items-center gap-2">
+												<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5"><span class="mr-0.5 shrink-0 font-mono text-[12px] {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span><input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:outline-none" /></div>
+												<button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">{#if spaceSlugSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
+												<button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel"><X class="h-3.5 w-3.5" /></button>
+											</div>
+											{#if spaceSlugError}<div class="mt-1.5 text-[11px] text-error-soft break-words">{spaceSlugError}</div>{/if}
+										{:else}
+											<div class="flex min-w-0 items-center gap-1.5 text-[12px] text-text-tertiary">
+												{#if getSpacePublicPath(space)}<button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy pretty URL"><code class="min-w-0 truncate font-mono">{getSpacePublicPath(space)}</code>{#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>{:else if getSpaceSlug(space)}<code class="inline-flex min-w-0 rounded-[4px] px-1 py-0.5 font-mono text-text-tertiary"><span class="text-text-placeholder">/username/</span><span class="min-w-0 truncate">{getSpaceSlug(space)}</span></code>{:else}<button type="button" onclick={beginSpaceSlugEdit} class="min-w-0 truncate rounded-[4px] px-1 py-0.5 text-left text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Add space slug">Add space slug</button>{/if}
+												{#if canEditSpaceProfile}<button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug"><Pencil class="h-3 w-3" /></button>{/if}
+											</div>
+											{#if getSpacePrettyUrlHint(space)}<p class="mt-1 text-[11px] leading-4 text-text-placeholder">{getSpacePrettyUrlHint(space)}</p>{/if}
+										{/if}
+									</div>
+								</div>
+
+								<label class="block">
+									<div class="mb-1.5 text-[12px] font-medium text-text-secondary">Description</div>
+									<textarea aria-label="Space description" bind:value={spaceDescriptionDraft} rows="3" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="min-h-20 w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder="Describe what this space is for…"></textarea>
+								</label>
+								{#if canEditSpaceProfile}
+									<div class="flex flex-wrap items-center gap-2">
+										<button type="button" onclick={() => void saveSpaceDescription()} disabled={spaceDescriptionSaving || spaceDescriptionDraft.trim() === (space?.description ?? '').trim()} class="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-1.5 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if spaceDescriptionSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Saving…{:else}<Check class="h-3.5 w-3.5" /> Save profile{/if}</button>
+										<span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter to save</span>
+									</div>
+								{/if}
+								{#if spaceProfileError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{spaceProfileError}</div>{/if}
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
+					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+						<div class="flex min-w-0 items-center gap-2.5">
 							<Users class="h-4 w-4 text-text-tertiary" />
 							<div class="min-w-0">
 								<div class="text-[15px] font-medium text-text-primary">Access</div>
@@ -770,23 +1140,24 @@ $effect(() => {
 						<div class="grid gap-3 sm:grid-cols-2">
 							<label class="block rounded-[8px] border border-border-subtle bg-bg-primary p-3">
 								<span class="text-[12px] font-medium text-text-secondary">Signed-in users</span>
-								<select value={access?.signed_in_user ?? ""} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="mt-2 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="">None</option><option value="guest">Guest</option><option value="builder">Builder</option></select>
+								<select value={access?.signed_in_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="mt-2 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">None</option><option value="guest">Guest</option><option value="builder">Builder</option></select>
 							</label>
 							<label class="block rounded-[8px] border border-border-subtle bg-bg-primary p-3">
 								<span class="text-[12px] font-medium text-text-secondary">Anonymous</span>
-								<select value={access?.anonymous_user ?? ""} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="mt-2 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="">None</option><option value="guest">Guest</option></select>
+								<select value={access?.anonymous_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="mt-2 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">None</option><option value="guest">Guest</option></select>
 							</label>
 						</div>
+						{#if accessError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{accessError}</div>{/if}
 
 						<div class="space-y-3">
 							<div class="flex items-center justify-between gap-3">
 								<div class="text-[12px] font-medium text-text-secondary">Members · {members.length}</div>
 							</div>
 							<div class="flex flex-col gap-2 sm:flex-row">
-								<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="min-h-9 min-w-0 flex-1 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+								<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" disabled={!canManageSpaceMembers} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="min-h-9 min-w-0 flex-1 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" />
 								<div class="grid grid-cols-[1fr_auto] gap-2 sm:flex">
-									<select bind:value={addingMemberRole} class="min-h-9 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
-									<button type="button" onclick={() => { void addMember(); }} disabled={savingMember || !addingMemberUuid.trim()} class="inline-flex min-h-9 min-w-20 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if savingMember}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
+									<select bind:value={addingMemberRole} disabled={!canManageSpaceMembers} class="min-h-9 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
+									<button type="button" onclick={() => { void addMember(); }} disabled={!canManageSpaceMembers || savingMember || !addingMemberUuid.trim()} class="inline-flex min-h-9 min-w-20 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if savingMember}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
 								</div>
 							</div>
 							{#if addingMemberError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{addingMemberError}</div>{/if}
@@ -858,8 +1229,9 @@ $effect(() => {
 					<div class="space-y-6 p-4 sm:p-5">
 						<div class="space-y-3">
 							<div class="text-[12px] font-medium text-text-secondary">Environment</div>
-							<div class="grid gap-2 sm:grid-cols-[160px_1fr_auto]"><input bind:value={envName} placeholder="NAME" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={envValue} placeholder="value" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><button type="button" onclick={addEnv} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover">Add</button></div>
-							<div class="space-y-1.5">{#each env as item (item.name)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 sm:grid-cols-[160px_1fr_auto]"><code class="min-w-0 break-all text-[11px] text-text-primary">{item.name}</code><code class="min-w-0 break-all text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code><div class="flex gap-3 sm:justify-end"><button type="button" onclick={() => toggleEnvReveal(item.name)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{revealedEnvNames.has(item.name) ? 'Hide' : 'Reveal'}</button><button type="button" onclick={() => removeEnv(item.name)} class="text-[11px] text-text-placeholder hover:text-error-soft">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No variables.</div>{/each}</div>
+							<div class="grid gap-2 sm:grid-cols-[160px_1fr_auto]"><input bind:value={envName} disabled={!canEditSpaceProfile} placeholder="NAME" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={envValue} disabled={!canEditSpaceProfile} placeholder="value" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={addEnv} disabled={!canEditSpaceProfile} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">Add</button></div>
+							{#if envError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{envError}</div>{/if}
+							<div class="space-y-1.5">{#each env as item (item.name)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 sm:grid-cols-[160px_1fr_auto]"><code class="min-w-0 break-all text-[11px] text-text-primary">{item.name}</code><code class="min-w-0 break-all text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code><div class="flex gap-3 sm:justify-end"><button type="button" onclick={() => toggleEnvReveal(item.name)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{revealedEnvNames.has(item.name) ? 'Hide' : 'Reveal'}</button><button type="button" onclick={() => removeEnv(item.name)} disabled={!canEditSpaceProfile} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No variables.</div>{/each}</div>
 						</div>
 
 						<div class="border-t border-border-subtle pt-5 space-y-3">
@@ -877,9 +1249,9 @@ $effect(() => {
 									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex min-h-8 shrink-0 items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input px-3 py-1.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40">Use recommended mod</button>
 								</div>
 							{/if}
-							<div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]"><input bind:value={modSpaceId} placeholder="Mod Space UUID" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={modName} placeholder="Display name" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><input bind:value={modMountSlug} placeholder="Mount slug" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /><button type="button" onclick={addMod} disabled={modSaving || !modSpaceId.trim()} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
+							<div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]"><input bind:value={modSpaceId} disabled={!canManageSpaceMods} placeholder="Mod Space UUID" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={modName} disabled={!canManageSpaceMods} placeholder="Display name" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={modMountSlug} disabled={!canManageSpaceMods} placeholder="Mount slug" class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={addMod} disabled={!canManageSpaceMods || modSaving || !modSpaceId.trim()} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
 							{#if modError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}{#if modRestartMessage}<div class="rounded-[6px] border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
-							<div class="space-y-1.5">{#each mods as mod (mod.id)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 md:grid-cols-[1fr_auto]"><div class="min-w-0"><div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div><div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div><input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-2 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /></div><div class="flex items-center justify-end gap-2 md:justify-start"><span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span><button type="button" onclick={() => toggleMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button><button type="button" onclick={() => removeMod(mod)} disabled={modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No mounted spaces.</div>{/each}</div>
+							<div class="space-y-1.5">{#each mods as mod (mod.id)}<div class="grid gap-2 rounded-[7px] bg-bg-primary px-3 py-2 md:grid-cols-[1fr_auto]"><div class="min-w-0"><div class="truncate text-[12px] font-medium text-text-secondary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</div><div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath} · {mod.modSpaceId}</div><input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="Mount slug" class="mt-2 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" /></div><div class="flex items-center justify-end gap-2 md:justify-start"><span class="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'enabled' : 'disabled'}</span><button type="button" onclick={() => toggleMod(mod)} disabled={!canManageSpaceMods || modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button><button type="button" onclick={() => removeMod(mod)} disabled={!canManageSpaceMods || modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No mounted spaces.</div>{/each}</div>
 						</div>
 					</div>
 				</section>
@@ -887,16 +1259,17 @@ $effect(() => {
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
 					<div class="border-b border-border-subtle px-4 py-3 sm:px-5"><div class="flex items-center gap-2.5"><Network class="h-4 w-4 text-text-tertiary" /><div><div class="text-[15px] font-medium text-text-primary">Channels</div><div class="text-[12px] text-text-tertiary">External channel bindings.</div></div></div></div>
 					<div class="space-y-3 p-4 sm:p-5">
-						<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><select bind:value={selectedChannelId} class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} disabled={!selectedChannelId} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">Bind</button></div>
-						<div class="space-y-1.5">{#each channels as binding (binding.id)}<div class="flex items-center justify-between gap-3 rounded-[7px] bg-bg-primary px-3 py-2"><span class="min-w-0 truncate text-[12px] text-text-secondary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span><button type="button" onclick={() => unbindChannel(binding.channelId)} class="shrink-0 text-[11px] text-text-placeholder hover:text-error-soft">Unbind</button></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No bound channels.</div>{/each}</div>
+						<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><select bind:value={selectedChannelId} disabled={!canManageSpaceChannels} class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} disabled={!canManageSpaceChannels || !selectedChannelId} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">Bind</button></div>
+						{#if channelError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{channelError}</div>{/if}
+						<div class="space-y-1.5">{#each channels as binding (binding.id)}<div class="flex items-center justify-between gap-3 rounded-[7px] bg-bg-primary px-3 py-2"><span class="min-w-0 truncate text-[12px] text-text-secondary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span><button type="button" onclick={() => unbindChannel(binding.channelId)} disabled={!canManageSpaceChannels} class="shrink-0 text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Unbind</button></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No bound channels.</div>{/each}</div>
 					</div>
 				</section>
 
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div class="flex min-w-0 items-center gap-2.5"><Settings class="h-4 w-4 text-text-tertiary" /><div class="min-w-0"><div class="text-[15px] font-medium text-text-primary">Sandbox</div><div class="text-[12px] text-text-tertiary">Policy, health, runtime image.</div></div></div><button type="button" onclick={forceRecoverSandbox} disabled={recoveringSandbox} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Recovering{:else}<RefreshCw class="h-3.5 w-3.5" /> Force recover{/if}</button></div>
+					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div class="flex min-w-0 items-center gap-2.5"><Settings class="h-4 w-4 text-text-tertiary" /><div class="min-w-0"><div class="text-[15px] font-medium text-text-primary">Sandbox</div><div class="text-[12px] text-text-tertiary">Policy, health, runtime image.</div></div></div><button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Recovering{:else}<RefreshCw class="h-3.5 w-3.5" /> Force recover{/if}</button></div>
 					<div class="space-y-5 p-4 sm:p-5">
 						<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
-							<div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><div class="text-[12px] font-medium text-text-secondary">Hibernate policy</div><div class="mt-0.5 text-[11px] text-text-tertiary">Current: {sandboxAutoDestroyMode === "never" ? "Never" : formatTtl(sandboxIdleTtlSeconds)}</div></div><button type="button" onclick={saveSandboxConfig} disabled={savingSandboxConfig} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save policy"}</button></div>
+							<div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><div class="text-[12px] font-medium text-text-secondary">Hibernate policy</div><div class="mt-0.5 text-[11px] text-text-tertiary">Current: {sandboxAutoDestroyMode === "never" ? "Never" : formatTtl(sandboxIdleTtlSeconds)}</div></div><button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save policy"}</button></div>
 							<div class="grid grid-cols-1 gap-2 md:grid-cols-[180px_1fr]"><select bind:value={sandboxAutoDestroyMode} class="min-h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="idle">Hibernate when idle</option><option value="never">Never hibernate</option></select>{#if sandboxAutoDestroyMode === "idle"}<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} class="min-h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none" /><span class="self-center text-[12px] text-text-tertiary">seconds · max 30d</span></div>{:else}<div class="rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-tertiary">Sandbox stays online until hibernated or replaced.</div>{/if}</div>
 							{#if sandboxConfigError}<div class="mt-2 text-[12px] text-error-soft">{sandboxConfigError}</div>{/if}{#if sandboxConfigMessage}<div class="mt-2 text-[12px] text-success-soft">{sandboxConfigMessage}</div>{/if}
 						</div>

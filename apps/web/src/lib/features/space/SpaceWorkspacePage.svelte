@@ -26,7 +26,6 @@ import {
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceRecord,
-	type SpaceUsageResponse,
 	type TaskRunRecord,
 	type UserProfile,
 	type WorkRecord,
@@ -168,7 +167,6 @@ import {
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
-	buildSpaceDetailRoute,
 	buildSpaceFileRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
@@ -854,7 +852,6 @@ let shareModalSaving = $state(false);
 let forkingTurnId = $state<string | null>(null);
 let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
 let checkpointDetail = $state<CheckpointRecord | null>(null);
-let spaceCheckpoints = $state<CheckpointRecord[]>([]);
 let checkpointDetailLoading = $state(false);
 let checkpointDetailError = $state("");
 let checkpointCopied = $state(false);
@@ -924,103 +921,6 @@ let sessionTaskRecentHasMoreByType = $state<
 	Partial<Record<SessionTaskType, boolean>>
 >({});
 let pendingFollowupActionIds = $state<Set<string>>(new Set());
-// ─── Token Usage ───
-type TokenUsageData = SpaceUsageResponse;
-type TokenUsageDays = 7 | 30 | 90;
-type DailyUsagePoint = {
-	date: string;
-	label: string;
-	totalTokens: number;
-	inputTokens: number;
-	outputTokens: number;
-	cacheTokens: number;
-	costTotal: number;
-	requestCount: number;
-};
-const TOKEN_USAGE_DAY_OPTIONS: TokenUsageDays[] = [7, 30, 90];
-let tokenUsage = $state<TokenUsageData | null>(null);
-let tokenUsageDays = $state<TokenUsageDays>(7);
-let tokenUsageLoading = $state(false);
-let tokenUsageError = $state("");
-
-function getUsageDateKey(date: Date): string {
-	return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
-}
-function formatUsageDateLabel(date: Date, days: number): string {
-	if (days <= 7) {
-		return date.toLocaleDateString(undefined, { weekday: "short" });
-	}
-	return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-function buildDailyUsageSeries(
-	hourlyStats: TokenUsageData["hourly"],
-	days: number,
-): DailyUsagePoint[] {
-	const today = new Date();
-	today.setUTCHours(0, 0, 0, 0);
-	const dailyMap = new Map<string, DailyUsagePoint>();
-	for (let i = days - 1; i >= 0; i--) {
-		const date = new Date(today.getTime() - i * 86400000);
-		const key = getUsageDateKey(date);
-		dailyMap.set(key, {
-			date: key,
-			label: formatUsageDateLabel(date, days),
-			totalTokens: 0,
-			inputTokens: 0,
-			outputTokens: 0,
-			cacheTokens: 0,
-			costTotal: 0,
-			requestCount: 0,
-		});
-	}
-	for (const stat of hourlyStats) {
-		const date = new Date(stat.bucketStartAt);
-		const key = getUsageDateKey(date);
-		const point = dailyMap.get(key);
-		if (!point) continue;
-		point.totalTokens += stat.totalTokens ?? 0;
-		point.inputTokens += stat.inputTokens ?? 0;
-		point.outputTokens += stat.outputTokens ?? 0;
-		point.cacheTokens +=
-			(stat.cacheReadTokens ?? 0) + (stat.cacheWriteTokens ?? 0);
-		point.costTotal = Number(
-			(point.costTotal + (stat.costTotal ?? 0)).toFixed(4),
-		);
-		point.requestCount += stat.requestCount ?? 0;
-	}
-	return Array.from(dailyMap.values());
-}
-function getUsageLinePoints(
-	series: DailyUsagePoint[],
-	width: number,
-	height: number,
-): string {
-	if (series.length === 0) return "";
-	const maxCost = Math.max(...series.map((point) => point.costTotal), 0);
-	const step = series.length > 1 ? width / (series.length - 1) : 0;
-	return series
-		.map((point, index) => {
-			const x = series.length > 1 ? index * step : width / 2;
-			const ratio = maxCost > 0 ? point.costTotal / maxCost : 0;
-			const y = height - ratio * (height - 12) - 6;
-			return `${x.toFixed(1)},${y.toFixed(1)}`;
-		})
-		.join(" ");
-}
-function getUsageBreakdownPercent(value: number, total: number): number {
-	return total > 0 ? Math.round((value / total) * 100) : 0;
-}
-function formatTokenCount(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
-}
-function formatCost(n: number): string {
-	const formatted =
-		n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4);
-	return `${formatted}`;
-}
-
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
 	for (const candidate of candidates) {
@@ -1052,24 +952,6 @@ function hasSessionPermission(sessionId: string): boolean {
 			access.signed_in_user === "builder")
 	);
 }
-async function loadTokenUsage(days: TokenUsageDays = tokenUsageDays) {
-	tokenUsageLoading = true;
-	tokenUsageError = "";
-	try {
-		const result = await sdk.space(spaceId).usage.get(days);
-		tokenUsage = result;
-	} catch (error) {
-		tokenUsageError =
-			error instanceof Error ? error.message : "Failed to load usage data";
-	} finally {
-		tokenUsageLoading = false;
-	}
-}
-function selectTokenUsageDays(days: TokenUsageDays) {
-	if (tokenUsageDays === days && tokenUsage) return;
-	tokenUsageDays = days;
-	void loadTokenUsage(days);
-}
 async function removeSessionAccess(sessionId: string) {
 	try {
 		await sdk.sessionAccess.remove(sessionId);
@@ -1078,15 +960,6 @@ async function removeSessionAccess(sessionId: string) {
 		// Silently fail
 	}
 }
-async function loadSpaceCheckpoints() {
-	try {
-		const result = await sdk.space(spaceId).checkpoints.list();
-		spaceCheckpoints = result.checkpoints ?? [];
-	} catch {
-		spaceCheckpoints = [];
-	}
-}
-
 async function loadCheckpointDetail(checkpointId: string) {
 	const requestSpaceId = spaceId;
 	const isCurrentRequest = () =>
@@ -1367,7 +1240,7 @@ async function handleDeleteCronjob() {
 		cronjobDetail = null;
 		cronjobRuns = [];
 		notifyCronjobsUpdated();
-		await goto(buildSpaceDetailRoute(spaceId), { replaceState: true });
+		await goto(buildSpaceNewSessionRoute(spaceId), { replaceState: true });
 	} catch (error) {
 		cronjobDetailError =
 			error instanceof Error ? error.message : "Failed to delete";
@@ -1446,7 +1319,7 @@ async function handleCreateCronjobSubmit(event: SubmitEvent) {
 			notifyCronjobsUpdated();
 			await goto(buildSpaceCronjobRoute(spaceId, response.cronJobId));
 		} else {
-			await goto(buildSpaceDetailRoute(spaceId));
+			await goto(buildSpaceNewSessionRoute(spaceId));
 		}
 	} catch (error) {
 		cronjobNewError =
@@ -2768,7 +2641,7 @@ function updateUrlSession(sessionId: string | null) {
 	if (sessionId) {
 		return navigateToSession(sessionId, { replaceState: true });
 	}
-	return goto(buildSpaceDetailRoute(spaceId), {
+	return goto(buildSpaceNewSessionRoute(spaceId), {
 		replaceState: true,
 		keepFocus: true,
 		noScroll: true,
@@ -5317,7 +5190,6 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 			eventPayload.changed?.includes("status") &&
 			task.status === "completed"
 		) {
-			void loadSpaceCheckpoints();
 		}
 	}
 }
@@ -6879,7 +6751,7 @@ async function handleDeleteNode(node: SpaceFsNode) {
 	}
 }
 function closeFile() {
-	void goto(buildSpaceDetailRoute(spaceId), {
+	void goto(buildSpaceNewSessionRoute(spaceId), {
 		replaceState: true,
 		noScroll: true,
 		keepFocus: true,
@@ -7787,8 +7659,6 @@ $effect(() => {
 	checkpointDetail = null;
 	cronjobDetail = null;
 	taskRunDetail = null;
-	spaceCheckpoints = [];
-	tokenUsage = null;
 	creatingSession = false;
 	createSessionError = "";
 	sessionGenerationStore.resetAll();
@@ -7835,8 +7705,6 @@ $effect(() => {
 				void refreshSessionsList(false);
 				void loadPreviewEndpoints();
 				void loadFileTree();
-				void loadSpaceCheckpoints();
-				if (routeView === "space") void loadTokenUsage(7);
 				if (
 					routeView === "session" &&
 					routeSessionId &&
@@ -8411,7 +8279,7 @@ $effect(() => {
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
-          aria-label="Space details"
+          aria-label="Open space"
         >
           <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />
         </button>
@@ -8482,7 +8350,7 @@ $effect(() => {
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
-          aria-label="Space details"
+          aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
         {#if checkpointDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
@@ -8491,7 +8359,7 @@ $effect(() => {
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
-          aria-label="Space details"
+          aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">New save</span>
       {:else if routeView === "cronjob" && cronjobDetail}
@@ -8499,7 +8367,7 @@ $effect(() => {
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
-          aria-label="Space details"
+          aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">{cronjobDetail.title}</span>
         {#if cronjobDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
@@ -8508,7 +8376,7 @@ $effect(() => {
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
-          aria-label="Space details"
+          aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">New cronjob</span>
       {:else if routeView === "task" && taskRunDetail}
@@ -8516,7 +8384,7 @@ $effect(() => {
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
-          aria-label="Space details"
+          aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">{taskTypeLabel(taskRunDetail.taskType)}</span>
         {#if taskRunDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
@@ -8662,7 +8530,7 @@ $effect(() => {
               <button
                 type="button"
                 class="px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-                onclick={() => goto(buildSpaceDetailRoute(spaceId))}
+                onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}
               >
                 Cancel
               </button>
@@ -8860,7 +8728,7 @@ $effect(() => {
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobNewError}</div>
             {/if}
             <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
-              <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => goto(buildSpaceDetailRoute(spaceId))}>Cancel</button>
+              <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}>Cancel</button>
               <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={cronjobNewSubmitting}>
                 {#if cronjobNewSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if}
                 <span>Create scheduled prompt</span>
@@ -9545,384 +9413,6 @@ $effect(() => {
     {/if}
     {#if bootstrapping && !activeSessionState}
       <CenteredLoading label="Loading space…" />
-    {:else if !activeSessionState && routeView === "space"}
-      <div class="flex-1 overflow-y-auto px-4 py-6">
-        <div class="mx-auto flex w-full max-w-3xl flex-col gap-5">
-          {#if spaceStatusNotice}
-            <div class="inline-flex items-center gap-2 self-start rounded-full border border-success-soft/20 bg-success-soft/8 px-3 py-1.5 text-[12px] text-success-soft">
-              <Check class="w-3.5 h-3.5" />
-              <span>{spaceStatusNotice}</span>
-            </div>
-          {/if}
-          <!-- Space Profile -->
-          <section class="rounded-[12px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div class="flex min-w-0 flex-1 items-start gap-4">
-                <div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
-                  {#if canEditSpaceProfile}
-                    <label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title="Change space avatar" aria-label="Change space avatar">
-                      <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-full w-full rounded-full border-0 shadow-none" />
-                      <span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                        {#if spaceAvatarUploading}
-                          <Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />
-                        {:else}
-                          <Upload class="h-4 w-4 text-overlay-control-text" />
-                        {/if}
-                      </span>
-                      <input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
-                    </label>
-                    <label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-within:bg-bg-hover focus-within:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-50' : ''}">
-                      {#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-                      <span>{space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
-                      <input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
-                    </label>
-                  {:else}
-                    <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
-                  {/if}
-                </div>
-                <div class="min-w-0 flex-1 pt-0.5">
-                  <div class="flex min-w-0 items-center gap-1.5 group">
-                    {#if renamingSpace && canEditSpaceProfile}
-                      <input
-                        type="text"
-                        bind:value={renameInput}
-                        disabled={renameSaving}
-                        class="min-w-0 flex-1 rounded-[6px] border border-brand/40 bg-bg-input px-2 py-1 text-[20px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60"
-                        onkeydown={(e) => {
-                          if (e.key === "Enter" && !renameSaving && !isComposingKeyboardEvent(e)) {
-                            e.preventDefault();
-                            const trimmed = renameInput.trim();
-                            if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed);
-                            else { renamingSpace = false; renameError = ""; }
-                          }
-                          if (e.key === "Escape" && !renameSaving) { renamingSpace = false; renameError = ""; }
-                        }}
-                      />
-                      <button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save" disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ""; } }}>
-                        {#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-                      </button>
-                      <button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel" disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ""; }}>
-                        <X class="h-3.5 w-3.5" />
-                      </button>
-                    {:else if canEditSpaceProfile}
-                      <button type="button" onclick={() => { renameInput = space?.name ?? ""; renamingSpace = true; renameError = ""; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Rename space">
-                        <span class="min-w-0 truncate text-[20px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span>
-                        <Pencil class="h-3.5 w-3.5 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
-                      </button>
-                    {:else}
-                      <h1 class="min-w-0 truncate text-[20px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h1>
-                    {/if}
-                  </div>
-                  {#if renameError}
-                    <div class="mt-1 text-[11px] text-status-error">{renameError}</div>
-                  {/if}
-
-                  <div class="mt-2 space-y-1.5">
-                    <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
-                      <span class="shrink-0 uppercase tracking-wider">ID</span>
-                      <code class="min-w-0 truncate font-mono" title={spaceId}>{formatCompactId(spaceId)}</code>
-                      <button type="button" onclick={() => void copySpaceId()} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy space ID">
-                        {#if copiedSpaceId}<Check class="h-3 w-3 text-success-soft" />{:else}<Copy class="h-3 w-3" />{/if}
-                      </button>
-                    </div>
-
-                    <div class="min-w-0">
-                      {#if editingSpaceSlug && canEditSpaceProfile}
-                        <div class="min-w-0">
-                          <div class="flex min-w-0 items-center gap-2">
-                            <div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2.5 py-1.5">
-                              <span class="mr-0.5 shrink-0 font-mono text-[12px] {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span>
-                              <input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:outline-none" />
-                            </div>
-                            <button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">
-                              {#if spaceSlugSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-                            </button>
-                            <button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel">
-                              <X class="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                          <p class="mt-1.5 text-[11px] leading-4 text-text-tertiary">Optional. Adds a cleaner URL; the space remains public by ID.</p>
-                          {#if spaceSlugError}<div class="mt-1.5 text-[11px] text-error-soft break-words">{spaceSlugError}</div>{/if}
-                        </div>
-                      {:else}
-                        <div class="min-w-0">
-                          <div class="flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
-                            <span class="shrink-0 uppercase tracking-wider">Slug</span>
-                            {#if getSpacePublicPath(space)}
-                              <button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded-[4px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy pretty URL">
-                                <code class="min-w-0 truncate font-mono">{getSpacePublicPath(space)}</code>
-                                {#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}
-                              </button>
-                            {:else if getSpaceSlug(space)}
-                              <code class="inline-flex min-w-0 rounded-[4px] px-1 py-0.5 font-mono text-text-tertiary"><span class="text-text-placeholder">/username/</span><span class="min-w-0 truncate">{getSpaceSlug(space)}</span></code>
-                            {:else if getSpaceOwnerUsername(space)}
-                              <button type="button" onclick={beginSpaceSlugEdit} class="min-w-0 truncate rounded-[4px] px-1 py-0.5 text-left text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Add space slug">Add space slug</button>
-                            {:else}
-                              <button type="button" onclick={beginSpaceSlugEdit} class="min-w-0 truncate rounded-[4px] px-1 py-0.5 text-left text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Add pretty URL">Add pretty URL</button>
-                            {/if}
-                            {#if canEditSpaceProfile}
-                              <button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug">
-                                <Pencil class="h-3 w-3" />
-                              </button>
-                            {/if}
-                          </div>
-                          {#if getSpacePrettyUrlHint(space)}
-                            <p class="mt-1 text-[11px] leading-4 text-text-placeholder">
-                              {#if !getSpaceOwnerUsername(space)}
-                                Add username in <a href="/settings/profile" class="text-text-tertiary transition-colors hover:text-text-secondary hover:underline">Profile</a>{getSpaceSlug(space) ? ' to complete the pretty URL.' : ' and a space slug for a cleaner URL.'}
-                              {:else}
-                                {getSpacePrettyUrlHint(space)}
-                              {/if}
-                            </p>
-                          {/if}
-                        </div>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {#if !spaceHasMinimalAccess}
-                <div class="flex shrink-0 items-center gap-2">
-                  <a
-                    href={`/spaces/${spaceId}/settings`}
-                    class="inline-flex items-center justify-center gap-1.5 rounded-[7px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:text-text-primary hover:bg-bg-hover"
-                    title="Space settings"
-                  >
-                    <Settings class="w-3.5 h-3.5" />
-                    Settings
-                  </a>
-                </div>
-              {/if}
-            </div>
-
-            <div class="mt-4 border-t border-border-subtle pt-4">
-              {#if spaceProfileEditingField === "description" && canEditSpaceProfile}
-                <div class="space-y-2">
-                  <textarea
-                    aria-label="Space description"
-                    bind:value={spaceProfileDraft}
-                    rows="3"
-                    maxlength="2000"
-                    disabled={spaceProfileSaving === "description"}
-                    onkeydown={handleSpaceProfileEditKeydown}
-                    class="min-h-20 w-full resize-y rounded-[6px] border border-brand/40 bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:outline-none disabled:opacity-60"
-                    placeholder="Describe what this space is for…"
-                  ></textarea>
-                  <div class="flex items-center gap-2">
-                    <button type="button" onclick={() => void saveSpaceProfileField()} disabled={spaceProfileSaving === "description"} class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">
-                      {#if spaceProfileSaving === "description"}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-                      Save
-                    </button>
-                    <button type="button" onclick={cancelSpaceProfileEdit} disabled={spaceProfileSaving === "description"} class="rounded-[5px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50">Cancel</button>
-                    <span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter to save</span>
-                  </div>
-                </div>
-              {:else if canEditSpaceProfile}
-                <button type="button" onclick={() => beginSpaceProfileEdit("description")} class="group/edit -ml-1 block w-full rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Edit description">
-                  <span class="text-[13px] leading-6 {space?.description ? 'text-text-secondary' : 'text-text-placeholder'}">{space?.description || "Add a short description for this space."}</span>
-                  <Pencil class="ml-1 inline h-3 w-3 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" />
-                </button>
-              {:else if space?.description}
-                <p class="text-[13px] leading-6 text-text-secondary">{space.description}</p>
-              {/if}
-            </div>
-
-            {#if spaceProfileError}
-              <div class="mt-3 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{spaceProfileError}</div>
-            {/if}
-
-            {#if bootstrapStatus === "failed"}
-              <div class="mt-4 rounded-[6px] border border-error-soft/20 bg-error-soft/8 p-3">
-                <div class="flex items-center gap-1.5 text-[12px] text-error-soft font-medium mb-1">
-                  <AlertCircle class="w-3.5 h-3.5" />
-                  Initialization failed
-                </div>
-                {#if bootstrapErrorMessage}
-                  {#if bootstrapNeedsBillingAction}
-                    <button type="button" class="w-full cursor-pointer rounded-[6px] border border-error-soft/20 bg-error-bg px-3 py-2 text-left font-mono text-[11px] text-error-soft/80 transition-colors hover:border-error-soft/35 hover:bg-error-bg/80 focus:outline-none focus:ring-1 focus:ring-error-soft/40" onclick={() => billingConversion.openFallbackHard()}>{bootstrapErrorMessage}</button>
-                  {:else}
-                    <div class="break-all font-mono text-[11px] text-error-soft/80">{bootstrapErrorMessage}</div>
-                  {/if}
-                {/if}
-              </div>
-            {/if}
-          </section>
-          <!-- Token Usage -->
-          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div class="flex items-center gap-2">
-                <Activity class="w-4 h-4 text-text-tertiary" />
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Usage</div>
-                  <div class="mt-0.5 flex items-center gap-2 text-[15px] font-medium text-text-primary">
-                    <span>Token consumption & cost</span>
-                    {#if tokenUsageLoading && tokenUsage}
-                      <Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" aria-label="Syncing" />
-                    {/if}
-                  </div>
-                </div>
-              </div>
-              <div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-primary p-0.5">
-                {#each TOKEN_USAGE_DAY_OPTIONS as days}
-                  <button
-                    type="button"
-                    class="rounded-[4px] px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 {tokenUsageDays === days ? 'bg-brand text-brand-contrast-fg' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-                    onclick={() => selectTokenUsageDays(days)}
-                    disabled={tokenUsageLoading && tokenUsageDays === days}
-                  >
-                    {days}d
-                  </button>
-                {/each}
-              </div>
-            </div>
-            {#if tokenUsageLoading && !tokenUsage}
-              {@render PanelLoadingState("Loading usage…", true)}
-            {:else if tokenUsageError}
-              <div class="mt-4 rounded-[6px] border border-error-soft/20 bg-error-bg px-3 py-2 text-[12px] text-error-soft">
-                Failed to load usage: {tokenUsageError}
-              </div>
-            {:else if tokenUsage}
-              {@const usageSeries = buildDailyUsageSeries(tokenUsage.hourly, tokenUsage.days)}
-              {@const maxDailyTokens = Math.max(...usageSeries.map((point) => point.totalTokens), 0)}
-              {@const maxDailyCost = Math.max(...usageSeries.map((point) => point.costTotal), 0)}
-              {@const avgTokensPerRequest = tokenUsage.summary.requestCount > 0 ? tokenUsage.summary.totalTokens / tokenUsage.summary.requestCount : 0}
-              {@const cacheTokens = tokenUsage.summary.cacheReadTokens + tokenUsage.summary.cacheWriteTokens}
-              {@const inputPercent = getUsageBreakdownPercent(tokenUsage.summary.inputTokens, tokenUsage.summary.totalTokens)}
-              {@const outputPercent = getUsageBreakdownPercent(tokenUsage.summary.outputTokens, tokenUsage.summary.totalTokens)}
-              {@const cachePercent = getUsageBreakdownPercent(cacheTokens, tokenUsage.summary.totalTokens)}
-              <div class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border-subtle bg-border-subtle sm:grid-cols-4">
-                <div class="bg-bg-primary px-3 py-3">
-                  <div class="text-[11px] text-text-tertiary">Total tokens</div>
-                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(tokenUsage.summary.totalTokens)}</div>
-                </div>
-                <div class="bg-bg-primary px-3 py-3">
-                  <div class="text-[11px] text-text-tertiary">Cost</div>
-                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{formatCost(tokenUsage.summary.costTotal)}</div>
-                </div>
-                <div class="bg-bg-primary px-3 py-3">
-                  <div class="text-[11px] text-text-tertiary">Requests</div>
-                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{tokenUsage.summary.requestCount}</div>
-                </div>
-                <div class="bg-bg-primary px-3 py-3">
-                  <div class="text-[11px] text-text-tertiary">Avg / request</div>
-                  <div class="mt-1 text-[18px] font-semibold text-text-primary tabular-nums">{formatTokenCount(avgTokensPerRequest)}</div>
-                </div>
-              </div>
-              {#if tokenUsage.summary.totalTokens > 0}
-                <div class="mt-4">
-                  <div class="h-1.5 overflow-hidden rounded-full bg-bg-hover">
-                    <div class="flex h-full">
-                      <div class="bg-brand" style="width: {inputPercent}%;"></div>
-                      <div class="bg-text-tertiary" style="width: {outputPercent}%;"></div>
-                      <div class="bg-border-primary" style="width: {cachePercent}%;"></div>
-                    </div>
-                  </div>
-                  <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-text-tertiary">
-                    <span><span class="text-text-primary">Input</span> {inputPercent}%</span>
-                    <span><span class="text-text-primary">Output</span> {outputPercent}%</span>
-                    <span><span class="text-text-primary">Cache</span> {cachePercent}%</span>
-                    {#if tokenUsage.summary.errorCount > 0}
-                      <span class="text-error-soft">{tokenUsage.summary.errorCount} errors</span>
-                    {/if}
-                  </div>
-                </div>
-              {/if}
-              {#if tokenUsage.hourly.length > 0 && maxDailyTokens > 0}
-                <div class="mt-5 rounded-[8px] border border-border-subtle bg-bg-primary px-3 py-3">
-                  <div class="mb-3 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-                    <div>
-                      Peak <span class="text-text-secondary tabular-nums">{formatTokenCount(maxDailyTokens)}</span> tokens
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-[2px] bg-brand"></span>Tokens</span>
-                      <span class="inline-flex items-center gap-1.5"><span class="h-px w-4 bg-text-tertiary"></span>Cost</span>
-                    </div>
-                  </div>
-                  <div class="relative h-[150px] overflow-hidden rounded-[6px] border border-border-subtle bg-bg-surface px-2 pt-3 pb-8">
-                    <div class="pointer-events-none absolute inset-x-2 top-3 bottom-8 grid grid-rows-3">
-                      <div class="border-b border-border-subtle/70"></div>
-                      <div class="border-b border-border-subtle/70"></div>
-                      <div></div>
-                    </div>
-                    <svg class="pointer-events-none absolute left-2 right-2 top-3 bottom-8 z-10 h-[calc(100%-44px)] w-[calc(100%-16px)] overflow-visible" viewBox="0 0 100 72" preserveAspectRatio="none" aria-hidden="true">
-                      <polyline
-                        points={getUsageLinePoints(usageSeries, 100, 72)}
-                        fill="none"
-                        stroke="var(--text-tertiary)"
-                        stroke-width="1.4"
-                        vector-effect="non-scaling-stroke"
-                      />
-                    </svg>
-                    <div class="absolute inset-x-2 top-3 bottom-8 grid items-end gap-1" style="grid-template-columns: repeat({usageSeries.length}, minmax(6px, 1fr));">
-                      {#each usageSeries as point}
-                        {@const barHeight = maxDailyTokens > 0 ? Math.max(3, (point.totalTokens / maxDailyTokens) * 100) : 0}
-                        <div class="group relative flex h-full items-end" title="{point.date}: {formatTokenCount(point.totalTokens)} tokens · {formatCost(point.costTotal)} · {point.requestCount} requests">
-                          <div class="w-full rounded-t-[3px] bg-brand/75 transition-colors group-hover:bg-brand" style="height: {barHeight}%;"></div>
-                        </div>
-                      {/each}
-                    </div>
-                    <div class="absolute inset-x-2 bottom-2 grid gap-1 text-[10px] text-text-placeholder" style="grid-template-columns: repeat({usageSeries.length}, minmax(6px, 1fr));">
-                      {#each usageSeries as point, index}
-                        <div class="truncate text-center {tokenUsage.days <= 7 || index % 5 === 0 || index === usageSeries.length - 1 ? '' : 'opacity-0'}">{point.label}</div>
-                      {/each}
-                    </div>
-                  </div>
-                  {#if maxDailyCost > 0}
-                    <div class="mt-2 text-[11px] text-text-tertiary">
-                      Peak cost <span class="text-text-secondary tabular-nums">{formatCost(maxDailyCost)}</span> / day
-                    </div>
-                  {/if}
-                </div>
-              {:else}
-                <div class="mt-5 flex items-center justify-center rounded-[8px] border border-border-subtle bg-bg-primary py-8 text-[13px] text-text-tertiary">
-                  No usage in the last {tokenUsage.days} days.
-                </div>
-              {/if}
-            {:else}
-              <div class="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border-subtle bg-border-subtle sm:grid-cols-4">
-                {#each Array(4) as _}
-                  <div class="bg-bg-primary px-3 py-3">
-                    <div class="h-3 w-16 rounded bg-bg-hover"></div>
-                    <div class="mt-2 h-5 w-20 rounded bg-bg-hover"></div>
-                  </div>
-                {/each}
-              </div>
-              <div class="mt-5 flex h-[150px] items-center justify-center rounded-[8px] border border-border-subtle bg-bg-primary text-[13px] text-text-tertiary">
-                Loading usage data…
-              </div>
-            {/if}
-          </section>
-          <section class="rounded-[10px] border border-border-subtle bg-bg-surface p-4 sm:p-5 space-y-3">
-            <div class="flex items-center justify-between gap-3">
-              <div class="flex items-center gap-2">
-                <Save class="w-4 h-4 text-text-tertiary" />
-                <div>
-                  <div class="text-[11px] uppercase tracking-[0.16em] text-text-placeholder">Saves</div>
-                  <div class="text-[15px] font-medium text-text-primary">Checkpoint history</div>
-                </div>
-              </div>
-              <a href={buildSpaceCheckpointNewRoute(spaceId)} class="text-[12px] text-brand hover:underline">New save</a>
-            </div>
-            {#if spaceCheckpoints.length === 0}
-              <div class="rounded-[6px] border border-border-subtle bg-bg-primary p-3 text-[13px] text-text-tertiary">No saves yet.</div>
-            {:else}
-              <div class="divide-y divide-border-subtle overflow-hidden rounded-[7px] border border-border-subtle">
-                {#each spaceCheckpoints.slice(0, 8) as checkpoint (checkpoint.id)}
-                  <a href={buildSpaceCheckpointRoute(spaceId, checkpoint.id)} class="block bg-bg-primary px-3 py-2.5 hover:bg-bg-hover transition-colors">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="truncate text-[13px] font-medium text-text-primary">{checkpoint.description || checkpoint.commitHash.slice(0, 12)}</div>
-                        <div class="mt-0.5 text-[11px] text-text-tertiary">{formatCheckpointTimestamp(checkpoint.createdAt)} · {checkpoint.forkCount} forks</div>
-                      </div>
-                      <span class="shrink-0 font-mono text-[11px] text-text-placeholder">{checkpoint.commitHash.slice(0, 8)}</span>
-                    </div>
-                  </a>
-                {/each}
-              </div>
-            {/if}
-          </section>
-        </div>
-      </div>
     {:else if !activeSessionState}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
         <div class="text-[14px]">No chat selected</div>

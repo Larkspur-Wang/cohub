@@ -15,6 +15,7 @@ import {
 } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { getSpacePublicProfile } from "$lib/space-profile";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { commandItemKey } from "./merge-results";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
@@ -34,7 +35,7 @@ function hrefFor(
 		| "labelResourceRef"
 	>,
 ) {
-	if (item.type === "space") return `/spaces/${item.spaceId}`;
+	if (item.type === "space") return buildSpaceLandingRoute(item.spaceId);
 	if (item.type === "session")
 		return `/spaces/${item.spaceId}/sessions/${item.sessionId}`;
 	if (item.type === "label") {
@@ -47,7 +48,7 @@ function hrefFor(
 				.split("/")
 				.map(encodeURIComponent)
 				.join("/")}`;
-		return `/spaces/${item.spaceId}`;
+		return buildSpaceLandingRoute(item.spaceId);
 	}
 	return `/spaces/${item.spaceId}/sessions/${item.sessionId}?turn=${item.sequence}`;
 }
@@ -90,7 +91,7 @@ function spaceToItem(
 		spaceProfile: getSpacePublicProfile(space),
 		sessionTitle: null,
 		matchedField,
-		href: `/spaces/${space.id}`,
+		href: buildSpaceLandingRoute(space.id),
 		updatedAt: space.updatedAt ?? null,
 		source: "local",
 		localScore: scored.score,

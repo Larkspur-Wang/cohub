@@ -8,6 +8,7 @@ import {
 } from "$lib/cache/db";
 import { getCacheUserKey } from "$lib/cache/keys";
 import { getSpacePublicProfile } from "$lib/space-profile";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
 import { getDefaultCommandItems } from "./commands";
@@ -90,7 +91,7 @@ function spaceToDefaultItem(
 		spaceProfile: getSpacePublicProfile(space),
 		sessionTitle: null,
 		matchedField: "name",
-		href: `/spaces/${space.id}`,
+		href: buildSpaceLandingRoute(space.id),
 		updatedAt,
 		source: "default",
 		localScore: score.score,

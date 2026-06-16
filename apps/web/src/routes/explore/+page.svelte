@@ -13,6 +13,7 @@ import { page } from "$app/state";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 
 type ExploreView = "list" | "wall";
 
@@ -66,7 +67,7 @@ function getSecondaryMeta(item: ExploreSpaceItem): string {
 }
 
 function getSpaceHref(item: ExploreSpaceItem): string {
-	return item.spaceUrl || `/spaces/${item.id}`;
+	return item.spaceUrl || buildSpaceLandingRoute(item.id);
 }
 
 function getWallTone(index: number): string {

@@ -13,6 +13,7 @@ import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -133,7 +134,7 @@ async function handleDelete(id: string) {
                 </div>
                 <div class="flex items-center gap-1.5 pt-0.5 min-w-0">
                   {#if channel.boundSpace}
-                    <a href="/spaces/{channel.boundSpace.id}" class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
+                    <a href={buildSpaceLandingRoute(channel.boundSpace.id)} class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
                       {channel.boundSpace.title || channel.boundSpace.id.slice(0, 8)}
                     </a>
                   {:else}
@@ -173,7 +174,7 @@ async function handleDelete(id: string) {
                     <div class="flex items-center gap-3 mt-2">
                       <span class="px-1.5 py-0.5 rounded-sm text-[11px] bg-bg-hover text-text-tertiary border border-border-subtle">{channel.status}</span>
                       {#if channel.boundSpace}
-                        <a href="/spaces/{channel.boundSpace.id}" class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
+                        <a href={buildSpaceLandingRoute(channel.boundSpace.id)} class="text-[12px] text-text-secondary hover:text-text-primary truncate font-mono transition-colors">
                           {channel.boundSpace.title || channel.boundSpace.id.slice(0, 8)}
                         </a>
                       {:else}

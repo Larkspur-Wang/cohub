@@ -14,8 +14,8 @@ export const load: PageLoad = async ({ params, url }) => {
 			? ("session" as const)
 			: filePath
 				? ("file" as const)
-				: ("space" as const),
-		sessionId,
+				: ("session" as const),
+		sessionId: sessionId ?? "new",
 		filePath,
 	};
 };

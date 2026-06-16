@@ -26,7 +26,6 @@ import {
 	FolderKanban,
 	History,
 	Keyboard,
-	LayoutDashboard,
 	Link2Off,
 	Loader2,
 	LogOut,
@@ -86,9 +85,9 @@ import {
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
-	buildSpaceDetailRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
+	buildSpaceSettingsRoute,
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -2755,12 +2754,12 @@ $effect(() => {
             </button>
             <button
               type="button"
-              class="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {currentPath === buildSpaceDetailRoute(currentSpaceId!) ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-              onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
-              aria-label="Space details"
-              title="Space details"
+              class="flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {currentPath === buildSpaceSettingsRoute(currentSpaceId!) ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+              onclick={() => { void handleNavigate(buildSpaceSettingsRoute(currentSpaceId!)); }}
+              aria-label="Space settings"
+              title="Space settings"
             >
-              <LayoutDashboard class="h-4 w-4" />
+              <Settings class="h-4 w-4" />
             </button>
             <button
               type="button"
@@ -2983,11 +2982,11 @@ $effect(() => {
         <button
           type="button"
           class="flex items-center gap-2 w-full px-1.5 py-1.5 rounded-[5px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-50"
-          onclick={() => { void handleNavigate(buildSpaceDetailRoute(currentSpaceId!)); }}
-          title="Space details"
+          onclick={() => { void handleNavigate(buildSpaceSettingsRoute(currentSpaceId!)); }}
+          title="Space settings"
         >
-          <LayoutDashboard class="w-3.5 h-3.5 shrink-0" />
-          <span class="text-[12px] font-medium">Detail</span>
+          <Settings class="w-3.5 h-3.5 shrink-0" />
+          <span class="text-[12px] font-medium">Settings</span>
         </button>
         <button
           type="button"

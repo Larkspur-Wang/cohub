@@ -16,6 +16,7 @@ import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { setCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
@@ -97,7 +98,7 @@ async function createConfigSpace() {
 		cacheSpaceRecordSoon(result.space);
 		configSpace = result.space;
 		actionMessage = "Config Space created";
-		await goto(`/spaces/${result.space.id}`);
+		await goto(buildSpaceLandingRoute(result.space.id));
 	} catch (error) {
 		if (
 			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
@@ -113,7 +114,7 @@ async function createConfigSpace() {
 
 function openConfigSpace() {
 	if (!configSpace) return;
-	void goto(`/spaces/${configSpace.id}`);
+	void goto(buildSpaceLandingRoute(configSpace.id));
 }
 
 onMount(() => {

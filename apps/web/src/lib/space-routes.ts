@@ -1,10 +1,16 @@
-export const buildSpaceDetailRoute = (spaceId: string) => `/spaces/${spaceId}`;
+export const buildSpaceRootRoute = (spaceId: string) => `/spaces/${spaceId}`;
 
 export const buildSpaceSessionRoute = (spaceId: string, sessionId: string) =>
 	`/spaces/${spaceId}/sessions/${sessionId}`;
 
 export const buildSpaceNewSessionRoute = (spaceId: string) =>
 	buildSpaceSessionRoute(spaceId, "new");
+
+export const buildSpaceLandingRoute = (spaceId: string) =>
+	buildSpaceNewSessionRoute(spaceId);
+
+export const buildSpaceSettingsRoute = (spaceId: string) =>
+	`/spaces/${spaceId}/settings`;
 
 export const buildSpaceSessionTurnRoute = (
 	spaceId: string,

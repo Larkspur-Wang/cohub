@@ -1,6 +1,7 @@
 <script lang="ts">
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import type { ModelRow, SpaceRow, UserProfile, UserRow } from "$lib/trending";
 import { fetchModels, fetchSpaces, fetchUsers } from "$lib/trending";
 
@@ -66,7 +67,7 @@ function getSpaceHref(
 	row: SpaceRow | UserRow | ModelRow,
 ): string | null {
 	if (tab !== "spaces") return null;
-	return `/spaces/${(row as SpaceRow).spaceId}`;
+	return buildSpaceLandingRoute((row as SpaceRow).spaceId);
 }
 
 function getUserProfile(

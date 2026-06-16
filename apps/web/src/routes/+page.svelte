@@ -5,6 +5,7 @@ import { goto } from "$app/navigation";
 import { logtoClient } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { setCachedSpaceList } from "$lib/stores/space-list-cache";
 
@@ -34,7 +35,7 @@ onMount(async () => {
 		spaceCount = spaces.length;
 		if (spaces.length > 0) {
 			const firstSpace = spaces[0];
-			await goto(`/spaces/${firstSpace.id}`);
+			await goto(buildSpaceLandingRoute(firstSpace.id));
 			return;
 		}
 	} catch {

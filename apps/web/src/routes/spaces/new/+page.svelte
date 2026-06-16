@@ -21,6 +21,7 @@ import { ensureAuth } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 const currentPath = $derived(page.url.pathname);
@@ -231,7 +232,7 @@ async function handleSubmit(event: SubmitEvent) {
 		cacheSpaceRecordSoon(result.space);
 		window.dispatchEvent(new CustomEvent("cohub:space-created"));
 
-		await goto(`/spaces/${result.space.id}`);
+		await goto(buildSpaceLandingRoute(result.space.id));
 	} catch (error) {
 		if (error instanceof HttpError) {
 			submitError = error.message;
