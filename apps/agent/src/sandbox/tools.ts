@@ -71,6 +71,7 @@ import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-poo
 import { recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
 import { logger } from "../logger.js";
+import { registerActiveAbortHandle } from "../active-turns.js";
 import { db } from "../db.js";
 import { dispatchTaskCreated } from "../realtime-events.js";
 import { env as agentEnv } from "../env.js";
@@ -446,14 +447,24 @@ function createRemoteBashOperations(): BashOperations {
               };
               logger.debug(`[Tool:bash] exec summary="${cmdSummary}" cwd=${sandboxCwd}`);
 
+              let unregisterProcessAbort: (() => void) | null = null;
+              const abortProcess = (targetProcessId: string) => {
+                logger.info(`[Tool:bash] abort requested processId=${targetProcessId} turnId=${ctx?.turnId ?? ""} toolCallId=${toolCallId}`);
+                void tracedRpc(connection, "process.abort", { processId: targetProcessId }).catch((error) => {
+                  logger.warn(`[Tool:bash] process.abort failed processId=${targetProcessId}: ${error instanceof Error ? error.message : String(error)}`);
+                });
+              };
+
               const cleanupAbort = () => {
                 signal?.removeEventListener("abort", onAbort);
+                unregisterProcessAbort?.();
+                unregisterProcessAbort = null;
               };
 
               const onAbort = () => {
                 aborting = true;
                 if (!processId) return;
-                void tracedRpc(connection, "process.abort", { processId }).catch(() => undefined);
+                abortProcess(processId);
               };
 
               if (signal) {
@@ -474,8 +485,17 @@ function createRemoteBashOperations(): BashOperations {
                   onEvent(event) {
                     if (event.type === "started") {
                       processId = event.processId;
+                      logger.info(`[Tool:bash] process started processId=${event.processId} turnId=${ctx?.turnId ?? ""} toolCallId=${toolCallId}`);
+                      if (ctx?.turnId) {
+                        unregisterProcessAbort = registerActiveAbortHandle(ctx.turnId, {
+                          id: `bash:${toolCallId}:${event.processId}`,
+                          kind: "tool",
+                          toolName: "bash",
+                          abort: () => abortProcess(event.processId),
+                        });
+                      }
                       if (aborting) {
-                        void tracedRpc(connection, "process.abort", { processId: event.processId }).catch(() => undefined);
+                        abortProcess(event.processId);
                       }
                       return;
                     }
@@ -735,11 +755,14 @@ function createRemoteGrepTool() {
       // Set up abort handling.
       let aborted = false;
       let activeProcessId: string | null = null;
+      const unregisterProcessAborts: Array<() => void> = [];
+      const abortProcess = (processId: string) => {
+        logger.info(`[Tool:grep] abort requested processId=${processId} turnId=${toolCtx?.turnId ?? ""} toolCallId=${toolCallId}`);
+        void tracedRpcAbortProcess(processId).catch(() => undefined);
+      };
       const onAbort = () => {
         aborted = true;
-        if (activeProcessId) {
-          void tracedRpcAbortProcess(activeProcessId).catch(() => undefined);
-        }
+        if (activeProcessId) abortProcess(activeProcessId);
       };
       if (signal) {
         if (signal.aborted) onAbort();
@@ -772,9 +795,16 @@ function createRemoteGrepTool() {
             onEvent(event) {
               if (event.type === "started") {
                 activeProcessId = event.processId;
-                if (aborted) {
-                  void tracedRpcAbortProcess(event.processId).catch(() => undefined);
+                logger.info(`[Tool:grep] process started processId=${event.processId} turnId=${toolCtx?.turnId ?? ""} toolCallId=${toolCallId}`);
+                if (toolCtx?.turnId) {
+                  unregisterProcessAborts.push(registerActiveAbortHandle(toolCtx.turnId, {
+                    id: `grep:${toolCallId}:${event.processId}`,
+                    kind: "tool",
+                    toolName: "grep",
+                    abort: () => abortProcess(event.processId),
+                  }));
                 }
+                if (aborted) abortProcess(event.processId);
               }
             },
           },
@@ -787,6 +817,7 @@ function createRemoteGrepTool() {
         return formatRgJsonGrepResult({ lines: result.lines, searchPath: grepInput.path, limit: effectiveLimit });
       } finally {
         if (signal) signal.removeEventListener("abort", onAbort);
+        for (const unregister of unregisterProcessAborts) unregister();
       }
     }));
   };

@@ -15,7 +15,7 @@ import { processSessionForkJob } from "./fork.js";
 import { processSandboxBashJob } from "./sandbox-bash.js";
 import { processRunCommandJob } from "./run-command.js";
 import { subscribeAbortEvents, closeAbortSubscriber } from "./abort.js";
-import { abortActiveTurnControllers } from "./active-turns.js";
+import { abortActiveTurnExecutions } from "./active-turns.js";
 import { closeDb } from "./db.js";
 import { closeOwnershipRedis } from "./ownership.js";
 import { closeRedisConnections } from "./redis.js";
@@ -99,15 +99,24 @@ process.on("uncaughtException", (error) => {
 });
 
 await subscribeAbortEvents((event) => {
-  const aborted = abortActiveTurnControllers(event);
-  if (aborted === 0) {
-    logger.warn("[AgentAbort] no active controller", {
+  const { controllersAborted, handlesAborted } = abortActiveTurnExecutions(event);
+  if (controllersAborted + handlesAborted === 0) {
+    logger.debug("[AgentAbort] no local active execution", {
       spaceId: event.spaceId,
       sessionId: event.sessionId,
       turnId: event.turnId,
       reason: event.reason,
     });
+    return;
   }
+  logger.info("[AgentAbort] aborted local active executions", {
+    spaceId: event.spaceId,
+    sessionId: event.sessionId,
+    turnId: event.turnId,
+    reason: event.reason,
+    controllersAborted,
+    handlesAborted,
+  });
 });
 
 await subscribeSandboxLifecycleEvents((event) => {
