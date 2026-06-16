@@ -5160,6 +5160,8 @@ function applyAcceptedTurnId(input: {
 					userUuid: input.confirmedTurn?.userUuid ?? turn.userUuid,
 					authorProfile:
 						input.confirmedTurn?.authorProfile ?? turn.authorProfile ?? null,
+					provider: input.confirmedTurn?.provider ?? turn.provider,
+					model: input.confirmedTurn?.model ?? turn.model,
 					meta,
 				};
 			});

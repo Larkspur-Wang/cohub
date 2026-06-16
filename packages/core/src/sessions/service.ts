@@ -133,6 +133,8 @@ export function createSessionServices(input: {
     meta: Record<string, unknown>;
   }) {
     const userText = deriveMessagePreviewText({ content: turnInput.userContent }) || null;
+    const model = typeof turnInput.meta.model === "string" && turnInput.meta.model.trim() ? turnInput.meta.model.trim() : null;
+    const provider = typeof turnInput.meta.provider === "string" && turnInput.meta.provider.trim() ? turnInput.meta.provider.trim() : null;
     const touchedAt = new Date();
     const [row] = await input.db.transaction(async (tx) => {
       const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, turnInput.sessionId)).for("update").limit(1);
@@ -158,6 +160,8 @@ export function createSessionServices(input: {
         userText,
         intent: turnInput.intent,
         status: "queued",
+        provider,
+        model,
         meta: turnInput.meta,
       }).returning();
     });
