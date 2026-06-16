@@ -933,9 +933,7 @@ function withSandboxFailureResult<T extends AgentTool>(tool: T): T {
     try {
       const effectiveSignal = getEffectiveAbortSignal(signal);
       throwIfAborted(effectiveSignal);
-      const result = await tool.execute(toolCallId, params, effectiveSignal, onUpdate);
-      throwIfAborted(effectiveSignal);
-      return result;
+      return await tool.execute(toolCallId, params, effectiveSignal, onUpdate);
     } catch (error) {
       if (!isSandboxRpcError(error)) throw error;
       const presentation = getSandboxRpcFailurePresentation(error);
