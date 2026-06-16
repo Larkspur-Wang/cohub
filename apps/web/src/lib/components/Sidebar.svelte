@@ -22,7 +22,6 @@ import {
 	Compass,
 	CreditCard,
 	Download,
-	ExternalLink,
 	File as FileIcon,
 	FolderKanban,
 	History,
@@ -1651,13 +1650,6 @@ function getCurrentSpaceOwnerUsername() {
 	);
 }
 
-function buildWorkPublicRoute(work: WorkRecord) {
-	const ownerUsername = getCurrentSpaceOwnerUsername();
-	return ownerUsername && currentSpace?.slug
-		? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(currentSpace.slug)}/w/${encodeURIComponent(work.slug)}`
-		: null;
-}
-
 async function handleNavigateToWork(workId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
@@ -2670,16 +2662,11 @@ $effect(() => {
 	{:else}
 		<div class="space-y-[2px]">
 			{#each works.slice(0, sidebarFlyoutPreviewLimit) as work (work.id)}
-				{@const href = buildWorkPublicRoute(work)}
+				{@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
 				{@const isActive = activeWork?.id === work.id}
-				<div class="sidebar-flyout-item group/work flex items-center gap-2 rounded-[6px] px-2 py-1.5 pr-1 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" role="button" tabindex="0" onclick={() => void handleNavigateToWork(work.id)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleNavigateToWork(work.id); } }}>
+				<a href={manageHref} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}>
 					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{work.slug}</div></div>
-					{#if href}
-						<a href={href} target="_blank" rel="noopener" class="rounded-[4px] p-1 text-text-placeholder opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-secondary group-hover/work:opacity-100" onclick={(e) => { e.stopPropagation(); onClose?.(); }} title="Open public page" aria-label="Open public page">
-							<ExternalLink class="h-3.5 w-3.5" />
-						</a>
-					{/if}
-				</div>
+				</a>
 			{/each}
 		</div>
 	{/if}
@@ -3326,33 +3313,17 @@ $effect(() => {
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each works.slice(0, 20) as work (work.id)}
-                    {@const publicHref = buildWorkPublicRoute(work)}
                     {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
                     {@const isActive = activeWork?.id === work.id}
-                    <div
-                      class="group/work flex items-center gap-2 rounded-[6px] px-1.5 py-1.5 pr-1 text-[13px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+                    <a
+                      href={manageHref}
+                      class="flex items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+                      onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
                     >
-                      <a
-                        href={manageHref}
-                        class="min-w-0 flex-1"
-                        onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
-                      >
+                      <div class="min-w-0 flex-1">
                         <div class="truncate font-mono leading-tight">{work.slug}</div>
-                      </a>
-                      {#if publicHref}
-                        <a
-                          href={publicHref}
-                          target="_blank"
-                          rel="noopener"
-                          class="rounded-[4px] p-1 text-text-placeholder opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-secondary group-hover/work:opacity-100"
-                          onclick={(e) => { e.stopPropagation(); onClose?.(); }}
-                          title="Open public page"
-                          aria-label="Open public page"
-                        >
-                          <ExternalLink class="h-3.5 w-3.5" />
-                        </a>
-                      {/if}
-                    </div>
+                      </div>
+                    </a>
                   {/each}
                 </div>
               {/if}
