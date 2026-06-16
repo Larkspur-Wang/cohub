@@ -5650,13 +5650,13 @@ async function handleSend() {
 				[newSession.id]: targetSessionState,
 			};
 			resolvedNewSessionId = newSession.id;
-			activeSessionId = newSession.id;
 			if (draftSessionModel) {
 				sessionModelById = {
 					...sessionModelById,
 					[newSession.id]: draftSessionModel,
 				};
 			}
+			activeSessionId = newSession.id;
 			sessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
