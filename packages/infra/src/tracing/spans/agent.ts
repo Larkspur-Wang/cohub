@@ -39,6 +39,19 @@ function truncateAttribute(value: string, limit = ATTRIBUTE_VALUE_LIMIT) {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
 }
 
+function previewStringArray(value: unknown[], limit = 160) {
+  let output = "";
+  for (const item of value) {
+    const part = typeof item === "string" ? item : String(item);
+    const separator = output ? " " : "";
+    const remaining = limit - output.length - separator.length;
+    if (remaining <= 0) break;
+    output += separator + (part.length > remaining ? part.slice(0, remaining) : part);
+    if (output.length >= limit) break;
+  }
+  return output;
+}
+
 function hashAttribute(value: string) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
@@ -84,6 +97,10 @@ function buildRpcParamAttributes(method: string, params?: Record<string, unknown
     const command = params.command.trim();
     attributes["sandbox.rpc.params.command_length"] = command.length;
     attributes["sandbox.rpc.params.command_preview"] = truncateAttribute(command, 160);
+  }
+  if (method === "process.start" && Array.isArray(params.argv)) {
+    attributes["sandbox.rpc.params.argv_length"] = params.argv.length;
+    attributes["sandbox.rpc.params.command_preview"] = truncateAttribute(previewStringArray(params.argv, 160), 160);
   }
   return attributes;
 }
@@ -361,6 +378,9 @@ function summarizeRpcParams(method: string, params?: Record<string, unknown>): s
   if (!params) return "";
   if (method === "process.start" && typeof params.command === "string") {
     return (params.command as string).trim().slice(0, 120);
+  }
+  if (method === "process.start" && Array.isArray(params.argv)) {
+    return previewStringArray(params.argv, 120);
   }
   if (typeof params.path === "string") return params.path as string;
   if (method === "fs.grep" && typeof params.pattern === "string") {

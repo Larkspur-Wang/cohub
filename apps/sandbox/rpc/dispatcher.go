@@ -135,8 +135,15 @@ type fsGrepParams struct {
 	Hidden     bool   `json:"hidden"`
 }
 
+const (
+	processStartMaxArgvItems      = 256
+	processStartMaxArgvItemBytes  = 8 * 1024
+	processStartMaxArgvTotalBytes = 64 * 1024
+)
+
 type processStartParams struct {
 	Command     string            `json:"command"`
+	Argv        []string          `json:"argv"`
 	TimeoutSecs int               `json:"timeoutSecs"`
 	CWD         string            `json:"cwd"`
 	Env         map[string]string `json:"env"`
@@ -534,13 +541,76 @@ func (d *Dispatcher) handleFSGrep(request protocol.RPCRequest) interface{} {
 	}
 }
 
+func validateProcessArgv(argv []string) error {
+	if len(argv) == 0 {
+		return fmt.Errorf("argv must be non-empty")
+	}
+	if len(argv) > processStartMaxArgvItems {
+		return fmt.Errorf("argv has too many items: %d > %d", len(argv), processStartMaxArgvItems)
+	}
+	totalBytes := 0
+	for i, item := range argv {
+		itemBytes := len([]byte(item))
+		if itemBytes == 0 && i == 0 {
+			return fmt.Errorf("argv[0] must be a non-empty executable")
+		}
+		if itemBytes > processStartMaxArgvItemBytes {
+			return fmt.Errorf("argv[%d] is too large: %d > %d bytes", i, itemBytes, processStartMaxArgvItemBytes)
+		}
+		totalBytes += itemBytes
+		if totalBytes > processStartMaxArgvTotalBytes {
+			return fmt.Errorf("argv is too large: %d > %d bytes", totalBytes, processStartMaxArgvTotalBytes)
+		}
+	}
+	return nil
+}
+
+func processArgvSummary(argv []string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, item := range argv {
+		if i > 0 {
+			if b.Len()+1 > limit {
+				return b.String()
+			}
+			b.WriteByte(' ')
+		}
+		remaining := limit - b.Len()
+		if remaining <= 0 {
+			break
+		}
+		if len(item) > remaining {
+			b.WriteString(item[:remaining])
+			break
+		}
+		b.WriteString(item)
+	}
+	return b.String()
+}
+
 func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string, ownerIdentity string) interface{} {
 	var params processStartParams
 	if err := json.Unmarshal(request.Params, &params); err != nil {
 		return d.failed(request, opID, "BAD_REQUEST", err.Error())
 	}
 
+	commandProvided := strings.TrimSpace(params.Command) != ""
+	argvProvided := len(params.Argv) > 0
+	if commandProvided == argvProvided {
+		return d.failed(request, opID, "BAD_REQUEST", "exactly one of command or argv must be provided")
+	}
+	if argvProvided {
+		if err := validateProcessArgv(params.Argv); err != nil {
+			return d.failed(request, opID, "BAD_REQUEST", err.Error())
+		}
+	}
+
 	cmdSummary := strings.TrimSpace(params.Command)
+	if argvProvided {
+		cmdSummary = processArgvSummary(params.Argv, 80)
+	}
 	if len(cmdSummary) > 80 {
 		cmdSummary = cmdSummary[:80]
 	}
@@ -561,7 +631,13 @@ func (d *Dispatcher) handleProcessStart(request protocol.RPCRequest, opID string
 		return d.failed(request, opID, "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
 	}
 
-	processID, stdout, stderr, exitCh, err := d.processManager.Start(ownerIdentity, params.Command, resolved.path, params.TimeoutSecs, params.Env)
+	processID, stdout, stderr, exitCh, err := d.processManager.StartWithOptions(ownerIdentity, process.StartOptions{
+		Command:     params.Command,
+		Argv:        params.Argv,
+		CWD:         resolved.path,
+		TimeoutSecs: params.TimeoutSecs,
+		Env:         params.Env,
+	})
 	if err != nil {
 		d.logger.Error("process:start failed", slog.String("cmd", cmdSummary), slog.String("error", err.Error()))
 		return d.failed(request, opID, "PROCESS_SPAWN_FAILED", err.Error())

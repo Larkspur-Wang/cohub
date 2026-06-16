@@ -111,6 +111,8 @@ export type SandboxCapabilities = {
   fsFind: boolean;
   fsGrep: boolean;
   processStart: boolean;
+  /** process.start supports argv exec mode (no shell). */
+  processStartArgv?: boolean;
   processAbort: boolean;
 };
 
@@ -266,7 +268,10 @@ export type FsGrepResult = {
 };
 
 export type ProcessStartParams = {
-  command: string;
+  /** Shell command mode. Preserves existing `bash -c` semantics. */
+  command?: string;
+  /** Direct exec mode. argv[0] is the executable; no shell is used. */
+  argv?: string[];
   timeoutSecs?: number;
   cwd?: string;
   env?: Record<string, string>;

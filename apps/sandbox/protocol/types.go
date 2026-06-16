@@ -42,14 +42,15 @@ type SandboxFilesystem struct {
 }
 
 type SandboxCapabilities struct {
-	FSRead       bool `json:"fsRead"`
-	FSWrite      bool `json:"fsWrite"`
-	FSStat       bool `json:"fsStat"`
-	FSLs         bool `json:"fsLs"`
-	FSFind       bool `json:"fsFind"`
-	FSGrep       bool `json:"fsGrep"`
-	ProcessStart bool `json:"processStart"`
-	ProcessAbort bool `json:"processAbort"`
+	FSRead           bool `json:"fsRead"`
+	FSWrite          bool `json:"fsWrite"`
+	FSStat           bool `json:"fsStat"`
+	FSLs             bool `json:"fsLs"`
+	FSFind           bool `json:"fsFind"`
+	FSGrep           bool `json:"fsGrep"`
+	ProcessStart     bool `json:"processStart"`
+	ProcessStartArgv bool `json:"processStartArgv,omitempty"`
+	ProcessAbort     bool `json:"processAbort"`
 }
 
 type SandboxProcessStats struct {

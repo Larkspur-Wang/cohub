@@ -88,31 +88,48 @@ func NewManager(logger *slog.Logger) *Manager {
 	}
 }
 
+type StartOptions struct {
+	Command     string
+	Argv        []string
+	CWD         string
+	TimeoutSecs int
+	Env         map[string]string
+}
+
 func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeoutSecs int, extraEnv map[string]string) (string, io.ReadCloser, io.ReadCloser, <-chan ExitInfo, error) {
+	return m.StartWithOptions(ownerIdentity, StartOptions{Command: command, CWD: cwd, TimeoutSecs: timeoutSecs, Env: extraEnv})
+}
+
+func (m *Manager) StartWithOptions(ownerIdentity string, options StartOptions) (string, io.ReadCloser, io.ReadCloser, <-chan ExitInfo, error) {
 	ctx := context.Background()
 	var cancel context.CancelFunc
-	if timeoutSecs > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSecs)*time.Second)
+	if options.TimeoutSecs > 0 {
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(options.TimeoutSecs)*time.Second)
 	} else {
 		ctx, cancel = context.WithCancel(ctx)
 	}
 
-	cmd := exec.Command("bash", "-c", command)
-	cmd.Dir = cwd
+	var cmd *exec.Cmd
+	if len(options.Argv) > 0 {
+		cmd = exec.Command(options.Argv[0], options.Argv[1:]...)
+	} else {
+		cmd = exec.Command("bash", "-c", options.Command)
+	}
+	cmd.Dir = options.CWD
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	inheritedEnv := sanitizeInheritedEnv(os.Environ())
 	// User-provided env vars are appended only if the key doesn't already
 	// exist in the sanitized pod environment. This prevents users from accidentally
 	// overriding critical system vars (PATH, HOME, LANG, etc.) and is
 	// consistent with the SYSTEM_ENV_KEYS allowlist at the API layer.
-	if len(extraEnv) > 0 {
+	if len(options.Env) > 0 {
 		existingKeys := make(map[string]bool)
 		for _, e := range inheritedEnv {
 			key, _, _ := strings.Cut(e, "=")
 			existingKeys[key] = true
 		}
 		var merged []string
-		for key, value := range extraEnv {
+		for key, value := range options.Env {
 			if key == "" || existingKeys[key] {
 				continue
 			}
@@ -205,7 +222,7 @@ func (m *Manager) Start(ownerIdentity string, command string, cwd string, timeou
 		if !stopped || reason == "" {
 			reason = "exited"
 		}
-		exitCh <- ExitInfo{ExitCode: exitCode, Reason: reason, TimeoutSecs: timeoutSecs}
+		exitCh <- ExitInfo{ExitCode: exitCode, Reason: reason, TimeoutSecs: options.TimeoutSecs}
 	}()
 
 	return processID, stdout, stderr, exitCh, nil

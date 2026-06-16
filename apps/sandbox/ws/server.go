@@ -438,14 +438,15 @@ func (s *Server) sendHeartbeat(session *connectionSession, includeSnapshot bool)
 	}
 	if includeSnapshot {
 		message.Capabilities = protocol.SandboxCapabilities{
-			FSRead:       true,
-			FSWrite:      true,
-			FSStat:       true,
-			FSLs:         true,
-			FSFind:       true,
-			FSGrep:       true,
-			ProcessStart: true,
-			ProcessAbort: true,
+			FSRead:           true,
+			FSWrite:          true,
+			FSStat:           true,
+			FSLs:             true,
+			FSFind:           true,
+			FSGrep:           true,
+			ProcessStart:     true,
+			ProcessStartArgv: true,
+			ProcessAbort:     true,
 		}
 		message.Filesystem = &protocol.SandboxFilesystem{
 			DefaultCwd: s.cfg.WorkspaceDir,

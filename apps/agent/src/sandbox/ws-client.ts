@@ -6,6 +6,7 @@ import type {
   RpcEventPayload,
   RpcMethod,
   RpcRequestMap,
+  SandboxCapabilities,
   SandboxHeartbeat,
 } from "@cohub/protocol/sandbox";
 import type { SpaceFsChange } from "@cohub/protocol/fs";
@@ -34,6 +35,19 @@ function hashString(value: string) {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
+function previewStringArray(value: unknown[], limit = 160) {
+  let output = "";
+  for (const item of value) {
+    const part = typeof item === "string" ? item : String(item);
+    const separator = output ? " " : "";
+    const remaining = limit - output.length - separator.length;
+    if (remaining <= 0) break;
+    output += separator + (part.length > remaining ? part.slice(0, remaining) : part);
+    if (output.length >= limit) break;
+  }
+  return output;
+}
+
 function sanitizeRpcDiagnostics(method: string, params: unknown): SandboxRpcDiagnostics {
   const diagnostics: SandboxRpcDiagnostics = {};
   if (!params || typeof params !== "object") return diagnostics;
@@ -57,6 +71,10 @@ function sanitizeRpcDiagnostics(method: string, params: unknown): SandboxRpcDiag
     const command = record.command.trim();
     diagnostics.commandLength = command.length;
     diagnostics.commandPreview = truncateLogValue(command, 160);
+  }
+  if (method === "process.start" && Array.isArray(record.argv)) {
+    diagnostics.commandLength = record.argv.length;
+    diagnostics.commandPreview = previewStringArray(record.argv, 160);
   }
   if (typeof record.processId === "string") diagnostics.processId = record.processId;
   return diagnostics;
@@ -126,6 +144,7 @@ export class SandboxConnection {
     readonly sandboxId: string,
     readonly identity: string,
     readonly connectionId: string,
+    readonly capabilities: SandboxCapabilities | undefined,
     private readonly socket: WebSocket,
     private readonly registration: SandboxClientRegistration,
   ) {}
@@ -559,7 +578,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
             return;
           }
           attached = true;
-          connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, socket, registration);
+          connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, heartbeat.capabilities, socket, registration);
           setActiveConnection(registration.spaceId, connection);
           void refreshUserEnv(registration.spaceId).catch((err) => {
             logger.warn(`[SandboxWS] Failed to refresh env for ${registration.spaceId}: ${err instanceof Error ? err.message : String(err)}`);

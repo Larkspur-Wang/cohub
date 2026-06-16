@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   createBashTool,
   createToolFailure,
+  DEFAULT_MAX_BYTES,
   createEditTool,
   createFindTool,
   createGrepToolDefinition,
@@ -750,9 +751,56 @@ function createRemoteFindOperations(): FindOperations {
   };
 }
 
+const RG_GREP_TIMEOUT_SECS = 30;
+const RG_GREP_MAX_STDOUT_BYTES = DEFAULT_MAX_BYTES * 4;
+const RG_GREP_MAX_STDERR_BYTES = 8 * 1024;
+const RG_GREP_OUTPUT_LIMIT_MESSAGE = "Grep output limit reached. Refine pattern, path, or glob.";
+
+function buildRgGrepArgv(input: GrepToolInput, searchPath: string) {
+  const argv = [
+    "rg",
+    "--line-number",
+    "--color=never",
+    "--json",
+    "--hidden",
+    "--no-require-git",
+    "--glob",
+    "!.git/**",
+  ];
+  // Match the legacy fs.grep request: maxCount is only sent when the user
+  // explicitly provides limit, while limit itself is applied to returned JSON
+  // lines for compatibility during rollout.
+  if (input.limit && input.limit > 0) argv.push("--max-count", String(input.limit));
+  if (input.context && input.context > 0) argv.push("--context", String(input.context));
+  if (input.ignoreCase) argv.push("--ignore-case");
+  if (input.literal) argv.push("--fixed-strings");
+  if (input.glob?.trim()) argv.push("--glob", input.glob);
+  argv.push("--", input.pattern, searchPath);
+  return argv;
+}
+
+function splitRgJsonLines(output: string) {
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function isRgNoMatchOutput(lines: string[]) {
+  if (lines.length === 0) return true;
+  return lines.every((line) => {
+    try {
+      return (JSON.parse(line) as { type?: string }).type === "summary";
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
- * Sandbox grep tool that delegates fs.grep to the sandbox but replicates
- * the native pi-coding-agent output format so the model sees identical results.
+ * Sandbox grep tool. New sandboxes expose processStartArgv, so the agent owns
+ * rg argv construction, JSON parsing, match limits, and presentation. Old
+ * sandboxes keep using legacy fs.grep for compatibility during rollout.
  *
  * Native grep output format:
  *   Match lines:   relativePath:lineNumber: text
@@ -821,6 +869,84 @@ function createRemoteGrepTool() {
         await assertSandboxPathVisible(searchPath.startsWith("/") ? searchPath : `${SANDBOX_WORKSPACE_PATH}/${searchPath}`, { isDirectory: true });
       }
       try {
+        if (connection.capabilities?.processStartArgv) {
+          const stdoutChunks: string[] = [];
+          const stderrChunks: string[] = [];
+          let stdoutBytes = 0;
+          let stderrBytes = 0;
+          let stdoutLimitReached = false;
+          const argv = buildRgGrepArgv(grepInput, searchPath);
+
+          const result = await tracedRpc(
+            connection,
+            "process.start",
+            {
+              argv,
+              cwd: SANDBOX_WORKSPACE_PATH,
+              timeoutSecs: RG_GREP_TIMEOUT_SECS,
+            },
+            {
+              context: rpcContext,
+              onEvent(event) {
+                if (event.type === "started") {
+                  activeProcessId = event.processId;
+                  logger.info(`[Tool:grep] process started processId=${event.processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+                  if (rpcContext.turnId) {
+                    unregisterProcessAborts.push(registerActiveAbortHandle(rpcContext.turnId, {
+                      id: `grep:${toolCallId}:${event.processId}`,
+                      kind: "tool",
+                      toolName: "grep",
+                      abort: () => abortProcess(event.processId),
+                    }));
+                  }
+                  if (aborted) abortProcess(event.processId);
+                  return;
+                }
+
+                if (event.type === "stdout") {
+                  stdoutBytes += Buffer.byteLength(event.chunk, "utf8");
+                  if (stdoutBytes > RG_GREP_MAX_STDOUT_BYTES && activeProcessId) {
+                    stdoutLimitReached = true;
+                    abortProcess(activeProcessId);
+                    return;
+                  }
+                  stdoutChunks.push(event.chunk);
+                  return;
+                }
+
+                if (event.type === "stderr") {
+                  stderrBytes += Buffer.byteLength(event.chunk, "utf8");
+                  if (stderrBytes <= RG_GREP_MAX_STDERR_BYTES) stderrChunks.push(event.chunk);
+                }
+              },
+            },
+          );
+
+          if (aborted) throw new Error("Operation aborted");
+
+          const lines = splitRgJsonLines(stdoutChunks.join(""));
+          if (stdoutLimitReached) {
+            const partial = formatRgJsonGrepResult({ lines: lines.slice(0, effectiveLimit), searchPath: grepInput.path, limit: effectiveLimit });
+            const partialText = partial.content[0]?.type === "text" ? partial.content[0].text : "";
+            return {
+              content: [{ type: "text" as const, text: partialText && partialText !== "No matches found" ? `${partialText}\n\n[${RG_GREP_OUTPUT_LIMIT_MESSAGE}]` : RG_GREP_OUTPUT_LIMIT_MESSAGE }],
+              details: createToolFailure(RG_GREP_OUTPUT_LIMIT_MESSAGE, { outputTail: partialText && partialText !== "No matches found" ? partialText : undefined }),
+            };
+          }
+
+          const exitCode = result.exitCode ?? 0;
+          const stderr = stderrChunks.join("").trim();
+          const ignorableRgError = stderr.includes("No files were searched");
+          if (exitCode !== 0 && !(exitCode === 1 && isRgNoMatchOutput(lines)) && !ignorableRgError) {
+            return {
+              content: [{ type: "text" as const, text: stderr || `rg exited with code ${exitCode}` }],
+              details: createToolFailure(stderr || `rg exited with code ${exitCode}`),
+            };
+          }
+
+          return formatRgJsonGrepResult({ lines: lines.slice(0, effectiveLimit), searchPath: grepInput.path, limit: effectiveLimit });
+        }
+
         const result = await tracedRpc(
           connection,
           "fs.grep",
@@ -832,7 +958,7 @@ function createRemoteGrepTool() {
             literal: grepInput.literal,
             context: grepInput.context,
             limit: effectiveLimit,
-            // Agent owns semantics: match pi-coding-agent behavior.
+            // Legacy sandbox compatibility: sandbox still owns rg execution here.
             maxCount: grepInput.limit,
             json: true,
             hidden: true,
