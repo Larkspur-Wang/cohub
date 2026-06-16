@@ -30,6 +30,16 @@ const buildCommitMessage = (description?: string | null) => {
 
 type SaveCheckpointTimings = Record<string, number>;
 
+type ConfigPublishWarning = {
+  scope: "platform" | "user";
+  target: "models_cache" | "generations_cache" | "prompts_cache";
+  message: string;
+};
+
+function formatErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 const timeIt = async <T>(timings: SaveCheckpointTimings, label: string, fn: () => Promise<T>): Promise<T> => {
   const start = performance.now();
   try {
@@ -61,7 +71,13 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   if (!space) throw new Error("space not found");
 
   const timings: SaveCheckpointTimings = {};
+  const publishWarnings: ConfigPublishWarning[] = [];
   const progress = (stage: string, extra?: Record<string, unknown>) => input.onProgress?.({ stage, updatedAt: new Date().toISOString(), timings, ...extra });
+  const recordPublishWarning = async (warning: ConfigPublishWarning, error: unknown) => {
+    publishWarnings.push(warning);
+    await progress("publish_config_warning", { publishWarnings });
+    console.warn(`[save_checkpoint] failed to publish ${warning.scope} ${warning.target}:`, error);
+  };
   await progress("prepare");
   const checkpointId = crypto.randomUUID();
   const createdAt = new Date();
@@ -202,21 +218,34 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   let publishedUserConfig: { targetDir: string; copiedPaths: string[]; meta: Record<string, unknown> } | null = null;
   if (space.name === "config") {
     publishedUserConfig = await timeIt(timings, "publishUserConfig", () => publishUserConfigFromWorkspace({ userId: space.userUuid, spaceId: space.id, checkpointId: checkpoint.id, workspaceDir: dirs.latestDir }));
-    await publishModelsCacheFromFile({ modelsPath: join(publishedUserConfig.targetDir, ".cohub", "models.json"), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish user models cache user=${space.userUuid}:`, error));
-    await publishGenerationsCacheFromDir({ generationsDir: getGenerationsDir(publishedUserConfig.targetDir), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish user generations cache user=${space.userUuid}:`, error));
-    await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedUserConfig.targetDir), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish user prompts cache user=${space.userUuid}:`, error));
+    await publishModelsCacheFromFile({ modelsPath: join(publishedUserConfig.targetDir, ".cohub", "models.json"), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => recordPublishWarning({ scope: "user", target: "models_cache", message: formatErrorMessage(error) }, error));
+    await publishGenerationsCacheFromDir({ generationsDir: getGenerationsDir(publishedUserConfig.targetDir), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => recordPublishWarning({ scope: "user", target: "generations_cache", message: formatErrorMessage(error) }, error));
+    await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedUserConfig.targetDir), scope: "user", userId: space.userUuid, sourceCheckpointId: checkpoint.id }).catch((error) => recordPublishWarning({ scope: "user", target: "prompts_cache", message: formatErrorMessage(error) }, error));
   }
 
   let publishedPlatformConfig: { targetDir: string; copiedPaths: string[]; meta: Record<string, unknown> } | null = null;
   if (config.platformSpaceId && spaceId === config.platformSpaceId) {
     publishedPlatformConfig = await timeIt(timings, "publishPlatformConfig", () => publishConfigFromWorkspace({ workspaceDir: dirs.latestDir, checkpointId: checkpoint.id, targetDir: "/configs/platform", whitelist: ["AGENTS.md", "CLAUDE.md", ".agents", ".cohub"], sourceLabel: "platform" }));
-    await publishModelsCacheFromFile({ modelsPath: join(publishedPlatformConfig.targetDir, ".cohub", "models.json"), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform models cache:`, error));
-    await publishGenerationsCacheFromDir({ generationsDir: getGenerationsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform generations cache:`, error));
-    await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => console.warn(`[save_checkpoint] failed to publish platform prompts cache:`, error));
+    await publishModelsCacheFromFile({ modelsPath: join(publishedPlatformConfig.targetDir, ".cohub", "models.json"), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => recordPublishWarning({ scope: "platform", target: "models_cache", message: formatErrorMessage(error) }, error));
+    await publishGenerationsCacheFromDir({ generationsDir: getGenerationsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => recordPublishWarning({ scope: "platform", target: "generations_cache", message: formatErrorMessage(error) }, error));
+    await publishPromptsCacheFromDir({ promptsDir: getPromptsDir(publishedPlatformConfig.targetDir), scope: "platform", sourceCheckpointId: checkpoint.id }).catch((error) => recordPublishWarning({ scope: "platform", target: "prompts_cache", message: formatErrorMessage(error) }, error));
   }
 
-  await progress("completed", { checkpointId: checkpoint.id, commitHash });
-  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount, detectedGitRepoCount, timings, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}) };
+  if (publishWarnings.length > 0) {
+    await timeIt(timings, "updatePublishWarningsMeta", async () => {
+      const [latestCheckpoint] = await db.select({ meta: checkpoints.meta }).from(checkpoints).where(eq(checkpoints.id, checkpoint.id)).limit(1);
+      await db.update(checkpoints).set({
+        meta: {
+          ...((latestCheckpoint?.meta as Record<string, unknown> | null) ?? {}),
+          publishWarnings,
+          timings,
+        },
+      }).where(eq(checkpoints.id, checkpoint.id));
+    });
+  }
+
+  await progress("completed", { checkpointId: checkpoint.id, commitHash, ...(publishWarnings.length > 0 ? { publishWarnings } : {}) });
+  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount, detectedGitRepoCount, timings, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}), ...(publishWarnings.length > 0 ? { publishWarnings } : {}) };
 };
 
 const saveCheckpointHandler = async (job: Job, context?: { taskRunId: string }) => {
