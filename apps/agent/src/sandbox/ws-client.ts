@@ -192,6 +192,17 @@ export class SandboxConnection {
     return promise;
   }
 
+  private getPendingForOperationMessage(message: { opId: string; requestId: string }) {
+    const mappedRequestId = this.registration.requestIdByOpId.get(message.opId);
+    const pending = this.registration.pendingByRequestId.get(mappedRequestId ?? message.requestId) ?? null;
+    if (!pending) return { requestId: mappedRequestId ?? message.requestId, pending };
+
+    pending.accepted = true;
+    if (!pending.opId) pending.opId = message.opId;
+    if (!mappedRequestId) this.registration.requestIdByOpId.set(message.opId, pending.requestId);
+    return { requestId: pending.requestId, pending };
+  }
+
   handleMessage(message: AgentSandboxMessage) {
     if (message.type === "rpc.accepted") {
       const pending = this.registration.pendingByRequestId.get(message.requestId);
@@ -204,14 +215,13 @@ export class SandboxConnection {
     }
 
     if (message.type === "rpc.event") {
-      const pending = this.registration.pendingByRequestId.get(this.registration.requestIdByOpId.get(message.opId) ?? "");
+      const { pending } = this.getPendingForOperationMessage(message);
       pending?.onEvent?.(message.event);
       return;
     }
 
     if (message.type === "rpc.completed") {
-      const requestId = this.registration.requestIdByOpId.get(message.opId) ?? message.requestId;
-      const pending = this.registration.pendingByRequestId.get(requestId);
+      const { requestId, pending } = this.getPendingForOperationMessage(message);
       if (!pending) return;
       logger.debug(`[SandboxWS] rpc:completed spaceId=${this.spaceId} identity=${this.identity} method=${pending.method} requestId=${requestId.slice(0, 8)} opId=${message.opId.slice(0, 8)}`);
       this.clearPending(requestId, pending, message.opId);
@@ -220,8 +230,7 @@ export class SandboxConnection {
     }
 
     if (message.type === "rpc.failed") {
-      const requestId = this.registration.requestIdByOpId.get(message.opId) ?? message.requestId;
-      const pending = this.registration.pendingByRequestId.get(requestId);
+      const { requestId, pending } = this.getPendingForOperationMessage(message);
       if (!pending) return;
       this.clearPending(requestId, pending, message.opId);
       const errorMessage = truncateLogValue(message.error.message);
