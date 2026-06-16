@@ -9949,6 +9949,7 @@ $effect(() => {
       <div class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
         {#if shouldShowNewChatBackground && newChatBackground}
           <NewChatBackground background={newChatBackground} />
+          <div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
         {:else}
           <ChatTimeline
               bind:this={chatTimelineRef}
