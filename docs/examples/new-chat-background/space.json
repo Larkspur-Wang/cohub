@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "ui": {
+    "newChat": {
+      "background": {
+        "type": "html",
+        "url": "https://example.com/cohub-new-chat.html"
+      }
+    }
+  }
+}
