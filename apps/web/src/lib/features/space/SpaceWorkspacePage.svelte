@@ -168,8 +168,8 @@ import {
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
 	buildSpaceFileRoute,
+	buildSpaceLandingRoute,
 	buildSpaceNewSessionRoute,
-	buildSpaceRootRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
@@ -1322,7 +1322,7 @@ async function handleDeleteWork() {
 		deleted = true;
 		workDetail = null;
 		notifyWorksUpdated();
-		await goto(buildSpaceRootRoute(spaceId), { replaceState: true });
+		await goto(buildSpaceLandingRoute(spaceId), { replaceState: true });
 	} catch (error) {
 		workDetailError =
 			error instanceof Error ? error.message : "Failed to delete work";
