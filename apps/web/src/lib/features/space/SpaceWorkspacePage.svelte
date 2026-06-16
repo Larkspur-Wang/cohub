@@ -169,9 +169,11 @@ import {
 	buildSpaceCronjobRoute,
 	buildSpaceFileRoute,
 	buildSpaceNewSessionRoute,
+	buildSpaceRootRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSessionTurnRoute,
 	buildSpaceTaskRoute,
+	buildSpaceWorkRoute,
 } from "$lib/space-routes";
 import {
 	activateSpaceStyle,
@@ -252,11 +254,13 @@ type Props = {
 			| "checkpoint-new"
 			| "cronjob"
 			| "cronjob-new"
+			| "work"
 			| "task";
 		sessionId?: string | null;
 		filePath?: string | null;
 		checkpointId?: string | null;
 		cronjobId?: string | null;
+		workId?: string | null;
 		taskId?: string | null;
 		turnSequence?: string | null;
 	};
@@ -331,6 +335,7 @@ const activeFsSidebarSubtitle = $derived(
 		: "Space files",
 );
 const routeCronjobId = $derived(data.cronjobId ?? null);
+const routeWorkId = $derived(data.workId ?? null);
 const routeTaskId = $derived(data.taskId ?? null);
 const routeTurnSequence = $derived.by(() => {
 	const value = data.turnSequence;
@@ -886,6 +891,23 @@ let cronjobFormError = $state("");
 let cronjobModelSelectorOpen = $state(false);
 let cronjobCopiedId = $state(false);
 let cronjobCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
+// ─── Works ───
+let workDetail = $state<WorkRecord | null>(null);
+let workDetailLoading = $state(false);
+let workDetailError = $state("");
+let workActionInProgress = $state(false);
+let workDeleteInProgress = $state(false);
+let workEditMode = $state(false);
+let workFormSlug = $state("");
+let workFormTargetType = $state<"file" | "directory" | "port">("file");
+let workFormTargetRef = $state("");
+let workFormStatus = $state<"draft" | "published" | "disabled">("published");
+let workFormScopes = $state<Record<string, boolean>>({});
+let workFormViewerScopes = $state<Record<string, boolean>>({});
+let workFormSubmitting = $state(false);
+let workFormError = $state("");
+let workCopiedId = $state(false);
+let workCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
@@ -1133,6 +1155,219 @@ function handleCronjobModelSelect(model: { provider: string; id: string }) {
 function cronjobModelLabel(model: SelectedModel | null) {
 	if (!model) return "Default model";
 	return model.name?.trim() || model.id;
+}
+
+const WORK_SCOPE_OPTIONS: {
+	scope: Permission;
+	label: string;
+	description: string;
+}[] = [
+	{
+		scope: "space.view",
+		label: "View space",
+		description: "Read basic Space metadata.",
+	},
+	{
+		scope: "session.view",
+		label: "View sessions",
+		description: "Read session lists and details.",
+	},
+	{
+		scope: "file.view",
+		label: "View files",
+		description: "Read workspace files.",
+	},
+	{
+		scope: "taskrun.view",
+		label: "View task runs",
+		description: "Read task run status and output.",
+	},
+];
+const WORK_VIEWER_SCOPE_OPTIONS: {
+	scope: Permission;
+	label: string;
+	description: string;
+}[] = [
+	{
+		scope: "session.prompt.readonly",
+		label: "Prompt read-only",
+		description: "Allow viewer-authorized read access to prompts.",
+	},
+	{
+		scope: "session.prompt.fullaccess",
+		label: "Prompt full access",
+		description: "Allow viewer-authorized prompt writes.",
+	},
+	{
+		scope: "generation.create",
+		label: "Create generations",
+		description: "Allow viewers to start generation tasks.",
+	},
+];
+function scopeState(scopes: Permission[], options: { scope: Permission }[]) {
+	const selected = new Set(scopes);
+	return Object.fromEntries(
+		options.map((option) => [option.scope, selected.has(option.scope)]),
+	);
+}
+function selectedScopeList(
+	state: Record<string, boolean>,
+	options: { scope: Permission }[],
+) {
+	return options.map((option) => option.scope).filter((scope) => state[scope]);
+}
+function syncWorkFormFromDetail() {
+	if (!workDetail) return;
+	workFormSlug = workDetail.slug;
+	workFormTargetType = workDetail.targetType;
+	workFormTargetRef = workDetail.targetRef;
+	workFormStatus = workDetail.status;
+	workFormScopes = scopeState(workDetail.workScopes, WORK_SCOPE_OPTIONS);
+	workFormViewerScopes = scopeState(
+		workDetail.allowedViewerScopes,
+		WORK_VIEWER_SCOPE_OPTIONS,
+	);
+	workFormError = "";
+}
+function notifyWorksUpdated() {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(
+		new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
+	);
+}
+function workPublicRoute(work: WorkRecord | null = workDetail) {
+	const username =
+		space?.ownerProfile?.username ??
+		(space?.userUuid === authStore.userUuid
+			? authStore.profile?.username
+			: null);
+	return username && space?.slug && work?.slug
+		? `/${encodeURIComponent(username)}/${encodeURIComponent(space.slug)}/w/${encodeURIComponent(work.slug)}`
+		: null;
+}
+function workStatusTone(status: WorkRecord["status"]) {
+	if (status === "published") return "text-status-running";
+	if (status === "disabled") return "text-error-soft";
+	return "text-text-tertiary";
+}
+async function loadWorkDetail(workId: string) {
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId &&
+		routeView === "work" &&
+		routeWorkId === workId;
+	workDetailLoading = true;
+	workDetailError = "";
+	try {
+		const { work } = await sdk.works.get(workId);
+		if (!isCurrentRequest()) return;
+		workDetail = work;
+		syncWorkFormFromDetail();
+	} catch (error) {
+		if (!isCurrentRequest()) return;
+		workDetail = null;
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to load work";
+	} finally {
+		if (isCurrentRequest()) workDetailLoading = false;
+	}
+}
+async function handleCopyWorkId(id: string) {
+	try {
+		await navigator.clipboard.writeText(id);
+		workCopiedId = true;
+		if (workCopiedIdTimer) clearTimeout(workCopiedIdTimer);
+		workCopiedIdTimer = setTimeout(() => {
+			workCopiedId = false;
+		}, 1600);
+	} catch (error) {
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to copy work ID";
+	}
+}
+async function handleToggleWorkStatus(status: "published" | "disabled") {
+	if (!workDetail || workActionInProgress) return;
+	workActionInProgress = true;
+	workDetailError = "";
+	try {
+		const { work } = await sdk.works.update(workDetail.id, { status });
+		workDetail = work;
+		syncWorkFormFromDetail();
+		notifyWorksUpdated();
+	} catch (error) {
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to update work";
+		void loadWorkDetail(workDetail.id);
+	} finally {
+		workActionInProgress = false;
+	}
+}
+async function handleDeleteWork() {
+	if (
+		!workDetail ||
+		workActionInProgress ||
+		workDeleteInProgress ||
+		!confirm(
+			"Delete this work? This removes the management record and public link.",
+		)
+	)
+		return;
+	const deletedWorkId = workDetail.id;
+	let deleted = false;
+	workActionInProgress = true;
+	workDeleteInProgress = true;
+	workDetailError = "";
+	try {
+		await sdk.works.delete(deletedWorkId);
+		deleted = true;
+		workDetail = null;
+		notifyWorksUpdated();
+		await goto(buildSpaceRootRoute(spaceId), { replaceState: true });
+	} catch (error) {
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to delete work";
+	} finally {
+		if (!deleted) {
+			workActionInProgress = false;
+			workDeleteInProgress = false;
+		}
+	}
+}
+async function handleUpdateWorkSubmit(event: SubmitEvent) {
+	event.preventDefault();
+	if (!workDetail || workFormSubmitting) return;
+	workFormError = "";
+	if (!workFormSlug.trim()) {
+		workFormError = "Slug is required";
+		return;
+	}
+	if (!workFormTargetRef.trim()) {
+		workFormError = "Target is required";
+		return;
+	}
+	workFormSubmitting = true;
+	try {
+		const { work } = await sdk.works.update(workDetail.id, {
+			slug: workFormSlug.trim(),
+			status: workFormStatus,
+			targetType: workFormTargetType,
+			targetRef: workFormTargetRef.trim(),
+			workScopes: selectedScopeList(workFormScopes, WORK_SCOPE_OPTIONS),
+			allowedViewerScopes: selectedScopeList(
+				workFormViewerScopes,
+				WORK_VIEWER_SCOPE_OPTIONS,
+			),
+		});
+		workDetail = work;
+		workEditMode = false;
+		syncWorkFormFromDetail();
+		notifyWorksUpdated();
+	} catch (error) {
+		workFormError =
+			error instanceof Error ? error.message : "Failed to save work";
+	} finally {
+		workFormSubmitting = false;
+	}
 }
 // ─── Cronjob detail & actions ───
 async function loadCronjobDetail(cronjobId: string) {
@@ -1886,6 +2121,8 @@ const browserTabTitle = $derived.by(() => {
 			return normalizeTabTitleSegment(cronjobDetail?.title, "Cronjob");
 		}
 		if (routeView === "cronjob-new") return "New cronjob";
+		if (routeView === "work")
+			return normalizeTabTitleSegment(workDetail?.slug, "Work");
 		if (routeView === "task") return "Task";
 		return null;
 	})();
@@ -8091,6 +8328,18 @@ $effect(() => {
 	cronjobEditMode = false;
 });
 $effect(() => {
+	if (routeView === "work" && routeWorkId) {
+		workEditMode = false;
+		void loadWorkDetail(routeWorkId);
+		return;
+	}
+	workDetail = null;
+	workDetailError = "";
+	workActionInProgress = false;
+	workDeleteInProgress = false;
+	workEditMode = false;
+});
+$effect(() => {
 	if (routeView === "task" && routeTaskId) {
 		void loadTaskDetail(routeTaskId);
 		return;
@@ -8935,6 +9184,164 @@ $effect(() => {
           </div>
         {:else}
           <div class="text-[12px] text-text-tertiary">Cronjob not found.</div>
+        {/if}
+        </div>
+      </div>
+    {:else if routeView === 'work'}
+      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+        <div class="max-w-5xl">
+        {#if workDetailLoading && workDetail?.id !== routeWorkId}
+          {@render PanelLoadingState("Loading work…")}
+        {:else if workDetailError}
+          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workDetailError}</div>
+        {:else if workDetail && workDetail.id === routeWorkId}
+          {@const publicRoute = workPublicRoute(workDetail)}
+          <div class="space-y-6 sm:space-y-8">
+            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
+              <div class="min-w-0 space-y-3">
+                <div>
+                  <h1 class="font-mono text-[24px] font-semibold tracking-tight text-text-primary break-all sm:text-[30px]">{workDetail.slug}</h1>
+                  <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <span class="inline-flex items-center gap-1.5 text-[11px] font-medium {workStatusTone(workDetail.status)}">
+                      <span class="h-1.5 w-1.5 rounded-full {workDetail.status === 'published' ? 'bg-status-running' : workDetail.status === 'disabled' ? 'bg-status-error' : 'bg-text-placeholder'}"></span>
+                      {workDetail.status}
+                    </span>
+                    {@render CopyIdMetaItem(workDetail.id, workCopiedId, () => void handleCopyWorkId(workDetail!.id), 'Copy work ID')}
+                    <span class="font-mono text-[11px] text-text-placeholder">{workDetail.targetType}:{workDetail.targetRef}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                {#if publicRoute}
+                  <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto">
+                    <ExternalLink class="h-3.5 w-3.5" />
+                    <span>Open public page</span>
+                  </a>
+                {/if}
+                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { syncWorkFormFromDetail(); workEditMode = !workEditMode; }}>
+                  <Pencil class="h-3.5 w-3.5" />
+                  <span>{workEditMode ? 'Close edit' : 'Edit'}</span>
+                </button>
+                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {workDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => handleToggleWorkStatus(workDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
+                  {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if workDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<PowerOff class="h-3.5 w-3.5" />{/if}
+                  <span>{workDetail.status === 'published' ? 'Disable' : 'Publish'}</span>
+                </button>
+                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={handleDeleteWork} disabled={workActionInProgress || workDeleteInProgress}>
+                  {#if workDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+                  <span>{workDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
+                </button>
+              </div>
+            </header>
+
+            {#if workEditMode}
+              <form onsubmit={handleUpdateWorkSubmit} class="space-y-6">
+                <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+                  <div class="min-w-0 space-y-5">
+                    <div class="space-y-1.5">
+                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-slug">Slug</label>
+                      <input id="work-edit-slug" type="text" bind:value={workFormSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                    </div>
+                    <div class="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
+                      <div class="space-y-1.5">
+                        <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-type">Target</label>
+                        <select id="work-edit-target-type" bind:value={workFormTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                          <option value="file">File</option>
+                          <option value="directory">Directory</option>
+                          <option value="port">Port</option>
+                        </select>
+                      </div>
+                      <div class="space-y-1.5">
+                        <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-ref">Reference</label>
+                        <input id="work-edit-target-ref" type="text" bind:value={workFormTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                      </div>
+                    </div>
+                    <div class="space-y-1.5">
+                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
+                      <select id="work-edit-status" bind:value={workFormStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none sm:max-w-[220px]">
+                        <option value="draft">Draft</option>
+                        <option value="published">Published</option>
+                        <option value="disabled">Disabled</option>
+                      </select>
+                    </div>
+                  </div>
+                  <aside class="space-y-5 text-[13px]">
+                    <div class="space-y-3">
+                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Work can</div>
+                      {#each WORK_SCOPE_OPTIONS as option (option.scope)}
+                        <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
+                          <input type="checkbox" bind:checked={workFormScopes[option.scope]} class="mt-0.5" />
+                          <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
+                        </label>
+                      {/each}
+                    </div>
+                    <div class="space-y-3">
+                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Viewers can allow</div>
+                      {#each WORK_VIEWER_SCOPE_OPTIONS as option (option.scope)}
+                        <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
+                          <input type="checkbox" bind:checked={workFormViewerScopes[option.scope]} class="mt-0.5" />
+                          <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
+                        </label>
+                      {/each}
+                    </div>
+                  </aside>
+                </section>
+                {#if workFormError}
+                  <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
+                {/if}
+                <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
+                  <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workEditMode = false; syncWorkFormFromDetail(); }}>Cancel</button>
+                  <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
+                    {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+                    <span>Save changes</span>
+                  </button>
+                </div>
+              </form>
+            {:else}
+              <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-8">
+                <div class="min-w-0 space-y-6">
+                  <section class="space-y-3">
+                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
+                    <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/40 ring-1 ring-border-subtle/60">
+                      <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
+                      <div class="px-5 py-4 pl-6">
+                        <div class="font-mono text-[13px] text-text-primary break-all">{workDetail.targetRef}</div>
+                        <div class="mt-2 text-[12px] text-text-tertiary">{workDetail.targetType} · asset {workDetail.assetKey ? 'ready' : 'not stored'}</div>
+                      </div>
+                    </div>
+                  </section>
+                  <section class="grid gap-3 sm:grid-cols-2">
+                    <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
+                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Work permissions</div>
+                      <div class="mt-1 text-[13px] text-text-primary">{workDetail.workScopes.length ? workDetail.workScopes.join(', ') : 'None'}</div>
+                    </div>
+                    <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
+                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Viewer grants</div>
+                      <div class="mt-1 text-[13px] text-text-primary">{workDetail.allowedViewerScopes.length ? workDetail.allowedViewerScopes.join(', ') : 'None'}</div>
+                    </div>
+                  </section>
+                </div>
+                <aside class="space-y-5 text-[13px]">
+                  <div class="space-y-3">
+                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Metadata</div>
+                    <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
+                      <div class="text-text-placeholder">Created</div><div class="text-text-secondary">{formatDateTime(workDetail.createdAt)}</div>
+                      <div class="text-text-placeholder">Updated</div><div class="text-text-secondary">{formatDateTime(workDetail.updatedAt)}</div>
+                      <div class="text-text-placeholder">Published</div><div class="text-text-secondary">{formatDateTime(workDetail.publishedAt)}</div>
+                      <div class="text-text-placeholder">Owner</div><div class="font-mono text-text-secondary break-all">{workDetail.userUuid}</div>
+                    </div>
+                  </div>
+                  {#if publicRoute}
+                    <div class="space-y-1.5">
+                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
+                      <div class="font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
+                    </div>
+                  {/if}
+                </aside>
+              </section>
+            {/if}
+          </div>
+        {:else}
+          <div class="text-[12px] text-text-tertiary">Work not found.</div>
         {/if}
         </div>
       </div>

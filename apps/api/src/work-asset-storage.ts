@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { buildPublicObjectUrl, cacheBuster, type PresignStorageConfig } from "./object-presign.js";
 import { config } from "./config.js";
 
@@ -101,6 +101,44 @@ const putWorkAssetObject = async (input: {
     ContentType: input.contentType,
     Metadata: { sha256: input.sha256 },
   }));
+};
+
+const workAssetPrefixFromObjectKey = (objectKey: string) => {
+  const normalized = objectKey.replace(/^\/+/, "");
+  const slash = normalized.lastIndexOf("/");
+  if (slash <= 0) return null;
+  return normalized.slice(0, slash + 1);
+};
+
+export const deleteWorkAssetsByObjectKey = async (objectKey: string | null | undefined) => {
+  if (!objectKey) return { deleted: 0 };
+  const prefix = workAssetPrefixFromObjectKey(objectKey);
+  if (!prefix) return { deleted: 0 };
+  const storage = requireStorage();
+  const client = getS3Client();
+  let continuationToken: string | undefined;
+  let deleted = 0;
+  do {
+    const listed = await client.send(new ListObjectsV2Command({
+      Bucket: storage.bucket,
+      Prefix: prefix,
+      ContinuationToken: continuationToken,
+    }));
+    const objects = (listed.Contents ?? [])
+      .map((item) => item.Key)
+      .filter((key): key is string => typeof key === "string" && key.length > 0);
+    for (let i = 0; i < objects.length; i += 1000) {
+      const batch = objects.slice(i, i + 1000);
+      if (batch.length === 0) continue;
+      await client.send(new DeleteObjectsCommand({
+        Bucket: storage.bucket,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      }));
+      deleted += batch.length;
+    }
+    continuationToken = listed.IsTruncated ? listed.NextContinuationToken : undefined;
+  } while (continuationToken);
+  return { deleted };
 };
 
 export const writeWorkHtmlAsset = async (input: {

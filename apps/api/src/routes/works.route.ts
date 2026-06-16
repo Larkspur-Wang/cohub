@@ -1,8 +1,8 @@
-import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { Hono, type Context } from "hono";
+import { and, eq, ne } from "drizzle-orm";
 import { spaces, works, workViewerGrants, userProfiles } from "@cohub/db";
 import { readSpaceDirectoryFiles, readSpaceFile, SpaceFsError, spaceFsJsonError } from "../space-fs.js";
-import { createWorkAssetPublicUrl, isConfiguredWorkAssetPublicUrl, writeWorkHtmlAsset, writeWorkSiteAssets } from "../work-asset-storage.js";
+import { createWorkAssetPublicUrl, deleteWorkAssetsByObjectKey, isConfiguredWorkAssetPublicUrl, writeWorkHtmlAsset, writeWorkSiteAssets } from "../work-asset-storage.js";
 import type { Permission } from "@cohub/core/permissions";
 import { db } from "../db/index.js";
 import { authzDenied, getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
@@ -15,7 +15,7 @@ import { createLogger } from "@cohub/infra/logging";
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
-const WORK_STATUSES = new Set(["draft", "published"]);
+const WORK_STATUSES = new Set(["draft", "published", "disabled"]);
 const TARGET_TYPES = new Set(["file", "directory", "port"]);
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
@@ -33,6 +33,17 @@ const normalizeScopes = (value: unknown, allowed: Set<Permission>): Permission[]
 };
 
 const isSubset = (requested: Permission[], allowed: string[]) => requested.every((scope) => allowed.includes(scope));
+
+const ensureUniqueWorkSlug = async (input: { spaceId: string; slug: string; excludeId?: string }) => {
+  const conditions = [eq(works.spaceId, input.spaceId), eq(works.slug, input.slug)];
+  if (input.excludeId) conditions.push(ne(works.id, input.excludeId));
+  const [existingWork] = await db
+    .select({ id: works.id })
+    .from(works)
+    .where(and(...conditions))
+    .limit(1);
+  return !existingWork;
+};
 
 const normalizePortRef = (value: string) => {
   if (!/^\d{2,5}$/.test(value)) return null;
@@ -72,6 +83,50 @@ const serializeWork = (work: typeof works.$inferSelect) => ({
 async function getWorkById(id: string) {
   const [work] = await db.select().from(works).where(eq(works.id, id)).limit(1);
   return work ?? null;
+}
+
+async function writeWorkAsset(input: { spaceId: string; slug: string; targetType: string; targetRef: string; status: string }) {
+  const { spaceId, slug, targetType, targetRef, status } = input;
+  if (status !== "published" || (targetType !== "file" && targetType !== "directory")) return null;
+  if (targetType === "directory") {
+    const result = await readSpaceDirectoryFiles(spaceId, targetRef, { visibility: "full" });
+    const written = await writeWorkSiteAssets({ spaceId, workSlug: slug, files: result.files });
+    return written.objectKey;
+  }
+  const result = await readSpaceFile(spaceId, targetRef, { visibility: "full" });
+  if (!("content" in result)) throw new Error("file is still preparing");
+  const written = await writeWorkHtmlAsset({ spaceId, workSlug: slug, html: result.content });
+  return written.objectKey;
+}
+
+function workAssetErrorResponse(c: Context, error: unknown, context: { spaceId: string; targetType: string; targetRef: string }) {
+  if (error instanceof Error && (
+    error.message === "work asset must be 1 byte to 5MB" ||
+    error.message === "work site must contain index.html" ||
+    error.message === "work site must be 1 byte to 100MB" ||
+    error.message === "file is still preparing" ||
+    error.message.startsWith("work site must contain 1 to ")
+  )) {
+    return c.json({ message: error.message }, error.message === "file is still preparing" ? 409 : 400);
+  }
+  if (error instanceof Error && error.message === "work asset storage is not configured") {
+    return c.json({ message: error.message }, 500);
+  }
+  if (!(error instanceof SpaceFsError)) {
+    logger.warn("[works] failed to write work asset", { ...context, error });
+    return c.json({ message: "work asset storage failed" }, 502);
+  }
+  const { status: errorStatus, body: errorBody } = spaceFsJsonError(error);
+  return c.json(errorBody, errorStatus as never);
+}
+
+async function cleanupWorkAssets(assetKey: string | null | undefined, context: { workId: string; spaceId: string; reason: string }) {
+  if (!assetKey) return;
+  try {
+    await deleteWorkAssetsByObjectKey(assetKey);
+  } catch (error) {
+    logger.warn("[works] failed to delete stale work asset", { ...context, assetKey, error });
+  }
 }
 
 const getWorkContent = (work: typeof works.$inferSelect) => {
@@ -124,6 +179,16 @@ router.get("/space/:spaceId", async (c) => {
   return c.json({ works: rows.map(serializeWork) });
 });
 
+router.get("/:id", async (c) => {
+  const user = useAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const work = await getWorkById(id);
+  if (!work) return c.json({ message: "work not found" }, 404);
+  if (!(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
+  return c.json({ work: serializeWork(work) });
+});
+
 router.post("/", async (c) => {
   const user = useAuth(c);
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
@@ -146,66 +211,134 @@ router.post("/", async (c) => {
   }
   const status = typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : "published";
 
-  const [existingWork] = await db
-    .select({ id: works.id })
-    .from(works)
-    .where(and(eq(works.spaceId, spaceId), eq(works.slug, slug)))
-    .limit(1);
-  if (existingWork) return c.json({ message: "slug already exists" }, 409);
+  if (!(await ensureUniqueWorkSlug({ spaceId, slug }))) return c.json({ message: "slug already exists" }, 409);
 
   let assetKey: string | null = null;
-  if (status === "published" && (targetType === "file" || targetType === "directory")) {
+  try {
+    assetKey = await writeWorkAsset({ spaceId, slug, targetType, targetRef, status });
+  } catch (error) {
+    return workAssetErrorResponse(c, error, { spaceId, targetType, targetRef });
+  }
+
+  try {
+    const [work] = await db.insert(works).values({
+      spaceId,
+      userUuid: user.uuid,
+      slug,
+      status,
+      targetType,
+      targetRef,
+      assetKey,
+      publishedAt: status === "published" ? new Date() : null,
+      workScopes: normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES),
+      allowedViewerScopes: normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES),
+      meta: body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null,
+    }).returning().catch((error: unknown) => {
+      const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
+      if (code === "23505") return [];
+      throw error;
+    });
+    if (!work) {
+      await cleanupWorkAssets(assetKey, { workId: "new", spaceId, reason: "create_slug_conflict" });
+      return c.json({ message: "slug already exists" }, 409);
+    }
+    return c.json({ work: serializeWork(work) }, 201);
+  } catch (error) {
+    await cleanupWorkAssets(assetKey, { workId: "new", spaceId, reason: "create_failed" });
+    throw error;
+  }
+});
+
+router.patch("/:id", async (c) => {
+  const user = useAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const current = await getWorkById(id);
+  if (!current) return c.json({ message: "work not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
+
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  const nextSlug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : current.slug;
+  if (!SLUG_RE.test(nextSlug)) return c.json({ message: "slug must use lowercase letters, numbers, hyphens, or underscores" }, 400);
+  if (nextSlug !== current.slug && !(await ensureUniqueWorkSlug({ spaceId: current.spaceId, slug: nextSlug, excludeId: current.id }))) {
+    return c.json({ message: "slug already exists" }, 409);
+  }
+
+  const nextTargetType = typeof body?.targetType === "string" ? body.targetType : current.targetType;
+  let nextTargetRef = typeof body?.targetRef === "string" ? body.targetRef.trim() : current.targetRef;
+  if (!TARGET_TYPES.has(nextTargetType) || !nextTargetRef) return c.json({ message: "target is invalid" }, 400);
+  if (nextTargetType === "file" && !/\.html?$/i.test(nextTargetRef)) {
+    return c.json({ message: "only HTML files can be published as work" }, 400);
+  }
+  if (nextTargetType === "port") {
+    const portRef = normalizePortRef(nextTargetRef);
+    if (!portRef) return c.json({ message: "port is invalid" }, 400);
+    nextTargetRef = portRef;
+  }
+  const nextStatus = typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : current.status;
+
+  let assetKey = current.assetKey;
+  const previousAssetKey = current.assetKey;
+  const needsAssetRefresh = nextStatus === "published" && (
+    current.status !== "published" ||
+    nextSlug !== current.slug ||
+    nextTargetType !== current.targetType ||
+    nextTargetRef !== current.targetRef
+  );
+  if (nextStatus !== "published") assetKey = null;
+  else if (nextTargetType === "port") assetKey = null;
+  else if (needsAssetRefresh) {
     try {
-      if (targetType === "directory") {
-        const result = await readSpaceDirectoryFiles(spaceId, targetRef, { visibility: "full" });
-        const written = await writeWorkSiteAssets({ spaceId, workSlug: slug, files: result.files });
-        assetKey = written.objectKey;
-      } else {
-        const result = await readSpaceFile(spaceId, targetRef, { visibility: "full" });
-        if (!("content" in result)) return c.json({ message: "file is still preparing" }, 409);
-        const written = await writeWorkHtmlAsset({ spaceId, workSlug: slug, html: result.content });
-        assetKey = written.objectKey;
-      }
+      assetKey = await writeWorkAsset({ spaceId: current.spaceId, slug: nextSlug, targetType: nextTargetType, targetRef: nextTargetRef, status: nextStatus });
     } catch (error) {
-      if (error instanceof Error && (
-        error.message === "work asset must be 1 byte to 5MB" ||
-        error.message === "work site must contain index.html" ||
-        error.message === "work site must be 1 byte to 100MB" ||
-        error.message.startsWith("work site must contain 1 to ")
-      )) {
-        return c.json({ message: error.message }, 400);
-      }
-      if (error instanceof Error && error.message === "work asset storage is not configured") {
-        return c.json({ message: error.message }, 500);
-      }
-      if (!(error instanceof SpaceFsError)) {
-        logger.warn("[works] failed to write work asset", { spaceId, targetType, targetRef, error });
-        return c.json({ message: "work asset storage failed" }, 502);
-      }
-      const { status: errorStatus, body: errorBody } = spaceFsJsonError(error);
-      return c.json(errorBody, errorStatus as never);
+      return workAssetErrorResponse(c, error, { spaceId: current.spaceId, targetType: nextTargetType, targetRef: nextTargetRef });
     }
   }
 
-  const [work] = await db.insert(works).values({
-    spaceId,
-    userUuid: user.uuid,
-    slug,
-    status,
-    targetType,
-    targetRef,
-    assetKey,
-    publishedAt: status === "published" ? new Date() : null,
-    workScopes: normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES),
-    allowedViewerScopes: normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES),
-    meta: body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null,
-  }).returning().catch((error: unknown) => {
-    const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
-    if (code === "23505") return [];
+  try {
+    const [work] = await db.update(works).set({
+      slug: nextSlug,
+      status: nextStatus,
+      targetType: nextTargetType,
+      targetRef: nextTargetRef,
+      assetKey,
+      publishedAt: nextStatus === "published" ? (current.publishedAt ?? new Date()) : null,
+      workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
+      allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
+      meta: "meta" in (body ?? {}) ? (body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null) : current.meta,
+      updatedAt: new Date(),
+    }).where(eq(works.id, current.id)).returning().catch((error: unknown) => {
+      const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
+      if (code === "23505") return [];
+      throw error;
+    });
+    if (!work) {
+      await cleanupWorkAssets(assetKey !== previousAssetKey ? assetKey : null, { workId: current.id, spaceId: current.spaceId, reason: "update_slug_conflict" });
+      return c.json({ message: "slug already exists" }, 409);
+    }
+    if (previousAssetKey && previousAssetKey !== assetKey) {
+      await cleanupWorkAssets(previousAssetKey, { workId: current.id, spaceId: current.spaceId, reason: "update_stale_asset" });
+    }
+    return c.json({ work: serializeWork(work) });
+  } catch (error) {
+    await cleanupWorkAssets(assetKey !== previousAssetKey ? assetKey : null, { workId: current.id, spaceId: current.spaceId, reason: "update_failed" });
     throw error;
+  }
+});
+
+router.delete("/:id", async (c) => {
+  const user = useAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const work = await getWorkById(id);
+  if (!work) return c.json({ message: "work not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
+  await db.transaction(async (tx) => {
+    await tx.delete(workViewerGrants).where(eq(workViewerGrants.workId, work.id));
+    await tx.delete(works).where(eq(works.id, work.id));
   });
-  if (!work) return c.json({ message: "slug already exists" }, 409);
-  return c.json({ work: serializeWork(work) }, 201);
+  await cleanupWorkAssets(work.assetKey, { workId: work.id, spaceId: work.spaceId, reason: "delete" });
+  return c.json({ ok: true });
 });
 
 router.post("/:id/session", async (c) => {

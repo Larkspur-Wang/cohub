@@ -2,7 +2,7 @@ import type { HttpTransport } from "../transport.js";
 import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
-export type WorkStatus = "draft" | "published";
+export type WorkStatus = "draft" | "published" | "disabled";
 
 export type WorkRecord = {
   id: string;
@@ -33,6 +33,16 @@ export type WorkCreateInput = {
   meta?: Record<string, unknown> | null;
 };
 
+export type WorkUpdateInput = Partial<{
+  slug: string;
+  status: WorkStatus;
+  targetType: WorkTargetType;
+  targetRef: string;
+  workScopes: Permission[];
+  allowedViewerScopes: Permission[];
+  meta: Record<string, unknown> | null;
+}>;
+
 export type WorkContent =
   | { url: string; targetType: "port"; port: string }
   | { url: string; targetType: WorkTargetType; path: string };
@@ -60,6 +70,10 @@ export class WorksApi {
     return this.transport.request<{ works: WorkRecord[] }>(`/api/works/space/${spaceId}`);
   }
 
+  get(id: string) {
+    return this.transport.request<{ work: WorkRecord }>(`/api/works/${id}`);
+  }
+
   getBySlug(username: string, spaceSlug: string, workSlug: string) {
     return this.transport.request<{
       work: WorkRecord;
@@ -76,6 +90,20 @@ export class WorksApi {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+    });
+  }
+
+  update(id: string, input: WorkUpdateInput) {
+    return this.transport.request<{ work: WorkRecord }>(`/api/works/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  }
+
+  delete(id: string) {
+    return this.transport.request<{ ok: true }>(`/api/works/${id}`, {
+      method: "DELETE",
     });
   }
 
