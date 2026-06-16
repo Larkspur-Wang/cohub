@@ -3326,30 +3326,42 @@ $effect(() => {
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each works.slice(0, 20) as work (work.id)}
-                    {@const href = buildWorkPublicRoute(work)}
+                    {@const publicHref = buildWorkPublicRoute(work)}
+                    {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
                     {@const isActive = activeWork?.id === work.id}
-                    <a
-                      href={href ?? "#"}
-                      target="_blank"
-                      rel="noopener"
-                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                      onclick={() => { onClose?.(); }}
+                    <div
+                      class="group/work flex items-center gap-2 rounded-[6px] px-1.5 py-1.5 pr-1 text-[13px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
                     >
-                      <div class="min-w-0 flex-1">
+                      <a
+                        href={manageHref}
+                        class="min-w-0 flex-1"
+                        onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
+                      >
                         <div class="truncate font-mono leading-tight">{work.slug}</div>
-                      </div>
-                    </a>
+                      </a>
+                      {#if publicHref}
+                        <a
+                          href={publicHref}
+                          target="_blank"
+                          rel="noopener"
+                          class="rounded-[4px] p-1 text-text-placeholder opacity-0 transition-opacity hover:bg-bg-hover hover:text-text-secondary group-hover/work:opacity-100"
+                          onclick={(e) => { e.stopPropagation(); onClose?.(); }}
+                          title="Open public page"
+                          aria-label="Open public page"
+                        >
+                          <ExternalLink class="h-3.5 w-3.5" />
+                        </a>
+                      {/if}
+                    </div>
                   {/each}
                 </div>
               {/if}
             {:else if activeWork}
-              {@const href = buildWorkPublicRoute(activeWork)}
+              {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, activeWork.id) : "#"}
               <a
-                href={href ?? "#"}
-                target="_blank"
-                rel="noopener"
-                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
-                onclick={() => { onClose?.(); }}
+                href={manageHref}
+                class="mt-1 flex items-center gap-2 rounded-[6px] bg-bg-active px-1.5 py-1.5 text-[13px] font-medium text-text-primary transition-colors duration-100"
+                onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork.id); }}
               >
                 <div class="min-w-0 flex-1">
                   <div class="truncate font-mono leading-tight">{activeWork.slug}</div>
