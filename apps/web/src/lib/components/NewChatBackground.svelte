@@ -55,10 +55,29 @@ function parseComposerPayload(
 		: null;
 }
 
+function getBackgroundOrigin() {
+	try {
+		return new URL(background.url).origin;
+	} catch {
+		return null;
+	}
+}
+
+const sandbox = $derived.by(() => {
+	if (background.type !== "html") return undefined;
+	const origin = getBackgroundOrigin();
+	if (typeof window !== "undefined" && origin === window.location.origin) {
+		return "allow-scripts";
+	}
+	return "allow-scripts allow-same-origin";
+});
+
 function handleMessage(event: MessageEvent) {
 	if (background.type !== "html") return;
 	if (event.source !== iframeEl?.contentWindow) return;
-	if (event.origin !== "null") return;
+	const origin = getBackgroundOrigin();
+	if (!origin) return;
+	if (event.origin !== origin && event.origin !== "null") return;
 	if (!isRecord(event.data)) return;
 	if (event.data.source !== "cohub.newChat") return;
 	if (event.data.version !== 1) return;
@@ -81,7 +100,7 @@ $effect(() => {
   {:else if background.type === "video"}
     <video src={background.url} style:object-fit={objectFit} style:object-position={background.position} autoplay muted loop playsinline preload="metadata"></video>
   {:else}
-    <iframe bind:this={iframeEl} src={background.url} title="New chat background" sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"></iframe>
+    <iframe bind:this={iframeEl} src={background.url} title="New chat background" sandbox={sandbox} referrerpolicy="no-referrer" loading="lazy"></iframe>
   {/if}
 </div>
 
