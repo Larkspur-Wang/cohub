@@ -717,6 +717,10 @@ function extractToolResultContent(result: unknown): NormalizedToolResultContent 
   if (typeof result === "string") return { content: result, isError: false };
   if (!result || typeof result !== "object") return { content: "", isError: false };
   const record = result as Record<string, unknown>;
+  const details = record.details && typeof record.details === "object" && !Array.isArray(record.details)
+    ? record.details as Record<string, unknown>
+    : null;
+  if (typeof details?.rawOutput === "string") return { content: details.rawOutput, isError: false };
   if (typeof record.content === "string") return { content: record.content, isError: false };
   if (Array.isArray(record.content)) return normalizeToolResultBlocks(record.content);
   if (typeof record.text === "string") return { content: record.text, isError: false };

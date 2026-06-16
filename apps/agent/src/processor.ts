@@ -135,6 +135,10 @@ function getShellCommandBlock(content: ContentBlock[]): Extract<ContentBlock, { 
 function extractToolResultText(result: unknown): string {
   if (!result || typeof result !== "object") return "";
   const record = result as Record<string, unknown>;
+  const details = record.details && typeof record.details === "object" && !Array.isArray(record.details)
+    ? record.details as Record<string, unknown>
+    : null;
+  if (typeof details?.rawOutput === "string") return details.rawOutput;
   if (Array.isArray(record.content)) {
     return record.content
       .map((item) => item && typeof item === "object" && (item as Record<string, unknown>).type === "text"
@@ -805,6 +809,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             metrics: turnMetrics,
             assistantMessageTiming,
             generationPolicy,
+            abortSignal: abortController.signal,
           }, async () => {
             logger.debug(`[Agent] shell-command:start sessionId=${data.sessionId}`);
             await runDirectShellCommandTurn({
@@ -871,6 +876,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           metrics: turnMetrics,
           assistantMessageTiming,
           generationPolicy,
+          abortSignal: abortController.signal,
         }, async () => {
           try {
             if (abortController.signal.aborted) throw new Error("aborted");

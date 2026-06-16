@@ -100,6 +100,16 @@ function incrementToolCallCount(metrics: TurnTelemetryMetrics | undefined) {
   metrics.toolCallCount += 1;
 }
 
+function getEffectiveAbortSignal(signal?: AbortSignal) {
+  const turnSignal = getCurrentToolExecutionContext()?.abortSignal;
+  if (signal && turnSignal) return AbortSignal.any([signal, turnSignal]);
+  return signal ?? turnSignal;
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason ?? new Error("Operation aborted");
+}
+
 function truncateLogValue(value: string, limit = 500) {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`;
 }
@@ -843,9 +853,13 @@ async function assertCurrentActorCanViewSpaceFiles(spaceId: string): Promise<Age
 }
 
 function withSandboxFailureResult<T extends AgentTool>(tool: T): T {
-  const execute: AgentTool["execute"] = async (...args) => {
+  const execute: AgentTool["execute"] = async (toolCallId, params, signal, onUpdate) => {
     try {
-      return await tool.execute(...args);
+      const effectiveSignal = getEffectiveAbortSignal(signal);
+      throwIfAborted(effectiveSignal);
+      const result = await tool.execute(toolCallId, params, effectiveSignal, onUpdate);
+      throwIfAborted(effectiveSignal);
+      return result;
     } catch (error) {
       if (!isSandboxRpcError(error)) throw error;
       const presentation = getSandboxRpcFailurePresentation(error);

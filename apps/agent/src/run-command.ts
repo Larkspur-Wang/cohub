@@ -16,13 +16,20 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 import { logger } from "./logger.js";
 import type { AgentRunCommandJobData } from "./queue.js";
 import { createAgentExecutionToken } from "./execution-grants.js";
+import { getAbortEvent } from "./abort.js";
+import { clearActiveAbortController, setActiveAbortController, setActiveAbortEvent } from "./active-turns.js";
 
 const tools = createSandboxCodingTools();
 const tracer = getAgentTracer();
 
 function extractToolResultText(result: unknown) {
   if (!result || typeof result !== "object") return "";
-  const content = (result as { content?: unknown }).content;
+  const record = result as Record<string, unknown>;
+  const details = record.details && typeof record.details === "object" && !Array.isArray(record.details)
+    ? record.details as Record<string, unknown>
+    : null;
+  if (typeof details?.rawOutput === "string") return details.rawOutput;
+  const content = record.content;
   if (!Array.isArray(content)) return typeof content === "string" ? content : "";
   return content
     .map((item) => item && typeof item === "object" && (item as { type?: unknown }).type === "text"
@@ -102,6 +109,16 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
   let latestOutput = "";
   let lastProgressAt = 0;
   let lastProgressSignature = "";
+  const originTurnId = data.origin?.turnId?.trim() || null;
+  const abortController = new AbortController();
+  if (originTurnId) {
+    setActiveAbortController(originTurnId, abortController);
+    const pendingAbortEvent = await getAbortEvent(originTurnId);
+    if (pendingAbortEvent) {
+      setActiveAbortEvent(pendingAbortEvent);
+      abortController.abort();
+    }
+  }
 
   const startAt = Date.now();
   const pushProgress = async (phase: "queued" | "running", done = false, exitCode: number | null = null, durationMs = 0, termination?: RunCommandTermination | null): Promise<void> => {
@@ -134,31 +151,33 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
     await job.updateProgress(progress);
   };
 
-  return runWithToolExecutionContext({
-    spaceId: data.spaceId,
-    sessionId: contextSessionId,
-    turnId: data.origin?.turnId,
-    actorUserId: data.userId ?? null,
-    executionToken,
-    generationPolicy: data.generationPolicy ?? null,
-    llmRound: 0,
-    toolCallId,
-    requestId: data.requestId ?? undefined,
-  }, async () => wrapToolCall(tracer, {
-    toolName: RUN_COMMAND_TOOL_NAME,
-    input: { command: data.command, cwd: data.cwd, taskRunId: data.taskRunId },
-    spaceId: data.spaceId,
-    sessionId: contextSessionId,
-    llmRound: 0,
-    toolCallId,
-    requestId: data.requestId ?? undefined,
-  }, async () => {
+  try {
+    return await runWithToolExecutionContext({
+      spaceId: data.spaceId,
+      sessionId: contextSessionId,
+      turnId: data.origin?.turnId,
+      actorUserId: data.userId ?? null,
+      executionToken,
+      generationPolicy: data.generationPolicy ?? null,
+      llmRound: 0,
+      toolCallId,
+      requestId: data.requestId ?? undefined,
+      abortSignal: abortController.signal,
+    }, async () => wrapToolCall(tracer, {
+      toolName: RUN_COMMAND_TOOL_NAME,
+      input: { command: data.command, cwd: data.cwd, taskRunId: data.taskRunId },
+      spaceId: data.spaceId,
+      sessionId: contextSessionId,
+      llmRound: 0,
+      toolCallId,
+      requestId: data.requestId ?? undefined,
+    }, async () => {
     await pushProgress("queued");
     try {
       const result = await bashTool.execute(
         toolCallId,
         { command: data.command, timeout } as never,
-        undefined,
+        abortController.signal,
         (partial: unknown) => {
           const text = extractToolResultText(partial);
           if (text) latestOutput = text;
@@ -195,6 +214,30 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
         content,
       } satisfies AgentRunCommandJobResult;
     } catch (error) {
+      if (abortController.signal.aborted) {
+        const durationMs = Date.now() - startAt;
+        const termination: RunCommandTermination = { reason: "aborted", exitCode: null, message: "Command aborted." };
+        const content = buildRunCommandToolContent({
+          toolCallId,
+          command: data.command,
+          cwd: data.cwd,
+          output: latestOutput,
+          status: "done",
+          exitCode: null,
+          termination,
+          durationMs,
+        });
+        await pushProgress("running", true, null, durationMs, termination);
+        return {
+          ok: true,
+          exitCode: null,
+          termination,
+          durationMs,
+          output: latestOutput,
+          truncated: false,
+          content,
+        } satisfies AgentRunCommandJobResult;
+      }
       const errorMessage = error instanceof Error ? error.message : String(error);
       await recordJobFailure(job, error, {
         reason: "run_command_failed",
@@ -208,5 +251,8 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       logger.warn(`[RunCommand] infrastructure failure spaceId=${data.spaceId} taskRunId=${data.taskRunId}: ${errorMessage}`);
       throw error;
     }
-  }));
+    }));
+  } finally {
+    if (originTurnId) clearActiveAbortController(originTurnId, abortController);
+  }
 }

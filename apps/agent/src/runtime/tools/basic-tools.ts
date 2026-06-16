@@ -378,7 +378,12 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
       const truncated = truncateHead(renderedOutput, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
       return {
         content: [{ type: "text", text: truncated.truncated ? truncated.content : renderedOutput }],
-        details: { exitCode: result.exitCode, termination, truncation: truncated.truncated ? truncated : undefined },
+        details: {
+          exitCode: result.exitCode,
+          termination,
+          rawOutput: renderedOutput,
+          truncation: truncated.truncated ? truncated : undefined,
+        },
       };
     },
   };

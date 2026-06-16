@@ -26,6 +26,7 @@ export type ToolExecutionContext = {
   assistantMessageTiming?: AssistantMessageTimingContext;
   generationPolicy?: GenerationPolicy | null;
   fileVisibility?: AgentFileVisibility;
+  abortSignal?: AbortSignal;
 };
 
 const storage = new AsyncLocalStorage<ToolExecutionContext>();
