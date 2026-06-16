@@ -24,6 +24,9 @@ async function main() {
   assert.equal(roleHasPermission("guest", "session.view"), true, "guest can view sessions");
   assert.equal(roleHasPermission("guest", "session.prompt.readonly"), false, "guest cannot prompt sessions");
   assert.equal(roleHasPermission("guest", "session.prompt.fullaccess"), false, "guest cannot prompt with full access");
+  assert.equal(roleHasPermission("host", "generation.create"), true, "host can create generation tasks");
+  assert.equal(roleHasPermission("builder", "generation.create"), true, "builder can create generation tasks");
+  assert.equal(roleHasPermission("guest", "generation.create"), false, "guest cannot create generation tasks");
 
   assert.equal(
     await hasPermission({

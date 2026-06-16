@@ -54,7 +54,7 @@ router.post("/", async (c) => {
   }
 
   const request = parsed.data;
-  if (!(await hasPermission(user, "space.view", { spaceId: request.spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "generation.create", { spaceId: request.spaceId }))) return authzDenied(c);
 
   const sessionId = request.sessionId?.trim() || null;
   const turnId = request.turnId?.trim() || null;
@@ -63,6 +63,7 @@ router.post("/", async (c) => {
     if (!session || session.spaceId !== request.spaceId) {
       return generationError(c, 404, "generation_session_not_found", "Generation session not found in this space.");
     }
+    if (!(await hasPermission(user, "session.view", { spaceId: request.spaceId, sessionId }))) return authzDenied(c);
   }
   if (turnId) {
     if (!sessionId) {

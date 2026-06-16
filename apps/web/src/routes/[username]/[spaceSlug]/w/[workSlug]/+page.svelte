@@ -156,6 +156,8 @@ function formatScopeLabel(scope: string) {
 	const labels: Record<string, string> = {
 		"session.prompt.readonly": "Prompt read-only",
 		"session.prompt.fullaccess": "Prompt full access",
+		"generation.create": "Create generations",
+		"taskrun.view": "View task runs",
 	};
 	return labels[scope] ?? scope;
 }
@@ -166,6 +168,8 @@ function formatScopeDescription(scope: string) {
 			"Read prompts and session context without making changes.",
 		"session.prompt.fullaccess":
 			"Send prompts and act in the session with your approval.",
+		"generation.create": "Start image, video, or other generation tasks.",
+		"taskrun.view": "View task progress and results in this space.",
 	};
 	return (
 		descriptions[scope] ?? "Grant this work the requested Cohub permission."

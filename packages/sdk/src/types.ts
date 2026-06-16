@@ -1090,6 +1090,7 @@ export type Permission =
   | "session.edit"
   | "session.prompt.readonly"
   | "session.prompt.fullaccess"
+  | "generation.create"
   | "file.view"
   | "file.view.filtered"
   | "file.edit"

@@ -48,10 +48,12 @@ let initializedTargetRef = $state("");
 const workScopes = $state<Record<string, boolean>>({
 	"space.view": true,
 	"session.view": false,
+	"taskrun.view": false,
 });
 const allowedViewerScopes = $state<Record<string, boolean>>({
 	"session.prompt.readonly": true,
 	"session.prompt.fullaccess": false,
+	"generation.create": false,
 });
 const missingUsername = $derived(!ownerUsername?.trim());
 const missingSpaceSlug = $derived(!spaceSlug?.trim());
@@ -242,11 +244,13 @@ async function copyUrl() {
 					<div class="section-label">Work can</div>
 					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["space.view"]} /> View space</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["session.view"]} /> View sessions</label>
+					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["taskrun.view"]} /> View task runs</label>
 				</div>
 				<div>
 					<div class="section-label">Viewers can allow</div>
 					<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes["session.prompt.readonly"]} /> Prompt read-only</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes["session.prompt.fullaccess"]} /> Prompt full access</label>
+					<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes["generation.create"]} /> Create generations</label>
 				</div>
 			</section>
 

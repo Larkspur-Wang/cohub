@@ -19,10 +19,11 @@ const WORK_STATUSES = new Set(["draft", "published"]);
 const TARGET_TYPES = new Set(["file", "directory", "port"]);
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
-const ALLOWED_WORK_SCOPES = new Set<Permission>(["space.view", "session.view", "file.view"]);
+const ALLOWED_WORK_SCOPES = new Set<Permission>(["space.view", "session.view", "file.view", "taskrun.view"]);
 const ALLOWED_VIEWER_SCOPES = new Set<Permission>([
   "session.prompt.readonly",
   "session.prompt.fullaccess",
+  "generation.create",
 ]);
 
 
