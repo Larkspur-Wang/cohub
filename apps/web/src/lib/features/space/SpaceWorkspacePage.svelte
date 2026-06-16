@@ -5603,6 +5603,7 @@ async function handleSend() {
 	)
 		return;
 	sending = true;
+	const model = activeSessionModel;
 	clearComposerError();
 	clearGenerationError(activeSessionId);
 	let sessionId = activeSessionState?.session?.id ?? null;
@@ -5650,10 +5651,10 @@ async function handleSend() {
 				[newSession.id]: targetSessionState,
 			};
 			resolvedNewSessionId = newSession.id;
-			if (draftSessionModel) {
+			if (model) {
 				sessionModelById = {
 					...sessionModelById,
-					[newSession.id]: draftSessionModel,
+					[newSession.id]: model,
 				};
 			}
 			activeSessionId = newSession.id;
@@ -5724,7 +5725,6 @@ async function handleSend() {
 		// feeling where the message shows in the list but lingers in the input.
 		input = "";
 		attachments = [];
-		const model = activeSessionModel;
 		const now = new Date().toISOString();
 		const sequenceHint = (targetSessionState.turns.at(-1)?.sequence ?? 0) + 1;
 		hasActiveTurn = activeSessionIsRunning;
