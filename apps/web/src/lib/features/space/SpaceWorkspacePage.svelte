@@ -102,6 +102,7 @@ import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox";
+import NewChatBackground from "$lib/components/NewChatBackground.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
@@ -147,6 +148,14 @@ import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import { validatePublicSlugInput } from "$lib/slug-rules";
+import {
+	activateSpaceConfig,
+	deactivateSpaceConfig,
+	isSpaceConfigPath,
+	refreshSpaceConfig,
+	type SpaceConfig,
+	subscribeSpaceConfig,
+} from "$lib/space-config";
 import {
 	buildSpaceFileDownloadUrl,
 	downloadSpaceFile,
@@ -353,6 +362,7 @@ const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
 );
 let space = $state<SpaceRecord | null>(null);
+let spaceConfig = $state<SpaceConfig | null>(null);
 function hasAccessPermission(permission: Permission): boolean {
 	return space?.access?.permissions.includes(permission) === true;
 }
@@ -1913,6 +1923,17 @@ const activeSessionState = $derived(
 );
 const activeSessionInitialLoadingVisible = $derived.by(() =>
 	Boolean(activeSessionId && visibleInitialLoadingSessionIds[activeSessionId]),
+);
+const newChatBackground = $derived(
+	spaceConfig?.ui?.newChat?.background ?? null,
+);
+const shouldShowNewChatBackground = $derived(
+	Boolean(
+		newChatBackground &&
+			isNewSessionRoute &&
+			!activeSessionId &&
+			(activeSessionState?.turns.length ?? 0) === 0,
+	),
 );
 const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 	if (!activeSessionId) return [];
@@ -4918,6 +4939,14 @@ function spaceStyleChanged(
 			isSpaceStylePath(change.path) || isSpaceStylePath(change.oldPath),
 	);
 }
+function spaceConfigChanged(
+	changes: Array<{ path?: string; oldPath?: string }> | undefined,
+) {
+	return changes?.some(
+		(change) =>
+			isSpaceConfigPath(change.path) || isSpaceConfigPath(change.oldPath),
+	);
+}
 async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const sourceKey = activeFsSourceKey;
 	const shouldPatchVisibleTree = () =>
@@ -4937,6 +4966,9 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	const shouldRefreshSpaceStyle =
 		eventPayload.resync || spaceStyleChanged(eventPayload.changes);
 	if (shouldRefreshSpaceStyle) refreshSpaceStyle(spaceId);
+	const shouldRefreshSpaceConfig =
+		eventPayload.resync || spaceConfigChanged(eventPayload.changes);
+	if (shouldRefreshSpaceConfig) refreshSpaceConfig(spaceId);
 	const { refreshDirs: dirsToRefresh } = await spaceFsRepo.applyFsChanged(
 		spaceId,
 		eventPayload as Parameters<typeof spaceFsRepo.applyFsChanged>[1],
@@ -7492,6 +7524,9 @@ onMount(() => {
 			}
 		},
 	);
+	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
+		spaceConfig = config;
+	});
 	// Preload model catalogs so the selector is ready immediately
 	void loadModelsCatalog();
 	void loadGenerationModelsCatalog();
@@ -7599,6 +7634,7 @@ onMount(() => {
 		offSessionListCacheUpdated();
 		offCanvasTxApplied();
 		offTaskRunsCacheUpdated();
+		offSpaceConfigUpdated();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (portReadyToastTimer) clearTimeout(portReadyToastTimer);
@@ -7633,6 +7669,7 @@ onMount(() => {
 		rightSidebarResizeCleanup?.();
 		previewPanelResizeCleanup?.();
 		deactivateSpaceStyle();
+		deactivateSpaceConfig();
 	};
 });
 // React to space changes: reset state and reload data
@@ -7642,8 +7679,10 @@ $effect(() => {
 		return;
 	loadedSpaceId = currentSpaceId;
 	activateSpaceStyle(currentSpaceId);
+	activateSpaceConfig(currentSpaceId);
 	// Reset space-specific state
 	space = null;
+	spaceConfig = null;
 	spaceLoadError = "";
 	spaceSessions = [];
 	sessionStateById = {};
@@ -9843,24 +9882,28 @@ $effect(() => {
           {activeSessionState.error}
         </div>
       {/if}
-      <div class="relative flex-1 min-h-0 flex flex-col">
-        <ChatTimeline
-            bind:this={chatTimelineRef}
-            bind:bindListEl={listEl}
-            timeline={timeline}
-            preloadThreshold={10}
-            onFirstVisible={handleFirstVisible}
-            onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
-            onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
-            onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
-            onMarkdownRendered={handleTimelineMarkdownRendered}
-            onForkTurn={handleForkTurn}
-            forkingTurnId={forkingTurnId}
-            loading={activeSessionInitialLoadingVisible}
-            loadingOlder={activeSessionState?.loadingOlder ?? false}
-            onOpenFile={openInlineFile}
-            modelsCatalog={modelsCatalog ?? undefined}
-          />
+      <div class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+        {#if shouldShowNewChatBackground && newChatBackground}
+          <NewChatBackground background={newChatBackground} />
+        {:else}
+          <ChatTimeline
+              bind:this={chatTimelineRef}
+              bind:bindListEl={listEl}
+              timeline={timeline}
+              preloadThreshold={10}
+              onFirstVisible={handleFirstVisible}
+              onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
+              onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
+              onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
+              onMarkdownRendered={handleTimelineMarkdownRendered}
+              onForkTurn={handleForkTurn}
+              forkingTurnId={forkingTurnId}
+              loading={activeSessionInitialLoadingVisible}
+              loadingOlder={activeSessionState?.loadingOlder ?? false}
+              onOpenFile={openInlineFile}
+              modelsCatalog={modelsCatalog ?? undefined}
+            />
+        {/if}
           <SessionTaskTray
             notices={sessionTaskNotices}
             hasMore={sessionTaskHasMore}
@@ -9963,7 +10006,7 @@ $effect(() => {
           onClose={() => { showTurnBottomSheet = false; }}
           onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
         />
-        <div bind:this={composerHostEl}>
+        <div bind:this={composerHostEl} class:relative={shouldShowNewChatBackground} class:z-10={shouldShowNewChatBackground}>
           <SessionComposer
             bind:value={input}
             disabled={!activeSessionState && !isNewSessionRoute}
