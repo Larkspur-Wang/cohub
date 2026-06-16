@@ -2047,15 +2047,36 @@ const TERMINAL_GENERATION_STATUSES = new Set([
 	"failed",
 	"interrupted",
 ]);
+const activeTurnIndex = $derived.by(() =>
+	activeSessionId ? (turnIndexBySessionId[activeSessionId] ?? []) : [],
+);
+const activeSessionLastTurnModel = $derived.by(() => {
+	const turns = [...(activeSessionState?.turns ?? []), ...activeTurnIndex]
+		.filter((turn) => typeof turn.model === "string" && turn.model.trim())
+		.sort((a, b) => a.sequence - b.sequence);
+	const lastTurn = turns.at(-1);
+	if (!lastTurn?.model) return null;
+	const provider = lastTurn.provider ?? "cohub";
+	const catalogItem = visibleModelsCatalog?.find(
+		(item) => item.id === lastTurn.model && item.provider === provider,
+	);
+	if (!provider) return null;
+	return {
+		provider,
+		id: lastTurn.model,
+		name: catalogItem?.model.name as string | undefined,
+	} satisfies SelectedModel;
+});
 const activeSessionModel = $derived.by(() => {
 	if (!activeSessionId) return draftSessionModel ?? firstCatalogModel;
-	return sessionModelById[activeSessionId] ?? firstCatalogModel;
+	return (
+		sessionModelById[activeSessionId] ??
+		activeSessionLastTurnModel ??
+		firstCatalogModel
+	);
 });
 const activeGenerationState = $derived.by(() =>
 	sessionGenerationStore.get(activeSessionId),
-);
-const activeTurnIndex = $derived.by(() =>
-	activeSessionId ? (turnIndexBySessionId[activeSessionId] ?? []) : [],
 );
 const activeTurnRailItems = $derived.by<SessionTurnIndexItem[]>(() => {
 	const bySequence = new Map<number, SessionTurnIndexItem>();
@@ -2315,26 +2336,8 @@ function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
 		errorMessage: turn.errorMessage,
 	};
 }
-function getSessionModelKey(sessionId: string) {
-	return `cohub:model:${sessionId}`;
-}
 function getSessionGenerationPolicyKey(sessionId: string) {
 	return `cohub:generation-policy:${sessionId}`;
-}
-function loadSessionModel(sessionId: string): SelectedModel | null {
-	try {
-		const raw = localStorage.getItem(getSessionModelKey(sessionId));
-		return raw ? (JSON.parse(raw) as SelectedModel) : null;
-	} catch {
-		return null;
-	}
-}
-function saveSessionModel(sessionId: string, model: SelectedModel | null) {
-	if (!model) {
-		localStorage.removeItem(getSessionModelKey(sessionId));
-	} else {
-		localStorage.setItem(getSessionModelKey(sessionId), JSON.stringify(model));
-	}
 }
 function serializeGenerationEnumSelections() {
 	return Object.fromEntries(
@@ -2495,10 +2498,10 @@ function persistActiveSessionGenerationPolicy() {
 	saveSessionGenerationPolicy(activeSessionId);
 }
 function ensureSessionModelLoaded(sessionId: string) {
-	if (sessionModelById[sessionId]) return;
+	if (Object.hasOwn(sessionModelById, sessionId)) return;
 	sessionModelById = {
 		...sessionModelById,
-		[sessionId]: loadSessionModel(sessionId),
+		[sessionId]: null,
 	};
 }
 async function loadModelsCatalog() {
@@ -2722,7 +2725,6 @@ function handleModelSelect(model: { provider: string; id: string }) {
 		...sessionModelById,
 		[activeSessionId]: selected,
 	};
-	saveSessionModel(activeSessionId, selected);
 	showModelSelector = false;
 	focusComposerSoon();
 }
@@ -5654,7 +5656,6 @@ async function handleSend() {
 					...sessionModelById,
 					[newSession.id]: draftSessionModel,
 				};
-				saveSessionModel(newSession.id, draftSessionModel);
 			}
 			sessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
