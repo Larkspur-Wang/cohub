@@ -83,16 +83,56 @@ const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
 
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
-function getCurrentTraceContext() {
+type ToolRpcContext = {
+  spaceId: string;
+  sessionId?: string | null;
+  turnId?: string | null;
+  turnSeq?: number | null;
+  llmRound?: number | null;
+  toolCallId?: string | null;
+  requestId?: string | null;
+};
+
+type ToolTraceContext = {
+  spaceId?: string;
+  sessionId?: string;
+  turnId?: string;
+  turnSeq?: number;
+  llmRound?: number;
+  toolCallId?: string;
+  requestId?: string;
+};
+
+type TracedRpcOptions = {
+  onEvent?: (event: import("@cohub/protocol/sandbox").RpcEventPayload) => void;
+  context?: ToolRpcContext;
+};
+
+function getCurrentTraceContext(): ToolTraceContext {
   const ctx = getCurrentToolExecutionContext();
   return {
     spaceId: ctx?.spaceId,
-    sessionId: ctx?.sessionId,
-    turnId: ctx?.turnId,
-    turnSeq: ctx?.turnSeq,
-    llmRound: ctx?.llmRound,
-    toolCallId: ctx?.toolCallId,
+    sessionId: ctx?.sessionId ?? undefined,
+    turnId: ctx?.turnId ?? undefined,
+    turnSeq: ctx?.turnSeq ?? undefined,
+    llmRound: ctx?.llmRound ?? undefined,
+    toolCallId: ctx?.toolCallId ?? undefined,
     requestId: ctx?.requestId ?? undefined,
+  };
+}
+
+function captureToolRpcContext(overrides: Partial<ToolRpcContext> & { spaceId?: string } = {}): ToolRpcContext {
+  const ctx = getCurrentToolExecutionContext();
+  const spaceId = overrides.spaceId ?? ctx?.spaceId;
+  if (!spaceId) throw new Error("Tool execution context is missing spaceId");
+  return {
+    spaceId,
+    sessionId: overrides.sessionId ?? ctx?.sessionId ?? null,
+    turnId: overrides.turnId ?? ctx?.turnId ?? null,
+    turnSeq: overrides.turnSeq ?? ctx?.turnSeq ?? null,
+    llmRound: overrides.llmRound ?? ctx?.llmRound ?? null,
+    toolCallId: overrides.toolCallId ?? ctx?.toolCallId ?? null,
+    requestId: overrides.requestId ?? ctx?.requestId ?? null,
   };
 }
 
@@ -245,23 +285,21 @@ async function tracedRpc<M extends RpcMethod>(
   connection: SandboxConnection,
   method: M,
   params: RpcRequestMap[M]["params"],
-  options?: {
-    onEvent?: (event: import("@cohub/protocol/sandbox").RpcEventPayload) => void;
-  },
+  options?: TracedRpcOptions,
   retryInfraError = true,
 ): Promise<RpcRequestMap[M]["result"]> {
   const tracer = getAgentTracer();
-  const spaceId = getCurrentSpaceId();
-  const traceCtx = getCurrentTraceContext();
+  const traceCtx = options?.context ?? captureToolRpcContext();
+  const spaceId = traceCtx.spaceId;
   const execute = () => wrapSandboxRpc(tracer, {
     method,
     sandboxId: connection.sandboxId,
     spaceId,
-    sessionId: traceCtx.sessionId,
-    turnId: traceCtx.turnId,
-    turnSeq: traceCtx.turnSeq,
-    llmRound: traceCtx.llmRound,
-    toolCallId: traceCtx.toolCallId,
+    sessionId: traceCtx.sessionId ?? undefined,
+    turnId: traceCtx.turnId ?? undefined,
+    turnSeq: traceCtx.turnSeq ?? undefined,
+    llmRound: traceCtx.llmRound ?? undefined,
+    toolCallId: traceCtx.toolCallId ?? undefined,
     params: params as Record<string, unknown>,
   }, async () => {
     await sandboxLifecycle.recordActivity({ spaceId, reason: "rpc", rpcMethod: method }).catch((error) => {
@@ -282,7 +320,7 @@ async function tracedRpc<M extends RpcMethod>(
       const classified = classifySandboxInfrastructureError(error instanceof Error ? error.message : String(error));
       if (!classified || !retryInfraError) throw error;
       return recoverAndRetryAfterInfraError(spaceId, classified, async () => {
-        const freshConnection = await getCurrentConnection(method);
+        const freshConnection = await ensureSandboxConnection(spaceId);
         return tracedRpc(freshConnection, method, params, options, false);
       });
     }
@@ -447,10 +485,14 @@ function createRemoteBashOperations(): BashOperations {
               };
               logger.debug(`[Tool:bash] exec summary="${cmdSummary}" cwd=${sandboxCwd}`);
 
+              const rpcContext = captureToolRpcContext({ toolCallId });
+              let abortSent = false;
               let unregisterProcessAbort: (() => void) | null = null;
               const abortProcess = (targetProcessId: string) => {
-                logger.info(`[Tool:bash] abort requested processId=${targetProcessId} turnId=${ctx?.turnId ?? ""} toolCallId=${toolCallId}`);
-                void tracedRpc(connection, "process.abort", { processId: targetProcessId }).catch((error) => {
+                if (abortSent) return;
+                abortSent = true;
+                logger.info(`[Tool:bash] abort requested processId=${targetProcessId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+                void tracedRpc(connection, "process.abort", { processId: targetProcessId }, { context: rpcContext }, false).catch((error) => {
                   logger.warn(`[Tool:bash] process.abort failed processId=${targetProcessId}: ${error instanceof Error ? error.message : String(error)}`);
                 });
               };
@@ -485,9 +527,9 @@ function createRemoteBashOperations(): BashOperations {
                   onEvent(event) {
                     if (event.type === "started") {
                       processId = event.processId;
-                      logger.info(`[Tool:bash] process started processId=${event.processId} turnId=${ctx?.turnId ?? ""} toolCallId=${toolCallId}`);
-                      if (ctx?.turnId) {
-                        unregisterProcessAbort = registerActiveAbortHandle(ctx.turnId, {
+                      logger.info(`[Tool:bash] process started processId=${event.processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+                      if (rpcContext.turnId) {
+                        unregisterProcessAbort = registerActiveAbortHandle(rpcContext.turnId, {
                           id: `bash:${toolCallId}:${event.processId}`,
                           kind: "tool",
                           toolName: "bash",
@@ -755,10 +797,14 @@ function createRemoteGrepTool() {
       // Set up abort handling.
       let aborted = false;
       let activeProcessId: string | null = null;
+      const rpcContext = captureToolRpcContext({ toolCallId });
+      let abortSent = false;
       const unregisterProcessAborts: Array<() => void> = [];
       const abortProcess = (processId: string) => {
-        logger.info(`[Tool:grep] abort requested processId=${processId} turnId=${toolCtx?.turnId ?? ""} toolCallId=${toolCallId}`);
-        void tracedRpcAbortProcess(processId).catch(() => undefined);
+        if (abortSent) return;
+        abortSent = true;
+        logger.info(`[Tool:grep] abort requested processId=${processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+        void tracedRpcAbortProcess(connection, processId, rpcContext);
       };
       const onAbort = () => {
         aborted = true;
@@ -795,9 +841,9 @@ function createRemoteGrepTool() {
             onEvent(event) {
               if (event.type === "started") {
                 activeProcessId = event.processId;
-                logger.info(`[Tool:grep] process started processId=${event.processId} turnId=${toolCtx?.turnId ?? ""} toolCallId=${toolCallId}`);
-                if (toolCtx?.turnId) {
-                  unregisterProcessAborts.push(registerActiveAbortHandle(toolCtx.turnId, {
+                logger.info(`[Tool:grep] process started processId=${event.processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
+                if (rpcContext.turnId) {
+                  unregisterProcessAborts.push(registerActiveAbortHandle(rpcContext.turnId, {
                     id: `grep:${toolCallId}:${event.processId}`,
                     kind: "tool",
                     toolName: "grep",
@@ -830,10 +876,9 @@ function createRemoteGrepTool() {
 }
 
 /** Abort a running process via sandbox RPC. */
-async function tracedRpcAbortProcess(processId: string) {
+async function tracedRpcAbortProcess(connection: SandboxConnection, processId: string, context: ToolRpcContext) {
   try {
-    const connection = await getCurrentConnection();
-    await tracedRpc(connection, "process.abort", { processId });
+    await tracedRpc(connection, "process.abort", { processId }, { context }, false);
   } catch {
     // Ignore abort errors.
   }
