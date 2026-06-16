@@ -72,6 +72,19 @@ const sandbox = $derived.by(() => {
 	return "allow-scripts allow-same-origin";
 });
 
+$effect(() => {
+	if (typeof document === "undefined") return;
+	if (background.type !== "html") return;
+	const origin = getBackgroundOrigin();
+	if (!origin) return;
+	const link = document.createElement("link");
+	link.rel = "preconnect";
+	link.href = origin;
+	link.crossOrigin = "anonymous";
+	document.head.append(link);
+	return () => link.remove();
+});
+
 function handleMessage(event: MessageEvent) {
 	if (background.type !== "html") return;
 	if (event.source !== iframeEl?.contentWindow) return;
@@ -100,7 +113,7 @@ $effect(() => {
   {:else if background.type === "video"}
     <video src={background.url} style:object-fit={objectFit} style:object-position={background.position} autoplay muted loop playsinline preload="metadata"></video>
   {:else}
-    <iframe bind:this={iframeEl} src={background.url} title="New chat background" sandbox={sandbox} referrerpolicy="no-referrer" loading="lazy"></iframe>
+    <iframe bind:this={iframeEl} src={background.url} title="New chat background" sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
   {/if}
 </div>
 

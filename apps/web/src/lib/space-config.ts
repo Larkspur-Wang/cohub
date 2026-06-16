@@ -45,6 +45,26 @@ let activeVersion = 0;
 let activeConfig: SpaceConfig | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
+function getCacheKey(spaceId: string) {
+	return `cohub:space-config:${spaceId}:v1`;
+}
+
+function readCachedConfig(spaceId: string) {
+	if (typeof localStorage === "undefined") return null;
+	const raw = localStorage.getItem(getCacheKey(spaceId));
+	return raw ? parseSpaceConfig(raw) : null;
+}
+
+function writeCachedConfig(spaceId: string, raw: string) {
+	if (typeof localStorage === "undefined") return;
+	localStorage.setItem(getCacheKey(spaceId), raw);
+}
+
+function clearCachedConfig(spaceId: string) {
+	if (typeof localStorage === "undefined") return;
+	localStorage.removeItem(getCacheKey(spaceId));
+}
+
 function clearRetryTimer() {
 	if (!retryTimer) return;
 	clearTimeout(retryTimer);
@@ -153,10 +173,12 @@ async function loadSpaceConfig(
 		}
 		const content =
 			file.encoding === "base64" ? atob(file.content) : file.content;
+		writeCachedConfig(spaceId, content);
 		publish(parseSpaceConfig(content));
 	} catch (error) {
 		if (activeVersion !== options.version || activeSpaceId !== spaceId) return;
 		if (error instanceof HttpError && error.status === 404) {
+			clearCachedConfig(spaceId);
 			publish(null);
 			return;
 		}
@@ -178,7 +200,7 @@ export function activateSpaceConfig(spaceId: string) {
 	clearRetryTimer();
 	activeSpaceId = spaceId;
 	activeVersion += 1;
-	publish(null);
+	publish(readCachedConfig(spaceId));
 	void loadSpaceConfig(spaceId, { version: activeVersion });
 }
 
