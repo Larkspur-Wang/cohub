@@ -152,9 +152,11 @@ import {
 	activateSpaceConfig,
 	deactivateSpaceConfig,
 	isSpaceConfigPath,
+	type NewChatComposerApplyPayload,
 	refreshSpaceConfig,
 	type SpaceConfig,
 	subscribeSpaceConfig,
+	subscribeSpaceConfigBackgroundAction,
 } from "$lib/space-config";
 import {
 	buildSpaceFileDownloadUrl,
@@ -6302,6 +6304,61 @@ async function handlePickAttachments(
 		);
 	}
 }
+async function applyBackgroundComposerPayload(
+	payload: NewChatComposerApplyPayload,
+) {
+	if (typeof payload.prompt === "string") {
+		input = payload.prompt;
+	}
+	if (payload.model && modelsCatalog) {
+		const catalogItem = modelsCatalog.find(
+			(item) =>
+				item.provider === payload.model?.provider &&
+				item.id === payload.model?.id,
+		);
+		if (catalogItem) {
+			const selected = {
+				provider: catalogItem.provider,
+				id: catalogItem.id,
+				name: catalogItem.model.name as string | undefined,
+			} satisfies SelectedModel;
+			draftSessionModel = selected;
+			if (activeSessionId) {
+				sessionModelById = {
+					...sessionModelById,
+					[activeSessionId]: selected,
+				};
+			}
+		}
+	}
+	const imageEntries = (payload.images ?? []).filter(
+		(image): image is { url: string; name?: string } =>
+			typeof image.url === "string" && image.url.startsWith("https://"),
+	);
+	if (imageEntries.length > 0) {
+		try {
+			const files = await Promise.all(
+				imageEntries.map(async (image) => {
+					const response = await fetch(image.url);
+					if (!response.ok) {
+						throw new Error(`Failed to load image: ${image.url}`);
+					}
+					const blob = await response.blob();
+					if (!blob.type.startsWith("image/")) {
+						throw new Error(`Unsupported image type: ${image.url}`);
+					}
+					return new File([blob], image.name ?? "image", { type: blob.type });
+				}),
+			);
+			await handlePickAttachments(files);
+		} catch (error) {
+			console.warn(
+				"[NewChat] failed to apply background payload images",
+				error,
+			);
+		}
+	}
+}
 function handleRemoveAttachment(id: string) {
 	attachments = attachments.filter((attachment) => attachment.id !== id);
 }
@@ -7527,6 +7584,12 @@ onMount(() => {
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
 		spaceConfig = config;
 	});
+	const offSpaceConfigBackgroundAction = subscribeSpaceConfigBackgroundAction(
+		(payload) => {
+			if (!shouldShowNewChatBackground) return;
+			void applyBackgroundComposerPayload(payload);
+		},
+	);
 	// Preload model catalogs so the selector is ready immediately
 	void loadModelsCatalog();
 	void loadGenerationModelsCatalog();
@@ -7635,6 +7698,7 @@ onMount(() => {
 		offCanvasTxApplied();
 		offTaskRunsCacheUpdated();
 		offSpaceConfigUpdated();
+		offSpaceConfigBackgroundAction();
 		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (portReadyToastTimer) clearTimeout(portReadyToastTimer);

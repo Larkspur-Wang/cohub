@@ -10,6 +10,18 @@ export type NewChatBackgroundConfig = {
 	position: string;
 };
 
+export type NewChatComposerApplyPayload = {
+	prompt?: string;
+	model?: {
+		provider: string;
+		id: string;
+	};
+	images?: Array<{
+		url: string;
+		name?: string;
+	}>;
+};
+
 export type SpaceConfig = {
 	ui?: {
 		newChat?: {
@@ -19,10 +31,14 @@ export type SpaceConfig = {
 };
 
 type SpaceConfigListener = (config: SpaceConfig | null) => void;
+export type NewChatBackgroundActionListener = (
+	action: NewChatComposerApplyPayload,
+) => void;
 
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRYABLE_ERROR_DELAY_MS = 1200;
 const listeners = new Set<SpaceConfigListener>();
+const backgroundActionListeners = new Set<NewChatBackgroundActionListener>();
 
 let activeSpaceId: string | null = null;
 let activeVersion = 0;
@@ -185,6 +201,19 @@ export function subscribeSpaceConfig(listener: SpaceConfigListener) {
 	listeners.add(listener);
 	listener(activeConfig);
 	return () => listeners.delete(listener);
+}
+
+export function emitSpaceConfigBackgroundAction(
+	action: NewChatComposerApplyPayload,
+) {
+	for (const listener of backgroundActionListeners) listener(action);
+}
+
+export function subscribeSpaceConfigBackgroundAction(
+	listener: NewChatBackgroundActionListener,
+) {
+	backgroundActionListeners.add(listener);
+	return () => backgroundActionListeners.delete(listener);
 }
 
 export function isSpaceConfigPath(path: string | null | undefined) {
