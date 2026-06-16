@@ -3,6 +3,7 @@ export { BillingApi } from "./apis/billing.js";
 export { CohubClient, createCohubClient } from "./client.js";
 export { WebsocketClient, createWebsocketClient } from "./websocket.js";
 export { VoiceApi, VoiceInputClient, createVoiceInputClient } from "./voice-input.js";
+export { UsersApi } from "./apis/users.js";
 export { WorksApi } from "./apis/works.js";
 export { WorkRuntimeApi, createWorkRuntime } from "./work-runtime.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";

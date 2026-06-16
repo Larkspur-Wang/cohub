@@ -11,6 +11,7 @@ import { SearchApi } from "./apis/search.js";
 import { SpaceClient, SpacesApi, type WebSocketConnectionState } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
+import { UsersApi } from "./apis/users.js";
 import { WorksApi } from "./apis/works.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
@@ -25,6 +26,7 @@ export class CohubClient {
   readonly channels: ChannelsApi;
   readonly billing: BillingApi;
   readonly user: UserApi;
+  readonly users: UsersApi;
   readonly generations: GenerationsApi;
   readonly models: ModelsApi;
   readonly prompts: PromptsApi;
@@ -73,6 +75,7 @@ export class CohubClient {
       options.setStoredAuthToken,
       options.clearStoredAuthToken,
     );
+    this.users = new UsersApi(this.transport);
     this.generations = new GenerationsApi(this.transport);
     this.models = new ModelsApi(this.transport);
     this.prompts = new PromptsApi(this.transport);

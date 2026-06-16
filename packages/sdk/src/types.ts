@@ -42,6 +42,18 @@ export type UserProfile = {
   syncedAt?: string;
 };
 
+export type PublicUserProfile = {
+  userUuid: string;
+  username: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
+export type BatchUserProfilesResponse = {
+  profiles: Record<string, PublicUserProfile>;
+  missingUserUuids: string[];
+};
+
 export type MeResponse = {
   uuid: string;
   profile: UserProfile;
