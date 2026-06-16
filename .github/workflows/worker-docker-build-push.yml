@@ -108,7 +108,7 @@ jobs:
           context: .
           file: ./apps/worker/Dockerfile
           cache-from: type=gha,scope=worker-build
-          cache-to: type=gha,mode=min,scope=worker-build
+          cache-to: type=gha,mode=max,scope=worker-build
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

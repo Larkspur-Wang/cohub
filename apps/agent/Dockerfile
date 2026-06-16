@@ -78,8 +78,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     | tar xz --wildcards -C /usr/local/bin --strip-components=1 '*/rg' \
   && chmod +x /usr/local/bin/fd /usr/local/bin/rg
 
-COPY --from=builder /prod/agent ./
-RUN mkdir -p "$WORKSPACE_ROOT" "$SESSIONS_DIR" && chown -R node:node "$WORKSPACE_ROOT" "$SESSIONS_DIR" /app
+COPY --from=builder --chown=node:node /prod/agent ./
+RUN mkdir -p "$WORKSPACE_ROOT" "$SESSIONS_DIR" && chown -R node:node "$WORKSPACE_ROOT" "$SESSIONS_DIR"
 
 USER node
 CMD ["node", "dist/index.js"]

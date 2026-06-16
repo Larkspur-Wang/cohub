@@ -130,7 +130,7 @@ jobs:
           context: ./apps/sandbox
           file: ./apps/sandbox/Dockerfile
           cache-from: type=gha,scope=sandbox-build
-          cache-to: type=gha,mode=min,scope=sandbox-build
+          cache-to: type=gha,mode=max,scope=sandbox-build
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

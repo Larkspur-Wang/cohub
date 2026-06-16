@@ -99,7 +99,7 @@ jobs:
           context: .
           file: ./apps/gateway/Dockerfile
           cache-from: type=gha,scope=gateway-build
-          cache-to: type=gha,mode=min,scope=gateway-build
+          cache-to: type=gha,mode=max,scope=gateway-build
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
