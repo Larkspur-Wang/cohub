@@ -157,6 +157,7 @@ function formatScopeLabel(scope: string) {
 		"session.prompt.readonly": "Prompt read-only",
 		"session.prompt.fullaccess": "Prompt full access",
 		"generation.create": "Create generations",
+		"file.view": "View files",
 		"taskrun.view": "View task runs",
 	};
 	return labels[scope] ?? scope;
@@ -169,6 +170,7 @@ function formatScopeDescription(scope: string) {
 		"session.prompt.fullaccess":
 			"Send prompts and act in the session with your approval.",
 		"generation.create": "Start image, video, or other generation tasks.",
+		"file.view": "Read files in this space.",
 		"taskrun.view": "View task progress and results in this space.",
 	};
 	return (

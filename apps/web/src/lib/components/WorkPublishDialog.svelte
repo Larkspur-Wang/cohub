@@ -48,6 +48,7 @@ let initializedTargetRef = $state("");
 const workScopes = $state<Record<string, boolean>>({
 	"space.view": true,
 	"session.view": false,
+	"file.view": false,
 	"taskrun.view": false,
 });
 const allowedViewerScopes = $state<Record<string, boolean>>({
@@ -244,6 +245,7 @@ async function copyUrl() {
 					<div class="section-label">Work can</div>
 					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["space.view"]} /> View space</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["session.view"]} /> View sessions</label>
+					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["file.view"]} /> View files</label>
 					<label class="permission-row"><input type="checkbox" bind:checked={workScopes["taskrun.view"]} /> View task runs</label>
 				</div>
 				<div>
