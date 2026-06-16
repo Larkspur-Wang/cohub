@@ -7,6 +7,7 @@ import { page } from "$app/state";
 import { signInWithRedirectPath } from "$lib/auth";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
+import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 
 type PlanInterval = "monthly" | "yearly";
 
@@ -143,10 +144,10 @@ function isFree(product: BillingCatalogProduct): boolean {
 }
 
 async function loadCatalog() {
-	catalogLoading = true;
+	catalogLoading = !billingCatalogStore.catalog;
 	try {
 		catalogError = "";
-		const { catalog } = await sdk.billing.getCatalog();
+		const catalog = await billingCatalogStore.load();
 		if (!catalog.billing.configured) {
 			catalogError = "Pricing is not available yet.";
 			return;

@@ -23,6 +23,7 @@ import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { sdk } from "$lib/sdk";
+import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
@@ -462,8 +463,7 @@ async function loadCatalog(options: { force?: boolean } = {}) {
 			return;
 		}
 		try {
-			const { catalog } = await sdk.billing.getCatalog();
-			billingCatalog = catalog;
+			billingCatalog = await billingCatalogStore.load({ force: options.force });
 		} catch (error) {
 			if (
 				await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)

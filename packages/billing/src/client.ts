@@ -51,6 +51,7 @@ import {
   type BillingFeatureLimitInput,
   type BillingHistoryListInput,
   type BillingOperations,
+  type BillingPaymentStatus,
   type BillingPluginStatus,
   type BillingRedemptionInput,
   type BillingRedemptionResult,
@@ -75,7 +76,7 @@ export type BillingRuntimeConfig = {
   talesofaiBillingAdminApiKey?: string;
 };
 
-export type BillingRedisClient = Pick<Redis, "set" | "eval">;
+export type BillingRedisClient = Pick<Redis, "get" | "set" | "eval">;
 
 let runtimeConfig: BillingRuntimeConfig = {};
 let checkoutLockRedis: BillingRedisClient | null = null;
@@ -126,6 +127,7 @@ function createConfiguredSdk(input: BillingClientConfig) {
 type ConfiguredBillingSdk = ReturnType<typeof createConfiguredSdk>;
 
 const ENSURE_CUSTOMER_CACHE_TTL_MS = 5 * 60 * 1000;
+const BILLING_STATIC_CATALOG_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const CHECKOUT_LOCK_TTL_MS = 30_000;
 const CHECKOUT_LOCK_RETRY_DELAY_MS = 250;
 const CHECKOUT_LOCK_RETRY_COUNT = 24;
@@ -1129,7 +1131,7 @@ function isSubscriptionExpiredAfterCancel(
   return !Number.isNaN(currentPeriodEnd) && currentPeriodEnd <= now.getTime();
 }
 
-async function resolvePaymentStatus(sdk: ConfiguredBillingSdk) {
+async function resolvePaymentStatus(sdk: ConfiguredBillingSdk): Promise<BillingPaymentStatus> {
   try {
     const response = await sdk.admin.providers.status();
     if (response.status !== "available" || !response.checkout_available) {
@@ -1151,6 +1153,46 @@ async function resolvePaymentStatus(sdk: ConfiguredBillingSdk) {
           : "Provider status query failed",
     };
   }
+}
+
+type BillingStaticCatalogCache = {
+  publicProducts: Product[];
+  creditBenefits: CreditsBenefit[];
+  defaultPlanProduct: Product | null;
+  payment: BillingPaymentStatus;
+};
+
+async function readBillingCache<T>(key: string): Promise<T | null> {
+  const redis = checkoutLockRedis;
+  if (!redis) return null;
+  try {
+    const raw = await redis.get(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeBillingCache<T>(key: string, value: T, ttlSeconds: number) {
+  const redis = checkoutLockRedis;
+  if (!redis) return;
+  try {
+    await redis.set(key, JSON.stringify(value), "EX", ttlSeconds);
+  } catch {
+    // Billing must keep working when Redis is unavailable.
+  }
+}
+
+async function getBillingCache<T>(
+  key: string,
+  ttlSeconds: number,
+  load: () => Promise<T>,
+): Promise<T> {
+  const cached = await readBillingCache<T>(key);
+  if (cached !== null) return cached;
+  const value = await load();
+  await writeBillingCache(key, value, ttlSeconds);
+  return value;
 }
 
 function checkoutResultFromOrder(input: {
@@ -1900,24 +1942,34 @@ export function createTalesofaiBillingOperations(
     ).filter((subscription) => !isSubscriptionExpiredAfterCancel(subscription));
   };
 
+  const getStaticCatalog = async (): Promise<BillingStaticCatalogCache> =>
+    getBillingCache(
+      `billing:catalog:static:${businessKey}:v1`,
+      BILLING_STATIC_CATALOG_CACHE_TTL_SECONDS,
+      async () => {
+        const [publicProducts, creditBenefits, defaultPlanProduct, payment] = await Promise.all([
+          listPublicProducts(),
+          listActiveCreditsBenefits(),
+          getDefaultPlanProduct(),
+          resolvePaymentStatus(sdk),
+        ]);
+        return { publicProducts, creditBenefits, defaultPlanProduct, payment };
+      },
+    );
+
   const getCatalog = async (input?: BillingUserRef): Promise<BillingCatalog> => {
     const userId = input?.userId ?? "anonymous";
     if (input?.userId) await ensureCustomer({ userId: input.userId });
     const [
-      publicProducts,
-      payment,
+      staticCatalog,
       currentSubscriptions,
       blockingSubscriptions,
-      creditBenefits,
-      defaultPlanProduct,
     ] = await Promise.all([
-      listPublicProducts(),
-      resolvePaymentStatus(sdk),
+      getStaticCatalog(),
       input?.userId ? listCurrentSubscriptions(input.userId) : Promise.resolve([]),
       input?.userId ? listBlockingSubscriptions(input.userId) : Promise.resolve([]),
-      listActiveCreditsBenefits(),
-      getDefaultPlanProduct(),
     ]);
+    const { publicProducts, creditBenefits, defaultPlanProduct, payment } = staticCatalog;
     const hasActiveSubscription = blockingSubscriptions.some((subscription) =>
       BILLING_BLOCKING_SUBSCRIPTION_STATUSES.includes(
         subscription.status as (typeof BILLING_BLOCKING_SUBSCRIPTION_STATUSES)[number],

@@ -89,8 +89,10 @@ import {
 	buildSpaceSessionRoute,
 	buildSpaceSettingsRoute,
 	buildSpaceTaskRoute,
+	buildSpaceWorkRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
+import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";

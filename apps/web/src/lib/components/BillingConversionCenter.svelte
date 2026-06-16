@@ -6,19 +6,19 @@ import type {
 } from "@neta-art/cohub";
 import { AlertCircle, Check, CreditCard, Loader2, X } from "lucide-svelte";
 import { sdk } from "$lib/sdk";
+import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 
 type PlanInterval = "monthly" | "yearly";
 
 let catalog = $state<BillingCatalog | null>(null);
-let loading = $state(false);
+let catalogRefreshing = $state(false);
 let error = $state("");
 let busyKey = $state<string | null>(null);
 let checkoutError = $state("");
 let credit = $state<BillingCreditStatus | null>(null);
 let creditLoading = $state(false);
 let creditError = $state("");
-let loadedOnce = false;
 let wasOpen = false;
 let selectedPlanInterval = $state<PlanInterval>("monthly");
 
@@ -241,20 +241,21 @@ async function loadCreditStatus(options: { force?: boolean } = {}) {
 }
 
 async function loadCatalog(options: { force?: boolean } = {}) {
-	if (loading && !options.force) return;
-	loading = true;
+	catalog = billingCatalogStore.catalog;
+	catalogRefreshing = true;
 	error = "";
 	try {
-		const result = await sdk.billing.getCatalog();
-		catalog = result.catalog;
-		loadedOnce = true;
+		catalog = await billingCatalogStore.load({
+			force: options.force,
+			silent: !!catalog,
+		});
 	} catch (loadError) {
 		error =
 			loadError instanceof Error
 				? loadError.message
 				: "Failed to load billing options";
 	} finally {
-		loading = false;
+		catalogRefreshing = false;
 	}
 }
 
@@ -332,7 +333,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 					{/if}
 				</div>
 
-				{#if loading}
+				{#if catalogRefreshing && !catalog}
 					<div class="flex items-center gap-2 py-8 text-[13px] text-text-secondary"><Loader2 class="h-4 w-4 animate-spin" /> Loading billing options</div>
 				{:else if error}
 					<div class="rounded-[8px] border border-border-subtle bg-bg-secondary p-4">
