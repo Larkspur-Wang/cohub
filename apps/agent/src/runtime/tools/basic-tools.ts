@@ -138,6 +138,8 @@ export type GrepToolDetails = {
   truncation?: unknown;
   matchLimitReached?: number;
   linesTruncated?: boolean;
+  outputLimitReached?: boolean;
+  partial?: boolean;
 };
 
 function resolveToCwd(path: string, cwd: string): string {

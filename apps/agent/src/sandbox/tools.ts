@@ -690,7 +690,7 @@ function createRemoteLsOperations(): LsOperations {
 }
 
 const FD_FIND_TIMEOUT_SECS = 30;
-const FD_FIND_MAX_STDOUT_BYTES = DEFAULT_MAX_BYTES * 4;
+const FD_FIND_MAX_STDOUT_BYTES = DEFAULT_MAX_BYTES * 8;
 const FD_FIND_MAX_STDERR_BYTES = 8 * 1024;
 const FD_FIND_OUTPUT_LIMIT_MESSAGE = "Find output limit reached. Refine pattern or path.";
 
@@ -858,7 +858,7 @@ function createRemoteFindOperations(): FindOperations {
             updates.flush();
 
             if (aborted || toolCtx?.abortSignal?.aborted) return { matches, note: "Operation aborted." };
-            if (stdoutLimitReached) throw new Error(FD_FIND_OUTPUT_LIMIT_MESSAGE);
+            if (stdoutLimitReached) return { matches, note: FD_FIND_OUTPUT_LIMIT_MESSAGE, details: { outputLimitReached: true, partial: true } };
 
             const termination = result.termination;
             if (termination && termination.reason !== "exited") {
@@ -910,7 +910,7 @@ function createRemoteFindOperations(): FindOperations {
 }
 
 const RG_GREP_TIMEOUT_SECS = 30;
-const RG_GREP_MAX_STDOUT_BYTES = DEFAULT_MAX_BYTES * 4;
+const RG_GREP_MAX_STDOUT_BYTES = DEFAULT_MAX_BYTES * 8;
 const RG_GREP_MAX_STDERR_BYTES = 8 * 1024;
 const RG_GREP_OUTPUT_LIMIT_MESSAGE = "Grep output limit reached. Refine pattern, path, or glob.";
 
@@ -1114,7 +1114,7 @@ function createRemoteGrepTool() {
             const partialText = partial.content[0]?.type === "text" ? partial.content[0].text : "";
             return {
               content: [{ type: "text" as const, text: partialText && partialText !== "No matches found" ? `${partialText}\n\n[${RG_GREP_OUTPUT_LIMIT_MESSAGE}]` : RG_GREP_OUTPUT_LIMIT_MESSAGE }],
-              details: createToolFailure(RG_GREP_OUTPUT_LIMIT_MESSAGE, { outputTail: partialText && partialText !== "No matches found" ? partialText : undefined }),
+              details: { ...(partial.details ?? {}), outputLimitReached: true, partial: true },
             };
           }
 
