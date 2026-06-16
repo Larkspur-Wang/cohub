@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.27.1
+
+### Patch Changes
+
+- Release the SDK with the latest updates.
+
 ## 1.27.0
 
 ### Minor Changes
