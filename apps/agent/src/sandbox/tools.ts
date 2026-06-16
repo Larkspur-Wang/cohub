@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   createBashTool,
   createToolFailure,
+  createThrottledTextToolUpdate,
   DEFAULT_MAX_BYTES,
   createEditTool,
   createFindTool,
@@ -717,13 +718,6 @@ function buildFdFindArgv(input: { pattern: string; path: string; limit: number; 
   return argv;
 }
 
-function splitNonEmptyLines(output: string) {
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 function formatFdFindPath(filePath: string, searchPath: string) {
   const file = toPosixPath(filePath).replace(/\/$/, "");
   const search = toPosixPath(searchPath).replace(/\/$/, "");
@@ -765,11 +759,16 @@ function createRemoteFindOperations(): FindOperations {
         const connection = await getCurrentConnection();
         if (connection.capabilities?.processStartArgv) {
           const argv = buildFdFindArgv({ pattern, path, limit: options.limit, ignore: options.ignore });
-          const stdoutChunks: string[] = [];
           const stderrChunks: string[] = [];
+          const matches: string[] = [];
+          const updates = createThrottledTextToolUpdate(options.onUpdate, { maxChars: DEFAULT_MAX_BYTES });
+          const baseRelative = sandboxWorkspaceRelativePath(path);
+          const filter = await createCurrentWorkspaceVisibilityFilter(undefined, baseRelative ?? "");
+          let lineBuffer = "";
           let stdoutBytes = 0;
           let stderrBytes = 0;
           let stdoutLimitReached = false;
+          let aborted = false;
           let activeProcessId: string | null = null;
           let abortSent = false;
           const rpcContext = captureToolRpcContext({ toolCallId });
@@ -780,7 +779,25 @@ function createRemoteFindOperations(): FindOperations {
             logger.info(`[Tool:find] abort requested processId=${processId} turnId=${rpcContext.turnId ?? ""} toolCallId=${toolCallId}`);
             void tracedRpcAbortProcess(connection, processId, rpcContext);
           };
+          const pushMatch = (rawMatch: string) => {
+            const trimmed = rawMatch.trim();
+            if (!trimmed || matches.length >= options.limit) return;
+            const match = formatFdFindPath(trimmed, path);
+            if (baseRelative != null) {
+              const relativePath = match === "." ? baseRelative : baseRelative ? `${baseRelative}/${match}` : match;
+              if (!filter.isVisible(relativePath)) return;
+            }
+            matches.push(match);
+            updates.push(matches.join("\n"));
+          };
+          const consumeStdout = (chunk: string) => {
+            lineBuffer += chunk;
+            const lines = lineBuffer.split("\n");
+            lineBuffer = lines.pop() ?? "";
+            for (const line of lines) pushMatch(line);
+          };
           const onAbort = () => {
+            aborted = true;
             if (activeProcessId) abortProcess(activeProcessId);
           };
           if (toolCtx?.abortSignal) {
@@ -822,7 +839,7 @@ function createRemoteFindOperations(): FindOperations {
                       if (activeProcessId) abortProcess(activeProcessId);
                       return;
                     }
-                    stdoutChunks.push(event.chunk);
+                    consumeStdout(event.chunk);
                     return;
                   }
 
@@ -834,11 +851,18 @@ function createRemoteFindOperations(): FindOperations {
               },
             );
 
-            if (toolCtx?.abortSignal?.aborted) throw new Error("Operation aborted");
+            if (lineBuffer) {
+              pushMatch(lineBuffer);
+              lineBuffer = "";
+            }
+            updates.flush();
+
+            if (aborted || toolCtx?.abortSignal?.aborted) return { matches, note: "Operation aborted." };
             if (stdoutLimitReached) throw new Error(FD_FIND_OUTPUT_LIMIT_MESSAGE);
 
             const termination = result.termination;
             if (termination && termination.reason !== "exited") {
+              if (termination.reason === "aborted") return { matches, note: termination.message ?? "Operation aborted." };
               throw new Error(termination.message || `fd ${termination.reason}`);
             }
             if (result.exitCode == null) throw new Error("fd exited without an exit code");
@@ -846,16 +870,7 @@ function createRemoteFindOperations(): FindOperations {
             const stderr = stderrChunks.join("").trim();
             if (exitCode !== 0) throw new Error(stderr || `fd exited with code ${exitCode}`);
 
-            const matches = splitNonEmptyLines(stdoutChunks.join(""))
-              .map((match) => formatFdFindPath(match, path))
-              .slice(0, options.limit);
-            const baseRelative = sandboxWorkspaceRelativePath(path);
-            const filter = await createCurrentWorkspaceVisibilityFilter(undefined, baseRelative ?? "");
-            return matches.filter((match) => {
-              if (baseRelative == null) return true;
-              const relativePath = match === "." ? baseRelative : baseRelative ? `${baseRelative}/${match}` : match;
-              return filter.isVisible(relativePath);
-            });
+            return matches;
           } finally {
             if (toolCtx?.abortSignal) toolCtx.abortSignal.removeEventListener("abort", onAbort);
             for (const unregister of unregisterProcessAborts) unregister();
@@ -922,13 +937,6 @@ function buildRgGrepArgv(input: GrepToolInput, searchPath: string) {
   return argv;
 }
 
-function splitRgJsonLines(output: string) {
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
 function isRgNoMatchOutput(lines: string[]) {
   if (lines.length === 0) return true;
   return lines.every((line) => {
@@ -958,7 +966,7 @@ function createRemoteGrepTool() {
     _toolCallId,
     input,
     signal?: AbortSignal,
-    _onUpdate?,
+    onUpdate?,
     _ctx?: unknown,
   ) => {
     const grepInput = input as GrepToolInput;
@@ -1013,12 +1021,32 @@ function createRemoteGrepTool() {
       }
       try {
         if (connection.capabilities?.processStartArgv) {
-          const stdoutChunks: string[] = [];
+          const lines: string[] = [];
           const stderrChunks: string[] = [];
+          const updates = createThrottledTextToolUpdate(onUpdate, { maxChars: DEFAULT_MAX_BYTES });
+          let lineBuffer = "";
           let stdoutBytes = 0;
           let stderrBytes = 0;
           let stdoutLimitReached = false;
           const argv = buildRgGrepArgv(grepInput, searchPath);
+          const emitPartial = () => {
+            const partial = formatRgJsonGrepResult({ lines: lines.slice(0, effectiveLimit), searchPath: grepInput.path, limit: effectiveLimit });
+            const partialText = partial.content[0]?.type === "text" ? partial.content[0].text : "";
+            if (partialText && partialText !== "No matches found") updates.push(partialText);
+          };
+          const consumeStdout = (chunk: string) => {
+            lineBuffer += chunk;
+            const completeLines = lineBuffer.split("\n");
+            lineBuffer = completeLines.pop() ?? "";
+            let changed = false;
+            for (const line of completeLines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              lines.push(trimmed);
+              changed = true;
+            }
+            if (changed) emitPartial();
+          };
 
           const result = await tracedRpc(
             connection,
@@ -1053,7 +1081,7 @@ function createRemoteGrepTool() {
                     abortProcess(activeProcessId);
                     return;
                   }
-                  stdoutChunks.push(event.chunk);
+                  consumeStdout(event.chunk);
                   return;
                 }
 
@@ -1065,9 +1093,22 @@ function createRemoteGrepTool() {
             },
           );
 
-          if (aborted) throw new Error("Operation aborted");
+          if (lineBuffer.trim()) {
+            lines.push(lineBuffer.trim());
+            lineBuffer = "";
+            emitPartial();
+          }
+          updates.flush();
 
-          const lines = splitRgJsonLines(stdoutChunks.join(""));
+          if (aborted) {
+            const partial = formatRgJsonGrepResult({ lines: lines.slice(0, effectiveLimit), searchPath: grepInput.path, limit: effectiveLimit });
+            const partialText = partial.content[0]?.type === "text" ? partial.content[0].text : "";
+            return {
+              content: [{ type: "text" as const, text: partialText && partialText !== "No matches found" ? `${partialText}\n\n[Operation aborted.]` : "[Operation aborted.]" }],
+              details: { ...(partial.details ?? {}), termination: { reason: "aborted", exitCode: null, message: "Operation aborted." } },
+            };
+          }
+
           if (stdoutLimitReached) {
             const partial = formatRgJsonGrepResult({ lines: lines.slice(0, effectiveLimit), searchPath: grepInput.path, limit: effectiveLimit });
             const partialText = partial.content[0]?.type === "text" ? partial.content[0].text : "";
@@ -1126,7 +1167,12 @@ function createRemoteGrepTool() {
         );
 
         if (aborted) {
-          throw new Error("Operation aborted");
+          const partial = formatRgJsonGrepResult({ lines: result.lines, searchPath: grepInput.path, limit: effectiveLimit });
+          const partialText = partial.content[0]?.type === "text" ? partial.content[0].text : "";
+          return {
+            content: [{ type: "text" as const, text: partialText && partialText !== "No matches found" ? `${partialText}\n\n[Operation aborted.]` : "[Operation aborted.]" }],
+            details: { ...(partial.details ?? {}), termination: { reason: "aborted", exitCode: null, message: "Operation aborted." } },
+          };
         }
 
         return formatRgJsonGrepResult({ lines: result.lines, searchPath: grepInput.path, limit: effectiveLimit });

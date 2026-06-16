@@ -2,6 +2,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { MAX_RUN_COMMAND_TIMEOUT_SECONDS } from "@cohub/core/commands";
 import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./truncate.js";
+import { createThrottledTextToolUpdate, tailText } from "./tool-stream-update.js";
 
 export interface ReadOperations {
   readFile: (absolutePath: string) => Promise<Buffer>;
@@ -96,11 +97,6 @@ export interface BashOperations {
   startBackground?: (input: BashBackgroundRequest) => Promise<{ taskRunId: string }>;
 }
 
-function tailOutput(content: string, maxChars = 900) {
-  if (content.length <= maxChars) return content;
-  return `…${content.slice(-maxChars)}`;
-}
-
 function normalizeBashTermination(result: { exitCode: number | null; termination?: BashTermination }): BashTermination {
   return result.termination ?? { reason: "exited", exitCode: result.exitCode };
 }
@@ -115,61 +111,17 @@ function formatBashTerminationNote(termination: BashTermination) {
   return "";
 }
 
-function createThrottledToolUpdate(onUpdate?: AgentToolUpdateCallback<unknown>) {
-  let lastSentAt = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let pendingText = "";
-  let lastSentText = "";
-
-  const emit = () => {
-    if (!onUpdate || !pendingText || pendingText === lastSentText) return;
-    lastSentAt = Date.now();
-    lastSentText = pendingText;
-    onUpdate({
-      content: [{ type: "text", text: tailOutput(pendingText) }],
-      details: { partial: true },
-    });
-  };
-
-  return {
-    push(text: string) {
-      pendingText = text;
-      if (!onUpdate) return;
-      const elapsed = Date.now() - lastSentAt;
-      if (elapsed >= 250) {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        emit();
-        return;
-      }
-      if (!timer) {
-        timer = setTimeout(() => {
-          timer = null;
-          emit();
-        }, 250 - elapsed);
-      }
-    },
-    flush() {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-      emit();
-    },
-  };
-}
-
 export interface LsOperations {
   exists: (absolutePath: string) => Promise<boolean>;
   stat: (absolutePath: string) => Promise<{ isDirectory: () => boolean }>;
   readdir: (absolutePath: string) => Promise<string[]>;
 }
 
+export type FindGlobResult = string[] | { matches: string[]; note?: string; details?: unknown };
+
 export interface FindOperations {
   exists: (absolutePath: string) => Promise<boolean>;
-  glob: (pattern: string, cwd: string, options: { limit: number; ignore?: string[] }) => Promise<string[]>;
+  glob: (pattern: string, cwd: string, options: { limit: number; ignore?: string[]; onUpdate?: AgentToolUpdateCallback<unknown> }) => Promise<FindGlobResult>;
 }
 
 export type GrepToolInput = {
@@ -353,13 +305,13 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
 
       const chunks: Buffer[] = [];
       let outputPreview = "";
-      const updates = createThrottledToolUpdate(onUpdate);
+      const updates = createThrottledTextToolUpdate(onUpdate);
       const result = await options.operations.exec({
         command: params.command,
         cwd,
         onData: (chunk) => {
           chunks.push(chunk);
-          outputPreview = tailOutput(`${outputPreview}${chunk.toString("utf-8")}`);
+          outputPreview = tailText(`${outputPreview}${chunk.toString("utf-8")}`);
           updates.push(outputPreview);
         },
         signal,
@@ -422,13 +374,18 @@ export function createFindTool(cwd: string, options: { operations: FindOperation
     label: "find",
     description: "Search for files by glob pattern. Respects .gitignore.",
     parameters,
-    async execute(_toolCallId, rawParams) {
+    async execute(_toolCallId, rawParams, _signal, onUpdate) {
       const params = rawParams as Static<typeof parameters>;
       const absolutePath = resolveToCwd(params.path || ".", cwd);
-      const matches = await options.operations.glob(params.pattern, absolutePath, { limit: params.limit ?? 1000 });
+      const result = await options.operations.glob(params.pattern, absolutePath, { limit: params.limit ?? 1000, onUpdate });
+      const matches = Array.isArray(result) ? result : result.matches;
+      const output = matches.join("\n");
+      const text = !Array.isArray(result) && result.note
+        ? output ? `${output}\n\n[${result.note}]` : `[${result.note}]`
+        : output;
       return {
-        content: [{ type: "text", text: matches.join("\n") }],
-        details: undefined,
+        content: [{ type: "text", text }],
+        details: Array.isArray(result) ? undefined : result.details,
       };
     },
   };

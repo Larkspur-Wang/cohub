@@ -9,6 +9,11 @@ export {
 } from "./truncate.js";
 
 export {
+  createThrottledTextToolUpdate,
+  tailText,
+} from "./tool-stream-update.js";
+
+export {
   createToolFailure,
   isToolFailureDetails,
   createBashTool,
@@ -21,6 +26,7 @@ export {
   type BashOperations,
   type BashExecutionResult,
   type EditOperations,
+  type FindGlobResult,
   type FindOperations,
   type GrepToolDetails,
   type GrepToolInput,
