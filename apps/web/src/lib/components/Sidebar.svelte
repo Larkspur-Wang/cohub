@@ -2186,9 +2186,17 @@ onMount(() => {
 	}
 
 	function handleClickOutside(e: MouseEvent) {
-		const target = e.target as HTMLElement;
+		const target = e.target;
+		if (!(target instanceof Element)) return;
 		if (!target.closest("[data-user-menu]")) {
 			showUserMenu = false;
+		}
+		if (
+			renamingSessionId &&
+			!renameSaving &&
+			!target.closest("[data-session-rename]")
+		) {
+			cancelRenameSession();
 		}
 	}
 	document.addEventListener("click", handleClickOutside);
@@ -3039,7 +3047,7 @@ $effect(() => {
 
                   {#if isRenaming}
                     <!-- Inline rename input -->
-                    <div class="flex items-center gap-1 px-1.5 py-1 rounded-[6px] bg-bg-active">
+                    <div class="flex items-center gap-1 px-1.5 py-1 rounded-[6px] bg-bg-active" data-session-rename>
                       <input
                         bind:this={renameInputElement}
                         bind:value={renameTitleValue}
@@ -3147,7 +3155,7 @@ $effect(() => {
           {:else if activeSession}
             {@const isRenamingActive = renamingSessionId === activeSession.id}
             {#if isRenamingActive}
-              <div class="flex items-center gap-1 px-1.5 py-1 mt-1 rounded-[6px] bg-bg-active">
+              <div class="flex items-center gap-1 px-1.5 py-1 mt-1 rounded-[6px] bg-bg-active" data-session-rename>
                 <input
                   bind:this={renameInputElement}
                   bind:value={renameTitleValue}
