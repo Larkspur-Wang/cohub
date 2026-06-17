@@ -25,7 +25,9 @@ import {
 	type SpaceAccessPolicy,
 	type SpaceFsEntry,
 	type SpaceFsFileResponse,
+	type SpaceMember,
 	type SpaceRecord,
+	type SpaceUsageResponse,
 	type TaskRunRecord,
 	type UserProfile,
 	type WorkRecord,
@@ -368,6 +370,10 @@ const isRightDrawerVisible = $derived(
 );
 let space = $state<SpaceRecord | null>(null);
 let spaceConfig = $state<SpaceConfig | null>(null);
+let spaceMembers = $state<SpaceMember[]>([]);
+let spaceMembersLoadedFor = $state<string | null>(null);
+let spaceUsage = $state<SpaceUsageResponse | null>(null);
+let spaceUsageLoadedFor = $state<string | null>(null);
 function hasAccessPermission(permission: Permission): boolean {
 	return space?.access?.permissions.includes(permission) === true;
 }
@@ -2045,6 +2051,21 @@ const shouldShowNewChatBackground = $derived(
 			(activeSessionState?.turns.length ?? 0) === 0,
 	),
 );
+const shouldShowNewChatProfile = $derived(
+	Boolean(
+		isNewSessionRoute &&
+			!activeSessionId &&
+			(activeSessionState?.turns.length ?? 0) === 0 &&
+			!shouldShowNewChatBackground,
+	),
+);
+$effect(() => {
+	if (!shouldShowNewChatProfile || !space) return;
+	untrack(() => {
+		if (spaceMembersLoadedFor !== spaceId) void loadSpaceMembers(spaceId);
+		if (spaceUsageLoadedFor !== spaceId) void loadSpaceUsage(spaceId);
+	});
+});
 const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 	if (!activeSessionId) return [];
 	return [
@@ -3509,6 +3530,32 @@ async function loadSpace() {
 	}
 }
 
+async function loadSpaceMembers(currentSpaceId = spaceId) {
+	try {
+		const result = await sdk.space(currentSpaceId).members.list();
+		if (spaceId !== currentSpaceId) return;
+		spaceMembers = result.items;
+		spaceMembersLoadedFor = currentSpaceId;
+	} catch {
+		if (spaceId !== currentSpaceId) return;
+		spaceMembers = [];
+		spaceMembersLoadedFor = currentSpaceId;
+	}
+}
+
+async function loadSpaceUsage(currentSpaceId = spaceId) {
+	try {
+		const result = await sdk.space(currentSpaceId).usage.get(7);
+		if (spaceId !== currentSpaceId) return;
+		spaceUsage = result;
+		spaceUsageLoadedFor = currentSpaceId;
+	} catch {
+		if (spaceId !== currentSpaceId) return;
+		spaceUsage = null;
+		spaceUsageLoadedFor = currentSpaceId;
+	}
+}
+
 function withBootstrapCacheTimeout<T>(promise: Promise<T>): Promise<T | null> {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	return Promise.race([
@@ -3655,6 +3702,28 @@ function displayUserName(
 ): string {
 	return profile?.displayName?.trim() || fallbackUserName(userUuid);
 }
+function displayOwnerHandle(
+	profile: UserProfile | null | undefined,
+): string | null {
+	const username = profile?.username?.trim();
+	return username ? `@${username}` : null;
+}
+function spaceRoleRank(role: SpaceMember["role"]): number {
+	if (role === "host") return 0;
+	if (role === "builder") return 1;
+	return 2;
+}
+function sortedSpaceMembersForProfile(): SpaceMember[] {
+	return spaceMembers
+		.filter((member) => member.userId !== space?.userUuid)
+		.sort((a, b) => {
+			const roleDiff = spaceRoleRank(a.role) - spaceRoleRank(b.role);
+			if (roleDiff !== 0) return roleDiff;
+			return displayUserName(a.profile, a.userId).localeCompare(
+				displayUserName(b.profile, b.userId),
+			);
+		});
+}
 function userTitle(
 	profile: UserProfile | null | undefined,
 	userUuid: string | null | undefined,
@@ -3669,6 +3738,14 @@ function formatFileSize(bytes: number): string {
 	const i = Math.floor(Math.log(bytes) / Math.log(1024));
 	const value = bytes / 1024 ** i;
 	return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
+}
+function formatTokenCount(n: number): string {
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+	return String(n);
+}
+function formatUsageCost(n: number): string {
+	return `${n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4)}`;
 }
 // Image pan handlers
 function makeImagePanHandlers(
@@ -7856,6 +7933,10 @@ $effect(() => {
 	// Reset space-specific state
 	space = null;
 	spaceConfig = null;
+	spaceMembers = [];
+	spaceMembersLoadedFor = null;
+	spaceUsage = null;
+	spaceUsageLoadedFor = null;
 	spaceLoadError = "";
 	spaceSessions = [];
 	sessionStateById = {};
@@ -8518,6 +8599,81 @@ $effect(() => {
 			<Copy class="h-3 w-3 shrink-0" />
 		{/if}
 	</button>
+{/snippet}
+
+{#snippet NewChatSpaceProfile()}
+	{@const spaceName = space?.name || space?.title || spaceId}
+	{@const owner = space?.ownerProfile ?? null}
+	{@const sortedMembers = sortedSpaceMembersForProfile()}
+	<section class="pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(2.75rem,8dvh,4.5rem)] pb-5 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" aria-label="Space profile">
+		<div class="relative border-l border-border-subtle/60 pl-4 sm:pl-7">
+			<div class="absolute -left-px top-0 h-12 w-px bg-brand/70 sm:h-16"></div>
+			<div class="space-y-6 sm:space-y-7">
+				<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
+					<div class="flex items-start gap-3 sm:gap-4">
+						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="lg" loading="eager" class="mt-0.5 h-10 w-10 rounded-[12px] sm:mt-1 sm:h-12 sm:w-12 sm:rounded-[14px]" />
+						<div class="min-w-0 flex-1 pt-0.5">
+							<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+								<h1 class="min-w-0 max-w-full break-words text-[23px] font-semibold leading-[1.08] tracking-[-0.035em] text-text-primary sm:text-[34px]">{spaceName}</h1>
+								{#if space?.status}
+									<span class="inline-flex items-center rounded-full border border-border-subtle px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-text-placeholder sm:px-2 sm:text-[10px]">{space.status}</span>
+								{/if}
+							</div>
+							{#if space?.createdAt}
+								<div class="mt-2 font-mono text-[10px] text-text-placeholder sm:text-[11px]">Created {formatShortDateTime(space.createdAt)}</div>
+							{/if}
+						</div>
+					</div>
+					{#if space?.description}
+						<p class="max-w-[62ch] text-[14px] leading-7 text-text-secondary sm:text-[16px] sm:leading-8">{space.description}</p>
+					{/if}
+				</header>
+
+				{#if owner || space?.userUuid || sortedMembers.length > 0}
+					<section class="new-chat-profile-fragment max-w-[68ch]" style:animation-delay="55ms" aria-label="Space members">
+						<p class="flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-[13px] leading-7 text-text-tertiary sm:gap-x-2 sm:gap-y-2 sm:text-[14px]">
+							{#if owner || space?.userUuid}
+								<span>Created by</span>
+								<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(owner, space?.userUuid)}>
+									{#if owner?.avatarUrl}
+										<img src={owner.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
+									{:else}
+										<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-placeholder sm:h-5 sm:w-5">
+											<UserRound class="h-2.5 w-2.5 sm:h-3 sm:w-3" aria-hidden="true" />
+										</span>
+									{/if}
+									<span class="min-w-0 max-w-[9rem] truncate font-medium text-text-primary sm:max-w-none">{displayUserName(owner, space?.userUuid)}</span>
+								</span>
+							{/if}
+							{#if sortedMembers.length > 0}
+								<span>{owner || space?.userUuid ? 'with' : 'Members include'}</span>
+								{#each sortedMembers as member, index (member.userId)}
+									<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(member.profile, member.userId)}>
+										{#if member.profile.avatarUrl}
+											<img src={member.profile.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
+										{:else}
+											<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-placeholder sm:h-5 sm:w-5">
+												<UserRound class="h-2.5 w-2.5 sm:h-3 sm:w-3" aria-hidden="true" />
+											</span>
+										{/if}
+										<span class="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none">{displayUserName(member.profile, member.userId)}</span>
+									</span>{#if index < sortedMembers.length - 1}<span class="text-text-placeholder">·</span>{:else}<span>.</span>{/if}
+								{/each}
+							{:else}<span>.</span>{/if}
+						</p>
+					</section>
+				{/if}
+
+				{#if spaceUsage}
+					<section class="new-chat-profile-fragment max-w-[68ch]" style:animation-delay="90ms" aria-label="Space usage">
+						<p class="text-[13px] leading-7 text-text-tertiary sm:text-[14px]">
+							Over the last {spaceUsage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(spaceUsage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{spaceUsage.summary.requestCount}</span> requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(spaceUsage.summary.costTotal)}</span>.
+						</p>
+					</section>
+				{/if}
+			</div>
+		</div>
+	</section>
 {/snippet}
 
 <PageHeader>
@@ -9818,7 +9974,7 @@ $effect(() => {
     {#if createSessionError}
       <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
     {/if}
-    {#if bootstrapping && !activeSessionState}
+    {#if bootstrapping && !activeSessionState && !isNewSessionRoute}
       <CenteredLoading label="Loading space…" />
     {:else if !activeSessionState}
       <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
@@ -9847,6 +10003,10 @@ $effect(() => {
         {#if shouldShowNewChatBackground && newChatBackground}
           <NewChatBackground background={newChatBackground} />
           <div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
+        {:else if shouldShowNewChatProfile}
+          <div class="flex-1 min-h-0 overflow-y-auto">
+            {@render NewChatSpaceProfile()}
+          </div>
         {:else}
           <ChatTimeline
               bind:this={chatTimelineRef}
@@ -10651,6 +10811,27 @@ $effect(() => {
 {/if}
 
 <style>
+  @keyframes new-chat-profile-fragment-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .new-chat-profile-fragment {
+    animation: new-chat-profile-fragment-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .new-chat-profile-fragment {
+      animation: none;
+    }
+  }
+
   @keyframes cohub-scroll-to-bottom-in {
     from {
       opacity: 0;
