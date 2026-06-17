@@ -43,7 +43,7 @@ function buildModelDisplayName(
   const item = catalog.find((entry) => entry.provider === provider && entry.id === model)
     ?? catalog.filter((entry) => entry.id === model).at(0)
     ?? null;
-  return getCatalogModelName(item) || model;
+  return `${provider}/${getCatalogModelName(item) || model}`;
 }
 
 function toFiniteNumber(value: unknown, fallback = 0): number {

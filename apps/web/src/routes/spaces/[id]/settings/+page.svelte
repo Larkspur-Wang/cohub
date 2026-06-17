@@ -46,6 +46,7 @@ import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { validatePublicSlugInput } from "$lib/slug-rules";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
+import { invalidateCachedSpaceMembers } from "$lib/stores/space-profile-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 type SandboxInfo = {
@@ -709,6 +710,7 @@ async function addMember() {
 		await sdk
 			.space(spaceId)
 			.members.update(addingMemberUuid.trim(), addingMemberRole);
+		invalidateCachedSpaceMembers(spaceId);
 		addingMemberUuid = "";
 		await loadMembers();
 	} catch (err) {
@@ -774,6 +776,7 @@ async function updateMemberRole(userId: string, role: SpaceRole) {
 	addingMemberError = "";
 	try {
 		await sdk.space(spaceId).members.update(userId, role);
+		invalidateCachedSpaceMembers(spaceId);
 		await loadMembers();
 	} catch (err) {
 		addingMemberError =
@@ -790,6 +793,7 @@ async function removeMember(userId: string) {
 	addingMemberError = "";
 	try {
 		await sdk.space(spaceId).members.remove(userId);
+		invalidateCachedSpaceMembers(spaceId);
 		await loadMembers();
 	} catch (err) {
 		addingMemberError =

@@ -221,6 +221,12 @@ import {
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
+import {
+	fetchSpaceMembersWithCache,
+	fetchSpaceUsageWithCache,
+	getCachedSpaceMembers,
+	getCachedSpaceUsage,
+} from "$lib/stores/space-profile-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	getCachedTaskRuns,
@@ -3594,27 +3600,38 @@ async function loadSpace() {
 }
 
 async function loadSpaceMembers(currentSpaceId = spaceId) {
+	const cached = getCachedSpaceMembers(currentSpaceId);
+	if (cached && spaceId === currentSpaceId) {
+		spaceMembers = cached;
+		spaceMembersLoadedFor = currentSpaceId;
+	}
 	try {
-		const result = await sdk.space(currentSpaceId).members.list();
+		const members = await fetchSpaceMembersWithCache(currentSpaceId);
 		if (spaceId !== currentSpaceId) return;
-		spaceMembers = result.items;
+		spaceMembers = members;
 		spaceMembersLoadedFor = currentSpaceId;
 	} catch {
 		if (spaceId !== currentSpaceId) return;
-		spaceMembers = [];
+		if (!cached) spaceMembers = [];
 		spaceMembersLoadedFor = currentSpaceId;
 	}
 }
 
 async function loadSpaceUsage(currentSpaceId = spaceId) {
+	const days = 7;
+	const cached = getCachedSpaceUsage(currentSpaceId, days);
+	if (cached && spaceId === currentSpaceId) {
+		spaceUsage = cached;
+		spaceUsageLoadedFor = currentSpaceId;
+	}
 	try {
-		const result = await sdk.space(currentSpaceId).usage.get(7);
+		const result = await fetchSpaceUsageWithCache(currentSpaceId, days);
 		if (spaceId !== currentSpaceId) return;
 		spaceUsage = result;
 		spaceUsageLoadedFor = currentSpaceId;
 	} catch {
 		if (spaceId !== currentSpaceId) return;
-		spaceUsage = null;
+		if (!cached) spaceUsage = null;
 		spaceUsageLoadedFor = currentSpaceId;
 	}
 }
