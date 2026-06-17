@@ -8730,7 +8730,7 @@ $effect(() => {
 	{@const spaceName = space?.name || space?.title || "Untitled space"}
 	{@const owner = space?.ownerProfile ?? null}
 	{@const sortedMembers = sortedSpaceMembersForProfile()}
-	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
+	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-4xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-6 sm:pt-[clamp(2.25rem,7dvh,4.5rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
 		<div bind:this={newChatProfileContentEl} class="space-y-5 sm:space-y-7">
 			<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
 				<div class="flex items-start gap-3 sm:gap-4">
@@ -8788,7 +8788,7 @@ $effect(() => {
 											</span>
 										{/if}
 										<span class="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none">{displayUserName(member.profile, member.userId)}</span>
-									</span>{#if index < sortedMembers.length - 1}<span class="text-text-placeholder"> · </span>{:else}<span>. </span>{/if}
+									</span>{#if index < sortedMembers.length - 1}<span class="inline-block w-1.5 sm:w-2" aria-hidden="true"></span>{:else}<span>. </span>{/if}
 								{/each}
 							{:else}<span>. </span>{/if}
 						</p>
