@@ -374,6 +374,7 @@ let spaceMembers = $state<SpaceMember[]>([]);
 let spaceMembersLoadedFor = $state<string | null>(null);
 let spaceUsage = $state<SpaceUsageResponse | null>(null);
 let spaceUsageLoadedFor = $state<string | null>(null);
+let newChatProfileExpanded = $state(false);
 function hasAccessPermission(permission: Permission): boolean {
 	return space?.access?.permissions.includes(permission) === true;
 }
@@ -7937,6 +7938,7 @@ $effect(() => {
 	spaceMembersLoadedFor = null;
 	spaceUsage = null;
 	spaceUsageLoadedFor = null;
+	newChatProfileExpanded = false;
 	spaceLoadError = "";
 	spaceSessions = [];
 	sessionStateById = {};
@@ -8605,10 +8607,8 @@ $effect(() => {
 	{@const spaceName = space?.name || space?.title || spaceId}
 	{@const owner = space?.ownerProfile ?? null}
 	{@const sortedMembers = sortedSpaceMembersForProfile()}
-	<section class="pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(2.75rem,8dvh,4.5rem)] pb-5 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" aria-label="Space profile">
-		<div class="relative border-l border-border-subtle/60 pl-4 sm:pl-7">
-			<div class="absolute -left-px top-0 h-12 w-px bg-brand/70 sm:h-16"></div>
-			<div class="space-y-6 sm:space-y-7">
+	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
+		<div class="space-y-5 sm:space-y-7">
 				<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
 					<div class="flex items-start gap-3 sm:gap-4">
 						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="lg" loading="eager" class="mt-0.5 h-10 w-10 rounded-[12px] sm:mt-1 sm:h-12 sm:w-12 sm:rounded-[14px]" />
@@ -8625,13 +8625,13 @@ $effect(() => {
 						</div>
 					</div>
 					{#if space?.description}
-						<p class="max-w-[62ch] text-[14px] leading-7 text-text-secondary sm:text-[16px] sm:leading-8">{space.description}</p>
+						<p class="new-chat-profile-description max-w-[62ch] text-[14px] leading-7 text-text-secondary sm:text-[16px] sm:leading-8">{space.description}</p>
 					{/if}
 				</header>
 
 				{#if owner || space?.userUuid || sortedMembers.length > 0}
 					<section class="new-chat-profile-fragment max-w-[68ch]" style:animation-delay="55ms" aria-label="Space members">
-						<p class="flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-[13px] leading-7 text-text-tertiary sm:gap-x-2 sm:gap-y-2 sm:text-[14px]">
+						<p class="new-chat-profile-people flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-[13px] leading-7 text-text-tertiary sm:gap-x-2 sm:gap-y-2 sm:text-[14px]">
 							{#if owner || space?.userUuid}
 								<span>Created by</span>
 								<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(owner, space?.userUuid)}>
@@ -8666,12 +8666,22 @@ $effect(() => {
 
 				{#if spaceUsage}
 					<section class="new-chat-profile-fragment max-w-[68ch]" style:animation-delay="90ms" aria-label="Space usage">
-						<p class="text-[13px] leading-7 text-text-tertiary sm:text-[14px]">
+						<p class="new-chat-profile-usage text-[13px] leading-7 text-text-tertiary sm:text-[14px]">
 							Over the last {spaceUsage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(spaceUsage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{spaceUsage.summary.requestCount}</span> requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(spaceUsage.summary.costTotal)}</span>.
 						</p>
 					</section>
 				{/if}
-			</div>
+			<button
+				type="button"
+				class="new-chat-profile-expand new-chat-profile-fragment mt-5 text-[12px] text-text-placeholder transition-colors hover:text-text-secondary sm:hidden"
+				style:animation-delay="120ms"
+				onclick={() => {
+					newChatProfileExpanded = !newChatProfileExpanded;
+				}}
+				aria-expanded={newChatProfileExpanded}
+			>
+				{newChatProfileExpanded ? 'Show less' : 'Show full profile'}
+			</button>
 		</div>
 	</section>
 {/snippet}
@@ -10004,7 +10014,7 @@ $effect(() => {
           <NewChatBackground background={newChatBackground} />
           <div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
         {:else if shouldShowNewChatProfile}
-          <div class="flex-1 min-h-0 overflow-y-auto">
+          <div class="flex-1 min-h-0 overflow-hidden sm:overflow-y-auto" class:overflow-y-auto={newChatProfileExpanded}>
             {@render NewChatSpaceProfile()}
           </div>
         {:else}
@@ -10829,6 +10839,66 @@ $effect(() => {
   @media (prefers-reduced-motion: reduce) {
     .new-chat-profile-fragment {
       animation: none;
+    }
+  }
+
+  @media (max-width: 639px) {
+    .new-chat-profile-panel {
+      max-height: 100%;
+      overflow: hidden;
+    }
+
+    .new-chat-profile-description {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 3;
+      line-clamp: 3;
+      overflow: hidden;
+    }
+
+    .new-chat-profile-people {
+      max-height: 5.25rem;
+      overflow: hidden;
+    }
+
+    .new-chat-profile-usage {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      overflow: hidden;
+    }
+
+    .new-chat-profile-panel.expanded .new-chat-profile-description,
+    .new-chat-profile-panel.expanded .new-chat-profile-usage {
+      display: block;
+      -webkit-line-clamp: unset;
+      line-clamp: unset;
+    }
+
+    .new-chat-profile-panel.expanded .new-chat-profile-people {
+      max-height: none;
+    }
+  }
+
+  @media (max-height: 700px) and (max-width: 639px) {
+    .new-chat-profile-description {
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
+
+    .new-chat-profile-people {
+      max-height: 3.5rem;
+    }
+
+    .new-chat-profile-usage {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+    }
+
+    .new-chat-profile-panel.expanded .new-chat-profile-usage {
+      -webkit-line-clamp: unset;
+      line-clamp: unset;
     }
   }
 
