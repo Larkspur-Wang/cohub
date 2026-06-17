@@ -3840,7 +3840,7 @@ function formatTokenCount(n: number): string {
 function formatUsageCost(n: number): string {
 	if (n <= 0) return "$0";
 	if (n < 0.01) return "<$0.01";
-	return `${n.toFixed(2)}`;
+	return `$${n.toFixed(2)}`;
 }
 function sandboxStatusKind(
 	sandbox: SpaceSandboxSnapshot | null,
