@@ -35,13 +35,15 @@ function formatNumber(n: number): string {
 
 function formatCost(n: number): string {
 	const value = toFiniteNumber(n);
-	const formatted =
-		value >= 1
-			? value.toFixed(2)
-			: value >= 0.01
-				? value.toFixed(3)
-				: value.toFixed(4);
-	return `${formatted}`;
+	if (value === 0) return "$0";
+	if (value > 0 && value < 0.001) return "<$0.001";
+
+	return new Intl.NumberFormat("en-US", {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 0,
+		maximumFractionDigits: value >= 0.01 ? 2 : 3,
+	}).format(value);
 }
 
 function getDisplayName(tab: Tab, row: SpaceRow | UserRow | ModelRow): string {
