@@ -2069,7 +2069,8 @@ const shouldShowNewChatBackground = $derived(
 );
 const shouldShowNewChatProfile = $derived(
 	Boolean(
-		isNewSessionRoute &&
+		space &&
+			isNewSessionRoute &&
 			!activeSessionId &&
 			(activeSessionState?.turns.length ?? 0) === 0 &&
 			!shouldShowNewChatBackground,
@@ -2078,9 +2079,19 @@ const shouldShowNewChatProfile = $derived(
 $effect(() => {
 	if (!shouldShowNewChatProfile || !space) return;
 	untrack(() => {
-		if (spaceMembersLoadedFor !== spaceId) void loadSpaceMembers(spaceId);
+		if (
+			hasAccessPermission("member.view") &&
+			spaceMembersLoadedFor !== spaceId
+		) {
+			void loadSpaceMembers(spaceId);
+		}
 		if (spaceUsageLoadedFor !== spaceId) void loadSpaceUsage(spaceId);
-		if (spaceSandboxLoadedFor !== spaceId) void loadSpaceSandbox(spaceId);
+		if (
+			hasAccessPermission("sandbox.view") &&
+			spaceSandboxLoadedFor !== spaceId
+		) {
+			void loadSpaceSandbox(spaceId);
+		}
 	});
 });
 function updateNewChatProfileOverflow() {
@@ -3810,7 +3821,9 @@ function formatTokenCount(n: number): string {
 	return String(n);
 }
 function formatUsageCost(n: number): string {
-	return `${n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4)}`;
+	if (n <= 0) return "$0";
+	if (n < 0.01) return "<$0.01";
+	return `${n.toFixed(2)}`;
 }
 function sandboxStatusKind(
 	sandbox: SpaceSandboxSnapshot | null,
@@ -8714,7 +8727,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet NewChatSpaceProfile()}
-	{@const spaceName = space?.name || space?.title || spaceId}
+	{@const spaceName = space?.name || space?.title || "Untitled space"}
 	{@const owner = space?.ownerProfile ?? null}
 	{@const sortedMembers = sortedSpaceMembersForProfile()}
 	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
