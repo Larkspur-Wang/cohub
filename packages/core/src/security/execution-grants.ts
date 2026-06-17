@@ -9,6 +9,7 @@ export type ExecutionGrantPayload = {
   sessionId: string | null;
   turnId: string | null;
   source: string;
+  scopes?: string[];
   exp: number;
   iat: number;
 };
@@ -25,6 +26,7 @@ export type ExecutionGrantService = {
     sessionId: string | null;
     turnId: string | null;
     source: string;
+    scopes?: string[];
   }): Promise<SessionExecutionGrant>;
   verifyExecutionGrant(token: string): Promise<ExecutionGrantPayload | null>;
 };
@@ -57,6 +59,7 @@ export function createExecutionGrantService(input: {
         sessionId: grantInput.sessionId?.trim() || null,
         turnId: grantInput.turnId?.trim() || null,
         source: grantInput.source?.trim() || "prompt",
+        scopes: Array.from(new Set((grantInput.scopes ?? []).map((scope) => scope.trim()).filter(Boolean))),
         iat: nowSeconds,
         exp: nowSeconds + EXECUTION_GRANT_TTL_SECONDS,
       };
@@ -103,6 +106,7 @@ export function createExecutionGrantService(input: {
         sessionId: typeof parsedPayload.sessionId === "string" && parsedPayload.sessionId.trim() ? parsedPayload.sessionId.trim() : null,
         turnId: typeof parsedPayload.turnId === "string" && parsedPayload.turnId.trim() ? parsedPayload.turnId.trim() : null,
         source: parsedPayload.source.trim(),
+        scopes: Array.isArray(parsedPayload.scopes) ? parsedPayload.scopes.filter((scope): scope is string => typeof scope === "string" && Boolean(scope.trim())) : [],
         exp: parsedPayload.exp,
         iat: parsedPayload.iat,
       };

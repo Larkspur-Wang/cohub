@@ -10,6 +10,11 @@ type CachedWorkSessionPrincipal = WorkSessionPrincipal & {
   activeViewerGrantScopes?: Promise<Permission[]>;
 };
 
+type ScopedExecutionPrincipal = {
+  spaceId: string;
+  scopes?: Permission[];
+};
+
 const permissionStore = createBatchDrizzlePermissionStore(db);
 
 export type { Audience, Permission } from "@cohub/core/permissions";
@@ -22,6 +27,12 @@ const getUserWorkSession = (user: AuthUserProfile | null): CachedWorkSessionPrin
   const session = (user as (AuthUserProfile & { workSession?: CachedWorkSessionPrincipal }) | null)?.workSession;
   if (!session || user?.uuid !== session.userUuid) return null;
   return session;
+};
+
+const getUserExecution = (user: AuthUserProfile | null): ScopedExecutionPrincipal | null => {
+  const execution = (user as (AuthUserProfile & { execution?: ScopedExecutionPrincipal }) | null)?.execution;
+  if (!execution || !Array.isArray(execution.scopes)) return null;
+  return execution;
 };
 
 const scopeListHasPermission = (scopes: readonly Permission[], permission: Permission) => {
@@ -72,6 +83,8 @@ export async function hasPermission(
 ): Promise<boolean> {
   const workSession = getUserWorkSession(user);
   if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context.spaceId);
+  const execution = getUserExecution(user);
+  if (execution?.spaceId === context.spaceId && scopeListHasPermission(execution.scopes ?? [], permission)) return true;
   return hasSharedPermission({
     store: permissionStore,
     user,
@@ -92,6 +105,8 @@ export async function resolvePermissionAccess(
   if (workSession && workSession.spaceId === context.spaceId) {
     return { role: null, permissions: await resolveWorkSessionScopes(workSession) };
   }
+  const execution = getUserExecution(user);
+  if (execution?.spaceId === context.spaceId) return { role: null, permissions: execution.scopes ?? [] };
   return resolveSharedPermissionAccess({
     store: permissionStore,
     user,
@@ -117,6 +132,8 @@ export async function filterSessionsByPermission(
   if (workSession) {
     return await hasWorkSessionScopedPermission(workSession, permission, spaceId) ? sessions : [];
   }
+  const execution = getUserExecution(user);
+  if (execution?.spaceId === spaceId) return scopeListHasPermission(execution.scopes ?? [], permission) ? sessions : [];
   return permissionStore.filterSessionsByPermission({
     user,
     permission,

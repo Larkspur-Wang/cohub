@@ -547,6 +547,13 @@ function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): Pro
     : "full_access";
 }
 
+function promptAuthScopes(auth: unknown) {
+  if (!auth || typeof auth !== "object" || Array.isArray(auth)) return [];
+  const context = auth as { exp?: unknown; scopes?: unknown };
+  if (typeof context.exp === "number" && context.exp <= Math.floor(Date.now() / 1000)) return [];
+  return Array.isArray(context.scopes) ? context.scopes.filter((scope): scope is string => typeof scope === "string" && Boolean(scope.trim())) : [];
+}
+
 async function createTurnExecutionToken(input: {
   accessMode: PromptAccessMode;
   actorUserId: string;
@@ -554,6 +561,7 @@ async function createTurnExecutionToken(input: {
   sessionId: string;
   turnId: string;
   source: unknown;
+  promptAuth?: unknown;
 }) {
   if (input.accessMode !== "full_access") return null;
   return createAgentExecutionToken({
@@ -562,6 +570,7 @@ async function createTurnExecutionToken(input: {
     sessionId: input.sessionId,
     turnId: input.turnId,
     source: typeof input.source === "string" && input.source.trim() ? input.source.trim() : "agent_turn",
+    scopes: promptAuthScopes(input.promptAuth),
   });
 }
 
@@ -682,7 +691,14 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         : {});
       const actorUserId = resolveActorUserId(ownerMeta);
       if (!actorUserId) throw new Error("Agent turn requires actorUserId for execution token");
-      const fileVisibility = await resolveSpaceFileVisibility({ actorUserId, spaceId: data.spaceId });
+      const promptContext = ownerMeta.context && typeof ownerMeta.context === "object" && !Array.isArray(ownerMeta.context)
+        ? ownerMeta.context as Record<string, unknown>
+        : null;
+      const fileVisibility = await resolveSpaceFileVisibility({
+        actorUserId,
+        spaceId: data.spaceId,
+        promptAuth: promptContext?.auth,
+      });
       const accessMode = resolveBatchAccessMode(batch);
       const generationPolicy = normalizeGenerationPolicy(ownerMeta.generationPolicy);
       const abortEvent = await getAbortEvent(batch.ownerTurn.id);
@@ -752,6 +768,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         sessionId: data.sessionId,
         turnId: batch.ownerTurn.id,
         source: ownerMeta.source,
+        promptAuth: promptContext?.auth,
       });
       const turnMetrics = { llmRoundCount: 0, toolCallCount: 0 };
       const assistantMessageTiming = { startedAt: null as string | null };

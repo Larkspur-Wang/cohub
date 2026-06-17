@@ -1,6 +1,6 @@
 import { BillingAccessBlockedError } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
 import { getDefaultSpaceModsForEnv } from "@cohub/protocol";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
@@ -18,7 +18,7 @@ import {
   sessionTurns,
 } from "@cohub/db";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
-import { useAuth, getOptionalAuth, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, getWorkSessionPrincipal, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
@@ -66,6 +66,22 @@ const router = new Hono();
 const { CronExpressionParser } = cronParser;
 
 type SpaceRouteSessionRecord = NonNullable<Awaited<ReturnType<typeof getSpaceSessionById>>>;
+
+function getPromptAuthContext(c: Context, spaceId: string) {
+  const workSession = getWorkSessionPrincipal(c);
+  if (!workSession || workSession.spaceId !== spaceId) return null;
+  return {
+    type: "work_session" as const,
+    workId: workSession.workId,
+    spaceId: workSession.spaceId,
+    scopes: workSession.scopes,
+    workScopes: workSession.workScopes,
+    viewerScopes: workSession.viewerScopes,
+    exp: workSession.exp,
+    workViewerGrantId: workSession.workViewerGrantId ?? null,
+  };
+}
+
 
 async function buildSpacePromptTurnResponse(session: SpaceRouteSessionRecord | null, turnId: string) {
   const response = session ? await buildSessionTurnResponse(session, turnId) : null;
@@ -1510,7 +1526,7 @@ router.post("/:id/prompt", async (c) => {
         generationPolicy,
         intent: promptIntent,
         accessMode,
-        context: { kind: "public_api" },
+        context: { kind: "public_api", auth: getPromptAuthContext(c, spaceId) },
       });
       const response = await buildSpacePromptTurnResponse(await getSpaceSessionById(sessionId), turnId);
       if (!response) return c.json({ message: "turn not found" }, 500);

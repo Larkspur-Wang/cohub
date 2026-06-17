@@ -25,6 +25,7 @@ export type ExecutionAuthPrincipal = {
   sessionId: string | null;
   turnId: string | null;
   source: string;
+  scopes: string[];
   expiresAt: number;
 };
 
@@ -42,6 +43,7 @@ function toExecutionAuthPrincipal(grant: ExecutionGrantPayload): ExecutionAuthPr
     sessionId: grant.sessionId,
     turnId: grant.turnId,
     source: grant.source,
+    scopes: grant.scopes ?? [],
     expiresAt: grant.exp * 1000,
   };
 }

@@ -36,7 +36,8 @@ const principalToAuthUser = (principal: RequestPrincipal | null | undefined): Au
       nick_name: undefined,
       phone_num: undefined,
       avatar_url: undefined,
-    } satisfies AuthUser;
+      execution: principal.execution,
+    } as AuthUser & { execution: ExecutionAuthPrincipal };
   }
   if (principal?.type === "work_session") {
     return {

@@ -9,6 +9,7 @@ export async function createAgentExecutionToken(input: {
   sessionId: string | null;
   turnId: string | null;
   source: string;
+  scopes?: string[];
 }) {
   const grant = await service.createExecutionGrant({
     actorUserId: input.actorUserId,
@@ -16,6 +17,7 @@ export async function createAgentExecutionToken(input: {
     sessionId: input.sessionId,
     turnId: input.turnId,
     source: input.source,
+    scopes: input.scopes,
   });
   return grant.token;
 }

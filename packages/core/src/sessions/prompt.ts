@@ -22,9 +22,21 @@ export type WebsocketPromptContext = {
   connectionId?: string | null;
 };
 
+export type WorkSessionPromptAuthContext = {
+  type: "work_session";
+  workId: string;
+  spaceId: string;
+  scopes: string[];
+  workScopes: string[];
+  viewerScopes: string[];
+  exp: number;
+  workViewerGrantId?: string | null;
+};
+
 export type PublicApiPromptContext = {
   kind: "public_api";
   requestId?: string | null;
+  auth?: WorkSessionPromptAuthContext | null;
 };
 
 export type ScheduledTaskPromptContext = {
