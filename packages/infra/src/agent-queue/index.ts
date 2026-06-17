@@ -39,6 +39,7 @@ export type AgentRunCommandJobData = {
   timeout?: number;
   userId?: string | null;
   generationPolicy?: GenerationPolicy | null;
+  executionScopes?: string[] | null;
   requestId?: string | null;
   trace?: Record<string, unknown>;
   origin?: AgentRunCommandOrigin | null;

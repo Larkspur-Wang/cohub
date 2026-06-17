@@ -16,6 +16,7 @@ import { runWithToolExecutionContext } from "./tool-context.js";
 import { logger } from "./logger.js";
 import type { AgentRunCommandJobData } from "./queue.js";
 import { createAgentExecutionToken } from "./execution-grants.js";
+import { normalizePermissionScopes } from "@cohub/core/permissions";
 import { getAbortEvent } from "./abort.js";
 import { clearActiveAbortController, setActiveAbortController, setActiveAbortEvent } from "./active-turns.js";
 
@@ -97,6 +98,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
   const timeout = clampTimeout(data.timeout);
   const contextSessionId = data.origin?.sessionId ?? data.sessionId ?? "";
   const actorUserId = data.userId?.trim();
+  const executionScopes = normalizePermissionScopes(data.executionScopes ?? []);
   const executionToken = actorUserId
     ? await createAgentExecutionToken({
         actorUserId,
@@ -104,6 +106,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
         sessionId: contextSessionId || null,
         turnId: data.origin?.turnId ?? null,
         source: "run_command",
+        scopes: executionScopes,
       })
     : null;
   let latestOutput = "";
@@ -158,6 +161,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       turnId: data.origin?.turnId,
       actorUserId: data.userId ?? null,
       executionToken,
+      executionScopes,
       generationPolicy: data.generationPolicy ?? null,
       llmRound: 0,
       toolCallId,

@@ -34,6 +34,8 @@ export const ALL_PERMISSIONS = [
   "mod.manage",
 ] as const;
 
+const ALL_PERMISSION_SET = new Set<Permission>(ALL_PERMISSIONS);
+
 export type Permission = typeof ALL_PERMISSIONS[number];
 
 export type PermissionSubject = {
@@ -124,6 +126,17 @@ export const resolveAudience = (user: PermissionSubject | null): Audience => {
   return "anonymous_user";
 };
 
+export const normalizePermissionScopes = (scopes: readonly string[]): Permission[] => {
+  return Array.from(new Set(scopes.filter((scope): scope is Permission => typeof scope === "string" && ALL_PERMISSION_SET.has(scope as Permission))));
+};
+
+export const scopeListHasPermission = (scopes: readonly Permission[], permission: Permission) => {
+  if (scopes.includes(permission)) return true;
+  if (permission === "session.prompt.readonly" && scopes.includes("session.prompt.fullaccess")) return true;
+  if (permission === "file.view.filtered" && scopes.includes("file.view")) return true;
+  return false;
+};
+
 export const permissionsForRole = (role: SpaceRole | null): Permission[] => {
   if (!role) return [];
   return ALL_PERMISSIONS.filter((permission) => roleHasPermission(role, permission));
@@ -160,13 +173,7 @@ export async function resolvePermissionAccess(input: {
 export const roleHasPermission = (role: SpaceRole, permission: Permission) => {
   const permissions = ROLE_PERMISSIONS[role];
   if (!permissions) return false;
-  if (permission === "session.prompt.readonly" && permissions.has("session.prompt.fullaccess")) {
-    return true;
-  }
-  if (permission === "file.view.filtered" && permissions.has("file.view")) {
-    return true;
-  }
-  return permissions.has(permission);
+  return scopeListHasPermission(Array.from(permissions), permission);
 };
 
 async function resolveNonMemberRole(input: {

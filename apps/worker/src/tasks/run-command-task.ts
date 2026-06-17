@@ -10,6 +10,8 @@ import { RUN_COMMAND_TASK_TYPE, RUN_COMMAND_TIMEOUT_SECONDS, MAX_RUN_COMMAND_TIM
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
+import { normalizePermissionScopes } from "@cohub/core/permissions";
+import { createDelegatedPromptAuth } from "@cohub/core/sessions";
 import { config } from "../config.js";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
@@ -74,6 +76,10 @@ function clampTimeout(timeout: unknown) {
   return Math.min(Math.floor(timeout), MAX_RUN_COMMAND_TIMEOUT_SECONDS);
 }
 
+function backgroundTaskAuthExp(timeout: number | undefined) {
+  return Math.floor((Date.now() + ((timeout ?? RUN_COMMAND_TIMEOUT_SECONDS) + 60) * 1000) / 1000);
+}
+
 function formatBackgroundBashTaskMessage(input: {
   command: string;
   exitCode: number | null;
@@ -134,6 +140,19 @@ async function notifyRunCommandCompletion(input: {
     context: {
       kind: "background_bash_task",
       taskRunId: input.taskRunId,
+      auth: (() => {
+        const scopes = normalizePermissionScopes(Array.isArray(input.payload.data?.executionScopes) ? input.payload.data.executionScopes : []);
+        return input.payload.spaceId && input.payload.userId
+          ? createDelegatedPromptAuth({
+              source: "background_bash_task",
+              actorUserId: input.payload.userId,
+              spaceId: input.payload.spaceId,
+              scopes,
+              workScopes: scopes,
+              exp: backgroundTaskAuthExp(typeof input.payload.data?.timeout === "number" ? input.payload.data.timeout : undefined),
+            })
+          : null;
+      })(),
       origin: input.origin,
     },
     accessMode: "full_access",
@@ -156,6 +175,7 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   const cwd = typeof data.cwd === "string" && data.cwd.trim() ? data.cwd.trim() : "/workspace";
   const timeout = clampTimeout(data.timeout);
   const generationPolicy = parseGenerationPolicy(data.generationPolicy);
+  const executionScopes = normalizePermissionScopes(Array.isArray(data.executionScopes) ? data.executionScopes : []);
   const origin = parseOrigin(data.origin);
   const notify = parseNotify(data.notify);
   if (!spaceId) throw new Error("spaceId is required for run_command task");
@@ -172,6 +192,7 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
     ...(timeout !== undefined ? { timeout } : {}),
     ...(userId ? { userId } : {}),
     ...(generationPolicy ? { generationPolicy } : {}),
+    ...(executionScopes.length > 0 ? { executionScopes } : {}),
     requestId: origin?.requestId ?? null,
     origin,
   });

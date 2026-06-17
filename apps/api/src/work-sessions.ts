@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
-import type { Permission } from "@cohub/core/permissions";
+import { normalizePermissionScopes, scopeListHasPermission, type Permission } from "@cohub/core/permissions";
 
 export type WorkSessionPayload = {
   typ: "work_session";
@@ -39,14 +39,15 @@ export function createWorkSessionToken(input: {
   ttlSeconds?: number;
 }) {
   const now = Math.floor(Date.now() / 1000);
-  const viewerScopes = input.viewerScopes ?? [];
-  const scopes = Array.from(new Set([...input.workScopes, ...viewerScopes]));
+  const viewerScopes = normalizePermissionScopes(input.viewerScopes ?? []);
+  const workScopes = normalizePermissionScopes(input.workScopes);
+  const scopes = normalizePermissionScopes([...workScopes, ...viewerScopes]);
   const payload: WorkSessionPayload = {
     typ: "work_session",
     userUuid: input.userUuid,
     workId: input.workId,
     spaceId: input.spaceId,
-    workScopes: input.workScopes,
+    workScopes,
     viewerScopes,
     scopes,
     workViewerGrantId: input.workViewerGrantId,
@@ -77,13 +78,16 @@ export function verifyWorkSessionToken(token: string): WorkSessionPrincipal | nu
   if (!payload.userUuid || !payload.workId || !payload.spaceId) return null;
   if (!Array.isArray(payload.scopes) || !Array.isArray(payload.workScopes) || !Array.isArray(payload.viewerScopes)) return null;
   if (payload.exp * 1000 <= Date.now()) return null;
-  return { ...payload, type: "work_session" };
+  return {
+    ...payload,
+    scopes: normalizePermissionScopes(payload.scopes),
+    workScopes: normalizePermissionScopes(payload.workScopes),
+    viewerScopes: normalizePermissionScopes(payload.viewerScopes),
+    type: "work_session",
+  };
 }
 
 export const hasWorkSessionPermission = (principal: WorkSessionPrincipal, permission: Permission, spaceId: string) => {
   if (principal.spaceId !== spaceId) return false;
-  if (principal.scopes.includes(permission)) return true;
-  if (permission === "session.prompt.readonly" && principal.scopes.includes("session.prompt.fullaccess")) return true;
-  if (permission === "file.view.filtered" && principal.scopes.includes("file.view")) return true;
-  return false;
+  return scopeListHasPermission(normalizePermissionScopes(principal.scopes), permission);
 };

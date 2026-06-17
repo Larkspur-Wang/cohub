@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { normalizePermissionScopes, type Permission } from "../permissions/index.js";
 
 const EXECUTION_GRANT_TTL_SECONDS = 24 * 60 * 60;
 const EXECUTION_GRANT_HEADER = { alg: "HS256", typ: "JWT" } as const;
@@ -9,7 +10,7 @@ export type ExecutionGrantPayload = {
   sessionId: string | null;
   turnId: string | null;
   source: string;
-  scopes?: string[];
+  scopes?: Permission[];
   exp: number;
   iat: number;
 };
@@ -59,7 +60,7 @@ export function createExecutionGrantService(input: {
         sessionId: grantInput.sessionId?.trim() || null,
         turnId: grantInput.turnId?.trim() || null,
         source: grantInput.source?.trim() || "prompt",
-        scopes: Array.from(new Set((grantInput.scopes ?? []).map((scope) => scope.trim()).filter(Boolean))),
+        scopes: normalizePermissionScopes(grantInput.scopes ?? []),
         iat: nowSeconds,
         exp: nowSeconds + EXECUTION_GRANT_TTL_SECONDS,
       };
@@ -106,7 +107,7 @@ export function createExecutionGrantService(input: {
         sessionId: typeof parsedPayload.sessionId === "string" && parsedPayload.sessionId.trim() ? parsedPayload.sessionId.trim() : null,
         turnId: typeof parsedPayload.turnId === "string" && parsedPayload.turnId.trim() ? parsedPayload.turnId.trim() : null,
         source: parsedPayload.source.trim(),
-        scopes: Array.isArray(parsedPayload.scopes) ? parsedPayload.scopes.filter((scope): scope is string => typeof scope === "string" && Boolean(scope.trim())) : [],
+        scopes: normalizePermissionScopes(Array.isArray(parsedPayload.scopes) ? parsedPayload.scopes : []),
         exp: parsedPayload.exp,
         iat: parsedPayload.iat,
       };

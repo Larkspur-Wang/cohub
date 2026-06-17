@@ -20,6 +20,7 @@ export type WebsocketPromptContext = {
   kind: "websocket";
   requestId?: string | null;
   connectionId?: string | null;
+  auth?: PromptAuthContext | null;
 };
 
 export type WorkSessionPromptAuthContext = {
@@ -33,21 +34,39 @@ export type WorkSessionPromptAuthContext = {
   workViewerGrantId?: string | null;
 };
 
+export type DelegatedPromptAuthContext = {
+  type: "delegated_prompt";
+  source: "work_session" | string;
+  actorUserId: string;
+  workId?: string | null;
+  spaceId: string;
+  scopes: string[];
+  workScopes: string[];
+  viewerScopes: string[];
+  delegatedAt: string;
+  exp: number;
+  workViewerGrantId?: string | null;
+};
+
+export type PromptAuthContext = WorkSessionPromptAuthContext | DelegatedPromptAuthContext;
+
 export type PublicApiPromptContext = {
   kind: "public_api";
   requestId?: string | null;
-  auth?: WorkSessionPromptAuthContext | null;
+  auth?: PromptAuthContext | null;
 };
 
 export type ScheduledTaskPromptContext = {
   kind: "scheduled_task";
   taskRunId: string;
   cronJobId?: string | null;
+  auth?: PromptAuthContext | null;
 };
 
 export type BackgroundBashTaskPromptContext = {
   kind: "background_bash_task";
   taskRunId: string;
+  auth?: PromptAuthContext | null;
   origin?: {
     kind: "bash_tool_call";
     sessionId: string;

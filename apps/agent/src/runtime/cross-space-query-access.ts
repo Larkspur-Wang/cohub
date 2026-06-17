@@ -1,25 +1,17 @@
 import { eq } from "drizzle-orm";
-import { createDrizzlePermissionStore, hasPermission } from "@cohub/core/permissions";
+import { createDrizzlePermissionStore, hasPermission, scopeListHasPermission } from "@cohub/core/permissions";
+import { getPromptAuthScopes } from "@cohub/core/sessions";
 import { spaces } from "@cohub/db";
 import { db } from "../db.js";
 import type { AgentFileVisibility } from "./workspace-visibility.js";
 
 const permissionStore = createDrizzlePermissionStore(db);
 
-type WorkSessionPromptAuthContext = {
-  type?: unknown;
-  spaceId?: unknown;
-  scopes?: unknown;
-  exp?: unknown;
-};
-
 function visibilityFromPromptAuth(auth: unknown, spaceId: string): AgentFileVisibility | null {
   if (!auth || typeof auth !== "object" || Array.isArray(auth)) return null;
-  const context = auth as WorkSessionPromptAuthContext;
-  if (context.type !== "work_session" || context.spaceId !== spaceId || !Array.isArray(context.scopes)) return null;
-  if (typeof context.exp === "number" && context.exp <= Math.floor(Date.now() / 1000)) return null;
-  if (context.scopes.includes("file.view")) return "full";
-  if (context.scopes.includes("file.view.filtered")) return "filtered";
+  const scopes = getPromptAuthScopes(auth, spaceId);
+  if (scopeListHasPermission(scopes, "file.view")) return "full";
+  if (scopeListHasPermission(scopes, "file.view.filtered")) return "filtered";
   return null;
 }
 

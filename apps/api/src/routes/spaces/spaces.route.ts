@@ -46,6 +46,7 @@ import { checkpoints } from "@cohub/db";
 import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
+import { delegatedPromptAuthFromWorkSession, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
 import { dispatchTurnUpdated } from "../../session-output.js";
@@ -68,20 +69,12 @@ const { CronExpressionParser } = cronParser;
 type SpaceRouteSessionRecord = NonNullable<Awaited<ReturnType<typeof getSpaceSessionById>>>;
 
 function getPromptAuthContext(c: Context, spaceId: string) {
-  const workSession = getWorkSessionPrincipal(c);
-  if (!workSession || workSession.spaceId !== spaceId) return null;
-  return {
-    type: "work_session" as const,
-    workId: workSession.workId,
-    spaceId: workSession.spaceId,
-    scopes: workSession.scopes,
-    workScopes: workSession.workScopes,
-    viewerScopes: workSession.viewerScopes,
-    exp: workSession.exp,
-    workViewerGrantId: workSession.workViewerGrantId ?? null,
-  };
+  return promptAuthContextFromWorkSession(getWorkSessionPrincipal(c), spaceId);
 }
 
+function getScheduledPromptAuthContext(c: Context, spaceId: string, actorUserId: string) {
+  return delegatedPromptAuthFromWorkSession(getWorkSessionPrincipal(c), spaceId, actorUserId);
+}
 
 async function buildSpacePromptTurnResponse(session: SpaceRouteSessionRecord | null, turnId: string) {
   const response = session ? await buildSessionTurnResponse(session, turnId) : null;
@@ -1473,6 +1466,7 @@ router.post("/:id/prompt", async (c) => {
   if (sourceResult.error) return c.json({ message: sourceResult.error }, 400);
   const source = sourceResult.source;
 
+  const scheduledAuth = getScheduledPromptAuthContext(c, spaceId, user.uuid);
   const taskData = {
     content,
     clientMessageId,
@@ -1485,6 +1479,7 @@ router.post("/:id/prompt", async (c) => {
     ...(body.model ? { model: body.model } : {}),
     ...(body.provider ? { provider: body.provider } : {}),
     ...(promptLabelIds.length > 0 ? { labelIds: promptLabelIds } : {}),
+    ...(scheduledAuth ? { auth: scheduledAuth } : {}),
   };
 
   if (mode === "immediate") {

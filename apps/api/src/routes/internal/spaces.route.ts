@@ -20,6 +20,7 @@ import { hasPermission } from "../../permissions.js";
 import { dispatchTurnFinalized } from "../../session-output.js";
 import { submitSessionPrompt, type PromptAccessMode, type SubmitSessionPromptContext } from "../../session-prompts.js";
 import { verifyWorkSessionToken } from "../../work-sessions.js";
+import { mergePromptContextAuth, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox, recoverSpaceSandbox } from "../../space-sandboxes.js";
 import { isSandboxReportTokenValid } from "../../crypto.js";
 import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
@@ -417,6 +418,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
   const permissionSubject = workSession && workSession.userUuid === userId
     ? ({ uuid: userId, workSession } as { uuid: string; workSession: typeof workSession })
     : { uuid: userId };
+  const promptAuth = workSession?.userUuid === userId ? promptAuthContextFromWorkSession(workSession, spaceId) : null;
   if (!(await hasPermission(permissionSubject, promptPermission, { spaceId, sessionId }))) {
     return c.json({ message: "forbidden" }, 403);
   }
@@ -434,7 +436,7 @@ router.post("/:spaceId/sessions/:sessionId/prompt", async (c) => {
       model: body.model ?? null,
       provider: body.provider ?? null,
       accessMode,
-      context: body.context ?? null,
+      context: mergePromptContextAuth(body.context ?? null, promptAuth),
     });
     return c.json({ ok: true, ...result });
   } catch (error) {

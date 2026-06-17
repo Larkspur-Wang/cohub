@@ -28,7 +28,7 @@ import { setActiveAbortController, clearActiveAbortController, getActiveAbortEve
 import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
-import type { PromptAccessMode } from "@cohub/core/sessions";
+import { getPromptAuthScopes, type PromptAccessMode } from "@cohub/core/sessions";
 import { createAgentExecutionToken } from "./execution-grants.js";
 
 
@@ -256,6 +256,7 @@ async function runDirectShellCommandTurn(input: {
   rawText: string;
   actorUserId: string | null;
   executionToken: string | null;
+  executionScopes?: ReturnType<typeof getPromptAuthScopes>;
   turnMetrics: { llmRoundCount: number; toolCallCount: number };
   abortSignal?: AbortSignal;
 }) {
@@ -281,6 +282,7 @@ async function runDirectShellCommandTurn(input: {
     sessionId: input.sessionId,
     actorUserId: input.actorUserId,
     executionToken: input.executionToken,
+    executionScopes: input.executionScopes ?? [],
   });
 
   let cleanupParentAbort: (() => void) | null = null;
@@ -547,13 +549,6 @@ function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): Pro
     : "full_access";
 }
 
-function promptAuthScopes(auth: unknown) {
-  if (!auth || typeof auth !== "object" || Array.isArray(auth)) return [];
-  const context = auth as { exp?: unknown; scopes?: unknown };
-  if (typeof context.exp === "number" && context.exp <= Math.floor(Date.now() / 1000)) return [];
-  return Array.isArray(context.scopes) ? context.scopes.filter((scope): scope is string => typeof scope === "string" && Boolean(scope.trim())) : [];
-}
-
 async function createTurnExecutionToken(input: {
   accessMode: PromptAccessMode;
   actorUserId: string;
@@ -570,7 +565,7 @@ async function createTurnExecutionToken(input: {
     sessionId: input.sessionId,
     turnId: input.turnId,
     source: typeof input.source === "string" && input.source.trim() ? input.source.trim() : "agent_turn",
-    scopes: promptAuthScopes(input.promptAuth),
+    scopes: getPromptAuthScopes(input.promptAuth, input.spaceId),
   });
 }
 
@@ -761,6 +756,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
 
       const ownerUserMessageId = batch.executionBatch.anchorUserMessageId ?? turnUserMessages.at(-1)?.userMessageId ?? null;
+      const executionScopes = getPromptAuthScopes(promptContext?.auth, data.spaceId);
       const executionToken = await createTurnExecutionToken({
         accessMode,
         actorUserId,
@@ -821,6 +817,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             llmRound: 0,
             actorUserId,
             executionToken,
+            executionScopes,
             fileVisibility,
             requestId,
             metrics: turnMetrics,
@@ -839,6 +836,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
               rawText: directShellCommand.rawText,
               actorUserId,
               executionToken,
+              executionScopes,
               turnMetrics,
               abortSignal: abortController.signal,
             });
@@ -888,6 +886,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           llmRound: 0,
           actorUserId,
           executionToken,
+          executionScopes,
           fileVisibility,
           requestId,
           metrics: turnMetrics,

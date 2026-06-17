@@ -25,6 +25,7 @@ import type { AgentTurnAbortEvent } from "./abort.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { refreshUserEnv } from "./runtime/env-cache.js";
 import type { createSandboxCodingTools } from "./sandbox/tools.js";
+import type { Permission } from "@cohub/core/permissions";
 import type { PromptAccessMode } from "@cohub/core/sessions";
 import {
   applyAssistantMessageEvent,
@@ -120,7 +121,7 @@ export type SessionHandle = {
   idleTimer: ReturnType<typeof setTimeout> | null;
   onIdle?: ((handle: SessionHandle) => void) | null;
   pendingUserMessages: PendingUserMessage[];
-  pendingExecutionAuths: Array<{ actorUserId: string | null; executionToken: string | null }>;
+  pendingExecutionAuths: Array<{ actorUserId: string | null; executionToken: string | null; executionScopes?: Permission[] | null }>;
   steerDrainPromise: Promise<void> | null;
   pendingSteerCompletions: Array<{
     ack: () => Promise<void>;
@@ -806,6 +807,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             sessionId: handle.sessionId,
             actorUserId: nextExecutionAuth.actorUserId,
             executionToken: nextExecutionAuth.executionToken,
+            executionScopes: nextExecutionAuth.executionScopes ?? [],
           });
         }
       }

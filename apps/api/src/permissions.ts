@@ -1,4 +1,4 @@
-import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission, resolvePermissionAccess as resolveSharedPermissionAccess } from "@cohub/core/permissions";
+import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission, normalizePermissionScopes, resolvePermissionAccess as resolveSharedPermissionAccess, scopeListHasPermission } from "@cohub/core/permissions";
 import { db } from "./db/index.js";
 import type { AuthUserProfile } from "./auth.js";
 import { workViewerGrants, type SpaceRole } from "@cohub/db";
@@ -35,13 +35,6 @@ const getUserExecution = (user: AuthUserProfile | null): ScopedExecutionPrincipa
   return execution;
 };
 
-const scopeListHasPermission = (scopes: readonly Permission[], permission: Permission) => {
-  if (scopes.includes(permission)) return true;
-  if (permission === "session.prompt.readonly" && scopes.includes("session.prompt.fullaccess")) return true;
-  if (permission === "file.view.filtered" && scopes.includes("file.view")) return true;
-  return false;
-};
-
 const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
   if (!workSession.workViewerGrantId) return [] as Permission[];
   const [grant] = await db
@@ -51,8 +44,8 @@ const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincip
     .limit(1);
   if (!grant || grant.revokedAt) return [];
   if (grant.expiresAt && grant.expiresAt.getTime() <= Date.now()) return [];
-  const tokenScopes = new Set(workSession.viewerScopes);
-  return (grant.scopes as Permission[]).filter((scope) => tokenScopes.has(scope));
+  const tokenScopes = new Set(normalizePermissionScopes(workSession.viewerScopes));
+  return normalizePermissionScopes(grant.scopes as string[]).filter((scope) => tokenScopes.has(scope));
 };
 
 const getActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
@@ -67,7 +60,7 @@ const hasActiveViewerGrantPermission = async (workSession: CachedWorkSessionPrin
 
 const resolveWorkSessionScopes = async (workSession: CachedWorkSessionPrincipal) => {
   const viewerScopes = await getActiveViewerGrantScopes(workSession);
-  return Array.from(new Set([...workSession.workScopes, ...viewerScopes]));
+  return normalizePermissionScopes([...workSession.workScopes, ...viewerScopes]);
 };
 
 const hasWorkSessionScopedPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission, spaceId: string) => {
@@ -84,7 +77,7 @@ export async function hasPermission(
   const workSession = getUserWorkSession(user);
   if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context.spaceId);
   const execution = getUserExecution(user);
-  if (execution?.spaceId === context.spaceId && scopeListHasPermission(execution.scopes ?? [], permission)) return true;
+  if (execution?.spaceId === context.spaceId && scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)) return true;
   return hasSharedPermission({
     store: permissionStore,
     user,
@@ -106,7 +99,7 @@ export async function resolvePermissionAccess(
     return { role: null, permissions: await resolveWorkSessionScopes(workSession) };
   }
   const execution = getUserExecution(user);
-  if (execution?.spaceId === context.spaceId) return { role: null, permissions: execution.scopes ?? [] };
+  if (execution?.spaceId === context.spaceId) return { role: null, permissions: normalizePermissionScopes(execution.scopes ?? []) };
   return resolveSharedPermissionAccess({
     store: permissionStore,
     user,
@@ -133,7 +126,7 @@ export async function filterSessionsByPermission(
     return await hasWorkSessionScopedPermission(workSession, permission, spaceId) ? sessions : [];
   }
   const execution = getUserExecution(user);
-  if (execution?.spaceId === spaceId) return scopeListHasPermission(execution.scopes ?? [], permission) ? sessions : [];
+  if (execution?.spaceId === spaceId) return scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission) ? sessions : [];
   return permissionStore.filterSessionsByPermission({
     user,
     permission,

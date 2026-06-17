@@ -462,6 +462,10 @@ function createRemoteBashOperations(): BashOperations {
               spaceId: toolCtx?.spaceId ?? spaceId,
               sessionId: toolCtx?.sessionId ?? "",
               turnId: toolCtx?.turnId,
+              actorUserId: toolCtx?.actorUserId,
+              executionToken: toolCtx?.executionToken,
+              executionScopes: toolCtx?.executionScopes,
+              generationPolicy: toolCtx?.generationPolicy,
               toolCallId,
             }, async () => wrapToolCall(tracer, {
               toolName: "bash",
@@ -474,6 +478,7 @@ function createRemoteBashOperations(): BashOperations {
               const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
               const actorUserId = ctx?.actorUserId ?? sessionExecutionAuth?.actorUserId ?? null;
               const executionToken = ctx?.executionToken ?? sessionExecutionAuth?.executionToken ?? null;
+              const executionScopes = ctx?.executionScopes ?? sessionExecutionAuth?.executionScopes ?? [];
               const injectedEnv: Record<string, string> = {
                 ...(ctx?.spaceId ? getUserEnvForProcess(ctx.spaceId) : {}),
                 ...(env ?? {}),
@@ -595,6 +600,7 @@ function createRemoteBashOperations(): BashOperations {
       const ctx = getCurrentToolExecutionContext();
       const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
       const userId = ctx?.actorUserId ?? sessionExecutionAuth?.actorUserId ?? null;
+      const executionScopes = ctx?.executionScopes ?? sessionExecutionAuth?.executionScopes ?? [];
       if (!ctx?.spaceId || !ctx.sessionId || !ctx.turnId || !userId) {
         throw new Error("Background bash execution requires space, session, turn, and user context.");
       }
@@ -610,6 +616,7 @@ function createRemoteBashOperations(): BashOperations {
           cwd,
           ...(timeout !== undefined ? { timeout } : {}),
           ...(ctx.generationPolicy ? { generationPolicy: ctx.generationPolicy } : {}),
+          ...(executionScopes.length ? { executionScopes } : {}),
           origin: {
             kind: "bash_tool_call",
             sessionId: ctx.sessionId,
