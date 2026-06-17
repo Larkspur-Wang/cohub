@@ -375,6 +375,9 @@ let spaceMembersLoadedFor = $state<string | null>(null);
 let spaceUsage = $state<SpaceUsageResponse | null>(null);
 let spaceUsageLoadedFor = $state<string | null>(null);
 let newChatProfileExpanded = $state(false);
+let newChatProfileCanExpand = $state(false);
+let newChatProfileViewportEl: HTMLDivElement | null = $state(null);
+let newChatProfileContentEl: HTMLDivElement | null = $state(null);
 function hasAccessPermission(permission: Permission): boolean {
 	return space?.access?.permissions.includes(permission) === true;
 }
@@ -2066,6 +2069,26 @@ $effect(() => {
 		if (spaceMembersLoadedFor !== spaceId) void loadSpaceMembers(spaceId);
 		if (spaceUsageLoadedFor !== spaceId) void loadSpaceUsage(spaceId);
 	});
+});
+function updateNewChatProfileOverflow() {
+	const viewport = newChatProfileViewportEl;
+	const content = newChatProfileContentEl;
+	if (!viewport || !content || !shouldShowNewChatProfile) {
+		newChatProfileCanExpand = false;
+		return;
+	}
+	newChatProfileCanExpand =
+		newChatProfileExpanded || content.scrollHeight > viewport.clientHeight + 2;
+}
+$effect(() => {
+	const viewport = newChatProfileViewportEl;
+	const content = newChatProfileContentEl;
+	if (!shouldShowNewChatProfile || !viewport || !content) return;
+	void tick().then(updateNewChatProfileOverflow);
+	const observer = new ResizeObserver(updateNewChatProfileOverflow);
+	observer.observe(viewport);
+	observer.observe(content);
+	return () => observer.disconnect();
 });
 const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
 	if (!activeSessionId) return [];
@@ -7939,6 +7962,9 @@ $effect(() => {
 	spaceUsage = null;
 	spaceUsageLoadedFor = null;
 	newChatProfileExpanded = false;
+	newChatProfileCanExpand = false;
+	newChatProfileViewportEl = null;
+	newChatProfileContentEl = null;
 	spaceLoadError = "";
 	spaceSessions = [];
 	sessionStateById = {};
@@ -8608,7 +8634,7 @@ $effect(() => {
 	{@const owner = space?.ownerProfile ?? null}
 	{@const sortedMembers = sortedSpaceMembersForProfile()}
 	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
-		<div class="space-y-5 sm:space-y-7">
+		<div bind:this={newChatProfileContentEl} class="space-y-5 sm:space-y-7">
 				<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
 					<div class="flex items-start gap-3 sm:gap-4">
 						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="lg" loading="eager" class="mt-0.5 h-10 w-10 rounded-[12px] sm:mt-1 sm:h-12 sm:w-12 sm:rounded-[14px]" />
@@ -8671,17 +8697,19 @@ $effect(() => {
 						</p>
 					</section>
 				{/if}
-			<button
-				type="button"
-				class="new-chat-profile-expand new-chat-profile-fragment mt-5 text-[12px] text-text-placeholder transition-colors hover:text-text-secondary sm:hidden"
-				style:animation-delay="120ms"
-				onclick={() => {
-					newChatProfileExpanded = !newChatProfileExpanded;
-				}}
-				aria-expanded={newChatProfileExpanded}
-			>
-				{newChatProfileExpanded ? 'Show less' : 'Show full profile'}
-			</button>
+			{#if newChatProfileCanExpand}
+				<button
+					type="button"
+					class="new-chat-profile-expand new-chat-profile-fragment mt-5 text-[12px] text-text-placeholder transition-colors hover:text-text-secondary sm:hidden"
+					style:animation-delay="120ms"
+					onclick={() => {
+						newChatProfileExpanded = !newChatProfileExpanded;
+					}}
+					aria-expanded={newChatProfileExpanded}
+				>
+					{newChatProfileExpanded ? 'Show less' : 'Show full profile'}
+				</button>
+			{/if}
 		</div>
 	</section>
 {/snippet}
@@ -10014,7 +10042,7 @@ $effect(() => {
           <NewChatBackground background={newChatBackground} />
           <div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
         {:else if shouldShowNewChatProfile}
-          <div class="flex-1 min-h-0 overflow-hidden sm:overflow-y-auto" class:overflow-y-auto={newChatProfileExpanded}>
+          <div bind:this={newChatProfileViewportEl} class="flex-1 min-h-0 overflow-hidden sm:overflow-y-auto" class:overflow-y-auto={newChatProfileExpanded}>
             {@render NewChatSpaceProfile()}
           </div>
         {:else}
@@ -10848,7 +10876,7 @@ $effect(() => {
       overflow: hidden;
     }
 
-    .new-chat-profile-description {
+    .new-chat-profile-panel:not(.expanded) .new-chat-profile-description {
       display: -webkit-box;
       -webkit-box-orient: vertical;
       -webkit-line-clamp: 3;
@@ -10856,49 +10884,33 @@ $effect(() => {
       overflow: hidden;
     }
 
-    .new-chat-profile-people {
+    .new-chat-profile-panel:not(.expanded) .new-chat-profile-people {
       max-height: 5.25rem;
       overflow: hidden;
     }
 
-    .new-chat-profile-usage {
+    .new-chat-profile-panel:not(.expanded) .new-chat-profile-usage {
       display: -webkit-box;
       -webkit-box-orient: vertical;
       -webkit-line-clamp: 2;
       line-clamp: 2;
       overflow: hidden;
     }
-
-    .new-chat-profile-panel.expanded .new-chat-profile-description,
-    .new-chat-profile-panel.expanded .new-chat-profile-usage {
-      display: block;
-      -webkit-line-clamp: unset;
-      line-clamp: unset;
-    }
-
-    .new-chat-profile-panel.expanded .new-chat-profile-people {
-      max-height: none;
-    }
   }
 
   @media (max-height: 700px) and (max-width: 639px) {
-    .new-chat-profile-description {
+    .new-chat-profile-panel:not(.expanded) .new-chat-profile-description {
       -webkit-line-clamp: 2;
       line-clamp: 2;
     }
 
-    .new-chat-profile-people {
+    .new-chat-profile-panel:not(.expanded) .new-chat-profile-people {
       max-height: 3.5rem;
     }
 
-    .new-chat-profile-usage {
+    .new-chat-profile-panel:not(.expanded) .new-chat-profile-usage {
       -webkit-line-clamp: 1;
       line-clamp: 1;
-    }
-
-    .new-chat-profile-panel.expanded .new-chat-profile-usage {
-      -webkit-line-clamp: unset;
-      line-clamp: unset;
     }
   }
 

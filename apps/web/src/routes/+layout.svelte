@@ -496,7 +496,7 @@ onMount(() => {
     <CenteredLoading label="Loading…" size="page" />
   </main>
 {:else}
-  <div class="h-screen flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
+  <div class="h-[100dvh] flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
     <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarCollapsed ? 52 : uiState.leftSidebarWidth}px`}>
       <div class="min-w-0 flex-1 {uiState.leftSidebarCollapsed ? '' : 'border-r border-border-subtle'}">
