@@ -277,6 +277,14 @@ type InlinePortPreview = {
 	url: string;
 	autoOpened: boolean;
 };
+type SpaceSandboxSnapshot = {
+	status: string | null;
+	runtimeStatus?: string | null;
+	lastHeartbeatAt?: string | null;
+	lastActivityAt?: string | null;
+	stoppedAt?: string | null;
+	stopReason?: string | null;
+};
 type ActiveFsSource =
 	| { kind: "live" }
 	| { kind: "checkpoint"; checkpointId: string };
@@ -374,10 +382,14 @@ let spaceMembers = $state<SpaceMember[]>([]);
 let spaceMembersLoadedFor = $state<string | null>(null);
 let spaceUsage = $state<SpaceUsageResponse | null>(null);
 let spaceUsageLoadedFor = $state<string | null>(null);
+let spaceSandbox = $state<SpaceSandboxSnapshot | null>(null);
+let spaceSandboxLoadedFor = $state<string | null>(null);
 let newChatProfileExpanded = $state(false);
 let newChatProfileCanExpand = $state(false);
+let newChatProfileBodyMaxHeight = $state(320);
 let newChatProfileViewportEl: HTMLDivElement | null = $state(null);
 let newChatProfileContentEl: HTMLDivElement | null = $state(null);
+let newChatProfileBodyEl: HTMLDivElement | null = $state(null);
 function hasAccessPermission(permission: Permission): boolean {
 	return space?.access?.permissions.includes(permission) === true;
 }
@@ -2068,26 +2080,42 @@ $effect(() => {
 	untrack(() => {
 		if (spaceMembersLoadedFor !== spaceId) void loadSpaceMembers(spaceId);
 		if (spaceUsageLoadedFor !== spaceId) void loadSpaceUsage(spaceId);
+		if (spaceSandboxLoadedFor !== spaceId) void loadSpaceSandbox(spaceId);
 	});
 });
 function updateNewChatProfileOverflow() {
 	const viewport = newChatProfileViewportEl;
 	const content = newChatProfileContentEl;
+	const body = newChatProfileBodyEl;
 	if (!viewport || !content || !shouldShowNewChatProfile) {
 		newChatProfileCanExpand = false;
 		return;
 	}
-	newChatProfileCanExpand =
-		newChatProfileExpanded || content.scrollHeight > viewport.clientHeight + 2;
+	const collapsedBodyOverflow = body
+		? Math.max(0, body.scrollHeight - body.clientHeight)
+		: 0;
+	const naturalContentHeight = content.scrollHeight + collapsedBodyOverflow;
+	const needsCollapse = naturalContentHeight > viewport.clientHeight + 2;
+	newChatProfileCanExpand = needsCollapse;
+	if (body) {
+		const nonBodyHeight = content.scrollHeight - body.clientHeight;
+		const expandControlReserve = needsCollapse ? 42 : 0;
+		newChatProfileBodyMaxHeight = Math.max(
+			112,
+			viewport.clientHeight - nonBodyHeight - expandControlReserve - 4,
+		);
+	}
 }
 $effect(() => {
 	const viewport = newChatProfileViewportEl;
 	const content = newChatProfileContentEl;
+	const body = newChatProfileBodyEl;
 	if (!shouldShowNewChatProfile || !viewport || !content) return;
 	void tick().then(updateNewChatProfileOverflow);
 	const observer = new ResizeObserver(updateNewChatProfileOverflow);
 	observer.observe(viewport);
 	observer.observe(content);
+	if (body) observer.observe(body);
 	return () => observer.disconnect();
 });
 const sessionTaskNotices = $derived.by<SessionTaskNotice[]>(() => {
@@ -3580,6 +3608,19 @@ async function loadSpaceUsage(currentSpaceId = spaceId) {
 	}
 }
 
+async function loadSpaceSandbox(currentSpaceId = spaceId) {
+	try {
+		const result = await sdk.space(currentSpaceId).sandbox.get();
+		if (spaceId !== currentSpaceId) return;
+		spaceSandbox = result.sandbox;
+		spaceSandboxLoadedFor = currentSpaceId;
+	} catch {
+		if (spaceId !== currentSpaceId) return;
+		spaceSandbox = null;
+		spaceSandboxLoadedFor = currentSpaceId;
+	}
+}
+
 function withBootstrapCacheTimeout<T>(promise: Promise<T>): Promise<T | null> {
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	return Promise.race([
@@ -3770,6 +3811,45 @@ function formatTokenCount(n: number): string {
 }
 function formatUsageCost(n: number): string {
 	return `${n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(3) : n.toFixed(4)}`;
+}
+function sandboxStatusKind(
+	sandbox: SpaceSandboxSnapshot | null,
+): "running" | "waking" | "sleeping" | "error" | "unknown" {
+	const status = sandbox?.status;
+	const runtime = sandbox?.runtimeStatus;
+	if (!sandbox) return "unknown";
+	if (
+		status === "error" ||
+		status === "terminated" ||
+		runtime === "unhealthy"
+	) {
+		return "error";
+	}
+	if (status === "stopped" || status === "stopping") return "sleeping";
+	if (
+		status === "provisioning" ||
+		status === "pending" ||
+		runtime === "starting"
+	) {
+		return "waking";
+	}
+	if (
+		status === "running" ||
+		status === "ready" ||
+		runtime === "healthy" ||
+		runtime === "degraded"
+	) {
+		return "running";
+	}
+	return "unknown";
+}
+function sandboxStatusLabel(sandbox: SpaceSandboxSnapshot | null): string {
+	const kind = sandboxStatusKind(sandbox);
+	if (kind === "running") return "Sandbox running";
+	if (kind === "waking") return "Sandbox waking";
+	if (kind === "sleeping") return "Sandbox sleeping";
+	if (kind === "error") return "Sandbox needs attention";
+	return "Sandbox status unknown";
 }
 // Image pan handlers
 function makeImagePanHandlers(
@@ -7961,10 +8041,14 @@ $effect(() => {
 	spaceMembersLoadedFor = null;
 	spaceUsage = null;
 	spaceUsageLoadedFor = null;
+	spaceSandbox = null;
+	spaceSandboxLoadedFor = null;
 	newChatProfileExpanded = false;
 	newChatProfileCanExpand = false;
+	newChatProfileBodyMaxHeight = 320;
 	newChatProfileViewportEl = null;
 	newChatProfileContentEl = null;
+	newChatProfileBodyEl = null;
 	spaceLoadError = "";
 	spaceSessions = [];
 	sessionStateById = {};
@@ -8635,14 +8719,14 @@ $effect(() => {
 	{@const sortedMembers = sortedSpaceMembersForProfile()}
 	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-3xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-8 sm:pt-[clamp(3.5rem,11dvh,7rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
 		<div bind:this={newChatProfileContentEl} class="space-y-5 sm:space-y-7">
-				<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
-					<div class="flex items-start gap-3 sm:gap-4">
+			<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
+				<div class="flex items-start gap-3 sm:gap-4">
 						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="lg" loading="eager" class="mt-0.5 h-10 w-10 rounded-[12px] sm:mt-1 sm:h-12 sm:w-12 sm:rounded-[14px]" />
 						<div class="min-w-0 flex-1 pt-0.5">
 							<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
 								<h1 class="min-w-0 max-w-full break-words text-[23px] font-semibold leading-[1.08] tracking-[-0.035em] text-text-primary sm:text-[34px]">{spaceName}</h1>
-								{#if space?.status}
-									<span class="inline-flex items-center rounded-full border border-border-subtle px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-text-placeholder sm:px-2 sm:text-[10px]">{space.status}</span>
+								{#if spaceSandboxLoadedFor === spaceId}
+									<span class="sandbox-breathing-status" data-kind={sandboxStatusKind(spaceSandbox)} title={sandboxStatusLabel(spaceSandbox)} aria-label={sandboxStatusLabel(spaceSandbox)}></span>
 								{/if}
 							</div>
 							{#if space?.createdAt}
@@ -8650,17 +8734,25 @@ $effect(() => {
 							{/if}
 						</div>
 					</div>
-					{#if space?.description}
-						<p class="new-chat-profile-description max-w-[62ch] text-[14px] leading-7 text-text-secondary sm:text-[16px] sm:leading-8">{space.description}</p>
-					{/if}
-				</header>
+			</header>
 
+			<div
+					bind:this={newChatProfileBodyEl}
+					class="new-chat-profile-body new-chat-profile-fragment max-w-[68ch] text-[13px] leading-7 text-text-tertiary sm:text-[14px]"
+					class:expanded={newChatProfileExpanded}
+					style:animation-delay="55ms"
+					style:max-height={newChatProfileExpanded ? undefined : `${newChatProfileBodyMaxHeight}px`}
+				>
+				{#if space?.description}
+					<p class="mb-3 text-text-secondary sm:text-[15px]">
+						{space.description}
+					</p>
+				{/if}
 				{#if owner || space?.userUuid || sortedMembers.length > 0}
-					<section class="new-chat-profile-fragment max-w-[68ch]" style:animation-delay="55ms" aria-label="Space members">
-						<p class="new-chat-profile-people flex flex-wrap items-center gap-x-1.5 gap-y-1.5 text-[13px] leading-7 text-text-tertiary sm:gap-x-2 sm:gap-y-2 sm:text-[14px]">
+					<p class="mb-3">
 							{#if owner || space?.userUuid}
-								<span>Created by</span>
-								<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(owner, space?.userUuid)}>
+								<span>Created by </span>
+								<span class="inline-flex min-w-0 max-w-full translate-y-[0.18em] items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(owner, space?.userUuid)}>
 									{#if owner?.avatarUrl}
 										<img src={owner.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
 									{:else}
@@ -8672,9 +8764,9 @@ $effect(() => {
 								</span>
 							{/if}
 							{#if sortedMembers.length > 0}
-								<span>{owner || space?.userUuid ? 'with' : 'Members include'}</span>
+								<span>{owner || space?.userUuid ? ' with ' : 'Members include '}</span>
 								{#each sortedMembers as member, index (member.userId)}
-									<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(member.profile, member.userId)}>
+									<span class="inline-flex min-w-0 max-w-full translate-y-[0.18em] items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(member.profile, member.userId)}>
 										{#if member.profile.avatarUrl}
 											<img src={member.profile.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
 										{:else}
@@ -8683,20 +8775,17 @@ $effect(() => {
 											</span>
 										{/if}
 										<span class="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none">{displayUserName(member.profile, member.userId)}</span>
-									</span>{#if index < sortedMembers.length - 1}<span class="text-text-placeholder">·</span>{:else}<span>.</span>{/if}
+									</span>{#if index < sortedMembers.length - 1}<span class="text-text-placeholder"> · </span>{:else}<span>. </span>{/if}
 								{/each}
-							{:else}<span>.</span>{/if}
+							{:else}<span>. </span>{/if}
 						</p>
-					</section>
 				{/if}
-
 				{#if spaceUsage}
-					<section class="new-chat-profile-fragment max-w-[68ch]" style:animation-delay="90ms" aria-label="Space usage">
-						<p class="new-chat-profile-usage text-[13px] leading-7 text-text-tertiary sm:text-[14px]">
-							Over the last {spaceUsage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(spaceUsage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{spaceUsage.summary.requestCount}</span> requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(spaceUsage.summary.costTotal)}</span>.
-						</p>
-					</section>
+					<p>
+						Over the last {spaceUsage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(spaceUsage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{spaceUsage.summary.requestCount}</span> requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(spaceUsage.summary.costTotal)}</span>.
+					</p>
 				{/if}
+			</div>
 			{#if newChatProfileCanExpand}
 				<button
 					type="button"
@@ -10864,8 +10953,53 @@ $effect(() => {
     animation: new-chat-profile-fragment-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  .sandbox-breathing-status {
+    display: inline-flex;
+    width: 0.48rem;
+    height: 0.48rem;
+    flex-shrink: 0;
+    border-radius: 999px;
+    background: var(--text-placeholder);
+    opacity: 0.72;
+    transform: translateY(0.02rem);
+  }
+
+  .sandbox-breathing-status[data-kind="running"] {
+    background: var(--success-soft);
+    animation: sandbox-status-breathe 2.4s ease-in-out infinite;
+  }
+
+  .sandbox-breathing-status[data-kind="waking"] {
+    background: var(--brand);
+    animation: sandbox-status-breathe 1.4s ease-in-out infinite;
+  }
+
+  .sandbox-breathing-status[data-kind="sleeping"],
+  .sandbox-breathing-status[data-kind="unknown"] {
+    background: var(--text-placeholder);
+    opacity: 0.5;
+  }
+
+  .sandbox-breathing-status[data-kind="error"] {
+    background: var(--error-soft);
+    opacity: 0.86;
+  }
+
+  @keyframes sandbox-status-breathe {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: translateY(0.02rem) scale(0.92);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(0.02rem) scale(1.08);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
-    .new-chat-profile-fragment {
+    .new-chat-profile-fragment,
+    .sandbox-breathing-status {
       animation: none;
     }
   }
@@ -10876,41 +11010,9 @@ $effect(() => {
       overflow: hidden;
     }
 
-    .new-chat-profile-panel:not(.expanded) .new-chat-profile-description {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 3;
-      line-clamp: 3;
+    .new-chat-profile-body {
       overflow: hidden;
-    }
-
-    .new-chat-profile-panel:not(.expanded) .new-chat-profile-people {
-      max-height: 5.25rem;
-      overflow: hidden;
-    }
-
-    .new-chat-profile-panel:not(.expanded) .new-chat-profile-usage {
-      display: -webkit-box;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
-      line-clamp: 2;
-      overflow: hidden;
-    }
-  }
-
-  @media (max-height: 700px) and (max-width: 639px) {
-    .new-chat-profile-panel:not(.expanded) .new-chat-profile-description {
-      -webkit-line-clamp: 2;
-      line-clamp: 2;
-    }
-
-    .new-chat-profile-panel:not(.expanded) .new-chat-profile-people {
-      max-height: 3.5rem;
-    }
-
-    .new-chat-profile-panel:not(.expanded) .new-chat-profile-usage {
-      -webkit-line-clamp: 1;
-      line-clamp: 1;
+      transition: max-height 180ms cubic-bezier(0.22, 1, 0.36, 1);
     }
   }
 
