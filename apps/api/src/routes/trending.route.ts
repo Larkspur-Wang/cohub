@@ -4,6 +4,14 @@ import { db } from "../db/index.js";
 import * as schema from "@cohub/db";
 import { getSpacePublicProfile } from "../lib/middleware.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
+import {
+  flattenModelsCatalog,
+  parseModelsConfig,
+  type ModelCatalogEntry,
+} from "@cohub/infra/config-runtime/models";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { config } from "../config.js";
 import { redisCommandClient } from "../redis.js";
 
 const router = new Hono();
@@ -11,6 +19,32 @@ const router = new Hono();
 const TRENDING_HTTP_CACHE_MAX_AGE_SECONDS = 5 * 60;
 const TRENDING_REDIS_CACHE_TTL_SECONDS = 24 * 60 * 60;
 const TRENDING_STALE_WHILE_REVALIDATE_SECONDS = 60 * 60;
+const PLATFORM_MODELS_PATH = join(config.platformConfigRoot, "platform", ".cohub", "models.json");
+
+let platformModelsCatalogPromise: Promise<ModelCatalogEntry[]> | null = null;
+
+async function loadPlatformModelsCatalog(): Promise<ModelCatalogEntry[]> {
+  platformModelsCatalogPromise ??= readFile(PLATFORM_MODELS_PATH, "utf-8")
+    .then((rawText) => flattenModelsCatalog(parseModelsConfig(rawText)))
+    .catch(() => []);
+  return platformModelsCatalogPromise;
+}
+
+function getCatalogModelName(item: ModelCatalogEntry | null | undefined): string {
+  const name = item?.model?.name;
+  return typeof name === "string" && name.trim() ? name.trim() : "";
+}
+
+function buildModelDisplayName(
+  catalog: ModelCatalogEntry[],
+  provider: string,
+  model: string,
+): string {
+  const item = catalog.find((entry) => entry.provider === provider && entry.id === model)
+    ?? catalog.filter((entry) => entry.id === model).at(0)
+    ?? null;
+  return getCatalogModelName(item) || model;
+}
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
   const numberValue = Number(value);
@@ -165,6 +199,7 @@ async function loadTrendingUsers() {
 
 async function loadTrendingModels() {
   const { yesterdayStart, todayStart } = getYesterdayWindow();
+  const modelsCatalog = await loadPlatformModelsCatalog();
 
   const rows = await db
     .select({
@@ -186,16 +221,20 @@ async function loadTrendingModels() {
     .orderBy(sql`total_tokens DESC`)
     .limit(10);
 
-  return rows.map((r, i) => ({
-    rank: i + 1,
-    provider: r.provider ?? "unknown",
-    model: r.model ?? "unknown",
-    modelDisplay: `${r.provider ?? "unknown"}/${r.model ?? "unknown"}`,
-    totalTokens: toFiniteNumber(r.totalTokens),
-    costTotal: toFiniteNumber(r.costTotal),
-    sessionCount: toFiniteNumber(r.sessionCount),
-    requestCount: toFiniteNumber(r.requestCount),
-  }));
+  return rows.map((r, i) => {
+    const provider = r.provider ?? "unknown";
+    const model = r.model ?? "unknown";
+    return {
+      rank: i + 1,
+      provider,
+      model,
+      modelDisplay: buildModelDisplayName(modelsCatalog, provider, model),
+      totalTokens: toFiniteNumber(r.totalTokens),
+      costTotal: toFiniteNumber(r.costTotal),
+      sessionCount: toFiniteNumber(r.sessionCount),
+      requestCount: toFiniteNumber(r.requestCount),
+    };
+  });
 }
 
 // ─── Spaces ───────────────────────────────────────────────────────────
