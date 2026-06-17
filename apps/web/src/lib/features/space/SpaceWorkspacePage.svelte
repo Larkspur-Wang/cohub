@@ -8752,7 +8752,7 @@ $effect(() => {
 					<p class="mb-3">
 							{#if owner || space?.userUuid}
 								<span>Created by </span>
-								<span class="inline-flex min-w-0 max-w-full translate-y-[0.18em] items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(owner, space?.userUuid)}>
+								<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(owner, space?.userUuid)}>
 									{#if owner?.avatarUrl}
 										<img src={owner.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
 									{:else}
@@ -8766,7 +8766,7 @@ $effect(() => {
 							{#if sortedMembers.length > 0}
 								<span>{owner || space?.userUuid ? ' with ' : 'Members include '}</span>
 								{#each sortedMembers as member, index (member.userId)}
-									<span class="inline-flex min-w-0 max-w-full translate-y-[0.18em] items-center gap-1.5 align-baseline text-text-secondary" title={userTitle(member.profile, member.userId)}>
+									<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(member.profile, member.userId)}>
 										{#if member.profile.avatarUrl}
 											<img src={member.profile.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
 										{:else}
