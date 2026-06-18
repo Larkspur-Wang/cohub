@@ -9,6 +9,10 @@ let mermaidPromise: Promise<MermaidApi> | null = null;
 let renderSeq = 0;
 let currentTheme: ResolvedTheme | null = null;
 
+function logMermaidError(message: string, details: Record<string, unknown>) {
+	console.warn(`[mermaid] ${message}`, details);
+}
+
 function getMermaid() {
 	mermaidPromise ??= import("mermaid").then((module) => module.default);
 	return mermaidPromise;
@@ -66,12 +70,16 @@ function isMermaidSourceTooLarge(source: string) {
 	);
 }
 
+function getErrorMessage(error: unknown) {
+	return error instanceof Error && error.message
+		? error.message
+		: String(error || "Unknown error");
+}
+
 function markMermaidUnavailable(element: HTMLElement, error?: unknown) {
 	element.dataset.mermaidRendered = "true";
 	element.textContent = "Preview unavailable.";
-	if (error instanceof Error && error.message) {
-		element.title = error.message;
-	}
+	if (error) element.title = getErrorMessage(error);
 }
 
 function quoteMermaidLabel(label: string) {
@@ -101,6 +109,12 @@ async function renderMermaidSvg(
 	} catch (error) {
 		const repairedSource = repairFlowchartLabels(source);
 		if (repairedSource === source) throw error;
+		logMermaidError("retrying with quoted flowchart labels", {
+			error: getErrorMessage(error),
+			id,
+			source,
+			repairedSource,
+		});
 		return mermaid.render(`${id}-repaired`, repairedSource);
 	}
 }
@@ -113,10 +127,13 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 	try {
 		mermaid = await getMermaid();
 		initializeMermaid(mermaid, resolveTheme());
-	} catch {
+	} catch (error) {
+		logMermaidError("renderer failed to load or initialize", {
+			error: getErrorMessage(error),
+		});
 		for (const element of elements) {
 			if (element.dataset.mermaidRendered !== "true") {
-				markMermaidUnavailable(element);
+				markMermaidUnavailable(element, error);
 			}
 		}
 		return;
@@ -132,8 +149,16 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 			}
 
 			const source = readMermaidSource(element).trim();
-			if (!source) return;
+			if (!source) {
+				logMermaidError("empty diagram source", { element });
+				return;
+			}
 			if (isMermaidSourceTooLarge(source)) {
+				logMermaidError("diagram source is too large", {
+					length: source.length,
+					lines: source.split(/\r?\n/).length,
+					source,
+				});
 				markMermaidUnavailable(element);
 				return;
 			}
@@ -164,6 +189,12 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 				) {
 					return;
 				}
+				logMermaidError("diagram render failed", {
+					error: getErrorMessage(error),
+					source,
+					repairedSource: repairFlowchartLabels(source),
+					theme: currentTheme,
+				});
 				markMermaidUnavailable(element, error);
 			}
 		}),

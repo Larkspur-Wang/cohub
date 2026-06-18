@@ -30,7 +30,8 @@ $effect(() => {
 	renderMermaid();
 });
 
-function markMermaidLoadError() {
+function markMermaidLoadError(error: unknown) {
+	console.warn("[mermaid] renderer chunk failed to load", { error });
 	if (!markdownEl) return;
 	for (const element of markdownEl.querySelectorAll<HTMLElement>(
 		".markdown-mermaid",
@@ -38,6 +39,7 @@ function markMermaidLoadError() {
 		if (element.dataset.mermaidRendered === "true") continue;
 		element.dataset.mermaidRendered = "true";
 		element.textContent = "Preview unavailable.";
+		if (error instanceof Error && error.message) element.title = error.message;
 	}
 }
 
@@ -47,7 +49,7 @@ function renderMermaid() {
 		.then(({ renderMermaidDiagrams }) =>
 			markdownEl ? renderMermaidDiagrams(markdownEl) : undefined,
 		)
-		.catch(() => markMermaidLoadError());
+		.catch((error) => markMermaidLoadError(error));
 }
 
 function resetMermaidDiagrams() {
