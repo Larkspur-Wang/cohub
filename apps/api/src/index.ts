@@ -58,8 +58,8 @@ app.use(
   cors({
     origin: (origin) => origin || "*",
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "X-Git-Token", "X-Request-Id", "Traceparent", "Tracestate"],
-    exposeHeaders: ["X-Request-Id", "X-Trace-Id", "X-Span-Id", "Traceparent", "Tracestate"],
+    allowHeaders: ["Content-Type", "Authorization", "X-Git-Token", "X-Request-Id", "Traceparent", "Tracestate", "Baggage"],
+    exposeHeaders: ["X-Request-Id", "X-Trace-Id", "X-Span-Id", "Traceparent", "Tracestate", "Baggage"],
     credentials: true,
   }),
 );
