@@ -21,6 +21,7 @@ import { mergeSessionRecords } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 
 const SESSION_LIST_TTL_MS = 30_000;
+const MAX_CACHED_SESSIONS_PER_SPACE = 500;
 const memory = new MemoryLru<string, SessionListCacheRecord>(50);
 const listeners = new Set<
 	(snapshot: SessionListSnapshot & { spaceId: string }) => void
@@ -44,6 +45,45 @@ export type SessionListSnapshot = {
 
 function normalizeSessions(sessions: SessionRecord[]) {
 	return sortSessionsByRecentActivity(mergeSessionRecords(sessions));
+}
+
+function normalizeCachedSessions(sessions: SessionRecord[]) {
+	return normalizeSessions(sessions).slice(0, MAX_CACHED_SESSIONS_PER_SPACE);
+}
+
+function getSessionListCursor(session: SessionRecord | null | undefined) {
+	if (!session?.lastMessageAt) return null;
+	const timestamp = new Date(session.lastMessageAt).toISOString();
+	return `${timestamp}|${session.id}`;
+}
+
+function mergeCachedSessions(
+	current: SessionRecord[] | null | undefined,
+	incoming: SessionRecord[],
+) {
+	const normalized = normalizeSessions([
+		...(incoming ?? []),
+		...(current ?? []),
+	]);
+	return {
+		sessions: normalized.slice(0, MAX_CACHED_SESSIONS_PER_SPACE),
+		dropped: normalized.length > MAX_CACHED_SESSIONS_PER_SPACE,
+	};
+}
+
+function getMergedPageInfo(input: {
+	sessions: SessionRecord[];
+	dropped: boolean;
+	incomingPageInfo?: SessionListPageInfo | null;
+	currentPageInfo?: SessionListPageInfo | null;
+}) {
+	if (input.dropped) {
+		return {
+			hasMore: true,
+			nextCursor: getSessionListCursor(input.sessions.at(-1)),
+		};
+	}
+	return input.incomingPageInfo ?? input.currentPageInfo;
 }
 
 function normalizePageInfo(
@@ -92,7 +132,7 @@ async function writeRecord(
 	const userKey = getCacheUserKey();
 	const key = sessionListKey(userKey, spaceId);
 	const now = Date.now();
-	const normalized = normalizeSessions(sessions);
+	const normalized = normalizeCachedSessions(sessions);
 	const record: SessionListCacheRecord = {
 		key,
 		userKey,
@@ -194,8 +234,26 @@ export const sessionListRepo = {
 		sessions: SessionRecord[],
 		pageInfo?: SessionListPageInfo | null,
 		forks?: SessionListForkRecord[] | null,
+		options?: { mode?: "replace" | "merge" },
 	) {
-		const record = await writeRecord(spaceId, sessions, pageInfo, forks);
+		const current = await readRecord(spaceId);
+		const merged =
+			options?.mode === "merge"
+				? mergeCachedSessions(current?.record.sessions, sessions)
+				: { sessions: normalizeCachedSessions(sessions), dropped: false };
+		const record = await writeRecord(
+			spaceId,
+			merged.sessions,
+			options?.mode === "merge"
+				? getMergedPageInfo({
+						sessions: merged.sessions,
+						dropped: merged.dropped,
+						incomingPageInfo: pageInfo,
+						currentPageInfo: current?.record.pageInfo,
+					})
+				: (pageInfo ?? current?.record.pageInfo),
+			forks !== undefined ? forks : current?.record.forks,
+		);
 		return toSnapshot(record, "indexeddb");
 	},
 
@@ -206,9 +264,10 @@ export const sessionListRepo = {
 		forks?: SessionListForkRecord[] | null,
 	) {
 		const current = await readRecord(spaceId);
+		const updated = updater(current?.record.sessions ?? []);
 		const record = await writeRecord(
 			spaceId,
-			updater(current?.record.sessions ?? []),
+			normalizeCachedSessions(updated),
 			pageInfo !== undefined ? pageInfo : current?.record.pageInfo,
 			forks !== undefined ? forks : current?.record.forks,
 		);

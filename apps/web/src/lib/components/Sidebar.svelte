@@ -79,7 +79,11 @@ import {
 } from "$lib/labels/resource-label-actions";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
-import { getSessionSortTime } from "$lib/session-sort";
+import { mergeSessionRecords } from "$lib/session-record-merge";
+import {
+	getSessionSortTime,
+	sortSessionsByRecentActivity,
+} from "$lib/session-sort";
 import {
 	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
@@ -701,6 +705,16 @@ function shouldShowLoadMoreSessions() {
 	);
 }
 
+function mergeSessionSnapshotForDisplay(
+	currentSessions: SessionRecord[],
+	nextSessions: SessionRecord[],
+) {
+	if (currentSessions.length === 0) return nextSessions;
+	return sortSessionsByRecentActivity(
+		mergeSessionRecords([...nextSessions, ...currentSessions]),
+	);
+}
+
 async function loadSpaces(force = false) {
 	await authStore.ensureLoaded();
 	const requestedSpaceId = currentSpaceId;
@@ -807,11 +821,14 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 		};
 		const nextForks = result.forks ?? [];
 		sessionForks = nextForks;
-		sessions = await setCachedSessionList(
+		sessions = nextSessions;
+		void setCachedSessionList(
 			spaceId,
 			nextSessions,
 			nextPageInfo,
 			nextForks,
+		).catch((error) =>
+			console.warn("[sidebar] Failed to cache sessions", { spaceId, error }),
 		);
 		if (spaceId !== currentSpaceId) return;
 		sessionsPageInfo = nextPageInfo;
@@ -849,11 +866,19 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 		for (const fork of result.forks ?? [])
 			forkByChildId.set(fork.childSessionId, fork);
 		sessionForks = Array.from(forkByChildId.values());
-		sessions = await patchCachedSessionList(
+		const mergedSessions = [...sessions, ...moreSessions];
+		sessions = mergedSessions;
+		void setCachedSessionList(
 			spaceId,
-			(current) => [...current, ...moreSessions],
+			moreSessions,
 			nextPageInfo,
 			sessionForks,
+			{ mode: "merge" },
+		).catch((error) =>
+			console.warn("[sidebar] Failed to cache loaded sessions", {
+				spaceId,
+				error,
+			}),
 		);
 		sessionsPageInfo = nextPageInfo;
 		exhaustedFallbackSessionCursor =
@@ -1736,9 +1761,12 @@ async function submitRenameSession(session: SessionRecord) {
 	renameSaving = true;
 	try {
 		await sdk.space(currentSpaceId).session(session.id).rename(trimmed);
-		sessions = await patchCachedSessionList(currentSpaceId, (current) =>
-			current.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s)),
+		sessions = sessions.map((s) =>
+			s.id === session.id ? { ...s, title: trimmed } : s,
 		);
+		void patchCachedSessionList(currentSpaceId, (current) =>
+			current.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s)),
+		).catch(() => undefined);
 	} catch {
 		// Silently fail
 	} finally {
@@ -2108,9 +2136,12 @@ onMount(() => {
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
 			({ spaceId, sessions: nextSessions, forks, pageInfo }) => {
 				if (spaceId !== currentSpaceId) return;
-				sessions = nextSessions;
+				const shouldPreserveLoadedPageInfo =
+					sessions.length > nextSessions.length;
+				sessions = mergeSessionSnapshotForDisplay(sessions, nextSessions);
 				sessionForks = forks ?? [];
-				if (pageInfo) sessionsPageInfo = pageInfo;
+				if (pageInfo && !shouldPreserveLoadedPageInfo)
+					sessionsPageInfo = pageInfo;
 				exhaustedFallbackSessionCursor = null;
 			},
 		);

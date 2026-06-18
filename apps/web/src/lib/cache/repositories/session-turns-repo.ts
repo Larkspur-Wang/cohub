@@ -16,6 +16,7 @@ import type { CacheSource } from "$lib/cache/types";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 
 const SESSION_TURNS_TTL_MS = 15_000;
+const MAX_TURNS_PER_SESSION_CACHE = 500;
 const memory = new MemoryLru<string, SessionTurnsCacheRecord>(50);
 const listeners = new Set<
 	(
@@ -46,6 +47,34 @@ function getNewestSequence(turns: SessionTurnRecord[]) {
 
 function getNewestTurn(turns: SessionTurnRecord[]) {
 	return turns.length > 0 ? (turns.at(-1) ?? null) : null;
+}
+
+function trimTurns(
+	turns: SessionTurnRecord[],
+	options?: { mode?: "head" | "tail"; anchorSequence?: number | null },
+) {
+	if (turns.length <= MAX_TURNS_PER_SESSION_CACHE) return turns;
+	const anchorSequence = options?.anchorSequence;
+	if (anchorSequence != null) {
+		const foundIndex = turns.findIndex(
+			(turn) => turn.sequence >= anchorSequence,
+		);
+		const anchorIndex =
+			foundIndex >= 0
+				? foundIndex
+				: anchorSequence < (turns[0]?.sequence ?? 0)
+					? 0
+					: turns.length - 1;
+		const half = Math.floor(MAX_TURNS_PER_SESSION_CACHE / 2);
+		const start = Math.min(
+			Math.max(0, anchorIndex - half),
+			Math.max(0, turns.length - MAX_TURNS_PER_SESSION_CACHE),
+		);
+		return turns.slice(start, start + MAX_TURNS_PER_SESSION_CACHE);
+	}
+	return options?.mode === "head"
+		? turns.slice(0, MAX_TURNS_PER_SESSION_CACHE)
+		: turns.slice(-MAX_TURNS_PER_SESSION_CACHE);
 }
 
 function parseTurnUpdatedAt(turn: SessionTurnRecord | null | undefined) {
@@ -86,6 +115,19 @@ function toSnapshot(
 	};
 }
 
+function toSnapshotWithTurns(
+	record: SessionTurnsCacheRecord,
+	source: CacheSource,
+	turns: SessionTurnRecord[],
+): SessionTurnsSnapshot {
+	return {
+		...toSnapshot(record, source),
+		turns,
+		oldestSequence: getOldestSequence(turns),
+		newestSequence: getNewestSequence(turns),
+	};
+}
+
 async function readRecord(spaceId: string, sessionId: string) {
 	const userKey = getCacheUserKey();
 	const key = sessionTurnsKey(userKey, spaceId, sessionId);
@@ -109,12 +151,21 @@ async function writeRecord(
 		hasMoreNewer?: boolean;
 		reconciledAt?: number;
 	},
-	options?: { broadcast?: boolean; source?: CacheSource },
+	options?: {
+		broadcast?: boolean;
+		source?: CacheSource;
+		trimMode?: "head" | "tail";
+		trimAnchorSequence?: number | null;
+	},
 ) {
 	const userKey = getCacheUserKey();
 	const key = sessionTurnsKey(userKey, spaceId, sessionId);
 	const now = Date.now();
-	const turns = [...input.turns].sort((a, b) => a.sequence - b.sequence);
+	const sortedTurns = [...input.turns].sort((a, b) => a.sequence - b.sequence);
+	const turns = trimTurns(sortedTurns, {
+		mode: options?.trimMode,
+		anchorSequence: options?.trimAnchorSequence,
+	});
 	const record: SessionTurnsCacheRecord = {
 		key,
 		userKey,
@@ -249,6 +300,7 @@ export const sessionTurnsRepo = {
 			hasMoreOlder?: boolean;
 			hasMoreNewer?: boolean;
 			source?: CacheSource;
+			trimAnchorSequence?: number | null;
 		},
 	) {
 		ensureBroadcastSubscription();
@@ -274,9 +326,12 @@ export const sessionTurnsRepo = {
 						)?.hasMoreNewer,
 					),
 			},
-			{ source: options?.source ?? "indexeddb" },
+			{
+				source: options?.source ?? "indexeddb",
+				trimAnchorSequence: options?.trimAnchorSequence,
+			},
 		);
-		return toSnapshot(record, options?.source ?? "indexeddb");
+		return toSnapshotWithTurns(record, options?.source ?? "indexeddb", merged);
 	},
 
 	async replaceTurnId(
@@ -352,9 +407,9 @@ export const sessionTurnsRepo = {
 					)?.hasMoreNewer,
 				),
 			},
-			{ source: "network" },
+			{ source: "network", trimMode: "head" },
 		);
-		return toSnapshot(record, "network");
+		return toSnapshotWithTurns(record, "network", merged);
 	},
 
 	async clearSession(spaceId: string, sessionId: string) {

@@ -400,6 +400,41 @@ export async function idbGetAllByIndex<T>(
 	);
 }
 
+export async function idbGetSomeByIndex<T>(
+	storeName: StoreName,
+	indexName: string,
+	query: IDBValidKey | IDBKeyRange,
+	options?: {
+		limit?: number;
+		direction?: IDBCursorDirection;
+		filter?: (record: T) => boolean;
+	},
+) {
+	const limit = Math.max(0, Math.trunc(options?.limit ?? 100));
+	if (limit === 0) return [];
+	return (
+		(await withObjectStore(storeName, "readonly", (store) => {
+			return new Promise<T[]>((resolve, reject) => {
+				const results: T[] = [];
+				const request = store
+					.index(indexName)
+					.openCursor(query, options?.direction ?? "next");
+				request.onsuccess = () => {
+					const cursor = request.result;
+					if (!cursor || results.length >= limit) {
+						resolve(results);
+						return;
+					}
+					const record = cursor.value as T;
+					if (!options?.filter || options.filter(record)) results.push(record);
+					cursor.continue();
+				};
+				request.onerror = () => reject(request.error);
+			});
+		})) ?? []
+	);
+}
+
 export async function idbDeleteWhere<T extends { key: string }>(
 	storeName: StoreName,
 	predicate: (record: T) => boolean,

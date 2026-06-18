@@ -2,6 +2,7 @@ import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { SessionRecord, SpaceRecord } from "@neta-art/cohub";
 import {
 	idbGetAllByIndex,
+	idbGetSomeByIndex,
 	type SessionListCacheRecord,
 	type SessionTurnsCacheRecord,
 	type SpaceRecordCacheRecord,
@@ -18,6 +19,8 @@ import { recencyScore } from "./score";
 import type { CommandPaletteItem } from "./types";
 
 const DEFAULT_LIMIT = 30;
+const DEFAULT_SESSION_LIST_SCAN_LIMIT = 120;
+const DEFAULT_TURN_RECORD_SCAN_LIMIT = 80;
 
 function compactText(value: string | null | undefined, limit: number) {
 	const text = (value ?? "").replace(/\s+/g, " ").trim();
@@ -218,13 +221,18 @@ export async function getCommandPaletteDefaultItems(
 	let userSessionLists: SessionListCacheRecord[] | null = null;
 	const getUserSessionLists = async () => {
 		if (userSessionLists) return userSessionLists;
-		const records = await idbGetAllByIndex<SessionListCacheRecord>(
+		const records = await idbGetSomeByIndex<SessionListCacheRecord>(
 			"session_lists",
 			"by_updated_at",
 			IDBKeyRange.lowerBound(0),
+			{
+				limit: DEFAULT_SESSION_LIST_SCAN_LIMIT,
+				direction: "prev",
+				filter: (record) => record.userKey === userKey,
+			},
 		);
 		shouldAbort(plan.signal);
-		userSessionLists = records.filter((record) => record.userKey === userKey);
+		userSessionLists = records;
 		return userSessionLists;
 	};
 
@@ -294,10 +302,15 @@ export async function getCommandPaletteDefaultItems(
 		if (allowsResourceType(plan, "turn")) {
 			await yieldToUi();
 			shouldAbort(plan.signal);
-			const turnRecords = await idbGetAllByIndex<SessionTurnsCacheRecord>(
+			const turnRecords = await idbGetSomeByIndex<SessionTurnsCacheRecord>(
 				"session_turns",
 				"by_last_accessed",
 				IDBKeyRange.lowerBound(0),
+				{
+					limit: DEFAULT_TURN_RECORD_SCAN_LIMIT,
+					direction: "prev",
+					filter: (record) => record.userKey === userKey,
+				},
 			);
 			shouldAbort(plan.signal);
 			let rank = 0;

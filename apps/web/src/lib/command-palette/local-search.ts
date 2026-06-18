@@ -7,6 +7,7 @@ import type {
 } from "@neta-art/cohub";
 import {
 	idbGetAllByIndex,
+	idbGetSomeByIndex,
 	type LabelItemsCacheRecord,
 	type LabelTreeCacheRecord,
 	type SessionListCacheRecord,
@@ -23,6 +24,8 @@ import { scoreCommandItem, sortCommandItems, textMatchScore } from "./score";
 import type { CommandPaletteItem } from "./types";
 
 const LOCAL_LIMIT = 40;
+const LOCAL_SESSION_LIST_SCAN_LIMIT = 120;
+const LOCAL_TURN_RECORD_SCAN_LIMIT = 80;
 
 function hrefFor(
 	item: Pick<
@@ -334,10 +337,15 @@ export async function searchLocalCommandItems(
 		}
 	}
 
-	const sessionLists = await idbGetAllByIndex<SessionListCacheRecord>(
+	const sessionLists = await idbGetSomeByIndex<SessionListCacheRecord>(
 		"session_lists",
 		"by_updated_at",
 		IDBKeyRange.lowerBound(0),
+		{
+			limit: LOCAL_SESSION_LIST_SCAN_LIMIT,
+			direction: "prev",
+			filter: (record) => record.userKey === userKey,
+		},
 	);
 	shouldAbort(options?.signal);
 	const sessionsById = new Map<string, SessionRecord>();
@@ -417,10 +425,15 @@ export async function searchLocalCommandItems(
 		return sortCommandItems([...byKey.values()]).slice(0, LOCAL_LIMIT);
 	}
 
-	const turnRecords = await idbGetAllByIndex<SessionTurnsCacheRecord>(
+	const turnRecords = await idbGetSomeByIndex<SessionTurnsCacheRecord>(
 		"session_turns",
 		"by_last_accessed",
 		IDBKeyRange.lowerBound(0),
+		{
+			limit: LOCAL_TURN_RECORD_SCAN_LIMIT,
+			direction: "prev",
+			filter: (record) => record.userKey === userKey,
+		},
 	);
 	shouldAbort(options?.signal);
 	processed = 0;

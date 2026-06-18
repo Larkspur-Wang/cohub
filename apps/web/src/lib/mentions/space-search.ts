@@ -1,6 +1,7 @@
 import type { GlobalSearchResult, SpaceRecord } from "@neta-art/cohub";
 import {
 	idbGetAllByIndex,
+	idbGetSomeByIndex,
 	type SessionListCacheRecord,
 	type SpaceRecordCacheRecord,
 } from "$lib/cache/db";
@@ -23,6 +24,7 @@ const SPACE_LINK_RESOLVE_LIMIT = 20;
 
 const LOCAL_LIMIT = 24;
 const REMOTE_LIMIT = 30;
+const LOCAL_ACTIVITY_SESSION_LIST_SCAN_LIMIT = 120;
 
 function compactText(value: string | null | undefined, limit: number) {
 	const text = (value ?? "").replace(/\s+/g, " ").trim();
@@ -143,10 +145,15 @@ async function getLocalSessionActivityBySpace(
 	options?: { signal?: AbortSignal },
 ) {
 	const activityBySpace = new Map<string, string | null>();
-	const sessionLists = await idbGetAllByIndex<SessionListCacheRecord>(
+	const sessionLists = await idbGetSomeByIndex<SessionListCacheRecord>(
 		"session_lists",
 		"by_updated_at",
 		IDBKeyRange.lowerBound(0),
+		{
+			limit: LOCAL_ACTIVITY_SESSION_LIST_SCAN_LIMIT,
+			direction: "prev",
+			filter: (record) => record.userKey === userKey,
+		},
 	);
 	shouldAbort(options?.signal);
 	for (const record of sessionLists) {

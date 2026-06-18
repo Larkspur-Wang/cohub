@@ -4520,9 +4520,12 @@ async function submitSessionRename() {
 			.space(spaceId)
 			.session(activeSessionId)
 			.rename(trimmed);
-		spaceSessions = await patchCachedSessionList(spaceId, (current) =>
-			current.map((s) => (s.id === activeSessionId ? result.session : s)),
+		spaceSessions = spaceSessions.map((session) =>
+			session.id === activeSessionId ? result.session : session,
 		);
+		void patchCachedSessionList(spaceId, (current) =>
+			current.map((s) => (s.id === activeSessionId ? result.session : s)),
+		).catch(() => undefined);
 		if (sessionStateById[activeSessionId]) {
 			sessionStateById = {
 				...sessionStateById,
@@ -4852,29 +4855,37 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 					before: 10,
 					after: 20,
 				});
-			const snapshot = await sessionTurnsRepo.mergeTurns(
-				spaceId,
-				sessionId,
-				response.turns,
-				{
+			const current = sessionStateById[sessionId] ?? state;
+			const mergedTurns = current
+				? normalizeTurnDuplicates(
+						mergeTurnsById(current.turns, response.turns, {
+							preferIncoming: true,
+						}),
+					)
+				: response.turns;
+			void sessionTurnsRepo
+				.mergeTurns(spaceId, sessionId, response.turns, {
 					session: response.session,
 					hasMoreOlder: response.hasMoreOlder,
 					hasMoreNewer:
 						"hasMoreNewer" in response ? response.hasMoreNewer : undefined,
 					source: "network",
-				},
-			);
-			const current = sessionStateById[sessionId] ?? state;
+					trimAnchorSequence: sequence,
+				})
+				.catch(() => undefined);
 			if (current) {
 				sessionStateById = {
 					...sessionStateById,
 					[sessionId]: {
 						...current,
-						session: snapshot.session ?? current.session,
-						turns: snapshot.turns,
-						hasMore: snapshot.hasMoreOlder,
-						hasMoreNewer: snapshot.hasMoreNewer,
-						oldestCursor: snapshot.oldestSequence ?? undefined,
+						session: response.session ?? current.session,
+						turns: mergedTurns,
+						hasMore: response.hasMoreOlder,
+						hasMoreNewer:
+							"hasMoreNewer" in response
+								? response.hasMoreNewer
+								: current.hasMoreNewer,
+						oldestCursor: mergedTurns[0]?.sequence ?? undefined,
 						loaded: true,
 						loading: false,
 					},
@@ -4958,20 +4969,25 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 					limit: 100,
 				});
 			if (response.turns.length > 0) {
-				const snapshot = await sessionTurnsRepo.mergeTurns(
-					spaceId,
-					sessionId,
-					response.turns,
-					{ session: response.session, source: "network" },
-				);
+				void sessionTurnsRepo
+					.mergeTurns(spaceId, sessionId, response.turns, {
+						session: response.session,
+						source: "network",
+					})
+					.catch(() => undefined);
 				const current = sessionStateById[sessionId];
 				if (current) {
+					const mergedTurns = normalizeTurnDuplicates(
+						mergeTurnsById(current.turns, response.turns, {
+							preferIncoming: true,
+						}),
+					);
 					sessionStateById = {
 						...sessionStateById,
 						[sessionId]: {
 							...current,
-							session: snapshot.session ?? current.session,
-							turns: snapshot.turns,
+							session: response.session ?? current.session,
+							turns: mergedTurns,
 						},
 					};
 				}
@@ -5018,22 +5034,30 @@ async function loadOlderTurns(sessionId: string) {
 				direction: "older",
 				limit: 30,
 			});
-		const snapshot = await sessionTurnsRepo.loadOlder(spaceId, sessionId, {
-			session: response.session,
-			turns: response.turns,
-			hasMore: response.hasMore,
-		});
+		void sessionTurnsRepo
+			.loadOlder(spaceId, sessionId, {
+				session: response.session,
+				turns: response.turns,
+				hasMore: response.hasMore,
+			})
+			.catch(() => undefined);
+		const current = sessionStateById[sessionId] ?? state;
+		const mergedTurns = normalizeTurnDuplicates(
+			mergeTurnsById(current.turns, response.turns, {
+				preferIncoming: false,
+			}),
+		);
 		sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
-				...state,
-				session: snapshot.session ?? state.session,
-				turns: snapshot.turns,
-				hasMore: snapshot.hasMoreOlder,
-				hasMoreNewer: snapshot.hasMoreNewer,
+				...current,
+				session: response.session ?? current.session,
+				turns: mergedTurns,
+				hasMore: response.hasMore,
+				hasMoreNewer: current.hasMoreNewer,
 				loadingOlder: false,
 				loadingNewer: false,
-				oldestCursor: snapshot.oldestSequence ?? undefined,
+				oldestCursor: mergedTurns[0]?.sequence ?? undefined,
 			},
 		};
 		if (response.turns.length > 0) {
@@ -5985,10 +6009,14 @@ async function handleSend() {
 				.space(spaceId)
 				.sessions.create({ source: "web" });
 			const newSession = result.session;
-			const nextSessions = await patchCachedSessionList(spaceId, (current) => [
+			const nextSessions = sortSessionsByRecentActivity([
+				newSession,
+				...spaceSessions.filter((session) => session.id !== newSession.id),
+			]);
+			void patchCachedSessionList(spaceId, (current) => [
 				newSession,
 				...current.filter((session) => session.id !== newSession.id),
-			]);
+			]).catch(() => undefined);
 			seedSessions(nextSessions);
 			targetSessionState = {
 				session: newSession,

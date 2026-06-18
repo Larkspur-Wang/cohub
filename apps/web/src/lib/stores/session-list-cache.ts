@@ -33,12 +33,14 @@ export async function setCachedSessionList(
 	sessions: SessionRecord[],
 	pageInfo?: SessionListPageInfo | null,
 	forks?: SessionListForkRecord[] | null,
+	options?: { mode?: "replace" | "merge" },
 ): Promise<SessionRecord[]> {
 	const snapshot = await sessionListRepo.setRecent(
 		spaceId,
 		sessions,
 		pageInfo,
 		forks,
+		options,
 	);
 	return snapshot.sessions;
 }
