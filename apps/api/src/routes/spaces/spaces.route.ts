@@ -17,7 +17,7 @@ import {
   userProfiles,
   sessionTurns,
 } from "@cohub/db";
-import { eq, and, inArray, desc, sql } from "drizzle-orm";
+import { eq, and, inArray, desc, lt, or, sql } from "drizzle-orm";
 import { useAuth, getOptionalAuth, getWorkSessionPrincipal, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
@@ -1090,20 +1090,71 @@ router.post("/:id/checkpoints", async (c) => {
   return c.json({ ok: true, taskRunId });
 });
 
+const DEFAULT_CHECKPOINT_LIST_LIMIT = 20;
+const MAX_CHECKPOINT_LIST_LIMIT = 100;
+
+const encodeCheckpointListCursor = (
+  checkpoint: typeof checkpoints.$inferSelect | null | undefined,
+) => {
+  if (!checkpoint?.createdAt) return null;
+  const createdAt = checkpoint.createdAt instanceof Date
+    ? checkpoint.createdAt.toISOString()
+    : new Date(checkpoint.createdAt).toISOString();
+  return `${createdAt}|${checkpoint.id}`;
+};
+
+const decodeCheckpointListCursor = (cursor: string | null | undefined) => {
+  if (!cursor) return null;
+  const separatorIndex = cursor.lastIndexOf("|");
+  const rawDate = separatorIndex > 0 ? cursor.slice(0, separatorIndex) : cursor;
+  const id = separatorIndex > 0 ? cursor.slice(separatorIndex + 1) : null;
+  const date = new Date(rawDate);
+  if (Number.isNaN(date.getTime())) return null;
+  return { date, id };
+};
+
 router.get("/:id/checkpoints", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
 
+  const limitParam = Number(c.req.query("limit") ?? DEFAULT_CHECKPOINT_LIST_LIMIT);
+  const rawLimit = Math.trunc(limitParam);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), MAX_CHECKPOINT_LIST_LIMIT)
+    : DEFAULT_CHECKPOINT_LIST_LIMIT;
+  const cursor = decodeCheckpointListCursor(c.req.query("cursor"));
+
   const rows = await db
     .select()
     .from(checkpoints)
-    .where(eq(checkpoints.spaceId, spaceId))
-    .orderBy(desc(checkpoints.createdAt))
-    .limit(100);
+    .where(
+      cursor
+        ? and(
+            eq(checkpoints.spaceId, spaceId),
+            or(
+              lt(checkpoints.createdAt, cursor.date),
+              cursor.id
+                ? and(eq(checkpoints.createdAt, cursor.date), lt(checkpoints.id, cursor.id))
+                : undefined,
+            ),
+          )
+        : eq(checkpoints.spaceId, spaceId),
+    )
+    .orderBy(desc(checkpoints.createdAt), desc(checkpoints.id))
+    .limit(limit + 1);
 
-  return c.json({ checkpoints: rows });
+  const hasMore = rows.length > limit;
+  const listedCheckpoints = hasMore ? rows.slice(0, limit) : rows;
+
+  return c.json({
+    checkpoints: listedCheckpoints,
+    pageInfo: {
+      hasMore,
+      nextCursor: hasMore ? encodeCheckpointListCursor(listedCheckpoints.at(-1)) : null,
+    },
+  });
 });
 
 router.get("/:id/checkpoints/:checkpointId", async (c) => {

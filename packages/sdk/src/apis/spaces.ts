@@ -1239,11 +1239,15 @@ export class SpaceCheckpointApi {
   }
 }
 
+export type CheckpointListPageInfo = { hasMore: boolean; nextCursor: string | null };
+export type CheckpointListOptions = { limit?: number; cursor?: string | null };
+export type CheckpointListResponse = { checkpoints: CheckpointRecord[]; pageInfo?: CheckpointListPageInfo };
+
 export type SpaceCheckpointsApi = ((checkpointId: string) => SpaceCheckpointApi) & {
   checkpoint: (checkpointId: string) => SpaceCheckpointApi;
   latest: () => SpaceCheckpointApi;
   create: (description?: string | null) => Promise<{ ok: true; taskRunId: string; existing?: boolean }>;
-  list: () => Promise<{ checkpoints: CheckpointRecord[] }>;
+  list: (options?: CheckpointListOptions) => Promise<CheckpointListResponse>;
   get: (checkpointId: string, customFetch?: Fetch) => Promise<SpaceCheckpointDetailResponse>;
 };
 
@@ -1260,9 +1264,15 @@ function createSpaceCheckpointsApi(transport: HttpTransport, spaceId: string): S
         body: JSON.stringify({ description: description ?? null }),
       },
     ),
-    list: () => transport.request<{ checkpoints: CheckpointRecord[] }>(
-      `/api/spaces/${spaceId}/checkpoints`,
-    ),
+    list: (options?: CheckpointListOptions) => {
+      const params = new URLSearchParams();
+      if (options?.limit !== undefined) params.set("limit", String(options.limit));
+      if (options?.cursor) params.set("cursor", options.cursor);
+      const query = params.toString();
+      return transport.request<CheckpointListResponse>(
+        `/api/spaces/${spaceId}/checkpoints${query ? `?${query}` : ""}`,
+      );
+    },
     get: (checkpointId: string, customFetch?: Fetch) => checkpoint(checkpointId).get(customFetch),
   });
 }

@@ -157,6 +157,7 @@ const {
 } = $props();
 
 const SESSION_PAGE_SIZE = 20;
+const CHECKPOINT_PAGE_SIZE = 20;
 const TASK_PAGE_SIZE = 10;
 
 let showUserMenu = $state(false);
@@ -208,9 +209,14 @@ let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 });
 let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
+let loadingMoreCheckpoints = $state(false);
 let loadingLabels = $state(false);
 let refreshingLabels = $state(false);
 let loadingCheckpointsSpaceId = $state<string | null>(null);
+let checkpointsPageInfo = $state<{
+	hasMore: boolean;
+	nextCursor: string | null;
+}>({ hasMore: false, nextCursor: null });
 let billingCredit = $state<BillingCreditStatus | null>(null);
 let billingCreditLoading = $state(false);
 let billingCreditError = $state<string | null>(null);
@@ -901,8 +907,16 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 		refreshingCheckpoints = true;
 	}
 	try {
-		const result = await sdk.space(spaceId).checkpoints.list();
-		if (spaceId === currentSpaceId) checkpoints = result.checkpoints ?? [];
+		const result = await sdk.space(spaceId).checkpoints.list({
+			limit: CHECKPOINT_PAGE_SIZE,
+		});
+		if (spaceId === currentSpaceId) {
+			checkpoints = result.checkpoints ?? [];
+			checkpointsPageInfo = result.pageInfo ?? {
+				hasMore: false,
+				nextCursor: null,
+			};
+		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load checkpoints", { spaceId, error });
 	} finally {
@@ -911,6 +925,42 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 			loadingCheckpointsSpaceId = null;
 		}
 		refreshingCheckpoints = false;
+	}
+}
+
+async function loadMoreCheckpointsForSpace(spaceId: string) {
+	if (loadingMoreCheckpoints) return;
+	const cursor = checkpointsPageInfo.nextCursor;
+	if (!cursor) return;
+	loadingMoreCheckpoints = true;
+	try {
+		const result = await sdk.space(spaceId).checkpoints.list({
+			limit: CHECKPOINT_PAGE_SIZE,
+			cursor,
+		});
+		if (spaceId !== currentSpaceId) return;
+		const byId = new Map(
+			checkpoints.map((checkpoint) => [checkpoint.id, checkpoint]),
+		);
+		for (const checkpoint of result.checkpoints ?? []) {
+			byId.set(checkpoint.id, checkpoint);
+		}
+		checkpoints = Array.from(byId.values()).sort(
+			(a, b) =>
+				(Date.parse(b.createdAt ?? "") || 0) -
+				(Date.parse(a.createdAt ?? "") || 0),
+		);
+		checkpointsPageInfo = result.pageInfo ?? {
+			hasMore: false,
+			nextCursor: null,
+		};
+	} catch (error) {
+		console.warn("[sidebar] Failed to load more checkpoints", {
+			spaceId,
+			error,
+		});
+	} finally {
+		loadingMoreCheckpoints = false;
 	}
 }
 
@@ -3297,7 +3347,7 @@ $effect(() => {
                 <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No saves</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
-                  {#each checkpoints.slice(0, 20) as checkpoint (checkpoint.id)}
+                  {#each checkpoints as checkpoint (checkpoint.id)}
                     {@const isActive = activeCheckpointId === checkpoint.id}
                     <a
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
@@ -3310,6 +3360,21 @@ $effect(() => {
                       </div>
                     </a>
                   {/each}
+                  {#if checkpointsPageInfo.hasMore && checkpointsPageInfo.nextCursor}
+                    <button
+                      type="button"
+                      class="mt-1 flex w-full items-center justify-center gap-1.5 rounded-[6px] px-1.5 py-1.5 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={loadingMoreCheckpoints}
+                      onclick={() => currentSpaceId && void loadMoreCheckpointsForSpace(currentSpaceId)}
+                    >
+                      {#if loadingMoreCheckpoints}
+                        <Loader2 class="h-3 w-3 animate-spin" />
+                        Loading...
+                      {:else}
+                        Show more
+                      {/if}
+                    </button>
+                  {/if}
                 </div>
               {/if}
             {:else if activeCheckpoint}
@@ -3351,7 +3416,7 @@ $effect(() => {
                 <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No works</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
-                  {#each works.slice(0, 20) as work (work.id)}
+                  {#each works as work (work.id)}
                     {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
                     {@const isActive = activeWork?.id === work.id}
                     <a
@@ -3416,7 +3481,7 @@ $effect(() => {
                 <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No scheduled</div>
               {:else}
                 <div class="space-y-[2px] mt-1">
-                  {#each cronjobs.slice(0, 20) as job (job.id)}
+                  {#each cronjobs as job (job.id)}
                     {@const isActive = activeCronjobId === job.id}
                     <a
                       href={buildSpaceCronjobRoute(currentSpaceId!, job.id)}

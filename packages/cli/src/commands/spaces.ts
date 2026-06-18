@@ -1380,12 +1380,17 @@ function registerCheckpoints(spacesCmd: Command): void {
     .command("ls")
     .alias("list")
     .description("List checkpoints")
+    .option("--limit <n>", "Maximum checkpoints to return", (value) => Number(value))
+    .option("--cursor <cursor>", "Pagination cursor")
     .option("--json", "Output as JSON")
-    .action(async (opts: { json?: boolean }) => {
+    .action(async (opts: { limit?: number; cursor?: string; json?: boolean }) => {
       const spaceId = resolveSpace(spacesCmd);
       const client = createClient();
       try {
-        const result = await client.space(spaceId).checkpoints.list();
+        const result = await client.space(spaceId).checkpoints.list({
+          limit: opts.limit,
+          cursor: opts.cursor,
+        });
         if (jsonRequested(opts)) return outJson(result);
         if (result.checkpoints.length === 0) {
           console.log("  (empty)");
