@@ -59,7 +59,7 @@ type ObservationMeta = Record<string, string | number | boolean | null | undefin
 type CheckpointFsStage = ObservationMeta & {
   name: string;
   durationMs: number;
-  reason: string;
+  reason?: string;
   outcome: "ok" | "error";
 };
 
@@ -78,13 +78,26 @@ type CheckpointFsObservation = {
 
 const roundMs = (value: number) => Math.round(value * 100) / 100;
 
+function envFlag(name: string, defaultValue = false) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (value == null || value === "") return defaultValue;
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function envNumber(name: string, defaultValue: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? value : defaultValue;
+}
+
+const FS_OBSERVABILITY_DETAILED = envFlag("OTEL_FS_OBSERVABILITY_DETAILED", false);
+const FS_OBSERVABILITY_LOG_MIN_MS = envNumber("OTEL_FS_OBSERVABILITY_LOG_MIN_MS", 1000);
+
 const pathTelemetry = (path: string | undefined) => {
   const normalized = path ?? "";
   const dotIndex = normalized.lastIndexOf(".");
   const slashIndex = normalized.lastIndexOf("/");
   const extension = dotIndex > slashIndex ? normalized.slice(dotIndex + 1).toLowerCase() : "";
   return {
-    pathHash: sha256Hex(normalized).slice(0, 16),
     pathLength: normalized.length,
     pathDepth: normalized ? normalized.split("/").length : 0,
     pathExtension: extension || null,
@@ -104,6 +117,16 @@ const errorTelemetry = (error: unknown): ObservationMeta => ({
   errorStatus: error instanceof CheckpointFsError ? error.status : null,
 });
 
+const isExpectedError = (error: unknown) => error instanceof CheckpointFsError && error.status < 500;
+
+const safeErrorMessage = (error: unknown) => {
+  const telemetry = errorTelemetry(error);
+  return String(telemetry.errorCode ?? telemetry.errorName ?? "checkpoint_fs_error");
+};
+
+const shouldLogObservation = (durationMs: number, error: unknown) =>
+  logger.isInfoEnabled() && (FS_OBSERVABILITY_DETAILED || durationMs >= FS_OBSERVABILITY_LOG_MIN_MS || (error != null && !isExpectedError(error)));
+
 async function observeStage<T>(
   observation: CheckpointFsObservation,
   name: string,
@@ -117,7 +140,7 @@ async function observeStage<T>(
     const durationMs = roundMs(performance.now() - startedAt);
     const stage: CheckpointFsStage = {
       name,
-      reason,
+      ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
       outcome: "ok",
       durationMs,
       ...(metaForResult?.(result) ?? {}),
@@ -129,7 +152,7 @@ async function observeStage<T>(
     const durationMs = roundMs(performance.now() - startedAt);
     const stage: CheckpointFsStage = {
       name,
-      reason,
+      ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
       outcome: "error",
       durationMs,
       ...errorTelemetry(error),
@@ -153,7 +176,7 @@ const summarizeStages = (stages: CheckpointFsStage[]) =>
   stages.map((stage) => ({
     name: stage.name,
     durationMs: stage.durationMs,
-    reason: stage.reason,
+    ...(stage.reason ? { reason: stage.reason } : {}),
     outcome: stage.outcome,
     ...Object.fromEntries(Object.entries(stage).filter(([key]) => !["name", "durationMs", "reason", "outcome"].includes(key))),
   }));
@@ -190,27 +213,14 @@ async function observeCheckpointFs<T>(
       return result;
     } catch (error) {
       operationError = error;
-      span.recordException(error instanceof Error ? error : new Error(String(error)));
-      span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message : String(error) });
+      if (!isExpectedError(error)) {
+        span.recordException({ name: error instanceof Error ? error.name : typeof error, message: safeErrorMessage(error) });
+        span.setStatus({ code: SpanStatusCode.ERROR, message: safeErrorMessage(error) });
+      }
       throw error;
     } finally {
       const durationMs = roundMs(performance.now() - startedAt);
       const result = observation.result ?? {};
-      const summary = {
-        operation,
-        outcome: operationError ? "error" : "ok",
-        durationMs,
-        spaceId: input.spaceId,
-        requestedCheckpointId: input.checkpointId,
-        resolvedCheckpointId: observation.resolvedCheckpointId,
-        commitHash: observation.commitHash?.slice(0, 12),
-        ...(operationError ? { error: errorTelemetry(operationError) } : {}),
-        requestedPath: pathTelemetry(input.path),
-        normalizedPath: pathTelemetry(observation.normalizedPath),
-        stageCount: observation.stages.length,
-        stages: summarizeStages(observation.stages),
-        result,
-      };
       setSpanAttributes(span, {
         "checkpoint_fs.duration_ms": durationMs,
         "checkpoint_fs.stage_count": observation.stages.length,
@@ -219,7 +229,23 @@ async function observeCheckpointFs<T>(
         "checkpoint_fs.commit_hash": observation.commitHash?.slice(0, 12),
         ...Object.fromEntries(Object.entries(result).map(([key, value]) => [`checkpoint_fs.result.${key}`, value])),
       });
-      logger.info("[checkpoint-fs] operation observed", summary);
+      if (shouldLogObservation(durationMs, operationError)) {
+        logger.info("[checkpoint-fs] operation observed", {
+          operation,
+          outcome: operationError ? "error" : "ok",
+          durationMs,
+          spaceId: input.spaceId,
+          requestedCheckpointId: input.checkpointId,
+          resolvedCheckpointId: observation.resolvedCheckpointId,
+          commitHash: observation.commitHash?.slice(0, 12),
+          ...(operationError ? { error: errorTelemetry(operationError) } : {}),
+          requestedPath: pathTelemetry(input.path),
+          normalizedPath: pathTelemetry(observation.normalizedPath),
+          stageCount: observation.stages.length,
+          stages: summarizeStages(observation.stages),
+          result,
+        });
+      }
       span.end();
     }
   });
@@ -490,10 +516,24 @@ function presignCheckpointAsset(objectKey: string) {
 
 async function readAssetManifestMap(repoDir: string, checkpoint: CheckpointRecord, observation?: CheckpointFsObservation) {
   const manifestPath = ".cohub/system/checkpoint-assets.v1.json";
-  const blob = await getCachedBlob(repoDir, checkpoint, manifestPath, observation, "asset_manifest").catch((error) => {
-    logger.debug("[checkpoint-fs] asset manifest is unavailable", { checkpointId: checkpoint.id, error });
-    return null;
-  });
+  const readManifest = async () => {
+    try {
+      return await getCachedBlob(repoDir, checkpoint, manifestPath, undefined, "asset_manifest");
+    } catch (error) {
+      if (error instanceof CheckpointFsError && error.code === "path_not_found") return null;
+      logger.debug("[checkpoint-fs] asset manifest is unavailable", { checkpointId: checkpoint.id, error: errorTelemetry(error) });
+      return null;
+    }
+  };
+  const blob = observation
+    ? await observeStage(
+      observation,
+      "asset_manifest_read",
+      "Asset manifest lookup checks whether checkpoint files have external object-storage pointers.",
+      readManifest,
+      (value) => ({ manifestFound: Boolean(value), manifestBytes: value?.length ?? 0 }),
+    )
+    : await readManifest();
   if (!blob) return new Map<string, AssetPointer>();
   try {
     const parse = () => {
@@ -628,15 +668,18 @@ export async function listCheckpointDirectory(input: { spaceId: string; checkpoi
       (value) => ({ entryCount: value.length, maxEntries: MAX_DIR_ENTRIES }),
     );
     const assets = await readAssetManifestMap(repoDir, checkpoint, observation);
+    let assetMatches = 0;
     const merged = await observeStage(
       observation,
       "merge_asset_metadata",
       "Asset manifest pointers replace git blob size and MIME metadata for files stored outside git.",
       () => entries.map((entry) => {
         const asset = entry.type === "file" ? assets.get(entry.path) : null;
-        return asset ? { ...entry, size: asset.size, mimeType: asset.mimeType ?? getMimeType(entry.name) } : entry;
+        if (!asset) return entry;
+        assetMatches += 1;
+        return { ...entry, size: asset.size, mimeType: asset.mimeType ?? getMimeType(entry.name) };
       }),
-      (value) => ({ entryCount: value.length, assetCount: assets.size, assetMatches: value.filter((entry, index) => entry.size !== entries[index]?.size || entry.mimeType !== entries[index]?.mimeType).length }),
+      (value) => ({ entryCount: value.length, assetCount: assets.size, assetMatches }),
     );
     const response = { path, entries: merged };
     await observeStage(

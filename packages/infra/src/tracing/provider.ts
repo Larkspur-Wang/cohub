@@ -11,7 +11,7 @@ import { HttpInstrumentation } from "@opentelemetry/instrumentation-http";
 import { UndiciInstrumentation } from "@opentelemetry/instrumentation-undici";
 import { IORedisInstrumentation } from "@opentelemetry/instrumentation-ioredis";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
-import { FilteringSpanExporter } from "./filtering.js";
+import { FilteringSpanProcessor } from "./filtering.js";
 
 const ARMS_ENDPOINT =
   "http://tracing-analysis-dc-usw-internal.aliyuncs.com/adapt_e4kueuvixa@b95f2fd373952c5_e4kueuvixa@53df7ad2afe8301/api/otlp/traces";
@@ -56,21 +56,21 @@ export function initTracing(options: TracingOptions) {
   const spanProcessors: import("@opentelemetry/sdk-trace-base").SpanProcessor[] = [];
 
   const dropRealtimeRedisSpans = envFlag("OTEL_DROP_REALTIME_REDIS_SPANS", true);
-  const wrapExporter = (exporter: import("@opentelemetry/sdk-trace-base").SpanExporter) =>
-    new FilteringSpanExporter(exporter, { dropRealtimeRedisSpans });
+  const wrapSpanProcessor = (processor: import("@opentelemetry/sdk-trace-base").SpanProcessor) =>
+    new FilteringSpanProcessor(processor, { dropRealtimeRedisSpans });
 
   // Report to Alibaba Cloud ARMS. Batch exporting keeps tracing off the request hot path.
   const exporter = new OTLPTraceExporter({ url: ARMS_ENDPOINT });
-  spanProcessors.push(new BatchSpanProcessor(wrapExporter(exporter)));
+  spanProcessors.push(wrapSpanProcessor(new BatchSpanProcessor(exporter)));
 
   // Console span export is intentionally opt-in. It is very expensive for streaming
   // agent workloads because every span is serialized and written to stdout.
   if (envFlag("OTEL_CONSOLE_EXPORTER")) {
-    spanProcessors.push(new BatchSpanProcessor(wrapExporter(new ConsoleSpanExporter()), {
+    spanProcessors.push(wrapSpanProcessor(new BatchSpanProcessor(new ConsoleSpanExporter(), {
       maxQueueSize: 256,
       maxExportBatchSize: 32,
       scheduledDelayMillis: 1000,
-    }));
+    })));
   }
 
   if (options.extraSpanProcessors) {
