@@ -78,9 +78,6 @@ let closeTimer: ReturnType<typeof setTimeout> | null = null;
 const loadedSequences = $derived(
 	new Set(loadedTurns.map((turn) => turn.sequence)),
 );
-const positionedTurns = $derived(
-	turns.filter((turn) => markerPositions[turn.sequence] != null),
-);
 const minSequence = $derived(turns.at(0)?.sequence ?? 0);
 const maxSequence = $derived(turns.at(-1)?.sequence ?? minSequence);
 const span = $derived(Math.max(1, maxSequence - minSequence));
@@ -89,7 +86,7 @@ const effectiveCurrent = $derived.by(() => {
 	return loadedTurns.at(-1)?.sequence ?? null;
 });
 const markers = $derived.by<Marker[]>(() =>
-	positionedTurns.map((turn) => ({
+	turns.map((turn) => ({
 		turn,
 		top:
 			markerPositions[turn.sequence] ??
@@ -375,7 +372,7 @@ onDestroy(() => {
 				onmouseleave={scheduleNavigatorClose}
 			>
 				<span
-					class="absolute -right-8 h-8 w-8 -translate-y-1/2"
+					class="pointer-events-none absolute -right-8 h-8 w-8 -translate-y-1/2"
 					style:top={`${navigatorAnchorOffset}px`}
 					aria-hidden="true"
 				></span>
