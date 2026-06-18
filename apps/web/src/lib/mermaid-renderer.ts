@@ -66,9 +66,43 @@ function isMermaidSourceTooLarge(source: string) {
 	);
 }
 
-function markMermaidUnavailable(element: HTMLElement) {
+function markMermaidUnavailable(element: HTMLElement, error?: unknown) {
 	element.dataset.mermaidRendered = "true";
 	element.textContent = "Preview unavailable.";
+	if (error instanceof Error && error.message) {
+		element.title = error.message;
+	}
+}
+
+function quoteMermaidLabel(label: string) {
+	const text = label.trim();
+	if (!text || text.startsWith('"') || text.startsWith("'")) return label;
+	return `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function repairFlowchartLabels(source: string) {
+	if (!/^\s*(?:flowchart|graph)\s+/m.test(source)) return source;
+	return source
+		.replaceAll(/([A-Za-z][\w-]*)\[([^\]"'][^\]]*)\]/g, (_, id, label) => {
+			return `${id}[${quoteMermaidLabel(label)}]`;
+		})
+		.replaceAll(/([A-Za-z][\w-]*)\{([^}"'][^}]*)\}/g, (_, id, label) => {
+			return `${id}{${quoteMermaidLabel(label)}}`;
+		});
+}
+
+async function renderMermaidSvg(
+	mermaid: MermaidApi,
+	id: string,
+	source: string,
+) {
+	try {
+		return await mermaid.render(id, source);
+	} catch (error) {
+		const repairedSource = repairFlowchartLabels(source);
+		if (repairedSource === source) throw error;
+		return mermaid.render(`${id}-repaired`, repairedSource);
+	}
 }
 
 export async function renderMermaidDiagrams(root: HTMLElement) {
@@ -109,7 +143,8 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 			element.dataset.mermaidRenderToken = token;
 
 			try {
-				const { svg, bindFunctions } = await mermaid.render(
+				const { svg, bindFunctions } = await renderMermaidSvg(
+					mermaid,
 					`markdown-mermaid-${token}`,
 					source,
 				);
@@ -122,14 +157,14 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 				element.innerHTML = svg;
 				bindFunctions?.(element);
 				element.dataset.mermaidRendered = "true";
-			} catch {
+			} catch (error) {
 				if (
 					!element.isConnected ||
 					element.dataset.mermaidRenderToken !== token
 				) {
 					return;
 				}
-				markMermaidUnavailable(element);
+				markMermaidUnavailable(element, error);
 			}
 		}),
 	);
