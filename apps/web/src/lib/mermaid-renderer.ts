@@ -7,8 +7,8 @@ const MAX_MERMAID_SOURCE_LINES = 240;
 const FONT_FAMILY = "Geist, ui-sans-serif, system-ui, sans-serif";
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 2.5;
-const DEFAULT_MAX_WIDTH = 760;
-const DEFAULT_MAX_HEIGHT = 460;
+const DEFAULT_MAX_WIDTH = 860;
+const DEFAULT_MIN_SCALE = 0.72;
 
 const MERMAID_THEME_VARIABLES = {
 	dark: {
@@ -128,10 +128,9 @@ function getSvgSize(svg: SVGSVGElement) {
 }
 
 function getDefaultScale(svg: SVGSVGElement) {
-	const { width, height } = getSvgSize(svg);
-	return clampScale(
-		Math.min(1, DEFAULT_MAX_WIDTH / width, DEFAULT_MAX_HEIGHT / height),
-	);
+	const { width } = getSvgSize(svg);
+	const fitWidthScale = Math.min(1, DEFAULT_MAX_WIDTH / width);
+	return clampScale(Math.max(DEFAULT_MIN_SCALE, fitWidthScale));
 }
 
 function setMermaidScale(element: HTMLElement, scale: number) {
@@ -149,14 +148,16 @@ function setMermaidScale(element: HTMLElement, scale: number) {
 }
 
 function createMermaidButton(input: {
-	label: string;
+	label?: string;
+	icon?: string;
 	title: string;
 	onClick: () => void;
 }) {
 	const button = document.createElement("button");
 	button.type = "button";
 	button.className = "markdown-mermaid-action";
-	button.textContent = input.label;
+	if (input.icon) button.innerHTML = input.icon;
+	else button.textContent = input.label ?? "";
 	button.title = input.title;
 	button.setAttribute("aria-label", input.title);
 	button.addEventListener("click", (event) => {
@@ -218,6 +219,9 @@ async function downloadMermaidPng(element: HTMLElement) {
 	}
 }
 
+const DOWNLOAD_ICON =
+	'<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>';
+
 function enhanceMermaidDiagram(element: HTMLElement) {
 	const svg = element.querySelector<SVGSVGElement>("svg");
 	if (!svg) return;
@@ -265,7 +269,7 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 				),
 		}),
 		createMermaidButton({
-			label: "PNG",
+			icon: DOWNLOAD_ICON,
 			title: "Download PNG",
 			onClick: () => {
 				void downloadMermaidPng(element).catch((error) =>
