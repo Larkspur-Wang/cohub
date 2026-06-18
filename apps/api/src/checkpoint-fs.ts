@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import { context, trace, SpanStatusCode, type Attributes, type Span } from "@opentelemetry/api";
+import { context, trace, SpanStatusCode, type Span } from "@opentelemetry/api";
 import { and, eq } from "drizzle-orm";
 import { checkpoints, spaces } from "@cohub/db";
 import { createLogger } from "@cohub/infra/logging";
@@ -68,6 +68,7 @@ type CheckpointFsObservation = {
   requestedSpaceId: string;
   requestedCheckpointId: string;
   requestedPath: string | undefined;
+  spanStageOverrides?: Partial<Record<string, boolean>>;
   stages: CheckpointFsStage[];
   span: Span;
   normalizedPath?: string;
@@ -127,6 +128,40 @@ const safeErrorMessage = (error: unknown) => {
 const shouldLogObservation = (durationMs: number, error: unknown) =>
   logger.isInfoEnabled() && (FS_OBSERVABILITY_DETAILED || durationMs >= FS_OBSERVABILITY_LOG_MIN_MS || (error != null && !isExpectedError(error)));
 
+const CHECKPOINT_FS_SPAN_STAGES = new Set([
+  "checkpoint_id_resolve",
+  "checkpoint_row_lookup",
+  "git_object_type",
+  "tree_cache_read",
+  "git_ls_tree",
+  "asset_manifest_read",
+  "tree_cache_write",
+  "asset_cache_read",
+  "asset_cache_write",
+  "asset_presign",
+  "file_blob_cache_read",
+  "file_blob_git_show",
+  "file_blob_cache_write",
+  "encode_response",
+]);
+
+const shouldCreateStageSpan = (name: string) =>
+  CHECKPOINT_FS_SPAN_STAGES.has(name) || name.endsWith("_git_show") || name.endsWith("_cache_read") || name.endsWith("_cache_write");
+
+const stageSpanAttributes = (stage: CheckpointFsStage): ObservationMeta => {
+  const attributes: ObservationMeta = {
+    "checkpoint_fs.stage.name": stage.name,
+    "checkpoint_fs.stage.duration_ms": stage.durationMs,
+    "checkpoint_fs.stage.outcome": stage.outcome,
+  };
+  if (stage.reason) attributes["checkpoint_fs.stage.reason"] = stage.reason;
+  for (const [key, value] of Object.entries(stage)) {
+    if (["name", "durationMs", "reason", "outcome"].includes(key)) continue;
+    attributes[`checkpoint_fs.stage.${key}`] = value;
+  }
+  return attributes;
+};
+
 async function observeStage<T>(
   observation: CheckpointFsObservation,
   name: string,
@@ -134,43 +169,51 @@ async function observeStage<T>(
   fn: () => Promise<T> | T,
   metaForResult?: (result: T) => ObservationMeta,
 ): Promise<T> {
+  const createSpan = observation.spanStageOverrides?.[name] ?? shouldCreateStageSpan(name);
+  const stageSpan = createSpan ? tracer.startSpan(`api.checkpoint_fs.${observation.operation}.${name}`) : null;
   const startedAt = performance.now();
-  try {
-    const result = await fn();
-    const durationMs = roundMs(performance.now() - startedAt);
-    const stage: CheckpointFsStage = {
-      name,
-      ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
-      outcome: "ok",
-      durationMs,
-      ...(metaForResult?.(result) ?? {}),
-    };
-    observation.stages.push(stage);
-    observation.span.addEvent("checkpoint_fs.stage", toSpanEventAttributes(stage));
-    return result;
-  } catch (error) {
-    const durationMs = roundMs(performance.now() - startedAt);
-    const stage: CheckpointFsStage = {
-      name,
-      ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
-      outcome: "error",
-      durationMs,
-      ...errorTelemetry(error),
-    };
-    observation.stages.push(stage);
-    observation.span.addEvent("checkpoint_fs.stage", toSpanEventAttributes(stage));
-    throw error;
-  }
-}
+  const run = async () => {
+    try {
+      const result = await fn();
+      const durationMs = roundMs(performance.now() - startedAt);
+      const stage: CheckpointFsStage = {
+        name,
+        ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
+        outcome: "ok",
+        durationMs,
+        ...(metaForResult?.(result) ?? {}),
+      };
+      observation.stages.push(stage);
+      if (stageSpan) {
+        setSpanAttributes(stageSpan, stageSpanAttributes(stage));
+        stageSpan.setStatus({ code: SpanStatusCode.OK });
+      }
+      return result;
+    } catch (error) {
+      const durationMs = roundMs(performance.now() - startedAt);
+      const stage: CheckpointFsStage = {
+        name,
+        ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
+        outcome: "error",
+        durationMs,
+        ...errorTelemetry(error),
+      };
+      observation.stages.push(stage);
+      if (stageSpan) {
+        setSpanAttributes(stageSpan, stageSpanAttributes(stage));
+        if (!isExpectedError(error)) {
+          stageSpan.recordException({ name: error instanceof Error ? error.name : typeof error, message: safeErrorMessage(error) });
+          stageSpan.setStatus({ code: SpanStatusCode.ERROR, message: safeErrorMessage(error) });
+        }
+      }
+      throw error;
+    } finally {
+      stageSpan?.end();
+    }
+  };
 
-const toSpanEventAttributes = (stage: CheckpointFsStage): Attributes => {
-  const attributes: Attributes = {};
-  for (const [key, value] of Object.entries(stage)) {
-    if (value === null || value === undefined) continue;
-    attributes[`checkpoint_fs.stage.${key}`] = value;
-  }
-  return attributes;
-};
+  return stageSpan ? await context.with(trace.setSpan(context.active(), stageSpan), run) : await run();
+}
 
 const summarizeStages = (stages: CheckpointFsStage[]) =>
   stages.map((stage) => ({
@@ -200,6 +243,9 @@ async function observeCheckpointFs<T>(
     requestedSpaceId: input.spaceId,
     requestedCheckpointId: input.checkpointId,
     requestedPath: input.path,
+    spanStageOverrides: {
+      checkpoint_id_resolve: input.checkpointId === "latest",
+    },
     stages: [],
     span,
   };

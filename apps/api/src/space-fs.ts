@@ -3,7 +3,7 @@ import type { Stats } from "node:fs";
 import { chmod, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import { context, SpanStatusCode, trace, type Attributes, type Span } from "@opentelemetry/api";
+import { context, SpanStatusCode, trace, type Span } from "@opentelemetry/api";
 import { createLogger } from "@cohub/infra/logging";
 import { getTracer } from "@cohub/infra/tracing/propagator";
 import {
@@ -258,6 +258,7 @@ type SpaceFsObservation = {
   requestedSpaceId: string;
   requestedPath: string | undefined;
   visibility: SpaceFsVisibility;
+  spanStageOverrides?: Partial<Record<string, boolean>>;
   stages: SpaceFsStage[];
   span: Span;
   normalizedPath?: string;
@@ -315,10 +316,33 @@ const safeErrorMessage = (error: unknown) => {
 const shouldLogObservation = (durationMs: number, error: unknown) =>
   logger.isInfoEnabled() && (FS_OBSERVABILITY_DETAILED || durationMs >= FS_OBSERVABILITY_LOG_MIN_MS || (error != null && !isExpectedError(error)));
 
-const toSpanEventAttributes = (stage: SpaceFsStage): Attributes => {
-  const attributes: Attributes = {};
+const SPACE_FS_SPAN_STAGES = new Set([
+  "resolve_target",
+  "target_stat",
+  "visibility_filter",
+  "directory_read",
+  "entry_stats",
+  "cdn_manifest",
+  "inline_read",
+  "inline_encode",
+  "directory_walk",
+  "metadata_read",
+  "cdn_manifest_read",
+  "cdn_warm_enqueue",
+  "cdn_manifest_wait",
+]);
+
+const shouldCreateStageSpan = (name: string) => SPACE_FS_SPAN_STAGES.has(name);
+
+const stageSpanAttributes = (stage: SpaceFsStage): ObservationMeta => {
+  const attributes: ObservationMeta = {
+    "space_fs.stage.name": stage.name,
+    "space_fs.stage.duration_ms": stage.durationMs,
+    "space_fs.stage.outcome": stage.outcome,
+  };
+  if (stage.reason) attributes["space_fs.stage.reason"] = stage.reason;
   for (const [key, value] of Object.entries(stage)) {
-    if (value === null || value === undefined) continue;
+    if (["name", "durationMs", "reason", "outcome"].includes(key)) continue;
     attributes[`space_fs.stage.${key}`] = value;
   }
   return attributes;
@@ -331,33 +355,50 @@ async function observeSpaceFsStage<T>(
   fn: () => Promise<T> | T,
   metaForResult?: (result: T) => ObservationMeta,
 ): Promise<T> {
+  const createSpan = observation.spanStageOverrides?.[name] ?? shouldCreateStageSpan(name);
+  const stageSpan = createSpan ? tracer.startSpan(`api.space_fs.${observation.operation}.${name}`) : null;
   const startedAt = performance.now();
-  try {
-    const result = await fn();
-    const durationMs = roundMs(performance.now() - startedAt);
-    const stage: SpaceFsStage = {
-      name,
-      ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
-      outcome: "ok",
-      durationMs,
-      ...(metaForResult?.(result) ?? {}),
-    };
-    observation.stages.push(stage);
-    observation.span.addEvent("space_fs.stage", toSpanEventAttributes(stage));
-    return result;
-  } catch (error) {
-    const durationMs = roundMs(performance.now() - startedAt);
-    const stage: SpaceFsStage = {
-      name,
-      ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
-      outcome: "error",
-      durationMs,
-      ...errorTelemetry(error),
-    };
-    observation.stages.push(stage);
-    observation.span.addEvent("space_fs.stage", toSpanEventAttributes(stage));
-    throw error;
-  }
+  const run = async () => {
+    try {
+      const result = await fn();
+      const durationMs = roundMs(performance.now() - startedAt);
+      const stage: SpaceFsStage = {
+        name,
+        ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
+        outcome: "ok",
+        durationMs,
+        ...(metaForResult?.(result) ?? {}),
+      };
+      observation.stages.push(stage);
+      if (stageSpan) {
+        setSpanAttributes(stageSpan, stageSpanAttributes(stage));
+        stageSpan.setStatus({ code: SpanStatusCode.OK });
+      }
+      return result;
+    } catch (error) {
+      const durationMs = roundMs(performance.now() - startedAt);
+      const stage: SpaceFsStage = {
+        name,
+        ...(FS_OBSERVABILITY_DETAILED ? { reason } : {}),
+        outcome: "error",
+        durationMs,
+        ...errorTelemetry(error),
+      };
+      observation.stages.push(stage);
+      if (stageSpan) {
+        setSpanAttributes(stageSpan, stageSpanAttributes(stage));
+        if (!isExpectedError(error)) {
+          stageSpan.recordException({ name: error instanceof Error ? error.name : typeof error, message: safeErrorMessage(error) });
+          stageSpan.setStatus({ code: SpanStatusCode.ERROR, message: safeErrorMessage(error) });
+        }
+      }
+      throw error;
+    } finally {
+      stageSpan?.end();
+    }
+  };
+
+  return stageSpan ? await context.with(trace.setSpan(context.active(), stageSpan), run) : await run();
 }
 
 const summarizeStages = (stages: SpaceFsStage[]) =>
@@ -387,6 +428,9 @@ async function observeSpaceFs<T>(
     requestedSpaceId: input.spaceId,
     requestedPath: input.path,
     visibility: input.visibility,
+    spanStageOverrides: {
+      visibility_filter: input.visibility === "filtered",
+    },
     stages: [],
     span,
   };
@@ -1022,6 +1066,10 @@ export async function readSpaceFiles(
       },
       () => ({ readableFiles: readableResults.length, cdnFiles: cdnItems.length, inlineFiles: inlineItems.length }),
     );
+    observation.spanStageOverrides = {
+      ...observation.spanStageOverrides,
+      cdn_manifest_read: cdnItems.length > 0,
+    };
 
     const inlineTotalBytes = await observeSpaceFsStage(
       observation,
@@ -1057,6 +1105,12 @@ export async function readSpaceFiles(
       }
       return true;
     });
+    observation.spanStageOverrides = {
+      ...observation.spanStageOverrides,
+      cdn_manifest_read: cdnItems.length > 0,
+      cdn_warm_enqueue: missingCdnItems.length > 0,
+      cdn_manifest_wait: missingCdnItems.length > 0,
+    };
 
     await observeSpaceFsStage(
       observation,
