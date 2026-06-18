@@ -118,8 +118,12 @@ export function getMimeType(path: string) {
   const lower = basename(path).toLowerCase();
   if (lower === "dockerfile") return "text/x-dockerfile";
   if (lower === "makefile") return "text/x-makefile";
-  if (lower.startsWith(".env")) return "text/plain";
-  return mimeByExt[extname(lower)] ?? null;
+
+  const extMimeType = mimeByExt[extname(lower)];
+  if (extMimeType) return extMimeType;
+
+  if (lower.startsWith(".")) return "text/plain";
+  return null;
 }
 
 function isTextMime(mimeType: string | null) {
