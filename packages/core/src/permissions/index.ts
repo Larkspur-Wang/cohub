@@ -62,6 +62,18 @@ export type SpaceSessionLike = {
   id: string;
 };
 
+export const ROLE_RANK: Record<SpaceRole, number> = {
+  guest: 1,
+  builder: 2,
+  host: 3,
+};
+
+export const compareSpaceRole = (a: SpaceRole, b: SpaceRole) => ROLE_RANK[a] - ROLE_RANK[b];
+
+export const isRoleHigherThan = (a: SpaceRole, b: SpaceRole) => compareSpaceRole(a, b) > 0;
+
+export const isRoleLowerThan = (a: SpaceRole, b: SpaceRole) => compareSpaceRole(a, b) < 0;
+
 export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
   host: new Set([
     "space.view",

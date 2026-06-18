@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { db } from "../db/index.js";
 import { spaceMembers, spaces } from "@cohub/db";
+import type { SpaceRole } from "@cohub/db";
+import { isRoleHigherThan } from "@cohub/core/permissions";
 import { and, eq } from "drizzle-orm";
 import { redisCommandClient } from "../redis.js";
 import { useAuth } from "../lib/middleware.js";
@@ -90,36 +92,49 @@ router.post("/:token/accept", async (c) => {
   }
 
   const spaceId = data.space_id;
-  const role = data.role;
+  const role = data.role as SpaceRole | undefined;
   if (!spaceId || !role) return c.json({ message: "invitation expired or not found" }, 410);
 
-  // Check if user is already a member
+  // Check if user is already a member. Invite links may upgrade an existing
+  // lower-role member, for example guest -> builder, but must never demote.
   const [existing] = await db
-    .select({ id: spaceMembers.id })
+    .select({ id: spaceMembers.id, role: spaceMembers.role })
     .from(spaceMembers)
     .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, user.uuid)))
     .limit(1);
 
+  let acceptedRole = role;
+  let consumedInviteUse = false;
+
   if (existing) {
-    await redisCommandClient.unwatch();
-    return c.json({ message: "you are already a member of this space" }, 409);
+    if (isRoleHigherThan(role, existing.role)) {
+      await db
+        .update(spaceMembers)
+        .set({ role, updatedBy: user.uuid, updatedAt: new Date() })
+        .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, user.uuid)));
+      consumedInviteUse = true;
+    } else {
+      acceptedRole = existing.role;
+    }
+  } else {
+    await db.insert(spaceMembers).values({
+      spaceId: spaceId,
+      userId: user.uuid,
+      role,
+      createdBy: user.uuid,
+      updatedBy: user.uuid,
+    });
+    consumedInviteUse = true;
   }
 
-  // Add user as space member
-  await db.insert(spaceMembers).values({
-    spaceId: spaceId,
-    userId: user.uuid,
-    role: role as "host" | "builder" | "guest",
-    createdBy: user.uuid,
-    updatedBy: user.uuid,
-  });
+  if (consumedInviteUse) {
+    // Increment use count
+    const newCount = await redisCommandClient.hincrby(key, "use_count", 1);
 
-  // Increment use count
-  const newCount = await redisCommandClient.hincrby(key, "use_count", 1);
-
-  // Check if max uses reached
-  if (maxUses > 0 && newCount >= maxUses) {
-    await redisCommandClient.hset(key, "status", "exhausted");
+    // Check if max uses reached
+    if (maxUses > 0 && newCount >= maxUses) {
+      await redisCommandClient.hset(key, "status", "exhausted");
+    }
   }
 
   await redisCommandClient.unwatch();
@@ -135,7 +150,7 @@ router.post("/:token/accept", async (c) => {
     ok: true,
     spaceId,
     spaceName: space?.name ?? "Unknown",
-    role,
+    role: acceptedRole,
   });
 });
 

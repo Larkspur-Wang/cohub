@@ -5,6 +5,7 @@ import { db } from "../../db/index.js";
 import { spaceChannels, spaceMembers, userChannels, userProfiles } from "@cohub/db";
 import type { SpaceRole } from "@cohub/db";
 import { requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
+import { isRoleLowerThan } from "@cohub/core/permissions";
 import { hasPermission, getRoleForSpaceUser } from "../../permissions.js";
 import { getSpaceById } from "../../space-sessions.js";
 import { fallbackPublicUserProfile } from "../../user-profiles.js";
@@ -13,7 +14,6 @@ import { createLogger } from "@cohub/infra/logging";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const VALID_ROLES: SpaceRole[] = ["host", "builder", "guest"];
-const ROLE_RANK: Record<SpaceRole, number> = { host: 3, builder: 2, guest: 1 };
 const router = new Hono();
 
 async function isLastHost(spaceId: string): Promise<boolean> {
@@ -87,7 +87,7 @@ router.put("/", async (c) => {
       return c.json({ message: "cannot demote the last host" }, 400);
   }
 
-  const shouldUnbindChannels = Boolean(currentRole && ROLE_RANK[newRole] < ROLE_RANK[currentRole]);
+  const shouldUnbindChannels = Boolean(currentRole && isRoleLowerThan(newRole, currentRole));
   const { member, spaceChannelIdsToUnbind } = await db.transaction(async (tx) => {
     const [updatedMember] = await tx
       .insert(spaceMembers)

@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { hasPermission, roleHasPermission, type PermissionStore } from "../packages/core/src/permissions/index.js";
+import {
+  compareSpaceRole,
+  hasPermission,
+  isRoleHigherThan,
+  isRoleLowerThan,
+  roleHasPermission,
+  type PermissionStore,
+} from "../packages/core/src/permissions/index.js";
 
 const denyAllStore: PermissionStore = {
   async getSpaceMemberRole() {
@@ -21,6 +28,12 @@ const signedInGuestPolicyStore: PermissionStore = {
 };
 
 async function main() {
+  assert.equal(compareSpaceRole("host", "builder") > 0, true, "host ranks above builder");
+  assert.equal(compareSpaceRole("builder", "guest") > 0, true, "builder ranks above guest");
+  assert.equal(isRoleHigherThan("builder", "guest"), true, "builder is higher than guest");
+  assert.equal(isRoleLowerThan("guest", "builder"), true, "guest is lower than builder");
+  assert.equal(isRoleHigherThan("guest", "builder"), false, "guest is not higher than builder");
+
   assert.equal(roleHasPermission("guest", "session.view"), true, "guest can view sessions");
   assert.equal(roleHasPermission("guest", "session.prompt.readonly"), false, "guest cannot prompt sessions");
   assert.equal(roleHasPermission("guest", "session.prompt.fullaccess"), false, "guest cannot prompt with full access");
