@@ -633,26 +633,94 @@ body.drawer-open {
 }
 
 .markdown-content .markdown-mermaid {
-	display: flex;
+	position: relative;
+	display: block;
 	min-height: 8rem;
-	align-items: center;
-	justify-content: center;
-	overflow-x: auto;
-	padding: 1rem;
+	overflow: hidden;
+	padding: 0;
 	border: 1px solid var(--border-subtle);
 	border-radius: 0.85rem;
 	background: color-mix(in srgb, var(--bg-surface-muted, var(--bg-surface)) 82%, transparent);
+}
+
+.markdown-content .markdown-mermaid-canvas {
+	display: flex;
+	max-height: min(60vh, 32rem);
+	align-items: flex-start;
+	justify-content: flex-start;
+	overflow: auto;
+	padding: 1rem;
 	touch-action: pan-x pan-y;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
 }
 
 .markdown-content .markdown-mermaid svg {
-	max-width: 100%;
+	max-width: none;
 	height: auto;
 }
 
 .markdown-content .markdown-mermaid-loading {
+	display: flex;
+	min-height: 8rem;
+	align-items: center;
+	justify-content: center;
 	color: var(--text-tertiary);
 	font-size: 0.9em;
+}
+
+.markdown-content .markdown-mermaid-actions {
+	position: absolute;
+	right: 0.55rem;
+	bottom: 0.55rem;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.2rem;
+	padding: 0.18rem;
+	border: 1px solid color-mix(in srgb, var(--border-subtle) 78%, transparent);
+	border-radius: 0.55rem;
+	background: color-mix(in srgb, var(--bg-elevated) 86%, transparent);
+	box-shadow: 0 6px 18px color-mix(in srgb, var(--bg-primary) 18%, transparent);
+	opacity: 0;
+	transition: opacity 140ms ease;
+}
+
+.markdown-content .markdown-mermaid:hover .markdown-mermaid-actions,
+.markdown-content .markdown-mermaid:focus-within .markdown-mermaid-actions {
+	opacity: 1;
+}
+
+.markdown-content .markdown-mermaid-action {
+	display: inline-flex;
+	min-width: 1.6rem;
+	height: 1.45rem;
+	align-items: center;
+	justify-content: center;
+	padding: 0 0.42rem;
+	border: 0;
+	border-radius: 0.38rem;
+	background: transparent;
+	color: var(--text-tertiary);
+	font-size: 0.75rem;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.markdown-content .markdown-mermaid-action:hover,
+.markdown-content .markdown-mermaid-action:focus-visible {
+	background: var(--bg-hover);
+	color: var(--text-primary);
+}
+
+.markdown-content .markdown-mermaid-action:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+	outline-offset: 1px;
+}
+
+.markdown-content .markdown-mermaid-zoom-label {
+	min-width: 2.6rem;
+	font-variant-numeric: tabular-nums;
 }
 
 .markdown-content .markdown-mermaid-source {
@@ -771,6 +839,15 @@ body.drawer-open {
 	.markdown-content table td {
 		min-width: min(7.5rem, 62vw);
 		max-width: 16rem;
+	}
+
+	.markdown-content .markdown-mermaid-canvas {
+		max-height: min(58vh, 26rem);
+		padding: 0.75rem;
+	}
+
+	.markdown-content .markdown-mermaid-actions {
+		opacity: 1;
 	}
 }
 
