@@ -5,6 +5,8 @@ type MermaidApi = typeof import("mermaid").default;
 const MAX_MERMAID_SOURCE_LENGTH = 12_000;
 const MAX_MERMAID_SOURCE_LINES = 240;
 const FONT_FAMILY = "Geist, ui-sans-serif, system-ui, sans-serif";
+const EXPORT_FONT_FAMILY =
+	'Geist, -apple-system, BlinkMacSystemFont, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", ui-sans-serif, system-ui, sans-serif';
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 2.5;
 const DEFAULT_MAX_WIDTH = 860;
@@ -178,6 +180,16 @@ function downloadMermaidSvg(element: HTMLElement) {
 	clone.setAttribute("width", String(width));
 	clone.setAttribute("height", String(height));
 	clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+	clone.setAttribute("font-family", EXPORT_FONT_FAMILY);
+
+	const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+	style.textContent = `
+		text, tspan, foreignObject, .nodeLabel, .edgeLabel, .label {
+			font-family: ${EXPORT_FONT_FAMILY};
+			text-rendering: geometricPrecision;
+		}
+	`;
+	clone.insertBefore(style, clone.firstChild);
 
 	const blob = new Blob([new XMLSerializer().serializeToString(clone)], {
 		type: "image/svg+xml;charset=utf-8",

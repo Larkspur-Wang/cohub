@@ -668,8 +668,8 @@ body.drawer-open {
 
 .markdown-content .markdown-mermaid-actions {
 	position: absolute;
+	top: 0.55rem;
 	right: 0.55rem;
-	bottom: 0.55rem;
 	display: inline-flex;
 	align-items: center;
 	gap: 0.2rem;
