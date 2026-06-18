@@ -168,55 +168,28 @@ function createMermaidButton(input: {
 	return button;
 }
 
-async function downloadMermaidPng(element: HTMLElement) {
+function downloadMermaidSvg(element: HTMLElement) {
 	const svg = element.querySelector<SVGSVGElement>("svg");
 	if (!svg) return;
 
 	const { width, height } = getSvgSize(svg);
-	const exportScale = Math.min(2, 4096 / Math.max(width, height));
-	const canvas = document.createElement("canvas");
-	canvas.width = Math.max(1, Math.round(width * exportScale));
-	canvas.height = Math.max(1, Math.round(height * exportScale));
-
-	const context = canvas.getContext("2d");
-	if (!context) return;
-
 	const clone = svg.cloneNode(true) as SVGSVGElement;
 	clone.removeAttribute("style");
 	clone.setAttribute("width", String(width));
 	clone.setAttribute("height", String(height));
 	clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
 
-	const svgBlob = new Blob([new XMLSerializer().serializeToString(clone)], {
+	const blob = new Blob([new XMLSerializer().serializeToString(clone)], {
 		type: "image/svg+xml;charset=utf-8",
 	});
-	const url = URL.createObjectURL(svgBlob);
-	try {
-		const image = new Image();
-		image.decoding = "async";
-		const loaded = new Promise<void>((resolve, reject) => {
-			image.onload = () => resolve();
-			image.onerror = () => reject(new Error("Unable to load diagram image."));
-		});
-		image.src = url;
-		await loaded;
-		context.drawImage(image, 0, 0, canvas.width, canvas.height);
-		const pngBlob = await new Promise<Blob | null>((resolve) =>
-			canvas.toBlob(resolve, "image/png"),
-		);
-		if (!pngBlob) return;
-
-		const link = document.createElement("a");
-		const pngUrl = URL.createObjectURL(pngBlob);
-		link.href = pngUrl;
-		link.download = "mermaid-diagram.png";
-		document.body.appendChild(link);
-		link.click();
-		link.remove();
-		URL.revokeObjectURL(pngUrl);
-	} finally {
-		URL.revokeObjectURL(url);
-	}
+	const url = URL.createObjectURL(blob);
+	const link = document.createElement("a");
+	link.href = url;
+	link.download = "mermaid-diagram.svg";
+	document.body.appendChild(link);
+	link.click();
+	link.remove();
+	URL.revokeObjectURL(url);
 }
 
 const DOWNLOAD_ICON =
@@ -270,13 +243,15 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 		}),
 		createMermaidButton({
 			icon: DOWNLOAD_ICON,
-			title: "Download PNG",
+			title: "Download SVG",
 			onClick: () => {
-				void downloadMermaidPng(element).catch((error) =>
+				try {
+					downloadMermaidSvg(element);
+				} catch (error) {
 					warnMermaidFailure("diagram download failed", {
 						error: getErrorMessage(error),
-					}),
-				);
+					});
+				}
 			},
 		}),
 	);
