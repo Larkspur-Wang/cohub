@@ -2,9 +2,12 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import { basename, isAbsolute, relative, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
+import { context, trace, SpanStatusCode, type Attributes, type Span } from "@opentelemetry/api";
 import { and, eq } from "drizzle-orm";
 import { checkpoints, spaces } from "@cohub/db";
 import { createLogger } from "@cohub/infra/logging";
+import { getTracer } from "@cohub/infra/tracing/propagator";
 import type { SpaceFsEntry, SpaceFsFileResponse, SpaceFsTreeResponse } from "@cohub/protocol/fs";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
@@ -13,6 +16,7 @@ import { redisCommandClient } from "./redis.js";
 import { getMimeType } from "./space-fs.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
+const tracer = getTracer("cohub-api");
 
 const MAX_DIR_ENTRIES = 1000;
 const GIT_TIMEOUT_MS = 3000;
@@ -47,6 +51,179 @@ const sha256Hex = (value: string) => createHash("sha256").update(value).digest("
 
 const cacheKey = (kind: "asset" | "blob" | "tree", checkpointId: string, path: string) =>
   `checkpoint-fs:${kind}:v1:${checkpointId}:${sha256Hex(path)}`;
+
+type CheckpointFsOperation = "tree" | "file";
+
+type ObservationMeta = Record<string, string | number | boolean | null | undefined>;
+
+type CheckpointFsStage = ObservationMeta & {
+  name: string;
+  durationMs: number;
+  reason: string;
+  outcome: "ok" | "error";
+};
+
+type CheckpointFsObservation = {
+  operation: CheckpointFsOperation;
+  requestedSpaceId: string;
+  requestedCheckpointId: string;
+  requestedPath: string | undefined;
+  stages: CheckpointFsStage[];
+  span: Span;
+  normalizedPath?: string;
+  resolvedCheckpointId?: string;
+  commitHash?: string;
+  result?: ObservationMeta;
+};
+
+const roundMs = (value: number) => Math.round(value * 100) / 100;
+
+const pathTelemetry = (path: string | undefined) => {
+  const normalized = path ?? "";
+  const dotIndex = normalized.lastIndexOf(".");
+  const slashIndex = normalized.lastIndexOf("/");
+  const extension = dotIndex > slashIndex ? normalized.slice(dotIndex + 1).toLowerCase() : "";
+  return {
+    pathHash: sha256Hex(normalized).slice(0, 16),
+    pathLength: normalized.length,
+    pathDepth: normalized ? normalized.split("/").length : 0,
+    pathExtension: extension || null,
+  };
+};
+
+const setSpanAttributes = (span: Span, attributes: ObservationMeta) => {
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value === null || value === undefined) continue;
+    span.setAttribute(key, value);
+  }
+};
+
+const errorTelemetry = (error: unknown): ObservationMeta => ({
+  errorName: error instanceof Error ? error.name : typeof error,
+  errorCode: error instanceof CheckpointFsError ? error.code : null,
+  errorStatus: error instanceof CheckpointFsError ? error.status : null,
+});
+
+async function observeStage<T>(
+  observation: CheckpointFsObservation,
+  name: string,
+  reason: string,
+  fn: () => Promise<T> | T,
+  metaForResult?: (result: T) => ObservationMeta,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    const result = await fn();
+    const durationMs = roundMs(performance.now() - startedAt);
+    const stage: CheckpointFsStage = {
+      name,
+      reason,
+      outcome: "ok",
+      durationMs,
+      ...(metaForResult?.(result) ?? {}),
+    };
+    observation.stages.push(stage);
+    observation.span.addEvent("checkpoint_fs.stage", toSpanEventAttributes(stage));
+    return result;
+  } catch (error) {
+    const durationMs = roundMs(performance.now() - startedAt);
+    const stage: CheckpointFsStage = {
+      name,
+      reason,
+      outcome: "error",
+      durationMs,
+      ...errorTelemetry(error),
+    };
+    observation.stages.push(stage);
+    observation.span.addEvent("checkpoint_fs.stage", toSpanEventAttributes(stage));
+    throw error;
+  }
+}
+
+const toSpanEventAttributes = (stage: CheckpointFsStage): Attributes => {
+  const attributes: Attributes = {};
+  for (const [key, value] of Object.entries(stage)) {
+    if (value === null || value === undefined) continue;
+    attributes[`checkpoint_fs.stage.${key}`] = value;
+  }
+  return attributes;
+};
+
+const summarizeStages = (stages: CheckpointFsStage[]) =>
+  stages.map((stage) => ({
+    name: stage.name,
+    durationMs: stage.durationMs,
+    reason: stage.reason,
+    outcome: stage.outcome,
+    ...Object.fromEntries(Object.entries(stage).filter(([key]) => !["name", "durationMs", "reason", "outcome"].includes(key))),
+  }));
+
+async function observeCheckpointFs<T>(
+  operation: CheckpointFsOperation,
+  input: { spaceId: string; checkpointId: string; path?: string },
+  fn: (observation: CheckpointFsObservation) => Promise<T>,
+): Promise<T> {
+  const span = tracer.startSpan(`api.checkpoint_fs.${operation}`, {
+    attributes: {
+      "checkpoint_fs.operation": operation,
+      "checkpoint_fs.space_id": input.spaceId,
+      "checkpoint_fs.requested_checkpoint_id": input.checkpointId,
+      "checkpoint_fs.requested_checkpoint_is_latest": input.checkpointId === "latest",
+      ...Object.fromEntries(Object.entries(pathTelemetry(input.path)).map(([key, value]) => [`checkpoint_fs.request.${key}`, value ?? ""])),
+    },
+  });
+  const observation: CheckpointFsObservation = {
+    operation,
+    requestedSpaceId: input.spaceId,
+    requestedCheckpointId: input.checkpointId,
+    requestedPath: input.path,
+    stages: [],
+    span,
+  };
+  const startedAt = performance.now();
+  let operationError: unknown;
+
+  return await context.with(trace.setSpan(context.active(), span), async () => {
+    try {
+      const result = await fn(observation);
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (error) {
+      operationError = error;
+      span.recordException(error instanceof Error ? error : new Error(String(error)));
+      span.setStatus({ code: SpanStatusCode.ERROR, message: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      const durationMs = roundMs(performance.now() - startedAt);
+      const result = observation.result ?? {};
+      const summary = {
+        operation,
+        outcome: operationError ? "error" : "ok",
+        durationMs,
+        spaceId: input.spaceId,
+        requestedCheckpointId: input.checkpointId,
+        resolvedCheckpointId: observation.resolvedCheckpointId,
+        commitHash: observation.commitHash?.slice(0, 12),
+        ...(operationError ? { error: errorTelemetry(operationError) } : {}),
+        requestedPath: pathTelemetry(input.path),
+        normalizedPath: pathTelemetry(observation.normalizedPath),
+        stageCount: observation.stages.length,
+        stages: summarizeStages(observation.stages),
+        result,
+      };
+      setSpanAttributes(span, {
+        "checkpoint_fs.duration_ms": durationMs,
+        "checkpoint_fs.stage_count": observation.stages.length,
+        "checkpoint_fs.outcome": operationError ? "error" : "ok",
+        "checkpoint_fs.resolved_checkpoint_id": observation.resolvedCheckpointId,
+        "checkpoint_fs.commit_hash": observation.commitHash?.slice(0, 12),
+        ...Object.fromEntries(Object.entries(result).map(([key, value]) => [`checkpoint_fs.result.${key}`, value])),
+      });
+      logger.info("[checkpoint-fs] operation observed", summary);
+      span.end();
+    }
+  });
+}
 
 const normalizeCheckpointPath = (input = "", options: { allowEmpty?: boolean } = {}) => {
   const value = String(input ?? "").replace(/\\/g, "/");
@@ -132,33 +309,78 @@ const runGit = async (repoDir: string, args: string[], maxBytes: number): Promis
 
 const gitObjectSpec = (commitHash: string, path: string) => path ? `${commitHash}:${path}` : commitHash;
 
-async function assertGitObjectType(repoDir: string, checkpoint: CheckpointRecord, path: string, expected: "tree" | "blob") {
+async function assertGitObjectType(repoDir: string, checkpoint: CheckpointRecord, path: string, expected: "tree" | "blob", observation?: CheckpointFsObservation) {
   if (!path && expected === "tree") return;
-  const result = await runGit(repoDir, ["cat-file", "-t", gitObjectSpec(checkpoint.commitHash, path)], 1024).catch((error) => {
-    if (error instanceof CheckpointFsError && error.code === "path_not_found") {
-      throw new CheckpointFsError(404, "path_not_found", "File or directory not found.");
-    }
-    throw error;
-  });
+  const readType = () =>
+    runGit(repoDir, ["cat-file", "-t", gitObjectSpec(checkpoint.commitHash, path)], 1024).catch((error) => {
+      if (error instanceof CheckpointFsError && error.code === "path_not_found") {
+        throw new CheckpointFsError(404, "path_not_found", "File or directory not found.");
+      }
+      throw error;
+    });
+  const result = observation
+    ? await observeStage(
+      observation,
+      "git_object_type",
+      "git cat-file validates whether the path is a blob or tree before the expensive read.",
+      readType,
+      (output) => ({ expectedType: expected, stdoutBytes: output.stdout.length }),
+    )
+    : await readType();
   const type = result.stdout.toString("utf8").trim();
   if (expected === "tree" && type !== "tree") throw new CheckpointFsError(400, "not_a_directory", "The selected path is not a directory.");
   if (expected === "blob" && type !== "blob") throw new CheckpointFsError(400, "not_a_file", "The selected path is not a file.");
 }
 
-export async function getCheckpointForSpace(spaceId: string, checkpointId: string) {
-  const resolvedCheckpointId = await resolveCheckpointId(spaceId, checkpointId);
-  const [checkpoint] = await db
+export async function getCheckpointForSpace(spaceId: string, checkpointId: string, observation?: CheckpointFsObservation) {
+  const resolvedCheckpointId = await resolveCheckpointId(spaceId, checkpointId, observation);
+  observation?.span.setAttribute("checkpoint_fs.resolved_checkpoint_id", resolvedCheckpointId);
+  if (observation) observation.resolvedCheckpointId = resolvedCheckpointId;
+  const query = () => db
     .select()
     .from(checkpoints)
     .where(and(eq(checkpoints.id, resolvedCheckpointId), eq(checkpoints.spaceId, spaceId)))
     .limit(1);
+  const [checkpoint] = observation
+    ? await observeStage(
+      observation,
+      "checkpoint_row_lookup",
+      "Database lookup confirms the resolved checkpoint belongs to the requested space.",
+      query,
+      (rows) => ({ rowCount: rows.length, found: rows.length > 0 }),
+    )
+    : await query();
   if (!checkpoint) throw new CheckpointFsError(404, "checkpoint_not_found", "Checkpoint not found.");
+  if (observation) {
+    observation.commitHash = checkpoint.commitHash;
+    observation.span.setAttribute("checkpoint_fs.commit_hash", checkpoint.commitHash.slice(0, 12));
+  }
   return checkpoint;
 }
 
-async function resolveCheckpointId(spaceId: string, checkpointId: string) {
-  if (checkpointId !== "latest") return checkpointId;
-  const [space] = await db.select({ headCheckpointId: spaces.headCheckpointId }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+async function resolveCheckpointId(spaceId: string, checkpointId: string, observation?: CheckpointFsObservation) {
+  if (checkpointId !== "latest") {
+    if (observation) {
+      return await observeStage(
+        observation,
+        "checkpoint_id_resolve",
+        "The request supplied a concrete checkpoint id, so no latest-head lookup is needed.",
+        () => checkpointId,
+        () => ({ requestedLatest: false }),
+      );
+    }
+    return checkpointId;
+  }
+  const lookup = () => db.select({ headCheckpointId: spaces.headCheckpointId }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  const [space] = observation
+    ? await observeStage(
+      observation,
+      "checkpoint_id_resolve",
+      "The request used latest, so the space head checkpoint is loaded from the database.",
+      lookup,
+      (rows) => ({ requestedLatest: true, rowCount: rows.length, hasHeadCheckpoint: Boolean(rows[0]?.headCheckpointId) }),
+    )
+    : await lookup();
   if (!space?.headCheckpointId) throw new CheckpointFsError(404, "checkpoint_not_found", "Checkpoint not found.");
   return space.headCheckpointId;
 }
@@ -200,12 +422,52 @@ const decodeCachedBlob = (raw: string | null) => {
   return typeof parsed.contentBase64 === "string" ? Buffer.from(parsed.contentBase64, "base64") : null;
 };
 
-async function getCachedBlob(repoDir: string, checkpoint: CheckpointRecord, path: string) {
+async function getCachedBlob(repoDir: string, checkpoint: CheckpointRecord, path: string, observation?: CheckpointFsObservation, purpose = "blob") {
   const key = cacheKey("blob", checkpoint.id, path);
-  const cached = await redisCommandClient.get(key).then(decodeCachedBlob).catch(() => null);
-  if (cached) return cached;
-  const result = await runGit(repoDir, ["show", gitObjectSpec(checkpoint.commitHash, path)], GIT_BLOB_MAX_BYTES);
-  await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
+  const readCache = async () => {
+    let redisError = false;
+    const blob = await redisCommandClient.get(key).then(decodeCachedBlob).catch(() => {
+      redisError = true;
+      return null;
+    });
+    return { blob, redisError };
+  };
+  const cachedResult = observation
+    ? await observeStage(
+      observation,
+      `${purpose}_cache_read`,
+      "Redis blob cache avoids spawning git show for previously read file content.",
+      readCache,
+      (result) => ({ cacheKind: "blob", cacheHit: Boolean(result.blob), cachedBytes: result.blob?.length ?? 0, redisError: result.redisError }),
+    )
+    : await readCache();
+  if (cachedResult.blob) return cachedResult.blob;
+  const result = observation
+    ? await observeStage(
+      observation,
+      `${purpose}_git_show`,
+      "Git show reads blob bytes from the checkpoint repository after a cache miss.",
+      () => runGit(repoDir, ["show", gitObjectSpec(checkpoint.commitHash, path)], GIT_BLOB_MAX_BYTES),
+      (output) => ({ stdoutBytes: output.stdout.length, maxBytes: GIT_BLOB_MAX_BYTES }),
+    )
+    : await runGit(repoDir, ["show", gitObjectSpec(checkpoint.commitHash, path)], GIT_BLOB_MAX_BYTES);
+  if (observation) {
+    await observeStage(
+      observation,
+      `${purpose}_cache_write`,
+      "Redis blob cache is refreshed so later reads can avoid git show.",
+      async () => {
+        let written = true;
+        await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", CACHE_TTL_SECONDS).catch(() => {
+          written = false;
+        });
+        return written;
+      },
+      (written) => ({ cacheKind: "blob", cacheWritten: written, ttlSeconds: CACHE_TTL_SECONDS }),
+    );
+  } else {
+    await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
+  }
   return result.stdout;
 }
 
@@ -226,40 +488,83 @@ function presignCheckpointAsset(objectKey: string) {
   return signed;
 }
 
-async function readAssetManifestMap(repoDir: string, checkpoint: CheckpointRecord) {
+async function readAssetManifestMap(repoDir: string, checkpoint: CheckpointRecord, observation?: CheckpointFsObservation) {
   const manifestPath = ".cohub/system/checkpoint-assets.v1.json";
-  const blob = await getCachedBlob(repoDir, checkpoint, manifestPath).catch((error) => {
+  const blob = await getCachedBlob(repoDir, checkpoint, manifestPath, observation, "asset_manifest").catch((error) => {
     logger.debug("[checkpoint-fs] asset manifest is unavailable", { checkpointId: checkpoint.id, error });
     return null;
   });
   if (!blob) return new Map<string, AssetPointer>();
   try {
-    const parsed = JSON.parse(blob.toString("utf8")) as { assets?: Array<{ path: string; sha256: string; size: number; mimeType?: string | null; objectKey: string }> };
-    return new Map((parsed.assets ?? []).map((asset) => [asset.path, {
-      sha256: asset.sha256,
-      size: asset.size,
-      mimeType: asset.mimeType ?? null,
-      objectKey: asset.objectKey,
-    }]));
+    const parse = () => {
+      const parsed = JSON.parse(blob.toString("utf8")) as { assets?: Array<{ path: string; sha256: string; size: number; mimeType?: string | null; objectKey: string }> };
+      return new Map((parsed.assets ?? []).map((asset) => [asset.path, {
+        sha256: asset.sha256,
+        size: asset.size,
+        mimeType: asset.mimeType ?? null,
+        objectKey: asset.objectKey,
+      }]));
+    };
+    return observation
+      ? await observeStage(
+        observation,
+        "asset_manifest_parse",
+        "Manifest JSON parsing determines which files can be served from checkpoint asset storage.",
+        parse,
+        (assets) => ({ assetCount: assets.size, manifestBytes: blob.length }),
+      )
+      : parse();
   } catch (error) {
     logger.warn("[checkpoint-fs] failed to parse asset manifest", { checkpointId: checkpoint.id, error });
     throw new CheckpointFsError(500, "checkpoint_asset_manifest_invalid", "Checkpoint asset manifest is invalid.");
   }
 }
 
-async function getAssetForPath(repoDir: string, checkpoint: CheckpointRecord, path: string) {
+async function getAssetForPath(repoDir: string, checkpoint: CheckpointRecord, path: string, observation?: CheckpointFsObservation) {
   const key = cacheKey("asset", checkpoint.id, path);
-  const cached = await redisCommandClient.get(key).catch(() => null);
-  if (cached) {
+  const readCache = async () => {
+    let redisError = false;
+    const value = await redisCommandClient.get(key).catch(() => {
+      redisError = true;
+      return null;
+    });
+    return { value, redisError };
+  };
+  const cached = observation
+    ? await observeStage(
+      observation,
+      "asset_cache_read",
+      "Redis asset pointer cache avoids reading and parsing the checkpoint asset manifest for a single file.",
+      readCache,
+      (result) => ({ cacheKind: "asset", cacheHit: result.value !== null, cachedBytes: result.value?.length ?? 0, redisError: result.redisError }),
+    )
+    : await readCache();
+  if (cached.value) {
     try {
-      return JSON.parse(cached) as AssetPointer | null;
+      return JSON.parse(cached.value) as AssetPointer | null;
     } catch (error) {
       logger.warn("[checkpoint-fs] ignored invalid asset cache", { key, error });
       await redisCommandClient.del(key).catch(() => undefined);
     }
   }
-  const asset = (await readAssetManifestMap(repoDir, checkpoint)).get(path) ?? null;
-  await redisCommandClient.set(key, JSON.stringify(asset), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
+  const asset = (await readAssetManifestMap(repoDir, checkpoint, observation)).get(path) ?? null;
+  if (observation) {
+    await observeStage(
+      observation,
+      "asset_cache_write",
+      "Redis stores the asset pointer lookup result, including misses, for later reads.",
+      async () => {
+        let written = true;
+        await redisCommandClient.set(key, JSON.stringify(asset), "EX", CACHE_TTL_SECONDS).catch(() => {
+          written = false;
+        });
+        return written;
+      },
+      (written) => ({ cacheKind: "asset", cacheWritten: written, assetFound: Boolean(asset), ttlSeconds: CACHE_TTL_SECONDS }),
+    );
+  } else {
+    await redisCommandClient.set(key, JSON.stringify(asset), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
+  }
   return asset;
 }
 
@@ -276,61 +581,162 @@ async function getCachedTree(key: string) {
 }
 
 export async function listCheckpointDirectory(input: { spaceId: string; checkpointId: string; path?: string }): Promise<SpaceFsTreeResponse> {
-  const path = normalizeCheckpointPath(input.path, { allowEmpty: true });
-  const checkpoint = await getCheckpointForSpace(input.spaceId, input.checkpointId);
-  const repoDir = getCheckpointRepoDir(checkpoint.spaceId);
-  const key = cacheKey("tree", checkpoint.id, path);
-  const cached = await getCachedTree(key);
-  if (cached) return cached;
+  return await observeCheckpointFs("tree", input, async (observation) => {
+    const path = await observeStage(
+      observation,
+      "normalize_path",
+      "Path validation rejects absolute paths, traversal, empty segments, and oversized input before storage access.",
+      () => normalizeCheckpointPath(input.path, { allowEmpty: true }),
+      (normalized) => pathTelemetry(normalized),
+    );
+    observation.normalizedPath = path;
 
-  await assertGitObjectType(repoDir, checkpoint, path, "tree");
-  const result = await runGit(repoDir, ["ls-tree", "-z", "-l", gitObjectSpec(checkpoint.commitHash, path)], GIT_TREE_MAX_BYTES);
-  const entries = parseLsTree(result.stdout, path, checkpoint);
-  const assets = await readAssetManifestMap(repoDir, checkpoint);
-  const merged = entries.map((entry) => {
-    const asset = entry.type === "file" ? assets.get(entry.path) : null;
-    return asset ? { ...entry, size: asset.size, mimeType: asset.mimeType ?? getMimeType(entry.name) } : entry;
+    const checkpoint = await getCheckpointForSpace(input.spaceId, input.checkpointId, observation);
+    const repoDir = await observeStage(
+      observation,
+      "repo_dir_resolve",
+      "Local checkpoint repository path is derived and constrained under the configured storage root.",
+      () => getCheckpointRepoDir(checkpoint.spaceId),
+      () => ({ repoConfigured: Boolean(config.spaceSystemRoot) }),
+    );
+    const key = cacheKey("tree", checkpoint.id, path);
+    const cached = await observeStage(
+      observation,
+      "tree_cache_read",
+      "Redis tree cache avoids git ls-tree, manifest reads, and entry merge work for stable checkpoint directories.",
+      () => getCachedTree(key),
+      (value) => ({ cacheKind: "tree", cacheHit: Boolean(value), entryCount: value?.entries.length ?? 0 }),
+    );
+    if (cached) {
+      observation.result = { delivery: "cache", entryCount: cached.entries.length, cacheHit: true };
+      return cached;
+    }
+
+    await assertGitObjectType(repoDir, checkpoint, path, "tree", observation);
+    const result = await observeStage(
+      observation,
+      "git_ls_tree",
+      "Git ls-tree enumerates directory entries after a tree cache miss.",
+      () => runGit(repoDir, ["ls-tree", "-z", "-l", gitObjectSpec(checkpoint.commitHash, path)], GIT_TREE_MAX_BYTES),
+      (output) => ({ stdoutBytes: output.stdout.length, maxBytes: GIT_TREE_MAX_BYTES }),
+    );
+    const entries = await observeStage(
+      observation,
+      "parse_tree",
+      "NUL-delimited git output is decoded, capped, sorted, and enriched with basic MIME metadata.",
+      () => parseLsTree(result.stdout, path, checkpoint),
+      (value) => ({ entryCount: value.length, maxEntries: MAX_DIR_ENTRIES }),
+    );
+    const assets = await readAssetManifestMap(repoDir, checkpoint, observation);
+    const merged = await observeStage(
+      observation,
+      "merge_asset_metadata",
+      "Asset manifest pointers replace git blob size and MIME metadata for files stored outside git.",
+      () => entries.map((entry) => {
+        const asset = entry.type === "file" ? assets.get(entry.path) : null;
+        return asset ? { ...entry, size: asset.size, mimeType: asset.mimeType ?? getMimeType(entry.name) } : entry;
+      }),
+      (value) => ({ entryCount: value.length, assetCount: assets.size, assetMatches: value.filter((entry, index) => entry.size !== entries[index]?.size || entry.mimeType !== entries[index]?.mimeType).length }),
+    );
+    const response = { path, entries: merged };
+    await observeStage(
+      observation,
+      "tree_cache_write",
+      "Redis tree cache stores the merged directory response for stable checkpoint browsing.",
+      async () => {
+        let written = true;
+        await redisCommandClient.set(key, JSON.stringify(response), "EX", CACHE_TTL_SECONDS).catch(() => {
+          written = false;
+        });
+        return written;
+      },
+      (written) => ({ cacheKind: "tree", cacheWritten: written, ttlSeconds: CACHE_TTL_SECONDS, entryCount: response.entries.length }),
+    );
+    observation.result = { delivery: "inline", entryCount: response.entries.length, cacheHit: false };
+    return response;
   });
-  const response = { path, entries: merged };
-  await redisCommandClient.set(key, JSON.stringify(response), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
-  return response;
 }
 
 export async function readCheckpointFile(input: { spaceId: string; checkpointId: string; path?: string }): Promise<SpaceFsFileResponse> {
-  const path = normalizeCheckpointPath(input.path, { allowEmpty: false });
-  const checkpoint = await getCheckpointForSpace(input.spaceId, input.checkpointId);
-  const repoDir = getCheckpointRepoDir(checkpoint.spaceId);
-  await assertGitObjectType(repoDir, checkpoint, path, "blob");
-  const mimeType = getMimeType(path);
-  const asset = await getAssetForPath(repoDir, checkpoint, path);
-  if (asset) {
-    const signed = presignCheckpointAsset(asset.objectKey);
-    return {
-      path,
-      name: basename(path),
-      size: asset.size,
-      mimeType: asset.mimeType ?? mimeType,
-      mtimeMs: checkpoint.createdAt?.getTime() ?? 0,
-      kind: "binary",
-      encoding: "base64",
-      content: "",
-      delivery: "url",
-      url: signed.downloadUrl,
-    };
-  }
-  const blob = await getCachedBlob(repoDir, checkpoint, path);
-  const kind = isTextMime(mimeType) ? "text" : "binary";
-  return {
-    path,
-    name: basename(path),
-    size: blob.length,
-    mimeType,
-    mtimeMs: checkpoint.createdAt?.getTime() ?? 0,
-    kind,
-    encoding: kind === "text" ? "utf-8" : "base64",
-    content: kind === "text" ? blob.toString("utf8") : blob.toString("base64"),
-    delivery: "inline",
-  };
+  return await observeCheckpointFs("file", input, async (observation) => {
+    const path = await observeStage(
+      observation,
+      "normalize_path",
+      "Path validation rejects empty file paths, absolute paths, traversal, empty segments, and oversized input before storage access.",
+      () => normalizeCheckpointPath(input.path, { allowEmpty: false }),
+      (normalized) => pathTelemetry(normalized),
+    );
+    observation.normalizedPath = path;
+
+    const checkpoint = await getCheckpointForSpace(input.spaceId, input.checkpointId, observation);
+    const repoDir = await observeStage(
+      observation,
+      "repo_dir_resolve",
+      "Local checkpoint repository path is derived and constrained under the configured storage root.",
+      () => getCheckpointRepoDir(checkpoint.spaceId),
+      () => ({ repoConfigured: Boolean(config.spaceSystemRoot) }),
+    );
+    await assertGitObjectType(repoDir, checkpoint, path, "blob", observation);
+    const mimeType = await observeStage(
+      observation,
+      "mime_resolve",
+      "MIME type decides whether non-asset blob content can be returned as UTF-8 text or base64 binary.",
+      () => getMimeType(path),
+      (value) => ({ mimeType: value ?? "unknown", textLike: isTextMime(value) }),
+    );
+    const asset = await observeStage(
+      observation,
+      "asset_lookup",
+      "Asset pointer lookup checks whether this file should be served by signed object-storage URL instead of inline git bytes.",
+      () => getAssetForPath(repoDir, checkpoint, path, observation),
+      (value) => ({ assetFound: Boolean(value), assetBytes: value?.size ?? 0, assetMimeType: value?.mimeType ?? null }),
+    );
+    if (asset) {
+      const signed = await observeStage(
+        observation,
+        "asset_presign",
+        "Object-storage presign creates a temporary download URL for large or binary checkpoint assets.",
+        () => presignCheckpointAsset(asset.objectKey),
+        () => ({ delivery: "url", assetBytes: asset.size }),
+      );
+      observation.result = { delivery: "url", size: asset.size, kind: "binary", mimeType: asset.mimeType ?? mimeType, cacheHit: null };
+      return {
+        path,
+        name: basename(path),
+        size: asset.size,
+        mimeType: asset.mimeType ?? mimeType,
+        mtimeMs: checkpoint.createdAt?.getTime() ?? 0,
+        kind: "binary",
+        encoding: "base64",
+        content: "",
+        delivery: "url",
+        url: signed.downloadUrl,
+      };
+    }
+    const blob = await getCachedBlob(repoDir, checkpoint, path, observation, "file_blob");
+    const response = await observeStage(
+      observation,
+      "encode_response",
+      "Inline response encoding converts git blob bytes to UTF-8 text or base64 depending on MIME classification.",
+      () => {
+        const kind: SpaceFsFileResponse["kind"] = isTextMime(mimeType) ? "text" : "binary";
+        return {
+          path,
+          name: basename(path),
+          size: blob.length,
+          mimeType,
+          mtimeMs: checkpoint.createdAt?.getTime() ?? 0,
+          kind,
+          encoding: kind === "text" ? "utf-8" as const : "base64" as const,
+          content: kind === "text" ? blob.toString("utf8") : blob.toString("base64"),
+          delivery: "inline" as const,
+        };
+      },
+      (value) => ({ delivery: value.delivery, size: value.size, kind: value.kind, encoding: value.encoding }),
+    );
+    observation.result = { delivery: response.delivery, size: response.size, kind: response.kind, mimeType, cacheHit: false };
+    return response;
+  });
 }
 
 export function checkpointFsJsonError(error: unknown) {

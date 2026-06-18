@@ -85,4 +85,4 @@ USER node
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:8787/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
-CMD ["node", "dist/index.js"]
+CMD ["node", "--import", "./dist/register-otel-esm-hook.js", "dist/index.js"]

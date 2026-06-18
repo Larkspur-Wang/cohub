@@ -12,7 +12,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "typecheck": "tsgo -p tsconfig.json --noEmit",
-    "start": "node dist/index.js",
+    "start": "node --import ./dist/register-otel-esm-hook.js dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:migrate:data:v2": "tsx src/db/migrate-v2-data.ts",
