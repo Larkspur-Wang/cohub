@@ -38,7 +38,7 @@ graph TD
 
 	assert.match(html, /markdown-mermaid/);
 	assert.match(html, /data-mermaid-source=/);
-	assert.match(html, /View Mermaid source/);
+	assert.match(html, /<summary>Source<\/summary>/);
 	assert.doesNotMatch(html, /<pre class="shiki/);
 });
 

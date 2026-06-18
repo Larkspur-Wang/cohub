@@ -1,4 +1,3 @@
-import DOMPurify from "isomorphic-dompurify";
 import { isDarkTheme, type ResolvedTheme } from "$lib/theme-registry";
 
 type MermaidApi = typeof import("mermaid").default;
@@ -67,16 +66,9 @@ function isMermaidSourceTooLarge(source: string) {
 	);
 }
 
-function markMermaidError(element: HTMLElement, message: string) {
+function markMermaidUnavailable(element: HTMLElement) {
 	element.dataset.mermaidRendered = "true";
-	element.classList.add("is-error");
-	element.textContent = message;
-}
-
-function sanitizeMermaidSvg(svg: string) {
-	return DOMPurify.sanitize(svg, {
-		USE_PROFILES: { svg: true, svgFilters: true },
-	});
+	element.textContent = "Preview unavailable.";
 }
 
 export async function renderMermaidDiagrams(root: HTMLElement) {
@@ -90,7 +82,7 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 	} catch {
 		for (const element of elements) {
 			if (element.dataset.mermaidRendered !== "true") {
-				markMermaidError(element, "Unable to load Mermaid renderer.");
+				markMermaidUnavailable(element);
 			}
 		}
 		return;
@@ -108,7 +100,7 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 			const source = readMermaidSource(element).trim();
 			if (!source) return;
 			if (isMermaidSourceTooLarge(source)) {
-				markMermaidError(element, "Mermaid diagram is too large to render.");
+				markMermaidUnavailable(element);
 				return;
 			}
 
@@ -127,21 +119,17 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 				) {
 					return;
 				}
-				element.innerHTML = sanitizeMermaidSvg(svg);
+				element.innerHTML = svg;
 				bindFunctions?.(element);
 				element.dataset.mermaidRendered = "true";
-				element.classList.remove("is-error");
-			} catch (error) {
+			} catch {
 				if (
 					!element.isConnected ||
 					element.dataset.mermaidRenderToken !== token
 				) {
 					return;
 				}
-				markMermaidError(
-					element,
-					error instanceof Error ? error.message : "Unable to render diagram.",
-				);
+				markMermaidUnavailable(element);
 			}
 		}),
 	);

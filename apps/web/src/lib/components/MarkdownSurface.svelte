@@ -37,8 +37,7 @@ function markMermaidLoadError() {
 	)) {
 		if (element.dataset.mermaidRendered === "true") continue;
 		element.dataset.mermaidRendered = "true";
-		element.classList.add("is-error");
-		element.textContent = "Unable to load Mermaid renderer.";
+		element.textContent = "Preview unavailable.";
 	}
 }
 
