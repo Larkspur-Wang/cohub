@@ -14,6 +14,7 @@ const { html, variant = "chat", streamingLive = false }: Props = $props();
 
 let markdownEl = $state<HTMLElement | null>(null);
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+let themeObserver: MutationObserver | null = null;
 
 const COPY_ICON =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -26,7 +27,42 @@ $effect(() => {
 	const _streamingLive = streamingLive;
 	if (!markdownEl || _streamingLive) return;
 	enhanceCodeBlocks();
+	renderMermaid();
 });
+
+function markMermaidLoadError() {
+	if (!markdownEl) return;
+	for (const element of markdownEl.querySelectorAll<HTMLElement>(
+		".markdown-mermaid",
+	)) {
+		if (element.dataset.mermaidRendered === "true") continue;
+		element.dataset.mermaidRendered = "true";
+		element.classList.add("is-error");
+		element.textContent = "Unable to load Mermaid renderer.";
+	}
+}
+
+function renderMermaid() {
+	if (!markdownEl) return;
+	void import("$lib/mermaid-renderer")
+		.then(({ renderMermaidDiagrams }) =>
+			markdownEl ? renderMermaidDiagrams(markdownEl) : undefined,
+		)
+		.catch(() => markMermaidLoadError());
+}
+
+function resetMermaidDiagrams() {
+	if (!markdownEl) return;
+	for (const element of markdownEl.querySelectorAll<HTMLElement>(
+		".markdown-mermaid",
+	)) {
+		element.dataset.mermaidRendered = "false";
+		delete element.dataset.mermaidRenderToken;
+		element.innerHTML =
+			'<div class="markdown-mermaid-loading">Rendering diagram…</div>';
+	}
+	renderMermaid();
+}
 
 function enhanceCodeBlocks() {
 	if (!markdownEl) return;
@@ -122,13 +158,21 @@ onMount(() => {
 	}
 
 	el.addEventListener("click", onClick);
+	themeObserver = new MutationObserver(() => resetMermaidDiagrams());
+	themeObserver.observe(document.documentElement, {
+		attributeFilter: ["data-theme"],
+	});
+
 	return () => {
 		el.removeEventListener("click", onClick);
+		themeObserver?.disconnect();
+		themeObserver = null;
 	};
 });
 
 onDestroy(() => {
 	if (copyResetTimer) clearTimeout(copyResetTimer);
+	themeObserver?.disconnect();
 });
 </script>
 

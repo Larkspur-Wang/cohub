@@ -193,7 +193,7 @@ async function highlightCodeTokens(tokens: Token[]) {
 		if (token.type === "code" && "lang" in token && token.lang) {
 			const rawLang = token.lang.split(" ")[0]; // handle e.g. "ts {1-3}"
 			const lang = rawLang ? normalizeShikiLanguage(rawLang) : null;
-			if (!lang) continue;
+			if (!lang || lang === "mermaid") continue;
 
 			try {
 				const highlighted = highlighter.codeToHtml(token.text, {
@@ -323,6 +323,48 @@ function enhanceMediaPreviewTokens(tokens: Token[]) {
 	}
 }
 
+function isMermaidCodeToken(token: Token): token is Tokens.Code {
+	if (token.type !== "code" || !("lang" in token) || !token.lang) return false;
+	return token.lang.split(" ")[0]?.toLowerCase() === "mermaid";
+}
+
+const MAX_MERMAID_SOURCE_LENGTH = 12_000;
+const MAX_MERMAID_SOURCE_LINES = 240;
+
+function isMermaidSourceTooLarge(source: string) {
+	return (
+		source.length > MAX_MERMAID_SOURCE_LENGTH ||
+		source.split(/\r?\n/).length > MAX_MERMAID_SOURCE_LINES
+	);
+}
+
+function renderMermaidPreviewHtml(source: string) {
+	const encodedSource = encodeURIComponent(source);
+	const loadingText = isMermaidSourceTooLarge(source)
+		? "Diagram is too large to render."
+		: "Rendering diagram…";
+	return `<figure class="markdown-mermaid-figure"><div class="markdown-mermaid" data-mermaid-source="${encodedSource}" role="img" aria-label="Mermaid diagram"><div class="markdown-mermaid-loading">${loadingText}</div></div><details class="markdown-mermaid-fallback"><summary>View Mermaid source</summary><pre><code class="language-mermaid">${escapeHtml(source)}</code></pre></details></figure>`;
+}
+
+function enhanceMermaidTokens(tokens: Token[]) {
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i];
+		if (isMermaidCodeToken(token)) {
+			tokens[i] = {
+				type: "html",
+				raw: token.raw,
+				text: renderMermaidPreviewHtml(token.text),
+				pre: false,
+			} as Tokens.HTML;
+			continue;
+		}
+
+		if ("tokens" in token && Array.isArray(token.tokens)) {
+			enhanceMermaidTokens(token.tokens);
+		}
+	}
+}
+
 function normalizeNestedMarkdownCodeFences(source: string) {
 	const lines = source.split(/(\r?\n)/);
 	const output: string[] = [];
@@ -395,6 +437,7 @@ async function renderMarkdownHtml(
 		gfm: true,
 	});
 	enhanceMediaPreviewTokens(tokens);
+	enhanceMermaidTokens(tokens);
 	if (options?.highlight !== false) await highlightCodeTokens(tokens);
 	return marked.parser(tokens);
 }

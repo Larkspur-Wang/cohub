@@ -628,6 +628,46 @@ body.drawer-open {
 	}
 }
 
+.markdown-content .markdown-mermaid-figure {
+	margin: 1em 0;
+}
+
+.markdown-content .markdown-mermaid {
+	display: flex;
+	min-height: 8rem;
+	align-items: center;
+	justify-content: center;
+	overflow-x: auto;
+	padding: 1rem;
+	border: 1px solid var(--border-subtle);
+	border-radius: 0.85rem;
+	background: color-mix(in srgb, var(--bg-surface-muted, var(--bg-surface)) 82%, transparent);
+	touch-action: pan-x pan-y;
+}
+
+.markdown-content .markdown-mermaid svg {
+	max-width: 100%;
+	height: auto;
+}
+
+.markdown-content .markdown-mermaid-loading {
+	color: var(--text-tertiary);
+	font-size: 0.9em;
+}
+
+.markdown-content .markdown-mermaid.is-error {
+	justify-content: flex-start;
+	min-height: 0;
+	white-space: pre-wrap;
+	color: var(--text-secondary);
+	font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+	font-size: 0.86em;
+}
+
+.markdown-content .markdown-mermaid-fallback {
+	margin-top: 0.45rem;
+}
+
 .markdown-content table {
 	display: block;
 	width: 100%;
@@ -727,6 +767,10 @@ body.drawer-open {
 
 .markdown-content[data-variant="document"] pre {
 	border-radius: 0.6rem;
+}
+
+.markdown-content .markdown-mermaid-fallback pre {
+	margin-top: 0.5rem;
 }
 
 .markdown-content pre code {
