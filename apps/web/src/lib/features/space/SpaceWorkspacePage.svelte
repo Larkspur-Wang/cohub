@@ -7610,6 +7610,22 @@ function insertFilePathReference(path: string) {
 	insertPathReference(path);
 }
 
+function getFileActionNode(path: string): SpaceFsNode {
+	const existingNode = findFsNode(fileTree, path);
+	if (existingNode) return existingNode;
+	const response =
+		openFile?.path === path
+			? openFile
+			: inlineFile?.response?.path === path
+				? inlineFile.response
+				: null;
+	return makeFsNode({
+		...buildFsEntry(path, "file"),
+		size: response?.size ?? 0,
+		mimeType: response?.mimeType ?? null,
+	});
+}
+
 function editResourceLabels(
 	resourceType: "session" | "checkpoint" | "file",
 	resourceRef: string,
@@ -8713,6 +8729,44 @@ $effect(() => {
 					<TextCursorInput class="w-3.5 h-3.5" />
 					<span>Insert reference</span>
 				</button>
+				<button
+					type="button"
+					class="menu-item"
+					onclick={() => {
+						void handleDownloadNode(getFileActionNode(path));
+						fileActionMenuOpenPath = null;
+					}}
+					role="menuitem"
+				>
+					<Download class="w-3.5 h-3.5" />
+					<span>Download</span>
+				</button>
+				{#if canEditFiles && !activeFsReadonly}
+					<button
+						type="button"
+						class="menu-item"
+						onclick={() => {
+							void handleRenameNode(getFileActionNode(path));
+							fileActionMenuOpenPath = null;
+						}}
+						role="menuitem"
+					>
+						<Pencil class="w-3.5 h-3.5" />
+						<span>Rename</span>
+					</button>
+					<button
+						type="button"
+						class="menu-item danger"
+						onclick={() => {
+							void handleDeleteNode(getFileActionNode(path));
+							fileActionMenuOpenPath = null;
+						}}
+						role="menuitem"
+					>
+						<Trash2 class="w-3.5 h-3.5" />
+						<span>Delete</span>
+					</button>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -11301,6 +11355,13 @@ $effect(() => {
   .menu-item:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+  .menu-item.danger {
+    color: var(--error-soft);
+  }
+  .menu-item.danger:hover {
+    background: var(--error-bg);
+    color: var(--error-soft);
   }
   .toggle-btn {
     display: inline-flex;
