@@ -9977,16 +9977,6 @@ $effect(() => {
             {#if routeFilePath}
               {@render FileHeaderCoreActions(routeFilePath)}
             {/if}
-            <a
-              href={openFileDownloadUrl}
-              download={openFileDownloadName}
-              class="action-btn"
-              title="Download file"
-              onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
-            >
-              <Download class="w-3.5 h-3.5 shrink-0" />
-              <span class="hidden sm:inline">Download</span>
-            </a>
             <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -10044,15 +10034,6 @@ $effect(() => {
                   <span class="hidden sm:inline">Publish</span>
                 </button>
               {/if}
-              <a
-                href={openFileDownloadUrl}
-                download={openFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               <button type="button" class="icon-btn" onclick={() => void copyFileContent()} title="Copy content">
                 {#if openFileCopied}
                   <Check class="w-4 h-4 text-success-soft" />
@@ -10125,15 +10106,6 @@ $effect(() => {
               <button type="button" class="zoom-btn" onclick={() => { openFileZoom = Math.min(4, openFileZoom + 0.25); openFilePanX = 0; openFilePanY = 0; }} title="Zoom in">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
-              <a
-                href={openFileDownloadUrl}
-                download={openFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -10156,15 +10128,6 @@ $effect(() => {
               </div>
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
               {@render FileHeaderCoreActions(openFile.path)}
-              <a
-                href={openFileDownloadUrl}
-                download={openFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -10181,15 +10144,6 @@ $effect(() => {
               </div>
               <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
               {@render FileHeaderCoreActions(openFile.path)}
-              <a
-                href={openFileDownloadUrl}
-                download={openFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -10409,11 +10363,6 @@ $effect(() => {
           {#if inlineFile.response}{inlineFile.response.path}{:else}{inlineFile.path}{/if}
         </div>
         {@render FileHeaderCoreActions(inlineFile.path)}
-        {#if inlineFile.response && inlineFile.response.kind === "text"}
-          <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="icon-btn" title="Download file" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
-            <Download class="w-4 h-4" />
-          </a>
-        {/if}
       </div>
       {#if inlineFile.loading}
         {@render PanelLoadingState("Loading file…")}
@@ -10544,10 +10493,6 @@ $effect(() => {
           <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn" title="Download file" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
-              <Download class="w-3.5 h-3.5 shrink-0" />
-              <span class="hidden sm:inline">Download</span>
-            </a>
             {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
               <X class="w-4 h-4" />
@@ -10599,15 +10544,6 @@ $effect(() => {
                   </button>
                 </div>
               {/if}
-              <a
-                href={inlineFileDownloadUrl}
-                download={inlineFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
                 {#if inlineFileCopied}
                   <Check class="w-4 h-4 text-success-soft" />
@@ -10681,15 +10617,6 @@ $effect(() => {
               <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
-              <a
-                href={inlineFileDownloadUrl}
-                download={inlineFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
@@ -10713,15 +10640,6 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
-              <a
-                href={inlineFileDownloadUrl}
-                download={inlineFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
@@ -10739,15 +10657,6 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
-              <a
-                href={inlineFileDownloadUrl}
-                download={inlineFileDownloadName}
-                class="icon-btn"
-                title="Download file"
-                onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}
-              >
-                <Download class="w-4 h-4" />
-              </a>
               {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
                 <X class="w-4 h-4" />
