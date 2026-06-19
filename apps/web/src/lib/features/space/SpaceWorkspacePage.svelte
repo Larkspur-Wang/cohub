@@ -315,6 +315,40 @@ type SessionViewState = {
 	loadingNewer: boolean;
 	oldestCursor: number | undefined;
 };
+function areSessionTurnRecordsEqual(
+	current: SessionTurnRecord | null | undefined,
+	next: SessionTurnRecord | null | undefined,
+) {
+	if (current === next) return true;
+	if (!current || !next) return false;
+	return JSON.stringify(current) === JSON.stringify(next);
+}
+function areSessionTurnsEqual(
+	currentTurns: SessionTurnRecord[],
+	nextTurns: SessionTurnRecord[],
+) {
+	if (currentTurns.length !== nextTurns.length) return false;
+	return currentTurns.every((turn, index) =>
+		areSessionTurnRecordsEqual(turn, nextTurns[index]),
+	);
+}
+function preserveSessionTurnRefs(
+	currentTurns: SessionTurnRecord[],
+	nextTurns: SessionTurnRecord[],
+): SessionTurnRecord[] {
+	const currentById = new Map(currentTurns.map((turn) => [turn.id, turn]));
+	let changed = currentTurns.length !== nextTurns.length;
+	const turns = nextTurns.map((turn, index): SessionTurnRecord => {
+		const current = currentById.get(turn.id);
+		if (current && areSessionTurnRecordsEqual(current, turn)) {
+			if (currentTurns[index] !== current) changed = true;
+			return current;
+		}
+		if (currentTurns[index] !== turn) changed = true;
+		return turn;
+	});
+	return changed ? turns : currentTurns;
+}
 const MAX_IMAGE_EDGE = 2160;
 const SAFARI_IMAGE_MEDIA_TYPE = "image/jpeg";
 const SAFARI_IMAGE_QUALITY = 0.82;
@@ -5213,6 +5247,12 @@ async function reconcileSessionTail(sessionId: string) {
 	if (!state?.session) return;
 	const inFlight = reconcileSessionTailInFlight.get(sessionId);
 	if (inFlight) return inFlight;
+	const shouldRestoreAnchor =
+		activeSessionId === sessionId && Boolean(listEl) && !shouldAutoFollow;
+	if (shouldRestoreAnchor) captureCurrentScrollAnchor(sessionId);
+	const restoreAnchorSnapshot = shouldRestoreAnchor
+		? getSessionScrollAnchor(sessionId)
+		: null;
 	const run = (async () => {
 		try {
 			const requestStartedAt = Date.now();
@@ -5234,12 +5274,32 @@ async function reconcileSessionTail(sessionId: string) {
 			});
 			const currentState = sessionStateById[sessionId];
 			if (!currentState) return;
+			const nextSession = snapshot.session ?? currentState.session;
+			const nextTurns = preserveSessionTurnRefs(
+				currentState.turns,
+				snapshot.turns,
+			);
+			const nextOldestCursor = snapshot.oldestSequence ?? undefined;
+			if (
+				currentState.session === nextSession &&
+				areSessionTurnsEqual(currentState.turns, nextTurns) &&
+				currentState.hasMore === snapshot.hasMoreOlder &&
+				currentState.hasMoreNewer === snapshot.hasMoreNewer &&
+				currentState.loading === false &&
+				currentState.loaded === true &&
+				currentState.error === "" &&
+				currentState.loadingOlder === false &&
+				currentState.loadingNewer === false &&
+				currentState.oldestCursor === nextOldestCursor
+			) {
+				return;
+			}
 			sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...currentState,
-					session: snapshot.session ?? currentState.session,
-					turns: snapshot.turns,
+					session: nextSession,
+					turns: nextTurns,
 					hasMore: snapshot.hasMoreOlder,
 					hasMoreNewer: snapshot.hasMoreNewer,
 					loading: false,
@@ -5247,9 +5307,22 @@ async function reconcileSessionTail(sessionId: string) {
 					error: "",
 					loadingOlder: false,
 					loadingNewer: false,
-					oldestCursor: snapshot.oldestSequence ?? undefined,
+					oldestCursor: nextOldestCursor,
 				},
 			};
+			if (activeSessionId === sessionId) {
+				await tick();
+				const currentAnchor = getSessionScrollAnchor(sessionId);
+				const canRestoreAnchor =
+					shouldRestoreAnchor &&
+					areSessionScrollAnchorsEqual(currentAnchor, restoreAnchorSnapshot) &&
+					!userScrollActive;
+				if (canRestoreAnchor) {
+					restoreSessionScrollAnchorSoon(sessionId);
+				} else if (!shouldRestoreAnchor && shouldAutoFollow) {
+					requestBottomFollow({ immediate: true });
+				}
+			}
 		} catch (error) {
 			console.warn(
 				"[reconcileSessionTail] Failed to reconcile session tail:",
@@ -6507,6 +6580,40 @@ function applyActiveAnchorRestore(restore = activeAnchorRestore) {
 	setProgrammaticScrollTop(getMessageElementAbsoluteTop(node) + restore.offset);
 	shouldAutoFollow = false;
 	return true;
+}
+function areSessionScrollAnchorsEqual(
+	current: SessionScrollAnchor | null | undefined,
+	next: SessionScrollAnchor | null | undefined,
+) {
+	return Boolean(
+		current &&
+			next &&
+			current.sequence === next.sequence &&
+			current.offset === next.offset &&
+			current.updatedAt === next.updatedAt,
+	);
+}
+function restoreSessionScrollAnchorSoon(sessionId: string) {
+	const anchor = getSessionScrollAnchor(sessionId);
+	if (!anchor) return;
+	const restore = { ...anchor, sessionId };
+	activeAnchorRestore = restore;
+	anchorRestoreWaitingForMarkdown = false;
+	requestAnimationFrame(() => {
+		if (!applyActiveAnchorRestore(restore)) {
+			if (activeAnchorRestore?.sessionId === sessionId)
+				activeAnchorRestore = null;
+			updateAutoFollow();
+			return;
+		}
+		requestAnimationFrame(() => {
+			applyActiveAnchorRestore(restore);
+			if (activeAnchorRestore?.sessionId === sessionId)
+				activeAnchorRestore = null;
+			updateAutoFollow();
+			scheduleTurnMarkerMeasure();
+		});
+	});
 }
 function handleTimelineMarkdownRenderStart() {
 	pendingTimelineMarkdownRenders += 1;
@@ -8076,6 +8183,9 @@ onMount(() => {
 	});
 	const handleVisibility = () => {
 		pageVisible = !document.hidden;
+		if (!pageVisible && activeSessionId) {
+			captureCurrentScrollAnchor(activeSessionId);
+		}
 		scheduleStatusRefresh();
 		if (pageVisible) {
 			void refreshSessionsList(false);

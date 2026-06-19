@@ -95,6 +95,43 @@ function isIncomingTailOlder(input: {
 	return parseTurnUpdatedAt(incomingNewest) < parseTurnUpdatedAt(currentNewest);
 }
 
+function areJsonEqual(a: unknown, b: unknown) {
+	return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function areSessionTurnRecordsEqual(
+	current: SessionTurnRecord | null | undefined,
+	next: SessionTurnRecord | null | undefined,
+) {
+	if (current === next) return true;
+	if (!current || !next) return false;
+	return areJsonEqual(current, next);
+}
+
+function areTurnListsEqual(
+	currentTurns: SessionTurnRecord[],
+	nextTurns: SessionTurnRecord[],
+) {
+	if (currentTurns.length !== nextTurns.length) return false;
+	return currentTurns.every((turn, index) =>
+		areSessionTurnRecordsEqual(turn, nextTurns[index]),
+	);
+}
+
+function reconcileTailTurns(
+	currentTurns: SessionTurnRecord[],
+	incomingTurns: SessionTurnRecord[],
+) {
+	if (incomingTurns.length === 0) return [];
+	const incomingOldestSequence = incomingTurns[0]?.sequence ?? 0;
+	const preservedOlderTurns = currentTurns.filter(
+		(turn) => turn.sequence < incomingOldestSequence,
+	);
+	return mergeTurnsById(preservedOlderTurns, incomingTurns, {
+		preferIncoming: true,
+	});
+}
+
 function toSnapshot(
 	record: SessionTurnsCacheRecord,
 	source: CacheSource,
@@ -276,18 +313,45 @@ export const sessionTurnsRepo = {
 			return toSnapshot(current.record, current.source);
 		}
 
+		const currentTurns = current?.record.turns ?? [];
+		const nextTurns = reconcileTailTurns(currentTurns, response.turns);
+		const keptLocalOlderTurns = Boolean(
+			currentTurns.length > 0 &&
+				response.turns.length > 0 &&
+				currentTurns.some(
+					(turn) => turn.sequence < (response.turns[0]?.sequence ?? 0),
+				),
+		);
+		const nextHasMoreOlder = keptLocalOlderTurns
+			? current?.record.hasMoreOlder === true
+			: response.hasMore;
+		const nextHasMoreNewer = false;
+		const source = options?.source ?? "network";
+		if (
+			current &&
+			areJsonEqual(current.record.session, response.session) &&
+			current.record.hasMoreOlder === nextHasMoreOlder &&
+			Boolean(
+				(current.record as SessionTurnsCacheRecord & { hasMoreNewer?: boolean })
+					.hasMoreNewer,
+			) === nextHasMoreNewer &&
+			areTurnListsEqual(current.record.turns, nextTurns)
+		) {
+			return toSnapshot(current.record, current.source);
+		}
+
 		const record = await writeRecord(
 			spaceId,
 			sessionId,
 			{
 				session: response.session,
-				turns: response.turns,
-				hasMoreOlder: response.hasMore,
-				hasMoreNewer: false,
+				turns: nextTurns,
+				hasMoreOlder: nextHasMoreOlder,
+				hasMoreNewer: nextHasMoreNewer,
 			},
-			{ source: options?.source ?? "network" },
+			{ source },
 		);
-		return toSnapshot(record, options?.source ?? "network");
+		return toSnapshot(record, source);
 	},
 
 	async mergeTurns(
