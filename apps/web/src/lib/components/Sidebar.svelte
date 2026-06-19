@@ -2575,12 +2575,12 @@ $effect(() => {
 	{#if currentExpandedLabelIds.has(label.id)}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
-				<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
+				<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-10' : 'pl-8'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
 			{:else}
-				<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
+				<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-10' : 'pl-8'}">No items</div>
 			{/if}
 		{:else if items.length > 0}
-			<div class="space-y-[1px] {depth > 0 ? 'pl-9' : 'pl-7'}">
+			<div class="space-y-[1px] {depth > 0 ? 'pl-8' : 'pl-6'}">
 				{#each items as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
 					{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
@@ -2655,7 +2655,7 @@ $effect(() => {
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
 				<button
 					type="button"
-					class="mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {depth > 0 ? 'ml-11' : 'ml-9'}"
+					class="mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {depth > 0 ? 'ml-10' : 'ml-8'}"
 					disabled={currentLoadingLabelIds.has(label.id)}
 					onclick={() => void loadLabelItems(label.id, { append: true })}
 				>
@@ -3921,7 +3921,7 @@ $effect(() => {
 	}
 
 	.label-tree-row.child {
-		padding-left: 22px;
+		padding-left: 16px;
 		font-size: 12px;
 	}
 
