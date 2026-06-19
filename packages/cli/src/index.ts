@@ -10,6 +10,7 @@ import { registerProfile } from "./commands/profile.js";
 import { registerSearch } from "./commands/search.js";
 import { registerPrompt, registerSpaces } from "./commands/spaces.js";
 import { registerTasks } from "./commands/tasks.js";
+import { registerWorks } from "./commands/works.js";
 import { ensureCliSelfUpdated } from "./self-update.js";
 
 const VERSION = (() => {
@@ -41,6 +42,7 @@ Common commands:
   cohub search "release notes"
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
+  cohub -s <space-id> works publish demo --file dist/index.html
   cohub models ls
   cohub models ls --model-type multimodal
   cohub generate "A calm lake at sunrise" --model <model> --output lake.png
@@ -60,6 +62,7 @@ registerModels(program);
 registerSearch(program);
 registerTasks(program);
 registerCronJobs(program);
+registerWorks(program);
 
 const isVersionRequest = (argv: string[]) => argv.some((arg) => arg === "-v" || arg === "--version");
 

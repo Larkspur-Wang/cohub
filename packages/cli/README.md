@@ -173,6 +173,29 @@ cohub -s <spaceId> spaces files rm <path>
 
 Confirm before deleting files or directories.
 
+## Works
+
+Publish and manage Work entries from a Space workspace.
+
+```bash
+cohub -s <spaceId> works ls --json
+cohub works get <workId> --json
+cohub -s <spaceId> works publish demo --file dist/index.html
+cohub -s <spaceId> works publish site --dir dist
+cohub -s <spaceId> works publish app --port 3000
+cohub works update <workId> --publish-version
+cohub works versions <workId> --json
+cohub works rm <workId> --yes
+```
+
+Resolve a published Work by public identity:
+
+```bash
+cohub works resolve <workSlug> --owner <username> --space-slug <spaceSlug>
+```
+
+Use `--json` for machine-readable output. The resolve command requires both `--owner` and `--space-slug` so missing public profile data fails with a clear message.
+
 ## Saves
 
 ```bash
@@ -210,7 +233,7 @@ Confirm before enabling, disabling, or deleting recurring scheduled prompts.
 
 Confirm before:
 
-- deleting files or directories
+- deleting files, directories, or Works
 - creating scheduled or recurring prompts with side effects
 - enabling, disabling, or deleting recurring scheduled prompts
 - changing access policies, member roles, or membership

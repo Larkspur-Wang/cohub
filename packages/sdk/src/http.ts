@@ -10,6 +10,7 @@ import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
 import { PublicInviteApi } from "./apis/invitations.js";
+import { WorksApi } from "./apis/works.js";
 import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
 import { resolveApiBaseUrl } from "./environment.js";
 
@@ -26,6 +27,7 @@ export class CohubHttpClient {
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
   readonly invite: PublicInviteApi;
+  readonly works: WorksApi;
 
   private readonly transport: HttpTransport;
 
@@ -49,6 +51,7 @@ export class CohubHttpClient {
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
+    this.works = new WorksApi(this.transport);
   }
 
   space(spaceId: string) {

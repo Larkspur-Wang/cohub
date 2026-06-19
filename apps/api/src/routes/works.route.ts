@@ -37,6 +37,32 @@ const isSubset = (requested: Permission[], allowed: string[]) => requested.every
 const pgErrorCode = (error: unknown) => typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
 const pgErrorConstraint = (error: unknown) => typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint?: unknown }).constraint) : null;
 const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
+const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: draft, published, disabled" }, 400);
+
+async function getMissingPublicWorkIdentity(spaceId: string) {
+  const [row] = await db
+    .select({ spaceSlug: spaces.slug, ownerUsername: userProfiles.username })
+    .from(spaces)
+    .leftJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  return {
+    ownerUsername: row?.ownerUsername?.trim() || null,
+    spaceSlug: row?.spaceSlug?.trim() || null,
+  };
+}
+
+async function ensurePublicWorkIdentity(c: Context, spaceId: string) {
+  const identity = await getMissingPublicWorkIdentity(spaceId);
+  const missingOwner = !identity.ownerUsername;
+  const missingSpaceSlug = !identity.spaceSlug;
+  if (!missingOwner && !missingSpaceSlug) return null;
+  if (missingOwner && missingSpaceSlug) {
+    return c.json({ message: "published works require an owner username and a space slug" }, 400);
+  }
+  if (missingOwner) return c.json({ message: "published works require an owner username" }, 400);
+  return c.json({ message: "published works require a space slug" }, 400);
+}
 
 const ensureUniqueWorkSlug = async (input: { spaceId: string; slug: string; excludeId?: string }) => {
   const conditions = [eq(works.spaceId, input.spaceId), eq(works.slug, input.slug)];
@@ -229,7 +255,14 @@ router.post("/", async (c) => {
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
     targetRef = portRef;
   }
-  const status = typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : "published";
+  if (body?.status !== undefined && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
+    return invalidWorkStatusResponse(c);
+  }
+  const status = typeof body?.status === "string" ? body.status : "published";
+  if (status === "published") {
+    const identityError = await ensurePublicWorkIdentity(c, spaceId);
+    if (identityError) return identityError;
+  }
   const now = new Date();
 
   const [existingWork] = await db.select().from(works).where(and(eq(works.spaceId, spaceId), eq(works.slug, slug))).limit(1);
@@ -314,7 +347,15 @@ async function updateWorkWithVersion(
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
     nextTargetRef = portRef;
   }
-  const nextStatus = overrides?.status ?? (typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : current.status);
+  if (overrides?.status !== undefined && !WORK_STATUSES.has(overrides.status)) return invalidWorkStatusResponse(c);
+  if (overrides?.status === undefined && body && "status" in body && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
+    return invalidWorkStatusResponse(c);
+  }
+  const nextStatus = overrides?.status ?? (typeof body?.status === "string" ? body.status : current.status);
+  if (nextStatus === "published") {
+    const identityError = await ensurePublicWorkIdentity(c, current.spaceId);
+    if (identityError) return identityError;
+  }
   const publishVersion = overrides?.publishVersion ?? body?.publishVersion === true;
 
   let assetKey = current.assetKey;
