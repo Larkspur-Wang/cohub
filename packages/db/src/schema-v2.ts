@@ -230,6 +230,8 @@ export const works = v2.table(
     targetType: varchar("target_type", { length: 20 }).notNull(),
     targetRef: text("target_ref").notNull(),
     assetKey: text("asset_key"),
+    currentVersionId: uuid("current_version_id"),
+    latestVersion: integer("latest_version").notNull().default(0),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     workScopes: jsonb("work_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     allowedViewerScopes: jsonb("allowed_viewer_scopes").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
@@ -246,6 +248,28 @@ export const works = v2.table(
       "v2_chk_works_slug_format",
       sql`length(${table.slug}) between 1 and 80 and ${table.slug} !~ '[^a-z0-9_-]' and left(${table.slug}, 1) ~ '[a-z0-9]' and right(${table.slug}, 1) ~ '[a-z0-9]'`,
     ),
+  }),
+);
+
+export const workVersions = v2.table(
+  "work_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workId: uuid("work_id").notNull(),
+    spaceId: uuid("space_id").notNull(),
+    version: integer("version").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("published"),
+    targetType: varchar("target_type", { length: 20 }).notNull(),
+    targetRef: text("target_ref").notNull(),
+    assetKey: text("asset_key"),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (table) => ({
+    workIdx: index("v2_idx_work_versions_work_id").on(table.workId),
+    spaceIdx: index("v2_idx_work_versions_space_id").on(table.spaceId),
+    workVersionUniqueIdx: uniqueIndex("v2_uq_work_versions_work_version").on(table.workId, table.version),
   }),
 );
 

@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
-import { and, eq, ne } from "drizzle-orm";
-import { spaces, works, workViewerGrants, userProfiles } from "@cohub/db";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { spaces, works, workVersions, workViewerGrants, userProfiles } from "@cohub/db";
 import { readSpaceDirectoryFiles, readSpaceFile, SpaceFsError, spaceFsJsonError } from "../space-fs.js";
 import { createWorkAssetPublicUrl, deleteWorkAssetsByObjectKey, isConfiguredWorkAssetPublicUrl, writeWorkHtmlAsset, writeWorkSiteAssets } from "../work-asset-storage.js";
 import type { Permission } from "@cohub/core/permissions";
@@ -33,6 +33,10 @@ const normalizeScopes = (value: unknown, allowed: Set<Permission>): Permission[]
 };
 
 const isSubset = (requested: Permission[], allowed: string[]) => requested.every((scope) => allowed.includes(scope));
+
+const pgErrorCode = (error: unknown) => typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
+const pgErrorConstraint = (error: unknown) => typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint?: unknown }).constraint) : null;
+const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
 
 const ensureUniqueWorkSlug = async (input: { spaceId: string; slug: string; excludeId?: string }) => {
   const conditions = [eq(works.spaceId, input.spaceId), eq(works.slug, input.slug)];
@@ -72,12 +76,28 @@ const serializeWork = (work: typeof works.$inferSelect) => ({
   targetType: work.targetType,
   targetRef: work.targetRef,
   assetKey: work.assetKey,
+  currentVersionId: work.currentVersionId,
+  latestVersion: work.latestVersion ?? 0,
   publishedAt: work.publishedAt?.toISOString() ?? null,
   workScopes: work.workScopes ?? [],
   allowedViewerScopes: work.allowedViewerScopes ?? [],
   meta: work.meta ?? null,
   createdAt: work.createdAt?.toISOString() ?? null,
   updatedAt: work.updatedAt?.toISOString() ?? null,
+});
+
+const serializeWorkVersion = (version: typeof workVersions.$inferSelect) => ({
+  id: version.id,
+  workId: version.workId,
+  spaceId: version.spaceId,
+  version: version.version,
+  status: version.status,
+  targetType: version.targetType,
+  targetRef: version.targetRef,
+  assetKey: version.assetKey,
+  meta: version.meta ?? null,
+  createdAt: version.createdAt?.toISOString() ?? null,
+  publishedAt: version.publishedAt?.toISOString() ?? null,
 });
 
 async function getWorkById(id: string) {
@@ -210,8 +230,12 @@ router.post("/", async (c) => {
     targetRef = portRef;
   }
   const status = typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : "published";
+  const now = new Date();
 
-  if (!(await ensureUniqueWorkSlug({ spaceId, slug }))) return c.json({ message: "slug already exists" }, 409);
+  const [existingWork] = await db.select().from(works).where(and(eq(works.spaceId, spaceId), eq(works.slug, slug))).limit(1);
+  if (existingWork) {
+    return updateWorkWithVersion(c, existingWork, body, { targetType, targetRef, status, publishVersion: status === "published" });
+  }
 
   let assetKey: string | null = null;
   try {
@@ -221,21 +245,39 @@ router.post("/", async (c) => {
   }
 
   try {
-    const [work] = await db.insert(works).values({
-      spaceId,
-      userUuid: user.uuid,
-      slug,
-      status,
-      targetType,
-      targetRef,
-      assetKey,
-      publishedAt: status === "published" ? new Date() : null,
-      workScopes: normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES),
-      allowedViewerScopes: normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES),
-      meta: body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null,
-    }).returning().catch((error: unknown) => {
-      const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
-      if (code === "23505") return [];
+    const work = await db.transaction(async (tx) => {
+      const [createdWork] = await tx.insert(works).values({
+        spaceId,
+        userUuid: user.uuid,
+        slug,
+        status,
+        targetType,
+        targetRef,
+        assetKey,
+        latestVersion: status === "published" ? 1 : 0,
+        publishedAt: status === "published" ? now : null,
+        workScopes: normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES),
+        allowedViewerScopes: normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES),
+        meta: body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null,
+      }).returning();
+      if (!createdWork) return null;
+      if (status !== "published") return createdWork;
+      const [version] = await tx.insert(workVersions).values({
+        workId: createdWork.id,
+        spaceId,
+        version: 1,
+        status,
+        targetType,
+        targetRef,
+        assetKey,
+        meta: { reason: "create" },
+        publishedAt: now,
+      }).returning();
+      if (!version) throw new Error("failed to create work version");
+      const [updatedWork] = await tx.update(works).set({ currentVersionId: version.id }).where(eq(works.id, createdWork.id)).returning();
+      return updatedWork ?? createdWork;
+    }).catch((error: unknown) => {
+      if (isWorkSlugConflict(error)) return null;
       throw error;
     });
     if (!work) {
@@ -249,23 +291,20 @@ router.post("/", async (c) => {
   }
 });
 
-router.patch("/:id", async (c) => {
-  const user = useAuth(c);
-  const id = c.req.param("id");
-  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
-  const current = await getWorkById(id);
-  if (!current) return c.json({ message: "work not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
-
-  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+async function updateWorkWithVersion(
+  c: Context,
+  current: typeof works.$inferSelect,
+  body: Record<string, unknown> | null,
+  overrides?: { targetType?: string; targetRef?: string; status?: string; publishVersion?: boolean },
+) {
   const nextSlug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : current.slug;
   if (!SLUG_RE.test(nextSlug)) return c.json({ message: "slug must use lowercase letters, numbers, hyphens, or underscores" }, 400);
   if (nextSlug !== current.slug && !(await ensureUniqueWorkSlug({ spaceId: current.spaceId, slug: nextSlug, excludeId: current.id }))) {
     return c.json({ message: "slug already exists" }, 409);
   }
 
-  const nextTargetType = typeof body?.targetType === "string" ? body.targetType : current.targetType;
-  let nextTargetRef = typeof body?.targetRef === "string" ? body.targetRef.trim() : current.targetRef;
+  const nextTargetType = overrides?.targetType ?? (typeof body?.targetType === "string" ? body.targetType : current.targetType);
+  let nextTargetRef = overrides?.targetRef ?? (typeof body?.targetRef === "string" ? body.targetRef.trim() : current.targetRef);
   if (!TARGET_TYPES.has(nextTargetType) || !nextTargetRef) return c.json({ message: "target is invalid" }, 400);
   if (nextTargetType === "file" && !/\.html?$/i.test(nextTargetRef)) {
     return c.json({ message: "only HTML files can be published as work" }, 400);
@@ -275,11 +314,13 @@ router.patch("/:id", async (c) => {
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
     nextTargetRef = portRef;
   }
-  const nextStatus = typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : current.status;
+  const nextStatus = overrides?.status ?? (typeof body?.status === "string" && WORK_STATUSES.has(body.status) ? body.status : current.status);
+  const publishVersion = overrides?.publishVersion ?? body?.publishVersion === true;
 
   let assetKey = current.assetKey;
-  const previousAssetKey = current.assetKey;
+  let newAssetKey: string | null = null;
   const needsAssetRefresh = nextStatus === "published" && (
+    publishVersion ||
     current.status !== "published" ||
     nextSlug !== current.slug ||
     nextTargetType !== current.targetType ||
@@ -289,41 +330,90 @@ router.patch("/:id", async (c) => {
   else if (nextTargetType === "port") assetKey = null;
   else if (needsAssetRefresh) {
     try {
-      assetKey = await writeWorkAsset({ spaceId: current.spaceId, slug: nextSlug, targetType: nextTargetType, targetRef: nextTargetRef, status: nextStatus });
+      newAssetKey = await writeWorkAsset({ spaceId: current.spaceId, slug: nextSlug, targetType: nextTargetType, targetRef: nextTargetRef, status: nextStatus });
+      assetKey = newAssetKey;
     } catch (error) {
       return workAssetErrorResponse(c, error, { spaceId: current.spaceId, targetType: nextTargetType, targetRef: nextTargetRef });
     }
   }
 
   try {
-    const [work] = await db.update(works).set({
-      slug: nextSlug,
-      status: nextStatus,
-      targetType: nextTargetType,
-      targetRef: nextTargetRef,
-      assetKey,
-      publishedAt: nextStatus === "published" ? (current.publishedAt ?? new Date()) : null,
-      workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
-      allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
-      meta: "meta" in (body ?? {}) ? (body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null) : current.meta,
-      updatedAt: new Date(),
-    }).where(eq(works.id, current.id)).returning().catch((error: unknown) => {
-      const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
-      if (code === "23505") return [];
+    const work = await db.transaction(async (tx) => {
+      const now = new Date();
+      let currentVersionId = current.currentVersionId;
+      let latestVersion = current.latestVersion ?? 0;
+      if (nextStatus === "published" && needsAssetRefresh) {
+        const [versionedWork] = await tx.update(works).set({
+          latestVersion: sql`${works.latestVersion} + 1`,
+          updatedAt: now,
+        }).where(eq(works.id, current.id)).returning({ latestVersion: works.latestVersion });
+        if (!versionedWork) throw new Error("failed to reserve work version");
+        latestVersion = versionedWork.latestVersion;
+        const [version] = await tx.insert(workVersions).values({
+          workId: current.id,
+          spaceId: current.spaceId,
+          version: latestVersion,
+          status: nextStatus,
+          targetType: nextTargetType,
+          targetRef: nextTargetRef,
+          assetKey,
+          meta: { reason: publishVersion ? "publish" : "update" },
+          publishedAt: now,
+        }).returning();
+        if (!version) throw new Error("failed to create work version");
+        currentVersionId = version.id;
+      }
+      const [updatedWork] = await tx.update(works).set({
+        slug: nextSlug,
+        status: nextStatus,
+        targetType: nextTargetType,
+        targetRef: nextTargetRef,
+        assetKey,
+        currentVersionId: nextStatus === "published" ? currentVersionId : null,
+        latestVersion,
+        publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
+        workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
+        allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
+        meta: "meta" in (body ?? {}) ? (body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null) : current.meta,
+        updatedAt: new Date(),
+      }).where(eq(works.id, current.id)).returning();
+      return updatedWork ?? null;
+    }).catch((error: unknown) => {
+      if (isWorkSlugConflict(error)) return null;
       throw error;
     });
     if (!work) {
-      await cleanupWorkAssets(assetKey !== previousAssetKey ? assetKey : null, { workId: current.id, spaceId: current.spaceId, reason: "update_slug_conflict" });
+      await cleanupWorkAssets(newAssetKey, { workId: current.id, spaceId: current.spaceId, reason: "update_slug_conflict" });
       return c.json({ message: "slug already exists" }, 409);
-    }
-    if (previousAssetKey && previousAssetKey !== assetKey) {
-      await cleanupWorkAssets(previousAssetKey, { workId: current.id, spaceId: current.spaceId, reason: "update_stale_asset" });
     }
     return c.json({ work: serializeWork(work) });
   } catch (error) {
-    await cleanupWorkAssets(assetKey !== previousAssetKey ? assetKey : null, { workId: current.id, spaceId: current.spaceId, reason: "update_failed" });
+    await cleanupWorkAssets(newAssetKey, { workId: current.id, spaceId: current.spaceId, reason: "update_failed" });
     throw error;
   }
+}
+
+router.patch("/:id", async (c) => {
+  const user = useAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const current = await getWorkById(id);
+  if (!current) return c.json({ message: "work not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
+
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  return updateWorkWithVersion(c, current, body);
+});
+
+router.get("/:id/versions", async (c) => {
+  const user = useAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const work = await getWorkById(id);
+  if (!work) return c.json({ message: "work not found" }, 404);
+  if (!(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
+  const rows = await db.select().from(workVersions).where(eq(workVersions.workId, id)).orderBy(desc(workVersions.version));
+  return c.json({ versions: rows.map(serializeWorkVersion) });
 });
 
 router.delete("/:id", async (c) => {
@@ -335,9 +425,9 @@ router.delete("/:id", async (c) => {
   if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
   await db.transaction(async (tx) => {
     await tx.delete(workViewerGrants).where(eq(workViewerGrants.workId, work.id));
+    await tx.delete(workVersions).where(eq(workVersions.workId, work.id));
     await tx.delete(works).where(eq(works.id, work.id));
   });
-  await cleanupWorkAssets(work.assetKey, { workId: work.id, spaceId: work.spaceId, reason: "delete" });
   return c.json({ ok: true });
 });
 

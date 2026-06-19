@@ -31,6 +31,7 @@ import {
 	type TaskRunRecord,
 	type UserProfile,
 	type WorkRecord,
+	type WorkVersionRecord,
 } from "@neta-art/cohub";
 import {
 	Activity,
@@ -939,6 +940,13 @@ let workFormSubmitting = $state(false);
 let workFormError = $state("");
 let workCopiedId = $state(false);
 let workCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
+let workVersions = $state<WorkVersionRecord[]>([]);
+let workVersionsLoading = $state(false);
+let workVersionsError = $state("");
+let workPublishTargetType = $state<"file" | "directory" | "port">("file");
+let workPublishTargetRef = $state("");
+let workPublishSubmitting = $state(false);
+let workPublishError = $state("");
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
@@ -1259,6 +1267,9 @@ function syncWorkFormFromDetail() {
 		WORK_VIEWER_SCOPE_OPTIONS,
 	);
 	workFormError = "";
+	workPublishTargetType = workDetail.targetType;
+	workPublishTargetRef = workDetail.targetRef;
+	workPublishError = "";
 }
 function notifyWorksUpdated() {
 	if (typeof window === "undefined") return;
@@ -1294,6 +1305,7 @@ async function loadWorkDetail(workId: string) {
 		if (!isCurrentRequest()) return;
 		workDetail = work;
 		syncWorkFormFromDetail();
+		void loadWorkVersions(work.id);
 	} catch (error) {
 		if (!isCurrentRequest()) return;
 		workDetail = null;
@@ -1301,6 +1313,49 @@ async function loadWorkDetail(workId: string) {
 			error instanceof Error ? error.message : "Failed to load work";
 	} finally {
 		if (isCurrentRequest()) workDetailLoading = false;
+	}
+}
+
+async function loadWorkVersions(workId: string) {
+	workVersionsLoading = true;
+	workVersionsError = "";
+	try {
+		const { versions } = await sdk.works.listVersions(workId);
+		if (routeView === "work" && routeWorkId === workId) workVersions = versions;
+	} catch (error) {
+		if (routeView === "work" && routeWorkId === workId) {
+			workVersionsError =
+				error instanceof Error ? error.message : "Failed to load versions";
+		}
+	} finally {
+		if (routeView === "work" && routeWorkId === workId)
+			workVersionsLoading = false;
+	}
+}
+async function handlePublishWorkVersion() {
+	if (!workDetail || workPublishSubmitting) return;
+	workPublishError = "";
+	if (!workPublishTargetRef.trim()) {
+		workPublishError = "Target is required";
+		return;
+	}
+	workPublishSubmitting = true;
+	try {
+		const { work } = await sdk.works.update(workDetail.id, {
+			status: "published",
+			targetType: workPublishTargetType,
+			targetRef: workPublishTargetRef.trim(),
+			publishVersion: true,
+		});
+		workDetail = work;
+		syncWorkFormFromDetail();
+		await loadWorkVersions(work.id);
+		notifyWorksUpdated();
+	} catch (error) {
+		workPublishError =
+			error instanceof Error ? error.message : "Failed to publish version";
+	} finally {
+		workPublishSubmitting = false;
 	}
 }
 async function handleCopyWorkId(id: string) {
@@ -1324,6 +1379,7 @@ async function handleToggleWorkStatus(status: "published" | "disabled") {
 		const { work } = await sdk.works.update(workDetail.id, { status });
 		workDetail = work;
 		syncWorkFormFromDetail();
+		void loadWorkVersions(work.id);
 		notifyWorksUpdated();
 	} catch (error) {
 		workDetailError =
@@ -1392,6 +1448,7 @@ async function handleUpdateWorkSubmit(event: SubmitEvent) {
 		workDetail = work;
 		workEditMode = false;
 		syncWorkFormFromDetail();
+		void loadWorkVersions(work.id);
 		notifyWorksUpdated();
 	} catch (error) {
 		workFormError =
@@ -9718,6 +9775,32 @@ $effect(() => {
                       </div>
                     </div>
                   </section>
+                  <section class="space-y-3 border-y border-border-subtle/70 py-4">
+                    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                      <div class="flex min-w-0 items-baseline gap-2">
+                        <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Publish version</div>
+                        <div class="hidden text-[12px] text-text-tertiary sm:block">Move the public link to a fresh snapshot.</div>
+                      </div>
+                      <div class="font-mono text-[11px] text-text-placeholder">Current v{workDetail.latestVersion || 0}</div>
+                    </div>
+                    <div class="grid gap-2 sm:grid-cols-[128px_minmax(0,1fr)_112px] sm:items-center">
+                      <label class="sr-only" for="work-publish-target-type">Target type</label>
+                      <select id="work-publish-target-type" bind:value={workPublishTargetType} class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors hover:border-border-default focus:border-brand/50 focus:outline-none">
+                        <option value="file">File</option>
+                        <option value="directory">Directory</option>
+                        <option value="port">Port</option>
+                      </select>
+                      <label class="sr-only" for="work-publish-target-ref">Target reference</label>
+                      <input id="work-publish-target-ref" type="text" bind:value={workPublishTargetRef} placeholder="Target reference" class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary transition-colors placeholder:text-text-placeholder hover:border-border-default focus:border-brand/50 focus:outline-none" />
+                      <button type="button" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void handlePublishWorkVersion()} disabled={workPublishSubmitting}>
+                        {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+                        <span>Publish</span>
+                      </button>
+                    </div>
+                    {#if workPublishError}
+                      <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{workPublishError}</div>
+                    {/if}
+                  </section>
                   <section class="grid gap-3 sm:grid-cols-2">
                     <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
                       <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Work permissions</div>
@@ -9730,6 +9813,32 @@ $effect(() => {
                   </section>
                 </div>
                 <aside class="space-y-5 text-[13px]">
+                  <div class="space-y-2.5">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
+                      {#if workVersionsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />{/if}
+                    </div>
+                    {#if workVersionsError}
+                      <div class="border-y border-error-soft/30 py-3 text-[12px] text-error-soft">{workVersionsError}</div>
+                    {:else if workVersions.length}
+                      <div class="divide-y divide-border-subtle/70 border-y border-border-subtle/70">
+                        {#each workVersions.slice(0, 6) as version (version.id)}
+                          <div class="py-2.5">
+                            <div class="flex items-center justify-between gap-2">
+                              <div class="flex min-w-0 items-center gap-2">
+                                <span class="font-mono text-[12px] text-text-primary">v{version.version}</span>
+                                <span class="truncate font-mono text-[11px] text-text-tertiary">{version.targetType}:{version.targetRef}</span>
+                              </div>
+                              {#if version.id === workDetail.currentVersionId}<span class="shrink-0 rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
+                            </div>
+                            <div class="mt-1 text-[11px] text-text-placeholder">{formatDateTime(version.publishedAt)}</div>
+                          </div>
+                        {/each}
+                      </div>
+                    {:else}
+                      <div class="border-y border-border-subtle/70 py-3 text-[12px] text-text-tertiary">First publish creates v1.</div>
+                    {/if}
+                  </div>
                   <div class="space-y-3">
                     <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Metadata</div>
                     <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
