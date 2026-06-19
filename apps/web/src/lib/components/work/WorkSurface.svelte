@@ -55,6 +55,7 @@ const {
 }: Props = $props();
 
 let frame: HTMLIFrameElement | null = $state(null);
+let bridgeReady = $state(false);
 let workToken = $state<string | null>(null);
 let authOpen = $state(false);
 let pendingAuth = $state<{
@@ -94,7 +95,8 @@ const frameOrigin = $derived.by(() => {
 		return null;
 	}
 });
-const shouldRenderFrame = $derived(Boolean(iframeSrc && frameOrigin));
+const hasFrameSource = $derived(Boolean(iframeSrc && frameOrigin));
+const shouldRenderFrame = $derived(Boolean(bridgeReady && hasFrameSource));
 const frameReplyTarget = $derived(frameOrigin ?? page.url.origin);
 const framePreconnectOrigin = $derived.by(() => {
 	if (!frameOrigin || frameOrigin === page.url.origin) return null;
@@ -305,7 +307,10 @@ async function confirmAuth() {
 	}
 }
 
-onMount(() => window.addEventListener("message", handleMessage));
+onMount(() => {
+	window.addEventListener("message", handleMessage);
+	bridgeReady = true;
+});
 onDestroy(() => window.removeEventListener("message", handleMessage));
 </script>
 
@@ -327,7 +332,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 			sandbox={frameSandbox}
 			src={iframeSrc}
 		></iframe>
-	{:else}
+	{:else if !hasFrameSource}
 		<div class="empty-state">Work asset is unavailable.</div>
 	{/if}
 

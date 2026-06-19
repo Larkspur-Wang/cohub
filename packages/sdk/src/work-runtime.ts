@@ -27,22 +27,28 @@ const getParentOrigin = () => {
 };
 let trustedParentOrigin: string | null = null;
 
-const request = <T>(message: Record<string, unknown>, timeoutMs = 1_200): Promise<T | null> => {
+const request = <T>(message: Record<string, unknown>, timeoutMs = 1_200, retryIntervalMs?: number): Promise<T | null> => {
   if (!hasParent()) return Promise.resolve(null);
   const requestId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    let retryTimer: ReturnType<typeof setInterval> | null = null;
+    const parentOrigin = trustedParentOrigin ?? getParentOrigin();
+    const postRequest = () => window.parent.postMessage({ ...message, requestId }, parentOrigin ?? "*");
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (retryTimer) clearInterval(retryTimer);
       window.removeEventListener("message", onMessage);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
       resolve(null);
     }, timeoutMs);
-    const parentOrigin = trustedParentOrigin ?? getParentOrigin();
     const onMessage = (event: MessageEvent<RuntimeResponse>) => {
       if (event.source !== window.parent) return;
       if (parentOrigin && event.origin !== parentOrigin) return;
       const data = event.data;
       if (!data || data.requestId !== requestId) return;
-      clearTimeout(timer);
-      window.removeEventListener("message", onMessage);
+      cleanup();
       trustedParentOrigin = event.origin;
       if (data.type === "cohub.work.error") {
         reject(new Error(data.message));
@@ -51,7 +57,8 @@ const request = <T>(message: Record<string, unknown>, timeoutMs = 1_200): Promis
       resolve(data as T);
     };
     window.addEventListener("message", onMessage);
-    window.parent.postMessage({ ...message, requestId }, parentOrigin ?? "*");
+    postRequest();
+    if (retryIntervalMs) retryTimer = setInterval(postRequest, retryIntervalMs);
   });
 };
 
@@ -59,7 +66,7 @@ export class WorkRuntimeApi {
   private token: string | null = null;
 
   async context() {
-    const response = await request<{ context: WorkRuntimeContext }>({ type: "cohub.work.context" }, 8_000);
+    const response = await request<{ context: WorkRuntimeContext }>({ type: "cohub.work.context" }, 8_000, 250);
     return response?.context ?? null;
   }
 
