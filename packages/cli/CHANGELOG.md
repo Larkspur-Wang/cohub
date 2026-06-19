@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.17.4
+
+### Patch Changes
+
+- Release checkpoint pagination and work runtime stability fixes.
+- Updated dependencies
+  - @neta-art/cohub@1.28.1
+
 ## 1.17.3
 
 ### Patch Changes

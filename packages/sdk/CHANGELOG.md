@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.28.1
+
+### Patch Changes
+
+- Release checkpoint pagination and work runtime stability fixes.
+
 ## 1.28.0
 
 ### Minor Changes
