@@ -1,12 +1,25 @@
 // UI state shared across layout and pages
 // Using a class to wrap $state so it can be mutated from imports
 
-const STORAGE_KEYS = {
+const LEGACY_STORAGE_KEYS = {
 	leftSidebarWidth: "cohub:layout:left-sidebar-width",
 	rightSidebarWidth: "cohub:layout:right-sidebar-width",
 	rightSidebarCollapsed: "cohub:layout:right-sidebar-collapsed",
 	leftSidebarCollapsed: "cohub:layout:left-sidebar-collapsed",
 } as const;
+
+const STORAGE_PREFIX = "cohub:layout:v2";
+const GLOBAL_LAYOUT_SCOPE = "global";
+
+type LayoutPrefKey = keyof typeof LEGACY_STORAGE_KEYS;
+
+function layoutStorageKey(scope: string, key: LayoutPrefKey) {
+	return `${STORAGE_PREFIX}:${scope}:${key}`;
+}
+
+function layoutScopeKey(spaceId?: string | null) {
+	return spaceId ? `space:${encodeURIComponent(spaceId)}` : GLOBAL_LAYOUT_SCOPE;
+}
 
 const LEFT_SIDEBAR_MIN = 220;
 const LEFT_SIDEBAR_MAX = 420;
@@ -51,68 +64,100 @@ class UIState {
 	rightSidebarWidth = $state(RIGHT_SIDEBAR_DEFAULT);
 	leftSidebarCollapsed = $state(false);
 	rightSidebarCollapsed = $state(false);
-	private layoutPrefsLoaded = false;
+	private layoutScope: string | null = null;
 
-	loadLayoutPrefs() {
-		if (this.layoutPrefsLoaded || typeof window === "undefined") return;
-		this.layoutPrefsLoaded = true;
+	private readLayoutPref(key: LayoutPrefKey) {
+		return (
+			readStorage(
+				layoutStorageKey(this.layoutScope ?? GLOBAL_LAYOUT_SCOPE, key),
+			) ?? readStorage(LEGACY_STORAGE_KEYS[key])
+		);
+	}
 
-		const rawLeftWidth = readStorage(STORAGE_KEYS.leftSidebarWidth);
-		const rawRightWidth = readStorage(STORAGE_KEYS.rightSidebarWidth);
-		const rawLeftCollapsed = readStorage(STORAGE_KEYS.leftSidebarCollapsed);
-		const rawRightCollapsed = readStorage(STORAGE_KEYS.rightSidebarCollapsed);
+	private writeLayoutPref(key: LayoutPrefKey, value: string) {
+		writeStorage(
+			layoutStorageKey(this.layoutScope ?? GLOBAL_LAYOUT_SCOPE, key),
+			value,
+		);
+	}
 
-		if (rawLeftWidth) {
-			const parsed = Number(rawLeftWidth);
-			if (Number.isFinite(parsed)) {
-				this.leftSidebarWidth = clamp(
-					parsed,
-					LEFT_SIDEBAR_MIN,
-					LEFT_SIDEBAR_MAX,
-				);
-			}
-		}
+	private parseWidth(
+		raw: string | null,
+		fallback: number,
+		min: number,
+		max: number,
+	) {
+		if (!raw) return fallback;
+		const parsed = Number(raw);
+		return Number.isFinite(parsed) ? clamp(parsed, min, max) : fallback;
+	}
 
-		if (rawRightWidth) {
-			const parsed = Number(rawRightWidth);
-			if (Number.isFinite(parsed)) {
-				this.rightSidebarWidth = clamp(
-					parsed,
-					RIGHT_SIDEBAR_MIN,
-					RIGHT_SIDEBAR_MAX,
-				);
-			}
-		}
+	private parseCollapsed(raw: string | null, fallback: boolean) {
+		return raw === "true" || raw === "false" ? raw === "true" : fallback;
+	}
 
-		if (rawLeftCollapsed === "true" || rawLeftCollapsed === "false") {
-			this.leftSidebarCollapsed = rawLeftCollapsed === "true";
-		}
+	private persistLayoutPrefs() {
+		this.writeLayoutPref("leftSidebarWidth", String(this.leftSidebarWidth));
+		this.writeLayoutPref("rightSidebarWidth", String(this.rightSidebarWidth));
+		this.writeLayoutPref(
+			"leftSidebarCollapsed",
+			String(this.leftSidebarCollapsed),
+		);
+		this.writeLayoutPref(
+			"rightSidebarCollapsed",
+			String(this.rightSidebarCollapsed),
+		);
+	}
 
-		if (rawRightCollapsed === "true" || rawRightCollapsed === "false") {
-			this.rightSidebarCollapsed = rawRightCollapsed === "true";
-		}
+	loadLayoutPrefs(spaceId?: string | null) {
+		if (typeof window === "undefined") return;
+
+		const nextScope = layoutScopeKey(spaceId);
+		if (this.layoutScope === nextScope) return;
+		this.layoutScope = nextScope;
+
+		const rawLeftWidth = this.readLayoutPref("leftSidebarWidth");
+		const rawRightWidth = this.readLayoutPref("rightSidebarWidth");
+		const rawLeftCollapsed = this.readLayoutPref("leftSidebarCollapsed");
+		const rawRightCollapsed = this.readLayoutPref("rightSidebarCollapsed");
+
+		this.leftSidebarWidth = this.parseWidth(
+			rawLeftWidth,
+			LEFT_SIDEBAR_DEFAULT,
+			LEFT_SIDEBAR_MIN,
+			LEFT_SIDEBAR_MAX,
+		);
+		this.rightSidebarWidth = this.parseWidth(
+			rawRightWidth,
+			RIGHT_SIDEBAR_DEFAULT,
+			RIGHT_SIDEBAR_MIN,
+			RIGHT_SIDEBAR_MAX,
+		);
+		this.leftSidebarCollapsed = this.parseCollapsed(rawLeftCollapsed, false);
+		this.rightSidebarCollapsed = this.parseCollapsed(rawRightCollapsed, false);
+		this.persistLayoutPrefs();
 	}
 
 	setLeftSidebarWidth(width: number) {
 		const next = clamp(width, LEFT_SIDEBAR_MIN, LEFT_SIDEBAR_MAX);
 		this.leftSidebarWidth = next;
-		writeStorage(STORAGE_KEYS.leftSidebarWidth, String(next));
+		this.writeLayoutPref("leftSidebarWidth", String(next));
 	}
 
 	setRightSidebarWidth(width: number) {
 		const next = clamp(width, RIGHT_SIDEBAR_MIN, RIGHT_SIDEBAR_MAX);
 		this.rightSidebarWidth = next;
-		writeStorage(STORAGE_KEYS.rightSidebarWidth, String(next));
+		this.writeLayoutPref("rightSidebarWidth", String(next));
 	}
 
 	setLeftSidebarCollapsed(collapsed: boolean) {
 		this.leftSidebarCollapsed = collapsed;
-		writeStorage(STORAGE_KEYS.leftSidebarCollapsed, String(collapsed));
+		this.writeLayoutPref("leftSidebarCollapsed", String(collapsed));
 	}
 
 	setRightSidebarCollapsed(collapsed: boolean) {
 		this.rightSidebarCollapsed = collapsed;
-		writeStorage(STORAGE_KEYS.rightSidebarCollapsed, String(collapsed));
+		this.writeLayoutPref("rightSidebarCollapsed", String(collapsed));
 	}
 
 	toggleLeftSidebarCollapsed() {

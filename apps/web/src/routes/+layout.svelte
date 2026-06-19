@@ -56,6 +56,15 @@ const isStandalonePage = $derived(
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
+const currentLayoutSpaceId = $derived.by(() => {
+	const data = page.data as { spaceId?: unknown };
+	if (typeof data.spaceId === "string" && data.spaceId.length > 0) {
+		return data.spaceId;
+	}
+	if (!currentPath.startsWith("/spaces/")) return null;
+	const id = page.params.id;
+	return typeof id === "string" && id.length > 0 ? id : null;
+});
 
 let showHelpPanel = $state(false);
 let authReady = $state(false);
@@ -435,6 +444,10 @@ $effect(() => {
 	return () => window.clearTimeout(timer);
 });
 
+$effect(() => {
+	uiState.loadLayoutPrefs(currentLayoutSpaceId);
+});
+
 // Lock body scroll when drawer is open
 $effect(() => {
 	if (
@@ -463,7 +476,6 @@ onMount(() => {
 		});
 	}
 
-	uiState.loadLayoutPrefs();
 	void authStore.ensureLoaded().finally(() => {
 		authReady = true;
 		scheduleCacheCleanup();
