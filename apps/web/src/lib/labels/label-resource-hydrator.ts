@@ -64,6 +64,16 @@ function hydrateFileItem(spaceId: string, item: LabelAssignmentListItem) {
 	);
 }
 
+function sortLabelItemsDesc(items: LabelAssignmentListItem[]) {
+	return [...items].sort((a, b) => {
+		if (a.rank !== b.rank) return b.rank - a.rank;
+		return (
+			(b.createdAt ?? "").localeCompare(a.createdAt ?? "") ||
+			b.id.localeCompare(a.id)
+		);
+	});
+}
+
 export function hydrateLabelItems(
 	spaceId: string,
 	items: LabelAssignmentListItem[],
@@ -73,14 +83,16 @@ export function hydrateLabelItems(
 		(resources.sessions ?? []).map((session) => [session.id, session]),
 	);
 
-	return items.map((item) => {
-		if (item.resourceType === "session") {
-			const session = sessionsById.get(item.resourceRef);
-			return session ? hydrateSessionItem(item, session) : item;
-		}
-		if (item.resourceType === "file") return hydrateFileItem(spaceId, item);
-		return item;
-	});
+	return sortLabelItemsDesc(
+		items.map((item) => {
+			if (item.resourceType === "session") {
+				const session = sessionsById.get(item.resourceRef);
+				return session ? hydrateSessionItem(item, session) : item;
+			}
+			if (item.resourceType === "file") return hydrateFileItem(spaceId, item);
+			return item;
+		}),
+	);
 }
 
 export function hydrateLabelItemsById(

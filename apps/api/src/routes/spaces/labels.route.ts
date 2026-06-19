@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { and, asc, count, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db";
 import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";
@@ -345,9 +345,9 @@ router.get("/items", async (c) => {
       eq(labelAssignments.scopeType, SCOPE_TYPE),
       eq(labelAssignments.scopeId, access.spaceId),
       eq(labelAssignments.labelId, label.id),
-      ...(cursor ? [sql`(${labelAssignments.rank}, ${labelAssignments.createdAt}, ${labelAssignments.id}) > (${cursor.rank}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
+      ...(cursor ? [sql`(${labelAssignments.rank}, ${labelAssignments.createdAt}, ${labelAssignments.id}) < (${cursor.rank}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
     ))
-    .orderBy(asc(labelAssignments.rank), asc(labelAssignments.createdAt), asc(labelAssignments.id))
+    .orderBy(desc(labelAssignments.rank), desc(labelAssignments.createdAt), desc(labelAssignments.id))
     .limit(limit + 1);
   const pageRows = rows.slice(0, limit);
   const lastRow = pageRows.at(-1);

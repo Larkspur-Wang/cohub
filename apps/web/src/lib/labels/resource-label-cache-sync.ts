@@ -56,10 +56,10 @@ function isLabelItem(value: unknown): value is LabelAssignmentListItem {
 
 function sortLabelItems(items: LabelAssignmentListItem[]) {
 	return [...items].sort((a, b) => {
-		if (a.rank !== b.rank) return a.rank - b.rank;
+		if (a.rank !== b.rank) return b.rank - a.rank;
 		return (
-			(a.createdAt ?? "").localeCompare(b.createdAt ?? "") ||
-			a.id.localeCompare(b.id)
+			(b.createdAt ?? "").localeCompare(a.createdAt ?? "") ||
+			b.id.localeCompare(a.id)
 		);
 	});
 }
