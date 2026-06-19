@@ -62,6 +62,10 @@ function handleMessage(event: MessageEvent) {
 	emitSpaceConfigBackgroundAction(payload);
 }
 
+function handleWorkBackgroundError(error: unknown) {
+	console.warn("[NewChatBackground] work background failed", error);
+}
+
 $effect(() => {
 	if (typeof window === "undefined" || background.type !== "html" || workUrl)
 		return;
@@ -76,7 +80,12 @@ $effect(() => {
   {:else if background.type === "video"}
     <video src={background.url} style:object-fit={objectFit} style:object-position={background.position} autoplay muted loop playsinline preload="metadata"></video>
   {:else if workUrl}
-    <NewChatWorkBackground workUrl={workUrl} />
+    <svelte:boundary onerror={handleWorkBackgroundError}>
+      <NewChatWorkBackground workUrl={workUrl} />
+      {#snippet failed()}
+        <div class="new-chat-background-state">Work background is unavailable.</div>
+      {/snippet}
+    </svelte:boundary>
   {:else}
     <iframe bind:this={iframeEl} src={background.url} title="New chat background" sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
   {/if}
@@ -110,12 +119,24 @@ $effect(() => {
 
   img,
   video,
-  iframe {
+  iframe,
+  :global(.new-chat-background > svelte-boundary) {
     display: block;
     width: 100%;
     height: 100%;
     border: 0;
     user-select: none;
+  }
+
+  .new-chat-background-state {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-content);
+    font-size: 0.875rem;
+    color: var(--text-tertiary);
   }
 
   img,
