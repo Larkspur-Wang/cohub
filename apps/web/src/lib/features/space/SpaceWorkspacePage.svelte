@@ -6863,6 +6863,12 @@ async function loadFileTree(force = false) {
 	if (fileTreeLoading && !force) return;
 	const requestToken = fileTreeRequestToken + 1;
 	fileTreeRequestToken = requestToken;
+	if (spaceHasMinimalAccess) {
+		setActiveFileTree([]);
+		fileTreeLoading = false;
+		fileTreeError = "Files are not available for this shared session.";
+		return;
+	}
 	if (!force) {
 		if (source.kind === "live") {
 			const cached = await getCachedSpaceFsDir(spaceId, "");
@@ -10753,14 +10759,14 @@ $effect(() => {
     </WorkspacePreviewPane>
   {/if}
   <!-- Desktop right sidebar — file tree only -->
-  {#if !uiState.rightSidebarCollapsed && !spaceHasMinimalAccess}
+  {#if !uiState.rightSidebarCollapsed}
     <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
       <div class="w-full relative">
         <SpaceFileSidebar
-          nodes={fileTree}
+          nodes={spaceHasMinimalAccess ? [] : fileTree}
           selectedPath={selectedFilePath}
-          loading={fileTreeLoading}
-          error={fileTreeError}
+          loading={!spaceHasMinimalAccess && fileTreeLoading}
+          error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
           subtitle={activeFsSidebarSubtitle}
           onToggle={expandDirectory}
           onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); } }}
@@ -10775,11 +10781,11 @@ $effect(() => {
           onInsertReference={insertPathReference}
           onPublishDirectory={(path) => openWorkPublish("directory", path)}
           onOpenPort={(port, url) => openInlinePort(port, url)}
-          activePort={inlinePortPreview?.port ?? null}
-          draggable={true}
-          showItemActions={!activeFsReadonly}
-          canWrite={canEditFiles && !activeFsReadonly}
-          previewEndpoints={previewEndpoints}
+          activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
+          draggable={!spaceHasMinimalAccess}
+          showItemActions={!spaceHasMinimalAccess && !activeFsReadonly}
+          canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
+          previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
         />
         <FileUploadPane
           {spaceId}
@@ -10805,42 +10811,40 @@ $effect(() => {
     isDragging={uiState.rightIsDragging}
     isDrawerVisible={isRightDrawerVisible}
   >
-    {#if !spaceHasMinimalAccess}
-      <SpaceFileSidebar
-        nodes={fileTree}
-        selectedPath={selectedFilePath}
-        loading={fileTreeLoading}
-        error={fileTreeError}
-        subtitle={activeFsSidebarSubtitle}
-        onToggle={expandDirectory}
-        onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
-        onRefresh={refreshFileTree}
-        onCreateFile={handleCreateFile}
-        onCreateCanvas={handleCreateCanvas}
-        onCreateDir={handleCreateDir}
-        onRename={handleRenameNode}
-        onDelete={handleDeleteNode}
-        onDownload={handleDownloadNode}
-        onUpload={handleUploadFiles}
-        onInsertReference={insertPathReference}
-        onPublishDirectory={(path) => { openWorkPublish("directory", path); uiState.mobileRightDrawerOpen = false; }}
-        onOpenPort={(port, url) => { openInlinePort(port, url); uiState.mobileRightDrawerOpen = false; }}
-        activePort={inlinePortPreview?.port ?? null}
-        draggable={false}
-        showItemActions={false}
-        canWrite={canEditFiles && !activeFsReadonly}
-        previewEndpoints={previewEndpoints}
-      />
-      <FileUploadPane
-        {spaceId}
-        targetDir={uploadPaneTargetDir}
-        files={pendingUploadFiles}
-        entries={pendingUploadEntries}
-        open={uploadPaneVisible}
-        onClose={() => { uploadPaneVisible = false; }}
-        onComplete={handleUploadComplete}
-      />
-    {/if}
+    <SpaceFileSidebar
+      nodes={spaceHasMinimalAccess ? [] : fileTree}
+      selectedPath={selectedFilePath}
+      loading={!spaceHasMinimalAccess && fileTreeLoading}
+      error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
+      subtitle={activeFsSidebarSubtitle}
+      onToggle={expandDirectory}
+      onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
+      onRefresh={refreshFileTree}
+      onCreateFile={handleCreateFile}
+      onCreateCanvas={handleCreateCanvas}
+      onCreateDir={handleCreateDir}
+      onRename={handleRenameNode}
+      onDelete={handleDeleteNode}
+      onDownload={handleDownloadNode}
+      onUpload={handleUploadFiles}
+      onInsertReference={insertPathReference}
+      onPublishDirectory={(path) => { openWorkPublish("directory", path); uiState.mobileRightDrawerOpen = false; }}
+      onOpenPort={(port, url) => { openInlinePort(port, url); uiState.mobileRightDrawerOpen = false; }}
+      activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
+      draggable={false}
+      showItemActions={false}
+      canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
+      previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
+    />
+    <FileUploadPane
+      {spaceId}
+      targetDir={uploadPaneTargetDir}
+      files={pendingUploadFiles}
+      entries={pendingUploadEntries}
+      open={uploadPaneVisible}
+      onClose={() => { uploadPaneVisible = false; }}
+      onComplete={handleUploadComplete}
+    />
   </MobileRightDrawer>
   <WorkPublishDialog
     open={Boolean(workPublishTarget)}

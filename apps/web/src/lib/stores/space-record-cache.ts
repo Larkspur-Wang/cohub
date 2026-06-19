@@ -18,7 +18,7 @@ function mergeSpaceRecord(
 	current: SpaceRecord,
 	next: Partial<SpaceRecord>,
 ): SpaceRecord {
-	return {
+	const merged = {
 		...current,
 		...next,
 		slug: hasOwn(next, "slug") ? (next.slug ?? null) : current.slug,
@@ -37,6 +37,12 @@ function mergeSpaceRecord(
 			? next.accessLevel
 			: current.accessLevel,
 	};
+
+	if (hasOwn(next, "access") && !hasOwn(next, "accessLevel")) {
+		delete merged.accessLevel;
+	}
+
+	return merged;
 }
 
 export async function getCachedSpaceRecord(spaceId: string) {
