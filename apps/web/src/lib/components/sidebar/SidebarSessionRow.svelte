@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { SessionRecord } from "@neta-art/cohub";
-import { Link2Off, Pencil, TextCursorInput } from "lucide-svelte";
+import { Check, Link2Off, Pencil, TextCursorInput, X } from "lucide-svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
@@ -20,16 +20,23 @@ const {
 	active = false,
 	isMobile = false,
 	modelsCatalog,
+	showSourceBadge = true,
 	rowState,
 	draggable = false,
 	showInsert = true,
 	showRename = true,
+	renaming = false,
+	renameValue = "",
+	renameSaving = false,
 	removeLabelTitle,
 	removeLabelDisabled = false,
 	onNavigate,
 	onDoubleClick,
 	onInsert,
 	onRename,
+	onRenameValueChange,
+	onSubmitRename,
+	onCancelRename,
 	onRemoveLabel,
 	onDragStart,
 	onDragEnd,
@@ -40,16 +47,23 @@ const {
 	active?: boolean;
 	isMobile?: boolean;
 	modelsCatalog?: ModelCatalogItem[] | null;
+	showSourceBadge?: boolean;
 	rowState?: SidebarSessionRowState | null;
 	draggable?: boolean;
 	showInsert?: boolean;
 	showRename?: boolean;
+	renaming?: boolean;
+	renameValue?: string;
+	renameSaving?: boolean;
 	removeLabelTitle?: string;
 	removeLabelDisabled?: boolean;
 	onNavigate: (session: SessionRecord) => void;
 	onDoubleClick?: (event: MouseEvent, session: SessionRecord) => void;
 	onInsert?: (path: string) => void;
 	onRename?: (session: SessionRecord) => void;
+	onRenameValueChange?: (value: string) => void;
+	onSubmitRename?: (session: SessionRecord) => void;
+	onCancelRename?: () => void;
 	onRemoveLabel?: () => void;
 	onDragStart?: (
 		event: DragEvent,
@@ -58,6 +72,16 @@ const {
 	) => void;
 	onDragEnd?: () => void;
 } = $props();
+
+let renameInputElement: HTMLInputElement | null = $state(null);
+
+$effect(() => {
+	if (!renaming) return;
+	requestAnimationFrame(() => {
+		renameInputElement?.focus();
+		renameInputElement?.select();
+	});
+});
 
 const actionCount = $derived(
 	(showInsert ? 1 : 0) + (showRename ? 1 : 0) + (onRemoveLabel ? 1 : 0),
@@ -70,6 +94,48 @@ const hoverPaddingClass = $derived.by(() => {
 });
 </script>
 
+{#if renaming}
+	<div class="flex items-center gap-1 rounded-[6px] bg-bg-active px-2 py-1.5" data-session-rename>
+		<input
+			bind:this={renameInputElement}
+			value={renameValue}
+			type="text"
+			class="min-w-0 flex-1 bg-transparent text-[13px] leading-tight text-text-primary outline-none"
+			placeholder="Session name"
+			maxlength="80"
+			disabled={renameSaving}
+			oninput={(event) => onRenameValueChange?.(event.currentTarget.value)}
+			onkeydown={(event) => {
+				if (event.key === "Enter" && !renameSaving) {
+					event.preventDefault();
+					onSubmitRename?.(session);
+				}
+				if (event.key === "Escape" && !renameSaving) {
+					event.preventDefault();
+					onCancelRename?.();
+				}
+			}}
+		/>
+		<button
+			type="button"
+			class="shrink-0 rounded p-0.5 text-status-running transition-colors hover:bg-bg-hover disabled:opacity-50"
+			disabled={renameSaving}
+			title="Save"
+			onclick={() => onSubmitRename?.(session)}
+		>
+			<Check class="h-3.5 w-3.5" />
+		</button>
+		<button
+			type="button"
+			class="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+			disabled={renameSaving}
+			title="Cancel"
+			onclick={() => onCancelRename?.()}
+		>
+			<X class="h-3.5 w-3.5" />
+		</button>
+	</div>
+{:else}
 <a
 	{href}
 	class="sidebar-flyout-item group/session relative flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] transition-colors duration-100 {hoverPaddingClass} {rowState?.isFork ? 'session-fork-row' : ''} {rowState?.isLastVisibleChild ? 'session-fork-row--last' : ''} {active ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
@@ -85,7 +151,7 @@ const hoverPaddingClass = $derived.by(() => {
 	title={rowState?.titleText}
 	aria-label={rowState?.ariaLabel ?? title}
 >
-	<SessionSidebarRowContent {session} {title} {isMobile} modelsCatalog={modelsCatalog ?? undefined} />
+	<SessionSidebarRowContent {session} {title} {isMobile} {showSourceBadge} modelsCatalog={modelsCatalog ?? undefined} />
 	{#if !isMobile && actionCount > 0}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
 			{#if showInsert && onInsert}
@@ -100,3 +166,4 @@ const hoverPaddingClass = $derived.by(() => {
 		</span>
 	{/if}
 </a>
+{/if}

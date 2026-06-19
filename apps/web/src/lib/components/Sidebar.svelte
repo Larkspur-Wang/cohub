@@ -1934,8 +1934,21 @@ async function submitRenameSession(session: SessionRecord) {
 	renameSaving = true;
 	try {
 		await sdk.space(currentSpaceId).session(session.id).rename(trimmed);
+		const renamedSession = { ...session, title: trimmed };
 		sessions = sessions.map((s) =>
 			s.id === session.id ? { ...s, title: trimmed } : s,
+		);
+		if (labelSessionDetailsBySpace[currentSpaceId]?.[session.id]) {
+			labelSessionDetailsBySpace = {
+				...labelSessionDetailsBySpace,
+				[currentSpaceId]: {
+					...labelSessionDetailsBySpace[currentSpaceId],
+					[session.id]: renamedSession,
+				},
+			};
+		}
+		void setCachedSessionDetails(currentSpaceId, [renamedSession]).catch(
+			() => undefined,
 		);
 		void patchCachedSessionList(currentSpaceId, (current) =>
 			current.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s)),
@@ -2595,6 +2608,10 @@ $effect(() => {
 							active={isActive}
 							{isMobile}
 							modelsCatalog={modelsCatalog ?? undefined}
+							showSourceBadge={false}
+							renaming={renamingSessionId === session.id}
+							renameValue={renameTitleValue}
+							renameSaving={renameSaving}
 							rowState={sessionItem
 								? {
 										isFork: sessionItem.isFork,
@@ -2611,6 +2628,9 @@ $effect(() => {
 							onDoubleClick={handleSessionRowDoubleClick}
 							onInsert={insertPathReference}
 							onRename={startRenameSession}
+							onRenameValueChange={(value) => { renameTitleValue = value; }}
+							onSubmitRename={(target) => void submitRenameSession(target)}
+							onCancelRename={cancelRenameSession}
 							onRemoveLabel={() => void removeLabelAssignment(label, item)}
 							onDragStart={(event) => handleLabelItemDragStart(event, label, item)}
 							onDragEnd={handleResourceDragEnd}

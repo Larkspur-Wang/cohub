@@ -13,11 +13,13 @@ const {
 	title,
 	isMobile = false,
 	modelsCatalog,
+	showSourceBadge = true,
 }: {
 	session: SessionRecord;
 	title: string;
 	isMobile?: boolean;
 	modelsCatalog?: ModelCatalogItem[] | null;
+	showSourceBadge?: boolean;
 } = $props();
 
 const activity = $derived(
@@ -26,7 +28,9 @@ const activity = $derived(
 		modelsCatalog,
 	),
 );
-const badge = $derived(activity.active ? "" : sourceBadge(session.source));
+const badge = $derived(
+	showSourceBadge && !activity.active ? sourceBadge(session.source) : "",
+);
 const participants = $derived(getSessionParticipants(session));
 const visibleParticipants = $derived(
 	getVisibleParticipants(participants, authStore.userUuid),
