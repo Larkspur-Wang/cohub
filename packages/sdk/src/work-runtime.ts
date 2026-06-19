@@ -18,7 +18,7 @@ const hasParent = () => isBrowser() && window.parent !== window;
 const getParentOrigin = () => {
   if (!isBrowser()) return null;
   const ancestorOrigin = window.location.ancestorOrigins?.[0];
-  if (ancestorOrigin) return ancestorOrigin;
+  if (typeof ancestorOrigin === "string" && ancestorOrigin) return ancestorOrigin;
   try {
     return document.referrer ? new URL(document.referrer).origin : null;
   } catch {
@@ -33,7 +33,13 @@ const request = <T>(message: Record<string, unknown>, timeoutMs = 1_200, retryIn
   return new Promise((resolve, reject) => {
     let retryTimer: ReturnType<typeof setInterval> | null = null;
     const parentOrigin = trustedParentOrigin ?? getParentOrigin();
-    const postRequest = () => window.parent.postMessage({ ...message, requestId }, parentOrigin ?? "*");
+    const postRequest = () => {
+      try {
+        window.parent.postMessage({ ...message, requestId }, parentOrigin ?? "*");
+      } catch {
+        return;
+      }
+    };
     const cleanup = () => {
       clearTimeout(timer);
       if (retryTimer) clearInterval(retryTimer);
