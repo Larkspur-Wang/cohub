@@ -160,6 +160,14 @@ async function authorize(scopes: Permission[]) {
 	return workToken;
 }
 
+function clonePermissionScopes(
+	scopes: readonly Permission[] | null | undefined,
+) {
+	return Array.from(scopes ?? []).filter(
+		(scope): scope is Permission => typeof scope === "string",
+	);
+}
+
 function reply(requestId: string, payload: Record<string, unknown>) {
 	if (!frameOrigin) return;
 	frame?.contentWindow?.postMessage(
@@ -239,6 +247,7 @@ async function handleMessage(event: MessageEvent) {
 	try {
 		if (!frameOrigin) return;
 		if (data.type === "cohub.work.context") {
+			const workScopes = clonePermissionScopes(work.workScopes);
 			reply(data.requestId, {
 				type: "cohub.work.context.result",
 				context: {
@@ -249,8 +258,8 @@ async function handleMessage(event: MessageEvent) {
 					},
 					space: { id: work.spaceId },
 					permissions: {
-						scopes: work.workScopes,
-						workScopes: work.workScopes,
+						scopes: workScopes,
+						workScopes,
 						viewerScopes: [],
 					},
 				},
@@ -261,8 +270,11 @@ async function handleMessage(event: MessageEvent) {
 			reply(data.requestId, { type: "cohub.work.token.result", token });
 		}
 		if (data.type === "cohub.work.authorize") {
-			const scopes = (data.scopes ?? []).filter((scope) =>
-				work.allowedViewerScopes.includes(scope),
+			const allowedViewerScopes = clonePermissionScopes(
+				work.allowedViewerScopes,
+			);
+			const scopes = clonePermissionScopes(data.scopes).filter((scope) =>
+				allowedViewerScopes.includes(scope),
 			);
 			if (scopes.length === 0) {
 				reply(data.requestId, {
