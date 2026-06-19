@@ -1,5 +1,13 @@
 # @neta-art/cohub-cli
 
+## 1.17.5
+
+### Patch Changes
+
+- Release work management, public asset, and CLI attachment updates.
+- Updated dependencies
+  - @neta-art/cohub@1.28.2
+
 ## 1.17.4
 
 ### Patch Changes

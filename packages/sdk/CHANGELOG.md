@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.28.2
+
+### Patch Changes
+
+- Release work management, public asset, and CLI attachment updates.
+
 ## 1.28.1
 
 ### Patch Changes
