@@ -58,6 +58,7 @@ import SidebarCheckpointRow from "$lib/components/sidebar/SidebarCheckpointRow.s
 import SidebarFallbackResourceRow from "$lib/components/sidebar/SidebarFallbackResourceRow.svelte";
 import SidebarFileRow from "$lib/components/sidebar/SidebarFileRow.svelte";
 import SidebarSessionRow from "$lib/components/sidebar/SidebarSessionRow.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { downloadCohubDebugBundle } from "$lib/debugger";
 import {
 	type CohubResourceDragPayload,
@@ -3159,11 +3160,7 @@ $effect(() => {
           aria-label={userDisplayName}
           title={userDisplayName}
         >
-          {#if authStore.profile?.avatarUrl}
-            <img src={authStore.profile.avatarUrl} alt="" class="h-full w-full object-cover" />
-          {:else}
-            <User class="h-4 w-4 text-text-tertiary" />
-          {/if}
+          <UserAvatar name={userDisplayName} avatarUrl={authStore.profile?.avatarUrl} size="md" class="h-full w-full border-0" />
         </button>
       </div>
     </div>
@@ -3854,17 +3851,7 @@ $effect(() => {
       class="flex items-center gap-2 w-full px-1.5 py-[6px] rounded-[5px] hover:bg-bg-hover transition-colors duration-100 cursor-pointer"
       onclick={() => { showUserMenu = !showUserMenu; }}
     >
-      <div class="w-[22px] h-[22px] rounded-full bg-bg-hover-strong overflow-hidden shrink-0">
-        {#if authStore.profile?.avatarUrl}
-          <img src={authStore.profile.avatarUrl} alt="avatar" class="w-full h-full object-cover" />
-        {:else}
-          <svg viewBox="0 0 32 32" class="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="32" height="32" rx="16" fill="var(--avatar-placeholder-bg)" />
-            <circle cx="16" cy="12" r="5" fill="var(--avatar-placeholder-fg)" />
-            <ellipse cx="16" cy="26" rx="9" ry="7" fill="var(--avatar-placeholder-fg)" />
-          </svg>
-        {/if}
-      </div>
+      <UserAvatar name={userDisplayName} avatarUrl={authStore.profile?.avatarUrl} size="xs" class="h-[22px] w-[22px] border-0" />
       <div class="flex-1 min-w-0 text-left">
         <p class="text-[12px] text-text-secondary truncate">{userDisplayName}</p>
       </div>

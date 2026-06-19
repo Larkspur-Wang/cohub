@@ -10,8 +10,11 @@ import {
 	Sparkles,
 } from "lucide-svelte";
 import { page } from "$app/state";
+import { avatarImageUrl } from "$lib/avatar-url";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 
@@ -191,7 +194,7 @@ $effect(() => {
 								<div class={`relative overflow-hidden ${getWallRatio(index)} ${getWallTone(index)}`}>
 									{#if item.avatarUrl}
 										<img
-											src={item.avatarUrl}
+											src={avatarImageUrl(item.avatarUrl, "xl")}
 											alt={item.avatarAlt ?? ""}
 											class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.025]"
 											loading={index < 10 ? "eager" : "lazy"}
@@ -215,7 +218,7 @@ $effect(() => {
 									<h2 class="line-clamp-2 text-[13px] font-semibold leading-4 tracking-tight text-text-primary">{getTitle(item)}</h2>
 									<div class="flex items-center gap-2 text-[11px] text-text-tertiary">
 										{#if item.ownerAvatarUrl}
-											<img src={item.ownerAvatarUrl} alt="" class="h-4 w-4 rounded-full object-cover" loading="lazy" decoding="async" />
+											<UserAvatar avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0" />
 										{/if}
 										<span class="truncate">{getSecondaryMeta(item)}</span>
 									</div>
@@ -253,13 +256,7 @@ $effect(() => {
 										>
 											<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
 												<div class="flex min-w-0 flex-1 items-start gap-3">
-													<div class="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-border-subtle bg-bg-primary text-[13px] font-semibold text-text-tertiary">
-														{#if item.avatarUrl}
-															<img src={item.avatarUrl} alt="" class="h-full w-full object-cover" loading="lazy" decoding="async" />
-														{:else}
-															{getInitials(item.title)}
-														{/if}
-													</div>
+													<SpaceAvatar name={item.title} avatarUrl={item.avatarUrl} size="lg" class="h-11 w-11 rounded-[14px] bg-bg-primary text-[13px]" />
 													<div class="min-w-0 flex-1">
 														<div class="flex flex-wrap items-center gap-2">
 															<h3 class="truncate text-[16px] font-semibold tracking-tight text-text-primary sm:text-[17px]">{getTitle(item)}</h3>
@@ -270,13 +267,7 @@ $effect(() => {
 														<div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-text-tertiary">
 															{#if item.ownerDisplayName}
 																<span class="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-primary/70 px-2 py-1 text-[11px] text-text-secondary">
-																	<span class="flex h-4 w-4 items-center justify-center overflow-hidden rounded-full bg-bg-hover-strong text-[8px] font-semibold text-text-tertiary">
-																		{#if item.ownerAvatarUrl}
-																			<img src={item.ownerAvatarUrl} alt="" class="h-full w-full object-cover" />
-																		{:else}
-																			{getInitials(item.ownerDisplayName)}
-																		{/if}
-																	</span>
+																	<UserAvatar name={item.ownerDisplayName} avatarUrl={item.ownerAvatarUrl} size="xxs" class="border-0 bg-bg-hover-strong text-[8px]" />
 																	<span class="truncate">{item.ownerDisplayName}</span>
 																</span>
 															{/if}

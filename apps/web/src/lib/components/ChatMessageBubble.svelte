@@ -2,6 +2,7 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import { Check, Copy, GitFork, Loader2, UserRound } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import {
 	formatDurationDetail,
 	formatDurationMs,
@@ -413,13 +414,7 @@ function handleCopy() {
         {#if message.role === 'user'}
           <!-- User identity -->
           <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={userDisplayName}>
-            {#if message.authorProfile?.avatarUrl}
-              <img src={message.authorProfile.avatarUrl} alt="" class="w-4 h-4 rounded-full shrink-0" />
-            {:else}
-              <span class="w-4 h-4 rounded-full bg-brand/15 flex items-center justify-center text-brand shrink-0">
-                <UserRound class="w-3 h-3" aria-hidden="true" />
-              </span>
-            {/if}
+            <UserAvatar name={userDisplayName} avatarUrl={message.authorProfile?.avatarUrl} size="xxs" class="border-0 bg-brand/15 text-brand" />
             <span class="min-w-0 truncate">{userDisplayName}</span>
           </span>
           {#if isCancelledBeforeDispatch}

@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { and, asc, count, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, max, sql } from "drizzle-orm";
 import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db";
 import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";

@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { SessionRecord } from "@neta-art/cohub";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import { getSessionSidebarActivity } from "$lib/session-sidebar-activity";
 import { getSessionActivityAt } from "$lib/session-sort";
@@ -144,11 +145,7 @@ function getSessionParticipantLabel(participants: Participant[]) {
 				<span class="inline-flex min-w-0 max-w-[60%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
 					<span class="inline-flex shrink-0 -space-x-1.5 opacity-80">
 						{#each visibleParticipants.slice(0, 3) as participant (participant.key)}
-							{#if participant.avatarUrl}
-								<img src={participant.avatarUrl} alt="" class="h-3.5 w-3.5 rounded-full border border-bg-primary object-cover" />
-							{:else}
-								<span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-bg-primary bg-bg-hover-strong text-[7px] font-medium text-text-tertiary">{getInitials(participant.name)}</span>
-							{/if}
+							<UserAvatar name={participant.name} avatarUrl={participant.avatarUrl} size="xxs" class="h-3.5 w-3.5 border-bg-primary text-[7px]" />
 						{/each}
 					</span>
 					<span class="min-w-0 truncate">{participantLabel}</span>

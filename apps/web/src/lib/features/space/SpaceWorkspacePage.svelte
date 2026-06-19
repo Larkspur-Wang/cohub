@@ -76,7 +76,7 @@ import {
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
-import { normalizeAvatarToWebp } from "$lib/avatar-image";
+import { normalizeAvatarImage } from "$lib/avatar-image";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	deleteCanvasPendingTransaction,
@@ -118,6 +118,7 @@ import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import {
@@ -4542,20 +4543,20 @@ async function uploadSpaceAvatar(file: File) {
 	spaceAvatarUploading = true;
 	spaceProfileError = "";
 	try {
-		const avatarFile = await normalizeAvatarToWebp(file);
+		const avatar = await normalizeAvatarImage(file);
 		const plan = await sdk.publicAssets.createUpload({
 			purpose: "space_avatar",
 			spaceId,
 			file: {
-				size: avatarFile.size,
-				mimeType: "image/webp",
+				size: avatar.file.size,
+				mimeType: avatar.mimeType,
 			},
 		});
 		const formData = new FormData();
 		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
 			formData.append(key, value);
 		}
-		formData.append("file", avatarFile);
+		formData.append("file", avatar.file);
 		const response = await fetch(plan.asset.uploadUrl, {
 			method: plan.asset.uploadMethod,
 			body: formData,
@@ -8978,13 +8979,7 @@ $effect(() => {
 {#snippet UserMetaItem(profile: UserProfile | null | undefined, userUuid: string | null | undefined)}
 	{#if userUuid}
 		<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-text-tertiary" title={userTitle(profile, userUuid)}>
-			{#if profile?.avatarUrl}
-				<img src={profile.avatarUrl} alt="" class="h-4 w-4 shrink-0 rounded-full object-cover" />
-			{:else}
-				<span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-placeholder">
-					<UserRound class="h-3 w-3" aria-hidden="true" />
-				</span>
-			{/if}
+			<UserAvatar name={displayUserName(profile, userUuid)} avatarUrl={profile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
 			<span class="min-w-0 truncate">{displayUserName(profile, userUuid)}</span>
 		</span>
 	{/if}
@@ -9046,13 +9041,7 @@ $effect(() => {
 							{#if owner || space?.userUuid}
 								<span>Created by </span>
 								<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(owner, space?.userUuid)}>
-									{#if owner?.avatarUrl}
-										<img src={owner.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
-									{:else}
-										<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-placeholder sm:h-5 sm:w-5">
-											<UserRound class="h-2.5 w-2.5 sm:h-3 sm:w-3" aria-hidden="true" />
-										</span>
-									{/if}
+									<UserAvatar name={displayUserName(owner, space?.userUuid)} avatarUrl={owner?.avatarUrl} size="xs" class="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5" />
 									<span class="min-w-0 max-w-[9rem] truncate font-medium text-text-primary sm:max-w-none">{displayUserName(owner, space?.userUuid)}</span>
 								</span>
 							{/if}
@@ -9060,13 +9049,7 @@ $effect(() => {
 								<span>{owner || space?.userUuid ? ' with ' : 'Members include '}</span>
 								{#each sortedMembers as member, index (member.userId)}
 									<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(member.profile, member.userId)}>
-										{#if member.profile.avatarUrl}
-											<img src={member.profile.avatarUrl} alt="" class="h-[18px] w-[18px] shrink-0 rounded-full object-cover sm:h-5 sm:w-5" loading="lazy" />
-										{:else}
-											<span class="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-placeholder sm:h-5 sm:w-5">
-												<UserRound class="h-2.5 w-2.5 sm:h-3 sm:w-3" aria-hidden="true" />
-											</span>
-										{/if}
+										<UserAvatar name={displayUserName(member.profile, member.userId)} avatarUrl={member.profile.avatarUrl} size="xs" class="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5" />
 										<span class="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none">{displayUserName(member.profile, member.userId)}</span>
 									</span>{#if index < sortedMembers.length - 1}<span class="inline-block w-1.5 sm:w-2" aria-hidden="true"></span>{:else}<span>. </span>{/if}
 								{/each}

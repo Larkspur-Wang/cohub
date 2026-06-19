@@ -7,6 +7,7 @@ import { PUBLIC_API_ORIGIN } from "$env/static/public";
 import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
 import Dialog from "$lib/components/Dialog.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 
@@ -174,17 +175,6 @@ function reply(requestId: string, payload: Record<string, unknown>) {
 		{ requestId, ...payload },
 		frameReplyTarget,
 	);
-}
-
-function profileInitials(value: string | null | undefined) {
-	const text = (value ?? "").replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
-	if (!text) return "CO";
-	const parts = text.split(" ").filter(Boolean);
-	const letters =
-		parts.length >= 2
-			? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
-			: text.slice(0, 2);
-	return letters.toUpperCase();
 }
 
 function formatScopeLabel(scope: string) {
@@ -364,13 +354,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 				<div class="flex shrink-0 items-center gap-2">
 					<div class="flex min-w-0 items-center gap-2 overflow-hidden">
 						<span class="hidden shrink-0 leading-none text-text-tertiary md:inline">Published by</span>
-						<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-elevated text-[8px] font-semibold leading-none text-text-secondary shadow-[inset_0_1px_0_var(--color-border-subtle)]">
-							{#if publisherAvatarUrl}
-								<img src={publisherAvatarUrl} alt="" class="block h-full w-full object-cover" loading="lazy" />
-							{:else}
-								<span>{profileInitials(publisherName)}</span>
-							{/if}
-						</span>
+						<UserAvatar name={publisherName} avatarUrl={publisherAvatarUrl} size="xs" class="h-5 w-5 rounded-full bg-bg-elevated text-[8px]" />
 						<span class="hidden max-w-32 truncate font-medium leading-none text-text-secondary sm:inline">{publisherName}</span>
 					</div>
 					<button type="button" class="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2.5 font-medium leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:pointer-events-none disabled:opacity-50">

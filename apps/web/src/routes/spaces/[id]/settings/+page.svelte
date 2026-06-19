@@ -39,9 +39,10 @@ import {
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
-import { normalizeAvatarToWebp } from "$lib/avatar-image";
+import { normalizeAvatarImage } from "$lib/avatar-image";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { validatePublicSlugInput } from "$lib/slug-rules";
@@ -486,20 +487,20 @@ async function uploadSpaceAvatar(file: File) {
 	spaceAvatarUploading = true;
 	spaceProfileError = "";
 	try {
-		const avatarFile = await normalizeAvatarToWebp(file);
+		const avatar = await normalizeAvatarImage(file);
 		const plan = await sdk.publicAssets.createUpload({
 			purpose: "space_avatar",
 			spaceId,
 			file: {
-				size: avatarFile.size,
-				mimeType: "image/webp",
+				size: avatar.file.size,
+				mimeType: avatar.mimeType,
 			},
 		});
 		const formData = new FormData();
 		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
 			formData.append(key, value);
 		}
-		formData.append("file", avatarFile);
+		formData.append("file", avatar.file);
 		const response = await fetch(plan.asset.uploadUrl, {
 			method: plan.asset.uploadMethod,
 			body: formData,
@@ -1171,9 +1172,7 @@ $effect(() => {
 									<div class="group grid grid-cols-[auto_1fr] gap-2 rounded-[7px] bg-bg-primary px-3 py-2 sm:flex sm:items-center">
 										<div class="flex items-center gap-2">
 											{#if getMemberRoleIcon(member.role)}<span class="w-3.5 text-center text-[12px]">{getMemberRoleIcon(member.role)}</span>{:else if member.role === 'builder'}<Pencil class="h-3.5 w-3.5 shrink-0 text-brand" />{:else}<Eye class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />{/if}
-											<div class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-[10px] font-semibold text-text-tertiary">
-												{#if member.profile?.avatarUrl}<img src={member.profile.avatarUrl} alt="" class="h-full w-full object-cover" />{:else}{getInitials(getMemberDisplayName(member))}{/if}
-											</div>
+											<UserAvatar name={getMemberDisplayName(member)} avatarUrl={member.profile?.avatarUrl} size="sm" />
 										</div>
 										<div class="min-w-0">
 											<div class="truncate text-[12px] font-medium text-text-secondary">{getMemberDisplayName(member)}</div>

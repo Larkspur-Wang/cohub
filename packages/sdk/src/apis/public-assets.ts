@@ -1,13 +1,14 @@
 import type { HttpTransport } from "../transport.js";
 
 export type PublicAssetPurpose = "user_avatar" | "space_avatar";
+export type PublicAssetMimeType = "image/webp" | "image/jpeg";
 
 export type CreatePublicAssetUploadInput = {
   purpose: PublicAssetPurpose;
   spaceId?: string;
   file: {
     size: number;
-    mimeType: "image/webp";
+    mimeType: PublicAssetMimeType;
   };
 };
 

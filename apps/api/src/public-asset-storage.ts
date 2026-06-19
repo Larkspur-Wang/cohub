@@ -30,7 +30,11 @@ export type CreatePublicAssetUploadResponse = {
   };
 };
 
-const AVATAR_MIME_TYPE = "image/webp";
+const AVATAR_MIME_TYPES = new Set(["image/webp", "image/jpeg"]);
+const AVATAR_EXTENSIONS: Record<string, string> = {
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+};
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const RATE_LIMIT_MAX = 60;
@@ -67,11 +71,14 @@ const envPrefix = () => (config.env === "prod" ? "" : `${config.env}/`);
 export const buildPublicAssetObjectKey = (input: {
   purpose: PublicAssetPurpose;
   userUuid: string;
+  mimeType: string;
   spaceId?: string;
 }) => {
-  if (input.purpose === "user_avatar") return `${envPrefix()}users/${input.userUuid}/avatar.webp`;
+  const extension = AVATAR_EXTENSIONS[input.mimeType];
+  if (!extension) throw new PublicAssetValidationError("avatar uploads must be WebP or JPEG images");
+  if (input.purpose === "user_avatar") return `${envPrefix()}users/${input.userUuid}/avatar.${extension}`;
   if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for space avatar uploads");
-  return `${envPrefix()}spaces/${input.spaceId}/avatar.webp`;
+  return `${envPrefix()}spaces/${input.spaceId}/avatar.${extension}`;
 };
 
 export const buildVersionedPublicAssetUrl = (objectKey: string) => {
@@ -83,7 +90,7 @@ export const buildVersionedPublicAssetUrl = (objectKey: string) => {
 
 export const assertPublicAssetUploadFile = (file: CreatePublicAssetUploadInput["file"]) => {
   if (!file || typeof file !== "object") throw new PublicAssetValidationError("file is required");
-  if (file.mimeType !== AVATAR_MIME_TYPE) throw new PublicAssetValidationError("avatar uploads must be WebP images");
+  if (!AVATAR_MIME_TYPES.has(file.mimeType)) throw new PublicAssetValidationError("avatar uploads must be WebP or JPEG images");
   if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new PublicAssetValidationError("invalid file size");
   if (file.size > MAX_AVATAR_BYTES) throw new PublicAssetValidationError("avatar image is too large");
 };
@@ -103,11 +110,16 @@ export const createPublicAssetUploadPlan = (input: {
 }): CreatePublicAssetUploadResponse => {
   assertPublicAssetUploadFile(input.file);
   const storage = requirePublicAssetConfig();
-  const objectKey = buildPublicAssetObjectKey(input);
+  const objectKey = buildPublicAssetObjectKey({
+    purpose: input.purpose,
+    userUuid: input.userUuid,
+    spaceId: input.spaceId,
+    mimeType: input.file.mimeType,
+  });
   const signed = createPresignedPostObject({
     storage,
     objectKey,
-    contentType: AVATAR_MIME_TYPE,
+    contentType: input.file.mimeType,
     maxBytes: MAX_AVATAR_BYTES,
   });
   return {

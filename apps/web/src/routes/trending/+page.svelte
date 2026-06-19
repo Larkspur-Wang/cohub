@@ -1,6 +1,7 @@
 <script lang="ts">
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import type { ModelRow, SpaceRow, UserProfile, UserRow } from "$lib/trending";
 import { fetchModels, fetchSpaces, fetchUsers } from "$lib/trending";
@@ -214,13 +215,7 @@ const hasData = $derived(
 								{#if activeTab === 'spaces'}
 									<SpaceAvatar name={(row as SpaceRow).spaceName} profile={(row as SpaceRow).spaceProfile} size="sm" />
 								{:else if activeTab === 'users' && userProfile}
-									<div class="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong text-[10px] font-semibold text-text-tertiary">
-										{#if userProfile.avatarUrl}
-											<img src={userProfile.avatarUrl} alt="" class="h-full w-full object-cover" />
-										{:else}
-											{getInitials(userProfile.displayName)}
-										{/if}
-									</div>
+									<UserAvatar name={userProfile.displayName} avatarUrl={userProfile.avatarUrl} size="sm" />
 								{/if}
 								{#if spaceHref}
 									<a
@@ -239,13 +234,7 @@ const hasData = $derived(
 							{#if activeTab === 'spaces' && userProfile}
 								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[12px] text-text-tertiary sm:mt-0.5 sm:text-[11px]">
 									<span>by</span>
-									<div class="flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-full bg-bg-hover-strong text-[7px] font-semibold text-text-tertiary">
-										{#if userProfile.avatarUrl}
-											<img src={userProfile.avatarUrl} alt="" class="h-full w-full object-cover" />
-										{:else}
-											{getInitials(userProfile.displayName)}
-										{/if}
-									</div>
+									<UserAvatar name={userProfile.displayName} avatarUrl={userProfile.avatarUrl} size="xxs" class="border-0" />
 									<span class="min-w-0 truncate">{userProfile.displayName}</span>
 								</div>
 							{:else if getSubline(activeTab, row)}

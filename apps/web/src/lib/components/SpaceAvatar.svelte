@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { SpacePublicProfile } from "@neta-art/cohub";
+import { avatarImageUrl } from "$lib/avatar-url";
 
 type Size = "xxs" | "xs" | "sm" | "md" | "lg";
 
@@ -29,9 +30,11 @@ const sizeClass = $derived.by(() => {
 	return "h-9 w-9 rounded-[10px] text-[11px]";
 });
 
-const resolvedAvatarUrl = $derived(
+const rawAvatarUrl = $derived(
 	avatarUrl?.trim() || profile?.avatarUrl?.trim() || null,
 );
+const imageSize = $derived(size === "lg" ? "lg" : size === "md" ? "md" : "sm");
+const resolvedAvatarUrl = $derived(avatarImageUrl(rawAvatarUrl, imageSize));
 
 function initials(value: string | null | undefined) {
 	const text = (value ?? "").replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
@@ -50,7 +53,7 @@ function initials(value: string | null | undefined) {
 	aria-hidden="true"
 >
 	{#if resolvedAvatarUrl}
-		<img src={resolvedAvatarUrl} alt="" class="h-full w-full object-cover" {loading} />
+		<img src={resolvedAvatarUrl} alt="" class="h-full w-full object-cover" {loading} decoding="async" />
 	{:else}
 		<span class="translate-y-px tracking-[0.02em]">{initials(name)}</span>
 	{/if}

@@ -29,6 +29,7 @@ import {
 import type { CommandPaletteItem } from "$lib/command-palette/types";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import {
@@ -141,17 +142,6 @@ function profileFor(item: CommandPaletteItem) {
 	return item.ownerProfile?.userUuid && item.ownerProfile.displayName
 		? item.ownerProfile
 		: null;
-}
-
-function initials(value: string | null | undefined) {
-	const text = (value ?? "").replace(/\s+/g, " ").trim();
-	if (!text) return "·";
-	const parts = text.split(" ");
-	const letters =
-		parts.length >= 2
-			? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`
-			: text.slice(0, 2);
-	return letters.toUpperCase();
 }
 
 function armPointerHover() {
@@ -674,13 +664,7 @@ onMount(() => {
 									<div class="command-context-row">
 										{#if profile}
 											<span class="command-profile" title={profile.displayName}>
-												<span class="command-profile-avatar" aria-hidden="true">
-													{#if profile.avatarUrl}
-														<img src={profile.avatarUrl} alt="" loading="lazy" />
-													{:else}
-														{initials(profile.displayName)}
-													{/if}
-												</span>
+												<UserAvatar name={profile.displayName} avatarUrl={profile.avatarUrl} size="xxs" class="border-0 bg-bg-primary text-[8px]" />
 												<span class="truncate">{profile.displayName}</span>
 											</span>
 											<span class="command-context-separator">·</span>
@@ -875,29 +859,6 @@ onMount(() => {
 		align-items: center;
 		gap: 5px;
 		color: color-mix(in oklch, var(--text-secondary) 86%, var(--brand) 14%);
-	}
-
-	.command-profile-avatar {
-		display: inline-grid;
-		width: 16px;
-		height: 16px;
-		place-items: center;
-		flex: 0 0 auto;
-		overflow: hidden;
-		border: 1px solid var(--border-subtle);
-		border-radius: 999px;
-		background: var(--bg-primary);
-		color: var(--text-tertiary);
-		font-size: 8px;
-		font-weight: 650;
-		letter-spacing: 0.02em;
-		line-height: 1;
-	}
-
-	.command-profile-avatar img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
 	}
 
 	.command-context {

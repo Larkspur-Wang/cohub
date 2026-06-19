@@ -1,6 +1,23 @@
+export type AvatarUploadMimeType = "image/webp" | "image/jpeg";
+
+export type NormalizedAvatarImage = {
+	file: File;
+	mimeType: AvatarUploadMimeType;
+	extension: "webp" | "jpg";
+};
+
 const AVATAR_SIZE = 1024;
-const AVATAR_QUALITY = 0.86;
+const WEBP_QUALITY = 0.86;
+const JPEG_QUALITY = 0.88;
 const INPUT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const OUTPUT_FORMATS: Array<{
+	mimeType: AvatarUploadMimeType;
+	extension: "webp" | "jpg";
+	quality: number;
+}> = [
+	{ mimeType: "image/webp", extension: "webp", quality: WEBP_QUALITY },
+	{ mimeType: "image/jpeg", extension: "jpg", quality: JPEG_QUALITY },
+];
 
 export function assertAvatarInputFile(file: File) {
 	if (!INPUT_TYPES.has(file.type)) {
@@ -8,23 +25,26 @@ export function assertAvatarInputFile(file: File) {
 	}
 }
 
-async function assertWebpEncodingSupported() {
-	const canvas = document.createElement("canvas");
-	canvas.width = 1;
-	canvas.height = 1;
-	const blob = await new Promise<Blob | null>((resolve) =>
-		canvas.toBlob(resolve, "image/webp", AVATAR_QUALITY),
-	);
-	if (blob?.type !== "image/webp") {
-		throw new Error(
-			"This browser cannot prepare WebP images. Please try a newer browser.",
-		);
-	}
+async function canvasToBlob(
+	canvas: HTMLCanvasElement,
+	mimeType: AvatarUploadMimeType,
+	quality: number,
+): Promise<Blob | null> {
+	return new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
 }
 
-export async function normalizeAvatarToWebp(file: File): Promise<File> {
+async function encodeAvatarCanvas(canvas: HTMLCanvasElement) {
+	for (const format of OUTPUT_FORMATS) {
+		const blob = await canvasToBlob(canvas, format.mimeType, format.quality);
+		if (blob?.type === format.mimeType) return { ...format, blob };
+	}
+	throw new Error("Failed to encode avatar image.");
+}
+
+export async function normalizeAvatarImage(
+	file: File,
+): Promise<NormalizedAvatarImage> {
 	assertAvatarInputFile(file);
-	await assertWebpEncodingSupported();
 
 	const bitmap = await createImageBitmap(file);
 	try {
@@ -48,20 +68,15 @@ export async function normalizeAvatarToWebp(file: File): Promise<File> {
 			AVATAR_SIZE,
 		);
 
-		const blob = await new Promise<Blob>((resolve, reject) => {
-			canvas.toBlob(
-				(result) =>
-					result
-						? resolve(result)
-						: reject(new Error("Failed to encode WebP image.")),
-				"image/webp",
-				AVATAR_QUALITY,
-			);
-		});
-		return new File([blob], "avatar.webp", {
-			type: "image/webp",
-			lastModified: Date.now(),
-		});
+		const encoded = await encodeAvatarCanvas(canvas);
+		return {
+			file: new File([encoded.blob], `avatar.${encoded.extension}`, {
+				type: encoded.mimeType,
+				lastModified: Date.now(),
+			}),
+			mimeType: encoded.mimeType,
+			extension: encoded.extension,
+		};
 	} finally {
 		bitmap.close();
 	}
