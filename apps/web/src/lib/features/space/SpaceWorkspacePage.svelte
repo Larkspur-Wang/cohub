@@ -76,7 +76,6 @@ import {
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
-import { normalizeAvatarImage } from "$lib/avatar-image";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	deleteCanvasPendingTransaction,
@@ -149,6 +148,11 @@ import {
 	DESKTOP_SHELL_MIN_WIDTH_PX,
 } from "$lib/layout/breakpoints";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
+import {
+	prepareChatImageAttachment,
+	uploadChatAttachmentImage,
+	uploadSpaceAvatarImage,
+} from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
@@ -350,11 +354,6 @@ function preserveSessionTurnRefs(
 	});
 	return changed ? turns : currentTurns;
 }
-const MAX_IMAGE_EDGE = 2160;
-const SAFARI_IMAGE_MEDIA_TYPE = "image/jpeg";
-const SAFARI_IMAGE_QUALITY = 0.82;
-const DEFAULT_IMAGE_MEDIA_TYPE = "image/webp";
-const DEFAULT_IMAGE_QUALITY = 0.86;
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SESSION_INITIAL_LOADING_DELAY_MS = 160;
@@ -4547,28 +4546,10 @@ async function uploadSpaceAvatar(file: File) {
 	spaceAvatarUploading = true;
 	spaceProfileError = "";
 	try {
-		const avatar = await normalizeAvatarImage(file);
-		const plan = await sdk.publicAssets.createUpload({
-			purpose: "space_avatar",
-			spaceId,
-			file: {
-				size: avatar.file.size,
-				mimeType: avatar.mimeType,
-			},
-		});
-		const formData = new FormData();
-		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
-			formData.append(key, value);
-		}
-		formData.append("file", avatar.file);
-		const response = await fetch(plan.asset.uploadUrl, {
-			method: plan.asset.uploadMethod,
-			body: formData,
-		});
-		if (!response.ok) throw new Error("Failed to upload avatar image.");
+		const asset = await uploadSpaceAvatarImage({ spaceId, file });
 		const result = await sdk.space(spaceId).profile({
 			description: space?.description ?? null,
-			avatarUrl: plan.asset.publicUrl,
+			avatarUrl: asset.publicUrl,
 		});
 		space = result.space;
 		cacheSpaceRecordSoon(result.space);
@@ -6112,6 +6093,43 @@ async function uploadComposerFileAttachments(
 	return uploaded.map((file) => file.path);
 }
 
+async function uploadComposerImageAttachments(
+	sessionId: string,
+	imageAttachments: ComposerImageAttachment[],
+) {
+	if (imageAttachments.length === 0) return new Map<string, string>();
+	attachments = attachments.map((attachment) =>
+		attachment.kind === "image"
+			? { ...attachment, status: "uploading" as const }
+			: attachment,
+	);
+	const uploaded = await Promise.all(
+		imageAttachments.map(async (attachment) => {
+			if (attachment.uploadedUrl)
+				return [attachment.id, attachment.uploadedUrl] as const;
+			const asset = await uploadChatAttachmentImage({
+				spaceId,
+				sessionId,
+				file: attachment.file,
+				mediaType: attachment.mediaType,
+				filename: attachment.name,
+			});
+			return [attachment.id, asset.publicUrl] as const;
+		}),
+	);
+	const imageUrls = new Map(uploaded);
+	attachments = attachments.map((attachment) =>
+		attachment.kind === "image"
+			? {
+					...attachment,
+					status: "ready" as const,
+					uploadedUrl: imageUrls.get(attachment.id) ?? attachment.uploadedUrl,
+				}
+			: attachment,
+	);
+	return imageUrls;
+}
+
 async function handleSend() {
 	if (
 		(!activeSessionState?.session && !isNewSessionRoute) ||
@@ -6137,8 +6155,10 @@ async function handleSend() {
 	let content: ContentBlock[] = [];
 	let text = "";
 	let hadFileUpload = false;
-	let fileUploadCompleted = false;
+	let hadImageUpload = false;
+	let uploadCompleted = false;
 	let uploadedReferenceText = "";
+	let uploadedImageUrls = new Map<string, string>();
 	let optimisticTurn: SessionTurnRecord | null = null;
 	let hasActiveTurn = false;
 	try {
@@ -6197,12 +6217,18 @@ async function handleSend() {
 			(attachment): attachment is ComposerFileAttachment =>
 				attachment.kind === "file",
 		);
-		hadFileUpload = fileAttachments.length > 0;
-		const filePaths = await uploadComposerFileAttachments(
-			sessionId,
-			fileAttachments,
+		const imageAttachments = attachments.filter(
+			(attachment): attachment is ComposerImageAttachment =>
+				attachment.kind === "image",
 		);
-		fileUploadCompleted = true;
+		hadFileUpload = fileAttachments.length > 0;
+		hadImageUpload = imageAttachments.length > 0;
+		const [filePaths, imageUrls] = await Promise.all([
+			uploadComposerFileAttachments(sessionId, fileAttachments),
+			uploadComposerImageAttachments(sessionId, imageAttachments),
+		]);
+		uploadedImageUrls = imageUrls;
+		uploadCompleted = true;
 		const userText = input.trim();
 		const referenceText = buildFileReferencesText(filePaths);
 		uploadedReferenceText = referenceText;
@@ -6212,16 +6238,18 @@ async function handleSend() {
 				if (attachment.kind === "file") return [];
 				if (attachment.kind === "text")
 					return [buildComposerTextContentBlock(attachment)];
+				const url = imageUrls.get(attachment.id);
+				if (!url) throw new Error("Failed to upload image.");
 				return [
 					{
 						type: "image",
 						source: {
-							type: "base64",
-							media_type: attachment.mediaType,
-							data: attachment.data,
+							type: "url",
+							url,
 						},
 						_meta: {
 							filename: attachment.name,
+							mediaType: attachment.mediaType,
 							size: attachment.size,
 						},
 					} satisfies ContentBlock,
@@ -6352,22 +6380,34 @@ async function handleSend() {
 		if (wsConnectionState !== "open") {
 			schedulePostSendRecoveryCheck(sessionId);
 		}
+		for (const attachment of pendingAttachments)
+			revokeComposerAttachmentPreview(attachment);
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
-		if (hadFileUpload && fileUploadCompleted) {
+		if ((hadFileUpload || hadImageUpload) && uploadCompleted) {
 			input = [pendingInput.trim(), uploadedReferenceText]
 				.filter(Boolean)
 				.join("\n\n");
-			attachments = pendingAttachments.filter(
-				(attachment) => attachment.kind !== "file",
-			);
+			attachments = pendingAttachments
+				.filter((attachment) => attachment.kind !== "file")
+				.map((attachment) =>
+					attachment.kind === "image"
+						? {
+								...attachment,
+								status: "ready" as const,
+								uploadedUrl:
+									uploadedImageUrls.get(attachment.id) ??
+									attachment.uploadedUrl,
+							}
+						: attachment,
+				);
 		} else {
 			input = pendingInput;
 			attachments = pendingAttachments;
 		}
-		if (hadFileUpload && !fileUploadCompleted) {
+		if ((hadFileUpload || hadImageUpload) && !uploadCompleted) {
 			attachments = attachments.map((attachment) =>
-				attachment.kind === "file"
+				attachment.kind === "file" || attachment.kind === "image"
 					? { ...attachment, status: "failed" as const }
 					: attachment,
 			);
@@ -6375,11 +6415,12 @@ async function handleSend() {
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
 		const sendErrorCode = getHttpErrorCode(error);
-		const displayError = hadFileUpload
-			? fileUploadCompleted
-				? "Message failed. Files were uploaded."
-				: "Upload failed. Please try again."
-			: sendError;
+		const displayError =
+			hadFileUpload || hadImageUpload
+				? uploadCompleted
+					? "Message failed. Attachments were uploaded."
+					: "Upload failed. Please try again."
+				: sendError;
 		setComposerError(displayError, sendErrorCode);
 		if (sessionId)
 			failGeneration(sessionId, sendError, { errorCode: sendErrorCode });
@@ -6642,92 +6683,6 @@ function handleTimelineMarkdownRendered() {
 	}
 	maybeCompleteAnchorRestore();
 }
-async function fileToDataUrl(file: Blob): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const reader = new FileReader();
-		reader.onload = () => resolve(String(reader.result ?? ""));
-		reader.onerror = () =>
-			reject(reader.error ?? new Error("Failed to read file"));
-		reader.readAsDataURL(file);
-	});
-}
-async function loadImageElement(file: File): Promise<HTMLImageElement> {
-	return new Promise((resolve, reject) => {
-		const objectUrl = URL.createObjectURL(file);
-		const image = new Image();
-		image.onload = () => {
-			URL.revokeObjectURL(objectUrl);
-			resolve(image);
-		};
-		image.onerror = () => {
-			URL.revokeObjectURL(objectUrl);
-			reject(new Error("Failed to decode image"));
-		};
-		image.src = objectUrl;
-	});
-}
-async function canvasToImageBlob(
-	canvas: HTMLCanvasElement,
-	mediaType: string,
-	quality: number,
-): Promise<Blob> {
-	return new Promise((resolve, reject) => {
-		canvas.toBlob(
-			(blob) => {
-				if (blob) resolve(blob);
-				else reject(new Error("Failed to encode image"));
-			},
-			mediaType,
-			quality,
-		);
-	});
-}
-function isSafariBrowser() {
-	const userAgent = navigator.userAgent;
-	return /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(userAgent);
-}
-function getCompressedImageName(name: string, mediaType: string) {
-	const baseName = name.replace(/\.[^.]+$/, "") || name;
-	return `${baseName}.${mediaType === SAFARI_IMAGE_MEDIA_TYPE ? "jpg" : "webp"}`;
-}
-async function compressImageFile(file: File) {
-	try {
-		const image = await loadImageElement(file);
-		const longestEdge = Math.max(image.naturalWidth, image.naturalHeight);
-		const scale =
-			longestEdge > MAX_IMAGE_EDGE ? MAX_IMAGE_EDGE / longestEdge : 1;
-		const width = Math.max(1, Math.round(image.naturalWidth * scale));
-		const height = Math.max(1, Math.round(image.naturalHeight * scale));
-		const canvas = document.createElement("canvas");
-		canvas.width = width;
-		canvas.height = height;
-		const context = canvas.getContext("2d");
-		if (!context) throw new Error("Canvas is not supported");
-		context.drawImage(image, 0, 0, width, height);
-		const targetMediaType = isSafariBrowser()
-			? SAFARI_IMAGE_MEDIA_TYPE
-			: DEFAULT_IMAGE_MEDIA_TYPE;
-		const targetQuality = isSafariBrowser()
-			? SAFARI_IMAGE_QUALITY
-			: DEFAULT_IMAGE_QUALITY;
-		const blob = await canvasToImageBlob(
-			canvas,
-			targetMediaType,
-			targetQuality,
-		);
-		const dataUrl = await fileToDataUrl(blob);
-		return {
-			blob,
-			dataUrl,
-			mediaType: blob.type || targetMediaType,
-			size: blob.size,
-		};
-	} catch {
-		throw new Error(
-			`Could not process image "${file.name}". Use JPG, PNG, GIF, or WebP.`,
-		);
-	}
-}
 async function handlePickAttachments(
 	files: FileList | File[] | LocalUploadEntry[] | null,
 ) {
@@ -6805,16 +6760,16 @@ async function handlePickAttachments(
 						status: "ready",
 					} satisfies ComposerFileAttachment;
 				}
-				const compressed = await compressImageFile(file);
-				const [, base64 = ""] = compressed.dataUrl.split(",");
+				const compressed = await prepareChatImageAttachment(file);
 				return {
 					kind: "image",
 					id: createComposerAttachmentId(file),
-					name: getCompressedImageName(file.name, compressed.mediaType),
+					name: compressed.name,
 					mediaType: compressed.mediaType,
-					data: base64,
-					previewUrl: compressed.dataUrl,
+					file: compressed.file,
+					previewUrl: compressed.previewUrl,
 					size: compressed.size,
+					status: "ready",
 				} satisfies ComposerImageAttachment;
 			}),
 		);
@@ -6880,9 +6835,18 @@ async function applyBackgroundComposerPayload(
 		}
 	}
 }
+function revokeComposerAttachmentPreview(attachment: ComposerAttachment) {
+	if (attachment.kind === "image") URL.revokeObjectURL(attachment.previewUrl);
+}
 function handleRemoveAttachment(id: string) {
+	const removed = attachments.find((attachment) => attachment.id === id);
+	if (removed) revokeComposerAttachmentPreview(removed);
 	attachments = attachments.filter((attachment) => attachment.id !== id);
 }
+onDestroy(() => {
+	for (const attachment of attachments)
+		revokeComposerAttachmentPreview(attachment);
+});
 function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (

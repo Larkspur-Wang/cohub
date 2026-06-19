@@ -4,8 +4,9 @@ import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { resolveCohubEnvironment } from "@neta-art/cohub";
 import type { LabelListItem, LabelResourceType } from "@neta-art/cohub";
+import type { ContentBlock } from "@cohub/protocol/core";
 import type { Command } from "commander";
-import { uploadAvatarAsset } from "../avatar.js";
+import { uploadAvatarAsset, uploadChatImageAsset } from "../avatar.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
 import { resolveSpace } from "../space.js";
@@ -30,6 +31,7 @@ type PromptOptions = {
   cron?: string;
   timezone?: string;
   label?: string[];
+  image?: string[];
   json?: boolean;
 };
 
@@ -189,19 +191,19 @@ async function confirmRestart(opts: { yes?: boolean }): Promise<void> {
   if (answer !== "y" && answer !== "yes") return error("Cancelled");
 }
 
-async function readPromptContent(words: string[]): Promise<string> {
+async function readPromptContent(words: string[], options: { allowEmpty?: boolean } = {}): Promise<string> {
   let content = words.join(" ");
   if (!content && !process.stdin.isTTY) {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk);
     content = Buffer.concat(chunks).toString().trim();
   }
-  if (!content) return error("No content", "Pass as argument or pipe via stdin");
+  if (!content && !options.allowEmpty) return error("No content", "Pass as argument or pipe via stdin");
   return content;
 }
 
 async function sendPrompt(command: Command, words: string[], opts: PromptOptions): Promise<void> {
-  const content = await readPromptContent(words);
+  const content = await readPromptContent(words, { allowEmpty: Boolean(opts.image?.length) });
   const scheduleFlags = [opts.delayMs, opts.at, opts.cron].filter((value) => value !== undefined);
   if (scheduleFlags.length > 1) return error("Conflicting schedule", "Use only one of --delay-ms, --at, or --cron");
   if (opts.cron && !opts.timezone) return error("Missing timezone", "--timezone is required with --cron");
@@ -216,11 +218,37 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
         : opts.cron
           ? { mode: "repeat" as const, cronExpression: opts.cron, timezone: opts.timezone as string }
           : undefined;
+    const sessionId = opts.session;
+    const imagePaths = opts.image ?? [];
+    const imageSessionId = imagePaths.length
+      ? sessionId ?? error("Missing session", "Pass --session when attaching images.")
+      : "";
+    const imageBlocks = imagePaths.length
+      ? await Promise.all(
+          imagePaths.map(async (path): Promise<ContentBlock> => {
+            const asset = await uploadChatImageAsset({ client, spaceId, sessionId: imageSessionId, path });
+            return {
+              type: "image",
+              source: { type: "url", url: asset.publicUrl },
+              _meta: {
+                filename: basename(path),
+                mediaType: "image/webp",
+                size: asset.size,
+                objectKey: asset.objectKey,
+              },
+            };
+          }),
+        )
+      : [];
+    const promptContent: ContentBlock[] = [
+      ...(content ? [{ type: "text" as const, text: content }] : []),
+      ...imageBlocks,
+    ];
     const result = await client.space(spaceId).prompt({
-      sessionId: opts.session,
-      title: opts.title,
+      sessionId,
+      title: sessionId === opts.session ? opts.title : undefined,
       source: opts.source?.trim() || "cli",
-      content: [{ type: "text", text: content }],
+      content: promptContent,
       model: opts.model,
       provider: opts.provider,
       accessMode: opts.readOnly ? "read_only" : "full_access",
@@ -253,6 +281,7 @@ export function registerPrompt(program: Command): void {
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
     .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
+    .option("--image <path>", "Attach an image", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(program, words, opts));
 }
@@ -409,6 +438,7 @@ export function registerSpaces(program: Command): void {
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
     .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
+    .option("--image <path>", "Attach an image", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(spacesCmd, words, opts));
 
@@ -884,6 +914,7 @@ function registerFiles(spacesCmd: Command): void {
 
 type SessionCreateOptions = {
   label?: string[];
+  image?: string[];
   json?: boolean;
 };
 

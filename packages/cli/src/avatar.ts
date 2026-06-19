@@ -19,26 +19,39 @@ export async function uploadAvatarAsset(input: {
   spaceId?: string;
 }) {
   const body = await normalizeAvatarFile(input.path);
-  const plan = await input.client.publicAssets.createUpload({
+  return input.client.publicAssets.upload({
     purpose: input.purpose,
     spaceId: input.spaceId,
-    file: {
-      size: body.byteLength,
-      mimeType: "image/webp",
-    },
+    file: new Blob([new Uint8Array(body)], { type: "image/webp" }),
+    mimeType: "image/webp",
+    filename: "avatar.webp",
   });
-  const formData = new FormData();
-  for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
-    formData.append(key, value);
-  }
-  formData.append("file", new Blob([new Uint8Array(body)], { type: "image/webp" }), "avatar.webp");
-  const response = await fetch(plan.asset.uploadUrl, {
-    method: plan.asset.uploadMethod,
-    body: formData,
+}
+
+const CHAT_IMAGE_MAX_EDGE = 2160;
+const CHAT_IMAGE_QUALITY = 86;
+
+export async function normalizeChatImageFile(path: string): Promise<Buffer> {
+  return sharp(path)
+    .rotate()
+    .resize(CHAT_IMAGE_MAX_EDGE, CHAT_IMAGE_MAX_EDGE, { fit: "inside", withoutEnlargement: true })
+    .webp({ quality: CHAT_IMAGE_QUALITY })
+    .toBuffer();
+}
+
+export async function uploadChatImageAsset(input: {
+  client: CohubHttpClient;
+  spaceId: string;
+  sessionId: string;
+  path: string;
+}) {
+  const body = await normalizeChatImageFile(input.path);
+  const asset = await input.client.publicAssets.uploadChatImageAttachment({
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    file: new Blob([new Uint8Array(body)], { type: "image/webp" }),
+    mimeType: "image/webp",
+    filename: "image.webp",
   });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Avatar upload failed: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`);
-  }
-  return plan.asset;
+  return { ...asset, size: body.byteLength };
 }

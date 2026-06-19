@@ -1,6 +1,7 @@
 import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
+import { getSpaceSessionById } from "../space-sessions.js";
 import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
 import {
   consumePublicAssetUploadQuota,
@@ -18,7 +19,7 @@ router.post("/uploads", async (c) => {
   const user = useAuth(c);
   const body = await c.req.json<CreatePublicAssetUploadInput>().catch(() => null);
   if (!body || typeof body !== "object") return c.json({ message: "invalid body" }, 400);
-  if (body.purpose !== "user_avatar" && body.purpose !== "space_avatar") {
+  if (body.purpose !== "user_avatar" && body.purpose !== "space_avatar" && body.purpose !== "chat_attachment") {
     return c.json({ message: "invalid public asset purpose" }, 400);
   }
 
@@ -27,11 +28,22 @@ router.post("/uploads", async (c) => {
     if (!(await hasPermission(user, "space.edit", { spaceId: body.spaceId }))) return authzDenied(c);
   }
 
+  if (body.purpose === "chat_attachment") {
+    if (!body.spaceId || !requireValidId(body.spaceId)) return c.json({ message: "space not found" }, 404);
+    if (!body.sessionId || !requireValidId(body.sessionId)) return c.json({ message: "session not found" }, 404);
+    const session = await getSpaceSessionById(body.sessionId);
+    if (!session || session.spaceId !== body.spaceId) return c.json({ message: "session not found" }, 404);
+    const canPromptReadonly = await hasPermission(user, "session.prompt.readonly", { spaceId: body.spaceId, sessionId: body.sessionId });
+    const canPrompt = canPromptReadonly || await hasPermission(user, "session.prompt.fullaccess", { spaceId: body.spaceId, sessionId: body.sessionId });
+    if (!canPrompt) return authzDenied(c);
+  }
+
   try {
     const plan = createPublicAssetUploadPlan({
       purpose: body.purpose,
       userUuid: user.uuid,
       spaceId: body.spaceId,
+      sessionId: body.sessionId,
       file: body.file,
     });
     await consumePublicAssetUploadQuota(user.uuid);

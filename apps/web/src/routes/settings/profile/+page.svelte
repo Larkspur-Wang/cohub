@@ -15,9 +15,9 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
-import { normalizeAvatarImage } from "$lib/avatar-image";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { uploadUserAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validateUsernameInput } from "$lib/slug-rules";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -176,26 +176,9 @@ async function uploadAvatar(file: File) {
 	inlineError = "";
 	uploadingAvatar = true;
 	try {
-		const avatar = await normalizeAvatarImage(file);
-		const plan = await sdk.publicAssets.createUpload({
-			purpose: "user_avatar",
-			file: {
-				size: avatar.file.size,
-				mimeType: avatar.mimeType,
-			},
-		});
-		const formData = new FormData();
-		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
-			formData.append(key, value);
-		}
-		formData.append("file", avatar.file);
-		const response = await fetch(plan.asset.uploadUrl, {
-			method: plan.asset.uploadMethod,
-			body: formData,
-		});
-		if (!response.ok) throw new Error("Failed to upload avatar image.");
+		const asset = await uploadUserAvatarImage(file);
 		const profile = await authStore.updateProfile({
-			avatarUrl: plan.asset.publicUrl,
+			avatarUrl: asset.publicUrl,
 		});
 		avatarUrl = profile.avatarUrl ?? "";
 	} catch (error) {

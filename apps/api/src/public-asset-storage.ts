@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import {
   buildPublicObjectUrl,
@@ -7,11 +8,12 @@ import {
 } from "./object-presign.js";
 import { redisCommandClient } from "./redis.js";
 
-export type PublicAssetPurpose = "user_avatar" | "space_avatar";
+export type PublicAssetPurpose = "user_avatar" | "space_avatar" | "chat_attachment";
 
 export type CreatePublicAssetUploadInput = {
   purpose: PublicAssetPurpose;
   spaceId?: string;
+  sessionId?: string;
   file: {
     size: number;
     mimeType: string;
@@ -30,12 +32,13 @@ export type CreatePublicAssetUploadResponse = {
   };
 };
 
-const AVATAR_MIME_TYPES = new Set(["image/webp", "image/jpeg"]);
-const AVATAR_EXTENSIONS: Record<string, string> = {
+const IMAGE_MIME_TYPES = new Set(["image/webp", "image/jpeg"]);
+const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/jpeg": "jpg",
 };
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const RATE_LIMIT_MAX = 60;
 
@@ -73,12 +76,18 @@ export const buildPublicAssetObjectKey = (input: {
   userUuid: string;
   mimeType: string;
   spaceId?: string;
+  sessionId?: string;
 }) => {
-  const extension = AVATAR_EXTENSIONS[input.mimeType];
-  if (!extension) throw new PublicAssetValidationError("avatar uploads must be WebP or JPEG images");
+  const extension = IMAGE_EXTENSIONS[input.mimeType];
+  if (!extension) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
   if (input.purpose === "user_avatar") return `${envPrefix()}users/${input.userUuid}/avatar.${extension}`;
-  if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for space avatar uploads");
-  return `${envPrefix()}spaces/${input.spaceId}/avatar.${extension}`;
+  if (input.purpose === "space_avatar") {
+    if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for space avatar uploads");
+    return `${envPrefix()}spaces/${input.spaceId}/avatar.${extension}`;
+  }
+  if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for chat attachment uploads");
+  if (!input.sessionId) throw new PublicAssetValidationError("sessionId is required for chat attachment uploads");
+  return `${envPrefix()}chat-attachments/${input.spaceId}/${input.sessionId}/${randomUUID()}.${extension}`;
 };
 
 export const buildVersionedPublicAssetUrl = (objectKey: string) => {
@@ -88,39 +97,43 @@ export const buildVersionedPublicAssetUrl = (objectKey: string) => {
   return `${baseUrl}?v=${cacheBuster()}`;
 };
 
-export const assertPublicAssetUploadFile = (file: CreatePublicAssetUploadInput["file"]) => {
+export const assertPublicAssetUploadFile = (input: { purpose: PublicAssetPurpose; file: CreatePublicAssetUploadInput["file"] }) => {
+  const { file } = input;
   if (!file || typeof file !== "object") throw new PublicAssetValidationError("file is required");
-  if (!AVATAR_MIME_TYPES.has(file.mimeType)) throw new PublicAssetValidationError("avatar uploads must be WebP or JPEG images");
+  if (!IMAGE_MIME_TYPES.has(file.mimeType)) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
   if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new PublicAssetValidationError("invalid file size");
-  if (file.size > MAX_AVATAR_BYTES) throw new PublicAssetValidationError("avatar image is too large");
+  const maxBytes = input.purpose === "chat_attachment" ? MAX_CHAT_ATTACHMENT_BYTES : MAX_AVATAR_BYTES;
+  if (file.size > maxBytes) throw new PublicAssetValidationError(input.purpose === "chat_attachment" ? "chat image is too large" : "avatar image is too large");
 };
 
 export const consumePublicAssetUploadQuota = async (userUuid: string) => {
   const key = `public_asset_upload:${userUuid}`;
   const count = await redisCommandClient.incr(key);
   if (count === 1) await redisCommandClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-  if (count > RATE_LIMIT_MAX) throw new PublicAssetValidationError("too many avatar uploads, please try again later");
+  if (count > RATE_LIMIT_MAX) throw new PublicAssetValidationError("too many image uploads, please try again later");
 };
 
 export const createPublicAssetUploadPlan = (input: {
   purpose: PublicAssetPurpose;
   userUuid: string;
   spaceId?: string;
+  sessionId?: string;
   file: CreatePublicAssetUploadInput["file"];
 }): CreatePublicAssetUploadResponse => {
-  assertPublicAssetUploadFile(input.file);
+  assertPublicAssetUploadFile({ purpose: input.purpose, file: input.file });
   const storage = requirePublicAssetConfig();
   const objectKey = buildPublicAssetObjectKey({
     purpose: input.purpose,
     userUuid: input.userUuid,
     spaceId: input.spaceId,
+    sessionId: input.sessionId,
     mimeType: input.file.mimeType,
   });
   const signed = createPresignedPostObject({
     storage,
     objectKey,
     contentType: input.file.mimeType,
-    maxBytes: MAX_AVATAR_BYTES,
+    maxBytes: input.purpose === "chat_attachment" ? MAX_CHAT_ATTACHMENT_BYTES : MAX_AVATAR_BYTES,
   });
   return {
     expiresAt: signed.expiresAt,

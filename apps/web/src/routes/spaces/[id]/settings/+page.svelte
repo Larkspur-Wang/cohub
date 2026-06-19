@@ -39,11 +39,11 @@ import {
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
-import { normalizeAvatarImage } from "$lib/avatar-image";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { uploadSpaceAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validatePublicSlugInput } from "$lib/slug-rules";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
@@ -487,28 +487,10 @@ async function uploadSpaceAvatar(file: File) {
 	spaceAvatarUploading = true;
 	spaceProfileError = "";
 	try {
-		const avatar = await normalizeAvatarImage(file);
-		const plan = await sdk.publicAssets.createUpload({
-			purpose: "space_avatar",
-			spaceId,
-			file: {
-				size: avatar.file.size,
-				mimeType: avatar.mimeType,
-			},
-		});
-		const formData = new FormData();
-		for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
-			formData.append(key, value);
-		}
-		formData.append("file", avatar.file);
-		const response = await fetch(plan.asset.uploadUrl, {
-			method: plan.asset.uploadMethod,
-			body: formData,
-		});
-		if (!response.ok) throw new Error("Failed to upload avatar image.");
+		const asset = await uploadSpaceAvatarImage({ spaceId, file });
 		const result = await sdk.space(spaceId).profile({
 			description: space?.description ?? null,
-			avatarUrl: plan.asset.publicUrl,
+			avatarUrl: asset.publicUrl,
 		});
 		space = result.space;
 		cacheSpaceRecordSoon(result.space);

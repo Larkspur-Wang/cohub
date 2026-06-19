@@ -99,10 +99,12 @@ export type ComposerImageAttachment = {
 	kind: "image";
 	id: string;
 	name: string;
-	mediaType: string;
-	data: string;
+	mediaType: "image/webp" | "image/jpeg";
+	file: File;
 	previewUrl: string;
+	uploadedUrl?: string;
 	size: number;
+	status: "ready" | "uploading" | "failed";
 };
 
 export type ComposerTextAttachment = {
