@@ -16,7 +16,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 6;
+export const DB_VERSION = 7;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -40,6 +40,49 @@ export type SessionListCacheRecord = {
 	lastAccessedAt: number;
 	watermark: string | null;
 	completeness: "partial" | "complete";
+};
+
+export type SessionListIndexItem = {
+	userKey?: string;
+	spaceId?: string;
+	sessionId: string;
+	activityAt: string | null;
+	lastMessageAt: string | null;
+	updatedAt: string | null;
+	lastMessageId: string | null;
+	preview: {
+		title: string | null;
+		latestMessageText: string | null;
+		source: string | null;
+		status: string | null;
+		userProfile?: SessionRecord["userProfile"];
+		participantProfiles?: SessionRecord["participantProfiles"];
+	};
+};
+
+export type SessionListIndexCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	kind: "recent";
+	items: SessionListIndexItem[];
+	forks?: SessionListForkRecord[];
+	pageInfo: SessionListPageInfo;
+	updatedAt: number;
+	lastAccessedAt: number;
+	watermark: string | null;
+	completeness: "partial" | "complete";
+};
+
+export type SessionDetailCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	sessionId: string;
+	session: SessionRecord;
+	updatedAt: number;
+	lastAccessedAt: number;
+	watermark: string | null;
 };
 
 export type SessionTurnsCacheRecord = {
@@ -159,6 +202,8 @@ export type TaskRunDetailCacheRecord = {
 
 type StoreName =
 	| "session_lists"
+	| "session_list_indexes"
+	| "session_details"
 	| "session_turns"
 	| "space_fs_dirs"
 	| "space_records"
@@ -216,6 +261,20 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 			]);
 			createStore(db, "session_lists", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
+			]);
+			createStore(db, "session_list_indexes", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
+			]);
+			createStore(db, "session_details", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_session",
+					keyPath: ["userKey", "spaceId", "sessionId"],
+				},
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
 				{ name: "by_updated_at", keyPath: "updatedAt" },
 			]);

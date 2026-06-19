@@ -1,0 +1,46 @@
+<script lang="ts">
+import type { CheckpointRecord } from "@neta-art/cohub";
+import { Link2Off } from "lucide-svelte";
+import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
+
+const {
+	checkpoint,
+	href,
+	active = false,
+	removeLabelTitle,
+	removeLabelDisabled = false,
+	onNavigate,
+	onRemoveLabel,
+}: {
+	checkpoint: CheckpointRecord;
+	href: string;
+	active?: boolean;
+	removeLabelTitle?: string;
+	removeLabelDisabled?: boolean;
+	onNavigate: (checkpoint: CheckpointRecord) => void;
+	onRemoveLabel?: () => void;
+} = $props();
+
+const title = $derived(
+	checkpoint.description || checkpoint.commitHash.slice(0, 12),
+);
+</script>
+
+<a
+	{href}
+	class="sidebar-flyout-item group/checkpoint relative flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] transition-colors duration-100 {onRemoveLabel ? 'hover:pr-12 focus-within:pr-12' : ''} {active ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+	onclick={(event) => {
+		event.preventDefault();
+		onNavigate(checkpoint);
+	}}
+>
+	<div class="min-w-0 flex-1">
+		<div class="truncate leading-tight">{title}</div>
+		<div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{checkpoint.commitHash.slice(0, 12)}</div>
+	</div>
+	{#if onRemoveLabel}
+		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto">
+			<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? "Remove from label"} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />
+		</span>
+	{/if}
+</a>

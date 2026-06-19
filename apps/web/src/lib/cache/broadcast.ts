@@ -1,6 +1,8 @@
 export type CacheBroadcastStore =
 	| "space_records"
 	| "session_lists"
+	| "session_list_indexes"
+	| "session_details"
 	| "session_turns"
 	| "space_fs_dirs"
 	| "label_trees"

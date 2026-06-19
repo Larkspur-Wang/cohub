@@ -4,7 +4,9 @@ import {
 	type LabelItemsCacheRecord,
 	type LabelTreeCacheRecord,
 	type ResourceLabelsCacheRecord,
+	type SessionDetailCacheRecord,
 	type SessionListCacheRecord,
+	type SessionListIndexCacheRecord,
 	type SessionTurnsCacheRecord,
 	type SpaceFsDirCacheRecord,
 } from "$lib/cache/db";
@@ -14,7 +16,9 @@ const CLEANUP_STORAGE_KEY = "cohub:cache:last-cleanup-at:v1";
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 const MAX_ENTRIES = {
-	sessionLists: 500,
+	sessionLists: 0,
+	sessionListIndexes: 500,
+	sessionDetails: 5000,
 	sessionTurns: 1000,
 	spaceFsDirs: 5000,
 	labelTrees: 500,
@@ -45,6 +49,8 @@ async function cleanupStore<
 >(
 	store:
 		| "session_lists"
+		| "session_list_indexes"
+		| "session_details"
 		| "session_turns"
 		| "space_fs_dirs"
 		| "label_trees"
@@ -75,6 +81,14 @@ export function scheduleCacheCleanup() {
 			cleanupStore<SessionListCacheRecord>(
 				"session_lists",
 				MAX_ENTRIES.sessionLists,
+			),
+			cleanupStore<SessionListIndexCacheRecord>(
+				"session_list_indexes",
+				MAX_ENTRIES.sessionListIndexes,
+			),
+			cleanupStore<SessionDetailCacheRecord>(
+				"session_details",
+				MAX_ENTRIES.sessionDetails,
 			),
 			cleanupStore<SessionTurnsCacheRecord>(
 				"session_turns",

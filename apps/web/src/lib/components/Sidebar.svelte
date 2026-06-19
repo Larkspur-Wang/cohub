@@ -22,11 +22,9 @@ import {
 	Compass,
 	CreditCard,
 	Download,
-	File as FileIcon,
 	FolderKanban,
 	History,
 	Keyboard,
-	Link2Off,
 	Loader2,
 	LogOut,
 	MessageSquare,
@@ -41,7 +39,6 @@ import {
 	Search,
 	Settings,
 	Tags,
-	TextCursorInput,
 	Trash2,
 	User,
 	X,
@@ -55,9 +52,12 @@ import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
 import NewLabelPopover from "$lib/components/NewLabelPopover.svelte";
-import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import SidebarCheckpointRow from "$lib/components/sidebar/SidebarCheckpointRow.svelte";
+import SidebarFallbackResourceRow from "$lib/components/sidebar/SidebarFallbackResourceRow.svelte";
+import SidebarFileRow from "$lib/components/sidebar/SidebarFileRow.svelte";
+import SidebarSessionRow from "$lib/components/sidebar/SidebarSessionRow.svelte";
 import { downloadCohubDebugBundle } from "$lib/debugger";
 import {
 	type CohubResourceDragPayload,
@@ -100,6 +100,11 @@ import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
+import {
+	fetchSessionDetailWithCache,
+	getCachedSessionDetails,
+	setCachedSessionDetails,
+} from "$lib/stores/session-detail-cache";
 import {
 	clearAllCachedSessionLists,
 	getCachedSessionListSnapshot,
@@ -190,6 +195,10 @@ let labels = $state<LabelListItem[]>([]);
 let labelItemsBySpace = $state<
 	Record<string, Record<string, LabelAssignmentListItem[]>>
 >({});
+let labelSessionDetailsBySpace = $state<
+	Record<string, Record<string, SessionRecord>>
+>({});
+let labelSessionDetailsLoadingBySpace = $state<Record<string, Set<string>>>({});
 let labelItemsPageInfoBySpace = $state<
 	Record<
 		string,
@@ -366,12 +375,31 @@ const canAssignLabels = $derived(
 const canManageLabels = $derived(
 	Boolean(currentSpace?.access?.permissions?.includes("space.label.manage")),
 );
+const currentLabelSessionDetails = $derived(
+	currentSpaceId ? (labelSessionDetailsBySpace[currentSpaceId] ?? {}) : {},
+);
+const sessionsById = $derived.by(
+	() => new Map(sessions.map((session) => [session.id, session])),
+);
+const labelSessionsById = $derived.by(
+	() =>
+		new Map(
+			[...sessions, ...Object.values(currentLabelSessionDetails)].map(
+				(session) => [session.id, session],
+			),
+		),
+);
+const checkpointsById = $derived.by(
+	() => new Map(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint])),
+);
 const currentLabelItemsById = $derived.by(() =>
 	currentSpaceId
 		? hydrateLabelItemsById(
 				currentSpaceId,
 				labelItemsBySpace[currentSpaceId] ?? {},
-				{ sessions },
+				{
+					sessions: [...sessions, ...Object.values(currentLabelSessionDetails)],
+				},
 			)
 		: {},
 );
@@ -1008,12 +1036,119 @@ function labelItemsEqual(
 	return true;
 }
 
+async function warmLabelSessionDetails(spaceId: string, sessionIds: string[]) {
+	const uniqueIds = Array.from(new Set(sessionIds.filter(Boolean)));
+	if (uniqueIds.length === 0) return;
+
+	const localSessions = uniqueIds
+		.map((sessionId) => sessionsById.get(sessionId))
+		.filter((session): session is SessionRecord => Boolean(session));
+	if (localSessions.length > 0) {
+		void setCachedSessionDetails(spaceId, localSessions).catch(() => undefined);
+	}
+
+	const cached = (await getCachedSessionDetails(spaceId, uniqueIds).catch(
+		() => ({}),
+	)) as Awaited<ReturnType<typeof getCachedSessionDetails>>;
+	const isCurrentSpace = () => spaceId === currentSpaceId;
+	const cachedSessions = Object.values(cached)
+		.map((snapshot) => snapshot.session)
+		.filter((session): session is SessionRecord => Boolean(session));
+	if (cachedSessions.length > 0 && isCurrentSpace()) {
+		const currentDetails = labelSessionDetailsBySpace[spaceId] ?? {};
+		labelSessionDetailsBySpace = {
+			...labelSessionDetailsBySpace,
+			[spaceId]: {
+				...currentDetails,
+				...Object.fromEntries(
+					cachedSessions.map((session) => [session.id, session]),
+				),
+			},
+		};
+	}
+
+	const loading =
+		labelSessionDetailsLoadingBySpace[spaceId] ?? new Set<string>();
+	const missingOrStale = uniqueIds.filter((sessionId) => {
+		if (sessionsById.has(sessionId)) return false;
+		if (loading.has(sessionId)) return false;
+		const snapshot = cached[sessionId];
+		return !snapshot || snapshot.stale;
+	});
+	if (missingOrStale.length === 0) return;
+
+	labelSessionDetailsLoadingBySpace = {
+		...labelSessionDetailsLoadingBySpace,
+		[spaceId]: new Set([...loading, ...missingOrStale]),
+	};
+
+	try {
+		const refreshed: SessionRecord[] = [];
+		const concurrency = 4;
+		let cursor = 0;
+		async function worker() {
+			while (cursor < missingOrStale.length) {
+				const sessionId = missingOrStale[cursor++];
+				if (!sessionId) continue;
+				try {
+					const session = await fetchSessionDetailWithCache(
+						spaceId,
+						sessionId,
+						async () =>
+							(await sdk.space(spaceId).session(sessionId).get()).session,
+						{ force: Boolean(cached[sessionId]?.stale) },
+					);
+					refreshed.push(session);
+				} catch (error) {
+					console.warn("[labels] Failed to warm session detail", {
+						spaceId,
+						sessionId,
+						error,
+					});
+				}
+			}
+		}
+		await Promise.all(
+			Array.from({ length: Math.min(concurrency, missingOrStale.length) }, () =>
+				worker(),
+			),
+		);
+		if (isCurrentSpace() && refreshed.length > 0) {
+			const currentDetails = labelSessionDetailsBySpace[spaceId] ?? {};
+			labelSessionDetailsBySpace = {
+				...labelSessionDetailsBySpace,
+				[spaceId]: {
+					...currentDetails,
+					...Object.fromEntries(
+						refreshed.map((session) => [session.id, session]),
+					),
+				},
+			};
+		}
+	} finally {
+		const latestLoading =
+			labelSessionDetailsLoadingBySpace[spaceId] ?? new Set<string>();
+		labelSessionDetailsLoadingBySpace = {
+			...labelSessionDetailsLoadingBySpace,
+			[spaceId]: new Set(
+				[...latestLoading].filter((id) => !missingOrStale.includes(id)),
+			),
+		};
+	}
+}
+
 function patchLabelItems(
 	spaceId: string,
 	labelId: string,
 	items: LabelAssignmentListItem[],
 	pageInfo: { hasMore: boolean; nextCursor: string | null },
 ) {
+	const sessionItems = items.filter((item) => item.resourceType === "session");
+	if (sessionItems.length > 0)
+		void warmLabelSessionDetails(
+			spaceId,
+			sessionItems.map((item) => item.resourceRef),
+		);
 	const currentSpaceItems = labelItemsBySpace[spaceId] ?? {};
 	const currentItems = currentSpaceItems[labelId] ?? [];
 	const currentPageInfo = labelItemsPageInfoBySpace[spaceId]?.[labelId];
@@ -1469,18 +1604,6 @@ function isLabelAssignmentActive(item: LabelAssignmentListItem) {
 		);
 	}
 	return item.resourceRef === activeLabelResource.ref;
-}
-
-function getLabelAssignmentIcon(item: LabelAssignmentListItem) {
-	if (item.resourceType === "session") return MessageSquare;
-	if (item.resourceType === "checkpoint") return History;
-	return FileIcon;
-}
-
-function getLabelAssignmentTypeLabel(item: LabelAssignmentListItem) {
-	if (item.resourceType === "session") return "Chat";
-	if (item.resourceType === "checkpoint") return "Save";
-	return "File";
 }
 
 async function loadCronjobsForSpace(spaceId: string, force = false) {
@@ -2461,44 +2584,78 @@ $effect(() => {
 				<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-11' : 'pl-9'}">No items</div>
 			{/if}
 		{:else if items.length > 0}
-			{#each items as item (item.id)}
-				{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
-				{@const ItemIcon = getLabelAssignmentIcon(item)}
-				{@const isActive = isLabelAssignmentActive(item)}
-				<a
-					href={labelAssignmentHref(item)}
-					class="group/label-item relative flex w-full min-w-0 items-center gap-2 overflow-hidden rounded-[6px] py-1 pr-1.5 text-[12px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'} {itemDraggable ? 'hover:pr-7 focus-within:pr-7' : ''} {depth > 0 ? 'pl-11' : 'pl-9'}"
-					aria-current={isActive ? "page" : undefined}
-					onclick={(event) => { event.preventDefault(); void handleNavigate(labelAssignmentHref(item)); }}
-					title={item.resource?.subtitle ?? item.resourceRef}
-					draggable={!isMobile && itemDraggable}
-					ondragstart={(event) => handleLabelItemDragStart(event, label, item)}
-					ondragend={handleResourceDragEnd}
-				>
-					<ItemIcon class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-					<span class="truncate">{item.resource?.title ?? item.resourceRef}</span>
-					<span class="sr-only">{getLabelAssignmentTypeLabel(item)}</span>
-					{#if itemDraggable}
-						<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/label-item:opacity-100 group-hover/label-item:pointer-events-auto group-focus-within/label-item:opacity-100 group-focus-within/label-item:pointer-events-auto">
-							<button
-								type="button"
-								class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-								draggable="false"
-								disabled={labelDropBusyId === label.id}
-								title={`Remove from “${label.name}”`}
-								aria-label={`Remove from ${label.name}`}
-								onclick={(event) => {
-									event.preventDefault();
-									event.stopPropagation();
-									void removeLabelAssignment(label, item);
-								}}
-							>
-								<Link2Off class="h-3.5 w-3.5" />
-							</button>
-						</span>
+			<div class="space-y-[1px] {depth > 0 ? 'pl-9' : 'pl-7'}">
+				{#each items as item (item.id)}
+					{@const isActive = isLabelAssignmentActive(item)}
+					{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
+					{@const labelRemoveTitle = `Remove from “${label.name}”`}
+					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
+						{@const session = labelSessionsById.get(item.resourceRef)!}
+						{@const sessionItem = sidebarSessionItems.find((candidate) => candidate.session.id === session.id)}
+						<SidebarSessionRow
+							{session}
+							title={sessionItem?.displayTitle ?? getSessionTitle(session, 0)}
+							href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
+							active={isActive}
+							{isMobile}
+							modelsCatalog={modelsCatalog ?? undefined}
+							rowState={sessionItem
+								? {
+										isFork: sessionItem.isFork,
+										isLastVisibleChild: sessionItem.isLastVisibleChild,
+										style: getSessionRowStyle(sessionItem),
+										titleText: sessionItem.titleText || sourceTooltip(session.source) || undefined,
+										ariaLabel: sessionItem.ariaLabel,
+									}
+								: { titleText: sourceTooltip(session.source) || undefined }}
+							draggable={itemDraggable}
+							removeLabelTitle={labelRemoveTitle}
+							removeLabelDisabled={labelDropBusyId === label.id}
+							onNavigate={(target) => void handleNavigateToSession(target.id)}
+							onDoubleClick={handleSessionRowDoubleClick}
+							onInsert={insertPathReference}
+							onRename={startRenameSession}
+							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+							onDragStart={(event) => handleLabelItemDragStart(event, label, item)}
+							onDragEnd={handleResourceDragEnd}
+						/>
+					{:else if item.resourceType === "checkpoint" && checkpointsById.get(item.resourceRef)}
+						{@const checkpoint = checkpointsById.get(item.resourceRef)!}
+						<SidebarCheckpointRow
+							{checkpoint}
+							href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
+							active={isActive}
+							removeLabelTitle={labelRemoveTitle}
+							removeLabelDisabled={labelDropBusyId === label.id}
+							onNavigate={(target) => void handleNavigateToCheckpoint(target.id)}
+							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+						/>
+					{:else if item.resourceType === "file"}
+						<SidebarFileRow
+							path={item.resourceRef}
+							title={item.resource?.title ?? item.resourceRef.split("/").filter(Boolean).at(-1) ?? item.resourceRef}
+							subtitle={item.resource?.subtitle ?? null}
+							href={labelAssignmentHref(item)}
+							active={isActive}
+							{isMobile}
+							removeLabelTitle={labelRemoveTitle}
+							removeLabelDisabled={labelDropBusyId === label.id}
+							onNavigate={() => void handleNavigate(labelAssignmentHref(item))}
+							onInsert={insertPathReference}
+							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+						/>
+					{:else}
+						<SidebarFallbackResourceRow
+							{item}
+							active={isActive}
+							removeLabelTitle={labelRemoveTitle}
+							removeLabelDisabled={labelDropBusyId === label.id}
+							onNavigate={(href) => void handleNavigate(href)}
+							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+						/>
 					{/if}
-				</a>
-			{/each}
+				{/each}
+			</div>
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
 				<button
 					type="button"
@@ -2670,29 +2827,27 @@ $effect(() => {
 			{#each sidebarSessionItems.slice(0, sidebarFlyoutPreviewLimit) as item (item.session.id)}
 				{@const session = item.session}
 				{@const isActive = activeSession?.id === session.id}
-				{@const sessionHref = buildPreferredSessionRoute(currentSpaceId!, session.id)}
-				<a
-					href={sessionHref}
-					class="sidebar-flyout-item group/session relative flex items-center gap-1.5 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-					style={getSessionRowStyle(item)}
-					onclick={(e) => { e.preventDefault(); scheduleSessionRowNavigate(session.id); }}
-					ondblclick={(e) => handleSessionRowDoubleClick(e, session)}
-					draggable="true"
-					ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
-					ondragend={handleResourceDragEnd}
-					title={item.titleText || sourceTooltip(session.source) || undefined}
-					aria-label={item.ariaLabel}
-				>
-					<SessionSidebarRowContent {session} title={item.displayTitle} modelsCatalog={modelsCatalog ?? undefined} />
-					<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
-						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Insert" onclick={(e) => { e.preventDefault(); e.stopPropagation(); insertPathReference(`/sessions/${session.id}.jsonl`); }}>
-							<TextCursorInput class="h-3.5 w-3.5" />
-						</button>
-						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary" draggable="false" title="Rename" onclick={(e) => { e.preventDefault(); e.stopPropagation(); startRenameSession(session); }}>
-							<Pencil class="h-3.5 w-3.5" />
-						</button>
-					</span>
-				</a>
+				<SidebarSessionRow
+					{session}
+					title={item.displayTitle}
+					href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
+					active={isActive}
+					modelsCatalog={modelsCatalog ?? undefined}
+					rowState={{
+						isFork: item.isFork,
+						isLastVisibleChild: item.isLastVisibleChild,
+						style: getSessionRowStyle(item),
+						titleText: item.titleText || sourceTooltip(session.source) || undefined,
+						ariaLabel: item.ariaLabel,
+					}}
+					draggable={true}
+					onNavigate={(target) => scheduleSessionRowNavigate(target.id)}
+					onDoubleClick={handleSessionRowDoubleClick}
+					onInsert={insertPathReference}
+					onRename={startRenameSession}
+					onDragStart={(event, target, title) => handleSessionDragStart(event, target, title)}
+					onDragEnd={handleResourceDragEnd}
+				/>
 			{/each}
 			{#if shouldShowLoadMoreSessions()}
 				<button type="button" class="mt-1 flex w-full items-center justify-center gap-2 rounded-[6px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-60" disabled={loadingMoreSessions} onclick={() => currentSpaceId && void loadMoreSessionsForSpace(currentSpaceId)}>
@@ -2711,10 +2866,12 @@ $effect(() => {
 	{:else}
 		<div class="space-y-[2px]">
 			{#each checkpoints.slice(0, sidebarFlyoutPreviewLimit) as checkpoint (checkpoint.id)}
-				{@const isActive = activeCheckpointId === checkpoint.id}
-				<a href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)} class="sidebar-flyout-item group/checkpoint relative flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] hover:pr-12 focus-within:pr-12 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}>
-					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div><div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{checkpoint.commitHash.slice(0, 12)}</div></div>
-				</a>
+				<SidebarCheckpointRow
+					{checkpoint}
+					href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
+					active={activeCheckpointId === checkpoint.id}
+					onNavigate={(target) => void handleNavigateToCheckpoint(target.id)}
+				/>
 			{/each}
 		</div>
 	{/if}
@@ -3172,48 +3329,28 @@ $effect(() => {
                       </button>
                     </div>
                   {:else}
-                    <a
+                    <SidebarSessionRow
+                      {session}
+                      title={item.displayTitle}
                       href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
-                      class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 {item.isFork ? 'session-fork-row' : ''} {item.isLastVisibleChild ? 'session-fork-row--last' : ''} {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                      style={getSessionRowStyle(item)}
-						onclick={(e) => { e.preventDefault(); scheduleSessionRowNavigate(session.id); }}
-						ondblclick={(e) => handleSessionRowDoubleClick(e, session)}
-							draggable={!isMobile}
-							ondragstart={(e) => handleSessionDragStart(e, session, item.displayTitle)}
-							ondragend={handleResourceDragEnd}
-                      title={item.titleText || sourceTooltip(session.source) || undefined}
-                      aria-label={item.ariaLabel}
-                    >
-                      <SessionSidebarRowContent {session} title={item.displayTitle} {isMobile} modelsCatalog={modelsCatalog ?? undefined} />
-                      <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
-                        <button
-                          type="button"
-                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                          draggable="false"
-                          title="Insert"
-                          onclick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-								insertPathReference(`/sessions/${session.id}.jsonl`);
-                          }}
-                        >
-                          <TextCursorInput class="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                          draggable="false"
-                          title="Rename"
-                          onclick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            startRenameSession(session);
-                          }}
-                        >
-                          <Pencil class="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    </a>
+                      active={isActive}
+                      {isMobile}
+                      modelsCatalog={modelsCatalog ?? undefined}
+                      rowState={{
+                        isFork: item.isFork,
+                        isLastVisibleChild: item.isLastVisibleChild,
+                        style: getSessionRowStyle(item),
+                        titleText: item.titleText || sourceTooltip(session.source) || undefined,
+                        ariaLabel: item.ariaLabel,
+                      }}
+                      draggable={!isMobile}
+                      onNavigate={(target) => scheduleSessionRowNavigate(target.id)}
+                      onDoubleClick={handleSessionRowDoubleClick}
+                      onInsert={insertPathReference}
+                      onRename={startRenameSession}
+                      onDragStart={(event, target, title) => handleSessionDragStart(event, target, title)}
+                      onDragEnd={handleResourceDragEnd}
+                    />
                   {/if}
                 {/each}
                 {#if shouldShowLoadMoreSessions()}
@@ -3280,47 +3417,25 @@ $effect(() => {
                 </button>
               </div>
             {:else}
-              <a
+              <SidebarSessionRow
+                session={activeSession}
+                title={getSessionTitle(activeSession, 0)}
                 href={buildPreferredSessionRoute(currentSpaceId!, activeSession.id)}
-                class="group/session relative flex items-center gap-1.5 overflow-hidden px-1.5 py-1.5 pr-4 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 hover:pr-20 focus-within:pr-20 text-text-primary bg-bg-active font-medium"
-                style={isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined}
-				onclick={(e) => { e.preventDefault(); scheduleSessionRowNavigate(activeSession.id); }}
-				ondblclick={(e) => handleSessionRowDoubleClick(e, activeSession)}
-				draggable={!isMobile}
-				ondragstart={(e) => handleSessionDragStart(e, activeSession, getSessionTitle(activeSession, 0))}
-				ondragend={handleResourceDragEnd}
-                title={sourceTooltip(activeSession.source) || undefined}
-              >
-                <SessionSidebarRowContent session={activeSession} title={getSessionTitle(activeSession, 0)} {isMobile} modelsCatalog={modelsCatalog ?? undefined} />
-                <span class={isMobile ? "hidden" : "absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto"}>
-                  <button
-                    type="button"
-                    class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                    draggable="false"
-                    title="Insert"
-                    onclick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-						insertPathReference(`/sessions/${activeSession.id}.jsonl`);
-                    }}
-                  >
-                    <TextCursorInput class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover-strong transition-colors"
-                    draggable="false"
-                    title="Rename"
-                    onclick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      startRenameSession(activeSession);
-                    }}
-                  >
-                    <Pencil class="w-3.5 h-3.5" />
-                  </button>
-                </span>
-              </a>
+                active={true}
+                {isMobile}
+                modelsCatalog={modelsCatalog ?? undefined}
+                rowState={{
+                  style: isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined,
+                  titleText: sourceTooltip(activeSession.source) || undefined,
+                }}
+                draggable={!isMobile}
+                onNavigate={(target) => scheduleSessionRowNavigate(target.id)}
+                onDoubleClick={handleSessionRowDoubleClick}
+                onInsert={insertPathReference}
+                onRename={startRenameSession}
+                onDragStart={(event, target) => handleSessionDragStart(event, target, getSessionTitle(target, 0))}
+                onDragEnd={handleResourceDragEnd}
+              />
             {/if}
           {/if}
 
