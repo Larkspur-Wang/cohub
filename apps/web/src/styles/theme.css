@@ -7,6 +7,9 @@
    Tailwind v4 @theme — semantic design tokens
    ============================================================ */
 @theme {
+	/* Breakpoints */
+	--breakpoint-lg: 960px;
+
 	/* Fonts */
 	--font-sans: "Geist", system-ui, -apple-system, sans-serif;
 	--font-mono: "Geist Mono", "Fira Code", ui-monospace, monospace;

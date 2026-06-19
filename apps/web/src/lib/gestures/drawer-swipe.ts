@@ -1,3 +1,5 @@
+import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
+
 export const MOBILE_DRAWER_WIDTH_PX = 280;
 export const MOBILE_DRAWER_MAX_WIDTH_VW = 85;
 export const MOBILE_DRAWER_DIRECTION_LOCK_DISTANCE_PX = 8;
@@ -75,7 +77,7 @@ export function shouldStartDrawerGesture(options: {
 }) {
 	const { isOpen, target, viewportWidth, touchStartX, otherDrawerOpen } =
 		options;
-	if (viewportWidth >= 1024) return false;
+	if (viewportWidth >= DESKTOP_SHELL_MIN_WIDTH_PX) return false;
 	if (otherDrawerOpen) return false;
 	if (isOpen) {
 		return !isTouchOnGestureBlockingElementWhenOpen(target);
@@ -212,7 +214,7 @@ export function shouldStartRightDrawerGesture(options: {
 }) {
 	const { isOpen, target, viewportWidth, touchStartX, otherDrawerOpen } =
 		options;
-	if (viewportWidth >= 1024) return false;
+	if (viewportWidth >= DESKTOP_SHELL_MIN_WIDTH_PX) return false;
 	if (otherDrawerOpen) return false;
 	if (isOpen) {
 		return !isTouchOnGestureBlockingElementWhenOpen(target);

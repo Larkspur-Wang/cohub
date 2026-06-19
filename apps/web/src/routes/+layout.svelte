@@ -25,6 +25,7 @@ import {
 	shouldStartRightDrawerGesture,
 } from "$lib/gestures/drawer-swipe";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
@@ -147,7 +148,8 @@ function findTrackedTouch(touches: TouchList) {
 }
 
 function handleTouchStart(e: TouchEvent) {
-	if (window.innerWidth >= 1024 || activeTouchId !== null) return;
+	if (window.innerWidth >= DESKTOP_SHELL_MIN_WIDTH_PX || activeTouchId !== null)
+		return;
 	const touch = e.changedTouches[0];
 	if (!touch) return;
 
@@ -314,7 +316,7 @@ function handleTouchCancel(e: TouchEvent) {
 }
 
 function beginLeftSidebarResize(event: PointerEvent) {
-	if (window.innerWidth < 1024) return;
+	if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) return;
 	event.preventDefault();
 
 	const target = event.currentTarget as HTMLElement | null;

@@ -101,7 +101,7 @@ body.drawer-open {
  the mobile drawer. DevTools mobile emulation is less strict than real
  Android Chrome here, which explains why desktop simulation worked.
 */
-@media (max-width: 1023px) {
+@media (max-width: 959px) {
 	.mobile-drawer-gesture-surface {
 		touch-action: pan-y;
 	}

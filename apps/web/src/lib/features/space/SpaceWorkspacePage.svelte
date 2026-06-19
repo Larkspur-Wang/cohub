@@ -142,6 +142,10 @@ import {
 	parseResourceLabelRealtimePayload,
 	syncResourceLabelsToCache,
 } from "$lib/labels/resource-label-cache-sync";
+import {
+	COMPACT_SHELL_MAX_WIDTH_PX,
+	DESKTOP_SHELL_MIN_WIDTH_PX,
+} from "$lib/layout/breakpoints";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
@@ -361,15 +365,14 @@ const routeTurnSequence = $derived.by(() => {
 		? Math.floor(sequence)
 		: null;
 });
-const MOBILE_BREAKPOINT = 1024;
 let isMobile = $state(
 	typeof window !== "undefined"
-		? window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`).matches
+		? window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`).matches
 		: false,
 );
 $effect(() => {
 	if (typeof window === "undefined") return;
-	const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+	const mql = window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`);
 	const handler = (event: MediaQueryListEvent) => {
 		isMobile = event.matches;
 	};
@@ -6713,7 +6716,11 @@ function handleRemoveAttachment(id: string) {
 }
 function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
-	if (window.innerWidth < 1024 || uiState.rightSidebarCollapsed) return;
+	if (
+		window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX ||
+		uiState.rightSidebarCollapsed
+	)
+		return;
 	const target = event.currentTarget as HTMLElement | null;
 	target?.setPointerCapture?.(event.pointerId);
 	rightSidebarResizeCleanup?.();
@@ -6807,7 +6814,7 @@ function handlePreviewWindowResize() {
 }
 function beginPreviewPanelResize(event: PointerEvent) {
 	event.preventDefault();
-	if (window.innerWidth < 1024) return;
+	if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) return;
 	previewFocusMode = false;
 	previewFocusSnapshot = null;
 	const target = event.currentTarget as HTMLElement | null;
@@ -6836,7 +6843,7 @@ function beginPreviewPanelResize(event: PointerEvent) {
 	window.addEventListener("pointercancel", stop);
 }
 async function toggleRightSidebar() {
-	if (window.innerWidth < 1024) {
+	if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
 		uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
 		return;
 	}

@@ -42,7 +42,7 @@ const {
 		height: 100%;
 	}
 
-	@media (min-width: 1024px) {
+	@media (min-width: 960px) {
 		.workspace-preview-pane {
 			position: relative;
 			z-index: auto;
