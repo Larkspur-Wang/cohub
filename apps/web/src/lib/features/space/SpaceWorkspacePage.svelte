@@ -2274,12 +2274,15 @@ const browserTabTitle = $derived.by(() => {
 	const spaceTitle = normalizeTabTitleSegment(
 		space?.name || space?.title || spaceId,
 		"Space",
-		42,
+		36,
 	);
+	const spaceDescriptionTitle = space?.description?.trim()
+		? normalizeTabTitleSegment(space.description, "", 64)
+		: null;
 	const routeTitle = (() => {
 		if (routeView === "space") return null;
 		if (routeView === "session") {
-			if (isNewSessionRoute) return "New chat";
+			if (isNewSessionRoute) return null;
 			return activeSessionState?.session
 				? normalizeTabTitleSegment(
 						getSessionTitle(activeSessionState.session),
@@ -2311,8 +2314,9 @@ const browserTabTitle = $derived.by(() => {
 		if (routeView === "task") return "Task";
 		return null;
 	})();
-	return routeTitle
-		? `${routeTitle} · ${spaceTitle} — Cohub`
+	if (routeTitle) return `${routeTitle} · ${spaceTitle} — Cohub`;
+	return spaceDescriptionTitle
+		? `${spaceTitle} · ${spaceDescriptionTitle} — Cohub`
 		: `${spaceTitle} — Cohub`;
 });
 const bootstrapMeta = $derived.by(() => {
