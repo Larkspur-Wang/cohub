@@ -745,7 +745,7 @@ function mergeSessionSnapshotForDisplay(
 ) {
 	if (currentSessions.length === 0) return nextSessions;
 	return sortSessionsByRecentActivity(
-		mergeSessionRecords([...nextSessions, ...currentSessions]),
+		mergeSessionRecords([...currentSessions, ...nextSessions]),
 	);
 }
 
