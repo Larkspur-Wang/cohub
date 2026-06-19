@@ -6186,6 +6186,7 @@ async function handleSend() {
 			nextTurnId: acceptedTurn.id,
 			confirmedTurn: acceptedTurn,
 		});
+		if (sendResult.session) upsertSessionRecord(sendResult.session);
 		const current = sessionStateById[sessionId];
 		if (current) {
 			const snapshot = await sessionTurnsRepo.mergeTurns(

@@ -167,3 +167,32 @@ function getSessionParticipantLabel(participants: Participant[]) {
 		{badge}
 	</span>
 {/if}
+
+<style>
+	.session-activity-caret {
+		display: inline-block;
+		margin-left: 0.0625rem;
+		color: var(--color-brand);
+		font-size: 0.82em;
+		line-height: 1;
+		animation: session-activity-caret 1.15s steps(2, jump-none) infinite;
+	}
+
+	@keyframes session-activity-caret {
+		0%,
+		45% {
+			opacity: 1;
+		}
+		46%,
+		100% {
+			opacity: 0.28;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.session-activity-caret {
+			animation: none;
+			opacity: 0.85;
+		}
+	}
+</style>

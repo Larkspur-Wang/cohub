@@ -167,3 +167,58 @@ const hoverPaddingClass = $derived.by(() => {
 	{/if}
 </a>
 {/if}
+
+<style>
+	.session-fork-row {
+		padding-left: calc(0.5rem + var(--fork-indent, 0px));
+	}
+
+	.session-fork-row::before {
+		content: "";
+		position: absolute;
+		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
+		top: 0;
+		bottom: 0;
+		width: 1px;
+		border-radius: 999px;
+		background: color-mix(in oklab, var(--color-border-subtle) 82%, transparent);
+		opacity: 0.7;
+		pointer-events: none;
+	}
+
+	.session-fork-row::after {
+		content: "";
+		position: absolute;
+		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
+		top: 50%;
+		width: 9px;
+		height: 1px;
+		border-radius: 999px;
+		background: color-mix(in oklab, var(--color-border-subtle) 82%, transparent);
+		opacity: 0.8;
+		pointer-events: none;
+	}
+
+	.session-fork-row--last::before {
+		bottom: 50%;
+	}
+
+	@media (hover: hover) {
+		.session-fork-row:hover::before,
+		.session-fork-row:focus-within::before {
+			opacity: 0.95;
+			background: color-mix(in oklab, var(--color-brand) 28%, var(--color-border-subtle));
+		}
+	}
+
+	@media (max-width: 640px) {
+		.session-fork-row {
+			padding-left: calc(0.5rem + min(var(--fork-indent, 0px), 10px));
+		}
+
+		.session-fork-row::before,
+		.session-fork-row::after {
+			left: calc(0.45rem + min(var(--fork-indent, 0px), 10px) - 7px);
+		}
+	}
+</style>

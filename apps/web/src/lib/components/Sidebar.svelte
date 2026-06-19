@@ -4017,48 +4017,6 @@ $effect(() => {
 		color: var(--color-text-secondary);
 	}
 
-	.session-fork-row {
-		padding-left: calc(0.5rem + var(--fork-indent, 0px));
-	}
-
-	.session-fork-row::before {
-		content: "";
-		position: absolute;
-		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
-		top: 50%;
-		width: 8px;
-		height: 2px;
-		border-radius: 999px;
-		background: color-mix(
-			in oklab,
-			var(--color-brand) 34%,
-			var(--color-border-subtle)
-		);
-		opacity: 0.74;
-		transform: translateY(-50%);
-		pointer-events: none;
-	}
-
-	.session-fork-row::after {
-		content: "";
-		position: absolute;
-		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
-		top: 0.35rem;
-		bottom: 0.35rem;
-		width: 1px;
-		background: color-mix(
-			in oklab,
-			var(--color-brand) 24%,
-			var(--color-border-subtle)
-		);
-		opacity: 0.62;
-		pointer-events: none;
-	}
-
-	.session-fork-row--last::after {
-		bottom: 50%;
-	}
-
 	.session-activity-caret {
 		display: inline-block;
 		margin-left: 0.0625rem;
@@ -4086,26 +4044,4 @@ $effect(() => {
 		}
 	}
 
-	@media (hover: hover) {
-		.session-fork-row:hover::before,
-		.session-fork-row:focus-within::before {
-			opacity: 0.95;
-			background: color-mix(
-				in oklab,
-				var(--color-brand) 48%,
-				var(--color-text-placeholder)
-			);
-		}
-	}
-
-	@media (max-width: 640px) {
-		.session-fork-row {
-			padding-left: calc(0.5rem + min(var(--fork-indent, 0px), 10px));
-		}
-
-		.session-fork-row::before,
-		.session-fork-row::after {
-			left: calc(0.45rem + min(var(--fork-indent, 0px), 10px) - 7px);
-		}
-	}
 </style>
