@@ -2,6 +2,7 @@
 import type { CheckpointRecord } from "@neta-art/cohub";
 import { Link2Off } from "lucide-svelte";
 import SidebarActionButton from "$lib/components/sidebar/SidebarActionButton.svelte";
+import { formatCompactAbsoluteTime } from "$lib/time-format";
 
 const {
 	checkpoint,
@@ -21,9 +22,14 @@ const {
 	onRemoveLabel?: () => void;
 } = $props();
 
+function compactId(id: string) {
+	return id.length > 12 ? id.slice(0, 8) : id;
+}
+
 const title = $derived(
-	checkpoint.description || checkpoint.commitHash.slice(0, 12),
+	checkpoint.description?.trim() || `Save ${compactId(checkpoint.id)}`,
 );
+const createdAt = $derived(formatCompactAbsoluteTime(checkpoint.createdAt));
 </script>
 
 <a
@@ -33,11 +39,12 @@ const title = $derived(
 		event.preventDefault();
 		onNavigate(checkpoint);
 	}}
+	title={title}
 >
-	<div class="min-w-0 flex-1">
-		<div class="truncate leading-tight">{title}</div>
-		<div class="mt-0.5 font-mono text-[10px] text-text-placeholder">{checkpoint.commitHash.slice(0, 12)}</div>
-	</div>
+	<span class="flex min-w-0 flex-1 items-center gap-2 leading-tight">
+		<span class="min-w-0 flex-1 truncate leading-4">{title}</span>
+		<span class="shrink-0 tabular-nums text-[9.5px] font-normal leading-4 text-text-placeholder/70 group-hover/checkpoint:hidden group-focus-within/checkpoint:hidden">{createdAt}</span>
+	</span>
 	{#if onRemoveLabel}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/checkpoint:opacity-100 group-hover/checkpoint:pointer-events-auto group-focus-within/checkpoint:opacity-100 group-focus-within/checkpoint:pointer-events-auto">
 			<SidebarActionButton icon={Link2Off} title={removeLabelTitle ?? "Remove from label"} disabled={removeLabelDisabled} tone="danger" onClick={onRemoveLabel} />

@@ -48,12 +48,7 @@ const hoverPaddingClass = $derived(
 	title={subtitle ?? path}
 >
 	<FileIcon class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-	<div class="min-w-0 flex-1">
-		<div class="truncate leading-tight">{title}</div>
-		{#if subtitle}
-			<div class="mt-0.5 truncate text-[10px] text-text-placeholder">{subtitle}</div>
-		{/if}
-	</div>
+	<span class="min-w-0 flex-1 truncate leading-tight">{title}</span>
 	{#if !isMobile && actionCount > 0}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/file:opacity-100 group-hover/file:pointer-events-auto group-focus-within/file:opacity-100 group-focus-within/file:pointer-events-auto">
 			{#if onInsert}

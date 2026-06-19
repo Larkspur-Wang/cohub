@@ -2250,10 +2250,6 @@ function buildSidebarSessionItems(
 	return items;
 }
 
-function getCheckpointTitle(checkpoint: CheckpointRecord): string {
-	return checkpoint.description || checkpoint.commitHash.slice(0, 12);
-}
-
 async function handleLogout() {
 	onClose?.();
 	const commandPaletteRecentKey = `cohub:command-palette:recent:${encodeURIComponent(getCacheUserKey())}`;
@@ -3463,17 +3459,12 @@ $effect(() => {
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each checkpoints as checkpoint (checkpoint.id)}
-                    {@const isActive = activeCheckpointId === checkpoint.id}
-                    <a
+                    <SidebarCheckpointRow
+                      {checkpoint}
                       href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
-                      class="group/checkpoint relative flex items-center gap-2 overflow-hidden px-1.5 py-1.5 pr-4 hover:pr-12 focus-within:pr-12 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-                      onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(checkpoint.id); }}
-                    >
-                      <div class="min-w-0 flex-1">
-                        <div class="truncate leading-tight">{getCheckpointTitle(checkpoint)}</div>
-                        <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{checkpoint.commitHash.slice(0, 12)}</div>
-                      </div>
-                    </a>
+                      active={activeCheckpointId === checkpoint.id}
+                      onNavigate={(target) => void handleNavigateToCheckpoint(target.id)}
+                    />
                   {/each}
                   {#if checkpointsPageInfo.hasMore && checkpointsPageInfo.nextCursor}
                     <button
@@ -3493,16 +3484,14 @@ $effect(() => {
                 </div>
               {/if}
             {:else if activeCheckpoint}
-              <a
-                href={buildSpaceCheckpointRoute(currentSpaceId!, activeCheckpoint.id)}
-                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
-                onclick={(e) => { e.preventDefault(); handleNavigateToCheckpoint(activeCheckpoint.id); }}
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="truncate leading-tight">{getCheckpointTitle(activeCheckpoint)}</div>
-                  <div class="mt-0.5 text-[10px] text-text-placeholder font-mono">{activeCheckpoint.commitHash.slice(0, 12)}</div>
-                </div>
-              </a>
+              <div class="mt-1">
+                <SidebarCheckpointRow
+                  checkpoint={activeCheckpoint}
+                  href={buildSpaceCheckpointRoute(currentSpaceId!, activeCheckpoint.id)}
+                  active={true}
+                  onNavigate={(target) => void handleNavigateToCheckpoint(target.id)}
+                />
+              </div>
             {/if}
           </div>
 
