@@ -76,10 +76,12 @@ function publish(config: SpaceConfig | null) {
 	for (const listener of listeners) listener(config);
 }
 
-function parseHttpsUrl(value: unknown) {
+function parseBackgroundUrl(value: unknown) {
 	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
 	try {
-		const url = new URL(value);
+		const url = new URL(trimmed);
 		return url.protocol === "https:" ? url.href : null;
 	} catch {
 		return null;
@@ -100,7 +102,7 @@ function parseBackground(value: unknown): NewChatBackgroundConfig | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const record = value as Record<string, unknown>;
 	if (record.enabled === false) return undefined;
-	const url = parseHttpsUrl(record.url);
+	const url = parseBackgroundUrl(record.url);
 	if (!url) return undefined;
 	const type =
 		record.type === "image" || record.type === "video" || record.type === "html"

@@ -1,9 +1,10 @@
 <script lang="ts">
-import type {
-	NewChatBackgroundConfig,
-	NewChatComposerApplyPayload,
-} from "$lib/space-config";
+import { page } from "$app/state";
+import NewChatWorkBackground from "$lib/components/NewChatWorkBackground.svelte";
+import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
+import type { NewChatBackgroundConfig } from "$lib/space-config";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
+import { parseCohubWorkUrl } from "$lib/work-url";
 
 type Props = {
 	background: NewChatBackgroundConfig;
@@ -14,57 +15,22 @@ const { background }: Props = $props();
 const objectFit = $derived(background.fit === "fill" ? "fill" : background.fit);
 let iframeEl = $state<HTMLIFrameElement | null>(null);
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value && typeof value === "object");
-}
-
-function isHttpsUrl(value: unknown) {
-	if (typeof value !== "string") return false;
-	try {
-		return new URL(value).protocol === "https:";
-	} catch {
-		return false;
-	}
-}
-
-function parseComposerPayload(
-	value: unknown,
-): NewChatComposerApplyPayload | null {
-	if (!isRecord(value)) return null;
-	const payload: NewChatComposerApplyPayload = {};
-	if (typeof value.prompt === "string") payload.prompt = value.prompt;
-	if (isRecord(value.model)) {
-		const { provider, id } = value.model;
-		if (typeof provider === "string" && typeof id === "string") {
-			payload.model = { provider, id };
-		}
-	}
-	if (Array.isArray(value.images)) {
-		payload.images = value.images.filter(isRecord).flatMap((image) => {
-			if (!isHttpsUrl(image.url)) return [];
-			return [
-				{
-					url: String(image.url),
-					name: typeof image.name === "string" ? image.name : undefined,
-				},
-			];
-		});
-	}
-	return payload.prompt !== undefined || payload.model || payload.images?.length
-		? payload
-		: null;
-}
-
 function getBackgroundOrigin() {
 	try {
-		return new URL(background.url).origin;
+		return new URL(background.url, page.url.href).origin;
 	} catch {
 		return null;
 	}
 }
 
+const workUrl = $derived(
+	background.type === "html"
+		? parseCohubWorkUrl(background.url, page.url.href)
+		: null,
+);
+
 const sandbox = $derived.by(() => {
-	if (background.type !== "html") return undefined;
+	if (background.type !== "html" || workUrl) return undefined;
 	const origin = getBackgroundOrigin();
 	if (typeof window !== "undefined" && origin === window.location.origin) {
 		return "allow-scripts";
@@ -74,7 +40,7 @@ const sandbox = $derived.by(() => {
 
 $effect(() => {
 	if (typeof document === "undefined") return;
-	if (background.type !== "html") return;
+	if (background.type !== "html" || workUrl) return;
 	const origin = getBackgroundOrigin();
 	if (!origin) return;
 	const link = document.createElement("link");
@@ -86,22 +52,19 @@ $effect(() => {
 });
 
 function handleMessage(event: MessageEvent) {
-	if (background.type !== "html") return;
+	if (background.type !== "html" || workUrl) return;
 	if (event.source !== iframeEl?.contentWindow) return;
 	const origin = getBackgroundOrigin();
 	if (!origin) return;
 	if (event.origin !== origin && event.origin !== "null") return;
-	if (!isRecord(event.data)) return;
-	if (event.data.source !== "cohub.newChat") return;
-	if (event.data.version !== 1) return;
-	if (event.data.type !== "composer.apply") return;
-	const payload = parseComposerPayload(event.data.payload);
+	const payload = parseNewChatBackgroundAction(event.data);
 	if (!payload) return;
 	emitSpaceConfigBackgroundAction(payload);
 }
 
 $effect(() => {
-	if (typeof window === "undefined" || background.type !== "html") return;
+	if (typeof window === "undefined" || background.type !== "html" || workUrl)
+		return;
 	window.addEventListener("message", handleMessage);
 	return () => window.removeEventListener("message", handleMessage);
 });
@@ -112,6 +75,8 @@ $effect(() => {
     <img src={background.url} alt="" style:object-fit={objectFit} style:object-position={background.position} draggable="false" />
   {:else if background.type === "video"}
     <video src={background.url} style:object-fit={objectFit} style:object-position={background.position} autoplay muted loop playsinline preload="metadata"></video>
+  {:else if workUrl}
+    <NewChatWorkBackground workUrl={workUrl} />
   {:else}
     <iframe bind:this={iframeEl} src={background.url} title="New chat background" sandbox={sandbox} referrerpolicy="no-referrer" loading="eager"></iframe>
   {/if}
