@@ -170,6 +170,11 @@ const hoverPaddingClass = $derived.by(() => {
 
 <style>
 	.session-fork-row {
+		--session-fork-line: color-mix(
+			in oklab,
+			var(--color-brand) 34%,
+			var(--color-border-subtle)
+		);
 		padding-left: calc(0.5rem + var(--fork-indent, 0px));
 	}
 
@@ -177,12 +182,13 @@ const hoverPaddingClass = $derived.by(() => {
 		content: "";
 		position: absolute;
 		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
-		top: 0;
-		bottom: 0;
-		width: 1px;
+		top: 50%;
+		width: 8px;
+		height: 2px;
 		border-radius: 999px;
-		background: color-mix(in oklab, var(--color-border-subtle) 82%, transparent);
-		opacity: 0.7;
+		background: var(--session-fork-line);
+		opacity: 0.8;
+		transform: translateY(-50%);
 		pointer-events: none;
 	}
 
@@ -190,24 +196,33 @@ const hoverPaddingClass = $derived.by(() => {
 		content: "";
 		position: absolute;
 		left: calc(0.45rem + var(--fork-indent, 0px) - 7px);
-		top: 50%;
-		width: 9px;
-		height: 1px;
-		border-radius: 999px;
-		background: color-mix(in oklab, var(--color-border-subtle) 82%, transparent);
+		top: 0.35rem;
+		bottom: 0.35rem;
+		width: 1px;
+		background: var(--session-fork-line);
 		opacity: 0.8;
 		pointer-events: none;
 	}
 
-	.session-fork-row--last::before {
+	.session-fork-row--last::after {
 		bottom: 50%;
 	}
 
 	@media (hover: hover) {
+		.session-fork-row:hover,
+		.session-fork-row:focus-within {
+			--session-fork-line: color-mix(
+				in oklab,
+				var(--color-brand) 48%,
+				var(--color-text-placeholder)
+			);
+		}
+
 		.session-fork-row:hover::before,
-		.session-fork-row:focus-within::before {
+		.session-fork-row:hover::after,
+		.session-fork-row:focus-within::before,
+		.session-fork-row:focus-within::after {
 			opacity: 0.95;
-			background: color-mix(in oklab, var(--color-brand) 28%, var(--color-border-subtle));
 		}
 	}
 
