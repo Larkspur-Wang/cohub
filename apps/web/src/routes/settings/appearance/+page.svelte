@@ -1,7 +1,8 @@
 <script lang="ts">
 import { Monitor, Moon, Palette, Sun } from "lucide-svelte";
-import { getTheme, setTheme } from "$lib/theme.svelte";
+import { getTheme } from "$lib/theme.svelte";
 import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
+import { setThemeWithTransition } from "$lib/theme-transition";
 
 // Reactive — reads from $state-backed store, auto-updates on system changes
 const mode = $derived(getTheme());
@@ -14,8 +15,8 @@ const themeIcon = {
 	system: Monitor,
 } satisfies Record<ThemeMode, typeof Sun>;
 
-function handleThemeChange(mode: ThemeMode) {
-	setTheme(mode);
+function handleThemeChange(mode: ThemeMode, event: MouseEvent) {
+	setThemeWithTransition(mode, event);
 }
 
 // An option is active when it matches the stored mode. System remains
@@ -48,7 +49,7 @@ function isActive(option: ThemeMode): boolean {
                 ? 'border-brand/40 bg-brand-bg'
                 : 'border-border-subtle bg-bg-surface hover:bg-bg-surface-hover'
             }"
-            onclick={() => handleThemeChange(option.value)}
+            onclick={(event) => handleThemeChange(option.value, event)}
           >
             <div class="w-9 h-9 rounded-[5px] flex items-center justify-center shrink-0 {
               active

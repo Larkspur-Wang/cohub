@@ -99,3 +99,40 @@
 	--color-status-hibernating: var(--info-400);
 	--color-status-unknown: var(--text-placeholder);
 }
+
+/* Theme switch transition — only enabled for explicit settings clicks. */
+:root {
+	--theme-transition-x: 50vw;
+	--theme-transition-y: 50vh;
+	--theme-transition-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html[data-theme-transition="circle"]::view-transition-group(root) {
+	animation-duration: 240ms;
+	animation-timing-function: var(--theme-transition-ease);
+}
+
+html[data-theme-transition="circle"]::view-transition-old(root) {
+	animation: none;
+	mix-blend-mode: normal;
+}
+
+html[data-theme-transition="circle"]::view-transition-new(root) {
+	animation: theme-circle-reveal 240ms var(--theme-transition-ease) both;
+	clip-path: circle(0 at var(--theme-transition-x) var(--theme-transition-y));
+	mix-blend-mode: normal;
+}
+
+@keyframes theme-circle-reveal {
+	to {
+		clip-path: circle(150vmax at var(--theme-transition-x) var(--theme-transition-y));
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html[data-theme-transition="circle"]::view-transition-group(root),
+	html[data-theme-transition="circle"]::view-transition-old(root),
+	html[data-theme-transition="circle"]::view-transition-new(root) {
+		animation-duration: 1ms;
+	}
+}

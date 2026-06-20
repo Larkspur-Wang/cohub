@@ -21,8 +21,9 @@ import { uploadUserAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validateUsernameInput } from "$lib/slug-rules";
 import { authStore } from "$lib/stores/auth.svelte";
-import { getTheme, setTheme } from "$lib/theme.svelte";
+import { getTheme } from "$lib/theme.svelte";
 import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
+import { setThemeWithTransition } from "$lib/theme-transition";
 
 const mode = $derived(getTheme());
 const currentPath = $derived(page.url.pathname);
@@ -56,8 +57,8 @@ const themeIcon = {
 	system: Monitor,
 } satisfies Record<ThemeMode, typeof Sun>;
 
-function handleThemeChange(mode: ThemeMode) {
-	setTheme(mode);
+function handleThemeChange(mode: ThemeMode, event: MouseEvent) {
+	setThemeWithTransition(mode, event);
 }
 
 function isThemeActive(option: ThemeMode): boolean {
@@ -343,7 +344,7 @@ onMount(() => {
 						<button
 							type="button"
 							class="group flex min-w-0 items-center gap-2 rounded-[6px] px-3 py-2.5 text-left transition-colors duration-100 {active ? 'bg-brand-bg text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-							onclick={() => handleThemeChange(option.value)}
+							onclick={(event) => handleThemeChange(option.value, event)}
 						>
 							<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] {active ? 'bg-brand/15 text-brand' : 'bg-bg-hover-strong text-text-tertiary group-hover:text-text-secondary'}">
 								<Icon class="w-3.5 h-3.5" />
