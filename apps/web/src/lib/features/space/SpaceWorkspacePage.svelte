@@ -264,6 +264,7 @@ import {
 	entriesFromFiles,
 	type LocalUploadEntry,
 } from "$lib/upload-entries";
+import CanvasPreviewPanel from "./modules/CanvasPreviewPanel.svelte";
 import CheckpointView from "./modules/CheckpointView.svelte";
 import CronjobView from "./modules/CronjobView.svelte";
 import {
@@ -276,6 +277,7 @@ import {
 	promptTextFromPayload,
 	validateCronjobForm,
 } from "./modules/cronjob-utils";
+import FilesSidebarPanel from "./modules/FilesSidebarPanel.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
 import {
 	buildFsEntry,
@@ -288,6 +290,9 @@ import {
 	replaceNodeChildren,
 	updateNodeState,
 } from "./modules/file-workspace-utils";
+import InlineFilePanel from "./modules/InlineFilePanel.svelte";
+import PortPreviewPanel from "./modules/PortPreviewPanel.svelte";
+import SessionWorkspace from "./modules/SessionWorkspace.svelte";
 import {
 	areSessionTurnRecordsEqual,
 	areSessionTurnsEqual,
@@ -8887,678 +8892,207 @@ $effect(() => {
         onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
       />
     {:else}
-      <!-- Chat -->
-    {#if spaceLoadError && !spaceHasMinimalAccess}
-      <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
-    {/if}
-    {#if createSessionError}
-      <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
-    {/if}
-    {#if bootstrapping && !activeSessionState && !isNewSessionRoute}
-      <CenteredLoading label="Loading space…" />
-    {:else if !activeSessionState}
-      <div class="flex-1 flex flex-col items-center justify-center text-text-tertiary gap-4">
-        <div class="text-[14px]">No chat selected</div>
-        {#if !spaceHasMinimalAccess}
-          <button
-            type="button"
-            class="flex items-center gap-1.5 px-3 py-2 rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary transition-colors duration-100 disabled:opacity-50"
-            onclick={() => handleCreateNewSession()}
-            disabled={!canCreateSession}
-          >
-            <Plus class="w-3.5 h-3.5" />
-            Create a session
-          </button>
-        {/if}
-      </div>
-    {:else if activeSessionState.loading && !activeSessionState.loaded && activeSessionInitialLoadingVisible}
-      <CenteredLoading label="Loading turns…" />
-    {:else}
-      {#if activeSessionState.error}
-        <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
-          {activeSessionState.error}
-        </div>
-      {/if}
-      <div class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
-        {#if shouldShowNewChatBackground && newChatBackground}
-          <NewChatBackground background={newChatBackground} />
-          <div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
-        {:else if shouldShowNewChatProfile}
-          <div bind:this={newChatProfileViewportEl} class="flex-1 min-h-0 overflow-hidden sm:overflow-y-auto" class:overflow-y-auto={newChatProfileExpanded}>
-            {@render NewChatSpaceProfile()}
-          </div>
-        {:else}
-          <ChatTimeline
-              bind:this={chatTimelineRef}
-              bind:bindListEl={listEl}
-              timeline={timeline}
-              preloadThreshold={10}
-              onFirstVisible={handleFirstVisible}
-              onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
-              onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
-              onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
-              onMarkdownRendered={handleTimelineMarkdownRendered}
-              onForkTurn={handleForkTurn}
-              forkingTurnId={forkingTurnId}
-              loading={activeSessionInitialLoadingVisible}
-              loadingOlder={activeSessionState?.loadingOlder ?? false}
-              onOpenFile={openInlineFile}
-              modelsCatalog={modelsCatalog ?? undefined}
-            />
-        {/if}
-          <SessionTaskTray
-            notices={sessionTaskNotices}
-            hasMore={sessionTaskHasMore}
-            loadingMore={sessionTaskRecentLoading}
-            onExpand={handleSessionTaskTrayExpand}
-            onLoadMore={handleSessionTaskTrayLoadMore}
-            onOpenGenerationMedia={handleOpenGenerationTaskMedia}
-          />
-          {#if followupQueue.length > 0}
-            <div class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6">
-              <div class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder">
-                <span class="font-medium text-text-secondary">Follow-up</span>
-                <span>{followupQueue.length} queued</span>
-              </div>
-              <div class="max-h-[min(22dvh,9rem)] space-y-1 overflow-y-auto overscroll-contain pr-1 sm:max-h-[min(28vh,12rem)]">
-                {#each followupQueue as turn (turn.id)}
-                  <div class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60">
-                    <div class="min-w-0 flex-1 truncate">{turnPreviewText(turn)}</div>
-                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-secondary hover:bg-bg-surface hover:text-text-primary disabled:cursor-default disabled:opacity-50" disabled={pendingFollowupActionIds.has(turn.id)} onclick={() => { void handleSteerFollowup(turn.id); }}>Steer now</button>
-                    <button type="button" class="shrink-0 rounded px-1.5 py-1 text-text-placeholder hover:bg-bg-surface hover:text-text-secondary disabled:cursor-default disabled:opacity-50" disabled={pendingFollowupActionIds.has(turn.id)} onclick={() => { void handleCancelFollowup(turn.id); }}>Cancel</button>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
-          <TurnRail
-            turns={activeTurnRailItems}
-            loadedTurns={activeSessionState.turns}
-            markerPositions={turnMarkerPositions}
-            markerHeights={turnMarkerHeights}
-            scrollTop={timelineScrollTop}
-            scrollHeight={timelineScrollHeight}
-            clientHeight={timelineClientHeight}
-            bottomOffset={composerHeight}
-            olderCount={unloadedOlderTurnCount}
-            newerCount={unloadedNewerTurnCount}
-            hasMoreOlder={activeSessionState.hasMore}
-            hasMoreNewer={activeSessionState.hasMoreNewer}
-            loadingOlder={activeSessionState.loadingOlder}
-            loadingNewer={activeSessionState.loadingNewer}
-            currentSequence={currentTurnSequence}
-            loadingSequence={loadingTurnSequence}
-            onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
-            onScrollTo={(scrollTop) => { setProgrammaticScrollTop(scrollTop); }}
-            onScrollCommit={() => { snapScrollToNearestTurn(); }}
-            onLoadOlder={() => { if (activeSessionId) void loadOlderTurns(activeSessionId); }}
-            onLoadNewer={() => { if (activeSessionId) void syncSessionNewer(activeSessionId, null); }}
-          />
-        {#if highlightedTurnSequence}
-          <div class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-px bg-brand/70"></div>
-        {/if}
-        {#if hasUnread || !shouldAutoFollow || activeTurnRailItems.length > 1}
-          <div class={`pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 ${!hasUnread && shouldAutoFollow ? 'lg:hidden' : ''}`}
-            style:bottom={`${Math.max(composerHeight + 12, 96)}px`}
-            style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);">
-            <div class="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border-subtle/80 bg-bg-primary/95 p-1 shadow-[0_4px_18px_rgba(0,0,0,0.16)] backdrop-blur-sm">
-              {#if hasUnread}
-                <button
-                  type="button"
-                  aria-label="Jump to new messages"
-                  class="flex h-7 items-center justify-center rounded-full bg-brand px-2.5 text-[11px] font-semibold leading-none text-brand-contrast-fg transition-colors duration-150 hover:bg-brand-hover active:scale-95"
-                  onclick={() => {
-                    shouldAutoFollow = true;
-                    void forceScrollToBottom();
-                  }}
-                >
-                  New
-                </button>
-              {/if}
-              {#if !shouldAutoFollow}
-                <button
-                  type="button"
-                  aria-label="Jump to bottom"
-                  class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95"
-                  onclick={() => {
-                    shouldAutoFollow = true;
-                    void forceScrollToBottom();
-                  }}
-                >
-                  <ArrowDown class="w-4 h-4" />
-                </button>
-              {/if}
-              {#if activeTurnRailItems.length > 1}
-                <button
-                  type="button"
-                  aria-label="Open turn list"
-                  class="flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary active:scale-95 lg:hidden"
-                  onclick={() => { showTurnBottomSheet = true; if (activeSessionId) void loadTurnIndex(activeSessionId, true); }}
-                >
-                  <ListTree class="w-4 h-4" />
-                </button>
-              {/if}
-            </div>
-          </div>
-        {/if}
-        <TurnBottomSheet
-          open={showTurnBottomSheet}
-          turns={activeTurnRailItems}
-          currentSequence={currentTurnSequence}
-          onClose={() => { showTurnBottomSheet = false; }}
-          onJump={(sequence) => { void jumpToTurnAndUpdateUrl(sequence); }}
-        />
-        <div bind:this={composerHostEl} class:relative={shouldShowNewChatBackground} class:z-10={shouldShowNewChatBackground}>
-          <SessionComposer
-            bind:value={input}
-            disabled={!activeSessionState && !isNewSessionRoute}
-            sending={sending}
-            isRunning={activeSessionIsRunning}
-            aborting={aborting}
-            streamError={composerNotice}
-            showBillingAction={composerShowsBillingAction}
-            attachments={attachments}
-            currentModel={activeSessionModel}
-            currentSpaceId={spaceId}
-            mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
-            promptTemplates={promptTemplates}
-            promptTemplatesLoaded={promptTemplatesLoaded}
-            onpickattachment={handlePickAttachments}
-            onremoveattachment={handleRemoveAttachment}
-            onsubmit={handleSend}
-            onabort={handleAbort}
-            onModelSelect={() => {
-              void loadModelsCatalog();
-              void loadGenerationModelsCatalog();
-              showModelSelector = true;
-            }}
-          />
-        </div>
-      </div>
-    {/if}
-  {/if}
-  </div>
-  <!-- Inline file panel — desktop: side panel, mobile: full-screen overlay -->
+      <SessionWorkspace
+        {spaceId}
+        {spaceLoadError}
+        {spaceHasMinimalAccess}
+        {createSessionError}
+        {bootstrapping}
+        {activeSessionState}
+        {activeSessionInitialLoadingVisible}
+        {isNewSessionRoute}
+        {canCreateSession}
+        {handleCreateNewSession}
+        {shouldShowNewChatBackground}
+        {newChatBackground}
+        {shouldShowNewChatProfile}
+        bind:newChatProfileViewportEl
+        {newChatProfileExpanded}
+        bind:chatTimelineRef
+        bind:listEl
+        {timeline}
+        {handleFirstVisible}
+        {handleTimelineMarkdownRenderStart}
+        {handleTimelineMarkdownRendered}
+        {handleForkTurn}
+        {forkingTurnId}
+        {openInlineFile}
+        {modelsCatalog}
+        {sessionTaskNotices}
+        {sessionTaskHasMore}
+        {sessionTaskRecentLoading}
+        {handleSessionTaskTrayExpand}
+        {handleSessionTaskTrayLoadMore}
+        {handleOpenGenerationTaskMedia}
+        {followupQueue}
+        {turnPreviewText}
+        {pendingFollowupActionIds}
+        {handleSteerFollowup}
+        {handleCancelFollowup}
+        {activeTurnRailItems}
+        {turnMarkerPositions}
+        {turnMarkerHeights}
+        {timelineScrollTop}
+        {timelineScrollHeight}
+        {timelineClientHeight}
+        {composerHeight}
+        {unloadedOlderTurnCount}
+        {unloadedNewerTurnCount}
+        {currentTurnSequence}
+        {loadingTurnSequence}
+        {jumpToTurnAndUpdateUrl}
+        {setProgrammaticScrollTop}
+        {snapScrollToNearestTurn}
+        {activeSessionId}
+        {loadOlderTurns}
+        {syncSessionNewer}
+        {highlightedTurnSequence}
+        {hasUnread}
+        bind:shouldAutoFollow
+        {forceScrollToBottom}
+        bind:showTurnBottomSheet
+        {loadTurnIndex}
+        bind:composerHostEl
+        bind:input
+        {sending}
+        {activeSessionIsRunning}
+        {aborting}
+        {composerNotice}
+        {composerShowsBillingAction}
+        {attachments}
+        {activeSessionModel}
+        {promptTemplates}
+        {promptTemplatesLoaded}
+        {handlePickAttachments}
+        {handleRemoveAttachment}
+        {handleSend}
+        {handleAbort}
+        {loadModelsCatalog}
+        {loadGenerationModelsCatalog}
+        bind:showModelSelector
+      >
+        {#snippet newChatProfile()}
+          {@render NewChatSpaceProfile()}
+        {/snippet}
+      </SessionWorkspace>
   {#if inlineFile}
-    <!-- Mobile full-screen overlay -->
-    <div class="lg:hidden fixed inset-0 z-50 flex flex-col bg-bg-content">
-      <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0 bg-bg-surface">
-        <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-          <X class="w-5 h-5" />
-        </button>
-        <div class="min-w-0 flex-1 truncate text-sm text-text-secondary">
-          {#if inlineFile.response}{inlineFile.response.path}{:else}{inlineFile.path}{/if}
-        </div>
-        {@render FileHeaderCoreActions(inlineFile.path)}
-      </div>
-      {#if inlineFile.loading}
-        {@render PanelLoadingState("Loading file…")}
-      {:else if inlineFile.error}
-        <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-sm text-error-soft">
-          {inlineFile.error}
-        </div>
-      {:else if inlineFile.tooLarge}
-        <div class="flex flex-1 items-center justify-center">
-          <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
-            <div class="text-4xl mb-3">📦</div>
-            <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
-            <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
-              <Download class="w-3.5 h-3.5" />
-              Download file
-            </a>
-          </div>
-        </div>
-      {:else if inlineFile.response}
-        {#if inlineFileIsText}
-          <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
-            {#if inlineFileHasRenderedPreview}
-              <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
-                <button type="button" class="segmented-btn" class:active={inlineFileEdit} onclick={() => inlineFileEdit = true} title="Edit source">Source</button>
-                <button type="button" class="segmented-btn" class:active={!inlineFileEdit} onclick={() => inlineFileEdit = false} title={inlineFileIsMarkdown ? "Preview markdown" : "Preview HTML"}>Preview</button>
-              </div>
-            {/if}
-            <div class="flex-1"></div>
-            <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
-              {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
-            </button>
-            {#if !activeFsReadonly}
-              <button type="button" class="action-btn" onclick={() => void saveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles} title="Save">
-                <Save class="w-4 h-4 shrink-0" />
-              </button>
-            {:else}
-              <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
-            {/if}
-          </div>
-          <div class="flex-1 min-h-0">
-            {#if inlineFileEdit}
-              {#await import("$lib/components/CodeEditor.svelte") then editorModule}
-                {@const LazyCodeEditor = editorModule.default}
-                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles || activeFsReadonly} />
-              {:catch}
-                <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-              {/await}
-            {:else if inlineFileHasRenderedPreview}
-              {#await import("$lib/components/RenderedFilePreview.svelte") then previewModule}
-                {@const LazyRenderedFilePreview = previewModule.default}
-                <LazyRenderedFilePreview
-                  name={inlineFile.response.name}
-                  source={inlineFile.draft}
-                  type={inlineFileIsMarkdown ? "markdown" : "html"}
-                />
-              {:catch}
-                <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
-              {/await}
-            {:else}
-              {#await import("$lib/components/CodeEditor.svelte") then editorModule}
-                {@const LazyCodeEditor = editorModule.default}
-                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} readonly={true} />
-              {:catch}
-                <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-              {/await}
-            {/if}
-          </div>
-        {:else if inlineFileIsImage && inlineFileDataUrl}
-          <div class="flex flex-1 items-center justify-center overflow-hidden p-4">
-            <img src={inlineFileDataUrl} alt={inlineFile.response.name} class="max-h-full max-w-full rounded-md" />
-          </div>
-        {:else if inlineFileIsVideo && inlineFileDataUrl}
-          <div class="flex flex-1 items-center justify-center p-4">
-            <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
-              <track kind="captions" />
-            </video>
-          </div>
-        {:else}
-          <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-sm text-text-secondary">
-            <div><strong>Name:</strong> {inlineFile.response.name}</div>
-            <div><strong>Type:</strong> {inlineFile.response.mimeType ?? 'application/octet-stream'}</div>
-            <div><strong>Size:</strong> {formatFileSize(inlineFile.response.size)}</div>
-            <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
-            <div class="mt-3">
-              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
-                <Download class="w-3.5 h-3.5" />
-                Download file
-              </a>
-            </div>
-          </div>
-        {/if}
-      {:else}
-        <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">No file selected</div>
-      {/if}
-    </div>
-    <!-- Desktop side panel -->
-    <WorkspacePreviewPane
-      desktopOnly={true}
-      width={previewPanelWidth}
-      ariaLabel="File preview"
-      onResizeStart={beginPreviewPanelResize}
-    >
-      <div class="flex h-full min-w-0 flex-col bg-bg-content">
-        {#if inlineFile.loading}
-          <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
-            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
-            <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-          {@render PanelLoadingState("Loading file…")}
-        {:else if inlineFile.error}
-          <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
-            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
-            <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-          <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-xs text-error-soft">
-            {inlineFile.error}
-          </div>
-        {:else if inlineFile.tooLarge}
-          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
-            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
-            <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-          <div class="flex flex-1 items-center justify-center">
-            <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
-              <div class="text-4xl mb-3">📦</div>
-              <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
-              <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void downloadInlineFile(); }}>
-                <Download class="w-3.5 h-3.5" />
-                Download file
-              </a>
-            </div>
-          </div>
-        {:else if inlineFile.response}
-          {#if inlineFileIsText}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
-              </div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {#if inlineFileIsHtml && !inlineFileEdit}
-                <button type="button" class="action-btn" onclick={publishInlineFile} title="Publish work">
-                  <Rocket class="w-3.5 h-3.5 shrink-0" />
-                  <span class="hidden sm:inline">Publish</span>
-                </button>
-              {/if}
-              {#if inlineFileHasRenderedPreview}
-                <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    class:active={inlineFileEdit}
-                    onclick={() => inlineFileEdit = true}
-                    title="Edit source"
-                  >
-                    Source
-                  </button>
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    class:active={!inlineFileEdit}
-                    onclick={() => inlineFileEdit = false}
-                    title={inlineFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
-                  >
-                    Preview
-                  </button>
-                </div>
-              {/if}
-              <button type="button" class="icon-btn" onclick={() => void copyInlineFileContent()} title="Copy content">
-                {#if inlineFileCopied}
-                  <Check class="w-4 h-4 text-success-soft" />
-                {:else}
-                  <Copy class="w-4 h-4" />
-                {/if}
-              </button>
-              <button
-                type="button"
-                class="action-btn"
-                onclick={() => void saveInlineFile()}
-                disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles}
-                title="Save (Ctrl+S)"
-              >
-                <Save class="w-3.5 h-3.5 shrink-0" />
-                <span class="hidden sm:inline">Save</span>
-              </button>
-              {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="flex-1 min-h-0">
-              {#if inlineFileEdit}
-                {#await import("$lib/components/CodeEditor.svelte") then editorModule}
-                  {@const LazyCodeEditor = editorModule.default}
-                  <LazyCodeEditor
-                    value={inlineFile.draft}
-                    language={inlineFileExt}
-                    onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
-                    readonly={!canEditFiles}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-                {/await}
-              {:else if inlineFileHasRenderedPreview}
-                {#await import("$lib/components/RenderedFilePreview.svelte") then previewModule}
-                  {@const LazyRenderedFilePreview = previewModule.default}
-                  <LazyRenderedFilePreview
-                    name={inlineFile.response.name}
-                    source={inlineFile.draft}
-                    type={inlineFileIsMarkdown ? "markdown" : "html"}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
-                {/await}
-              {:else}
-                {#await import("$lib/components/CodeEditor.svelte") then editorModule}
-                  {@const LazyCodeEditor = editorModule.default}
-                  <LazyCodeEditor
-                    value={inlineFile.draft}
-                    language={inlineFileExt}
-                    readonly={true}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-                {/await}
-              {/if}
-            </div>
-          {:else if inlineFileIsImage && inlineFileDataUrl}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
-              </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
-              <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              <span class="text-xs text-text-tertiary tabular-nums w-10 text-center">{Math.round(inlineFileZoom * 100)}%</span>
-              <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
-              if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
-                inlineFilePanX = 0;
-                inlineFilePanY = 0;
-              }
-            }} ondblclick={() => { inlineFileZoom = 1; inlineFilePanX = 0; inlineFilePanY = 0; }} onmousedown={inlineFilePanHandlers.start} style={inlineFileDragging ? 'cursor: grabbing;' : (inlineFileZoom > 1 ? 'cursor: grab;' : '')}>
-              <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
-            </div>
-          {:else if inlineFileIsVideo && inlineFileDataUrl}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
-              </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="flex flex-1 items-center justify-center p-4">
-              <video src={inlineFileDataUrl} controls class="max-h-full max-w-full rounded-md">
-                <track kind="captions" />
-              </video>
-            </div>
-          {:else}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
-              </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={closeInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-xs text-text-secondary">
-              <div><strong>Name:</strong> {inlineFile.response.name}</div>
-              <div><strong>Type:</strong> {inlineFile.response.mimeType ?? 'application/octet-stream'}</div>
-              <div><strong>Size:</strong> {inlineFile.response.size} bytes</div>
-              <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
-            </div>
-          {/if}
-        {:else}
-          <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
-        {/if}
-      </div>
-    </WorkspacePreviewPane>
+    <InlineFilePanel
+      {inlineFile}
+      {inlineFileDownloadUrl}
+      {inlineFileDownloadName}
+      {inlineFileIsText}
+      {inlineFileHasRenderedPreview}
+      bind:inlineFileEdit
+      {inlineFileIsMarkdown}
+      {inlineFileIsHtml}
+      {inlineFileDirty}
+      {activeFsReadonly}
+      {canEditFiles}
+      {inlineFileCopied}
+      {inlineFileExt}
+      {inlineFileIsImage}
+      {inlineFileIsVideo}
+      {inlineFileDataUrl}
+      {previewPanelWidth}
+      {previewFocusMode}
+      {isMobile}
+      bind:fileActionMenuOpenPath
+      bind:inlineFileZoom
+      bind:inlineFilePanX
+      bind:inlineFilePanY
+      {inlineFileDragging}
+      {inlineFilePanHandlers}
+      onCloseInlineFile={closeInlineFile}
+      onDownloadInlineFile={downloadInlineFile}
+      onCopyInlineFileContent={copyInlineFileContent}
+      onSaveInlineFile={saveInlineFile}
+      onPublishInlineFile={publishInlineFile}
+      onPreviewResizeStart={beginPreviewPanelResize}
+      onTogglePreviewFocusMode={togglePreviewFocusMode}
+      onLabelFile={(path) => editResourceLabels('file', path)}
+      onInsertFilePathReference={insertFilePathReference}
+      onDownloadFilePath={(path) => handleDownloadNode(getFileActionNode(path))}
+      onRenameFilePath={(path) => handleRenameNode(getFileActionNode(path))}
+      onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
+    />
   {/if}
   {#if inlineCanvas}
-    <WorkspacePreviewPane
+    <CanvasPreviewPanel
+      canvas={inlineCanvas}
       width={previewPanelWidth}
-      ariaLabel={`Canvas ${inlineCanvas.path}`}
+      focused={previewFocusMode}
+      {isMobile}
       onResizeStart={beginPreviewPanelResize}
-    >
-      {#if inlineCanvas.loading}
-        <div class="flex h-full min-w-0 flex-col bg-bg-content">
-          <div class="flex h-10 items-center border-b border-border-subtle px-3 text-xs text-text-tertiary">Loading canvas…</div>
-          <div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
-        </div>
-      {:else if inlineCanvas.error}
-        <div class="flex h-full min-w-0 flex-col bg-bg-content">
-          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
-            <span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{inlineCanvas.path}</span>
-            <button type="button" class="icon-btn" onclick={closeInlineCanvas} title="Close canvas"><X class="w-4 h-4" /></button>
-          </div>
-          <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{inlineCanvas.error}</div>
-        </div>
-      {:else if inlineCanvas.document}
-        {#await import("$lib/components/canvas/CanvasPanel.svelte") then canvasPanelModule}
-          {@const LazyCanvasPanel = canvasPanelModule.default}
-          <LazyCanvasPanel
-            path={inlineCanvas.path}
-            document={inlineCanvas.document}
-            saving={inlineCanvas.saving}
-            focused={previewFocusMode}
-            onToggleFocus={isMobile ? undefined : togglePreviewFocusMode}
-            onCommit={(document, ops) => commitInlineCanvas(document, ops)}
-            onClose={closeInlineCanvas}
-          />
-        {:catch}
-          <div class="flex h-full min-w-0 flex-col bg-bg-content">
-            <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
-              <span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{inlineCanvas.path}</span>
-              <button type="button" class="icon-btn" onclick={closeInlineCanvas} title="Close canvas"><X class="w-4 h-4" /></button>
-            </div>
-            <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">Canvas failed to load.</div>
-          </div>
-        {/await}
-      {:else}
-        <div class="flex h-full min-w-0 flex-col bg-bg-content">
-          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
-            <span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{inlineCanvas.path}</span>
-            <button type="button" class="icon-btn" onclick={closeInlineCanvas} title="Close canvas"><X class="w-4 h-4" /></button>
-          </div>
-          <div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">Canvas data is unavailable.</div>
-        </div>
-      {/if}
-    </WorkspacePreviewPane>
+      onToggleFocus={togglePreviewFocusMode}
+      onCommit={commitInlineCanvas}
+      onClose={closeInlineCanvas}
+    />
   {/if}
   {#if inlinePortPreview}
-    <WorkspacePreviewPane
+    <PortPreviewPanel
+      port={inlinePortPreview.port}
+      url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
+      status={inlinePortEndpoint?.status ?? "unknown"}
+      observedAt={inlinePortEndpoint?.observedAt}
       width={previewPanelWidth}
-      ariaLabel={`Port ${inlinePortPreview.port} preview`}
+      focused={previewFocusMode}
+      {isMobile}
       onResizeStart={beginPreviewPanelResize}
-    >
-      <PortPreview
-        port={inlinePortPreview.port}
-        url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
-        status={inlinePortEndpoint?.status ?? "unknown"}
-        observedAt={inlinePortEndpoint?.observedAt}
-        focused={previewFocusMode}
-        onToggleFocus={isMobile ? undefined : togglePreviewFocusMode}
-        onPublish={() => openWorkPublish("port", inlinePortPreview!.port)}
-        onClose={closeInlinePort}
-      />
-    </WorkspacePreviewPane>
-  {/if}
-  <!-- Desktop right sidebar — file tree only -->
-  {#if !uiState.rightSidebarCollapsed}
-    <div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${uiState.rightSidebarWidth}px`}>
-      <div class="w-full relative">
-        <SpaceFileSidebar
-          nodes={spaceHasMinimalAccess ? [] : fileTree}
-          selectedPath={selectedFilePath}
-          loading={!spaceHasMinimalAccess && fileTreeLoading}
-          error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
-          subtitle={activeFsSidebarSubtitle}
-          onToggle={expandDirectory}
-          onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); } }}
-          onRefresh={refreshFileTree}
-          onCreateFile={handleCreateFile}
-          onCreateCanvas={handleCreateCanvas}
-          onCreateDir={handleCreateDir}
-          onRename={handleRenameNode}
-          onDelete={handleDeleteNode}
-          onDownload={handleDownloadNode}
-          onUpload={handleUploadFiles}
-          onInsertReference={insertPathReference}
-          onPublishDirectory={(path) => openWorkPublish("directory", path)}
-          onOpenPort={(port, url) => openInlinePort(port, url)}
-          activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
-          draggable={!spaceHasMinimalAccess}
-          showItemActions={!spaceHasMinimalAccess && !activeFsReadonly}
-          canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
-          previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
-        />
-        <FileUploadPane
-          {spaceId}
-          targetDir={uploadPaneTargetDir}
-          files={pendingUploadFiles}
-          entries={pendingUploadEntries}
-          open={uploadPaneVisible}
-          onClose={() => { uploadPaneVisible = false; }}
-          onComplete={handleUploadComplete}
-        />
-        <button
-          type="button"
-          class="right-sidebar-resize-handle"
-          aria-label="Resize files sidebar"
-          title="Resize files sidebar"
-          onpointerdown={beginRightSidebarResize}
-        ></button>
-      </div>
-    </div>
-  {/if}
-  <MobileRightDrawer
-    dragOffsetPx={uiState.rightDragOffsetPx}
-    isDragging={uiState.rightIsDragging}
-    isDrawerVisible={isRightDrawerVisible}
-  >
-    <SpaceFileSidebar
-      nodes={spaceHasMinimalAccess ? [] : fileTree}
-      selectedPath={selectedFilePath}
-      loading={!spaceHasMinimalAccess && fileTreeLoading}
-      error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
-      subtitle={activeFsSidebarSubtitle}
-      onToggle={expandDirectory}
-      onSelect={(node) => { if (node.type === "file") { if (isCovasFile(node.path)) void openInlineCanvas(node.path); else void openInlineFile(node.path); uiState.mobileRightDrawerOpen = false; } }}
-      onRefresh={refreshFileTree}
-      onCreateFile={handleCreateFile}
-      onCreateCanvas={handleCreateCanvas}
-      onCreateDir={handleCreateDir}
-      onRename={handleRenameNode}
-      onDelete={handleDeleteNode}
-      onDownload={handleDownloadNode}
-      onUpload={handleUploadFiles}
-      onInsertReference={insertPathReference}
-      onPublishDirectory={(path) => { openWorkPublish("directory", path); uiState.mobileRightDrawerOpen = false; }}
-      onOpenPort={(port, url) => { openInlinePort(port, url); uiState.mobileRightDrawerOpen = false; }}
-      activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
-      draggable={false}
-      showItemActions={false}
-      canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
-      previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
+      onToggleFocus={togglePreviewFocusMode}
+      onPublish={() => openWorkPublish("port", inlinePortPreview!.port)}
+      onClose={closeInlinePort}
     />
-    <FileUploadPane
-      {spaceId}
-      targetDir={uploadPaneTargetDir}
-      files={pendingUploadFiles}
-      entries={pendingUploadEntries}
-      open={uploadPaneVisible}
-      onClose={() => { uploadPaneVisible = false; }}
-      onComplete={handleUploadComplete}
-    />
-  </MobileRightDrawer>
+  {/if}
+  <FilesSidebarPanel
+    {spaceId}
+    nodes={spaceHasMinimalAccess ? [] : fileTree}
+    {selectedFilePath}
+    loading={!spaceHasMinimalAccess && fileTreeLoading}
+    error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
+    subtitle={activeFsSidebarSubtitle}
+    activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
+    canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
+    showItemActions={!spaceHasMinimalAccess && !activeFsReadonly}
+    draggable={!spaceHasMinimalAccess}
+    previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
+    desktopCollapsed={uiState.rightSidebarCollapsed}
+    desktopWidth={uiState.rightSidebarWidth}
+    rightDragOffsetPx={uiState.rightDragOffsetPx}
+    rightIsDragging={uiState.rightIsDragging}
+    {isDrawerVisible}
+    {uploadPaneVisible}
+    {uploadPaneTargetDir}
+    {pendingUploadFiles}
+    {pendingUploadEntries}
+    onToggle={expandDirectory}
+    onSelect={(node, options) => {
+      if (node.type === "file") {
+        if (isCovasFile(node.path)) void openInlineCanvas(node.path);
+        else void openInlineFile(node.path);
+        if (options.mobile) uiState.mobileRightDrawerOpen = false;
+      }
+    }}
+    onRefresh={refreshFileTree}
+    onCreateFile={handleCreateFile}
+    onCreateCanvas={handleCreateCanvas}
+    onCreateDir={handleCreateDir}
+    onRename={handleRenameNode}
+    onDelete={handleDeleteNode}
+    onDownload={handleDownloadNode}
+    onUpload={handleUploadFiles}
+    onInsertReference={insertPathReference}
+    onPublishDirectory={(path, options) => {
+      openWorkPublish("directory", path);
+      if (options.mobile) uiState.mobileRightDrawerOpen = false;
+    }}
+    onOpenPort={(port, url, options) => {
+      openInlinePort(port, url);
+      if (options.mobile) uiState.mobileRightDrawerOpen = false;
+    }}
+    onUploadPaneClose={() => { uploadPaneVisible = false; }}
+    onUploadComplete={handleUploadComplete}
+    onResizeStart={beginRightSidebarResize}
+  />
   <WorkPublishDialog
     open={Boolean(workPublishTarget)}
     {spaceId}
