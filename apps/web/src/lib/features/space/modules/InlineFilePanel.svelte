@@ -341,16 +341,20 @@ let {
                   <Copy class="w-4 h-4" />
                 {/if}
               </button>
-              <button
-                type="button"
-                class="action-btn"
-                onclick={() => void onSaveInlineFile()}
-                disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles}
-                title="Save (Ctrl+S)"
-              >
-                <Save class="w-3.5 h-3.5 shrink-0" />
-                <span class="hidden sm:inline">Save</span>
-              </button>
+              {#if activeFsReadonly}
+                <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
+              {:else}
+                <button
+                  type="button"
+                  class="action-btn"
+                  onclick={() => void onSaveInlineFile()}
+                  disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles}
+                  title="Save (Ctrl+S)"
+                >
+                  <Save class="w-3.5 h-3.5 shrink-0" />
+                  <span class="hidden sm:inline">Save</span>
+                </button>
+              {/if}
               {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
@@ -364,7 +368,7 @@ let {
                     value={inlineFile.draft}
                     language={inlineFileExt}
                     onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
-                    readonly={!canEditFiles}
+                    readonly={!canEditFiles || activeFsReadonly}
                   />
                 {:catch}
                   <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
@@ -465,4 +469,3 @@ let {
       </div>
     </WorkspacePreviewPane>
   {/if}
-

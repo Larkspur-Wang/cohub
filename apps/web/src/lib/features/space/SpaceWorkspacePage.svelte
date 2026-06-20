@@ -4976,6 +4976,8 @@ onMount(() => {
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		spaceStatus.dispose();
+		fileWorkspace.dispose();
+		portPreview.dispose();
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
 		taskHydrateRetryCounts.clear();
@@ -5430,10 +5432,6 @@ $effect(() => {
 		fileWorkspace.switchSource(sourceKey);
 		canvasPreview.closeCanvas();
 	});
-});
-$effect(() => {
-	if (routeView === "checkpoint-new") {
-	}
 });
 $effect(() => {
 	if (routeView === "task" && routeTaskId) {
