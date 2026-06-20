@@ -27,7 +27,6 @@ import {
 	type SpaceFsFileResponse,
 	type SpaceMember,
 	type SpaceRecord,
-	type SpaceUsageResponse,
 	type TaskRunRecord,
 	type UserProfile,
 	type WorkRecord,
@@ -216,12 +215,6 @@ import {
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
-import {
-	fetchSpaceMembersWithCache,
-	fetchSpaceUsageWithCache,
-	getCachedSpaceMembers,
-	getCachedSpaceUsage,
-} from "$lib/stores/space-profile-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	getCachedTaskRuns,
@@ -305,6 +298,10 @@ import {
 } from "./modules/session-utils";
 import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
+import {
+	createSpaceStatusController,
+	type SpaceSandboxSnapshot,
+} from "./modules/space-status-controller.svelte";
 import TaskRunView from "./modules/TaskRunView.svelte";
 import {
 	checkpointIdFromTaskRun,
@@ -375,14 +372,6 @@ type SelectedModel = {
 	provider: string;
 	id: string;
 	name?: string;
-};
-type SpaceSandboxSnapshot = {
-	status: string | null;
-	runtimeStatus?: string | null;
-	lastHeartbeatAt?: string | null;
-	lastActivityAt?: string | null;
-	stoppedAt?: string | null;
-	stopReason?: string | null;
 };
 type ActiveFsSource =
 	| { kind: "live" }
@@ -467,12 +456,6 @@ const isRightDrawerVisible = $derived(
 );
 let space = $state<SpaceRecord | null>(null);
 let spaceConfig = $state<SpaceConfig | null>(null);
-let spaceMembers = $state<SpaceMember[]>([]);
-let spaceMembersLoadedFor = $state<string | null>(null);
-let spaceUsage = $state<SpaceUsageResponse | null>(null);
-let spaceUsageLoadedFor = $state<string | null>(null);
-let spaceSandbox = $state<SpaceSandboxSnapshot | null>(null);
-let spaceSandboxLoadedFor = $state<string | null>(null);
 let newChatProfileExpanded = $state(false);
 let newChatProfileCanExpand = $state(false);
 let newChatProfileBodyMaxHeight = $state(320);
@@ -496,7 +479,6 @@ const input = $derived(sessionComposer.input);
 const attachments = $derived(sessionComposer.attachments);
 const sending = $derived(sessionComposer.sending);
 const aborting = $derived(sessionComposer.aborting);
-let spaceLoadError = $state("");
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -590,6 +572,26 @@ const portPreview = createPortPreviewController({
 const previewEndpoints = $derived(portPreview.endpoints);
 const inlinePortPreview = $derived(portPreview.preview);
 const portReadyToast = $derived(portPreview.readyToast);
+const spaceStatus = createSpaceStatusController({
+	getSpaceId: () => spaceId,
+	getBootstrapStatus: () => bootstrapStatus,
+	getPageVisible: () => pageVisible,
+	getPageOnline: () => pageOnline,
+	getPageMounted: () => pageMounted,
+	onSpaceLoaded: (nextSpace) => {
+		space = nextSpace;
+		portPreview.setEndpoints(extractPublicEndpoints(nextSpace));
+		cacheSpaceRecordSoon(nextSpace);
+	},
+});
+const spaceLoadError = $derived(spaceStatus.loadError);
+const spaceMembers = $derived(spaceStatus.members);
+const spaceMembersLoadedFor = $derived(spaceStatus.membersLoadedFor);
+const spaceUsage = $derived(spaceStatus.usage);
+const spaceUsageLoadedFor = $derived(spaceStatus.usageLoadedFor);
+const spaceSandbox = $derived(spaceStatus.sandbox);
+const spaceSandboxLoadedFor = $derived(spaceStatus.sandboxLoadedFor);
+const spaceStatusNotice = $derived(spaceStatus.notice);
 let workPublishTarget = $state<{
 	targetType: "file" | "directory" | "port";
 	targetRef: string;
@@ -734,8 +736,6 @@ const PREVIEW_PANEL_MIN_WIDTH = 280;
 
 let loadedSpaceId = $state<string | null>(null);
 let pageMounted = false;
-let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-let statusRefreshInFlight = false;
 let creatingSession = $state(false);
 let createSessionError = $state("");
 const loadingSessionIds = $derived(sessionWorkspace.loadingSessionIds);
@@ -743,8 +743,6 @@ const visibleInitialLoadingSessionIds = $derived(
 	sessionWorkspace.visibleInitialLoadingSessionIds,
 );
 let bootstrapping = $state(true);
-let spaceStatusNotice = $state("");
-let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 const sessionScroll = createSessionScrollController();
 let bottomFollowFrame: number | null = null;
 let bottomFollowActive = false;
@@ -2596,72 +2594,17 @@ function applyPortsChanged(payload: ChannelEnvelope) {
 	portPreview.applyPortsChanged(payload);
 }
 
-async function loadSpace() {
-	const currentSpaceId = spaceId;
-	spaceLoadError = "";
-	try {
-		const nextSpace = await sdk.space(currentSpaceId).get();
-		if (spaceId !== currentSpaceId) return false;
-		space = nextSpace;
-		portPreview.setEndpoints(extractPublicEndpoints(nextSpace));
-		cacheSpaceRecordSoon(nextSpace);
-		return true;
-	} catch (error) {
-		if (spaceId !== currentSpaceId) return false;
-		spaceLoadError =
-			error instanceof Error ? error.message : "Failed to load space";
-		return false;
-	}
+function loadSpace() {
+	return spaceStatus.loadSpace();
 }
-
-async function loadSpaceMembers(currentSpaceId = spaceId) {
-	const cached = getCachedSpaceMembers(currentSpaceId);
-	if (cached && spaceId === currentSpaceId) {
-		spaceMembers = cached;
-		spaceMembersLoadedFor = currentSpaceId;
-	}
-	try {
-		const members = await fetchSpaceMembersWithCache(currentSpaceId);
-		if (spaceId !== currentSpaceId) return;
-		spaceMembers = members;
-		spaceMembersLoadedFor = currentSpaceId;
-	} catch {
-		if (spaceId !== currentSpaceId) return;
-		if (!cached) spaceMembers = [];
-		spaceMembersLoadedFor = currentSpaceId;
-	}
+function loadSpaceMembers(currentSpaceId = spaceId) {
+	return spaceStatus.loadMembers(currentSpaceId);
 }
-
-async function loadSpaceUsage(currentSpaceId = spaceId) {
-	const days = 7;
-	const cached = getCachedSpaceUsage(currentSpaceId, days);
-	if (cached && spaceId === currentSpaceId) {
-		spaceUsage = cached;
-		spaceUsageLoadedFor = currentSpaceId;
-	}
-	try {
-		const result = await fetchSpaceUsageWithCache(currentSpaceId, days);
-		if (spaceId !== currentSpaceId) return;
-		spaceUsage = result;
-		spaceUsageLoadedFor = currentSpaceId;
-	} catch {
-		if (spaceId !== currentSpaceId) return;
-		if (!cached) spaceUsage = null;
-		spaceUsageLoadedFor = currentSpaceId;
-	}
+function loadSpaceUsage(currentSpaceId = spaceId) {
+	return spaceStatus.loadUsage(currentSpaceId);
 }
-
-async function loadSpaceSandbox(currentSpaceId = spaceId) {
-	try {
-		const result = await sdk.space(currentSpaceId).sandbox.get();
-		if (spaceId !== currentSpaceId) return;
-		spaceSandbox = result.sandbox;
-		spaceSandboxLoadedFor = currentSpaceId;
-	} catch {
-		if (spaceId !== currentSpaceId) return;
-		spaceSandbox = null;
-		spaceSandboxLoadedFor = currentSpaceId;
-	}
+function loadSpaceSandbox(currentSpaceId = spaceId) {
+	return spaceStatus.loadSandbox(currentSpaceId);
 }
 
 function withBootstrapCacheTimeout<T>(promise: Promise<T>): Promise<T | null> {
@@ -2676,52 +2619,8 @@ function withBootstrapCacheTimeout<T>(promise: Promise<T>): Promise<T | null> {
 	});
 }
 
-function showSpaceStatusNotice(message: string) {
-	spaceStatusNotice = message;
-	if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
-	spaceStatusNoticeTimer = setTimeout(() => {
-		spaceStatusNotice = "";
-		spaceStatusNoticeTimer = null;
-	}, 2800);
-}
-function getStatusRefreshIntervalMs() {
-	if (!pageVisible || !pageOnline) return null;
-	if (bootstrapStatus === "pending" || bootstrapStatus === "running") {
-		return 4000;
-	}
-	if (bootstrapStatus === "failed") {
-		return 15000;
-	}
-	return null;
-}
-async function refreshSpaceStatus() {
-	if (statusRefreshInFlight) return;
-	statusRefreshInFlight = true;
-	try {
-		const nextSpace = await sdk.space(spaceId).get();
-		const previousBootstrapStatus = bootstrapStatus;
-		space = nextSpace;
-		portPreview.setEndpoints(extractPublicEndpoints(nextSpace));
-		cacheSpaceRecordSoon(nextSpace);
-		const nextBootstrap = (() => {
-			const raw = nextSpace.meta;
-			if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-			const bootstrap = (raw as Record<string, unknown>).bootstrap;
-			if (
-				!bootstrap ||
-				typeof bootstrap !== "object" ||
-				Array.isArray(bootstrap)
-			)
-				return null;
-			const status = (bootstrap as Record<string, unknown>).status;
-			return typeof status === "string" ? status : null;
-		})();
-		if (previousBootstrapStatus !== "ready" && nextBootstrap === "ready") {
-			showSpaceStatusNotice("Workspace prepared");
-		}
-	} finally {
-		statusRefreshInFlight = false;
-	}
+function scheduleStatusRefresh() {
+	spaceStatus.scheduleRefresh();
 }
 function spaceRoleRank(role: SpaceMember["role"]): number {
 	if (role === "host") return 0;
@@ -5129,18 +5028,6 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	}
 }
 
-function scheduleStatusRefresh() {
-	if (statusRefreshTimer) {
-		clearTimeout(statusRefreshTimer);
-		statusRefreshTimer = null;
-	}
-	const intervalMs = getStatusRefreshIntervalMs();
-	if (!intervalMs || !pageMounted) return;
-	statusRefreshTimer = setTimeout(async () => {
-		await refreshSpaceStatus().catch(() => undefined);
-		scheduleStatusRefresh();
-	}, intervalMs);
-}
 onMount(() => {
 	pageMounted = true;
 	spaceRealtime.start();
@@ -5249,8 +5136,7 @@ onMount(() => {
 		offTaskRunsCacheUpdated();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
-		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
-		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
+		spaceStatus.dispose();
 		clearTaskRunPoll();
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
@@ -5289,19 +5175,13 @@ $effect(() => {
 	// Reset space-specific state
 	space = null;
 	spaceConfig = null;
-	spaceMembers = [];
-	spaceMembersLoadedFor = null;
-	spaceUsage = null;
-	spaceUsageLoadedFor = null;
-	spaceSandbox = null;
-	spaceSandboxLoadedFor = null;
+	spaceStatus.reset();
 	newChatProfileExpanded = false;
 	newChatProfileCanExpand = false;
 	newChatProfileBodyMaxHeight = 320;
 	newChatProfileViewportEl = null;
 	newChatProfileContentEl = null;
 	newChatProfileBodyEl = null;
-	spaceLoadError = "";
 	promptTemplates = [];
 	promptTemplatesLoaded = false;
 	promptTemplatesLoadedFor = null;
