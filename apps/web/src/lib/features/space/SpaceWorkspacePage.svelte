@@ -149,7 +149,6 @@ import {
 	uploadSpaceAvatarImage,
 } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
-import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
@@ -298,6 +297,7 @@ import {
 	areSessionTurnsEqual,
 	preserveSessionTurnRefs,
 } from "./modules/session-utils";
+import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
 import TaskRunView from "./modules/TaskRunView.svelte";
 import {
 	checkpointIdFromTaskRun,
@@ -477,9 +477,10 @@ const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 const canEditSpaceProfile = $derived(hasAccessPermission("space.edit"));
 const canEditFiles = $derived(hasAccessPermission("file.edit"));
-let spaceSessions = $state<SessionRecord[]>([]);
-let sessionStateById = $state<Record<string, SessionViewState>>({});
-let activeSessionId = $state<string | null>(null);
+const sessionWorkspace = createSessionWorkspaceController();
+const spaceSessions = $derived(sessionWorkspace.spaceSessions);
+const sessionStateById = $derived(sessionWorkspace.sessionStateById);
+const activeSessionId = $derived(sessionWorkspace.activeSessionId);
 const sessionComposer = createSessionComposerController();
 const input = $derived(sessionComposer.input);
 const attachments = $derived(sessionComposer.attachments);
@@ -751,8 +752,10 @@ let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
 let createSessionError = $state("");
-let loadingSessionIds = $state<Record<string, boolean>>({});
-let visibleInitialLoadingSessionIds = $state<Record<string, boolean>>({});
+const loadingSessionIds = $derived(sessionWorkspace.loadingSessionIds);
+const visibleInitialLoadingSessionIds = $derived(
+	sessionWorkspace.visibleInitialLoadingSessionIds,
+);
 let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1245,7 +1248,8 @@ async function loadRecentSessionTaskPage(sessionId: string) {
 	const requestSpaceId = spaceId;
 	const hydrateKey = `${requestSpaceId}:${sessionId}`;
 	const isCurrentRequest = () =>
-		spaceId === requestSpaceId && activeSessionId === sessionId;
+		spaceId === requestSpaceId &&
+		sessionWorkspace.activeSessionId === sessionId;
 	sessionTaskRecentLoading = true;
 	try {
 		const results = await Promise.all(
@@ -1809,7 +1813,7 @@ async function handleSteerFollowup(turnId: string) {
 			.steerTurn(turnId);
 		const current = sessionStateById[sessionId];
 		if (current) {
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
@@ -1853,7 +1857,7 @@ async function handleCancelFollowup(turnId: string) {
 			.cancelTurn(turnId);
 		const current = sessionStateById[sessionId];
 		if (current) {
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
@@ -2494,74 +2498,21 @@ function upsertSessionRecord(
 	session: SessionRecord,
 	options?: { cache?: boolean },
 ) {
-	const existingSession = spaceSessions.find((item) => item.id === session.id);
-	const nextSessions = sortSessionsByRecentActivity([
-		mergeSessionRecord(existingSession, session),
-		...spaceSessions.filter((item) => item.id !== session.id),
-	]);
-	spaceSessions = nextSessions;
+	const nextSessions = sessionWorkspace.upsertSessionRecord(session, options);
 	if (options?.cache !== false) {
 		void patchCachedSessionList(spaceId, () => nextSessions).catch(
 			() => undefined,
 		);
 	}
-	const existing = sessionStateById[session.id];
-	sessionStateById = {
-		...sessionStateById,
-		[session.id]: {
-			session,
-			turns: existing?.turns ?? [],
-			loading: existing?.loading ?? false,
-			loaded: existing?.loaded ?? false,
-			error: existing?.error ?? "",
-			hasMore: existing?.hasMore ?? true,
-			hasMoreNewer: existing?.hasMoreNewer ?? false,
-			loadingOlder: existing?.loadingOlder ?? false,
-			loadingNewer: existing?.loadingNewer ?? false,
-			oldestCursor: existing?.oldestCursor,
-		},
-	};
 }
 function applySessionRealtimeRecord(session: SessionRecord) {
 	upsertSessionRecord(session);
 }
 function applySessionsSnapshot(sessions: SessionRecord[]) {
-	const activeSession = activeSessionId
-		? sessionStateById[activeSessionId]?.session
-		: undefined;
-	const nextSessions =
-		activeSession &&
-		!sessions.some((session) => session.id === activeSession.id)
-			? sortSessionsByRecentActivity([activeSession, ...sessions])
-			: sessions;
-	spaceSessions = nextSessions;
-	const nextState: Record<string, SessionViewState> = {};
-	for (const session of nextSessions) {
-		const existing = sessionStateById[session.id];
-		nextState[session.id] = {
-			session,
-			turns: existing?.turns ?? [],
-			loading: existing?.loading ?? false,
-			loaded: existing?.loaded ?? false,
-			error: existing?.error ?? "",
-			hasMore: existing?.hasMore ?? true,
-			hasMoreNewer: existing?.hasMoreNewer ?? false,
-			loadingOlder: existing?.loadingOlder ?? false,
-			loadingNewer: existing?.loadingNewer ?? false,
-			oldestCursor: existing?.oldestCursor,
-		};
-	}
-	if (
-		activeSessionId &&
-		sessionStateById[activeSessionId] &&
-		!nextState[activeSessionId]
-	) {
-		nextState[activeSessionId] = sessionStateById[activeSessionId];
-	}
-	sessionStateById = nextState;
+	sessionWorkspace.applySessionsSnapshot(sessions);
 }
 function seedSessions(sessions: SessionRecord[]) {
-	applySessionsSnapshot(sessions);
+	sessionWorkspace.seedSessions(sessions);
 }
 async function syncForkResponseToSessionListCache(
 	session: SessionRecord,
@@ -2625,7 +2576,7 @@ async function refreshSessionsList(force = true) {
 	return refreshSessionsListInFlight;
 }
 function prepareRouteSession(sessionId: string) {
-	activeSessionId = sessionId;
+	sessionWorkspace.prepareRouteSession(sessionId);
 	sessionScroll.pendingRestoreSessionId = sessionId;
 	sessionScroll.activeAnchorRestore = null;
 	sessionScroll.anchorRestoreWaitingForMarkdown = false;
@@ -2636,23 +2587,6 @@ function prepareRouteSession(sessionId: string) {
 	ensureSessionModelLoaded(sessionId);
 	applySessionGenerationPolicy(loadSessionGenerationPolicy(sessionId));
 	sessionScroll.shouldAutoFollow = true;
-	if (!sessionStateById[sessionId]) {
-		sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				session: spaceSessions.find((s) => s.id === sessionId),
-				turns: [],
-				loading: true,
-				loaded: false,
-				error: "",
-				hasMore: true,
-				hasMoreNewer: false,
-				loadingOlder: false,
-				loadingNewer: false,
-				oldestCursor: undefined,
-			},
-		};
-	}
 }
 async function loadPreviewEndpoints() {
 	await portPreview.loadEndpoints();
@@ -3161,14 +3095,14 @@ async function submitSessionRename() {
 			.space(spaceId)
 			.session(activeSessionId)
 			.rename(trimmed);
-		spaceSessions = spaceSessions.map((session) =>
+		sessionWorkspace.spaceSessions = spaceSessions.map((session) =>
 			session.id === activeSessionId ? result.session : session,
 		);
 		void patchCachedSessionList(spaceId, (current) =>
 			current.map((s) => (s.id === activeSessionId ? result.session : s)),
 		).catch(() => undefined);
 		if (sessionStateById[activeSessionId]) {
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[activeSessionId]: {
 					...sessionStateById[activeSessionId],
@@ -3262,7 +3196,7 @@ async function loadSessionState(sessionId: string, force = false) {
 			? await sessionTurnsRepo.getCached(spaceId, sessionId)
 			: null;
 		if (cached && (cached.turns.length > 0 || cached.session)) {
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					session:
@@ -3281,8 +3215,11 @@ async function loadSessionState(sessionId: string, force = false) {
 				},
 			};
 		}
-		loadingSessionIds = { ...loadingSessionIds, [sessionId]: true };
-		visibleInitialLoadingSessionIds = {
+		sessionWorkspace.loadingSessionIds = {
+			...loadingSessionIds,
+			[sessionId]: true,
+		};
+		sessionWorkspace.visibleInitialLoadingSessionIds = {
 			...visibleInitialLoadingSessionIds,
 			[sessionId]: false,
 		};
@@ -3290,13 +3227,13 @@ async function loadSessionState(sessionId: string, force = false) {
 		const loadingTimer = setTimeout(() => {
 			if (spaceId !== loadSpaceId) return;
 			if (sessionStateById[sessionId]?.loaded) return;
-			visibleInitialLoadingSessionIds = {
+			sessionWorkspace.visibleInitialLoadingSessionIds = {
 				...visibleInitialLoadingSessionIds,
 				[sessionId]: true,
 			};
 		}, SESSION_INITIAL_LOADING_DELAY_MS);
 		const currentSeed = sessionStateById[sessionId];
-		sessionStateById = {
+		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				session:
@@ -3334,7 +3271,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				hasMore: response.hasMore,
 			});
 			upsertSessionRecord(response.session);
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					session: snapshot.session ?? response.session,
@@ -3351,7 +3288,7 @@ async function loadSessionState(sessionId: string, force = false) {
 			};
 		} catch (error) {
 			const fallback = sessionStateById[sessionId];
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					session:
@@ -3375,8 +3312,11 @@ async function loadSessionState(sessionId: string, force = false) {
 			clearTimeout(loadingTimer);
 			const nextVisibleLoading = { ...visibleInitialLoadingSessionIds };
 			delete nextVisibleLoading[sessionId];
-			visibleInitialLoadingSessionIds = nextVisibleLoading;
-			loadingSessionIds = { ...loadingSessionIds, [sessionId]: false };
+			sessionWorkspace.visibleInitialLoadingSessionIds = nextVisibleLoading;
+			sessionWorkspace.loadingSessionIds = {
+				...loadingSessionIds,
+				[sessionId]: false,
+			};
 		}
 	})();
 	sessionLoadInFlight.set(sessionId, run);
@@ -3515,7 +3455,7 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 				})
 				.catch(() => undefined);
 			if (current) {
-				sessionStateById = {
+				sessionWorkspace.sessionStateById = {
 					...sessionStateById,
 					[sessionId]: {
 						...current,
@@ -3593,7 +3533,7 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 		if (!state || state.turns.length === 0) return;
 		const newestSeq = state.turns.at(-1)?.sequence;
 		if (newestSeq == null) return;
-		sessionStateById = {
+		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...state,
@@ -3623,7 +3563,7 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 							preferIncoming: true,
 						}),
 					);
-					sessionStateById = {
+					sessionWorkspace.sessionStateById = {
 						...sessionStateById,
 						[sessionId]: {
 							...current,
@@ -3638,7 +3578,7 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 		} finally {
 			const current = sessionStateById[sessionId];
 			if (current) {
-				sessionStateById = {
+				sessionWorkspace.sessionStateById = {
 					...sessionStateById,
 					[sessionId]: {
 						...current,
@@ -3659,7 +3599,7 @@ async function loadOlderTurns(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	if (!state?.hasMore || state.loadingOlder) return;
 	chatTimelineRef?.preparePrepend();
-	sessionStateById = {
+	sessionWorkspace.sessionStateById = {
 		...sessionStateById,
 		[sessionId]: {
 			...state,
@@ -3688,7 +3628,7 @@ async function loadOlderTurns(sessionId: string) {
 				preferIncoming: false,
 			}),
 		);
-		sessionStateById = {
+		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...current,
@@ -3706,7 +3646,7 @@ async function loadOlderTurns(sessionId: string) {
 			chatTimelineRef?.finalizePrepend();
 		}
 	} catch (error) {
-		sessionStateById = {
+		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...state,
@@ -3795,7 +3735,9 @@ async function reconcileSessionTail(sessionId: string) {
 	const inFlight = reconcileSessionTailInFlight.get(sessionId);
 	if (inFlight) return inFlight;
 	const shouldRestoreAnchor =
-		activeSessionId === sessionId && Boolean(listEl) && !shouldAutoFollow;
+		sessionWorkspace.activeSessionId === sessionId &&
+		Boolean(listEl) &&
+		!shouldAutoFollow;
 	if (shouldRestoreAnchor) captureCurrentScrollAnchor(sessionId);
 	const restoreAnchorSnapshot = shouldRestoreAnchor
 		? getSessionScrollAnchor(sessionId)
@@ -3841,7 +3783,7 @@ async function reconcileSessionTail(sessionId: string) {
 			) {
 				return;
 			}
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...currentState,
@@ -4220,7 +4162,7 @@ function applyAcceptedTurnId(input: {
 					meta,
 				};
 			});
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[input.sessionId]: {
 					...current,
@@ -4257,7 +4199,7 @@ function hydrateTurnOnce(input: {
 					source: "network",
 				},
 			);
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[input.sessionId]: {
 					...current,
@@ -4446,7 +4388,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					[turn],
 					{ session: current.session ?? null },
 				);
-				sessionStateById = {
+				sessionWorkspace.sessionStateById = {
 					...sessionStateById,
 					[targetSessionId]: {
 						...current,
@@ -4491,7 +4433,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					[{ ...existingTurn, ...normalizedTurnPatch } as SessionTurnRecord],
 					{ session: state.session ?? null },
 				);
-				sessionStateById = {
+				sessionWorkspace.sessionStateById = {
 					...sessionStateById,
 					[targetSessionId]: {
 						...state,
@@ -4726,7 +4668,7 @@ async function handleSend() {
 				loadingNewer: false,
 				oldestCursor: undefined,
 			};
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[newSession.id]: targetSessionState,
 			};
@@ -4737,7 +4679,7 @@ async function handleSend() {
 					[newSession.id]: model,
 				};
 			}
-			activeSessionId = newSession.id;
+			sessionWorkspace.activeSessionId = newSession.id;
 			sessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
 			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
@@ -4852,7 +4794,7 @@ async function handleSend() {
 			createdAt: now,
 			updatedAt: now,
 		} as SessionTurnRecord;
-		sessionStateById = {
+		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...targetSessionState,
@@ -4910,7 +4852,7 @@ async function handleSend() {
 				],
 				{ session: sendResult.session ?? current.session ?? null },
 			);
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
@@ -4999,7 +4941,7 @@ async function handleSend() {
 				createdAt: optimisticTurn.createdAt,
 				updatedAt: failedAt,
 			} as SessionTurnRecord;
-			sessionStateById = {
+			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[failedSessionId]: {
 					...current,
@@ -5604,7 +5546,7 @@ function handleCreateNewSession() {
 		noScroll: true,
 	})
 		.then(() => {
-			activeSessionId = null;
+			sessionWorkspace.activeSessionId = null;
 			sessionScroll.pendingRestoreSessionId = null;
 			sessionScroll.activeAnchorRestore = null;
 			sessionScroll.anchorRestoreWaitingForMarkdown = false;
@@ -6011,17 +5953,17 @@ $effect(() => {
 	promptTemplatesLoaded = false;
 	promptTemplatesLoadedFor = null;
 	void loadPromptTemplates();
-	spaceSessions = [];
-	sessionStateById = {};
-	loadingSessionIds = {};
-	visibleInitialLoadingSessionIds = {};
+	sessionWorkspace.spaceSessions = [];
+	sessionWorkspace.sessionStateById = {};
+	sessionWorkspace.loadingSessionIds = {};
+	sessionWorkspace.visibleInitialLoadingSessionIds = {};
 	sessionLoadInFlight.clear();
 	turnWindowLoadInFlight.clear();
 	syncSessionNewerInFlight.clear();
 	turnHydrationInFlight.clear();
 	clearAllPostSendRecovery();
 	lastStreamSnapshotRecoveryByTurn.clear();
-	activeSessionId = null;
+	sessionWorkspace.activeSessionId = null;
 	turnIndexBySessionId = {};
 	turnIndexLoadingBySessionId = {};
 	turnIndexRetryAfterBySessionId = {};
@@ -6137,7 +6079,7 @@ $effect(() => {
 	return sessionTurnsRepo.subscribe(currentSpaceId, sessionId, (snapshot) => {
 		const current = sessionStateById[sessionId];
 		if (!current) return;
-		sessionStateById = {
+		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...current,
@@ -6245,7 +6187,7 @@ $effect(() => {
 		(routeView !== "session" || (isDraftNewSessionRoute && activeSessionId)) &&
 		activeSessionId
 	) {
-		activeSessionId = null;
+		sessionWorkspace.activeSessionId = null;
 		sessionScroll.pendingRestoreSessionId = null;
 		sessionScroll.activeAnchorRestore = null;
 		sessionScroll.anchorRestoreWaitingForMarkdown = false;
