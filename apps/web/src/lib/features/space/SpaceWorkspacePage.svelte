@@ -308,6 +308,7 @@ import {
 	reconcileOptimisticTurn,
 } from "./modules/session-utils";
 import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
+import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import TaskRunView from "./modules/TaskRunView.svelte";
 import {
 	checkpointIdFromTaskRun,
@@ -752,12 +753,6 @@ const PREVIEW_PANEL_MIN_WIDTH = 280;
 
 let loadedSpaceId = $state<string | null>(null);
 let pageMounted = false;
-let pageVisible = true;
-let pageOnline = true;
-let wsConnectionState = $state<
-	"idle" | "connecting" | "reconnecting" | "open" | "closed" | "error"
->("idle");
-let wsCanRecover = $state(false);
 let statusRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let statusRefreshInFlight = false;
 let creatingSession = $state(false);
@@ -825,14 +820,6 @@ const sessionLoadInFlight = new Map<string, Promise<void>>();
 const syncSessionNewerInFlight = new Map<string, Promise<void>>();
 const turnHydrationInFlight = new Map<string, Promise<void>>();
 let reconnectSyncInFlight: Promise<void> | null = null;
-let lastRecoveredConnectionId: string | null = null;
-let lastConnectionState:
-	| "idle"
-	| "connecting"
-	| "reconnecting"
-	| "open"
-	| "closed"
-	| "error" = "idle";
 type SessionScrollAnchor = {
 	sequence: number;
 	offset: number;
@@ -848,6 +835,44 @@ const pendingTimelineMarkdownRenders = $derived(
 const anchorRestoreWaitingForMarkdown = $derived(
 	sessionScroll.anchorRestoreWaitingForMarkdown,
 );
+const spaceRealtime = createSpaceRealtimeController({
+	onTransportOpen: () => generationRealtime.onTransportOpen(),
+	onConnectionOpened: () => {
+		if (inlineCanvas?.documentId) {
+			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
+				() => undefined,
+			);
+		}
+	},
+	onConnectionRecovered: () => {
+		void reconnectSync();
+	},
+	onHidden: () => {
+		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
+	},
+	onVisible: () => {
+		void refreshSessionsList(false);
+		if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
+			void reconcileSessionTail(activeSessionId);
+		}
+	},
+	onOnline: () => {
+		if (wsConnectionState === "open") {
+			void refreshSessionsList(false);
+		}
+		if (inlineCanvas?.documentId) {
+			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
+				() => undefined,
+			);
+		}
+	},
+	onOffline: () => undefined,
+	onStatusVisibilityChanged: () => scheduleStatusRefresh(),
+});
+const pageVisible = $derived(spaceRealtime.pageVisible);
+const pageOnline = $derived(spaceRealtime.pageOnline);
+const wsConnectionState = $derived(spaceRealtime.connectionState);
+const wsCanRecover = $derived(spaceRealtime.canRecover);
 const generationRealtime = createSessionGenerationRealtimeController({
 	getSpaceId: () => spaceId,
 	getConnectionState: () => wsConnectionState,
@@ -874,7 +899,7 @@ const generationRealtime = createSessionGenerationRealtimeController({
 	syncGenerationStateFromTail: (sessionId, turns, requestStartedAt) =>
 		syncGenerationStateFromTail(sessionId, turns, requestStartedAt),
 	onRecovered: () => {
-		wsCanRecover = false;
+		spaceRealtime.markRecovered();
 	},
 	onExhausted: (sessionId) => {
 		console.warn("[SessionRecoveryCoordinator] Fallback sync exhausted", {
@@ -3651,8 +3676,6 @@ async function reconnectSync() {
 				);
 			}
 		}
-		wsConnectionState = "open";
-		wsCanRecover = false;
 	})();
 	reconnectSyncInFlight = run.finally(() => {
 		reconnectSyncInFlight = null;
@@ -5339,8 +5362,7 @@ function scheduleStatusRefresh() {
 }
 onMount(() => {
 	pageMounted = true;
-	pageVisible = !document.hidden;
-	pageOnline = navigator.onLine;
+	spaceRealtime.start();
 	loadSessionScrollAnchors();
 	window.addEventListener("keydown", handleSessionVimKeydown);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
@@ -5415,80 +5437,6 @@ onMount(() => {
 	void loadModelsCatalog();
 	void loadGenerationModelsCatalog();
 	void loadPromptTemplates();
-	const wsConnectionCleanup = sdk.onConnection((state) => {
-		const previousState = lastConnectionState;
-		lastConnectionState = state.state;
-		if (state.state === "open") {
-			generationRealtime.onTransportOpen();
-			wsConnectionState = "open";
-			wsCanRecover = false;
-			if (inlineCanvas?.documentId) {
-				void flushInlineCanvasPendingTransactions(
-					inlineCanvas.documentId,
-				).catch(() => undefined);
-			}
-			const connectionId = state.connectionId ?? null;
-			const recoveredFromDisconnect =
-				previousState === "reconnecting" ||
-				previousState === "closed" ||
-				previousState === "error";
-			const isNewRecoveredConnection =
-				Boolean(connectionId) && connectionId !== lastRecoveredConnectionId;
-			if (recoveredFromDisconnect || isNewRecoveredConnection) {
-				lastRecoveredConnectionId = connectionId;
-				void reconnectSync();
-			}
-			return;
-		}
-		if (state.state === "connecting") {
-			wsConnectionState = "connecting";
-			wsCanRecover = false;
-			return;
-		}
-		if (state.state === "reconnecting") {
-			wsConnectionState = "reconnecting";
-			wsCanRecover = true;
-			return;
-		}
-		if (state.state === "error") {
-			wsConnectionState = "error";
-			wsCanRecover = state.recoverable ?? false;
-			return;
-		}
-		if (state.state === "closed") {
-			wsConnectionState = "closed";
-			wsCanRecover = state.willReconnect;
-		}
-	});
-	const handleVisibility = () => {
-		pageVisible = !document.hidden;
-		if (!pageVisible && activeSessionId) {
-			captureCurrentScrollAnchor(activeSessionId);
-		}
-		scheduleStatusRefresh();
-		if (pageVisible) {
-			void refreshSessionsList(false);
-			if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
-				void reconcileSessionTail(activeSessionId);
-			}
-		}
-	};
-	const handleOnline = () => {
-		pageOnline = true;
-		scheduleStatusRefresh();
-		if (wsConnectionState === "open") {
-			void refreshSessionsList(false);
-		}
-		if (inlineCanvas?.documentId) {
-			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
-				() => undefined,
-			);
-		}
-	};
-	const handleOffline = () => {
-		pageOnline = false;
-		scheduleStatusRefresh();
-	};
 	const handleOpenInlineFileEvent = (e: Event) => {
 		const custom = e as CustomEvent<{ spaceId?: string; path?: string }>;
 		if (custom.detail?.spaceId !== spaceId || !custom.detail?.path) return;
@@ -5507,9 +5455,6 @@ onMount(() => {
 			fileActionMenuOpenPath = null;
 		}
 	};
-	window.addEventListener("visibilitychange", handleVisibility);
-	window.addEventListener("online", handleOnline);
-	window.addEventListener("offline", handleOffline);
 	window.addEventListener("resize", handlePreviewWindowResize);
 	window.addEventListener("cohub:open-inline-file", handleOpenInlineFileEvent);
 	window.addEventListener("keydown", handleFileKeyboardSave);
@@ -5539,10 +5484,7 @@ onMount(() => {
 		generationRealtime.dispose();
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
-		wsConnectionCleanup();
-		window.removeEventListener("visibilitychange", handleVisibility);
-		window.removeEventListener("online", handleOnline);
-		window.removeEventListener("offline", handleOffline);
+		spaceRealtime.dispose();
 		window.removeEventListener("resize", handlePreviewWindowResize);
 		window.removeEventListener(
 			"cohub:open-inline-file",
@@ -5595,6 +5537,7 @@ $effect(() => {
 	turnHydrationInFlight.clear();
 	clearAllPostSendRecovery();
 	generationRealtime.clearStreamSnapshotRecoveryCooldowns();
+	spaceRealtime.resetRecoveredConnection();
 	sessionWorkspace.activeSessionId = null;
 	currentTurnSequence = null;
 	sessionScroll.turnMarkerPositions = {};
