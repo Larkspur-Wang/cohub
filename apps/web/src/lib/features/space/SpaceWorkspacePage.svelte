@@ -281,6 +281,7 @@ import {
 } from "./modules/cronjob-utils";
 import FilesSidebarPanel from "./modules/FilesSidebarPanel.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
+import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import {
 	buildFsEntry,
 	getParentDirPath,
@@ -583,12 +584,6 @@ let labelPickerResource = $state<{
 } | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let draftSessionModel = $state<SelectedModel | null>(null);
-let fileTree = $state<SpaceFsNode[]>([]);
-let fileTreeBySource = $state<Record<string, SpaceFsNode[]>>({});
-let fileTreeSourceKey = $state("live");
-let fileTreeLoading = $state(false);
-let fileTreeError = $state<string | null>(null);
-let fileTreeRequestToken = $state(0);
 const portPreview = createPortPreviewController({
 	getSpaceId: () => spaceId,
 	getSpace: () => space,
@@ -602,7 +597,7 @@ const portPreview = createPortPreviewController({
 		closePreviewFocusMode();
 	},
 	onBeforeOpenPort: () => {
-		inlineFile = null;
+		fileWorkspace.closeInlineFile();
 		canvasPreview.closeCanvas();
 	},
 });
@@ -613,28 +608,35 @@ let workPublishTarget = $state<{
 	targetType: "file" | "directory" | "port";
 	targetRef: string;
 } | null>(null);
-let directoryLoadTokenByPath = $state<Record<string, number>>({});
-let openFile = $state<SpaceFsFileResponse | null>(null);
-let openFileDraft = $state("");
-let openFileLoading = $state(false);
-let openFileSaving = $state(false);
-let openFileError = $state<string | null>(null);
-let openFileTooLarge = $state(false);
-// Inline file panel state (opened from sidebar, not via route)
-let inlineFile = $state<{
-	response: SpaceFsFileResponse | null;
-	draft: string;
-	path: string;
-	loading: boolean;
-	saving: boolean;
-	error: string | null;
-	tooLarge: boolean;
-} | null>(null);
-let inlineFileRequestToken = $state(0);
+const fileWorkspace = createFileWorkspaceController({
+	getSpaceId: () => spaceId,
+	getActiveFsSource: () => activeFsSource,
+	getActiveFsSourceKey: () => activeFsSourceKey,
+	getRouteFilePath: () => routeFilePath,
+	getCanEditFiles: () => canEditFiles,
+	getActiveFsReadonly: () => activeFsReadonly,
+	getSpaceHasMinimalAccess: () => spaceHasMinimalAccess,
+	onCloseRouteFile: () => {
+		void goto(buildSpaceNewSessionRoute(spaceId), {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true,
+		});
+	},
+	onOpenInlineCanvas: (path) => canvasPreview.openCanvas(path),
+	onCloseInlineCanvas: () => canvasPreview.closeCanvas(),
+	onRenameInlineCanvas: (fromPath, toPath) =>
+		canvasPreview.renamePath(fromPath, toPath),
+	onOpenInlinePort: (port, url, optionsArg) =>
+		portPreview.openPort(port, url, optionsArg),
+	onCloseInlinePort: () => portPreview.closePort(),
+	onClosePreviewFocusMode: closePreviewFocusMode,
+	onEnsurePreviewPanelFits: ensurePreviewPanelFits,
+});
 const canvasPreview = createCanvasPreviewController({
 	getSpaceId: () => spaceId,
 	getSourceKey: () => activeFsSourceKey,
-	readFile: readActiveFsFile,
+	readFile: fileWorkspace.readActiveFsFile,
 	onOpenPanel: () => {
 		closePreviewFocusMode();
 		ensurePreviewPanelFits();
@@ -643,23 +645,26 @@ const canvasPreview = createCanvasPreviewController({
 		closePreviewFocusMode();
 	},
 	onBeforeOpenCanvas: () => {
-		inlineFile = null;
+		fileWorkspace.closeInlineFile();
 		portPreview.closePort();
 	},
-	onMarkSavePending: markFileSavePending,
-	onClearSavePendingSoon: clearFileSavePendingSoon,
+	onMarkSavePending: fileWorkspace.markFileSavePending,
+	onClearSavePendingSoon: fileWorkspace.clearFileSavePendingSoon,
 });
+const fileTree = $derived(fileWorkspace.fileTree);
+const fileTreeLoading = $derived(fileWorkspace.fileTreeLoading);
+const fileTreeError = $derived(fileWorkspace.fileTreeError);
+const openFile = $derived(fileWorkspace.openFile);
+const openFileLoading = $derived(fileWorkspace.openFileLoading);
+const openFileSaving = $derived(fileWorkspace.openFileSaving);
+const openFileError = $derived(fileWorkspace.openFileError);
+const openFileTooLarge = $derived(fileWorkspace.openFileTooLarge);
+const inlineFile = $derived(fileWorkspace.inlineFile);
 const inlineCanvas = $derived(canvasPreview.canvas);
 const selectedFilePath = $derived(
 	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
 );
-const inlineFileDirty = $derived(
-	Boolean(
-		inlineFile &&
-			inlineFile.response?.kind === "text" &&
-			inlineFile.draft !== inlineFile.response.content,
-	),
-);
+const inlineFileDirty = $derived(fileWorkspace.inlineFileDirty);
 const openWorkPublish = (
 	targetType: "file" | "directory" | "port",
 	targetRef: string,
@@ -672,52 +677,18 @@ const publishOpenFile = () => {
 const publishInlineFile = () => {
 	if (inlineFile?.response) openWorkPublish("file", inlineFile.response.path);
 };
-
-const inlineFileIsMarkdown = $derived(
-	Boolean(
-		inlineFile?.response?.kind === "text" &&
-			isMarkdownPath(inlineFile.response.path),
-	),
-);
-const inlineFileIsHtml = $derived(
-	Boolean(
-		inlineFile?.response?.kind === "text" &&
-			isHtmlPath(inlineFile.response.path),
-	),
-);
+const inlineFileIsMarkdown = $derived(fileWorkspace.inlineFileIsMarkdown);
+const inlineFileIsHtml = $derived(fileWorkspace.inlineFileIsHtml);
 const inlineFileHasRenderedPreview = $derived(
-	inlineFileIsMarkdown || inlineFileIsHtml,
+	fileWorkspace.inlineFileHasRenderedPreview,
 );
-const inlineFileExt = $derived.by(() => {
-	if (inlineFile?.response?.kind !== "text") return "plaintext";
-	return (
-		inlineFile.response.name.split(".").pop()?.toLowerCase() ?? "plaintext"
-	);
-});
-const inlineFileIsImage = $derived(
-	Boolean(inlineFile?.response?.mimeType?.startsWith("image/")),
-);
-const inlineFileIsVideo = $derived(
-	Boolean(inlineFile?.response?.mimeType?.startsWith("video/")),
-);
-const inlineFileIsText = $derived(
-	Boolean(inlineFile?.response?.kind === "text"),
-);
-const inlineFileDataUrl = $derived.by(() => {
-	if (inlineFile?.response?.kind !== "binary") return null;
-	if (inlineFile.response.delivery === "url")
-		return inlineFile.response.url ?? null;
-	const mime = inlineFile.response.mimeType ?? "application/octet-stream";
-	return `data:${mime};base64,${inlineFile.response.content}`;
-});
-const inlineFileDownloadUrl = $derived.by(() => {
-	if (!inlineFile) return "";
-	return buildSpaceFileDownloadUrl(spaceId, inlineFile.path);
-});
-const inlineFileDownloadName = $derived.by(() => {
-	if (!inlineFile) return "";
-	return inlineFile.path.split("/").pop() ?? "download";
-});
+const inlineFileExt = $derived(fileWorkspace.inlineFileExt);
+const inlineFileIsImage = $derived(fileWorkspace.inlineFileIsImage);
+const inlineFileIsVideo = $derived(fileWorkspace.inlineFileIsVideo);
+const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
+const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
+const inlineFileDownloadUrl = $derived(fileWorkspace.inlineFileDownloadUrl);
+const inlineFileDownloadName = $derived(fileWorkspace.inlineFileDownloadName);
 const inlinePortEndpoint = $derived.by(() => {
 	if (!inlinePortPreview) return null;
 	return previewEndpoints[inlinePortPreview.port] ?? null;
@@ -731,23 +702,38 @@ const activePreviewKind = $derived(
 				? "file"
 				: null,
 );
-let inlineFileEdit = $state(true);
-function shouldOpenFileInEditMode(file: SpaceFsFileResponse) {
-	return !hasRenderedFilePreview(file);
-}
-// Image zoom state (for both route-based and inline file viewers)
-let openFileZoom = $state(1);
-let openFilePanX = $state(0);
-let openFilePanY = $state(0);
-let openFileDragging = $state(false);
-let inlineFileZoom = $state(1);
-let inlineFilePanX = $state(0);
-let inlineFilePanY = $state(0);
-let inlineFileDragging = $state(false);
-let inlineFileCopied = $state(false);
-let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let openFileCopied = $state(false);
-let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+const openFileDraft = $derived(fileWorkspace.openFileDraft);
+const openFileCopied = $derived(fileWorkspace.openFileCopied);
+const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
+const fileDirty = $derived(fileWorkspace.fileDirty);
+const openFileIsMarkdown = $derived(fileWorkspace.openFileIsMarkdown);
+const openFileIsHtml = $derived(fileWorkspace.openFileIsHtml);
+const openFileHasRenderedPreview = $derived(
+	fileWorkspace.openFileHasRenderedPreview,
+);
+const openFileExt = $derived(fileWorkspace.openFileExt);
+const openFileIsImage = $derived(fileWorkspace.openFileIsImage);
+const openFileIsVideo = $derived(fileWorkspace.openFileIsVideo);
+const openFileIsText = $derived(fileWorkspace.openFileIsText);
+const openFileDataUrl = $derived(fileWorkspace.openFileDataUrl);
+const openFileDownloadUrl = $derived(fileWorkspace.openFileDownloadUrl);
+const openFileDownloadName = $derived(fileWorkspace.openFileDownloadName);
+const openFilePanHandlers = makeImagePanHandlers(
+	() => fileWorkspace.openFileZoom,
+	() => fileWorkspace.openFilePanX,
+	() => fileWorkspace.openFilePanY,
+	(v) => (fileWorkspace.openFilePanX = v),
+	(v) => (fileWorkspace.openFilePanY = v),
+	(v) => (fileWorkspace.openFileDragging = v),
+);
+const inlineFilePanHandlers = makeImagePanHandlers(
+	() => fileWorkspace.inlineFileZoom,
+	() => fileWorkspace.inlineFilePanX,
+	() => fileWorkspace.inlineFilePanY,
+	(v) => (fileWorkspace.inlineFilePanX = v),
+	(v) => (fileWorkspace.inlineFilePanY = v),
+	(v) => (fileWorkspace.inlineFileDragging = v),
+);
 let previewPanelWidth = $state(480);
 let previewPanelResizeCleanup: (() => void) | null = null;
 let previewFocusMode = $state(false);
@@ -759,124 +745,7 @@ let previewFocusSnapshot: {
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const CHAT_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
-const PENDING_FILE_SAVE_ECHO_TTL_MS = 3000;
-let pendingFileSavePaths = $state<Set<string>>(new Set());
-function markFileSavePending(path: string) {
-	pendingFileSavePaths = new Set(pendingFileSavePaths).add(path);
-}
-function clearFileSavePendingSoon(path: string) {
-	setTimeout(() => {
-		const next = new Set(pendingFileSavePaths);
-		next.delete(path);
-		pendingFileSavePaths = next;
-	}, PENDING_FILE_SAVE_ECHO_TTL_MS);
-}
-function isOwnPendingFileSave(
-	path: string | undefined,
-	source?: string,
-	kind?: string,
-) {
-	return Boolean(
-		path &&
-			source === "api-fs" &&
-			kind === "modify" &&
-			pendingFileSavePaths.has(path),
-	);
-}
-// ─── File upload ───
-let uploadPaneVisible = $state(false);
-let uploadPaneTargetDir = $state("");
-let pendingUploadFiles = $state<File[]>([]);
-let pendingUploadEntries = $state<LocalUploadEntry[]>([]);
-function isLocalUploadEntries(
-	value: File[] | LocalUploadEntry[],
-): value is LocalUploadEntry[] {
-	return value.length > 0 && "file" in value[0] && "relativePath" in value[0];
-}
-function handleUploadFiles(
-	files: File[] | LocalUploadEntry[],
-	targetDir: string,
-) {
-	if (activeFsReadonly || !canEditFiles) return;
-	uploadPaneTargetDir = targetDir;
-	if (isLocalUploadEntries(files)) {
-		pendingUploadEntries = files;
-		pendingUploadFiles = [];
-	} else {
-		pendingUploadFiles = files;
-		pendingUploadEntries = files.map((file) => ({
-			file,
-			relativePath: file.name,
-		}));
-	}
-	uploadPaneVisible = true;
-}
-async function handleUploadComplete() {
-	await refreshFileTree();
-}
-const openFilePanHandlers = makeImagePanHandlers(
-	() => openFileZoom,
-	() => openFilePanX,
-	() => openFilePanY,
-	(v) => (openFilePanX = v),
-	(v) => (openFilePanY = v),
-	(v) => (openFileDragging = v),
-);
-const inlineFilePanHandlers = makeImagePanHandlers(
-	() => inlineFileZoom,
-	() => inlineFilePanX,
-	() => inlineFilePanY,
-	(v) => (inlineFilePanX = v),
-	(v) => (inlineFilePanY = v),
-	(v) => (inlineFileDragging = v),
-);
-const fileDirty = $derived(
-	Boolean(
-		openFile && openFile.kind === "text" && openFileDraft !== openFile.content,
-	),
-);
-const openFileIsMarkdown = $derived(
-	Boolean(openFile?.kind === "text" && isMarkdownPath(openFile.path)),
-);
-const openFileIsHtml = $derived(
-	Boolean(openFile?.kind === "text" && isHtmlPath(openFile.path)),
-);
-const openFileHasRenderedPreview = $derived(
-	openFileIsMarkdown || openFileIsHtml,
-);
-const openFileExt = $derived.by(() => {
-	if (openFile?.kind !== "text") return "plaintext";
-	return openFile.name.split(".").pop()?.toLowerCase() ?? "plaintext";
-});
-const openFileIsImage = $derived(
-	Boolean(openFile?.mimeType?.startsWith("image/")),
-);
-const openFileIsVideo = $derived(
-	Boolean(openFile?.mimeType?.startsWith("video/")),
-);
-const openFileIsText = $derived(Boolean(openFile?.kind === "text"));
-const openFileDataUrl = $derived.by(() => {
-	if (openFile?.kind !== "binary") return null;
-	if (openFile.delivery === "url") return openFile.url ?? null;
-	const mime = openFile.mimeType ?? "application/octet-stream";
-	return `data:${mime};base64,${openFile.content}`;
-});
-const openFileDownloadUrl = $derived.by(() => {
-	if (!routeFilePath) return "";
-	return buildSpaceFileDownloadUrl(spaceId, routeFilePath);
-});
-const openFileDownloadName = $derived.by(() => {
-	if (!routeFilePath) return "";
-	return routeFilePath.split("/").pop() ?? "download";
-});
-let fileEdit = $state(true);
-$effect(() => {
-	if (openFile) fileEdit = shouldOpenFileInEditMode(openFile);
-});
-$effect(() => {
-	if (inlineFile?.response)
-		inlineFileEdit = shouldOpenFileInEditMode(inlineFile.response);
-});
+
 let loadedSpaceId = $state<string | null>(null);
 let pageMounted = false;
 let pageVisible = true;
@@ -2698,43 +2567,22 @@ function writeBottomScrollAnchor(sessionId: string) {
 	unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
 }
 function updateRootFsEntries(entries: SpaceFsEntry[]) {
-	setActiveFileTree(makeFsNodes(entries, fileTree));
+	fileWorkspace.updateRootFsEntries(entries);
 }
 function setActiveFileTree(nodes: SpaceFsNode[]) {
-	fileTree = nodes;
-	fileTreeBySource = { ...fileTreeBySource, [activeFsSourceKey]: nodes };
+	fileWorkspace.setActiveFileTree(nodes);
 }
 function listActiveFsDir(path: string) {
-	if (activeFsSource.kind === "checkpoint") {
-		return sdk
-			.space(spaceId)
-			.checkpoints(activeFsSource.checkpointId)
-			.files.list(path);
-	}
-	return sdk.space(spaceId).files.list(path);
+	return fileWorkspace.listActiveFsDir(path);
 }
 function readActiveFsFile(path: string) {
-	if (activeFsSource.kind === "checkpoint") {
-		return sdk
-			.space(spaceId)
-			.checkpoints(activeFsSource.checkpointId)
-			.files.read(path);
-	}
-	return sdk.space(spaceId).files.read(path);
+	return fileWorkspace.readActiveFsFile(path);
 }
 async function patchFsDirectory(
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
 ) {
-	const nextEntries = await patchCachedSpaceFsDir(spaceId, dirPath, updater);
-	if (dirPath === "") {
-		updateRootFsEntries(nextEntries);
-		return nextEntries;
-	}
-	setActiveFileTree(
-		replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries)),
-	);
-	return nextEntries;
+	return fileWorkspace.patchFsDirectory(dirPath, updater);
 }
 function upsertSessionRecord(
 	session: SessionRecord,
@@ -4267,7 +4115,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 		return;
 	}
 	for (const change of eventPayload.changes ?? []) {
-		const isOwnPendingChange = isOwnPendingFileSave(
+		const isOwnPendingChange = fileWorkspace.isOwnPendingFileSave(
 			change.path,
 			eventPayload.source,
 			change.kind,
@@ -4283,9 +4131,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			} else if (change.kind === "delete") closeFile();
 			else if (!fileDirty && change.path)
 				await openFileFromUrl(change.path).catch(() => undefined);
-			else if (fileDirty)
-				openFileError =
-					"File changed externally. Save carefully or reload before editing further.";
+			else if (fileDirty) fileWorkspace.markOpenFileExternalChange();
 		}
 		if (
 			inlineFile?.path &&
@@ -4297,9 +4143,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			} else if (change.kind === "delete") closeInlineFile();
 			else if (!inlineFileDirty && change.path)
 				await openInlineFile(change.path).catch(() => undefined);
-			else if (inlineFileDirty)
-				inlineFile.error =
-					"File changed externally. Save carefully or reload before editing further.";
+			else if (inlineFileDirty) fileWorkspace.markInlineFileExternalChange();
 		}
 	}
 	if (dirsToRefresh.has("")) await loadFileTree(true);
@@ -5800,474 +5644,50 @@ async function toggleRightSidebar() {
 	);
 }
 async function loadFileTree(force = false) {
-	const source = activeFsSource;
-	const sourceKey = activeFsSourceKey;
-	if (fileTreeLoading && !force) return;
-	const requestToken = fileTreeRequestToken + 1;
-	fileTreeRequestToken = requestToken;
-	if (spaceHasMinimalAccess) {
-		setActiveFileTree([]);
-		fileTreeLoading = false;
-		fileTreeError = "Files are not available for this shared session.";
-		return;
-	}
-	if (!force) {
-		if (source.kind === "live") {
-			const cached = await getCachedSpaceFsDir(spaceId, "");
-			if (
-				requestToken !== fileTreeRequestToken ||
-				sourceKey !== activeFsSourceKey
-			)
-				return;
-			if (cached && cached.length > 0) {
-				setActiveFileTree(makeFsNodes(cached, fileTree));
-			}
-		} else {
-			const cached = fileTreeBySource[sourceKey];
-			if (cached) setActiveFileTree(cached);
-		}
-	}
-	const shouldShowLoading = fileTree.length === 0 || force;
-	if (shouldShowLoading) {
-		fileTreeLoading = true;
-	}
-	fileTreeError = null;
-	try {
-		const entries =
-			source.kind === "live"
-				? await fetchSpaceFsDirWithCache(
-						spaceId,
-						"",
-						async () => {
-							const tree = await sdk.space(spaceId).files.list("");
-							return tree.entries;
-						},
-						{ force: true },
-					)
-				: (
-						await sdk
-							.space(spaceId)
-							.checkpoints(source.checkpointId)
-							.files.list("")
-					).entries;
-		if (
-			requestToken !== fileTreeRequestToken ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		setActiveFileTree(makeFsNodes(entries, fileTree));
-	} catch (error) {
-		if (
-			requestToken !== fileTreeRequestToken ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		fileTreeError =
-			error instanceof Error ? error.message : "Failed to load files";
-	} finally {
-		if (
-			requestToken === fileTreeRequestToken &&
-			sourceKey === activeFsSourceKey
-		) {
-			fileTreeLoading = false;
-		}
-	}
+	await fileWorkspace.loadFileTree(force);
 }
 async function expandDirectory(node: SpaceFsNode) {
-	if (node.type !== "dir") return;
-	if (node.isOpen) {
-		directoryLoadTokenByPath = {
-			...directoryLoadTokenByPath,
-			[node.path]: (directoryLoadTokenByPath[node.path] ?? 0) + 1,
-		};
-		setActiveFileTree(
-			updateNodeState(fileTree, node.path, (item) => ({
-				...item,
-				isOpen: false,
-				isLoading: false,
-			})),
-		);
-		return;
-	}
-
-	const requestToken = (directoryLoadTokenByPath[node.path] ?? 0) + 1;
-	directoryLoadTokenByPath = {
-		...directoryLoadTokenByPath,
-		[node.path]: requestToken,
-	};
-
-	const source = activeFsSource;
-	const sourceKey = activeFsSourceKey;
-	const hasExistingChildren = node.children.length > 0;
-	const cached =
-		source.kind === "live"
-			? await getCachedSpaceFsDir(spaceId, node.path)
-			: null;
-	if (directoryLoadTokenByPath[node.path] !== requestToken) return;
-
-	if (cached) {
-		setActiveFileTree(
-			replaceNodeChildren(fileTree, node.path, makeFsNodes(cached)),
-		);
-	} else {
-		setActiveFileTree(
-			updateNodeState(fileTree, node.path, (item) => ({
-				...item,
-				isLoading: !hasExistingChildren,
-				isOpen: true,
-			})),
-		);
-	}
-
-	try {
-		const entries =
-			source.kind === "live"
-				? await fetchSpaceFsDirWithCache(
-						spaceId,
-						node.path,
-						async () => {
-							const tree = await sdk.space(spaceId).files.list(node.path);
-							return tree.entries;
-						},
-						{ force: true },
-					)
-				: (
-						await sdk
-							.space(spaceId)
-							.checkpoints(source.checkpointId)
-							.files.list(node.path)
-					).entries;
-		if (
-			directoryLoadTokenByPath[node.path] !== requestToken ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		setActiveFileTree(
-			replaceNodeChildren(fileTree, node.path, makeFsNodes(entries)),
-		);
-	} catch (error) {
-		if (directoryLoadTokenByPath[node.path] !== requestToken) return;
-		setActiveFileTree(
-			updateNodeState(fileTree, node.path, (item) => ({
-				...item,
-				isLoading: false,
-			})),
-		);
-		fileTreeError =
-			error instanceof Error ? error.message : "Failed to load directory";
-	}
+	await fileWorkspace.expandDirectory(node);
 }
 async function openSpaceFile(path: string) {
-	void goto(buildSpaceFileRoute(spaceId, path), {
-		replaceState: true,
-		noScroll: true,
-		keepFocus: true,
-	});
+	fileWorkspace.openSpaceFile(path);
 }
 async function refreshFileTree() {
-	await loadFileTree(true);
+	await fileWorkspace.refreshFileTree();
 }
 async function openFileFromUrl(path: string) {
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId &&
-		routeView === "file" &&
-		routeFilePath === path;
-	portPreview.closePort();
-	openFileLoading = true;
-	openFileError = null;
-	openFileTooLarge = false;
-	try {
-		const file = await sdk.space(requestSpaceId).files.read(path);
-		if (!isCurrentRequest()) return;
-		if (!("content" in file)) {
-			openFile = null;
-			openFileDraft = "";
-			openFileError = "File is being prepared. Please retry shortly.";
-			return;
-		}
-		fileEdit = shouldOpenFileInEditMode(file);
-		openFile = file;
-		openFileDraft = file.kind === "text" ? file.content : "";
-	} catch (error) {
-		if (!isCurrentRequest()) return;
-		if (error instanceof HttpError && error.status === 413) {
-			openFileTooLarge = true;
-			openFile = null;
-			openFileDraft = "";
-			openFileError = null;
-		} else {
-			openFileError =
-				error instanceof Error ? error.message : "Failed to open file";
-		}
-	} finally {
-		if (isCurrentRequest()) openFileLoading = false;
-	}
+	await fileWorkspace.openFileFromUrl(path);
 }
 async function saveOpenFile() {
-	if (!canEditFiles || openFile?.kind !== "text") return;
-	const savingPath = openFile.path;
-	markFileSavePending(savingPath);
-	openFileSaving = true;
-	openFileError = null;
-	try {
-		await sdk.space(spaceId).files.write({
-			path: savingPath,
-			content: openFileDraft,
-			encoding: "utf-8",
-		});
-		openFile = {
-			...openFile,
-			content: openFileDraft,
-			size: new Blob([openFileDraft]).size,
-		};
-		openFileError = null;
-		const updatedPath = openFile.path;
-		await patchFsDirectory(getParentDirPath(updatedPath), (entries) =>
-			entries.map((entry) =>
-				entry.path === updatedPath
-					? {
-							...entry,
-							size: new Blob([openFileDraft]).size,
-							mtimeMs: Date.now(),
-						}
-					: entry,
-			),
-		);
-	} catch (error) {
-		openFileError =
-			error instanceof Error ? error.message : "Failed to save file";
-	} finally {
-		openFileSaving = false;
-		clearFileSavePendingSoon(savingPath);
-	}
+	await fileWorkspace.saveOpenFile();
 }
 async function handleCreateFile(parentPath: string) {
-	if (activeFsReadonly || !canEditFiles) return;
-	const name = prompt("New file name");
-	if (!name?.trim()) return;
-	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-	try {
-		await sdk
-			.space(spaceId)
-			.files.write({ path, content: "", encoding: "utf-8" });
-		await patchFsDirectory(parentPath, (entries) => [
-			...entries,
-			buildFsEntry(path, "file"),
-		]);
-		if (isCovasFile(path)) await openInlineCanvas(path);
-		else await openInlineFile(path);
-	} catch (error) {
-		fileTreeError =
-			error instanceof Error ? error.message : "Failed to create file";
-	}
+	await fileWorkspace.handleCreateFile(parentPath);
 }
 async function handleCreateCanvas(parentPath: string) {
-	if (activeFsReadonly || !canEditFiles) return;
-	const name = prompt("New canvas name", "Untitled.covas");
-	if (!name?.trim()) return;
-	const fileName = ensureCovasExtension(name);
-	const path = parentPath ? `${parentPath}/${fileName}` : fileName;
-	try {
-		await sdk.space(spaceId).canvas.create({
-			path,
-			title: fileName,
-			nodes: createEmptyCovasDocument().items.map(canvasItemToNode),
-		});
-		await patchFsDirectory(parentPath, (entries) => [
-			...entries,
-			buildFsEntry(path, "file"),
-		]);
-		await openInlineCanvas(path);
-	} catch (error) {
-		fileTreeError =
-			error instanceof Error ? error.message : "Failed to create canvas";
-	}
+	await fileWorkspace.handleCreateCanvas(parentPath);
 }
 async function handleCreateDir(parentPath: string) {
-	if (activeFsReadonly || !canEditFiles) return;
-	const name = prompt("New folder name");
-	if (!name?.trim()) return;
-	const path = parentPath ? `${parentPath}/${name.trim()}` : name.trim();
-	try {
-		await sdk.space(spaceId).files.createDir(path);
-		await patchFsDirectory(parentPath, (entries) => [
-			...entries,
-			buildFsEntry(path, "dir"),
-		]);
-	} catch (error) {
-		fileTreeError =
-			error instanceof Error ? error.message : "Failed to create folder";
-	}
+	await fileWorkspace.handleCreateDir(parentPath);
 }
 async function handleRenameNode(node: SpaceFsNode) {
-	if (activeFsReadonly) return;
-	if (!canEditFiles) return;
-	const nextName = prompt("Rename", node.name);
-	if (!nextName?.trim() || nextName.trim() === node.name) return;
-	const parent = node.path.includes("/")
-		? node.path.slice(0, node.path.lastIndexOf("/"))
-		: "";
-	const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
-	const isDirectoryRename = node.type === "dir";
-	try {
-		await sdk.space(spaceId).files.move({ fromPath: node.path, toPath });
-		if (parent === getParentDirPath(toPath)) {
-			await patchFsDirectory(parent, (entries) =>
-				entries.map((entry) =>
-					entry.path === node.path
-						? {
-								...entry,
-								name: nextName.trim(),
-								path: toPath,
-								mtimeMs: Date.now(),
-							}
-						: entry,
-				),
-			);
-		} else {
-			await patchFsDirectory(parent, (entries) =>
-				entries.filter((entry) => entry.path !== node.path),
-			);
-			await patchFsDirectory(getParentDirPath(toPath), (entries) => [
-				...entries,
-				{
-					...buildFsEntry(toPath, node.type),
-					size: node.size,
-					mimeType: node.mimeType,
-					mtimeMs: Date.now(),
-				},
-			]);
-		}
-		if (isDirectoryRename) {
-			await clearCachedSpaceFsSubtree(spaceId, node.path);
-		}
-		if (openFile?.path === node.path) {
-			closeFile();
-		}
-		if (inlineFile?.path === node.path) {
-			await openInlineFile(toPath);
-		}
-		if (inlineCanvas?.path === node.path) {
-			canvasPreview.renamePath(node.path, toPath);
-		}
-	} catch (error) {
-		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
-	}
+	await fileWorkspace.handleRenameNode(node);
 }
 async function handleDownloadNode(node: SpaceFsNode) {
-	if (node.type !== "file") return;
-	try {
-		await downloadSpaceFile(spaceId, node.path, node.name);
-	} catch (error) {
-		fileTreeError =
-			error instanceof Error ? error.message : "Failed to download";
-	}
+	await fileWorkspace.handleDownloadNode(node);
 }
 async function handleDeleteNode(node: SpaceFsNode) {
-	if (activeFsReadonly || !canEditFiles) return;
-	if (!confirm(`Delete ${node.name}?`)) return;
-	try {
-		await sdk.space(spaceId).files.delete(node.path, node.type === "dir");
-		await patchFsDirectory(getParentDirPath(node.path), (entries) =>
-			entries.filter((entry) => entry.path !== node.path),
-		);
-		if (node.type === "dir") {
-			await clearCachedSpaceFsSubtree(spaceId, node.path);
-		}
-		if (openFile?.path === node.path) closeFile();
-		if (inlineFile?.path === node.path) closeInlineFile();
-		if (inlineCanvas?.path === node.path) closeInlineCanvas();
-	} catch (error) {
-		fileTreeError = error instanceof Error ? error.message : "Failed to delete";
-	}
+	await fileWorkspace.handleDeleteNode(node);
+	if (inlineCanvas?.path === node.path) closeInlineCanvas();
 }
 function closeFile() {
-	void goto(buildSpaceNewSessionRoute(spaceId), {
-		replaceState: true,
-		noScroll: true,
-		keepFocus: true,
-	});
+	fileWorkspace.closeFile();
 }
 async function openInlineFile(path: string) {
-	const sourceKey = activeFsSourceKey;
-	const requestToken = inlineFileRequestToken + 1;
-	inlineFileRequestToken = requestToken;
-	closePreviewFocusMode();
-	ensurePreviewPanelFits();
-	portPreview.closePort();
-	canvasPreview.closeCanvas();
-	inlineFile = {
-		response: null,
-		draft: "",
-		path,
-		loading: true,
-		saving: false,
-		error: null,
-		tooLarge: false,
-	};
-	try {
-		const file = await readActiveFsFile(path);
-		if (
-			requestToken !== inlineFileRequestToken ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		if (!("content" in file)) {
-			inlineFile = {
-				response: null,
-				draft: "",
-				path,
-				loading: false,
-				saving: false,
-				error: "File is being prepared. Please retry shortly.",
-				tooLarge: false,
-			};
-			return;
-		}
-		inlineFileEdit = shouldOpenFileInEditMode(file);
-		inlineFile = {
-			response: file,
-			draft: file.kind === "text" ? file.content : "",
-			path,
-			loading: false,
-			saving: false,
-			error: null,
-			tooLarge: false,
-		};
-	} catch (error) {
-		if (
-			requestToken !== inlineFileRequestToken ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		if (error instanceof HttpError && error.status === 413) {
-			inlineFile = {
-				response: null,
-				draft: "",
-				path,
-				loading: false,
-				saving: false,
-				error: null,
-				tooLarge: true,
-			};
-		} else {
-			inlineFile = {
-				response: null,
-				draft: "",
-				path,
-				loading: false,
-				saving: false,
-				error: error instanceof Error ? error.message : "Failed to open file",
-				tooLarge: false,
-			};
-		}
-	}
+	await fileWorkspace.openInlineFile(path);
 }
 function closeInlineFile() {
-	inlineFileRequestToken += 1;
-	inlineFile = null;
-	closePreviewFocusMode();
+	fileWorkspace.closeInlineFile();
 }
 async function openInlineCanvas(path: string) {
 	await canvasPreview.openCanvas(path);
@@ -6295,68 +5715,19 @@ function closeInlinePort() {
 	portPreview.closePort();
 }
 async function downloadOpenFile() {
-	if (!routeFilePath) return;
-	await downloadSpaceFile(
-		spaceId,
-		routeFilePath,
-		openFileDownloadName,
-		openFile,
-	);
+	await fileWorkspace.downloadOpenFile();
 }
 async function downloadInlineFile() {
-	if (!inlineFile) return;
-	await downloadSpaceFile(
-		spaceId,
-		inlineFile.path,
-		inlineFileDownloadName,
-		inlineFile.response,
-	);
+	await fileWorkspace.downloadInlineFile();
 }
 async function saveInlineFile() {
-	if (
-		activeFsReadonly ||
-		!canEditFiles ||
-		inlineFile?.response?.kind !== "text"
-	)
-		return;
-	const savingPath = inlineFile.path;
-	const nextContent = inlineFile.draft;
-	markFileSavePending(savingPath);
-	inlineFile.saving = true;
-	inlineFile.error = null;
-	try {
-		await sdk.space(spaceId).files.write({
-			path: savingPath,
-			content: nextContent,
-			encoding: "utf-8",
-		});
-		inlineFile = {
-			...inlineFile,
-			response: {
-				...inlineFile.response,
-				content: nextContent,
-				size: new Blob([nextContent]).size,
-			} as SpaceFsFileResponse,
-			error: null,
-		};
-		await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
-			entries.map((entry) =>
-				entry.path === savingPath
-					? {
-							...entry,
-							size: new Blob([nextContent]).size,
-							mtimeMs: Date.now(),
-						}
-					: entry,
-			),
-		);
-	} catch (error) {
-		inlineFile.error =
-			error instanceof Error ? error.message : "Failed to save file";
-	} finally {
-		if (inlineFile) inlineFile.saving = false;
-		clearFileSavePendingSoon(savingPath);
-	}
+	await fileWorkspace.saveInlineFile();
+}
+function handleUploadFiles(
+	files: File[] | LocalUploadEntry[],
+	targetDir: string,
+) {
+	fileWorkspace.handleUploadFiles(files, targetDir);
 }
 async function handleFileKeyboardSave(event: KeyboardEvent) {
 	if (
@@ -6365,11 +5736,8 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 		(fileMode === "file" || inlineFile)
 	) {
 		event.preventDefault();
-		if (inlineFile) {
-			await saveInlineFile();
-		} else {
-			await saveOpenFile();
-		}
+		if (inlineFile) await saveInlineFile();
+		else await saveOpenFile();
 	}
 	if (event.key === "Escape" && (inlineFile || inlinePortPreview)) {
 		event.preventDefault();
@@ -6378,23 +5746,15 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 	}
 }
 async function copyFileContent() {
-	if (openFile?.kind !== "text") return;
-	await navigator.clipboard.writeText(openFileDraft);
-	openFileCopied = true;
-	if (openFileCopiedTimer) clearTimeout(openFileCopiedTimer);
-	openFileCopiedTimer = setTimeout(() => {
-		openFileCopied = false;
-	}, 1500);
+	await fileWorkspace.copyFileContent();
 }
 async function copyInlineFileContent() {
-	if (inlineFile?.response?.kind !== "text") return;
-	await navigator.clipboard.writeText(inlineFile.draft);
-	inlineFileCopied = true;
-	if (inlineFileCopiedTimer) clearTimeout(inlineFileCopiedTimer);
-	inlineFileCopiedTimer = setTimeout(() => {
-		inlineFileCopied = false;
-	}, 1500);
+	await fileWorkspace.copyInlineFileContent();
 }
+function getFileActionNode(path: string): SpaceFsNode {
+	return fileWorkspace.getFileActionNode(path);
+}
+
 function insertPathReference(path: string) {
 	insertComposerSnippet(` \`${path}\` `);
 	uiState.mobileRightDrawerOpen = false;
@@ -6407,22 +5767,6 @@ function insertActiveSessionReference() {
 
 function insertFilePathReference(path: string) {
 	insertPathReference(path);
-}
-
-function getFileActionNode(path: string): SpaceFsNode {
-	const existingNode = findFsNode(fileTree, path);
-	if (existingNode) return existingNode;
-	const response =
-		openFile?.path === path
-			? openFile
-			: inlineFile?.response?.path === path
-				? inlineFile.response
-				: null;
-	return makeFsNode({
-		...buildFsEntry(path, "file"),
-		size: response?.size ?? 0,
-		mimeType: response?.mimeType ?? null,
-	});
 }
 
 function editResourceLabels(
@@ -6931,17 +6275,10 @@ $effect(() => {
 	lastTurnIndexRefreshKey = "";
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
-	fileTree = [];
-	fileTreeBySource = {};
-	fileTreeSourceKey = "live";
-	fileTreeLoading = false;
-	fileTreeError = null;
+	fileWorkspace.resetForSpace();
 	portPreview.setEndpoints({});
 	portPreview.closePort();
 	portPreview.closeReadyToast();
-	openFile = null;
-	openFileDraft = "";
-	inlineFile = null;
 	resourceActionMenuOpen = false;
 	showShareModal = false;
 	shareModalSessionId = null;
@@ -7302,29 +6639,15 @@ $effect(() => {
 });
 $effect(() => {
 	if (routeView !== "file" || !routeFilePath) {
-		openFile = null;
-		openFileDraft = "";
-		openFileError = null;
-		openFileTooLarge = false;
-		fileEdit = true;
+		fileWorkspace.clearRouteFile();
 		return;
 	}
 	void openFileFromUrl(routeFilePath);
 });
 $effect(() => {
 	const sourceKey = activeFsSourceKey;
-	if (fileTreeSourceKey === sourceKey) return;
-	fileTreeBySource = { ...fileTreeBySource, [fileTreeSourceKey]: fileTree };
-	fileTreeSourceKey = sourceKey;
-	fileTree = fileTreeBySource[sourceKey] ?? [];
-	directoryLoadTokenByPath = {};
-	fileTreeError = null;
-	fileTreeLoading = false;
-	fileTreeRequestToken += 1;
-	inlineFileRequestToken += 1;
-	inlineFile = null;
+	fileWorkspace.switchSource(sourceKey);
 	canvasPreview.closeCanvas();
-	void loadFileTree(false);
 });
 $effect(() => {
 	if (routeView === "checkpoint-new") {
@@ -7867,19 +7190,19 @@ $effect(() => {
         {openFileIsImage}
         {openFileIsVideo}
         {openFileDataUrl}
-        bind:openFileDraft
+        bind:openFileDraft={fileWorkspace.openFileDraft}
         {openFileExt}
-        bind:fileEdit
+        bind:fileEdit={fileWorkspace.fileEdit}
         {openFileCopied}
         {openFileSaving}
         {fileDirty}
         {canEditFiles}
         {activeFsReadonly}
-        bind:fileActionMenuOpenPath
-        bind:openFileZoom
-        bind:openFilePanX
-        bind:openFilePanY
-        {openFileDragging}
+        bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
+        bind:openFileZoom={fileWorkspace.openFileZoom}
+        bind:openFilePanX={fileWorkspace.openFilePanX}
+        bind:openFilePanY={fileWorkspace.openFilePanY}
+        openFileDragging={fileWorkspace.openFileDragging}
         {openFilePanHandlers}
         onCloseFile={closeFile}
         onDownloadOpenFile={downloadOpenFile}
@@ -7985,7 +7308,7 @@ $effect(() => {
       {inlineFileDownloadName}
       {inlineFileIsText}
       {inlineFileHasRenderedPreview}
-      bind:inlineFileEdit
+      bind:inlineFileEdit={fileWorkspace.inlineFileEdit}
       {inlineFileIsMarkdown}
       {inlineFileIsHtml}
       {inlineFileDirty}
@@ -7999,11 +7322,11 @@ $effect(() => {
       {previewPanelWidth}
       {previewFocusMode}
       {isMobile}
-      bind:fileActionMenuOpenPath
-      bind:inlineFileZoom
-      bind:inlineFilePanX
-      bind:inlineFilePanY
-      {inlineFileDragging}
+      bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
+      bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
+      bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
+      bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
+      inlineFileDragging={fileWorkspace.inlineFileDragging}
       {inlineFilePanHandlers}
       onCloseInlineFile={closeInlineFile}
       onDownloadInlineFile={downloadInlineFile}
@@ -8063,10 +7386,10 @@ $effect(() => {
     rightDragOffsetPx={uiState.rightDragOffsetPx}
     rightIsDragging={uiState.rightIsDragging}
     isDrawerVisible={isRightDrawerVisible}
-    {uploadPaneVisible}
-    {uploadPaneTargetDir}
-    {pendingUploadFiles}
-    {pendingUploadEntries}
+    uploadPaneVisible={fileWorkspace.uploadPaneVisible}
+    uploadPaneTargetDir={fileWorkspace.uploadPaneTargetDir}
+    pendingUploadFiles={fileWorkspace.pendingUploadFiles}
+    pendingUploadEntries={fileWorkspace.pendingUploadEntries}
     onToggle={expandDirectory}
     onSelect={(node, options) => {
       if (node.type === "file") {
@@ -8092,8 +7415,8 @@ $effect(() => {
       openInlinePort(port, url);
       if (options.mobile) uiState.mobileRightDrawerOpen = false;
     }}
-    onUploadPaneClose={() => { uploadPaneVisible = false; }}
-    onUploadComplete={handleUploadComplete}
+    onUploadPaneClose={() => { fileWorkspace.uploadPaneVisible = false; }}
+    onUploadComplete={fileWorkspace.handleUploadComplete}
     onResizeStart={beginRightSidebarResize}
   />
   <WorkPublishDialog
