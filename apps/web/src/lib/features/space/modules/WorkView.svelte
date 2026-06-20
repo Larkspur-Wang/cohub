@@ -52,6 +52,7 @@ let workFormSubmitting = $state(false);
 let workFormError = $state("");
 let workCopiedId = $state(false);
 let workCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
+let workRouteStateKey = "";
 let workVersions = $state<WorkVersionRecord[]>([]);
 let workVersionsLoading = $state(false);
 let workVersionsError = $state("");
@@ -264,14 +265,29 @@ async function onUpdateWorkSubmit(event: SubmitEvent) {
 	}
 }
 
+function resetWorkTransientState() {
+	workDetailLoading = false;
+	workVersions = [];
+	workVersionsLoading = false;
+	workVersionsError = "";
+	workEditMode = false;
+	workActionInProgress = false;
+	workDeleteInProgress = false;
+	workFormError = "";
+	workPublishError = "";
+}
+
 $effect(() => {
+	const stateKey = `${spaceId}:${routeWorkId ?? ""}`;
+	if (workRouteStateKey === stateKey) return;
+	workRouteStateKey = stateKey;
+	resetWorkTransientState();
 	if (routeWorkId) {
 		void loadWorkDetail(routeWorkId);
 		return;
 	}
 	workDetail = null;
 	onDetailLoaded?.(null);
-	workVersions = [];
 });
 
 onDestroy(() => {

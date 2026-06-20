@@ -289,7 +289,7 @@ import {
 	type SpaceSandboxSnapshot,
 } from "./modules/space-status-controller.svelte";
 import TaskRunView from "./modules/TaskRunView.svelte";
-import { taskTypeLabel } from "./modules/task-run-utils";
+import { mergeTaskRunRecord, taskTypeLabel } from "./modules/task-run-utils";
 import WorkView from "./modules/WorkView.svelte";
 import {
 	scopeState,
@@ -871,6 +871,12 @@ type RouteDetailHeaderMeta = {
 };
 
 let routeDetailHeaderMeta = $state<RouteDetailHeaderMeta | null>(null);
+let taskRealtimeEvent = $state<{
+	spaceId: string;
+	payload: ChannelEnvelope;
+	seq: number;
+} | null>(null);
+let taskRealtimeSeq = 0;
 const sessionTasks = createSessionTaskController();
 const generationTaskRunById = $derived(sessionTasks.generationTaskRunById);
 const backgroundBashTaskRunById = $derived(
@@ -939,52 +945,6 @@ const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
 function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
 	return asRecord(asRecord(run.payload)?.data);
-}
-function mergeTaskRunRecord(
-	current: TaskRunRecord | null,
-	patch: Partial<TaskRunRecord> & {
-		id: string;
-		type?: string;
-		userId?: string | null;
-	},
-): TaskRunRecord {
-	const now = new Date().toISOString();
-	return {
-		id: patch.id,
-		jobId: patch.jobId ?? current?.jobId ?? patch.id,
-		cronJobId: patch.cronJobId ?? current?.cronJobId ?? null,
-		taskType: patch.taskType ?? patch.type ?? current?.taskType ?? "unknown",
-		status: patch.status ?? current?.status ?? "pending",
-		payload: patch.payload ?? current?.payload ?? null,
-		result: patch.result ?? current?.result ?? null,
-		errorMessage: patch.errorMessage ?? current?.errorMessage ?? null,
-		attemptCount: patch.attemptCount ?? current?.attemptCount ?? 0,
-		spaceId: patch.spaceId ?? current?.spaceId ?? spaceId,
-		sessionId: patch.sessionId ?? current?.sessionId ?? null,
-		turnId: patch.turnId ?? current?.turnId ?? null,
-		userUuid: patch.userUuid ?? patch.userId ?? current?.userUuid ?? null,
-		userProfile: patch.userProfile ?? current?.userProfile,
-		scheduledAt: patch.scheduledAt ?? current?.scheduledAt ?? null,
-		startedAt: patch.startedAt ?? current?.startedAt ?? null,
-		finishedAt: patch.finishedAt ?? current?.finishedAt ?? null,
-		createdAt: patch.createdAt ?? current?.createdAt ?? now,
-		updatedAt: patch.updatedAt ?? current?.updatedAt ?? now,
-	};
-}
-function mergeTaskRunList(
-	runs: TaskRunRecord[],
-	patch: Partial<TaskRunRecord> & {
-		id: string;
-		type?: string;
-		userId?: string | null;
-	},
-) {
-	const existing = runs.find((run) => run.id === patch.id) ?? null;
-	const nextRun = mergeTaskRunRecord(existing, patch);
-	const nextRuns = existing
-		? runs.map((run) => (run.id === patch.id ? nextRun : run))
-		: [nextRun, ...runs];
-	return [...nextRuns].sort((a, b) => taskRunSortTime(b) - taskRunSortTime(a));
 }
 function isDisplayableGenerationTaskRun(
 	run: TaskRunRecord,
@@ -3409,12 +3369,16 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 	if (eventSpaceId !== spaceId) return;
 	mergeCachedTaskRun(spaceId, task as Parameters<typeof mergeCachedTaskRun>[1]);
 	const existingGenerationTaskRun = generationTaskRunById[task.id] ?? null;
-	const mergedTaskRun = mergeTaskRunRecord(existingGenerationTaskRun, {
-		...(task as Partial<TaskRunRecord>),
-		id: task.id,
-		type: task.type,
-		userId: task.userId,
-	});
+	const mergedTaskRun = mergeTaskRunRecord(
+		existingGenerationTaskRun,
+		{
+			...(task as Partial<TaskRunRecord>),
+			id: task.id,
+			type: task.type,
+			userId: task.userId,
+		},
+		spaceId,
+	);
 	if (isGenerationTaskRun(mergedTaskRun))
 		upsertGenerationTaskRun(mergedTaskRun);
 	if (isBackgroundBashTaskRun(mergedTaskRun))
@@ -3425,13 +3389,8 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 	) {
 		void hydrateTaskRun(task.id);
 	}
-	if (payload.type === "task.updated") {
-		if (
-			eventPayload.changed?.includes("status") &&
-			task.status === "completed"
-		) {
-		}
-	}
+	taskRealtimeSeq += 1;
+	taskRealtimeEvent = { spaceId, payload, seq: taskRealtimeSeq };
 }
 async function handleWsEvent(payload: ChannelEnvelope) {
 	try {
@@ -5000,6 +4959,8 @@ $effect(() => {
 	portPreview.setEndpoints({});
 	portPreview.closePort();
 	portPreview.closeReadyToast();
+	taskRealtimeEvent = null;
+	taskRealtimeSeq = 0;
 	resourceActionMenuOpen = false;
 	showShareModal = false;
 	shareModalSessionId = null;
@@ -5884,6 +5845,7 @@ $effect(() => {
         {spaceLoadError}
         {spaceHasMinimalAccess}
         cronjobId={routeCronjobId}
+        {taskRealtimeEvent}
         onDetailLoaded={(job) => {
           routeDetailHeaderMeta = job
             ? { view: "cronjob", id: job.id, title: job.title }
@@ -5906,6 +5868,7 @@ $effect(() => {
       <TaskRunView
         {spaceId}
         taskId={routeTaskId}
+        {taskRealtimeEvent}
         onDetailLoaded={(run) => {
           routeDetailHeaderMeta = run
             ? { view: "task", id: run.id, title: taskTypeLabel(run.taskType) }

@@ -8,6 +8,57 @@ export function taskTypeLabel(taskType: string) {
 	return taskType;
 }
 
+export type TaskRunRealtimePatch = Partial<TaskRunRecord> & {
+	id: string;
+	type?: string;
+	userId?: string | null;
+};
+
+const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
+	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
+
+export function mergeTaskRunRecord(
+	current: TaskRunRecord | null,
+	patch: TaskRunRealtimePatch,
+	spaceId?: string,
+): TaskRunRecord {
+	const now = new Date().toISOString();
+	return {
+		id: patch.id,
+		jobId: patch.jobId ?? current?.jobId ?? patch.id,
+		cronJobId: patch.cronJobId ?? current?.cronJobId ?? null,
+		taskType: patch.taskType ?? patch.type ?? current?.taskType ?? "unknown",
+		status: patch.status ?? current?.status ?? "pending",
+		payload: patch.payload ?? current?.payload ?? null,
+		result: patch.result ?? current?.result ?? null,
+		errorMessage: patch.errorMessage ?? current?.errorMessage ?? null,
+		attemptCount: patch.attemptCount ?? current?.attemptCount ?? 0,
+		spaceId: patch.spaceId ?? current?.spaceId ?? spaceId ?? "",
+		sessionId: patch.sessionId ?? current?.sessionId ?? null,
+		turnId: patch.turnId ?? current?.turnId ?? null,
+		userUuid: patch.userUuid ?? patch.userId ?? current?.userUuid ?? null,
+		userProfile: patch.userProfile ?? current?.userProfile,
+		scheduledAt: patch.scheduledAt ?? current?.scheduledAt ?? null,
+		startedAt: patch.startedAt ?? current?.startedAt ?? null,
+		finishedAt: patch.finishedAt ?? current?.finishedAt ?? null,
+		createdAt: patch.createdAt ?? current?.createdAt ?? now,
+		updatedAt: patch.updatedAt ?? current?.updatedAt ?? now,
+	};
+}
+
+export function mergeTaskRunList(
+	runs: TaskRunRecord[],
+	patch: TaskRunRealtimePatch,
+	spaceId?: string,
+) {
+	const existing = runs.find((run) => run.id === patch.id) ?? null;
+	const nextRun = mergeTaskRunRecord(existing, patch, spaceId);
+	const nextRuns = existing
+		? runs.map((run) => (run.id === patch.id ? nextRun : run))
+		: [nextRun, ...runs];
+	return [...nextRuns].sort((a, b) => taskRunSortTime(b) - taskRunSortTime(a));
+}
+
 export function taskHasResult(run: TaskRunRecord): boolean {
 	return run.result !== null && run.result !== undefined;
 }

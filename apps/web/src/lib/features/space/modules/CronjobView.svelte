@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type {
 	CronJobRecord,
 	TaskRunRecord,
@@ -17,7 +18,7 @@ import {
 	Settings,
 	Trash2,
 } from "lucide-svelte";
-import { onDestroy } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
@@ -46,6 +47,7 @@ import {
 } from "./cronjob-utils";
 import {
 	displaySafeJson,
+	mergeTaskRunList,
 	taskRunDuration,
 	taskRunStatusBadge,
 } from "./task-run-utils";
@@ -59,6 +61,11 @@ type Props = {
 	spaceLoadError: string;
 	spaceHasMinimalAccess: boolean;
 	cronjobId: string | null;
+	taskRealtimeEvent?: {
+		spaceId: string;
+		payload: ChannelEnvelope;
+		seq: number;
+	} | null;
 	onDetailLoaded?: (job: CronJobRecord | null) => void;
 };
 
@@ -69,6 +76,7 @@ let {
 	spaceLoadError,
 	spaceHasMinimalAccess,
 	cronjobId,
+	taskRealtimeEvent = null,
 	onDetailLoaded,
 }: Props = $props();
 
@@ -109,8 +117,10 @@ let cronjobFormSubmitting = $state(false);
 let cronjobFormError = $state("");
 let cronjobCopiedId = $state(false);
 let cronjobCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
+let cronjobRouteStateKey = "";
 let cronjobModelSelectorOpen = $state(false);
 let cronjobModelSelectorTarget = $state<"new" | "edit">("new");
+let cronjobRunsSectionEl = $state<HTMLElement | null>(null);
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
 let cronjobNewTimezone = $state(defaultTimezone());
@@ -156,6 +166,37 @@ function modelFromPayload(payload: unknown): SelectedModel | null {
 		id: record.model,
 		name: catalogItem?.model.name as string | undefined,
 	};
+}
+
+function resetCronjobRuns() {
+	cronjobRuns = [];
+	cronjobRunsLoaded = false;
+	cronjobRunsLoading = false;
+	cronjobRunsLoadingMore = false;
+	cronjobRunsHasMore = false;
+	cronjobRunsNextCursor = null;
+	cronjobRunsError = "";
+}
+
+function resetCronjobDetailState() {
+	cronjobDetail = null;
+	onDetailLoaded?.(null);
+	cronjobDetailError = "";
+	cronjobToggleError = "";
+	cronjobEditMode = false;
+	cronjobActionInProgress = false;
+	cronjobDeleteInProgress = false;
+	cronjobFormError = "";
+	resetCronjobRuns();
+}
+
+function resetNewCronjobForm() {
+	cronjobNewTitle = "";
+	cronjobNewExpression = "";
+	cronjobNewTimezone = defaultTimezone();
+	cronjobNewPrompt = "";
+	cronjobNewModel = firstCatalogModel;
+	cronjobNewError = "";
 }
 
 function syncCronjobFormFromDetail() {
@@ -410,15 +451,64 @@ async function copyCronjobId(id: string) {
 	}, 1600);
 }
 
+function applyTaskRealtime(payload: ChannelEnvelope) {
+	const eventPayload = payload.payload as {
+		task?: Partial<TaskRunRecord> & {
+			id?: string;
+			type?: string;
+			userId?: string | null;
+		};
+	};
+	const task = eventPayload.task;
+	if (!task?.id || !task.cronJobId || task.cronJobId !== cronjobDetail?.id)
+		return;
+	cronjobRuns = mergeTaskRunList(
+		cronjobRuns,
+		{
+			...(task as Partial<TaskRunRecord>),
+			id: task.id,
+			type: task.type,
+			userId: task.userId,
+		},
+		spaceId,
+	);
+	cronjobRunsLoaded = true;
+}
+
 $effect(() => {
+	const stateKey = `${spaceId}:${mode}:${cronjobId ?? ""}`;
+	if (cronjobRouteStateKey === stateKey) return;
+	cronjobRouteStateKey = stateKey;
 	if (mode === "detail" && cronjobId) {
+		resetCronjobRuns();
+		cronjobEditMode = false;
+		cronjobToggleError = "";
 		void loadCronjobDetail(cronjobId);
 		return;
 	}
-	cronjobDetail = null;
-	onDetailLoaded?.(null);
-	cronjobRuns = [];
-	cronjobRunsLoaded = false;
+	resetCronjobDetailState();
+	if (mode === "create") resetNewCronjobForm();
+});
+
+$effect(() => {
+	const el = cronjobRunsSectionEl;
+	if (mode !== "detail" || !cronjobDetail || cronjobRunsLoaded || !el) return;
+	const observer = new IntersectionObserver(
+		(entries) => {
+			if (!entries.some((entry) => entry.isIntersecting)) return;
+			observer.disconnect();
+			void loadCronjobRuns({ reset: true });
+		},
+		{ rootMargin: "240px" },
+	);
+	observer.observe(el);
+	return () => observer.disconnect();
+});
+
+$effect(() => {
+	const event = taskRealtimeEvent;
+	if (!event || event.spaceId !== spaceId) return;
+	untrack(() => applyTaskRealtime(event.payload));
 });
 
 onDestroy(() => {
@@ -574,7 +664,7 @@ onDestroy(() => {
 							</aside>
 						</section>
 					{/if}
-					<section class="border-t border-border-subtle/70 pt-6">
+					<section bind:this={cronjobRunsSectionEl} class="border-t border-border-subtle/70 pt-6">
 						<div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Runs</div><div class="mt-1 text-[12px] text-text-tertiary">{cronjobRunsLoaded ? `${cronjobRuns.length} loaded · newest first` : 'Loads when this section is visible'}</div></div>{#if !cronjobRunsLoaded}<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => loadCronjobRuns({ reset: true })} disabled={cronjobRunsLoading}>{#if cronjobRunsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}<span>Load runs</span></button>{/if}</div>
 						{#if cronjobRunsError}<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobRunsError}</div>{:else if cronjobRunsLoading && !cronjobRunsLoaded}<CenteredLoading label="Loading runs…" size="panel" />{:else if cronjobRuns.length > 0}<div class="divide-y divide-border-subtle/60">{#each cronjobRuns as run (run.id)}{@const badge = taskRunStatusBadge(run)}<a href={buildSpaceTaskRoute(spaceId, run.id)} class="block py-3 text-[12px] transition-colors hover:bg-bg-hover/70 sm:grid sm:grid-cols-[minmax(92px,0.8fr)_minmax(132px,1fr)_80px_minmax(0,1.5fr)] sm:items-center sm:gap-3 sm:py-2.5" onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, run.id)); }}><span class="flex items-center gap-2 px-1"><span class="h-[6px] w-[6px] shrink-0 rounded-full {badge.dot}"></span><span class="{badge.color}">{badge.label}</span></span><span class="mt-1 block font-mono text-text-placeholder sm:mt-0">{formatShortDateTime(run.scheduledAt ?? run.createdAt)}</span><span class="mt-1 block font-mono text-text-placeholder sm:mt-0">{taskRunDuration(run)}</span><span class="mt-1 block truncate text-[11px] {run.errorMessage ? 'text-status-error' : 'text-text-placeholder'} sm:mt-0" title={run.errorMessage ?? run.id}>{run.errorMessage ?? run.id}</span></a>{/each}</div>{#if cronjobRunsHasMore}<div class="mt-4"><button type="button" class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => loadCronjobRuns()} disabled={cronjobRunsLoadingMore}>{#if cronjobRunsLoadingMore}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}<span>Load more</span></button></div>{/if}{:else if cronjobRunsLoaded}<div class="py-6 text-[13px] text-text-tertiary">Runs will appear here after the first scheduled execution.</div>{/if}
 					</section>

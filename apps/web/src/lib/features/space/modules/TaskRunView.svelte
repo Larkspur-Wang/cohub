@@ -1,9 +1,13 @@
 <script lang="ts">
+import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { TaskRunRecord, UserProfile } from "@neta-art/cohub";
 import { Check, Copy, GitCommitHorizontal } from "lucide-svelte";
-import { onDestroy } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import { goto } from "$app/navigation";
-import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
+import {
+	readTaskRunDetail,
+	writeTaskRunDetail,
+} from "$lib/cache/repositories/task-runs-repo";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
@@ -22,6 +26,7 @@ import {
 	generationBlockSource,
 	generationBlockText,
 	generationOutputBlocks,
+	mergeTaskRunRecord,
 	runCommandPayload,
 	runCommandResultMeta,
 	saveCheckpointProgressLabel,
@@ -38,10 +43,20 @@ import {
 type Props = {
 	spaceId: string;
 	taskId: string | null;
+	taskRealtimeEvent?: {
+		spaceId: string;
+		payload: ChannelEnvelope;
+		seq: number;
+	} | null;
 	onDetailLoaded?: (run: TaskRunRecord | null) => void;
 };
 
-let { spaceId, taskId, onDetailLoaded }: Props = $props();
+let {
+	spaceId,
+	taskId,
+	taskRealtimeEvent = null,
+	onDetailLoaded,
+}: Props = $props();
 
 let taskRunDetail = $state<TaskRunRecord | null>(null);
 let taskRunDetailLoading = $state(false);
@@ -49,6 +64,7 @@ let taskRunDetailError = $state("");
 let taskRunProgress = $state<unknown>(null);
 let taskCopiedField = $state<"id" | "payload" | "result" | null>(null);
 let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let taskRouteStateKey = "";
 let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
 let refreshInFlight: Promise<void> | null = null;
 let refreshInFlightTaskId: string | null = null;
@@ -111,7 +127,51 @@ async function refreshTaskDetail(targetTaskId: string, loading = false) {
 async function loadTaskDetail(targetTaskId: string) {
 	clearTaskRunPoll();
 	taskRunProgress = null;
-	await refreshTaskDetail(targetTaskId, true);
+	const requestSpaceId = spaceId;
+	const cached = await readTaskRunDetail(requestSpaceId, targetTaskId).catch(
+		() => null,
+	);
+	if (spaceId === requestSpaceId && taskId === targetTaskId && cached) {
+		taskRunDetail = cached.run;
+		taskRunProgress = cached.progress;
+		onDetailLoaded?.(cached.run);
+	}
+	await refreshTaskDetail(targetTaskId, !cached);
+}
+
+function applyTaskRealtime(payload: ChannelEnvelope) {
+	const eventPayload = payload.payload as {
+		task?: Partial<TaskRunRecord> & {
+			id?: string;
+			type?: string;
+			userId?: string | null;
+		};
+		progress?: unknown;
+	};
+	const task = eventPayload.task;
+	if (!task?.id || task.id !== taskId) return;
+	const wasActive = isActiveTaskRun(taskRunDetail);
+	taskRunDetail = mergeTaskRunRecord(
+		taskRunDetail,
+		{
+			...(task as Partial<TaskRunRecord>),
+			id: task.id,
+			type: task.type,
+			userId: task.userId,
+		},
+		spaceId,
+	);
+	onDetailLoaded?.(taskRunDetail);
+	if ("progress" in eventPayload) taskRunProgress = eventPayload.progress;
+	void writeTaskRunDetail(spaceId, taskRunDetail, taskRunProgress).catch(
+		() => undefined,
+	);
+	if (isActiveTaskRun(taskRunDetail)) {
+		ensureTaskRunPoll(task.id);
+		return;
+	}
+	clearTaskRunPoll();
+	if (wasActive || !taskRunDetail.result) void refreshTaskDetail(task.id);
 }
 
 async function copyTaskField(
@@ -128,17 +188,24 @@ async function copyTaskField(
 }
 
 $effect(() => {
-	if (!taskId) {
-		clearTaskRunPoll();
-		taskRunDetail = null;
-		onDetailLoaded?.(null);
-		taskRunProgress = null;
-		return;
-	}
+	const stateKey = `${spaceId}:${taskId ?? ""}`;
+	if (taskRouteStateKey === stateKey) return;
+	taskRouteStateKey = stateKey;
+	clearTaskRunPoll();
+	taskRunDetail = null;
+	onDetailLoaded?.(null);
+	taskRunProgress = null;
+	if (!taskId) return;
 	void loadTaskDetail(taskId);
 	return () => {
 		clearTaskRunPoll();
 	};
+});
+
+$effect(() => {
+	const event = taskRealtimeEvent;
+	if (!event || event.spaceId !== spaceId) return;
+	untrack(() => applyTaskRealtime(event.payload));
 });
 
 onDestroy(() => {
