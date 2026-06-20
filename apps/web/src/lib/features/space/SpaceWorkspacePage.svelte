@@ -6119,6 +6119,11 @@ function buildFileReferencesText(paths: string[]) {
 	].join("\n");
 }
 
+function buildImageReferencesText(imageUrls: string[]) {
+	if (imageUrls.length === 0) return "";
+	return ["Images:", ...imageUrls.map((url) => `- ${url}`)].join("\n");
+}
+
 async function uploadComposerFileAttachments(
 	sessionId: string,
 	fileAttachments: ComposerFileAttachment[],
@@ -6277,7 +6282,12 @@ async function handleSend() {
 		uploadedImageUrls = imageUrls;
 		uploadCompleted = true;
 		const userText = input.trim();
-		const referenceText = buildFileReferencesText(filePaths);
+		const referenceText = [
+			buildFileReferencesText(filePaths),
+			buildImageReferencesText([...imageUrls.values()]),
+		]
+			.filter(Boolean)
+			.join("\n\n");
 		uploadedReferenceText = referenceText;
 		text = [userText, referenceText].filter(Boolean).join("\n\n");
 		const attachmentBlocks: ContentBlock[] = attachments.flatMap(
