@@ -144,15 +144,11 @@ import {
 	readCachedPromptTemplates,
 	writeCachedPromptTemplates,
 } from "$lib/prompt-template-cache";
-import {
-	uploadChatAttachmentImage,
-	uploadSpaceAvatarImage,
-} from "$lib/public-asset-images";
+import { uploadChatAttachmentImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
-import { validatePublicSlugInput } from "$lib/slug-rules";
 import {
 	activateSpaceConfig,
 	deactivateSpaceConfig,
@@ -501,24 +497,6 @@ const attachments = $derived(sessionComposer.attachments);
 const sending = $derived(sessionComposer.sending);
 const aborting = $derived(sessionComposer.aborting);
 let spaceLoadError = $state("");
-let renamingSpace = $state(false);
-let renameInput = $state("");
-let renameSaving = $state(false);
-let renameError = $state("");
-type SpaceProfileEditableField = "description";
-let spaceProfileEditingField = $state<SpaceProfileEditableField | null>(null);
-let spaceProfileDraft = $state("");
-let spaceProfileSaving = $state<SpaceProfileEditableField | null>(null);
-let spaceProfileError = $state("");
-let spaceAvatarUploading = $state(false);
-let editingSpaceSlug = $state(false);
-let spaceSlugDraft = $state("");
-let spaceSlugSaving = $state(false);
-let spaceSlugError = $state("");
-let copiedSpaceId = $state(false);
-let copiedSpaceIdTimer: ReturnType<typeof setTimeout> | null = null;
-let copiedSpaceSlugLink = $state(false);
-let copiedSpaceSlugLinkTimer: ReturnType<typeof setTimeout> | null = null;
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -2874,180 +2852,6 @@ function formatBootstrapStatus(status: string | null) {
 	if (status === "ready") return "Ready";
 	if (status === "failed") return "Failed";
 	return "Pending";
-}
-async function handleRenameSpace(newName: string) {
-	renameSaving = true;
-	renameError = "";
-	try {
-		const result = await sdk.space(spaceId).rename(newName);
-		space = result.space;
-		cacheSpaceRecordSoon(result.space);
-		renamingSpace = false;
-	} catch (error) {
-		renameError =
-			error instanceof Error ? error.message : "Failed to rename space";
-	} finally {
-		renameSaving = false;
-	}
-}
-function beginSpaceSlugEdit() {
-	if (!canEditSpaceProfile || spaceSlugSaving) return;
-	spaceSlugDraft = space?.slug ?? "";
-	spaceSlugError = "";
-	editingSpaceSlug = true;
-}
-function cancelSpaceSlugEdit() {
-	if (spaceSlugSaving) return;
-	editingSpaceSlug = false;
-	spaceSlugDraft = "";
-	spaceSlugError = "";
-}
-function validateSpaceSlug(value: string): string | null {
-	const result = validatePublicSlugInput(value);
-	if (result.error) throw new Error(result.error);
-	return result.value;
-}
-function handleSpaceSlugKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		cancelSpaceSlugEdit();
-		return;
-	}
-	if (event.key === "Enter" && !isComposingKeyboardEvent(event)) {
-		event.preventDefault();
-		void saveSpaceSlug();
-	}
-}
-async function saveSpaceSlug() {
-	if (!space || spaceSlugSaving) return;
-	spaceSlugError = "";
-	let nextSlug: string | null;
-	try {
-		nextSlug = validateSpaceSlug(spaceSlugDraft);
-	} catch (error) {
-		spaceSlugError = error instanceof Error ? error.message : "Invalid slug";
-		return;
-	}
-	if (nextSlug === space.slug) {
-		editingSpaceSlug = false;
-		return;
-	}
-	spaceSlugSaving = true;
-	try {
-		const result = await sdk.space(spaceId).update({ slug: nextSlug });
-		space = result.space;
-		cacheSpaceRecordSoon(result.space);
-		patchCachedSpaceList((items) =>
-			items.map((item) => (item.id === spaceId ? result.space : item)),
-		);
-		editingSpaceSlug = false;
-		spaceSlugDraft = "";
-	} catch (error) {
-		spaceSlugError =
-			error instanceof Error ? error.message : "Failed to save space slug";
-	} finally {
-		spaceSlugSaving = false;
-	}
-}
-async function copySpaceId() {
-	if (!spaceId) return;
-	try {
-		await navigator.clipboard.writeText(spaceId);
-		copiedSpaceId = true;
-		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
-		copiedSpaceIdTimer = setTimeout(() => {
-			copiedSpaceId = false;
-		}, 2000);
-	} catch {
-		// Clipboard failures are non-critical.
-	}
-}
-async function copySpacePublicLink() {
-	const path = getSpacePublicPath(space);
-	if (!path) return;
-	try {
-		await navigator.clipboard.writeText(`${window.location.origin}${path}`);
-		copiedSpaceSlugLink = true;
-		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
-		copiedSpaceSlugLinkTimer = setTimeout(() => {
-			copiedSpaceSlugLink = false;
-		}, 2000);
-	} catch {
-		// Clipboard failures are non-critical.
-	}
-}
-function beginSpaceProfileEdit(field: SpaceProfileEditableField) {
-	if (!canEditSpaceProfile || spaceProfileSaving || spaceAvatarUploading)
-		return;
-	spaceProfileError = "";
-	spaceProfileEditingField = field;
-	spaceProfileDraft = field === "description" ? (space?.description ?? "") : "";
-}
-function cancelSpaceProfileEdit() {
-	if (spaceProfileSaving) return;
-	spaceProfileEditingField = null;
-	spaceProfileDraft = "";
-	spaceProfileError = "";
-}
-function handleSpaceProfileEditKeydown(event: KeyboardEvent) {
-	if (event.key === "Escape") {
-		event.preventDefault();
-		cancelSpaceProfileEdit();
-		return;
-	}
-	if (
-		(event.metaKey || event.ctrlKey) &&
-		event.key === "Enter" &&
-		!isComposingKeyboardEvent(event)
-	) {
-		event.preventDefault();
-		void saveSpaceProfileField();
-	}
-}
-async function saveSpaceProfileField() {
-	if (!spaceProfileEditingField || spaceProfileSaving) return;
-	const field = spaceProfileEditingField;
-	spaceProfileSaving = field;
-	spaceProfileError = "";
-	try {
-		const result = await sdk.space(spaceId).profile({
-			description: spaceProfileDraft.trim() || null,
-		});
-		space = result.space;
-		cacheSpaceRecordSoon(result.space);
-		spaceProfileEditingField = null;
-		spaceProfileDraft = "";
-	} catch (error) {
-		spaceProfileError =
-			error instanceof Error ? error.message : "Failed to save space profile";
-	} finally {
-		spaceProfileSaving = null;
-	}
-}
-async function uploadSpaceAvatar(file: File) {
-	if (!canEditSpaceProfile || spaceAvatarUploading) return;
-	spaceAvatarUploading = true;
-	spaceProfileError = "";
-	try {
-		const asset = await uploadSpaceAvatarImage({ spaceId, file });
-		const result = await sdk.space(spaceId).profile({
-			description: space?.description ?? null,
-			avatarUrl: asset.publicUrl,
-		});
-		space = result.space;
-		cacheSpaceRecordSoon(result.space);
-	} catch (error) {
-		spaceProfileError =
-			error instanceof Error ? error.message : "Failed to upload space avatar";
-	} finally {
-		spaceAvatarUploading = false;
-	}
-}
-function handleSpaceAvatarFileChange(event: Event) {
-	const input = event.currentTarget as HTMLInputElement;
-	const file = input.files?.[0];
-	input.value = "";
-	if (file && canEditSpaceProfile) void uploadSpaceAvatar(file);
 }
 // ── Session rename (header inline edit) ────────────────────────────────
 function startSessionRename() {
@@ -5446,8 +5250,6 @@ onMount(() => {
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
-		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
-		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
 		clearTaskRunPoll();
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
