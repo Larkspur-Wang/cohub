@@ -264,6 +264,75 @@ import {
 	entriesFromFiles,
 	type LocalUploadEntry,
 } from "$lib/upload-entries";
+import CheckpointView from "./modules/CheckpointView.svelte";
+import CronjobView from "./modules/CronjobView.svelte";
+import {
+	buildSendMessagePayload,
+	cronjobModelLabel,
+	cronjobPayloadContent,
+	cronjobPromptMeta,
+	defaultTimezone,
+	formatCronjobPrompt,
+	promptTextFromPayload,
+	validateCronjobForm,
+} from "./modules/cronjob-utils";
+import FileWorkspace from "./modules/FileWorkspace.svelte";
+import {
+	buildFsEntry,
+	getParentDirPath,
+	hasRenderedFilePreview,
+	isHtmlPath,
+	isMarkdownPath,
+	makeFsNode,
+	makeFsNodes,
+	replaceNodeChildren,
+	updateNodeState,
+} from "./modules/file-workspace-utils";
+import {
+	areSessionTurnRecordsEqual,
+	areSessionTurnsEqual,
+	preserveSessionTurnRefs,
+} from "./modules/session-utils";
+import TaskRunView from "./modules/TaskRunView.svelte";
+import {
+	checkpointIdFromTaskRun,
+	displaySafeJson,
+	formatDurationMs,
+	generationBlockLabel,
+	generationBlockMeta,
+	generationBlockSource,
+	generationBlockText,
+	generationOutputBlocks,
+	runCommandPayload,
+	runCommandResultMeta,
+	saveCheckpointProgressLabel,
+	taskAttemptsLabel,
+	taskContextLabel,
+	taskHasResult,
+	taskIsStreaming,
+	taskOutputContent,
+	taskRawResult,
+	taskRunDuration,
+	taskRunStatusBadge,
+	taskTypeLabel,
+} from "./modules/task-run-utils";
+import WorkView from "./modules/WorkView.svelte";
+import {
+	scopeState,
+	selectedScopeList,
+	WORK_SCOPE_OPTIONS,
+	WORK_VIEWER_SCOPE_OPTIONS,
+	workStatusTone,
+} from "./modules/work-utils";
+import {
+	asRecord,
+	displayUserName,
+	formatDateTime,
+	formatFileSize,
+	formatShortDateTime,
+	formatTokenCount,
+	formatUsageCost,
+} from "./space-utils";
 
 type Props = {
 	data: {
@@ -324,40 +393,6 @@ type SessionViewState = {
 	loadingNewer: boolean;
 	oldestCursor: number | undefined;
 };
-function areSessionTurnRecordsEqual(
-	current: SessionTurnRecord | null | undefined,
-	next: SessionTurnRecord | null | undefined,
-) {
-	if (current === next) return true;
-	if (!current || !next) return false;
-	return JSON.stringify(current) === JSON.stringify(next);
-}
-function areSessionTurnsEqual(
-	currentTurns: SessionTurnRecord[],
-	nextTurns: SessionTurnRecord[],
-) {
-	if (currentTurns.length !== nextTurns.length) return false;
-	return currentTurns.every((turn, index) =>
-		areSessionTurnRecordsEqual(turn, nextTurns[index]),
-	);
-}
-function preserveSessionTurnRefs(
-	currentTurns: SessionTurnRecord[],
-	nextTurns: SessionTurnRecord[],
-): SessionTurnRecord[] {
-	const currentById = new Map(currentTurns.map((turn) => [turn.id, turn]));
-	let changed = currentTurns.length !== nextTurns.length;
-	const turns = nextTurns.map((turn, index): SessionTurnRecord => {
-		const current = currentById.get(turn.id);
-		if (current && areSessionTurnRecordsEqual(current, turn)) {
-			if (currentTurns[index] !== current) changed = true;
-			return current;
-		}
-		if (currentTurns[index] !== turn) changed = true;
-		return turn;
-	});
-	return changed ? turns : currentTurns;
-}
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SESSION_INITIAL_LOADING_DELAY_MS = 160;
@@ -601,10 +636,6 @@ const inlineFileDirty = $derived(
 			inlineFile.draft !== inlineFile.response.content,
 	),
 );
-const isMarkdownPath = (path: string) => /\.md$/i.test(path);
-const isHtmlPath = (path: string) => /\.html?$/i.test(path);
-const hasRenderedFilePreview = (file: SpaceFsFileResponse) =>
-	file.kind === "text" && (isMarkdownPath(file.path) || isHtmlPath(file.path));
 const openWorkPublish = (
 	targetType: "file" | "directory" | "port",
 	targetRef: string,
@@ -1132,9 +1163,6 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 		checkpointCreateSubmitting = false;
 	}
 }
-function defaultTimezone() {
-	return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-}
 function modelFromPayload(payload: unknown): SelectedModel | null {
 	const record = asRecord(payload);
 	const provider = record?.provider;
@@ -1150,23 +1178,6 @@ function modelFromPayload(payload: unknown): SelectedModel | null {
 		name: catalogItem?.model.name as string | undefined,
 	};
 }
-function promptTextFromPayload(payload: unknown): {
-	text: string;
-	structured: boolean;
-} {
-	const content = cronjobPayloadContent(payload);
-	if (typeof content === "string") return { text: content, structured: false };
-	if (Array.isArray(content)) {
-		if (content.length === 1) {
-			const block = asRecord(content[0]);
-			if (block?.type === "text" && typeof block.text === "string") {
-				return { text: block.text, structured: false };
-			}
-		}
-		return { text: formatCronjobPrompt(payload), structured: true };
-	}
-	return { text: "", structured: false };
-}
 function syncCronjobFormFromDetail() {
 	if (!cronjobDetail) return;
 	const prompt = promptTextFromPayload(cronjobDetail.payload);
@@ -1177,40 +1188,6 @@ function syncCronjobFormFromDetail() {
 	cronjobFormStructuredPrompt = prompt.structured;
 	cronjobFormModel = modelFromPayload(cronjobDetail.payload);
 	cronjobFormError = "";
-}
-function buildSendMessagePayload(
-	originalPayload: unknown,
-	prompt: string,
-	model: SelectedModel | null,
-) {
-	const next: Record<string, unknown> = {
-		...(asRecord(originalPayload) ?? {}),
-		content: [{ type: "text", text: prompt.trim() }],
-	};
-	if (model) {
-		next.provider = model.provider;
-		next.model = model.id;
-	} else {
-		delete next.provider;
-		delete next.model;
-	}
-	return next;
-}
-function validateCronjobForm(input: {
-	title: string;
-	cronExpression: string;
-	timezone: string;
-	prompt: string;
-}) {
-	if (!input.title.trim()) return "Title is required";
-	if (!input.cronExpression.trim()) return "Cron expression is required";
-	if (!input.timezone.trim()) return "Timezone is required";
-	if (!input.prompt.trim()) return "Prompt message is required";
-	const cronParts = input.cronExpression.trim().split(/\s+/);
-	if (cronParts.length !== 5) {
-		return "Invalid cron expression format. Expected 5 fields, e.g. 0 9 * * *.";
-	}
-	return "";
 }
 function openCronjobModelSelector(mode: "new" | "edit") {
 	cronjobModelSelectorOpen = true;
@@ -1231,70 +1208,6 @@ function handleCronjobModelSelect(model: { provider: string; id: string }) {
 	if (routeView === "cronjob-new") cronjobNewModel = selected;
 	else cronjobFormModel = selected;
 	cronjobModelSelectorOpen = false;
-}
-function cronjobModelLabel(model: SelectedModel | null) {
-	if (!model) return "Default model";
-	return model.name?.trim() || model.id;
-}
-
-const WORK_SCOPE_OPTIONS: {
-	scope: Permission;
-	label: string;
-	description: string;
-}[] = [
-	{
-		scope: "space.view",
-		label: "View space",
-		description: "Read basic Space metadata.",
-	},
-	{
-		scope: "session.view",
-		label: "View sessions",
-		description: "Read session lists and details.",
-	},
-	{
-		scope: "file.view",
-		label: "View files",
-		description: "Read workspace files.",
-	},
-	{
-		scope: "taskrun.view",
-		label: "View task runs",
-		description: "Read task run status and output.",
-	},
-];
-const WORK_VIEWER_SCOPE_OPTIONS: {
-	scope: Permission;
-	label: string;
-	description: string;
-}[] = [
-	{
-		scope: "session.prompt.readonly",
-		label: "Prompt read-only",
-		description: "Allow viewer-authorized read access to prompts.",
-	},
-	{
-		scope: "session.prompt.fullaccess",
-		label: "Prompt full access",
-		description: "Allow viewer-authorized prompt writes.",
-	},
-	{
-		scope: "generation.create",
-		label: "Create generations",
-		description: "Allow viewers to start generation tasks.",
-	},
-];
-function scopeState(scopes: Permission[], options: { scope: Permission }[]) {
-	const selected = new Set(scopes);
-	return Object.fromEntries(
-		options.map((option) => [option.scope, selected.has(option.scope)]),
-	);
-}
-function selectedScopeList(
-	state: Record<string, boolean>,
-	options: { scope: Permission }[],
-) {
-	return options.map((option) => option.scope).filter((scope) => state[scope]);
 }
 function syncWorkFormFromDetail() {
 	if (!workDetail) return;
@@ -1327,11 +1240,6 @@ function workPublicRoute(work: WorkRecord | null = workDetail) {
 	return username && space?.slug && work?.slug
 		? `/${encodeURIComponent(username)}/${encodeURIComponent(space.slug)}/w/${encodeURIComponent(work.slug)}`
 		: null;
-}
-function workStatusTone(status: WorkRecord["status"]) {
-	if (status === "published") return "text-status-running";
-	if (status === "disabled") return "text-error-soft";
-	return "text-text-tertiary";
 }
 async function loadWorkDetail(workId: string) {
 	const requestSpaceId = spaceId;
@@ -3321,32 +3229,6 @@ function writeBottomScrollAnchor(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
 }
-function makeFsNode(entry: SpaceFsEntry): SpaceFsNode {
-	return {
-		...entry,
-		children: [],
-		isOpen: false,
-		isLoaded: false,
-		isLoading: false,
-	};
-}
-function buildFsEntry(path: string, type: SpaceFsEntry["type"]): SpaceFsEntry {
-	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
-	const name = normalizedPath.split("/").pop() ?? normalizedPath;
-	return {
-		name,
-		path: normalizedPath,
-		type,
-		size: 0,
-		mimeType: null,
-		mtimeMs: Date.now(),
-	};
-}
-function getParentDirPath(path: string): string {
-	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
-	if (!normalizedPath.includes("/")) return "";
-	return normalizedPath.slice(0, normalizedPath.lastIndexOf("/"));
-}
 function updateRootFsEntries(entries: SpaceFsEntry[]) {
 	setActiveFileTree(makeFsNodes(entries, fileTree));
 }
@@ -3385,70 +3267,6 @@ async function patchFsDirectory(
 		replaceNodeChildren(fileTree, dirPath, makeFsNodes(nextEntries)),
 	);
 	return nextEntries;
-}
-function mergeFsNodeLists(
-	nodes: SpaceFsNode[],
-	previousNodes: SpaceFsNode[] = [],
-): SpaceFsNode[] {
-	if (previousNodes.length === 0) return nodes;
-	const previousByPath = new Map(
-		previousNodes.map((node) => [node.path, node]),
-	);
-	return nodes.map((node) => {
-		const previous = previousByPath.get(node.path);
-		if (!previous || previous.type !== node.type) return node;
-		if (node.type !== "dir") return node;
-		return {
-			...node,
-			children: previous.children,
-			isOpen: previous.isOpen,
-			isLoaded: previous.isLoaded,
-			isLoading: false,
-		};
-	});
-}
-function makeFsNodes(
-	entries: SpaceFsEntry[],
-	previousNodes: SpaceFsNode[] = [],
-): SpaceFsNode[] {
-	return mergeFsNodeLists(entries.map(makeFsNode), previousNodes);
-}
-function replaceNodeChildren(
-	nodes: SpaceFsNode[],
-	nodePath: string,
-	children: SpaceFsNode[],
-): SpaceFsNode[] {
-	return nodes.map((node) => {
-		if (node.path === nodePath)
-			return {
-				...node,
-				children: mergeFsNodeLists(children, node.children),
-				isLoaded: true,
-				isLoading: false,
-				isOpen: true,
-			};
-		if (node.children.length > 0)
-			return {
-				...node,
-				children: replaceNodeChildren(node.children, nodePath, children),
-			};
-		return node;
-	});
-}
-function updateNodeState(
-	nodes: SpaceFsNode[],
-	nodePath: string,
-	updater: (node: SpaceFsNode) => SpaceFsNode,
-): SpaceFsNode[] {
-	return nodes.map((node) => {
-		if (node.path === nodePath) return updater(node);
-		if (node.children.length > 0)
-			return {
-				...node,
-				children: updateNodeState(node.children, nodePath, updater),
-			};
-		return node;
-	});
 }
 function upsertSessionRecord(
 	session: SessionRecord,
@@ -3853,99 +3671,6 @@ async function refreshSpaceStatus() {
 		statusRefreshInFlight = false;
 	}
 }
-function formatDateTime(dateStr: string | null | undefined): string {
-	if (!dateStr) return "—";
-	const d = new Date(dateStr);
-	return d.toLocaleString("en-US", {
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-	});
-}
-function formatShortDateTime(dateStr: string | null | undefined): string {
-	if (!dateStr) return "—";
-	const d = new Date(dateStr);
-	return d.toLocaleString("en-US", {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
-function asRecord(value: unknown): Record<string, unknown> | null {
-	return value && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
-function formatContentBlockForPreview(block: unknown): string {
-	const record = asRecord(block);
-	if (!record)
-		return typeof block === "string" ? block : JSON.stringify(block, null, 2);
-	if (record.type === "text" && typeof record.text === "string")
-		return record.text;
-	if (record.type === "thinking" && typeof record.thinking === "string") {
-		return `[thinking]\n${record.thinking}`;
-	}
-	if (record.type === "image") return "[image attachment]";
-	if (record.type === "tool_use" && typeof record.name === "string") {
-		return `[tool use: ${record.name}]\n${JSON.stringify(record.input ?? {}, null, 2)}`;
-	}
-	if (record.type === "tool_result") return "[tool result]";
-	return JSON.stringify(record, null, 2);
-}
-function cronjobPayloadContent(payload: unknown): unknown {
-	return asRecord(payload)?.content;
-}
-function formatCronjobPrompt(payload: unknown): string {
-	const content = cronjobPayloadContent(payload);
-	if (typeof content === "string") return content;
-	if (Array.isArray(content)) {
-		const preview = content
-			.map(formatContentBlockForPreview)
-			.map((part) => part.trim())
-			.filter(Boolean)
-			.join("\n\n");
-		return preview || JSON.stringify(content, null, 2);
-	}
-	if (content !== undefined) return JSON.stringify(content, null, 2);
-	return "—";
-}
-function cronjobPromptMeta(payload: unknown): string {
-	const content = cronjobPayloadContent(payload);
-	if (Array.isArray(content)) {
-		const textLength = content.reduce((sum, block) => {
-			const record = asRecord(block);
-			return sum + (typeof record?.text === "string" ? record.text.length : 0);
-		}, 0);
-		return `${content.length} block${content.length === 1 ? "" : "s"}${textLength ? ` · ${textLength} chars` : ""}`;
-	}
-	if (typeof content === "string") return `${content.length} chars`;
-	return "Payload content";
-}
-function cronjobPayloadField(payload: unknown, key: string): string {
-	const value = asRecord(payload)?.[key];
-	if (typeof value === "string" && value.trim()) return value;
-	return "—";
-}
-function fallbackUserName(userUuid: string | null | undefined): string {
-	if (!userUuid) return "Unknown user";
-	const compact = userUuid.replaceAll("-", "");
-	return compact.slice(0, 8) || "User";
-}
-function displayUserName(
-	profile: UserProfile | null | undefined,
-	userUuid: string | null | undefined,
-): string {
-	return profile?.displayName?.trim() || fallbackUserName(userUuid);
-}
-function displayOwnerHandle(
-	profile: UserProfile | null | undefined,
-): string | null {
-	const username = profile?.username?.trim();
-	return username ? `@${username}` : null;
-}
 function spaceRoleRank(role: SpaceMember["role"]): number {
 	if (role === "host") return 0;
 	if (role === "builder") return 1;
@@ -3969,23 +3694,6 @@ function userTitle(
 	return [displayUserName(profile, userUuid), userUuid]
 		.filter(Boolean)
 		.join(" · ");
-}
-function formatFileSize(bytes: number): string {
-	if (bytes === 0) return "0 B";
-	const units = ["B", "KB", "MB", "GB"];
-	const i = Math.floor(Math.log(bytes) / Math.log(1024));
-	const value = bytes / 1024 ** i;
-	return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`;
-}
-function formatTokenCount(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
-}
-function formatUsageCost(n: number): string {
-	if (n <= 0) return "$0";
-	if (n < 0.01) return "<$0.01";
-	return `$${n.toFixed(2)}`;
 }
 function sandboxStatusKind(
 	sandbox: SpaceSandboxSnapshot | null,
@@ -4064,167 +3772,6 @@ function makeImagePanHandlers(
 		document.removeEventListener("mouseup", handleEnd);
 	}
 }
-function taskTypeLabel(taskType: string) {
-	if (taskType === "run_command") return "Run Command";
-	if (taskType === "save_checkpoint") return "Save Checkpoint";
-	return taskType;
-}
-
-function checkpointIdFromTaskRun(
-	run: TaskRunRecord | null | undefined,
-): string | null {
-	const result = asRecord(run?.result);
-	const checkpointId = result?.checkpointId;
-	return typeof checkpointId === "string" && checkpointId.trim()
-		? checkpointId
-		: null;
-}
-
-function saveCheckpointProgressLabel(progress: unknown): string | null {
-	const stage = asRecord(progress)?.stage;
-	if (typeof stage !== "string" || !stage.trim()) return null;
-	const labels: Record<string, string> = {
-		prepare: "Preparing workspace",
-		scan_workspace: "Scanning workspace",
-		upload_assets: "Uploading assets",
-		bundle_git_repos: "Bundling git repositories",
-		commit_checkpoint: "Committing checkpoint",
-		materialize_latest: "Materializing latest files",
-		write_checkpoint_record: "Writing checkpoint record",
-		mirror_gitea: "Mirroring repository",
-		completed: "Completed",
-	};
-	return labels[stage] ?? stage.replaceAll("_", " ");
-}
-
-function sourceTaskRunIdFromCheckpoint(
-	checkpoint: CheckpointRecord | null | undefined,
-): string | null {
-	const meta = asRecord(checkpoint?.meta);
-	const sourceTaskRunId = meta?.sourceTaskRunId;
-	return typeof sourceTaskRunId === "string" && sourceTaskRunId.trim()
-		? sourceTaskRunId
-		: null;
-}
-
-function isContentBlockArray(value: unknown): value is ContentBlock[] {
-	return (
-		Array.isArray(value) &&
-		value.every((block) => {
-			return (
-				block &&
-				typeof block === "object" &&
-				typeof (block as { type?: unknown }).type === "string"
-			);
-		})
-	);
-}
-
-function contentBlocksFrom(value: unknown): ContentBlock[] {
-	if (!value || typeof value !== "object") return [];
-	const record = value as { content?: unknown; output?: unknown };
-	if (isContentBlockArray(record.content)) return record.content;
-	if (isContentBlockArray(record.output)) return record.output;
-	return [];
-}
-
-function runCommandContent(run: TaskRunRecord): ContentBlock[] {
-	const resultContent = contentBlocksFrom(run.result);
-	if (resultContent.length > 0) return resultContent;
-	return contentBlocksFrom(taskRunProgress);
-}
-
-function taskOutputContent(run: TaskRunRecord): ContentBlock[] {
-	if (run.taskType === "generation") return [];
-	if (run.taskType === "run_command") return runCommandContent(run);
-	const resultContent = contentBlocksFrom(run.result);
-	if (resultContent.length > 0) return resultContent;
-	return contentBlocksFrom(taskRunProgress);
-}
-
-function generationOutputBlocks(run: TaskRunRecord): Record<string, unknown>[] {
-	if (run.taskType !== "generation") return [];
-	const result = asRecord(run.result);
-	const output = result?.output;
-	return Array.isArray(output)
-		? (output.filter((block) => !!asRecord(block)) as Record<string, unknown>[])
-		: [];
-}
-
-function generationBlockText(block: Record<string, unknown>): string | null {
-	if (block.type !== "text") return null;
-	const text = block.text ?? block.content ?? block.value;
-	return typeof text === "string" ? text : null;
-}
-
-function generationBlockSource(block: Record<string, unknown>): string | null {
-	const source = asRecord(block.source);
-	const directUrl = source?.url ?? source?.src ?? block.url ?? block.src;
-	if (typeof directUrl === "string" && directUrl.trim())
-		return directUrl.trim();
-	const data =
-		source?.data ??
-		source?.base64 ??
-		source?.contentBase64 ??
-		block.data ??
-		block.base64 ??
-		block.contentBase64;
-	if (typeof data !== "string" || !data.trim()) return null;
-	const mediaType =
-		source?.mediaType ??
-		source?.media_type ??
-		source?.mimeType ??
-		block.mediaType ??
-		block.media_type ??
-		block.mimeType;
-	const fallbackType =
-		block.type === "audio"
-			? "audio/mpeg"
-			: block.type === "video"
-				? "video/mp4"
-				: "image/png";
-	return `data:${typeof mediaType === "string" ? mediaType : fallbackType};base64,${data}`;
-}
-
-function generationBlockLabel(
-	block: Record<string, unknown>,
-	index: number,
-): string {
-	const name = block.name ?? block.filename ?? block.alt;
-	return typeof name === "string" && name.trim()
-		? name.trim()
-		: `Output ${index + 1}`;
-}
-
-function generationBlockMeta(block: Record<string, unknown>): string | null {
-	const source = asRecord(block.source);
-	const mediaType =
-		source?.mediaType ??
-		source?.media_type ??
-		source?.mimeType ??
-		block.mediaType ??
-		block.media_type ??
-		block.mimeType;
-	const parts = [
-		typeof block.type === "string" ? block.type : null,
-		typeof mediaType === "string" ? mediaType : null,
-	].filter(Boolean);
-	return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-function taskRawResult(run: TaskRunRecord): unknown {
-	return run.result ?? null;
-}
-
-function taskContextLabel(run: TaskRunRecord): string {
-	if (run.cronJobId) return "From cronjob";
-	return "One-time task";
-}
-
-function taskIsStreaming(run: TaskRunRecord): boolean {
-	return run.status === "pending" || run.status === "running";
-}
-
 async function copyCronjobId(id: string) {
 	await navigator.clipboard.writeText(id);
 	cronjobCopiedId = true;
@@ -4247,156 +3794,6 @@ async function copyTaskField(
 	}, 1600);
 }
 
-function taskHasResult(run: TaskRunRecord): boolean {
-	return run.result !== null && run.result !== undefined;
-}
-
-function taskAttemptsLabel(run: TaskRunRecord): string {
-	return `${run.attemptCount} attempt${run.attemptCount === 1 ? "" : "s"}`;
-}
-
-type DisplaySafeJsonOptions = {
-	maxStringLength?: number;
-	maxArrayItems?: number;
-	maxObjectKeys?: number;
-	maxDepth?: number;
-};
-
-const DEFAULT_DISPLAY_SAFE_JSON_OPTIONS: Required<DisplaySafeJsonOptions> = {
-	maxStringLength: 24_000,
-	maxArrayItems: 200,
-	maxObjectKeys: 200,
-	maxDepth: 10,
-};
-
-function toDisplaySafeJsonValue(
-	value: unknown,
-	options: Required<DisplaySafeJsonOptions> = DEFAULT_DISPLAY_SAFE_JSON_OPTIONS,
-	depth = 0,
-	seen = new WeakSet<object>(),
-): unknown {
-	if (typeof value === "string") {
-		if (value.length <= options.maxStringLength) return value;
-		const omitted = value.length - options.maxStringLength;
-		return `${value.slice(0, options.maxStringLength)}\n… [truncated ${omitted.toLocaleString()} chars]`;
-	}
-	if (
-		value === null ||
-		typeof value === "number" ||
-		typeof value === "boolean" ||
-		typeof value === "undefined"
-	) {
-		return value;
-	}
-	if (typeof value === "bigint") return value.toString();
-	if (typeof value === "function") return "[function]";
-	if (typeof value !== "object") return String(value);
-	if (depth >= options.maxDepth) return "[max depth reached]";
-	if (seen.has(value)) return "[circular]";
-	seen.add(value);
-	if (Array.isArray(value)) {
-		const items = value
-			.slice(0, options.maxArrayItems)
-			.map((item) => toDisplaySafeJsonValue(item, options, depth + 1, seen));
-		if (value.length > options.maxArrayItems) {
-			items.push(`[truncated ${value.length - options.maxArrayItems} items]`);
-		}
-		seen.delete(value);
-		return items;
-	}
-	const entries = Object.entries(value as Record<string, unknown>);
-	const safeEntries = entries
-		.slice(0, options.maxObjectKeys)
-		.map(([key, item]) => [
-			key,
-			toDisplaySafeJsonValue(item, options, depth + 1, seen),
-		]);
-	if (entries.length > options.maxObjectKeys) {
-		safeEntries.push([
-			"__truncated__",
-			`truncated ${entries.length - options.maxObjectKeys} keys`,
-		]);
-	}
-	seen.delete(value);
-	return Object.fromEntries(safeEntries);
-}
-
-function displaySafeJson(
-	value: unknown,
-	options?: DisplaySafeJsonOptions,
-): string {
-	const merged = { ...DEFAULT_DISPLAY_SAFE_JSON_OPTIONS, ...options };
-	return JSON.stringify(toDisplaySafeJsonValue(value, merged), null, 2);
-}
-
-function runCommandPayload(run: TaskRunRecord) {
-	const payload =
-		run.payload && typeof run.payload === "object"
-			? (run.payload as { data?: unknown })
-			: null;
-	const data =
-		payload?.data && typeof payload.data === "object"
-			? (payload.data as Record<string, unknown>)
-			: null;
-	return {
-		command: typeof data?.command === "string" ? data.command : "",
-		cwd: typeof data?.cwd === "string" ? data.cwd : "/workspace",
-	};
-}
-
-function runCommandResultMeta(run: TaskRunRecord) {
-	const result =
-		run.result && typeof run.result === "object"
-			? (run.result as Record<string, unknown>)
-			: null;
-	return {
-		exitCode: typeof result?.exitCode === "number" ? result.exitCode : null,
-		durationMs:
-			typeof result?.durationMs === "number" ? result.durationMs : null,
-		truncated: Boolean(result?.truncated),
-	};
-}
-
-function formatDurationMs(ms: number | null) {
-	if (ms === null) return "—";
-	if (ms < 1000) return `${ms}ms`;
-	return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function taskRunStatusBadge(run: TaskRunRecord) {
-	switch (run.status) {
-		case "completed":
-			return {
-				label: "Completed",
-				color: "text-status-running",
-				dot: "bg-status-running",
-			};
-		case "failed":
-			return {
-				label: "Failed",
-				color: "text-status-error",
-				dot: "bg-status-error",
-			};
-		case "running":
-			return { label: "Running", color: "text-info", dot: "bg-info" };
-		case "pending":
-			return { label: "Pending", color: "text-warning", dot: "bg-warning" };
-		default:
-			return {
-				label: run.status,
-				color: "text-text-placeholder",
-				dot: "bg-text-placeholder",
-			};
-	}
-}
-function taskRunDuration(run: TaskRunRecord): string {
-	if (!run.startedAt || !run.finishedAt) return "—";
-	const ms = Math.max(
-		0,
-		new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime(),
-	);
-	return `${(ms / 1000).toFixed(1)}s`;
-}
 function formatBootstrapStage(stage: string | null) {
 	if (!stage) return "Waiting";
 	if (stage === "prepare") return "Preparing workspace";
@@ -9335,1075 +8732,160 @@ $effect(() => {
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    {#if routeView === 'checkpoint-new'}
-      <div class="flex-1 p-4 overflow-y-auto max-w-2xl">
-        {#if spaceLoadError && !spaceHasMinimalAccess}
-          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
-        {:else}
-          <form onsubmit={handleCreateCheckpointSubmit} class="space-y-3">
-            <div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
-              <div>
-                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
-                <p class="text-[13px] text-text-tertiary mt-1">Save the current workspace state of <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> as a reusable checkpoint.</p>
-              </div>
-              <div>
-                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="checkpoint-description">Description</label>
-                <textarea
-                  id="checkpoint-description"
-                  bind:value={checkpointCreateDescription}
-                  rows="4"
-                  placeholder="What changed? What is this save for?"
-                  class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
-                ></textarea>
-              </div>
-              <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/50 p-3 text-[12px] text-text-secondary">
-                If left empty, the checkpoint will still be saved and shown using its commit hash.
-              </div>
-            </div>
-            {#if checkpointCreateError}
-              <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointCreateError}</div>
-            {/if}
-            <div class="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                class="px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-                onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
-                disabled={checkpointCreateSubmitting}
-              >
-                {#if checkpointCreateSubmitting}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
-                {:else}
-                  <Save class="w-3.5 h-3.5" />
-                {/if}
-                <span>Save Checkpoint</span>
-              </button>
-            </div>
-          </form>
-        {/if}
-      </div>
-    {:else if routeView === 'checkpoint'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
-        <div class="max-w-4xl">
-        {#if checkpointDetailLoading && checkpointDetail?.id !== routeCheckpointId}
-          {@render PanelLoadingState("Loading save…")}
-        {:else if checkpointDetailError}
-          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
-        {:else if checkpointDetail && checkpointDetail.id === routeCheckpointId}
-          {@const sourceTaskRunId = sourceTaskRunIdFromCheckpoint(checkpointDetail)}
-          <div class="space-y-6 sm:space-y-8">
-            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
-              <div class="min-w-0 space-y-3">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-brand">
-                    <GitCommitHorizontal class="h-3 w-3" />
-                    Checkpoint
-                  </span>
-                  <span class="font-mono text-[11px] text-text-placeholder">{formatCheckpointTimestamp(checkpointDetail.createdAt)}</span>
-                </div>
-                <div class="space-y-2">
-                  <h1 class="font-mono text-[18px] font-semibold leading-snug tracking-tight text-text-primary break-all sm:text-[22px]">{checkpointDetail.id}</h1>
-                  {#if checkpointDetail.description?.trim()}
-                    <p class="max-w-2xl text-[14px] leading-6 text-text-secondary">{checkpointDetail.description.trim()}</p>
-                  {:else}
-                    <p class="text-[13px] text-text-tertiary">Saved from <span class="text-text-primary">{space?.name ?? space?.title ?? spaceId}</span>.</p>
-                  {/if}
-                </div>
-              </div>
-              <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                <button
-                  type="button"
-                  class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto"
-                  onclick={handleForkCheckpoint}
-                >
-                  <Rocket class="w-3.5 h-3.5" />
-                  <span>New space</span>
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto"
-                  onclick={handleCopyCheckpointId}
-                >
-                  {#if checkpointIdCopied}
-                    <Check class="w-3.5 h-3.5 text-success-soft" />
-                    <span class="text-success-soft">Copied</span>
-                  {:else}
-                    <Copy class="w-3.5 h-3.5" />
-                    <span>Copy ID</span>
-                  {/if}
-                </button>
-              </div>
-            </header>
-
-            <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-8">
-              <div class="min-w-0 space-y-5">
-                <div class="space-y-2">
-                  <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
-                    <GitCommitHorizontal class="w-3.5 h-3.5 shrink-0" />
-                    Commit
-                  </div>
-                  <div class="group flex flex-col gap-2 rounded-[6px] bg-bg-elevated/35 px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
-                    <div class="min-w-0 font-mono text-[12px] leading-snug text-text-secondary break-all">{checkpointDetail.commitHash}</div>
-                    <button
-                      type="button"
-                      class="shrink-0 rounded-[4px] p-1.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-                      onclick={handleCopyCheckpointCommitHash}
-                      title="Copy commit hash"
-                    >
-                      {#if checkpointCopied}
-                        <Check class="w-3 h-3 text-success-soft" />
-                      {:else}
-                        <Copy class="w-3 h-3" />
-                      {/if}
-                    </button>
-                  </div>
-                </div>
-
-                <div class="space-y-2">
-                  <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
-                    <Network class="w-3.5 h-3.5 shrink-0" />
-                    Lineage
-                  </div>
-                  <div class="space-y-2 text-[13px]">
-                    <div class="flex items-start gap-3">
-                      <span class="w-20 shrink-0 text-text-tertiary">Parent</span>
-                      {#if checkpointDetail.parentCheckpointId}
-                        <a
-                          href="/spaces/{spaceId}/checkpoints/{checkpointDetail.parentCheckpointId}"
-                          class="min-w-0 font-mono text-[12px] leading-snug text-brand transition-colors hover:text-brand-hover break-all"
-                          data-sveltekit-preload-data="hover"
-                        >{checkpointDetail.parentCheckpointId}</a>
-                      {:else}
-                        <span class="text-text-secondary">Root checkpoint</span>
-                      {/if}
-                    </div>
-                    <div class="flex items-start gap-3">
-                      <span class="w-20 shrink-0 text-text-tertiary">Forks</span>
-                      <span class="text-text-secondary">{checkpointDetail.forkCount}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <aside class="space-y-3 text-[12px] text-text-tertiary">
-                <div class="space-y-1.5">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Saved from</div>
-                  <div class="truncate text-text-secondary" title={space?.name ?? space?.title ?? spaceId}>{space?.name ?? space?.title ?? spaceId}</div>
-                </div>
-                {#if sourceTaskRunId}
-                  <a
-                    href={buildSpaceTaskRoute(spaceId, sourceTaskRunId)}
-                    class="inline-flex items-center gap-1.5 text-text-tertiary transition-colors hover:text-brand"
-                    onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, sourceTaskRunId)); }}
-                  >
-                    <Activity class="w-3.5 h-3.5" />
-                    <span>View save task</span>
-                  </a>
-                {/if}
-              </aside>
-            </section>
-          </div>
-        {:else}
-          <div class="text-[13px] text-text-tertiary">Checkpoint not found.</div>
-        {/if}
-        </div>
-      </div>
-    {:else if routeView === 'cronjob-new'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-        <div class="max-w-3xl">
-        {#if spaceLoadError && !spaceHasMinimalAccess}
-          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
-        {:else}
-          <form onsubmit={handleCreateCronjobSubmit} class="space-y-6">
-            <header class="border-b border-border-subtle/70 pb-5">
-              <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Scheduled prompt</div>
-              <h1 class="mt-2 text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">New scheduled prompt</h1>
-              <p class="mt-2 max-w-2xl text-[13px] leading-6 text-text-tertiary">Send a prompt to <span class="font-medium text-text-primary">{space?.name ?? space?.title ?? spaceId}</span> on a recurring schedule.</p>
-            </header>
-
-            <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
-              <div class="min-w-0 space-y-5">
-                <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="cronjob-title">Title</label>
-                  <input id="cronjob-title" type="text" bind:value={cronjobNewTitle} placeholder="Daily report" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/50 focus:outline-none" />
-                </div>
-                <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="cronjob-prompt">Prompt</label>
-                  <textarea id="cronjob-prompt" bind:value={cronjobNewPrompt} rows="8" placeholder="Message content to send on every run…" class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] leading-6 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/50 focus:outline-none"></textarea>
-                </div>
-              </div>
-
-              <aside class="space-y-5 text-[13px]">
-                <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-placeholder" for="cronjob-expression">Schedule</label>
-                  <input id="cronjob-expression" type="text" bind:value={cronjobNewExpression} placeholder="0 9 * * *" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/50 focus:outline-none" />
-                  <p class="text-[11px] leading-5 text-text-placeholder">5 fields · minute hour day month weekday</p>
-                </div>
-                <div class="space-y-1.5">
-                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-placeholder" for="cronjob-timezone">Timezone</label>
-                  <input id="cronjob-timezone" type="text" bind:value={cronjobNewTimezone} placeholder="UTC" class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/50 focus:outline-none" />
-                </div>
-                <div class="space-y-2">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Model</div>
-                  <button type="button" class="flex min-h-10 w-full items-center justify-between gap-3 rounded-[6px] border border-border-subtle bg-bg-elevated/35 px-3 py-2 text-left transition-colors hover:bg-bg-hover" onclick={() => openCronjobModelSelector('new')}>
-                    <span class="min-w-0 truncate text-[13px] text-text-primary">{cronjobModelLabel(cronjobNewModel)}</span>
-                    <Settings class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-                  </button>
-                  {#if cronjobNewModel}
-                    <button type="button" class="text-[11px] text-text-placeholder transition-colors hover:text-text-secondary" onclick={() => { cronjobNewModel = null; }}>Use default model</button>
-                  {/if}
-                </div>
-              </aside>
-            </section>
-
-            {#if cronjobNewError}
-              <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobNewError}</div>
-            {/if}
-            <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
-              <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}>Cancel</button>
-              <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={cronjobNewSubmitting}>
-                {#if cronjobNewSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if}
-                <span>Create scheduled prompt</span>
-              </button>
-            </div>
-          </form>
-        {/if}
-        </div>
-      </div>
-    {:else if routeView === 'cronjob'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-        <div class="max-w-5xl">
-        {#if cronjobDetailLoading && cronjobDetail?.id !== routeCronjobId}
-          {@render PanelLoadingState("Loading cronjob…")}
-        {:else if cronjobDetailError}
-          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
-        {:else if cronjobDetail && cronjobDetail.id === routeCronjobId}
-          {@const activeModel = modelFromPayload(cronjobDetail.payload)}
-          <div class="space-y-6 sm:space-y-8">
-            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
-              <div class="min-w-0 space-y-3">
-                <div>
-                  <h1 class="text-[24px] font-semibold tracking-tight text-text-primary break-words sm:text-[30px]">{cronjobDetail.title}</h1>
-                  <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-brand">
-                      <span class="h-1.5 w-1.5 rounded-full {cronjobDetail.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
-                      {cronjobDetail.enabled ? 'Active' : 'Paused'}
-                    </span>
-                    {@render UserMetaItem(cronjobDetail.userProfile, cronjobDetail.userUuid)}
-                    {@render CopyIdMetaItem(cronjobDetail.id, cronjobCopiedId, () => void copyCronjobId(cronjobDetail!.id), 'Copy cronjob ID')}
-                  </div>
-                </div>
-              </div>
-              <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                {#if cronjobDetail.taskType === 'send_message'}
-                  <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { syncCronjobFormFromDetail(); cronjobEditMode = !cronjobEditMode; }}>
-                    <Pencil class="h-3.5 w-3.5" />
-                    <span>{cronjobEditMode ? 'Close edit' : 'Edit'}</span>
-                  </button>
-                {/if}
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {cronjobDetail.enabled ? 'text-status-running' : 'text-text-secondary'}" onclick={() => handleToggleCronjob(!cronjobDetail!.enabled)} disabled={cronjobActionInProgress}>
-                  {#if cronjobActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if cronjobDetail.enabled}<Power class="h-3.5 w-3.5" />{:else}<PowerOff class="h-3.5 w-3.5" />{/if}
-                  <span>{cronjobDetail.enabled ? 'Pause' : 'Resume'}</span>
-                </button>
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={handleDeleteCronjob} disabled={cronjobActionInProgress || cronjobDeleteInProgress}>
-                  {#if cronjobDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
-                  <span>{cronjobDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
-                </button>
-              </div>
-            </header>
-
-            {#if cronjobToggleError}
-              <div class="rounded-[6px] border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft">{cronjobToggleError}</div>
-            {/if}
-
-            {#if cronjobEditMode && cronjobDetail.taskType === 'send_message'}
-              <form onsubmit={handleUpdateCronjobSubmit} class="space-y-6">
-                <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
-                  <div class="min-w-0 space-y-5">
-                    <div class="space-y-1.5">
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="cronjob-edit-title">Title</label>
-                      <input id="cronjob-edit-title" type="text" bind:value={cronjobFormTitle} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
-                    </div>
-                    <div class="space-y-1.5">
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="cronjob-edit-prompt">Prompt</label>
-                      {#if cronjobFormStructuredPrompt}
-                        <div class="rounded-[6px] border border-border-subtle bg-bg-elevated/35 p-3 text-[12px] leading-5 text-text-tertiary">This prompt contains structured content. Saving will replace it with plain text.</div>
-                      {/if}
-                      <textarea id="cronjob-edit-prompt" bind:value={cronjobFormPrompt} rows="9" class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] leading-6 text-text-primary transition-colors focus:border-brand/50 focus:outline-none"></textarea>
-                    </div>
-                  </div>
-                  <aside class="space-y-5 text-[13px]">
-                    <div class="space-y-1.5">
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-placeholder" for="cronjob-edit-expression">Schedule</label>
-                      <input id="cronjob-edit-expression" type="text" bind:value={cronjobFormExpression} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
-                    </div>
-                    <div class="space-y-1.5">
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-placeholder" for="cronjob-edit-timezone">Timezone</label>
-                      <input id="cronjob-edit-timezone" type="text" bind:value={cronjobFormTimezone} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
-                    </div>
-                    <div class="space-y-2">
-                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Model</div>
-                      <button type="button" class="flex min-h-10 w-full items-center justify-between gap-3 rounded-[6px] border border-border-subtle bg-bg-elevated/35 px-3 py-2 text-left transition-colors hover:bg-bg-hover" onclick={() => openCronjobModelSelector('edit')}>
-                        <span class="min-w-0 truncate text-[13px] text-text-primary">{cronjobModelLabel(cronjobFormModel)}</span>
-                        <Settings class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
-                      </button>
-                      {#if cronjobFormModel}
-                        <button type="button" class="text-[11px] text-text-placeholder transition-colors hover:text-text-secondary" onclick={() => { cronjobFormModel = null; }}>Use default model</button>
-                      {/if}
-                    </div>
-                  </aside>
-                </section>
-                {#if cronjobFormError}
-                  <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobFormError}</div>
-                {/if}
-                <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
-                  <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { cronjobEditMode = false; syncCronjobFormFromDetail(); }}>Cancel</button>
-                  <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={cronjobFormSubmitting}>
-                    {#if cronjobFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-                    <span>Save changes</span>
-                  </button>
-                </div>
-              </form>
-            {:else}
-              <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-8">
-                <div class="min-w-0 space-y-6">
-                  {#if cronjobDetail.taskType === 'send_message'}
-                    <section class="space-y-3">
-                      <div>
-                        <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Prompt</div>
-                        <div class="mt-1 text-[12px] text-text-tertiary">{cronjobPromptMeta(cronjobDetail.payload)}</div>
-                      </div>
-                      <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/40 ring-1 ring-border-subtle/60">
-                        <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
-                        <pre class="max-h-[460px] overflow-auto px-5 py-4 pl-6 text-[13px] leading-6 text-text-secondary whitespace-pre-wrap break-words">{formatCronjobPrompt(cronjobDetail.payload)}</pre>
-                      </div>
-                    </section>
-                    <section class="grid gap-3 sm:grid-cols-2">
-                      <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                        <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Model</div>
-                        <div class="mt-1 truncate text-[13px] text-text-primary" title={activeModel?.id ?? 'Default model'}>{cronjobModelLabel(activeModel)}</div>
-                      </div>
-                      <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                        <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Provider</div>
-                        <div class="mt-1 font-mono text-[12px] text-text-secondary">{activeModel?.provider ?? 'default'}</div>
-                      </div>
-                    </section>
-                  {:else}
-                    <section class="space-y-2">
-                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Payload</div>
-                      <pre class="max-h-[520px] overflow-auto rounded-[8px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(cronjobDetail.payload)}</pre>
-                    </section>
-                  {/if}
-                </div>
-
-                <aside class="space-y-5 text-[13px]">
-                  <div class="space-y-3">
-                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Schedule</div>
-                    <div>
-                      <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder"><Clock class="h-3.5 w-3.5" /> Expression</div>
-                      <div class="mt-1.5 font-mono text-[15px] text-text-primary break-all">{cronjobDetail.cronExpression}</div>
-                    </div>
-                    <div>
-                      <div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder"><Clock3 class="h-3.5 w-3.5" /> Timezone</div>
-                      <div class="mt-1.5 text-text-primary">{cronjobDetail.timezone}</div>
-                    </div>
-                  </div>
-                  <div class="h-px bg-border-subtle/70"></div>
-                  <div class="space-y-3">
-                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Metadata</div>
-                    <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
-                      <div class="text-text-placeholder">Type</div><div class="font-mono text-text-secondary break-all">{cronjobDetail.taskType}</div>
-                      <div class="text-text-placeholder">Session</div><div class="font-mono text-text-secondary break-all">{cronjobDetail.sessionId ?? 'New session on run'}</div>
-                      <div class="text-text-placeholder">Created</div><div class="text-text-secondary">{formatDateTime(cronjobDetail.createdAt)}</div>
-                      <div class="text-text-placeholder">Updated</div><div class="text-text-secondary">{formatDateTime(cronjobDetail.updatedAt)}</div>
-                    </div>
-                  </div>
-
-                </aside>
-              </section>
-            {/if}
-
-            <section bind:this={cronjobRunsSectionEl} class="border-t border-border-subtle/70 pt-6">
-              <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Runs</div>
-                  <div class="mt-1 text-[12px] text-text-tertiary">{cronjobRunsLoaded ? `${cronjobRuns.length} loaded · newest first` : 'Loads when this section is visible'}</div>
-                </div>
-                {#if !cronjobRunsLoaded}
-                  <button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => loadCronjobRuns({ reset: true })} disabled={cronjobRunsLoading}>
-                    {#if cronjobRunsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-                    <span>Load runs</span>
-                  </button>
-                {/if}
-              </div>
-              {#if cronjobRunsError}
-                <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobRunsError}</div>
-              {:else if cronjobRunsLoading && !cronjobRunsLoaded}
-                {@render PanelLoadingState("Loading runs…")}
-              {:else if cronjobRuns.length > 0}
-                <div class="divide-y divide-border-subtle/60">
-                  {#each cronjobRuns as run (run.id)}
-                    {@const badge = taskRunStatusBadge(run)}
-                    <a href={buildSpaceTaskRoute(spaceId, run.id)} class="block py-3 text-[12px] transition-colors hover:bg-bg-hover/70 sm:grid sm:grid-cols-[minmax(92px,0.8fr)_minmax(132px,1fr)_80px_minmax(0,1.5fr)] sm:items-center sm:gap-3 sm:py-2.5" onclick={(e) => { e.preventDefault(); goto(buildSpaceTaskRoute(spaceId, run.id)); }}>
-                      <span class="flex items-center gap-2 px-1"><span class="h-[6px] w-[6px] shrink-0 rounded-full {badge.dot}"></span><span class="{badge.color}">{badge.label}</span></span>
-                      <span class="mt-1 block font-mono text-text-placeholder sm:mt-0">{formatShortDateTime(run.scheduledAt ?? run.createdAt)}</span>
-                      <span class="mt-1 block font-mono text-text-placeholder sm:mt-0">{taskRunDuration(run)}</span>
-                      <span class="mt-1 block truncate text-[11px] {run.errorMessage ? 'text-status-error' : 'text-text-placeholder'} sm:mt-0" title={run.errorMessage ?? run.id}>{run.errorMessage ?? run.id}</span>
-                    </a>
-                  {/each}
-                </div>
-                {#if cronjobRunsHasMore}
-                  <div class="mt-4">
-                    <button type="button" class="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => loadCronjobRuns()} disabled={cronjobRunsLoadingMore}>
-                      {#if cronjobRunsLoadingMore}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-                      <span>Load more</span>
-                    </button>
-                  </div>
-                {/if}
-              {:else if cronjobRunsLoaded}
-                <div class="py-6 text-[13px] text-text-tertiary">Runs will appear here after the first scheduled execution.</div>
-              {/if}
-            </section>
-          </div>
-        {:else}
-          <div class="text-[12px] text-text-tertiary">Cronjob not found.</div>
-        {/if}
-        </div>
-      </div>
+    {#if routeView === 'checkpoint-new' || routeView === 'checkpoint'}
+      <CheckpointView
+        mode={routeView === 'checkpoint-new' ? 'create' : 'detail'}
+        {spaceId}
+        {space}
+        {spaceLoadError}
+        {spaceHasMinimalAccess}
+        bind:checkpointCreateDescription
+        {checkpointCreateSubmitting}
+        {checkpointCreateError}
+        onCreateSubmit={handleCreateCheckpointSubmit}
+        {checkpointDetail}
+        checkpointId={routeCheckpointId}
+        {checkpointDetailLoading}
+        {checkpointDetailError}
+        {checkpointIdCopied}
+        {checkpointCopied}
+        onForkCheckpoint={handleForkCheckpoint}
+        onCopyCheckpointId={handleCopyCheckpointId}
+        onCopyCheckpointCommitHash={handleCopyCheckpointCommitHash}
+      />
+    {:else if routeView === 'cronjob-new' || routeView === 'cronjob'}
+      <CronjobView
+        mode={routeView === 'cronjob-new' ? 'create' : 'detail'}
+        {spaceId}
+        spaceName={space?.name ?? space?.title ?? spaceId}
+        {spaceLoadError}
+        {spaceHasMinimalAccess}
+        bind:cronjobNewTitle
+        bind:cronjobNewExpression
+        bind:cronjobNewTimezone
+        bind:cronjobNewPrompt
+        bind:cronjobNewModel
+        {cronjobNewSubmitting}
+        {cronjobNewError}
+        onCreateSubmit={handleCreateCronjobSubmit}
+        {cronjobDetail}
+        cronjobId={routeCronjobId}
+        {cronjobDetailLoading}
+        {cronjobDetailError}
+        {cronjobRuns}
+        {cronjobRunsLoaded}
+        {cronjobRunsLoading}
+        {cronjobRunsLoadingMore}
+        {cronjobRunsHasMore}
+        {cronjobRunsError}
+        bind:cronjobEditMode
+        bind:cronjobFormTitle
+        bind:cronjobFormExpression
+        bind:cronjobFormTimezone
+        bind:cronjobFormPrompt
+        bind:cronjobFormModel
+        {cronjobFormStructuredPrompt}
+        {cronjobFormSubmitting}
+        {cronjobFormError}
+        {cronjobActionInProgress}
+        {cronjobDeleteInProgress}
+        {cronjobToggleError}
+        {cronjobCopiedId}
+        onToggleCronjob={handleToggleCronjob}
+        onDeleteCronjob={handleDeleteCronjob}
+        onUpdateCronjobSubmit={handleUpdateCronjobSubmit}
+        onCreateCronjobSubmit={handleCreateCronjobSubmit}
+        onSyncCronjobFormFromDetail={syncCronjobFormFromDetail}
+        onOpenCronjobModelSelector={openCronjobModelSelector}
+        onHandleCronjobModelSelect={handleCronjobModelSelect}
+        onCopyCronjobId={copyCronjobId}
+        onLoadCronjobRuns={loadCronjobRuns}
+      />
     {:else if routeView === 'work'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-        <div class="max-w-5xl">
-        {#if workDetailLoading && workDetail?.id !== routeWorkId}
-          {@render PanelLoadingState("Loading work…")}
-        {:else if workDetailError}
-          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workDetailError}</div>
-        {:else if workDetail && workDetail.id === routeWorkId}
-          {@const publicRoute = workPublicRoute(workDetail)}
-          <div class="space-y-6 sm:space-y-8">
-            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
-              <div class="min-w-0 space-y-3">
-                <div>
-                  <h1 class="font-mono text-[24px] font-semibold tracking-tight text-text-primary break-all sm:text-[30px]">{workDetail.slug}</h1>
-                  <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span class="inline-flex items-center gap-1.5 text-[11px] font-medium {workStatusTone(workDetail.status)}">
-                      <span class="h-1.5 w-1.5 rounded-full {workDetail.status === 'published' ? 'bg-status-running' : workDetail.status === 'disabled' ? 'bg-status-error' : 'bg-text-placeholder'}"></span>
-                      {workDetail.status}
-                    </span>
-                    {@render CopyIdMetaItem(workDetail.id, workCopiedId, () => void handleCopyWorkId(workDetail!.id), 'Copy work ID')}
-                    <span class="font-mono text-[11px] text-text-placeholder">{workDetail.targetType}:{workDetail.targetRef}</span>
-                  </div>
-                </div>
-              </div>
-              <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                {#if publicRoute}
-                  <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto">
-                    <ExternalLink class="h-3.5 w-3.5" />
-                    <span>Open public page</span>
-                  </a>
-                {/if}
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { syncWorkFormFromDetail(); workEditMode = !workEditMode; }}>
-                  <Pencil class="h-3.5 w-3.5" />
-                  <span>{workEditMode ? 'Close edit' : 'Edit'}</span>
-                </button>
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {workDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => handleToggleWorkStatus(workDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
-                  {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if workDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<PowerOff class="h-3.5 w-3.5" />{/if}
-                  <span>{workDetail.status === 'published' ? 'Disable' : 'Publish'}</span>
-                </button>
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={handleDeleteWork} disabled={workActionInProgress || workDeleteInProgress}>
-                  {#if workDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
-                  <span>{workDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
-                </button>
-              </div>
-            </header>
-
-            {#if workEditMode}
-              <form onsubmit={handleUpdateWorkSubmit} class="space-y-6">
-                <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-                  <div class="min-w-0 space-y-5">
-                    <div class="space-y-1.5">
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-slug">Slug</label>
-                      <input id="work-edit-slug" type="text" bind:value={workFormSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
-                    </div>
-                    <div class="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
-                      <div class="space-y-1.5">
-                        <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-type">Target</label>
-                        <select id="work-edit-target-type" bind:value={workFormTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
-                          <option value="file">File</option>
-                          <option value="directory">Directory</option>
-                          <option value="port">Port</option>
-                        </select>
-                      </div>
-                      <div class="space-y-1.5">
-                        <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-ref">Reference</label>
-                        <input id="work-edit-target-ref" type="text" bind:value={workFormTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
-                      </div>
-                    </div>
-                    <div class="space-y-1.5">
-                      <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
-                      <select id="work-edit-status" bind:value={workFormStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none sm:max-w-[220px]">
-                        <option value="draft">Draft</option>
-                        <option value="published">Published</option>
-                        <option value="disabled">Disabled</option>
-                      </select>
-                    </div>
-                  </div>
-                  <aside class="space-y-5 text-[13px]">
-                    <div class="space-y-3">
-                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Work can</div>
-                      {#each WORK_SCOPE_OPTIONS as option (option.scope)}
-                        <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
-                          <input type="checkbox" bind:checked={workFormScopes[option.scope]} class="mt-0.5" />
-                          <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
-                        </label>
-                      {/each}
-                    </div>
-                    <div class="space-y-3">
-                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Viewers can allow</div>
-                      {#each WORK_VIEWER_SCOPE_OPTIONS as option (option.scope)}
-                        <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
-                          <input type="checkbox" bind:checked={workFormViewerScopes[option.scope]} class="mt-0.5" />
-                          <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
-                        </label>
-                      {/each}
-                    </div>
-                  </aside>
-                </section>
-                {#if workFormError}
-                  <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
-                {/if}
-                <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
-                  <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workEditMode = false; syncWorkFormFromDetail(); }}>Cancel</button>
-                  <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
-                    {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-                    <span>Save changes</span>
-                  </button>
-                </div>
-              </form>
-            {:else}
-              <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-8">
-                <div class="min-w-0 space-y-6">
-                  <section class="space-y-3">
-                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
-                    <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/40 ring-1 ring-border-subtle/60">
-                      <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
-                      <div class="px-5 py-4 pl-6">
-                        <div class="font-mono text-[13px] text-text-primary break-all">{workDetail.targetRef}</div>
-                        <div class="mt-2 text-[12px] text-text-tertiary">{workDetail.targetType} · asset {workDetail.assetKey ? 'ready' : 'not stored'}</div>
-                      </div>
-                    </div>
-                  </section>
-                  <section class="space-y-3 border-y border-border-subtle/70 py-4">
-                    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                      <div class="flex min-w-0 items-baseline gap-2">
-                        <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Publish version</div>
-                        <div class="hidden text-[12px] text-text-tertiary sm:block">Move the public link to a fresh snapshot.</div>
-                      </div>
-                      <div class="font-mono text-[11px] text-text-placeholder">Current v{workDetail.latestVersion || 0}</div>
-                    </div>
-                    <div class="grid gap-2 sm:grid-cols-[128px_minmax(0,1fr)_112px] sm:items-center">
-                      <label class="sr-only" for="work-publish-target-type">Target type</label>
-                      <select id="work-publish-target-type" bind:value={workPublishTargetType} class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors hover:border-border-default focus:border-brand/50 focus:outline-none">
-                        <option value="file">File</option>
-                        <option value="directory">Directory</option>
-                        <option value="port">Port</option>
-                      </select>
-                      <label class="sr-only" for="work-publish-target-ref">Target reference</label>
-                      <input id="work-publish-target-ref" type="text" bind:value={workPublishTargetRef} placeholder="Target reference" class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary transition-colors placeholder:text-text-placeholder hover:border-border-default focus:border-brand/50 focus:outline-none" />
-                      <button type="button" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void handlePublishWorkVersion()} disabled={workPublishSubmitting}>
-                        {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
-                        <span>Publish</span>
-                      </button>
-                    </div>
-                    {#if workPublishError}
-                      <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{workPublishError}</div>
-                    {/if}
-                  </section>
-                  <section class="grid gap-3 sm:grid-cols-2">
-                    <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Work permissions</div>
-                      <div class="mt-1 text-[13px] text-text-primary">{workDetail.workScopes.length ? workDetail.workScopes.join(', ') : 'None'}</div>
-                    </div>
-                    <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
-                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Viewer grants</div>
-                      <div class="mt-1 text-[13px] text-text-primary">{workDetail.allowedViewerScopes.length ? workDetail.allowedViewerScopes.join(', ') : 'None'}</div>
-                    </div>
-                  </section>
-                </div>
-                <aside class="space-y-5 text-[13px]">
-                  <div class="space-y-2.5">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
-                      {#if workVersionsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />{/if}
-                    </div>
-                    {#if workVersionsError}
-                      <div class="border-y border-error-soft/30 py-3 text-[12px] text-error-soft">{workVersionsError}</div>
-                    {:else if workVersions.length}
-                      <div class="divide-y divide-border-subtle/70 border-y border-border-subtle/70">
-                        {#each workVersions.slice(0, 6) as version (version.id)}
-                          <div class="py-2.5">
-                            <div class="flex items-center justify-between gap-2">
-                              <div class="flex min-w-0 items-center gap-2">
-                                <span class="font-mono text-[12px] text-text-primary">v{version.version}</span>
-                                <span class="truncate font-mono text-[11px] text-text-tertiary">{version.targetType}:{version.targetRef}</span>
-                              </div>
-                              {#if version.id === workDetail.currentVersionId}<span class="shrink-0 rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
-                            </div>
-                            <div class="mt-1 text-[11px] text-text-placeholder">{formatDateTime(version.publishedAt)}</div>
-                          </div>
-                        {/each}
-                      </div>
-                    {:else}
-                      <div class="border-y border-border-subtle/70 py-3 text-[12px] text-text-tertiary">First publish creates v1.</div>
-                    {/if}
-                  </div>
-                  <div class="space-y-3">
-                    <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Metadata</div>
-                    <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
-                      <div class="text-text-placeholder">Created</div><div class="text-text-secondary">{formatDateTime(workDetail.createdAt)}</div>
-                      <div class="text-text-placeholder">Updated</div><div class="text-text-secondary">{formatDateTime(workDetail.updatedAt)}</div>
-                      <div class="text-text-placeholder">Published</div><div class="text-text-secondary">{formatDateTime(workDetail.publishedAt)}</div>
-                      <div class="text-text-placeholder">Owner</div><div class="font-mono text-text-secondary break-all">{workDetail.userUuid}</div>
-                    </div>
-                  </div>
-                  {#if publicRoute}
-                    <div class="space-y-1.5">
-                      <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
-                      <div class="font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
-                    </div>
-                  {/if}
-                </aside>
-              </section>
-            {/if}
-          </div>
-        {:else}
-          <div class="text-[12px] text-text-tertiary">Work not found.</div>
-        {/if}
-        </div>
-      </div>
+      <WorkView
+        {routeWorkId}
+        {workDetail}
+        {workDetailLoading}
+        {workDetailError}
+        {workCopiedId}
+        bind:workEditMode
+        {workActionInProgress}
+        {workDeleteInProgress}
+        bind:workFormSlug
+        bind:workFormTargetType
+        bind:workFormTargetRef
+        bind:workFormStatus
+        bind:workFormScopes
+        bind:workFormViewerScopes
+        {workFormSubmitting}
+        {workFormError}
+        bind:workPublishTargetType
+        bind:workPublishTargetRef
+        {workPublishSubmitting}
+        {workPublishError}
+        {workVersions}
+        {workVersionsLoading}
+        {workVersionsError}
+        {workPublicRoute}
+        onCopyWorkId={handleCopyWorkId}
+        onSyncWorkFormFromDetail={syncWorkFormFromDetail}
+        onToggleWorkStatus={handleToggleWorkStatus}
+        onDeleteWork={handleDeleteWork}
+        onUpdateWorkSubmit={handleUpdateWorkSubmit}
+        onPublishWorkVersion={handlePublishWorkVersion}
+      />
     {:else if routeView === 'task'}
-      <div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
-        <div class="max-w-4xl">
-        {#if taskRunDetailLoading && taskRunDetail?.id !== routeTaskId}
-          {@render PanelLoadingState("Loading task…")}
-        {:else if taskRunDetailError}
-          <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{taskRunDetailError}</div>
-        {:else if taskRunDetail && taskRunDetail.id === routeTaskId}
-          {@const badge = taskRunStatusBadge(taskRunDetail)}
-          {@const resultCheckpointId = checkpointIdFromTaskRun(taskRunDetail)}
-          {@const saveStageLabel = taskRunDetail.taskType === "save_checkpoint" ? saveCheckpointProgressLabel(taskRunProgress) : null}
-          {@const commandInfo = runCommandPayload(taskRunDetail)}
-          {@const commandMeta = runCommandResultMeta(taskRunDetail)}
-          {@const outputContent = taskOutputContent(taskRunDetail)}
-          {@const generationBlocks = generationOutputBlocks(taskRunDetail)}
-          {@const rawResult = taskRawResult(taskRunDetail)}
-          <div class="space-y-6 sm:space-y-8">
-            <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
-              <div class="min-w-0 space-y-3">
-                <div>
-                  <h1 class="text-[24px] font-semibold tracking-tight text-text-primary sm:text-[30px]">{taskTypeLabel(taskRunDetail.taskType)}</h1>
-                  <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                    <span class="inline-flex items-center gap-1.5 text-[11px] font-medium {badge.color}">
-                      <span class="relative flex h-1.5 w-1.5 shrink-0">
-                        {#if taskIsStreaming(taskRunDetail)}
-                          <span class="absolute inline-flex h-full w-full animate-ping rounded-full {badge.dot} opacity-40"></span>
-                        {/if}
-                        <span class="relative inline-flex h-1.5 w-1.5 rounded-full {badge.dot}"></span>
-                      </span>
-                      {badge.label}
-                    </span>
-                    {@render UserMetaItem(taskRunDetail.userProfile, taskRunDetail.userUuid)}
-                    {@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void copyTaskField("id", taskRunDetail!.id), "Copy task ID")}
-                  </div>
-                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
-                    <span>{taskContextLabel(taskRunDetail)}</span>
-                    <span class="text-text-placeholder">·</span>
-                    <span>{taskAttemptsLabel(taskRunDetail)}</span>
-                    {#if taskRunDetail.cronJobId}
-                      <span class="text-text-placeholder">·</span>
-                      <a
-                        href={buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)}
-                        class="text-text-secondary transition-colors hover:text-brand"
-                        onclick={(e) => { e.preventDefault(); goto(buildSpaceCronjobRoute(spaceId, taskRunDetail!.cronJobId!)); }}
-                      >view cronjob</a>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            </header>
-
-            {#if taskIsStreaming(taskRunDetail) && taskRunProgress !== null && taskRunProgress !== undefined}
-              <section class="space-y-2">
-                <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Progress</div>
-                <pre class="max-h-[42vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-80">{displaySafeJson(taskRunProgress, { maxStringLength: 12_000 })}</pre>
-              </section>
-            {/if}
-
-            {#if taskRunDetail.taskType === "run_command"}
-              <section class="space-y-2">
-                <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Command</div>
-                <div class="rounded-[8px] bg-bg-elevated/35 px-4 py-3">
-                  <pre class="max-w-full whitespace-pre-wrap break-words font-mono text-[13px] leading-relaxed text-text-primary sm:text-[14px]">{commandInfo.command}</pre>
-                  <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-text-tertiary">
-                    <span class="font-mono">{commandInfo.cwd}</span>
-                    {#if commandMeta.exitCode !== null}
-                      <span class="font-mono">exit {commandMeta.exitCode}</span>
-                    {/if}
-                    <span>{formatDurationMs(commandMeta.durationMs)}</span>
-                    <span>{formatDateTime(taskRunDetail.createdAt)}</span>
-                  </div>
-                </div>
-              </section>
-            {/if}
-
-            {#if taskRunDetail.taskType === "save_checkpoint"}
-              <section class="flex flex-col gap-3 rounded-[8px] bg-bg-elevated/35 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <div class="min-w-0">
-                  <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Checkpoint</div>
-                  <div class="mt-1 text-[13px] text-text-secondary">
-                    {#if resultCheckpointId}
-                      Save completed and checkpoint is ready.
-                    {:else if saveStageLabel}
-                      {saveStageLabel}
-                    {:else}
-                      Waiting for checkpoint result…
-                    {/if}
-                  </div>
-                </div>
-                {#if resultCheckpointId}
-                  <a
-                    href={buildSpaceCheckpointRoute(spaceId, resultCheckpointId)}
-                    class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover"
-                    onclick={(e) => { e.preventDefault(); goto(buildSpaceCheckpointRoute(spaceId, resultCheckpointId)); }}
-                  >
-                    <GitCommitHorizontal class="w-3.5 h-3.5" />
-                    <span>View checkpoint</span>
-                  </a>
-                {/if}
-              </section>
-            {/if}
-
-            <section class="space-y-5 sm:space-y-6">
-              <div class="min-w-0 space-y-6">
-                {#if generationBlocks.length > 0}
-                  <div class="space-y-3">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
-                    <div class="space-y-3">
-                      {#each generationBlocks as block, index}
-                        {@const blockText = generationBlockText(block)}
-                        {@const blockSrc = generationBlockSource(block)}
-                        {@const blockMeta = generationBlockMeta(block)}
-                        <div class="rounded-[8px] bg-bg-elevated/35 p-3">
-                          <div class="mb-2 flex items-center justify-between gap-3 text-[11px] text-text-tertiary">
-                            <span class="truncate">{generationBlockLabel(block, index)}</span>
-                            {#if blockMeta}<span class="shrink-0 font-mono text-text-placeholder">{blockMeta}</span>{/if}
-                          </div>
-                          {#if blockText !== null}
-                            <div class="whitespace-pre-wrap break-words text-[13px] leading-6 text-text-secondary">{blockText}</div>
-                          {:else if block.type === "image" && blockSrc}
-                            <img src={blockSrc} alt={generationBlockLabel(block, index)} class="max-h-[60vh] w-full rounded-[6px] object-contain" loading="lazy" />
-                          {:else if block.type === "video" && blockSrc}
-                            <video src={blockSrc} controls class="max-h-[60vh] w-full rounded-[6px]">
-                              <track kind="captions" label="Generated video" />
-                            </video>
-                          {:else if block.type === "audio" && blockSrc}
-                            <audio src={blockSrc} controls class="w-full"></audio>
-                          {:else}
-                            <pre class="max-h-[40vh] overflow-auto text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all">{displaySafeJson(block, { maxStringLength: 12_000 })}</pre>
-                          {/if}
-                        </div>
-                      {/each}
-                    </div>
-                  </div>
-                {:else if outputContent.length > 0}
-                  <div class="space-y-2">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Output</div>
-                    <MessageContentFlow content={outputContent} thinkingExpanded={true} isStreaming={taskIsStreaming(taskRunDetail)} defaultExpandToolCalls />
-                  </div>
-                {:else if taskIsStreaming(taskRunDetail)}
-                  <div class="py-6 text-[13px] text-text-tertiary">Waiting for output…</div>
-                {/if}
-
-                <div class="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-                  <div class="space-y-1">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Scheduled</div>
-                    <div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.scheduledAt)}</div>
-                  </div>
-                  <div class="space-y-1">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Duration</div>
-                    <div class="text-[13px] text-text-primary">{taskRunDuration(taskRunDetail)}</div>
-                  </div>
-                  <div class="space-y-1">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Started</div>
-                    <div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.startedAt)}</div>
-                  </div>
-                  <div class="space-y-1">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Finished</div>
-                    <div class="text-[13px] text-text-primary">{formatDateTime(taskRunDetail.finishedAt)}</div>
-                  </div>
-                </div>
-
-                <div class="space-y-2">
-                  <div class="flex items-center justify-between gap-3">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
-                    <button
-                      type="button"
-                      class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-                      onclick={() => void copyTaskField("payload", taskRunDetail!.payload)}
-                      title="Copy payload"
-                    >
-                      {#if taskCopiedField === "payload"}
-                        <Check class="h-3 w-3 text-success-soft" />
-                        <span class="text-success-soft">Copied</span>
-                      {:else}
-                        <Copy class="h-3 w-3" />
-                        <span>Copy</span>
-                      {/if}
-                    </button>
-                  </div>
-                  <pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(taskRunDetail.payload)}</pre>
-                </div>
-
-                {#if rawResult}
-                  <div class="space-y-2">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
-                      <button
-                        type="button"
-                        class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-                        onclick={() => void copyTaskField("result", rawResult)}
-                        title="Copy result"
-                      >
-                        {#if taskCopiedField === "result"}
-                          <Check class="h-3 w-3 text-success-soft" />
-                          <span class="text-success-soft">Copied</span>
-                        {:else}
-                          <Copy class="h-3 w-3" />
-                          <span>Copy</span>
-                        {/if}
-                      </button>
-                    </div>
-                    <pre class="max-h-[48vh] overflow-auto rounded-[7px] bg-bg-elevated/35 p-3 text-[12px] font-mono leading-relaxed text-text-secondary whitespace-pre-wrap break-all sm:max-h-[520px]">{displaySafeJson(rawResult)}</pre>
-                  </div>
-                {/if}
-
-                {#if taskRunDetail.errorMessage}
-                  <div class="rounded-[7px] bg-error-bg p-4">
-                    <div class="text-[11px] font-medium uppercase tracking-wider text-error-soft">Error</div>
-                    <div class="mt-2 text-[13px] text-error-soft whitespace-pre-wrap break-all">{taskRunDetail.errorMessage}</div>
-                  </div>
-                {/if}
-              </div>
-            </section>
-          </div>
-        {:else}
-          <div class="text-[12px] text-text-tertiary">Task run not found.</div>
-        {/if}
-        </div>
-      </div>
+      <TaskRunView
+        {spaceId}
+        taskId={routeTaskId}
+        {taskRunDetail}
+        {taskRunDetailLoading}
+        {taskRunDetailError}
+        {taskRunProgress}
+        {taskCopiedField}
+        onCopyTaskField={copyTaskField}
+      />
     {:else if fileMode === 'file'}
-      <!-- File Viewer -->
-      {#if openFileLoading && openFile?.path !== routeFilePath}
-        {@render PanelLoadingState("Loading file…")}
-      {:else if openFileError}
-        <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">
-          {openFileError}
-        </div>
-      {:else if openFileTooLarge}
-        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-            <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
-              {routeFilePath}
-            </div>
-            {#if routeFilePath}
-              {@render FileHeaderCoreActions(routeFilePath)}
-            {/if}
-            <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-          <div class="flex-1 flex items-center justify-center">
-            <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
-              <div class="text-[40px] mb-3">📦</div>
-              <div class="text-[14px] font-semibold text-text-primary mb-1">File too large to preview</div>
-              <div class="text-[12px] text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-              <a
-                href={openFileDownloadUrl}
-                download={openFileDownloadName}
-                class="action-btn primary"
-                onclick={(e) => { e.preventDefault(); void downloadOpenFile(); }}
-              >
-                <Download class="w-3.5 h-3.5" />
-                Download file
-              </a>
-            </div>
-          </div>
-        </div>
-      {:else if openFile}
-        <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
-          {#if openFileIsText}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
-                {openFile.path}
-              </div>
-              {#if openFileHasRenderedPreview}
-                <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    class:active={fileEdit}
-                    onclick={() => fileEdit = true}
-                    title="Edit source"
-                  >
-                    Source
-                  </button>
-                  <button
-                    type="button"
-                    class="segmented-btn"
-                    class:active={!fileEdit}
-                    onclick={() => fileEdit = false}
-                    title={openFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
-                  >
-                    Preview
-                  </button>
-                </div>
-              {/if}
-              {@render FileHeaderCoreActions(openFile.path)}
-              {#if openFileIsHtml && !fileEdit}
-                <button type="button" class="action-btn" onclick={publishOpenFile} title="Publish work">
-                  <Rocket class="w-3.5 h-3.5 shrink-0" />
-                  <span class="hidden sm:inline">Publish</span>
-                </button>
-              {/if}
-              <button type="button" class="icon-btn" onclick={() => void copyFileContent()} title="Copy content">
-                {#if openFileCopied}
-                  <Check class="w-4 h-4 text-success-soft" />
-                {:else}
-                  <Copy class="w-4 h-4" />
-                {/if}
-              </button>
-              <button
-                type="button"
-                class="action-btn"
-                onclick={saveOpenFile}
-                disabled={openFileSaving || !fileDirty || !canEditFiles}
-                title="Save (Ctrl+S)"
-              >
-                <Save class="w-3.5 h-3.5 shrink-0" />
-                <span class="hidden sm:inline">Save</span>
-              </button>
-              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="flex-1 min-h-0">
-              {#if fileEdit}
-                {#await import("$lib/components/CodeEditor.svelte") then editorModule}
-                  {@const LazyCodeEditor = editorModule.default}
-                  <LazyCodeEditor
-                    value={openFileDraft}
-                    language={openFileExt}
-                    onInput={(v) => openFileDraft = v}
-                    readonly={!canEditFiles}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-                {/await}
-              {:else if openFileHasRenderedPreview}
-                {#await import("$lib/components/RenderedFilePreview.svelte") then previewModule}
-                  {@const LazyRenderedFilePreview = previewModule.default}
-                  <LazyRenderedFilePreview
-                    name={openFile.name}
-                    source={openFileDraft}
-                    type={openFileIsMarkdown ? "markdown" : "html"}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
-                {/await}
-              {:else}
-                {#await import("$lib/components/CodeEditor.svelte") then editorModule}
-                  {@const LazyCodeEditor = editorModule.default}
-                  <LazyCodeEditor
-                    value={openFileDraft}
-                    language={openFileExt}
-                    readonly={true}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-                {/await}
-              {/if}
-            </div>
-          {:else if openFileIsImage && openFileDataUrl}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
-                {openFile.path}
-              </div>
-              <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
-              {@render FileHeaderCoreActions(openFile.path)}
-              <button type="button" class="zoom-btn" onclick={() => { openFileZoom = Math.max(0.25, openFileZoom - 0.25); openFilePanX = 0; openFilePanY = 0; }} title="Zoom out">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              <span class="text-[11px] text-text-tertiary tabular-nums w-10 text-center">{Math.round(openFileZoom * 100)}%</span>
-              <button type="button" class="zoom-btn" onclick={() => { openFileZoom = Math.min(4, openFileZoom + 0.25); openFilePanX = 0; openFilePanY = 0; }} title="Zoom in">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
-              if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                openFileZoom = Math.max(0.25, Math.min(4, openFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
-                openFilePanX = 0;
-                openFilePanY = 0;
-              }
-            }} ondblclick={() => { openFileZoom = 1; openFilePanX = 0; openFilePanY = 0; }} onmousedown={openFilePanHandlers.start} style={openFileDragging ? 'cursor: grabbing;' : (openFileZoom > 1 ? 'cursor: grab;' : '')}>
-              <img src={openFileDataUrl} alt={openFile.name} style={`transform: translate(${openFilePanX}px, ${openFilePanY}px) scale(${openFileZoom}); ${openFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
-            </div>
-          {:else if openFileIsVideo && openFileDataUrl}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
-                {openFile.path}
-              </div>
-              <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
-              {@render FileHeaderCoreActions(openFile.path)}
-              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="flex flex-1 items-center justify-center p-4">
-              <video src={openFileDataUrl} controls class="max-h-full max-w-full rounded-md">
-                <track kind="captions" />
-              </video>
-            </div>
-          {:else}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
-              <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
-                {openFile.path}
-              </div>
-              <div class="text-[11px] text-text-tertiary hidden sm:inline">{formatFileSize(openFile.size)}</div>
-              {@render FileHeaderCoreActions(openFile.path)}
-              <button type="button" class="icon-btn" onclick={closeFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-[12px] text-text-secondary">
-              <div><strong>Name:</strong> {openFile.name}</div>
-              <div><strong>Type:</strong> {openFile.mimeType ?? 'application/octet-stream'}</div>
-              <div><strong>Size:</strong> {openFile.size} bytes</div>
-              <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <div class="flex-1 flex items-center justify-center text-[12px] text-text-tertiary">No file selected</div>
-      {/if}
+      <FileWorkspace
+        {routeFilePath}
+        {openFileLoading}
+        {openFileError}
+        {openFileTooLarge}
+        {openFile}
+        {openFileDownloadUrl}
+        {openFileDownloadName}
+        {openFileIsText}
+        {openFileHasRenderedPreview}
+        {openFileIsMarkdown}
+        {openFileIsHtml}
+        {openFileIsImage}
+        {openFileIsVideo}
+        {openFileDataUrl}
+        bind:openFileDraft
+        {openFileExt}
+        bind:fileEdit
+        {openFileCopied}
+        {openFileSaving}
+        {fileDirty}
+        {canEditFiles}
+        {activeFsReadonly}
+        bind:fileActionMenuOpenPath
+        bind:openFileZoom
+        bind:openFilePanX
+        bind:openFilePanY
+        {openFileDragging}
+        {openFilePanHandlers}
+        onCloseFile={closeFile}
+        onDownloadOpenFile={downloadOpenFile}
+        onPublishOpenFile={publishOpenFile}
+        onCopyFileContent={copyFileContent}
+        onSaveOpenFile={saveOpenFile}
+        onLabelFile={(path) => editResourceLabels('file', path)}
+        onInsertFilePathReference={insertFilePathReference}
+        onDownloadFilePath={(path) => handleDownloadNode(getFileActionNode(path))}
+        onRenameFilePath={(path) => handleRenameNode(getFileActionNode(path))}
+        onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
+      />
     {:else}
       <!-- Chat -->
     {#if spaceLoadError && !spaceHasMinimalAccess}
