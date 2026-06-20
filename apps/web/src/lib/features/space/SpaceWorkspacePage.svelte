@@ -293,6 +293,11 @@ import {
 import InlineFilePanel from "./modules/InlineFilePanel.svelte";
 import PortPreviewPanel from "./modules/PortPreviewPanel.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
+import {
+	applyPortsChangedToEndpoints,
+	extractPublicEndpoints,
+	isHttpUrl,
+} from "./modules/port-preview-utils";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
 import {
 	areSessionTurnRecordsEqual,
@@ -2882,17 +2887,6 @@ function prepareRouteSession(sessionId: string) {
 		};
 	}
 }
-function extractPublicEndpoints(value: unknown): SpacePublicEndpoints {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-	const sandbox = (value as { sandbox?: unknown }).sandbox;
-	if (!sandbox || typeof sandbox !== "object" || Array.isArray(sandbox))
-		return {};
-	const endpoints = (sandbox as { publicEndpoints?: unknown }).publicEndpoints;
-	if (!endpoints || typeof endpoints !== "object" || Array.isArray(endpoints))
-		return {};
-	return endpoints as SpacePublicEndpoints;
-}
-
 async function loadPreviewEndpoints() {
 	const currentSpaceId = spaceId;
 	const previous = previewEndpoints;
@@ -2934,15 +2928,6 @@ function maybeNotifyPortReady(
 	}
 }
 
-function isHttpUrl(url: string) {
-	try {
-		const parsed = new URL(url);
-		return parsed.protocol === "http:" || parsed.protocol === "https:";
-	} catch {
-		return false;
-	}
-}
-
 function showPortReadyToast(port: string, url: string) {
 	if (!isHttpUrl(url)) return;
 	portReadyToast = { port, url };
@@ -2968,30 +2953,13 @@ function previewPortFromToast() {
 }
 
 function applyPortsChanged(payload: ChannelEnvelope) {
-	const eventPayload = payload.payload as {
-		ports?: Array<{
-			port?: number;
-			status?: "listening" | "closed";
-			observedAt?: number;
-		}>;
-	};
 	const previous = previewEndpoints;
-	const next: SpacePublicEndpoints = { ...previewEndpoints };
-	const changedPorts: string[] = [];
-	for (const item of eventPayload.ports ?? []) {
-		if (!item.port || !item.status) continue;
-		const key = String(item.port);
-		const current = next[key];
-		if (!current) continue;
-		next[key] = {
-			...current,
-			status: item.status,
-			observedAt: item.observedAt,
-		};
-		changedPorts.push(key);
-	}
-	previewEndpoints = next;
-	maybeNotifyPortReady(previous, next, changedPorts);
+	const { endpoints, changedPorts } = applyPortsChangedToEndpoints(
+		previewEndpoints,
+		payload,
+	);
+	previewEndpoints = endpoints;
+	maybeNotifyPortReady(previous, endpoints, changedPorts);
 }
 
 async function loadSpace() {
