@@ -292,6 +292,7 @@ import {
 } from "./modules/file-workspace-utils";
 import InlineFilePanel from "./modules/InlineFilePanel.svelte";
 import PortPreviewPanel from "./modules/PortPreviewPanel.svelte";
+import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
 import {
 	areSessionTurnRecordsEqual,
@@ -8085,27 +8086,12 @@ $effect(() => {
   {/snippet}
 </PageHeader>
 {#if portReadyToast}
-	<div class="port-ready-toast" role="status" aria-live="polite">
-		<div class="flex min-w-0 items-center gap-2.5">
-			<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-success-soft/25 bg-success-bg text-success-soft">
-				<Globe class="h-3.5 w-3.5" />
-			</div>
-			<div class="min-w-0 flex-1">
-				<div class="text-[12px] font-medium text-text-primary">Port :{portReadyToast.port} is ready</div>
-				<div class="truncate text-[11px] text-text-tertiary" title={portReadyToast.url}>{portReadyToast.url}</div>
-			</div>
-		</div>
-		<div class="flex shrink-0 items-center gap-1.5">
-			<button type="button" class="port-ready-action primary" onclick={previewPortFromToast}>Preview</button>
-			<a class="port-ready-action" href={portReadyToast.url} target="_blank" rel="noreferrer" onclick={closePortReadyToast}>
-				<ExternalLink class="h-3 w-3" />
-				<span>Open externally</span>
-			</a>
-			<button type="button" class="port-ready-close" onclick={closePortReadyToast} title="Dismiss port notification" aria-label="Dismiss port notification">
-				<X class="h-3.5 w-3.5" />
-			</button>
-		</div>
-	</div>
+	<PortReadyToastView
+		port={portReadyToast.port}
+		url={portReadyToast.url}
+		onPreview={previewPortFromToast}
+		onClose={closePortReadyToast}
+	/>
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
