@@ -793,6 +793,8 @@ const timelineScrollHeight = $derived(sessionScroll.timelineScrollHeight);
 const timelineClientHeight = $derived(sessionScroll.timelineClientHeight);
 let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
+let appliedRouteFileKey = "";
+let appliedFsSourceKey: string | null = null;
 let preloadingSessionIds = new Set<string>();
 let turnMarkerMeasureFrame: number | null = null;
 let lastTurnIndexRefreshKey = "";
@@ -6393,16 +6395,30 @@ $effect(() => {
 	}
 });
 $effect(() => {
-	if (routeView !== "file" || !routeFilePath) {
-		fileWorkspace.clearRouteFile();
+	const filePath = routeView === "file" ? routeFilePath : null;
+	const key = filePath ? `${spaceId}:${activeFsSourceKey}:${filePath}` : "";
+	if (!key) {
+		if (!appliedRouteFileKey) return;
+		appliedRouteFileKey = "";
+		untrack(() => fileWorkspace.clearRouteFile());
 		return;
 	}
-	void openFileFromUrl(routeFilePath);
+	if (appliedRouteFileKey === key) return;
+	appliedRouteFileKey = key;
+	if (!filePath) return;
+	const targetFilePath = filePath;
+	untrack(() => {
+		void openFileFromUrl(targetFilePath);
+	});
 });
 $effect(() => {
 	const sourceKey = activeFsSourceKey;
-	fileWorkspace.switchSource(sourceKey);
-	canvasPreview.closeCanvas();
+	if (sourceKey === appliedFsSourceKey) return;
+	appliedFsSourceKey = sourceKey;
+	untrack(() => {
+		fileWorkspace.switchSource(sourceKey);
+		canvasPreview.closeCanvas();
+	});
 });
 $effect(() => {
 	if (routeView === "checkpoint-new") {
