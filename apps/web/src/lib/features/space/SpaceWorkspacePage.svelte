@@ -88,10 +88,8 @@ import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
 import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
 import {
-	canvasBootstrapToDocument,
 	canvasItemToNode,
 	createEmptyCovasDocument,
-	parseCovasManifest,
 } from "$lib/canvas/canvas-document";
 import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
@@ -268,6 +266,10 @@ import CanvasPreviewPanel from "./modules/CanvasPreviewPanel.svelte";
 import CheckpointView from "./modules/CheckpointView.svelte";
 import CronjobView from "./modules/CronjobView.svelte";
 import {
+	createCanvasPreviewController,
+	type InlineCanvasPanelState,
+} from "./modules/canvas-preview-controller.svelte";
+import {
 	buildSendMessagePayload,
 	cronjobModelLabel,
 	cronjobPayloadContent,
@@ -293,11 +295,8 @@ import {
 import InlineFilePanel from "./modules/InlineFilePanel.svelte";
 import PortPreviewPanel from "./modules/PortPreviewPanel.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
-import {
-	applyPortsChangedToEndpoints,
-	extractPublicEndpoints,
-	isHttpUrl,
-} from "./modules/port-preview-utils";
+import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
+import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
 import {
 	areSessionTurnRecordsEqual,
@@ -372,11 +371,6 @@ type SelectedModel = {
 	id: string;
 	name?: string;
 };
-type InlinePortPreview = {
-	port: string;
-	url: string;
-	autoOpened: boolean;
-};
 type SpaceSandboxSnapshot = {
 	status: string | null;
 	runtimeStatus?: string | null;
@@ -388,10 +382,6 @@ type SpaceSandboxSnapshot = {
 type ActiveFsSource =
 	| { kind: "live" }
 	| { kind: "checkpoint"; checkpointId: string };
-type PortReadyToast = {
-	port: string;
-	url: string;
-};
 type SessionViewState = {
 	session: SessionRecord | undefined;
 	turns: SessionTurnRecord[];
@@ -599,10 +589,26 @@ let fileTreeSourceKey = $state("live");
 let fileTreeLoading = $state(false);
 let fileTreeError = $state<string | null>(null);
 let fileTreeRequestToken = $state(0);
-let previewEndpoints = $state<SpacePublicEndpoints>({});
-let inlinePortPreview = $state<InlinePortPreview | null>(null);
-let portReadyToast = $state<PortReadyToast | null>(null);
-let portReadyToastTimer: ReturnType<typeof setTimeout> | null = null;
+const portPreview = createPortPreviewController({
+	getSpaceId: () => spaceId,
+	getSpace: () => space,
+	getPageMounted: () => pageMounted,
+	getHasMinimalAccess: () => spaceHasMinimalAccess,
+	onOpenPanel: () => {
+		closePreviewFocusMode();
+		ensurePreviewPanelFits();
+	},
+	onClosePanel: () => {
+		closePreviewFocusMode();
+	},
+	onBeforeOpenPort: () => {
+		inlineFile = null;
+		canvasPreview.closeCanvas();
+	},
+});
+const previewEndpoints = $derived(portPreview.endpoints);
+const inlinePortPreview = $derived(portPreview.preview);
+const portReadyToast = $derived(portPreview.readyToast);
 let workPublishTarget = $state<{
 	targetType: "file" | "directory" | "port";
 	targetRef: string;
@@ -624,19 +630,26 @@ let inlineFile = $state<{
 	error: string | null;
 	tooLarge: boolean;
 } | null>(null);
-let inlineCanvas = $state<{
-	path: string;
-	documentId: string | null;
-	document: CovasDocument | null;
-	loading: boolean;
-	saving: boolean;
-	error: string | null;
-} | null>(null);
 let inlineFileRequestToken = $state(0);
-let inlineCanvasRequestToken = $state(0);
-let inlineCanvasSyncVersion = $state<number | null>(null);
-let inlineCanvasPendingFlush = false;
-let inlineCanvasPendingFlushRequested = false;
+const canvasPreview = createCanvasPreviewController({
+	getSpaceId: () => spaceId,
+	getSourceKey: () => activeFsSourceKey,
+	readFile: readActiveFsFile,
+	onOpenPanel: () => {
+		closePreviewFocusMode();
+		ensurePreviewPanelFits();
+	},
+	onClosePanel: () => {
+		closePreviewFocusMode();
+	},
+	onBeforeOpenCanvas: () => {
+		inlineFile = null;
+		portPreview.closePort();
+	},
+	onMarkSavePending: markFileSavePending,
+	onClearSavePendingSoon: clearFileSavePendingSoon,
+});
+const inlineCanvas = $derived(canvasPreview.canvas);
 const selectedFilePath = $derived(
 	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
 );
@@ -2888,78 +2901,19 @@ function prepareRouteSession(sessionId: string) {
 	}
 }
 async function loadPreviewEndpoints() {
-	const currentSpaceId = spaceId;
-	const previous = previewEndpoints;
-	try {
-		const result = await sdk.space(currentSpaceId).sandbox.ports();
-		if (spaceId !== currentSpaceId) return;
-		const next = result.endpoints ?? {};
-		previewEndpoints = next;
-		maybeNotifyPortReady(previous, next);
-	} catch {
-		if (spaceId !== currentSpaceId) return;
-		const next = extractPublicEndpoints(space);
-		previewEndpoints = next;
-		maybeNotifyPortReady(previous, next);
-	}
-}
-
-function maybeNotifyPortReady(
-	previous: SpacePublicEndpoints,
-	next: SpacePublicEndpoints,
-	changedPorts?: string[],
-) {
-	if (!pageMounted || spaceHasMinimalAccess) return;
-	const entries = (
-		changedPorts?.length
-			? changedPorts.map((port) => [port, next[port]] as const)
-			: Object.entries(next)
-	).filter(([, endpoint]) => endpoint?.status === "listening" && endpoint.url);
-	for (const [port, endpoint] of entries) {
-		const previousStatus = previous[port]?.status;
-		const cameFromPortsChangedEvent = Boolean(changedPorts?.length);
-		const becameListening = previousStatus !== "listening";
-		if (!(cameFromPortsChangedEvent || becameListening) || !endpoint?.url)
-			continue;
-		if (inlinePortPreview?.port === port) continue;
-		if (!isHttpUrl(endpoint.url)) continue;
-		showPortReadyToast(port, endpoint.url);
-		return;
-	}
-}
-
-function showPortReadyToast(port: string, url: string) {
-	if (!isHttpUrl(url)) return;
-	portReadyToast = { port, url };
-	if (portReadyToastTimer) clearTimeout(portReadyToastTimer);
-	portReadyToastTimer = setTimeout(() => {
-		portReadyToast = null;
-		portReadyToastTimer = null;
-	}, 7000);
+	await portPreview.loadEndpoints();
 }
 
 function closePortReadyToast() {
-	portReadyToast = null;
-	if (portReadyToastTimer) {
-		clearTimeout(portReadyToastTimer);
-		portReadyToastTimer = null;
-	}
+	portPreview.closeReadyToast();
 }
 
 function previewPortFromToast() {
-	if (!portReadyToast) return;
-	openInlinePort(portReadyToast.port, portReadyToast.url);
-	closePortReadyToast();
+	portPreview.previewFromToast();
 }
 
 function applyPortsChanged(payload: ChannelEnvelope) {
-	const previous = previewEndpoints;
-	const { endpoints, changedPorts } = applyPortsChangedToEndpoints(
-		previewEndpoints,
-		payload,
-	);
-	previewEndpoints = endpoints;
-	maybeNotifyPortReady(previous, endpoints, changedPorts);
+	portPreview.applyPortsChanged(payload);
 }
 
 async function loadSpace() {
@@ -2969,7 +2923,7 @@ async function loadSpace() {
 		const nextSpace = await sdk.space(currentSpaceId).get();
 		if (spaceId !== currentSpaceId) return false;
 		space = nextSpace;
-		previewEndpoints = extractPublicEndpoints(nextSpace);
+		portPreview.setEndpoints(extractPublicEndpoints(nextSpace));
 		cacheSpaceRecordSoon(nextSpace);
 		return true;
 	} catch (error) {
@@ -3067,7 +3021,7 @@ async function refreshSpaceStatus() {
 		const nextSpace = await sdk.space(spaceId).get();
 		const previousBootstrapStatus = bootstrapStatus;
 		space = nextSpace;
-		previewEndpoints = extractPublicEndpoints(nextSpace);
+		portPreview.setEndpoints(extractPublicEndpoints(nextSpace));
 		cacheSpaceRecordSoon(nextSpace);
 		const nextBootstrap = (() => {
 			const raw = nextSpace.meta;
@@ -6019,7 +5973,7 @@ async function openFileFromUrl(path: string) {
 		spaceId === requestSpaceId &&
 		routeView === "file" &&
 		routeFilePath === path;
-	inlinePortPreview = null;
+	portPreview.closePort();
 	openFileLoading = true;
 	openFileError = null;
 	openFileTooLarge = false;
@@ -6195,7 +6149,7 @@ async function handleRenameNode(node: SpaceFsNode) {
 			await openInlineFile(toPath);
 		}
 		if (inlineCanvas?.path === node.path) {
-			inlineCanvas = { ...inlineCanvas, path: toPath };
+			canvasPreview.renamePath(node.path, toPath);
 		}
 	} catch (error) {
 		fileTreeError = error instanceof Error ? error.message : "Failed to rename";
@@ -6241,8 +6195,8 @@ async function openInlineFile(path: string) {
 	inlineFileRequestToken = requestToken;
 	closePreviewFocusMode();
 	ensurePreviewPanelFits();
-	inlinePortPreview = null;
-	inlineCanvas = null;
+	portPreview.closePort();
+	canvasPreview.closeCanvas();
 	inlineFile = {
 		response: null,
 		draft: "",
@@ -6316,176 +6270,29 @@ function closeInlineFile() {
 	closePreviewFocusMode();
 }
 async function openInlineCanvas(path: string) {
-	const sourceKey = activeFsSourceKey;
-	closePreviewFocusMode();
-	ensurePreviewPanelFits();
-	const requestToken = inlineCanvasRequestToken + 1;
-	inlineCanvasRequestToken = requestToken;
-	inlineFile = null;
-	inlinePortPreview = null;
-	inlineCanvas = {
-		path,
-		documentId: null,
-		document: null,
-		loading: true,
-		saving: false,
-		error: null,
-	};
-	try {
-		const file = await readActiveFsFile(path);
-		if (
-			requestToken !== inlineCanvasRequestToken ||
-			inlineCanvas?.path !== path ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		if (!("content" in file) || file.kind !== "text") {
-			throw new Error("Canvas manifest must be a text file.");
-		}
-		const manifest = parseCovasManifest(file.content);
-		if (!manifest) throw new Error("Canvas manifest is invalid.");
-		const bootstrap = await sdk
-			.space(spaceId)
-			.canvas.bootstrap(manifest.documentId);
-		if (
-			requestToken !== inlineCanvasRequestToken ||
-			inlineCanvas?.path !== path ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		inlineCanvasSyncVersion = bootstrap.document.version;
-		inlineCanvas = {
-			path,
-			documentId: bootstrap.document.id,
-			document: canvasBootstrapToDocument(bootstrap),
-			loading: false,
-			saving: false,
-			error: null,
-		};
-		void flushInlineCanvasPendingTransactions(bootstrap.document.id).catch(
-			(error) => {
-				if (inlineCanvas?.documentId !== bootstrap.document.id) return;
-				inlineCanvas = {
-					...inlineCanvas,
-					error:
-						error instanceof Error
-							? error.message
-							: "Canvas changes are saved locally and will retry.",
-				};
-			},
-		);
-	} catch (error) {
-		if (
-			requestToken !== inlineCanvasRequestToken ||
-			inlineCanvas?.path !== path ||
-			sourceKey !== activeFsSourceKey
-		)
-			return;
-		inlineCanvas = {
-			path,
-			documentId: null,
-			document: null,
-			loading: false,
-			saving: false,
-			error: error instanceof Error ? error.message : "Failed to open canvas",
-		};
-	}
+	await canvasPreview.openCanvas(path);
 }
 function closeInlineCanvas() {
-	inlineCanvasRequestToken += 1;
-	inlineCanvas = null;
-	closePreviewFocusMode();
+	canvasPreview.closeCanvas();
 }
 async function flushInlineCanvasPendingTransactions(documentId: string) {
-	if (inlineCanvasPendingFlush) {
-		inlineCanvasPendingFlushRequested = true;
-		return;
-	}
-	inlineCanvasPendingFlush = true;
-	try {
-		do {
-			inlineCanvasPendingFlushRequested = false;
-			while (true) {
-				const pending = await listCanvasPendingTransactions(
-					spaceId,
-					documentId,
-				);
-				if (pending.length === 0) break;
-				const tx = pending[0];
-				if (!tx) break;
-				await markCanvasPendingTransactionAttempt(tx);
-				const result = await sdk
-					.space(spaceId)
-					.sendCanvasTransactionRealtime(documentId, {
-						txId: tx.txId,
-						baseVersion: tx.baseVersion,
-						ops: tx.ops,
-					});
-				inlineCanvasSyncVersion = result.document.version;
-				await deleteCanvasPendingTransaction({
-					spaceId,
-					documentId,
-					txId: tx.txId,
-				});
-			}
-		} while (inlineCanvasPendingFlushRequested);
-	} finally {
-		inlineCanvasPendingFlush = false;
-	}
+	await canvasPreview.flushPendingTransactions(documentId);
 }
-
 async function commitInlineCanvas(
 	document: CovasDocument,
 	ops: CanvasSemanticOp[],
 ) {
-	if (!inlineCanvas?.documentId || ops.length === 0) return;
-	const documentId = inlineCanvas.documentId;
-	const savingPath = inlineCanvas.path;
-	const txId = crypto.randomUUID();
-	markFileSavePending(savingPath);
-	inlineCanvas.saving = true;
-	inlineCanvas.error = null;
-	await writeCanvasPendingTransaction({
-		spaceId,
-		documentId,
-		txId,
-		baseVersion: inlineCanvasSyncVersion,
-		ops,
-	});
-	inlineCanvas = { ...inlineCanvas, document };
-	try {
-		await flushInlineCanvasPendingTransactions(documentId);
-		if (inlineCanvas)
-			inlineCanvas = { ...inlineCanvas, saving: false, error: null };
-	} catch (error) {
-		if (inlineCanvas) {
-			inlineCanvas = {
-				...inlineCanvas,
-				saving: false,
-				error:
-					error instanceof Error
-						? error.message
-						: "Canvas changes are saved locally and will retry.",
-			};
-		}
-	} finally {
-		clearFileSavePendingSoon(savingPath);
-	}
+	await canvasPreview.commitCanvas(document, ops);
 }
 function openInlinePort(
 	port: string,
 	url: string,
 	options: { autoOpened?: boolean } = {},
 ) {
-	closePreviewFocusMode();
-	ensurePreviewPanelFits();
-	inlineFile = null;
-	inlineCanvas = null;
-	inlinePortPreview = { port, url, autoOpened: options.autoOpened ?? false };
+	portPreview.openPort(port, url, options);
 }
 function closeInlinePort() {
-	inlinePortPreview = null;
-	closePreviewFocusMode();
+	portPreview.closePort();
 }
 async function downloadOpenFile() {
 	if (!routeFilePath) return;
@@ -6896,28 +6703,13 @@ onMount(() => {
 				.space(spaceId)
 				.canvas.bootstrap(payload.documentId)
 				.then((bootstrap) => {
-					if (
-						inlineCanvas?.documentId !== payload.documentId ||
-						!inlineCanvas ||
-						inlineCanvas.saving
-					)
-						return;
-					inlineCanvasSyncVersion = bootstrap.document.version;
-					inlineCanvas = {
-						...inlineCanvas,
-						document: canvasBootstrapToDocument(bootstrap),
-						saving: false,
-						error: null,
-					};
+					canvasPreview.applyBootstrap(payload.documentId as string, bootstrap);
 				})
 				.catch((error) => {
-					if (inlineCanvas?.documentId !== payload.documentId || !inlineCanvas)
-						return;
-					inlineCanvas = {
-						...inlineCanvas,
-						error:
-							error instanceof Error ? error.message : "Failed to sync canvas",
-					};
+					canvasPreview.setError(
+						payload.documentId as string,
+						error instanceof Error ? error.message : "Failed to sync canvas",
+					);
 				});
 		});
 	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
@@ -7056,7 +6848,6 @@ onMount(() => {
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
-		if (portReadyToastTimer) clearTimeout(portReadyToastTimer);
 		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
 		if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 		if (statusRefreshTimer) clearTimeout(statusRefreshTimer);
@@ -7145,9 +6936,9 @@ $effect(() => {
 	fileTreeSourceKey = "live";
 	fileTreeLoading = false;
 	fileTreeError = null;
-	previewEndpoints = {};
-	inlinePortPreview = null;
-	closePortReadyToast();
+	portPreview.setEndpoints({});
+	portPreview.closePort();
+	portPreview.closeReadyToast();
 	openFile = null;
 	openFileDraft = "";
 	inlineFile = null;
@@ -7196,7 +6987,7 @@ $effect(() => {
 				const cachedSessionLoad = sessionLoad;
 				if (cachedSpace?.space && !space) {
 					space = cachedSpace.space;
-					previewEndpoints = extractPublicEndpoints(cachedSpace.space);
+					portPreview.setEndpoints(extractPublicEndpoints(cachedSpace.space));
 				} else if (!space) {
 					await spaceLoad;
 				}
@@ -7531,9 +7322,8 @@ $effect(() => {
 	fileTreeLoading = false;
 	fileTreeRequestToken += 1;
 	inlineFileRequestToken += 1;
-	inlineCanvasRequestToken += 1;
 	inlineFile = null;
-	inlineCanvas = null;
+	canvasPreview.closeCanvas();
 	void loadFileTree(false);
 });
 $effect(() => {
