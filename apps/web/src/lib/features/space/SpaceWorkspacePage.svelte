@@ -3222,15 +3222,6 @@ function makeImagePanHandlers(
 		document.removeEventListener("mouseup", handleEnd);
 	}
 }
-async function copyCronjobId(id: string) {
-	await navigator.clipboard.writeText(id);
-	cronjobCopiedId = true;
-	if (cronjobCopiedIdTimer) clearTimeout(cronjobCopiedIdTimer);
-	cronjobCopiedIdTimer = setTimeout(() => {
-		cronjobCopiedId = false;
-	}, 1600);
-}
-
 async function copyTaskField(
 	field: "id" | "payload" | "result",
 	value: unknown,
@@ -4661,14 +4652,6 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 			clearTaskRunPoll();
 			if (wasActive || !taskRunDetail.result) void refreshTaskDetail(task.id);
 		}
-	}
-	if (task.cronJobId && cronjobDetail?.id === task.cronJobId) {
-		cronjobRuns = mergeTaskRunList(cronjobRuns, {
-			...(task as Partial<TaskRunRecord>),
-			id: task.id,
-			type: task.type,
-			userId: task.userId,
-		});
 	}
 	if (payload.type === "task.updated") {
 		if (
@@ -6976,9 +6959,6 @@ onMount(() => {
 				if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
 				if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
 			}
-			if (cronjobDetail) {
-				cronjobRuns = runs.filter((run) => run.cronJobId === cronjobDetail?.id);
-			}
 			if (routeTaskId) {
 				const run = runs.find((item) => item.id === routeTaskId);
 				if (run)
@@ -7649,22 +7629,6 @@ $effect(() => {
 	ro.observe(el);
 	return () => ro.disconnect();
 });
-$effect(() => {
-	const el = cronjobRunsSectionEl;
-	if (!el || routeView !== "cronjob" || !cronjobDetail || cronjobRunsLoaded)
-		return;
-	const observer = new IntersectionObserver(
-		(entries) => {
-			if (entries.some((entry) => entry.isIntersecting)) {
-				observer.disconnect();
-				void loadCronjobRuns({ reset: true });
-			}
-		},
-		{ rootMargin: "240px" },
-	);
-	observer.observe(el);
-	return () => observer.disconnect();
-});
 </script>
 
 <svelte:head>
@@ -7982,7 +7946,7 @@ $effect(() => {
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">{cronjobDetail.title}</span>
-        {#if cronjobDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
+
       {:else if routeView === "cronjob-new"}
         <button
           type="button"
@@ -8254,6 +8218,8 @@ $effect(() => {
           {@render NewChatSpaceProfile()}
         {/snippet}
       </SessionWorkspace>
+    {/if}
+  </div>
   {#if inlineFile}
     <InlineFilePanel
       {inlineFile}
@@ -8325,7 +8291,7 @@ $effect(() => {
   <FilesSidebarPanel
     {spaceId}
     nodes={spaceHasMinimalAccess ? [] : fileTree}
-    {selectedFilePath}
+    selectedPath={selectedFilePath}
     loading={!spaceHasMinimalAccess && fileTreeLoading}
     error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
     subtitle={activeFsSidebarSubtitle}
@@ -8338,7 +8304,7 @@ $effect(() => {
     desktopWidth={uiState.rightSidebarWidth}
     rightDragOffsetPx={uiState.rightDragOffsetPx}
     rightIsDragging={uiState.rightIsDragging}
-    {isDrawerVisible}
+    isDrawerVisible={isRightDrawerVisible}
     {uploadPaneVisible}
     {uploadPaneTargetDir}
     {pendingUploadFiles}
@@ -8478,13 +8444,6 @@ $effect(() => {
     onGenerationNumericConstraintChange={setGenerationNumericConstraint}
     onGenerationBooleanConstraintChange={setGenerationBooleanConstraint}
   />
-  <ModelSelector
-    open={cronjobModelSelectorOpen}
-    onClose={() => { cronjobModelSelectorOpen = false; }}
-    onSelect={handleCronjobModelSelect}
-    models={modelsCatalog ?? []}
-    currentModel={routeView === "cronjob-new" ? cronjobNewModel : cronjobFormModel}
-  />
 </div>
 
 {#if labelPickerResource}
@@ -8590,7 +8549,7 @@ $effect(() => {
       animation: none !important;
     }
   }
-  .right-sidebar-resize-handle {
+  :global(.right-sidebar-resize-handle) {
     position: absolute;
     top: 0;
     left: -4px;
@@ -8603,7 +8562,7 @@ $effect(() => {
     touch-action: none;
     z-index: 10;
   }
-  .right-sidebar-resize-handle::after {
+  :global(.right-sidebar-resize-handle)::after {
     content: "";
     position: absolute;
     left: 3px;
@@ -8613,11 +8572,11 @@ $effect(() => {
     background: transparent;
     transition: background-color 120ms ease;
   }
-  .right-sidebar-resize-handle:hover::after,
-  :global(body.sidebar-resizing) .right-sidebar-resize-handle::after {
+  :global(.right-sidebar-resize-handle:hover)::after,
+  :global(body.sidebar-resizing .right-sidebar-resize-handle::after) {
     background: var(--border-subtle);
   }
-  .inline-panel-resize-handle {
+  :global(.inline-panel-resize-handle) {
     position: absolute;
     top: 0;
     left: -4px;
@@ -8630,7 +8589,7 @@ $effect(() => {
     touch-action: none;
     z-index: 10;
   }
-  .inline-panel-resize-handle::after {
+  :global(.inline-panel-resize-handle)::after {
     content: "";
     position: absolute;
     left: 3px;
@@ -8640,11 +8599,11 @@ $effect(() => {
     background: transparent;
     transition: background-color 120ms ease;
   }
-  .inline-panel-resize-handle:hover::after,
-  :global(body.sidebar-resizing) .inline-panel-resize-handle::after {
+  :global(.inline-panel-resize-handle:hover)::after,
+  :global(body.sidebar-resizing .inline-panel-resize-handle::after) {
     background: var(--border-subtle);
   }
-  .port-ready-toast {
+  :global(.port-ready-toast) {
     position: fixed;
     left: 50%;
     top: 58px;
@@ -8662,7 +8621,7 @@ $effect(() => {
     padding: 9px 10px 9px 12px;
     box-shadow: 0 10px 30px color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
   }
-  .port-ready-action {
+  :global(.port-ready-action) {
     display: inline-flex;
     min-height: 28px;
     align-items: center;
@@ -8678,21 +8637,21 @@ $effect(() => {
     text-decoration: none;
     transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
   }
-  .port-ready-action:hover {
+  :global(.port-ready-action:hover) {
     border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--text-primary);
   }
-  .port-ready-action.primary {
+  :global(.port-ready-action.primary) {
     border-color: color-mix(in srgb, var(--brand) 35%, var(--border-subtle));
     background: color-mix(in srgb, var(--brand) 12%, transparent);
     color: var(--brand);
   }
-  .port-ready-action.primary:hover {
+  :global(.port-ready-action.primary:hover) {
     border-color: color-mix(in srgb, var(--brand) 55%, var(--border-subtle));
     background: color-mix(in srgb, var(--brand) 18%, transparent);
   }
-  .port-ready-close {
+  :global(.port-ready-close) {
     display: inline-flex;
     height: 28px;
     width: 28px;
@@ -8705,12 +8664,12 @@ $effect(() => {
     cursor: pointer;
     transition: background 120ms ease, color 120ms ease;
   }
-  .port-ready-close:hover {
+  :global(.port-ready-close:hover) {
     background: var(--bg-hover);
     color: var(--text-secondary);
   }
   @media (max-width: 640px) {
-    .port-ready-toast {
+    :global(.port-ready-toast) {
       left: 12px;
       right: 12px;
       top: 52px;
@@ -8723,7 +8682,7 @@ $effect(() => {
     }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .port-ready-toast {
+    :global(.port-ready-toast) {
       animation: port-ready-toast-enter 140ms ease-out;
     }
   }
@@ -8750,7 +8709,7 @@ $effect(() => {
     }
   }
   /* File viewer */
-  .icon-btn {
+  :global(.icon-btn) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -8763,8 +8722,8 @@ $effect(() => {
     text-decoration: none;
     cursor: pointer;
   }
-  .icon-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
-  .action-btn {
+  :global(.icon-btn:hover) { background: var(--bg-hover); color: var(--text-secondary); }
+  :global(.action-btn) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -8779,14 +8738,14 @@ $effect(() => {
     cursor: pointer;
     text-decoration: none;
   }
-  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .action-btn.primary {
+  :global(.action-btn:disabled) { opacity: 0.5; cursor: not-allowed; }
+  :global(.action-btn.primary) {
     background: var(--brand);
     border-color: var(--brand);
     color: var(--brand-contrast-fg);
   }
-  .action-btn.primary:hover { opacity: 0.9; }
-  .menu-item {
+  :global(.action-btn.primary:hover) { opacity: 0.9; }
+  :global(.menu-item) {
     display: flex;
     width: 100%;
     align-items: center;
@@ -8799,18 +8758,18 @@ $effect(() => {
     text-align: left;
     cursor: pointer;
   }
-  .menu-item:hover {
+  :global(.menu-item:hover) {
     background: var(--bg-hover);
     color: var(--text-primary);
   }
-  .menu-item.danger {
+  :global(.menu-item.danger) {
     color: var(--error-soft);
   }
-  .menu-item.danger:hover {
+  :global(.menu-item.danger:hover) {
     background: var(--error-bg);
     color: var(--error-soft);
   }
-  .toggle-btn {
+  :global(.toggle-btn) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -8824,13 +8783,13 @@ $effect(() => {
     font-size: 12px;
     cursor: pointer;
   }
-  .toggle-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
-  .toggle-btn.active {
+  :global(.toggle-btn:hover) { background: var(--bg-hover); color: var(--text-secondary); }
+  :global(.toggle-btn.active) {
     border-color: var(--border-subtle);
     background: var(--bg-hover);
     color: var(--text-primary);
   }
-  .segmented-btn {
+  :global(.segmented-btn) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -8846,14 +8805,14 @@ $effect(() => {
     transition: all 120ms ease;
     white-space: nowrap;
   }
-  .segmented-btn:hover { color: var(--text-secondary); }
-  .segmented-btn.active {
+  :global(.segmented-btn:hover) { color: var(--text-secondary); }
+  :global(.segmented-btn.active) {
     background: var(--bg-elevated);
     color: var(--text-primary);
     font-weight: 600;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 1px rgba(0,0,0,0.04);
   }
-  .zoom-btn {
+  :global(.zoom-btn) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -8866,5 +8825,5 @@ $effect(() => {
     cursor: pointer;
     flex-shrink: 0;
   }
-  .zoom-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
+  :global(.zoom-btn:hover) { background: var(--bg-hover); color: var(--text-secondary); }
 </style>

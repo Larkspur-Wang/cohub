@@ -290,5 +290,3 @@ let {
     </div>
   </div>
 {/if}
-  {/if}
-  </div>
