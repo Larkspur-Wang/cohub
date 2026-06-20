@@ -69,7 +69,7 @@ export function formatTokenCount(n: number): string {
 export function formatUsageCost(n: number): string {
 	if (n <= 0) return "$0";
 	if (n < 0.01) return "<$0.01";
-	return `${n.toFixed(2)}`;
+	return `$${n.toFixed(2)}`;
 }
 
 export function getSpaceOwnerUsername(record: SpaceRecord | null): string {

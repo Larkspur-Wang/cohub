@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { TaskRunRecord, UserProfile } from "@neta-art/cohub";
 import { Check, Copy, GitCommitHorizontal } from "lucide-svelte";
+import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
@@ -127,14 +128,22 @@ async function copyTaskField(
 }
 
 $effect(() => {
-	if (taskId) {
-		void loadTaskDetail(taskId);
+	if (!taskId) {
+		clearTaskRunPoll();
+		taskRunDetail = null;
+		onDetailLoaded?.(null);
+		taskRunProgress = null;
 		return;
 	}
+	void loadTaskDetail(taskId);
+	return () => {
+		clearTaskRunPoll();
+	};
+});
+
+onDestroy(() => {
 	clearTaskRunPoll();
-	taskRunDetail = null;
-	onDetailLoaded?.(null);
-	taskRunProgress = null;
+	if (taskCopiedTimer) clearTimeout(taskCopiedTimer);
 });
 
 function userTitle(

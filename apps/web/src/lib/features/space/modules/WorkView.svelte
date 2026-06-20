@@ -11,6 +11,7 @@ import {
 	Rocket,
 	Trash2,
 } from "lucide-svelte";
+import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
@@ -271,6 +272,10 @@ $effect(() => {
 	workDetail = null;
 	onDetailLoaded?.(null);
 	workVersions = [];
+});
+
+onDestroy(() => {
+	if (workCopiedIdTimer) clearTimeout(workCopiedIdTimer);
 });
 </script>
 

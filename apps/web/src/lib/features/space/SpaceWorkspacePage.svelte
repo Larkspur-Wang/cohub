@@ -303,28 +303,7 @@ import {
 	type SpaceSandboxSnapshot,
 } from "./modules/space-status-controller.svelte";
 import TaskRunView from "./modules/TaskRunView.svelte";
-import {
-	checkpointIdFromTaskRun,
-	displaySafeJson,
-	formatDurationMs,
-	generationBlockLabel,
-	generationBlockMeta,
-	generationBlockSource,
-	generationBlockText,
-	generationOutputBlocks,
-	runCommandPayload,
-	runCommandResultMeta,
-	saveCheckpointProgressLabel,
-	taskAttemptsLabel,
-	taskContextLabel,
-	taskHasResult,
-	taskIsStreaming,
-	taskOutputContent,
-	taskRawResult,
-	taskRunDuration,
-	taskRunStatusBadge,
-	taskTypeLabel,
-} from "./modules/task-run-utils";
+import { taskTypeLabel } from "./modules/task-run-utils";
 import WorkView from "./modules/WorkView.svelte";
 import {
 	scopeState,
@@ -549,7 +528,6 @@ let promptTemplatesRefreshInFlight: Promise<void> | null = null;
 let promptTemplatesRefreshInFlightFor: string | null = null;
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
-let fileActionMenuOpenPath = $state<string | null>(null);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
 	ref: string;
@@ -907,14 +885,6 @@ let cronjobDetail = $state<CronJobRecord | null>(null);
 let workDetail = $state<WorkRecord | null>(null);
 // ─── Tasks ───
 let taskRunDetail = $state<TaskRunRecord | null>(null);
-let taskRunDetailLoading = $state(false);
-let taskRunDetailError = $state("");
-let taskRunProgress = $state<unknown>(null);
-let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
-let taskRunRefreshInFlight: Promise<void> | null = null;
-let taskRunRefreshInFlightTaskId: string | null = null;
-let taskCopiedField = $state<"id" | "payload" | "result" | null>(null);
-let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 const sessionTasks = createSessionTaskController();
 const generationTaskRunById = $derived(sessionTasks.generationTaskRunById);
 const backgroundBashTaskRunById = $derived(
@@ -979,20 +949,6 @@ function modelFromPayload(payload: unknown): SelectedModel | null {
 	};
 }
 // ─── Task detail ───
-function clearTaskRunPoll() {
-	if (taskRunPollTimer) clearInterval(taskRunPollTimer);
-	taskRunPollTimer = null;
-}
-function ensureTaskRunPoll(taskId: string, intervalMs = 5000) {
-	if (taskRunPollTimer) return;
-	taskRunPollTimer = setInterval(
-		() => void refreshTaskDetail(taskId),
-		intervalMs,
-	);
-}
-
-const isActiveTaskRun = (run: Pick<TaskRunRecord, "status"> | null) =>
-	run?.status === "pending" || run?.status === "running";
 const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
 function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
@@ -1120,52 +1076,6 @@ function upsertGenerationTaskRun(run: TaskRunRecord) {
 }
 function upsertBackgroundBashTaskRun(run: TaskRunRecord) {
 	sessionTasks.upsertBackgroundBashTaskRun(run);
-}
-async function refreshTaskDetail(taskId: string, loading = false) {
-	if (taskRunRefreshInFlight && taskRunRefreshInFlightTaskId === taskId)
-		return taskRunRefreshInFlight;
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId &&
-		routeView === "task" &&
-		routeTaskId === taskId;
-	const run = (async () => {
-		if (loading) taskRunDetailLoading = true;
-		taskRunDetailError = "";
-		try {
-			const { run, progress } = await sdk.tasks.get(taskId);
-			if (!isCurrentRequest()) return;
-			taskRunDetail = run;
-			taskRunProgress = progress;
-			if (run.spaceId) mergeCachedTaskRun(run.spaceId, run);
-			if (run.status !== "pending" && run.status !== "running")
-				clearTaskRunPoll();
-		} catch (error) {
-			if (!isCurrentRequest()) return;
-			taskRunDetail = null;
-			taskRunProgress = null;
-			taskRunDetailError =
-				error instanceof Error ? error.message : "Failed to load task run";
-			clearTaskRunPoll();
-		} finally {
-			if (loading && isCurrentRequest()) taskRunDetailLoading = false;
-		}
-	})();
-	taskRunRefreshInFlightTaskId = taskId;
-	taskRunRefreshInFlight = run.finally(() => {
-		if (taskRunRefreshInFlight === run) {
-			taskRunRefreshInFlight = null;
-			taskRunRefreshInFlightTaskId = null;
-		}
-	});
-	return taskRunRefreshInFlight;
-}
-
-async function loadTaskDetail(taskId: string) {
-	clearTaskRunPoll();
-	taskRunProgress = null;
-	await refreshTaskDetail(taskId, true);
-	if (isActiveTaskRun(taskRunDetail)) ensureTaskRunPoll(taskId);
 }
 async function hydrateTaskRun(taskId: string) {
 	try {
@@ -2688,18 +2598,6 @@ function makeImagePanHandlers(
 		document.removeEventListener("mouseup", handleEnd);
 	}
 }
-async function copyTaskField(
-	field: "id" | "payload" | "result",
-	value: unknown,
-) {
-	const text = typeof value === "string" ? value : displaySafeJson(value);
-	await navigator.clipboard.writeText(text);
-	taskCopiedField = field;
-	if (taskCopiedTimer) clearTimeout(taskCopiedTimer);
-	taskCopiedTimer = setTimeout(() => {
-		taskCopiedField = null;
-	}, 1600);
-}
 
 // ── Session rename (header inline edit) ────────────────────────────────
 function startSessionRename() {
@@ -3563,20 +3461,12 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 		void hydrateTaskRun(task.id);
 	}
 	if (routeTaskId === task.id) {
-		const wasActive = isActiveTaskRun(taskRunDetail);
 		taskRunDetail = mergeTaskRunRecord(taskRunDetail, {
 			...(task as Partial<TaskRunRecord>),
 			id: task.id,
 			type: task.type,
 			userId: task.userId,
 		});
-		if ("progress" in eventPayload) taskRunProgress = eventPayload.progress;
-		if (isActiveTaskRun(taskRunDetail)) {
-			ensureTaskRunPoll(task.id);
-		} else {
-			clearTaskRunPoll();
-			if (wasActive || !taskRunDetail.result) void refreshTaskDetail(task.id);
-		}
 	}
 	if (payload.type === "task.updated") {
 		if (
@@ -4805,7 +4695,7 @@ function hasResourceActions() {
 
 function closeResourceActionMenu() {
 	resourceActionMenuOpen = false;
-	fileActionMenuOpenPath = null;
+	fileWorkspace.fileActionMenuOpenPath = null;
 }
 
 function insertHeaderReference() {
@@ -5062,14 +4952,14 @@ onMount(() => {
 	const handleResourceActionMenuKeydown = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			closeResourceActionMenu();
-			fileActionMenuOpenPath = null;
+			fileWorkspace.fileActionMenuOpenPath = null;
 		}
 	};
 	const handleResourceActionMenuClickOutside = (e: MouseEvent) => {
 		const target = e.target as HTMLElement;
 		if (!target.closest("[data-resource-actions]")) {
 			closeResourceActionMenu();
-			fileActionMenuOpenPath = null;
+			fileWorkspace.fileActionMenuOpenPath = null;
 		}
 	};
 	window.addEventListener("resize", handlePreviewWindowResize);
@@ -5086,7 +4976,6 @@ onMount(() => {
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		spaceStatus.dispose();
-		clearTaskRunPoll();
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
 		taskHydrateRetryCounts.clear();
@@ -5548,14 +5437,10 @@ $effect(() => {
 });
 $effect(() => {
 	if (routeView === "task" && routeTaskId) {
-		void loadTaskDetail(routeTaskId);
+		if (taskRunDetail?.id !== routeTaskId) taskRunDetail = null;
 		return;
 	}
-	clearTaskRunPoll();
-	taskRunRefreshInFlight = null;
 	taskRunDetail = null;
-	taskRunProgress = null;
-	taskRunDetailError = "";
 });
 $effect(() => {
 	const el = composerHostEl;
@@ -5616,15 +5501,15 @@ $effect(() => {
 			class="icon-btn"
 			onclick={(event) => {
 				event.stopPropagation();
-				fileActionMenuOpenPath = fileActionMenuOpenPath === path ? null : path;
+				fileWorkspace.fileActionMenuOpenPath = fileWorkspace.fileActionMenuOpenPath === path ? null : path;
 			}}
 			title="More actions"
 			aria-haspopup="menu"
-			aria-expanded={fileActionMenuOpenPath === path}
+			aria-expanded={fileWorkspace.fileActionMenuOpenPath === path}
 		>
 			<MoreHorizontal class="w-4 h-4" />
 		</button>
-		{#if fileActionMenuOpenPath === path}
+		{#if fileWorkspace.fileActionMenuOpenPath === path}
 			<div
 				class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
 				role="menu"
@@ -5634,7 +5519,7 @@ $effect(() => {
 					class="menu-item"
 					onclick={() => {
 						void editResourceLabels("file", path);
-						fileActionMenuOpenPath = null;
+						fileWorkspace.fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
 				>
@@ -5646,7 +5531,7 @@ $effect(() => {
 					class="menu-item"
 					onclick={() => {
 						insertFilePathReference(path);
-						fileActionMenuOpenPath = null;
+						fileWorkspace.fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
 				>
@@ -5658,7 +5543,7 @@ $effect(() => {
 					class="menu-item"
 					onclick={() => {
 						void handleDownloadNode(getFileActionNode(path));
-						fileActionMenuOpenPath = null;
+						fileWorkspace.fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
 				>
@@ -5671,7 +5556,7 @@ $effect(() => {
 						class="menu-item"
 						onclick={() => {
 							void handleRenameNode(getFileActionNode(path));
-							fileActionMenuOpenPath = null;
+							fileWorkspace.fileActionMenuOpenPath = null;
 						}}
 						role="menuitem"
 					>
@@ -5683,7 +5568,7 @@ $effect(() => {
 						class="menu-item danger"
 						onclick={() => {
 							void handleDeleteNode(getFileActionNode(path));
-							fileActionMenuOpenPath = null;
+							fileWorkspace.fileActionMenuOpenPath = null;
 						}}
 						role="menuitem"
 					>
@@ -5937,7 +5822,6 @@ $effect(() => {
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">{taskTypeLabel(taskRunDetail.taskType)}</span>
-        {#if taskRunDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
       {:else}
         <button
           type="button"

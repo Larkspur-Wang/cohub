@@ -14,6 +14,7 @@ import {
 	Rocket,
 	Save,
 } from "lucide-svelte";
+import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
@@ -154,7 +155,15 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 $effect(() => {
 	if (mode === "detail" && checkpointId) {
 		void loadCheckpointDetail(checkpointId);
+		return;
 	}
+	checkpointDetail = null;
+	onDetailLoaded?.(null);
+});
+
+onDestroy(() => {
+	if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
+	if (checkpointIdCopiedTimer) clearTimeout(checkpointIdCopiedTimer);
 });
 </script>
 

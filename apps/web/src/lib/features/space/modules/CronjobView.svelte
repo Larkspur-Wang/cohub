@@ -17,6 +17,7 @@ import {
 	Settings,
 	Trash2,
 } from "lucide-svelte";
+import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
@@ -418,6 +419,10 @@ $effect(() => {
 	onDetailLoaded?.(null);
 	cronjobRuns = [];
 	cronjobRunsLoaded = false;
+});
+
+onDestroy(() => {
+	if (cronjobCopiedIdTimer) clearTimeout(cronjobCopiedIdTimer);
 });
 </script>
 
