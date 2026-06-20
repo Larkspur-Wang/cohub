@@ -59,22 +59,35 @@ const finiteNumberOrUndefined = (value: unknown): number | undefined =>
 
 const finiteNumberOrZero = (value: unknown): number => finiteNumberOrUndefined(value) ?? 0;
 
+const compactUndefined = <T extends Record<string, unknown>>(value: T): Partial<T> => Object.fromEntries(
+  Object.entries(value).filter(([, nestedValue]) => nestedValue !== undefined),
+) as Partial<T>;
+
 const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage | null => {
   if (!usage || typeof usage !== "object") return null;
-  return {
+
+  const cost = usage.cost && typeof usage.cost === "object" ? compactUndefined({
+    input: finiteNumberOrUndefined(usage.cost.input),
+    output: finiteNumberOrUndefined(usage.cost.output),
+    cacheRead: finiteNumberOrUndefined(usage.cost.cacheRead),
+    cacheWrite: finiteNumberOrUndefined(usage.cost.cacheWrite),
+    total: finiteNumberOrUndefined(usage.cost.total),
+  }) : null;
+  if (cost && cost.total === undefined) {
+    cost.total = finiteNumberOrZero(cost.input)
+      + finiteNumberOrZero(cost.output)
+      + finiteNumberOrZero(cost.cacheRead)
+      + finiteNumberOrZero(cost.cacheWrite);
+  }
+
+  return compactUndefined({
     input: finiteNumberOrUndefined(usage.input),
     output: finiteNumberOrUndefined(usage.output),
     cacheRead: finiteNumberOrUndefined(usage.cacheRead),
     cacheWrite: finiteNumberOrUndefined(usage.cacheWrite),
     totalTokens: finiteNumberOrUndefined(usage.totalTokens),
-    cost: usage.cost && typeof usage.cost === "object" ? {
-      input: finiteNumberOrUndefined(usage.cost.input),
-      output: finiteNumberOrUndefined(usage.cost.output),
-      cacheRead: finiteNumberOrUndefined(usage.cost.cacheRead),
-      cacheWrite: finiteNumberOrUndefined(usage.cost.cacheWrite),
-      total: finiteNumberOrUndefined(usage.cost.total),
-    } : null,
-  };
+    cost: cost && Object.keys(cost).length > 0 ? cost : null,
+  }) as Usage;
 };
 
 const normalizeRecord = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;

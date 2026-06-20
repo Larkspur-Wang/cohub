@@ -478,7 +478,6 @@ function createRemoteBashOperations(): BashOperations {
               const sessionExecutionAuth = ctx?.sessionId ? getCurrentSessionExecutionAuth(ctx.sessionId) : null;
               const actorUserId = ctx?.actorUserId ?? sessionExecutionAuth?.actorUserId ?? null;
               const executionToken = ctx?.executionToken ?? sessionExecutionAuth?.executionToken ?? null;
-              const executionScopes = ctx?.executionScopes ?? sessionExecutionAuth?.executionScopes ?? [];
               const injectedEnv: Record<string, string> = {
                 ...(ctx?.spaceId ? getUserEnvForProcess(ctx.spaceId) : {}),
                 ...(env ?? {}),

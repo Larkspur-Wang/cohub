@@ -10,6 +10,11 @@ import { createLogger } from "@cohub/infra/logging";
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
+const toFiniteNumber = (value: unknown): number => {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+};
+
 /**
  * GET /api/spaces/:spaceId/usage?days=N
  * Returns hourly token usage stats for a space over the last N days (default 30).
@@ -109,11 +114,11 @@ router.get("/", async (c) => {
       existing.outputTokens += row.outputTokens ?? 0;
       existing.cacheReadTokens += row.cacheReadTokens ?? 0;
       existing.cacheWriteTokens += row.cacheWriteTokens ?? 0;
-      existing.costInput = Number(existing.costInput) + Number(row.costInput ?? 0);
-      existing.costOutput = Number(existing.costOutput) + Number(row.costOutput ?? 0);
-      existing.costCacheRead = Number(existing.costCacheRead) + Number(row.costCacheRead ?? 0);
-      existing.costCacheWrite = Number(existing.costCacheWrite) + Number(row.costCacheWrite ?? 0);
-      existing.costTotal = Number(existing.costTotal) + Number(row.costTotal ?? 0);
+      existing.costInput = toFiniteNumber(existing.costInput) + toFiniteNumber(row.costInput);
+      existing.costOutput = toFiniteNumber(existing.costOutput) + toFiniteNumber(row.costOutput);
+      existing.costCacheRead = toFiniteNumber(existing.costCacheRead) + toFiniteNumber(row.costCacheRead);
+      existing.costCacheWrite = toFiniteNumber(existing.costCacheWrite) + toFiniteNumber(row.costCacheWrite);
+      existing.costTotal = toFiniteNumber(existing.costTotal) + toFiniteNumber(row.costTotal);
       existing.requestCount += row.requestCount ?? 0;
       existing.successCount += row.successCount ?? 0;
       existing.errorCount += row.errorCount ?? 0;
@@ -126,11 +131,11 @@ router.get("/", async (c) => {
         outputTokens: row.outputTokens ?? 0,
         cacheReadTokens: row.cacheReadTokens ?? 0,
         cacheWriteTokens: row.cacheWriteTokens ?? 0,
-        costInput: Number(row.costInput ?? 0),
-        costOutput: Number(row.costOutput ?? 0),
-        costCacheRead: Number(row.costCacheRead ?? 0),
-        costCacheWrite: Number(row.costCacheWrite ?? 0),
-        costTotal: Number(row.costTotal ?? 0),
+        costInput: toFiniteNumber(row.costInput),
+        costOutput: toFiniteNumber(row.costOutput),
+        costCacheRead: toFiniteNumber(row.costCacheRead),
+        costCacheWrite: toFiniteNumber(row.costCacheWrite),
+        costTotal: toFiniteNumber(row.costTotal),
         requestCount: row.requestCount ?? 0,
         successCount: row.successCount ?? 0,
         errorCount: row.errorCount ?? 0,
