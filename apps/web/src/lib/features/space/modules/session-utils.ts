@@ -1,5 +1,59 @@
 import type { SessionTurnRecord } from "@cohub/protocol/model";
+import type { SessionRecord, TaskRunRecord } from "@neta-art/cohub";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function tailText(value: unknown, limit = 420) {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	return trimmed.length > limit ? `…${trimmed.slice(-limit)}` : trimmed;
+}
+
+export function getSessionTitle(session: SessionRecord): string {
+	const candidates = [session.title, session.latestMessageText];
+	for (const candidate of candidates) {
+		const normalized = candidate
+			?.replace(/\s+/g, " ")
+			.replace(/^[:\-\s]+/, "")
+			.trim();
+		if (normalized) return normalized.slice(0, 36);
+	}
+	return "New chat";
+}
+
+export function extractBackgroundBashResultPreview(result: unknown) {
+	const content = asRecord(result)?.content;
+	if (!Array.isArray(content)) return null;
+	for (const block of content) {
+		const record = asRecord(block);
+		if (record?.type === "tool_result") return tailText(record.content);
+	}
+	return null;
+}
+
+export function formatBackgroundBashSubtitle(run: TaskRunRecord) {
+	const result = asRecord(run.result);
+	const parts = [
+		run.status === "completed"
+			? "Completed"
+			: run.status === "failed"
+				? "Failed"
+				: run.status === "pending"
+					? "Queued"
+					: "Running",
+		typeof result?.exitCode === "number" ? `exit ${result.exitCode}` : null,
+		typeof result?.durationMs === "number"
+			? `${Math.max(1, Math.round(result.durationMs / 1000))}s`
+			: null,
+	].filter(Boolean);
+	return parts.join(" · ") || null;
+}
 
 export function areSessionTurnRecordsEqual(
 	current: SessionTurnRecord | null | undefined,

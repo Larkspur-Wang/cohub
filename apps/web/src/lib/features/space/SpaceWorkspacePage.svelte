@@ -298,6 +298,9 @@ import {
 import { createSessionTurnLoadingController } from "./modules/session-turn-loading-controller.svelte";
 import {
 	areSessionTurnRecordsEqual,
+	extractBackgroundBashResultPreview,
+	formatBackgroundBashSubtitle,
+	getSessionTitle,
 	getTurnClientMessageId,
 	isOptimisticTurn,
 	isSameClientMessageTurn,
@@ -924,17 +927,6 @@ const sessionTaskRecentHasMoreByType = $derived(
 const pendingFollowupActionIds = $derived(
 	sessionTasks.pendingFollowupActionIds,
 );
-function getSessionTitle(session: SessionRecord): string {
-	const candidates = [session.title, session.latestMessageText];
-	for (const candidate of candidates) {
-		const normalized = candidate
-			?.replace(/\s+/g, " ")
-			.replace(/^[:\-\s]+/, "")
-			.trim();
-		if (normalized) return normalized.slice(0, 36);
-	}
-	return "New chat";
-}
 function normalizeTabTitleSegment(
 	value: string | null | undefined,
 	fallback: string,
@@ -997,38 +989,6 @@ const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
 function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
 	return asRecord(asRecord(run.payload)?.data);
-}
-function tailText(value: unknown, limit = 420) {
-	if (typeof value !== "string") return null;
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-	return trimmed.length > limit ? `…${trimmed.slice(-limit)}` : trimmed;
-}
-function extractBackgroundBashResultPreview(result: unknown) {
-	const content = asRecord(result)?.content;
-	if (!Array.isArray(content)) return null;
-	for (const block of content) {
-		const record = asRecord(block);
-		if (record?.type === "tool_result") return tailText(record.content);
-	}
-	return null;
-}
-function formatBackgroundBashSubtitle(run: TaskRunRecord) {
-	const result = asRecord(run.result);
-	const parts = [
-		run.status === "completed"
-			? "Completed"
-			: run.status === "failed"
-				? "Failed"
-				: run.status === "pending"
-					? "Queued"
-					: "Running",
-		typeof result?.exitCode === "number" ? `exit ${result.exitCode}` : null,
-		typeof result?.durationMs === "number"
-			? `${Math.max(1, Math.round(result.durationMs / 1000))}s`
-			: null,
-	].filter(Boolean);
-	return parts.join(" · ") || null;
 }
 function mergeTaskRunRecord(
 	current: TaskRunRecord | null,
