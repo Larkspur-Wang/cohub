@@ -292,6 +292,13 @@ import {
 	revokeComposerAttachmentPreview,
 } from "./modules/session-composer-controller.svelte";
 import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
+import {
+	createSessionTaskController,
+	isBackgroundBashTaskRun,
+	isGenerationTaskRun,
+	SESSION_TASK_TYPES,
+	type SessionTaskType,
+} from "./modules/session-task-controller.svelte";
 import { createSessionTurnLoadingController } from "./modules/session-turn-loading-controller.svelte";
 import {
 	areSessionTurnRecordsEqual,
@@ -869,23 +876,26 @@ let taskRunRefreshInFlight: Promise<void> | null = null;
 let taskRunRefreshInFlightTaskId: string | null = null;
 let taskCopiedField = $state<"id" | "payload" | "result" | null>(null);
 let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let generationTaskRunById = $state<Record<string, TaskRunRecord>>({});
-let backgroundBashTaskRunById = $state<Record<string, TaskRunRecord>>({});
-let backgroundBashHydrateKey = "";
-let sessionTaskRecentHydrateKey = "";
-const SESSION_TASK_TYPES = ["generation", "run_command"] as const;
-type SessionTaskType = (typeof SESSION_TASK_TYPES)[number];
+const sessionTasks = createSessionTaskController();
+const generationTaskRunById = $derived(sessionTasks.generationTaskRunById);
+const backgroundBashTaskRunById = $derived(
+	sessionTasks.backgroundBashTaskRunById,
+);
+const backgroundBashHydrateKey = $derived(
+	sessionTasks.backgroundBashHydrateKey,
+);
+const sessionTaskRecentHydrateKey = $derived(sessionTasks.recentHydrateKey);
 const SESSION_TASK_PAGE_LIMIT = 8;
 const taskHydrateRetryCounts = new Map<string, number>();
 const taskHydrateRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-let sessionTaskRecentLoading = $state(false);
-let sessionTaskRecentCursors = $state<
-	Partial<Record<SessionTaskType, string | null>>
->({});
-let sessionTaskRecentHasMoreByType = $state<
-	Partial<Record<SessionTaskType, boolean>>
->({});
-let pendingFollowupActionIds = $state<Set<string>>(new Set());
+const sessionTaskRecentLoading = $derived(sessionTasks.recentLoading);
+const sessionTaskRecentCursors = $derived(sessionTasks.recentCursors);
+const sessionTaskRecentHasMoreByType = $derived(
+	sessionTasks.recentHasMoreByType,
+);
+const pendingFollowupActionIds = $derived(
+	sessionTasks.pendingFollowupActionIds,
+);
 function getSessionTitle(session: SessionRecord): string {
 	const candidates = [session.title, session.latestMessageText];
 	for (const candidate of candidates) {
@@ -955,18 +965,10 @@ function ensureTaskRunPoll(taskId: string, intervalMs = 5000) {
 
 const isActiveTaskRun = (run: Pick<TaskRunRecord, "status"> | null) =>
 	run?.status === "pending" || run?.status === "running";
-const isGenerationTaskRun = (
-	run: (Partial<TaskRunRecord> & { type?: string }) | null | undefined,
-) => (run?.taskType ?? run?.type) === "generation";
 const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
 function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
 	return asRecord(asRecord(run.payload)?.data);
-}
-function isBackgroundBashTaskRun(
-	run: (Partial<TaskRunRecord> & { type?: string }) | null | undefined,
-): run is TaskRunRecord {
-	return (run?.taskType ?? run?.type) === "run_command" && !!run?.sessionId;
 }
 function tailText(value: unknown, limit = 420) {
 	if (typeof value !== "string") return null;
@@ -1118,12 +1120,10 @@ function toBackgroundBashTaskNotice(
 	};
 }
 function upsertGenerationTaskRun(run: TaskRunRecord) {
-	if (!isGenerationTaskRun(run)) return;
-	generationTaskRunById = { ...generationTaskRunById, [run.id]: run };
+	sessionTasks.upsertGenerationTaskRun(run);
 }
 function upsertBackgroundBashTaskRun(run: TaskRunRecord) {
-	if (!isBackgroundBashTaskRun(run)) return;
-	backgroundBashTaskRunById = { ...backgroundBashTaskRunById, [run.id]: run };
+	sessionTasks.upsertBackgroundBashTaskRun(run);
 }
 async function refreshTaskDetail(taskId: string, loading = false) {
 	if (taskRunRefreshInFlight && taskRunRefreshInFlightTaskId === taskId)
@@ -1245,10 +1245,7 @@ async function hydrateActiveSessionTasks(sessionId: string) {
 	}
 }
 function resetRecentSessionTaskPagination() {
-	sessionTaskRecentHydrateKey = "";
-	sessionTaskRecentCursors = {};
-	sessionTaskRecentHasMoreByType = {};
-	sessionTaskRecentLoading = false;
+	sessionTasks.resetRecentPagination();
 }
 async function loadRecentSessionTaskPage(sessionId: string) {
 	if (sessionTaskRecentLoading) return;
@@ -1257,7 +1254,7 @@ async function loadRecentSessionTaskPage(sessionId: string) {
 	const isCurrentRequest = () =>
 		spaceId === requestSpaceId &&
 		sessionWorkspace.activeSessionId === sessionId;
-	sessionTaskRecentLoading = true;
+	sessionTasks.recentLoading = true;
 	try {
 		const results = await Promise.all(
 			SESSION_TASK_TYPES.map(async (taskType) => {
@@ -1299,14 +1296,12 @@ async function loadRecentSessionTaskPage(sessionId: string) {
 			nextCursors[result.taskType] = result.pageInfo.nextCursor;
 			nextHasMore[result.taskType] = result.pageInfo.hasMore;
 		}
-		sessionTaskRecentHydrateKey = hydrateKey;
-		sessionTaskRecentCursors = nextCursors;
-		sessionTaskRecentHasMoreByType = nextHasMore;
+		sessionTasks.setRecentPagination(hydrateKey, nextCursors, nextHasMore);
 	} catch (error) {
 		if (isCurrentRequest())
 			console.warn("Failed to load recent session tasks:", error);
 	} finally {
-		if (isCurrentRequest()) sessionTaskRecentLoading = false;
+		if (isCurrentRequest()) sessionTasks.recentLoading = false;
 	}
 }
 function handleSessionTaskTrayExpand() {
@@ -1504,13 +1499,13 @@ const sessionTaskHasMore = $derived.by(() =>
 $effect(() => {
 	const sessionId = activeSessionId;
 	if (!sessionId) {
-		backgroundBashHydrateKey = "";
+		sessionTasks.backgroundBashHydrateKey = "";
 		resetRecentSessionTaskPagination();
 		return;
 	}
 	const hydrateKey = `${spaceId}:${sessionId}`;
 	if (backgroundBashHydrateKey !== hydrateKey) {
-		backgroundBashHydrateKey = hydrateKey;
+		sessionTasks.backgroundBashHydrateKey = hydrateKey;
 		resetRecentSessionTaskPagination();
 		void restoreCachedTaskRuns(spaceId, sessionId)
 			.then((runs) => {
@@ -1811,7 +1806,7 @@ async function handleSteerFollowup(turnId: string) {
 	if (!activeSessionId || !space || pendingFollowupActionIds.has(turnId))
 		return;
 	const sessionId = activeSessionId;
-	pendingFollowupActionIds = new Set([...pendingFollowupActionIds, turnId]);
+	sessionTasks.addPendingFollowupAction(turnId);
 	clearComposerError();
 	try {
 		const result = await sdk
@@ -1845,9 +1840,7 @@ async function handleSteerFollowup(turnId: string) {
 			error instanceof Error ? error.message : "Failed to steer follow-up",
 		);
 	} finally {
-		const next = new Set(pendingFollowupActionIds);
-		next.delete(turnId);
-		pendingFollowupActionIds = next;
+		sessionTasks.removePendingFollowupAction(turnId);
 	}
 }
 
@@ -1855,7 +1848,7 @@ async function handleCancelFollowup(turnId: string) {
 	if (!activeSessionId || !space || pendingFollowupActionIds.has(turnId))
 		return;
 	const sessionId = activeSessionId;
-	pendingFollowupActionIds = new Set([...pendingFollowupActionIds, turnId]);
+	sessionTasks.addPendingFollowupAction(turnId);
 	clearComposerError();
 	try {
 		const result = await sdk
@@ -1885,9 +1878,7 @@ async function handleCancelFollowup(turnId: string) {
 			error instanceof Error ? error.message : "Failed to cancel follow-up",
 		);
 	} finally {
-		const next = new Set(pendingFollowupActionIds);
-		next.delete(turnId);
-		pendingFollowupActionIds = next;
+		sessionTasks.removePendingFollowupAction(turnId);
 	}
 }
 
@@ -5943,6 +5934,7 @@ $effect(() => {
 	taskRunDetail = null;
 	creatingSession = false;
 	createSessionError = "";
+	sessionTasks.reset();
 	sessionGenerationStore.resetAll();
 	bootstrapping = true;
 	untrack(() => {
