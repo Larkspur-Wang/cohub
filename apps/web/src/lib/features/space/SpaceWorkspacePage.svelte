@@ -299,6 +299,7 @@ import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
+import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
 import {
 	areSessionTurnRecordsEqual,
 	areSessionTurnsEqual,
@@ -763,11 +764,12 @@ let visibleInitialLoadingSessionIds = $state<Record<string, boolean>>({});
 let bootstrapping = $state(true);
 let spaceStatusNotice = $state("");
 let spaceStatusNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-let shouldAutoFollow = $state(true);
+const sessionScroll = createSessionScrollController();
 let bottomFollowFrame: number | null = null;
 let bottomFollowActive = false;
 let composerHostEl = $state<HTMLDivElement | null>(null);
-let composerHeight = $state(0);
+const shouldAutoFollow = $derived(sessionScroll.shouldAutoFollow);
+const composerHeight = $derived(sessionScroll.composerHeight);
 let hasUnread = $derived.by(() => {
 	const session = activeSessionState?.session;
 	if (
@@ -784,30 +786,23 @@ let programmaticScrollActive = false;
 let programmaticScrollTarget: number | null = null;
 let userScrollActive = false;
 let rightSidebarResizeCleanup: (() => void) | null = null;
-let listEl = $state<HTMLDivElement | null>(null);
-let chatTimelineRef = $state<{
-	preparePrepend: () => void;
-	finalizePrepend: () => void;
-} | null>(null);
+const listEl = $derived(sessionScroll.listEl);
+const chatTimelineRef = $derived(sessionScroll.chatTimelineRef);
 let turnIndexBySessionId = $state<Record<string, SessionTurnIndexItem[]>>({});
 let turnIndexLoadingBySessionId = $state<Record<string, boolean>>({});
 let turnIndexRetryAfterBySessionId = $state<Record<string, number>>({});
 let loadingTurnSequence = $state<number | null>(null);
 let currentTurnSequence = $state<number | null>(null);
 let highlightedTurnSequence = $state<number | null>(null);
-let turnMarkerPositions = $state<Record<number, number>>({});
-let turnMarkerHeights = $state<Record<number, number>>({});
-let timelineScrollTop = $state(0);
-let timelineScrollHeight = $state(0);
-let timelineClientHeight = $state(0);
+const turnMarkerPositions = $derived(sessionScroll.turnMarkerPositions);
+const turnMarkerHeights = $derived(sessionScroll.turnMarkerHeights);
+const timelineScrollTop = $derived(sessionScroll.timelineScrollTop);
+const timelineScrollHeight = $derived(sessionScroll.timelineScrollHeight);
+const timelineClientHeight = $derived(sessionScroll.timelineClientHeight);
 let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
 let preloadingSessionIds = new Set<string>();
 let turnMarkerMeasureFrame: number | null = null;
-let vimScrollFrame: number | null = null;
-let vimScrollVelocity = 0;
-let vimScrollStopTimer: ReturnType<typeof setTimeout> | null = null;
-let vimPendingGTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTurnIndexRefreshKey = "";
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
@@ -837,13 +832,15 @@ type SessionScrollAnchor = {
 	updatedAt: number;
 };
 const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor";
-let scrollAnchorBySession = $state.raw(new Map<string, SessionScrollAnchor>());
-let pendingRestoreSessionId = $state<string | null>(null);
-let activeAnchorRestore = $state<
-	(SessionScrollAnchor & { sessionId: string }) | null
->(null);
-let pendingTimelineMarkdownRenders = 0;
-let anchorRestoreWaitingForMarkdown = false;
+const scrollAnchorBySession = $derived(sessionScroll.scrollAnchorBySession);
+const pendingRestoreSessionId = $derived(sessionScroll.pendingRestoreSessionId);
+const activeAnchorRestore = $derived(sessionScroll.activeAnchorRestore);
+const pendingTimelineMarkdownRenders = $derived(
+	sessionScroll.pendingTimelineMarkdownRenders,
+);
+const anchorRestoreWaitingForMarkdown = $derived(
+	sessionScroll.anchorRestoreWaitingForMarkdown,
+);
 // ─── Share ───
 let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
@@ -2365,125 +2362,40 @@ function updateUrlSession(sessionId: string | null) {
 	});
 }
 function loadSessionScrollAnchors() {
-	try {
-		const raw = localStorage.getItem(SESSION_SCROLL_ANCHOR_STORAGE_KEY);
-		if (!raw) return;
-		const parsed = JSON.parse(raw) as Record<string, SessionScrollAnchor>;
-		scrollAnchorBySession = new Map(
-			Object.entries(parsed).filter(([, anchor]) =>
-				Boolean(
-					anchor &&
-						typeof anchor.sequence === "number" &&
-						typeof anchor.offset === "number",
-				),
-			),
-		);
-	} catch {
-		// ignore
-	}
+	sessionScroll.loadSessionScrollAnchors(SESSION_SCROLL_ANCHOR_STORAGE_KEY);
 }
 function persistSessionScrollAnchorsNow() {
-	try {
-		const data = Object.fromEntries(scrollAnchorBySession.entries());
-		localStorage.setItem(
-			SESSION_SCROLL_ANCHOR_STORAGE_KEY,
-			JSON.stringify(data),
-		);
-	} catch {
-		// ignore
-	}
+	sessionScroll.persistSessionScrollAnchorsNow(
+		SESSION_SCROLL_ANCHOR_STORAGE_KEY,
+	);
 }
 function setSessionScrollAnchor(
 	sessionId: string,
 	anchor: SessionScrollAnchor,
 ) {
-	scrollAnchorBySession.set(sessionId, anchor);
-	persistSessionScrollAnchorsNow();
+	sessionScroll.setSessionScrollAnchor(
+		SESSION_SCROLL_ANCHOR_STORAGE_KEY,
+		sessionId,
+		anchor,
+	);
 }
 function getSessionScrollAnchor(sessionId: string) {
-	const anchor = scrollAnchorBySession.get(sessionId);
-	return anchor;
+	return sessionScroll.getSessionScrollAnchor(sessionId);
 }
 function clearSessionScrollAnchor(sessionId: string) {
-	if (!scrollAnchorBySession.delete(sessionId)) return;
-	persistSessionScrollAnchorsNow();
+	sessionScroll.clearSessionScrollAnchor(
+		SESSION_SCROLL_ANCHOR_STORAGE_KEY,
+		sessionId,
+	);
 }
 function getMessageElementAbsoluteTop(node: HTMLElement) {
-	if (!listEl) return 0;
-	const containerRect = listEl.getBoundingClientRect();
-	const nodeRect = node.getBoundingClientRect();
-	return listEl.scrollTop + (nodeRect.top - containerRect.top);
+	return sessionScroll.getMessageElementAbsoluteTop(node);
 }
 function updateTimelineScrollMetrics() {
-	if (!listEl) {
-		timelineScrollTop = 0;
-		timelineScrollHeight = 0;
-		timelineClientHeight = 0;
-		return;
-	}
-	timelineScrollTop = listEl.scrollTop;
-	timelineScrollHeight = listEl.scrollHeight;
-	timelineClientHeight = listEl.clientHeight;
+	sessionScroll.updateTimelineScrollMetrics();
 }
 function measureTurnMarkerPositions() {
-	if (!listEl) {
-		turnMarkerPositions = {};
-		turnMarkerHeights = {};
-		updateTimelineScrollMetrics();
-		return;
-	}
-	updateTimelineScrollMetrics();
-	const scrollContainer = listEl;
-	const maxScroll = Math.max(
-		1,
-		scrollContainer.scrollHeight - scrollContainer.clientHeight,
-	);
-	const railThumbHeightPercent = Math.min(
-		64,
-		Math.max(
-			6,
-			(scrollContainer.clientHeight / scrollContainer.scrollHeight) * 100,
-		),
-	);
-	const railUsablePercent = 100 - railThumbHeightPercent;
-	const toRailTopPercent = (scrollTop: number) =>
-		Math.min(
-			railUsablePercent,
-			Math.max(0, (scrollTop / maxScroll) * railUsablePercent),
-		);
-	const anchors = Array.from(
-		listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
-	);
-	const turnRanges = anchors.map((anchor, index) => {
-		const sequence = Number(anchor.dataset.turnSequence);
-		const start = Math.max(
-			0,
-			getMessageElementAbsoluteTop(anchor) - TURN_SCROLL_ANCHOR_OFFSET,
-		);
-		const nextAnchor = anchors[index + 1];
-		const nextStart = nextAnchor
-			? Math.max(
-					0,
-					getMessageElementAbsoluteTop(nextAnchor) - TURN_SCROLL_ANCHOR_OFFSET,
-				)
-			: scrollContainer.scrollHeight;
-		const end = Math.max(start, nextStart);
-		return { anchor, sequence, start, end };
-	});
-	const positions: Record<number, number> = {};
-	const heights: Record<number, number> = {};
-	for (const range of turnRanges) {
-		if (!Number.isFinite(range.sequence)) continue;
-		const turnHeight = Math.max(
-			range.anchor.offsetHeight,
-			range.end - range.start,
-		);
-		positions[range.sequence] = toRailTopPercent(range.start);
-		const scrollRatio = Math.max(0.015, turnHeight / maxScroll);
-		heights[range.sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
-	}
-	turnMarkerPositions = positions;
-	turnMarkerHeights = heights;
+	sessionScroll.measureTurnMarkerPositions(TURN_SCROLL_ANCHOR_OFFSET);
 }
 function scheduleTurnMarkerMeasure() {
 	if (turnMarkerMeasureFrame != null) return;
@@ -2720,16 +2632,16 @@ async function refreshSessionsList(force = true) {
 }
 function prepareRouteSession(sessionId: string) {
 	activeSessionId = sessionId;
-	pendingRestoreSessionId = sessionId;
-	activeAnchorRestore = null;
-	anchorRestoreWaitingForMarkdown = false;
+	sessionScroll.pendingRestoreSessionId = sessionId;
+	sessionScroll.activeAnchorRestore = null;
+	sessionScroll.anchorRestoreWaitingForMarkdown = false;
 	userScrollActive = false;
 	programmaticScrollActive = false;
 	currentTurnSequence = null;
 	showTurnBottomSheet = false;
 	ensureSessionModelLoaded(sessionId);
 	applySessionGenerationPolicy(loadSessionGenerationPolicy(sessionId));
-	shouldAutoFollow = true;
+	sessionScroll.shouldAutoFollow = true;
 	if (!sessionStateById[sessionId]) {
 		sessionStateById = {
 			...sessionStateById,
@@ -3563,7 +3475,7 @@ function scrollToTurnAnchor(sequence: number) {
 	setProgrammaticScrollTop(
 		Math.max(0, getMessageElementAbsoluteTop(node) - TURN_SCROLL_ANCHOR_OFFSET),
 	);
-	shouldAutoFollow = false;
+	sessionScroll.shouldAutoFollow = false;
 	currentTurnSequence = sequence;
 	requestAnimationFrame(() => updateCurrentTurnSequence());
 	highlightedTurnSequence = sequence;
@@ -4975,7 +4887,7 @@ async function handleSend() {
 		// Sending a message is an explicit intent to jump back to the live edge.
 		// This keeps the optimistic user turn and the following streaming reply in view,
 		// even if the user was previously reading older context.
-		shouldAutoFollow = true;
+		sessionScroll.shouldAutoFollow = true;
 		await tick();
 		requestBottomFollow({ immediate: true });
 		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
@@ -5193,7 +5105,7 @@ function updateAutoFollow() {
 	const threshold = 60;
 	const distanceFromBottom =
 		listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
-	shouldAutoFollow = distanceFromBottom <= threshold;
+	sessionScroll.shouldAutoFollow = distanceFromBottom <= threshold;
 }
 function updateCurrentTurnSequence() {
 	if (!listEl) return;
@@ -5239,11 +5151,11 @@ function beginUserScroll() {
 	programmaticScrollActive = false;
 	programmaticScrollTarget = null;
 	if (activeAnchorRestore?.sessionId === activeSessionId) {
-		activeAnchorRestore = null;
-		anchorRestoreWaitingForMarkdown = false;
+		sessionScroll.activeAnchorRestore = null;
+		sessionScroll.anchorRestoreWaitingForMarkdown = false;
 	}
 	if (pendingRestoreSessionId === activeSessionId) {
-		pendingRestoreSessionId = null;
+		sessionScroll.pendingRestoreSessionId = null;
 	}
 	if (restoringBottomSessionId === activeSessionId) {
 		restoringBottomSessionId = null;
@@ -5265,8 +5177,8 @@ function handleScrollKeydown(event: KeyboardEvent) {
 function maybeCompleteAnchorRestore() {
 	if (!activeAnchorRestore || !anchorRestoreWaitingForMarkdown) return;
 	if (pendingTimelineMarkdownRenders > 0) return;
-	activeAnchorRestore = null;
-	anchorRestoreWaitingForMarkdown = false;
+	sessionScroll.activeAnchorRestore = null;
+	sessionScroll.anchorRestoreWaitingForMarkdown = false;
 	updateAutoFollow();
 }
 function applyActiveAnchorRestore(restore = activeAnchorRestore) {
@@ -5277,7 +5189,7 @@ function applyActiveAnchorRestore(restore = activeAnchorRestore) {
 	);
 	if (!node) return false;
 	setProgrammaticScrollTop(getMessageElementAbsoluteTop(node) + restore.offset);
-	shouldAutoFollow = false;
+	sessionScroll.shouldAutoFollow = false;
 	return true;
 }
 function areSessionScrollAnchorsEqual(
@@ -5296,29 +5208,30 @@ function restoreSessionScrollAnchorSoon(sessionId: string) {
 	const anchor = getSessionScrollAnchor(sessionId);
 	if (!anchor) return;
 	const restore = { ...anchor, sessionId };
-	activeAnchorRestore = restore;
-	anchorRestoreWaitingForMarkdown = false;
+	sessionScroll.activeAnchorRestore = restore;
+	sessionScroll.anchorRestoreWaitingForMarkdown = false;
 	requestAnimationFrame(() => {
 		if (!applyActiveAnchorRestore(restore)) {
 			if (activeAnchorRestore?.sessionId === sessionId)
-				activeAnchorRestore = null;
+				sessionScroll.activeAnchorRestore = null;
 			updateAutoFollow();
 			return;
 		}
 		requestAnimationFrame(() => {
 			applyActiveAnchorRestore(restore);
 			if (activeAnchorRestore?.sessionId === sessionId)
-				activeAnchorRestore = null;
+				sessionScroll.activeAnchorRestore = null;
 			updateAutoFollow();
 			scheduleTurnMarkerMeasure();
 		});
 	});
 }
 function handleTimelineMarkdownRenderStart() {
-	pendingTimelineMarkdownRenders += 1;
+	sessionScroll.pendingTimelineMarkdownRenders += 1;
 }
 function handleTimelineMarkdownRendered() {
-	if (pendingTimelineMarkdownRenders > 0) pendingTimelineMarkdownRenders -= 1;
+	if (pendingTimelineMarkdownRenders > 0)
+		sessionScroll.pendingTimelineMarkdownRenders -= 1;
 	scheduleTurnMarkerMeasure();
 	const restore = activeAnchorRestore;
 	if (restore?.sessionId === activeSessionId) {
@@ -5814,12 +5727,12 @@ function handleCreateNewSession() {
 	})
 		.then(() => {
 			activeSessionId = null;
-			pendingRestoreSessionId = null;
-			activeAnchorRestore = null;
-			anchorRestoreWaitingForMarkdown = false;
+			sessionScroll.pendingRestoreSessionId = null;
+			sessionScroll.activeAnchorRestore = null;
+			sessionScroll.anchorRestoreWaitingForMarkdown = false;
 			currentTurnSequence = null;
 			showTurnBottomSheet = false;
-			shouldAutoFollow = true;
+			sessionScroll.shouldAutoFollow = true;
 			focusComposerSoon();
 		})
 		.catch((error) => {
@@ -5843,59 +5756,27 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 }
 
 function stopVimScroll() {
-	vimScrollVelocity = 0;
-	if (vimScrollStopTimer) {
-		clearTimeout(vimScrollStopTimer);
-		vimScrollStopTimer = null;
-	}
-	if (vimScrollFrame != null) {
-		cancelAnimationFrame(vimScrollFrame);
-		vimScrollFrame = null;
-	}
-}
-
-function runVimScrollFrame() {
-	if (!listEl || vimScrollVelocity === 0) {
-		stopVimScroll();
-		return;
-	}
-	listEl.scrollTop = Math.min(
-		Math.max(0, listEl.scrollHeight - listEl.clientHeight),
-		Math.max(0, listEl.scrollTop + vimScrollVelocity),
-	);
-	vimScrollFrame = requestAnimationFrame(runVimScrollFrame);
+	sessionScroll.stopVimScroll();
 }
 
 function scrollTimelineByLines(direction: 1 | -1) {
-	if (!listEl) return;
-	beginUserScroll();
-	vimScrollVelocity = direction * 10;
-	if (vimScrollFrame == null) {
-		vimScrollFrame = requestAnimationFrame(runVimScrollFrame);
-	}
-	if (vimScrollStopTimer) clearTimeout(vimScrollStopTimer);
-	vimScrollStopTimer = setTimeout(stopVimScroll, 110);
+	sessionScroll.scrollTimelineByLines(direction, beginUserScroll);
 }
 
 function clearPendingVimG() {
-	if (!vimPendingGTimer) return;
-	clearTimeout(vimPendingGTimer);
-	vimPendingGTimer = null;
+	sessionScroll.clearPendingVimG();
 }
 
 function scrollTimelineToTop() {
-	if (!listEl) return;
-	beginUserScroll();
-	shouldAutoFollow = false;
-	setProgrammaticScrollTop(0);
-	requestAnimationFrame(() => updateCurrentTurnSequence());
+	sessionScroll.scrollTimelineToTop(
+		beginUserScroll,
+		setProgrammaticScrollTop,
+		updateCurrentTurnSequence,
+	);
 }
 
 function scrollTimelineToBottom() {
-	if (!listEl) return;
-	shouldAutoFollow = true;
-	stopVimScroll();
-	scrollToBottomNow();
+	sessionScroll.scrollTimelineToBottom(scrollToBottomNow);
 }
 
 async function jumpRelativeTurn(direction: 1 | -1) {
@@ -5966,14 +5847,12 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		key === "g"
 	) {
 		event.preventDefault();
-		if (vimPendingGTimer) {
+		if (sessionScroll.vimPendingGActive) {
 			clearPendingVimG();
 			scrollTimelineToTop();
 			return;
 		}
-		vimPendingGTimer = setTimeout(() => {
-			vimPendingGTimer = null;
-		}, 550);
+		sessionScroll.armPendingVimG();
 		return;
 	}
 	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -6270,8 +6149,8 @@ $effect(() => {
 	turnIndexRetryAfterBySessionId = {};
 	currentTurnSequence = null;
 	loadingTurnSequence = null;
-	turnMarkerPositions = {};
-	turnMarkerHeights = {};
+	sessionScroll.turnMarkerPositions = {};
+	sessionScroll.turnMarkerHeights = {};
 	lastTurnIndexRefreshKey = "";
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
@@ -6435,8 +6314,8 @@ $effect(() => {
 });
 $effect(() => {
 	if (!listEl || timeline.length === 0) {
-		turnMarkerPositions = {};
-		turnMarkerHeights = {};
+		sessionScroll.turnMarkerPositions = {};
+		sessionScroll.turnMarkerHeights = {};
 		return;
 	}
 	void tick().then(() => {
@@ -6489,9 +6368,9 @@ $effect(() => {
 		activeSessionId
 	) {
 		activeSessionId = null;
-		pendingRestoreSessionId = null;
-		activeAnchorRestore = null;
-		anchorRestoreWaitingForMarkdown = false;
+		sessionScroll.pendingRestoreSessionId = null;
+		sessionScroll.activeAnchorRestore = null;
+		sessionScroll.anchorRestoreWaitingForMarkdown = false;
 		userScrollActive = false;
 		programmaticScrollActive = false;
 		programmaticScrollTarget = null;
@@ -6551,28 +6430,28 @@ $effect(() => {
 		anchor &&
 		state.turns.some((turn) => turn.sequence * 10 === anchor.sequence);
 	const finishRestore = () => {
-		pendingRestoreSessionId = null;
+		sessionScroll.pendingRestoreSessionId = null;
 		if (restoringBottomSessionId === targetId) {
 			restoringBottomSessionId = null;
 		}
 		updateAutoFollow();
 	};
 	const finishAnchorRestore = () => {
-		pendingRestoreSessionId = null;
+		sessionScroll.pendingRestoreSessionId = null;
 		if (restoringBottomSessionId === targetId) {
 			restoringBottomSessionId = null;
 		}
 		updateAutoFollow();
-		anchorRestoreWaitingForMarkdown = true;
+		sessionScroll.anchorRestoreWaitingForMarkdown = true;
 		requestAnimationFrame(() => {
 			maybeCompleteAnchorRestore();
 		});
 	};
 	const restoreToBottom = () => {
-		activeAnchorRestore = null;
-		anchorRestoreWaitingForMarkdown = false;
+		sessionScroll.activeAnchorRestore = null;
+		sessionScroll.anchorRestoreWaitingForMarkdown = false;
 		restoringBottomSessionId = targetId;
-		shouldAutoFollow = true;
+		sessionScroll.shouldAutoFollow = true;
 		requestAnimationFrame(() => {
 			if (!listEl || activeSessionId !== targetId) {
 				finishRestore();
@@ -6605,7 +6484,7 @@ $effect(() => {
 				restoreToBottom();
 				return;
 			}
-			activeAnchorRestore = {
+			sessionScroll.activeAnchorRestore = {
 				sessionId: targetId,
 				sequence: anchor.sequence,
 				offset: anchor.offset,
@@ -6667,11 +6546,11 @@ $effect(() => {
 $effect(() => {
 	const el = composerHostEl;
 	if (!el) {
-		composerHeight = 0;
+		sessionScroll.composerHeight = 0;
 		return;
 	}
 	const updateComposerHeight = () => {
-		composerHeight = el.offsetHeight;
+		sessionScroll.composerHeight = el.offsetHeight;
 	};
 	updateComposerHeight();
 	const ro = new ResizeObserver(() => updateComposerHeight());
@@ -7232,8 +7111,8 @@ $effect(() => {
         {shouldShowNewChatProfile}
         bind:newChatProfileViewportEl
         {newChatProfileExpanded}
-        bind:chatTimelineRef
-        bind:listEl
+        bind:chatTimelineRef={sessionScroll.chatTimelineRef}
+        bind:listEl={sessionScroll.listEl}
         {timeline}
         {handleFirstVisible}
         {handleTimelineMarkdownRenderStart}
@@ -7272,7 +7151,7 @@ $effect(() => {
         {syncSessionNewer}
         {highlightedTurnSequence}
         {hasUnread}
-        bind:shouldAutoFollow
+        bind:shouldAutoFollow={sessionScroll.shouldAutoFollow}
         {forceScrollToBottom}
         bind:showTurnBottomSheet
         {loadTurnIndex}
