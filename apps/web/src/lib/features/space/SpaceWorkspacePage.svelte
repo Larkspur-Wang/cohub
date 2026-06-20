@@ -123,12 +123,6 @@ import {
 	type ComposerAttachment,
 	type ComposerFileAttachment,
 	type ComposerImageAttachment,
-	createComposerAttachmentId,
-	isComposerImageFile,
-	isSupportedComposerAttachmentFile,
-	isSupportedComposerImageFile,
-	MAX_COMPOSER_ATTACHMENTS,
-	readComposerTextAttachment,
 } from "$lib/composer-attachments";
 // SettingsOverlay removed — settings merged inline into detail page
 import {
@@ -151,7 +145,6 @@ import {
 	writeCachedPromptTemplates,
 } from "$lib/prompt-template-cache";
 import {
-	prepareChatImageAttachment,
 	uploadChatAttachmentImage,
 	uploadSpaceAvatarImage,
 } from "$lib/public-asset-images";
@@ -257,11 +250,7 @@ import {
 	RIGHT_SIDEBAR_MIN,
 	uiState,
 } from "$lib/stores/ui.svelte";
-import {
-	entriesFromDataTransfer,
-	entriesFromFiles,
-	type LocalUploadEntry,
-} from "$lib/upload-entries";
+import type { LocalUploadEntry } from "$lib/upload-entries";
 import CanvasPreviewPanel from "./modules/CanvasPreviewPanel.svelte";
 import CheckpointView from "./modules/CheckpointView.svelte";
 import CronjobView from "./modules/CronjobView.svelte";
@@ -299,6 +288,10 @@ import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
+import {
+	createSessionComposerController,
+	revokeComposerAttachmentPreview,
+} from "./modules/session-composer-controller.svelte";
 import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
 import {
 	areSessionTurnRecordsEqual,
@@ -487,10 +480,11 @@ const canEditFiles = $derived(hasAccessPermission("file.edit"));
 let spaceSessions = $state<SessionRecord[]>([]);
 let sessionStateById = $state<Record<string, SessionViewState>>({});
 let activeSessionId = $state<string | null>(null);
-let input = $state("");
-let attachments = $state<ComposerAttachment[]>([]);
-let sending = $state(false);
-let aborting = $state(false);
+const sessionComposer = createSessionComposerController();
+const input = $derived(sessionComposer.input);
+const attachments = $derived(sessionComposer.attachments);
+const sending = $derived(sessionComposer.sending);
+const aborting = $derived(sessionComposer.aborting);
 let spaceLoadError = $state("");
 let renamingSpace = $state(false);
 let renameInput = $state("");
@@ -515,17 +509,15 @@ let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
-let composerError = $state("");
-let composerErrorCode = $state<string | null>(null);
+const composerError = $derived(sessionComposer.error);
+const composerErrorCode = $derived(sessionComposer.errorCode);
 
 function clearComposerError() {
-	composerError = "";
-	composerErrorCode = null;
+	sessionComposer.clearError();
 }
 
 function setComposerError(message: string, code: string | null = null) {
-	composerError = message;
-	composerErrorCode = code;
+	sessionComposer.setError(message, code);
 }
 
 function getHttpErrorCode(error: unknown): string | null {
@@ -4596,7 +4588,7 @@ async function handleForkTurn(turn: SessionTurnRecord) {
 async function handleAbort() {
 	if (!activeSessionId || !activeSessionState?.session || !space || aborting)
 		return;
-	aborting = true;
+	sessionComposer.aborting = true;
 	clearComposerError();
 	try {
 		await sdk
@@ -4611,7 +4603,7 @@ async function handleAbort() {
 			error instanceof Error ? error.message : "Failed to stop generation",
 		);
 	} finally {
-		aborting = false;
+		sessionComposer.aborting = false;
 	}
 }
 
@@ -4637,11 +4629,7 @@ async function uploadComposerFileAttachments(
 	fileAttachments: ComposerFileAttachment[],
 ) {
 	if (fileAttachments.length === 0) return [];
-	attachments = attachments.map((attachment) =>
-		attachment.kind === "file"
-			? { ...attachment, status: "uploading" as const }
-			: attachment,
-	);
+	sessionComposer.setUploading("file");
 	const uploaded = await uploadSpaceEntries({
 		spaceId,
 		destination: { kind: "sandbox_tmp", sessionId },
@@ -4658,11 +4646,7 @@ async function uploadComposerImageAttachments(
 	imageAttachments: ComposerImageAttachment[],
 ) {
 	if (imageAttachments.length === 0) return new Map<string, string>();
-	attachments = attachments.map((attachment) =>
-		attachment.kind === "image"
-			? { ...attachment, status: "uploading" as const }
-			: attachment,
-	);
+	sessionComposer.setUploading("image");
 	const uploaded = await Promise.all(
 		imageAttachments.map(async (attachment) => {
 			if (attachment.uploadedUrl)
@@ -4678,15 +4662,7 @@ async function uploadComposerImageAttachments(
 		}),
 	);
 	const imageUrls = new Map(uploaded);
-	attachments = attachments.map((attachment) =>
-		attachment.kind === "image"
-			? {
-					...attachment,
-					status: "ready" as const,
-					uploadedUrl: imageUrls.get(attachment.id) ?? attachment.uploadedUrl,
-				}
-			: attachment,
-	);
+	sessionComposer.setUploadedImageUrls(imageUrls);
 	return imageUrls;
 }
 
@@ -4698,7 +4674,7 @@ async function handleSend() {
 		!space
 	)
 		return;
-	sending = true;
+	sessionComposer.sending = true;
 	const model = activeSessionModel;
 	clearComposerError();
 	clearGenerationError(activeSessionId);
@@ -4838,8 +4814,7 @@ async function handleSend() {
 		// Clear input immediately so it disappears from the composer at the same
 		// time the optimistic turn appears in the list — avoids the awkward "stuck"
 		// feeling where the message shows in the list but lingers in the input.
-		input = "";
-		attachments = [];
+		sessionComposer.clearDraft();
 		const now = new Date().toISOString();
 		const sequenceHint = (targetSessionState.turns.at(-1)?.sequence ?? 0) + 1;
 		hasActiveTurn = activeSessionIsRunning;
@@ -4950,32 +4925,29 @@ async function handleSend() {
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
 		if ((hadFileUpload || hadImageUpload) && uploadCompleted) {
-			input = [pendingInput.trim(), uploadedReferenceText]
-				.filter(Boolean)
-				.join("\n\n");
-			attachments = pendingAttachments
-				.filter((attachment) => attachment.kind !== "file")
-				.map((attachment) =>
-					attachment.kind === "image"
-						? {
-								...attachment,
-								status: "ready" as const,
-								uploadedUrl:
-									uploadedImageUrls.get(attachment.id) ??
-									attachment.uploadedUrl,
-							}
-						: attachment,
-				);
+			sessionComposer.restoreDraft(
+				[pendingInput.trim(), uploadedReferenceText]
+					.filter(Boolean)
+					.join("\n\n"),
+				pendingAttachments
+					.filter((attachment) => attachment.kind !== "file")
+					.map((attachment) =>
+						attachment.kind === "image"
+							? {
+									...attachment,
+									status: "ready" as const,
+									uploadedUrl:
+										uploadedImageUrls.get(attachment.id) ??
+										attachment.uploadedUrl,
+								}
+							: attachment,
+					),
+			);
 		} else {
-			input = pendingInput;
-			attachments = pendingAttachments;
+			sessionComposer.restoreDraft(pendingInput, pendingAttachments);
 		}
 		if ((hadFileUpload || hadImageUpload) && !uploadCompleted) {
-			attachments = attachments.map((attachment) =>
-				attachment.kind === "file" || attachment.kind === "image"
-					? { ...attachment, status: "failed" as const }
-					: attachment,
-			);
+			sessionComposer.markAttachmentUploadsFailed();
 		}
 		const sendError =
 			error instanceof Error ? error.message : "Failed to send message";
@@ -5038,7 +5010,7 @@ async function handleSend() {
 			};
 		}
 	} finally {
-		sending = false;
+		sessionComposer.sending = false;
 	}
 }
 function scrollToBottomNow() {
@@ -5252,105 +5224,14 @@ function handleTimelineMarkdownRendered() {
 async function handlePickAttachments(
 	files: FileList | File[] | LocalUploadEntry[] | null,
 ) {
-	if (!files) return;
-	let pickedEntries: LocalUploadEntry[];
-	try {
-		pickedEntries =
-			Array.isArray(files) &&
-			files.every((item) => "file" in item && "relativePath" in item)
-				? (files as LocalUploadEntry[])
-				: entriesFromFiles(Array.from(files as FileList | File[]));
-	} catch {
-		setComposerError("Invalid upload path.");
-		return;
-	}
-	if (pickedEntries.length === 0) return;
-
-	const remainingSlots = MAX_COMPOSER_ATTACHMENTS - attachments.length;
-	if (remainingSlots <= 0) {
-		setComposerError(`You can attach up to ${MAX_COMPOSER_ATTACHMENTS} files.`);
-		return;
-	}
-	const acceptedEntries = pickedEntries.slice(0, remainingSlots);
-	if (acceptedEntries.length < pickedEntries.length) {
-		setComposerError(
-			`Only the first ${remainingSlots} file${remainingSlots === 1 ? "" : "s"} were attached.`,
-		);
-	} else {
-		clearComposerError();
-	}
-
-	try {
-		const nextAttachments = await Promise.all(
-			acceptedEntries.map(async (entry): Promise<ComposerAttachment> => {
-				const { file, relativePath } = entry;
-				if (!isSupportedComposerAttachmentFile(file)) {
-					return {
-						kind: "file",
-						id: createComposerAttachmentId(file),
-						name: file.name,
-						relativePath,
-						mediaType: file.type || null,
-						file,
-						size: file.size,
-						status: "ready",
-					} satisfies ComposerFileAttachment;
-				}
-				if (!isComposerImageFile(file)) {
-					try {
-						return await readComposerTextAttachment(file);
-					} catch (error) {
-						if (error instanceof Error && !error.message.includes("exceeds"))
-							throw error;
-						return {
-							kind: "file",
-							id: createComposerAttachmentId(file),
-							name: file.name,
-							relativePath,
-							mediaType: file.type || null,
-							file,
-							size: file.size,
-							status: "ready",
-						} satisfies ComposerFileAttachment;
-					}
-				}
-				if (!isSupportedComposerImageFile(file)) {
-					return {
-						kind: "file",
-						id: createComposerAttachmentId(file),
-						name: file.name,
-						relativePath,
-						mediaType: file.type || null,
-						file,
-						size: file.size,
-						status: "ready",
-					} satisfies ComposerFileAttachment;
-				}
-				const compressed = await prepareChatImageAttachment(file);
-				return {
-					kind: "image",
-					id: createComposerAttachmentId(file),
-					name: compressed.name,
-					mediaType: compressed.mediaType,
-					file: compressed.file,
-					previewUrl: compressed.previewUrl,
-					size: compressed.size,
-					status: "ready",
-				} satisfies ComposerImageAttachment;
-			}),
-		);
-		attachments = [...attachments, ...nextAttachments];
-	} catch (error) {
-		setComposerError(
-			error instanceof Error ? error.message : "Failed to read attachment",
-		);
-	}
+	await sessionComposer.handlePickAttachments(files);
 }
+
 async function applyBackgroundComposerPayload(
 	payload: NewChatComposerApplyPayload,
 ) {
 	if (typeof payload.prompt === "string") {
-		input = payload.prompt;
+		sessionComposer.input = payload.prompt;
 	}
 	if (payload.model && modelsCatalog) {
 		const catalogItem = modelsCatalog.find(
@@ -5401,18 +5282,13 @@ async function applyBackgroundComposerPayload(
 		}
 	}
 }
-function revokeComposerAttachmentPreview(attachment: ComposerAttachment) {
-	if (attachment.kind === "image") URL.revokeObjectURL(attachment.previewUrl);
-}
 function handleRemoveAttachment(id: string) {
-	const removed = attachments.find((attachment) => attachment.id === id);
-	if (removed) revokeComposerAttachmentPreview(removed);
-	attachments = attachments.filter((attachment) => attachment.id !== id);
+	sessionComposer.handleRemoveAttachment(id);
 }
 onDestroy(() => {
-	for (const attachment of attachments)
-		revokeComposerAttachmentPreview(attachment);
+	sessionComposer.dispose();
 });
+
 function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (
@@ -7156,7 +7032,7 @@ $effect(() => {
         bind:showTurnBottomSheet
         {loadTurnIndex}
         bind:composerHostEl
-        bind:input
+        bind:input={sessionComposer.input}
         {sending}
         {activeSessionIsRunning}
         {aborting}
