@@ -207,16 +207,11 @@ import {
 	startGenerationRequest,
 } from "$lib/stores/session-generation-controller";
 import {
-	applyGenerationStreamEvent,
-	applyGenerationStreamSnapshot,
-} from "$lib/stores/session-generation-realtime";
-import {
 	fetchSessionListWithCache,
 	getCachedSessionListSnapshot,
 	onSessionListCacheUpdated,
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
-import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
 	clearCachedSpaceFsSubtree,
@@ -291,6 +286,7 @@ import {
 	createSessionComposerController,
 	revokeComposerAttachmentPreview,
 } from "./modules/session-composer-controller.svelte";
+import { createSessionGenerationRealtimeController } from "./modules/session-generation-realtime-controller.svelte";
 import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
 import {
 	createSessionTaskController,
@@ -302,12 +298,10 @@ import {
 import { createSessionTurnLoadingController } from "./modules/session-turn-loading-controller.svelte";
 import {
 	areSessionTurnRecordsEqual,
-	areSessionTurnsEqual,
 	getTurnClientMessageId,
 	isOptimisticTurn,
 	isSameClientMessageTurn,
 	normalizeTurnDuplicates,
-	preserveSessionTurnRefs,
 	reconcileOptimisticTurn,
 } from "./modules/session-utils";
 import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
@@ -827,13 +821,7 @@ let refreshSessionsListQueuedForce = false;
 const sessionLoadInFlight = new Map<string, Promise<void>>();
 const syncSessionNewerInFlight = new Map<string, Promise<void>>();
 const turnHydrationInFlight = new Map<string, Promise<void>>();
-const postSendRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let reconnectSyncInFlight: Promise<void> | null = null;
-const streamSnapshotRecoveryInFlight = new Map<string, Promise<boolean>>();
-const reconcileSessionTailInFlight = new Map<string, Promise<void>>();
-const lastStreamSnapshotRecoveryByTurn = new Map<string, number>();
-const POST_SEND_RECOVERY_GRACE_MS = 2500;
-const STREAM_SNAPSHOT_RECOVERY_COOLDOWN_MS = 15000;
 let lastRecoveredConnectionId: string | null = null;
 let lastConnectionState:
 	| "idle"
@@ -857,6 +845,41 @@ const pendingTimelineMarkdownRenders = $derived(
 const anchorRestoreWaitingForMarkdown = $derived(
 	sessionScroll.anchorRestoreWaitingForMarkdown,
 );
+const generationRealtime = createSessionGenerationRealtimeController({
+	getSpaceId: () => spaceId,
+	getConnectionState: () => wsConnectionState,
+	getActiveSessionId: () => activeSessionId,
+	getSessionState: (id) => sessionStateById[id],
+	updateSessionState: (id, state) => {
+		sessionWorkspace.sessionStateById = {
+			...sessionStateById,
+			[id]: state,
+		};
+	},
+	refreshSessionsList: (force) => refreshSessionsList(force ?? true),
+	requestBottomFollow: (options) => requestBottomFollow(options),
+	shouldAutoFollow: () => shouldAutoFollow,
+	getListEl: () => listEl,
+	captureCurrentScrollAnchor: (sessionId) =>
+		captureCurrentScrollAnchor(sessionId),
+	getSessionScrollAnchor: (sessionId) => getSessionScrollAnchor(sessionId),
+	areSessionScrollAnchorsEqual: (current, snapshot) =>
+		areSessionScrollAnchorsEqual(current, snapshot),
+	restoreSessionScrollAnchorSoon: (sessionId) =>
+		restoreSessionScrollAnchorSoon(sessionId),
+	isUserScrollActive: () => userScrollActive,
+	syncGenerationStateFromTail: (sessionId, turns, requestStartedAt) =>
+		syncGenerationStateFromTail(sessionId, turns, requestStartedAt),
+	onRecovered: () => {
+		wsCanRecover = false;
+	},
+	onExhausted: (sessionId) => {
+		console.warn("[SessionRecoveryCoordinator] Fallback sync exhausted", {
+			sessionId,
+			spaceId,
+		});
+	},
+});
 // ─── Share ───
 let showShareModal = $state(false);
 let shareModalSessionId = $state<string | null>(null);
@@ -3628,208 +3651,28 @@ function handleFirstVisible(index: number) {
 		);
 	}
 }
-async function restoreSessionStreamSnapshot(
+function restoreSessionStreamSnapshot(
 	sessionId: string,
 	options?: { turnId?: string | null; force?: boolean },
 ) {
-	const turnId = options?.turnId ?? null;
-	const cooldownKey = turnId ? `${sessionId}:${turnId}` : sessionId;
-	const now = Date.now();
-	const lastRecoveryAt = lastStreamSnapshotRecoveryByTurn.get(cooldownKey) ?? 0;
-	if (
-		!options?.force &&
-		now - lastRecoveryAt < STREAM_SNAPSHOT_RECOVERY_COOLDOWN_MS
-	) {
-		return false;
-	}
-	const inFlight = streamSnapshotRecoveryInFlight.get(sessionId);
-	if (inFlight) return inFlight;
-	lastStreamSnapshotRecoveryByTurn.set(cooldownKey, now);
-	const run = (async () => {
-		try {
-			const { snapshot } = await sdk
-				.space(spaceId)
-				.session(sessionId)
-				.turns.streamSnapshot();
-			if (!snapshot) return false;
-			const current = sessionGenerationStore.get(sessionId);
-			if (
-				current?.turnId &&
-				snapshot.turnId &&
-				current.turnId !== snapshot.turnId
-			) {
-				return false;
-			}
-			const result = applyGenerationStreamSnapshot(sessionId, {
-				spaceId: snapshot.spaceId,
-				turnId: snapshot.turnId,
-				seq: snapshot.seq,
-				anchorUserMessageId: snapshot.anchorUserMessageId,
-				current: snapshot.current,
-				intermediateMessages: snapshot.intermediateMessages,
-				lifecycle: snapshot.lifecycle ?? null,
-			});
-			return result.applied;
-		} catch (error) {
-			console.warn(
-				"[restoreSessionStreamSnapshot] Failed to restore stream snapshot:",
-				error,
-			);
-			return false;
-		}
-	})();
-	streamSnapshotRecoveryInFlight.set(sessionId, run);
-	return run.finally(() => {
-		if (streamSnapshotRecoveryInFlight.get(sessionId) === run) {
-			streamSnapshotRecoveryInFlight.delete(sessionId);
-		}
-	});
+	return generationRealtime.restoreSessionStreamSnapshot(sessionId, options);
 }
-async function reconcileSessionTail(sessionId: string) {
-	const state = sessionStateById[sessionId];
-	if (!state?.session) return;
-	const inFlight = reconcileSessionTailInFlight.get(sessionId);
-	if (inFlight) return inFlight;
-	const shouldRestoreAnchor =
-		sessionWorkspace.activeSessionId === sessionId &&
-		Boolean(listEl) &&
-		!shouldAutoFollow;
-	if (shouldRestoreAnchor) captureCurrentScrollAnchor(sessionId);
-	const restoreAnchorSnapshot = shouldRestoreAnchor
-		? getSessionScrollAnchor(sessionId)
-		: null;
-	const run = (async () => {
-		try {
-			const requestStartedAt = Date.now();
-			const response = await sdk
-				.space(spaceId)
-				.session(sessionId)
-				.turns.listPaginated({
-					limit: 30,
-				});
-			await syncGenerationStateFromTail(
-				sessionId,
-				response.turns,
-				requestStartedAt,
-			);
-			const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
-				session: response.session,
-				turns: response.turns,
-				hasMore: response.hasMore,
-			});
-			const currentState = sessionStateById[sessionId];
-			if (!currentState) return;
-			const nextSession = snapshot.session ?? currentState.session;
-			const nextTurns = preserveSessionTurnRefs(
-				currentState.turns,
-				snapshot.turns,
-			);
-			const nextOldestCursor = snapshot.oldestSequence ?? undefined;
-			if (
-				currentState.session === nextSession &&
-				areSessionTurnsEqual(currentState.turns, nextTurns) &&
-				currentState.hasMore === snapshot.hasMoreOlder &&
-				currentState.hasMoreNewer === snapshot.hasMoreNewer &&
-				currentState.loading === false &&
-				currentState.loaded === true &&
-				currentState.error === "" &&
-				currentState.loadingOlder === false &&
-				currentState.loadingNewer === false &&
-				currentState.oldestCursor === nextOldestCursor
-			) {
-				return;
-			}
-			sessionWorkspace.sessionStateById = {
-				...sessionStateById,
-				[sessionId]: {
-					...currentState,
-					session: nextSession,
-					turns: nextTurns,
-					hasMore: snapshot.hasMoreOlder,
-					hasMoreNewer: snapshot.hasMoreNewer,
-					loading: false,
-					loaded: true,
-					error: "",
-					loadingOlder: false,
-					loadingNewer: false,
-					oldestCursor: nextOldestCursor,
-				},
-			};
-			if (activeSessionId === sessionId) {
-				await tick();
-				const currentAnchor = getSessionScrollAnchor(sessionId);
-				const canRestoreAnchor =
-					shouldRestoreAnchor &&
-					areSessionScrollAnchorsEqual(currentAnchor, restoreAnchorSnapshot) &&
-					!userScrollActive;
-				if (canRestoreAnchor) {
-					restoreSessionScrollAnchorSoon(sessionId);
-				} else if (!shouldRestoreAnchor && shouldAutoFollow) {
-					requestBottomFollow({ immediate: true });
-				}
-			}
-		} catch (error) {
-			console.warn(
-				"[reconcileSessionTail] Failed to reconcile session tail:",
-				error,
-			);
-		}
-	})();
-	reconcileSessionTailInFlight.set(sessionId, run);
-	return run.finally(() => {
-		if (reconcileSessionTailInFlight.get(sessionId) === run) {
-			reconcileSessionTailInFlight.delete(sessionId);
-		}
-	});
+function reconcileSessionTail(sessionId: string) {
+	return generationRealtime.reconcileSessionTail(sessionId);
 }
 function clearPostSendRecovery(sessionId: string | null | undefined) {
-	if (!sessionId) return;
-	const timer = postSendRecoveryTimers.get(sessionId);
-	if (!timer) return;
-	clearTimeout(timer);
-	postSendRecoveryTimers.delete(sessionId);
+	generationRealtime.clearPostSendRecovery(sessionId);
 }
 function clearAllPostSendRecovery() {
-	for (const timer of postSendRecoveryTimers.values()) clearTimeout(timer);
-	postSendRecoveryTimers.clear();
+	generationRealtime.clearAllPostSendRecovery();
 }
 function schedulePostSendRecoveryCheck(sessionId: string) {
-	clearPostSendRecovery(sessionId);
-	if (wsConnectionState === "open") return;
-	const timer = setTimeout(() => {
-		postSendRecoveryTimers.delete(sessionId);
-		if (
-			wsConnectionState === "open" ||
-			!sessionGenerationStore.isGenerating(sessionId)
-		) {
-			return;
-		}
-		void recoveryCoordinator
-			.reconcileAfterSendWhileOffline(sessionId)
-			.catch(() => undefined);
-		recoveryCoordinator.scheduleFallbackSync(sessionId);
-	}, POST_SEND_RECOVERY_GRACE_MS);
-	postSendRecoveryTimers.set(sessionId, timer);
+	generationRealtime.schedulePostSendRecoveryCheck(sessionId);
 }
-const recoveryCoordinator = new SessionRecoveryCoordinator({
-	isTransportOpen: () => wsConnectionState === "open",
-	reconcileSessionTail: (sessionId) => reconcileSessionTail(sessionId),
-	refreshSessionsList: () => refreshSessionsList(true),
-	onRecovered: () => {
-		wsCanRecover = false;
-		clearPostSendRecovery(activeSessionId);
-	},
-	onExhausted: (sessionId) => {
-		console.warn("[SessionRecoveryCoordinator] Fallback sync exhausted", {
-			sessionId,
-			spaceId,
-		});
-	},
-});
 async function reconnectSync() {
 	if (reconnectSyncInFlight) return reconnectSyncInFlight;
 	const run = (async () => {
-		await recoveryCoordinator.reconcileAfterReconnect(
+		await generationRealtime.reconcileAfterReconnect(
 			activeSessionId && sessionStateById[activeSessionId]?.loaded
 				? activeSessionId
 				: null,
@@ -4325,37 +4168,11 @@ function completeGenerationForTurn(sessionId: string, turnId: string | null) {
 	completeGeneration(sessionId);
 }
 
-async function handleGenerationStreamEvent(
+function handleGenerationStreamEvent(
 	sessionId: string,
 	event: GenerationStreamEvent,
 ) {
-	try {
-		const generationEffect = applyGenerationStreamEvent(sessionId, event);
-		if (!generationEffect.handled) return;
-		clearPostSendRecovery(sessionId);
-		if (generationEffect.shouldRestoreSnapshot) {
-			void restoreSessionStreamSnapshot(sessionId, {
-				turnId:
-					"state" in event && event.state.turnId ? event.state.turnId : null,
-			});
-		}
-		if (generationEffect.shouldReconcile && sessionId === activeSessionId) {
-			void reconcileSessionTail(sessionId);
-		}
-		if (generationEffect.shouldRefreshSessions) {
-			void refreshSessionsList(true);
-		}
-		if (
-			generationEffect.shouldScroll &&
-			sessionId === activeSessionId &&
-			shouldAutoFollow
-		) {
-			await tick();
-			requestBottomFollow();
-		}
-	} catch (error) {
-		console.error("[WS] handleGenerationStreamEvent error:", error);
-	}
+	return generationRealtime.handleGenerationStreamEvent(sessionId, event);
 }
 async function handleForkTurn(turn: SessionTurnRecord) {
 	if (!activeSessionId || forkingTurnId) return;
@@ -5642,7 +5459,7 @@ onMount(() => {
 		const previousState = lastConnectionState;
 		lastConnectionState = state.state;
 		if (state.state === "open") {
-			recoveryCoordinator.onTransportOpen();
+			generationRealtime.onTransportOpen();
 			wsConnectionState = "open";
 			wsCanRecover = false;
 			if (inlineCanvas?.documentId) {
@@ -5759,8 +5576,7 @@ onMount(() => {
 		stopVimScroll();
 		clearPendingVimG();
 		stopBottomFollow();
-		recoveryCoordinator.dispose();
-		clearAllPostSendRecovery();
+		generationRealtime.dispose();
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
 		wsConnectionCleanup();
@@ -5818,7 +5634,7 @@ $effect(() => {
 	syncSessionNewerInFlight.clear();
 	turnHydrationInFlight.clear();
 	clearAllPostSendRecovery();
-	lastStreamSnapshotRecoveryByTurn.clear();
+	generationRealtime.clearStreamSnapshotRecoveryCooldowns();
 	sessionWorkspace.activeSessionId = null;
 	currentTurnSequence = null;
 	sessionScroll.turnMarkerPositions = {};
