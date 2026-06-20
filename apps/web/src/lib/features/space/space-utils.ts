@@ -1,4 +1,5 @@
 import type { SpaceRecord, UserProfile } from "@neta-art/cohub";
+import type { SpaceSandboxSnapshot } from "./modules/space-status-controller.svelte";
 
 export function formatDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
@@ -100,4 +101,65 @@ export function formatCompactId(id: string): string {
 	if (!id) return "";
 	if (id.length <= 13) return id;
 	return `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+
+export function sandboxStatusKind(
+	sandbox: SpaceSandboxSnapshot | null,
+): "running" | "waking" | "sleeping" | "error" | "unknown" {
+	const status = sandbox?.status;
+	const runtime = sandbox?.runtimeStatus;
+	if (!sandbox) return "unknown";
+	if (
+		status === "error" ||
+		status === "terminated" ||
+		runtime === "unhealthy"
+	) {
+		return "error";
+	}
+	if (status === "stopped" || status === "stopping") return "sleeping";
+	if (
+		status === "provisioning" ||
+		status === "pending" ||
+		runtime === "starting"
+	) {
+		return "waking";
+	}
+	if (
+		status === "running" ||
+		status === "ready" ||
+		runtime === "healthy" ||
+		runtime === "degraded"
+	) {
+		return "running";
+	}
+	return "unknown";
+}
+
+export function sandboxStatusLabel(
+	sandbox: SpaceSandboxSnapshot | null,
+): string {
+	const kind = sandboxStatusKind(sandbox);
+	if (kind === "running") return "Sandbox running";
+	if (kind === "waking") return "Sandbox waking";
+	if (kind === "sleeping") return "Sandbox sleeping";
+	if (kind === "error") return "Sandbox needs attention";
+	return "Sandbox status unknown";
+}
+
+export function formatBootstrapStage(stage: string | null) {
+	if (!stage) return "Waiting";
+	if (stage === "prepare") return "Preparing workspace";
+	if (stage === "import") return "Importing repository";
+	if (stage === "checkpoint_restore") return "Restoring save";
+	if (stage === "push") return "Pushing initial state";
+	if (stage === "finalize") return "Finalizing";
+	return stage.replace(/_/g, " ");
+}
+
+export function formatBootstrapStatus(status: string | null) {
+	if (!status) return "Pending";
+	if (status === "running") return "Running";
+	if (status === "ready") return "Ready";
+	if (status === "failed") return "Failed";
+	return "Pending";
 }

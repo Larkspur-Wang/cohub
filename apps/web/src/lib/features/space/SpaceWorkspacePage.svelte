@@ -336,6 +336,8 @@ import {
 import {
 	asRecord,
 	displayUserName,
+	formatBootstrapStage,
+	formatBootstrapStatus,
 	formatCompactId,
 	formatDateTime,
 	formatFileSize,
@@ -344,6 +346,8 @@ import {
 	formatUsageCost,
 	getSpacePrettyUrlHint,
 	getSpacePublicPath,
+	sandboxStatusKind,
+	sandboxStatusLabel,
 } from "./space-utils";
 
 type Props = {
@@ -2646,45 +2650,6 @@ function userTitle(
 		.filter(Boolean)
 		.join(" · ");
 }
-function sandboxStatusKind(
-	sandbox: SpaceSandboxSnapshot | null,
-): "running" | "waking" | "sleeping" | "error" | "unknown" {
-	const status = sandbox?.status;
-	const runtime = sandbox?.runtimeStatus;
-	if (!sandbox) return "unknown";
-	if (
-		status === "error" ||
-		status === "terminated" ||
-		runtime === "unhealthy"
-	) {
-		return "error";
-	}
-	if (status === "stopped" || status === "stopping") return "sleeping";
-	if (
-		status === "provisioning" ||
-		status === "pending" ||
-		runtime === "starting"
-	) {
-		return "waking";
-	}
-	if (
-		status === "running" ||
-		status === "ready" ||
-		runtime === "healthy" ||
-		runtime === "degraded"
-	) {
-		return "running";
-	}
-	return "unknown";
-}
-function sandboxStatusLabel(sandbox: SpaceSandboxSnapshot | null): string {
-	const kind = sandboxStatusKind(sandbox);
-	if (kind === "running") return "Sandbox running";
-	if (kind === "waking") return "Sandbox waking";
-	if (kind === "sleeping") return "Sandbox sleeping";
-	if (kind === "error") return "Sandbox needs attention";
-	return "Sandbox status unknown";
-}
 // Image pan handlers
 function makeImagePanHandlers(
 	zoom: () => number,
@@ -2736,22 +2701,6 @@ async function copyTaskField(
 	}, 1600);
 }
 
-function formatBootstrapStage(stage: string | null) {
-	if (!stage) return "Waiting";
-	if (stage === "prepare") return "Preparing workspace";
-	if (stage === "import") return "Importing repository";
-	if (stage === "checkpoint_restore") return "Restoring save";
-	if (stage === "push") return "Pushing initial state";
-	if (stage === "finalize") return "Finalizing";
-	return stage.replace(/_/g, " ");
-}
-function formatBootstrapStatus(status: string | null) {
-	if (!status) return "Pending";
-	if (status === "running") return "Running";
-	if (status === "ready") return "Ready";
-	if (status === "failed") return "Failed";
-	return "Pending";
-}
 // ── Session rename (header inline edit) ────────────────────────────────
 function startSessionRename() {
 	const session = activeSessionState?.session;
