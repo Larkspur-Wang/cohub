@@ -995,28 +995,6 @@ let cronjobCopiedId = $state(false);
 let cronjobCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
 // ─── Works ───
 let workDetail = $state<WorkRecord | null>(null);
-let workDetailLoading = $state(false);
-let workDetailError = $state("");
-let workActionInProgress = $state(false);
-let workDeleteInProgress = $state(false);
-let workEditMode = $state(false);
-let workFormSlug = $state("");
-let workFormTargetType = $state<"file" | "directory" | "port">("file");
-let workFormTargetRef = $state("");
-let workFormStatus = $state<"draft" | "published" | "disabled">("published");
-let workFormScopes = $state<Record<string, boolean>>({});
-let workFormViewerScopes = $state<Record<string, boolean>>({});
-let workFormSubmitting = $state(false);
-let workFormError = $state("");
-let workCopiedId = $state(false);
-let workCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
-let workVersions = $state<WorkVersionRecord[]>([]);
-let workVersionsLoading = $state(false);
-let workVersionsError = $state("");
-let workPublishTargetType = $state<"file" | "directory" | "port">("file");
-let workPublishTargetRef = $state("");
-let workPublishSubmitting = $state(false);
-let workPublishError = $state("");
 // ─── Cronjob New Form ───
 let cronjobNewTitle = $state("");
 let cronjobNewExpression = $state("");
@@ -1136,203 +1114,6 @@ function handleCronjobModelSelect(model: { provider: string; id: string }) {
 	if (routeView === "cronjob-new") cronjobNewModel = selected;
 	else cronjobFormModel = selected;
 	cronjobModelSelectorOpen = false;
-}
-function syncWorkFormFromDetail() {
-	if (!workDetail) return;
-	workFormSlug = workDetail.slug;
-	workFormTargetType = workDetail.targetType;
-	workFormTargetRef = workDetail.targetRef;
-	workFormStatus = workDetail.status;
-	workFormScopes = scopeState(workDetail.workScopes, WORK_SCOPE_OPTIONS);
-	workFormViewerScopes = scopeState(
-		workDetail.allowedViewerScopes,
-		WORK_VIEWER_SCOPE_OPTIONS,
-	);
-	workFormError = "";
-	workPublishTargetType = workDetail.targetType;
-	workPublishTargetRef = workDetail.targetRef;
-	workPublishError = "";
-}
-function notifyWorksUpdated() {
-	if (typeof window === "undefined") return;
-	window.dispatchEvent(
-		new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
-	);
-}
-function workPublicRoute(work: WorkRecord | null = workDetail) {
-	const username =
-		space?.ownerProfile?.username ??
-		(space?.userUuid === authStore.userUuid
-			? authStore.profile?.username
-			: null);
-	return username && space?.slug && work?.slug
-		? `/${encodeURIComponent(username)}/${encodeURIComponent(space.slug)}/w/${encodeURIComponent(work.slug)}`
-		: null;
-}
-async function loadWorkDetail(workId: string) {
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId &&
-		routeView === "work" &&
-		routeWorkId === workId;
-	workDetailLoading = true;
-	workDetailError = "";
-	try {
-		const { work } = await sdk.works.get(workId);
-		if (!isCurrentRequest()) return;
-		workDetail = work;
-		syncWorkFormFromDetail();
-		void loadWorkVersions(work.id);
-	} catch (error) {
-		if (!isCurrentRequest()) return;
-		workDetail = null;
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to load work";
-	} finally {
-		if (isCurrentRequest()) workDetailLoading = false;
-	}
-}
-
-async function loadWorkVersions(workId: string) {
-	workVersionsLoading = true;
-	workVersionsError = "";
-	try {
-		const { versions } = await sdk.works.listVersions(workId);
-		if (routeView === "work" && routeWorkId === workId) workVersions = versions;
-	} catch (error) {
-		if (routeView === "work" && routeWorkId === workId) {
-			workVersionsError =
-				error instanceof Error ? error.message : "Failed to load versions";
-		}
-	} finally {
-		if (routeView === "work" && routeWorkId === workId)
-			workVersionsLoading = false;
-	}
-}
-async function handlePublishWorkVersion() {
-	if (!workDetail || workPublishSubmitting) return;
-	workPublishError = "";
-	if (!workPublishTargetRef.trim()) {
-		workPublishError = "Target is required";
-		return;
-	}
-	workPublishSubmitting = true;
-	try {
-		const { work } = await sdk.works.update(workDetail.id, {
-			status: "published",
-			targetType: workPublishTargetType,
-			targetRef: workPublishTargetRef.trim(),
-			publishVersion: true,
-		});
-		workDetail = work;
-		syncWorkFormFromDetail();
-		await loadWorkVersions(work.id);
-		notifyWorksUpdated();
-	} catch (error) {
-		workPublishError =
-			error instanceof Error ? error.message : "Failed to publish version";
-	} finally {
-		workPublishSubmitting = false;
-	}
-}
-async function handleCopyWorkId(id: string) {
-	try {
-		await navigator.clipboard.writeText(id);
-		workCopiedId = true;
-		if (workCopiedIdTimer) clearTimeout(workCopiedIdTimer);
-		workCopiedIdTimer = setTimeout(() => {
-			workCopiedId = false;
-		}, 1600);
-	} catch (error) {
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to copy work ID";
-	}
-}
-async function handleToggleWorkStatus(status: "published" | "disabled") {
-	if (!workDetail || workActionInProgress) return;
-	workActionInProgress = true;
-	workDetailError = "";
-	try {
-		const { work } = await sdk.works.update(workDetail.id, { status });
-		workDetail = work;
-		syncWorkFormFromDetail();
-		void loadWorkVersions(work.id);
-		notifyWorksUpdated();
-	} catch (error) {
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to update work";
-		void loadWorkDetail(workDetail.id);
-	} finally {
-		workActionInProgress = false;
-	}
-}
-async function handleDeleteWork() {
-	if (
-		!workDetail ||
-		workActionInProgress ||
-		workDeleteInProgress ||
-		!confirm(
-			"Delete this work? This removes the management record and public link.",
-		)
-	)
-		return;
-	const deletedWorkId = workDetail.id;
-	let deleted = false;
-	workActionInProgress = true;
-	workDeleteInProgress = true;
-	workDetailError = "";
-	try {
-		await sdk.works.delete(deletedWorkId);
-		deleted = true;
-		workDetail = null;
-		notifyWorksUpdated();
-		await goto(buildSpaceLandingRoute(spaceId), { replaceState: true });
-	} catch (error) {
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to delete work";
-	} finally {
-		if (!deleted) {
-			workActionInProgress = false;
-			workDeleteInProgress = false;
-		}
-	}
-}
-async function handleUpdateWorkSubmit(event: SubmitEvent) {
-	event.preventDefault();
-	if (!workDetail || workFormSubmitting) return;
-	workFormError = "";
-	if (!workFormSlug.trim()) {
-		workFormError = "Slug is required";
-		return;
-	}
-	if (!workFormTargetRef.trim()) {
-		workFormError = "Target is required";
-		return;
-	}
-	workFormSubmitting = true;
-	try {
-		const { work } = await sdk.works.update(workDetail.id, {
-			slug: workFormSlug.trim(),
-			status: workFormStatus,
-			targetType: workFormTargetType,
-			targetRef: workFormTargetRef.trim(),
-			workScopes: selectedScopeList(workFormScopes, WORK_SCOPE_OPTIONS),
-			allowedViewerScopes: selectedScopeList(
-				workFormViewerScopes,
-				WORK_VIEWER_SCOPE_OPTIONS,
-			),
-		});
-		workDetail = work;
-		workEditMode = false;
-		syncWorkFormFromDetail();
-		void loadWorkVersions(work.id);
-		notifyWorksUpdated();
-	} catch (error) {
-		workFormError =
-			error instanceof Error ? error.message : "Failed to save work";
-	} finally {
-		workFormSubmitting = false;
-	}
 }
 // ─── Cronjob detail & actions ───
 async function loadCronjobDetail(cronjobId: string) {
@@ -8111,18 +7892,6 @@ $effect(() => {
 	cronjobEditMode = false;
 });
 $effect(() => {
-	if (routeView === "work" && routeWorkId) {
-		workEditMode = false;
-		void loadWorkDetail(routeWorkId);
-		return;
-	}
-	workDetail = null;
-	workDetailError = "";
-	workActionInProgress = false;
-	workDeleteInProgress = false;
-	workEditMode = false;
-});
-$effect(() => {
 	if (routeView === "task" && routeTaskId) {
 		void loadTaskDetail(routeTaskId);
 		return;
@@ -8700,36 +8469,11 @@ $effect(() => {
       />
     {:else if routeView === 'work'}
       <WorkView
+        {spaceId}
         {routeWorkId}
-        {workDetail}
-        {workDetailLoading}
-        {workDetailError}
-        {workCopiedId}
-        bind:workEditMode
-        {workActionInProgress}
-        {workDeleteInProgress}
-        bind:workFormSlug
-        bind:workFormTargetType
-        bind:workFormTargetRef
-        bind:workFormStatus
-        bind:workFormScopes
-        bind:workFormViewerScopes
-        {workFormSubmitting}
-        {workFormError}
-        bind:workPublishTargetType
-        bind:workPublishTargetRef
-        {workPublishSubmitting}
-        {workPublishError}
-        {workVersions}
-        {workVersionsLoading}
-        {workVersionsError}
-        {workPublicRoute}
-        onCopyWorkId={handleCopyWorkId}
-        onSyncWorkFormFromDetail={syncWorkFormFromDetail}
-        onToggleWorkStatus={handleToggleWorkStatus}
-        onDeleteWork={handleDeleteWork}
-        onUpdateWorkSubmit={handleUpdateWorkSubmit}
-        onPublishWorkVersion={handlePublishWorkVersion}
+        ownerUsername={space?.ownerProfile?.username ?? (space?.userUuid === authStore.userUuid ? (authStore.profile?.username ?? null) : null)}
+        spaceSlug={space?.slug ?? null}
+        onDetailLoaded={(work) => { workDetail = work; }}
       />
     {:else if routeView === 'task'}
       <TaskRunView

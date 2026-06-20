@@ -1,9 +1,5 @@
 <script lang="ts">
-import type {
-	Permission,
-	WorkRecord,
-	WorkVersionRecord,
-} from "@neta-art/cohub";
+import type { WorkRecord, WorkVersionRecord } from "@neta-art/cohub";
 import {
 	Check,
 	Copy,
@@ -15,81 +11,267 @@ import {
 	Rocket,
 	Trash2,
 } from "lucide-svelte";
+import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import { sdk } from "$lib/sdk";
+import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { formatDateTime } from "../space-utils";
 import {
+	scopeState,
+	selectedScopeList,
 	WORK_SCOPE_OPTIONS,
 	WORK_VIEWER_SCOPE_OPTIONS,
 	workStatusTone,
 } from "./work-utils";
 
 type Props = {
+	spaceId: string;
 	routeWorkId: string | null;
-	workDetail: WorkRecord | null;
-	workDetailLoading: boolean;
-	workDetailError: string;
-	workCopiedId: boolean;
-	workEditMode: boolean;
-	workActionInProgress: boolean;
-	workDeleteInProgress: boolean;
-	workFormSlug: string;
-	workFormTargetType: "file" | "directory" | "port";
-	workFormTargetRef: string;
-	workFormStatus: "draft" | "published" | "disabled";
-	workFormScopes: Record<string, boolean>;
-	workFormViewerScopes: Record<string, boolean>;
-	workFormSubmitting: boolean;
-	workFormError: string;
-	workPublishTargetType: "file" | "directory" | "port";
-	workPublishTargetRef: string;
-	workPublishSubmitting: boolean;
-	workPublishError: string;
-	workVersions: WorkVersionRecord[];
-	workVersionsLoading: boolean;
-	workVersionsError: string;
-	workPublicRoute: (work: WorkRecord | null) => string | null;
-	onCopyWorkId: (id: string) => void | Promise<void>;
-	onSyncWorkFormFromDetail: () => void;
-	onToggleWorkStatus: (
-		status: "published" | "disabled",
-	) => void | Promise<void>;
-	onDeleteWork: () => void | Promise<void>;
-	onUpdateWorkSubmit: (event: SubmitEvent) => void | Promise<void>;
-	onPublishWorkVersion: () => void | Promise<void>;
+	ownerUsername: string | null;
+	spaceSlug: string | null;
+	onDetailLoaded?: (work: WorkRecord | null) => void;
 };
 
-let {
-	routeWorkId,
-	workDetail,
-	workDetailLoading,
-	workDetailError,
-	workCopiedId,
-	workEditMode = $bindable(),
-	workActionInProgress,
-	workDeleteInProgress,
-	workFormSlug = $bindable(),
-	workFormTargetType = $bindable(),
-	workFormTargetRef = $bindable(),
-	workFormStatus = $bindable(),
-	workFormScopes = $bindable(),
-	workFormViewerScopes = $bindable(),
-	workFormSubmitting,
-	workFormError,
-	workPublishTargetType = $bindable(),
-	workPublishTargetRef = $bindable(),
-	workPublishSubmitting,
-	workPublishError,
-	workVersions,
-	workVersionsLoading,
-	workVersionsError,
-	workPublicRoute,
-	onCopyWorkId,
-	onSyncWorkFormFromDetail,
-	onToggleWorkStatus,
-	onDeleteWork,
-	onUpdateWorkSubmit,
-	onPublishWorkVersion,
-}: Props = $props();
+let { spaceId, routeWorkId, ownerUsername, spaceSlug, onDetailLoaded }: Props =
+	$props();
+
+let workDetail = $state<WorkRecord | null>(null);
+let workDetailLoading = $state(false);
+let workDetailError = $state("");
+let workActionInProgress = $state(false);
+let workDeleteInProgress = $state(false);
+let workEditMode = $state(false);
+let workFormSlug = $state("");
+let workFormTargetType = $state<"file" | "directory" | "port">("file");
+let workFormTargetRef = $state("");
+let workFormStatus = $state<"draft" | "published" | "disabled">("published");
+let workFormScopes = $state<Record<string, boolean>>({});
+let workFormViewerScopes = $state<Record<string, boolean>>({});
+let workFormSubmitting = $state(false);
+let workFormError = $state("");
+let workCopiedId = $state(false);
+let workCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
+let workVersions = $state<WorkVersionRecord[]>([]);
+let workVersionsLoading = $state(false);
+let workVersionsError = $state("");
+let workPublishTargetType = $state<"file" | "directory" | "port">("file");
+let workPublishTargetRef = $state("");
+let workPublishSubmitting = $state(false);
+let workPublishError = $state("");
+
+function syncWorkFormFromDetail() {
+	if (!workDetail) return;
+	workFormSlug = workDetail.slug;
+	workFormTargetType = workDetail.targetType;
+	workFormTargetRef = workDetail.targetRef;
+	workFormStatus = workDetail.status;
+	workFormScopes = scopeState(workDetail.workScopes, WORK_SCOPE_OPTIONS);
+	workFormViewerScopes = scopeState(
+		workDetail.allowedViewerScopes,
+		WORK_VIEWER_SCOPE_OPTIONS,
+	);
+	workFormError = "";
+	workPublishTargetType = workDetail.targetType;
+	workPublishTargetRef = workDetail.targetRef;
+	workPublishError = "";
+}
+
+function notifyWorksUpdated() {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(
+		new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
+	);
+}
+
+function workPublicRoute(work: WorkRecord | null = workDetail) {
+	return ownerUsername && spaceSlug && work?.slug
+		? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(spaceSlug)}/w/${encodeURIComponent(work.slug)}`
+		: null;
+}
+
+async function loadWorkDetail(workId: string) {
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId && routeWorkId === workId;
+	workDetailLoading = true;
+	workDetailError = "";
+	try {
+		const { work } = await sdk.works.get(workId);
+		if (!isCurrentRequest()) return;
+		workDetail = work;
+		onDetailLoaded?.(work);
+		syncWorkFormFromDetail();
+		void loadWorkVersions(work.id);
+	} catch (error) {
+		if (!isCurrentRequest()) return;
+		workDetail = null;
+		onDetailLoaded?.(null);
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to load work";
+	} finally {
+		if (isCurrentRequest()) workDetailLoading = false;
+	}
+}
+
+async function loadWorkVersions(workId: string) {
+	workVersionsLoading = true;
+	workVersionsError = "";
+	try {
+		const { versions } = await sdk.works.listVersions(workId);
+		if (routeWorkId === workId) workVersions = versions;
+	} catch (error) {
+		if (routeWorkId === workId) {
+			workVersionsError =
+				error instanceof Error ? error.message : "Failed to load versions";
+		}
+	} finally {
+		if (routeWorkId === workId) workVersionsLoading = false;
+	}
+}
+
+async function onPublishWorkVersion() {
+	if (!workDetail || workPublishSubmitting) return;
+	workPublishError = "";
+	if (!workPublishTargetRef.trim()) {
+		workPublishError = "Target is required";
+		return;
+	}
+	workPublishSubmitting = true;
+	try {
+		const { work } = await sdk.works.update(workDetail.id, {
+			status: "published",
+			targetType: workPublishTargetType,
+			targetRef: workPublishTargetRef.trim(),
+			publishVersion: true,
+		});
+		workDetail = work;
+		onDetailLoaded?.(work);
+		syncWorkFormFromDetail();
+		await loadWorkVersions(work.id);
+		notifyWorksUpdated();
+	} catch (error) {
+		workPublishError =
+			error instanceof Error ? error.message : "Failed to publish version";
+	} finally {
+		workPublishSubmitting = false;
+	}
+}
+
+async function onCopyWorkId(id: string) {
+	try {
+		await navigator.clipboard.writeText(id);
+		workCopiedId = true;
+		if (workCopiedIdTimer) clearTimeout(workCopiedIdTimer);
+		workCopiedIdTimer = setTimeout(() => {
+			workCopiedId = false;
+		}, 1600);
+	} catch (error) {
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to copy work ID";
+	}
+}
+
+async function onToggleWorkStatus(status: "published" | "disabled") {
+	if (!workDetail || workActionInProgress) return;
+	workActionInProgress = true;
+	workDetailError = "";
+	try {
+		const { work } = await sdk.works.update(workDetail.id, { status });
+		workDetail = work;
+		onDetailLoaded?.(work);
+		syncWorkFormFromDetail();
+		void loadWorkVersions(work.id);
+		notifyWorksUpdated();
+	} catch (error) {
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to update work";
+		void loadWorkDetail(workDetail.id);
+	} finally {
+		workActionInProgress = false;
+	}
+}
+
+async function onDeleteWork() {
+	if (
+		!workDetail ||
+		workActionInProgress ||
+		workDeleteInProgress ||
+		!confirm(
+			"Delete this work? This removes the management record and public link.",
+		)
+	)
+		return;
+	const deletedWorkId = workDetail.id;
+	let deleted = false;
+	workActionInProgress = true;
+	workDeleteInProgress = true;
+	workDetailError = "";
+	try {
+		await sdk.works.delete(deletedWorkId);
+		deleted = true;
+		workDetail = null;
+		onDetailLoaded?.(null);
+		notifyWorksUpdated();
+		await goto(buildSpaceLandingRoute(spaceId), { replaceState: true });
+	} catch (error) {
+		workDetailError =
+			error instanceof Error ? error.message : "Failed to delete work";
+	} finally {
+		if (!deleted) {
+			workActionInProgress = false;
+			workDeleteInProgress = false;
+		}
+	}
+}
+
+async function onUpdateWorkSubmit(event: SubmitEvent) {
+	event.preventDefault();
+	if (!workDetail || workFormSubmitting) return;
+	workFormError = "";
+	if (!workFormSlug.trim()) {
+		workFormError = "Slug is required";
+		return;
+	}
+	if (!workFormTargetRef.trim()) {
+		workFormError = "Target is required";
+		return;
+	}
+	workFormSubmitting = true;
+	try {
+		const { work } = await sdk.works.update(workDetail.id, {
+			slug: workFormSlug.trim(),
+			status: workFormStatus,
+			targetType: workFormTargetType,
+			targetRef: workFormTargetRef.trim(),
+			workScopes: selectedScopeList(workFormScopes, WORK_SCOPE_OPTIONS),
+			allowedViewerScopes: selectedScopeList(
+				workFormViewerScopes,
+				WORK_VIEWER_SCOPE_OPTIONS,
+			),
+		});
+		workDetail = work;
+		onDetailLoaded?.(work);
+		workEditMode = false;
+		syncWorkFormFromDetail();
+		void loadWorkVersions(work.id);
+		notifyWorksUpdated();
+	} catch (error) {
+		workFormError =
+			error instanceof Error ? error.message : "Failed to save work";
+	} finally {
+		workFormSubmitting = false;
+	}
+}
+
+$effect(() => {
+	if (routeWorkId) {
+		void loadWorkDetail(routeWorkId);
+		return;
+	}
+	workDetail = null;
+	onDetailLoaded?.(null);
+	workVersions = [];
+});
 </script>
 
 {#snippet CopyIdMetaItem(id: string, copied: boolean, onCopy: () => void, label = "Copy ID")}
@@ -138,7 +320,7 @@ let {
               <span>Open public page</span>
             </a>
           {/if}
-          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { onSyncWorkFormFromDetail(); workEditMode = !workEditMode; }}>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { syncWorkFormFromDetail(); workEditMode = !workEditMode; }}>
             <Pencil class="h-3.5 w-3.5" />
             <span>{workEditMode ? 'Close edit' : 'Edit'}</span>
           </button>
@@ -209,7 +391,7 @@ let {
             <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
           {/if}
           <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
-            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workEditMode = false; onSyncWorkFormFromDetail(); }}>Cancel</button>
+            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workEditMode = false; syncWorkFormFromDetail(); }}>Cancel</button>
             <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
               {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
               <span>Save changes</span>
