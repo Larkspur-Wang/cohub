@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Job } from "bullmq";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ImageContent } from "@earendil-works/pi-ai";
+import { readPublicAssetImageUrl } from "./public-asset-storage.js";
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import { context, trace } from "@opentelemetry/api";
 import { getActiveTraceIdentifiers, getOrCreateRequestId, setRequestContextAttributes } from "@cohub/infra/tracing";
@@ -101,7 +102,7 @@ async function getModelRegistryForUser(userId: string | null | undefined) {
   return registry;
 }
 
-function contentBlockToImageContent(block: ContentBlock): ImageContent | null {
+function contentBlockToBase64ImageContent(block: ContentBlock): ImageContent | null {
   if (block.type !== "image" || block.source.type !== "base64") return null;
   return {
     type: "image",
@@ -110,14 +111,26 @@ function contentBlockToImageContent(block: ContentBlock): ImageContent | null {
   };
 }
 
-function contentBlockToAgentContent(block: ContentBlock): { type: "text"; text: string } | ImageContent | null {
+async function fetchUrlImageContent(url: string): Promise<ImageContent | null> {
+  const publicAsset = await readPublicAssetImageUrl(url).catch(() => null);
+  return publicAsset ? { type: "image", ...publicAsset } : null;
+}
+
+async function contentBlockToImageContent(block: ContentBlock): Promise<ImageContent | null> {
+  if (block.type !== "image") return null;
+  if (block.source.type === "base64") return contentBlockToBase64ImageContent(block);
+  return fetchUrlImageContent(block.source.url).catch(() => null);
+}
+
+async function contentBlockToAgentContent(block: ContentBlock): Promise<{ type: "text"; text: string } | ImageContent | null> {
   if (block.type === "text") return { type: "text", text: block.text };
   if (block.type === "image") return contentBlockToImageContent(block);
   return null;
 }
 
-function contentToAgentMessage(content: ContentBlock[], meta: Record<string, unknown> | null): AgentMessage {
-  const agentContent = content.map(contentBlockToAgentContent).filter((block): block is { type: "text"; text: string } | ImageContent => Boolean(block));
+async function contentToAgentMessage(content: ContentBlock[], meta: Record<string, unknown> | null): Promise<AgentMessage> {
+  const resolved = await Promise.all(content.map(contentBlockToAgentContent));
+  const agentContent = resolved.filter((block): block is { type: "text"; text: string } | ImageContent => Boolean(block));
   return {
     role: "user",
     content: agentContent.length > 0 ? agentContent : [{ type: "text", text: "" }],
@@ -227,7 +240,7 @@ async function appendAndPersistUserMessage(input: {
   user: TurnUserMessage;
   meta: Record<string, unknown>;
 }) {
-  const message = contentToAgentMessage(input.user.content, input.meta);
+  const message = await contentToAgentMessage(input.user.content, input.meta);
   const startedAt = new Date().toISOString();
   input.handle.session.agent.state.messages.push(message);
   const entryId = input.handle.sessionManager.appendMessage(message);
@@ -788,9 +801,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       await drainStreamStateBeforeReset(handle);
       resetStreamState(handle);
 
-      const messages = turnUserMessages
+      const messages = await Promise.all(turnUserMessages
         .filter((item) => !hasSessionUserMessage(handle, item.userMessageId))
-        .map((item) => contentToAgentMessage(item.content, normalizeTurnUserMeta(item)));
+        .map((item) => contentToAgentMessage(item.content, normalizeTurnUserMeta(item))));
 
       const directShellItem = accessMode === "full_access" && turnUserMessages.length === 1 ? turnUserMessages[0] : null;
       const directShellCommand = directShellItem ? getShellCommandBlock(directShellItem.content) : null;
