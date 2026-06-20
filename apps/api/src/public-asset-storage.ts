@@ -90,12 +90,13 @@ export const buildPublicAssetObjectKey = (input: {
   return `${envPrefix()}chat-attachments/${input.spaceId}/${input.sessionId}/${randomUUID()}.${extension}`;
 };
 
-export const buildVersionedPublicAssetUrl = (objectKey: string) => {
-  const baseUrl = config.publicAssetCdnBaseUrl
+export const buildPublicAssetUrl = (objectKey: string) => {
+  return config.publicAssetCdnBaseUrl
     ? `${config.publicAssetCdnBaseUrl}/${objectKey.split("/").map(encodeURIComponent).join("/")}`
     : buildPublicObjectUrl(requirePublicAssetConfig(), objectKey);
-  return `${baseUrl}?v=${cacheBuster()}`;
 };
+
+export const buildVersionedPublicAssetUrl = (objectKey: string) => `${buildPublicAssetUrl(objectKey)}?v=${cacheBuster()}`;
 
 export const assertPublicAssetUploadFile = (input: { purpose: PublicAssetPurpose; file: CreatePublicAssetUploadInput["file"] }) => {
   const { file } = input;
@@ -140,7 +141,7 @@ export const createPublicAssetUploadPlan = (input: {
     asset: {
       purpose: input.purpose,
       objectKey,
-      publicUrl: buildVersionedPublicAssetUrl(objectKey),
+      publicUrl: input.purpose === "chat_attachment" ? buildPublicAssetUrl(objectKey) : buildVersionedPublicAssetUrl(objectKey),
       uploadMethod: "POST",
       uploadUrl: signed.uploadUrl,
       uploadFields: signed.fields,
