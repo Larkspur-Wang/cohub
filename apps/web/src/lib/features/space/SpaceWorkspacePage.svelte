@@ -292,6 +292,7 @@ import {
 	revokeComposerAttachmentPreview,
 } from "./modules/session-composer-controller.svelte";
 import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
+import { createSessionTurnLoadingController } from "./modules/session-turn-loading-controller.svelte";
 import {
 	areSessionTurnRecordsEqual,
 	areSessionTurnsEqual,
@@ -783,10 +784,17 @@ let userScrollActive = false;
 let rightSidebarResizeCleanup: (() => void) | null = null;
 const listEl = $derived(sessionScroll.listEl);
 const chatTimelineRef = $derived(sessionScroll.chatTimelineRef);
-let turnIndexBySessionId = $state<Record<string, SessionTurnIndexItem[]>>({});
-let turnIndexLoadingBySessionId = $state<Record<string, boolean>>({});
-let turnIndexRetryAfterBySessionId = $state<Record<string, number>>({});
-let loadingTurnSequence = $state<number | null>(null);
+const sessionTurnLoading = createSessionTurnLoadingController({
+	getSpaceId: () => spaceId,
+});
+const turnIndexBySessionId = $derived(sessionTurnLoading.turnIndexBySessionId);
+const turnIndexLoadingBySessionId = $derived(
+	sessionTurnLoading.turnIndexLoadingBySessionId,
+);
+const turnIndexRetryAfterBySessionId = $derived(
+	sessionTurnLoading.turnIndexRetryAfterBySessionId,
+);
+const loadingTurnSequence = $derived(sessionTurnLoading.loadingTurnSequence);
 let currentTurnSequence = $state<number | null>(null);
 let highlightedTurnSequence = $state<number | null>(null);
 const turnMarkerPositions = $derived(sessionScroll.turnMarkerPositions);
@@ -805,7 +813,6 @@ let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
 const sessionLoadInFlight = new Map<string, Promise<void>>();
-const turnWindowLoadInFlight = new Map<string, Promise<void>>();
 const syncSessionNewerInFlight = new Map<string, Promise<void>>();
 const turnHydrationInFlight = new Map<string, Promise<void>>();
 const postSendRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -3327,52 +3334,7 @@ async function loadSessionState(sessionId: string, force = false) {
 	});
 }
 async function loadTurnIndex(sessionId: string, force = false) {
-	if (!force && Object.hasOwn(turnIndexBySessionId, sessionId)) return;
-	if (turnIndexLoadingBySessionId[sessionId]) return;
-	if (!force) {
-		if (typeof navigator !== "undefined" && !navigator.onLine) return;
-		const retryAfter = turnIndexRetryAfterBySessionId[sessionId] ?? 0;
-		if (retryAfter > Date.now()) return;
-	}
-	turnIndexLoadingBySessionId = {
-		...turnIndexLoadingBySessionId,
-		[sessionId]: true,
-	};
-	try {
-		let cursor: number | undefined;
-		const collected: SessionTurnIndexItem[] = [];
-		for (let page = 0; page < 20; page += 1) {
-			const response = await sdk.space(spaceId).session(sessionId).turns.index({
-				cursor,
-				limit: 500,
-			});
-			collected.push(...response.turns);
-			if (!response.hasMore || response.nextCursor == null) break;
-			cursor = response.nextCursor;
-		}
-		turnIndexBySessionId = {
-			...turnIndexBySessionId,
-			[sessionId]: collected,
-		};
-		if (turnIndexRetryAfterBySessionId[sessionId]) {
-			const nextRetryAfterBySessionId = { ...turnIndexRetryAfterBySessionId };
-			delete nextRetryAfterBySessionId[sessionId];
-			turnIndexRetryAfterBySessionId = nextRetryAfterBySessionId;
-		}
-	} catch (error) {
-		const retryDelayMs =
-			error instanceof HttpError && error.status === 401 ? 60_000 : 15_000;
-		turnIndexRetryAfterBySessionId = {
-			...turnIndexRetryAfterBySessionId,
-			[sessionId]: Date.now() + retryDelayMs,
-		};
-		console.warn("[loadTurnIndex] Failed to load turn index:", error);
-	} finally {
-		turnIndexLoadingBySessionId = {
-			...turnIndexLoadingBySessionId,
-			[sessionId]: false,
-		};
-	}
+	await sessionTurnLoading.loadTurnIndex(sessionId, force);
 }
 function getTurnAnchorNode(sequence: number) {
 	return (
@@ -3420,13 +3382,13 @@ function scrollToTurnAnchor(sequence: number) {
 }
 async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 	const key = `${sessionId}:${sequence}`;
-	const inFlight = turnWindowLoadInFlight.get(key);
+	const inFlight = sessionTurnLoading.getTurnWindowInFlight(key);
 	if (inFlight) return inFlight;
 	const run = (async () => {
 		const state = sessionStateById[sessionId];
 		if (state?.turns.some((turn) => turn.sequence === sequence)) return;
 		if (state?.loaded && !state.loading && state.turns.length === 0) return;
-		loadingTurnSequence = sequence;
+		sessionTurnLoading.loadingTurnSequence = sequence;
 		try {
 			const response = await sdk
 				.space(spaceId)
@@ -3483,14 +3445,12 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 			}
 			throw error;
 		} finally {
-			loadingTurnSequence = null;
+			sessionTurnLoading.loadingTurnSequence = null;
 		}
 	})();
-	turnWindowLoadInFlight.set(key, run);
+	sessionTurnLoading.setTurnWindowInFlight(key, run);
 	return run.finally(() => {
-		if (turnWindowLoadInFlight.get(key) === run) {
-			turnWindowLoadInFlight.delete(key);
-		}
+		sessionTurnLoading.clearTurnWindowInFlight(key, run);
 	});
 }
 async function jumpToTurn(sequence: number) {
@@ -5958,17 +5918,13 @@ $effect(() => {
 	sessionWorkspace.loadingSessionIds = {};
 	sessionWorkspace.visibleInitialLoadingSessionIds = {};
 	sessionLoadInFlight.clear();
-	turnWindowLoadInFlight.clear();
+	sessionTurnLoading.reset();
 	syncSessionNewerInFlight.clear();
 	turnHydrationInFlight.clear();
 	clearAllPostSendRecovery();
 	lastStreamSnapshotRecoveryByTurn.clear();
 	sessionWorkspace.activeSessionId = null;
-	turnIndexBySessionId = {};
-	turnIndexLoadingBySessionId = {};
-	turnIndexRetryAfterBySessionId = {};
 	currentTurnSequence = null;
-	loadingTurnSequence = null;
 	sessionScroll.turnMarkerPositions = {};
 	sessionScroll.turnMarkerHeights = {};
 	lastTurnIndexRefreshKey = "";
