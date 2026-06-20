@@ -822,17 +822,39 @@ export function createFileWorkspaceController(
 		}
 	}
 
-	function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
+	function findFsNode(
+		path: string,
+		nodes: SpaceFsNode[] = fileTree,
+	): SpaceFsNode | null {
 		for (const node of nodes) {
 			if (node.path === path) return node;
-			const child = findFsNode(node.children, path);
+			const child = findFsNode(path, node.children);
 			if (child) return child;
 		}
 		return null;
 	}
 
+	function applyDirectoryEntries(dirPath: string, entries: SpaceFsEntry[]) {
+		if (dirPath === "") {
+			updateRootFsEntries(entries);
+			return;
+		}
+		setActiveFileTree(
+			replaceNodeChildren(fileTree, dirPath, makeFsNodes(entries)),
+		);
+	}
+
+	function markDirectoryUnloaded(dirPath: string) {
+		setActiveFileTree(
+			updateNodeState(fileTree, dirPath, (item) => ({
+				...item,
+				isLoaded: false,
+			})),
+		);
+	}
+
 	function getFileActionNode(path: string): SpaceFsNode {
-		const existingNode = findFsNode(fileTree, path);
+		const existingNode = findFsNode(path);
 		if (existingNode) return existingNode;
 		const response =
 			openFile?.path === path
@@ -1138,6 +1160,9 @@ export function createFileWorkspaceController(
 		markFileSavePending,
 		clearFileSavePendingSoon,
 		isOwnPendingFileSave,
+		findFsNode,
+		applyDirectoryEntries,
+		markDirectoryUnloaded,
 		getFileActionNode,
 		renamePath,
 		dispose,

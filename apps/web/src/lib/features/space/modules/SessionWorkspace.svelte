@@ -1,21 +1,122 @@
 <script lang="ts">
+import type {
+	SessionTurnIndexItem,
+	SessionTurnRecord,
+} from "@cohub/protocol/model";
+import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import { ArrowDown, ListTree, Plus } from "lucide-svelte";
 import type { Snippet } from "svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import NewChatBackground from "$lib/components/NewChatBackground.svelte";
 import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SessionTaskTray from "$lib/components/SessionTaskTray.svelte";
+import SessionTaskTray, {
+	type GenerationTaskNotice,
+	type SessionTaskNotice,
+} from "$lib/components/SessionTaskTray.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
+import type { ComposerAttachment } from "$lib/composer-attachments";
+import type { ModelCatalogItem } from "$lib/model-catalog";
+import type { TimelineItem } from "$lib/session-tree";
+import type { NewChatBackgroundConfig } from "$lib/space-config";
 import {
 	loadMessageToolCalls,
 	loadTurnIntermediate,
 } from "$lib/stores/turn-intermediate-cache";
+import type { LocalUploadEntry } from "$lib/upload-entries";
+import type { SessionViewState } from "./session-workspace-controller.svelte";
 
-// biome-ignore lint/suspicious/noExplicitAny: Transitional view shell; session state stays in the parent during migration.
-type Props = Record<string, any> & {
+type SelectedModel = {
+	provider: string;
+	id: string;
+	name?: string;
+};
+
+type Props = {
+	spaceId: string;
+	spaceLoadError: string;
+	spaceHasMinimalAccess: boolean;
+	createSessionError: string;
+	bootstrapping: boolean;
+	activeSessionState: SessionViewState | null | undefined;
+	activeSessionInitialLoadingVisible: boolean;
+	isNewSessionRoute: boolean;
+	canCreateSession: boolean;
+	handleCreateNewSession: () => void;
+	shouldShowNewChatBackground: boolean;
+	newChatBackground: NewChatBackgroundConfig | null;
+	shouldShowNewChatProfile: boolean;
+	newChatProfileViewportEl?: HTMLDivElement | null;
+	newChatProfileExpanded: boolean;
 	newChatProfile?: Snippet;
+	chatTimelineRef?: unknown;
+	listEl?: HTMLDivElement | null;
+	timeline: TimelineItem[];
+	handleFirstVisible: (index: number) => void;
+	handleTimelineMarkdownRenderStart: (...args: unknown[]) => void;
+	handleTimelineMarkdownRendered: (...args: unknown[]) => void;
+	handleForkTurn: (turn: SessionTurnRecord) => void | Promise<void>;
+	forkingTurnId: string | null;
+	openInlineFile: (path: string) => void | Promise<void>;
+	modelsCatalog: ModelCatalogItem[] | null;
+	sessionTaskNotices: SessionTaskNotice[];
+	sessionTaskHasMore: boolean;
+	sessionTaskRecentLoading: boolean;
+	handleSessionTaskTrayExpand: () => void;
+	handleSessionTaskTrayLoadMore: () => void;
+	handleOpenGenerationTaskMedia: (notice: GenerationTaskNotice) => void;
+	followupQueue: SessionTurnRecord[];
+	turnPreviewText: (turn: SessionTurnRecord) => string;
+	pendingFollowupActionIds: Set<string>;
+	handleSteerFollowup: (turnId: string) => void | Promise<void>;
+	handleCancelFollowup: (turnId: string) => void | Promise<void>;
+	activeTurnRailItems: SessionTurnIndexItem[];
+	turnMarkerPositions: Record<number, number>;
+	turnMarkerHeights: Record<number, number>;
+	timelineScrollTop: number;
+	timelineScrollHeight: number;
+	timelineClientHeight: number;
+	composerHeight: number;
+	unloadedOlderTurnCount: number;
+	unloadedNewerTurnCount: number;
+	currentTurnSequence: number | null;
+	loadingTurnSequence: number | null;
+	jumpToTurnAndUpdateUrl: (sequence: number) => void | Promise<void>;
+	setProgrammaticScrollTop: (scrollTop: number) => void;
+	snapScrollToNearestTurn: () => void;
+	activeSessionId: string | null;
+	loadOlderTurns: (sessionId: string) => void | Promise<void>;
+	syncSessionNewer: (
+		sessionId: string,
+		cached: unknown,
+	) => void | Promise<void>;
+	highlightedTurnSequence: number | null;
+	hasUnread: boolean;
+	shouldAutoFollow?: boolean;
+	forceScrollToBottom: () => void | Promise<void>;
+	showTurnBottomSheet: boolean;
+	loadTurnIndex: (sessionId: string, force?: boolean) => void | Promise<void>;
+	composerHostEl?: HTMLDivElement | null;
+	input: string;
+	sending: boolean;
+	activeSessionIsRunning: boolean;
+	aborting: boolean;
+	composerNotice: string;
+	composerShowsBillingAction: boolean;
+	attachments: ComposerAttachment[];
+	activeSessionModel: SelectedModel | null;
+	promptTemplates: PromptTemplateCatalogEntry[];
+	promptTemplatesLoaded: boolean;
+	handlePickAttachments: (
+		files: FileList | File[] | LocalUploadEntry[] | null,
+	) => void | Promise<void>;
+	handleRemoveAttachment: (id: string) => void;
+	handleSend: () => void | Promise<void>;
+	handleAbort: () => void | Promise<void>;
+	loadModelsCatalog: () => void | Promise<void>;
+	loadGenerationModelsCatalog: () => void | Promise<void>;
+	showModelSelector?: boolean;
 };
 
 let {
@@ -88,7 +189,6 @@ let {
 	composerShowsBillingAction,
 	attachments,
 	activeSessionModel,
-	activeSessionIdForComposer,
 	promptTemplates,
 	promptTemplatesLoaded,
 	handlePickAttachments,

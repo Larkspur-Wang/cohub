@@ -15,21 +15,17 @@ import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { CanvasSemanticOp } from "@neta-art/cohub";
 import {
-	type CheckpointRecord,
-	type CronJobRecord,
 	type GenerationStreamEvent,
 	HttpError,
 	type Permission,
 	type PromptTemplateCatalogEntry,
 	type SessionRecord,
 	type SpaceAccessPolicy,
-	type SpaceFsEntry,
 	type SpaceFsFileResponse,
 	type SpaceMember,
 	type SpaceRecord,
 	type TaskRunRecord,
 	type UserProfile,
-	type WorkRecord,
 	type WorkVersionRecord,
 } from "@neta-art/cohub";
 import {
@@ -254,17 +250,7 @@ import {
 import FilesSidebarPanel from "./modules/FilesSidebarPanel.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
-import {
-	buildFsEntry,
-	getParentDirPath,
-	hasRenderedFilePreview,
-	isHtmlPath,
-	isMarkdownPath,
-	makeFsNode,
-	makeFsNodes,
-	replaceNodeChildren,
-	updateNodeState,
-} from "./modules/file-workspace-utils";
+import { makeFsNode } from "./modules/file-workspace-utils";
 import InlineFilePanel from "./modules/InlineFilePanel.svelte";
 import PortPreviewPanel from "./modules/PortPreviewPanel.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
@@ -878,13 +864,13 @@ let shareModalError = $state("");
 let shareModalSaving = $state(false);
 let forkingTurnId = $state<string | null>(null);
 let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
-let checkpointDetail = $state<CheckpointRecord | null>(null);
-// ─── Cronjobs ───
-let cronjobDetail = $state<CronJobRecord | null>(null);
-// ─── Works ───
-let workDetail = $state<WorkRecord | null>(null);
-// ─── Tasks ───
-let taskRunDetail = $state<TaskRunRecord | null>(null);
+type RouteDetailHeaderMeta = {
+	view: "checkpoint" | "cronjob" | "work" | "task";
+	id: string;
+	title: string;
+};
+
+let routeDetailHeaderMeta = $state<RouteDetailHeaderMeta | null>(null);
 const sessionTasks = createSessionTaskController();
 const generationTaskRunById = $derived(sessionTasks.generationTaskRunById);
 const backgroundBashTaskRunById = $derived(
@@ -1424,6 +1410,17 @@ $effect(() => {
 		void hydrateActiveSessionTasks(sessionId);
 	}
 });
+const activeRouteDetailHeader = $derived.by(() => {
+	const meta = routeDetailHeaderMeta;
+	if (!meta || meta.view !== routeView) return null;
+	if (meta.view === "checkpoint")
+		return routeCheckpointId === meta.id ? meta : null;
+	if (meta.view === "cronjob") return routeCronjobId === meta.id ? meta : null;
+	if (meta.view === "work") return routeWorkId === meta.id ? meta : null;
+	if (meta.view === "task") return routeTaskId === meta.id ? meta : null;
+	return null;
+});
+
 const browserTabTitle = $derived.by(() => {
 	const spaceTitle = normalizeTabTitleSegment(
 		space?.name || space?.title || spaceId,
@@ -1453,19 +1450,23 @@ const browserTabTitle = $derived.by(() => {
 		}
 		if (routeView === "checkpoint") {
 			return normalizeTabTitleSegment(
-				checkpointDetail?.description?.trim() ||
+				activeRouteDetailHeader?.title ||
 					(routeCheckpointId ? `Save ${routeCheckpointId.slice(0, 8)}` : null),
 				"Save",
 			);
 		}
 		if (routeView === "checkpoint-new") return "New save";
 		if (routeView === "cronjob") {
-			return normalizeTabTitleSegment(cronjobDetail?.title, "Cronjob");
+			return normalizeTabTitleSegment(
+				activeRouteDetailHeader?.title,
+				"Cronjob",
+			);
 		}
 		if (routeView === "cronjob-new") return "New cronjob";
 		if (routeView === "work")
-			return normalizeTabTitleSegment(workDetail?.slug, "Work");
-		if (routeView === "task") return "Task";
+			return normalizeTabTitleSegment(activeRouteDetailHeader?.title, "Work");
+		if (routeView === "task")
+			return normalizeTabTitleSegment(activeRouteDetailHeader?.title, "Task");
 		return null;
 	})();
 	if (routeTitle) return `${routeTitle} · ${spaceTitle} — Cohub`;
@@ -2380,24 +2381,6 @@ function writeBottomScrollAnchor(sessionId: string) {
 	const state = sessionStateById[sessionId];
 	unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
 }
-function updateRootFsEntries(entries: SpaceFsEntry[]) {
-	fileWorkspace.updateRootFsEntries(entries);
-}
-function setActiveFileTree(nodes: SpaceFsNode[]) {
-	fileWorkspace.setActiveFileTree(nodes);
-}
-function listActiveFsDir(path: string) {
-	return fileWorkspace.listActiveFsDir(path);
-}
-function readActiveFsFile(path: string) {
-	return fileWorkspace.readActiveFsFile(path);
-}
-async function patchFsDirectory(
-	dirPath: string,
-	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
-) {
-	return fileWorkspace.patchFsDirectory(dirPath, updater);
-}
 function upsertSessionRecord(
 	session: SessionRecord,
 	options?: { cache?: boolean },
@@ -3254,11 +3237,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	for (const dir of dirsToRefresh) {
 		const snapshot = await spaceFsRepo.getDir(spaceId, dir);
 		if (!snapshot || !shouldPatchVisibleTree()) continue;
-		if (dir === "") updateRootFsEntries(snapshot.entries);
-		else
-			setActiveFileTree(
-				replaceNodeChildren(fileTree, dir, makeFsNodes(snapshot.entries)),
-			);
+		fileWorkspace.applyDirectoryEntries(dir, snapshot.entries);
 	}
 	if (!shouldPatchVisibleTree()) return;
 	if (eventPayload.resync) {
@@ -3307,27 +3286,13 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	if (!shouldPatchVisibleTree()) return;
 	for (const dir of dirsToRefresh) {
 		if (!dir) continue;
-		const node = findFsNode(fileTree, dir);
+		const node = fileWorkspace.findFsNode(dir);
 		if (node?.isOpen) {
 			if (!shouldPatchVisibleTree()) return;
-			setActiveFileTree(
-				updateNodeState(fileTree, dir, (item) => ({
-					...item,
-					isLoaded: false,
-				})),
-			);
+			fileWorkspace.markDirectoryUnloaded(dir);
 			await expandDirectory({ ...node, isOpen: false, isLoaded: false });
 		}
 	}
-}
-
-function findFsNode(nodes: SpaceFsNode[], path: string): SpaceFsNode | null {
-	for (const node of nodes) {
-		if (node.path === path) return node;
-		const child = findFsNode(node.children, path);
-		if (child) return child;
-	}
-	return null;
 }
 
 function applyAcceptedTurnId(input: {
@@ -3459,14 +3424,6 @@ function handleTaskRealtimeEvent(payload: ChannelEnvelope) {
 		(task.type === "run_command" || task.type === "generation")
 	) {
 		void hydrateTaskRun(task.id);
-	}
-	if (routeTaskId === task.id) {
-		taskRunDetail = mergeTaskRunRecord(taskRunDetail, {
-			...(task as Partial<TaskRunRecord>),
-			id: task.id,
-			type: task.type,
-			userId: task.userId,
-		});
 	}
 	if (payload.type === "task.updated") {
 		if (
@@ -4924,11 +4881,6 @@ onMount(() => {
 				if (isGenerationTaskRun(run)) upsertGenerationTaskRun(run);
 				if (isBackgroundBashTaskRun(run)) upsertBackgroundBashTaskRun(run);
 			}
-			if (routeTaskId) {
-				const run = runs.find((item) => item.id === routeTaskId);
-				if (run)
-					taskRunDetail = taskRunDetail ? { ...taskRunDetail, ...run } : run;
-			}
 		},
 	);
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
@@ -5052,9 +5004,7 @@ $effect(() => {
 	showShareModal = false;
 	shareModalSessionId = null;
 	sessionAccessById = {};
-	checkpointDetail = null;
-	cronjobDetail = null;
-	taskRunDetail = null;
+	routeDetailHeaderMeta = null;
 	creatingSession = false;
 	createSessionError = "";
 	sessionTasks.reset();
@@ -5434,13 +5384,6 @@ $effect(() => {
 	});
 });
 $effect(() => {
-	if (routeView === "task" && routeTaskId) {
-		if (taskRunDetail?.id !== routeTaskId) taskRunDetail = null;
-		return;
-	}
-	taskRunDetail = null;
-});
-$effect(() => {
 	const el = composerHostEl;
 	if (!el) {
 		sessionScroll.composerHeight = 0;
@@ -5778,14 +5721,14 @@ $effect(() => {
             {/if}
           {/if}
         </div>
-      {:else if routeView === "checkpoint" && checkpointDetail}
+      {:else if routeView === "checkpoint" && activeRouteDetailHeader}
         <button
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">{activeRouteDetailHeader.title.slice(0, 36) || 'Checkpoint'}</span>
 
       {:else if routeView === "checkpoint-new"}
         <button
@@ -5795,14 +5738,14 @@ $effect(() => {
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">New save</span>
-      {:else if routeView === "cronjob" && cronjobDetail}
+      {:else if routeView === "cronjob" && activeRouteDetailHeader}
         <button
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">{cronjobDetail.title}</span>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">{activeRouteDetailHeader.title}</span>
 
       {:else if routeView === "cronjob-new"}
         <button
@@ -5812,14 +5755,14 @@ $effect(() => {
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">New cronjob</span>
-      {:else if routeView === "task" && taskRunDetail}
+      {:else if routeView === "task" && activeRouteDetailHeader}
         <button
           type="button"
           class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
           title={space?.name || space?.title || spaceId}
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">{taskTypeLabel(taskRunDetail.taskType)}</span>
+        <span class="min-w-0 truncate text-[13px] text-text-secondary">{activeRouteDetailHeader.title}</span>
       {:else}
         <button
           type="button"
@@ -5923,7 +5866,15 @@ $effect(() => {
         {spaceLoadError}
         {spaceHasMinimalAccess}
         checkpointId={routeCheckpointId}
-        onDetailLoaded={(checkpoint) => { checkpointDetail = checkpoint; }}
+        onDetailLoaded={(checkpoint) => {
+          routeDetailHeaderMeta = checkpoint && routeCheckpointId
+            ? {
+                view: "checkpoint",
+                id: routeCheckpointId,
+                title: checkpoint.description?.trim() || `Save ${routeCheckpointId.slice(0, 8)}`,
+              }
+            : null;
+        }}
       />
     {:else if routeView === 'cronjob-new' || routeView === 'cronjob'}
       <CronjobView
@@ -5933,7 +5884,11 @@ $effect(() => {
         {spaceLoadError}
         {spaceHasMinimalAccess}
         cronjobId={routeCronjobId}
-        onDetailLoaded={(job) => { cronjobDetail = job; }}
+        onDetailLoaded={(job) => {
+          routeDetailHeaderMeta = job
+            ? { view: "cronjob", id: job.id, title: job.title }
+            : null;
+        }}
       />
     {:else if routeView === 'work'}
       <WorkView
@@ -5941,13 +5896,21 @@ $effect(() => {
         {routeWorkId}
         ownerUsername={space?.ownerProfile?.username ?? (space?.userUuid === authStore.userUuid ? (authStore.profile?.username ?? null) : null)}
         spaceSlug={space?.slug ?? null}
-        onDetailLoaded={(work) => { workDetail = work; }}
+        onDetailLoaded={(work) => {
+          routeDetailHeaderMeta = work
+            ? { view: "work", id: work.id, title: work.slug }
+            : null;
+        }}
       />
     {:else if routeView === 'task'}
       <TaskRunView
         {spaceId}
         taskId={routeTaskId}
-        onDetailLoaded={(run) => { taskRunDetail = run; }}
+        onDetailLoaded={(run) => {
+          routeDetailHeaderMeta = run
+            ? { view: "task", id: run.id, title: taskTypeLabel(run.taskType) }
+            : null;
+        }}
       />
     {:else if fileMode === 'file'}
       <FileWorkspace
