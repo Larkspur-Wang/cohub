@@ -2,9 +2,11 @@
 import type { TaskRunRecord, UserProfile } from "@neta-art/cohub";
 import { Check, Copy, GitCommitHorizontal } from "lucide-svelte";
 import { goto } from "$app/navigation";
+import { writeTaskRunDetail } from "$lib/cache/repositories/task-runs-repo";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { sdk } from "$lib/sdk";
 import {
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobRoute,
@@ -35,27 +37,105 @@ import {
 type Props = {
 	spaceId: string;
 	taskId: string | null;
-	taskRunDetail: TaskRunRecord | null;
-	taskRunDetailLoading: boolean;
-	taskRunDetailError: string;
-	taskRunProgress: unknown;
-	taskCopiedField: "id" | "payload" | "result" | null;
-	onCopyTaskField: (
-		field: "id" | "payload" | "result",
-		value: unknown,
-	) => void | Promise<void>;
+	onDetailLoaded?: (run: TaskRunRecord | null) => void;
 };
 
-let {
-	spaceId,
-	taskId,
-	taskRunDetail,
-	taskRunDetailLoading,
-	taskRunDetailError,
-	taskRunProgress,
-	taskCopiedField,
-	onCopyTaskField,
-}: Props = $props();
+let { spaceId, taskId, onDetailLoaded }: Props = $props();
+
+let taskRunDetail = $state<TaskRunRecord | null>(null);
+let taskRunDetailLoading = $state(false);
+let taskRunDetailError = $state("");
+let taskRunProgress = $state<unknown>(null);
+let taskCopiedField = $state<"id" | "payload" | "result" | null>(null);
+let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
+let refreshInFlight: Promise<void> | null = null;
+let refreshInFlightTaskId: string | null = null;
+
+function isActiveTaskRun(run: TaskRunRecord | null | undefined) {
+	return run?.status === "pending" || run?.status === "running";
+}
+
+function clearTaskRunPoll() {
+	if (taskRunPollTimer) clearInterval(taskRunPollTimer);
+	taskRunPollTimer = null;
+}
+
+function ensureTaskRunPoll(targetTaskId: string, intervalMs = 5000) {
+	if (taskRunPollTimer) return;
+	taskRunPollTimer = setInterval(
+		() => void refreshTaskDetail(targetTaskId),
+		intervalMs,
+	);
+}
+
+async function refreshTaskDetail(targetTaskId: string, loading = false) {
+	if (refreshInFlight && refreshInFlightTaskId === targetTaskId) {
+		return refreshInFlight;
+	}
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId && taskId === targetTaskId;
+	refreshInFlightTaskId = targetTaskId;
+	refreshInFlight = (async () => {
+		if (loading) taskRunDetailLoading = true;
+		taskRunDetailError = "";
+		try {
+			const { run, progress } = await sdk.tasks.get(targetTaskId);
+			if (!isCurrentRequest()) return;
+			taskRunDetail = run;
+			onDetailLoaded?.(run);
+			taskRunProgress = progress;
+			void writeTaskRunDetail(requestSpaceId, run, progress).catch(
+				() => undefined,
+			);
+			if (isActiveTaskRun(run)) ensureTaskRunPoll(targetTaskId);
+			else clearTaskRunPoll();
+		} catch (error) {
+			if (!isCurrentRequest()) return;
+			taskRunDetail = null;
+			onDetailLoaded?.(null);
+			taskRunDetailError =
+				error instanceof Error ? error.message : "Failed to load task";
+			clearTaskRunPoll();
+		} finally {
+			if (isCurrentRequest()) taskRunDetailLoading = false;
+			refreshInFlight = null;
+			refreshInFlightTaskId = null;
+		}
+	})();
+	return refreshInFlight;
+}
+
+async function loadTaskDetail(targetTaskId: string) {
+	clearTaskRunPoll();
+	taskRunProgress = null;
+	await refreshTaskDetail(targetTaskId, true);
+}
+
+async function copyTaskField(
+	field: "id" | "payload" | "result",
+	value: unknown,
+) {
+	const text = typeof value === "string" ? value : displaySafeJson(value);
+	await navigator.clipboard.writeText(text);
+	taskCopiedField = field;
+	if (taskCopiedTimer) clearTimeout(taskCopiedTimer);
+	taskCopiedTimer = setTimeout(() => {
+		taskCopiedField = null;
+	}, 1600);
+}
+
+$effect(() => {
+	if (taskId) {
+		void loadTaskDetail(taskId);
+		return;
+	}
+	clearTaskRunPoll();
+	taskRunDetail = null;
+	onDetailLoaded?.(null);
+	taskRunProgress = null;
+});
 
 function userTitle(
 	profile: UserProfile | null | undefined,
@@ -123,7 +203,7 @@ function userTitle(
 									{badge.label}
 								</span>
 								{@render UserMetaItem(taskRunDetail.userProfile, taskRunDetail.userUuid)}
-								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void onCopyTaskField("id", taskRunDetail!.id), "Copy task ID")}
+								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void copyTaskField("id", taskRunDetail!.id), "Copy task ID")}
 							</div>
 							<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
 								<span>{taskContextLabel(taskRunDetail)}</span>
@@ -242,7 +322,7 @@ function userTitle(
 						<div class="space-y-2">
 							<div class="flex items-center justify-between gap-3">
 								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
-								<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void onCopyTaskField("payload", taskRunDetail!.payload)} title="Copy payload">
+								<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void copyTaskField("payload", taskRunDetail!.payload)} title="Copy payload">
 									{#if taskCopiedField === "payload"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">Copied</span>{:else}<Copy class="h-3 w-3" /><span>Copy</span>{/if}
 								</button>
 							</div>
@@ -253,7 +333,7 @@ function userTitle(
 							<div class="space-y-2">
 								<div class="flex items-center justify-between gap-3">
 									<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
-									<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void onCopyTaskField("result", rawResult)} title="Copy result">
+									<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void copyTaskField("result", rawResult)} title="Copy result">
 										{#if taskCopiedField === "result"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">Copied</span>{:else}<Copy class="h-3 w-3" /><span>Copy</span>{/if}
 									</button>
 								</div>

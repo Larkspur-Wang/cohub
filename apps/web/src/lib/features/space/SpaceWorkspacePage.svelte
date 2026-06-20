@@ -966,13 +966,6 @@ let shareModalSaving = $state(false);
 let forkingTurnId = $state<string | null>(null);
 let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
 let checkpointDetail = $state<CheckpointRecord | null>(null);
-let checkpointDetailLoading = $state(false);
-let checkpointDetailError = $state("");
-let checkpointCopied = $state(false);
-let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let checkpointCreateDescription = $state("");
-let checkpointCreateSubmitting = $state(false);
-let checkpointCreateError = $state("");
 // ─── Cronjobs ───
 let cronjobDetail = $state<CronJobRecord | null>(null);
 let cronjobDetailLoading = $state(false);
@@ -1096,76 +1089,6 @@ async function removeSessionAccess(sessionId: string) {
 		sessionAccessById = { ...sessionAccessById, [sessionId]: null };
 	} catch {
 		// Silently fail
-	}
-}
-async function loadCheckpointDetail(checkpointId: string) {
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId &&
-		routeView === "checkpoint" &&
-		routeCheckpointId === checkpointId;
-	checkpointDetailLoading = true;
-	checkpointDetailError = "";
-	try {
-		const result = await sdk
-			.space(requestSpaceId)
-			.checkpoints.get(checkpointId);
-		if (!isCurrentRequest()) return;
-		checkpointDetail = result.checkpoint;
-	} catch (error) {
-		if (!isCurrentRequest()) return;
-		checkpointDetail = null;
-		checkpointDetailError =
-			error instanceof Error ? error.message : "Failed to load save";
-	} finally {
-		if (isCurrentRequest()) checkpointDetailLoading = false;
-	}
-}
-let checkpointIdCopied = $state(false);
-let checkpointIdCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-async function handleCopyCheckpointId() {
-	if (!checkpointDetail) return;
-	await navigator.clipboard.writeText(checkpointDetail.id);
-	checkpointIdCopied = true;
-	if (checkpointIdCopiedTimer) clearTimeout(checkpointIdCopiedTimer);
-	checkpointIdCopiedTimer = setTimeout(() => {
-		checkpointIdCopied = false;
-	}, 1800);
-}
-async function handleCopyCheckpointCommitHash() {
-	if (!checkpointDetail) return;
-	await navigator.clipboard.writeText(checkpointDetail.commitHash);
-	checkpointCopied = true;
-	if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
-	checkpointCopiedTimer = setTimeout(() => {
-		checkpointCopied = false;
-	}, 1800);
-}
-async function handleForkCheckpoint() {
-	if (!checkpointDetail) return;
-	await goto(
-		`/spaces/new?checkpointId=${encodeURIComponent(checkpointDetail.id)}`,
-	);
-}
-async function handleCreateCheckpointSubmit(event: SubmitEvent) {
-	event.preventDefault();
-	if (checkpointCreateSubmitting) return;
-	checkpointCreateError = "";
-	checkpointCreateSubmitting = true;
-	try {
-		const { taskRunId } = await sdk
-			.space(spaceId)
-			.checkpoints.create(checkpointCreateDescription.trim() || null);
-		await goto(buildSpaceTaskRoute(spaceId, taskRunId));
-	} catch (error) {
-		if (error instanceof HttpError && error.status === 409) {
-			checkpointCreateError = "Checkpoint save in progress.";
-		} else {
-			checkpointCreateError =
-				error instanceof Error ? error.message : "Failed to save checkpoint";
-		}
-	} finally {
-		checkpointCreateSubmitting = false;
 	}
 }
 function modelFromPayload(payload: unknown): SelectedModel | null {
@@ -7192,16 +7115,6 @@ async function copyInlineFileContent() {
 		inlineFileCopied = false;
 	}, 1500);
 }
-function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
-	if (!dateStr) return "—";
-	const d = new Date(dateStr);
-	return d.toLocaleString("en-US", {
-		month: "short",
-		day: "numeric",
-		hour: "2-digit",
-		minute: "2-digit",
-	});
-}
 function insertPathReference(path: string) {
 	insertComposerSnippet(` \`${path}\` `);
 	uiState.mobileRightDrawerOpen = false;
@@ -7672,7 +7585,6 @@ onMount(() => {
 		offTaskRunsCacheUpdated();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
-		if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
 		if (spaceStatusNoticeTimer) clearTimeout(spaceStatusNoticeTimer);
 		if (portReadyToastTimer) clearTimeout(portReadyToastTimer);
 		if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
@@ -8155,16 +8067,7 @@ $effect(() => {
 	void loadFileTree(false);
 });
 $effect(() => {
-	if (routeView === "checkpoint" && routeCheckpointId) {
-		void loadCheckpointDetail(routeCheckpointId);
-		return;
-	}
-	checkpointDetail = null;
-	checkpointDetailError = "";
-});
-$effect(() => {
 	if (routeView === "checkpoint-new") {
-		checkpointCreateError = "";
 	}
 });
 $effect(() => {
@@ -8592,7 +8495,7 @@ $effect(() => {
           aria-label="Open space"
         ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
         <span class="min-w-0 truncate text-[13px] text-text-secondary">{checkpointDetail.description ? checkpointDetail.description.slice(0, 36) : 'Checkpoint'}</span>
-        {#if checkpointDetailLoading}<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />{/if}
+
       {:else if routeView === "checkpoint-new"}
         <button
           type="button"
@@ -8744,19 +8647,8 @@ $effect(() => {
         {space}
         {spaceLoadError}
         {spaceHasMinimalAccess}
-        bind:checkpointCreateDescription
-        {checkpointCreateSubmitting}
-        {checkpointCreateError}
-        onCreateSubmit={handleCreateCheckpointSubmit}
-        {checkpointDetail}
         checkpointId={routeCheckpointId}
-        {checkpointDetailLoading}
-        {checkpointDetailError}
-        {checkpointIdCopied}
-        {checkpointCopied}
-        onForkCheckpoint={handleForkCheckpoint}
-        onCopyCheckpointId={handleCopyCheckpointId}
-        onCopyCheckpointCommitHash={handleCopyCheckpointCommitHash}
+        onDetailLoaded={(checkpoint) => { checkpointDetail = checkpoint; }}
       />
     {:else if routeView === 'cronjob-new' || routeView === 'cronjob'}
       <CronjobView
@@ -8843,12 +8735,7 @@ $effect(() => {
       <TaskRunView
         {spaceId}
         taskId={routeTaskId}
-        {taskRunDetail}
-        {taskRunDetailLoading}
-        {taskRunDetailError}
-        {taskRunProgress}
-        {taskCopiedField}
-        onCopyTaskField={copyTaskField}
+        onDetailLoaded={(run) => { taskRunDetail = run; }}
       />
     {:else if fileMode === 'file'}
       <FileWorkspace

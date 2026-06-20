@@ -1,5 +1,9 @@
 <script lang="ts">
-import type { CheckpointRecord, SpaceRecord } from "@neta-art/cohub";
+import {
+	type CheckpointRecord,
+	HttpError,
+	type SpaceRecord,
+} from "@neta-art/cohub";
 import {
 	Activity,
 	Check,
@@ -12,6 +16,7 @@ import {
 } from "lucide-svelte";
 import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import { sdk } from "$lib/sdk";
 import {
 	buildSpaceNewSessionRoute,
 	buildSpaceTaskRoute,
@@ -24,19 +29,8 @@ type Props = {
 	space: SpaceRecord | null;
 	spaceLoadError: string;
 	spaceHasMinimalAccess: boolean;
-	checkpointCreateDescription: string;
-	checkpointCreateSubmitting: boolean;
-	checkpointCreateError: string;
-	onCreateSubmit: (event: SubmitEvent) => void | Promise<void>;
-	checkpointDetail: CheckpointRecord | null;
 	checkpointId: string | null;
-	checkpointDetailLoading: boolean;
-	checkpointDetailError: string;
-	checkpointIdCopied: boolean;
-	checkpointCopied: boolean;
-	onForkCheckpoint: () => void | Promise<void>;
-	onCopyCheckpointId: () => void | Promise<void>;
-	onCopyCheckpointCommitHash: () => void | Promise<void>;
+	onDetailLoaded?: (checkpoint: CheckpointRecord | null) => void;
 };
 
 let {
@@ -45,20 +39,20 @@ let {
 	space,
 	spaceLoadError,
 	spaceHasMinimalAccess,
-	checkpointCreateDescription = $bindable(),
-	checkpointCreateSubmitting,
-	checkpointCreateError,
-	onCreateSubmit,
-	checkpointDetail,
 	checkpointId,
-	checkpointDetailLoading,
-	checkpointDetailError,
-	checkpointIdCopied,
-	checkpointCopied,
-	onForkCheckpoint,
-	onCopyCheckpointId,
-	onCopyCheckpointCommitHash,
+	onDetailLoaded,
 }: Props = $props();
+
+let checkpointDetail = $state<CheckpointRecord | null>(null);
+let checkpointDetailLoading = $state(false);
+let checkpointDetailError = $state("");
+let checkpointIdCopied = $state(false);
+let checkpointCopied = $state(false);
+let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let checkpointIdCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+let checkpointCreateDescription = $state("");
+let checkpointCreateSubmitting = $state(false);
+let checkpointCreateError = $state("");
 
 function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
@@ -81,6 +75,87 @@ function sourceTaskRunIdFromCheckpoint(
 		? sourceTaskRunId
 		: null;
 }
+
+async function loadCheckpointDetail(targetCheckpointId: string) {
+	const requestSpaceId = spaceId;
+	const isCurrentRequest = () =>
+		spaceId === requestSpaceId &&
+		mode === "detail" &&
+		checkpointId === targetCheckpointId;
+	checkpointDetailLoading = true;
+	checkpointDetailError = "";
+	try {
+		const { checkpoint } = await sdk
+			.space(spaceId)
+			.checkpoints.get(targetCheckpointId);
+		if (!isCurrentRequest()) return;
+		checkpointDetail = checkpoint;
+		onDetailLoaded?.(checkpoint);
+	} catch (error) {
+		if (!isCurrentRequest()) return;
+		checkpointDetail = null;
+		onDetailLoaded?.(null);
+		checkpointDetailError =
+			error instanceof Error ? error.message : "Failed to load checkpoint";
+	} finally {
+		if (isCurrentRequest()) checkpointDetailLoading = false;
+	}
+}
+
+async function handleCopyCheckpointId() {
+	if (!checkpointDetail) return;
+	await navigator.clipboard.writeText(checkpointDetail.id);
+	checkpointIdCopied = true;
+	if (checkpointIdCopiedTimer) clearTimeout(checkpointIdCopiedTimer);
+	checkpointIdCopiedTimer = setTimeout(() => {
+		checkpointIdCopied = false;
+	}, 1800);
+}
+
+async function handleCopyCheckpointCommitHash() {
+	if (!checkpointDetail) return;
+	await navigator.clipboard.writeText(checkpointDetail.commitHash);
+	checkpointCopied = true;
+	if (checkpointCopiedTimer) clearTimeout(checkpointCopiedTimer);
+	checkpointCopiedTimer = setTimeout(() => {
+		checkpointCopied = false;
+	}, 1800);
+}
+
+async function handleForkCheckpoint() {
+	if (!checkpointDetail) return;
+	await goto(
+		`/spaces/new?checkpointId=${encodeURIComponent(checkpointDetail.id)}`,
+	);
+}
+
+async function handleCreateCheckpointSubmit(event: SubmitEvent) {
+	event.preventDefault();
+	if (checkpointCreateSubmitting) return;
+	checkpointCreateError = "";
+	checkpointCreateSubmitting = true;
+	try {
+		const { taskRunId } = await sdk
+			.space(spaceId)
+			.checkpoints.create(checkpointCreateDescription.trim() || null);
+		await goto(buildSpaceTaskRoute(spaceId, taskRunId));
+	} catch (error) {
+		if (error instanceof HttpError && error.status === 409) {
+			checkpointCreateError = "Checkpoint save in progress.";
+		} else {
+			checkpointCreateError =
+				error instanceof Error ? error.message : "Failed to save checkpoint";
+		}
+	} finally {
+		checkpointCreateSubmitting = false;
+	}
+}
+
+$effect(() => {
+	if (mode === "detail" && checkpointId) {
+		void loadCheckpointDetail(checkpointId);
+	}
+});
 </script>
 
 {#if mode === "create"}
@@ -88,7 +163,7 @@ function sourceTaskRunIdFromCheckpoint(
 		{#if spaceLoadError && !spaceHasMinimalAccess}
 			<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
 		{:else}
-			<form onsubmit={onCreateSubmit} class="space-y-3">
+			<form onsubmit={handleCreateCheckpointSubmit} class="space-y-3">
 				<div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
 					<div>
 						<div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
@@ -167,7 +242,7 @@ function sourceTaskRunIdFromCheckpoint(
 							<button
 								type="button"
 								class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto"
-								onclick={onForkCheckpoint}
+								onclick={handleForkCheckpoint}
 							>
 								<Rocket class="w-3.5 h-3.5" />
 								<span>New space</span>
@@ -175,7 +250,7 @@ function sourceTaskRunIdFromCheckpoint(
 							<button
 								type="button"
 								class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto"
-								onclick={onCopyCheckpointId}
+								onclick={handleCopyCheckpointId}
 							>
 								{#if checkpointIdCopied}
 									<Check class="w-3.5 h-3.5 text-success-soft" />
@@ -200,7 +275,7 @@ function sourceTaskRunIdFromCheckpoint(
 									<button
 										type="button"
 										class="shrink-0 rounded-[4px] p-1.5 text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary"
-										onclick={onCopyCheckpointCommitHash}
+										onclick={handleCopyCheckpointCommitHash}
 										title="Copy commit hash"
 									>
 										{#if checkpointCopied}
