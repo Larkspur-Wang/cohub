@@ -51,18 +51,30 @@ function getCacheKey(spaceId: string) {
 
 function readCachedConfig(spaceId: string) {
 	if (typeof localStorage === "undefined") return null;
-	const raw = localStorage.getItem(getCacheKey(spaceId));
-	return raw ? parseSpaceConfig(raw) : null;
+	try {
+		const raw = localStorage.getItem(getCacheKey(spaceId));
+		return raw ? parseSpaceConfig(raw) : null;
+	} catch {
+		return null;
+	}
 }
 
 function writeCachedConfig(spaceId: string, raw: string) {
 	if (typeof localStorage === "undefined") return;
-	localStorage.setItem(getCacheKey(spaceId), raw);
+	try {
+		localStorage.setItem(getCacheKey(spaceId), raw);
+	} catch {
+		// Cache writes are best-effort and should never block workspace boot.
+	}
 }
 
 function clearCachedConfig(spaceId: string) {
 	if (typeof localStorage === "undefined") return;
-	localStorage.removeItem(getCacheKey(spaceId));
+	try {
+		localStorage.removeItem(getCacheKey(spaceId));
+	} catch {
+		// ignore
+	}
 }
 
 function clearRetryTimer() {

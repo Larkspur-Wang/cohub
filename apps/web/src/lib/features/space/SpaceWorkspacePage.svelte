@@ -149,6 +149,10 @@ import {
 } from "$lib/layout/breakpoints";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import {
+	readCachedPromptTemplates,
+	writeCachedPromptTemplates,
+} from "$lib/prompt-template-cache";
+import {
 	prepareChatImageAttachment,
 	uploadChatAttachmentImage,
 	uploadSpaceAvatarImage,
@@ -531,6 +535,9 @@ type PersistedGenerationPolicy = {
 };
 let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
 let promptTemplatesLoaded = $state(false);
+let promptTemplatesLoadedFor = $state<string | null>(null);
+let promptTemplatesRefreshInFlight: Promise<void> | null = null;
+let promptTemplatesRefreshInFlightFor: string | null = null;
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
 let fileActionMenuOpenPath = $state<string | null>(null);
@@ -3017,15 +3024,55 @@ function setGenerationBooleanConstraint(
 	ensureGenerationModelSelectedForPolicy(modelId);
 	persistActiveSessionGenerationPolicy();
 }
-async function loadPromptTemplates() {
-	if (promptTemplatesLoaded) return;
-	try {
-		const response = await sdk.prompts.list({ spaceId });
-		promptTemplates = response.prompts;
-		promptTemplatesLoaded = true;
-	} catch (error) {
-		console.error("Failed to load prompt templates:", error);
+function restoreCachedPromptTemplates(targetSpaceId: string) {
+	const cached = readCachedPromptTemplates(targetSpaceId);
+	if (!cached) {
+		promptTemplates = [];
+		promptTemplatesLoaded = false;
+		promptTemplatesLoadedFor = null;
+		return;
 	}
+	promptTemplates = cached;
+	promptTemplatesLoaded = true;
+	promptTemplatesLoadedFor = targetSpaceId;
+}
+
+async function refreshPromptTemplates(targetSpaceId: string) {
+	if (
+		promptTemplatesRefreshInFlight &&
+		promptTemplatesRefreshInFlightFor === targetSpaceId
+	) {
+		return promptTemplatesRefreshInFlight;
+	}
+	const run = (async () => {
+		try {
+			const response = await sdk.prompts.list({ spaceId: targetSpaceId });
+			writeCachedPromptTemplates(targetSpaceId, response.prompts);
+			if (spaceId !== targetSpaceId) return;
+			promptTemplates = response.prompts;
+			promptTemplatesLoaded = true;
+			promptTemplatesLoadedFor = targetSpaceId;
+		} catch (error) {
+			console.error("Failed to load prompt templates:", error);
+		}
+	})();
+	const trackedRun = run.finally(() => {
+		if (promptTemplatesRefreshInFlight === trackedRun) {
+			promptTemplatesRefreshInFlight = null;
+			promptTemplatesRefreshInFlightFor = null;
+		}
+	});
+	promptTemplatesRefreshInFlight = trackedRun;
+	promptTemplatesRefreshInFlightFor = targetSpaceId;
+	return trackedRun;
+}
+
+async function loadPromptTemplates() {
+	const targetSpaceId = spaceId;
+	if (promptTemplatesLoadedFor !== targetSpaceId) {
+		restoreCachedPromptTemplates(targetSpaceId);
+	}
+	await refreshPromptTemplates(targetSpaceId);
 }
 function handleModelSelect(model: { provider: string; id: string }) {
 	const catalogItem = modelsCatalog?.find(
@@ -8274,6 +8321,10 @@ $effect(() => {
 	newChatProfileContentEl = null;
 	newChatProfileBodyEl = null;
 	spaceLoadError = "";
+	promptTemplates = [];
+	promptTemplatesLoaded = false;
+	promptTemplatesLoadedFor = null;
+	void loadPromptTemplates();
 	spaceSessions = [];
 	sessionStateById = {};
 	loadingSessionIds = {};

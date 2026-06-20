@@ -8,9 +8,55 @@ const SPACE_STYLE_SPACE_ATTR = "data-space-id";
 const MAX_RETRY_ATTEMPTS = 5;
 const RETRYABLE_ERROR_DELAY_MS = 1200;
 
+type CachedSpaceStyle =
+	| { type: "inline"; content: string }
+	| { type: "url"; href: string };
+
 let activeSpaceId: string | null = null;
 let activeVersion = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getCacheKey(spaceId: string) {
+	return `cohub:space-style:${spaceId}:v1`;
+}
+
+function readCachedSpaceStyle(spaceId: string): CachedSpaceStyle | null {
+	if (typeof localStorage === "undefined") return null;
+	try {
+		const raw = localStorage.getItem(getCacheKey(spaceId));
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object") return null;
+		const record = parsed as Record<string, unknown>;
+		if (record.type === "inline" && typeof record.content === "string") {
+			return { type: "inline", content: record.content };
+		}
+		if (record.type === "url" && typeof record.href === "string") {
+			return { type: "url", href: record.href };
+		}
+	} catch {
+		// Ignore malformed or unavailable storage.
+	}
+	return null;
+}
+
+function writeCachedSpaceStyle(spaceId: string, style: CachedSpaceStyle) {
+	if (typeof localStorage === "undefined") return;
+	try {
+		localStorage.setItem(getCacheKey(spaceId), JSON.stringify(style));
+	} catch {
+		// Cache writes are best-effort and should never block workspace boot.
+	}
+}
+
+function clearCachedSpaceStyle(spaceId: string) {
+	if (typeof localStorage === "undefined") return;
+	try {
+		localStorage.removeItem(getCacheKey(spaceId));
+	} catch {
+		// ignore
+	}
+}
 
 function clearRetryTimer() {
 	if (!retryTimer) return;
@@ -44,20 +90,29 @@ function installLinkedStyle(spaceId: string, href: string, version: number) {
 	markActiveSpaceStyle(spaceId);
 }
 
-function installInlineStyle(
-	spaceId: string,
-	file: SpaceFsFileResponse,
-	version: number,
-) {
+function installInlineStyle(spaceId: string, content: string, version: number) {
 	removeSpaceStyleNodes();
 	if (activeVersion !== version || activeSpaceId !== spaceId) return;
 	const style = document.createElement("style");
-	style.textContent =
-		file.encoding === "base64" ? atob(file.content) : file.content;
+	style.textContent = content;
 	style.setAttribute(SPACE_STYLE_NODE_ATTR, "true");
 	style.setAttribute(SPACE_STYLE_SPACE_ATTR, spaceId);
 	document.head.append(style);
 	markActiveSpaceStyle(spaceId);
+}
+
+function installCachedSpaceStyle(spaceId: string, version: number) {
+	const cached = readCachedSpaceStyle(spaceId);
+	if (!cached) return;
+	if (cached.type === "url") {
+		installLinkedStyle(spaceId, cached.href, version);
+		return;
+	}
+	installInlineStyle(spaceId, cached.content, version);
+}
+
+function getFileContent(file: SpaceFsFileResponse) {
+	return file.encoding === "base64" ? atob(file.content) : file.content;
 }
 
 function scheduleRetry(
@@ -93,13 +148,17 @@ async function loadSpaceStyle(
 			return;
 		}
 		if (file.delivery === "url" && file.url) {
+			writeCachedSpaceStyle(spaceId, { type: "url", href: file.url });
 			installLinkedStyle(spaceId, file.url, options.version);
 			return;
 		}
-		installInlineStyle(spaceId, file, options.version);
+		const content = getFileContent(file);
+		writeCachedSpaceStyle(spaceId, { type: "inline", content });
+		installInlineStyle(spaceId, content, options.version);
 	} catch (error) {
 		if (activeVersion !== options.version || activeSpaceId !== spaceId) return;
 		if (error instanceof HttpError && error.status === 404) {
+			clearCachedSpaceStyle(spaceId);
 			removeSpaceStyleNodes();
 			return;
 		}
@@ -124,6 +183,7 @@ export function activateSpaceStyle(spaceId: string) {
 	activeSpaceId = spaceId;
 	activeVersion += 1;
 	removeSpaceStyleNodes();
+	installCachedSpaceStyle(spaceId, activeVersion);
 	void loadSpaceStyle(spaceId, { version: activeVersion });
 }
 
