@@ -343,11 +343,14 @@ import {
 import {
 	asRecord,
 	displayUserName,
+	formatCompactId,
 	formatDateTime,
 	formatFileSize,
 	formatShortDateTime,
 	formatTokenCount,
 	formatUsageCost,
+	getSpacePrettyUrlHint,
+	getSpacePublicPath,
 } from "./space-utils";
 
 type Props = {
@@ -2886,32 +2889,6 @@ async function handleRenameSpace(newName: string) {
 	} finally {
 		renameSaving = false;
 	}
-}
-function getSpaceOwnerUsername(record: SpaceRecord | null): string {
-	return record?.ownerProfile?.username?.trim() ?? "";
-}
-function getSpaceSlug(record: SpaceRecord | null): string {
-	return record?.slug?.trim() ?? "";
-}
-function getSpacePublicPath(record: SpaceRecord | null): string {
-	const username = getSpaceOwnerUsername(record);
-	const slug = getSpaceSlug(record);
-	return username && slug ? `/${username}/${slug}` : "";
-}
-function getSpacePrettyUrlHint(record: SpaceRecord | null): string {
-	const hasUsername = Boolean(getSpaceOwnerUsername(record));
-	const hasSlug = Boolean(getSpaceSlug(record));
-	if (hasUsername && hasSlug) return "";
-	if (!hasUsername && !hasSlug)
-		return "Add a space slug and username for a cleaner URL.";
-	if (!hasUsername)
-		return "Add username in Profile to complete the pretty URL.";
-	return "Add a space slug for a cleaner URL.";
-}
-function formatCompactId(id: string): string {
-	if (!id) return "";
-	if (id.length <= 13) return id;
-	return `${id.slice(0, 8)}…${id.slice(-4)}`;
 }
 function beginSpaceSlugEdit() {
 	if (!canEditSpaceProfile || spaceSlugSaving) return;

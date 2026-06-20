@@ -1,4 +1,4 @@
-import type { UserProfile } from "@neta-art/cohub";
+import type { SpaceRecord, UserProfile } from "@neta-art/cohub";
 
 export function formatDateTime(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
@@ -68,5 +68,36 @@ export function formatTokenCount(n: number): string {
 export function formatUsageCost(n: number): string {
 	if (n <= 0) return "$0";
 	if (n < 0.01) return "<$0.01";
-	return `$${n.toFixed(2)}`;
+	return `${n.toFixed(2)}`;
+}
+
+export function getSpaceOwnerUsername(record: SpaceRecord | null): string {
+	return record?.ownerProfile?.username?.trim() ?? "";
+}
+
+export function getSpaceSlug(record: SpaceRecord | null): string {
+	return record?.slug?.trim() ?? "";
+}
+
+export function getSpacePublicPath(record: SpaceRecord | null): string {
+	const username = getSpaceOwnerUsername(record);
+	const slug = getSpaceSlug(record);
+	return username && slug ? `/${username}/${slug}` : "";
+}
+
+export function getSpacePrettyUrlHint(record: SpaceRecord | null): string {
+	const hasUsername = Boolean(getSpaceOwnerUsername(record));
+	const hasSlug = Boolean(getSpaceSlug(record));
+	if (hasUsername && hasSlug) return "";
+	if (!hasUsername && !hasSlug)
+		return "Add a space slug and username for a cleaner URL.";
+	if (!hasUsername)
+		return "Add username in Profile to complete the pretty URL.";
+	return "Add a space slug for a cleaner URL.";
+}
+
+export function formatCompactId(id: string): string {
+	if (!id) return "";
+	if (id.length <= 13) return id;
+	return `${id.slice(0, 8)}…${id.slice(-4)}`;
 }
