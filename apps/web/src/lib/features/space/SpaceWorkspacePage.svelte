@@ -197,6 +197,7 @@ import {
 	isOptimisticTurn,
 	isSameClientMessageTurn,
 	normalizeTurnDuplicates,
+	preserveSessionTurnRefs,
 	reconcileOptimisticTurn,
 } from "./modules/session-utils";
 import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
@@ -2436,11 +2437,15 @@ async function loadSessionState(sessionId: string, force = false) {
 			});
 			if (!guard.isCurrent()) return;
 			upsertSessionRecord(response.session);
+			const currentAfterSnapshot = sessionStateById[sessionId];
+			const nextTurns = currentAfterSnapshot
+				? preserveSessionTurnRefs(currentAfterSnapshot.turns, snapshot.turns)
+				: snapshot.turns;
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					session: snapshot.session ?? response.session,
-					turns: snapshot.turns,
+					turns: nextTurns,
 					loading: false,
 					loaded: true,
 					error: "",
@@ -4663,16 +4668,20 @@ $effect(() => {
 		});
 		const current = sessionStateById[sessionId];
 		if (!current) return;
+		const nextTurns = preserveSessionTurnRefs(
+			current.turns,
+			normalizeTurnDuplicates(
+				mergeTurnsById(current.turns, snapshot.turns, {
+					preferIncoming: true,
+				}),
+			),
+		);
 		sessionWorkspace.sessionStateById = {
 			...sessionStateById,
 			[sessionId]: {
 				...current,
 				session: snapshot.session ?? current.session,
-				turns: normalizeTurnDuplicates(
-					mergeTurnsById(current.turns, snapshot.turns, {
-						preferIncoming: true,
-					}),
-				),
+				turns: nextTurns,
 				hasMore: snapshot.hasMoreOlder,
 				hasMoreNewer: snapshot.hasMoreNewer,
 				oldestCursor: snapshot.oldestSequence ?? undefined,
