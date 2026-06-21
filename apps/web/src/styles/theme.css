@@ -104,6 +104,7 @@
 :root {
 	--theme-transition-x: 50vw;
 	--theme-transition-y: 50vh;
+	--theme-transition-radius: 150vmax;
 	--theme-transition-duration: 720ms;
 	--theme-transition-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
@@ -135,7 +136,7 @@ html[data-theme-transition="circle"]::view-transition-new(root) {
 		clip-path: circle(0 at var(--theme-transition-x) var(--theme-transition-y));
 	}
 	to {
-		clip-path: circle(150vmax at var(--theme-transition-x) var(--theme-transition-y));
+		clip-path: circle(var(--theme-transition-radius) at var(--theme-transition-x) var(--theme-transition-y));
 	}
 }
 

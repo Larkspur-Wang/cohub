@@ -26,6 +26,13 @@ function getTransitionOrigin(event?: MouseEvent): { x: number; y: number } {
 	};
 }
 
+function getTransitionRadius(origin: { x: number; y: number }): number {
+	return Math.hypot(
+		Math.max(origin.x, window.innerWidth - origin.x),
+		Math.max(origin.y, window.innerHeight - origin.y),
+	);
+}
+
 export function setThemeWithTransition(mode: ThemeMode, event?: MouseEvent) {
 	if (typeof document === "undefined" || typeof window === "undefined") {
 		setTheme(mode);
@@ -39,9 +46,11 @@ export function setThemeWithTransition(mode: ThemeMode, event?: MouseEvent) {
 	}
 
 	const origin = getTransitionOrigin(event);
+	const radius = getTransitionRadius(origin);
 	const root = document.documentElement;
 	root.style.setProperty("--theme-transition-x", `${origin.x}px`);
 	root.style.setProperty("--theme-transition-y", `${origin.y}px`);
+	root.style.setProperty("--theme-transition-radius", `${radius}px`);
 
 	const transition = viewTransitionDocument.startViewTransition(() => {
 		root.setAttribute(TRANSITION_ATTR, CIRCLE_TRANSITION);
@@ -53,6 +62,7 @@ export function setThemeWithTransition(mode: ThemeMode, event?: MouseEvent) {
 			root.removeAttribute(TRANSITION_ATTR);
 			root.style.removeProperty("--theme-transition-x");
 			root.style.removeProperty("--theme-transition-y");
+			root.style.removeProperty("--theme-transition-radius");
 		})
 		.catch(() => undefined);
 }
