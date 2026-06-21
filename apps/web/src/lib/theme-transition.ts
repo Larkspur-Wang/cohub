@@ -42,9 +42,9 @@ export function setThemeWithTransition(mode: ThemeMode, event?: MouseEvent) {
 	const root = document.documentElement;
 	root.style.setProperty("--theme-transition-x", `${origin.x}px`);
 	root.style.setProperty("--theme-transition-y", `${origin.y}px`);
-	root.setAttribute(TRANSITION_ATTR, CIRCLE_TRANSITION);
 
 	const transition = viewTransitionDocument.startViewTransition(() => {
+		root.setAttribute(TRANSITION_ATTR, CIRCLE_TRANSITION);
 		setTheme(mode);
 	});
 
