@@ -18,8 +18,16 @@ type RouteDetailHeaderMeta = {
 	title: string;
 } | null;
 
+export type RouteDetailView =
+	| "checkpoint-new"
+	| "checkpoint"
+	| "cronjob-new"
+	| "cronjob"
+	| "work"
+	| "task";
+
 type RouteDetailContext = {
-	view: string;
+	view: RouteDetailView;
 	checkpointId: string | null;
 	cronjobId: string | null;
 	workId: string | null;

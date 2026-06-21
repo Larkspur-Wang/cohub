@@ -27,7 +27,7 @@ type PublishTarget = {
 	targetRef: string;
 } | null;
 
-type Props = {
+export type SpaceFileDomainProps = {
 	spaceId: string;
 	spaceOwnerUsername: string | null;
 	spaceSlug: string | null;
@@ -197,7 +197,7 @@ let {
 	onUploadComplete,
 	onOpenWorkPublish,
 	onCloseWorkPublish,
-}: Props = $props();
+}: SpaceFileDomainProps = $props();
 
 function closeMobileDrawerIfNeeded(mobile: boolean) {
 	if (mobile) onMobileRightDrawerClose();

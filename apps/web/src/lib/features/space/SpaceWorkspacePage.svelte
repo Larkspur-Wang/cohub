@@ -1,11 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
-	GenerationParameterConstraint,
-	GenerationPolicy,
-	PublicGenerationDeclaration,
-} from "@cohub/protocol/generation";
-import type {
 	SessionTurnIndexItem,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
@@ -16,9 +11,7 @@ import {
 	type GenerationStreamEvent,
 	HttpError,
 	type Permission,
-	type PromptTemplateCatalogEntry,
 	type SessionRecord,
-	type SpaceAccessPolicy,
 	type SpaceMember,
 	type SpaceRecord,
 	type TaskRunRecord,
@@ -95,10 +88,6 @@ import {
 	DESKTOP_SHELL_MIN_WIDTH_PX,
 } from "$lib/layout/breakpoints";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
-import {
-	readCachedPromptTemplates,
-	writeCachedPromptTemplates,
-} from "$lib/prompt-template-cache";
 import { uploadChatAttachmentImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
@@ -176,18 +165,28 @@ import { createFileWorkspaceController } from "./modules/file-workspace-controll
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
+import { createPreviewLayoutController } from "./modules/preview-layout-controller.svelte";
+import { createPromptTemplateController } from "./modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "./modules/route-request-guard";
 import SessionModelSelectorDialog from "./modules/SessionModelSelectorDialog.svelte";
 import SessionShareDialog from "./modules/SessionShareDialog.svelte";
-import SessionWorkspace from "./modules/SessionWorkspace.svelte";
-import SpaceFileDomain from "./modules/SpaceFileDomain.svelte";
-import SpaceRouteDetailHost from "./modules/SpaceRouteDetailHost.svelte";
+import SessionWorkspace, {
+	type SessionWorkspaceProps,
+} from "./modules/SessionWorkspace.svelte";
+import SpaceFileDomain, {
+	type SpaceFileDomainProps,
+} from "./modules/SpaceFileDomain.svelte";
+import SpaceRouteDetailHost, {
+	type RouteDetailView,
+} from "./modules/SpaceRouteDetailHost.svelte";
 import {
 	createSessionComposerController,
 	revokeComposerAttachmentPreview,
 } from "./modules/session-composer-controller.svelte";
+import { createSessionGenerationPolicyController } from "./modules/session-generation-policy-controller.svelte";
 import { createSessionGenerationRealtimeController } from "./modules/session-generation-realtime-controller.svelte";
 import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
+import { createSessionShareController } from "./modules/session-share-controller.svelte";
 import {
 	createSessionTaskController,
 	isBackgroundBashTaskRun,
@@ -403,35 +402,24 @@ function getHttpErrorCode(error: unknown): string | null {
 }
 const modelsCatalog = $derived(modelsCatalogStore.items);
 const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
-let generationModelsCatalog = $state<PublicGenerationDeclaration[] | null>(
-	null,
+const generationPolicy = createSessionGenerationPolicyController({
+	getActiveSessionId: () => activeSessionId,
+});
+const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
+const generationPolicyMode = $derived(generationPolicy.mode);
+const selectedGenerationModels = $derived(generationPolicy.selectedModels);
+const generationEnumSelections = $derived(generationPolicy.enumSelections);
+const generationNumericConstraints = $derived(
+	generationPolicy.numericConstraints,
 );
-let generationPolicyMode = $state<"auto" | "limited">("auto");
-let selectedGenerationModels = $state<Set<string>>(new Set());
-let generationEnumSelections = $state<
-	Record<string, Record<string, Set<string>>>
->({});
-let generationNumericConstraints = $state<
-	Record<string, Record<string, { min?: number; max?: number }>>
->({});
-let generationBooleanConstraints = $state<
-	Record<string, Record<string, { value?: boolean }>>
->({});
-type PersistedGenerationPolicy = {
-	mode: "auto" | "limited";
-	models: string[];
-	enumSelections: Record<string, Record<string, string[]>>;
-	numericConstraints?: Record<
-		string,
-		Record<string, { min?: number; max?: number }>
-	>;
-	booleanConstraints?: Record<string, Record<string, { value?: boolean }>>;
-};
-let promptTemplates = $state<PromptTemplateCatalogEntry[]>([]);
-let promptTemplatesLoaded = $state(false);
-let promptTemplatesLoadedFor = $state<string | null>(null);
-let promptTemplatesRefreshInFlight: Promise<void> | null = null;
-let promptTemplatesRefreshInFlightFor: string | null = null;
+const generationBooleanConstraints = $derived(
+	generationPolicy.booleanConstraints,
+);
+const promptTemplateController = createPromptTemplateController({
+	getSpaceId: () => spaceId,
+});
+const promptTemplates = $derived(promptTemplateController.items);
+const promptTemplatesLoaded = $derived(promptTemplateController.loaded);
 let showModelSelector = $state(false);
 let resourceActionMenuOpen = $state(false);
 let labelPickerResource = $state<{
@@ -608,17 +596,15 @@ const inlineFilePanHandlers = makeImagePanHandlers(
 	(v) => (fileWorkspace.inlineFilePanY = v),
 	(v) => (fileWorkspace.inlineFileDragging = v),
 );
-let previewPanelWidth = $state(480);
-let previewPanelResizeCleanup: (() => void) | null = null;
-let previewFocusMode = $state(false);
-let previewFocusSnapshot: {
-	leftSidebarCollapsed: boolean;
-	rightSidebarCollapsed: boolean;
-	previewPanelWidth: number;
-} | null = null;
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
-const CHAT_PANEL_MIN_WIDTH = 320;
-const PREVIEW_PANEL_MIN_WIDTH = 280;
+const previewLayout = createPreviewLayoutController({
+	getIsMobile: () => isMobile,
+	getWorkspaceBodyEl: () => workspaceBodyEl,
+	getSpaceHasMinimalAccess: () => spaceHasMinimalAccess,
+	getActivePreviewKind: () => activePreviewKind,
+});
+const previewPanelWidth = $derived(previewLayout.width);
+const previewFocusMode = $derived(previewLayout.focusMode);
 
 let loadedSpaceId = $state<string | null>(null);
 let pageMounted = false;
@@ -771,14 +757,11 @@ const generationRealtime = createSessionGenerationRealtimeController({
 	},
 });
 // ─── Share ───
-let showShareModal = $state(false);
-let shareModalSessionId = $state<string | null>(null);
-let shareCopied = $state(false);
-let shareCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let shareModalError = $state("");
-let shareModalSaving = $state(false);
+const sessionShare = createSessionShareController({
+	getSpaceId: () => spaceId,
+	canManageAccess: () => canManageSessionAccess,
+});
 let forkingTurnId = $state<string | null>(null);
-let sessionAccessById = $state<Record<string, SpaceAccessPolicy | null>>({});
 type RouteDetailHeaderMeta = {
 	view: "checkpoint" | "cronjob" | "work" | "task";
 	id: string;
@@ -823,22 +806,10 @@ function normalizeTabTitleSegment(
 		: normalized;
 }
 function hasSessionPermission(sessionId: string): boolean {
-	const access = sessionAccessById[sessionId];
-	return (
-		!!access &&
-		(access.anonymous_user === "guest" ||
-			access.anonymous_user === "builder" ||
-			access.signed_in_user === "guest" ||
-			access.signed_in_user === "builder")
-	);
+	return sessionShare.hasPermission(sessionId);
 }
 async function removeSessionAccess(sessionId: string) {
-	try {
-		await sdk.sessionAccess.remove(sessionId);
-		sessionAccessById = { ...sessionAccessById, [sessionId]: null };
-	} catch {
-		// Silently fail
-	}
+	await sessionShare.removeAccess(sessionId);
 }
 function modelFromPayload(payload: unknown): SelectedModel | null {
 	const record = asRecord(payload);
@@ -1099,68 +1070,7 @@ async function handleOpenGenerationTaskMedia(notice: GenerationTaskNotice) {
 	}
 }
 function openShareModal(sessionId: string) {
-	if (!canManageSessionAccess) return;
-	shareModalSessionId = sessionId;
-	showShareModal = true;
-	shareCopied = false;
-	shareModalError = "";
-}
-async function shareAndCopyLink() {
-	if (!shareModalSessionId || !canManageSessionAccess) return;
-	shareModalError = "";
-	shareModalSaving = true;
-	try {
-		await sdk.sessionAccess.set(shareModalSessionId, {
-			anonymous_user: "guest",
-		});
-		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
-		await navigator.clipboard.writeText(url);
-		shareCopied = true;
-		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
-		shareCopiedTimer = setTimeout(() => {
-			shareCopied = false;
-		}, 2000);
-		sessionAccessById = {
-			...sessionAccessById,
-			[shareModalSessionId]: { signed_in_user: null, anonymous_user: "guest" },
-		};
-	} catch (error) {
-		shareModalError =
-			error instanceof Error ? error.message : "Failed to share session";
-	} finally {
-		shareModalSaving = false;
-	}
-}
-async function copyShareLink() {
-	if (!shareModalSessionId) return;
-	shareModalError = "";
-	try {
-		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
-		await navigator.clipboard.writeText(url);
-		shareCopied = true;
-		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
-		shareCopiedTimer = setTimeout(() => {
-			shareCopied = false;
-		}, 2000);
-	} catch (error) {
-		shareModalError =
-			error instanceof Error ? error.message : "Failed to copy session link";
-	}
-}
-async function makeSessionPrivate() {
-	if (!shareModalSessionId || !canManageSessionAccess) return;
-	shareModalError = "";
-	shareModalSaving = true;
-	try {
-		await sdk.sessionAccess.remove(shareModalSessionId);
-		sessionAccessById = { ...sessionAccessById, [shareModalSessionId]: null };
-		showShareModal = false;
-	} catch (error) {
-		shareModalError =
-			error instanceof Error ? error.message : "Failed to make session private";
-	} finally {
-		shareModalSaving = false;
-	}
+	sessionShare.openFor(sessionId);
 }
 const draftSessionState = $derived<SessionViewState | null>(
 	isDraftNewSessionRoute
@@ -1701,166 +1611,8 @@ function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
 		errorMessage: turn.errorMessage,
 	};
 }
-function getSessionGenerationPolicyKey(sessionId: string) {
-	return `cohub:generation-policy:${sessionId}`;
-}
-function serializeGenerationEnumSelections() {
-	return Object.fromEntries(
-		Object.entries(generationEnumSelections).map(([model, parameters]) => [
-			model,
-			Object.fromEntries(
-				Object.entries(parameters).map(([parameter, values]) => [
-					parameter,
-					[...values],
-				]),
-			),
-		]),
-	);
-}
-
-function sanitizeGenerationNumericConstraints(
-	value: unknown,
-): Record<string, Record<string, { min?: number; max?: number }>> {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-	return Object.fromEntries(
-		Object.entries(value).map(([model, parameters]) => [
-			model,
-			Object.fromEntries(
-				Object.entries(
-					parameters &&
-						typeof parameters === "object" &&
-						!Array.isArray(parameters)
-						? parameters
-						: {},
-				).flatMap(([parameter, rawConstraint]) => {
-					if (
-						!rawConstraint ||
-						typeof rawConstraint !== "object" ||
-						Array.isArray(rawConstraint)
-					)
-						return [];
-					const constraint = rawConstraint as { min?: unknown; max?: unknown };
-					const next: { min?: number; max?: number } = {};
-					if (
-						typeof constraint.min === "number" &&
-						Number.isFinite(constraint.min)
-					)
-						next.min = constraint.min;
-					if (
-						typeof constraint.max === "number" &&
-						Number.isFinite(constraint.max)
-					)
-						next.max = constraint.max;
-					return next.min === undefined && next.max === undefined
-						? []
-						: [[parameter, next]];
-				}),
-			),
-		]),
-	);
-}
-
-function sanitizeGenerationBooleanConstraints(
-	value: unknown,
-): Record<string, Record<string, { value?: boolean }>> {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-	return Object.fromEntries(
-		Object.entries(value).map(([model, parameters]) => [
-			model,
-			Object.fromEntries(
-				Object.entries(
-					parameters &&
-						typeof parameters === "object" &&
-						!Array.isArray(parameters)
-						? parameters
-						: {},
-				).flatMap(([parameter, rawConstraint]) => {
-					if (
-						!rawConstraint ||
-						typeof rawConstraint !== "object" ||
-						Array.isArray(rawConstraint)
-					)
-						return [];
-					const value = (rawConstraint as { value?: unknown }).value;
-					return typeof value === "boolean" ? [[parameter, { value }]] : [];
-				}),
-			),
-		]),
-	);
-}
-
-function loadSessionGenerationPolicy(
-	sessionId: string,
-): PersistedGenerationPolicy | null {
-	try {
-		const raw = localStorage.getItem(getSessionGenerationPolicyKey(sessionId));
-		if (!raw) return null;
-		const parsed = JSON.parse(raw) as Partial<PersistedGenerationPolicy>;
-		return {
-			mode: parsed.mode === "limited" ? "limited" : "auto",
-			models: Array.isArray(parsed.models)
-				? parsed.models.filter(
-						(model): model is string => typeof model === "string",
-					)
-				: [],
-			enumSelections: Object.fromEntries(
-				Object.entries(parsed.enumSelections ?? {}).map(
-					([model, parameters]) => [
-						model,
-						Object.fromEntries(
-							Object.entries(parameters ?? {}).map(([parameter, values]) => [
-								parameter,
-								Array.isArray(values) ? values.map(String) : [],
-							]),
-						),
-					],
-				),
-			),
-			numericConstraints: sanitizeGenerationNumericConstraints(
-				parsed.numericConstraints,
-			),
-			booleanConstraints: sanitizeGenerationBooleanConstraints(
-				parsed.booleanConstraints,
-			),
-		};
-	} catch {
-		return null;
-	}
-}
-function applySessionGenerationPolicy(
-	policy: PersistedGenerationPolicy | null,
-) {
-	generationPolicyMode = policy?.mode ?? "auto";
-	selectedGenerationModels = new Set(policy?.models ?? []);
-	generationEnumSelections = Object.fromEntries(
-		Object.entries(policy?.enumSelections ?? {}).map(([model, parameters]) => [
-			model,
-			Object.fromEntries(
-				Object.entries(parameters).map(([parameter, values]) => [
-					parameter,
-					new Set(values),
-				]),
-			),
-		]),
-	);
-	generationNumericConstraints = policy?.numericConstraints ?? {};
-	generationBooleanConstraints = policy?.booleanConstraints ?? {};
-}
-function saveSessionGenerationPolicy(sessionId: string) {
-	localStorage.setItem(
-		getSessionGenerationPolicyKey(sessionId),
-		JSON.stringify({
-			mode: generationPolicyMode,
-			models: [...selectedGenerationModels],
-			enumSelections: serializeGenerationEnumSelections(),
-			numericConstraints: generationNumericConstraints,
-			booleanConstraints: generationBooleanConstraints,
-		} satisfies PersistedGenerationPolicy),
-	);
-}
-function persistActiveSessionGenerationPolicy() {
-	if (!activeSessionId) return;
-	saveSessionGenerationPolicy(activeSessionId);
+function applySessionGenerationPolicy(sessionId: string) {
+	generationPolicy.apply(generationPolicy.load(sessionId));
 }
 function ensureSessionModelLoaded(sessionId: string) {
 	if (Object.hasOwn(sessionModelById, sessionId)) return;
@@ -1877,239 +1629,41 @@ async function loadModelsCatalog() {
 	}
 }
 async function loadGenerationModelsCatalog() {
-	if (generationModelsCatalog) return;
-	try {
-		const response = await sdk.models.listMultimodal();
-		generationModelsCatalog = response.models;
-	} catch (error) {
-		console.error("Failed to load generation models catalog:", error);
-	}
+	await generationPolicy.loadModelsCatalog();
 }
-function buildTurnGenerationPolicy(): GenerationPolicy | null {
-	if (generationPolicyMode !== "limited") return null;
-	const models = [...selectedGenerationModels]
-		.filter(
-			(model) =>
-				generationModelsCatalog?.some((item) => item.model === model) ?? true,
-		)
-		.map((model) => {
-			const declaration = generationModelsCatalog?.find(
-				(item) => item.model === model,
-			);
-			const parameterPolicies: Record<string, GenerationParameterConstraint> =
-				{};
-			for (const [name, selectedValues] of Object.entries(
-				generationEnumSelections[model] ?? {},
-			)) {
-				const spec = declaration?.parameters?.[name];
-				const enumValues =
-					spec && "enum" in spec && Array.isArray(spec.enum) ? spec.enum : [];
-				if (enumValues.length === 0 || selectedValues.size >= enumValues.length)
-					continue;
-				const allowed = enumValues.filter((value) =>
-					selectedValues.has(String(value)),
-				);
-				if (allowed.length > 0)
-					parameterPolicies[name] = {
-						kind: "enum",
-						values: allowed as Array<string | number | boolean>,
-					};
-			}
-			for (const [name, constraint] of Object.entries(
-				generationNumericConstraints[model] ?? {},
-			)) {
-				const spec = declaration?.parameters?.[name];
-				const type = spec && "type" in spec ? spec.type : null;
-				if (type !== "integer" && type !== "number") continue;
-				const next: Extract<
-					GenerationParameterConstraint,
-					{ kind: "integer" | "number" }
-				> = {
-					kind: type === "integer" ? "integer" : "number",
-				};
-				if (constraint.min !== undefined) next.min = constraint.min;
-				if (constraint.max !== undefined) next.max = constraint.max;
-				if (next.min !== undefined || next.max !== undefined)
-					parameterPolicies[name] = next;
-			}
-			for (const [name, constraint] of Object.entries(
-				generationBooleanConstraints[model] ?? {},
-			)) {
-				const spec = declaration?.parameters?.[name];
-				if (!spec || !("type" in spec) || spec.type !== "boolean") continue;
-				if (constraint.value !== undefined)
-					parameterPolicies[name] = {
-						kind: "boolean",
-						value: constraint.value,
-					};
-			}
-			return Object.keys(parameterPolicies).length > 0
-				? { model, parameters: parameterPolicies }
-				: { model };
-		});
-	return models.length > 0 ? { version: 1, mode: "limited", models } : null;
-}
-function getDefaultGenerationEnumSelections(
-	model: PublicGenerationDeclaration,
-): Record<string, Set<string>> {
-	const result: Record<string, Set<string>> = {};
-	for (const [name, spec] of Object.entries(model.parameters ?? {})) {
-		if ("enum" in spec && Array.isArray(spec.enum) && spec.enum.length > 0) {
-			result[name] = new Set(spec.enum.map(String));
-		}
-	}
-	return result;
-}
-function ensureGenerationModelEnumSelections(modelId: string) {
-	const model = generationModelsCatalog?.find((item) => item.model === modelId);
-	if (!model || generationEnumSelections[modelId]) return;
-	generationEnumSelections = {
-		...generationEnumSelections,
-		[modelId]: getDefaultGenerationEnumSelections(model),
-	};
+function buildTurnGenerationPolicy() {
+	return generationPolicy.buildTurnPolicy();
 }
 function setGenerationPolicyMode(mode: "auto" | "limited") {
-	generationPolicyMode = mode;
-	persistActiveSessionGenerationPolicy();
+	generationPolicy.setPolicyMode(mode);
 }
 function setGenerationModelSelected(modelId: string, selected: boolean) {
-	if (generationPolicyMode !== "limited") generationPolicyMode = "limited";
-	const nextModels = new Set(selectedGenerationModels);
-	if (selected) {
-		nextModels.add(modelId);
-		ensureGenerationModelEnumSelections(modelId);
-	} else {
-		nextModels.delete(modelId);
-		const { [modelId]: _removedEnum, ...restEnum } = generationEnumSelections;
-		generationEnumSelections = restEnum;
-		const { [modelId]: _removedNumeric, ...restNumeric } =
-			generationNumericConstraints;
-		generationNumericConstraints = restNumeric;
-		const { [modelId]: _removedBoolean, ...restBoolean } =
-			generationBooleanConstraints;
-		generationBooleanConstraints = restBoolean;
-	}
-	selectedGenerationModels = nextModels;
-	persistActiveSessionGenerationPolicy();
+	generationPolicy.setModelSelected(modelId, selected);
 }
-function ensureGenerationModelSelectedForPolicy(modelId: string) {
-	if (generationPolicyMode !== "limited") generationPolicyMode = "limited";
-	if (!selectedGenerationModels.has(modelId)) {
-		selectedGenerationModels = new Set([...selectedGenerationModels, modelId]);
-	}
-}
-
 function setGenerationEnumValueSelected(
 	modelId: string,
 	parameter: string,
 	value: string,
 	selected: boolean,
 ) {
-	const model = generationModelsCatalog?.find((item) => item.model === modelId);
-	if (!model) return;
-	const base =
-		generationEnumSelections[modelId] ??
-		getDefaultGenerationEnumSelections(model);
-	const nextValues = new Set(base[parameter] ?? []);
-	if (selected) nextValues.add(value);
-	else nextValues.delete(value);
-	generationEnumSelections = {
-		...generationEnumSelections,
-		[modelId]: {
-			...base,
-			[parameter]: nextValues,
-		},
-	};
-	ensureGenerationModelSelectedForPolicy(modelId);
-	persistActiveSessionGenerationPolicy();
+	generationPolicy.setEnumValueSelected(modelId, parameter, value, selected);
 }
-
 function setGenerationNumericConstraint(
 	modelId: string,
 	parameter: string,
 	constraint: { min?: number; max?: number },
 ) {
-	const nextConstraint: { min?: number; max?: number } = {};
-	if (constraint.min !== undefined && Number.isFinite(constraint.min))
-		nextConstraint.min = constraint.min;
-	if (constraint.max !== undefined && Number.isFinite(constraint.max))
-		nextConstraint.max = constraint.max;
-	generationNumericConstraints = {
-		...generationNumericConstraints,
-		[modelId]: {
-			...(generationNumericConstraints[modelId] ?? {}),
-			[parameter]: nextConstraint,
-		},
-	};
-	ensureGenerationModelSelectedForPolicy(modelId);
-	persistActiveSessionGenerationPolicy();
+	generationPolicy.setNumericConstraint(modelId, parameter, constraint);
 }
-
 function setGenerationBooleanConstraint(
 	modelId: string,
 	parameter: string,
 	constraint: { value?: boolean },
 ) {
-	generationBooleanConstraints = {
-		...generationBooleanConstraints,
-		[modelId]: {
-			...(generationBooleanConstraints[modelId] ?? {}),
-			[parameter]:
-				constraint.value === undefined ? {} : { value: constraint.value },
-		},
-	};
-	ensureGenerationModelSelectedForPolicy(modelId);
-	persistActiveSessionGenerationPolicy();
+	generationPolicy.setBooleanConstraint(modelId, parameter, constraint);
 }
-function restoreCachedPromptTemplates(targetSpaceId: string) {
-	const cached = readCachedPromptTemplates(targetSpaceId);
-	if (!cached) {
-		promptTemplates = [];
-		promptTemplatesLoaded = false;
-		promptTemplatesLoadedFor = null;
-		return;
-	}
-	promptTemplates = cached;
-	promptTemplatesLoaded = true;
-	promptTemplatesLoadedFor = targetSpaceId;
-}
-
-async function refreshPromptTemplates(targetSpaceId: string) {
-	if (
-		promptTemplatesRefreshInFlight &&
-		promptTemplatesRefreshInFlightFor === targetSpaceId
-	) {
-		return promptTemplatesRefreshInFlight;
-	}
-	const run = (async () => {
-		try {
-			const response = await sdk.prompts.list({ spaceId: targetSpaceId });
-			writeCachedPromptTemplates(targetSpaceId, response.prompts);
-			if (spaceId !== targetSpaceId) return;
-			promptTemplates = response.prompts;
-			promptTemplatesLoaded = true;
-			promptTemplatesLoadedFor = targetSpaceId;
-		} catch (error) {
-			console.error("Failed to load prompt templates:", error);
-		}
-	})();
-	const trackedRun = run.finally(() => {
-		if (promptTemplatesRefreshInFlight === trackedRun) {
-			promptTemplatesRefreshInFlight = null;
-			promptTemplatesRefreshInFlightFor = null;
-		}
-	});
-	promptTemplatesRefreshInFlight = trackedRun;
-	promptTemplatesRefreshInFlightFor = targetSpaceId;
-	return trackedRun;
-}
-
 async function loadPromptTemplates() {
-	const targetSpaceId = spaceId;
-	if (promptTemplatesLoadedFor !== targetSpaceId) {
-		restoreCachedPromptTemplates(targetSpaceId);
-	}
-	await refreshPromptTemplates(targetSpaceId);
+	await promptTemplateController.load();
 }
 function handleModelSelect(model: { provider: string; id: string }) {
 	const catalogItem = modelsCatalog?.find(
@@ -2364,7 +1918,7 @@ function prepareRouteSession(sessionId: string) {
 	currentTurnSequence = null;
 	showTurnBottomSheet = false;
 	ensureSessionModelLoaded(sessionId);
-	applySessionGenerationPolicy(loadSessionGenerationPolicy(sessionId));
+	applySessionGenerationPolicy(sessionId);
 	sessionScroll.shouldAutoFollow = true;
 }
 async function loadPreviewEndpoints() {
@@ -3699,7 +3253,7 @@ async function handleSend() {
 			sessionWorkspace.activeSessionId = newSession.id;
 			sessionId = newSession.id;
 			ensureSessionModelLoaded(newSession.id);
-			applySessionGenerationPolicy(loadSessionGenerationPolicy(newSession.id));
+			applySessionGenerationPolicy(newSession.id);
 			void updateUrlSession(newSession.id).catch((error) => {
 				console.warn(
 					"[NewChat] failed to update URL after session creation",
@@ -4288,110 +3842,26 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointerup", stop);
 	window.addEventListener("pointercancel", stop);
 }
-function getRightSidebarReservedWidth() {
-	if (uiState.rightSidebarCollapsed || spaceHasMinimalAccess) return 0;
-	return uiState.rightSidebarWidth;
-}
-function getMaxPreviewPanelWidth() {
-	if (typeof window === "undefined") return previewPanelWidth;
-	const layoutWidth = workspaceBodyEl?.clientWidth ?? window.innerWidth;
-	return Math.max(
-		PREVIEW_PANEL_MIN_WIDTH,
-		layoutWidth - CHAT_PANEL_MIN_WIDTH - getRightSidebarReservedWidth(),
-	);
-}
 function setPreviewPanelWidth(width: number) {
-	previewPanelWidth = Math.min(
-		Math.max(PREVIEW_PANEL_MIN_WIDTH, width),
-		getMaxPreviewPanelWidth(),
-	);
+	previewLayout.setWidth(width);
 }
 function ensurePreviewPanelFits() {
-	setPreviewPanelWidth(previewPanelWidth);
-}
-function restorePreviewFocusSnapshot() {
-	const snapshot = previewFocusSnapshot;
-	previewFocusSnapshot = null;
-	if (!snapshot) return;
-	uiState.setLeftSidebarCollapsed(snapshot.leftSidebarCollapsed);
-	uiState.setRightSidebarCollapsed(snapshot.rightSidebarCollapsed);
-	previewPanelWidth = snapshot.previewPanelWidth;
-	ensurePreviewPanelFits();
+	previewLayout.ensureFits();
 }
 async function togglePreviewFocusMode() {
-	if (isMobile) return;
-	if (previewFocusMode) {
-		previewFocusMode = false;
-		restorePreviewFocusSnapshot();
-		return;
-	}
-	previewFocusSnapshot = {
-		leftSidebarCollapsed: uiState.leftSidebarCollapsed,
-		rightSidebarCollapsed: uiState.rightSidebarCollapsed,
-		previewPanelWidth,
-	};
-	previewFocusMode = true;
-	uiState.setLeftSidebarCollapsed(true);
-	uiState.setRightSidebarCollapsed(true);
-	await tick();
-	setPreviewPanelWidth(getMaxPreviewPanelWidth());
+	await previewLayout.toggleFocusMode();
 }
 function closePreviewFocusMode() {
-	if (!previewFocusMode && !previewFocusSnapshot) return;
-	previewFocusMode = false;
-	restorePreviewFocusSnapshot();
+	previewLayout.closeFocusMode();
 }
 function handlePreviewWindowResize() {
-	if (previewFocusMode) {
-		setPreviewPanelWidth(getMaxPreviewPanelWidth());
-		return;
-	}
-	if (activePreviewKind) ensurePreviewPanelFits();
+	previewLayout.handleWindowResize();
 }
 function beginPreviewPanelResize(event: PointerEvent) {
-	event.preventDefault();
-	if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) return;
-	previewFocusMode = false;
-	previewFocusSnapshot = null;
-	const target = event.currentTarget as HTMLElement | null;
-	target?.setPointerCapture?.(event.pointerId);
-	previewPanelResizeCleanup?.();
-	const startX = event.clientX;
-	const startWidth = previewPanelWidth;
-	const onPointerMove = (moveEvent: PointerEvent) => {
-		const delta = startX - moveEvent.clientX;
-		setPreviewPanelWidth(startWidth + delta);
-	};
-	const stop = () => {
-		if (target?.hasPointerCapture?.(event.pointerId)) {
-			target.releasePointerCapture(event.pointerId);
-		}
-		document.body.classList.remove("sidebar-resizing");
-		window.removeEventListener("pointermove", onPointerMove);
-		window.removeEventListener("pointerup", stop);
-		window.removeEventListener("pointercancel", stop);
-		if (previewPanelResizeCleanup === stop) previewPanelResizeCleanup = null;
-	};
-	previewPanelResizeCleanup = stop;
-	document.body.classList.add("sidebar-resizing");
-	window.addEventListener("pointermove", onPointerMove);
-	window.addEventListener("pointerup", stop);
-	window.addEventListener("pointercancel", stop);
+	previewLayout.beginPanelResize(event);
 }
 async function toggleRightSidebar() {
-	if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
-		uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
-		return;
-	}
-	const nextCollapsed = !uiState.rightSidebarCollapsed;
-	const rightWidth = uiState.rightSidebarWidth;
-	uiState.setRightSidebarCollapsed(nextCollapsed);
-	if (!activePreviewKind) return;
-	closePreviewFocusMode();
-	await tick();
-	setPreviewPanelWidth(
-		previewPanelWidth + (nextCollapsed ? rightWidth : -rightWidth),
-	);
+	await previewLayout.toggleRightSidebar();
 }
 async function loadFileTree(force = false) {
 	await fileWorkspace.loadFileTree(force);
@@ -4816,6 +4286,7 @@ onMount(() => {
 		offTaskRunsCacheUpdated();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
+		sessionShare.dispose();
 		spaceStatus.dispose();
 		fileWorkspace.dispose();
 		portPreview.dispose();
@@ -4840,7 +4311,7 @@ onMount(() => {
 		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
-		previewPanelResizeCleanup?.();
+		previewLayout.dispose();
 		deactivateSpaceStyle();
 		deactivateSpaceConfig();
 	};
@@ -4863,9 +4334,6 @@ $effect(() => {
 	newChatProfileViewportEl = null;
 	newChatProfileContentEl = null;
 	newChatProfileBodyEl = null;
-	promptTemplates = [];
-	promptTemplatesLoaded = false;
-	promptTemplatesLoadedFor = null;
 	void loadPromptTemplates();
 	sessionWorkspace.spaceSessions = [];
 	sessionWorkspace.sessionStateById = {};
@@ -4891,9 +4359,7 @@ $effect(() => {
 	taskRealtimeEvent = null;
 	taskRealtimeSeq = 0;
 	resourceActionMenuOpen = false;
-	showShareModal = false;
-	shareModalSessionId = null;
-	sessionAccessById = {};
+	sessionShare.reset();
 	routeDetailHeaderMeta = null;
 	creatingSession = false;
 	createSessionError = "";
@@ -5320,7 +4786,17 @@ $effect(() => {
 	return () => ro.disconnect();
 });
 
-const spaceFileDomainProps = $derived.by(() => ({
+const spaceFileDomainProps = $derived.by<
+	Omit<
+		SpaceFileDomainProps,
+		| "inlineFileEdit"
+		| "fileActionMenuOpenPath"
+		| "inlineFileZoom"
+		| "inlineFilePanX"
+		| "inlineFilePanY"
+		| "workPublishTarget"
+	>
+>(() => ({
 	spaceId,
 	spaceOwnerUsername,
 	spaceSlug,
@@ -5405,7 +4881,20 @@ const spaceFileDomainProps = $derived.by(() => ({
 	},
 }));
 
-const sessionWorkspaceProps = $derived.by(() => ({
+const sessionWorkspaceProps = $derived.by<
+	Omit<
+		SessionWorkspaceProps,
+		| "newChatProfileViewportEl"
+		| "newChatProfile"
+		| "chatTimelineRef"
+		| "listEl"
+		| "shouldAutoFollow"
+		| "showTurnBottomSheet"
+		| "composerHostEl"
+		| "input"
+		| "showModelSelector"
+	>
+>(() => ({
 	spaceId,
 	spaceLoadError,
 	spaceHasMinimalAccess,
@@ -5925,7 +5414,7 @@ const sessionWorkspaceProps = $derived.by(() => ({
     {#if isRouteDetailView}
       <SpaceRouteDetailHost
         route={{
-          view: routeView,
+          view: routeView as RouteDetailView,
           checkpointId: routeCheckpointId,
           cronjobId: routeCronjobId,
           workId: routeWorkId,
@@ -6011,20 +5500,16 @@ const sessionWorkspaceProps = $derived.by(() => ({
     bind:workPublishTarget
   />
   <SessionShareDialog
-    open={showShareModal && !!shareModalSessionId}
-    isPublic={shareModalSessionId ? hasSessionPermission(shareModalSessionId) : false}
-    saving={shareModalSaving}
-    copied={shareCopied}
-    error={shareModalError}
-    onClose={() => { showShareModal = false; }}
-    onRemovePermission={() => {
-      if (!shareModalSessionId) return;
-      void removeSessionAccess(shareModalSessionId);
-      showShareModal = false;
-    }}
-    onMakePrivate={makeSessionPrivate}
-    onCopyLink={copyShareLink}
-    onShare={shareAndCopyLink}
+    open={sessionShare.open && !!sessionShare.sessionId}
+    isPublic={sessionShare.isCurrentPublic}
+    saving={sessionShare.saving}
+    copied={sessionShare.copied}
+    error={sessionShare.error}
+    onClose={sessionShare.close}
+    onRemovePermission={sessionShare.removeCurrentPermission}
+    onMakePrivate={sessionShare.makePrivate}
+    onCopyLink={sessionShare.copyLink}
+    onShare={sessionShare.shareAndCopyLink}
   />
   <SessionModelSelectorDialog
     open={showModelSelector}

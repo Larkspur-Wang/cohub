@@ -31,7 +31,7 @@ type SelectedModel = {
 	name?: string;
 };
 
-type Props = {
+export type SessionWorkspaceProps = {
 	spaceId: string;
 	spaceLoadError: string;
 	spaceHasMinimalAccess: boolean;
@@ -205,7 +205,7 @@ let {
 	loadModelsCatalog,
 	loadGenerationModelsCatalog,
 	showModelSelector = $bindable(),
-}: Props = $props();
+}: SessionWorkspaceProps = $props();
 </script>
 
   <!-- Chat -->
