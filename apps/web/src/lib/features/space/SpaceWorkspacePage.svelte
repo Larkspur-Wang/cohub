@@ -2731,15 +2731,6 @@ function applyAcceptedTurnId(input: {
 			previousTurnId: input.previousTurnId,
 			nextTurnId: input.nextTurnId,
 		});
-		void sessionTurnsRepo.replaceTurnId(
-			spaceId,
-			input.sessionId,
-			{
-				previousTurnId: input.previousTurnId,
-				nextTurnId: input.nextTurnId,
-			},
-			{ source: "indexeddb" },
-		);
 		const current = sessionStateById[input.sessionId];
 		if (current) {
 			const turns = current.turns.map((turn) => {
@@ -2964,21 +2955,11 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 				}
 				const current = sessionStateById[targetSessionId] ?? state;
 				const reconciled = reconcileOptimisticTurn(current.turns, turn);
-				const snapshot = await sessionTurnsRepo.mergeTurns(
-					spaceId,
-					targetSessionId,
-					[turn],
-					{ session: current.session ?? null },
-				);
 				sessionWorkspace.sessionStateById = {
 					...sessionStateById,
 					[targetSessionId]: {
 						...current,
-						turns: normalizeTurnDuplicates(
-							mergeTurnsById(reconciled.turns, snapshot.turns, {
-								preferIncoming: true,
-							}),
-						),
+						turns: normalizeTurnDuplicates(reconciled.turns),
 					},
 				};
 			}
@@ -3009,17 +2990,19 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 			const existingTurn =
 				state.turns.find((turn) => turn.id === turnId) ?? null;
 			if (existingTurn) {
-				const snapshot = await sessionTurnsRepo.mergeTurns(
-					spaceId,
-					targetSessionId,
-					[{ ...existingTurn, ...normalizedTurnPatch } as SessionTurnRecord],
-					{ session: state.session ?? null },
-				);
+				const patchedTurn = {
+					...existingTurn,
+					...normalizedTurnPatch,
+				} as SessionTurnRecord;
 				sessionWorkspace.sessionStateById = {
 					...sessionStateById,
 					[targetSessionId]: {
 						...state,
-						turns: snapshot.turns,
+						turns: normalizeTurnDuplicates(
+							mergeTurnsById(state.turns, [patchedTurn], {
+								preferIncoming: true,
+							}),
+						),
 					},
 				};
 			}
@@ -3365,9 +3348,6 @@ async function handleSend() {
 		sessionScroll.shouldAutoFollow = true;
 		await tick();
 		requestBottomFollow({ immediate: true });
-		void sessionTurnsRepo.mergeTurns(spaceId, sessionId, [optimisticTurn], {
-			session: targetSessionState.session,
-		});
 		if (!hasActiveTurn)
 			startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
 		const sendResult = await sdk.space(spaceId).prompt({
@@ -3395,25 +3375,22 @@ async function handleSend() {
 		if (sendResult.session) upsertSessionRecord(sendResult.session);
 		const current = sessionStateById[sessionId];
 		if (current) {
-			const snapshot = await sessionTurnsRepo.mergeTurns(
-				spaceId,
-				sessionId,
-				[
-					{
-						...acceptedTurn,
-						userUuid: acceptedTurn.userUuid ?? currentUser.uuid,
-						authorProfile:
-							acceptedTurn.authorProfile ?? currentUser.profile ?? null,
-					},
-				],
-				{ session: sendResult.session ?? current.session ?? null },
-			);
+			const acceptedTurnWithProfile = {
+				...acceptedTurn,
+				userUuid: acceptedTurn.userUuid ?? currentUser.uuid,
+				authorProfile:
+					acceptedTurn.authorProfile ?? currentUser.profile ?? null,
+			};
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
-					session: snapshot.session ?? current.session,
-					turns: normalizeTurnDuplicates(snapshot.turns),
+					session: sendResult.session ?? current.session,
+					turns: normalizeTurnDuplicates(
+						mergeTurnsById(current.turns, [acceptedTurnWithProfile], {
+							preferIncoming: true,
+						}),
+					),
 				},
 			};
 		}
@@ -4475,6 +4452,9 @@ $effect(() => {
 	const sessionId = activeSessionId;
 	if (!sessionId) return;
 	untrack(() => {
+		void sessionGenerationStore
+			.restore(spaceId, sessionId)
+			.catch(() => undefined);
 		void loadTurnIndex(sessionId);
 	});
 });

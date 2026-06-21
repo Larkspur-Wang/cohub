@@ -1,5 +1,5 @@
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
-import { authStore } from "$lib/stores/auth.svelte";
+import { sessionGenerationSnapshotsRepo } from "$lib/cache/repositories/session-generation-snapshots-repo";
 
 export type SessionGenerationStatus =
 	| "idle"
@@ -55,15 +55,7 @@ export type SessionGenerationState = {
 	finalizedPreview: boolean;
 };
 
-type PersistedGenerationState = SessionGenerationState & {
-	version: 1;
-	userKey: string;
-};
-
-const STORAGE_PREFIX = "cohub:generation";
-const STORAGE_VERSION = 1;
-const STORAGE_TTL_MS = 2 * 60 * 60 * 1000;
-const STORAGE_WRITE_DEBOUNCE_MS = 250;
+const PERSIST_WRITE_DEBOUNCE_MS = 250;
 const MAX_PERSISTED_ERROR_LENGTH = 1000;
 const TERMINAL_STATUSES = new Set([
 	"idle",
@@ -96,29 +88,6 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	runtimeModel: null,
 	finalizedPreview: false,
 });
-
-function getStorage(): Storage | null {
-	return typeof globalThis.localStorage === "undefined"
-		? null
-		: globalThis.localStorage;
-}
-
-function getUserKey() {
-	return authStore.userUuid ?? "guest";
-}
-
-function storageKey(sessionId: string, userKey = getUserKey()) {
-	return `${STORAGE_PREFIX}:${userKey}:${sessionId}:v${STORAGE_VERSION}`;
-}
-
-function isPersistable(state: SessionGenerationState) {
-	return !TERMINAL_STATUSES.has(state.status);
-}
-
-function isFresh(state: SessionGenerationState) {
-	const lastEventAt = state.lastEventAt ?? state.startedAt ?? 0;
-	return lastEventAt > 0 && Date.now() - lastEventAt <= STORAGE_TTL_MS;
-}
 
 function sanitizeError(error: string | null | undefined) {
 	const trimmed = error?.trim();
@@ -175,69 +144,79 @@ function parseIntermediateMessage(
 	};
 }
 
-function parsePersistedState(raw: string): SessionGenerationState | null {
-	try {
-		const parsed = JSON.parse(raw) as Partial<PersistedGenerationState>;
-		if (parsed.version !== STORAGE_VERSION) return null;
-		if (parsed.userKey !== getUserKey()) return null;
-		if (!parsed.sessionId || typeof parsed.sessionId !== "string") return null;
-		if (!parsed.status || typeof parsed.status !== "string") return null;
-		if (TERMINAL_STATUSES.has(parsed.status)) return null;
-		const state: SessionGenerationState = {
-			spaceId: typeof parsed.spaceId === "string" ? parsed.spaceId : null,
-			sessionId: parsed.sessionId,
-			status: parsed.status,
-			requestId: typeof parsed.requestId === "string" ? parsed.requestId : null,
-			error: sanitizeError(parsed.error),
-			errorCode: typeof parsed.errorCode === "string" ? parsed.errorCode : null,
-			startedAt:
-				typeof parsed.startedAt === "number" ? parsed.startedAt : undefined,
-			lastEventAt:
-				typeof parsed.lastEventAt === "number" ? parsed.lastEventAt : undefined,
-			contentBlocks: Array.isArray(parsed.contentBlocks)
-				? (parsed.contentBlocks as ContentBlock[])
-				: [],
-			intermediateMessages: Array.isArray(parsed.intermediateMessages)
-				? parsed.intermediateMessages
-						.map(parseIntermediateMessage)
-						.filter((message): message is StreamingIntermediateMessage =>
-							Boolean(message),
-						)
-				: [],
-			streamMessageId:
-				typeof parsed.streamMessageId === "string"
-					? parsed.streamMessageId
-					: null,
-			messageOrdinal:
-				typeof parsed.messageOrdinal === "number"
-					? parsed.messageOrdinal
-					: null,
-			anchorUserMessageId:
-				typeof parsed.anchorUserMessageId === "string"
-					? parsed.anchorUserMessageId
-					: null,
-			truncatedStart: Boolean(parsed.truncatedStart),
-			patchSeq: typeof parsed.patchSeq === "number" ? parsed.patchSeq : 0,
-			turnId: typeof parsed.turnId === "string" ? parsed.turnId : null,
-			runtimePhase:
-				parsed.runtimePhase === "llm_call_started" ? "llm_call_started" : null,
-			runtimePhaseAt:
-				typeof parsed.runtimePhaseAt === "number"
-					? parsed.runtimePhaseAt
-					: null,
-			llmRound: typeof parsed.llmRound === "number" ? parsed.llmRound : null,
-			runtimeProvider:
-				typeof parsed.runtimeProvider === "string"
-					? parsed.runtimeProvider
-					: null,
-			runtimeModel:
-				typeof parsed.runtimeModel === "string" ? parsed.runtimeModel : null,
-			finalizedPreview: Boolean(parsed.finalizedPreview),
-		};
-		return isFresh(state) ? state : null;
-	} catch {
-		return null;
-	}
+function isPersistable(state: SessionGenerationState) {
+	return !TERMINAL_STATUSES.has(state.status);
+}
+
+function parseSnapshotState(
+	record: Awaited<ReturnType<typeof sessionGenerationSnapshotsRepo.get>>,
+): SessionGenerationState | null {
+	if (!record?.sessionId || !record.status) return null;
+	if (TERMINAL_STATUSES.has(record.status)) return null;
+	if (!record.spaceId) return null;
+	const contentBlocks = Array.isArray(record.contentBlocks)
+		? (record.contentBlocks as ContentBlock[])
+		: null;
+	const intermediateMessages = Array.isArray(record.intermediateMessages)
+		? record.intermediateMessages
+				.map(parseIntermediateMessage)
+				.filter((message): message is StreamingIntermediateMessage =>
+					Boolean(message),
+				)
+		: null;
+	if (!contentBlocks || !intermediateMessages) return null;
+	return {
+		spaceId: record.spaceId,
+		sessionId: record.sessionId,
+		status: record.status,
+		requestId: null,
+		error: null,
+		errorCode: null,
+		startedAt: record.startedAt ?? undefined,
+		lastEventAt: record.lastEventAt ?? undefined,
+		contentBlocks,
+		intermediateMessages,
+		streamMessageId: record.streamMessageId,
+		messageOrdinal: record.messageOrdinal,
+		anchorUserMessageId: record.anchorUserMessageId,
+		truncatedStart: record.truncatedStart,
+		patchSeq: record.patchSeq,
+		turnId: record.turnId,
+		runtimePhase:
+			record.runtimePhase === "llm_call_started" ? "llm_call_started" : null,
+		runtimePhaseAt: record.runtimePhaseAt,
+		llmRound: record.llmRound,
+		runtimeProvider: record.runtimeProvider,
+		runtimeModel: record.runtimeModel,
+		finalizedPreview: record.finalizedPreview,
+	};
+}
+
+function toSnapshotInput(state: SessionGenerationState) {
+	const now = Date.now();
+	return {
+		spaceId: state.spaceId ?? "",
+		sessionId: state.sessionId,
+		turnId: state.turnId,
+		anchorUserMessageId: state.anchorUserMessageId,
+		clientMessageId: null,
+		status: state.status,
+		contentBlocks: state.contentBlocks,
+		intermediateMessages: state.intermediateMessages,
+		streamMessageId: state.streamMessageId,
+		messageOrdinal: state.messageOrdinal,
+		truncatedStart: state.truncatedStart,
+		patchSeq: state.patchSeq,
+		finalizedPreview: state.finalizedPreview,
+		runtimePhase: state.runtimePhase,
+		runtimePhaseAt: state.runtimePhaseAt,
+		llmRound: state.llmRound,
+		runtimeProvider: state.runtimeProvider,
+		runtimeModel: state.runtimeModel,
+		startedAt: state.startedAt ?? null,
+		lastEventAt: state.lastEventAt ?? null,
+		updatedAt: now,
+	};
 }
 
 class SessionGenerationStore {
@@ -245,32 +224,44 @@ class SessionGenerationStore {
 	private persistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor() {
-		this.restorePersisted();
+		void sessionGenerationSnapshotsRepo.deleteExpired().catch(() => undefined);
 	}
 
-	private restorePersisted() {
-		const storage = getStorage();
-		if (!storage) return;
-		const restored: Record<string, SessionGenerationState> = {};
-		const staleKeys: string[] = [];
-		const keyPrefix = `${STORAGE_PREFIX}:${getUserKey()}:`;
-		try {
-			for (let i = 0; i < storage.length; i += 1) {
-				const key = storage.key(i);
-				if (!key?.startsWith(keyPrefix)) continue;
-				const raw = storage.getItem(key);
-				const state = raw ? parsePersistedState(raw) : null;
-				if (!state) {
-					staleKeys.push(key);
-					continue;
-				}
-				restored[state.sessionId] = state;
-			}
-			for (const key of staleKeys) storage.removeItem(key);
-			if (Object.keys(restored).length > 0) this.bySessionId = restored;
-		} catch {
-			// ignore persistence failures
+	async restore(spaceId: string, sessionId: string) {
+		const current = this.get(sessionId);
+		if (current && isPersistable(current)) return current;
+		const requestStartedAt = Date.now();
+		const record = await sessionGenerationSnapshotsRepo.get(spaceId, sessionId);
+		const latest = this.get(sessionId);
+		if (
+			latest &&
+			isPersistable(latest) &&
+			(latest.lastEventAt ?? latest.startedAt ?? 0) >= requestStartedAt
+		) {
+			return latest;
 		}
+		const state = parseSnapshotState(record);
+		if (!state) {
+			if (record) {
+				void sessionGenerationSnapshotsRepo
+					.delete(spaceId, sessionId)
+					.catch(() => undefined);
+			}
+			return null;
+		}
+		if (
+			latest &&
+			isPersistable(latest) &&
+			(latest.lastEventAt ?? latest.startedAt ?? 0) >
+				(state.lastEventAt ?? state.startedAt ?? 0)
+		) {
+			return latest;
+		}
+		this.bySessionId = {
+			...this.bySessionId,
+			[sessionId]: state,
+		};
+		return state;
 	}
 
 	private clearPersistTimer(sessionId: string) {
@@ -280,39 +271,28 @@ class SessionGenerationStore {
 		this.persistTimers.delete(sessionId);
 	}
 
-	private clearPersisted(sessionId: string) {
+	private clearPersisted(sessionId: string, spaceId?: string | null) {
 		this.clearPersistTimer(sessionId);
-		const storage = getStorage();
-		if (!storage) return;
-		try {
-			storage.removeItem(storageKey(sessionId));
-		} catch {
-			// ignore
-		}
+		const resolvedSpaceId =
+			spaceId ?? this.bySessionId[sessionId]?.spaceId ?? null;
+		if (!resolvedSpaceId) return;
+		void sessionGenerationSnapshotsRepo
+			.delete(resolvedSpaceId, sessionId)
+			.catch(() => undefined);
 	}
 
 	private schedulePersist(state: SessionGenerationState) {
-		if (!isPersistable(state)) {
-			this.clearPersisted(state.sessionId);
+		if (!isPersistable(state) || !state.spaceId) {
+			this.clearPersisted(state.sessionId, state.spaceId);
 			return;
 		}
 		this.clearPersistTimer(state.sessionId);
 		const timer = setTimeout(() => {
 			this.persistTimers.delete(state.sessionId);
-			const storage = getStorage();
-			if (!storage) return;
-			try {
-				const payload: PersistedGenerationState = {
-					...state,
-					userKey: getUserKey(),
-					version: STORAGE_VERSION,
-					error: sanitizeError(state.error),
-				};
-				storage.setItem(storageKey(state.sessionId), JSON.stringify(payload));
-			} catch {
-				// localStorage can be full or unavailable; runtime state remains source of truth.
-			}
-		}, STORAGE_WRITE_DEBOUNCE_MS);
+			void sessionGenerationSnapshotsRepo
+				.put(toSnapshotInput(state))
+				.catch(() => undefined);
+		}, PERSIST_WRITE_DEBOUNCE_MS);
 		this.persistTimers.set(state.sessionId, timer);
 	}
 
@@ -623,11 +603,12 @@ class SessionGenerationStore {
 
 	reset(sessionId: string | null | undefined) {
 		if (!sessionId) return;
+		const currentSpaceId = this.bySessionId[sessionId]?.spaceId ?? null;
 		this.bySessionId = {
 			...this.bySessionId,
 			[sessionId]: createIdleState(sessionId),
 		};
-		this.clearPersisted(sessionId);
+		this.clearPersisted(sessionId, currentSpaceId);
 	}
 
 	resetAll() {

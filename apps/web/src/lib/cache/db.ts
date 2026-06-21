@@ -1,3 +1,4 @@
+import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	SessionForkRecord,
 	SessionTurnRecord,
@@ -16,7 +17,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 7;
+export const DB_VERSION = 8;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -100,6 +101,34 @@ export type SessionTurnsCacheRecord = {
 	updatedAt: number;
 	lastAccessedAt: number;
 	tailWatermark: string | null;
+};
+
+export type SessionGenerationSnapshotCacheRecord = {
+	key: string;
+	userKey: string;
+	spaceId: string;
+	sessionId: string;
+	turnId: string | null;
+	anchorUserMessageId: string | null;
+	clientMessageId: string | null;
+	status: string;
+	contentBlocks: ContentBlock[];
+	intermediateMessages: unknown[];
+	streamMessageId: string | null;
+	messageOrdinal: number | null;
+	truncatedStart: boolean;
+	patchSeq: number;
+	finalizedPreview: boolean;
+	runtimePhase: string | null;
+	runtimePhaseAt: number | null;
+	llmRound: number | null;
+	runtimeProvider: string | null;
+	runtimeModel: string | null;
+	startedAt: number | null;
+	lastEventAt: number | null;
+	createdAt: number;
+	updatedAt: number;
+	expiresAt: number;
 };
 
 export type SpaceFsDirCacheRecord = {
@@ -205,6 +234,7 @@ type StoreName =
 	| "session_list_indexes"
 	| "session_details"
 	| "session_turns"
+	| "session_generation_snapshots"
 	| "space_fs_dirs"
 	| "space_records"
 	| "label_trees"
@@ -285,6 +315,15 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 					keyPath: ["userKey", "spaceId", "sessionId"],
 				},
 				{ name: "by_last_accessed", keyPath: "lastAccessedAt" },
+			]);
+			createStore(db, "session_generation_snapshots", [
+				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },
+				{
+					name: "by_user_space_session",
+					keyPath: ["userKey", "spaceId", "sessionId"],
+				},
+				{ name: "by_expires_at", keyPath: "expiresAt" },
+				{ name: "by_updated_at", keyPath: "updatedAt" },
 			]);
 			createStore(db, "space_fs_dirs", [
 				{ name: "by_user_space", keyPath: ["userKey", "spaceId"] },

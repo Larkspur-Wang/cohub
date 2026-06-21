@@ -76,6 +76,16 @@ export function sessionTurnsKey(
 	return [userKey, spaceId, sessionId].map(encodeKeyPart).join(":");
 }
 
+export function sessionGenerationSnapshotKey(
+	userKey: string,
+	spaceId: string,
+	sessionId: string,
+) {
+	return [userKey, spaceId, sessionId, "generation"]
+		.map(encodeKeyPart)
+		.join(":");
+}
+
 export function spaceFsDirKey(
 	userKey: string,
 	spaceId: string,
