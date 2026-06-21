@@ -10,6 +10,7 @@ import {
 	getCachedSpaceMembers,
 	getCachedSpaceUsage,
 } from "$lib/stores/space-profile-cache";
+import { createRequestDedupe } from "./request-dedupe";
 
 export type SpaceSandboxSnapshot = {
 	status: string | null;
@@ -51,7 +52,7 @@ export function createSpaceStatusController(options: {
 	let notice = $state("");
 	let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 	let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-	let refreshInFlight = false;
+	const requests = createRequestDedupe();
 
 	function clearNoticeTimer() {
 		if (!noticeTimer) return;
@@ -72,7 +73,10 @@ export function createSpaceStatusController(options: {
 		const currentSpaceId = options.getSpaceId();
 		loadError = "";
 		try {
-			const nextSpace = await sdk.space(currentSpaceId).get();
+			const nextSpace = await requests.run(
+				`space:${currentSpaceId}:record`,
+				() => sdk.space(currentSpaceId).get(),
+			);
 			if (options.getSpaceId() !== currentSpaceId) return false;
 			options.onSpaceLoaded(nextSpace);
 			return true;
@@ -91,7 +95,10 @@ export function createSpaceStatusController(options: {
 			membersLoadedFor = currentSpaceId;
 		}
 		try {
-			const nextMembers = await fetchSpaceMembersWithCache(currentSpaceId);
+			const nextMembers = await requests.run(
+				`space:${currentSpaceId}:members`,
+				() => fetchSpaceMembersWithCache(currentSpaceId),
+			);
 			if (options.getSpaceId() !== currentSpaceId) return;
 			members = nextMembers;
 			membersLoadedFor = currentSpaceId;
@@ -110,7 +117,10 @@ export function createSpaceStatusController(options: {
 			usageLoadedFor = currentSpaceId;
 		}
 		try {
-			const result = await fetchSpaceUsageWithCache(currentSpaceId, days);
+			const result = await requests.run(
+				`space:${currentSpaceId}:usage:${days}`,
+				() => fetchSpaceUsageWithCache(currentSpaceId, days),
+			);
 			if (options.getSpaceId() !== currentSpaceId) return;
 			usage = result;
 			usageLoadedFor = currentSpaceId;
@@ -123,7 +133,9 @@ export function createSpaceStatusController(options: {
 
 	async function loadSandbox(currentSpaceId = options.getSpaceId()) {
 		try {
-			const result = await sdk.space(currentSpaceId).sandbox.get();
+			const result = await requests.run(`space:${currentSpaceId}:sandbox`, () =>
+				sdk.space(currentSpaceId).sandbox.get(),
+			);
 			if (options.getSpaceId() !== currentSpaceId) return;
 			sandbox = result.sandbox;
 			sandboxLoadedFor = currentSpaceId;
@@ -143,20 +155,18 @@ export function createSpaceStatusController(options: {
 	}
 
 	async function refreshStatus() {
-		if (refreshInFlight) return;
-		refreshInFlight = true;
-		try {
-			const previousBootstrapStatus = options.getBootstrapStatus();
-			const nextSpace = await sdk.space(options.getSpaceId()).get();
-			options.onSpaceLoaded(nextSpace);
-			if (
-				previousBootstrapStatus !== "ready" &&
-				readBootstrapStatus(nextSpace) === "ready"
-			) {
-				showNotice("Workspace prepared");
-			}
-		} finally {
-			refreshInFlight = false;
+		const currentSpaceId = options.getSpaceId();
+		const previousBootstrapStatus = options.getBootstrapStatus();
+		const nextSpace = await requests.run(`space:${currentSpaceId}:record`, () =>
+			sdk.space(currentSpaceId).get(),
+		);
+		if (options.getSpaceId() !== currentSpaceId) return;
+		options.onSpaceLoaded(nextSpace);
+		if (
+			previousBootstrapStatus !== "ready" &&
+			readBootstrapStatus(nextSpace) === "ready"
+		) {
+			showNotice("Workspace prepared");
 		}
 	}
 
@@ -176,6 +186,7 @@ export function createSpaceStatusController(options: {
 	function reset() {
 		if (refreshTimer) clearTimeout(refreshTimer);
 		refreshTimer = null;
+		requests.clear();
 		loadError = "";
 		members = [];
 		membersLoadedFor = null;
@@ -188,6 +199,7 @@ export function createSpaceStatusController(options: {
 	}
 
 	function dispose() {
+		requests.clear();
 		clearNoticeTimer();
 		if (refreshTimer) clearTimeout(refreshTimer);
 		refreshTimer = null;

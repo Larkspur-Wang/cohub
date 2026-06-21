@@ -231,8 +231,6 @@ import {
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import CanvasPreviewPanel from "./modules/CanvasPreviewPanel.svelte";
-import CheckpointView from "./modules/CheckpointView.svelte";
-import CronjobView from "./modules/CronjobView.svelte";
 import {
 	createCanvasPreviewController,
 	type InlineCanvasPanelState,
@@ -257,6 +255,7 @@ import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
+import SpaceRouteDetailHost from "./modules/SpaceRouteDetailHost.svelte";
 import {
 	createSessionComposerController,
 	revokeComposerAttachmentPreview,
@@ -288,9 +287,7 @@ import {
 	createSpaceStatusController,
 	type SpaceSandboxSnapshot,
 } from "./modules/space-status-controller.svelte";
-import TaskRunView from "./modules/TaskRunView.svelte";
-import { mergeTaskRunRecord, taskTypeLabel } from "./modules/task-run-utils";
-import WorkView from "./modules/WorkView.svelte";
+import { mergeTaskRunRecord } from "./modules/task-run-utils";
 import {
 	scopeState,
 	selectedScopeList,
@@ -5819,60 +5816,22 @@ $effect(() => {
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    {#if routeView === 'checkpoint-new' || routeView === 'checkpoint'}
-      <CheckpointView
-        mode={routeView === 'checkpoint-new' ? 'create' : 'detail'}
+    {#if routeView === 'checkpoint-new' || routeView === 'checkpoint' || routeView === 'cronjob-new' || routeView === 'cronjob' || routeView === 'work' || routeView === 'task'}
+      <SpaceRouteDetailHost
+        {routeView}
         {spaceId}
         {space}
         {spaceLoadError}
         {spaceHasMinimalAccess}
-        checkpointId={routeCheckpointId}
-        onDetailLoaded={(checkpoint) => {
-          routeDetailHeaderMeta = checkpoint && routeCheckpointId
-            ? {
-                view: "checkpoint",
-                id: routeCheckpointId,
-                title: checkpoint.description?.trim() || `Save ${routeCheckpointId.slice(0, 8)}`,
-              }
-            : null;
-        }}
-      />
-    {:else if routeView === 'cronjob-new' || routeView === 'cronjob'}
-      <CronjobView
-        mode={routeView === 'cronjob-new' ? 'create' : 'detail'}
-        {spaceId}
-        spaceName={space?.name ?? space?.title ?? spaceId}
-        {spaceLoadError}
-        {spaceHasMinimalAccess}
-        cronjobId={routeCronjobId}
-        {taskRealtimeEvent}
-        onDetailLoaded={(job) => {
-          routeDetailHeaderMeta = job
-            ? { view: "cronjob", id: job.id, title: job.title }
-            : null;
-        }}
-      />
-    {:else if routeView === 'work'}
-      <WorkView
-        {spaceId}
+        {routeCheckpointId}
+        {routeCronjobId}
         {routeWorkId}
+        {routeTaskId}
+        {taskRealtimeEvent}
         ownerUsername={space?.ownerProfile?.username ?? (space?.userUuid === authStore.userUuid ? (authStore.profile?.username ?? null) : null)}
         spaceSlug={space?.slug ?? null}
-        onDetailLoaded={(work) => {
-          routeDetailHeaderMeta = work
-            ? { view: "work", id: work.id, title: work.slug }
-            : null;
-        }}
-      />
-    {:else if routeView === 'task'}
-      <TaskRunView
-        {spaceId}
-        taskId={routeTaskId}
-        {taskRealtimeEvent}
-        onDetailLoaded={(run) => {
-          routeDetailHeaderMeta = run
-            ? { view: "task", id: run.id, title: taskTypeLabel(run.taskType) }
-            : null;
+        onHeaderMeta={(meta) => {
+          routeDetailHeaderMeta = meta;
         }}
       />
     {:else if fileMode === 'file'}

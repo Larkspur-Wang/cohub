@@ -2,6 +2,7 @@ import type { WorkRecord, WorkVersionRecord } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
+import { createKeyedRouteRequestGuard } from "./route-request-guard";
 import {
 	scopeState,
 	selectedScopeList,
@@ -107,22 +108,22 @@ export function createWorkDetailController(options: {
 	}
 
 	async function loadVersions(workId: string) {
-		const requestSpaceId = options.getSpaceId();
-		const isCurrentRequest = () =>
-			options.getSpaceId() === requestSpaceId &&
-			options.getRouteWorkId() === workId;
+		const guard = createKeyedRouteRequestGuard({
+			captureKey: () =>
+				`${options.getSpaceId()}:${options.getRouteWorkId() ?? ""}`,
+		});
 		versionsLoading = true;
 		versionsError = "";
 		try {
 			const { versions: nextVersions } = await sdk.works.listVersions(workId);
-			if (isCurrentRequest()) versions = nextVersions;
+			if (guard.isCurrent()) versions = nextVersions;
 		} catch (cause) {
-			if (isCurrentRequest()) {
+			if (guard.isCurrent()) {
 				versionsError =
 					cause instanceof Error ? cause.message : "Failed to load versions";
 			}
 		} finally {
-			if (isCurrentRequest()) versionsLoading = false;
+			if (guard.isCurrent()) versionsLoading = false;
 		}
 	}
 

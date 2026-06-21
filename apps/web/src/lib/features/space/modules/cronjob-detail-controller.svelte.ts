@@ -14,6 +14,7 @@ import {
 	promptTextFromPayload,
 	validateCronjobForm,
 } from "./cronjob-utils";
+import { createKeyedRouteRequestGuard } from "./route-request-guard";
 import type { TaskRealtimeEvent } from "./task-run-detail-controller.svelte";
 import { mergeTaskRunList } from "./task-run-utils";
 
@@ -210,12 +211,12 @@ export function createCronjobDetailController(options: {
 		const cronjobId = options.getCronjobId();
 		if (!detail || !cronjobId) return;
 		if (runsLoading || runsLoadingMore) return;
-		const requestSpaceId = options.getSpaceId();
 		const requestCronjobId = detail.id;
-		const isCurrentRequest = () =>
-			options.getSpaceId() === requestSpaceId &&
-			options.getMode() === "detail" &&
-			options.getCronjobId() === requestCronjobId;
+		if (requestCronjobId !== cronjobId) return;
+		const guard = createKeyedRouteRequestGuard({
+			captureKey: () =>
+				`${options.getSpaceId()}:${options.getMode()}:${options.getCronjobId() ?? ""}`,
+		});
 		const reset = input.reset ?? !runsLoaded;
 		const cursor = reset ? null : runsNextCursor;
 		if (!reset && !runsHasMore) return;
@@ -227,11 +228,7 @@ export function createCronjobDetailController(options: {
 				requestCronjobId,
 				{ limit: 20, cursor },
 			);
-			if (
-				options.getMode() !== "detail" ||
-				options.getCronjobId() !== requestCronjobId
-			)
-				return;
+			if (!guard.isCurrent()) return;
 			runs = reset
 				? nextRuns
 				: [
@@ -250,11 +247,11 @@ export function createCronjobDetailController(options: {
 				nextRuns,
 			);
 		} catch (error) {
-			if (!isCurrentRequest()) return;
+			if (!guard.isCurrent()) return;
 			runsError =
 				error instanceof Error ? error.message : "Failed to load runs";
 		} finally {
-			if (isCurrentRequest()) {
+			if (guard.isCurrent()) {
 				runsLoading = false;
 				runsLoadingMore = false;
 			}

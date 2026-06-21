@@ -9,7 +9,6 @@ import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceFileDownloadUrl,
-	downloadFileResponse,
 	downloadSpaceFile,
 } from "$lib/space-file-download";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -20,6 +19,7 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import { type ActiveFsSource, createActiveFsClient } from "./active-fs-client";
 import {
 	buildFsEntry,
 	getParentDirPath,
@@ -31,9 +31,7 @@ import {
 	updateNodeState,
 } from "./file-workspace-utils";
 
-export type ActiveFsSource =
-	| { kind: "live" }
-	| { kind: "checkpoint"; checkpointId: string };
+export type { ActiveFsSource };
 
 export type FileWorkspaceInlineFile = {
 	response: SpaceFsFileResponse | null;
@@ -222,28 +220,19 @@ export function createFileWorkspaceController(
 		return nextEntries;
 	}
 
+	function getActiveFsClient() {
+		return createActiveFsClient({
+			spaceId: options.getSpaceId(),
+			source: options.getActiveFsSource(),
+		});
+	}
+
 	function listActiveFsDir(path: string) {
-		const spaceId = options.getSpaceId();
-		const source = options.getActiveFsSource();
-		if (source.kind === "checkpoint") {
-			return sdk
-				.space(spaceId)
-				.checkpoints(source.checkpointId)
-				.files.list(path);
-		}
-		return sdk.space(spaceId).files.list(path);
+		return getActiveFsClient().list(path);
 	}
 
 	function readActiveFsFile(path: string) {
-		const spaceId = options.getSpaceId();
-		const source = options.getActiveFsSource();
-		if (source.kind === "checkpoint") {
-			return sdk
-				.space(spaceId)
-				.checkpoints(source.checkpointId)
-				.files.read(path);
-		}
-		return sdk.space(spaceId).files.read(path);
+		return getActiveFsClient().read(path);
 	}
 
 	async function loadFileTree(force = false) {
@@ -278,23 +267,16 @@ export function createFileWorkspaceController(
 		if (shouldShowLoading) fileTreeLoading = true;
 		fileTreeError = null;
 		try {
+			const client = createActiveFsClient({ spaceId, source });
 			const entries =
 				source.kind === "live"
 					? await fetchSpaceFsDirWithCache(
 							spaceId,
 							"",
-							async () => {
-								const tree = await sdk.space(spaceId).files.list("");
-								return tree.entries;
-							},
+							async () => (await client.list("")).entries,
 							{ force: true },
 						)
-					: (
-							await sdk
-								.space(spaceId)
-								.checkpoints(source.checkpointId)
-								.files.list("")
-						).entries;
+					: (await client.list("")).entries;
 			if (
 				requestToken !== fileTreeRequestToken ||
 				sourceKey !== options.getActiveFsSourceKey()
@@ -361,25 +343,20 @@ export function createFileWorkspaceController(
 			);
 		}
 		try {
+			const requestSpaceId = options.getSpaceId();
+			const client = createActiveFsClient({
+				spaceId: requestSpaceId,
+				source,
+			});
 			const entries =
 				source.kind === "live"
 					? await fetchSpaceFsDirWithCache(
-							options.getSpaceId(),
+							requestSpaceId,
 							node.path,
-							async () => {
-								const tree = await sdk
-									.space(options.getSpaceId())
-									.files.list(node.path);
-								return tree.entries;
-							},
+							async () => (await client.list(node.path)).entries,
 							{ force: true },
 						)
-					: (
-							await sdk
-								.space(options.getSpaceId())
-								.checkpoints(source.checkpointId)
-								.files.list(node.path)
-						).entries;
+					: (await client.list(node.path)).entries;
 			if (
 				directoryLoadTokenByPath[node.path] !== requestToken ||
 				sourceKey !== options.getActiveFsSourceKey()
@@ -495,17 +472,7 @@ export function createFileWorkspaceController(
 		path: string,
 		knownFile: SpaceFsFileResponse | null | undefined,
 	) {
-		const filename = path.split("/").pop() ?? "download";
-		const source = options.getActiveFsSource();
-		if (source.kind === "live") {
-			await downloadSpaceFile(options.getSpaceId(), path, filename, knownFile);
-			return;
-		}
-		if (knownFile && (await downloadFileResponse(knownFile, filename))) return;
-		const file = await readActiveFsFile(path);
-		if ("content" in file && (await downloadFileResponse(file, filename)))
-			return;
-		throw new Error("Checkpoint file download is not available for this file.");
+		await getActiveFsClient().download(path, knownFile);
 	}
 
 	async function downloadOpenFile() {
@@ -1074,12 +1041,10 @@ export function createFileWorkspaceController(
 		},
 		get inlineFileDownloadUrl() {
 			if (!inlineFile) return "";
-			if (options.getActiveFsSource().kind === "checkpoint") {
-				return inlineFile.response?.delivery === "url"
-					? (inlineFile.response.url ?? "")
-					: "";
-			}
-			return buildSpaceFileDownloadUrl(options.getSpaceId(), inlineFile.path);
+			return getActiveFsClient().getDownloadUrl(
+				inlineFile.path,
+				inlineFile.response,
+			);
 		},
 		get inlineFileDownloadName() {
 			return inlineFile ? (inlineFile.path.split("/").pop() ?? "download") : "";
