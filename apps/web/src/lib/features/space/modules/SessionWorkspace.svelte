@@ -249,23 +249,25 @@ let {
         {#if newChatProfile}{@render newChatProfile()}{/if}
       </div>
     {:else}
-      <ChatTimeline
-          bind:this={chatTimelineRef}
-          bind:bindListEl={listEl}
-          timeline={timeline}
-          preloadThreshold={10}
-          onFirstVisible={handleFirstVisible}
-          {onLoadToolCalls}
-          {onLoadIntermediate}
-          onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
-          onMarkdownRendered={handleTimelineMarkdownRendered}
-          onForkTurn={handleForkTurn}
-          forkingTurnId={forkingTurnId}
-          loading={activeSessionInitialLoadingVisible}
-          loadingOlder={activeSessionState?.loadingOlder ?? false}
-          onOpenFile={openInlineFile}
-          modelsCatalog={modelsCatalog ?? undefined}
-        />
+      {#key activeSessionId ?? 'none'}
+        <ChatTimeline
+            bind:this={chatTimelineRef}
+            bind:bindListEl={listEl}
+            timeline={timeline}
+            preloadThreshold={10}
+            onFirstVisible={handleFirstVisible}
+            {onLoadToolCalls}
+            {onLoadIntermediate}
+            onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
+            onMarkdownRendered={handleTimelineMarkdownRendered}
+            onForkTurn={handleForkTurn}
+            forkingTurnId={forkingTurnId}
+            loading={activeSessionInitialLoadingVisible}
+            loadingOlder={activeSessionState?.loadingOlder ?? false}
+            onOpenFile={openInlineFile}
+            modelsCatalog={modelsCatalog ?? undefined}
+          />
+      {/key}
     {/if}
       <SessionTaskTray
         notices={sessionTaskNotices}
