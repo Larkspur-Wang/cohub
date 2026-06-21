@@ -115,12 +115,25 @@ export function createSessionWorkspaceController() {
 	}
 
 	function prepareRouteSession(sessionId: string) {
-		if (!sessionStateById[sessionId]) {
+		const existing = sessionStateById[sessionId];
+		if (!existing) {
 			sessionStateById = {
 				...sessionStateById,
 				[sessionId]: initialSessionState(
 					spaceSessions.find((session) => session.id === sessionId),
 				),
+			};
+		} else if (
+			!existing.loaded &&
+			!existing.loading &&
+			existing.turns.length === 0
+		) {
+			sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...existing,
+					loading: true,
+				},
 			};
 		}
 		activeSessionId = sessionId;

@@ -3852,21 +3852,14 @@ function restoreSessionScrollAnchorSoon(sessionId: string) {
 		scroll: getScrollDebugPayload(),
 	});
 	sessionScroll.activeAnchorRestore = restore;
-	sessionScroll.anchorRestoreWaitingForMarkdown = false;
+	sessionScroll.anchorRestoreWaitingForMarkdown =
+		pendingTimelineMarkdownRenders > 0;
+	if (pendingTimelineMarkdownRenders > 0) return;
 	requestAnimationFrame(() => {
-		if (!applyActiveAnchorRestore(restore)) {
-			if (activeAnchorRestore?.sessionId === sessionId)
-				sessionScroll.activeAnchorRestore = null;
-			updateAutoFollow();
-			return;
-		}
-		requestAnimationFrame(() => {
-			applyActiveAnchorRestore(restore);
-			if (activeAnchorRestore?.sessionId === sessionId)
-				sessionScroll.activeAnchorRestore = null;
-			updateAutoFollow();
-			scheduleTurnMarkerMeasure();
-		});
+		if (applyActiveAnchorRestore(restore)) scheduleTurnMarkerMeasure();
+		if (activeAnchorRestore?.sessionId === sessionId)
+			sessionScroll.activeAnchorRestore = null;
+		updateAutoFollow();
 	});
 }
 function handleTimelineMarkdownRenderStart(...args: unknown[]) {
