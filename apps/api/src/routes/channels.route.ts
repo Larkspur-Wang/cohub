@@ -8,7 +8,9 @@ import { redisCommandClient } from "../redis.js";
 
 const WECHAT_LOGIN_BASE_URL = "https://ilinkai.weixin.qq.com";
 const WECHAT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
-const WECHAT_BOT_TYPE = "bot";
+const WECHAT_BOT_TYPE = "3";
+const WECHAT_ILINK_APP_ID = "bot";
+const WECHAT_ILINK_APP_CLIENT_VERSION = "132099";
 const WECHAT_LOGIN_TTL_SECONDS = 10 * 60;
 const WECHAT_QR_START_TIMEOUT_MS = 15_000;
 const WECHAT_QR_STATUS_TIMEOUT_MS = 25_000;
@@ -77,7 +79,11 @@ async function fetchWeChatQrCode() {
   const url = new URL(`ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(WECHAT_BOT_TYPE)}`, `${WECHAT_LOGIN_BASE_URL}/`);
   const { response, text } = await fetchTextWithTimeout(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "iLink-App-Id": WECHAT_ILINK_APP_ID,
+      "iLink-App-ClientVersion": WECHAT_ILINK_APP_CLIENT_VERSION,
+    },
     body: JSON.stringify({ local_token_list: [] }),
   }, WECHAT_QR_START_TIMEOUT_MS);
   if (!response.ok) throw new Error(`WeChat QR start failed ${response.status}: ${text.slice(0, 200)}`);
@@ -93,7 +99,13 @@ async function fetchWeChatQrCode() {
 async function pollWeChatQrStatus(qrcode: string, baseUrl = WECHAT_LOGIN_BASE_URL) {
   const url = new URL(`ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`, `${resolveWeChatBaseUrl(baseUrl)}/`);
   try {
-    const { response, text } = await fetchTextWithTimeout(url, { method: "GET" }, WECHAT_QR_STATUS_TIMEOUT_MS);
+    const { response, text } = await fetchTextWithTimeout(url, {
+      method: "GET",
+      headers: {
+        "iLink-App-Id": WECHAT_ILINK_APP_ID,
+        "iLink-App-ClientVersion": WECHAT_ILINK_APP_CLIENT_VERSION,
+      },
+    }, WECHAT_QR_STATUS_TIMEOUT_MS);
     if (!response.ok) throw new Error(`WeChat QR status failed ${response.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text) as WeChatQrStatusResponse;
   } catch (error) {

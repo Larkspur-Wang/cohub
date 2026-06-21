@@ -13,6 +13,8 @@ import {
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const DEFAULT_API_TIMEOUT_MS = 15_000;
+const WECHAT_ILINK_APP_ID = "bot";
+const WECHAT_ILINK_APP_CLIENT_VERSION = "132099";
 
 const ensureTrailingSlash = (value: string) => value.endsWith("/") ? value : `${value}/`;
 
@@ -44,6 +46,8 @@ const buildHeaders = (token?: string) => ({
   "Content-Type": "application/json",
   AuthorizationType: "ilink_bot_token",
   "X-WECHAT-UIN": randomWechatUin(),
+  "iLink-App-Id": WECHAT_ILINK_APP_ID,
+  "iLink-App-ClientVersion": WECHAT_ILINK_APP_CLIENT_VERSION,
   ...(token?.trim() ? { Authorization: `Bearer ${token.trim()}` } : {}),
 });
 
