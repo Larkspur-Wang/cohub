@@ -464,20 +464,25 @@ async function handleSubmit(e: Event) {
                   {#if wechatQrDataUrl.startsWith("data:image/")}
                   <img src={wechatQrDataUrl} alt="WeChat login QR code" class="w-56 h-56 rounded-md bg-white p-2 object-contain" />
                 {:else}
-                  <div class="flex h-56 w-56 flex-col items-center justify-center gap-3 rounded-md border border-border-subtle bg-bg-surface p-4 text-center">
-                    <MessageCircle class="h-8 w-8 text-success" />
-                    <div>
-                      <p class="text-[12px] font-medium text-text-secondary">QR page is ready</p>
-                      <p class="mt-1 text-[11px] leading-relaxed text-text-placeholder">Open the page and scan the QR code shown there.</p>
+                  <div class="w-full max-w-[360px] overflow-hidden rounded-md border border-border-subtle bg-bg-surface">
+                    <iframe
+                      src={wechatQrDataUrl}
+                      title="WeChat login QR page"
+                      class="h-[360px] w-full bg-bg-primary"
+                      sandbox="allow-scripts allow-same-origin"
+                      referrerpolicy="no-referrer"
+                    ></iframe>
+                    <div class="flex items-center justify-between gap-3 border-t border-border-subtle px-3 py-2">
+                      <p class="text-[11px] text-text-placeholder">If the QR page is blocked, open it in a new tab.</p>
+                      <a
+                        href={wechatQrDataUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="shrink-0 text-[12px] text-text-secondary transition-colors hover:text-text-primary"
+                      >
+                        Open page
+                      </a>
                     </div>
-                    <a
-                      href={wechatQrDataUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="rounded-[5px] border border-border-subtle bg-bg-hover px-3 py-[5px] text-[12px] text-text-secondary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"
-                    >
-                      Open QR page
-                    </a>
                   </div>
                 {/if}
                   <div class="text-center">
