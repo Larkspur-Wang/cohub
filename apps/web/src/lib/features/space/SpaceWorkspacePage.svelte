@@ -33,7 +33,7 @@ import {
 	Upload,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
-import { goto } from "$app/navigation";
+import { beforeNavigate, goto } from "$app/navigation";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	deleteCanvasPendingTransaction,
@@ -3786,8 +3786,13 @@ function handleRemoveAttachment(id: string) {
 	sessionComposer.handleRemoveAttachment(id);
 }
 onDestroy(() => {
+	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 	sessionComposer.dispose();
 	spaceBootstrap.resetLoaded();
+});
+
+beforeNavigate(() => {
+	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 });
 
 function beginRightSidebarResize(event: PointerEvent) {
@@ -4262,6 +4267,7 @@ onMount(() => {
 	document.addEventListener("click", handleResourceActionMenuClickOutside);
 	scheduleStatusRefresh();
 	return () => {
+		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
 		offCanvasTxApplied();
@@ -4511,6 +4517,7 @@ $effect(() => {
 		routeSessionId !== "new" &&
 		routeSessionId !== activeSessionId
 	) {
+		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 		prepareRouteSession(routeSessionId);
 		const state = sessionStateById[routeSessionId];
 		unreadTracker.markViewed(
@@ -4527,6 +4534,7 @@ $effect(() => {
 		(routeView !== "session" || (isDraftNewSessionRoute && activeSessionId)) &&
 		activeSessionId
 	) {
+		captureCurrentScrollAnchor(activeSessionId);
 		sessionWorkspace.activeSessionId = null;
 		sessionScroll.pendingRestoreSessionId = null;
 		sessionScroll.activeAnchorRestore = null;
@@ -4588,7 +4596,11 @@ $effect(() => {
 	const anchor = getSessionScrollAnchor(targetId);
 	const hasCachedAnchor =
 		anchor &&
-		state.turns.some((turn) => turn.sequence * 10 === anchor.sequence);
+		state.turns.some(
+			(turn) =>
+				turn.sequence === anchor.sequence ||
+				turn.sequence * 10 === anchor.sequence,
+		);
 	const finishRestore = () => {
 		sessionScroll.pendingRestoreSessionId = null;
 		if (restoringBottomSessionId === targetId) {
