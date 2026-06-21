@@ -602,7 +602,7 @@ const previewLayout = createPreviewLayoutController({
 const previewPanelWidth = $derived(previewLayout.width);
 const previewFocusMode = $derived(previewLayout.focusMode);
 
-let pageMounted = false;
+let pageMounted = $state(false);
 const spaceBootstrap = createSpaceBootstrapController({
 	getSpaceId: () => spaceId,
 	getPageMounted: () => pageMounted,
@@ -3787,6 +3787,7 @@ function handleRemoveAttachment(id: string) {
 }
 onDestroy(() => {
 	sessionComposer.dispose();
+	spaceBootstrap.resetLoaded();
 });
 
 function beginRightSidebarResize(event: PointerEvent) {
@@ -4309,6 +4310,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	newChatProfileViewportEl = null;
 	newChatProfileContentEl = null;
 	newChatProfileBodyEl = null;
+	promptTemplateController.restore(currentSpaceId);
 	void loadPromptTemplates();
 	sessionWorkspace.spaceSessions = [];
 	sessionWorkspace.sessionStateById = {};
@@ -4318,6 +4320,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	sessionTurnLoading.reset();
 	turnHydrationInFlight.clear();
 	clearAllPostSendRecovery();
+	generationPolicy.apply(null);
 	generationRealtime.clearStreamSnapshotRecoveryCooldowns();
 	spaceRealtime.resetRecoveredConnection();
 	sessionWorkspace.activeSessionId = null;
@@ -4328,6 +4331,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
 	fileWorkspace.resetForSpace();
+	canvasPreview.closeCanvas();
 	portPreview.setEndpoints({});
 	portPreview.closePort();
 	portPreview.closeReadyToast();

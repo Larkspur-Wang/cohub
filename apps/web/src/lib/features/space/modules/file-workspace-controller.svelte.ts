@@ -404,7 +404,7 @@ export function createFileWorkspaceController(
 		openFileError = null;
 		openFileTooLarge = false;
 		try {
-			const file = await sdk.space(requestSpaceId).files.read(path);
+			const file = await readActiveFsFile(path);
 			if (!isCurrentRequest()) return;
 			if (!("content" in file)) {
 				openFile = null;
