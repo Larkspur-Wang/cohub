@@ -1,22 +1,20 @@
 <script lang="ts">
-import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { TaskRunRecord, UserProfile } from "@neta-art/cohub";
 import { Check, Copy, GitCommitHorizontal } from "lucide-svelte";
-import { onDestroy, untrack } from "svelte";
+import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
-import {
-	readTaskRunDetail,
-	writeTaskRunDetail,
-} from "$lib/cache/repositories/task-runs-repo";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
-import { sdk } from "$lib/sdk";
 import {
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobRoute,
 } from "$lib/space-routes";
 import { displayUserName, formatDateTime } from "../space-utils";
+import {
+	createTaskRunDetailController,
+	type TaskRealtimeEvent,
+} from "./task-run-detail-controller.svelte";
 import {
 	checkpointIdFromTaskRun,
 	displaySafeJson,
@@ -26,7 +24,6 @@ import {
 	generationBlockSource,
 	generationBlockText,
 	generationOutputBlocks,
-	mergeTaskRunRecord,
 	runCommandPayload,
 	runCommandResultMeta,
 	saveCheckpointProgressLabel,
@@ -43,11 +40,7 @@ import {
 type Props = {
 	spaceId: string;
 	taskId: string | null;
-	taskRealtimeEvent?: {
-		spaceId: string;
-		payload: ChannelEnvelope;
-		seq: number;
-	} | null;
+	taskRealtimeEvent?: TaskRealtimeEvent | null;
 	onDetailLoaded?: (run: TaskRunRecord | null) => void;
 };
 
@@ -58,159 +51,28 @@ let {
 	onDetailLoaded,
 }: Props = $props();
 
-let taskRunDetail = $state<TaskRunRecord | null>(null);
-let taskRunDetailLoading = $state(false);
-let taskRunDetailError = $state("");
-let taskRunProgress = $state<unknown>(null);
-let taskCopiedField = $state<"id" | "payload" | "result" | null>(null);
-let taskCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-let taskRouteStateKey = "";
-let taskRunPollTimer: ReturnType<typeof setInterval> | null = null;
-let refreshInFlight: Promise<void> | null = null;
-let refreshInFlightTaskId: string | null = null;
+const taskDetail = createTaskRunDetailController({
+	getSpaceId: () => spaceId,
+	getTaskId: () => taskId,
+	onDetailLoaded: (run) => onDetailLoaded?.(run),
+});
 
-function isActiveTaskRun(run: TaskRunRecord | null | undefined) {
-	return run?.status === "pending" || run?.status === "running";
-}
-
-function clearTaskRunPoll() {
-	if (taskRunPollTimer) clearInterval(taskRunPollTimer);
-	taskRunPollTimer = null;
-}
-
-function ensureTaskRunPoll(targetTaskId: string, intervalMs = 5000) {
-	if (taskRunPollTimer) return;
-	taskRunPollTimer = setInterval(
-		() => void refreshTaskDetail(targetTaskId),
-		intervalMs,
-	);
-}
-
-async function refreshTaskDetail(targetTaskId: string, loading = false) {
-	if (refreshInFlight && refreshInFlightTaskId === targetTaskId) {
-		return refreshInFlight;
-	}
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId && taskId === targetTaskId;
-	refreshInFlightTaskId = targetTaskId;
-	refreshInFlight = (async () => {
-		if (loading) taskRunDetailLoading = true;
-		taskRunDetailError = "";
-		try {
-			const { run, progress } = await sdk.tasks.get(targetTaskId);
-			if (!isCurrentRequest()) return;
-			taskRunDetail = run;
-			onDetailLoaded?.(run);
-			taskRunProgress = progress;
-			void writeTaskRunDetail(requestSpaceId, run, progress).catch(
-				() => undefined,
-			);
-			if (isActiveTaskRun(run)) ensureTaskRunPoll(targetTaskId);
-			else clearTaskRunPoll();
-		} catch (error) {
-			if (!isCurrentRequest()) return;
-			taskRunDetail = null;
-			onDetailLoaded?.(null);
-			taskRunDetailError =
-				error instanceof Error ? error.message : "Failed to load task";
-			clearTaskRunPoll();
-		} finally {
-			if (isCurrentRequest()) taskRunDetailLoading = false;
-			refreshInFlight = null;
-			refreshInFlightTaskId = null;
-		}
-	})();
-	return refreshInFlight;
-}
-
-async function loadTaskDetail(targetTaskId: string) {
-	clearTaskRunPoll();
-	taskRunProgress = null;
-	const requestSpaceId = spaceId;
-	const cached = await readTaskRunDetail(requestSpaceId, targetTaskId).catch(
-		() => null,
-	);
-	if (spaceId === requestSpaceId && taskId === targetTaskId && cached) {
-		taskRunDetail = cached.run;
-		taskRunProgress = cached.progress;
-		onDetailLoaded?.(cached.run);
-	}
-	await refreshTaskDetail(targetTaskId, !cached);
-}
-
-function applyTaskRealtime(payload: ChannelEnvelope) {
-	const eventPayload = payload.payload as {
-		task?: Partial<TaskRunRecord> & {
-			id?: string;
-			type?: string;
-			userId?: string | null;
-		};
-		progress?: unknown;
-	};
-	const task = eventPayload.task;
-	if (!task?.id || task.id !== taskId) return;
-	const wasActive = isActiveTaskRun(taskRunDetail);
-	taskRunDetail = mergeTaskRunRecord(
-		taskRunDetail,
-		{
-			...(task as Partial<TaskRunRecord>),
-			id: task.id,
-			type: task.type,
-			userId: task.userId,
-		},
-		spaceId,
-	);
-	onDetailLoaded?.(taskRunDetail);
-	if ("progress" in eventPayload) taskRunProgress = eventPayload.progress;
-	void writeTaskRunDetail(spaceId, taskRunDetail, taskRunProgress).catch(
-		() => undefined,
-	);
-	if (isActiveTaskRun(taskRunDetail)) {
-		ensureTaskRunPoll(task.id);
-		return;
-	}
-	clearTaskRunPoll();
-	if (wasActive || !taskRunDetail.result) void refreshTaskDetail(task.id);
-}
-
-async function copyTaskField(
-	field: "id" | "payload" | "result",
-	value: unknown,
-) {
-	const text = typeof value === "string" ? value : displaySafeJson(value);
-	await navigator.clipboard.writeText(text);
-	taskCopiedField = field;
-	if (taskCopiedTimer) clearTimeout(taskCopiedTimer);
-	taskCopiedTimer = setTimeout(() => {
-		taskCopiedField = null;
-	}, 1600);
-}
+const taskRunDetail = $derived(taskDetail.detail);
+const taskRunDetailLoading = $derived(taskDetail.loading);
+const taskRunDetailError = $derived(taskDetail.error);
+const taskRunProgress = $derived(taskDetail.progress);
+const taskCopiedField = $derived(taskDetail.copiedField);
 
 $effect(() => {
-	const stateKey = `${spaceId}:${taskId ?? ""}`;
-	if (taskRouteStateKey === stateKey) return;
-	taskRouteStateKey = stateKey;
-	clearTaskRunPoll();
-	taskRunDetail = null;
-	onDetailLoaded?.(null);
-	taskRunProgress = null;
-	if (!taskId) return;
-	void loadTaskDetail(taskId);
-	return () => {
-		clearTaskRunPoll();
-	};
+	taskDetail.syncRoute();
 });
 
 $effect(() => {
-	const event = taskRealtimeEvent;
-	if (!event || event.spaceId !== spaceId) return;
-	untrack(() => applyTaskRealtime(event.payload));
+	taskDetail.applyRealtimeEvent(taskRealtimeEvent);
 });
 
 onDestroy(() => {
-	clearTaskRunPoll();
-	if (taskCopiedTimer) clearTimeout(taskCopiedTimer);
+	taskDetail.dispose();
 });
 
 function userTitle(
@@ -279,7 +141,7 @@ function userTitle(
 									{badge.label}
 								</span>
 								{@render UserMetaItem(taskRunDetail.userProfile, taskRunDetail.userUuid)}
-								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void copyTaskField("id", taskRunDetail!.id), "Copy task ID")}
+								{@render CopyIdMetaItem(taskRunDetail.id, taskCopiedField === "id", () => void taskDetail.copyField("id", taskRunDetail!.id), "Copy task ID")}
 							</div>
 							<div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
 								<span>{taskContextLabel(taskRunDetail)}</span>
@@ -398,7 +260,7 @@ function userTitle(
 						<div class="space-y-2">
 							<div class="flex items-center justify-between gap-3">
 								<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Payload</div>
-								<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void copyTaskField("payload", taskRunDetail!.payload)} title="Copy payload">
+								<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void taskDetail.copyField("payload", taskRunDetail!.payload)} title="Copy payload">
 									{#if taskCopiedField === "payload"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">Copied</span>{:else}<Copy class="h-3 w-3" /><span>Copy</span>{/if}
 								</button>
 							</div>
@@ -409,7 +271,7 @@ function userTitle(
 							<div class="space-y-2">
 								<div class="flex items-center justify-between gap-3">
 									<div class="text-[11px] font-medium uppercase tracking-wider text-text-placeholder">Result</div>
-									<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void copyTaskField("result", rawResult)} title="Copy result">
+									<button type="button" class="inline-flex min-h-8 items-center gap-1 rounded-[4px] px-2 py-1 text-[11px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-text-secondary" onclick={() => void taskDetail.copyField("result", rawResult)} title="Copy result">
 										{#if taskCopiedField === "result"}<Check class="h-3 w-3 text-success-soft" /><span class="text-success-soft">Copied</span>{:else}<Copy class="h-3 w-3" /><span>Copy</span>{/if}
 									</button>
 								</div>

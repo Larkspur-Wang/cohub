@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { WorkRecord, WorkVersionRecord } from "@neta-art/cohub";
+import type { WorkRecord } from "@neta-art/cohub";
 import {
 	Check,
 	Copy,
@@ -12,14 +12,10 @@ import {
 	Trash2,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
-import { goto } from "$app/navigation";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
-import { sdk } from "$lib/sdk";
-import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { formatDateTime } from "../space-utils";
+import { createWorkDetailController } from "./work-detail-controller.svelte";
 import {
-	scopeState,
-	selectedScopeList,
 	WORK_SCOPE_OPTIONS,
 	WORK_VIEWER_SCOPE_OPTIONS,
 	workStatusTone,
@@ -36,262 +32,34 @@ type Props = {
 let { spaceId, routeWorkId, ownerUsername, spaceSlug, onDetailLoaded }: Props =
 	$props();
 
-let workDetail = $state<WorkRecord | null>(null);
-let workDetailLoading = $state(false);
-let workDetailError = $state("");
-let workActionInProgress = $state(false);
-let workDeleteInProgress = $state(false);
-let workEditMode = $state(false);
-let workFormSlug = $state("");
-let workFormTargetType = $state<"file" | "directory" | "port">("file");
-let workFormTargetRef = $state("");
-let workFormStatus = $state<"draft" | "published" | "disabled">("published");
-let workFormScopes = $state<Record<string, boolean>>({});
-let workFormViewerScopes = $state<Record<string, boolean>>({});
-let workFormSubmitting = $state(false);
-let workFormError = $state("");
-let workCopiedId = $state(false);
-let workCopiedIdTimer: ReturnType<typeof setTimeout> | null = null;
-let workRouteStateKey = "";
-let workVersions = $state<WorkVersionRecord[]>([]);
-let workVersionsLoading = $state(false);
-let workVersionsError = $state("");
-let workPublishTargetType = $state<"file" | "directory" | "port">("file");
-let workPublishTargetRef = $state("");
-let workPublishSubmitting = $state(false);
-let workPublishError = $state("");
+const workDetailController = createWorkDetailController({
+	getSpaceId: () => spaceId,
+	getRouteWorkId: () => routeWorkId,
+	getOwnerUsername: () => ownerUsername,
+	getSpaceSlug: () => spaceSlug,
+	onDetailLoaded: (work) => onDetailLoaded?.(work),
+});
 
-function syncWorkFormFromDetail() {
-	if (!workDetail) return;
-	workFormSlug = workDetail.slug;
-	workFormTargetType = workDetail.targetType;
-	workFormTargetRef = workDetail.targetRef;
-	workFormStatus = workDetail.status;
-	workFormScopes = scopeState(workDetail.workScopes, WORK_SCOPE_OPTIONS);
-	workFormViewerScopes = scopeState(
-		workDetail.allowedViewerScopes,
-		WORK_VIEWER_SCOPE_OPTIONS,
-	);
-	workFormError = "";
-	workPublishTargetType = workDetail.targetType;
-	workPublishTargetRef = workDetail.targetRef;
-	workPublishError = "";
-}
-
-function notifyWorksUpdated() {
-	if (typeof window === "undefined") return;
-	window.dispatchEvent(
-		new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
-	);
-}
-
-function workPublicRoute(work: WorkRecord | null = workDetail) {
-	return ownerUsername && spaceSlug && work?.slug
-		? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(spaceSlug)}/w/${encodeURIComponent(work.slug)}`
-		: null;
-}
-
-async function loadWorkDetail(workId: string) {
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId && routeWorkId === workId;
-	workDetailLoading = true;
-	workDetailError = "";
-	try {
-		const { work } = await sdk.works.get(workId);
-		if (!isCurrentRequest()) return;
-		workDetail = work;
-		onDetailLoaded?.(work);
-		syncWorkFormFromDetail();
-		void loadWorkVersions(work.id);
-	} catch (error) {
-		if (!isCurrentRequest()) return;
-		workDetail = null;
-		onDetailLoaded?.(null);
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to load work";
-	} finally {
-		if (isCurrentRequest()) workDetailLoading = false;
-	}
-}
-
-async function loadWorkVersions(workId: string) {
-	workVersionsLoading = true;
-	workVersionsError = "";
-	try {
-		const { versions } = await sdk.works.listVersions(workId);
-		if (routeWorkId === workId) workVersions = versions;
-	} catch (error) {
-		if (routeWorkId === workId) {
-			workVersionsError =
-				error instanceof Error ? error.message : "Failed to load versions";
-		}
-	} finally {
-		if (routeWorkId === workId) workVersionsLoading = false;
-	}
-}
-
-async function onPublishWorkVersion() {
-	if (!workDetail || workPublishSubmitting) return;
-	workPublishError = "";
-	if (!workPublishTargetRef.trim()) {
-		workPublishError = "Target is required";
-		return;
-	}
-	workPublishSubmitting = true;
-	try {
-		const { work } = await sdk.works.update(workDetail.id, {
-			status: "published",
-			targetType: workPublishTargetType,
-			targetRef: workPublishTargetRef.trim(),
-			publishVersion: true,
-		});
-		workDetail = work;
-		onDetailLoaded?.(work);
-		syncWorkFormFromDetail();
-		await loadWorkVersions(work.id);
-		notifyWorksUpdated();
-	} catch (error) {
-		workPublishError =
-			error instanceof Error ? error.message : "Failed to publish version";
-	} finally {
-		workPublishSubmitting = false;
-	}
-}
-
-async function onCopyWorkId(id: string) {
-	try {
-		await navigator.clipboard.writeText(id);
-		workCopiedId = true;
-		if (workCopiedIdTimer) clearTimeout(workCopiedIdTimer);
-		workCopiedIdTimer = setTimeout(() => {
-			workCopiedId = false;
-		}, 1600);
-	} catch (error) {
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to copy work ID";
-	}
-}
-
-async function onToggleWorkStatus(status: "published" | "disabled") {
-	if (!workDetail || workActionInProgress) return;
-	workActionInProgress = true;
-	workDetailError = "";
-	try {
-		const { work } = await sdk.works.update(workDetail.id, { status });
-		workDetail = work;
-		onDetailLoaded?.(work);
-		syncWorkFormFromDetail();
-		void loadWorkVersions(work.id);
-		notifyWorksUpdated();
-	} catch (error) {
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to update work";
-		void loadWorkDetail(workDetail.id);
-	} finally {
-		workActionInProgress = false;
-	}
-}
-
-async function onDeleteWork() {
-	if (
-		!workDetail ||
-		workActionInProgress ||
-		workDeleteInProgress ||
-		!confirm(
-			"Delete this work? This removes the management record and public link.",
-		)
-	)
-		return;
-	const deletedWorkId = workDetail.id;
-	let deleted = false;
-	workActionInProgress = true;
-	workDeleteInProgress = true;
-	workDetailError = "";
-	try {
-		await sdk.works.delete(deletedWorkId);
-		deleted = true;
-		workDetail = null;
-		onDetailLoaded?.(null);
-		notifyWorksUpdated();
-		await goto(buildSpaceLandingRoute(spaceId), { replaceState: true });
-	} catch (error) {
-		workDetailError =
-			error instanceof Error ? error.message : "Failed to delete work";
-	} finally {
-		if (!deleted) {
-			workActionInProgress = false;
-			workDeleteInProgress = false;
-		}
-	}
-}
-
-async function onUpdateWorkSubmit(event: SubmitEvent) {
-	event.preventDefault();
-	if (!workDetail || workFormSubmitting) return;
-	workFormError = "";
-	if (!workFormSlug.trim()) {
-		workFormError = "Slug is required";
-		return;
-	}
-	if (!workFormTargetRef.trim()) {
-		workFormError = "Target is required";
-		return;
-	}
-	workFormSubmitting = true;
-	try {
-		const { work } = await sdk.works.update(workDetail.id, {
-			slug: workFormSlug.trim(),
-			status: workFormStatus,
-			targetType: workFormTargetType,
-			targetRef: workFormTargetRef.trim(),
-			workScopes: selectedScopeList(workFormScopes, WORK_SCOPE_OPTIONS),
-			allowedViewerScopes: selectedScopeList(
-				workFormViewerScopes,
-				WORK_VIEWER_SCOPE_OPTIONS,
-			),
-		});
-		workDetail = work;
-		onDetailLoaded?.(work);
-		workEditMode = false;
-		syncWorkFormFromDetail();
-		void loadWorkVersions(work.id);
-		notifyWorksUpdated();
-	} catch (error) {
-		workFormError =
-			error instanceof Error ? error.message : "Failed to save work";
-	} finally {
-		workFormSubmitting = false;
-	}
-}
-
-function resetWorkTransientState() {
-	workDetailLoading = false;
-	workVersions = [];
-	workVersionsLoading = false;
-	workVersionsError = "";
-	workEditMode = false;
-	workActionInProgress = false;
-	workDeleteInProgress = false;
-	workFormError = "";
-	workPublishError = "";
-}
+const workDetail = $derived(workDetailController.detail);
+const workDetailLoading = $derived(workDetailController.loading);
+const workDetailError = $derived(workDetailController.error);
+const workActionInProgress = $derived(workDetailController.actionInProgress);
+const workDeleteInProgress = $derived(workDetailController.deleteInProgress);
+const workFormSubmitting = $derived(workDetailController.formSubmitting);
+const workFormError = $derived(workDetailController.formError);
+const workCopiedId = $derived(workDetailController.copiedId);
+const workVersions = $derived(workDetailController.versions);
+const workVersionsLoading = $derived(workDetailController.versionsLoading);
+const workVersionsError = $derived(workDetailController.versionsError);
+const workPublishSubmitting = $derived(workDetailController.publishSubmitting);
+const workPublishError = $derived(workDetailController.publishError);
 
 $effect(() => {
-	const stateKey = `${spaceId}:${routeWorkId ?? ""}`;
-	if (workRouteStateKey === stateKey) return;
-	workRouteStateKey = stateKey;
-	resetWorkTransientState();
-	if (routeWorkId) {
-		void loadWorkDetail(routeWorkId);
-		return;
-	}
-	workDetail = null;
-	onDetailLoaded?.(null);
+	workDetailController.syncRoute();
 });
 
 onDestroy(() => {
-	if (workCopiedIdTimer) clearTimeout(workCopiedIdTimer);
+	workDetailController.dispose();
 });
 </script>
 
@@ -318,7 +86,7 @@ onDestroy(() => {
   {:else if workDetailError}
     <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workDetailError}</div>
   {:else if workDetail && workDetail.id === routeWorkId}
-    {@const publicRoute = workPublicRoute(workDetail)}
+    {@const publicRoute = workDetailController.publicRoute(workDetail)}
     <div class="space-y-6 sm:space-y-8">
       <header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
         <div class="min-w-0 space-y-3">
@@ -329,7 +97,7 @@ onDestroy(() => {
                 <span class="h-1.5 w-1.5 rounded-full {workDetail.status === 'published' ? 'bg-status-running' : workDetail.status === 'disabled' ? 'bg-status-error' : 'bg-text-placeholder'}"></span>
                 {workDetail.status}
               </span>
-              {@render CopyIdMetaItem(workDetail.id, workCopiedId, () => void onCopyWorkId(workDetail!.id), 'Copy work ID')}
+              {@render CopyIdMetaItem(workDetail.id, workCopiedId, () => void workDetailController.copyId(workDetail!.id), 'Copy work ID')}
               <span class="font-mono text-[11px] text-text-placeholder">{workDetail.targetType}:{workDetail.targetRef}</span>
             </div>
           </div>
@@ -341,33 +109,33 @@ onDestroy(() => {
               <span>Open public page</span>
             </a>
           {/if}
-          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { syncWorkFormFromDetail(); workEditMode = !workEditMode; }}>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { workDetailController.syncFormFromDetail(); workDetailController.editMode = !workDetailController.editMode; }}>
             <Pencil class="h-3.5 w-3.5" />
-            <span>{workEditMode ? 'Close edit' : 'Edit'}</span>
+            <span>{workDetailController.editMode ? 'Close edit' : 'Edit'}</span>
           </button>
-          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {workDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => onToggleWorkStatus(workDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {workDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => workDetailController.toggleStatus(workDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
             {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if workDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<PowerOff class="h-3.5 w-3.5" />{/if}
             <span>{workDetail.status === 'published' ? 'Disable' : 'Publish'}</span>
           </button>
-          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={onDeleteWork} disabled={workActionInProgress || workDeleteInProgress}>
+          <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={workDetailController.deleteWork} disabled={workActionInProgress || workDeleteInProgress}>
             {#if workDeleteInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
             <span>{workDeleteInProgress ? 'Deleting…' : 'Delete'}</span>
           </button>
         </div>
       </header>
 
-      {#if workEditMode}
-        <form onsubmit={onUpdateWorkSubmit} class="space-y-6">
+      {#if workDetailController.editMode}
+        <form onsubmit={workDetailController.submitUpdate} class="space-y-6">
           <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
             <div class="min-w-0 space-y-5">
               <div class="space-y-1.5">
                 <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-slug">Slug</label>
-                <input id="work-edit-slug" type="text" bind:value={workFormSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                <input id="work-edit-slug" type="text" bind:value={workDetailController.formSlug} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
               </div>
               <div class="grid gap-4 sm:grid-cols-[160px_minmax(0,1fr)]">
                 <div class="space-y-1.5">
                   <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-type">Target</label>
-                  <select id="work-edit-target-type" bind:value={workFormTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                  <select id="work-edit-target-type" bind:value={workDetailController.formTargetType} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
                     <option value="file">File</option>
                     <option value="directory">Directory</option>
                     <option value="port">Port</option>
@@ -375,12 +143,12 @@ onDestroy(() => {
                 </div>
                 <div class="space-y-1.5">
                   <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-target-ref">Reference</label>
-                  <input id="work-edit-target-ref" type="text" bind:value={workFormTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
+                  <input id="work-edit-target-ref" type="text" bind:value={workDetailController.formTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
                 </div>
               </div>
               <div class="space-y-1.5">
                 <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
-                <select id="work-edit-status" bind:value={workFormStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none sm:max-w-[220px]">
+                <select id="work-edit-status" bind:value={workDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none sm:max-w-[220px]">
                   <option value="draft">Draft</option>
                   <option value="published">Published</option>
                   <option value="disabled">Disabled</option>
@@ -392,7 +160,7 @@ onDestroy(() => {
                 <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Work can</div>
                 {#each WORK_SCOPE_OPTIONS as option (option.scope)}
                   <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
-                    <input type="checkbox" bind:checked={workFormScopes[option.scope]} class="mt-0.5" />
+                    <input type="checkbox" bind:checked={workDetailController.formScopes[option.scope]} class="mt-0.5" />
                     <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
                   </label>
                 {/each}
@@ -401,7 +169,7 @@ onDestroy(() => {
                 <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Viewers can allow</div>
                 {#each WORK_VIEWER_SCOPE_OPTIONS as option (option.scope)}
                   <label class="flex gap-3 rounded-[6px] bg-bg-elevated/30 px-3 py-2.5 text-text-secondary">
-                    <input type="checkbox" bind:checked={workFormViewerScopes[option.scope]} class="mt-0.5" />
+                    <input type="checkbox" bind:checked={workDetailController.formViewerScopes[option.scope]} class="mt-0.5" />
                     <span class="min-w-0"><span class="block text-[12px] text-text-primary">{option.label}</span><span class="block text-[11px] leading-5 text-text-placeholder">{option.description}</span></span>
                   </label>
                 {/each}
@@ -412,7 +180,7 @@ onDestroy(() => {
             <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
           {/if}
           <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
-            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workEditMode = false; syncWorkFormFromDetail(); }}>Cancel</button>
+            <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workDetailController.editMode = false; workDetailController.syncFormFromDetail(); }}>Cancel</button>
             <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
               {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
               <span>Save changes</span>
@@ -442,14 +210,14 @@ onDestroy(() => {
               </div>
               <div class="grid gap-2 sm:grid-cols-[128px_minmax(0,1fr)_112px] sm:items-center">
                 <label class="sr-only" for="work-publish-target-type">Target type</label>
-                <select id="work-publish-target-type" bind:value={workPublishTargetType} class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors hover:border-border-default focus:border-brand/50 focus:outline-none">
+                <select id="work-publish-target-type" bind:value={workDetailController.publishTargetType} class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors hover:border-border-default focus:border-brand/50 focus:outline-none">
                   <option value="file">File</option>
                   <option value="directory">Directory</option>
                   <option value="port">Port</option>
                 </select>
                 <label class="sr-only" for="work-publish-target-ref">Target reference</label>
-                <input id="work-publish-target-ref" type="text" bind:value={workPublishTargetRef} placeholder="Target reference" class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary transition-colors placeholder:text-text-placeholder hover:border-border-default focus:border-brand/50 focus:outline-none" />
-                <button type="button" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void onPublishWorkVersion()} disabled={workPublishSubmitting}>
+                <input id="work-publish-target-ref" type="text" bind:value={workDetailController.publishTargetRef} placeholder="Target reference" class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary transition-colors placeholder:text-text-placeholder hover:border-border-default focus:border-brand/50 focus:outline-none" />
+                <button type="button" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
                   {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
                   <span>Publish</span>
                 </button>
