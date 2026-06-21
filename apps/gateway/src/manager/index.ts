@@ -2,6 +2,7 @@ import os from "node:os";
 import { redisCommandClient } from "../redis.js";
 import { DiscordProvider } from "../providers/discord/index.js";
 import { FeishuProvider } from "../providers/feishu/index.js";
+import { WeChatProvider } from "../providers/wechat/index.js";
 import type { GatewayProvider } from "../providers/base.js";
 import { createLogger } from "@cohub/infra/logging";
 
@@ -11,9 +12,27 @@ const GATEWAY_NODE_TTL_MS = 15_000;
 
 interface ChannelConfig {
   provider: string;
-  credentials: Record<string, string>;
+  credentials: Record<string, unknown>;
   externalChatId?: string;
 }
+
+type ProviderFactory = (channelId: string, credentials: Record<string, unknown>) => GatewayProvider;
+
+const providerFactories: Record<string, ProviderFactory> = {
+  discord: (channelId, credentials) => new DiscordProvider(channelId, credentials.token as string),
+  feishu: (channelId, credentials) => new FeishuProvider(channelId, {
+    appId: credentials.appId as string,
+    appSecret: credentials.appSecret as string,
+    brand: (credentials.brand as "feishu" | "lark") ?? "feishu",
+  }),
+  wechat: (channelId, credentials) => new WeChatProvider(channelId, {
+    token: credentials.token as string,
+    accountId: credentials.accountId as string | undefined,
+    userId: credentials.userId as string | undefined,
+    baseUrl: credentials.baseUrl as string | undefined,
+    cdnBaseUrl: credentials.cdnBaseUrl as string | undefined,
+  }),
+};
 
 export class GatewayManager {
   public readonly nodeId: string;
@@ -163,21 +182,14 @@ export class GatewayManager {
   private startProvider(channelId: string, config: ChannelConfig) {
     logger.info(`[Manager] Starting provider for channel ${channelId} (${config.provider})`);
     try {
-      if (config.provider === "discord") {
-        const provider = new DiscordProvider(channelId, config.credentials.token as string);
-        this.providers.set(channelId, provider);
-        logger.info(`[Manager] Provider for ${channelId} created and added to active providers`);
-      } else if (config.provider === "feishu") {
-        const provider = new FeishuProvider(channelId, {
-          appId: config.credentials.appId as string,
-          appSecret: config.credentials.appSecret as string,
-          brand: (config.credentials.brand as "feishu" | "lark") ?? "feishu",
-        });
-        this.providers.set(channelId, provider);
-        logger.info(`[Manager] Provider for ${channelId} created and added to active providers`);
-      } else {
+      const factory = providerFactories[config.provider];
+      if (!factory) {
         logger.warn(`[Manager] Unsupported provider: ${config.provider}`);
+        return;
       }
+      const provider = factory(channelId, config.credentials);
+      this.providers.set(channelId, provider);
+      logger.info(`[Manager] Provider for ${channelId} created and added to active providers`);
     } catch (error) {
       logger.error(`[Manager] Error starting provider for ${channelId}:`, error);
     }

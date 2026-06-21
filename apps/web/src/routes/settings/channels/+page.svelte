@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { Channel } from "@neta-art/cohub";
 import {
+	MessageCircle,
 	MessageSquare,
 	MonitorPlay,
 	Plus,
@@ -25,12 +26,14 @@ let loadError = $state("");
 const providerIcons: Record<string, typeof MessageSquare> = {
 	discord: MessageSquare,
 	feishu: Webhook,
+	wechat: MessageCircle,
 	web: MonitorPlay,
 };
 
 const providerDotColor: Record<string, string> = {
 	discord: "bg-provider-discord",
 	feishu: "bg-provider-feishu",
+	wechat: "bg-success",
 	web: "bg-status-running",
 };
 

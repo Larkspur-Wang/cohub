@@ -16,6 +16,7 @@ const SOURCE_LABELS: Record<string, string> = {
   websocket: "Source/Websocket",
   cli: "Source/CLI",
   feishu: "Source/Feishu",
+  wechat: "Source/WeChat",
   slack: "Source/Slack",
   discord: "Source/Discord",
 };

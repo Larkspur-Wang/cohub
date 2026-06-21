@@ -25,6 +25,37 @@ export class ChannelsApi {
     });
   }
 
+  startWeChatLogin(data: { name?: string }) {
+    return this.transport.request<{
+      sessionKey: string;
+      qrDataUrl: string;
+      message: string;
+      expiresInSeconds: number;
+    }>("/api/channels/wechat/login/start", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
+  waitWeChatLogin(data: { sessionKey: string }) {
+    return this.transport.request<{
+      connected: boolean;
+      expired?: boolean;
+      status?: string;
+      message: string;
+      channel?: Channel;
+    }>("/api/channels/wechat/login/wait", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
   delete(id: string) {
     return this.transport.request(`/api/channels/${id}`, { method: "DELETE" });
   }

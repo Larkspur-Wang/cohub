@@ -20,4 +20,10 @@ export type FeishuChannelConfig = {
   };
 };
 
-export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | Record<string, unknown>;
+export type WeChatChannelConfig = {
+  outbound?: {
+    showIntermediateStatus?: boolean;
+  };
+};
+
+export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | WeChatChannelConfig | Record<string, unknown>;
