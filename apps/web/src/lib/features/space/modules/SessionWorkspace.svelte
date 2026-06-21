@@ -1,7 +1,9 @@
 <script lang="ts">
 import type {
+	MessageToolCallsFile,
 	SessionTurnIndexItem,
 	SessionTurnRecord,
+	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
 import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import { ArrowDown, ListTree, Plus } from "lucide-svelte";
@@ -20,10 +22,6 @@ import type { ComposerAttachment } from "$lib/composer-attachments";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { TimelineItem } from "$lib/session-tree";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
-import {
-	loadMessageToolCalls,
-	loadTurnIntermediate,
-} from "$lib/stores/turn-intermediate-cache";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
 
@@ -56,6 +54,13 @@ type Props = {
 	handleFirstVisible: (index: number) => void;
 	handleTimelineMarkdownRenderStart: (...args: unknown[]) => void;
 	handleTimelineMarkdownRendered: (...args: unknown[]) => void;
+	onLoadToolCalls: (input: {
+		turn: SessionTurnRecord;
+		message: StoredIntermediateMessage;
+	}) => Promise<MessageToolCallsFile | null>;
+	onLoadIntermediate: (
+		turn: SessionTurnRecord,
+	) => Promise<StoredIntermediateMessage[]>;
 	handleForkTurn: (turn: SessionTurnRecord) => void | Promise<void>;
 	forkingTurnId: string | null;
 	openInlineFile: (path: string) => void | Promise<void>;
@@ -142,6 +147,8 @@ let {
 	handleFirstVisible,
 	handleTimelineMarkdownRenderStart,
 	handleTimelineMarkdownRendered,
+	onLoadToolCalls,
+	onLoadIntermediate,
 	handleForkTurn,
 	forkingTurnId,
 	openInlineFile,
@@ -248,8 +255,8 @@ let {
           timeline={timeline}
           preloadThreshold={10}
           onFirstVisible={handleFirstVisible}
-          onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
-          onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
+          {onLoadToolCalls}
+          {onLoadIntermediate}
           onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
           onMarkdownRendered={handleTimelineMarkdownRendered}
           onForkTurn={handleForkTurn}

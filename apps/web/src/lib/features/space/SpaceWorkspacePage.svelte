@@ -2345,7 +2345,7 @@ function upsertSessionRecord(
 	session: SessionRecord,
 	options?: { cache?: boolean },
 ) {
-	const nextSessions = sessionWorkspace.upsertSessionRecord(session, options);
+	const nextSessions = sessionWorkspace.upsertSessionRecord(session);
 	if (options?.cache !== false) {
 		void patchCachedSessionList(spaceId, () => nextSessions).catch(
 			() => undefined,
@@ -5939,6 +5939,8 @@ $effect(() => {
         {handleFirstVisible}
         {handleTimelineMarkdownRenderStart}
         {handleTimelineMarkdownRendered}
+        onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
+        onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
         {handleForkTurn}
         {forkingTurnId}
         {openInlineFile}

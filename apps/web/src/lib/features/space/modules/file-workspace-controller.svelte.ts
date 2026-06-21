@@ -9,6 +9,7 @@ import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceFileDownloadUrl,
+	downloadFileResponse,
 	downloadSpaceFile,
 } from "$lib/space-file-download";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -490,6 +491,23 @@ export function createFileWorkspaceController(
 		}
 	}
 
+	async function downloadActiveFsFile(
+		path: string,
+		knownFile: SpaceFsFileResponse | null | undefined,
+	) {
+		const filename = path.split("/").pop() ?? "download";
+		const source = options.getActiveFsSource();
+		if (source.kind === "live") {
+			await downloadSpaceFile(options.getSpaceId(), path, filename, knownFile);
+			return;
+		}
+		if (knownFile && (await downloadFileResponse(knownFile, filename))) return;
+		const file = await readActiveFsFile(path);
+		if ("content" in file && (await downloadFileResponse(file, filename)))
+			return;
+		throw new Error("Checkpoint file download is not available for this file.");
+	}
+
 	async function downloadOpenFile() {
 		const routeFilePath = options.getRouteFilePath();
 		if (!routeFilePath) return;
@@ -503,12 +521,12 @@ export function createFileWorkspaceController(
 
 	async function downloadInlineFile() {
 		if (!inlineFile) return;
-		await downloadSpaceFile(
-			options.getSpaceId(),
-			inlineFile.path,
-			inlineFile.path.split("/").pop() ?? "download",
-			inlineFile.response,
-		);
+		try {
+			await downloadActiveFsFile(inlineFile.path, inlineFile.response);
+		} catch (error) {
+			inlineFile.error =
+				error instanceof Error ? error.message : "Failed to download file";
+		}
 	}
 
 	async function openInlineFile(path: string) {
@@ -795,7 +813,7 @@ export function createFileWorkspaceController(
 	async function handleDownloadNode(node: SpaceFsNode) {
 		if (node.type !== "file") return;
 		try {
-			await downloadSpaceFile(options.getSpaceId(), node.path, node.name);
+			await downloadActiveFsFile(node.path, null);
 		} catch (error) {
 			fileTreeError =
 				error instanceof Error ? error.message : "Failed to download";
@@ -1055,9 +1073,13 @@ export function createFileWorkspaceController(
 				: null;
 		},
 		get inlineFileDownloadUrl() {
-			return inlineFile
-				? buildSpaceFileDownloadUrl(options.getSpaceId(), inlineFile.path)
-				: "";
+			if (!inlineFile) return "";
+			if (options.getActiveFsSource().kind === "checkpoint") {
+				return inlineFile.response?.delivery === "url"
+					? (inlineFile.response.url ?? "")
+					: "";
+			}
+			return buildSpaceFileDownloadUrl(options.getSpaceId(), inlineFile.path);
 		},
 		get inlineFileDownloadName() {
 			return inlineFile ? (inlineFile.path.split("/").pop() ?? "download") : "";
@@ -1146,6 +1168,7 @@ export function createFileWorkspaceController(
 		copyInlineFileContent,
 		downloadOpenFile,
 		downloadInlineFile,
+		downloadActiveFsFile,
 		handleCreateFile,
 		handleCreateCanvas,
 		handleCreateDir,

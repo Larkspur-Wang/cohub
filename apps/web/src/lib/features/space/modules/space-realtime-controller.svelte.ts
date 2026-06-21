@@ -29,8 +29,8 @@ export function createSpaceRealtimeController(options: {
 	let canRecover = $state(false);
 	let pageVisible = $state(true);
 	let pageOnline = $state(true);
-	let lastRecoveredConnectionId: string | null = null;
 	let lastConnectionState: SpaceConnectionState = "idle";
+	let hasOpenedOnce = false;
 	let disposeConnection: (() => void) | null = null;
 	let started = false;
 
@@ -46,17 +46,13 @@ export function createSpaceRealtimeController(options: {
 			connectionState = "open";
 			canRecover = false;
 			options.onConnectionOpened();
-			const connectionId = snapshot.connectionId ?? null;
 			const recoveredFromDisconnect =
-				previousState === "reconnecting" ||
-				previousState === "closed" ||
-				previousState === "error";
-			const isNewRecoveredConnection =
-				Boolean(connectionId) && connectionId !== lastRecoveredConnectionId;
-			if (recoveredFromDisconnect || isNewRecoveredConnection) {
-				lastRecoveredConnectionId = connectionId;
-				options.onConnectionRecovered();
-			}
+				hasOpenedOnce &&
+				(previousState === "reconnecting" ||
+					previousState === "closed" ||
+					previousState === "error");
+			hasOpenedOnce = true;
+			if (recoveredFromDisconnect) options.onConnectionRecovered();
 			return;
 		}
 		if (snapshot.state === "connecting") {
@@ -126,8 +122,8 @@ export function createSpaceRealtimeController(options: {
 	}
 
 	function resetRecoveredConnection() {
-		lastRecoveredConnectionId = null;
 		lastConnectionState = "idle";
+		hasOpenedOnce = false;
 	}
 
 	return {

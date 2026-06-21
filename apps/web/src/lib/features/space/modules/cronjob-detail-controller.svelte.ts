@@ -210,7 +210,12 @@ export function createCronjobDetailController(options: {
 		const cronjobId = options.getCronjobId();
 		if (!detail || !cronjobId) return;
 		if (runsLoading || runsLoadingMore) return;
+		const requestSpaceId = options.getSpaceId();
 		const requestCronjobId = detail.id;
+		const isCurrentRequest = () =>
+			options.getSpaceId() === requestSpaceId &&
+			options.getMode() === "detail" &&
+			options.getCronjobId() === requestCronjobId;
 		const reset = input.reset ?? !runsLoaded;
 		const cursor = reset ? null : runsNextCursor;
 		if (!reset && !runsHasMore) return;
@@ -245,11 +250,14 @@ export function createCronjobDetailController(options: {
 				nextRuns,
 			);
 		} catch (error) {
+			if (!isCurrentRequest()) return;
 			runsError =
 				error instanceof Error ? error.message : "Failed to load runs";
 		} finally {
-			runsLoading = false;
-			runsLoadingMore = false;
+			if (isCurrentRequest()) {
+				runsLoading = false;
+				runsLoadingMore = false;
+			}
 		}
 	}
 

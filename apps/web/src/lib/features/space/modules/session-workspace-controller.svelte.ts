@@ -15,10 +15,6 @@ export type SessionViewState = {
 	oldestCursor: number | undefined;
 };
 
-type UpsertOptions = {
-	cache?: boolean;
-};
-
 export function createSessionWorkspaceController() {
 	let spaceSessions = $state<SessionRecord[]>([]);
 	let sessionStateById = $state<Record<string, SessionViewState>>({});
@@ -41,10 +37,7 @@ export function createSessionWorkspaceController() {
 		};
 	}
 
-	function upsertSessionRecord(
-		session: SessionRecord,
-		_options?: UpsertOptions,
-	) {
+	function upsertSessionRecord(session: SessionRecord) {
 		const existingSession = spaceSessions.find(
 			(item) => item.id === session.id,
 		);

@@ -107,18 +107,22 @@ export function createWorkDetailController(options: {
 	}
 
 	async function loadVersions(workId: string) {
+		const requestSpaceId = options.getSpaceId();
+		const isCurrentRequest = () =>
+			options.getSpaceId() === requestSpaceId &&
+			options.getRouteWorkId() === workId;
 		versionsLoading = true;
 		versionsError = "";
 		try {
 			const { versions: nextVersions } = await sdk.works.listVersions(workId);
-			if (options.getRouteWorkId() === workId) versions = nextVersions;
+			if (isCurrentRequest()) versions = nextVersions;
 		} catch (cause) {
-			if (options.getRouteWorkId() === workId) {
+			if (isCurrentRequest()) {
 				versionsError =
 					cause instanceof Error ? cause.message : "Failed to load versions";
 			}
 		} finally {
-			if (options.getRouteWorkId() === workId) versionsLoading = false;
+			if (isCurrentRequest()) versionsLoading = false;
 		}
 	}
 

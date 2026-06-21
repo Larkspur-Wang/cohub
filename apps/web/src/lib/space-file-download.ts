@@ -40,7 +40,7 @@ function triggerUrlDownload(url: string, filename: string) {
 	link.remove();
 }
 
-async function downloadFileResponse(
+export async function downloadFileResponse(
 	file: SpaceFsFileResponse,
 	filename?: string,
 ): Promise<boolean> {

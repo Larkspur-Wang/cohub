@@ -48,9 +48,11 @@ export function setThemeWithTransition(mode: ThemeMode, event?: MouseEvent) {
 		setTheme(mode);
 	});
 
-	transition.finished.finally(() => {
-		root.removeAttribute(TRANSITION_ATTR);
-		root.style.removeProperty("--theme-transition-x");
-		root.style.removeProperty("--theme-transition-y");
-	});
+	void transition.finished
+		.finally(() => {
+			root.removeAttribute(TRANSITION_ATTR);
+			root.style.removeProperty("--theme-transition-x");
+			root.style.removeProperty("--theme-transition-y");
+		})
+		.catch(() => undefined);
 }
