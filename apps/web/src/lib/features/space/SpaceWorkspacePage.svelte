@@ -1089,15 +1089,30 @@ const draftSessionState = $derived<SessionViewState | null>(
 			}
 		: null,
 );
-const activeSessionState = $derived(
-	isDraftNewSessionRoute
-		? draftSessionState
-		: activeSessionId
-			? (sessionStateById[activeSessionId] ?? null)
-			: null,
-);
+const activeSessionState = $derived.by<SessionViewState | null>(() => {
+	if (isDraftNewSessionRoute) return draftSessionState;
+	if (!activeSessionId) return null;
+	return (
+		sessionStateById[activeSessionId] ?? {
+			session: spaceSessions.find((session) => session.id === activeSessionId),
+			turns: [],
+			loading: true,
+			loaded: false,
+			error: "",
+			hasMore: true,
+			hasMoreNewer: false,
+			loadingOlder: false,
+			loadingNewer: false,
+			oldestCursor: undefined,
+		}
+	);
+});
 const activeSessionInitialLoadingVisible = $derived.by(() =>
-	Boolean(activeSessionId && visibleInitialLoadingSessionIds[activeSessionId]),
+	Boolean(
+		activeSessionId &&
+			(visibleInitialLoadingSessionIds[activeSessionId] ||
+				!sessionStateById[activeSessionId]),
+	),
 );
 const newChatBackground = $derived(
 	spaceConfig?.ui?.newChat?.background ?? null,
