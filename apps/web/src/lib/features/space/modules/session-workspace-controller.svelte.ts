@@ -115,7 +115,6 @@ export function createSessionWorkspaceController() {
 	}
 
 	function prepareRouteSession(sessionId: string) {
-		activeSessionId = sessionId;
 		if (!sessionStateById[sessionId]) {
 			sessionStateById = {
 				...sessionStateById,
@@ -124,6 +123,7 @@ export function createSessionWorkspaceController() {
 				),
 			};
 		}
+		activeSessionId = sessionId;
 	}
 
 	function setSessionState(sessionId: string, state: SessionViewState) {

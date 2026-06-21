@@ -1476,12 +1476,14 @@ $effect(() => {
 	if (!sessionId || !isSessionVisualDebugEnabled()) return;
 	sessionVisualDebugSeq += 1;
 	sessionVisualDebugUntil = Date.now() + 700;
-	console.debug("[session-visual] route-session", {
-		seq: sessionVisualDebugSeq,
-		sessionId,
-		loaded: activeSessionState?.loaded ?? false,
-		loading: activeSessionState?.loading ?? false,
-		turns: activeSessionState?.turns.length ?? 0,
+	untrack(() => {
+		console.debug("[session-visual] route-session", {
+			seq: sessionVisualDebugSeq,
+			sessionId,
+			loaded: activeSessionState?.loaded ?? false,
+			loading: activeSessionState?.loading ?? false,
+			turns: activeSessionState?.turns.length ?? 0,
+		});
 	});
 });
 $effect(() => {
