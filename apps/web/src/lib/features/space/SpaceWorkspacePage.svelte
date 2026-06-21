@@ -2352,7 +2352,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				targetSessionId: sessionId,
 				source: cached.source,
 				stale: cached.stale,
-				shape: getTimelineShapeLine(sessionId, cached.turns, []),
+				turns: getTurnDebugSummary(cached.turns),
 			});
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
@@ -2422,7 +2422,7 @@ async function loadSessionState(sessionId: string, force = false) {
 			logSessionVisualDebug("turns-network", {
 				targetSessionId: sessionId,
 				hasMore: response.hasMore,
-				shape: getTimelineShapeLine(sessionId, response.turns, []),
+				turns: getTurnDebugSummary(response.turns),
 			});
 			await syncGenerationStateFromTail(
 				sessionId,
@@ -4659,7 +4659,7 @@ $effect(() => {
 			targetSessionId: sessionId,
 			source: snapshot.source,
 			stale: snapshot.stale,
-			shape: getTimelineShapeLine(sessionId, snapshot.turns, []),
+			turns: getTurnDebugSummary(snapshot.turns),
 		});
 		const current = sessionStateById[sessionId];
 		if (!current) return;

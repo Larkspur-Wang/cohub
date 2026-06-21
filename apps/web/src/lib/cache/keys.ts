@@ -73,7 +73,7 @@ export function sessionTurnsKey(
 	spaceId: string,
 	sessionId: string,
 ) {
-	return [userKey, spaceId, sessionId].map(encodeKeyPart).join(":");
+	return [userKey, spaceId, sessionId, "turns-v2"].map(encodeKeyPart).join(":");
 }
 
 export function sessionGenerationSnapshotKey(
