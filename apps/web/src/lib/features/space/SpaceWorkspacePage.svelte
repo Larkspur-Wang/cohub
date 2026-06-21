@@ -1421,8 +1421,8 @@ const activeSessionIsRunning = $derived.by(() =>
 			!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status),
 	),
 );
-let sessionVisualDebugUntil = $state(0);
-let sessionVisualDebugSeq = $state(0);
+let sessionVisualDebugUntil = 0;
+let sessionVisualDebugSeq = 0;
 function isSessionVisualDebugEnabled() {
 	if (typeof window === "undefined") return false;
 	const params = new URLSearchParams(window.location.search);
