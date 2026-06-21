@@ -15,7 +15,7 @@ import { MemoryLru } from "$lib/cache/memory-lru";
 import type { CacheSource } from "$lib/cache/types";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 
-const SESSION_TURNS_TTL_MS = 15_000;
+const SESSION_TURNS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_TURNS_PER_SESSION_CACHE = 500;
 const memory = new MemoryLru<string, SessionTurnsCacheRecord>(50);
 const listeners = new Set<
