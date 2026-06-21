@@ -206,7 +206,6 @@ function payloadProviderLabel(payload: unknown) {
 			{:else if cronjobDetailError}
 				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
 			{:else if cronjobDetail && cronjobDetail.id === cronjobId}
-				{@const activeModel = null}
 				<div class="space-y-6 sm:space-y-8">
 					<header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
 						<div class="min-w-0 space-y-3">

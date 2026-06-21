@@ -18,16 +18,20 @@ type RouteDetailHeaderMeta = {
 	title: string;
 } | null;
 
+type RouteDetailContext = {
+	view: string;
+	checkpointId: string | null;
+	cronjobId: string | null;
+	workId: string | null;
+	taskId: string | null;
+};
+
 type Props = {
-	routeView: string;
+	route: RouteDetailContext;
 	spaceId: string;
 	space: SpaceRecord | null;
 	spaceLoadError: string;
 	spaceHasMinimalAccess: boolean;
-	routeCheckpointId: string | null;
-	routeCronjobId: string | null;
-	routeWorkId: string | null;
-	routeTaskId: string | null;
 	taskRealtimeEvent: TaskRealtimeEvent | null;
 	ownerUsername: string | null;
 	spaceSlug: string | null;
@@ -35,15 +39,11 @@ type Props = {
 };
 
 let {
-	routeView,
+	route,
 	spaceId,
 	space,
 	spaceLoadError,
 	spaceHasMinimalAccess,
-	routeCheckpointId,
-	routeCronjobId,
-	routeWorkId,
-	routeTaskId,
 	taskRealtimeEvent,
 	ownerUsername,
 	spaceSlug,
@@ -56,13 +56,13 @@ function handleCheckpointLoaded(
 	checkpoint: { description?: string | null } | null,
 ) {
 	onHeaderMeta(
-		checkpoint && routeCheckpointId
+		checkpoint && route.checkpointId
 			? {
 					view: "checkpoint",
-					id: routeCheckpointId,
+					id: route.checkpointId,
 					title:
 						checkpoint.description?.trim() ||
-						`Save ${routeCheckpointId.slice(0, 8)}`,
+						`Save ${route.checkpointId.slice(0, 8)}`,
 				}
 			: null,
 	);
@@ -85,39 +85,39 @@ function handleTaskLoaded(run: TaskRunRecord | null) {
 }
 </script>
 
-{#if routeView === "checkpoint-new" || routeView === "checkpoint"}
+{#if route.view === "checkpoint-new" || route.view === "checkpoint"}
 	<CheckpointView
-		mode={routeView === "checkpoint-new" ? "create" : "detail"}
+		mode={route.view === "checkpoint-new" ? "create" : "detail"}
 		{spaceId}
 		{space}
 		{spaceLoadError}
 		{spaceHasMinimalAccess}
-		checkpointId={routeCheckpointId}
+		checkpointId={route.checkpointId}
 		onDetailLoaded={handleCheckpointLoaded}
 	/>
-{:else if routeView === "cronjob-new" || routeView === "cronjob"}
+{:else if route.view === "cronjob-new" || route.view === "cronjob"}
 	<CronjobView
-		mode={routeView === "cronjob-new" ? "create" : "detail"}
+		mode={route.view === "cronjob-new" ? "create" : "detail"}
 		{spaceId}
 		{spaceName}
 		{spaceLoadError}
 		{spaceHasMinimalAccess}
-		cronjobId={routeCronjobId}
+		cronjobId={route.cronjobId}
 		{taskRealtimeEvent}
 		onDetailLoaded={handleCronjobLoaded}
 	/>
-{:else if routeView === "work"}
+{:else if route.view === "work"}
 	<WorkView
 		{spaceId}
-		{routeWorkId}
+		routeWorkId={route.workId}
 		{ownerUsername}
 		{spaceSlug}
 		onDetailLoaded={handleWorkLoaded}
 	/>
-{:else if routeView === "task"}
+{:else if route.view === "task"}
 	<TaskRunView
 		{spaceId}
-		taskId={routeTaskId}
+		taskId={route.taskId}
 		{taskRealtimeEvent}
 		onDetailLoaded={handleTaskLoaded}
 	/>

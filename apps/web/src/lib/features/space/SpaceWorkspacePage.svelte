@@ -6,12 +6,10 @@ import type {
 	PublicGenerationDeclaration,
 } from "@cohub/protocol/generation";
 import type {
-	MessageToolCallsFile,
 	SessionTurnIndexItem,
 	SessionTurnRecord,
 	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
-import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { CanvasSemanticOp } from "@neta-art/cohub";
 import {
@@ -21,52 +19,30 @@ import {
 	type PromptTemplateCatalogEntry,
 	type SessionRecord,
 	type SpaceAccessPolicy,
-	type SpaceFsFileResponse,
 	type SpaceMember,
 	type SpaceRecord,
 	type TaskRunRecord,
 	type UserProfile,
-	type WorkVersionRecord,
 } from "@neta-art/cohub";
 import {
-	Activity,
-	AlertCircle,
 	ArrowDown,
 	Check,
-	Clock,
-	Clock3,
-	Code,
 	Copy,
 	Download,
-	ExternalLink,
-	Eye,
-	FolderKanban,
-	GitCommitHorizontal,
 	Globe,
-	Link,
 	ListTree,
 	Loader2,
-	Lock,
 	Maximize2,
-	MessageSquare,
 	Minimize2,
 	MoreHorizontal,
-	Network,
 	PanelRightClose,
 	PanelRightOpen,
 	Pencil,
-	Plus,
-	Power,
-	PowerOff,
-	Rocket,
 	Save,
-	Settings,
 	Share2,
-	Terminal,
 	TextCursorInput,
 	Trash2,
 	Upload,
-	UserRound,
 	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
@@ -89,32 +65,17 @@ import {
 import { ensureCovasExtension } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
-import ChatTimeline from "$lib/components/ChatTimeline.svelte";
-import Dialog from "$lib/components/Dialog.svelte";
-import FileUploadPane from "$lib/components/FileUploadPane.svelte";
-import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
-import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
-import ModelSelector from "$lib/components/ModelSelector.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox";
-import NewChatBackground from "$lib/components/NewChatBackground.svelte";
 import PageHeader from "$lib/components/PageHeader.svelte";
-import PortPreview from "$lib/components/PortPreview.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
-import SessionComposer from "$lib/components/SessionComposer.svelte";
-import SessionTaskTray, {
-	type GenerationTaskNotice,
-	type SessionTaskNotice,
+import type {
+	GenerationTaskNotice,
+	SessionTaskNotice,
 } from "$lib/components/SessionTaskTray.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
-import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
-import ToolCallList from "$lib/components/ToolCallList.svelte";
-import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
-import TurnRail from "$lib/components/TurnRail.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
-import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import {
 	buildComposerTextContentBlock,
-	type ComposerAttachment,
 	type ComposerFileAttachment,
 	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
@@ -153,23 +114,11 @@ import {
 	subscribeSpaceConfig,
 	subscribeSpaceConfigBackgroundAction,
 } from "$lib/space-config";
-import {
-	buildSpaceFileDownloadUrl,
-	downloadSpaceFile,
-} from "$lib/space-file-download";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
-	buildSpaceCheckpointNewRoute,
-	buildSpaceCheckpointRoute,
-	buildSpaceCronjobNewRoute,
-	buildSpaceCronjobRoute,
-	buildSpaceFileRoute,
-	buildSpaceLandingRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSessionTurnRoute,
-	buildSpaceTaskRoute,
-	buildSpaceWorkRoute,
 } from "$lib/space-routes";
 import {
 	activateSpaceStyle,
@@ -203,16 +152,9 @@ import {
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import {
-	clearCachedSpaceFsSubtree,
-	fetchSpaceFsDirWithCache,
-	getCachedSpaceFsDir,
-	patchCachedSpaceFsDir,
-} from "$lib/stores/space-fs-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	getCachedTaskRuns,
-	mergeCachedCronJobTaskRuns,
 	mergeCachedTaskRun,
 	onTaskRunsCacheUpdated,
 	restoreCachedTaskRuns,
@@ -228,27 +170,15 @@ import {
 	uiState,
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
-import {
-	createCanvasPreviewController,
-	type InlineCanvasPanelState,
-} from "./modules/canvas-preview-controller.svelte";
-import {
-	buildSendMessagePayload,
-	cronjobModelLabel,
-	cronjobPayloadContent,
-	cronjobPromptMeta,
-	defaultTimezone,
-	formatCronjobPrompt,
-	promptTextFromPayload,
-	validateCronjobForm,
-} from "./modules/cronjob-utils";
+import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
-import { makeFsNode } from "./modules/file-workspace-utils";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import { createKeyedRouteRequestGuard } from "./modules/route-request-guard";
+import SessionModelSelectorDialog from "./modules/SessionModelSelectorDialog.svelte";
+import SessionShareDialog from "./modules/SessionShareDialog.svelte";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
 import SpaceFileDomain from "./modules/SpaceFileDomain.svelte";
 import SpaceRouteDetailHost from "./modules/SpaceRouteDetailHost.svelte";
@@ -267,7 +197,6 @@ import {
 } from "./modules/session-task-controller.svelte";
 import { createSessionTurnLoadingController } from "./modules/session-turn-loading-controller.svelte";
 import {
-	areSessionTurnRecordsEqual,
 	extractBackgroundBashResultPreview,
 	formatBackgroundBashSubtitle,
 	getSessionTitle,
@@ -279,31 +208,14 @@ import {
 } from "./modules/session-utils";
 import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
-import {
-	createSpaceStatusController,
-	type SpaceSandboxSnapshot,
-} from "./modules/space-status-controller.svelte";
+import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { mergeTaskRunRecord } from "./modules/task-run-utils";
-import {
-	scopeState,
-	selectedScopeList,
-	WORK_SCOPE_OPTIONS,
-	WORK_VIEWER_SCOPE_OPTIONS,
-	workStatusTone,
-} from "./modules/work-utils";
 import {
 	asRecord,
 	displayUserName,
-	formatBootstrapStage,
-	formatBootstrapStatus,
-	formatCompactId,
-	formatDateTime,
-	formatFileSize,
 	formatShortDateTime,
 	formatTokenCount,
 	formatUsageCost,
-	getSpacePrettyUrlHint,
-	getSpacePublicPath,
 	sandboxStatusKind,
 	sandboxStatusLabel,
 } from "./space-utils";
@@ -412,6 +324,14 @@ $effect(() => {
 });
 const fileMode = $derived<"chat" | "file">(
 	routeView === "file" ? "file" : "chat",
+);
+const isRouteDetailView = $derived(
+	routeView === "checkpoint-new" ||
+		routeView === "checkpoint" ||
+		routeView === "cronjob-new" ||
+		routeView === "cronjob" ||
+		routeView === "work" ||
+		routeView === "task",
 );
 const isRightDrawerVisible = $derived(
 	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
@@ -1211,6 +1131,22 @@ async function shareAndCopyLink() {
 		shareModalSaving = false;
 	}
 }
+async function copyShareLink() {
+	if (!shareModalSessionId) return;
+	shareModalError = "";
+	try {
+		const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId)}`;
+		await navigator.clipboard.writeText(url);
+		shareCopied = true;
+		if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
+		shareCopiedTimer = setTimeout(() => {
+			shareCopied = false;
+		}, 2000);
+	} catch (error) {
+		shareModalError =
+			error instanceof Error ? error.message : "Failed to copy session link";
+	}
+}
 async function makeSessionPrivate() {
 	if (!shareModalSessionId || !canManageSessionAccess) return;
 	shareModalError = "";
@@ -1368,12 +1304,13 @@ $effect(() => {
 const activeRouteDetailHeader = $derived.by(() => {
 	const meta = routeDetailHeaderMeta;
 	if (!meta || meta.view !== routeView) return null;
-	if (meta.view === "checkpoint")
-		return routeCheckpointId === meta.id ? meta : null;
-	if (meta.view === "cronjob") return routeCronjobId === meta.id ? meta : null;
-	if (meta.view === "work") return routeWorkId === meta.id ? meta : null;
-	if (meta.view === "task") return routeTaskId === meta.id ? meta : null;
-	return null;
+	const routeIdByView = {
+		checkpoint: routeCheckpointId,
+		cronjob: routeCronjobId,
+		work: routeWorkId,
+		task: routeTaskId,
+	} satisfies Record<RouteDetailHeaderMeta["view"], string | null>;
+	return routeIdByView[meta.view] === meta.id ? meta : null;
 });
 
 const browserTabTitle = $derived.by(() => {
@@ -5382,6 +5319,180 @@ $effect(() => {
 	ro.observe(el);
 	return () => ro.disconnect();
 });
+
+const spaceFileDomainProps = $derived.by(() => ({
+	spaceId,
+	spaceOwnerUsername,
+	spaceSlug,
+	spaceHasMinimalAccess,
+	activeFsReadonly,
+	canEditFiles,
+	activeFsSidebarSubtitle,
+	isMobile,
+	isRightDrawerVisible,
+	previewPanelWidth,
+	previewFocusMode,
+	rightSidebarCollapsed: uiState.rightSidebarCollapsed,
+	rightSidebarWidth: uiState.rightSidebarWidth,
+	rightDragOffsetPx: uiState.rightDragOffsetPx,
+	rightIsDragging: uiState.rightIsDragging,
+	fileTree,
+	fileTreeLoading,
+	fileTreeError,
+	selectedFilePath,
+	inlineFile,
+	inlineCanvas,
+	inlinePortPreview,
+	inlinePortEndpoint,
+	previewEndpoints,
+	inlineFileDownloadUrl,
+	inlineFileDownloadName,
+	inlineFileIsText,
+	inlineFileHasRenderedPreview,
+	inlineFileIsMarkdown,
+	inlineFileIsHtml,
+	inlineFileDirty,
+	inlineFileCopied,
+	inlineFileExt,
+	inlineFileIsImage,
+	inlineFileIsVideo,
+	inlineFileDataUrl,
+	inlineFileDragging: fileWorkspace.inlineFileDragging,
+	inlineFilePanHandlers,
+	uploadPaneVisible: fileWorkspace.uploadPaneVisible,
+	uploadPaneTargetDir: fileWorkspace.uploadPaneTargetDir,
+	pendingUploadFiles: fileWorkspace.pendingUploadFiles,
+	pendingUploadEntries: fileWorkspace.pendingUploadEntries,
+	onSpaceUpdated: (nextSpace: SpaceRecord) => {
+		space = nextSpace;
+	},
+	onMobileRightDrawerClose: () => {
+		uiState.mobileRightDrawerOpen = false;
+	},
+	onSetUploadPaneVisible: (visible: boolean) => {
+		fileWorkspace.uploadPaneVisible = visible;
+	},
+	onToggleDirectory: expandDirectory,
+	onRefreshFileTree: refreshFileTree,
+	onCreateFile: handleCreateFile,
+	onCreateCanvas: handleCreateCanvas,
+	onCreateDir: handleCreateDir,
+	onRenameNode: handleRenameNode,
+	onDeleteNode: handleDeleteNode,
+	onDownloadNode: handleDownloadNode,
+	onUploadFiles: handleUploadFiles,
+	onInsertPathReference: insertPathReference,
+	onOpenInlineFile: openInlineFile,
+	onOpenInlineCanvas: openInlineCanvas,
+	onCloseInlineFile: closeInlineFile,
+	onDownloadInlineFile: downloadInlineFile,
+	onCopyInlineFileContent: copyInlineFileContent,
+	onSaveInlineFile: saveInlineFile,
+	onOpenInlinePort: openInlinePort,
+	onCloseInlinePort: closeInlinePort,
+	onCommitInlineCanvas: commitInlineCanvas,
+	onCloseInlineCanvas: closeInlineCanvas,
+	onBeginPreviewPanelResize: beginPreviewPanelResize,
+	onTogglePreviewFocusMode: togglePreviewFocusMode,
+	onBeginRightSidebarResize: beginRightSidebarResize,
+	onEditResourceLabels: editResourceLabels,
+	onInsertFilePathReference: insertFilePathReference,
+	onGetFileActionNode: getFileActionNode,
+	onUploadComplete: fileWorkspace.handleUploadComplete,
+	onOpenWorkPublish: openWorkPublish,
+	onCloseWorkPublish: () => {
+		workPublishTarget = null;
+	},
+}));
+
+const sessionWorkspaceProps = $derived.by(() => ({
+	spaceId,
+	spaceLoadError,
+	spaceHasMinimalAccess,
+	createSessionError,
+	bootstrapping,
+	activeSessionState,
+	activeSessionInitialLoadingVisible,
+	isNewSessionRoute,
+	canCreateSession,
+	handleCreateNewSession,
+	shouldShowNewChatBackground,
+	newChatBackground,
+	shouldShowNewChatProfile,
+	newChatProfileExpanded,
+	timeline,
+	handleFirstVisible,
+	handleTimelineMarkdownRenderStart,
+	handleTimelineMarkdownRendered,
+	onLoadToolCalls: (input: {
+		turn: SessionTurnRecord;
+		message: StoredIntermediateMessage;
+	}) =>
+		loadMessageToolCalls({
+			spaceId,
+			sessionId: input.turn.sessionId,
+			turnId: input.turn.sourceTurnId ?? input.turn.id,
+			message: input.message,
+		}),
+	onLoadIntermediate: (turn: SessionTurnRecord) =>
+		loadTurnIntermediate({
+			spaceId,
+			sessionId: turn.sessionId,
+			turnId: turn.sourceTurnId ?? turn.id,
+			messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null,
+		}),
+	handleForkTurn,
+	forkingTurnId,
+	openInlineFile,
+	modelsCatalog,
+	sessionTaskNotices,
+	sessionTaskHasMore,
+	sessionTaskRecentLoading,
+	handleSessionTaskTrayExpand,
+	handleSessionTaskTrayLoadMore,
+	handleOpenGenerationTaskMedia,
+	followupQueue,
+	turnPreviewText,
+	pendingFollowupActionIds,
+	handleSteerFollowup,
+	handleCancelFollowup,
+	activeTurnRailItems,
+	turnMarkerPositions,
+	turnMarkerHeights,
+	timelineScrollTop,
+	timelineScrollHeight,
+	timelineClientHeight,
+	composerHeight,
+	unloadedOlderTurnCount,
+	unloadedNewerTurnCount,
+	currentTurnSequence,
+	loadingTurnSequence,
+	jumpToTurnAndUpdateUrl,
+	setProgrammaticScrollTop,
+	snapScrollToNearestTurn,
+	activeSessionId,
+	loadOlderTurns,
+	syncSessionNewer,
+	highlightedTurnSequence,
+	hasUnread,
+	forceScrollToBottom,
+	loadTurnIndex,
+	sending,
+	activeSessionIsRunning,
+	aborting,
+	composerNotice,
+	composerShowsBillingAction,
+	attachments,
+	activeSessionModel,
+	promptTemplates,
+	promptTemplatesLoaded,
+	handlePickAttachments,
+	handleRemoveAttachment,
+	handleSend,
+	handleAbort,
+	loadModelsCatalog,
+	loadGenerationModelsCatalog,
+}));
 </script>
 
 <svelte:head>
@@ -5811,17 +5922,19 @@ $effect(() => {
 {/if}
 <div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
   <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
-    {#if routeView === 'checkpoint-new' || routeView === 'checkpoint' || routeView === 'cronjob-new' || routeView === 'cronjob' || routeView === 'work' || routeView === 'task'}
+    {#if isRouteDetailView}
       <SpaceRouteDetailHost
-        {routeView}
+        route={{
+          view: routeView,
+          checkpointId: routeCheckpointId,
+          cronjobId: routeCronjobId,
+          workId: routeWorkId,
+          taskId: routeTaskId,
+        }}
         {spaceId}
         {space}
         {spaceLoadError}
         {spaceHasMinimalAccess}
-        {routeCheckpointId}
-        {routeCronjobId}
-        {routeWorkId}
-        {routeTaskId}
         {taskRealtimeEvent}
         ownerUsername={spaceOwnerUsername}
         {spaceSlug}
@@ -5872,84 +5985,14 @@ $effect(() => {
       />
     {:else}
       <SessionWorkspace
-        {spaceId}
-        {spaceLoadError}
-        {spaceHasMinimalAccess}
-        {createSessionError}
-        {bootstrapping}
-        {activeSessionState}
-        {activeSessionInitialLoadingVisible}
-        {isNewSessionRoute}
-        {canCreateSession}
-        {handleCreateNewSession}
-        {shouldShowNewChatBackground}
-        {newChatBackground}
-        {shouldShowNewChatProfile}
+        {...sessionWorkspaceProps}
         bind:newChatProfileViewportEl
-        {newChatProfileExpanded}
         bind:chatTimelineRef={sessionScroll.chatTimelineRef}
         bind:listEl={sessionScroll.listEl}
-        {timeline}
-        {handleFirstVisible}
-        {handleTimelineMarkdownRenderStart}
-        {handleTimelineMarkdownRendered}
-        onLoadToolCalls={(input) => loadMessageToolCalls({ spaceId, sessionId: input.turn.sessionId, turnId: input.turn.sourceTurnId ?? input.turn.id, message: input.message })}
-        onLoadIntermediate={(turn) => loadTurnIntermediate({ spaceId, sessionId: turn.sessionId, turnId: turn.sourceTurnId ?? turn.id, messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null })}
-        {handleForkTurn}
-        {forkingTurnId}
-        {openInlineFile}
-        {modelsCatalog}
-        {sessionTaskNotices}
-        {sessionTaskHasMore}
-        {sessionTaskRecentLoading}
-        {handleSessionTaskTrayExpand}
-        {handleSessionTaskTrayLoadMore}
-        {handleOpenGenerationTaskMedia}
-        {followupQueue}
-        {turnPreviewText}
-        {pendingFollowupActionIds}
-        {handleSteerFollowup}
-        {handleCancelFollowup}
-        {activeTurnRailItems}
-        {turnMarkerPositions}
-        {turnMarkerHeights}
-        {timelineScrollTop}
-        {timelineScrollHeight}
-        {timelineClientHeight}
-        {composerHeight}
-        {unloadedOlderTurnCount}
-        {unloadedNewerTurnCount}
-        {currentTurnSequence}
-        {loadingTurnSequence}
-        {jumpToTurnAndUpdateUrl}
-        {setProgrammaticScrollTop}
-        {snapScrollToNearestTurn}
-        {activeSessionId}
-        {loadOlderTurns}
-        {syncSessionNewer}
-        {highlightedTurnSequence}
-        {hasUnread}
         bind:shouldAutoFollow={sessionScroll.shouldAutoFollow}
-        {forceScrollToBottom}
         bind:showTurnBottomSheet
-        {loadTurnIndex}
         bind:composerHostEl
         bind:input={sessionComposer.input}
-        {sending}
-        {activeSessionIsRunning}
-        {aborting}
-        {composerNotice}
-        {composerShowsBillingAction}
-        {attachments}
-        {activeSessionModel}
-        {promptTemplates}
-        {promptTemplatesLoaded}
-        {handlePickAttachments}
-        {handleRemoveAttachment}
-        {handleSend}
-        {handleAbort}
-        {loadModelsCatalog}
-        {loadGenerationModelsCatalog}
         bind:showModelSelector
       >
         {#snippet newChatProfile()}
@@ -5959,161 +6002,31 @@ $effect(() => {
     {/if}
   </div>
   <SpaceFileDomain
-    {spaceId}
-    {spaceOwnerUsername}
-    {spaceSlug}
-    {spaceHasMinimalAccess}
-    {activeFsReadonly}
-    {canEditFiles}
-    {activeFsSidebarSubtitle}
-    {isMobile}
-    {isRightDrawerVisible}
-    {previewPanelWidth}
-    {previewFocusMode}
-    rightSidebarCollapsed={uiState.rightSidebarCollapsed}
-    rightSidebarWidth={uiState.rightSidebarWidth}
-    rightDragOffsetPx={uiState.rightDragOffsetPx}
-    rightIsDragging={uiState.rightIsDragging}
-    {fileTree}
-    {fileTreeLoading}
-    {fileTreeError}
-    {selectedFilePath}
-    {inlineFile}
-    {inlineCanvas}
-    {inlinePortPreview}
-    {inlinePortEndpoint}
-    {previewEndpoints}
-    {inlineFileDownloadUrl}
-    {inlineFileDownloadName}
-    {inlineFileIsText}
-    {inlineFileHasRenderedPreview}
+    {...spaceFileDomainProps}
     bind:inlineFileEdit={fileWorkspace.inlineFileEdit}
-    {inlineFileIsMarkdown}
-    {inlineFileIsHtml}
-    {inlineFileDirty}
-    {inlineFileCopied}
-    {inlineFileExt}
-    {inlineFileIsImage}
-    {inlineFileIsVideo}
-    {inlineFileDataUrl}
     bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
     bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
     bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
     bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
-    inlineFileDragging={fileWorkspace.inlineFileDragging}
-    {inlineFilePanHandlers}
-    uploadPaneVisible={fileWorkspace.uploadPaneVisible}
-    uploadPaneTargetDir={fileWorkspace.uploadPaneTargetDir}
-    pendingUploadFiles={fileWorkspace.pendingUploadFiles}
-    pendingUploadEntries={fileWorkspace.pendingUploadEntries}
     bind:workPublishTarget
-    onSpaceUpdated={(nextSpace) => { space = nextSpace; }}
-    onMobileRightDrawerClose={() => { uiState.mobileRightDrawerOpen = false; }}
-    onSetUploadPaneVisible={(visible) => { fileWorkspace.uploadPaneVisible = visible; }}
-    onToggleDirectory={expandDirectory}
-    onRefreshFileTree={refreshFileTree}
-    onCreateFile={handleCreateFile}
-    onCreateCanvas={handleCreateCanvas}
-    onCreateDir={handleCreateDir}
-    onRenameNode={handleRenameNode}
-    onDeleteNode={handleDeleteNode}
-    onDownloadNode={handleDownloadNode}
-    onUploadFiles={handleUploadFiles}
-    onInsertPathReference={insertPathReference}
-    onOpenInlineFile={openInlineFile}
-    onOpenInlineCanvas={openInlineCanvas}
-    onCloseInlineFile={closeInlineFile}
-    onDownloadInlineFile={downloadInlineFile}
-    onCopyInlineFileContent={copyInlineFileContent}
-    onSaveInlineFile={saveInlineFile}
-    onOpenInlinePort={openInlinePort}
-    onCloseInlinePort={closeInlinePort}
-    onCommitInlineCanvas={commitInlineCanvas}
-    onCloseInlineCanvas={closeInlineCanvas}
-    onBeginPreviewPanelResize={beginPreviewPanelResize}
-    onTogglePreviewFocusMode={togglePreviewFocusMode}
-    onBeginRightSidebarResize={beginRightSidebarResize}
-    onEditResourceLabels={editResourceLabels}
-    onInsertFilePathReference={insertFilePathReference}
-    onGetFileActionNode={getFileActionNode}
-    onUploadComplete={fileWorkspace.handleUploadComplete}
-    onOpenWorkPublish={openWorkPublish}
-    onCloseWorkPublish={() => { workPublishTarget = null; }}
   />
-  <!-- Share Modal -->
-  <Dialog open={showShareModal && !!shareModalSessionId} onClose={() => { showShareModal = false; }} title={hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'} maxWidth="380px">
-    <div class="p-4 space-y-4">
-      {#if hasSessionPermission(shareModalSessionId!)}
-        <p class="text-[13px] text-text-secondary leading-relaxed">Anyone with the link can view this session. Choose how to manage access:</p>
-        <div class="space-y-2">
-          <button
-            type="button"
-            class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
-            onclick={() => { void removeSessionAccess(shareModalSessionId!); showShareModal = false; }}
-            disabled={shareModalSaving}
-          >
-            <Globe class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
-            <div class="min-w-0">
-              <div class="text-[13px] text-text-primary font-medium">Remove permission</div>
-              <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Delete this session's access rule.</div>
-            </div>
-          </button>
-          <button
-            type="button"
-            class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-[6px] border border-border-subtle bg-bg-surface hover:bg-bg-hover transition-colors disabled:opacity-50"
-            onclick={() => { void makeSessionPrivate(); }}
-            disabled={shareModalSaving}
-          >
-            <Lock class="w-4 h-4 text-text-tertiary shrink-0 mt-0.5" />
-            <div class="min-w-0">
-              <div class="text-[13px] text-text-primary font-medium">Make private</div>
-              <div class="text-[11px] text-text-placeholder mt-0.5 leading-relaxed">Block all external access.</div>
-            </div>
-          </button>
-        </div>
-        <button
-          type="button"
-          class="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-[5px] text-[13px] text-text-secondary hover:text-text-primary border border-border-subtle hover:bg-bg-hover transition-colors disabled:opacity-50"
-          onclick={() => {
-            const url = `${window.location.origin}${buildSpaceSessionRoute(spaceId, shareModalSessionId!)}`;
-            void navigator.clipboard.writeText(url);
-            shareCopied = true;
-            if (shareCopiedTimer) clearTimeout(shareCopiedTimer);
-            shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
-          }}
-          disabled={shareModalSaving}
-        >
-          {#if shareCopied}
-            <Check class="w-3.5 h-3.5 text-status-success" />
-            Copied
-          {:else}
-            <Copy class="w-3.5 h-3.5" />
-            Copy link
-          {/if}
-        </button>
-      {:else}
-        <p class="text-[13px] text-text-secondary leading-relaxed">This session will become publicly accessible. Anyone with the link can view the conversation.</p>
-        <button
-          type="button"
-          class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-[5px] bg-bg-primary hover:bg-bg-hover-strong border border-border-subtle text-[13px] text-text-primary font-medium transition-colors disabled:opacity-50"
-          onclick={() => { void shareAndCopyLink(); }}
-          disabled={shareModalSaving}
-        >
-          {#if shareModalSaving}
-            <Loader2 class="w-3.5 h-3.5 animate-spin" />
-            Sharing…
-          {:else}
-            <Share2 class="w-3.5 h-3.5" />
-            Share &amp; copy link
-          {/if}
-        </button>
-      {/if}
-      {#if shareModalError}
-        <div class="text-[12px] text-error-soft break-all">{shareModalError}</div>
-      {/if}
-    </div>
-  </Dialog>
-  <ModelSelector
+  <SessionShareDialog
+    open={showShareModal && !!shareModalSessionId}
+    isPublic={shareModalSessionId ? hasSessionPermission(shareModalSessionId) : false}
+    saving={shareModalSaving}
+    copied={shareCopied}
+    error={shareModalError}
+    onClose={() => { showShareModal = false; }}
+    onRemovePermission={() => {
+      if (!shareModalSessionId) return;
+      void removeSessionAccess(shareModalSessionId);
+      showShareModal = false;
+    }}
+    onMakePrivate={makeSessionPrivate}
+    onCopyLink={copyShareLink}
+    onShare={shareAndCopyLink}
+  />
+  <SessionModelSelectorDialog
     open={showModelSelector}
     onClose={() => { showModelSelector = false; }}
     onSelect={handleModelSelect}
@@ -6125,7 +6038,7 @@ $effect(() => {
     {generationEnumSelections}
     {generationNumericConstraints}
     {generationBooleanConstraints}
-    onGenerationTabOpen={() => { void loadGenerationModelsCatalog(); }}
+    onGenerationTabOpen={loadGenerationModelsCatalog}
     onGenerationPolicyModeChange={setGenerationPolicyMode}
     onGenerationModelToggle={setGenerationModelSelected}
     onGenerationEnumValueToggle={setGenerationEnumValueSelected}
