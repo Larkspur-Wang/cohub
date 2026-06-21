@@ -10,6 +10,7 @@ import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
+import { authStore } from "$lib/stores/auth.svelte";
 
 type WorkSurfaceMode = "page" | "background";
 type WorkContent =
@@ -35,6 +36,7 @@ type Props = {
 		WorkRecord,
 		| "id"
 		| "spaceId"
+		| "userUuid"
 		| "slug"
 		| "targetType"
 		| "targetRef"
@@ -110,6 +112,11 @@ function readTokenResponse(value: unknown) {
 	if (!value || typeof value !== "object") return null;
 	const token = (value as Record<string, unknown>).token;
 	return typeof token === "string" && token ? token : null;
+}
+
+async function isCurrentViewerWorkOwner() {
+	await authStore.ensureLoaded();
+	return Boolean(authStore.userUuid && authStore.userUuid === work.userUuid);
 }
 
 async function ensureBaseToken(forceRefresh = false) {
@@ -270,6 +277,14 @@ async function handleMessage(event: MessageEvent) {
 				reply(data.requestId, {
 					type: "cohub.work.error",
 					message: "No allowed scopes requested.",
+				});
+				return;
+			}
+			if (isBackground && (await isCurrentViewerWorkOwner())) {
+				const token = await authorize(scopes);
+				reply(data.requestId, {
+					type: "cohub.work.authorize.result",
+					token,
 				});
 				return;
 			}
