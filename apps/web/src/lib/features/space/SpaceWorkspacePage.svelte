@@ -4840,6 +4840,19 @@ $effect(() => {
 				offset: anchor.offset,
 				updatedAt: anchor.updatedAt,
 			};
+			sessionScroll.anchorRestoreWaitingForMarkdown =
+				pendingTimelineMarkdownRenders > 0;
+			if (pendingTimelineMarkdownRenders > 0) {
+				logSessionVisualDebug("scroll-restore-defer", {
+					targetSessionId: targetId,
+					sequence: anchor.sequence,
+					offset: Math.round(anchor.offset),
+					pendingMarkdown: pendingTimelineMarkdownRenders,
+					scroll: getScrollDebugPayload(),
+				});
+				finishRestore();
+				return;
+			}
 			requestAnimationFrame(() => {
 				if (!listEl || activeSessionId !== targetId) {
 					finishAnchorRestore();
