@@ -108,7 +108,7 @@ cohub/
 │   ├── web/          # SvelteKit web console
 │   └── worker/       # Task scheduler — cron jobs & async task processing
 ├── deploy/           # Deployment configs (K8s manifests per env)
-├── docs/             # Architecture, migration, and product model docs
+├── docs/             # Architecture and product model docs
 ├── packages/
 │   ├── protocol/            # Shared types & protocols across apps
 │   └── agent-sandbox-protocol/  # Agent-Sandbox WebSocket RPC protocol
@@ -136,6 +136,3 @@ pnpm build
 Recommended starting points:
 - `docs/agent-sandbox-runtime.md`
 - `docs/prod-deploy-checklist.md`
-- `docs/CO-CREATION-MODEL.md`
-- `docs/MIGRATION-PROGRESS.md`
-- `docs/SCHEMA-MIGRATION-PLAN.md`

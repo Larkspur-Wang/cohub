@@ -108,7 +108,7 @@ cohub/
 │   ├── web/          # SvelteKit Web 控制台
 │   └── worker/       # 任务调度器 — 定时任务与异步任务处理
 ├── deploy/           # 部署配置（按环境组织的 K8s manifests）
-├── docs/             # 架构、迁移与产品模型文档
+├── docs/             # 架构与产品模型文档
 ├── packages/
 │   ├── protocol/            # 跨 apps 共享的类型与协议
 │   └── agent-sandbox-protocol/  # Agent-Sandbox WebSocket RPC 协议
@@ -136,6 +136,3 @@ pnpm build
 推荐优先阅读：
 - `docs/agent-sandbox-runtime.md`
 - `docs/prod-deploy-checklist.md`
-- `docs/CO-CREATION-MODEL.md`
-- `docs/MIGRATION-PROGRESS.md`
-- `docs/SCHEMA-MIGRATION-PLAN.md`

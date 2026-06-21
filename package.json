@@ -27,12 +27,6 @@
     "rollout:sandbox": "tsx scripts/rollout-sandbox.ts",
     "rollout:sandbox:prod": "tsx scripts/rollout-sandbox-prod.ts",
     "rollout:sandbox:dev": "tsx scripts/rollout-sandbox-dev.ts",
-    "test:e2e": "tsx test/e2e-test.ts",
-    "test:concurrency": "tsx test/e2e-concurrency-test.ts",
-    "test:stress": "tsx test/e2e-stress-test.ts",
-    "test:load": "tsx test/e2e-load-test.ts",
-    "test:tool-call": "tsx test/e2e-tool-call-test.ts",
-    "test:all": "pnpm test:e2e && pnpm test:stress && pnpm test:concurrency",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm --filter @neta-art/cohub-cli... build && changeset publish"
