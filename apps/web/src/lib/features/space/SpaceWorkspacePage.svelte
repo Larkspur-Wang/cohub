@@ -3788,8 +3788,13 @@ function handleScrollKeydown(event: KeyboardEvent) {
 function maybeCompleteAnchorRestore() {
 	if (!activeAnchorRestore || !anchorRestoreWaitingForMarkdown) return;
 	if (pendingTimelineMarkdownRenders > 0) return;
+	const restore = activeAnchorRestore;
 	sessionScroll.activeAnchorRestore = null;
 	sessionScroll.anchorRestoreWaitingForMarkdown = false;
+	if (!restore || activeSessionId !== restore.sessionId) return;
+	requestAnimationFrame(() => {
+		if (applyActiveAnchorRestore(restore)) scheduleTurnMarkerMeasure();
+	});
 	updateAutoFollow();
 }
 function applyActiveAnchorRestore(restore = activeAnchorRestore) {
@@ -3886,7 +3891,6 @@ function handleTimelineMarkdownRendered(...args: unknown[]) {
 	const restore = activeAnchorRestore;
 	if (restore?.sessionId === activeSessionId) {
 		requestAnimationFrame(() => {
-			applyActiveAnchorRestore(restore);
 			maybeCompleteAnchorRestore();
 		});
 		return;
