@@ -1472,6 +1472,43 @@ function getTimelineDebugSummary(items: TimelineItem[]) {
 	}
 	return { items: items.length, user, assistant, process, assistantMessages };
 }
+function getTurnDebugSummary(turns: SessionTurnRecord[]) {
+	let userOnly = 0;
+	let withAssistant = 0;
+	let withProcess = 0;
+	const statuses: Record<string, number> = {};
+	for (const turn of turns) {
+		statuses[turn.status] = (statuses[turn.status] ?? 0) + 1;
+		const hasAssistant = Boolean(
+			turn.assistantContent || turn.assistantText || turn.errorMessage,
+		);
+		if (hasAssistant) withAssistant += 1;
+		else userOnly += 1;
+		if ((turn.intermediateSummary?.messageCount ?? 0) > 0) withProcess += 1;
+	}
+	return {
+		turns: turns.length,
+		userOnly,
+		withAssistant,
+		withProcess,
+		statuses,
+	};
+}
+function getTimelineShapeLine(
+	sessionId: string | null,
+	turns: SessionTurnRecord[],
+	items: TimelineItem[],
+) {
+	const turnSummary = getTurnDebugSummary(turns);
+	const timelineSummary = getTimelineDebugSummary(items);
+	const assistants = timelineSummary.assistantMessages
+		.map(
+			(message) =>
+				`${message.id}:${message.kind ?? "?"}:${message.blocks.join("+")}:${message.textLength}`,
+		)
+		.join(",");
+	return `sid=${sessionId ?? "none"} turns=${turnSummary.turns} userOnly=${turnSummary.userOnly} withAssistant=${turnSummary.withAssistant} processTurns=${turnSummary.withProcess} items=${timelineSummary.items} u=${timelineSummary.user} a=${timelineSummary.assistant} p=${timelineSummary.process} statuses=${JSON.stringify(turnSummary.statuses)} assistants=[${assistants}]`;
+}
 function logSessionVisualDebug(
 	label: string,
 	payload: Record<string, unknown>,
@@ -1545,6 +1582,15 @@ $effect(() => {
 			turns: activeSessionState?.turns.length ?? 0,
 		});
 	});
+});
+$effect(() => {
+	if (!isSessionVisualDebugEnabled()) return;
+	if (Date.now() > sessionVisualDebugUntil) return;
+	const state = activeSessionState;
+	console.debug(
+		"[session-visual] timeline-shape",
+		getTimelineShapeLine(activeSessionId, state?.turns ?? [], timeline),
+	);
 });
 $effect(() => {
 	if (!isSessionVisualDebugEnabled()) return;
@@ -2302,6 +2348,12 @@ async function loadSessionState(sessionId: string, force = false) {
 			: null;
 		if (!guard.isCurrent()) return;
 		if (cached && (cached.turns.length > 0 || cached.session)) {
+			logSessionVisualDebug("turns-cache", {
+				targetSessionId: sessionId,
+				source: cached.source,
+				stale: cached.stale,
+				shape: getTimelineShapeLine(sessionId, cached.turns, []),
+			});
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
@@ -2367,6 +2419,11 @@ async function loadSessionState(sessionId: string, force = false) {
 					limit: 30,
 				});
 			if (!guard.isCurrent()) return;
+			logSessionVisualDebug("turns-network", {
+				targetSessionId: sessionId,
+				hasMore: response.hasMore,
+				shape: getTimelineShapeLine(sessionId, response.turns, []),
+			});
 			await syncGenerationStateFromTail(
 				sessionId,
 				response.turns,
@@ -4598,6 +4655,12 @@ $effect(() => {
 	const sessionId = activeSessionId;
 	if (!pageMounted || !currentSpaceId || !sessionId) return;
 	return sessionTurnsRepo.subscribe(currentSpaceId, sessionId, (snapshot) => {
+		logSessionVisualDebug("turns-subscribe", {
+			targetSessionId: sessionId,
+			source: snapshot.source,
+			stale: snapshot.stale,
+			shape: getTimelineShapeLine(sessionId, snapshot.turns, []),
+		});
 		const current = sessionStateById[sessionId];
 		if (!current) return;
 		sessionWorkspace.sessionStateById = {
