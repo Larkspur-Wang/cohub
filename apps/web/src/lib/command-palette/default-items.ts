@@ -35,6 +35,14 @@ function timeValue(value: string | null | undefined) {
 	return Number.isFinite(time) ? time : 0;
 }
 
+function timestampValue(value: number | null | undefined) {
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isoFromTimestamp(value: number) {
+	return value > 0 ? new Date(value).toISOString() : null;
+}
+
 function sessionActivityAt(session: SessionRecord) {
 	return (
 		session.lastMessageAt ?? session.updatedAt ?? session.createdAt ?? null
@@ -238,16 +246,24 @@ export async function getCommandPaletteDefaultItems(
 
 	if (allowsResourceType(plan, "space")) {
 		shouldAbort(plan.signal);
+		const recentSpaces = getRecentSpaces(userKey);
 		const recentRankBySpace = new Map(
-			getRecentSpaces(userKey).map((entry, index) => [entry.spaceId, index]),
+			recentSpaces.map((entry, index) => [entry.spaceId, index]),
+		);
+		const recentActivityBySpace = new Map(
+			recentSpaces.map((entry) => [entry.spaceId, entry.timestamp]),
 		);
 		const activityBySpace = getSessionActivityBySpace(
 			await getUserSessionLists(),
 		);
+		const effectiveActivityTime = (space: SpaceRecord) =>
+			Math.max(
+				timeValue(activityBySpace.get(space.id) ?? null),
+				timestampValue(recentActivityBySpace.get(space.id)),
+				timeValue(space.updatedAt ?? space.createdAt ?? null),
+			);
 		const orderedSpaces = [...spacesById.values()].sort((a, b) => {
-			const activityDelta =
-				timeValue(activityBySpace.get(b.id) ?? b.updatedAt) -
-				timeValue(activityBySpace.get(a.id) ?? a.updatedAt);
+			const activityDelta = effectiveActivityTime(b) - effectiveActivityTime(a);
 			if (activityDelta !== 0) return activityDelta;
 			if (a.id === plan.currentSpaceId && b.id !== plan.currentSpaceId)
 				return -1;
@@ -260,12 +276,15 @@ export async function getCommandPaletteDefaultItems(
 			return timeValue(b.updatedAt) - timeValue(a.updatedAt);
 		});
 		orderedSpaces.forEach((space, rank) => {
+			const effectiveActivityAt = isoFromTimestamp(
+				effectiveActivityTime(space),
+			);
 			items.push(
 				spaceToDefaultItem(
 					space,
 					rank,
 					plan.currentSpaceId,
-					activityBySpace.get(space.id) ?? null,
+					effectiveActivityAt,
 				),
 			);
 		});

@@ -1789,6 +1789,7 @@ function openSpacePalette() {
 				title: "Switch Space",
 				query: "a: ",
 				placeholder: "Search spaces…",
+				refreshSpaces: true,
 			},
 		}),
 	);

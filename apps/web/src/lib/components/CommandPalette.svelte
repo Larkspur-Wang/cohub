@@ -41,6 +41,7 @@ const MIN_QUERY_LENGTH = 2;
 const RESULT_LIMIT = 30;
 const DEBOUNCE_MS = 180;
 const POINTER_HOVER_ARM_MS = 220;
+const SPACE_LIST_REFRESH_MIN_INTERVAL_MS = 15_000;
 const DEFAULT_PLACEHOLDER =
 	"Search turns, sessions, spaces, labels… Try label:bug";
 
@@ -48,6 +49,7 @@ type OpenCommandPaletteDetail = {
 	query?: string;
 	placeholder?: string;
 	title?: string;
+	refreshSpaces?: boolean;
 };
 
 let open = $state(false);
@@ -72,6 +74,8 @@ let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
 let spaceListRefreshToken = 0;
+let forceSpaceRefreshForNextSearch = false;
+let lastForcedSpaceListRefreshAt = 0;
 let runMode = $state(false);
 let runCommand = $state("");
 let runTaskId = $state<string | null>(null);
@@ -233,6 +237,7 @@ function openPalette(detail?: OpenCommandPaletteDetail) {
 	title = detail?.title ?? "Command search";
 	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
 	query = detail?.query ?? "";
+	forceSpaceRefreshForNextSearch = Boolean(detail?.refreshSpaces);
 	activeIndex = 0;
 	armPointerHover();
 	resetRunState();
@@ -267,12 +272,32 @@ function resetSearch() {
 	activeIndex = 0;
 }
 
-async function refreshSpaceListForDefaultItems(token: number) {
-	const cacheMeta = getCachedSpaceListMeta();
-	if (cacheMeta && !cacheMeta.isStale) return;
+async function refreshSpaceListForDefaultItems(
+	token: number,
+	options?: { force?: boolean },
+) {
+	let force = Boolean(options?.force);
+	if (force) {
+		const now = Date.now();
+		if (
+			now - lastForcedSpaceListRefreshAt <
+			SPACE_LIST_REFRESH_MIN_INTERVAL_MS
+		) {
+			force = false;
+		} else {
+			lastForcedSpaceListRefreshAt = now;
+		}
+	}
+
+	if (!force) {
+		const cacheMeta = getCachedSpaceListMeta();
+		if (cacheMeta && !cacheMeta.isStale) return;
+	}
 
 	try {
-		await fetchSpaceListWithCache(async () => await sdk.spaces.list());
+		await fetchSpaceListWithCache(async () => await sdk.spaces.list(), {
+			force,
+		});
 	} catch (error) {
 		console.warn("[command-palette] space list refresh failed", error);
 		return;
@@ -290,10 +315,12 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	);
 	resetSearch();
 	const token = ++searchToken;
+	const forceSpaceRefresh = forceSpaceRefreshForNextSearch;
+	forceSpaceRefreshForNextSearch = false;
 	if (q.length < MIN_QUERY_LENGTH && !isLabelScope) {
 		defaultDone = false;
 		localController = new AbortController();
-		void refreshSpaceListForDefaultItems(token);
+		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
 		void getCommandPaletteDefaultItems({
 			...plan,
 			currentSpaceId: spaceId,
