@@ -104,8 +104,15 @@
 :root {
 	--theme-transition-x: 50vw;
 	--theme-transition-y: 50vh;
-	--theme-transition-duration: 560ms;
-	--theme-transition-ease: cubic-bezier(0.16, 1, 0.3, 1);
+	--theme-transition-duration: 720ms;
+	--theme-transition-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+html[data-theme-transition="circle"],
+html[data-theme-transition="circle"] *,
+html[data-theme-transition="circle"] *::before,
+html[data-theme-transition="circle"] *::after {
+	transition: none;
 }
 
 html[data-theme-transition="circle"]::view-transition-group(root) {
@@ -126,14 +133,9 @@ html[data-theme-transition="circle"]::view-transition-new(root) {
 @keyframes theme-circle-reveal {
 	from {
 		clip-path: circle(0 at var(--theme-transition-x) var(--theme-transition-y));
-		filter: brightness(1.08) saturate(1.08);
-	}
-	72% {
-		filter: brightness(1.04) saturate(1.04);
 	}
 	to {
 		clip-path: circle(150vmax at var(--theme-transition-x) var(--theme-transition-y));
-		filter: none;
 	}
 }
 
