@@ -26,8 +26,8 @@ export function createSessionScrollController() {
 	let activeAnchorRestore = $state<
 		(SessionScrollAnchor & { sessionId: string }) | null
 	>(null);
-	let pendingTimelineMarkdownRenders = 0;
-	let anchorRestoreWaitingForMarkdown = false;
+	let pendingTimelineMarkdownRenders = $state(0);
+	let anchorRestoreWaitingForMarkdown = $state(false);
 	let vimScrollFrame: number | null = null;
 	let vimScrollVelocity = 0;
 	let vimScrollStopTimer: ReturnType<typeof setTimeout> | null = null;
