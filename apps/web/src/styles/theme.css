@@ -105,7 +105,7 @@
 	--theme-transition-x: 50vw;
 	--theme-transition-y: 50vh;
 	--theme-transition-radius: 150vmax;
-	--theme-transition-duration: 720ms;
+	--theme-transition-duration: 640ms;
 	--theme-transition-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
