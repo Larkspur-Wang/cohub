@@ -1421,6 +1421,28 @@ const activeSessionIsRunning = $derived.by(() =>
 			!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status),
 	),
 );
+let sessionVisualDebugUntil = $state(0);
+let sessionVisualDebugSeq = $state(0);
+function isSessionVisualDebugEnabled() {
+	if (typeof window === "undefined") return false;
+	const params = new URLSearchParams(window.location.search);
+	return (
+		params.has("debugSessionVisual") ||
+		window.localStorage.getItem("cohub:debug:session-visual") === "1"
+	);
+}
+function getTimelineDebugSummary(items: TimelineItem[]) {
+	let user = 0;
+	let assistant = 0;
+	let process = 0;
+	for (const item of items) {
+		if (item.kind === "process") process += 1;
+		if (item.kind !== "message") continue;
+		if (item.message.role === "user") user += 1;
+		if (item.message.role === "assistant") assistant += 1;
+	}
+	return { items: items.length, user, assistant, process };
+}
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
@@ -1447,6 +1469,58 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 						runtimeModel: activeGenerationState.runtimeModel,
 					}
 				: null,
+	});
+});
+$effect(() => {
+	const sessionId = activeSessionId;
+	if (!sessionId || !isSessionVisualDebugEnabled()) return;
+	sessionVisualDebugSeq += 1;
+	sessionVisualDebugUntil = Date.now() + 700;
+	console.debug("[session-visual] route-session", {
+		seq: sessionVisualDebugSeq,
+		sessionId,
+		loaded: activeSessionState?.loaded ?? false,
+		loading: activeSessionState?.loading ?? false,
+		turns: activeSessionState?.turns.length ?? 0,
+	});
+});
+$effect(() => {
+	if (!isSessionVisualDebugEnabled()) return;
+	if (Date.now() > sessionVisualDebugUntil) return;
+	const el = listEl;
+	console.debug("[session-visual] frame", {
+		seq: sessionVisualDebugSeq,
+		sessionId: activeSessionId,
+		state: {
+			loaded: activeSessionState?.loaded ?? false,
+			loading: activeSessionState?.loading ?? false,
+			turns: activeSessionState?.turns.length ?? 0,
+			hasMore: activeSessionState?.hasMore ?? false,
+			hasMoreNewer: activeSessionState?.hasMoreNewer ?? false,
+		},
+		timeline: getTimelineDebugSummary(timeline),
+		generation: activeGenerationState
+			? {
+					status: activeGenerationState.status,
+					turnId: activeGenerationState.turnId,
+					blocks: activeGenerationState.contentBlocks.length,
+					intermediate: activeGenerationState.intermediateMessages.length,
+					finalizedPreview: activeGenerationState.finalizedPreview,
+				}
+			: null,
+		scroll: el
+			? {
+					top: Math.round(el.scrollTop),
+					height: Math.round(el.scrollHeight),
+					client: Math.round(el.clientHeight),
+				}
+			: null,
+		restore: {
+			pending: pendingRestoreSessionId,
+			active: activeAnchorRestore?.sessionId ?? null,
+			waitingMarkdown: anchorRestoreWaitingForMarkdown,
+			autoFollow: shouldAutoFollow,
+		},
 	});
 });
 function preferFollowupQueueTurn(
