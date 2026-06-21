@@ -22,21 +22,15 @@ import {
 	Check,
 	Copy,
 	Download,
-	Globe,
 	ListTree,
-	Loader2,
 	Maximize2,
 	Minimize2,
 	MoreHorizontal,
-	PanelRightClose,
-	PanelRightOpen,
 	Pencil,
 	Save,
-	Share2,
 	TextCursorInput,
 	Trash2,
 	Upload,
-	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
@@ -59,13 +53,11 @@ import { ensureCovasExtension } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox";
-import PageHeader from "$lib/components/PageHeader.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import type {
 	GenerationTaskNotice,
 	SessionTaskNotice,
 } from "$lib/components/SessionTaskTray.svelte";
-import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import {
 	buildComposerTextContentBlock,
@@ -180,6 +172,7 @@ import SpaceFileDomain, {
 import SpaceRouteDetailHost, {
 	type RouteDetailView,
 } from "./modules/SpaceRouteDetailHost.svelte";
+import SpaceWorkspaceHeader from "./modules/SpaceWorkspaceHeader.svelte";
 import {
 	createSessionComposerController,
 	revokeComposerAttachmentPreview,
@@ -375,7 +368,6 @@ const aborting = $derived(sessionComposer.aborting);
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
-let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 const composerError = $derived(sessionComposer.error);
 const composerErrorCode = $derived(sessionComposer.errorCode);
 
@@ -2031,10 +2023,6 @@ function startSessionRename() {
 	if (!session) return;
 	sessionRenaming = true;
 	sessionRenameValue = session.title ?? getSessionTitle(session);
-	void tick().then(() => {
-		sessionRenameInputEl?.focus();
-		sessionRenameInputEl?.select();
-	});
 }
 function cancelSessionRename() {
 	sessionRenaming = false;
@@ -4022,10 +4010,6 @@ function insertHeaderReference() {
 	closeResourceActionMenu();
 }
 
-function getHeaderResourceLabel() {
-	return getHeaderFileActionPath() ? "file" : "chat";
-}
-
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	createSessionError = "";
@@ -4856,6 +4840,55 @@ const spaceFileDomainProps = $derived.by<
 	},
 }));
 
+const headerContext = $derived({
+	routeView,
+	spaceId,
+	space,
+	activeSession: activeSessionState?.session,
+	activeSessionLoaded: activeSessionState?.loaded ?? false,
+	activeSessionLoading: activeSessionState?.loading ?? false,
+	isNewSessionRoute,
+	wsConnectionState,
+	activeRouteDetailHeader,
+	activeSessionId,
+	canManageSessionAccess,
+	isActiveSessionPublic: activeSessionId
+		? hasSessionPermission(activeSessionId)
+		: false,
+	spaceHasMinimalAccess,
+	rightSidebarCollapsed: uiState.rightSidebarCollapsed,
+});
+const sessionRenameState = $derived({
+	renaming: sessionRenaming,
+	value: sessionRenameValue,
+	saving: sessionRenameSaving,
+});
+const resourceActionState = $derived({
+	open: resourceActionMenuOpen,
+	available: hasResourceActions(),
+});
+const headerActions = {
+	openShareModal,
+	startSessionRename,
+	cancelSessionRename,
+	submitSessionRename,
+	setSessionRenameValue: (value: string) => {
+		sessionRenameValue = value;
+	},
+	toggleResourceActionMenu: () => {
+		resourceActionMenuOpen = !resourceActionMenuOpen;
+	},
+	closeResourceActionMenu,
+	labelHeaderResource: () => {
+		const filePath = getHeaderFileActionPath();
+		if (filePath) void editResourceLabels("file", filePath);
+		else if (activeSessionState?.session)
+			void editResourceLabels("session", activeSessionState.session.id);
+	},
+	insertHeaderReference,
+	toggleRightSidebar,
+};
+
 const sessionWorkspaceProps = $derived.by<
 	Omit<
 		SessionWorkspaceProps,
@@ -5099,207 +5132,12 @@ const sessionWorkspaceProps = $derived.by<
 
 
 
-<PageHeader>
-  {#snippet left()}
-    <div class="flex items-center gap-1.5 min-w-0 overflow-hidden">
-      {#if routeView === "session" && (activeSessionState?.session || isNewSessionRoute)}
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-          title={space?.name || space?.title || spaceId}
-          aria-label="Open space"
-        >
-          <SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />
-        </button>
-        <div class="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
-          {#if sessionRenaming && activeSessionState?.session}
-            <input
-              bind:this={sessionRenameInputEl}
-              bind:value={sessionRenameValue}
-              type="text"
-              class="min-w-0 flex-1 bg-bg-hover-strong text-[13px] text-text-primary outline-none rounded px-1 py-0.5 leading-tight max-w-[40vw]"
-              placeholder="Session name"
-              maxlength={80}
-              disabled={sessionRenameSaving}
-              onkeydown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  !sessionRenameSaving &&
-                  !isComposingKeyboardEvent(e)
-                ) {
-                  e.preventDefault();
-                  void submitSessionRename();
-                }
-                if (e.key === "Escape" && !sessionRenameSaving) {
-                  e.preventDefault();
-                  cancelSessionRename();
-                }
-              }}
-            />
-            <button
-              type="button"
-              class="p-0.5 rounded text-status-running hover:bg-bg-hover transition-colors shrink-0"
-              disabled={sessionRenameSaving}
-              onclick={() => void submitSessionRename()}
-              title="Save"
-            >
-              <Check class="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
-              disabled={sessionRenameSaving}
-              onclick={cancelSessionRename}
-              title="Cancel"
-            >
-              <X class="w-3.5 h-3.5" />
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="min-w-0 flex-1 truncate text-[13px] text-text-secondary hover:text-text-primary transition-colors"
-              onclick={activeSessionState?.session ? startSessionRename : undefined}
-              title={activeSessionState?.session ? "Click to rename" : "New chat"}
-            >
-              {activeSessionState?.session ? getSessionTitle(activeSessionState.session) : "New chat"}
-            </button>
-            {#if activeSessionState?.loading && activeSessionState.loaded}
-              <Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />
-            {/if}
-            {#if wsConnectionState === 'reconnecting'}
-              <span class="inline-flex shrink-0 items-center text-[12px] text-warning">
-                Reconnecting...
-              </span>
-            {/if}
-          {/if}
-        </div>
-      {:else if routeView === "checkpoint" && activeRouteDetailHeader}
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-          title={space?.name || space?.title || spaceId}
-          aria-label="Open space"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">{activeRouteDetailHeader.title.slice(0, 36) || 'Checkpoint'}</span>
-
-      {:else if routeView === "checkpoint-new"}
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-          title={space?.name || space?.title || spaceId}
-          aria-label="Open space"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">New save</span>
-      {:else if routeView === "cronjob" && activeRouteDetailHeader}
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-          title={space?.name || space?.title || spaceId}
-          aria-label="Open space"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">{activeRouteDetailHeader.title}</span>
-
-      {:else if routeView === "cronjob-new"}
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-          title={space?.name || space?.title || spaceId}
-          aria-label="Open space"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">New cronjob</span>
-      {:else if routeView === "task" && activeRouteDetailHeader}
-        <button
-          type="button"
-          class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-          title={space?.name || space?.title || spaceId}
-          aria-label="Open space"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" /></button>
-        <span class="min-w-0 truncate text-[13px] text-text-secondary">{activeRouteDetailHeader.title}</span>
-      {:else}
-        <button
-          type="button"
-          class="inline-flex min-w-0 items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-        ><SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="xs" />{space?.name || space?.title || spaceId}</button>
-      {/if}
-    </div>
-  {/snippet}
-  {#snippet right()}
-    <!-- Session Share -->
-    {#if activeSessionId && canManageSessionAccess}
-      {@const isPublic = hasSessionPermission(activeSessionId)}
-      <button
-        type="button"
-        class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] transition-colors duration-100 {isPublic ? 'text-success-soft hover:text-success hover:bg-success-bg' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
-        onclick={() => { openShareModal(activeSessionId!); }}
-        title={isPublic ? 'Session is public' : 'Share session'}
-      >
-        {#if isPublic}
-          <Globe class="w-4 h-4 shrink-0" />
-          <span class="hidden lg:inline text-[13px] font-medium">Shared</span>
-        {:else}
-          <Share2 class="w-4 h-4 shrink-0" />
-          <span class="hidden lg:inline text-[13px] font-medium">Share</span>
-        {/if}
-      </button>
-    {/if}
-    {#if hasResourceActions()}
-      <div class="relative" data-resource-actions>
-        <button
-          type="button"
-          class="flex items-center justify-center w-8 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={(event) => {
-            event.stopPropagation();
-            resourceActionMenuOpen = !resourceActionMenuOpen;
-          }}
-          title="More actions"
-          aria-haspopup="menu"
-          aria-expanded={resourceActionMenuOpen}
-        >
-          <MoreHorizontal class="w-4 h-4 shrink-0" />
-        </button>
-        {#if resourceActionMenuOpen}
-          <div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-            <button
-              type="button"
-              class="menu-item"
-              onclick={() => {
-                const filePath = getHeaderFileActionPath();
-                if (filePath) void editResourceLabels("file", filePath);
-                else if (activeSessionState?.session) void editResourceLabels("session", activeSessionState.session.id);
-                closeResourceActionMenu();
-              }}
-              role="menuitem"
-            >
-              <ListTree class="w-3.5 h-3.5" />
-              <span>Label as…</span>
-            </button>
-            <button type="button" class="menu-item" onclick={insertHeaderReference} role="menuitem">
-              <TextCursorInput class="w-3.5 h-3.5" />
-              <span>Insert reference</span>
-            </button>
-          </div>
-        {/if}
-      </div>
-    {/if}
-    <!-- Toggle right sidebar -->
-    {#if !spaceHasMinimalAccess}
-      <div class="relative">
-        <button
-          type="button"
-          class="flex items-center gap-1.5 px-2 h-8 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={() => void toggleRightSidebar()}
-          title={uiState.rightSidebarCollapsed ? "Show files" : "Hide files"}
-        >
-          {#if uiState.rightSidebarCollapsed}
-            <PanelRightOpen class="w-4 h-4 shrink-0" />
-          {:else}
-            <PanelRightClose class="w-4 h-4 shrink-0" />
-          {/if}
-        </button>
-      </div>
-    {/if}
-  {/snippet}
-</PageHeader>
+<SpaceWorkspaceHeader
+	context={headerContext}
+	sessionRename={sessionRenameState}
+	resourceActions={resourceActionState}
+	actions={headerActions}
+/>
 {#if portReadyToast}
 	<PortReadyToastView
 		port={portReadyToast.port}
