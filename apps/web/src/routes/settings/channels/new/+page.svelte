@@ -435,17 +435,7 @@ async function handleSubmit(e: Event) {
           </form>
 
         {:else if selectedProvider === "wechat"}
-          <div class="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-4">
-            <div class="flex items-start gap-3">
-              <div class="w-10 h-10 rounded-[7px] bg-success/10 border border-success/20 flex items-center justify-center shrink-0">
-                <MessageCircle class="w-5 h-5 text-success" />
-              </div>
-              <div>
-                <div class="text-[14px] font-medium text-text-primary">Connect WeChat</div>
-                <p class="text-[12px] text-text-tertiary mt-0.5">Start the login flow, then scan the QR code with WeChat and confirm on your phone.</p>
-              </div>
-            </div>
-
+          <form onsubmit={handleSubmit} class="space-y-3">
             <div>
               <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
               <input
@@ -458,48 +448,44 @@ async function handleSubmit(e: Event) {
               />
             </div>
 
-            {#if wechatQrDataUrl}
-              <div class="rounded-md border border-border-subtle bg-bg-primary p-4">
-                <div class="flex flex-col items-center gap-3">
-                  {#if wechatQrDataUrl.startsWith("data:image/")}
-                  <img src={wechatQrDataUrl} alt="WeChat login QR code" class="w-56 h-56 rounded-md bg-white p-2 object-contain" />
-                {:else}
-                  <div class="flex h-56 w-full max-w-[360px] flex-col justify-between rounded-md border border-border-subtle bg-bg-surface p-4">
-                    <div class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-                      <MessageCircle class="h-8 w-8 text-success" />
-                      <div>
-                        <p class="text-[12px] font-medium text-text-secondary">QR page is ready</p>
-                        <p class="mt-1 text-[11px] leading-relaxed text-text-placeholder">Open the page in a new tab, then scan the QR code shown there.</p>
-                      </div>
-                    </div>
-                    <div class="flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
-                      <p class="text-[11px] text-text-placeholder">The upstream page blocks iframe embedding.</p>
-                      <a
-                        href={wechatQrDataUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="shrink-0 text-[12px] text-text-secondary transition-colors hover:text-text-primary"
-                      >
-                        Open page
-                      </a>
-                    </div>
-                  </div>
-                {/if}
-                  <div class="text-center">
-                    <p class="text-[12px] text-text-secondary">{wechatStatus || "Waiting for scan."}</p>
-                    <p class="mt-1 text-[11px] text-text-placeholder">
-                      {#if wechatRemainingSeconds > 0}
-                        QR expires in {formatWeChatCountdown(wechatRemainingSeconds)}.
-                      {:else}
-                        QR expired. Generate a new one.
-                      {/if}
-                    </p>
-                  </div>
+            <div class="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <p class="text-[12px] font-medium text-text-secondary">
+                    {wechatRemainingSeconds > 0 ? `QR ready · ${formatWeChatCountdown(wechatRemainingSeconds)}` : "QR expired"}
+                  </p>
                 </div>
+                <a
+                  href={wechatQrDataUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="shrink-0 text-[12px] text-text-secondary transition-colors hover:text-text-primary"
+                >
+                  Open page to scan
+                </a>
               </div>
-            {:else}
-              <p class="text-[12px] text-text-tertiary">No token is required. Cohub will create the channel after the QR login succeeds.</p>
-            {/if}
+
+              {#if wechatQrDataUrl.startsWith("data:image/")}
+                <div class="flex justify-center pt-1">
+                  <img src={wechatQrDataUrl} alt="WeChat login QR code" class="w-56 h-56 rounded-md bg-white p-2 object-contain" />
+                </div>
+              {:else if wechatQrDataUrl}
+                <div class="sr-only">QR page available.</div>
+              {:else}
+                <div class="rounded-[5px] border border-dashed border-border-subtle bg-bg-primary px-3 py-8 text-center text-[11px] text-text-placeholder">
+                  Generate the QR page to continue.
+                </div>
+              {/if}
+
+              <div class="flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
+                <p class="text-[11px] text-text-placeholder">
+                  {wechatStatus || "Waiting for scan."}
+                </p>
+                {#if wechatRemainingSeconds > 0}
+                  <p class="text-[11px] text-text-placeholder">{formatWeChatCountdown(wechatRemainingSeconds)}</p>
+                {/if}
+              </div>
+            </div>
 
             {#if submitError}
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{submitError}</div>
@@ -525,11 +511,11 @@ async function handleSubmit(e: Event) {
                 {:else if wechatQrDataUrl}
                   Restart Login
                 {:else}
-                  Show QR Code
+                  Show QR Page
                 {/if}
               </button>
             </div>
-          </div>
+          </form>
 
         {:else if selectedProvider === "feishu"}
           <!-- Feishu Guide -->
