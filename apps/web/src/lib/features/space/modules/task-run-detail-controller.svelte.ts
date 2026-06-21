@@ -6,6 +6,7 @@ import {
 	writeTaskRunDetail,
 } from "$lib/cache/repositories/task-runs-repo";
 import { sdk } from "$lib/sdk";
+import { createKeyedRouteRequestGuard } from "./route-request-guard";
 import { displaySafeJson, mergeTaskRunRecord } from "./task-run-utils";
 
 export type TaskRealtimeEvent = {
@@ -53,17 +54,18 @@ export function createTaskRunDetailController(options: {
 			return refreshInFlight;
 		}
 		const requestSpaceId = options.getSpaceId();
-		const isCurrentRequest = () =>
-			options.getSpaceId() === requestSpaceId &&
-			options.getTaskId() === targetTaskId;
+		const guard = createKeyedRouteRequestGuard({
+			captureKey: () => `${options.getSpaceId()}:${options.getTaskId() ?? ""}`,
+		});
 		refreshInFlightTaskId = targetTaskId;
-		refreshInFlight = (async () => {
+		let request: Promise<void> = Promise.resolve();
+		request = (async () => {
 			if (showLoading) loading = true;
 			error = "";
 			try {
 				const { run, progress: nextProgress } =
 					await sdk.tasks.get(targetTaskId);
-				if (!isCurrentRequest()) return;
+				if (!guard.isCurrent()) return;
 				detail = run;
 				notify(run);
 				progress = nextProgress;
@@ -73,18 +75,21 @@ export function createTaskRunDetailController(options: {
 				if (isActiveTaskRun(run)) ensurePoll(targetTaskId);
 				else clearPoll();
 			} catch (cause) {
-				if (!isCurrentRequest()) return;
+				if (!guard.isCurrent()) return;
 				detail = null;
 				notify(null);
 				error = cause instanceof Error ? cause.message : "Failed to load task";
 				clearPoll();
 			} finally {
-				if (isCurrentRequest()) loading = false;
-				refreshInFlight = null;
-				refreshInFlightTaskId = null;
+				if (guard.isCurrent()) loading = false;
+				if (refreshInFlight === request) {
+					refreshInFlight = null;
+					refreshInFlightTaskId = null;
+				}
 			}
 		})();
-		return refreshInFlight;
+		refreshInFlight = request;
+		return request;
 	}
 
 	async function load(targetTaskId: string) {

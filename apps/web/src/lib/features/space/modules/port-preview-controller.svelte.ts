@@ -7,6 +7,7 @@ import {
 	extractPublicEndpoints,
 	isHttpUrl,
 } from "./port-preview-utils";
+import { createRequestDedupe } from "./request-dedupe";
 
 export type InlinePortPreview = {
 	port: string;
@@ -36,6 +37,7 @@ export function createPortPreviewController(
 	let preview = $state<InlinePortPreview | null>(null);
 	let readyToast = $state<PortReadyToast | null>(null);
 	let readyToastTimer: ReturnType<typeof setTimeout> | null = null;
+	const requests = createRequestDedupe();
 
 	function maybeNotifyReady(
 		previous: SpacePublicEndpoints,
@@ -66,7 +68,9 @@ export function createPortPreviewController(
 		const currentSpaceId = options.getSpaceId();
 		const previous = endpoints;
 		try {
-			const result = await sdk.space(currentSpaceId).sandbox.ports();
+			const result = await requests.run(`space:${currentSpaceId}:ports`, () =>
+				sdk.space(currentSpaceId).sandbox.ports(),
+			);
 			if (options.getSpaceId() !== currentSpaceId) return;
 			const next = result.endpoints ?? {};
 			endpoints = next;
@@ -132,6 +136,7 @@ export function createPortPreviewController(
 	}
 
 	function dispose() {
+		requests.clear();
 		if (readyToastTimer) clearTimeout(readyToastTimer);
 		readyToastTimer = null;
 	}

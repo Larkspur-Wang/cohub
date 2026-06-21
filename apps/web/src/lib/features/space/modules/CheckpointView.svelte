@@ -23,6 +23,7 @@ import {
 	buildSpaceTaskRoute,
 } from "$lib/space-routes";
 import { asRecord } from "../space-utils";
+import { createKeyedRouteRequestGuard } from "./route-request-guard";
 
 type Props = {
 	mode: "create" | "detail";
@@ -78,28 +79,26 @@ function sourceTaskRunIdFromCheckpoint(
 }
 
 async function loadCheckpointDetail(targetCheckpointId: string) {
-	const requestSpaceId = spaceId;
-	const isCurrentRequest = () =>
-		spaceId === requestSpaceId &&
-		mode === "detail" &&
-		checkpointId === targetCheckpointId;
+	const guard = createKeyedRouteRequestGuard({
+		captureKey: () => `${spaceId}:${mode}:${checkpointId ?? ""}`,
+	});
 	checkpointDetailLoading = true;
 	checkpointDetailError = "";
 	try {
 		const { checkpoint } = await sdk
 			.space(spaceId)
 			.checkpoints.get(targetCheckpointId);
-		if (!isCurrentRequest()) return;
+		if (!guard.isCurrent()) return;
 		checkpointDetail = checkpoint;
 		onDetailLoaded?.(checkpoint);
 	} catch (error) {
-		if (!isCurrentRequest()) return;
+		if (!guard.isCurrent()) return;
 		checkpointDetail = null;
 		onDetailLoaded?.(null);
 		checkpointDetailError =
 			error instanceof Error ? error.message : "Failed to load checkpoint";
 	} finally {
-		if (isCurrentRequest()) checkpointDetailLoading = false;
+		if (guard.isCurrent()) checkpointDetailLoading = false;
 	}
 }
 

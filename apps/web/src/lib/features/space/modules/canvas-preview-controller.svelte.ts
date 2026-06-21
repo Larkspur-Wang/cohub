@@ -26,6 +26,7 @@ export type InlineCanvasPanelState = {
 type CanvasPreviewControllerOptions = {
 	getSpaceId: () => string;
 	getSourceKey: () => string;
+	getReadonly?: () => boolean;
 	readFile: (path: string) => Promise<CanvasFileResponse>;
 	onOpenPanel?: () => void;
 	onClosePanel?: () => void;
@@ -95,16 +96,18 @@ export function createCanvasPreviewController(
 				saving: false,
 				error: null,
 			};
-			void flushPendingTransactions(bootstrap.document.id).catch((error) => {
-				if (canvas?.documentId !== bootstrap.document.id) return;
-				canvas = {
-					...canvas,
-					error:
-						error instanceof Error
-							? error.message
-							: "Canvas changes are saved locally and will retry.",
-				};
-			});
+			if (!options.getReadonly?.()) {
+				void flushPendingTransactions(bootstrap.document.id).catch((error) => {
+					if (canvas?.documentId !== bootstrap.document.id) return;
+					canvas = {
+						...canvas,
+						error:
+							error instanceof Error
+								? error.message
+								: "Canvas changes are saved locally and will retry.",
+					};
+				});
+			}
 		} catch (error) {
 			if (!isCurrent(token, path, sourceKey)) return;
 			canvas = {
@@ -166,7 +169,8 @@ export function createCanvasPreviewController(
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) {
-		if (!canvas?.documentId || ops.length === 0) return;
+		if (options.getReadonly?.() || !canvas?.documentId || ops.length === 0)
+			return;
 		const documentId = canvas.documentId;
 		const savingPath = canvas.path;
 		const txId = crypto.randomUUID();

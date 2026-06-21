@@ -436,6 +436,13 @@ const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 const canEditSpaceProfile = $derived(hasAccessPermission("space.edit"));
 const canEditFiles = $derived(hasAccessPermission("file.edit"));
+const spaceOwnerUsername = $derived(
+	space?.ownerProfile?.username ??
+		(space?.userUuid === authStore.userUuid
+			? (authStore.profile?.username ?? null)
+			: null),
+);
+const spaceSlug = $derived(space?.slug ?? null);
 const sessionWorkspace = createSessionWorkspaceController();
 const spaceSessions = $derived(sessionWorkspace.spaceSessions);
 const sessionStateById = $derived(sessionWorkspace.sessionStateById);
@@ -589,6 +596,7 @@ const fileWorkspace = createFileWorkspaceController({
 const canvasPreview = createCanvasPreviewController({
 	getSpaceId: () => spaceId,
 	getSourceKey: () => activeFsSourceKey,
+	getReadonly: () => activeFsReadonly,
 	readFile: fileWorkspace.readActiveFsFile,
 	onOpenPanel: () => {
 		closePreviewFocusMode();
@@ -4511,6 +4519,10 @@ function closeInlineFile() {
 	fileWorkspace.closeInlineFile();
 }
 async function openInlineCanvas(path: string) {
+	if (activeFsReadonly) {
+		await openInlineFile(path);
+		return;
+	}
 	await canvasPreview.openCanvas(path);
 }
 function closeInlineCanvas() {
@@ -5828,8 +5840,8 @@ $effect(() => {
         {routeWorkId}
         {routeTaskId}
         {taskRealtimeEvent}
-        ownerUsername={space?.ownerProfile?.username ?? (space?.userUuid === authStore.userUuid ? (authStore.profile?.username ?? null) : null)}
-        spaceSlug={space?.slug ?? null}
+        ownerUsername={spaceOwnerUsername}
+        {spaceSlug}
         onHeaderMeta={(meta) => {
           routeDetailHeaderMeta = meta;
         }}
@@ -6055,7 +6067,7 @@ $effect(() => {
     onToggle={expandDirectory}
     onSelect={(node, options) => {
       if (node.type === "file") {
-        if (isCovasFile(node.path)) void openInlineCanvas(node.path);
+        if (isCovasFile(node.path) && !activeFsReadonly) void openInlineCanvas(node.path);
         else void openInlineFile(node.path);
         if (options.mobile) uiState.mobileRightDrawerOpen = false;
       }
@@ -6084,8 +6096,8 @@ $effect(() => {
   <WorkPublishDialog
     open={Boolean(workPublishTarget)}
     {spaceId}
-    ownerUsername={space?.ownerProfile?.username ?? (space?.userUuid === authStore.userUuid ? (authStore.profile?.username ?? null) : null)}
-    spaceSlug={space?.slug ?? null}
+    ownerUsername={spaceOwnerUsername}
+    {spaceSlug}
     targetType={workPublishTarget?.targetType ?? "file"}
     targetRef={workPublishTarget?.targetRef ?? ""}
     onSpaceUpdated={(nextSpace) => {
