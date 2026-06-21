@@ -86,7 +86,7 @@ import {
 	canvasItemToNode,
 	createEmptyCovasDocument,
 } from "$lib/canvas/canvas-document";
-import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
+import { ensureCovasExtension } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
@@ -111,7 +111,6 @@ import ToolCallList from "$lib/components/ToolCallList.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
-import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import {
 	buildComposerTextContentBlock,
@@ -210,7 +209,6 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
-import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	getCachedTaskRuns,
@@ -230,7 +228,6 @@ import {
 	uiState,
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
-import CanvasPreviewPanel from "./modules/CanvasPreviewPanel.svelte";
 import {
 	createCanvasPreviewController,
 	type InlineCanvasPanelState,
@@ -245,16 +242,15 @@ import {
 	promptTextFromPayload,
 	validateCronjobForm,
 } from "./modules/cronjob-utils";
-import FilesSidebarPanel from "./modules/FilesSidebarPanel.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import { makeFsNode } from "./modules/file-workspace-utils";
-import InlineFilePanel from "./modules/InlineFilePanel.svelte";
-import PortPreviewPanel from "./modules/PortPreviewPanel.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
+import { createKeyedRouteRequestGuard } from "./modules/route-request-guard";
 import SessionWorkspace from "./modules/SessionWorkspace.svelte";
+import SpaceFileDomain from "./modules/SpaceFileDomain.svelte";
 import SpaceRouteDetailHost from "./modules/SpaceRouteDetailHost.svelte";
 import {
 	createSessionComposerController,
@@ -635,9 +631,6 @@ const openWorkPublish = (
 const publishOpenFile = () => {
 	if (openFile) openWorkPublish("file", openFile.path);
 };
-const publishInlineFile = () => {
-	if (inlineFile?.response) openWorkPublish("file", inlineFile.response.path);
-};
 const inlineFileIsMarkdown = $derived(fileWorkspace.inlineFileIsMarkdown);
 const inlineFileIsHtml = $derived(fileWorkspace.inlineFileIsHtml);
 const inlineFileHasRenderedPreview = $derived(
@@ -762,14 +755,11 @@ let showTurnBottomSheet = $state(false);
 let appliedRouteTurnKey = $state<string | null>(null);
 let appliedRouteFileKey = "";
 let appliedFsSourceKey: string | null = null;
-let preloadingSessionIds = new Set<string>();
 let turnMarkerMeasureFrame: number | null = null;
 let lastTurnIndexRefreshKey = "";
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
-const sessionLoadInFlight = new Map<string, Promise<void>>();
-const syncSessionNewerInFlight = new Map<string, Promise<void>>();
 const turnHydrationInFlight = new Map<string, Promise<void>>();
 let reconnectSyncInFlight: Promise<void> | null = null;
 type SessionScrollAnchor = {
@@ -2674,13 +2664,15 @@ async function syncGenerationStateFromTail(
 }
 async function loadSessionState(sessionId: string, force = false) {
 	const existing = sessionStateById[sessionId];
-	const inFlight = sessionLoadInFlight.get(sessionId);
-	if (inFlight && !force) return inFlight;
 	if (existing?.loaded && !force) return;
-	const run = (async () => {
+	const load = async () => {
+		const guard = createKeyedRouteRequestGuard({
+			captureKey: () => `${spaceId}:${sessionId}`,
+		});
 		const cached = !force
 			? await sessionTurnsRepo.getCached(spaceId, sessionId)
 			: null;
+		if (!guard.isCurrent()) return;
 		if (cached && (cached.turns.length > 0 || cached.session)) {
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
@@ -2746,6 +2738,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				.turns.listPaginated({
 					limit: 30,
 				});
+			if (!guard.isCurrent()) return;
 			await syncGenerationStateFromTail(
 				sessionId,
 				response.turns,
@@ -2756,6 +2749,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				turns: response.turns,
 				hasMore: response.hasMore,
 			});
+			if (!guard.isCurrent()) return;
 			upsertSessionRecord(response.session);
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
@@ -2773,6 +2767,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				},
 			};
 		} catch (error) {
+			if (!guard.isCurrent()) return;
 			const fallback = sessionStateById[sessionId];
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
@@ -2796,21 +2791,19 @@ async function loadSessionState(sessionId: string, force = false) {
 			};
 		} finally {
 			clearTimeout(loadingTimer);
-			const nextVisibleLoading = { ...visibleInitialLoadingSessionIds };
-			delete nextVisibleLoading[sessionId];
-			sessionWorkspace.visibleInitialLoadingSessionIds = nextVisibleLoading;
-			sessionWorkspace.loadingSessionIds = {
-				...loadingSessionIds,
-				[sessionId]: false,
-			};
+			if (guard.isCurrent()) {
+				const nextVisibleLoading = { ...visibleInitialLoadingSessionIds };
+				delete nextVisibleLoading[sessionId];
+				sessionWorkspace.visibleInitialLoadingSessionIds = nextVisibleLoading;
+				sessionWorkspace.loadingSessionIds = {
+					...loadingSessionIds,
+					[sessionId]: false,
+				};
+			}
 		}
-	})();
-	sessionLoadInFlight.set(sessionId, run);
-	return run.finally(() => {
-		if (sessionLoadInFlight.get(sessionId) === run) {
-			sessionLoadInFlight.delete(sessionId);
-		}
-	});
+	};
+	if (force) return load();
+	return sessionWorkspace.runSessionLoad(sessionId, load);
 }
 async function loadTurnIndex(sessionId: string, force = false) {
 	await sessionTurnLoading.loadTurnIndex(sessionId, force);
@@ -2861,9 +2854,10 @@ function scrollToTurnAnchor(sequence: number) {
 }
 async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 	const key = `${sessionId}:${sequence}`;
-	const inFlight = sessionTurnLoading.getTurnWindowInFlight(key);
-	if (inFlight) return inFlight;
-	const run = (async () => {
+	return sessionTurnLoading.runTurnWindowLoad(key, async () => {
+		const guard = createKeyedRouteRequestGuard({
+			captureKey: () => `${spaceId}:${sessionId}`,
+		});
 		const state = sessionStateById[sessionId];
 		if (state?.turns.some((turn) => turn.sequence === sequence)) return;
 		if (state?.loaded && !state.loading && state.turns.length === 0) return;
@@ -2877,6 +2871,7 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 					before: 10,
 					after: 20,
 				});
+			if (!guard.isCurrent()) return;
 			const current = sessionStateById[sessionId] ?? state;
 			const mergedTurns = current
 				? normalizeTurnDuplicates(
@@ -2924,12 +2919,8 @@ async function ensureTurnWindowLoaded(sessionId: string, sequence: number) {
 			}
 			throw error;
 		} finally {
-			sessionTurnLoading.loadingTurnSequence = null;
+			if (guard.isCurrent()) sessionTurnLoading.loadingTurnSequence = null;
 		}
-	})();
-	sessionTurnLoading.setTurnWindowInFlight(key, run);
-	return run.finally(() => {
-		sessionTurnLoading.clearTurnWindowInFlight(key, run);
 	});
 }
 async function jumpToTurn(sequence: number) {
@@ -2965,9 +2956,7 @@ async function jumpToTurnAndUpdateUrl(sequence: number) {
 	}
 }
 async function syncSessionNewer(sessionId: string, _cached: unknown) {
-	const inFlight = syncSessionNewerInFlight.get(sessionId);
-	if (inFlight) return inFlight;
-	const run = (async () => {
+	const sync = async () => {
 		const state = sessionStateById[sessionId];
 		if (!state || state.turns.length === 0) return;
 		const newestSeq = state.turns.at(-1)?.sequence;
@@ -3026,13 +3015,8 @@ async function syncSessionNewer(sessionId: string, _cached: unknown) {
 				};
 			}
 		}
-	})();
-	syncSessionNewerInFlight.set(sessionId, run);
-	return run.finally(() => {
-		if (syncSessionNewerInFlight.get(sessionId) === run) {
-			syncSessionNewerInFlight.delete(sessionId);
-		}
-	});
+	};
+	return sessionWorkspace.runSyncSessionNewer(sessionId, sync);
 }
 async function loadOlderTurns(sessionId: string) {
 	const state = sessionStateById[sessionId];
@@ -3102,12 +3086,12 @@ function handleFirstVisible(index: number) {
 	if (!state?.hasMore || state.loadingOlder) return;
 	if (
 		index <= PRELOAD_THRESHOLD &&
-		!preloadingSessionIds.has(activeSessionId)
+		!sessionWorkspace.isPreloadingSession(activeSessionId)
 	) {
 		const sessionId = activeSessionId;
-		preloadingSessionIds.add(sessionId);
+		sessionWorkspace.beginPreloadingSession(sessionId);
 		void loadOlderTurns(sessionId).finally(() =>
-			preloadingSessionIds.delete(sessionId),
+			sessionWorkspace.endPreloadingSession(sessionId),
 		);
 	}
 }
@@ -4950,9 +4934,8 @@ $effect(() => {
 	sessionWorkspace.sessionStateById = {};
 	sessionWorkspace.loadingSessionIds = {};
 	sessionWorkspace.visibleInitialLoadingSessionIds = {};
-	sessionLoadInFlight.clear();
+	sessionWorkspace.resetInFlight();
 	sessionTurnLoading.reset();
-	syncSessionNewerInFlight.clear();
 	turnHydrationInFlight.clear();
 	clearAllPostSendRecovery();
 	generationRealtime.clearStreamSnapshotRecoveryCooldowns();
@@ -5975,137 +5958,87 @@ $effect(() => {
       </SessionWorkspace>
     {/if}
   </div>
-  {#if inlineFile}
-    <InlineFilePanel
-      {inlineFile}
-      {inlineFileDownloadUrl}
-      {inlineFileDownloadName}
-      {inlineFileIsText}
-      {inlineFileHasRenderedPreview}
-      bind:inlineFileEdit={fileWorkspace.inlineFileEdit}
-      {inlineFileIsMarkdown}
-      {inlineFileIsHtml}
-      {inlineFileDirty}
-      {activeFsReadonly}
-      {canEditFiles}
-      {inlineFileCopied}
-      {inlineFileExt}
-      {inlineFileIsImage}
-      {inlineFileIsVideo}
-      {inlineFileDataUrl}
-      {previewPanelWidth}
-      {previewFocusMode}
-      {isMobile}
-      bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
-      bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
-      bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
-      bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
-      inlineFileDragging={fileWorkspace.inlineFileDragging}
-      {inlineFilePanHandlers}
-      onCloseInlineFile={closeInlineFile}
-      onDownloadInlineFile={downloadInlineFile}
-      onCopyInlineFileContent={copyInlineFileContent}
-      onSaveInlineFile={saveInlineFile}
-      onPublishInlineFile={publishInlineFile}
-      onPreviewResizeStart={beginPreviewPanelResize}
-      onTogglePreviewFocusMode={togglePreviewFocusMode}
-      onLabelFile={(path) => editResourceLabels('file', path)}
-      onInsertFilePathReference={insertFilePathReference}
-      onDownloadFilePath={(path) => handleDownloadNode(getFileActionNode(path))}
-      onRenameFilePath={(path) => handleRenameNode(getFileActionNode(path))}
-      onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
-    />
-  {/if}
-  {#if inlineCanvas}
-    <CanvasPreviewPanel
-      canvas={inlineCanvas}
-      width={previewPanelWidth}
-      focused={previewFocusMode}
-      {isMobile}
-      onResizeStart={beginPreviewPanelResize}
-      onToggleFocus={togglePreviewFocusMode}
-      onCommit={commitInlineCanvas}
-      onClose={closeInlineCanvas}
-    />
-  {/if}
-  {#if inlinePortPreview}
-    <PortPreviewPanel
-      port={inlinePortPreview.port}
-      url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
-      status={inlinePortEndpoint?.status ?? "unknown"}
-      observedAt={inlinePortEndpoint?.observedAt}
-      width={previewPanelWidth}
-      focused={previewFocusMode}
-      {isMobile}
-      onResizeStart={beginPreviewPanelResize}
-      onToggleFocus={togglePreviewFocusMode}
-      onPublish={() => openWorkPublish("port", inlinePortPreview!.port)}
-      onClose={closeInlinePort}
-    />
-  {/if}
-  <FilesSidebarPanel
+  <SpaceFileDomain
     {spaceId}
-    nodes={spaceHasMinimalAccess ? [] : fileTree}
-    selectedPath={selectedFilePath}
-    loading={!spaceHasMinimalAccess && fileTreeLoading}
-    error={spaceHasMinimalAccess ? "Files are not available for this shared session." : fileTreeError}
-    subtitle={activeFsSidebarSubtitle}
-    activePort={spaceHasMinimalAccess ? null : (inlinePortPreview?.port ?? null)}
-    canWrite={!spaceHasMinimalAccess && canEditFiles && !activeFsReadonly}
-    showItemActions={!spaceHasMinimalAccess && !activeFsReadonly}
-    draggable={!spaceHasMinimalAccess}
-    previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
-    desktopCollapsed={uiState.rightSidebarCollapsed}
-    desktopWidth={uiState.rightSidebarWidth}
+    {spaceOwnerUsername}
+    {spaceSlug}
+    {spaceHasMinimalAccess}
+    {activeFsReadonly}
+    {canEditFiles}
+    {activeFsSidebarSubtitle}
+    {isMobile}
+    {isRightDrawerVisible}
+    {previewPanelWidth}
+    {previewFocusMode}
+    rightSidebarCollapsed={uiState.rightSidebarCollapsed}
+    rightSidebarWidth={uiState.rightSidebarWidth}
     rightDragOffsetPx={uiState.rightDragOffsetPx}
     rightIsDragging={uiState.rightIsDragging}
-    isDrawerVisible={isRightDrawerVisible}
+    {fileTree}
+    {fileTreeLoading}
+    {fileTreeError}
+    {selectedFilePath}
+    {inlineFile}
+    {inlineCanvas}
+    {inlinePortPreview}
+    {inlinePortEndpoint}
+    {previewEndpoints}
+    {inlineFileDownloadUrl}
+    {inlineFileDownloadName}
+    {inlineFileIsText}
+    {inlineFileHasRenderedPreview}
+    bind:inlineFileEdit={fileWorkspace.inlineFileEdit}
+    {inlineFileIsMarkdown}
+    {inlineFileIsHtml}
+    {inlineFileDirty}
+    {inlineFileCopied}
+    {inlineFileExt}
+    {inlineFileIsImage}
+    {inlineFileIsVideo}
+    {inlineFileDataUrl}
+    bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
+    bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
+    bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
+    bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
+    inlineFileDragging={fileWorkspace.inlineFileDragging}
+    {inlineFilePanHandlers}
     uploadPaneVisible={fileWorkspace.uploadPaneVisible}
     uploadPaneTargetDir={fileWorkspace.uploadPaneTargetDir}
     pendingUploadFiles={fileWorkspace.pendingUploadFiles}
     pendingUploadEntries={fileWorkspace.pendingUploadEntries}
-    onToggle={expandDirectory}
-    onSelect={(node, options) => {
-      if (node.type === "file") {
-        if (isCovasFile(node.path) && !activeFsReadonly) void openInlineCanvas(node.path);
-        else void openInlineFile(node.path);
-        if (options.mobile) uiState.mobileRightDrawerOpen = false;
-      }
-    }}
-    onRefresh={refreshFileTree}
+    bind:workPublishTarget
+    onSpaceUpdated={(nextSpace) => { space = nextSpace; }}
+    onMobileRightDrawerClose={() => { uiState.mobileRightDrawerOpen = false; }}
+    onSetUploadPaneVisible={(visible) => { fileWorkspace.uploadPaneVisible = visible; }}
+    onToggleDirectory={expandDirectory}
+    onRefreshFileTree={refreshFileTree}
     onCreateFile={handleCreateFile}
     onCreateCanvas={handleCreateCanvas}
     onCreateDir={handleCreateDir}
-    onRename={handleRenameNode}
-    onDelete={handleDeleteNode}
-    onDownload={handleDownloadNode}
-    onUpload={handleUploadFiles}
-    onInsertReference={insertPathReference}
-    onPublishDirectory={(path, options) => {
-      openWorkPublish("directory", path);
-      if (options.mobile) uiState.mobileRightDrawerOpen = false;
-    }}
-    onOpenPort={(port, url, options) => {
-      openInlinePort(port, url);
-      if (options.mobile) uiState.mobileRightDrawerOpen = false;
-    }}
-    onUploadPaneClose={() => { fileWorkspace.uploadPaneVisible = false; }}
+    onRenameNode={handleRenameNode}
+    onDeleteNode={handleDeleteNode}
+    onDownloadNode={handleDownloadNode}
+    onUploadFiles={handleUploadFiles}
+    onInsertPathReference={insertPathReference}
+    onOpenInlineFile={openInlineFile}
+    onOpenInlineCanvas={openInlineCanvas}
+    onCloseInlineFile={closeInlineFile}
+    onDownloadInlineFile={downloadInlineFile}
+    onCopyInlineFileContent={copyInlineFileContent}
+    onSaveInlineFile={saveInlineFile}
+    onOpenInlinePort={openInlinePort}
+    onCloseInlinePort={closeInlinePort}
+    onCommitInlineCanvas={commitInlineCanvas}
+    onCloseInlineCanvas={closeInlineCanvas}
+    onBeginPreviewPanelResize={beginPreviewPanelResize}
+    onTogglePreviewFocusMode={togglePreviewFocusMode}
+    onBeginRightSidebarResize={beginRightSidebarResize}
+    onEditResourceLabels={editResourceLabels}
+    onInsertFilePathReference={insertFilePathReference}
+    onGetFileActionNode={getFileActionNode}
     onUploadComplete={fileWorkspace.handleUploadComplete}
-    onResizeStart={beginRightSidebarResize}
-  />
-  <WorkPublishDialog
-    open={Boolean(workPublishTarget)}
-    {spaceId}
-    ownerUsername={spaceOwnerUsername}
-    {spaceSlug}
-    targetType={workPublishTarget?.targetType ?? "file"}
-    targetRef={workPublishTarget?.targetRef ?? ""}
-    onSpaceUpdated={(nextSpace) => {
-      space = nextSpace;
-      cacheSpaceRecordSoon(nextSpace);
-      patchCachedSpaceList((items) => items.map((item) => item.id === spaceId ? nextSpace : item));
-    }}
-    onClose={() => workPublishTarget = null}
+    onOpenWorkPublish={openWorkPublish}
+    onCloseWorkPublish={() => { workPublishTarget = null; }}
   />
   <!-- Share Modal -->
   <Dialog open={showShareModal && !!shareModalSessionId} onClose={() => { showShareModal = false; }} title={hasSessionPermission(shareModalSessionId!) ? 'Session is public' : 'Share session'} maxWidth="380px">

@@ -1,6 +1,7 @@
 import type { SessionRecord, SessionTurnRecord } from "@neta-art/cohub";
 import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
+import { createRequestDedupe } from "./request-dedupe";
 
 export type SessionViewState = {
 	session: SessionRecord | undefined;
@@ -21,6 +22,9 @@ export function createSessionWorkspaceController() {
 	let activeSessionId = $state<string | null>(null);
 	let loadingSessionIds = $state<Record<string, boolean>>({});
 	let visibleInitialLoadingSessionIds = $state<Record<string, boolean>>({});
+	let preloadingSessionIds = $state.raw(new Set<string>());
+	const sessionLoadDedupe = createRequestDedupe();
+	const syncSessionNewerDedupe = createRequestDedupe();
 
 	function initialSessionState(session?: SessionRecord): SessionViewState {
 		return {
@@ -133,12 +137,41 @@ export function createSessionWorkspaceController() {
 		setSessionState(sessionId, updater(sessionStateById[sessionId]));
 	}
 
+	function runSessionLoad(sessionId: string, task: () => Promise<void>) {
+		return sessionLoadDedupe.run(`session-load:${sessionId}`, task);
+	}
+
+	function runSyncSessionNewer(sessionId: string, task: () => Promise<void>) {
+		return syncSessionNewerDedupe.run(`session-newer:${sessionId}`, task);
+	}
+
+	function isPreloadingSession(sessionId: string) {
+		return preloadingSessionIds.has(sessionId);
+	}
+
+	function beginPreloadingSession(sessionId: string) {
+		preloadingSessionIds = new Set(preloadingSessionIds).add(sessionId);
+	}
+
+	function endPreloadingSession(sessionId: string) {
+		const next = new Set(preloadingSessionIds);
+		next.delete(sessionId);
+		preloadingSessionIds = next;
+	}
+
+	function resetInFlight() {
+		sessionLoadDedupe.clear();
+		syncSessionNewerDedupe.clear();
+		preloadingSessionIds = new Set();
+	}
+
 	function reset() {
 		spaceSessions = [];
 		sessionStateById = {};
 		activeSessionId = null;
 		loadingSessionIds = {};
 		visibleInitialLoadingSessionIds = {};
+		resetInFlight();
 	}
 
 	return {
@@ -172,6 +205,9 @@ export function createSessionWorkspaceController() {
 		set visibleInitialLoadingSessionIds(value: Record<string, boolean>) {
 			visibleInitialLoadingSessionIds = value;
 		},
+		get preloadingSessionIds() {
+			return preloadingSessionIds;
+		},
 		upsertSessionRecord,
 		applySessionRealtimeRecord,
 		applySessionsSnapshot,
@@ -179,6 +215,12 @@ export function createSessionWorkspaceController() {
 		prepareRouteSession,
 		setSessionState,
 		patchSessionState,
+		runSessionLoad,
+		runSyncSessionNewer,
+		isPreloadingSession,
+		beginPreloadingSession,
+		endPreloadingSession,
+		resetInFlight,
 		reset,
 	};
 }

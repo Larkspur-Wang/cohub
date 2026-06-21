@@ -1,6 +1,7 @@
 import type { SessionTurnIndexItem } from "@cohub/protocol/model";
 import { HttpError } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
+import { createRequestDedupe } from "./request-dedupe";
 
 export function createSessionTurnLoadingController(options: {
 	getSpaceId: () => string;
@@ -9,7 +10,7 @@ export function createSessionTurnLoadingController(options: {
 	let turnIndexLoadingBySessionId = $state<Record<string, boolean>>({});
 	let turnIndexRetryAfterBySessionId = $state<Record<string, number>>({});
 	let loadingTurnSequence = $state<number | null>(null);
-	const turnWindowLoadInFlight = new Map<string, Promise<void>>();
+	const turnWindowLoadDedupe = createRequestDedupe();
 
 	async function loadTurnIndex(sessionId: string, force = false) {
 		if (!force && Object.hasOwn(turnIndexBySessionId, sessionId)) return;
@@ -19,48 +20,57 @@ export function createSessionTurnLoadingController(options: {
 			const retryAfter = turnIndexRetryAfterBySessionId[sessionId] ?? 0;
 			if (retryAfter > Date.now()) return;
 		}
-		turnIndexLoadingBySessionId = {
-			...turnIndexLoadingBySessionId,
-			[sessionId]: true,
-		};
-		try {
-			let cursor: number | undefined;
-			const collected: SessionTurnIndexItem[] = [];
-			for (let page = 0; page < 20; page += 1) {
-				const response = await sdk
-					.space(options.getSpaceId())
-					.session(sessionId)
-					.turns.index({
-						cursor,
-						limit: 500,
-					});
-				collected.push(...response.turns);
-				if (!response.hasMore || response.nextCursor == null) break;
-				cursor = response.nextCursor;
-			}
-			turnIndexBySessionId = {
-				...turnIndexBySessionId,
-				[sessionId]: collected,
-			};
-			if (turnIndexRetryAfterBySessionId[sessionId]) {
-				const nextRetryAfterBySessionId = { ...turnIndexRetryAfterBySessionId };
-				delete nextRetryAfterBySessionId[sessionId];
-				turnIndexRetryAfterBySessionId = nextRetryAfterBySessionId;
-			}
-		} catch (error) {
-			const retryDelayMs =
-				error instanceof HttpError && error.status === 401 ? 60_000 : 15_000;
-			turnIndexRetryAfterBySessionId = {
-				...turnIndexRetryAfterBySessionId,
-				[sessionId]: Date.now() + retryDelayMs,
-			};
-			console.warn("[loadTurnIndex] Failed to load turn index:", error);
-		} finally {
+		return turnWindowLoadDedupe.run(`turn-index:${sessionId}`, async () => {
+			const requestSpaceId = options.getSpaceId();
 			turnIndexLoadingBySessionId = {
 				...turnIndexLoadingBySessionId,
-				[sessionId]: false,
+				[sessionId]: true,
 			};
-		}
+			try {
+				let cursor: number | undefined;
+				const collected: SessionTurnIndexItem[] = [];
+				for (let page = 0; page < 20; page += 1) {
+					const response = await sdk
+						.space(requestSpaceId)
+						.session(sessionId)
+						.turns.index({
+							cursor,
+							limit: 500,
+						});
+					collected.push(...response.turns);
+					if (!response.hasMore || response.nextCursor == null) break;
+					cursor = response.nextCursor;
+				}
+				if (options.getSpaceId() !== requestSpaceId) return;
+				turnIndexBySessionId = {
+					...turnIndexBySessionId,
+					[sessionId]: collected,
+				};
+				if (turnIndexRetryAfterBySessionId[sessionId]) {
+					const nextRetryAfterBySessionId = {
+						...turnIndexRetryAfterBySessionId,
+					};
+					delete nextRetryAfterBySessionId[sessionId];
+					turnIndexRetryAfterBySessionId = nextRetryAfterBySessionId;
+				}
+			} catch (error) {
+				if (options.getSpaceId() !== requestSpaceId) return;
+				const retryDelayMs =
+					error instanceof HttpError && error.status === 401 ? 60_000 : 15_000;
+				turnIndexRetryAfterBySessionId = {
+					...turnIndexRetryAfterBySessionId,
+					[sessionId]: Date.now() + retryDelayMs,
+				};
+				console.warn("[loadTurnIndex] Failed to load turn index:", error);
+			} finally {
+				if (options.getSpaceId() === requestSpaceId) {
+					turnIndexLoadingBySessionId = {
+						...turnIndexLoadingBySessionId,
+						[sessionId]: false,
+					};
+				}
+			}
+		});
 	}
 
 	function reset() {
@@ -68,7 +78,7 @@ export function createSessionTurnLoadingController(options: {
 		turnIndexLoadingBySessionId = {};
 		turnIndexRetryAfterBySessionId = {};
 		loadingTurnSequence = null;
-		turnWindowLoadInFlight.clear();
+		turnWindowLoadDedupe.clear();
 	}
 
 	return {
@@ -96,16 +106,8 @@ export function createSessionTurnLoadingController(options: {
 		set loadingTurnSequence(value: number | null) {
 			loadingTurnSequence = value;
 		},
-		getTurnWindowInFlight(key: string) {
-			return turnWindowLoadInFlight.get(key);
-		},
-		setTurnWindowInFlight(key: string, promise: Promise<void>) {
-			turnWindowLoadInFlight.set(key, promise);
-		},
-		clearTurnWindowInFlight(key: string, promise: Promise<void>) {
-			if (turnWindowLoadInFlight.get(key) === promise) {
-				turnWindowLoadInFlight.delete(key);
-			}
+		runTurnWindowLoad(key: string, task: () => Promise<void>) {
+			return turnWindowLoadDedupe.run(`turn-window:${key}`, task);
 		},
 		loadTurnIndex,
 		reset,
