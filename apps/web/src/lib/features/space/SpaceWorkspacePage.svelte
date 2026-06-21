@@ -162,6 +162,7 @@ import type { LocalUploadEntry } from "$lib/upload-entries";
 import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
+import NewChatSpaceProfile from "./modules/NewChatSpaceProfile.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
@@ -206,6 +207,10 @@ import {
 	reconcileOptimisticTurn,
 } from "./modules/session-utils";
 import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
+import {
+	createSpaceBootstrapController,
+	withBootstrapCacheTimeout,
+} from "./modules/space-bootstrap-controller.svelte";
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { mergeTaskRunRecord } from "./modules/task-run-utils";
@@ -264,7 +269,6 @@ type SessionViewState = {
 const PRELOAD_THRESHOLD = 10;
 const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SESSION_INITIAL_LOADING_DELAY_MS = 160;
-const LOCAL_BOOTSTRAP_CACHE_TIMEOUT_MS = 180;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -606,15 +610,20 @@ const previewLayout = createPreviewLayoutController({
 const previewPanelWidth = $derived(previewLayout.width);
 const previewFocusMode = $derived(previewLayout.focusMode);
 
-let loadedSpaceId = $state<string | null>(null);
 let pageMounted = false;
+const spaceBootstrap = createSpaceBootstrapController({
+	getSpaceId: () => spaceId,
+	getPageMounted: () => pageMounted,
+	onEnterSpace: resetSpaceScopedState,
+	onBootstrap: bootstrapSpace,
+});
+const bootstrapping = $derived(spaceBootstrap.bootstrapping);
 let creatingSession = $state(false);
 let createSessionError = $state("");
 const loadingSessionIds = $derived(sessionWorkspace.loadingSessionIds);
 const visibleInitialLoadingSessionIds = $derived(
 	sessionWorkspace.visibleInitialLoadingSessionIds,
 );
-let bootstrapping = $state(true);
 const sessionScroll = createSessionScrollController();
 let bottomFollowFrame: number | null = null;
 let bottomFollowActive = false;
@@ -1948,18 +1957,6 @@ function loadSpaceUsage(currentSpaceId = spaceId) {
 }
 function loadSpaceSandbox(currentSpaceId = spaceId) {
 	return spaceStatus.loadSandbox(currentSpaceId);
-}
-
-function withBootstrapCacheTimeout<T>(promise: Promise<T>): Promise<T | null> {
-	let timer: ReturnType<typeof setTimeout> | null = null;
-	return Promise.race([
-		promise.catch(() => null),
-		new Promise<null>((resolve) => {
-			timer = setTimeout(resolve, LOCAL_BOOTSTRAP_CACHE_TIMEOUT_MS, null);
-		}),
-	]).finally(() => {
-		if (timer) clearTimeout(timer);
-	});
 }
 
 function scheduleStatusRefresh() {
@@ -4316,15 +4313,9 @@ onMount(() => {
 		deactivateSpaceConfig();
 	};
 });
-// React to space changes: reset state and reload data
-$effect(() => {
-	const currentSpaceId = spaceId;
-	if (!pageMounted || !currentSpaceId || loadedSpaceId === currentSpaceId)
-		return;
-	loadedSpaceId = currentSpaceId;
+function resetSpaceScopedState(currentSpaceId: string) {
 	activateSpaceStyle(currentSpaceId);
 	activateSpaceConfig(currentSpaceId);
-	// Reset space-specific state
 	space = null;
 	spaceConfig = null;
 	spaceStatus.reset();
@@ -4365,67 +4356,51 @@ $effect(() => {
 	createSessionError = "";
 	sessionTasks.reset();
 	sessionGenerationStore.resetAll();
-	bootstrapping = true;
-	untrack(() => {
-		void (async () => {
-			let sessionLoad: Promise<void> | null = null;
-			const spaceLoad = loadSpace();
-			try {
-				if (
-					routeView === "session" &&
-					routeSessionId &&
-					routeSessionId !== "new"
-				) {
-					prepareRouteSession(routeSessionId);
-					sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
-				}
-				const [cachedSpace, cachedSnapshot] = await Promise.all([
-					withBootstrapCacheTimeout(spaceRecordRepo.getCached(currentSpaceId)),
-					withBootstrapCacheTimeout(
-						getCachedSessionListSnapshot(currentSpaceId),
-					),
-				]);
-				if (spaceId !== currentSpaceId) return;
-				const cachedSessions = cachedSnapshot?.sessions;
-				if (cachedSessions && cachedSessions.length > 0) {
-					seedSessions(cachedSessions);
-				}
-				if (
-					routeView === "session" &&
-					routeSessionId &&
-					routeSessionId !== "new"
-				) {
-					prepareRouteSession(routeSessionId);
-				}
-				const cachedSessionLoad = sessionLoad;
-				if (cachedSpace?.space && !space) {
-					space = cachedSpace.space;
-					portPreview.setEndpoints(extractPublicEndpoints(cachedSpace.space));
-				} else if (!space) {
-					await spaceLoad;
-				}
-				if (spaceId !== currentSpaceId) return;
-				void refreshSessionsList(false);
-				void loadPreviewEndpoints();
-				void loadFileTree();
-				if (
-					routeView === "session" &&
-					routeSessionId &&
-					routeSessionId !== "new"
-				) {
-					prepareRouteSession(routeSessionId);
-					await cachedSessionLoad;
-					void loadTurnIndex(routeSessionId);
-				}
-			} catch {
-				// Non-blocking; bootstrapping released below
-			} finally {
-				if (spaceId === currentSpaceId) {
-					bootstrapping = false;
-				}
-			}
-		})();
-	});
+}
+
+async function bootstrapSpace(currentSpaceId: string) {
+	let sessionLoad: Promise<void> | null = null;
+	const spaceLoad = loadSpace();
+	try {
+		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
+			prepareRouteSession(routeSessionId);
+			sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
+		}
+		const [cachedSpace, cachedSnapshot] = await Promise.all([
+			withBootstrapCacheTimeout(spaceRecordRepo.getCached(currentSpaceId)),
+			withBootstrapCacheTimeout(getCachedSessionListSnapshot(currentSpaceId)),
+		]);
+		if (spaceId !== currentSpaceId) return;
+		const cachedSessions = cachedSnapshot?.sessions;
+		if (cachedSessions && cachedSessions.length > 0)
+			seedSessions(cachedSessions);
+		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
+			prepareRouteSession(routeSessionId);
+		}
+		const cachedSessionLoad = sessionLoad;
+		if (cachedSpace?.space && !space) {
+			space = cachedSpace.space;
+			portPreview.setEndpoints(extractPublicEndpoints(cachedSpace.space));
+		} else if (!space) {
+			await spaceLoad;
+		}
+		if (spaceId !== currentSpaceId) return;
+		void refreshSessionsList(false);
+		void loadPreviewEndpoints();
+		void loadFileTree();
+		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
+			prepareRouteSession(routeSessionId);
+			await cachedSessionLoad;
+			void loadTurnIndex(routeSessionId);
+		}
+	} catch {
+		// Non-blocking; bootstrapping released by controller
+	}
+}
+
+// React to space changes: reset state and reload data
+$effect(() => {
+	spaceBootstrap.runForCurrentSpace();
 });
 // React to space changes: subscribe to WS events for the new space
 $effect(() => {
@@ -5122,83 +5097,7 @@ const sessionWorkspaceProps = $derived.by<
 	</button>
 {/snippet}
 
-{#snippet NewChatSpaceProfile()}
-	{@const spaceName = space?.name || space?.title || "Untitled space"}
-	{@const owner = space?.ownerProfile ?? null}
-	{@const sortedMembers = sortedSpaceMembersForProfile()}
-	<section class="new-chat-profile-panel pointer-events-auto mx-auto w-full max-w-4xl px-4 pt-[clamp(1.25rem,5dvh,2.5rem)] pb-4 sm:px-6 sm:pt-[clamp(2.25rem,7dvh,4.5rem)] sm:pb-6" class:expanded={newChatProfileExpanded} aria-label="Space profile">
-		<div bind:this={newChatProfileContentEl} class="space-y-5 sm:space-y-7">
-			<header class="new-chat-profile-fragment space-y-3.5 sm:space-y-4" style:animation-delay="20ms">
-				<div class="flex items-start gap-3 sm:gap-4">
-						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="lg" loading="eager" class="mt-0.5 h-10 w-10 rounded-[12px] sm:mt-1 sm:h-12 sm:w-12 sm:rounded-[14px]" />
-						<div class="min-w-0 flex-1 pt-0.5">
-							<div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-								<h1 class="min-w-0 max-w-full break-words text-[23px] font-semibold leading-[1.08] tracking-[-0.035em] text-text-primary sm:text-[34px]">{spaceName}</h1>
-								{#if spaceSandboxLoadedFor === spaceId}
-									<span class="sandbox-breathing-status" data-kind={sandboxStatusKind(spaceSandbox)} title={sandboxStatusLabel(spaceSandbox)} aria-label={sandboxStatusLabel(spaceSandbox)}></span>
-								{/if}
-							</div>
-							{#if space?.createdAt}
-								<div class="mt-2 font-mono text-[10px] text-text-placeholder sm:text-[11px]">Created {formatShortDateTime(space.createdAt)}</div>
-							{/if}
-						</div>
-					</div>
-			</header>
 
-			<div
-					bind:this={newChatProfileBodyEl}
-					class="new-chat-profile-body new-chat-profile-fragment max-w-[68ch] text-[13px] leading-7 text-text-tertiary sm:text-[14px]"
-					class:expanded={newChatProfileExpanded}
-					style:animation-delay="55ms"
-					style:max-height={newChatProfileExpanded ? undefined : `${newChatProfileBodyMaxHeight}px`}
-				>
-				{#if space?.description}
-					<p class="mb-3 text-text-secondary sm:text-[15px]">
-						{space.description}
-					</p>
-				{/if}
-				{#if owner || space?.userUuid || sortedMembers.length > 0}
-					<p class="mb-3">
-							{#if owner || space?.userUuid}
-								<span>Created by </span>
-								<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(owner, space?.userUuid)}>
-									<UserAvatar name={displayUserName(owner, space?.userUuid)} avatarUrl={owner?.avatarUrl} size="xs" class="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5" />
-									<span class="min-w-0 max-w-[9rem] truncate font-medium text-text-primary sm:max-w-none">{displayUserName(owner, space?.userUuid)}</span>
-								</span>
-							{/if}
-							{#if sortedMembers.length > 0}
-								<span>{owner || space?.userUuid ? ' with ' : 'Members include '}</span>
-								{#each sortedMembers as member, index (member.userId)}
-									<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(member.profile, member.userId)}>
-										<UserAvatar name={displayUserName(member.profile, member.userId)} avatarUrl={member.profile.avatarUrl} size="xs" class="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5" />
-										<span class="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none">{displayUserName(member.profile, member.userId)}</span>
-									</span>{#if index < sortedMembers.length - 1}<span class="inline-block w-1.5 sm:w-2" aria-hidden="true"></span>{:else}<span>. </span>{/if}
-								{/each}
-							{:else}<span>. </span>{/if}
-						</p>
-				{/if}
-				{#if spaceUsage}
-					<p>
-						Over the last {spaceUsage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(spaceUsage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{spaceUsage.summary.requestCount}</span> requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(spaceUsage.summary.costTotal)}</span>.
-					</p>
-				{/if}
-			</div>
-			{#if newChatProfileCanExpand}
-				<button
-					type="button"
-					class="new-chat-profile-expand new-chat-profile-fragment mt-5 text-[12px] text-text-placeholder transition-colors hover:text-text-secondary sm:hidden"
-					style:animation-delay="120ms"
-					onclick={() => {
-						newChatProfileExpanded = !newChatProfileExpanded;
-					}}
-					aria-expanded={newChatProfileExpanded}
-				>
-					{newChatProfileExpanded ? 'Show less' : 'Show full profile'}
-				</button>
-			{/if}
-		</div>
-	</section>
-{/snippet}
 
 <PageHeader>
   {#snippet left()}
@@ -5485,7 +5384,22 @@ const sessionWorkspaceProps = $derived.by<
         bind:showModelSelector
       >
         {#snippet newChatProfile()}
-          {@render NewChatSpaceProfile()}
+          <NewChatSpaceProfile
+            {spaceId}
+            {space}
+            members={spaceMembers}
+            usage={spaceUsage}
+            sandbox={spaceSandbox}
+            sandboxLoadedFor={spaceSandboxLoadedFor}
+            expanded={newChatProfileExpanded}
+            canExpand={newChatProfileCanExpand}
+            bodyMaxHeight={newChatProfileBodyMaxHeight}
+            bind:contentEl={newChatProfileContentEl}
+            bind:bodyEl={newChatProfileBodyEl}
+            onToggleExpanded={() => {
+              newChatProfileExpanded = !newChatProfileExpanded;
+            }}
+          />
         {/snippet}
       </SessionWorkspace>
     {/if}
@@ -5542,84 +5456,6 @@ const sessionWorkspaceProps = $derived.by<
 {/if}
 
 <style>
-  @keyframes new-chat-profile-fragment-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  .new-chat-profile-fragment {
-    animation: new-chat-profile-fragment-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .sandbox-breathing-status {
-    display: inline-flex;
-    width: 0.48rem;
-    height: 0.48rem;
-    flex-shrink: 0;
-    border-radius: 999px;
-    background: var(--text-placeholder);
-    opacity: 0.72;
-    transform: translateY(0.02rem);
-  }
-
-  .sandbox-breathing-status[data-kind="running"] {
-    background: var(--success-soft);
-    animation: sandbox-status-breathe 2.4s ease-in-out infinite;
-  }
-
-  .sandbox-breathing-status[data-kind="waking"] {
-    background: var(--brand);
-    animation: sandbox-status-breathe 1.4s ease-in-out infinite;
-  }
-
-  .sandbox-breathing-status[data-kind="sleeping"],
-  .sandbox-breathing-status[data-kind="unknown"] {
-    background: var(--text-placeholder);
-    opacity: 0.5;
-  }
-
-  .sandbox-breathing-status[data-kind="error"] {
-    background: var(--error-soft);
-    opacity: 0.86;
-  }
-
-  @keyframes sandbox-status-breathe {
-    0%,
-    100% {
-      opacity: 0.55;
-      transform: translateY(0.02rem) scale(0.92);
-    }
-    50% {
-      opacity: 1;
-      transform: translateY(0.02rem) scale(1.08);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .new-chat-profile-fragment,
-    .sandbox-breathing-status {
-      animation: none;
-    }
-  }
-
-  @media (max-width: 639px) {
-    .new-chat-profile-panel {
-      max-height: 100%;
-      overflow: hidden;
-    }
-
-    .new-chat-profile-body {
-      overflow: hidden;
-      transition: max-height 180ms cubic-bezier(0.22, 1, 0.36, 1);
-    }
-  }
-
   @keyframes cohub-scroll-to-bottom-in {
     from {
       opacity: 0;
