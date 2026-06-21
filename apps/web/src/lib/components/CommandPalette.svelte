@@ -68,12 +68,14 @@ let defaultItems = $state<CommandPaletteItem[]>([]);
 let localDone = $state(true);
 let remoteDone = $state(true);
 let defaultDone = $state(true);
+let refreshingSpaces = $state(false);
 let remoteError = $state<string | null>(null);
 let debounceTimer: number | null = null;
 let localController: AbortController | null = null;
 let remoteController: AbortController | null = null;
 let searchToken = 0;
 let spaceListRefreshToken = 0;
+let activeSpaceListRefreshId = 0;
 let forceSpaceRefreshForNextSearch = false;
 let lastForcedSpaceListRefreshAt = 0;
 let runMode = $state(false);
@@ -125,10 +127,17 @@ const renderedItems = $derived(
 const showingSettledItems = $derived(
 	isSearching && mergedItems.length === 0 && settledItems.length > 0,
 );
+const showingSpaceRefreshStatus = $derived(
+	refreshingSpaces &&
+		Boolean(searchPlan.resourceTypes?.includes("space")) &&
+		trimmedQuery.length < MIN_QUERY_LENGTH &&
+		!hasLabelScope,
+);
 const runBlocks = $derived(runResult ?? runProgress ?? []);
 const statusText = $derived.by(() => {
 	const label = typeLabel ?? "Turns, Sessions, Spaces, Labels, and Commands";
 	if (trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope) {
+		if (showingSpaceRefreshStatus) return `${label} · syncing spaces…`;
 		return renderedItems.length > 0
 			? `${label} · type to filter`
 			: `Search ${label.toLowerCase()}`;
@@ -252,6 +261,7 @@ function closePalette() {
 	placeholder = DEFAULT_PLACEHOLDER;
 	activeIndex = 0;
 	settledItems = [];
+	refreshingSpaces = false;
 	searchToken += 1;
 	localController?.abort();
 	remoteController?.abort();
@@ -295,9 +305,15 @@ async function refreshSpaceListForDefaultItems(
 	}
 
 	try {
-		await fetchSpaceListWithCache(async () => await sdk.spaces.list(), {
-			force,
-		});
+		const refreshId = ++activeSpaceListRefreshId;
+		refreshingSpaces = true;
+		try {
+			await fetchSpaceListWithCache(async () => await sdk.spaces.list(), {
+				force,
+			});
+		} finally {
+			if (activeSpaceListRefreshId === refreshId) refreshingSpaces = false;
+		}
 	} catch (error) {
 		console.warn("[command-palette] space list refresh failed", error);
 		return;
@@ -716,7 +732,7 @@ onMount(() => {
 						{#if runStatus === "queued" || runStatus === "running"}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
 						<span>{runError || (runStatus === "done" ? `Done · ${runTaskId}` : runStatus === "running" ? "Running…" : runStatus === "queued" ? "Queued…" : currentSpaceId ? "Press ↵ to run" : "Open a space first")}</span>
 					{:else}
-						{#if isSearching}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
+						{#if isSearching || showingSpaceRefreshStatus}<Loader2 class="h-3 w-3 animate-spin text-brand" />{/if}
 						<span>{statusText}</span>
 					{/if}
 				</div>
