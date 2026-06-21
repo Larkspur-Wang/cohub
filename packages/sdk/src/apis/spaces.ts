@@ -342,10 +342,6 @@ export class SpaceFilesApi {
 }
 
 class SessionMessagesClient {
-  private lastSentSignature = "";
-  private lastSentSessionId = "";
-  private lastSentAt = 0;
-
   constructor(
     private readonly transport: HttpTransport,
     private readonly sessionId: string,
