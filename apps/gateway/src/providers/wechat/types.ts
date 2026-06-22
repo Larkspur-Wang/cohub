@@ -57,7 +57,30 @@ export type WeChatImageItem = {
 };
 
 export type WeChatVoiceItem = {
+  media?: WeChatCdnMedia;
+  encode_type?: number;
+  bits_per_sample?: number;
+  sample_rate?: number;
+  playtime?: number;
   text?: string;
+};
+
+export type WeChatFileItem = {
+  media?: WeChatCdnMedia;
+  file_name?: string;
+  md5?: string;
+  len?: string;
+};
+
+export type WeChatVideoItem = {
+  media?: WeChatCdnMedia;
+  video_size?: number;
+  play_length?: number;
+  video_md5?: string;
+  thumb_media?: WeChatCdnMedia;
+  thumb_size?: number;
+  thumb_height?: number;
+  thumb_width?: number;
 };
 
 export type WeChatRefMessage = {
@@ -67,9 +90,12 @@ export type WeChatRefMessage = {
 
 export type WeChatMessageItem = {
   type?: number;
+  msg_id?: string;
   text_item?: WeChatTextItem;
   image_item?: WeChatImageItem;
   voice_item?: WeChatVoiceItem;
+  file_item?: WeChatFileItem;
+  video_item?: WeChatVideoItem;
   ref_msg?: WeChatRefMessage;
 };
 

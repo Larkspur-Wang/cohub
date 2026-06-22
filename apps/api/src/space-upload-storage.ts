@@ -95,8 +95,7 @@ const signingKey = (secret: string, dateStamp: string, region: string) => {
 
 const encodePath = (value: string) => value.split("/").map(encodeURIComponent).join("/");
 
-const publicEndpoint = (bucket: string) => {
-  const endpoint = config.turnObjectS3PublicEndpoint ?? config.turnObjectS3Endpoint?.replace("-internal.", ".");
+const bucketEndpoint = (bucket: string, endpoint: string | undefined) => {
   if (!endpoint) throw new Error("TURN_OBJECT_S3_ENDPOINT is required for uploads");
   const parsed = new URL(endpoint.replace(/\/+$/, ""));
   if (!parsed.hostname.startsWith(`${bucket}.`)) {
@@ -105,7 +104,10 @@ const publicEndpoint = (bucket: string) => {
   return parsed.toString().replace(/\/+$/, "");
 };
 
-const createPresignedObjectUrl = (method: "GET" | "PUT", objectKey: string, options: { contentType?: string | null } = {}) => {
+const publicEndpoint = (bucket: string) => bucketEndpoint(bucket, config.turnObjectS3PublicEndpoint ?? config.turnObjectS3Endpoint?.replace("-internal.", "."));
+const internalEndpoint = (bucket: string) => bucketEndpoint(bucket, config.turnObjectS3Endpoint);
+
+const createPresignedObjectUrl = (method: "GET" | "PUT", objectKey: string, options: { contentType?: string | null; internalEndpoint?: boolean } = {}) => {
   requireObjectConfig();
   const accessKeyId = config.turnObjectS3AccessKeyId as string;
   const secretAccessKey = config.turnObjectS3SecretAccessKey as string;
@@ -115,7 +117,7 @@ const createPresignedObjectUrl = (method: "GET" | "PUT", objectKey: string, opti
   const amzDate = toAmzDate(now);
   const dateStamp = toDateStamp(now);
   const credentialScope = `${dateStamp}/${region}/s3/aws4_request`;
-  const endpoint = publicEndpoint(bucket);
+  const endpoint = options.internalEndpoint ? internalEndpoint(bucket) : publicEndpoint(bucket);
   const url = new URL(`${endpoint}/${encodePath(objectKey)}`);
   const signedHeaders = "host";
   url.searchParams.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
@@ -154,6 +156,11 @@ const createPresignedObjectUrl = (method: "GET" | "PUT", objectKey: string, opti
 
 export const createPresignedPutUrl = (objectKey: string, contentType?: string | null) => {
   const signed = createPresignedObjectUrl("PUT", objectKey, { contentType });
+  return { uploadUrl: signed.url, expiresAt: signed.expiresAt, headers: signed.headers };
+};
+
+export const createInternalPresignedPutUrl = (objectKey: string, contentType?: string | null) => {
+  const signed = createPresignedObjectUrl("PUT", objectKey, { contentType, internalEndpoint: true });
   return { uploadUrl: signed.url, expiresAt: signed.expiresAt, headers: signed.headers };
 };
 

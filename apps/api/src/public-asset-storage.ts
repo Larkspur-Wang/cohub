@@ -4,6 +4,7 @@ import {
   buildPublicObjectUrl,
   cacheBuster,
   createPresignedPostObject,
+  createPresignedPutObjectUrl,
   type PresignStorageConfig,
 } from "./object-presign.js";
 import { redisCommandClient } from "./redis.js";
@@ -32,13 +33,25 @@ export type CreatePublicAssetUploadResponse = {
   };
 };
 
+export type CreateInternalPublicAssetUploadResponse = {
+  expiresAt: string;
+  asset: {
+    purpose: PublicAssetPurpose;
+    objectKey: string;
+    publicUrl: string;
+    uploadMethod: "PUT";
+    uploadUrl: string;
+    uploadHeaders?: Record<string, string>;
+  };
+};
+
 const IMAGE_MIME_TYPES = new Set(["image/webp", "image/jpeg"]);
 const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/jpeg": "jpg",
 };
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+export const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const RATE_LIMIT_MAX = 60;
 
@@ -58,6 +71,11 @@ const getStorageConfig = (): PresignStorageConfig => ({
   accessKeyId: config.publicAssetOssAccessKeyId,
   secretAccessKey: config.publicAssetOssSecretAccessKey,
 });
+
+const getInternalStorageConfig = (): PresignStorageConfig => {
+  const storage = getStorageConfig();
+  return { ...storage, publicEndpoint: storage.endpoint };
+};
 
 const requirePublicAssetConfig = () => {
   const storage = getStorageConfig();
@@ -145,6 +163,36 @@ export const createPublicAssetUploadPlan = (input: {
       uploadMethod: "POST",
       uploadUrl: signed.uploadUrl,
       uploadFields: signed.fields,
+    },
+  };
+};
+
+export const createInternalPublicAssetUploadPlan = (input: {
+  purpose: PublicAssetPurpose;
+  userUuid: string;
+  spaceId?: string;
+  sessionId?: string;
+  file: CreatePublicAssetUploadInput["file"];
+}): CreateInternalPublicAssetUploadResponse => {
+  assertPublicAssetUploadFile({ purpose: input.purpose, file: input.file });
+  requirePublicAssetConfig();
+  const objectKey = buildPublicAssetObjectKey({
+    purpose: input.purpose,
+    userUuid: input.userUuid,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    mimeType: input.file.mimeType,
+  });
+  const signed = createPresignedPutObjectUrl(getInternalStorageConfig(), objectKey, input.file.mimeType);
+  return {
+    expiresAt: signed.expiresAt,
+    asset: {
+      purpose: input.purpose,
+      objectKey,
+      publicUrl: input.purpose === "chat_attachment" ? buildPublicAssetUrl(objectKey) : buildVersionedPublicAssetUrl(objectKey),
+      uploadMethod: "PUT",
+      uploadUrl: signed.uploadUrl,
+      uploadHeaders: signed.headers,
     },
   };
 };

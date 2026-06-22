@@ -7,7 +7,7 @@ import { downloadWeChatCdnImage, uploadWeChatCdnBuffer } from "./cdn.js";
 import { detectImageMimeType } from "./mime.js";
 import { safeFetch } from "./url.js";
 
-export const WECHAT_INBOUND_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const WECHAT_INBOUND_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 export const WECHAT_INBOUND_IMAGE_MAX_COUNT = 4;
 export const WECHAT_OUTBOUND_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const BASE64_MAX_CHARS = Math.ceil(WECHAT_OUTBOUND_IMAGE_MAX_BYTES / 3) * 4 + 4;
@@ -17,7 +17,7 @@ function inboundImageAesKey(image: WeChatImageItem) {
   return image.media?.aes_key?.trim() || undefined;
 }
 
-export async function imageItemToContentBlock(params: {
+export async function downloadImageItem(params: {
   item: WeChatMessageItem;
   cdnBaseUrl: string;
   channelId: string;
@@ -37,11 +37,7 @@ export async function imageItemToContentBlock(params: {
   });
   const mediaType = detectImageMimeType(buffer);
   if (!mediaType) throw new Error("WeChat inbound image type is unsupported");
-  return {
-    type: "image",
-    source: { type: "base64", media_type: mediaType, data: buffer.toString("base64") },
-    _meta: { source: "wechat", encryptedQueryParam: media.encrypt_query_param ?? null },
-  } satisfies ContentBlock;
+  return { buffer, mediaType, encryptedQueryParam: media.encrypt_query_param ?? null };
 }
 
 async function fetchImageSource(source: Extract<ContentBlock, { type: "image" }>["source"]) {

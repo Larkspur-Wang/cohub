@@ -26,8 +26,10 @@ import {
   type WeChatMessage,
   type WeChatMessageItem,
 } from "./types.js";
-import { WECHAT_INBOUND_IMAGE_MAX_COUNT, imageItemToContentBlock, uploadImageContentBlock } from "./media/image.js";
+import { WECHAT_INBOUND_IMAGE_MAX_COUNT, downloadImageItem, uploadImageContentBlock } from "./media/image.js";
 import { renderWeChatText } from "./media/text.js";
+import { buildUploadedFileReferencesBlock, requestGatewayAttachmentPlan, uploadPlannedFileAttachments, uploadPlannedImageAttachment } from "./media/attachments.js";
+import { WECHAT_INBOUND_FILE_MAX_COUNT, downloadAttachmentItem } from "./media/file.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
@@ -309,30 +311,104 @@ export class WeChatProvider implements GatewayProvider {
     }
   }
 
-  private async contentFromMessage(message: WeChatMessage, externalMessageId: string) {
+  private async contentFromMessage(message: WeChatMessage, externalMessageId: string, eventBase: Omit<GatewayInboundEvent, "eventType" | "command" | "content">) {
     const content: ContentBlock[] = [];
     const text = textFromMessage(message, { includeMediaPlaceholders: false });
     if (text) content.push({ type: "text", text });
 
+    const downloadedImages: Array<{ id: string; buffer: Buffer; mediaType: string }> = [];
+    const downloadedFiles: Array<{ id: string; buffer: Buffer; filename: string; relativePath: string; mediaType: string | null }> = [];
     let imageCount = 0;
+    let fileCount = 0;
     for (const item of message.item_list ?? []) {
-      if (item.type !== WeChatMessageItemType.IMAGE) continue;
-      imageCount += 1;
-      if (imageCount > WECHAT_INBOUND_IMAGE_MAX_COUNT) {
-        content.push({ type: "text", text: "[Image skipped: too many images]" });
-        continue;
+      if (item.type === WeChatMessageItemType.IMAGE) {
+        imageCount += 1;
+        if (imageCount > WECHAT_INBOUND_IMAGE_MAX_COUNT) {
+          content.push({ type: "text", text: "[Image skipped: too many images]" });
+          continue;
+        }
+        try {
+          const image = await downloadImageItem({
+            item,
+            cdnBaseUrl: this.credentials.cdnBaseUrl,
+            channelId: this.channelId,
+            externalMessageId,
+          });
+          if (!image) {
+            content.push({ type: "text", text: "[Image]" });
+            continue;
+          }
+          downloadedImages.push({ id: `image-${downloadedImages.length}`, buffer: image.buffer, mediaType: image.mediaType });
+        } catch (error) {
+          logger.warn(`[WeChat:${this.channelId}] image download failed`, error);
+          content.push({ type: "text", text: "[Image unavailable]" });
+        }
       }
+
+      if (item.type === WeChatMessageItemType.FILE || item.type === WeChatMessageItemType.VIDEO || item.type === WeChatMessageItemType.VOICE) {
+        fileCount += 1;
+        if (fileCount > WECHAT_INBOUND_FILE_MAX_COUNT) {
+          content.push({ type: "text", text: "[File skipped: too many files]" });
+          continue;
+        }
+        try {
+          const file = await downloadAttachmentItem({
+            item,
+            cdnBaseUrl: this.credentials.cdnBaseUrl,
+            channelId: this.channelId,
+            externalMessageId,
+          });
+          if (!file) {
+            content.push({ type: "text", text: item.type === WeChatMessageItemType.VOICE ? "[Voice]" : item.type === WeChatMessageItemType.VIDEO ? "[Video]" : "[File]" });
+            continue;
+          }
+          downloadedFiles.push({ id: `file-${downloadedFiles.length}`, buffer: file.buffer, filename: file.filename, relativePath: file.relativePath, mediaType: file.mediaType });
+        } catch (error) {
+          logger.warn(`[WeChat:${this.channelId}] file download failed`, error);
+          content.push({ type: "text", text: "[File unavailable]" });
+        }
+      }
+    }
+
+    if (downloadedImages.length > 0 || downloadedFiles.length > 0) {
       try {
-        const imageBlock = await imageItemToContentBlock({
-          item,
-          cdnBaseUrl: this.credentials.cdnBaseUrl,
-          channelId: this.channelId,
-          externalMessageId,
+        const plan = await requestGatewayAttachmentPlan({
+          event: { ...eventBase, eventType: "message_create", content } satisfies GatewayInboundEvent,
+          images: downloadedImages.map((image) => ({
+            id: image.id,
+            size: image.buffer.length,
+            mimeType: image.mediaType,
+            filename: `${image.id}.${image.mediaType.split("/")[1] ?? "image"}`,
+          })),
+          files: downloadedFiles.map((file) => ({
+            id: file.id,
+            name: file.filename,
+            relativePath: file.relativePath,
+            size: file.buffer.length,
+            mimeType: file.mediaType,
+          })),
         });
-        content.push(imageBlock ?? { type: "text", text: "[Image]" });
+        const plansById = new Map(plan.images.map((image) => [image.id, image]));
+        for (const image of downloadedImages) {
+          const imagePlan = plansById.get(image.id);
+          if (!imagePlan) {
+            content.push({ type: "text", text: "[Image upload unavailable]" });
+            continue;
+          }
+          content.push(await uploadPlannedImageAttachment({ buffer: image.buffer, mediaType: image.mediaType, plan: imagePlan }));
+        }
+        const uploadedFilePaths = await uploadPlannedFileAttachments({
+          spaceId: plan.spaceId,
+          uploadId: plan.files.uploadId,
+          files: downloadedFiles.map((file) => ({ id: file.id, buffer: file.buffer, mediaType: file.mediaType })),
+          plans: plan.files.entries,
+        });
+        const fileReferences = buildUploadedFileReferencesBlock(uploadedFilePaths);
+        if (fileReferences) content.push(fileReferences);
       } catch (error) {
-        logger.warn(`[WeChat:${this.channelId}] image download failed`, error);
-        content.push({ type: "text", text: "[Image unavailable]" });
+        logger.warn(`[WeChat:${this.channelId}] attachment upload failed`, error);
+        for (const _image of downloadedImages) content.push({ type: "text", text: "[Image upload failed]" });
+        for (const _file of downloadedFiles) content.push({ type: "text", text: "[File upload failed]" });
       }
     }
 
@@ -348,12 +424,6 @@ export class WeChatProvider implements GatewayProvider {
     if (!reserved) return;
 
     const text = textFromMessage(message);
-    const content = await this.contentFromMessage(message, externalMessageId);
-    if (content.length === 0) {
-      await releaseWeChatMessageReservation(this.channelId, externalMessageId).catch(() => undefined);
-      return;
-    }
-
     const bindingKey = `wechat:${this.credentials.accountId ?? this.channelId}:dm:${fromUserId}`;
     const channelCommand = resolveChannelCommand(text);
     const eventBase = {
@@ -382,17 +452,22 @@ export class WeChatProvider implements GatewayProvider {
         },
       },
       sender: { id: fromUserId, name: fromUserId },
-      content,
       meta: {
         accountId: this.credentials.accountId ?? null,
         seq: message.seq ?? null,
         itemTypes: message.item_list?.map((item) => item.type).filter((value) => value != null) ?? [],
       },
-    } satisfies Omit<GatewayInboundEvent, "eventType" | "command">;
+    } satisfies Omit<GatewayInboundEvent, "eventType" | "command" | "content">;
+
+    const content = await this.contentFromMessage(message, externalMessageId, eventBase);
+    if (content.length === 0) {
+      await releaseWeChatMessageReservation(this.channelId, externalMessageId).catch(() => undefined);
+      return;
+    }
 
     const event: GatewayInboundEvent = channelCommand
-      ? { ...eventBase, eventType: "channel_command", command: channelCommand }
-      : { ...eventBase, eventType: "message_create" };
+      ? { ...eventBase, content, eventType: "channel_command", command: channelCommand }
+      : { ...eventBase, content, eventType: "message_create" };
 
     try {
       await publishInboundEvent(event);

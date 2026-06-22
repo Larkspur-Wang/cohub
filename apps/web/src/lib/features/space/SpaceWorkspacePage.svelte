@@ -1,4 +1,8 @@
 <script lang="ts">
+import {
+	buildFileReferencesText,
+	buildImageReferencesText,
+} from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
 	SessionTurnIndexItem,
@@ -3095,23 +3099,6 @@ async function handleAbort() {
 	} finally {
 		sessionComposer.aborting = false;
 	}
-}
-
-function escapeMarkdownPath(path: string) {
-	return path.replace(/[\r\n`]/g, "_");
-}
-
-function buildFileReferencesText(paths: string[]) {
-	if (paths.length === 0) return "";
-	return [
-		"Files:",
-		...paths.map((path) => `- \`${escapeMarkdownPath(path)}\``),
-	].join("\n");
-}
-
-function buildImageReferencesText(imageUrls: string[]) {
-	if (imageUrls.length === 0) return "";
-	return ["Images:", ...imageUrls.map((url) => `- ${url}`)].join("\n");
 }
 
 async function uploadComposerFileAttachments(
