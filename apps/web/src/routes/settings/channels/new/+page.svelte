@@ -448,7 +448,7 @@ async function handleSubmit(e: Event) {
                 </li>
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
-                  Open the scan page
+                  Open the scan page and scan with WeChat
                 </li>
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
@@ -471,40 +471,13 @@ async function handleSubmit(e: Event) {
             </div>
 
             {#if wechatQrDataUrl}
-              <div class="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
-                <div class="flex items-start justify-between gap-4">
-                  <div class="min-w-0">
-                    <p class="text-[12px] font-medium text-text-secondary">
-                      {wechatRemainingSeconds > 0 ? `Scan page ready · ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}
-                    </p>
-                    <p class="text-[11px] text-text-placeholder mt-0.5">Open the page, scan with WeChat, then confirm on your phone.</p>
-                  </div>
-                  <a
-                    href={wechatQrDataUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="shrink-0 text-[12px] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-                  >
-                    Open scan page
-                  </a>
-                </div>
-
-                {#if wechatQrDataUrl.startsWith("data:image/")}
-                  <div class="flex justify-center pt-1">
-                    <img src={wechatQrDataUrl} alt="WeChat login QR code" class="w-56 h-56 rounded-md bg-white p-2 object-contain" />
-                  </div>
-                {:else}
-                  <div class="sr-only">Scan page available.</div>
-                {/if}
-
-                <div class="flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
-                  <p class="text-[11px] text-text-placeholder">
-                    {wechatStatus || "Waiting for scan."}
-                  </p>
-                  {#if wechatRemainingSeconds > 0}
-                    <p class="text-[11px] text-text-placeholder">{formatWeChatCountdown(wechatRemainingSeconds)}</p>
-                  {/if}
-                </div>
+              <div class="space-y-1.5">
+                <p class="text-[12px] font-medium text-text-secondary">
+                  {wechatRemainingSeconds > 0 ? `Expires in ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}
+                </p>
+                <p class="text-[11px] text-text-placeholder">
+                  {wechatStatus || "Open the scan page, scan with WeChat, then confirm on your phone."}
+                </p>
               </div>
             {/if}
 
@@ -521,14 +494,6 @@ async function handleSubmit(e: Event) {
                 Cancel
               </button>
               {#if wechatQrDataUrl}
-                <button
-                  type="button"
-                  onclick={startWeChatLogin}
-                  disabled={isSubmitting}
-                  class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-                >
-                  Refresh scan page
-                </button>
                 <a
                   href={wechatQrDataUrl}
                   target="_blank"
