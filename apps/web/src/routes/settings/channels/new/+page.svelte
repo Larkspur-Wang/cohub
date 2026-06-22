@@ -4,7 +4,6 @@ import {
 	Check,
 	ChevronDown,
 	Copy,
-	ExternalLink,
 	Loader2,
 	MessageCircle,
 	MessageSquare,
@@ -40,10 +39,6 @@ let wechatPolling = $state(false);
 let isSubmitting = $state(false);
 let submitError = $state("");
 let copiedField = $state<string | null>(null);
-
-// Guide accordion state
-let discordGuideOpen = $state(false);
-let feishuGuideOpen = $state(false);
 
 onDestroy(() => {
 	wechatPolling = false;
@@ -350,39 +345,32 @@ async function handleSubmit(e: Event) {
         </div>
 
         {#if selectedProvider === "discord"}
-          <!-- Discord Guide -->
-          <div class="rounded-md border border-border-subtle bg-bg-surface overflow-hidden">
-            <button
-              type="button"
-              onclick={() => discordGuideOpen = !discordGuideOpen}
-              class="w-full flex items-center justify-between p-3 hover:bg-bg-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand/50"
-            >
-              <span class="text-[12px] font-medium text-text-secondary flex items-center gap-2">
-                <ExternalLink class="w-3.5 h-3.5" />
-                How to get your Discord Bot Token
-              </span>
-              <ChevronDown class="w-4 h-4 text-text-placeholder transition-transform {discordGuideOpen ? 'rotate-180' : ''}" />
-            </button>
-            {#if discordGuideOpen}
-              <div class="px-3 pb-3 text-[12px] text-text-tertiary space-y-2 border-t border-border-subtle">
-                <ol class="list-decimal list-inside space-y-1.5 pt-2">
-                  <li>Go to the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener" class="text-brand hover:underline">Discord Developer Portal</a></li>
-                  <li>Create a new application or select an existing one</li>
-                  <li>Navigate to <strong>Bot</strong> in the left sidebar</li>
-                  <li>Click <strong>Reset Token</strong> and copy the bot token</li>
-                  <li>Enable the following <strong>Privileged Gateway Intents</strong>:
-                    <ul class="list-disc list-inside ml-4 mt-1 text-text-placeholder">
-                      <li>Message Content Intent</li>
-                      <li>Server Members Intent (optional)</li>
-                    </ul>
-                  </li>
-                  <li>Invite the bot to your server using the <strong>OAuth2 → URL Generator</strong> with <code class="px-1 py-0.5 bg-bg-code rounded text-[11px]">bot</code> scope</li>
-                </ol>
-              </div>
-            {/if}
+          <div class="space-y-2">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Discord Binding</div>
+              <p class="text-[13px] text-text-tertiary mt-1">Create or select a Discord bot, paste its token, then save the channel.</p>
+            </div>
+            <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
+                Create a Discord bot
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
+                Copy the bot token
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
+                Save the channel
+              </li>
+            </ol>
+            <div class="space-y-1.5 text-[12px] text-text-tertiary">
+              <p>Go to the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener" class="text-brand hover:underline">Discord Developer Portal</a>, create or select an application, then open the Bot page.</p>
+              <p>Reset and copy the bot token. Enable Message Content Intent, then invite the bot with the OAuth2 bot scope.</p>
+            </div>
           </div>
 
-          <form onsubmit={handleSubmit} class="space-y-3">
+          <form onsubmit={handleSubmit} class="space-y-4">
             <div>
               <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
               <input
@@ -444,7 +432,7 @@ async function handleSubmit(e: Event) {
               <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
-                  Start binding
+                  Enter Channel Name and start binding
                 </li>
                 <li class="flex items-center gap-2">
                   <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
@@ -470,39 +458,38 @@ async function handleSubmit(e: Event) {
               <p class="mt-1.5 text-[11px] text-text-placeholder">Shown in Cohub to help you identify this channel.</p>
             </div>
 
-            {#if wechatQrDataUrl}
-              <div class="space-y-1.5">
-                <p class="text-[12px] font-medium text-text-secondary">
-                  {wechatRemainingSeconds > 0 ? `Expires in ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}
-                </p>
-                <p class="text-[11px] text-text-placeholder">
-                  {wechatStatus || "Open the scan page, scan with WeChat, then confirm on your phone."}
-                </p>
-              </div>
-            {/if}
-
             {#if submitError}
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{submitError}</div>
             {/if}
 
-            <div class="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onclick={cancelToChannels}
-                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-              >
-                Cancel
-              </button>
+            <div class="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end">
               {#if wechatQrDataUrl}
-                <a
-                  href={wechatQrDataUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex min-h-8 items-center justify-center rounded-[5px] bg-brand px-4 py-[6px] text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover active:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                <div class="min-w-0 flex-1 text-[11px] text-text-placeholder sm:text-right">
+                  <p class="font-medium text-text-secondary">Next: open the scan page and scan with WeChat.</p>
+                  <p>{wechatRemainingSeconds > 0 ? `Expires in ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}</p>
+                  {#if wechatStatus}
+                    <p>{wechatStatus}</p>
+                  {/if}
+                </div>
+              {/if}
+              <div class="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onclick={cancelToChannels}
+                  class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                 >
-                  Open scan page to bind
-                </a>
-              {:else}
+                  Cancel
+                </button>
+                {#if wechatQrDataUrl}
+                  <a
+                    href={wechatQrDataUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex min-h-8 items-center justify-center rounded-[5px] bg-brand px-4 py-[6px] text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover active:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                  >
+                    Open scan page to bind
+                  </a>
+                {:else}
                 <button
                   type="button"
                   onclick={startWeChatLogin}
@@ -516,52 +503,39 @@ async function handleSubmit(e: Event) {
                     Start WeChat binding
                   {/if}
                 </button>
-              {/if}
+                {/if}
+              </div>
             </div>
           </form>
 
         {:else if selectedProvider === "feishu"}
-          <!-- Feishu Guide -->
-          <div class="rounded-md border border-border-subtle bg-bg-surface overflow-hidden">
-            <button
-              type="button"
-              onclick={() => feishuGuideOpen = !feishuGuideOpen}
-              class="w-full flex items-center justify-between p-3 hover:bg-bg-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand/50"
-            >
-              <span class="text-[12px] font-medium text-text-secondary flex items-center gap-2">
-                <ExternalLink class="w-3.5 h-3.5" />
-                How to create a Feishu App & get credentials
-              </span>
-              <ChevronDown class="w-4 h-4 text-text-placeholder transition-transform {feishuGuideOpen ? 'rotate-180' : ''}" />
-            </button>
-            {#if feishuGuideOpen}
-              <div class="px-3 pb-3 text-[12px] text-text-tertiary space-y-2 border-t border-border-subtle">
-                <ol class="list-decimal list-inside space-y-1.5 pt-2">
-                  <li>Go to the <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" class="text-brand hover:underline">Feishu Open Platform</a></li>
-                  <li>Click <strong>Create App</strong> and choose <strong>Enterprise Self-built</strong></li>
-                  <li>In the app settings, go to <strong>Credentials & Basic Info</strong></li>
-                  <li>Copy the <strong>App ID</strong> and <strong>App Secret</strong></li>
-                  <li>Enable required <strong>Bot</strong> capability in the app:
-                    <ul class="list-disc list-inside ml-4 mt-1 text-text-placeholder">
-                      <li>Go to <strong>Capabilities → Bot</strong> and enable it</li>
-                    </ul>
-                  </li>
-                  <li>Configure <strong>Event Subscriptions</strong>:
-                    <ul class="list-disc list-inside ml-4 mt-1 text-text-placeholder">
-                      <li>Use <strong>Long Connection (WebSocket)</strong> mode — no webhook URL needed</li>
-                      <li>Subscribe to <code class="px-1 py-0.5 bg-bg-code rounded text-[11px]">im.message.receive_v1</code></li>
-                    </ul>
-                  </li>
-                  <li>Publish the app and get it approved by your org admin</li>
-                </ol>
-                <div class="mt-2 p-2 rounded bg-warning-bg border border-warning-bg text-warning">
-                  <strong>Note:</strong> If using international Lark, select "Lark" brand below.
-                </div>
-              </div>
-            {/if}
+          <div class="space-y-2">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Feishu / Lark Binding</div>
+              <p class="text-[13px] text-text-tertiary mt-1">Create a platform app, copy its credentials, then save the channel.</p>
+            </div>
+            <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
+                Create a platform app
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
+                Copy App ID and Secret
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
+                Save the channel
+              </li>
+            </ol>
+            <div class="space-y-1.5 text-[12px] text-text-tertiary">
+              <p>Go to the <a href="https://open.feishu.cn/app" target="_blank" rel="noopener" class="text-brand hover:underline">Feishu Open Platform</a>, create an Enterprise Self-built app, then open Credentials & Basic Info.</p>
+              <p>Copy the App ID and App Secret. Enable Bot capability, use Long Connection event subscriptions, then publish the app.</p>
+              <p class="text-warning">If using international Lark, select Lark below.</p>
+            </div>
           </div>
 
-          <form onsubmit={handleSubmit} class="space-y-3">
+          <form onsubmit={handleSubmit} class="space-y-4">
             <div>
               <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
               <input
