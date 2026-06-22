@@ -1,4 +1,4 @@
-import { buildFileReferencesText } from "@cohub/protocol";
+import { buildFileReferencesText, buildImageReferencesText } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { buildTraceHeaders } from "@cohub/infra/tracing";
@@ -144,5 +144,10 @@ export async function uploadPlannedFileAttachments(input: {
 
 export function buildUploadedFileReferencesBlock(paths: string[]): ContentBlock | null {
   const text = buildFileReferencesText(paths);
+  return text ? { type: "text", text } : null;
+}
+
+export function buildUploadedImageReferencesBlock(urls: string[]): ContentBlock | null {
+  const text = buildImageReferencesText(urls);
   return text ? { type: "text", text } : null;
 }

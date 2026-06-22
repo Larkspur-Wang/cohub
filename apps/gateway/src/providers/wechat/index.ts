@@ -28,7 +28,7 @@ import {
 } from "./types.js";
 import { WECHAT_INBOUND_IMAGE_MAX_COUNT, downloadImageItem, uploadImageContentBlock } from "./media/image.js";
 import { renderWeChatText } from "./media/text.js";
-import { buildUploadedFileReferencesBlock, requestGatewayAttachmentPlan, uploadPlannedFileAttachments, uploadPlannedImageAttachment } from "./media/attachments.js";
+import { buildUploadedFileReferencesBlock, buildUploadedImageReferencesBlock, requestGatewayAttachmentPlan, uploadPlannedFileAttachments, uploadPlannedImageAttachment } from "./media/attachments.js";
 import { WECHAT_INBOUND_FILE_MAX_COUNT, downloadAttachmentItem } from "./media/file.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -389,6 +389,7 @@ export class WeChatProvider implements GatewayProvider {
           })),
         });
         const plansById = new Map(plan.images.map((image) => [image.id, image]));
+        const uploadedImageUrls: string[] = [];
         for (const image of downloadedImages) {
           const imagePlan = plansById.get(image.id);
           if (!imagePlan) {
@@ -396,7 +397,10 @@ export class WeChatProvider implements GatewayProvider {
             continue;
           }
           content.push(await uploadPlannedImageAttachment({ buffer: image.buffer, mediaType: image.mediaType, plan: imagePlan }));
+          uploadedImageUrls.push(imagePlan.publicUrl);
         }
+        const imageReferences = buildUploadedImageReferencesBlock(uploadedImageUrls);
+        if (imageReferences) content.push(imageReferences);
         const uploadedFilePaths = await uploadPlannedFileAttachments({
           spaceId: plan.spaceId,
           uploadId: plan.files.uploadId,
