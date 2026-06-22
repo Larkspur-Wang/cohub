@@ -462,25 +462,19 @@ async function handleSubmit(e: Event) {
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{submitError}</div>
             {/if}
 
-            <div class="flex flex-col gap-2 pt-2 sm:flex-row sm:items-center sm:justify-end">
+            <div class="flex items-end justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onclick={cancelToChannels}
+                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+              >
+                Cancel
+              </button>
               {#if wechatQrDataUrl}
-                <div class="min-w-0 flex-1 text-[11px] text-text-placeholder sm:text-right">
-                  <p class="font-medium text-text-secondary">Next: open the scan page and scan with WeChat.</p>
-                  <p>{wechatRemainingSeconds > 0 ? `Expires in ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}</p>
-                  {#if wechatStatus}
-                    <p>{wechatStatus}</p>
-                  {/if}
-                </div>
-              {/if}
-              <div class="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onclick={cancelToChannels}
-                  class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-                >
-                  Cancel
-                </button>
-                {#if wechatQrDataUrl}
+                <div class="flex flex-col items-end gap-1">
+                  <p class="text-[11px] font-medium text-text-secondary">
+                    {wechatRemainingSeconds > 0 ? `Expires in ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}
+                  </p>
                   <a
                     href={wechatQrDataUrl}
                     target="_blank"
@@ -489,12 +483,13 @@ async function handleSubmit(e: Event) {
                   >
                     Open scan page to bind
                   </a>
-                {:else}
+                </div>
+              {:else}
                 <button
                   type="button"
                   onclick={startWeChatLogin}
                   disabled={isSubmitting || wechatPolling}
-                  class="inline-flex min-h-8 items-center justify-center gap-1.5 px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover active:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                  class="inline-flex min-h-8 items-center justify-center gap-1.5 px-4 py-[6px] rounded-[5px] border border-brand-border bg-brand-muted text-[12px] text-brand font-medium transition-colors hover:bg-brand-muted-hover disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                 >
                   {#if isSubmitting || wechatPolling}
                     <Loader2 class="w-3.5 h-3.5 animate-spin" />
@@ -503,8 +498,7 @@ async function handleSubmit(e: Event) {
                     Start WeChat binding
                   {/if}
                 </button>
-                {/if}
-              </div>
+              {/if}
             </div>
           </form>
 
