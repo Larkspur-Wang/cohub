@@ -61,13 +61,21 @@ type WeChatLoginState = {
   currentBaseUrl?: string;
 };
 
+type WeChatChannelCredentials = {
+  token?: string;
+  accountId?: string;
+  userId?: string;
+  baseUrl?: string;
+  cdnBaseUrl?: string;
+};
+
 type WeChatQrResponse = {
   qrcode?: string;
   qrcode_img_content?: string;
 };
 
 type WeChatQrStatusResponse = {
-  status?: "wait" | "scaned" | "confirmed" | "expired" | "scaned_but_redirect" | "binded_redirect" | string;
+  status?: "wait" | "scaned" | "confirmed" | "expired" | "scaned_but_redirect" | "need_verifycode" | "verify_code_blocked" | "binded_redirect" | string;
   bot_token?: string;
   ilink_bot_id?: string;
   ilink_user_id?: string;
@@ -75,7 +83,25 @@ type WeChatQrStatusResponse = {
   redirect_host?: string;
 };
 
-async function fetchWeChatQrCode() {
+async function listUserWeChatChannels(userUuid: string) {
+  return db
+    .select()
+    .from(userChannels)
+    .where(and(eq(userChannels.userUuid, userUuid), eq(userChannels.provider, "wechat")))
+    .orderBy(desc(userChannels.updatedAt), desc(userChannels.createdAt));
+}
+
+function getWeChatCredentials(channel: { credentials: unknown }) {
+  return (channel.credentials && typeof channel.credentials === "object" ? channel.credentials : {}) as WeChatChannelCredentials;
+}
+
+function findWeChatChannelByAccountId<T extends { credentials: unknown }>(channels: T[], accountId: string | undefined) {
+  const normalized = accountId?.trim();
+  if (!normalized) return null;
+  return channels.find((channel) => getWeChatCredentials(channel).accountId?.trim() === normalized) ?? null;
+}
+
+async function fetchWeChatQrCode(localTokenList: string[]) {
   const url = new URL(`ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(WECHAT_BOT_TYPE)}`, `${WECHAT_LOGIN_BASE_URL}/`);
   const { response, text } = await fetchTextWithTimeout(url, {
     method: "POST",
@@ -84,7 +110,7 @@ async function fetchWeChatQrCode() {
       "iLink-App-Id": WECHAT_ILINK_APP_ID,
       "iLink-App-ClientVersion": WECHAT_ILINK_APP_CLIENT_VERSION,
     },
-    body: JSON.stringify({ local_token_list: [] }),
+    body: JSON.stringify({ local_token_list: localTokenList.slice(0, 10) }),
   }, WECHAT_QR_START_TIMEOUT_MS);
   if (!response.ok) throw new Error(`WeChat QR start failed ${response.status}: ${text.slice(0, 200)}`);
   try {
@@ -96,8 +122,9 @@ async function fetchWeChatQrCode() {
   }
 }
 
-async function pollWeChatQrStatus(qrcode: string, baseUrl = WECHAT_LOGIN_BASE_URL) {
+async function pollWeChatQrStatus(qrcode: string, baseUrl = WECHAT_LOGIN_BASE_URL, verifyCode?: string) {
   const url = new URL(`ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`, `${resolveWeChatBaseUrl(baseUrl)}/`);
+  if (verifyCode?.trim()) url.searchParams.set("verify_code", verifyCode.trim());
   try {
     const { response, text } = await fetchTextWithTimeout(url, {
       method: "GET",
@@ -121,7 +148,12 @@ router.post("/wechat/login/start", async (c) => {
 
   let qr: { qrcode: string; qrDataUrl: string };
   try {
-    qr = await fetchWeChatQrCode();
+    const channels = await listUserWeChatChannels(user.uuid);
+    const localTokenList = channels
+      .map((channel) => getWeChatCredentials(channel).token?.trim())
+      .filter((token): token is string => Boolean(token))
+      .slice(0, 10);
+    qr = await fetchWeChatQrCode(localTokenList);
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : "Failed to start WeChat login." }, 502);
   }
@@ -145,7 +177,7 @@ router.post("/wechat/login/start", async (c) => {
 
 router.post("/wechat/login/wait", async (c) => {
   const user = useAuth(c);
-  const body = (await c.req.json<{ sessionKey?: string }>().catch(() => ({}))) as { sessionKey?: string };
+  const body = (await c.req.json<{ sessionKey?: string; verifyCode?: string }>().catch(() => ({}))) as { sessionKey?: string; verifyCode?: string };
   const sessionKey = body.sessionKey?.trim();
   if (!sessionKey) return c.json({ message: "sessionKey is required" }, 400);
 
@@ -155,7 +187,7 @@ router.post("/wechat/login/wait", async (c) => {
   const state = JSON.parse(rawState) as WeChatLoginState;
   if (state.userUuid !== user.uuid) return c.json({ message: "login session not found" }, 404);
 
-  const status = await pollWeChatQrStatus(state.qrcode, state.currentBaseUrl);
+  const status = await pollWeChatQrStatus(state.qrcode, state.currentBaseUrl, body.verifyCode);
   if (status.status === "scaned_but_redirect" && status.redirect_host) {
     const nextState = { ...state, currentBaseUrl: resolveWeChatBaseUrl(`https://${status.redirect_host}`) };
     await redisCommandClient.set(wechatLoginKey(sessionKey), JSON.stringify(nextState), "EX", WECHAT_LOGIN_TTL_SECONDS);
@@ -166,14 +198,28 @@ router.post("/wechat/login/wait", async (c) => {
     return c.json({ connected: false, status: status.status, message: status.status === "scaned" ? "Confirm on your phone." : "Waiting for scan." });
   }
 
+  if (status.status === "need_verifycode") {
+    return c.json({ connected: false, status: status.status, needVerifyCode: true, message: "Enter the code shown in WeChat." });
+  }
+
+  if (status.status === "verify_code_blocked") {
+    await redisCommandClient.del(wechatLoginKey(sessionKey));
+    return c.json({ connected: false, status: status.status, expired: true, message: "Too many incorrect codes. Start again later." });
+  }
+
   if (status.status === "expired") {
     await redisCommandClient.del(wechatLoginKey(sessionKey));
     return c.json({ connected: false, expired: true, message: "QR code expired. Start again." });
   }
 
   if (status.status === "binded_redirect") {
+    const channels = await listUserWeChatChannels(user.uuid);
     await redisCommandClient.del(wechatLoginKey(sessionKey));
-    return c.json({ connected: false, status: status.status, message: "This WeChat bot is already connected." });
+    const onlyChannel = channels.length === 1 ? channels[0] : null;
+    if (onlyChannel) {
+      return c.json({ connected: true, alreadyConnected: true, status: status.status, message: "WeChat is already connected.", channel: serializeChannel(onlyChannel) });
+    }
+    return c.json({ connected: false, alreadyConnected: true, status: status.status, message: "This WeChat bot is already connected." });
   }
 
   if (status.status !== "confirmed") {
@@ -191,17 +237,28 @@ router.post("/wechat/login/wait", async (c) => {
   }
 
   try {
+    const credentials: WeChatChannelCredentials = {
+      token: status.bot_token,
+      accountId: status.ilink_bot_id,
+      userId: status.ilink_user_id,
+      baseUrl: resolveWeChatBaseUrl(status.baseurl),
+      cdnBaseUrl: WECHAT_CDN_BASE_URL,
+    };
+    const existingChannel = findWeChatChannelByAccountId(await listUserWeChatChannels(user.uuid), status.ilink_bot_id);
+    if (existingChannel) {
+      const [channel] = await db.update(userChannels)
+        .set({ credentials, status: "active", updatedAt: new Date() })
+        .where(and(eq(userChannels.id, existingChannel.id), eq(userChannels.userUuid, user.uuid)))
+        .returning();
+      await redisCommandClient.del(wechatLoginKey(sessionKey));
+      return c.json({ connected: true, alreadyConnected: true, message: "WeChat is already connected.", channel: channel ? serializeChannel(channel) : null });
+    }
+
     const [channel] = await db.insert(userChannels).values({
       userUuid: user.uuid,
       provider: "wechat",
       name: state.name,
-      credentials: {
-        token: status.bot_token,
-        accountId: status.ilink_bot_id,
-        userId: status.ilink_user_id,
-        baseUrl: resolveWeChatBaseUrl(status.baseurl),
-        cdnBaseUrl: WECHAT_CDN_BASE_URL,
-      },
+      credentials,
       status: "active",
     }).returning();
 

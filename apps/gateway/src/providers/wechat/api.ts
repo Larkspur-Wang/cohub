@@ -6,7 +6,9 @@ import {
   WeChatMessageItemType,
   WeChatMessageState,
   WeChatMessageType,
+  type WeChatGetUploadUrlResponse,
   type WeChatGetUpdatesResponse,
+  type WeChatMessageItem,
   type WeChatSendMessageRequest,
 } from "./types.js";
 
@@ -124,18 +126,81 @@ export async function getWeChatUpdates(params: {
   }
 }
 
-export async function sendWeChatTextMessage(params: {
+export async function notifyWeChatStart(params: {
+  baseUrl: string;
+  token: string;
+  botAgent?: string;
+}) {
+  const text = await postJson({
+    baseUrl: params.baseUrl,
+    endpoint: "ilink/bot/msg/notifystart",
+    token: params.token,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    label: "wechat notifyStart",
+    body: { base_info: { bot_agent: sanitizeBotAgent(params.botAgent) } },
+  });
+  return JSON.parse(text) as { ret?: number; errcode?: number; errmsg?: string };
+}
+
+export async function notifyWeChatStop(params: {
+  baseUrl: string;
+  token: string;
+  botAgent?: string;
+}) {
+  const text = await postJson({
+    baseUrl: params.baseUrl,
+    endpoint: "ilink/bot/msg/notifystop",
+    token: params.token,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    label: "wechat notifyStop",
+    body: { base_info: { bot_agent: sanitizeBotAgent(params.botAgent) } },
+  });
+  return JSON.parse(text) as { ret?: number; errcode?: number; errmsg?: string };
+}
+
+export async function getWeChatUploadUrl(params: {
+  baseUrl: string;
+  token: string;
+  filekey: string;
+  mediaType: number;
+  toUserId: string;
+  rawSize: number;
+  rawFileMd5: string;
+  fileSize: number;
+  aesKeyHex: string;
+  botAgent?: string;
+}) {
+  const text = await postJson({
+    baseUrl: params.baseUrl,
+    endpoint: "ilink/bot/getuploadurl",
+    token: params.token,
+    timeoutMs: DEFAULT_API_TIMEOUT_MS,
+    label: "wechat getUploadUrl",
+    body: {
+      filekey: params.filekey,
+      media_type: params.mediaType,
+      to_user_id: params.toUserId,
+      rawsize: params.rawSize,
+      rawfilemd5: params.rawFileMd5,
+      filesize: params.fileSize,
+      no_need_thumb: true,
+      aeskey: params.aesKeyHex,
+      base_info: { bot_agent: sanitizeBotAgent(params.botAgent) },
+    },
+  });
+  return JSON.parse(text) as WeChatGetUploadUrlResponse;
+}
+
+export async function sendWeChatMessageItems(params: {
   baseUrl: string;
   token: string;
   to: string;
-  text: string;
+  items: WeChatMessageItem[];
   contextToken?: string | null;
   botAgent?: string;
+  label?: string;
 }) {
   const clientId = crypto.randomUUID();
-  const itemList = params.text.trim()
-    ? [{ type: WeChatMessageItemType.TEXT, text_item: { text: params.text } }]
-    : [];
   const body: WeChatSendMessageRequest & { base_info: { bot_agent: string } } = {
     msg: {
       from_user_id: "",
@@ -143,7 +208,7 @@ export async function sendWeChatTextMessage(params: {
       client_id: clientId,
       message_type: WeChatMessageType.BOT,
       message_state: WeChatMessageState.FINISH,
-      item_list: itemList.length ? itemList : undefined,
+      item_list: params.items.length ? params.items : undefined,
       context_token: params.contextToken?.trim() || undefined,
     },
     base_info: { bot_agent: sanitizeBotAgent(params.botAgent) },
@@ -158,8 +223,28 @@ export async function sendWeChatTextMessage(params: {
     endpoint: "ilink/bot/sendmessage",
     token: params.token,
     timeoutMs: DEFAULT_API_TIMEOUT_MS,
-    label: "wechat sendMessage",
+    label: params.label ?? "wechat sendMessage",
     body,
   });
   return { externalMessageId: clientId };
+}
+
+export async function sendWeChatTextMessage(params: {
+  baseUrl: string;
+  token: string;
+  to: string;
+  text: string;
+  contextToken?: string | null;
+  botAgent?: string;
+}) {
+  return sendWeChatMessageItems({
+    baseUrl: params.baseUrl,
+    token: params.token,
+    to: params.to,
+    contextToken: params.contextToken,
+    botAgent: params.botAgent,
+    items: params.text.trim()
+      ? [{ type: WeChatMessageItemType.TEXT, text_item: { text: params.text } }]
+      : [],
+  });
 }

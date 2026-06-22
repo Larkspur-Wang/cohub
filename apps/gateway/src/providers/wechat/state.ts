@@ -4,11 +4,15 @@ const CONTEXT_TOKEN_MAX_PEERS = 5000;
 const CONTEXT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 const DEDUP_TTL_SECONDS = 60 * 60 * 24;
 const SYNC_BUF_TTL_SECONDS = 60 * 60 * 24 * 90;
+const STATUS_TTL_SECONDS = 60 * 60 * 24 * 30;
+
+export type WeChatStatusField = "lastPollAt" | "lastInboundAt" | "lastOutboundAt" | "lastErrorAt" | "lastError";
 
 const syncBufKey = (channelId: string) => `gateway:wechat:${channelId}:sync_buf`;
 const contextTokenKey = (channelId: string) => `gateway:wechat:${channelId}:context_tokens`;
 const contextTokenIndexKey = (channelId: string) => `gateway:wechat:${channelId}:context_token_index`;
 const dedupKey = (channelId: string, externalMessageId: string) => `gateway:wechat:${channelId}:dedup:${externalMessageId}`;
+const statusKey = (channelId: string) => `gateway:wechat:${channelId}:status`;
 
 export async function getWeChatSyncBuf(channelId: string) {
   return (await redisCommandClient.get(syncBufKey(channelId))) ?? "";
@@ -58,4 +62,12 @@ export async function reserveWeChatMessage(channelId: string, externalMessageId:
 
 export async function releaseWeChatMessageReservation(channelId: string, externalMessageId: string) {
   await redisCommandClient.del(dedupKey(channelId, externalMessageId));
+}
+
+export async function updateWeChatStatus(channelId: string, fields: Partial<Record<WeChatStatusField, string | number>>) {
+  const entries = Object.entries(fields)
+    .filter((entry): entry is [string, string | number] => entry[1] !== undefined && entry[1] !== null)
+    .flatMap(([key, value]) => [key, String(value)]);
+  if (entries.length === 0) return;
+  await redisCommandClient.multi().hset(statusKey(channelId), ...entries).expire(statusKey(channelId), STATUS_TTL_SECONDS).exec();
 }

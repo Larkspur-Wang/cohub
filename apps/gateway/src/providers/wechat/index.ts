@@ -8,7 +8,7 @@ import type { GatewayProvider } from "../base.js";
 import { publishInboundEvent } from "../../bus.js";
 import { resolveChannelCommand } from "../../channel-commands.js";
 import { getSpaceChannelConfig } from "../../redis.js";
-import { getWeChatUpdates, sendWeChatTextMessage } from "./api.js";
+import { getWeChatUpdates, notifyWeChatStart, notifyWeChatStop, sendWeChatMessageItems, sendWeChatTextMessage } from "./api.js";
 import {
   getWeChatContextToken,
   getWeChatSyncBuf,
@@ -16,6 +16,7 @@ import {
   reserveWeChatMessage,
   setWeChatContextToken,
   setWeChatSyncBuf,
+  updateWeChatStatus,
 } from "./state.js";
 import {
   WECHAT_DEFAULT_BASE_URL,
@@ -25,13 +26,15 @@ import {
   type WeChatMessage,
   type WeChatMessageItem,
 } from "./types.js";
+import { WECHAT_INBOUND_IMAGE_MAX_COUNT, imageItemToContentBlock, uploadImageContentBlock } from "./media/image.js";
+import { renderWeChatText } from "./media/text.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const RETRY_DELAY_MS = 2_000;
 const BACKOFF_DELAY_MS = 30_000;
+const SESSION_EXPIRED_BACKOFF_MS = 5 * 60_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
-const TEXT_CHUNK_LIMIT = 3800;
 const SESSION_EXPIRED_ERRCODE = -14;
 
 type ResolvedCredentials = {
@@ -93,8 +96,13 @@ const bodyFromItem = (item: WeChatMessageItem): string => {
   return "";
 };
 
-const textFromMessage = (msg: WeChatMessage) => {
-  const parts = (msg.item_list ?? []).map(bodyFromItem).map((value) => value.trim()).filter(Boolean);
+const textFromMessage = (msg: WeChatMessage, options: { includeMediaPlaceholders?: boolean } = {}) => {
+  const includeMediaPlaceholders = options.includeMediaPlaceholders ?? true;
+  const parts = (msg.item_list ?? [])
+    .filter((item) => includeMediaPlaceholders || item.type === WeChatMessageItemType.TEXT || item.type === WeChatMessageItemType.VOICE)
+    .map(bodyFromItem)
+    .map((value) => value.trim())
+    .filter(Boolean);
   return parts.join("\n").trim();
 };
 
@@ -111,34 +119,17 @@ const getSessionOutput = (cmd: PlannedGatewayOutboundCommand): GatewaySessionOut
   return output as GatewaySessionOutput;
 };
 
-const renderOutboundText = (content: ContentBlock[]) => content
+const renderOutboundText = (content: ContentBlock[]) => renderWeChatText(content
   .map((block) => {
     if (block.type === "text") return block.text;
     if (block.type === "system_note") return block.text;
-    if (block.type === "image") return "[Image]";
     return "";
   })
   .filter(Boolean)
-  .join("\n")
-  .trim();
+  .join("\n"));
 
-const splitText = (value: string, limit = TEXT_CHUNK_LIMIT) => {
-  const text = value.trim();
-  if (!text) return [] as string[];
-  if (text.length <= limit) return [text];
-
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > limit) {
-    const candidate = remaining.slice(0, limit);
-    const breakIndex = Math.max(candidate.lastIndexOf("\n\n"), candidate.lastIndexOf("\n"), candidate.lastIndexOf(" "));
-    const cut = breakIndex > Math.floor(limit * 0.5) ? breakIndex : limit;
-    chunks.push(remaining.slice(0, cut).trim());
-    remaining = remaining.slice(cut).trim();
-  }
-  if (remaining) chunks.push(remaining);
-  return chunks;
-};
+const outboundImages = (content: ContentBlock[]) => content
+  .filter((block): block is Extract<ContentBlock, { type: "image" }> => block.type === "image");
 
 export class WeChatProvider implements GatewayProvider {
   private readonly abortController = new AbortController();
@@ -146,13 +137,14 @@ export class WeChatProvider implements GatewayProvider {
 
   constructor(private readonly channelId: string, credentials: WeChatCredentials) {
     this.credentials = resolveCredentials(credentials);
-    void this.pollLoop().catch((error) => {
+    void this.start().catch((error) => {
       if (!this.abortController.signal.aborted) logger.error(`[WeChat:${channelId}] poll loop stopped`, error);
     });
   }
 
   destroy(): void {
     this.abortController.abort();
+    void this.notifyStop();
   }
 
   async handleOutbound(cmd: PlannedGatewayOutboundCommand) {
@@ -166,24 +158,90 @@ export class WeChatProvider implements GatewayProvider {
       return { success: true };
     }
 
-    const text = output?.type === "session.turn.error" ? output.error.trim() : renderOutboundText(cmd.content);
-    const chunks = splitText(text);
-    if (chunks.length === 0) return { success: true };
+    const text = output?.type === "session.turn.error" ? renderWeChatText(output.error) : renderOutboundText(cmd.content);
+    const images = output?.type === "session.turn.error" ? [] : outboundImages(cmd.content);
+    if (!text && images.length === 0) return { success: true };
 
     const contextToken = await getWeChatContextToken(this.channelId, externalChatId);
     let lastExternalMessageId: string | undefined;
-    for (const chunk of chunks) {
+    if (text) {
       const result = await sendWeChatTextMessage({
         baseUrl: this.credentials.baseUrl,
         token: this.credentials.token,
         to: externalChatId,
-        text: chunk,
+        text,
         contextToken,
       });
       lastExternalMessageId = result.externalMessageId;
+      await updateWeChatStatus(this.channelId, { lastOutboundAt: Date.now() });
     }
 
-    return { success: true, externalMessageId: lastExternalMessageId };
+    let imageFailures = 0;
+    for (const image of images) {
+      try {
+        const item = await uploadImageContentBlock({
+          block: image,
+          baseUrl: this.credentials.baseUrl,
+          cdnBaseUrl: this.credentials.cdnBaseUrl,
+          token: this.credentials.token,
+          to: externalChatId,
+        });
+        const result = await sendWeChatMessageItems({
+          baseUrl: this.credentials.baseUrl,
+          token: this.credentials.token,
+          to: externalChatId,
+          items: [item],
+          contextToken,
+          label: "wechat sendImage",
+        });
+        lastExternalMessageId = result.externalMessageId;
+        await updateWeChatStatus(this.channelId, { lastOutboundAt: Date.now() });
+      } catch (error) {
+        imageFailures += 1;
+        logger.warn(`[WeChat:${this.channelId}] outbound image failed`, error);
+        await updateWeChatStatus(this.channelId, {
+          lastErrorAt: Date.now(),
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return imageFailures > 0
+      ? { success: Boolean(lastExternalMessageId), error: `${imageFailures} WeChat image(s) failed`, externalMessageId: lastExternalMessageId }
+      : { success: true, externalMessageId: lastExternalMessageId };
+  }
+
+  private async start() {
+    await this.notifyStart();
+    await this.pollLoop();
+  }
+
+  private async notifyStart() {
+    try {
+      const response = await notifyWeChatStart({
+        baseUrl: this.credentials.baseUrl,
+        token: this.credentials.token,
+      });
+      if ((response.ret !== undefined && response.ret !== 0) || (response.errcode !== undefined && response.errcode !== 0)) {
+        logger.warn(`[WeChat:${this.channelId}] notifyStart failed ret=${response.ret} errcode=${response.errcode} errmsg=${response.errmsg ?? ""}`);
+      }
+    } catch (error) {
+      logger.warn(`[WeChat:${this.channelId}] notifyStart failed`, error);
+    }
+  }
+
+  private async notifyStop() {
+    try {
+      const response = await notifyWeChatStop({
+        baseUrl: this.credentials.baseUrl,
+        token: this.credentials.token,
+      });
+      if ((response.ret !== undefined && response.ret !== 0) || (response.errcode !== undefined && response.errcode !== 0)) {
+        logger.warn(`[WeChat:${this.channelId}] notifyStop failed ret=${response.ret} errcode=${response.errcode} errmsg=${response.errmsg ?? ""}`);
+      }
+    } catch (error) {
+      logger.warn(`[WeChat:${this.channelId}] notifyStop failed`, error);
+    }
   }
 
   private async pollLoop() {
@@ -209,17 +267,25 @@ export class WeChatProvider implements GatewayProvider {
 
         const apiError = (response.ret !== undefined && response.ret !== 0) || (response.errcode !== undefined && response.errcode !== 0);
         if (apiError) {
+          const isSessionExpired = response.ret === SESSION_EXPIRED_ERRCODE || response.errcode === SESSION_EXPIRED_ERRCODE;
+          const errorMessage = `ret=${response.ret} errcode=${response.errcode} errmsg=${response.errmsg ?? ""}`;
+          await updateWeChatStatus(this.channelId, { lastErrorAt: Date.now(), lastError: errorMessage });
+          if (isSessionExpired) {
+            consecutiveFailures = 0;
+            logger.warn(`[WeChat:${this.channelId}] session expired, backing off ${SESSION_EXPIRED_BACKOFF_MS}ms`);
+            await sleep(SESSION_EXPIRED_BACKOFF_MS, this.abortController.signal);
+            continue;
+          }
           consecutiveFailures += 1;
-          logger.warn(`[WeChat:${this.channelId}] getUpdates failed ret=${response.ret} errcode=${response.errcode} errmsg=${response.errmsg ?? ""}`);
-          const delay = response.ret === SESSION_EXPIRED_ERRCODE || response.errcode === SESSION_EXPIRED_ERRCODE || consecutiveFailures >= MAX_CONSECUTIVE_FAILURES
-            ? BACKOFF_DELAY_MS
-            : RETRY_DELAY_MS;
+          logger.warn(`[WeChat:${this.channelId}] getUpdates failed ${errorMessage}`);
+          const delay = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ? BACKOFF_DELAY_MS : RETRY_DELAY_MS;
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) consecutiveFailures = 0;
           await sleep(delay, this.abortController.signal);
           continue;
         }
 
         consecutiveFailures = 0;
+        await updateWeChatStatus(this.channelId, { lastPollAt: Date.now() });
         for (const message of response.msgs ?? []) {
           await this.publishMessage(message);
         }
@@ -232,6 +298,10 @@ export class WeChatProvider implements GatewayProvider {
         if (this.abortController.signal.aborted) return;
         consecutiveFailures += 1;
         logger.error(`[WeChat:${this.channelId}] getUpdates error`, error);
+        await updateWeChatStatus(this.channelId, {
+          lastErrorAt: Date.now(),
+          lastError: error instanceof Error ? error.message : String(error),
+        });
         const delay = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ? BACKOFF_DELAY_MS : RETRY_DELAY_MS;
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) consecutiveFailures = 0;
         await sleep(delay, this.abortController.signal).catch(() => undefined);
@@ -239,16 +309,50 @@ export class WeChatProvider implements GatewayProvider {
     }
   }
 
+  private async contentFromMessage(message: WeChatMessage, externalMessageId: string) {
+    const content: ContentBlock[] = [];
+    const text = textFromMessage(message, { includeMediaPlaceholders: false });
+    if (text) content.push({ type: "text", text });
+
+    let imageCount = 0;
+    for (const item of message.item_list ?? []) {
+      if (item.type !== WeChatMessageItemType.IMAGE) continue;
+      imageCount += 1;
+      if (imageCount > WECHAT_INBOUND_IMAGE_MAX_COUNT) {
+        content.push({ type: "text", text: "[Image skipped: too many images]" });
+        continue;
+      }
+      try {
+        const imageBlock = await imageItemToContentBlock({
+          item,
+          cdnBaseUrl: this.credentials.cdnBaseUrl,
+          channelId: this.channelId,
+          externalMessageId,
+        });
+        content.push(imageBlock ?? { type: "text", text: "[Image]" });
+      } catch (error) {
+        logger.warn(`[WeChat:${this.channelId}] image download failed`, error);
+        content.push({ type: "text", text: "[Image unavailable]" });
+      }
+    }
+
+    return content;
+  }
+
   private async publishMessage(message: WeChatMessage) {
     const fromUserId = message.from_user_id?.trim();
     if (!fromUserId) return;
 
     const externalMessageId = messageExternalId(message);
-    const text = textFromMessage(message);
-    if (!text) return;
-
     const reserved = await reserveWeChatMessage(this.channelId, externalMessageId);
     if (!reserved) return;
+
+    const text = textFromMessage(message);
+    const content = await this.contentFromMessage(message, externalMessageId);
+    if (content.length === 0) {
+      await releaseWeChatMessageReservation(this.channelId, externalMessageId).catch(() => undefined);
+      return;
+    }
 
     const bindingKey = `wechat:${this.credentials.accountId ?? this.channelId}:dm:${fromUserId}`;
     const channelCommand = resolveChannelCommand(text);
@@ -278,7 +382,7 @@ export class WeChatProvider implements GatewayProvider {
         },
       },
       sender: { id: fromUserId, name: fromUserId },
-      content: [{ type: "text", text }] satisfies ContentBlock[],
+      content,
       meta: {
         accountId: this.credentials.accountId ?? null,
         seq: message.seq ?? null,
@@ -292,6 +396,7 @@ export class WeChatProvider implements GatewayProvider {
 
     try {
       await publishInboundEvent(event);
+      await updateWeChatStatus(this.channelId, { lastInboundAt: Date.now() });
       if (message.context_token) await setWeChatContextToken(this.channelId, fromUserId, message.context_token);
     } catch (error) {
       await releaseWeChatMessageReservation(this.channelId, externalMessageId).catch(() => undefined);

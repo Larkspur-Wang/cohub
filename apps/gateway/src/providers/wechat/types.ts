@@ -26,8 +26,34 @@ export type WeChatCredentials = {
   cdnBaseUrl?: string;
 };
 
+export const WeChatUploadMediaType = {
+  IMAGE: 1,
+  VIDEO: 2,
+  FILE: 3,
+  VOICE: 4,
+} as const;
+
 export type WeChatTextItem = {
   text?: string;
+};
+
+export type WeChatCdnMedia = {
+  encrypt_query_param?: string;
+  aes_key?: string;
+  encrypt_type?: number;
+  full_url?: string;
+};
+
+export type WeChatImageItem = {
+  media?: WeChatCdnMedia;
+  thumb_media?: WeChatCdnMedia;
+  aeskey?: string;
+  url?: string;
+  mid_size?: number;
+  thumb_size?: number;
+  thumb_height?: number;
+  thumb_width?: number;
+  hd_size?: number;
 };
 
 export type WeChatVoiceItem = {
@@ -42,6 +68,7 @@ export type WeChatRefMessage = {
 export type WeChatMessageItem = {
   type?: number;
   text_item?: WeChatTextItem;
+  image_item?: WeChatImageItem;
   voice_item?: WeChatVoiceItem;
   ref_msg?: WeChatRefMessage;
 };
@@ -79,4 +106,10 @@ export type WeChatSendMessageRequest = {
     item_list?: WeChatMessageItem[];
     context_token?: string;
   };
+};
+
+export type WeChatGetUploadUrlResponse = {
+  upload_param?: string;
+  thumb_upload_param?: string;
+  upload_full_url?: string;
 };

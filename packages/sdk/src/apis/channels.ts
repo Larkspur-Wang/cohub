@@ -40,10 +40,12 @@ export class ChannelsApi {
     });
   }
 
-  waitWeChatLogin(data: { sessionKey: string }) {
+  waitWeChatLogin(data: { sessionKey: string; verifyCode?: string }) {
     return this.transport.request<{
       connected: boolean;
       expired?: boolean;
+      alreadyConnected?: boolean;
+      needVerifyCode?: boolean;
       status?: string;
       message: string;
       channel?: Channel;

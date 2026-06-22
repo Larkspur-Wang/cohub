@@ -31,6 +31,8 @@ let formBrand = $state<"feishu" | "lark">("feishu");
 let wechatQrDataUrl = $state("");
 let wechatSessionKey = $state("");
 let wechatStatus = $state("");
+let wechatVerifyCode = $state("");
+let wechatNeedsVerifyCode = $state(false);
 let wechatExpiresAt = $state(0);
 let wechatRemainingSeconds = $state(0);
 let wechatTimer: ReturnType<typeof setInterval> | null = null;
@@ -103,6 +105,8 @@ function goBack() {
 	wechatQrDataUrl = "";
 	wechatSessionKey = "";
 	wechatStatus = "";
+	wechatVerifyCode = "";
+	wechatNeedsVerifyCode = false;
 	wechatExpiresAt = 0;
 	wechatRemainingSeconds = 0;
 	stopWeChatPolling();
@@ -117,16 +121,25 @@ function copyToClipboard(text: string, field: string) {
 	});
 }
 
-async function pollWeChatLogin(sessionKey: string) {
+async function pollWeChatLogin(sessionKey: string, verifyCode?: string) {
 	wechatPolling = true;
 	try {
 		while (wechatPolling && selectedProvider === "wechat") {
-			const result = await sdk.channels.waitWeChatLogin({ sessionKey });
+			const result = await sdk.channels.waitWeChatLogin({
+				sessionKey,
+				verifyCode,
+			});
+			verifyCode = undefined;
 			if (!wechatPolling || selectedProvider !== "wechat") return;
 			wechatStatus = result.message;
 			if (result.connected) {
 				stopWeChatPolling();
 				await goto("/settings/channels");
+				return;
+			}
+			if (result.needVerifyCode) {
+				wechatNeedsVerifyCode = true;
+				wechatPolling = false;
 				return;
 			}
 			if (result.expired) {
@@ -137,6 +150,7 @@ async function pollWeChatLogin(sessionKey: string) {
 			if (result.status === "confirming") {
 				wechatStatus = "Finalizing connection...";
 			}
+			if (result.status === "scaned") wechatNeedsVerifyCode = false;
 			await new Promise((resolve) => setTimeout(resolve, 1200));
 		}
 	} catch (error) {
@@ -165,6 +179,8 @@ async function startWeChatLogin() {
 		wechatQrDataUrl = result.qrDataUrl;
 		wechatSessionKey = result.sessionKey;
 		wechatStatus = result.message;
+		wechatVerifyCode = "";
+		wechatNeedsVerifyCode = false;
 		startWeChatCountdown(result.expiresInSeconds);
 		void pollWeChatLogin(result.sessionKey);
 	} catch (error) {
@@ -178,6 +194,17 @@ async function startWeChatLogin() {
 	} finally {
 		isSubmitting = false;
 	}
+}
+
+async function submitWeChatVerifyCode() {
+	const code = wechatVerifyCode.trim();
+	if (!wechatSessionKey || !code) {
+		submitError = "Verification code is required.";
+		return;
+	}
+	submitError = "";
+	wechatNeedsVerifyCode = false;
+	void pollWeChatLogin(wechatSessionKey, code);
 }
 
 async function handleSubmit(e: Event) {
@@ -463,6 +490,27 @@ async function handleSubmit(e: Event) {
               <p class="mt-1.5 text-[11px] text-text-placeholder">Shown in Cohub to help you identify this channel.</p>
             </div>
 
+            {#if wechatNeedsVerifyCode}
+              <div class="space-y-2 rounded-md border border-border-subtle bg-bg-surface p-3">
+                <p class="text-[12px] text-text-tertiary">Enter the verification code shown in WeChat.</p>
+                <div class="flex gap-2">
+                  <input
+                    type="text"
+                    bind:value={wechatVerifyCode}
+                    placeholder="6-digit code"
+                    class="min-w-0 flex-1 px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onclick={submitWeChatVerifyCode}
+                    class="inline-flex min-h-8 items-center justify-center rounded-[5px] bg-brand px-4 py-[6px] text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover active:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            {/if}
+
             {#if submitError}
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{submitError}</div>
             {/if}
@@ -489,7 +537,7 @@ async function handleSubmit(e: Event) {
                     Open scan page to bind
                   </a>
                 </div>
-              {:else}
+              {:else if !wechatNeedsVerifyCode}
                 <button
                   type="button"
                   onclick={startWeChatLogin}
