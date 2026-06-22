@@ -68,6 +68,11 @@
 	--color-provider-feishu-bg-hover: var(--provider-feishu-bg-hover);
 	--color-provider-feishu-border: var(--provider-feishu-border);
 	--color-provider-feishu-border-hover: var(--provider-feishu-border-hover);
+	--color-provider-wechat: var(--provider-wechat);
+	--color-provider-wechat-bg: var(--provider-wechat-bg);
+	--color-provider-wechat-bg-hover: var(--provider-wechat-bg-hover);
+	--color-provider-wechat-border: var(--provider-wechat-border);
+	--color-provider-wechat-border-hover: var(--provider-wechat-border-hover);
 
 	/* Semantic */
 	--color-success: var(--success-500);

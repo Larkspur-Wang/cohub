@@ -282,7 +282,7 @@ async function handleSubmit(e: Event) {
         <button
           type="button"
           onclick={() => selectProvider("discord")}
-          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-discord-border-hover hover:bg-provider-discord-bg-hover transition-all group"
+          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-discord-border-hover hover:bg-provider-discord-bg-hover transition-all group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
         >
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-[7px] bg-provider-discord-bg border border-provider-discord-border flex items-center justify-center shrink-0">
@@ -302,7 +302,7 @@ async function handleSubmit(e: Event) {
         <button
           type="button"
           onclick={() => selectProvider("feishu")}
-          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-feishu-border-hover hover:bg-provider-feishu-bg-hover transition-all group"
+          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-feishu-border-hover hover:bg-provider-feishu-bg-hover transition-all group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
         >
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-[7px] bg-provider-feishu-bg border border-provider-feishu-border flex items-center justify-center shrink-0">
@@ -322,11 +322,11 @@ async function handleSubmit(e: Event) {
         <button
           type="button"
           onclick={() => selectProvider("wechat")}
-          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-success/30 hover:bg-success/5 transition-all group"
+          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-provider-wechat-border-hover hover:bg-provider-wechat-bg-hover transition-all group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
         >
           <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-[7px] bg-success/10 border border-success/20 flex items-center justify-center shrink-0">
-              <MessageCircle class="w-5 h-5 text-success" />
+            <div class="w-10 h-10 rounded-[7px] bg-provider-wechat-bg border border-provider-wechat-border flex items-center justify-center shrink-0">
+              <MessageCircle class="w-5 h-5 text-provider-wechat" />
             </div>
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">WeChat</div>
@@ -344,7 +344,7 @@ async function handleSubmit(e: Event) {
       <div class="space-y-4">
         <!-- Provider Header -->
         <div class="flex items-center gap-2 mb-2">
-          <button type="button" onclick={goBack} class="text-text-tertiary hover:text-text-secondary transition-colors text-[12px]">
+          <button type="button" onclick={goBack} class="text-text-tertiary hover:text-text-secondary transition-colors text-[12px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50">
             ← Back
           </button>
         </div>
@@ -355,7 +355,7 @@ async function handleSubmit(e: Event) {
             <button
               type="button"
               onclick={() => discordGuideOpen = !discordGuideOpen}
-              class="w-full flex items-center justify-between p-3 hover:bg-bg-hover transition-colors"
+              class="w-full flex items-center justify-between p-3 hover:bg-bg-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand/50"
             >
               <span class="text-[12px] font-medium text-text-secondary flex items-center gap-2">
                 <ExternalLink class="w-3.5 h-3.5" />
@@ -415,18 +415,18 @@ async function handleSubmit(e: Event) {
               <button
                 type="button"
                 onclick={cancelToChannels}
-                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                class="px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                class="inline-flex min-h-8 items-center justify-center gap-1.5 px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover active:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
                 {#if isSubmitting}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
-                  Saving...
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  Saving channel
                 {:else}
                   Save Channel
                 {/if}
@@ -435,57 +435,78 @@ async function handleSubmit(e: Event) {
           </form>
 
         {:else if selectedProvider === "wechat"}
-          <form onsubmit={handleSubmit} class="space-y-3">
+          <form onsubmit={handleSubmit} class="space-y-4">
+            <div class="space-y-2">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">WeChat Binding</div>
+                <p class="text-[13px] text-text-tertiary mt-1">Start a binding session, open the scan page, then confirm in WeChat.</p>
+              </div>
+              <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
+                <li class="flex items-center gap-2">
+                  <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
+                  Start binding
+                </li>
+                <li class="flex items-center gap-2">
+                  <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
+                  Open the scan page
+                </li>
+                <li class="flex items-center gap-2">
+                  <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
+                  Scan and confirm
+                </li>
+              </ol>
+            </div>
+
             <div>
               <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
               <input
                 id="ch-name"
                 type="text"
                 bind:value={formName}
-                placeholder="e.g. WeChat Bot"
+                placeholder="e.g. Personal WeChat"
                 class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
                 required
               />
+              <p class="mt-1.5 text-[11px] text-text-placeholder">Shown in Cohub to help you identify this channel.</p>
             </div>
 
-            <div class="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
-              <div class="flex items-start justify-between gap-4">
-                <div class="min-w-0">
-                  <p class="text-[12px] font-medium text-text-secondary">
-                    {wechatRemainingSeconds > 0 ? `QR ready · ${formatWeChatCountdown(wechatRemainingSeconds)}` : "QR expired"}
-                  </p>
+            {#if wechatQrDataUrl}
+              <div class="rounded-md border border-border-subtle bg-bg-surface p-4 space-y-3">
+                <div class="flex items-start justify-between gap-4">
+                  <div class="min-w-0">
+                    <p class="text-[12px] font-medium text-text-secondary">
+                      {wechatRemainingSeconds > 0 ? `Scan page ready · ${formatWeChatCountdown(wechatRemainingSeconds)}` : "Scan page expired"}
+                    </p>
+                    <p class="text-[11px] text-text-placeholder mt-0.5">Open the page, scan with WeChat, then confirm on your phone.</p>
+                  </div>
+                  <a
+                    href={wechatQrDataUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="shrink-0 text-[12px] text-text-secondary transition-colors hover:text-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                  >
+                    Open scan page
+                  </a>
                 </div>
-                <a
-                  href={wechatQrDataUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="shrink-0 text-[12px] text-text-secondary transition-colors hover:text-text-primary"
-                >
-                  Open page to scan
-                </a>
-              </div>
 
-              {#if wechatQrDataUrl.startsWith("data:image/")}
-                <div class="flex justify-center pt-1">
-                  <img src={wechatQrDataUrl} alt="WeChat login QR code" class="w-56 h-56 rounded-md bg-white p-2 object-contain" />
-                </div>
-              {:else if wechatQrDataUrl}
-                <div class="sr-only">QR page available.</div>
-              {:else}
-                <div class="rounded-[5px] border border-dashed border-border-subtle bg-bg-primary px-3 py-8 text-center text-[11px] text-text-placeholder">
-                  Generate the QR page to continue.
-                </div>
-              {/if}
-
-              <div class="flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
-                <p class="text-[11px] text-text-placeholder">
-                  {wechatStatus || "Waiting for scan."}
-                </p>
-                {#if wechatRemainingSeconds > 0}
-                  <p class="text-[11px] text-text-placeholder">{formatWeChatCountdown(wechatRemainingSeconds)}</p>
+                {#if wechatQrDataUrl.startsWith("data:image/")}
+                  <div class="flex justify-center pt-1">
+                    <img src={wechatQrDataUrl} alt="WeChat login QR code" class="w-56 h-56 rounded-md bg-white p-2 object-contain" />
+                  </div>
+                {:else}
+                  <div class="sr-only">Scan page available.</div>
                 {/if}
+
+                <div class="flex items-center justify-between gap-3 border-t border-border-subtle pt-3">
+                  <p class="text-[11px] text-text-placeholder">
+                    {wechatStatus || "Waiting for scan."}
+                  </p>
+                  {#if wechatRemainingSeconds > 0}
+                    <p class="text-[11px] text-text-placeholder">{formatWeChatCountdown(wechatRemainingSeconds)}</p>
+                  {/if}
+                </div>
               </div>
-            </div>
+            {/if}
 
             {#if submitError}
               <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{submitError}</div>
@@ -495,25 +516,42 @@ async function handleSubmit(e: Event) {
               <button
                 type="button"
                 onclick={cancelToChannels}
-                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onclick={startWeChatLogin}
-                disabled={isSubmitting || wechatPolling}
-                class="px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                {#if isSubmitting || wechatPolling}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
-                  Connecting...
-                {:else if wechatQrDataUrl}
-                  Restart Login
-                {:else}
-                  Show QR Page
-                {/if}
-              </button>
+              {#if wechatQrDataUrl}
+                <button
+                  type="button"
+                  onclick={startWeChatLogin}
+                  disabled={isSubmitting}
+                  class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                >
+                  Refresh scan page
+                </button>
+                <a
+                  href={wechatQrDataUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex min-h-8 items-center justify-center rounded-[5px] bg-brand px-4 py-[6px] text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover active:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                >
+                  Open scan page to bind
+                </a>
+              {:else}
+                <button
+                  type="button"
+                  onclick={startWeChatLogin}
+                  disabled={isSubmitting || wechatPolling}
+                  class="inline-flex min-h-8 items-center justify-center gap-1.5 px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover active:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+                >
+                  {#if isSubmitting || wechatPolling}
+                    <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                    Starting binding
+                  {:else}
+                    Start WeChat binding
+                  {/if}
+                </button>
+              {/if}
             </div>
           </form>
 
@@ -523,7 +561,7 @@ async function handleSubmit(e: Event) {
             <button
               type="button"
               onclick={() => feishuGuideOpen = !feishuGuideOpen}
-              class="w-full flex items-center justify-between p-3 hover:bg-bg-hover transition-colors"
+              class="w-full flex items-center justify-between p-3 hover:bg-bg-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand/50"
             >
               <span class="text-[12px] font-medium text-text-secondary flex items-center gap-2">
                 <ExternalLink class="w-3.5 h-3.5" />
@@ -577,7 +615,7 @@ async function handleSubmit(e: Event) {
                 <button
                   type="button"
                   onclick={() => formBrand = "feishu"}
-                  class="flex-1 px-3 py-[6px] rounded-[5px] border text-[13px] transition-colors cursor-pointer {
+                  class="flex-1 px-3 py-[6px] rounded-[5px] border text-[13px] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50 {
                     formBrand === 'feishu'
                       ? 'border-brand/40 bg-brand-bg text-text-primary'
                       : 'border-border-subtle bg-bg-code text-text-tertiary hover:border-border-primary'
@@ -588,7 +626,7 @@ async function handleSubmit(e: Event) {
                 <button
                   type="button"
                   onclick={() => formBrand = "lark"}
-                  class="flex-1 px-3 py-[6px] rounded-[5px] border text-[13px] transition-colors cursor-pointer {
+                  class="flex-1 px-3 py-[6px] rounded-[5px] border text-[13px] transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50 {
                     formBrand === 'lark'
                       ? 'border-brand/40 bg-brand-bg text-text-primary'
                       : 'border-border-subtle bg-bg-code text-text-tertiary hover:border-border-primary'
@@ -613,7 +651,7 @@ async function handleSubmit(e: Event) {
                 <button
                   type="button"
                   onclick={() => copyToClipboard("cli_a5xxxxxxxxx", "appId")}
-                  class="absolute right-2 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-text-secondary transition-colors"
+                  class="absolute right-2 top-1/2 -translate-y-1/2 text-text-placeholder hover:text-text-secondary transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                   title="Copy format hint"
                 >
                   {#if copiedField === "appId"}
@@ -645,18 +683,18 @@ async function handleSubmit(e: Event) {
               <button
                 type="button"
                 onclick={cancelToChannels}
-                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer"
+                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                class="px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:opacity-50 cursor-pointer"
+                class="inline-flex min-h-8 items-center justify-center gap-1.5 px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover active:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
               >
                 {#if isSubmitting}
-                  <Loader2 class="w-3.5 h-3.5 animate-spin inline mr-1.5" />
-                  Saving...
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  Saving channel
                 {:else}
                   Save Channel
                 {/if}

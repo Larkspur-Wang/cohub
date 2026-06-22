@@ -113,6 +113,11 @@
 	--provider-feishu-bg-hover: color-mix(in srgb, var(--provider-feishu) 14%, transparent);
 	--provider-feishu-border: color-mix(in srgb, var(--provider-feishu) 22%, transparent);
 	--provider-feishu-border-hover: color-mix(in srgb, var(--provider-feishu) 42%, transparent);
+	--provider-wechat: oklch(52% 0.14 160);
+	--provider-wechat-bg: color-mix(in srgb, var(--provider-wechat) 10%, transparent);
+	--provider-wechat-bg-hover: color-mix(in srgb, var(--provider-wechat) 14%, transparent);
+	--provider-wechat-border: color-mix(in srgb, var(--provider-wechat) 22%, transparent);
+	--provider-wechat-border-hover: color-mix(in srgb, var(--provider-wechat) 42%, transparent);
 
 	/* Effects */
 	--shadow-subtle: oklch(0% 0 0 / 0.08);

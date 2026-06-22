@@ -33,7 +33,7 @@ const providerIcons: Record<string, typeof MessageSquare> = {
 const providerDotColor: Record<string, string> = {
 	discord: "bg-provider-discord",
 	feishu: "bg-provider-feishu",
-	wechat: "bg-success",
+	wechat: "bg-provider-wechat",
 	web: "bg-status-running",
 };
 
@@ -88,7 +88,7 @@ async function handleDelete(id: string) {
         </div>
         <a
           href="/settings/channels/new"
-          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-brand-muted border border-brand-border text-brand font-medium hover:bg-brand-muted-hover transition-colors"
+          class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[5px] text-[12px] bg-brand-muted border border-brand-border text-brand font-medium hover:bg-brand-muted-hover transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
         >
           <Plus class="w-3.5 h-3.5" />
           Add Channel
@@ -147,7 +147,7 @@ async function handleDelete(id: string) {
                 <div class="flex items-center justify-end pt-0.5 shrink-0">
                   <button
                     onclick={() => handleDelete(channel.id)}
-                    class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors"
+                    class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                     title="Delete channel"
                   >
                     <Trash2 class="w-4 h-4" />
@@ -167,7 +167,7 @@ async function handleDelete(id: string) {
                       <div class="text-[13px] font-medium text-text-primary truncate">{channel.name}</div>
                       <button
                         onclick={() => handleDelete(channel.id)}
-                        class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors shrink-0"
+                        class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors shrink-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
                         title="Delete channel"
                       >
                         <Trash2 class="w-4 h-4" />

@@ -148,6 +148,27 @@
 		var(--provider-feishu) 42%,
 		transparent
 	);
+	--provider-wechat: oklch(43% 0.12 145);
+	--provider-wechat-bg: color-mix(
+		in srgb,
+		var(--provider-wechat) 10%,
+		transparent
+	);
+	--provider-wechat-bg-hover: color-mix(
+		in srgb,
+		var(--provider-wechat) 14%,
+		transparent
+	);
+	--provider-wechat-border: color-mix(
+		in srgb,
+		var(--provider-wechat) 22%,
+		transparent
+	);
+	--provider-wechat-border-hover: color-mix(
+		in srgb,
+		var(--provider-wechat) 42%,
+		transparent
+	);
 
 	/* Effects */
 	--shadow-subtle: oklch(20% 0.02 195 / 0.08);
