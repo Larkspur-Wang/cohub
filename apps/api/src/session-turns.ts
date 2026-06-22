@@ -14,7 +14,7 @@ import type {
 import { db } from "./db/index.js";
 import { sessionMessages, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
 import { addSessionParticipantMeta } from "@cohub/core/sessions";
-import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
+import { sanitizePostgresJsonValue, sanitizeContentBlocksForPostgresJson } from "@cohub/core/content/sanitize";
 import { ensureSessionTurnSegments, findSegmentForTurn } from "./session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { buildTurnObjectPrefix, assertTurnObjectKeyForTurn, createTurnObjectCdnUrl, writeTurnObjectJson } from "./turn-object-storage.js";
@@ -255,7 +255,9 @@ export const createSessionTurn = async (input: {
   intent?: SessionTurnIntent;
   meta?: Record<string, unknown> | null;
 }) => {
-  const userText = deriveMessagePreviewText({ content: input.userContent }) || null;
+  const userContent = sanitizeContentBlocksForPostgresJson(input.userContent);
+  const meta = input.meta ? sanitizePostgresJsonValue(input.meta) : null;
+  const userText = deriveMessagePreviewText({ content: userContent }) || null;
   const [row] = await db.transaction(async (tx) => {
     const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
     if (!sessionRow) throw new Error("session not found");
@@ -280,9 +282,9 @@ export const createSessionTurn = async (input: {
       sequence,
       status: "queued",
       intent: input.intent ?? "steer",
-      userContent: input.userContent,
+      userContent,
       userText,
-      meta: input.meta ?? null,
+      meta,
     }).returning();
   });
   if (!row) throw new Error("failed to create session turn");

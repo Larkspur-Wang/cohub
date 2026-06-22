@@ -132,9 +132,11 @@ export function createSessionServices(input: {
     intent: SessionTurnIntent;
     meta: Record<string, unknown>;
   }) {
-    const userText = deriveMessagePreviewText({ content: turnInput.userContent }) || null;
-    const model = typeof turnInput.meta.model === "string" && turnInput.meta.model.trim() ? turnInput.meta.model.trim() : null;
-    const provider = typeof turnInput.meta.provider === "string" && turnInput.meta.provider.trim() ? turnInput.meta.provider.trim() : null;
+    const userContent = sanitizePostgresJsonValue(turnInput.userContent);
+    const meta = sanitizePostgresJsonValue(turnInput.meta);
+    const userText = deriveMessagePreviewText({ content: userContent }) || null;
+    const model = typeof meta.model === "string" && meta.model.trim() ? meta.model.trim() : null;
+    const provider = typeof meta.provider === "string" && meta.provider.trim() ? meta.provider.trim() : null;
     const touchedAt = new Date();
     const [row] = await input.db.transaction(async (tx) => {
       const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, turnInput.sessionId)).for("update").limit(1);
@@ -156,13 +158,13 @@ export function createSessionServices(input: {
         sessionId: turnInput.sessionId,
         sequence,
         userUuid: turnInput.userUuid,
-        userContent: turnInput.userContent,
+        userContent,
         userText,
         intent: turnInput.intent,
         status: "queued",
         provider,
         model,
-        meta: turnInput.meta,
+        meta,
       }).returning();
     });
     if (!row) throw new Error("failed to create session turn");
