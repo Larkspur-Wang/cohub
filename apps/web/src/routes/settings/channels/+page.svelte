@@ -61,10 +61,14 @@ onMount(() => {
 	void loadChannels();
 });
 
-async function handleDelete(id: string) {
+async function handleDelete(channel: Channel) {
+	if (channel.boundSpace) {
+		alert("Unbind this channel from its Space before deleting it.");
+		return;
+	}
 	if (!confirm("Are you sure you want to delete this channel?")) return;
 	try {
-		await sdk.channels.delete(id);
+		await sdk.channels.delete(channel.id);
 		await loadChannels();
 	} catch (error) {
 		alert(error instanceof Error ? error.message : "Failed to delete channel");
@@ -146,9 +150,10 @@ async function handleDelete(id: string) {
                 </div>
                 <div class="flex items-center justify-end pt-0.5 shrink-0">
                   <button
-                    onclick={() => handleDelete(channel.id)}
-                    class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-                    title="Delete channel"
+                    onclick={() => handleDelete(channel)}
+                    disabled={Boolean(channel.boundSpace)}
+                    class="p-2 rounded-[4px] text-text-tertiary hover:text-error-soft hover:bg-error-bg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
+                    title={channel.boundSpace ? "Unbind this channel before deleting it" : "Delete channel"}
                   >
                     <Trash2 class="w-4 h-4" />
                   </button>
@@ -169,10 +174,11 @@ async function handleDelete(id: string) {
                         <div class="mt-0.5 text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</div>
                       </div>
                       <button
-                        onclick={() => handleDelete(channel.id)}
-                        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
-                        title="Delete channel"
-                        aria-label="Delete channel"
+                        onclick={() => handleDelete(channel)}
+                        disabled={Boolean(channel.boundSpace)}
+                        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
+                        title={channel.boundSpace ? "Unbind this channel before deleting it" : "Delete channel"}
+                        aria-label={channel.boundSpace ? "Unbind this channel before deleting it" : "Delete channel"}
                       >
                         <Trash2 class="h-4 w-4" />
                       </button>

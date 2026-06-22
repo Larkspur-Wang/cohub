@@ -5,6 +5,7 @@ import { userChannels, spaceChannels, spaces } from "@cohub/db";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { useAuth, requireValidId } from "../lib/middleware.js";
 import { redisCommandClient } from "../redis.js";
+import { deleteChannelResponse, type DeleteChannelResult } from "./channel-delete.js";
 
 const WECHAT_LOGIN_BASE_URL = "https://ilinkai.weixin.qq.com";
 const WECHAT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
@@ -343,32 +344,28 @@ router.delete("/:id", async (c) => {
 
   // Use a transaction with FOR UPDATE to prevent TOCTOU race:
   // without it, a concurrent space channel binding could leave orphaned spaceChannels rows.
-  await db.transaction(async (tx) => {
+  const result = await db.transaction<DeleteChannelResult>(async (tx) => {
     const [channel] = await tx
       .select()
       .from(userChannels)
       .where(and(eq(userChannels.id, channelId), eq(userChannels.userUuid, user.uuid)))
       .limit(1)
       .for("update");
-    if (!channel) {
-      tx.rollback();
-      return;
-    }
+    if (!channel) return "not_found";
 
     const bound = await tx
       .select({ id: spaceChannels.id })
       .from(spaceChannels)
       .where(eq(spaceChannels.channelId, channelId))
       .limit(1);
-    if (bound.length > 0) {
-      tx.rollback();
-      return;
-    }
+    if (bound.length > 0) return "bound";
 
     await tx.delete(userChannels).where(eq(userChannels.id, channelId));
+    return "deleted";
   });
+  const response = deleteChannelResponse(result);
 
-  return c.json({ ok: true });
+  return c.json(response.body, response.status);
 });
 
 export default router;
