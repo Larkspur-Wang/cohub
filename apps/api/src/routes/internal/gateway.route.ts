@@ -1,10 +1,12 @@
 import { context, trace, SpanStatusCode } from "@opentelemetry/api";
+import { createLogger } from "@cohub/infra/logging";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { gatewayInboundEventSchema } from "@cohub/protocol/gateway";
 import { Hono } from "hono";
-import { handleInboundEvent } from "../../channels.js";
+import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent } from "../../channels.js";
 import { ensureInternalRequest } from "../../lib/middleware.js";
 
+const logger = createLogger({ serviceName: "cohub-api" });
 const tracer = getTracer("cohub-api");
 const router = new Hono();
 
@@ -12,6 +14,23 @@ const recordSpanError = (span: ReturnType<typeof tracer.startSpan>, error: unkno
   span.recordException(error instanceof Error ? error : new Error(String(error)));
   span.setStatus({ code: SpanStatusCode.ERROR, message: String(error) });
 };
+
+router.post("/reconcile-channels", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const span = tracer.startSpan("api.gateway_channels.reconcile");
+  try {
+    const stats = await bindAllActiveSpaceChannelsToGateway();
+    return c.json({ ok: true, stats });
+  } catch (error) {
+    recordSpanError(span, error);
+    logger.error("[GatewayBinding] reconcile failed", error);
+    return c.json({ ok: false, message: "gateway channel reconcile failed" }, 500);
+  } finally {
+    span.end();
+  }
+});
 
 router.post("/inbound", async (c) => {
   const forbidden = ensureInternalRequest(c);

@@ -34,18 +34,24 @@ const providerFactories: Record<string, ProviderFactory> = {
   }),
 };
 
+type GatewayManagerOptions = {
+  onStaleNodesPruned?: (nodeIds: string[]) => boolean | Promise<boolean>;
+};
+
 export class GatewayManager {
   public readonly nodeId: string;
   public started = false;
   private heartbeatInterval?: ReturnType<typeof setInterval>;
   private syncInterval?: ReturnType<typeof setInterval>;
+  private readonly onStaleNodesPruned?: GatewayManagerOptions["onStaleNodesPruned"];
 
   // 本地维持的实例集合 Map<ChannelId, ProviderInstance>
   private providers = new Map<string, GatewayProvider>();
 
-  constructor() {
+  constructor(options: GatewayManagerOptions = {}) {
     // 优先使用 k8s 的 pod name (如 gateway-0)，回退到 hostname，再回退到随机生成的 id
     this.nodeId = process.env.POD_NAME || os.hostname() || `gw-${Math.random().toString(36).slice(2, 8)}`;
+    this.onStaleNodesPruned = options.onStaleNodesPruned;
   }
 
   public async start() {
@@ -80,8 +86,6 @@ export class GatewayManager {
       logger.info("[Manager] Sync loop stopped");
     }
 
-    const channelIds = Array.from(this.providers.keys());
-
     // 清理本地所有的长连接
     for (const [channelId, provider] of this.providers.entries()) {
       try {
@@ -93,23 +97,7 @@ export class GatewayManager {
     }
     this.providers.clear();
 
-    // 从活跃节点中注销自己 (让 API 更快发现)
-    logger.info("[Manager] Unregistering node from gateway:nodes...");
-    await redisCommandClient.zrem("gateway:nodes", this.nodeId).catch((error) => logger.error("[Manager] failed to unregister gateway node", { nodeId: this.nodeId, error }));
-
-    // 清理本节点的任务列表和 channel 路由
-    logger.info("[Manager] Cleaning up task assignments...");
-    for (const channelId of channelIds) {
-      // 从全局路由表中移除（如果当前节点仍然持有该 channel）
-      const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);
-      if (currentNode === this.nodeId) {
-        await redisCommandClient.hdel("gateway:channel_routing", channelId).catch((error) => logger.error("[Manager] failed to remove channel routing", { nodeId: this.nodeId, channelId, error }));
-        logger.info(`[Manager] Removed routing for channel ${channelId}`);
-      }
-    }
-    // 删除本节点的任务列表
-    await redisCommandClient.del(`gateway:node:${this.nodeId}:channels`).catch((error) => logger.error("[Manager] failed to cleanup node channel assignments", { nodeId: this.nodeId, error }));
-    logger.info(`[Manager] Cleaned up ${channelIds.length} task assignments`);
+    logger.info("[Manager] Leaving task assignments intact for stable restart handoff");
 
     logger.info(`[Manager] Node ${this.nodeId} stopped`);
   }
@@ -119,11 +107,21 @@ export class GatewayManager {
       const now = Date.now();
       const staleBefore = now - GATEWAY_NODE_TTL_MS;
       // 使用 ZSET 记录节点和它的最后心跳时间 (用于 API 剔除死节点)
+      const staleNodeIds = await redisCommandClient.zrangebyscore("gateway:nodes", 0, staleBefore);
       await redisCommandClient
         .multi()
         .zadd("gateway:nodes", now, this.nodeId)
         .zremrangebyscore("gateway:nodes", 0, staleBefore)
         .exec();
+
+      const prunedStaleNodeIds = staleNodeIds.filter((nodeId) => nodeId !== this.nodeId);
+      if (prunedStaleNodeIds.length > 0) {
+        logger.warn("[Manager] Pruned stale gateway nodes", { nodeIds: prunedStaleNodeIds });
+        const reconciled = await this.onStaleNodesPruned?.(prunedStaleNodeIds);
+        if (reconciled) {
+          await redisCommandClient.del(...prunedStaleNodeIds.map((nodeId) => `gateway:node:${nodeId}:channels`));
+        }
+      }
     } catch (error) {
       logger.error("[Manager] Failed to send heartbeat:", error);
     }
@@ -208,16 +206,6 @@ export class GatewayManager {
       this.providers.delete(channelId);
     }
 
-    // 尝试清理路由表（如果当前节点仍然持有该 channel）
-    try {
-      const currentNode = await redisCommandClient.hget("gateway:channel_routing", channelId);
-      if (currentNode === this.nodeId) {
-        await redisCommandClient.hdel("gateway:channel_routing", channelId);
-        logger.info(`[Manager] Removed routing for channel ${channelId}`);
-      }
-    } catch (error) {
-      logger.error(`[Manager] Error cleaning up routing for ${channelId}:`, error);
-    }
   }
 
   // 供 index.ts 使用，当收到 API 的 outbound 消息时路由给具体的 provider

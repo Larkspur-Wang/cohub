@@ -98,6 +98,24 @@ export const authenticateRealtimeToken = async (input: { token: string }): Promi
   };
 };
 
+export const requestGatewayChannelReconcile = async (): Promise<{ stats: unknown }> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/reconcile-channels`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders(),
+    },
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Gateway channel reconcile failed ${response.status}: ${text}`);
+  }
+  const data = await parseJson<{ ok?: boolean; stats?: unknown }>(response);
+  if (!data?.ok) throw new Error("Gateway channel reconcile returned an invalid response");
+  return { stats: data.stats };
+};
+
 export const submitCanvasTransaction = async (input: {
   userId: string;
   spaceId: string;

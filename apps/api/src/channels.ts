@@ -1,6 +1,6 @@
 import { createLogger } from "@cohub/infra/logging";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ChannelConfig, ChannelProvider, GatewayChannelCommandEvent, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import type { RealtimeServerEvent } from "@cohub/protocol/realtime";
@@ -58,14 +58,28 @@ async function pruneStaleGatewayNodes() {
   await redisCommandClient.zremrangebyscore("gateway:nodes", 0, staleBefore);
 }
 
-async function pickGatewayNode(): Promise<string> {
+function scoreGatewayNode(channelId: string, nodeId: string) {
+  return createHash("sha256").update(`${channelId}:${nodeId}`).digest().readBigUInt64BE(0);
+}
+
+async function pickGatewayNode(channelId: string): Promise<string> {
   const now = Date.now();
   await pruneStaleGatewayNodes();
   const activeNodes = await redisCommandClient.zrangebyscore("gateway:nodes", now - GATEWAY_NODE_TTL_MS, "+inf");
   if (activeNodes.length === 0) throw new Error("No active gateway nodes available");
-  const nodeId = activeNodes[Math.floor(Math.random() * activeNodes.length)];
-  if (!nodeId) throw new Error("Failed to pick gateway node");
-  return nodeId;
+
+  let selectedNodeId = activeNodes[0];
+  let selectedScore = selectedNodeId ? scoreGatewayNode(channelId, selectedNodeId) : -1n;
+  for (const nodeId of activeNodes.slice(1)) {
+    const score = scoreGatewayNode(channelId, nodeId);
+    if (score > selectedScore) {
+      selectedNodeId = nodeId;
+      selectedScore = score;
+    }
+  }
+
+  if (!selectedNodeId) throw new Error("Failed to pick gateway node");
+  return selectedNodeId;
 }
 
 const getSpaceChannelConfigKey = (spaceChannelId: string) => `gateway:space_channel_config:${spaceChannelId}`;
@@ -132,6 +146,7 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
 
   const existingNodeId = await redisCommandClient.hget("gateway:channel_routing", spaceChannel.id);
   let nodeId = existingNodeId;
+  let staleNodeId: string | null = null;
 
   if (existingNodeId) {
     const nodeLastHeartbeatStr = await redisCommandClient.zscore("gateway:nodes", existingNodeId);
@@ -139,10 +154,11 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
     const isExistingNodeAlive = Boolean(nodeLastHeartbeat && Date.now() - nodeLastHeartbeat < GATEWAY_NODE_TTL_MS);
 
     if (!isExistingNodeAlive) {
-      nodeId = await pickGatewayNode();
+      staleNodeId = existingNodeId;
+      nodeId = await pickGatewayNode(spaceChannel.id);
     }
   } else {
-    nodeId = await pickGatewayNode();
+    nodeId = await pickGatewayNode(spaceChannel.id);
   }
 
   if (!nodeId) {
@@ -155,14 +171,19 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
     credentials: userChannel.credentials,
   });
 
-  await redisCommandClient.multi()
+  const pipeline = redisCommandClient.multi()
     .set(
       getSpaceChannelConfigKey(spaceChannel.id),
       JSON.stringify((spaceChannel.config as ChannelConfig | Record<string, unknown> | null) ?? {}),
     )
     .hset(`gateway:node:${nodeId}:channels`, spaceChannel.id, serializedTask)
-    .hset("gateway:channel_routing", spaceChannel.id, nodeId)
-    .exec();
+    .hset("gateway:channel_routing", spaceChannel.id, nodeId);
+
+  if (staleNodeId && staleNodeId !== nodeId) {
+    pipeline.hdel(`gateway:node:${staleNodeId}:channels`, spaceChannel.id);
+  }
+
+  await pipeline.exec();
 }
 
 export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {

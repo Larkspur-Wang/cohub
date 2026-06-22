@@ -26,7 +26,7 @@ import {
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, submitCanvasTransaction, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -413,8 +413,62 @@ async function main() {
   startWsConnectionSweeper();
   await startSpaceOutputSubscriber();
 
-  const manager = new GatewayManager();
+  const reconcileRetryDelaysMs = [1_000, 3_000, 10_000, 30_000];
+  let reconcileInFlight = false;
+  let pendingReconcileReason: string | null = null;
+  let lastChannelReconcileOk = false;
+  let lastChannelReconcileAt: number | null = null;
+  const sleep = (delayMs: number) => new Promise((resolve) => setTimeout(resolve, delayMs));
+  const requestChannelReconcileOnce = async (reason: string) => {
+    for (let attempt = 0; attempt <= reconcileRetryDelaysMs.length; attempt += 1) {
+      try {
+        const { stats } = await requestGatewayChannelReconcile();
+        lastChannelReconcileOk = true;
+        lastChannelReconcileAt = Date.now();
+        logger.info("[Gateway] Channel reconcile requested", { reason, attempt: attempt + 1, stats });
+        return true;
+      } catch (error) {
+        const retryDelayMs = reconcileRetryDelaysMs[attempt];
+        if (retryDelayMs == null) {
+          lastChannelReconcileOk = false;
+          lastChannelReconcileAt = Date.now();
+          logger.error("[Gateway] Failed to request channel reconcile", { reason, attempt: attempt + 1, error });
+          return false;
+        }
+        logger.warn("[Gateway] Failed to request channel reconcile; retrying", { reason, attempt: attempt + 1, retryDelayMs, error });
+        await sleep(retryDelayMs);
+      }
+    }
+    return false;
+  };
+
+  const requestChannelReconcile = async (reason: string) => {
+    if (reconcileInFlight) {
+      pendingReconcileReason = pendingReconcileReason ? `${pendingReconcileReason},${reason}` : reason;
+      return false;
+    }
+
+    reconcileInFlight = true;
+    let currentReason = reason;
+    let lastResult = false;
+    try {
+      while (true) {
+        lastResult = await requestChannelReconcileOnce(currentReason);
+        if (!pendingReconcileReason) break;
+        currentReason = pendingReconcileReason;
+        pendingReconcileReason = null;
+      }
+      return lastResult;
+    } finally {
+      reconcileInFlight = false;
+    }
+  };
+
+  const manager = new GatewayManager({
+    onStaleNodesPruned: (nodeIds) => requestChannelReconcile(`stale_nodes_pruned:${nodeIds.join(",")}`),
+  });
   await manager.start();
+  void requestChannelReconcile("node_started");
 
   logger.info("[Gateway] Listening for outbound commands from API...");
 
@@ -512,7 +566,16 @@ async function main() {
       checks.redis = false;
     }
     checks.manager = manager.started;
-    return c.json({ ready: Object.values(checks).every(Boolean), checks }, Object.values(checks).every(Boolean) ? 200 : 503);
+    return c.json({
+      ready: Object.values(checks).every(Boolean),
+      checks,
+      channelReconcile: {
+        ok: lastChannelReconcileOk,
+        inFlight: reconcileInFlight,
+        pendingReason: pendingReconcileReason,
+        checkedAt: lastChannelReconcileAt,
+      },
+    }, Object.values(checks).every(Boolean) ? 200 : 503);
   });
 
   const server = serve({ fetch: app.fetch, port: gatewayConfig.port }) as unknown as import("node:http").Server;
