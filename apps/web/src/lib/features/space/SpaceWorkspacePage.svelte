@@ -83,7 +83,7 @@ import { extractSpaceMentionsFromText } from "$lib/mentions/space";
 import { uploadChatAttachmentImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
-import type { ChatMessage, TimelineItem } from "$lib/session-tree";
+import type { TimelineItem } from "$lib/session-tree";
 import { buildTurnTimelineItems } from "$lib/session-turn-render";
 import {
 	activateSpaceConfig,
@@ -1090,30 +1090,15 @@ const draftSessionState = $derived<SessionViewState | null>(
 			}
 		: null,
 );
-const activeSessionState = $derived.by<SessionViewState | null>(() => {
-	if (isDraftNewSessionRoute) return draftSessionState;
-	if (!activeSessionId) return null;
-	return (
-		sessionStateById[activeSessionId] ?? {
-			session: spaceSessions.find((session) => session.id === activeSessionId),
-			turns: [],
-			loading: true,
-			loaded: false,
-			error: "",
-			hasMore: true,
-			hasMoreNewer: false,
-			loadingOlder: false,
-			loadingNewer: false,
-			oldestCursor: undefined,
-		}
-	);
-});
+const activeSessionState = $derived(
+	isDraftNewSessionRoute
+		? draftSessionState
+		: activeSessionId
+			? (sessionStateById[activeSessionId] ?? null)
+			: null,
+);
 const activeSessionInitialLoadingVisible = $derived.by(() =>
-	Boolean(
-		activeSessionId &&
-			(visibleInitialLoadingSessionIds[activeSessionId] ||
-				!sessionStateById[activeSessionId]),
-	),
+	Boolean(activeSessionId && visibleInitialLoadingSessionIds[activeSessionId]),
 );
 const newChatBackground = $derived(
 	spaceConfig?.ui?.newChat?.background ?? null,
@@ -1437,110 +1422,6 @@ const activeSessionIsRunning = $derived.by(() =>
 			!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status),
 	),
 );
-let sessionVisualDebugUntil = 0;
-let sessionVisualDebugSeq = 0;
-function isSessionVisualDebugEnabled() {
-	if (typeof window === "undefined") return false;
-	const params = new URLSearchParams(window.location.search);
-	return (
-		params.has("debugSessionVisual") ||
-		window.localStorage.getItem("cohub:debug:session-visual") === "1"
-	);
-}
-function getTimelineDebugSummary(items: TimelineItem[]) {
-	let user = 0;
-	let assistant = 0;
-	let process = 0;
-	const assistantMessages: Array<{
-		id: string;
-		kind: unknown;
-		blocks: string[];
-		textLength: number;
-	}> = [];
-	for (const item of items) {
-		if (item.kind === "process") process += 1;
-		if (item.kind !== "message") continue;
-		if (item.message.role === "user") user += 1;
-		if (item.message.role === "assistant") {
-			assistant += 1;
-			assistantMessages.push({
-				id: item.message.id,
-				kind: item.message.meta?.messageKind,
-				blocks: item.message.content.map((block) => block.type),
-				textLength: item.message.text?.length ?? 0,
-			});
-		}
-	}
-	return { items: items.length, user, assistant, process, assistantMessages };
-}
-function getTurnDebugSummary(turns: SessionTurnRecord[]) {
-	let userOnly = 0;
-	let withAssistant = 0;
-	let withProcess = 0;
-	const statuses: Record<string, number> = {};
-	for (const turn of turns) {
-		statuses[turn.status] = (statuses[turn.status] ?? 0) + 1;
-		const hasAssistant = Boolean(
-			turn.assistantContent || turn.assistantText || turn.errorMessage,
-		);
-		if (hasAssistant) withAssistant += 1;
-		else userOnly += 1;
-		if ((turn.intermediateSummary?.messageCount ?? 0) > 0) withProcess += 1;
-	}
-	return {
-		turns: turns.length,
-		userOnly,
-		withAssistant,
-		withProcess,
-		statuses,
-	};
-}
-function getTimelineShapeLine(
-	sessionId: string | null,
-	turns: SessionTurnRecord[],
-	items: TimelineItem[],
-) {
-	const turnSummary = getTurnDebugSummary(turns);
-	const timelineSummary = getTimelineDebugSummary(items);
-	const assistants = timelineSummary.assistantMessages
-		.map(
-			(message) =>
-				`${message.id}:${message.kind ?? "?"}:${message.blocks.join("+")}:${message.textLength}`,
-		)
-		.join(",");
-	return `sid=${sessionId ?? "none"} turns=${turnSummary.turns} userOnly=${turnSummary.userOnly} withAssistant=${turnSummary.withAssistant} processTurns=${turnSummary.withProcess} items=${timelineSummary.items} u=${timelineSummary.user} a=${timelineSummary.assistant} p=${timelineSummary.process} statuses=${JSON.stringify(turnSummary.statuses)} assistants=[${assistants}]`;
-}
-function logSessionVisualDebug(
-	label: string,
-	payload: Record<string, unknown>,
-) {
-	if (!isSessionVisualDebugEnabled()) return;
-	console.debug(`[session-visual] ${label}`, {
-		seq: sessionVisualDebugSeq,
-		sessionId: activeSessionId,
-		...payload,
-	});
-}
-function getScrollDebugPayload() {
-	return listEl
-		? {
-				top: Math.round(listEl.scrollTop),
-				height: Math.round(listEl.scrollHeight),
-				client: Math.round(listEl.clientHeight),
-			}
-		: null;
-}
-function getMessageDebugPayload(message?: unknown) {
-	const candidate = message as ChatMessage | undefined;
-	if (!candidate || typeof candidate !== "object" || !candidate.id) return null;
-	return {
-		id: candidate.id,
-		role: candidate.role,
-		kind: candidate.meta?.messageKind,
-		blocks: candidate.content.map((block) => block.type),
-		textLength: candidate.text?.length ?? 0,
-	};
-}
 const timeline = $derived.by<TimelineItem[]>(() => {
 	const state = activeSessionState;
 	if (!state) return [];
@@ -1567,69 +1448,6 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 						runtimeModel: activeGenerationState.runtimeModel,
 					}
 				: null,
-	});
-});
-$effect(() => {
-	const sessionId = activeSessionId;
-	if (!sessionId || !isSessionVisualDebugEnabled()) return;
-	sessionVisualDebugSeq += 1;
-	sessionVisualDebugUntil = Date.now() + 700;
-	untrack(() => {
-		console.debug("[session-visual] route-session", {
-			seq: sessionVisualDebugSeq,
-			sessionId,
-			loaded: activeSessionState?.loaded ?? false,
-			loading: activeSessionState?.loading ?? false,
-			turns: activeSessionState?.turns.length ?? 0,
-		});
-	});
-});
-$effect(() => {
-	if (!isSessionVisualDebugEnabled()) return;
-	if (Date.now() > sessionVisualDebugUntil) return;
-	const state = activeSessionState;
-	console.debug(
-		"[session-visual] timeline-shape",
-		getTimelineShapeLine(activeSessionId, state?.turns ?? [], timeline),
-	);
-});
-$effect(() => {
-	if (!isSessionVisualDebugEnabled()) return;
-	if (Date.now() > sessionVisualDebugUntil) return;
-	const el = listEl;
-	console.debug("[session-visual] frame", {
-		seq: sessionVisualDebugSeq,
-		sessionId: activeSessionId,
-		state: {
-			loaded: activeSessionState?.loaded ?? false,
-			loading: activeSessionState?.loading ?? false,
-			turns: activeSessionState?.turns.length ?? 0,
-			hasMore: activeSessionState?.hasMore ?? false,
-			hasMoreNewer: activeSessionState?.hasMoreNewer ?? false,
-		},
-		timeline: getTimelineDebugSummary(timeline),
-		generation: activeGenerationState
-			? {
-					status: activeGenerationState.status,
-					turnId: activeGenerationState.turnId,
-					blocks: activeGenerationState.contentBlocks.length,
-					intermediate: activeGenerationState.intermediateMessages.length,
-					finalizedPreview: activeGenerationState.finalizedPreview,
-				}
-			: null,
-		scroll: el
-			? {
-					top: Math.round(el.scrollTop),
-					height: Math.round(el.scrollHeight),
-					client: Math.round(el.clientHeight),
-				}
-			: null,
-		restore: {
-			pending: pendingRestoreSessionId,
-			active: activeAnchorRestore?.sessionId ?? null,
-			waitingMarkdown: anchorRestoreWaitingForMarkdown,
-			autoFollow: shouldAutoFollow,
-		},
 	});
 });
 function preferFollowupQueueTurn(
@@ -1985,13 +1803,6 @@ function captureCurrentScrollAnchor(sessionId: string) {
 		offset,
 		updatedAt: Date.now(),
 	});
-	logSessionVisualDebug("scroll-capture", {
-		targetSessionId: sessionId,
-		sequence,
-		offset: Math.round(offset),
-		reason: "first-visible",
-		scroll: getScrollDebugPayload(),
-	});
 	markVisibleLatestTurnViewed(sessionId, nodes, containerRect);
 	updateCurrentTurnSequence();
 }
@@ -2016,13 +1827,6 @@ function writeBottomScrollAnchor(sessionId: string) {
 		sequence,
 		offset,
 		updatedAt: Date.now(),
-	});
-	logSessionVisualDebug("scroll-capture", {
-		targetSessionId: sessionId,
-		sequence,
-		offset: Math.round(offset),
-		reason: "bottom",
-		scroll: getScrollDebugPayload(),
 	});
 	const state = sessionStateById[sessionId];
 	unreadTracker.markViewed(sessionId, state?.session?.lastMessageId ?? null);
@@ -2349,12 +2153,6 @@ async function loadSessionState(sessionId: string, force = false) {
 			: null;
 		if (!guard.isCurrent()) return;
 		if (cached && (cached.turns.length > 0 || cached.session)) {
-			logSessionVisualDebug("turns-cache", {
-				targetSessionId: sessionId,
-				source: cached.source,
-				stale: cached.stale,
-				turns: getTurnDebugSummary(cached.turns),
-			});
 			sessionWorkspace.sessionStateById = {
 				...sessionStateById,
 				[sessionId]: {
@@ -2420,11 +2218,6 @@ async function loadSessionState(sessionId: string, force = false) {
 					limit: 30,
 				});
 			if (!guard.isCurrent()) return;
-			logSessionVisualDebug("turns-network", {
-				targetSessionId: sessionId,
-				hasMore: response.hasMore,
-				turns: getTurnDebugSummary(response.turns),
-			});
 			await syncGenerationStateFromTail(
 				sessionId,
 				response.turns,
@@ -3802,11 +3595,6 @@ function setProgrammaticScrollTop(scrollTop: number) {
 	programmaticScrollTarget = nextScrollTop;
 	userScrollActive = false;
 	listEl.scrollTop = nextScrollTop;
-	logSessionVisualDebug("scroll-set", {
-		targetTop: Math.round(nextScrollTop),
-		requestedTop: Math.round(scrollTop),
-		scroll: getScrollDebugPayload(),
-	});
 	updateTimelineScrollMetrics();
 	requestAnimationFrame(() => {
 		programmaticScrollActive = false;
@@ -3823,11 +3611,6 @@ function beginUserScroll() {
 		sessionScroll.anchorRestoreWaitingForMarkdown = false;
 	}
 	if (pendingRestoreSessionId === activeSessionId) {
-		logSessionVisualDebug("scroll-restore-cancel", {
-			reason: "user-scroll",
-			pending: pendingRestoreSessionId,
-			scroll: getScrollDebugPayload(),
-		});
 		sessionScroll.pendingRestoreSessionId = null;
 	}
 	if (restoringBottomSessionId === activeSessionId) {
@@ -3865,21 +3648,7 @@ function applyActiveAnchorRestore(restore = activeAnchorRestore) {
 	const node = listEl.querySelector<HTMLElement>(
 		`[data-sequence="${restore.sequence}"]`,
 	);
-	if (!node) {
-		logSessionVisualDebug("scroll-restore-miss", {
-			targetSessionId: restore.sessionId,
-			sequence: restore.sequence,
-			offset: Math.round(restore.offset),
-			scroll: getScrollDebugPayload(),
-		});
-		return false;
-	}
-	logSessionVisualDebug("scroll-restore-apply", {
-		targetSessionId: restore.sessionId,
-		sequence: restore.sequence,
-		offset: Math.round(restore.offset),
-		scroll: getScrollDebugPayload(),
-	});
+	if (!node) return false;
 	setProgrammaticScrollTop(getMessageElementAbsoluteTop(node) + restore.offset);
 	sessionScroll.shouldAutoFollow = false;
 	return true;
@@ -3898,21 +3667,8 @@ function areSessionScrollAnchorsEqual(
 }
 function restoreSessionScrollAnchorSoon(sessionId: string) {
 	const anchor = getSessionScrollAnchor(sessionId);
-	if (!anchor) {
-		logSessionVisualDebug("scroll-restore-skip", {
-			targetSessionId: sessionId,
-			reason: "missing-anchor",
-			scroll: getScrollDebugPayload(),
-		});
-		return;
-	}
+	if (!anchor) return;
 	const restore = { ...anchor, sessionId };
-	logSessionVisualDebug("scroll-restore-schedule", {
-		targetSessionId: sessionId,
-		sequence: restore.sequence,
-		offset: Math.round(restore.offset),
-		scroll: getScrollDebugPayload(),
-	});
 	sessionScroll.activeAnchorRestore = restore;
 	sessionScroll.anchorRestoreWaitingForMarkdown =
 		pendingTimelineMarkdownRenders > 0;
@@ -3924,24 +3680,12 @@ function restoreSessionScrollAnchorSoon(sessionId: string) {
 		updateAutoFollow();
 	});
 }
-function handleTimelineMarkdownRenderStart(...args: unknown[]) {
-	const message = args[0];
+function handleTimelineMarkdownRenderStart() {
 	sessionScroll.pendingTimelineMarkdownRenders += 1;
-	logSessionVisualDebug("markdown-start", {
-		message: getMessageDebugPayload(message),
-		pendingMarkdown: pendingTimelineMarkdownRenders,
-		scroll: getScrollDebugPayload(),
-	});
 }
-function handleTimelineMarkdownRendered(...args: unknown[]) {
-	const message = args[0];
+function handleTimelineMarkdownRendered() {
 	if (pendingTimelineMarkdownRenders > 0)
 		sessionScroll.pendingTimelineMarkdownRenders -= 1;
-	logSessionVisualDebug("markdown-done", {
-		message: getMessageDebugPayload(message),
-		pendingMarkdown: pendingTimelineMarkdownRenders,
-		scroll: getScrollDebugPayload(),
-	});
 	scheduleTurnMarkerMeasure();
 	const restore = activeAnchorRestore;
 	if (restore?.sessionId === activeSessionId) {
@@ -4660,12 +4404,6 @@ $effect(() => {
 	const sessionId = activeSessionId;
 	if (!pageMounted || !currentSpaceId || !sessionId) return;
 	return sessionTurnsRepo.subscribe(currentSpaceId, sessionId, (snapshot) => {
-		logSessionVisualDebug("turns-subscribe", {
-			targetSessionId: sessionId,
-			source: snapshot.source,
-			stale: snapshot.stale,
-			turns: getTurnDebugSummary(snapshot.turns),
-		});
 		const current = sessionStateById[sessionId];
 		if (!current) return;
 		const nextTurns = preserveSessionTurnRefs(
@@ -4915,13 +4653,6 @@ $effect(() => {
 			sessionScroll.anchorRestoreWaitingForMarkdown =
 				pendingTimelineMarkdownRenders > 0;
 			if (pendingTimelineMarkdownRenders > 0) {
-				logSessionVisualDebug("scroll-restore-defer", {
-					targetSessionId: targetId,
-					sequence: anchor.sequence,
-					offset: Math.round(anchor.offset),
-					pendingMarkdown: pendingTimelineMarkdownRenders,
-					scroll: getScrollDebugPayload(),
-				});
 				finishRestore();
 				return;
 			}
