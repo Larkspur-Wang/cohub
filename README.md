@@ -1,100 +1,76 @@
 # Cohub
 
-*Create in spaces. Save checkpoints. Co-create with agents.*
+*Your own space to create, play, and build with people and agents.*
 
-Cohub is a cloud platform for **space-based agent creation, execution, and collaboration**.
+Cohub is a shared creative space for people and agents. Start in the browser, continue from CLI or chat apps, keep one living context, and turn experiments into shareable Works.
 
 It combines:
-- **JupyterLab / Colab-like** in-browser creation and debugging
-- **Heroku / Fly.io-like** local-to-cloud deployment
-- **GitHub / Hugging Face-like** sharing, reuse, and community collaboration
+- a browser-first Space for conversation, files, sessions, tasks, and previews
+- checkpoint-based saving, forking, and remixing
+- multimodal generation for text, image, video, and music
+- public Spaces and Works for discovery and sharing
+- CLI and external channels for people and agents to act from anywhere
+
+## Core Ideas
+
+### Fun to start
+Open a Space and start playing with ideas, prompts, media, files, and agents.
+
+### Build and share together
+Invite people and agents into the same context, co-create in one Space, and share what you make.
+
+### Open everywhere
+Create from web, mobile, CLI, Discord, WeChat, and more - the Space stays with you.
+
+### Powerful for real work
+Build games, apps, media, automations, custom homes, and agent-powered experiences.
 
 ## Core Concepts
 
 ### Space
-A **Space** is the core unit in Cohub.
+A Space is the main creative surface in Cohub.
 
-A space is a live, isolated working environment where users and agents create together. It contains ongoing conversations, file changes, experiments, and unpublished drafts.
-
-A space is:
-- the main place where creation happens
-- the unit you open in the browser
-- the unit you run agents inside
-- the unit you can later save, fork, and evolve
+It is a live, isolated environment where people and agents work together. A Space holds conversations, files, drafts, outputs, and experiments in one place.
 
 ### Checkpoint
-A **Checkpoint** is an immutable snapshot saved from a space.
+A Checkpoint is an immutable snapshot saved from a Space.
 
-It captures a meaningful milestone in time and becomes a stable base for sharing, rollback, branching, and reuse.
-
-A checkpoint is:
-- a frozen snapshot of a space state
-- the basis for sharing and discovery
-- the source for future forks
-- the safe anchor point for collaboration
+It preserves a meaningful moment, and can be shared, forked, restored, or used as a stable base for new work.
 
 ### Proposal
-A **Proposal** is the collaboration flow for contributing one checkpoint back into another space.
+A Proposal is a collaboration flow for bringing work from one checkpoint back into another Space.
 
-It is Cohub’s co-creation primitive for review, discussion, and merge-like integration.
+It keeps review, discussion, and integration close to the work itself.
 
 ### Agent
-An **Agent** is the executable logic that works inside a space.
-
-If the space is the creative environment, the agent is the active collaborator operating within it.
+An Agent is the active collaborator operating inside a Space.
 
 ### Session
-A **Session** is an internal LLM conversation context inside a space.
-
-Each session maintains its own interaction history and can evolve independently as users explore ideas with agents.
+A Session is a conversation context inside a Space. Each Session keeps its own history and can evolve independently.
 
 ### Channel
-A **Channel** is an external communication endpoint connected to a space.
+A Channel is an external entry point connected to a Space.
 
-Examples include Web, Discord, Telegram, and Feishu. Users interact through channels, and agents can send results back through them.
+Examples include Web, Discord, Telegram, Feishu, and WeChat. People can talk from those channels, and agents can respond back through them.
 
 ### Sandbox
-A **Sandbox** is the internal execution infrastructure behind a space.
+A Sandbox is the execution environment behind a Space.
 
-Sandbox state still exists in the system, but it is treated as infrastructure rather than a primary user-facing concept.
+It provides runtime capabilities while staying behind the product surface.
 
-## Positioning
+## Product Shape
 
-Cohub is built around the idea that **spaces are the primary creative surface**, while **checkpoints are the durable assets** created from them.
+Cohub is built around one idea: **people create in Spaces, and useful context gets saved as Checkpoints**.
 
 The platform is for:
-- **creating** with agents in live spaces
-- **saving** milestones as checkpoints
-- **forking** from checkpoints into new spaces
-- **proposing** changes back for collaborative integration
-- **deploying** agent-powered workloads from space context
+- creating with people and agents in live Spaces
+- saving milestones as Checkpoints
+- forking from Checkpoints into new Spaces
+- proposing changes back into another Space
+- publishing Works from files, directories, or ports
+- using CLI and APIs to automate the same product surface
 
-> Cohub is a cloud platform for creating in spaces, saving checkpoints, and collaborating with agents.
-
-## Co-Creation Workflow
-
-### 1. Create in a Space
-Start a space, chat with an agent, edit files, and iterate in the browser.
-
-### 2. Save a Checkpoint
-When a space reaches a meaningful milestone, save it as a checkpoint.
-
-### 3. Fork and Explore
-Fork from an existing checkpoint into a new isolated space for further exploration.
-
-### 4. Propose Back
-Turn your result into a proposal and contribute it back into another space.
-
-## Tech Stack
-
-- **Language**: TypeScript + Go
-- **Frontend**: SvelteKit
-- **Backend**: Hono
-- **Agent Runtime**: pi-coding-agent (WS client, actively connects to sandbox)
-- **Sandbox Runtime**: Go + WebSocket server
-- **Database**: PostgreSQL + Drizzle ORM
-- **Infrastructure**: Kubernetes (ACK)
-- **Package Manager**: pnpm monorepo
+> Cohub is a shared creative space for people and agents to create, save, share, and build from real context.
 
 ## Repository Structure
 
@@ -104,17 +80,28 @@ cohub/
 │   ├── api/          # Hono API — orchestration, provisioning, session persistence
 │   ├── agent/        # Agent control service — Pi coding agent, WS client connecting to sandbox
 │   ├── sandbox/      # Sandbox executor — Go WS server for workspace / fs / process
-│   ├── gateway/      # External channel provider gateway (Discord, Telegram, etc.)
-│   ├── web/          # SvelteKit web console
-│   └── worker/       # Task scheduler — cron jobs & async task processing
-├── deploy/           # Deployment configs (K8s manifests per env)
+│   ├── gateway/      # External channel gateway (Discord, Telegram, Feishu, WeChat, etc.)
+│   ├── web/          # SvelteKit web app
+│   └── worker/       # Task scheduler — cron jobs and async task processing
+├── deploy/           # Deployment configs (per environment)
 ├── docs/             # Architecture and product model docs
 ├── packages/
-│   ├── protocol/            # Shared types & protocols across apps
-│   └── agent-sandbox-protocol/  # Agent-Sandbox WebSocket RPC protocol
+│   ├── protocol/     # Shared types and protocols across apps
+│   └── sdk/          # Client SDK for Spaces, Sessions, Checkpoints, and more
 ├── scripts/          # Utility scripts
 └── README.md
 ```
+
+## Tech Stack
+
+- **Language**: TypeScript + Go
+- **Frontend**: SvelteKit
+- **Backend**: Hono
+- **Agent Runtime**: pi-coding-agent (WS client, connects to sandbox)
+- **Sandbox Runtime**: Go + WebSocket server
+- **Database**: PostgreSQL + Drizzle ORM
+- **Infrastructure**: Kubernetes (ACK)
+- **Package Manager**: pnpm monorepo
 
 ## Development
 
@@ -134,5 +121,9 @@ pnpm build
 ## Docs
 
 Recommended starting points:
+- `docs/CO-CREATION-MODEL.md`
+- `docs/space-state-model.md`
+- `docs/generations.md`
+- `docs/works-guide.md`
 - `docs/agent-sandbox-runtime.md`
 - `docs/prod-deploy-checklist.md`

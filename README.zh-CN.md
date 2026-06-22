@@ -1,100 +1,76 @@
 # Cohub
 
-*在 Space 中创作，保存 Checkpoint，与 Agent 共创。*
+*Your own space to create, play, and build with people and agents.*
 
-Cohub 是一个面向 **Space 驱动的 Agent 创作、运行与协作** 的云平台。
+Cohub 是一个面向人和 Agent 的共享创作空间。你可以从浏览器开始，也可以通过 CLI 或聊天渠道继续，始终保持同一份上下文，并把实验沉淀为可分享的 Works。
 
-它结合了三类能力：
-- **类似 JupyterLab / Colab** 的浏览器内创作与调试体验
-- **类似 Heroku / Fly.io** 的本地到云端部署流程
-- **类似 GitHub / Hugging Face** 的分享、复用与社区共创模式
+它结合了：
+- 以浏览器为中心的 Space，用于对话、文件、会话、任务和预览
+- 基于 Checkpoint 的保存、派生与复用
+- 支持文本、图像、视频和音乐的多模态生成
+- 可发现、可分享的公共 Spaces 和 Works
+- 让人和 Agent 都能随时行动的 CLI 与外部 Channel
+
+## 核心理念
+
+### Fun to start
+打开一个 Space，马上开始玩想法、提示词、媒体、文件和 Agent。
+
+### Build and share together
+把人和 Agent 邀请进同一个上下文，在一个 Space 里协作，并把成果分享出去。
+
+### Open everywhere
+可以从 Web、移动端、CLI、Discord、WeChat 等入口进入，Space 会跟着你走。
+
+### Powerful for real work
+可以做游戏、应用、媒体、自动化、自定义主页，以及具备 Agent 能力的复杂作品。
 
 ## 核心概念
 
 ### Space
-**Space** 是 Cohub 中最核心的单元。
+Space 是 Cohub 的主要创作界面。
 
-Space 是一个实时、隔离的创作环境，用户和 Agent 会在其中共同对话、改文件、做实验，并不断推进尚未固化的想法。
-
-Space 同时也是：
-- 主要的创作场所
-- 在浏览器中打开和工作的单元
-- 运行 Agent 的上下文容器
-- 后续可保存、可派生、可继续演化的基础单元
+它是一个实时、隔离的环境，人和 Agent 会在其中一起工作。Space 会把对话、文件、草稿、输出和实验放在同一个地方。
 
 ### Checkpoint
-**Checkpoint** 是从 Space 中保存出来的不可变快照。
+Checkpoint 是从 Space 中保存出来的不可变快照。
 
-它代表某个有价值的阶段性成果，是后续分享、回滚、派生与复用的稳定基准。
-
-Checkpoint 同时也是：
-- 某个 Space 状态的静态截面
-- 对外分享与发现的基础资产
-- 后续 Fork 的来源
-- 共创过程中重要的安全锚点
+它记录一个有价值的时刻，可以被分享、派生、恢复，也可以作为新工作的稳定基准。
 
 ### Proposal
-**Proposal** 是把某个 Checkpoint 的成果贡献回另一个 Space 的共创流程。
+Proposal 是把一个 Checkpoint 的成果带回另一个 Space 的协作流程。
 
-它承载评审、讨论与合入，是 Cohub 中对应协作与合并的核心机制。
+它让评审、讨论与合入尽量贴近作品本身。
 
 ### Agent
-**Agent** 是运行在 Space 中的可执行智能体逻辑。
-
-如果说 Space 是创作环境，那么 Agent 就是在其中持续协作的主动执行者。
+Agent 是在 Space 中执行协作的主动角色。
 
 ### Session
-**Session** 是 Space 内部的 LLM 会话上下文单元。
-
-每个 Session 都维护自己的交互历史，用户可以在不同 Session 中探索不同方向。
+Session 是 Space 中的一个对话上下文。每个 Session 都保留自己的历史，并可以独立演化。
 
 ### Channel
-**Channel** 是连接到 Space 的外部通信入口。
+Channel 是连接到 Space 的外部入口。
 
-例如 Web、Discord、Telegram、飞书。用户通过 Channel 与 Agent 交互，Agent 也可以通过 Channel 回传结果。
+例如 Web、Discord、Telegram、飞书和 WeChat。人可以通过这些入口发起交互，Agent 也可以通过这些入口回传结果。
 
 ### Sandbox
-**Sandbox** 是 Space 背后的内部执行基础设施。
+Sandbox 是 Space 背后的执行环境。
 
-系统内部仍然维护 sandbox 状态，但它属于基础设施层概念，而不再是主要的用户心智模型。
+它提供运行能力，但不作为产品表层的主要概念。
 
 ## 产品定位
 
-Cohub 的核心思路是：**Space 是主要的创作界面，Checkpoint 是沉淀下来的可复用资产。**
+Cohub 的核心思路是：**人先在 Space 里创作，真正有价值的上下文再保存为 Checkpoint**。
 
 这个平台适合：
-- 在实时 Space 中与 Agent 一起创作
+- 在实时 Space 中和人、Agent 一起创作
 - 将阶段性成果保存为 Checkpoint
-- 从 Checkpoint 派生出新的 Space 继续探索
-- 通过 Proposal 将成果贡献回其他 Space
-- 基于 Space 上下文部署 Agent 工作负载
+- 基于 Checkpoint Fork 出新的 Space 继续探索
+- 通过 Proposal 把变更带回另一个 Space
+- 从文件、目录或端口发布 Works
+- 通过 CLI 和 API 用同一套产品能力自动化操作
 
-> Cohub 是一个让用户在 Space 中创作、将成果保存为 Checkpoint，并与 Agent 持续共创的云平台。
-
-## 共创工作流
-
-### 1. 在 Space 中创作
-创建一个 Space，在浏览器中与 Agent 对话、修改文件、持续迭代。
-
-### 2. 保存 Checkpoint
-当 Space 达到一个有价值的阶段时，将其保存为 Checkpoint。
-
-### 3. Fork 并继续探索
-基于已有 Checkpoint Fork 出一个新的隔离 Space，继续实验和演化。
-
-### 4. 发起 Proposal
-把你的成果整理成 Proposal，贡献回另一个 Space。
-
-## 技术栈
-
-- **语言**：TypeScript + Go
-- **前端**：SvelteKit
-- **后端**：Hono
-- **Agent Runtime**：pi-coding-agent（WS 客户端，主动连接 sandbox）
-- **Sandbox Runtime**：Go + WebSocket server
-- **数据库**：PostgreSQL + Drizzle ORM
-- **基础设施**：Kubernetes (ACK)
-- **包管理**：pnpm monorepo
+> Cohub 是一个让人和 Agent 一起创作、保存、分享，并基于真实上下文继续构建的共享创作空间。
 
 ## 仓库结构
 
@@ -102,19 +78,30 @@ Cohub 的核心思路是：**Space 是主要的创作界面，Checkpoint 是沉�
 cohub/
 ├── apps/
 │   ├── api/          # Hono API — 编排、Provisioning、Session 持久化
-│   ├── agent/        # Agent 控制服务 — 运行 Pi coding agent，作为 WS 客户端连接 sandbox
-│   ├── sandbox/      # Sandbox 执行器 — Go WS server，负责 workspace / fs / process primitive
-│   ├── gateway/      # 外部 channel provider 网关（独立部署）
-│   ├── web/          # SvelteKit Web 控制台
+│   ├── agent/        # Agent 控制服务 — 运行 Pi coding agent，连接 sandbox
+│   ├── sandbox/      # Sandbox 执行器 — Go WS server，负责 workspace / fs / process
+│   ├── gateway/      # 外部 Channel 网关（Discord、Telegram、飞书、WeChat 等）
+│   ├── web/          # SvelteKit Web 应用
 │   └── worker/       # 任务调度器 — 定时任务与异步任务处理
-├── deploy/           # 部署配置（按环境组织的 K8s manifests）
+├── deploy/           # 各环境部署配置
 ├── docs/             # 架构与产品模型文档
 ├── packages/
-│   ├── protocol/            # 跨 apps 共享的类型与协议
-│   └── agent-sandbox-protocol/  # Agent-Sandbox WebSocket RPC 协议
+│   ├── protocol/     # 跨应用共享的类型与协议
+│   └── sdk/          # 面向 Spaces、Sessions、Checkpoints 等能力的客户端 SDK
 ├── scripts/          # 工具脚本
 └── README.zh-CN.md
 ```
+
+## 技术栈
+
+- **语言**：TypeScript + Go
+- **前端**：SvelteKit
+- **后端**：Hono
+- **Agent Runtime**：pi-coding-agent（WS 客户端，连接 sandbox）
+- **Sandbox Runtime**：Go + WebSocket server
+- **数据库**：PostgreSQL + Drizzle ORM
+- **基础设施**：Kubernetes (ACK)
+- **包管理**：pnpm monorepo
 
 ## 开发
 
@@ -134,5 +121,9 @@ pnpm build
 ## 文档
 
 推荐优先阅读：
+- `docs/CO-CREATION-MODEL.md`
+- `docs/space-state-model.md`
+- `docs/generations.md`
+- `docs/works-guide.md`
 - `docs/agent-sandbox-runtime.md`
 - `docs/prod-deploy-checklist.md`
