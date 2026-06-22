@@ -1,3 +1,26 @@
+<script module lang="ts">
+let markdownModulePromise: Promise<typeof import("$lib/markdown")> | null =
+	null;
+
+function escapeHtml(value: string) {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#39;");
+}
+
+function renderPlainTextFallback(markdownSource: string) {
+	return escapeHtml(markdownSource).replaceAll("\n", "<br>");
+}
+
+function loadMarkdownModule() {
+	markdownModulePromise ??= import("$lib/markdown");
+	return markdownModulePromise;
+}
+</script>
+
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
 import { onDestroy, untrack } from "svelte";
@@ -64,8 +87,9 @@ function destroyController() {
 
 function renderFullMarkdown(markdownSource: string) {
 	const seq = ++renderSeq;
+	renderedHtml = renderPlainTextFallback(markdownSource);
 	untrack(() => onStart?.());
-	void import("$lib/markdown")
+	void loadMarkdownModule()
 		.then(({ renderMarkdown }) => renderMarkdown(markdownSource))
 		.then((html) => {
 			if (seq !== renderSeq) return;
