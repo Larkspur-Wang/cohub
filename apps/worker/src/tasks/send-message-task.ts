@@ -28,7 +28,7 @@ const sessionPromptService = getSessionDomainServices({
 });
 
 function sanitizeTaskPromptAuth(auth: PromptAuthContext | null | undefined, input: { spaceId: string; userId: string }) {
-  if (!auth || auth.type !== "delegated_prompt" || auth.spaceId !== input.spaceId) return null;
+  if (auth?.type !== "delegated_prompt" || auth.spaceId !== input.spaceId) return null;
   if (auth.actorUserId !== input.userId) return null;
   if (getPromptAuthScopes(auth, input.spaceId).length === 0) return null;
   return auth;
