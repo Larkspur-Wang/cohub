@@ -206,6 +206,11 @@ async function handleSubmit(e: Event) {
 		}
 	}
 
+	if (selectedProvider === "wechat") {
+		await startWeChatLogin();
+		return;
+	}
+
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
 
