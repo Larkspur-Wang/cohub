@@ -30,6 +30,15 @@ const buildCommitMessage = (description?: string | null) => {
 
 type SaveCheckpointTimings = Record<string, number>;
 
+type CheckpointDiffStats = {
+  changedFileCount: number;
+  addedFileCount: number;
+  modifiedFileCount: number;
+  deletedFileCount: number;
+  renamedFileCount: number;
+  copiedFileCount: number;
+};
+
 type ConfigPublishWarning = {
   scope: "platform" | "user";
   target: "models_cache" | "generations_cache" | "prompts_cache";
@@ -50,6 +59,28 @@ const timeIt = async <T>(timings: SaveCheckpointTimings, label: string, fn: () =
     console.info(`[save_checkpoint] ⏱ ${label}: ${duration}ms`);
   }
 };
+
+function parseCheckpointDiffStats(output: string): CheckpointDiffStats {
+  const stats: CheckpointDiffStats = {
+    changedFileCount: 0,
+    addedFileCount: 0,
+    modifiedFileCount: 0,
+    deletedFileCount: 0,
+    renamedFileCount: 0,
+    copiedFileCount: 0,
+  };
+  for (const line of output.split("\n")) {
+    const status = line.trim().charAt(0);
+    if (!status) continue;
+    stats.changedFileCount += 1;
+    if (status === "A") stats.addedFileCount += 1;
+    else if (status === "M") stats.modifiedFileCount += 1;
+    else if (status === "D") stats.deletedFileCount += 1;
+    else if (status === "R") stats.renamedFileCount += 1;
+    else if (status === "C") stats.copiedFileCount += 1;
+  }
+  return stats;
+}
 
 async function mirrorToGitea(repoDir: string, repoName: string, branch: string) {
   await createInternalRepository(repoName, true);
@@ -125,6 +156,10 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   await progress("commit_checkpoint", { gitRepoCount: userGitRepos.length });
   await timeIt(timings, "syncSystemRepo", () => syncSystemRepo({ repoDir: dirs.repoDir, smallFiles, assets, gitCheckpointMeta, userGitRepos: userGitReposManifest }));
   await timeIt(timings, "gitAdd", () => runGit(["add", "-A"], dirs.repoDir));
+  const diffStats = await timeIt(timings, "gitDiffNameStatus", async () => {
+    const diff = await runGitWithOutput(["diff", "--cached", "--name-status"], dirs.repoDir);
+    return parseCheckpointDiffStats(diff.stdout);
+  });
   await timeIt(timings, "gitCommit", () => runGit(["commit", "--allow-empty", "-m", commitMessage], dirs.repoDir));
   const head = await timeIt(timings, "gitRevParse", () => runGitWithOutput(["rev-parse", "HEAD"], dirs.repoDir));
   const commitHash = head.stdout.trim();
@@ -143,6 +178,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   const stats = {
     fileCount: smallFileCount + assetCount,
     fileBytes: smallFileBytes + assetBytes,
+    ...diffStats,
     smallFileCount,
     smallFileBytes,
     assetCount,
@@ -245,7 +281,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   }
 
   await progress("completed", { checkpointId: checkpoint.id, commitHash, ...(publishWarnings.length > 0 ? { publishWarnings } : {}) });
-  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: scan.files.length, assetCount, detectedGitRepoCount, timings, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}), ...(publishWarnings.length > 0 ? { publishWarnings } : {}) };
+  return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: diffStats.changedFileCount, stats, assetCount, detectedGitRepoCount, timings, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}), ...(publishWarnings.length > 0 ? { publishWarnings } : {}) };
 };
 
 const saveCheckpointHandler = async (job: Job, context?: { taskRunId: string }) => {

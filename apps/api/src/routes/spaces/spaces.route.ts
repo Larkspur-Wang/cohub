@@ -1094,7 +1094,7 @@ const DEFAULT_CHECKPOINT_LIST_LIMIT = 20;
 const MAX_CHECKPOINT_LIST_LIMIT = 100;
 
 const encodeCheckpointListCursor = (
-  checkpoint: typeof checkpoints.$inferSelect | null | undefined,
+  checkpoint: { id: string; createdAt: Date | string | null } | null | undefined,
 ) => {
   if (!checkpoint?.createdAt) return null;
   const createdAt = checkpoint.createdAt instanceof Date
@@ -1127,7 +1127,17 @@ router.get("/:id/checkpoints", async (c) => {
   const cursor = decodeCheckpointListCursor(c.req.query("cursor"));
 
   const rows = await db
-    .select()
+    .select({
+      id: checkpoints.id,
+      spaceId: checkpoints.spaceId,
+      commitHash: checkpoints.commitHash,
+      description: checkpoints.description,
+      parentCheckpointId: checkpoints.parentCheckpointId,
+      rootCheckpointId: checkpoints.rootCheckpointId,
+      forkCount: checkpoints.forkCount,
+      saveVersion: checkpoints.saveVersion,
+      createdAt: checkpoints.createdAt,
+    })
     .from(checkpoints)
     .where(
       cursor

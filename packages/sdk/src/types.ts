@@ -946,8 +946,10 @@ export type CheckpointRecord = {
   commitHash: string;
   description: string;
   parentCheckpointId: string | null;
+  rootCheckpointId?: string | null;
   forkCount: number;
-  meta: Record<string, unknown> | null;
+  saveVersion?: number;
+  meta?: Record<string, unknown> | null;
   createdAt: string;
 };
 

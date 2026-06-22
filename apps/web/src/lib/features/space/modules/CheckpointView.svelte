@@ -6,6 +6,7 @@ import {
 } from "@neta-art/cohub";
 import {
 	Activity,
+	BarChart3,
 	Check,
 	Copy,
 	GitCommitHorizontal,
@@ -76,6 +77,30 @@ function sourceTaskRunIdFromCheckpoint(
 	return typeof sourceTaskRunId === "string" && sourceTaskRunId.trim()
 		? sourceTaskRunId
 		: null;
+}
+
+function readCheckpointStat(
+	checkpoint: CheckpointRecord | null | undefined,
+	key: string,
+): number | null {
+	const stats = asRecord(asRecord(checkpoint?.meta)?.stats);
+	const value = stats?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatCheckpointCount(value: number | null): string {
+	return value === null ? "—" : value.toLocaleString("en-US");
+}
+
+function formatCheckpointBytes(value: number | null): string {
+	if (value === null) return "—";
+	return new Intl.NumberFormat("en-US", {
+		maximumFractionDigits: value >= 1024 * 1024 ? 1 : 0,
+		style: "unit",
+		unit: "byte",
+		unitDisplay: "narrow",
+		notation: value >= 1024 * 1024 ? "compact" : "standard",
+	}).format(value);
 }
 
 async function loadCheckpointDetail(targetCheckpointId: string) {
@@ -227,6 +252,14 @@ onDestroy(() => {
 				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
 			{:else if checkpointDetail && checkpointDetail.id === checkpointId}
 				{@const sourceTaskRunId = sourceTaskRunIdFromCheckpoint(checkpointDetail)}
+				{@const fileCount = readCheckpointStat(checkpointDetail, "fileCount")}
+				{@const changedFileCount = readCheckpointStat(checkpointDetail, "changedFileCount")}
+				{@const fileBytes = readCheckpointStat(checkpointDetail, "fileBytes")}
+				{@const addedFileCount = readCheckpointStat(checkpointDetail, "addedFileCount")}
+				{@const modifiedFileCount = readCheckpointStat(checkpointDetail, "modifiedFileCount")}
+				{@const deletedFileCount = readCheckpointStat(checkpointDetail, "deletedFileCount")}
+				{@const renamedFileCount = readCheckpointStat(checkpointDetail, "renamedFileCount")}
+				{@const copiedFileCount = readCheckpointStat(checkpointDetail, "copiedFileCount")}
 				<div class="space-y-6 sm:space-y-8">
 					<header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">
 						<div class="min-w-0 space-y-3">
@@ -292,6 +325,51 @@ onDestroy(() => {
 											<Copy class="w-3 h-3" />
 										{/if}
 									</button>
+								</div>
+							</div>
+
+							<div class="space-y-2">
+								<div class="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-placeholder">
+									<BarChart3 class="w-3.5 h-3.5 shrink-0" />
+									Stats
+								</div>
+								<div class="rounded-[6px] bg-bg-elevated/25 px-3 py-3">
+									<div class="grid grid-cols-3 gap-x-4 gap-y-3">
+										<div class="min-w-0">
+											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">Files</div>
+											<div class="mt-1 font-mono text-[16px] font-semibold tabular-nums text-text-primary">{formatCheckpointCount(fileCount)}</div>
+										</div>
+										<div class="min-w-0">
+											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">Changed</div>
+											<div class="mt-1 font-mono text-[16px] font-semibold tabular-nums text-text-primary">{formatCheckpointCount(changedFileCount)}</div>
+										</div>
+										<div class="min-w-0">
+											<div class="text-[10px] uppercase tracking-wider text-text-placeholder">Size</div>
+											<div class="mt-1 font-mono text-[16px] font-semibold tabular-nums text-text-primary">{formatCheckpointBytes(fileBytes)}</div>
+										</div>
+									</div>
+									<div class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-border-subtle/60 pt-3 text-[12px] sm:grid-cols-5">
+										<div class="flex items-center justify-between gap-2 sm:block">
+											<span class="text-text-tertiary">Added</span>
+											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(addedFileCount)}</span>
+										</div>
+										<div class="flex items-center justify-between gap-2 sm:block">
+											<span class="text-text-tertiary">Modified</span>
+											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(modifiedFileCount)}</span>
+										</div>
+										<div class="flex items-center justify-between gap-2 sm:block">
+											<span class="text-text-tertiary">Deleted</span>
+											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(deletedFileCount)}</span>
+										</div>
+										<div class="flex items-center justify-between gap-2 sm:block">
+											<span class="text-text-tertiary">Renamed</span>
+											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(renamedFileCount)}</span>
+										</div>
+										<div class="flex items-center justify-between gap-2 sm:block">
+											<span class="text-text-tertiary">Copied</span>
+											<span class="font-mono tabular-nums text-text-secondary sm:mt-1 sm:block">{formatCheckpointCount(copiedFileCount)}</span>
+										</div>
+									</div>
 								</div>
 							</div>
 
