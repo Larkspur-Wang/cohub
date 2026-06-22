@@ -90,8 +90,8 @@ export const getQueueParallelism = (
 };
 
 export const defaultJobRetention = {
-  removeOnComplete: { age: 24 * 3600, count: 1_000 },
-  removeOnFail: { age: 3 * 24 * 3600, count: 1_000 },
+  removeOnComplete: { age: 24 * 3600, count: 100 },
+  removeOnFail: { age: 3 * 24 * 3600, count: 100 },
 } satisfies Pick<JobsOptions, "removeOnComplete" | "removeOnFail">;
 
 export const defaultCriticalJobOptions = {
