@@ -1,5 +1,16 @@
 # @neta-art/cohub-cli
 
+## 1.19.0
+
+### Minor Changes
+
+- 577e4ce: Add `cohub me sessions` (paginated cross-space session list) and `cohub me usage [days]` (aggregated account-level usage summary) commands. Update `--work-scope` / `--viewer-scope` help text with full valid scope values including new user-level scopes.
+
+### Patch Changes
+
+- Updated dependencies [577e4ce]
+  - @neta-art/cohub@1.30.0
+
 ## 1.18.0
 
 ### Minor Changes
