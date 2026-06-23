@@ -2,7 +2,7 @@
 
 *Your own space to create, play, and build with people and agents.*
 
-Cohub 是一个面向人和 Agent 的共享创作空间。你可以从浏览器开始，也可以通过 CLI 或聊天渠道继续，始终保持同一份上下文，并把实验沉淀为可分享的 Works。
+Cohub 是一个让人和 Agent 共同创作的 living Space。随处开始，用任何媒介创作，并沉淀为可分享的 Works。
 
 它结合了：
 - 以浏览器为中心的 Space，用于对话、文件、会话、任务和预览
@@ -14,16 +14,19 @@ Cohub 是一个面向人和 Agent 的共享创作空间。你可以从浏览器�
 ## 核心理念
 
 ### Fun to start
-打开一个 Space，马上开始玩想法、提示词、媒体、文件和 Agent。
+打开一个 Space，马上开始玩想法、提示词、文件和 Agent。
 
-### Build and share together
-把人和 Agent 邀请进同一个上下文，在一个 Space 里协作，并把成果分享出去。
+### Build together
+人和 Agent 在同一份上下文里。共创、保存、分享。
 
 ### Open everywhere
-可以从 Web、移动端、CLI、Discord、WeChat 等入口进入，Space 会跟着你走。
+Web、移动端、CLI、Discord、WeChat，Space 会跟着你走。
 
 ### Powerful for real work
-可以做游戏、应用、媒体、自动化、自定义主页，以及具备 Agent 能力的复杂作品。
+游戏、应用、媒体、自动化、自定义主页——从随手玩到正式产出。
+
+### Never start blank
+从一个 Checkpoint fork 出新的 Space，或在 session 里用 `@space` 引用任意 Space 作为上下文。
 
 ## 核心概念
 

@@ -2,7 +2,7 @@
 
 *Your own space to create, play, and build with people and agents.*
 
-Cohub is a shared creative space for people and agents. Start in the browser, continue from CLI or chat apps, keep one living context, and turn experiments into shareable Works.
+Cohub is a living Space for people and agents. Start anywhere, make in any medium, share as Works.
 
 It combines:
 - a browser-first Space for conversation, files, sessions, tasks, and previews
@@ -14,16 +14,19 @@ It combines:
 ## Core Ideas
 
 ### Fun to start
-Open a Space and start playing with ideas, prompts, media, files, and agents.
+Open a Space and play with ideas, prompts, files, and agents.
 
-### Build and share together
-Invite people and agents into the same context, co-create in one Space, and share what you make.
+### Build together
+People and agents in one context. Co-create, save, and share.
 
 ### Open everywhere
-Create from web, mobile, CLI, Discord, WeChat, and more - the Space stays with you.
+Web, mobile, CLI, Discord, WeChat. The Space follows you.
 
 ### Powerful for real work
-Build games, apps, media, automations, custom homes, and agent-powered experiences.
+Games, apps, media, automations, custom homes — from playful to production.
+
+### Never start blank
+Fork a checkpoint into a new Space, or reference any Space with `@space` as context.
 
 ## Core Concepts
 
