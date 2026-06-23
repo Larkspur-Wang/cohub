@@ -1,5 +1,5 @@
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
-import type { MeResponse, UserProfile, UserRulesResponse } from "../types.js";
+import type { MeResponse, UserProfile, UserRulesResponse, SpaceSessionsResponse, SpaceUsageResponse } from "../types.js";
 
 export class UserApi {
   constructor(
@@ -26,6 +26,27 @@ export class UserApi {
       method: "GET",
       fetch: customFetch,
     });
+  }
+
+  listSessions(optionsOrFetch?: { limit?: number; cursor?: string | null } | Fetch, customFetch?: Fetch) {
+    const options = typeof optionsOrFetch === "function" ? undefined : optionsOrFetch;
+    const fetch = typeof optionsOrFetch === "function" ? optionsOrFetch : customFetch;
+    const params = new URLSearchParams();
+    if (options?.limit !== undefined) params.set("limit", String(options.limit));
+    if (options?.cursor) params.set("cursor", options.cursor);
+    const query = params.toString();
+    return this.transport.request<SpaceSessionsResponse>(
+      `/api/me/sessions${query ? `?${query}` : ""}`,
+      { fetch },
+    );
+  }
+
+  getUsage(days = 30, customFetch?: Fetch) {
+    const params = new URLSearchParams({ days: String(days) });
+    return this.transport.request<SpaceUsageResponse>(
+      `/api/me/usage?${params.toString()}`,
+      { fetch: customFetch },
+    );
   }
 
   async setAuthToken(token: string) {

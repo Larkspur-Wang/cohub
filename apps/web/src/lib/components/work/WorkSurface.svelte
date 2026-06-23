@@ -191,6 +191,9 @@ function formatScopeLabel(scope: string) {
 		"generation.create": "Create generations",
 		"file.view": "View files",
 		"taskrun.view": "View task runs",
+		"user.space.list": "List your spaces",
+		"user.session.list": "List your sessions",
+		"user.usage.read": "Read your usage",
 	};
 	return labels[scope] ?? scope;
 }
@@ -204,6 +207,10 @@ function formatScopeDescription(scope: string) {
 		"generation.create": "Start image, video, or other generation tasks.",
 		"file.view": "Read files in this space.",
 		"taskrun.view": "View task progress and results in this space.",
+		"user.space.list":
+			"See the list of spaces you own or belong to across your account.",
+		"user.session.list": "See sessions you created across all your spaces.",
+		"user.usage.read": "Read your aggregated token usage and cost statistics.",
 	};
 	return (
 		descriptions[scope] ?? "Grant this work the requested Cohub permission."

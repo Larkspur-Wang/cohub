@@ -47,6 +47,22 @@ export const WORK_VIEWER_SCOPE_OPTIONS: {
 		label: "Create generations",
 		description: "Allow viewers to start generation tasks.",
 	},
+	{
+		scope: "user.space.list",
+		label: "List viewer spaces",
+		description: "Let the work list spaces the viewer owns or belongs to.",
+	},
+	{
+		scope: "user.session.list",
+		label: "List viewer sessions",
+		description:
+			"Let the work list sessions the viewer created across all spaces.",
+	},
+	{
+		scope: "user.usage.read",
+		label: "Read viewer usage",
+		description: "Let the work read the viewer's aggregated usage and cost.",
+	},
 ];
 
 export function scopeState(

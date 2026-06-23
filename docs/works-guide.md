@@ -95,11 +95,16 @@ Current viewer-grant permissions are:
 session.prompt.readonly
 session.prompt.fullaccess
 generation.create
+user.space.list
+user.session.list
+user.usage.read
 ```
 
 Direct Work permissions are granted by the publisher at publish time.
 
 Viewer-grant permissions require a separate viewer action. The Work calls authorization from inside the runtime, Cohub shows the viewer a consent dialog, and the Work receives a token only for scopes allowed by the publisher and approved by the viewer.
+
+The `user.*` scopes grant access to the viewer's account-level data across all their spaces. `user.space.list` lets the Work call `cohub.spaces.list()`. `user.session.list` lets the Work call `cohub.user.listSessions()`. `user.usage.read` lets the Work call `cohub.user.getUsage()`. These scopes are not bound to the Work's own space.
 
 Use the smallest permission set that the Work needs. A visual static demo normally does not need file, session, task, prompt, or generation permissions.
 
@@ -130,6 +135,31 @@ await cohub.auth.request({
 ```
 
 Prompt-writing behavior should request `session.prompt.fullaccess`. Generation creation should request `generation.create`.
+
+To access the viewer's account-level data, request the corresponding `user.*` scope:
+
+```js
+// List the viewer's spaces
+await cohub.auth.request({
+  scopes: ["user.space.list"],
+  reason: "This Work wants to show your space list.",
+});
+const spaces = await cohub.spaces.list();
+
+// List sessions the viewer created across all spaces
+await cohub.auth.request({
+  scopes: ["user.session.list"],
+  reason: "This Work wants to list your sessions.",
+});
+const { sessions } = await cohub.user.listSessions({ limit: 20 });
+
+// Read the viewer's aggregated usage
+await cohub.auth.request({
+  scopes: ["user.usage.read"],
+  reason: "This Work wants to show your usage summary.",
+});
+const usage = await cohub.user.getUsage(30);
+```
 
 The example app in `docs/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, and prompt calls from inside a published Work.
 

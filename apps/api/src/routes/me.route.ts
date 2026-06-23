@@ -1,9 +1,18 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Hono } from "hono";
+import { and, eq, gte, lte, desc } from "drizzle-orm";
+import * as schema from "@cohub/db";
+import { db } from "../db/index.js";
 import { config } from "../config.js";
-import { requireValidId, useAuth } from "../lib/middleware.js";
+import { requireValidId, useAuth, authzDenied } from "../lib/middleware.js";
 import { ensureCurrentUserProfile, updateCurrentUserProfile, UsernameConflictError, validateUsername } from "../user-profiles.js";
+import { hasPermission } from "../permissions.js";
+import { hydrateSessionParticipantProfiles, listUserSessions } from "../space-sessions.js";
+import { aggregateUsageRows, buildUsageDateRange, resolveUsageDays, USAGE_SELECT_COLUMNS, type UsageRow } from "../usage-aggregation.js";
+import { createLogger } from "@cohub/infra/logging";
+
+const logger = createLogger({ serviceName: "cohub-api" });
 
 const USER_RULES_FILE_NAME = "AGENTS.md";
 const USER_RULES_SANDBOX_PATH = "/configs/user/AGENTS.md";
@@ -123,6 +132,52 @@ router.get("/rules", async (c) => {
   } catch {
     return c.json({ message: "failed to load user rules" }, 500);
   }
+});
+
+router.get("/sessions", async (c) => {
+  const user = useAuth(c);
+  if (!(await hasPermission(user, "user.session.list", { spaceId: "" }))) return authzDenied(c);
+
+  const limitParam = Number(c.req.query("limit") ?? 20);
+  const limit = Number.isFinite(limitParam) ? limitParam : 20;
+  const cursor = c.req.query("cursor") ?? null;
+  try {
+    const { sessions, pageInfo } = await listUserSessions(user.uuid, { limit, cursor });
+    const hydratedSessions = await hydrateSessionParticipantProfiles(sessions);
+    return c.json({ sessions: hydratedSessions, pageInfo });
+  } catch (error) {
+    logger.error("[me/sessions] query failed", error);
+    return c.json({ message: "failed to load sessions" }, 500);
+  }
+});
+
+router.get("/usage", async (c) => {
+  const user = useAuth(c);
+  if (!(await hasPermission(user, "user.usage.read", { spaceId: "" }))) return authzDenied(c);
+
+  const days = resolveUsageDays(c.req.query("days"));
+  const { startDate, now } = buildUsageDateRange(days);
+
+  let rows: UsageRow[];
+  try {
+    rows = await db
+      .select(USAGE_SELECT_COLUMNS)
+      .from(schema.tokenUsageStatsHourly)
+      .where(
+        and(
+          eq(schema.tokenUsageStatsHourly.userId, user.uuid),
+          gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
+          lte(schema.tokenUsageStatsHourly.bucketStartAt, now),
+        ),
+      )
+      .orderBy(desc(schema.tokenUsageStatsHourly.bucketStartAt));
+  } catch (error) {
+    logger.error("[me/usage] DB query failed", error);
+    return c.json({ message: "failed to load usage data" }, 500);
+  }
+
+  const { hourly, summary } = aggregateUsageRows(rows);
+  return c.json({ hourly, summary, days });
 });
 
 export default router;

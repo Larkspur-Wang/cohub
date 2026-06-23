@@ -7,6 +7,7 @@ import type {
 } from "@neta-art/cohub";
 import { Check, Copy, ExternalLink, Loader2, Rocket } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import { WORK_VIEWER_SCOPE_OPTIONS } from "$lib/features/space/modules/work-utils";
 import { sdk } from "$lib/sdk";
 import {
 	normalizePublicSlugInput,
@@ -55,6 +56,9 @@ const allowedViewerScopes = $state<Record<string, boolean>>({
 	"session.prompt.readonly": true,
 	"session.prompt.fullaccess": false,
 	"generation.create": false,
+	"user.space.list": false,
+	"user.session.list": false,
+	"user.usage.read": false,
 });
 const missingUsername = $derived(!ownerUsername?.trim());
 const missingSpaceSlug = $derived(!spaceSlug?.trim());
@@ -250,9 +254,9 @@ async function copyUrl() {
 				</div>
 				<div>
 					<div class="section-label">Viewers can allow</div>
-					<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes["session.prompt.readonly"]} /> Prompt read-only</label>
-					<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes["session.prompt.fullaccess"]} /> Prompt full access</label>
-					<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes["generation.create"]} /> Create generations</label>
+					{#each WORK_VIEWER_SCOPE_OPTIONS as option (option.scope)}
+						<label class="permission-row"><input type="checkbox" bind:checked={allowedViewerScopes[option.scope]} /> {option.label}</label>
+					{/each}
 				</div>
 			</section>
 

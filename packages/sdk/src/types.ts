@@ -1110,7 +1110,10 @@ export type Permission =
   | "sandbox.view"
   | "sandbox.manage"
   | "mod.view"
-  | "mod.manage";
+  | "mod.manage"
+  | "user.space.list"
+  | "user.session.list"
+  | "user.usage.read";
 
 export type SpaceAccess = {
   role: SpaceRole | null;

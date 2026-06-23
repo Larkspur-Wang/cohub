@@ -24,6 +24,9 @@ const ALLOWED_VIEWER_SCOPES = new Set<Permission>([
   "session.prompt.readonly",
   "session.prompt.fullaccess",
   "generation.create",
+  "user.space.list",
+  "user.session.list",
+  "user.usage.read",
 ]);
 
 

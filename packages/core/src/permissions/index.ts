@@ -32,9 +32,22 @@ export const ALL_PERMISSIONS = [
   "sandbox.manage",
   "mod.view",
   "mod.manage",
+  "user.space.list",
+  "user.session.list",
+  "user.usage.read",
 ] as const;
 
 const ALL_PERMISSION_SET = new Set<Permission>(ALL_PERMISSIONS);
+
+/** Permissions that grant access to the viewer's own account-level data, not bound to a specific space. */
+export const USER_LEVEL_PERMISSIONS = new Set<Permission>([
+  "user.space.list",
+  "user.session.list",
+  "user.usage.read",
+]);
+
+export const isUserLevelPermission = (permission: Permission): boolean =>
+  USER_LEVEL_PERMISSIONS.has(permission);
 
 export type Permission = typeof ALL_PERMISSIONS[number];
 

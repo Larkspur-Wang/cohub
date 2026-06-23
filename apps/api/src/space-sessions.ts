@@ -1,5 +1,5 @@
 import { createLogger } from "@cohub/infra/logging";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
@@ -445,14 +445,34 @@ export const hydrateSessionParticipantProfiles = async <T extends typeof spaceSe
   });
 };
 
+const resolveSessionListLimit = (limit?: number) => {
+  const rawLimit = Math.trunc(limit ?? DEFAULT_SESSION_LIST_LIMIT);
+  return Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), MAX_SESSION_LIST_LIMIT)
+    : DEFAULT_SESSION_LIST_LIMIT;
+};
+
+const paginateSessionRows = (
+  rows: (typeof spaceSessions.$inferSelect)[],
+  limit: number,
+) => {
+  const hasMore = rows.length > limit;
+  const sessions = hasMore ? rows.slice(0, limit) : rows;
+  const lastSession = sessions.at(-1);
+  return {
+    sessions,
+    pageInfo: {
+      hasMore,
+      nextCursor: hasMore ? encodeSessionListCursor(lastSession) : null,
+    },
+  };
+};
+
 export const listSpaceSessions = async (
   spaceId: string,
   options?: { limit?: number; cursor?: string | null },
 ) => {
-  const rawLimit = Math.trunc(options?.limit ?? DEFAULT_SESSION_LIST_LIMIT);
-  const limit = Number.isFinite(rawLimit)
-    ? Math.min(Math.max(rawLimit, 1), MAX_SESSION_LIST_LIMIT)
-    : DEFAULT_SESSION_LIST_LIMIT;
+  const limit = resolveSessionListLimit(options?.limit);
   const cursor = decodeSessionListCursor(options?.cursor);
 
   const rows = await db.select().from(spaceSessions).where(
@@ -467,7 +487,6 @@ export const listSpaceSessions = async (
               lt(spaceSessions.id, cursor.id),
             )
             : undefined,
-          isNull(spaceSessions.lastMessageAt),
         ),
       )
       : eq(spaceSessions.spaceId, spaceId),
@@ -476,17 +495,38 @@ export const listSpaceSessions = async (
     desc(spaceSessions.id),
   ).limit(limit + 1);
 
-  const hasMore = rows.length > limit;
-  const sessions = hasMore ? rows.slice(0, limit) : rows;
-  const lastSession = sessions.at(-1);
+  return paginateSessionRows(rows, limit);
+};
 
-  return {
-    sessions,
-    pageInfo: {
-      hasMore,
-      nextCursor: hasMore ? encodeSessionListCursor(lastSession) : null,
-    },
-  };
+/** List sessions created by a user across all spaces they own or are a member of. */
+export const listUserSessions = async (
+  userUuid: string,
+  options?: { limit?: number; cursor?: string | null },
+) => {
+  const limit = resolveSessionListLimit(options?.limit);
+  const cursor = decodeSessionListCursor(options?.cursor);
+
+  const rows = await db.select().from(spaceSessions).where(
+    cursor
+      ? and(
+        eq(spaceSessions.userUuid, userUuid),
+        or(
+          lt(spaceSessions.lastMessageAt, cursor.date),
+          cursor.id
+            ? and(
+              eq(spaceSessions.lastMessageAt, cursor.date),
+              lt(spaceSessions.id, cursor.id),
+            )
+            : undefined,
+        ),
+      )
+      : eq(spaceSessions.userUuid, userUuid),
+  ).orderBy(
+    sql`${spaceSessions.lastMessageAt} desc nulls last`,
+    desc(spaceSessions.id),
+  ).limit(limit + 1);
+
+  return paginateSessionRows(rows, limit);
 };
 
 const getNextSessionSequence = async (sessionId: string) => {

@@ -455,6 +455,7 @@ function getSpaceProvisionParams(
 
 router.get("/", async (c) => {
   const user = useAuth(c);
+  if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
 
   const owned = await db
     .select({ id: spaces.id })
@@ -475,7 +476,8 @@ router.get("/", async (c) => {
     .orderBy(desc(spaces.updatedAt), desc(spaces.createdAt));
 
   const items = await buildSpaceListItems(spaceList);
-  return c.json(items);
+  const workSession = getWorkSessionPrincipal(c);
+  return c.json(workSession ? items.map(stripSensitiveSpaceFields) : items);
 });
 
 // ── POST /api/spaces ─────────────────────────────────────────────────────────
@@ -802,6 +804,25 @@ router.post("/", async (c) => {
   const createdSpace = spaceWithJob ?? space;
   return c.json({ space: await serializeSpaceForResponse(createdSpace, user), taskRunId });
 });
+
+/**
+ * Remove fields that are sensitive or irrelevant when a Work runtime session
+ * lists the viewer's spaces. All omitted fields are already optional in the
+ * SDK type, so the response stays type-compatible.
+ */
+function stripSensitiveSpaceFields(item: Record<string, unknown>): Record<string, unknown> {
+  const { storageRepoName, sandboxStatus, access, meta, ...rest } = item;
+  void storageRepoName;
+  void sandboxStatus;
+  void access;
+  if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+    const { extraEnv, config, ...safeMeta } = meta as Record<string, unknown>;
+    void extraEnv;
+    void config;
+    return { ...rest, meta: safeMeta };
+  }
+  return rest;
+}
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────
 

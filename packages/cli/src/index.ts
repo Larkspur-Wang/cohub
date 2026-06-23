@@ -5,6 +5,7 @@ import { registerAuth } from "./commands/auth.js";
 import { registerChannels } from "./commands/channels.js";
 import { registerCronJobs } from "./commands/cron-jobs.js";
 import { registerGenerations } from "./commands/generations.js";
+import { registerMe } from "./commands/me.js";
 import { registerModels } from "./commands/models.js";
 import { registerProfile } from "./commands/profile.js";
 import { registerSearch } from "./commands/search.js";
@@ -54,6 +55,7 @@ Environment:
 
 registerAuth(program);
 registerProfile(program);
+registerMe(program);
 registerPrompt(program);
 registerSpaces(program);
 registerChannels(program);

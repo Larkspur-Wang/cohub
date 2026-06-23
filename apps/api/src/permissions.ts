@@ -1,4 +1,4 @@
-import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission, normalizePermissionScopes, resolvePermissionAccess as resolveSharedPermissionAccess, scopeListHasPermission } from "@cohub/core/permissions";
+import { createBatchDrizzlePermissionStore, hasPermission as hasSharedPermission, isUserLevelPermission, normalizePermissionScopes, resolvePermissionAccess as resolveSharedPermissionAccess, scopeListHasPermission } from "@cohub/core/permissions";
 import { db } from "./db/index.js";
 import type { AuthUserProfile } from "./auth.js";
 import { workViewerGrants, type SpaceRole } from "@cohub/db";
@@ -64,6 +64,11 @@ const resolveWorkSessionScopes = async (workSession: CachedWorkSessionPrincipal)
 };
 
 const hasWorkSessionScopedPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission, spaceId: string) => {
+  if (isUserLevelPermission(permission)) {
+    // Account-level data must be explicitly approved by the viewer.
+    // Publishers cannot pre-grant user-level scopes via workScopes.
+    return hasActiveViewerGrantPermission(workSession, permission);
+  }
   if (workSession.spaceId !== spaceId) return false;
   if (scopeListHasPermission(workSession.workScopes, permission)) return true;
   return hasActiveViewerGrantPermission(workSession, permission);
@@ -78,6 +83,7 @@ export async function hasPermission(
   if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context.spaceId);
   const execution = getUserExecution(user);
   if (execution?.spaceId === context.spaceId && scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)) return true;
+  if (isUserLevelPermission(permission) && user?.uuid && !execution) return true;
   return hasSharedPermission({
     store: permissionStore,
     user,
