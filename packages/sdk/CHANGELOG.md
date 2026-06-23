@@ -1,11 +1,5 @@
 # @neta-art/cohub
 
-## 1.30.0
-
-### Minor Changes
-
-- 577e4ce: Add `UserApi.listSessions()` for paginated cross-space session listing and `UserApi.getUsage(days)` for aggregated account-level usage. New permission scopes: `user.space.list`, `user.session.list`, `user.usage.read`.
-
 ## 1.29.0
 
 ### Minor Changes
