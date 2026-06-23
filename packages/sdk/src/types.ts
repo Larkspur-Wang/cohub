@@ -843,6 +843,7 @@ export type CreateSpacePromptInput = {
   generationPolicy?: GenerationPolicy | null;
   intent?: "followup" | "steer" | null;
   accessMode?: PromptAccessMode | null;
+  env?: Record<string, string> | null;
   labelRefs?: string[];
   schedule?:
     | { mode?: "immediate" }
@@ -875,6 +876,7 @@ export type SendMessageCronJobPayload = CronJobPayload & {
   generationPolicy?: unknown;
   intent?: "followup" | "steer" | string;
   accessMode?: "read_only" | "full_access";
+  env?: Record<string, string> | null;
   source?: string;
   sessionId?: string;
   title?: string;

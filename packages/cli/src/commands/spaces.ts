@@ -30,6 +30,7 @@ type PromptOptions = {
   cron?: string;
   timezone?: string;
   label?: string[];
+  env?: string[];
   image?: string[];
   json?: boolean;
 };
@@ -64,6 +65,19 @@ function parseInteger(value: string, name: string, options: { min?: number; max?
 
 function collectOption(value: string, previous: string[] = []): string[] {
   return [...previous, value];
+}
+
+function parseEnvOptions(values: string[] | undefined): Record<string, string> | undefined {
+  if (!values?.length) return undefined;
+  const env: Record<string, string> = {};
+  for (const value of values) {
+    const index = value.indexOf("=");
+    if (index <= 0) return error("Invalid env", "Use --env KEY=value");
+    const name = value.slice(0, index).trim();
+    if (!name) return error("Invalid env", "Env name is required");
+    env[name] = value.slice(index + 1);
+  }
+  return env;
 }
 
 function parseChoice<const T extends readonly string[]>(value: string, name: string, choices: T): T[number] {
@@ -252,6 +266,7 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
       provider: opts.provider,
       accessMode: opts.readOnly ? "read_only" : "full_access",
       intent: opts.steer ? "steer" : undefined,
+      env: parseEnvOptions(opts.env),
       schedule,
       labelRefs: opts.label?.length ? opts.label : undefined,
     });
@@ -280,6 +295,7 @@ export function registerPrompt(program: Command): void {
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
     .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
+    .option("--env <key=value>", "Set an environment variable for this turn", collectOption, [])
     .option("--image <path>", "Attach an image", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(program, words, opts));
@@ -437,6 +453,7 @@ export function registerSpaces(program: Command): void {
     .option("--cron <expression>", "Repeat using a 5-field cron expression")
     .option("--timezone <tz>", "IANA timezone for --cron, e.g. Asia/Shanghai")
     .option("--label <ref>", "Attach a label, e.g. Bug or Area/Frontend", collectOption, [])
+    .option("--env <key=value>", "Set an environment variable for this turn", collectOption, [])
     .option("--image <path>", "Attach an image", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(spacesCmd, words, opts));

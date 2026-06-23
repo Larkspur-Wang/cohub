@@ -46,6 +46,7 @@ import { checkpoints } from "@cohub/db";
 import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
+import { parsePromptEnv, PromptEnvValidationError } from "@cohub/core/sessions";
 import { delegatedPromptAuthFromWorkSession, promptAuthContextFromWorkSession } from "../../prompt-auth-context.js";
 import { buildSessionTurnResponse } from "../../session-turn-response.js";
 import { getSessionTurnById, hydrateTurnAuthorProfiles } from "../../session-turns.js";
@@ -255,6 +256,7 @@ type SpacePromptInput = {
   accessMode?: PromptAccessMode | null;
   schedule?: SpacePromptSchedule | null;
   labelRefs?: unknown;
+  env?: unknown;
 };
 
 type SpaceSandboxAutoDestroyPolicy =
@@ -1521,6 +1523,14 @@ router.post("/:id/prompt", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
 
+  let promptEnv: Record<string, string> | null = null;
+  try {
+    promptEnv = parsePromptEnv(body.env);
+  } catch (error) {
+    if (error instanceof PromptEnvValidationError) return c.json({ message: error.message }, 400);
+    throw error;
+  }
+
   const content = body.content;
   const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
   const sourceResult = normalizePromptSource(body.source);
@@ -1534,6 +1544,7 @@ router.post("/:id/prompt", async (c) => {
     ...(generationPolicy ? { generationPolicy } : {}),
     ...(promptIntent !== "followup" ? { intent: promptIntent } : {}),
     ...(accessMode !== "full_access" ? { accessMode } : {}),
+    ...(promptEnv ? { env: promptEnv } : {}),
     ...(source !== "scheduled_task" ? { source } : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(body.title ? { title: body.title } : {}),
@@ -1582,6 +1593,7 @@ router.post("/:id/prompt", async (c) => {
         generationPolicy,
         intent: promptIntent,
         accessMode,
+        env: promptEnv,
         context: { kind: "public_api", auth: getPromptAuthContext(c, spaceId) },
       });
       const response = await buildSpacePromptTurnResponse(await getSpaceSessionById(sessionId), turnId);

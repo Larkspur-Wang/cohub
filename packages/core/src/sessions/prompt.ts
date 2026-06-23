@@ -3,6 +3,7 @@ import type { ContentBlock } from "@cohub/protocol/core";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { normalizeContentBlocks } from "../content/normalize.js";
+import type { PromptEnv } from "./prompt-env.js";
 
 export type PromptSource =
   | "web_app"
@@ -117,6 +118,7 @@ export type SubmitSessionPromptInput = {
   provider?: string | null;
   generationPolicy?: GenerationPolicy | null;
   accessMode?: PromptAccessMode | null;
+  env?: PromptEnv | null;
   intent?: SessionTurnIntent | null;
   context?: SubmitSessionPromptContext | null;
 };
@@ -326,6 +328,7 @@ export const submitSessionPrompt = async (
     promptTemplate,
     generationPolicy: input.generationPolicy ?? null,
     accessMode,
+    env: input.env ?? null,
     billing: billingDecision?.status === "allowed_with_debt" ? billingDecision : null,
     context: input.context ?? null,
   };

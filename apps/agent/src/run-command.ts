@@ -163,6 +163,7 @@ export async function processRunCommandJob(job: Job<AgentRunCommandJobData>): Pr
       executionToken,
       executionScopes,
       generationPolicy: data.generationPolicy ?? null,
+      env: data.env ?? null,
       llmRound: 0,
       toolCallId,
       requestId: data.requestId ?? undefined,

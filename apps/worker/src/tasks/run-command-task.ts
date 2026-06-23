@@ -11,7 +11,7 @@ import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import type { GenerationPolicy } from "@cohub/protocol/generation";
 import { normalizePermissionScopes } from "@cohub/core/permissions";
-import { createDelegatedPromptAuth } from "@cohub/core/sessions";
+import { createDelegatedPromptAuth, parsePromptEnv } from "@cohub/core/sessions";
 import { config } from "../config.js";
 import { getPromptTemplateService } from "../prompt-templates.js";
 import { getSessionDomainServices } from "../session-services.js";
@@ -175,6 +175,7 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
   const cwd = typeof data.cwd === "string" && data.cwd.trim() ? data.cwd.trim() : "/workspace";
   const timeout = clampTimeout(data.timeout);
   const generationPolicy = parseGenerationPolicy(data.generationPolicy);
+  const promptEnv = parsePromptEnv(data.env);
   const executionScopes = normalizePermissionScopes(Array.isArray(data.executionScopes) ? data.executionScopes : []);
   const origin = parseOrigin(data.origin);
   const notify = parseNotify(data.notify);
@@ -192,6 +193,7 @@ registerTask(RUN_COMMAND_TASK_TYPE, async (job) => {
     ...(timeout !== undefined ? { timeout } : {}),
     ...(userId ? { userId } : {}),
     ...(generationPolicy ? { generationPolicy } : {}),
+    ...(promptEnv ? { env: promptEnv } : {}),
     ...(executionScopes.length > 0 ? { executionScopes } : {}),
     requestId: origin?.requestId ?? null,
     origin,

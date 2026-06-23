@@ -466,6 +466,7 @@ function createRemoteBashOperations(): BashOperations {
               executionToken: toolCtx?.executionToken,
               executionScopes: toolCtx?.executionScopes,
               generationPolicy: toolCtx?.generationPolicy,
+              env: toolCtx?.env,
               toolCallId,
             }, async () => wrapToolCall(tracer, {
               toolName: "bash",
@@ -481,6 +482,7 @@ function createRemoteBashOperations(): BashOperations {
               const injectedEnv: Record<string, string> = {
                 ...(ctx?.spaceId ? getUserEnvForProcess(ctx.spaceId) : {}),
                 ...(env ?? {}),
+                ...(ctx?.env ?? {}),
                 ...(ctx?.generationPolicy ? { [GENERATION_POLICY_ENV_KEY]: encodeGenerationPolicy(ctx.generationPolicy) } : {}),
                 ...(ctx?.spaceId ? { COHUB_SPACE_ID: ctx.spaceId } : {}),
                 ...(ctx?.sessionId ? { COHUB_SESSION_ID: ctx.sessionId } : {}),
@@ -615,6 +617,7 @@ function createRemoteBashOperations(): BashOperations {
           cwd,
           ...(timeout !== undefined ? { timeout } : {}),
           ...(ctx.generationPolicy ? { generationPolicy: ctx.generationPolicy } : {}),
+          ...(ctx.env ? { env: ctx.env } : {}),
           ...(executionScopes.length ? { executionScopes } : {}),
           origin: {
             kind: "bash_tool_call",

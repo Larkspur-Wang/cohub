@@ -29,7 +29,7 @@ import { setActiveAbortController, clearActiveAbortController, getActiveAbortEve
 import { sendOutput } from "./redis.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
-import { getPromptAuthScopes, type PromptAccessMode } from "@cohub/core/sessions";
+import { getPromptAuthScopes, parsePromptEnv, type PromptAccessMode } from "@cohub/core/sessions";
 import { createAgentExecutionToken } from "./execution-grants.js";
 
 
@@ -556,6 +556,15 @@ function resolvePromptAccessMode(ownerMeta: Record<string, unknown>): PromptAcce
   return ownerMeta.accessMode === "read_only" ? "read_only" : "full_access";
 }
 
+function resolvePromptEnv(ownerMeta: Record<string, unknown>) {
+  try {
+    return parsePromptEnv(ownerMeta.env);
+  } catch (error) {
+    logger.warn(`[Agent] ignoring invalid prompt env: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): PromptAccessMode {
   return batch.turns.some((turn) => resolvePromptAccessMode(turn.meta && typeof turn.meta === "object" && !Array.isArray(turn.meta) ? turn.meta as Record<string, unknown> : {}) === "read_only")
     ? "read_only"
@@ -709,6 +718,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       });
       const accessMode = resolveBatchAccessMode(batch);
       const generationPolicy = normalizeGenerationPolicy(ownerMeta.generationPolicy);
+      const promptEnv = resolvePromptEnv(ownerMeta);
       const abortEvent = await getAbortEvent(batch.ownerTurn.id);
       if (abortEvent) {
         if (abortEvent.reason === "interrupt" && abortEvent.continuedByTurnId) {
@@ -836,6 +846,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             metrics: turnMetrics,
             assistantMessageTiming,
             generationPolicy,
+            env: promptEnv,
             abortSignal: abortController.signal,
           }, async () => {
             logger.debug(`[Agent] shell-command:start sessionId=${data.sessionId}`);
@@ -905,6 +916,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           metrics: turnMetrics,
           assistantMessageTiming,
           generationPolicy,
+          env: promptEnv,
           abortSignal: abortController.signal,
         }, async () => {
           try {
