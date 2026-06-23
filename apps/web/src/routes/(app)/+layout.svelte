@@ -1,5 +1,5 @@
 <script lang="ts">
-import "../app.css";
+import "../../app.css";
 import { onMount } from "svelte";
 import { page } from "$app/state";
 import { scheduleCacheCleanup } from "$lib/cache/cleanup";
@@ -37,22 +37,6 @@ import {
 const { children } = $props();
 
 const currentPath = $derived(page.url.pathname);
-const isLogin = $derived(currentPath === "/callback");
-const isHome = $derived(currentPath === "/");
-const isTrending = $derived(currentPath === "/trending");
-const isExplore = $derived(currentPath === "/explore");
-const isInvite = $derived(currentPath.startsWith("/invite"));
-const isPricing = $derived(currentPath === "/pricing");
-const isWorkShare = $derived(/^\/[^/]+\/[^/]+\/w\/[^/]+\/?$/.test(currentPath));
-const isStandalonePage = $derived(
-	isLogin ||
-		isHome ||
-		isTrending ||
-		isInvite ||
-		isExplore ||
-		isPricing ||
-		isWorkShare,
-);
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
@@ -501,11 +485,7 @@ onMount(() => {
 // on hover for desktop sidebars and in the session/file headers for mobile.
 </script>
 
-{#if isStandalonePage}
-  <main class="min-h-screen bg-bg-primary text-text-primary">
-    {@render children?.()}
-  </main>
-{:else if !authReady}
+{#if !authReady}
   <main class="min-h-screen bg-bg-primary text-text-primary">
     <CenteredLoading label="Loading…" size="page" />
   </main>

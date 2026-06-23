@@ -1,6 +1,6 @@
 <script lang="ts">
 import { ArrowRight } from "lucide-svelte";
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { signInWithRedirectPath } from "$lib/auth";
@@ -10,12 +10,28 @@ import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { setCachedSpaceList } from "$lib/stores/space-list-cache";
+import { getResolvedTheme } from "$lib/theme.svelte";
 
 let isLoading = $state(true);
 let isAuthenticated = $state(false);
 let spaceCount = $state(0);
 
 const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+
+// The landing page is always dark, regardless of the visitor's saved theme.
+// Set the attribute at component init — before any landing content paints —
+// so there is no light-theme flash. The app.html FOUC script may have set the
+// visitor's preference; we override it here for the landing view only.
+document.documentElement.setAttribute("data-theme", "dark");
+
+/** Restore the visitor's real theme when leaving the landing page,
+ * so a light-preferring visitor isn't stuck on dark on other pages. */
+function restoreUserTheme() {
+	const resolved = getResolvedTheme();
+	document.documentElement.setAttribute("data-theme", resolved);
+}
+
+onDestroy(restoreUserTheme);
 
 async function handlePrimaryCta() {
 	try {
