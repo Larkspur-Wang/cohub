@@ -16,11 +16,14 @@ export function normalizePromptEnv(input: unknown): PromptEnv | null {
   }
 
   const env: PromptEnv = {};
+  const seen = new Set<string>();
   for (const [rawName, rawValue] of Object.entries(input)) {
     const name = rawName.trim();
     if (!name) throw new PromptEnvValidationError("env name is required");
+    if (seen.has(name)) throw new PromptEnvValidationError(`duplicate env name: ${name}`);
     if (rawValue === undefined || rawValue === null) throw new PromptEnvValidationError(`env value is required for ${name}`);
     if (SYSTEM_ENV_KEY_SET.has(name)) throw new PromptEnvValidationError(`env name "${name}" is reserved by the system`);
+    seen.add(name);
     env[name] = String(rawValue);
   }
 
