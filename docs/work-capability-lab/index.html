@@ -13,7 +13,7 @@
       <div>
         <p class="kicker">Work SDK Lab</p>
         <h1>Develop like a Work author, inspect like a platform engineer.</h1>
-        <p class="sub">This directory Work imports the npm SDK from an ESM CDN, loads local CSS, JS, and JSON assets, then exercises runtime context, scoped reads, viewer authorization, and prompt submission exactly the way a no-build Work would.</p>
+        <p class="sub">Exercise runtime context, scoped reads, viewer authorization, prompt submission, and account-level data access — the same way a no-build Work would.</p>
       </div>
       <aside class="stamp" aria-label="Runtime status">
         <div class="stamp-row"><span class="label">Mode</span><span class="value" id="modeStamp">Booting</span></div>
@@ -102,6 +102,9 @@ const space = cohub.space(context.space.id);</pre>
               <article class="probe"><div><h2>Sessions</h2><p>Calls <code>space.sessions.list({ limit: 5 })</code>. Expects <code>session.view</code>.</p></div><div class="probe-row"><button id="sessionsList">Probe</button><span class="status"><span class="dot" id="sSessions"></span><span id="tSessions">idle</span></span></div></article>
               <article class="probe"><div><h2>Viewer auth</h2><p>Calls <code>cohub.auth.request()</code>. The host should show a consent dialog.</p></div><div class="probe-row"><button id="authReadonly">Read-only</button><button class="ghost" id="authFull">Full access</button><span class="status"><span class="dot" id="sAuth"></span><span id="tAuth">idle</span></span></div></article>
               <article class="probe"><div><h2>Prompt</h2><p>Calls <code>space.prompt()</code>. This can create a session and enqueue agent work.</p></div><div class="probe-row"><button id="promptReadonly">Read-only</button><button class="ghost" id="promptFull">Full access</button><span class="status"><span class="dot" id="sPrompt"></span><span id="tPrompt">manual</span></span></div></article>
+              <article class="probe"><div><h2>Account spaces</h2><p>Calls <code>cohub.spaces.list()</code>. Requires <code>user.space.list</code> viewer grant.</p></div><div class="probe-row"><button id="accountSpacesBtn">Probe</button><span class="status"><span class="dot" id="sAccountSpaces"></span><span id="tAccountSpaces">idle</span></span></div></article>
+              <article class="probe"><div><h2>Account sessions</h2><p>Calls <code>cohub.user.listSessions()</code>. Requires <code>user.session.list</code> viewer grant.</p></div><div class="probe-row"><button id="accountSessionsBtn">Probe</button><span class="status"><span class="dot" id="sAccountSessions"></span><span id="tAccountSessions">idle</span></span></div></article>
+              <article class="probe"><div><h2>Account usage</h2><p>Calls <code>cohub.user.getUsage()</code>. Requires <code>user.usage.read</code> viewer grant.</p></div><div class="probe-row"><button id="accountUsageBtn">Probe</button><span class="status"><span class="dot" id="sAccountUsage"></span><span id="tAccountUsage">idle</span></span></div></article>
             </div>
           </div>
         </div>

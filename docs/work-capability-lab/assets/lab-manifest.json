@@ -1,6 +1,6 @@
 {
   "name": "work-sdk-lab-directory",
-  "version": "2026.06.10",
+  "version": "2026.06.23",
   "purpose": "Validate Cohub Work directory publishing, relative assets, runtime permissions, and no-build SDK usage.",
   "files": [
     "index.html",

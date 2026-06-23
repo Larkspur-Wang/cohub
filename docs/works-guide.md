@@ -4,8 +4,6 @@ Works are published, shareable surfaces that turn a Space file, directory, or pu
 
 Use Works when a Space produces something people should open directly: a static HTML prototype, a small site, a generated app, a demo running on a sandbox port, or a Work that uses the Cohub SDK to read approved context and request explicit viewer authorization.
 
-This guide is based on the current implementation and a verification run in a clean Space on 2026-06-19.
-
 ## What a Work Contains
 
 A Work record belongs to one Space and has a few important fields.
@@ -36,23 +34,11 @@ For example:
 
 ## Publish From the UI
 
-Open a Space and prepare something publishable.
+Prepare something publishable in a Space: an HTML file (must end in `.html` or `.htm`), a directory containing `index.html` with relative assets, or a running dev server on a supported public sandbox port.
 
-For a single-file Work, create or open an HTML file. The file target must end in `.html` or `.htm`.
+Open the file, directory, or port preview, then click `Publish`. The dialog asks for a Work slug (and a username or space slug if missing). Under `Work can`, select permissions the Work receives directly. Under `Viewers can allow`, select permissions the Work may ask each viewer to grant later.
 
-For a directory Work, create a directory that contains `index.html`. Relative files such as CSS, JS, images, and JSON can live beside it. The directory is copied as a static public asset set.
-
-For a port Work, start a dev server on a supported public sandbox port, then publish the port from the port preview surface.
-
-Open the file, inline file preview, directory preview, or port preview, then click `Publish`.
-
-The `Publish work` dialog confirms the public address. If the current user has no username, the dialog asks for one. If the Space has no slug, the dialog asks for one. The dialog then asks for the Work slug.
-
-Choose the permissions. Under `Work can`, select the permissions the Work receives directly. Under `Viewers can allow`, select the permissions the Work may ask each viewer to grant later.
-
-Click `Publish`. When publishing succeeds, the dialog shows the public URL and offers `Copy`, `Open`, and `Done`.
-
-The new Work appears in the left sidebar under `Works`. Click the item to open the management page.
+After publishing, the dialog shows the public URL. The Work also appears in the left sidebar under `Works`.
 
 ## Manage a Work
 
@@ -161,7 +147,7 @@ await cohub.auth.request({
 const usage = await cohub.user.getUsage(30);
 ```
 
-The example app in `docs/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, and prompt calls from inside a published Work.
+The example app in `docs/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, and account-level data access from inside a published Work.
 
 ## Publish Through the API or SDK
 
@@ -223,40 +209,20 @@ List a Space's Works:
 await sdk.works.listBySpace(spaceId);
 ```
 
-## Verification Run
+## Verification
 
-Verification used a clean Space named `Works Guide Test 2026-06-19`.
-
-The Space ID was:
-
-```text
-<space-id>
-```
-
-The Space slug was set to:
-
-```text
-works-guide-test-2026-06-19
-```
-
-The test created `works-guide-demo/index.html` and published it as a file Work with slug `works-guide-file`.
-
-The test created `works-guide-site/index.html` plus `works-guide-site/style.css` and published the directory as a directory Work with slug `works-guide-site`.
-
-Both Works returned `published` status, both had stored assets, both resolved through `/api/works/by-slug/username/works-guide-test-2026-06-19/:workSlug`, and both public frontend URLs returned HTTP 200.
-
-The public asset responses contained the expected page text: `Works Guide Demo` for the file Work and `Directory Work` for the directory Work.
+This guide was verified in a clean Space on 2026-06-19. File and directory Works both published successfully, resolved through the by-slug API, and served the expected HTML over HTTPS.
 
 ## Common Failure Cases
 
 If the public link cannot be formed, check that the user has a username and the Space has a slug.
 
-If a file Work fails, check that the target is an HTML file and is not empty or larger than 5 MB.
+If a file Work fails, check that the target is an HTML file between 1 byte and 5 MB.
 
-If a directory Work fails, check that the directory contains `index.html`, has at least one file, has no more than 1000 files, and is not larger than 100 MB.
+If a directory Work fails, check that the directory contains `index.html`, has 1 to 1000 files, and is under 100 MB.
 
 If a Work opens but cannot use Cohub APIs, check its `workScopes` and the viewer-granted scopes shown in `cohub.context()`.
 
 If a viewer authorization request is denied, check that the requested scope is included in `allowedViewerScopes`.
 
-If a published Work should no longer be public, set status to `disabled` or delete it from the Work management page.
+If account-level data calls (`spaces.list()`, `user.listSessions()`, `user.getUsage()`) return 403, the viewer must first grant the corresponding `user.*` scope via `cohub.auth.request()`.

@@ -1,4 +1,4 @@
-const SDK_VERSION = "1.25.1";
+const SDK_VERSION = "1.29.0";
 const DEFAULT_SDK_URL = `https://esm.sh/@neta-art/cohub@${SDK_VERSION}?bundle&target=es2022`;
 const $ = (id) => document.getElementById(id);
 
@@ -24,6 +24,9 @@ const statusMap = {
   sessions: ["sSessions", "tSessions"],
   auth: ["sAuth", "tAuth"],
   prompt: ["sPrompt", "tPrompt"],
+  accountSpaces: ["sAccountSpaces", "tAccountSpaces"],
+  accountSessions: ["sAccountSessions", "tAccountSessions"],
+  accountUsage: ["sAccountUsage", "tAccountUsage"],
 };
 
 function detectParentOrigin() {
@@ -304,6 +307,40 @@ async function sendPrompt(accessMode) {
   });
 }
 
+async function ensureClient() {
+  if (!state.client) await createClient();
+  return state.client;
+}
+
+async function accountSpaces() {
+  return run("accountSpaces", async () => {
+    const client = await ensureClient();
+    const result = await client.spaces.list();
+    const list = Array.isArray(result) ? result : result.spaces ?? [];
+    log("ok", "spaces.list() accepted", `${list.length} spaces`);
+    return result;
+  });
+}
+
+async function accountSessions() {
+  return run("accountSessions", async () => {
+    const client = await ensureClient();
+    const result = await client.user.listSessions({ limit: 5 });
+    const count = Array.isArray(result.sessions) ? result.sessions.length : "unknown";
+    log("ok", "user.listSessions() accepted", `${count} sessions`);
+    return result;
+  });
+}
+
+async function accountUsage() {
+  return run("accountUsage", async () => {
+    const client = await ensureClient();
+    const result = await client.user.getUsage(30);
+    log("ok", "user.getUsage() accepted", `${result.summary?.totalTokens ?? 0} tokens, ${result.summary?.costTotal ?? 0}`);
+    return result;
+  });
+}
+
 async function bootstrap() {
   try {
     await probeAssets();
@@ -336,6 +373,9 @@ $("authReadonly").onclick = () => requestAuth(["session.prompt.readonly"]).catch
 $("authFull").onclick = () => requestAuth(["session.prompt.fullaccess"]).catch(() => {});
 $("promptReadonly").onclick = () => sendPrompt("read_only").catch(() => {});
 $("promptFull").onclick = () => sendPrompt("full_access").catch(() => {});
+$("accountSpacesBtn").onclick = () => accountSpaces().catch(() => {});
+$("accountSessionsBtn").onclick = () => accountSessions().catch(() => {});
+$("accountUsageBtn").onclick = () => accountUsage().catch(() => {});
 $("runReadSuite").onclick = async () => {
   try { await ensureSpace(); } catch (error) { log("warn", "Read suite stopped", error?.message || String(error)); return; }
   await spaceConfig().catch(() => {});
