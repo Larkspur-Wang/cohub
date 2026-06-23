@@ -64,11 +64,6 @@ const resolveWorkSessionScopes = async (workSession: CachedWorkSessionPrincipal)
 };
 
 const hasWorkSessionScopedPermission = async (workSession: CachedWorkSessionPrincipal, permission: Permission, spaceId: string) => {
-  if (isUserLevelPermission(permission)) {
-    // Account-level data must be explicitly approved by the viewer.
-    // Publishers cannot pre-grant user-level scopes via workScopes.
-    return hasActiveViewerGrantPermission(workSession, permission);
-  }
   if (workSession.spaceId !== spaceId) return false;
   if (scopeListHasPermission(workSession.workScopes, permission)) return true;
   return hasActiveViewerGrantPermission(workSession, permission);
@@ -79,11 +74,20 @@ export async function hasPermission(
   permission: Permission,
   context: { spaceId: string; sessionId?: string },
 ): Promise<boolean> {
+  // User-level permissions are not bound to a space.
+  // Authenticated users (including execution principals acting as a user)
+  // access their own account data; work sessions require an explicit viewer
+  // grant. Publishers cannot pre-grant user-level scopes via workScopes.
+  if (isUserLevelPermission(permission)) {
+    const workSession = getUserWorkSession(user);
+    if (workSession) return hasActiveViewerGrantPermission(workSession, permission);
+    return Boolean(user?.uuid);
+  }
+
   const workSession = getUserWorkSession(user);
   if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context.spaceId);
   const execution = getUserExecution(user);
   if (execution?.spaceId === context.spaceId && scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)) return true;
-  if (isUserLevelPermission(permission) && user?.uuid && !execution) return true;
   return hasSharedPermission({
     store: permissionStore,
     user,
