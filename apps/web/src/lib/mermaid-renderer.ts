@@ -294,6 +294,7 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 	);
 	element.appendChild(controls);
 
+	const pointers = new Map<number, { clientX: number; clientY: number }>();
 	let panStart: {
 		pointerId: number;
 		clientX: number;
@@ -301,21 +302,76 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 		scrollLeft: number;
 		scrollTop: number;
 	} | null = null;
+	let pinchStart: {
+		distance: number;
+		scale: number;
+		center: { clientX: number; clientY: number };
+	} | null = null;
+
+	const getPinchState = () => {
+		const [first, second] = [...pointers.values()];
+		if (!first || !second) return null;
+		return {
+			center: {
+				clientX: (first.clientX + second.clientX) / 2,
+				clientY: (first.clientY + second.clientY) / 2,
+			},
+			distance: Math.hypot(
+				first.clientX - second.clientX,
+				first.clientY - second.clientY,
+			),
+		};
+	};
 
 	viewport.addEventListener("pointerdown", (event) => {
 		if (event.button !== 0 || event.target instanceof HTMLButtonElement) return;
-		panStart = {
-			pointerId: event.pointerId,
+		event.preventDefault();
+		pointers.set(event.pointerId, {
 			clientX: event.clientX,
 			clientY: event.clientY,
-			scrollLeft: viewport.scrollLeft,
-			scrollTop: viewport.scrollTop,
-		};
+		});
 		viewport.setPointerCapture(event.pointerId);
-		viewport.classList.add("is-panning");
+
+		if (pointers.size === 1) {
+			panStart = {
+				pointerId: event.pointerId,
+				clientX: event.clientX,
+				clientY: event.clientY,
+				scrollLeft: viewport.scrollLeft,
+				scrollTop: viewport.scrollTop,
+			};
+			viewport.classList.add("is-panning");
+			return;
+		}
+
+		const state = getPinchState();
+		if (!state) return;
+		panStart = null;
+		pinchStart = {
+			...state,
+			scale: Number(element.dataset.mermaidScale || 1),
+		};
 	});
 
 	viewport.addEventListener("pointermove", (event) => {
+		if (!pointers.has(event.pointerId)) return;
+		event.preventDefault();
+		pointers.set(event.pointerId, {
+			clientX: event.clientX,
+			clientY: event.clientY,
+		});
+
+		if (pointers.size >= 2 && pinchStart) {
+			const state = getPinchState();
+			if (!state || state.distance <= 0 || pinchStart.distance <= 0) return;
+			setMermaidScale(
+				element,
+				pinchStart.scale * (state.distance / pinchStart.distance),
+				state.center,
+			);
+			return;
+		}
+
 		if (!panStart || panStart.pointerId !== event.pointerId) return;
 		viewport.scrollLeft =
 			panStart.scrollLeft - (event.clientX - panStart.clientX);
@@ -323,16 +379,30 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 			panStart.scrollTop - (event.clientY - panStart.clientY);
 	});
 
-	const endPan = (event: PointerEvent) => {
-		if (!panStart || panStart.pointerId !== event.pointerId) return;
-		panStart = null;
-		viewport.classList.remove("is-panning");
+	const endPointer = (event: PointerEvent) => {
+		pointers.delete(event.pointerId);
 		if (viewport.hasPointerCapture(event.pointerId)) {
 			viewport.releasePointerCapture(event.pointerId);
 		}
+
+		pinchStart = null;
+		panStart = null;
+		viewport.classList.remove("is-panning");
+
+		const [remaining] = pointers.entries();
+		if (!remaining) return;
+		const [pointerId, pointer] = remaining;
+		panStart = {
+			pointerId,
+			clientX: pointer.clientX,
+			clientY: pointer.clientY,
+			scrollLeft: viewport.scrollLeft,
+			scrollTop: viewport.scrollTop,
+		};
+		viewport.classList.add("is-panning");
 	};
-	viewport.addEventListener("pointerup", endPan);
-	viewport.addEventListener("pointercancel", endPan);
+	viewport.addEventListener("pointerup", endPointer);
+	viewport.addEventListener("pointercancel", endPointer);
 
 	element.onwheel = (event) => {
 		if (!event.ctrlKey && !event.metaKey) return;
