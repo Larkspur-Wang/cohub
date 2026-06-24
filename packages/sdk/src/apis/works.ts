@@ -4,6 +4,14 @@ import type { Permission, SpacePublicProfile } from "../types.js";
 export type WorkTargetType = "file" | "directory" | "port";
 export type WorkStatus = "draft" | "published" | "disabled";
 
+export type WorkPresentationMeta = {
+  hideCohubBar?: boolean;
+};
+
+export type WorkMeta = Record<string, unknown> & {
+  presentation?: WorkPresentationMeta;
+};
+
 export type WorkRecord = {
   id: string;
   spaceId: string;
@@ -18,7 +26,7 @@ export type WorkRecord = {
   publishedAt: string | null;
   workScopes: Permission[];
   allowedViewerScopes: Permission[];
-  meta: Record<string, unknown> | null;
+  meta: WorkMeta | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -32,7 +40,7 @@ export type WorkCreateInput = {
   assetKey?: string | null;
   workScopes?: Permission[];
   allowedViewerScopes?: Permission[];
-  meta?: Record<string, unknown> | null;
+  meta?: WorkMeta | null;
 };
 
 export type WorkUpdateInput = Partial<{
@@ -43,7 +51,7 @@ export type WorkUpdateInput = Partial<{
   publishVersion: boolean;
   workScopes: Permission[];
   allowedViewerScopes: Permission[];
-  meta: Record<string, unknown> | null;
+  meta: WorkMeta | null;
 }>;
 
 export type WorkVersionRecord = {
@@ -55,7 +63,7 @@ export type WorkVersionRecord = {
   targetType: WorkTargetType;
   targetRef: string;
   assetKey: string | null;
-  meta: Record<string, unknown> | null;
+  meta: WorkMeta | null;
   createdAt: string | null;
   publishedAt: string | null;
 };

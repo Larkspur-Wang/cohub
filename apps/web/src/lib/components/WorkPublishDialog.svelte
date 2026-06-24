@@ -2,6 +2,7 @@
 import type {
 	Permission,
 	SpaceRecord,
+	WorkMeta,
 	WorkRecord,
 	WorkTargetType,
 } from "@neta-art/cohub";
@@ -16,6 +17,8 @@ import {
 	validateUsernameInput,
 } from "$lib/slug-rules";
 import { authStore } from "$lib/stores/auth.svelte";
+
+const WORK_HIDE_COHUB_BAR_FEATURE = "work.publish.hide_cohub_bar";
 
 const {
 	open,
@@ -45,6 +48,9 @@ let error = $state<string | null>(null);
 let published = $state<WorkRecord | null>(null);
 let copied = $state(false);
 let initializedTargetRef = $state("");
+let hideCohubBar = $state(false);
+let hideCohubBarAllowed = $state(false);
+let hideCohubBarLoading = $state(false);
 
 const workScopes = $state<Record<string, boolean>>({
 	"space.view": true,
@@ -104,6 +110,9 @@ $effect(() => {
 		published = null;
 		copied = false;
 		initializedTargetRef = "";
+		hideCohubBar = false;
+		hideCohubBarAllowed = false;
+		hideCohubBarLoading = false;
 		return;
 	}
 	if (initializedTargetRef !== targetRef) {
@@ -117,16 +126,46 @@ $effect(() => {
 		published = null;
 		error = null;
 		copied = false;
+		hideCohubBar = false;
 		initializedTargetRef = targetRef;
 	}
 	if (!missingUsername) usernameDraft = ownerUsername ?? "";
 	if (!missingSpaceSlug) spaceSlugDraft = spaceSlug ?? "";
 });
 
+$effect(() => {
+	if (!open) return;
+	let cancelled = false;
+	hideCohubBarLoading = true;
+	void sdk.billing
+		.getFeatureEntitlement(WORK_HIDE_COHUB_BAR_FEATURE)
+		.then(({ enabled }) => {
+			if (cancelled) return;
+			hideCohubBarAllowed = enabled;
+			if (!enabled) hideCohubBar = false;
+		})
+		.catch(() => {
+			if (cancelled) return;
+			hideCohubBarAllowed = false;
+			hideCohubBar = false;
+		})
+		.finally(() => {
+			if (!cancelled) hideCohubBarLoading = false;
+		});
+	return () => {
+		cancelled = true;
+	};
+});
+
 function selectedScopes(source: Record<string, boolean>) {
 	return Object.entries(source)
 		.filter(([, enabled]) => enabled)
 		.map(([scope]) => scope as Permission);
+}
+
+function buildWorkMeta(): WorkMeta | undefined {
+	if (!hideCohubBar) return undefined;
+	return { presentation: { hideCohubBar: true } };
 }
 
 async function ensurePublicAddress() {
@@ -171,6 +210,7 @@ async function publish() {
 			targetRef,
 			workScopes: selectedScopes(workScopes),
 			allowedViewerScopes: selectedScopes(allowedViewerScopes),
+			meta: buildWorkMeta(),
 		});
 		published = result.work;
 		window.dispatchEvent(
@@ -260,6 +300,23 @@ async function copyUrl() {
 				</div>
 			</section>
 
+			<section class="presentation-section">
+				<div class="section-label">Presentation</div>
+				<label class="presentation-row" class:disabled-option={!hideCohubBarAllowed || hideCohubBarLoading}>
+					<input type="checkbox" bind:checked={hideCohubBar} disabled={!hideCohubBarAllowed || hideCohubBarLoading} />
+					<span class="min-w-0 flex-1">
+						<span class="presentation-title">Hide Cohub bar</span>
+						<span class="presentation-copy">Remove the Cohub footer bar from the public work page.</span>
+					</span>
+					{#if !hideCohubBarAllowed && !hideCohubBarLoading}
+						<span class="plan-badge">Pro / Max</span>
+					{/if}
+				</label>
+				{#if !hideCohubBarAllowed && !hideCohubBarLoading}
+					<div class="presentation-hint">Included with Pro and Max.</div>
+				{/if}
+			</section>
+
 			{#if error}<div class="error-box">{error}</div>{/if}
 			<div class="button-row footer-row">
 				<button type="button" class="secondary-btn" onclick={onClose}>Cancel</button>
@@ -293,6 +350,14 @@ async function copyUrl() {
 	@media (min-width: 640px) { .permissions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 	.permission-row { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; color: var(--text-secondary); }
 	.permission-row input { accent-color: var(--brand); }
+	.presentation-section { display: grid; gap: 8px; }
+	.presentation-row { display: flex; align-items: flex-start; gap: 8px; min-height: 28px; font-size: 12px; color: var(--text-secondary); }
+	.presentation-row input { margin-top: 2px; accent-color: var(--brand); }
+	.presentation-title { display: block; font-weight: 500; color: var(--text-primary); }
+	.presentation-copy { display: block; margin-top: 2px; color: var(--text-tertiary); }
+	.presentation-hint { font-size: 11px; color: var(--text-tertiary); }
+	.plan-badge { flex-shrink: 0; border-radius: 9999px; border: 1px solid var(--border-subtle); padding: 3px 8px; font-size: 10px; line-height: 1; color: var(--text-tertiary); }
+	.disabled-option { opacity: .6; }
 	.error-box { border-radius: 6px; border: 1px solid color-mix(in srgb, var(--error-soft) 30%, transparent); background: var(--error-bg); padding: 8px 10px; font-size: 12px; color: var(--error-soft); }
 	.button-row { display: flex; justify-content: flex-end; gap: 8px; }
 	.footer-row { border-top: 1px solid var(--border-subtle); padding-top: 12px; }

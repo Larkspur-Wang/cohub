@@ -47,6 +47,7 @@ type Props = {
 		| "targetRef"
 		| "workScopes"
 		| "allowedViewerScopes"
+		| "meta"
 	>;
 	space?: WorkSpace | null;
 	owner?: WorkOwner;
@@ -78,6 +79,7 @@ const isBackground = $derived(mode === "background");
 const spaceName = $derived(space?.name || space?.slug || "Space");
 const publisherName = $derived(owner?.displayName ?? "Cohub");
 const publisherAvatarUrl = $derived(owner?.avatarUrl?.trim() || null);
+const hideCohubBar = $derived(work.meta?.presentation?.hideCohubBar === true);
 const iframeSrc = $derived.by(
 	() => content?.url ?? (work.targetType === "port" ? work.targetRef : ""),
 );
@@ -386,7 +388,7 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 		<div class="empty-state">Work asset is unavailable.</div>
 	{/if}
 
-	{#if mode === "page"}
+	{#if mode === "page" && !hideCohubBar}
 		<footer class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-3 sm:pb-4">
 			<div class="work-bar pointer-events-auto flex h-12 w-full max-w-[860px] items-center gap-3 rounded-lg border border-border-subtle bg-bg-surface/95 px-2.5 text-[11px] text-text-tertiary shadow-lg shadow-bg-primary/15 backdrop-blur-md supports-[not(backdrop-filter:blur(0))]:bg-bg-surface sm:px-3">
 				<div class="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden">

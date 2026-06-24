@@ -1,4 +1,4 @@
-import type { Permission, WorkCreateInput, WorkStatus, WorkTargetType, WorkUpdateInput } from "@neta-art/cohub";
+import type { Permission, WorkCreateInput, WorkMeta, WorkStatus, WorkTargetType, WorkUpdateInput } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
@@ -26,6 +26,23 @@ function parseJsonObject(value: string | undefined, name: string): Record<string
 
 function compactObject<T extends object>(input: T): Partial<T> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<T>;
+}
+
+function withCohubBarMeta(input: {
+  meta?: WorkMeta | null;
+  hideCohubBar?: boolean;
+  showCohubBar?: boolean;
+}): WorkMeta | null | undefined {
+  if (!input.hideCohubBar && !input.showCohubBar) return input.meta;
+  const meta = input.meta ? { ...input.meta } : {};
+  const presentation = meta.presentation && typeof meta.presentation === "object" && !Array.isArray(meta.presentation)
+    ? { ...(meta.presentation as Record<string, unknown>) }
+    : {};
+  if (input.hideCohubBar) presentation.hideCohubBar = true;
+  if (input.showCohubBar) delete presentation.hideCohubBar;
+  if (Object.keys(presentation).length > 0) meta.presentation = presentation;
+  else delete meta.presentation;
+  return Object.keys(meta).length > 0 ? meta : null;
 }
 
 function resolveTarget(opts: { file?: string; dir?: string; port?: string }): { targetType: WorkTargetType; targetRef: string } | null {
@@ -80,6 +97,8 @@ type PublishOptions = {
   workScope?: string[];
   viewerScope?: string[];
   meta?: string;
+  hideCohubBar?: boolean;
+  showCohubBar?: boolean;
   json?: boolean;
 };
 
@@ -171,13 +190,21 @@ export function registerWorks(program: Command): void {
     .option("--work-scope <scope>", "Scope granted to the work runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
     .option("--viewer-scope <scope>", "Scope viewers may request (session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
     .option("--meta <json>", "Work metadata as a JSON object")
+    .option("--hide-cohub-bar", "Hide the Cohub footer bar on the public work page")
+    .option("--show-cohub-bar", "Show the Cohub footer bar on the public work page")
     .option("--json", "Output as JSON")
     .action(async (slug: string, opts: PublishOptions) => {
+      if (opts.hideCohubBar && opts.showCohubBar) return error("Conflicting Cohub bar options", "Use either --hide-cohub-bar or --show-cohub-bar.");
       const target = resolveTarget(opts);
       if (!target) return error("Missing target", "Use one of --file, --dir, or --port.");
       const spaceId = resolveSpace(worksCmd);
       const client = createClient();
       const status = resolveStatus(opts);
+      const meta = withCohubBarMeta({
+        meta: parseJsonObject(opts.meta, "meta"),
+        hideCohubBar: opts.hideCohubBar,
+        showCohubBar: opts.showCohubBar,
+      });
       const input: WorkCreateInput = {
         spaceId,
         slug,
@@ -186,7 +213,7 @@ export function registerWorks(program: Command): void {
         targetRef: target.targetRef,
         workScopes: opts.workScope as Permission[],
         allowedViewerScopes: opts.viewerScope as Permission[],
-        meta: parseJsonObject(opts.meta, "meta"),
+        meta,
       };
       try {
         const result = await client.works.create(input);
@@ -214,11 +241,32 @@ export function registerWorks(program: Command): void {
     .option("--clear-work-scopes", "Clear work runtime scopes")
     .option("--clear-viewer-scopes", "Clear viewer-requestable scopes")
     .option("--meta <json>", "Work metadata as a JSON object")
+    .option("--hide-cohub-bar", "Hide the Cohub footer bar on the public work page")
+    .option("--show-cohub-bar", "Show the Cohub footer bar on the public work page")
     .option("--json", "Output as JSON")
     .action(async (id: string, opts: UpdateOptions) => {
+      if (opts.hideCohubBar && opts.showCohubBar) return error("Conflicting Cohub bar options", "Use either --hide-cohub-bar or --show-cohub-bar.");
       const target = resolveTarget(opts);
       if (opts.clearWorkScopes && opts.workScope?.length) return error("Conflicting work scopes", "Use either --work-scope or --clear-work-scopes.");
       if (opts.clearViewerScopes && opts.viewerScope?.length) return error("Conflicting viewer scopes", "Use either --viewer-scope or --clear-viewer-scopes.");
+      const hasMetaUpdate = opts.meta !== undefined || opts.hideCohubBar || opts.showCohubBar;
+      const client = createClient();
+      let meta: WorkMeta | null | undefined;
+      if (hasMetaUpdate) {
+        let baseMeta = opts.meta !== undefined ? parseJsonObject(opts.meta, "meta") ?? null : undefined;
+        if (baseMeta === undefined && (opts.hideCohubBar || opts.showCohubBar)) {
+          try {
+            baseMeta = (await client.works.get(id)).work.meta;
+          } catch (e: unknown) {
+            handleHttp(e);
+          }
+        }
+        meta = withCohubBarMeta({
+          meta: baseMeta,
+          hideCohubBar: opts.hideCohubBar,
+          showCohubBar: opts.showCohubBar,
+        });
+      }
       const input = compactObject<WorkUpdateInput>({
         slug: opts.slug,
         status: opts.status || opts.draft || opts.disabled ? resolveStatus(opts) : undefined,
@@ -227,10 +275,9 @@ export function registerWorks(program: Command): void {
         publishVersion: opts.publishVersion || undefined,
         workScopes: opts.clearWorkScopes ? [] : opts.workScope?.length ? opts.workScope as Permission[] : undefined,
         allowedViewerScopes: opts.clearViewerScopes ? [] : opts.viewerScope?.length ? opts.viewerScope as Permission[] : undefined,
-        meta: opts.meta !== undefined ? parseJsonObject(opts.meta, "meta") ?? null : undefined,
+        meta,
       });
-      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --publish-version, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, or --meta.");
-      const client = createClient();
+      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --publish-version, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
       try {
         const result = await client.works.update(id, input);
         if (jsonRequested(opts)) return outJson(result);

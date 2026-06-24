@@ -38,6 +38,12 @@ export class BillingApi {
     );
   }
 
+  async getFeatureEntitlement(featureKey: string) {
+    return this.transport.request<{ enabled: boolean }>(
+      `/api/billing/features/${encodeURIComponent(featureKey)}`,
+    );
+  }
+
   async getSubscriptions(input?: { page?: number; limit?: number }) {
     const params = new URLSearchParams();
     if (input?.page) params.set("page", String(input.page));

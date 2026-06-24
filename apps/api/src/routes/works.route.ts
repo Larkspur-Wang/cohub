@@ -11,6 +11,7 @@ import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessio
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { createLogger } from "@cohub/infra/logging";
+import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -35,12 +36,43 @@ const normalizeScopes = (value: unknown, allowed: Set<Permission>): Permission[]
   return Array.from(new Set(value.filter((item): item is Permission => typeof item === "string" && allowed.has(item as Permission))));
 };
 
+type WorkMeta = Record<string, unknown>;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const getWorkMeta = (value: unknown): WorkMeta | null => isRecord(value) ? value : null;
+
+const getHideCohubBar = (meta: WorkMeta | null | undefined): boolean => {
+  const presentation = isRecord(meta?.presentation) ? meta.presentation : null;
+  return presentation?.hideCohubBar === true;
+};
+
+async function canHideCohubBar(userId: string) {
+  try {
+    const entitlement = await billingOperations.getFeatureEntitlement({
+      userId,
+      featureKey: COHUB_BILLING_FEATURES.workPublishHideCohubBar,
+    });
+    return Boolean(entitlement?.enabled);
+  } catch (error) {
+    logger.warn("[works] failed to check hide Cohub bar entitlement", { userId, error });
+    return false;
+  }
+}
+
+async function ensureWorkPresentationAllowed(c: Context, input: { userId: string; meta: WorkMeta | null | undefined }) {
+  if (!getHideCohubBar(input.meta)) return null;
+  if (await canHideCohubBar(input.userId)) return null;
+  return workHideCohubBarRequiredResponse(c);
+}
+
 const isSubset = (requested: Permission[], allowed: string[]) => requested.every((scope) => allowed.includes(scope));
 
 const pgErrorCode = (error: unknown) => typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
 const pgErrorConstraint = (error: unknown) => typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint?: unknown }).constraint) : null;
 const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
 const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: draft, published, disabled" }, 400);
+const workHideCohubBarRequiredResponse = (c: Context) => c.json({ message: "This option is available on Pro and Max.", code: "work_hide_cohub_bar_required" }, 402);
 
 async function getMissingPublicWorkIdentity(spaceId: string) {
   const [row] = await db
@@ -266,11 +298,14 @@ router.post("/", async (c) => {
     const identityError = await ensurePublicWorkIdentity(c, spaceId);
     if (identityError) return identityError;
   }
+  const meta = getWorkMeta(body?.meta);
+  const presentationError = await ensureWorkPresentationAllowed(c, { userId: user.uuid, meta });
+  if (presentationError) return presentationError;
   const now = new Date();
 
   const [existingWork] = await db.select().from(works).where(and(eq(works.spaceId, spaceId), eq(works.slug, slug))).limit(1);
   if (existingWork) {
-    return updateWorkWithVersion(c, existingWork, body, { targetType, targetRef, status, publishVersion: status === "published" });
+    return updateWorkWithVersion(c, existingWork, body, user.uuid, { targetType, targetRef, status, publishVersion: status === "published" });
   }
 
   let assetKey: string | null = null;
@@ -294,7 +329,7 @@ router.post("/", async (c) => {
         publishedAt: status === "published" ? now : null,
         workScopes: normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES),
         allowedViewerScopes: normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES),
-        meta: body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null,
+        meta,
       }).returning();
       if (!createdWork) return null;
       if (status !== "published") return createdWork;
@@ -331,6 +366,7 @@ async function updateWorkWithVersion(
   c: Context,
   current: typeof works.$inferSelect,
   body: Record<string, unknown> | null,
+  actorUserId: string,
   overrides?: { targetType?: string; targetRef?: string; status?: string; publishVersion?: boolean },
 ) {
   const nextSlug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : current.slug;
@@ -360,6 +396,9 @@ async function updateWorkWithVersion(
     if (identityError) return identityError;
   }
   const publishVersion = overrides?.publishVersion ?? body?.publishVersion === true;
+  const nextMeta = "meta" in (body ?? {}) ? getWorkMeta(body?.meta) : getWorkMeta(current.meta);
+  const presentationError = await ensureWorkPresentationAllowed(c, { userId: actorUserId, meta: nextMeta });
+  if (presentationError) return presentationError;
 
   let assetKey = current.assetKey;
   let newAssetKey: string | null = null;
@@ -418,7 +457,7 @@ async function updateWorkWithVersion(
         publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
         workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
         allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
-        meta: "meta" in (body ?? {}) ? (body?.meta && typeof body.meta === "object" ? body.meta as Record<string, unknown> : null) : current.meta,
+        meta: nextMeta,
         updatedAt: new Date(),
       }).where(eq(works.id, current.id)).returning();
       return updatedWork ?? null;
@@ -446,7 +485,7 @@ router.patch("/:id", async (c) => {
   if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  return updateWorkWithVersion(c, current, body);
+  return updateWorkWithVersion(c, current, body, user.uuid);
 });
 
 router.get("/:id/versions", async (c) => {

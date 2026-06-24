@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
-import { billingOperations, COHUB_BILLING_TOKEN_TYPES } from "@cohub/billing";
+import { billingOperations, COHUB_BILLING_FEATURES, COHUB_BILLING_TOKEN_TYPES, type CohubBillingFeatureKey } from "@cohub/billing";
 import { config } from "../config.js";
 import { getOptionalAuth, useAuth } from "../lib/middleware.js";
 
@@ -62,6 +62,12 @@ function billingApiErrorResponse(c: Context, error: ApiError) {
   return c.json({ message: error.message, code: error.code }, error.status as never);
 }
 
+const BILLING_FEATURE_KEYS = new Set<string>(Object.values(COHUB_BILLING_FEATURES));
+
+function resolveBillingFeatureKey(value: string): CohubBillingFeatureKey | null {
+  return BILLING_FEATURE_KEYS.has(value) ? value as CohubBillingFeatureKey : null;
+}
+
 router.get("/credits", async (c) => {
   const user = useAuth(c);
   const resolved = resolveTokenType(c.req.query("tokenType"));
@@ -93,6 +99,22 @@ router.get("/catalog", async (c) => {
       user?.uuid ? { userId: user.uuid } : undefined,
     );
     return c.json({ catalog });
+  } catch (error) {
+    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    throw error;
+  }
+});
+
+router.get("/features/:featureKey", async (c) => {
+  const user = useAuth(c);
+  const featureKey = resolveBillingFeatureKey(c.req.param("featureKey"));
+  if (!featureKey) return c.json({ message: "unsupported billing feature" }, 400);
+  try {
+    const entitlement = await billingOperations.getFeatureEntitlement({
+      userId: user.uuid,
+      featureKey,
+    });
+    return c.json({ enabled: Boolean(entitlement?.enabled) });
   } catch (error) {
     if (error instanceof ApiError) return billingApiErrorResponse(c, error);
     throw error;
