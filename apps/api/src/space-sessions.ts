@@ -32,6 +32,7 @@ import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "@cohub/billing";
+import { touchSpaceActivity } from "./space-activity.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -534,14 +535,18 @@ const getNextSessionSequence = async (sessionId: string) => {
   return (row?.max ?? 0) + 1;
 };
 
-const updateSessionAfterAppend = async (sessionId: string, message: typeof sessionMessages.$inferSelect) => {
+const updateSessionAfterAppend = async (session: Pick<typeof spaceSessions.$inferSelect, "id" | "spaceId">, message: typeof sessionMessages.$inferSelect) => {
+  const activityAt = message.createdAt ?? new Date();
   await db.update(spaceSessions).set({
     lastMessageId: message.id,
     latestMessageText: message.text,
-    lastMessageAt: message.createdAt ?? new Date(),
+    lastMessageAt: activityAt,
     updatedAt: new Date(),
-  }).where(eq(spaceSessions.id, sessionId));
-  const refreshed = await getSpaceSessionById(sessionId);
+  }).where(eq(spaceSessions.id, session.id));
+  await touchSpaceActivity(session.spaceId, activityAt).catch((error) => {
+    logger.warn("[SpaceActivity] failed to touch after message append", error);
+  });
+  const refreshed = await getSpaceSessionById(session.id);
   if (refreshed) {
     await dispatchSessionUpdated({
       session: refreshed,
@@ -665,7 +670,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     }
   }
 
-  await updateSessionAfterAppend(input.sessionId, messageNode);
+  await updateSessionAfterAppend(session, messageNode);
 
   if (messageRole === "user") {
     const turnId = typeof (input.message.meta as Record<string, unknown> | null | undefined)?.turnId === "string"

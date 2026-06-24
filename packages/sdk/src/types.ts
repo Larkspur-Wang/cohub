@@ -523,6 +523,7 @@ export type SpaceRecord = {
   publicProfile?: SpacePublicProfile;
   createdAt: string;
   updatedAt: string;
+  lastActivityAt?: string | null;
   channels?: {
     id: string;
     name: string | null;

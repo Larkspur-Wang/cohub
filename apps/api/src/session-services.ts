@@ -10,6 +10,7 @@ import { redisCommandClient } from "./redis.js";
 import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPromptTemplate } from "./prompt-templates.js";
 import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
 import { getSpaceSessionById, getSpaceById } from "./space-sessions.js";
+import { touchSpaceActivity } from "./space-activity.js";
 import { dispatchSessionUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
 
@@ -84,6 +85,9 @@ export function getSessionDomainServices(input?: {
     onSessionActivityUpdated: async ({ sessionId, changed }) => {
       const session = await getSpaceSessionById(sessionId);
       if (!session) return;
+      await touchSpaceActivity(session.spaceId, session.lastMessageAt ?? new Date()).catch((error) => {
+        logger.warn("[SpaceActivity] failed to touch after session activity update", error);
+      });
       await dispatchSessionUpdated({ session, changed });
     },
     agentTurnQueue: {

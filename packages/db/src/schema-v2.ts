@@ -114,11 +114,13 @@ export const spaces = v2.table(
     meta: jsonb("meta"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
   },
   (table) => ({
     userUuidIdx: index("v2_idx_spaces_user_uuid").on(table.userUuid),
     baseCheckpointIdx: index("v2_idx_spaces_base_checkpoint_id").on(table.baseCheckpointId),
     headCheckpointIdx: index("v2_idx_spaces_head_checkpoint_id").on(table.headCheckpointId),
+    lastActivityIdx: index("v2_idx_spaces_last_activity_at").on(table.lastActivityAt.desc().nullsLast(), table.createdAt.desc().nullsLast()),
     nameSearchIdx: index("v2_idx_spaces_name_trgm").using("gin", table.name.op("gin_trgm_ops")),
     descriptionSearchIdx: index("v2_idx_spaces_description_trgm").using("gin", table.description.op("gin_trgm_ops")),
     userSpaceNameUniqueIdx: uniqueIndex("v2_uq_spaces_user_name").on(table.userUuid, table.name),

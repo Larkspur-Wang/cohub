@@ -473,7 +473,7 @@ router.get("/", async (c) => {
     .select()
     .from(spaces)
     .where(inArray(spaces.id, spaceIds))
-    .orderBy(desc(spaces.updatedAt), desc(spaces.createdAt));
+    .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt));
 
   const items = await buildSpaceListItems(spaceList);
   const workSession = getWorkSessionPrincipal(c);
@@ -633,6 +633,7 @@ router.post("/", async (c) => {
           storageRepoName,
           baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
           headCheckpointId: null,
+          lastActivityAt: new Date(),
           meta: {
             ...(body.meta ?? {}),
             config: {
@@ -754,7 +755,7 @@ router.post("/", async (c) => {
     };
     await db
       .update(spaces)
-      .set({ meta: nextMeta, updatedAt: new Date() })
+      .set({ meta: nextMeta, updatedAt: new Date(), lastActivityAt: new Date() })
       .where(eq(spaces.id, space.id));
     throw error;
   });
@@ -776,6 +777,7 @@ router.post("/", async (c) => {
           },
         },
         updatedAt: new Date(),
+        lastActivityAt: new Date(),
       })
       .where(eq(spaces.id, space.id));
     return c.json({ message: "failed to create bootstrap job" }, 500);
@@ -797,6 +799,7 @@ router.post("/", async (c) => {
         },
       },
       updatedAt: new Date(),
+      lastActivityAt: new Date(),
     })
     .where(eq(spaces.id, space.id))
     .returning();
@@ -993,7 +996,7 @@ router.patch("/:id", async (c) => {
   try {
     const [updated] = await db
       .update(spaces)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date(), lastActivityAt: new Date() })
       .where(eq(spaces.id, spaceId))
       .returning();
 
@@ -1054,6 +1057,7 @@ router.patch("/:id/profile", async (c) => {
       description: nextDescription,
       meta: { ...existingMeta, publicProfile: nextProfile },
       updatedAt: new Date(),
+      lastActivityAt: new Date(),
     })
     .where(eq(spaces.id, spaceId))
     .returning();
@@ -1254,6 +1258,7 @@ async function persistSpaceEnv(space: typeof spaces.$inferSelect, envs: Array<{ 
     .set({
       meta: { ...existingMeta, extraEnv: envs },
       updatedAt: new Date(),
+      lastActivityAt: new Date(),
     })
     .where(eq(spaces.id, space.id));
   await setSpaceEnv(space.id, envs);
@@ -1403,7 +1408,7 @@ router.patch("/:id/config", async (c) => {
   }
   const nextMeta = mergeSpaceConfig(space, { sandbox: { autoDestroy: nextAutoDestroy } });
 
-  const [updated] = await db.update(spaces).set({ meta: nextMeta, updatedAt: new Date() }).where(eq(spaces.id, spaceId)).returning();
+  const [updated] = await db.update(spaces).set({ meta: nextMeta, updatedAt: new Date(), lastActivityAt: new Date() }).where(eq(spaces.id, spaceId)).returning();
   if (!updated) return c.json({ message: "failed to update space config" }, 500);
 
   const sandbox = await getSpaceSandboxBySpaceId(spaceId);
