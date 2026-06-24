@@ -1,12 +1,12 @@
-import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn } from "@earendil-works/pi-agent-core";
+import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { context, trace, type Span } from "@opentelemetry/api";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { logger } from "../logger.js";
 import { sendOutput } from "../redis.js";
 import type { SessionManager } from "./local-session-manager.js";
-import type { CohubModelRegistry } from "./model-registry.js";
+import type { CohubModel, CohubModelRegistry } from "./model-registry.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolExecutionContext } from "../tool-context.js";
@@ -43,6 +43,18 @@ const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+function normalizeThinkingLevel(level: string | null | undefined): ThinkingLevel | undefined {
+  return level && THINKING_LEVELS.has(level as ThinkingLevel) ? level as ThinkingLevel : undefined;
+}
+
+function resolveThinkingLevelForModel(model: CohubModel, requested?: string | null): ThinkingLevel {
+  const fallback = normalizeThinkingLevel(model.defaultThinkingLevel) ?? (model.reasoning ? "high" : "off");
+  const level = normalizeThinkingLevel(requested) ?? fallback;
+  if (!model.reasoning) return "off";
+  return clampThinkingLevel(model, level) as ThinkingLevel;
+}
 
 function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
   if (message?.stopReason !== "error" || !message.errorMessage) return false;
@@ -440,9 +452,14 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     throw new Error("No model available. Check platform models.json");
   }
 
+  const initialThinkingLevel = resolveThinkingLevelForModel(
+    model,
+    sessionContext.messages.length > 0 ? sessionContext.thinkingLevel : undefined,
+  );
+
   if (sessionContext.messages.length === 0) {
     options.sessionManager.appendModelChange(model.provider, model.id);
-    options.sessionManager.appendThinkingLevelChange(model.reasoning ? "medium" : "off");
+    options.sessionManager.appendThinkingLevelChange(initialThinkingLevel);
   }
 
   const buildSystemPromptForTools = (tools: ToolLike[]) => buildCohubSystemPrompt({
@@ -459,7 +476,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     initialState: {
       systemPrompt,
       model,
-      thinkingLevel: model.reasoning ? "medium" : "off",
+      thinkingLevel: initialThinkingLevel,
       tools: options.tools as never,
       messages: sessionContext.messages,
     },
@@ -639,8 +656,11 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       await agent.waitForIdle();
     },
     async setModel(nextModel) {
+      const nextThinkingLevel = resolveThinkingLevelForModel(nextModel as CohubModel, agent.state.thinkingLevel);
       agent.state.model = nextModel;
+      agent.state.thinkingLevel = nextThinkingLevel;
       options.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
+      options.sessionManager.appendThinkingLevelChange(nextThinkingLevel);
     },
     async configureTools(tools) {
       agent.state.systemPrompt = await buildSystemPromptForTools(tools);

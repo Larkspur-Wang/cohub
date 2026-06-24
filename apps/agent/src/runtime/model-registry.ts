@@ -1,5 +1,9 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { mergeModelsConfigs, type ModelDef, type ModelsConfig } from "@cohub/infra/config-runtime/models";
+import { mergeModelsConfigs, type ModelDef, type ModelsConfig, type ModelThinkingLevel } from "@cohub/infra/config-runtime/models";
+
+export type CohubModel<TApi extends Api = Api> = Model<TApi> & {
+  defaultThinkingLevel?: ModelThinkingLevel;
+};
 
 function resolveApiKey(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -21,7 +25,7 @@ function normalizeModelCost(cost: ModelDef["cost"] | undefined): Model<Api>["cos
 }
 
 export class CohubModelRegistry {
-  private models: Model<Api>[] = [];
+  private models: CohubModel[] = [];
   private providerApiKeys = new Map<string, string>();
   private providerHeaders = new Map<string, Record<string, string>>();
   private loadError: string | undefined;
@@ -39,7 +43,7 @@ export class CohubModelRegistry {
     this.loadError = undefined;
 
     const mergedConfig = mergeModelsConfigs(...this.configs);
-    const mergedModels = new Map<string, Model<Api>>();
+    const mergedModels = new Map<string, CohubModel>();
 
     for (const [provider, providerConfig] of Object.entries(mergedConfig.providers)) {
       const apiKey = resolveApiKey(providerConfig.apiKey);
@@ -57,28 +61,30 @@ export class CohubModelRegistry {
           provider,
           baseUrl,
           reasoning: modelDef.reasoning ?? false,
+          defaultThinkingLevel: modelDef.defaultThinkingLevel,
+          thinkingLevelMap: modelDef.thinkingLevelMap,
           input: modelDef.input ?? ["text"],
           cost: normalizeModelCost(modelDef.cost),
           contextWindow: modelDef.contextWindow ?? 128000,
           maxTokens: modelDef.maxTokens ?? 16384,
           headers: modelDef.headers,
           compat: (modelDef.compat ?? providerConfig.compat) as Model<Api>["compat"],
-        } as Model<Api>);
+        } as CohubModel);
       }
     }
 
     this.models = [...mergedModels.values()];
   }
 
-  getAvailable(): Model<Api>[] {
+  getAvailable(): CohubModel[] {
     return [...this.models];
   }
 
-  find(provider: string, id: string): Model<Api> | undefined {
+  find(provider: string, id: string): CohubModel | undefined {
     return this.models.find((model) => model.provider === provider && model.id === id);
   }
 
-  getDefault(): Model<Api> | undefined {
+  getDefault(): CohubModel | undefined {
     return this.models[0];
   }
 

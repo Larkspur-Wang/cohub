@@ -12,12 +12,17 @@ export type ModelCost = {
   cacheWrite?: number;
 };
 
+export type ModelThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>;
+
 export type ModelDef = {
   id: string;
   name?: string;
   api?: string;
   baseUrl?: string;
   reasoning?: boolean;
+  defaultThinkingLevel?: ModelThinkingLevel;
+  thinkingLevelMap?: ThinkingLevelMap;
   /** Hide this model from UI pickers while keeping it available for runtime use. */
   hidden?: boolean;
   input?: Array<"text" | "image">;
