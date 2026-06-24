@@ -39,6 +39,7 @@ export type SpaceFileDomainProps = {
 	isRightDrawerVisible: boolean;
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
+	previewImmersiveMode: boolean;
 	rightSidebarCollapsed: boolean;
 	rightSidebarWidth: number;
 	rightDragOffsetPx: number;
@@ -107,6 +108,7 @@ export type SpaceFileDomainProps = {
 	onCloseInlineCanvas: () => void;
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
+	onTogglePreviewImmersiveMode: () => void | Promise<void>;
 	onBeginRightSidebarResize: (event: PointerEvent) => void;
 	onEditResourceLabels: (type: "file", path: string) => void | Promise<void>;
 	onInsertFilePathReference: (path: string) => void;
@@ -128,6 +130,7 @@ let {
 	isRightDrawerVisible,
 	previewPanelWidth,
 	previewFocusMode,
+	previewImmersiveMode,
 	rightSidebarCollapsed,
 	rightSidebarWidth,
 	rightDragOffsetPx,
@@ -190,6 +193,7 @@ let {
 	onCloseInlineCanvas,
 	onBeginPreviewPanelResize,
 	onTogglePreviewFocusMode,
+	onTogglePreviewImmersiveMode,
 	onBeginRightSidebarResize,
 	onEditResourceLabels,
 	onInsertFilePathReference,
@@ -236,6 +240,7 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		{inlineFileDataUrl}
 		previewPanelWidth={previewPanelWidth}
 		previewFocusMode={previewFocusMode}
+		previewImmersiveMode={previewImmersiveMode}
 		{isMobile}
 		bind:fileActionMenuOpenPath
 		bind:inlineFileZoom
@@ -250,6 +255,7 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		onPublishInlineFile={publishInlineFile}
 		onPreviewResizeStart={onBeginPreviewPanelResize}
 		onTogglePreviewFocusMode={onTogglePreviewFocusMode}
+		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
 		onLabelFile={(path) => onEditResourceLabels("file", path)}
 		onInsertFilePathReference={onInsertFilePathReference}
 		onDownloadFilePath={(path) => onDownloadNode(onGetFileActionNode(path))}
@@ -263,9 +269,11 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		canvas={inlineCanvas}
 		width={previewPanelWidth}
 		focused={previewFocusMode}
+		immersive={previewImmersiveMode}
 		{isMobile}
 		onResizeStart={onBeginPreviewPanelResize}
 		onToggleFocus={onTogglePreviewFocusMode}
+		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineCanvas}
 		onClose={onCloseInlineCanvas}
 	/>
@@ -279,9 +287,11 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		observedAt={inlinePortEndpoint?.observedAt}
 		width={previewPanelWidth}
 		focused={previewFocusMode}
+		immersive={previewImmersiveMode}
 		{isMobile}
 		onResizeStart={onBeginPreviewPanelResize}
 		onToggleFocus={onTogglePreviewFocusMode}
+		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
 		onClose={onCloseInlinePort}
 	/>
@@ -302,6 +312,7 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 	draggable={!spaceHasMinimalAccess}
 	previewEndpoints={spaceHasMinimalAccess ? {} : previewEndpoints}
 	desktopCollapsed={rightSidebarCollapsed}
+	desktopFloating={previewImmersiveMode}
 	desktopWidth={rightSidebarWidth}
 	{rightDragOffsetPx}
 	{rightIsDragging}

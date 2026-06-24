@@ -17,9 +17,11 @@ type Props = {
 	canvas: InlineCanvasPanelState;
 	width: number;
 	focused: boolean;
+	immersive: boolean;
 	isMobile: boolean;
 	onResizeStart: (event: PointerEvent) => void;
 	onToggleFocus: () => void | Promise<void>;
+	onToggleImmersive: () => void | Promise<void>;
 	onCommit: (
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
@@ -31,9 +33,11 @@ let {
 	canvas,
 	width,
 	focused,
+	immersive,
 	isMobile,
 	onResizeStart,
 	onToggleFocus,
+	onToggleImmersive,
 	onCommit,
 	onClose,
 }: Props = $props();
@@ -42,6 +46,7 @@ let {
 <WorkspacePreviewPane
 	{width}
 	ariaLabel={`Canvas ${canvas.path}`}
+	{immersive}
 	onResizeStart={onResizeStart}
 >
 	{#if canvas.loading}
@@ -65,7 +70,9 @@ let {
 				document={canvas.document}
 				saving={canvas.saving}
 				focused={focused}
+				{immersive}
 				onToggleFocus={isMobile ? undefined : onToggleFocus}
+				onToggleImmersive={isMobile ? undefined : onToggleImmersive}
 				onCommit={(document, ops) => onCommit(document, ops)}
 				onClose={onClose}
 			/>

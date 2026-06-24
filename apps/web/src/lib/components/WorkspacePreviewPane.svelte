@@ -4,25 +4,28 @@ const {
 	ariaLabel = "Workspace preview",
 	onResizeStart,
 	desktopOnly = false,
+	immersive = false,
 	children,
 }: {
 	width?: number;
 	ariaLabel?: string;
 	onResizeStart?: (event: PointerEvent) => void;
 	desktopOnly?: boolean;
+	immersive?: boolean;
 	children: import("svelte").Snippet;
 } = $props();
 </script>
 
 <section
 	class="workspace-preview-pane min-w-0 flex-col border-border-subtle bg-bg-content {desktopOnly ? 'hidden lg:flex' : 'flex'}"
+	class:workspace-preview-pane--immersive={immersive}
 	style={`--workspace-preview-width: ${width}px`}
 	aria-label={ariaLabel}
 >
 	<div class="min-h-0 flex-1">
 		{@render children()}
 	</div>
-	{#if onResizeStart}
+	{#if onResizeStart && !immersive}
 		<button
 			type="button"
 			class="preview-resize-handle hidden lg:block"
@@ -49,6 +52,15 @@ const {
 			width: var(--workspace-preview-width);
 			flex-shrink: 0;
 			border-left-width: 1px;
+		}
+
+		.workspace-preview-pane--immersive {
+			position: absolute;
+			inset: 0;
+			z-index: 0;
+			width: 100%;
+			height: 100%;
+			border-left-width: 0;
 		}
 	}
 

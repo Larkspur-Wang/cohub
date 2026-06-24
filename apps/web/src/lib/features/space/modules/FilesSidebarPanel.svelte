@@ -19,6 +19,7 @@ type Props = {
 	draggable: boolean;
 	previewEndpoints: SpacePublicEndpoints;
 	desktopCollapsed: boolean;
+	desktopFloating: boolean;
 	desktopWidth: number;
 	rightDragOffsetPx: number;
 	rightIsDragging: boolean;
@@ -58,6 +59,7 @@ let {
 	draggable,
 	previewEndpoints,
 	desktopCollapsed,
+	desktopFloating,
 	desktopWidth,
 	rightDragOffsetPx,
 	rightIsDragging,
@@ -86,7 +88,11 @@ let {
 </script>
 
 {#if !desktopCollapsed}
-	<div class="hidden shrink-0 lg:flex border-l border-border-subtle" style={`width: ${desktopWidth}px`}>
+	<div
+		class="files-sidebar-shell hidden shrink-0 lg:flex border-l border-border-subtle"
+		class:files-sidebar-shell--floating={desktopFloating}
+		style={`width: ${desktopWidth}px; --files-sidebar-width: ${desktopWidth}px`}
+	>
 		<div class="w-full relative">
 			<SpaceFileSidebar
 				{nodes}
@@ -122,13 +128,15 @@ let {
 				onClose={onUploadPaneClose}
 				onComplete={onUploadComplete}
 			/>
-			<button
-				type="button"
-				class="right-sidebar-resize-handle"
-				aria-label="Resize files sidebar"
-				title="Resize files sidebar"
-				onpointerdown={onResizeStart}
-			></button>
+			{#if !desktopFloating}
+				<button
+					type="button"
+					class="right-sidebar-resize-handle"
+					aria-label="Resize files sidebar"
+					title="Resize files sidebar"
+					onpointerdown={onResizeStart}
+				></button>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -173,3 +181,21 @@ let {
 		onComplete={onUploadComplete}
 	/>
 </MobileRightDrawer>
+
+<style>
+	@media (min-width: 960px) {
+		.files-sidebar-shell--floating {
+			position: absolute;
+			top: 12px;
+			right: 12px;
+			bottom: 12px;
+			z-index: 30;
+			width: var(--files-sidebar-width);
+			overflow: hidden;
+			border: 1px solid var(--border-subtle);
+			border-radius: 12px;
+			background: var(--bg-elevated);
+			box-shadow: 0 18px 48px color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
+		}
+	}
+</style>

@@ -25,7 +25,9 @@ const {
 	document: initialDocument,
 	saving = false,
 	focused = false,
+	immersive = false,
 	onToggleFocus,
+	onToggleImmersive,
 	onCommit,
 	onClose,
 }: {
@@ -33,7 +35,9 @@ const {
 	document: CovasDocument;
 	saving?: boolean;
 	focused?: boolean;
+	immersive?: boolean;
 	onToggleFocus?: () => void;
+	onToggleImmersive?: () => void;
 	onCommit: (
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
@@ -250,7 +254,9 @@ $effect(() => {
     onUndo={undo}
     onRedo={redo}
     {focused}
+    {immersive}
     {onToggleFocus}
+    {onToggleImmersive}
     onClose={close}
   />
 

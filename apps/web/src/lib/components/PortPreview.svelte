@@ -5,13 +5,12 @@ import {
 	ExternalLink,
 	Globe,
 	Loader2,
-	Maximize2,
-	Minimize2,
 	RefreshCw,
 	Rocket,
 	X,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 
 const {
 	port,
@@ -19,7 +18,9 @@ const {
 	status = "unknown",
 	observedAt,
 	focused = false,
+	immersive = false,
 	onToggleFocus,
+	onToggleImmersive,
 	onPublish,
 	onClose,
 }: {
@@ -28,7 +29,9 @@ const {
 	status?: SpacePortStatus | "unknown";
 	observedAt?: number;
 	focused?: boolean;
+	immersive?: boolean;
 	onToggleFocus?: () => void;
+	onToggleImmersive?: () => void;
 	onPublish?: () => void;
 	onClose: () => void;
 } = $props();
@@ -133,14 +136,15 @@ onDestroy(() => {
 		<a class="preview-icon-btn" href={url} target="_blank" rel="noreferrer" title="Open externally" aria-disabled={!url}>
 			<ExternalLink class="h-4 w-4" />
 		</a>
-		{#if onToggleFocus}
-			<button type="button" class="preview-icon-btn" onclick={onToggleFocus} title={focused ? "Exit preview focus" : "Focus preview"} aria-label={focused ? "Exit preview focus" : "Focus preview"}>
-				{#if focused}
-					<Minimize2 class="h-4 w-4" />
-				{:else}
-					<Maximize2 class="h-4 w-4" />
-				{/if}
-			</button>
+		{#if onToggleFocus && onToggleImmersive}
+			<PreviewExpandMenu
+				{focused}
+				{immersive}
+				buttonClass="preview-icon-btn"
+				iconClass="h-4 w-4"
+				{onToggleFocus}
+				{onToggleImmersive}
+			/>
 		{/if}
 		<button type="button" class="preview-icon-btn" onclick={onClose} title="Close preview">
 			<X class="h-4 w-4" />

@@ -27,8 +27,6 @@ import {
 	Copy,
 	Download,
 	ListTree,
-	Maximize2,
-	Minimize2,
 	MoreHorizontal,
 	Pencil,
 	Save,
@@ -606,6 +604,7 @@ const previewLayout = createPreviewLayoutController({
 });
 const previewPanelWidth = $derived(previewLayout.width);
 const previewFocusMode = $derived(previewLayout.focusMode);
+const previewImmersiveMode = $derived(previewLayout.immersiveMode);
 
 let pageMounted = $state(false);
 const spaceBootstrap = createSpaceBootstrapController({
@@ -3810,6 +3809,9 @@ function ensurePreviewPanelFits() {
 async function togglePreviewFocusMode() {
 	await previewLayout.toggleFocusMode();
 }
+async function togglePreviewImmersiveMode() {
+	await previewLayout.toggleImmersiveMode();
+}
 function closePreviewFocusMode() {
 	previewLayout.closeFocusMode();
 }
@@ -4767,6 +4769,7 @@ const spaceFileDomainProps = $derived.by<
 	isRightDrawerVisible,
 	previewPanelWidth,
 	previewFocusMode,
+	previewImmersiveMode,
 	rightSidebarCollapsed: uiState.rightSidebarCollapsed,
 	rightSidebarWidth: uiState.rightSidebarWidth,
 	rightDragOffsetPx: uiState.rightDragOffsetPx,
@@ -4829,6 +4832,7 @@ const spaceFileDomainProps = $derived.by<
 	onCloseInlineCanvas: closeInlineCanvas,
 	onBeginPreviewPanelResize: beginPreviewPanelResize,
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
+	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,
 	onBeginRightSidebarResize: beginRightSidebarResize,
 	onEditResourceLabels: editResourceLabels,
 	onInsertFilePathReference: insertFilePathReference,
@@ -5083,24 +5087,6 @@ const sessionWorkspaceProps = $derived.by<
 	</div>
 {/snippet}
 
-{#snippet PreviewFocusButton()}
-	{#if !isMobile}
-		<button
-			type="button"
-			class="icon-btn"
-			onclick={() => void togglePreviewFocusMode()}
-			title={previewFocusMode ? "Exit preview focus" : "Focus preview"}
-			aria-label={previewFocusMode ? "Exit preview focus" : "Focus preview"}
-		>
-			{#if previewFocusMode}
-				<Minimize2 class="w-4 h-4" />
-			{:else}
-				<Maximize2 class="w-4 h-4" />
-			{/if}
-		</button>
-	{/if}
-{/snippet}
-
 {#snippet PanelLoadingState(label: string, compact = false)}
 	<CenteredLoading label={label} size={compact ? "compact" : "panel"} />
 {/snippet}
@@ -5146,8 +5132,12 @@ const sessionWorkspaceProps = $derived.by<
 		onClose={closePortReadyToast}
 	/>
 {/if}
-<div bind:this={workspaceBodyEl} class="relative flex-1 min-h-0 flex overflow-hidden bg-bg-content">
-  <div class="flex-1 flex flex-col min-w-0 bg-bg-content">
+<div
+	bind:this={workspaceBodyEl}
+	class="workspace-body relative flex-1 min-h-0 flex overflow-hidden bg-bg-content"
+	class:workspace-body--preview-immersive={previewImmersiveMode}
+>
+  <div class="workspace-main flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if isRouteDetailView}
       <SpaceRouteDetailHost
         route={{
@@ -5309,6 +5299,26 @@ const sessionWorkspaceProps = $derived.by<
       animation: none !important;
     }
   }
+  @media (min-width: 960px) {
+    .workspace-body--preview-immersive {
+      isolation: isolate;
+    }
+
+    .workspace-body--preview-immersive .workspace-main {
+      position: relative;
+      z-index: 20;
+      flex: 0 0 min(56vw, 720px);
+      max-width: min(56vw, 720px);
+      min-width: min(420px, calc(100vw - 96px));
+      margin: 12px 0 12px 12px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      background: var(--bg-elevated);
+      box-shadow: 0 18px 48px color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
+    }
+  }
+
   :global(.right-sidebar-resize-handle) {
     position: absolute;
     top: 0;

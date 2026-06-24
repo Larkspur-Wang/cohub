@@ -14,7 +14,8 @@ export function createPreviewLayoutController(options: {
 	let width = $state(480);
 	let resizeCleanup: (() => void) | null = null;
 	let focusMode = $state(false);
-	let focusSnapshot: {
+	let immersiveMode = $state(false);
+	let layoutSnapshot: {
 		leftSidebarCollapsed: boolean;
 		rightSidebarCollapsed: boolean;
 		width: number;
@@ -47,9 +48,9 @@ export function createPreviewLayoutController(options: {
 		setWidth(width);
 	}
 
-	function restoreFocusSnapshot() {
-		const snapshot = focusSnapshot;
-		focusSnapshot = null;
+	function restoreLayoutSnapshot() {
+		const snapshot = layoutSnapshot;
+		layoutSnapshot = null;
 		if (!snapshot) return;
 		uiState.setLeftSidebarCollapsed(snapshot.leftSidebarCollapsed);
 		uiState.setRightSidebarCollapsed(snapshot.rightSidebarCollapsed);
@@ -57,18 +58,24 @@ export function createPreviewLayoutController(options: {
 		ensureFits();
 	}
 
-	async function toggleFocusMode() {
-		if (options.getIsMobile()) return;
-		if (focusMode) {
-			focusMode = false;
-			restoreFocusSnapshot();
-			return;
-		}
-		focusSnapshot = {
+	function captureLayoutSnapshot() {
+		if (layoutSnapshot) return;
+		layoutSnapshot = {
 			leftSidebarCollapsed: uiState.leftSidebarCollapsed,
 			rightSidebarCollapsed: uiState.rightSidebarCollapsed,
 			width,
 		};
+	}
+
+	async function toggleFocusMode() {
+		if (options.getIsMobile()) return;
+		if (focusMode) {
+			focusMode = false;
+			restoreLayoutSnapshot();
+			return;
+		}
+		captureLayoutSnapshot();
+		immersiveMode = false;
 		focusMode = true;
 		uiState.setLeftSidebarCollapsed(true);
 		uiState.setRightSidebarCollapsed(true);
@@ -76,15 +83,31 @@ export function createPreviewLayoutController(options: {
 		setWidth(getMaxWidth());
 	}
 
-	function closeFocusMode() {
-		if (!focusMode && !focusSnapshot) return;
+	async function toggleImmersiveMode() {
+		if (options.getIsMobile()) return;
+		if (immersiveMode) {
+			immersiveMode = false;
+			restoreLayoutSnapshot();
+			return;
+		}
+		captureLayoutSnapshot();
 		focusMode = false;
-		restoreFocusSnapshot();
+		immersiveMode = true;
+		uiState.setLeftSidebarCollapsed(true);
+		await tick();
+	}
+
+	function closeFocusMode() {
+		if (!focusMode && !immersiveMode && !layoutSnapshot) return;
+		focusMode = false;
+		immersiveMode = false;
+		restoreLayoutSnapshot();
 	}
 
 	function cancelFocusModeWithoutRestore() {
 		focusMode = false;
-		focusSnapshot = null;
+		immersiveMode = false;
+		layoutSnapshot = null;
 	}
 
 	function handleWindowResize() {
@@ -92,6 +115,7 @@ export function createPreviewLayoutController(options: {
 			setWidth(getMaxWidth());
 			return;
 		}
+		if (immersiveMode) return;
 		if (options.getActivePreviewKind()) ensureFits();
 	}
 
@@ -131,6 +155,10 @@ export function createPreviewLayoutController(options: {
 		const rightWidth = uiState.rightSidebarWidth;
 		uiState.setRightSidebarCollapsed(nextCollapsed);
 		if (!options.getActivePreviewKind()) return;
+		if (immersiveMode) {
+			if (layoutSnapshot) layoutSnapshot.rightSidebarCollapsed = nextCollapsed;
+			return;
+		}
 		closeFocusMode();
 		await tick();
 		setWidth(width + (nextCollapsed ? rightWidth : -rightWidth));
@@ -148,9 +176,13 @@ export function createPreviewLayoutController(options: {
 		get focusMode() {
 			return focusMode;
 		},
+		get immersiveMode() {
+			return immersiveMode;
+		},
 		setWidth,
 		ensureFits,
 		toggleFocusMode,
+		toggleImmersiveMode,
 		closeFocusMode,
 		handleWindowResize,
 		beginPanelResize,

@@ -3,8 +3,6 @@ import {
 	FilePlus2,
 	Link as LinkIcon,
 	LocateFixed,
-	Maximize2,
-	Minimize2,
 	Minus,
 	MousePointer2,
 	Plus,
@@ -13,6 +11,7 @@ import {
 	Undo2,
 	X,
 } from "lucide-svelte";
+import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 
 const {
 	title,
@@ -30,7 +29,9 @@ const {
 	onUndo,
 	onRedo,
 	focused = false,
+	immersive = false,
 	onToggleFocus,
+	onToggleImmersive,
 	onClose,
 }: {
 	title: string;
@@ -48,7 +49,9 @@ const {
 	onUndo?: () => void;
 	onRedo?: () => void;
 	focused?: boolean;
+	immersive?: boolean;
 	onToggleFocus?: () => void;
+	onToggleImmersive?: () => void;
 	onClose: () => void;
 } = $props();
 </script>
@@ -87,14 +90,15 @@ const {
     <button type="button" class="canvas-icon" onclick={onFit} title="Reset view"><LocateFixed class="h-3.5 w-3.5" /></button>
     <div class="mx-1 h-5 w-px bg-border-subtle"></div>
     <span class="canvas-sync-state">{saving ? "Syncing" : dirty ? "Pending" : "Synced"}</span>
-    {#if onToggleFocus}
-      <button type="button" class="canvas-icon" onclick={onToggleFocus} title={focused ? "Exit preview focus" : "Focus preview"} aria-label={focused ? "Exit preview focus" : "Focus preview"}>
-        {#if focused}
-          <Minimize2 class="h-3.5 w-3.5" />
-        {:else}
-          <Maximize2 class="h-3.5 w-3.5" />
-        {/if}
-      </button>
+    {#if onToggleFocus && onToggleImmersive}
+      <PreviewExpandMenu
+        {focused}
+        {immersive}
+        buttonClass="canvas-icon"
+        iconClass="h-3.5 w-3.5"
+        {onToggleFocus}
+        {onToggleImmersive}
+      />
     {/if}
     <button type="button" class="canvas-icon" onclick={onClose} title="Close canvas"><X class="h-3.5 w-3.5" /></button>
   </div>

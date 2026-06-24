@@ -5,8 +5,6 @@ import {
 	Copy,
 	Download,
 	ListTree,
-	Maximize2,
-	Minimize2,
 	MoreHorizontal,
 	Pencil,
 	Rocket,
@@ -16,6 +14,7 @@ import {
 	X,
 } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import { formatFileSize } from "../space-utils";
 
@@ -52,6 +51,7 @@ type Props = {
 	inlineFileDataUrl: string | null;
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
+	previewImmersiveMode: boolean;
 	isMobile: boolean;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
@@ -66,6 +66,7 @@ type Props = {
 	onPublishInlineFile: () => void;
 	onPreviewResizeStart: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
+	onTogglePreviewImmersiveMode: () => void | Promise<void>;
 	onLabelFile: (path: string) => void | Promise<void>;
 	onInsertFilePathReference: (path: string) => void;
 	onDownloadFilePath: (path: string) => void | Promise<void>;
@@ -92,6 +93,7 @@ let {
 	inlineFileDataUrl,
 	previewPanelWidth,
 	previewFocusMode,
+	previewImmersiveMode,
 	isMobile,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
@@ -106,6 +108,7 @@ let {
 	onPublishInlineFile,
 	onPreviewResizeStart,
 	onTogglePreviewFocusMode,
+	onTogglePreviewImmersiveMode,
 	onLabelFile,
 	onInsertFilePathReference,
 	onDownloadFilePath,
@@ -135,9 +138,12 @@ let {
 
 {#snippet PreviewFocusButton()}
 	{#if !isMobile}
-		<button type="button" class="icon-btn" onclick={() => void onTogglePreviewFocusMode()} title={previewFocusMode ? "Exit preview focus" : "Focus preview"} aria-label={previewFocusMode ? "Exit preview focus" : "Focus preview"}>
-			{#if previewFocusMode}<Minimize2 class="w-4 h-4" />{:else}<Maximize2 class="w-4 h-4" />{/if}
-		</button>
+		<PreviewExpandMenu
+			focused={previewFocusMode}
+			immersive={previewImmersiveMode}
+			onToggleFocus={onTogglePreviewFocusMode}
+			onToggleImmersive={onTogglePreviewImmersiveMode}
+		/>
 	{/if}
 {/snippet}
 
@@ -255,6 +261,7 @@ let {
       width={previewPanelWidth}
       ariaLabel="File preview"
       onResizeStart={onPreviewResizeStart}
+      immersive={previewImmersiveMode}
     >
       <div class="flex h-full min-w-0 flex-col bg-bg-content">
         {#if inlineFile.loading}
