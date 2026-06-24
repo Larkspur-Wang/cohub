@@ -152,15 +152,16 @@ async function loadCatalog() {
 			catalogError = "Pricing is not available yet.";
 			return;
 		}
-		freePlan = catalog.plans.find((p) => isFree(p)) ?? null;
+		const publicPlans = catalog.plans.filter(
+			(product) => product.visibility === "public",
+		);
+		freePlan = publicPlans.find((p) => isFree(p)) ?? null;
 		const freeKey = freePlan?.key;
 		monthlyPlans = sortByPrice(
-			catalog.plans.filter(
-				(p) => p.interval === "monthly" && p.key !== freeKey,
-			),
+			publicPlans.filter((p) => p.interval === "monthly" && p.key !== freeKey),
 		);
 		yearlyPlans = sortByPrice(
-			catalog.plans.filter((p) => p.interval === "yearly" && p.key !== freeKey),
+			publicPlans.filter((p) => p.interval === "yearly" && p.key !== freeKey),
 		);
 	} catch (error) {
 		catalogError = "Failed to load pricing.";
