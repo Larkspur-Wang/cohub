@@ -1,5 +1,13 @@
 # web
 
+## 0.1.38
+
+### Patch Changes
+
+- Add generation stream snapshot recovery APIs, improve active generation resume behavior, and polish workspace preview interactions with immersive preview, per-session composer drafts, Mermaid touch zoom, and mobile member role controls.
+- Updated dependencies
+  - @neta-art/cohub@1.32.0
+
 ## 0.1.37
 
 ### Patch Changes

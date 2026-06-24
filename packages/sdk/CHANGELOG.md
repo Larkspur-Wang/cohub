@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.32.0
+
+### Minor Changes
+
+- Add generation stream snapshot recovery APIs, improve active generation resume behavior, and polish workspace preview interactions with immersive preview, per-session composer drafts, Mermaid touch zoom, and mobile member role controls.
+
 ## 1.31.0
 
 ### Minor Changes
