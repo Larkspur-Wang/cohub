@@ -94,6 +94,7 @@ export function createPreviewLayoutController(options: {
 		focusMode = false;
 		immersiveMode = true;
 		uiState.setLeftSidebarCollapsed(true);
+		uiState.setRightSidebarCollapsed(true);
 		await tick();
 	}
 
