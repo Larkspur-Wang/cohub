@@ -118,6 +118,12 @@ import {
 } from "$lib/stores/billing-conversion.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
+import {
+	readSessionComposerDraftText,
+	removeSessionComposerDraftText,
+	sessionComposerDraftKey,
+	writeSessionComposerDraftText,
+} from "$lib/stores/session-composer-drafts";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	buildStreamingStoredIntermediateMessages,
@@ -370,6 +376,22 @@ const input = $derived(sessionComposer.input);
 const attachments = $derived(sessionComposer.attachments);
 const sending = $derived(sessionComposer.sending);
 const aborting = $derived(sessionComposer.aborting);
+let activeComposerDraftKey = $state<string | null>(null);
+let composerDraftSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let preserveComposerInputOnNextDraftKeyChange = false;
+const nextComposerDraftKey = $derived.by(() => {
+	if (sending && activeComposerDraftKey) return activeComposerDraftKey;
+	if (isNewSessionRoute) {
+		return sessionComposerDraftKey(spaceId, { kind: "new" });
+	}
+	if (activeSessionId) {
+		return sessionComposerDraftKey(spaceId, {
+			kind: "session",
+			sessionId: activeSessionId,
+		});
+	}
+	return null;
+});
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
@@ -383,6 +405,23 @@ function clearComposerError() {
 
 function setComposerError(message: string, code: string | null = null) {
 	sessionComposer.setError(message, code);
+}
+
+function clearComposerDraftSaveTimer() {
+	if (composerDraftSaveTimer == null) return;
+	clearTimeout(composerDraftSaveTimer);
+	composerDraftSaveTimer = null;
+}
+
+function flushActiveComposerDraft() {
+	clearComposerDraftSaveTimer();
+	if (!activeComposerDraftKey) return;
+	writeSessionComposerDraftText(activeComposerDraftKey, sessionComposer.input);
+}
+
+function clearActiveComposerDraft() {
+	clearComposerDraftSaveTimer();
+	removeSessionComposerDraftText(activeComposerDraftKey);
 }
 
 function getHttpErrorCode(error: unknown): string | null {
@@ -617,6 +656,34 @@ const spaceBootstrap = createSpaceBootstrapController({
 	onBootstrap: bootstrapSpace,
 });
 const bootstrapping = $derived(spaceBootstrap.bootstrapping);
+$effect(() => {
+	const key = nextComposerDraftKey;
+	if (key === activeComposerDraftKey) return;
+	untrack(() => {
+		const previousKey = activeComposerDraftKey;
+		const preserveInput = preserveComposerInputOnNextDraftKeyChange;
+		preserveComposerInputOnNextDraftKeyChange = false;
+		flushActiveComposerDraft();
+		activeComposerDraftKey = key;
+		if (preserveInput) {
+			if (key) writeSessionComposerDraftText(key, sessionComposer.input);
+			if (previousKey !== key) removeSessionComposerDraftText(previousKey);
+			return;
+		}
+		sessionComposer.input = key ? readSessionComposerDraftText(key) : "";
+	});
+});
+$effect(() => {
+	const key = activeComposerDraftKey;
+	const text = input;
+	if (!key) return;
+	clearComposerDraftSaveTimer();
+	composerDraftSaveTimer = setTimeout(() => {
+		writeSessionComposerDraftText(key, text);
+		composerDraftSaveTimer = null;
+	}, 400);
+	return clearComposerDraftSaveTimer;
+});
 let creatingSession = $state(false);
 let createSessionError = $state("");
 const loadingSessionIds = $derived(sessionWorkspace.loadingSessionIds);
@@ -3312,6 +3379,7 @@ async function handleSend() {
 		// time the optimistic turn appears in the list — avoids the awkward "stuck"
 		// feeling where the message shows in the list but lingers in the input.
 		sessionComposer.clearDraft();
+		clearActiveComposerDraft();
 		const now = new Date().toISOString();
 		const sequenceHint = (targetSessionState.turns.at(-1)?.sequence ?? 0) + 1;
 		hasActiveTurn = activeSessionIsRunning;
@@ -3437,6 +3505,7 @@ async function handleSend() {
 		} else {
 			sessionComposer.restoreDraft(pendingInput, pendingAttachments);
 		}
+		preserveComposerInputOnNextDraftKeyChange = true;
 		if ((hadFileUpload || hadImageUpload) && !uploadCompleted) {
 			sessionComposer.markAttachmentUploadsFailed();
 		}
@@ -3775,12 +3844,14 @@ function handleRemoveAttachment(id: string) {
 }
 onDestroy(() => {
 	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
+	flushActiveComposerDraft();
 	sessionComposer.dispose();
 	spaceBootstrap.resetLoaded();
 });
 
 beforeNavigate(() => {
 	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
+	flushActiveComposerDraft();
 });
 
 function beginRightSidebarResize(event: PointerEvent) {
