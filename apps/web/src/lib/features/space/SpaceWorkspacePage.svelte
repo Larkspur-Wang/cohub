@@ -33,6 +33,7 @@ import {
 	TextCursorInput,
 	Trash2,
 	Upload,
+	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { beforeNavigate, goto } from "$app/navigation";
@@ -645,6 +646,23 @@ let programmaticScrollTarget: number | null = null;
 let userScrollActive = false;
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let immersiveChatResizeCleanup: (() => void) | null = null;
+let immersiveChatHidden = $state(false);
+let lastImmersiveChatSessionId = $state<string | null | undefined>(undefined);
+const immersiveChatVisible = $derived(
+	!previewImmersiveMode || !immersiveChatHidden,
+);
+
+$effect(() => {
+	const sessionId = activeSessionId;
+	if (lastImmersiveChatSessionId === undefined) {
+		lastImmersiveChatSessionId = sessionId;
+		return;
+	}
+	if (lastImmersiveChatSessionId === sessionId) return;
+	lastImmersiveChatSessionId = sessionId;
+	immersiveChatHidden = false;
+});
+
 const listEl = $derived(sessionScroll.listEl);
 const chatTimelineRef = $derived(sessionScroll.chatTimelineRef);
 const sessionTurnLoading = createSessionTurnLoadingController({
@@ -5180,7 +5198,10 @@ const sessionWorkspaceProps = $derived.by<
 	class:workspace-body--preview-immersive={previewImmersiveMode}
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
-  <div class="workspace-main flex-1 flex flex-col min-w-0 bg-bg-content">
+  <div
+    class="workspace-main flex-1 flex flex-col min-w-0 bg-bg-content"
+    class:workspace-main--immersive-hidden={!immersiveChatVisible}
+  >
     {#if isRouteDetailView}
       <SpaceRouteDetailHost
         route={{
@@ -5275,6 +5296,19 @@ const sessionWorkspaceProps = $derived.by<
       </SessionWorkspace>
     {/if}
     {#if previewImmersiveMode}
+      <div class="immersive-chat-controls">
+        <button
+          type="button"
+          class="immersive-chat-control"
+          aria-label="Hide chat panel"
+          title="Hide chat panel"
+          onclick={() => {
+            immersiveChatHidden = true;
+          }}
+        >
+          <X class="h-3.5 w-3.5" />
+        </button>
+      </div>
       <button
         type="button"
         class="immersive-chat-resize-handle"
@@ -5361,7 +5395,7 @@ const sessionWorkspaceProps = $derived.by<
       z-index: 20;
       flex: 0 0 min(var(--immersive-chat-width), calc(100vw - 96px));
       max-width: min(var(--immersive-chat-width), calc(100vw - 96px));
-      min-width: min(420px, calc(100vw - 96px));
+      min-width: min(320px, calc(100vw - 96px));
       margin: 10px 0 10px 10px;
       overflow: hidden;
       border: 1px solid var(--border-subtle);
@@ -5369,6 +5403,40 @@ const sessionWorkspaceProps = $derived.by<
       background: var(--bg-elevated);
       box-shadow: 0 10px 26px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
     }
+
+    .workspace-body--preview-immersive .workspace-main--immersive-hidden {
+      display: none;
+    }
+  }
+
+  .immersive-chat-controls {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .immersive-chat-control {
+    display: inline-flex;
+    height: 24px;
+    width: 24px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+    background: var(--bg-elevated);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+
+  .immersive-chat-control:hover {
+    border-color: var(--border-strong);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
   }
 
   .immersive-chat-resize-handle {
