@@ -135,17 +135,38 @@ function getDefaultScale(svg: SVGSVGElement) {
 	return clampScale(Math.max(DEFAULT_MIN_SCALE, fitWidthScale));
 }
 
-function setMermaidScale(element: HTMLElement, scale: number) {
+function getMermaidViewport(element: HTMLElement) {
+	return (
+		element.querySelector<HTMLElement>(".markdown-mermaid-viewport") ?? element
+	);
+}
+
+function setMermaidScale(
+	element: HTMLElement,
+	scale: number,
+	anchor?: { clientX: number; clientY: number },
+) {
 	const svg = element.querySelector<SVGSVGElement>("svg");
 	const label = element.querySelector<HTMLElement>("[data-mermaid-zoom-label]");
 	if (!svg) return;
 
+	const viewport = getMermaidViewport(element);
+	const previousScale = Number(element.dataset.mermaidScale || 1);
 	const nextScale = clampScale(scale);
 	const { width } = getSvgSize(svg);
+	const rect = viewport.getBoundingClientRect();
+	const anchorX = anchor ? anchor.clientX - rect.left : rect.width / 2;
+	const anchorY = anchor ? anchor.clientY - rect.top : rect.height / 2;
+	const scrollX = viewport.scrollLeft + anchorX;
+	const scrollY = viewport.scrollTop + anchorY;
+	const scaleRatio = previousScale > 0 ? nextScale / previousScale : 1;
+
 	element.dataset.mermaidScale = String(nextScale);
 	svg.style.width = `${Math.round(width * nextScale)}px`;
 	svg.style.maxWidth = "none";
 	svg.style.height = "auto";
+	viewport.scrollLeft = Math.max(0, scrollX * scaleRatio - anchorX);
+	viewport.scrollTop = Math.max(0, scrollY * scaleRatio - anchorY);
 	if (label) label.textContent = `${Math.round(nextScale * 100)}%`;
 }
 
@@ -211,9 +232,13 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 	const svg = element.querySelector<SVGSVGElement>("svg");
 	if (!svg) return;
 
+	const viewport = document.createElement("div");
+	viewport.className = "markdown-mermaid-viewport";
+	svg.parentNode?.insertBefore(viewport, svg);
+
 	const canvas = document.createElement("div");
 	canvas.className = "markdown-mermaid-canvas";
-	svg.parentNode?.insertBefore(canvas, svg);
+	viewport.appendChild(canvas);
 	canvas.appendChild(svg);
 
 	const controls = document.createElement("div");
@@ -269,11 +294,55 @@ function enhanceMermaidDiagram(element: HTMLElement) {
 	);
 	element.appendChild(controls);
 
+	let panStart: {
+		pointerId: number;
+		clientX: number;
+		clientY: number;
+		scrollLeft: number;
+		scrollTop: number;
+	} | null = null;
+
+	viewport.addEventListener("pointerdown", (event) => {
+		if (event.button !== 0 || event.target instanceof HTMLButtonElement) return;
+		panStart = {
+			pointerId: event.pointerId,
+			clientX: event.clientX,
+			clientY: event.clientY,
+			scrollLeft: viewport.scrollLeft,
+			scrollTop: viewport.scrollTop,
+		};
+		viewport.setPointerCapture(event.pointerId);
+		viewport.classList.add("is-panning");
+	});
+
+	viewport.addEventListener("pointermove", (event) => {
+		if (!panStart || panStart.pointerId !== event.pointerId) return;
+		viewport.scrollLeft =
+			panStart.scrollLeft - (event.clientX - panStart.clientX);
+		viewport.scrollTop =
+			panStart.scrollTop - (event.clientY - panStart.clientY);
+	});
+
+	const endPan = (event: PointerEvent) => {
+		if (!panStart || panStart.pointerId !== event.pointerId) return;
+		panStart = null;
+		viewport.classList.remove("is-panning");
+		if (viewport.hasPointerCapture(event.pointerId)) {
+			viewport.releasePointerCapture(event.pointerId);
+		}
+	};
+	viewport.addEventListener("pointerup", endPan);
+	viewport.addEventListener("pointercancel", endPan);
+
 	element.onwheel = (event) => {
 		if (!event.ctrlKey && !event.metaKey) return;
 		event.preventDefault();
 		const step = event.deltaY > 0 ? -0.08 : 0.08;
-		setMermaidScale(element, Number(element.dataset.mermaidScale || 1) + step);
+		setMermaidScale(
+			element,
+			Number(element.dataset.mermaidScale || 1) + step,
+			event,
+		);
 	};
 
 	setMermaidScale(element, getDefaultScale(svg));

@@ -643,13 +643,28 @@ body.drawer-open {
 	background: color-mix(in srgb, var(--bg-surface-muted, var(--bg-surface)) 82%, transparent);
 }
 
+.markdown-content .markdown-mermaid-viewport {
+	max-width: 100%;
+	max-height: min(70vh, 42rem);
+	overflow: auto;
+	cursor: grab;
+	overscroll-behavior: contain;
+	scrollbar-width: thin;
+	touch-action: none;
+}
+
+.markdown-content .markdown-mermaid-viewport.is-panning {
+	cursor: grabbing;
+	user-select: none;
+}
+
 .markdown-content .markdown-mermaid-canvas {
 	display: flex;
+	width: max-content;
+	min-width: 100%;
 	align-items: flex-start;
 	justify-content: center;
-	overflow: visible;
 	padding: 1rem;
-	touch-action: pan-x pan-y;
 }
 
 .markdown-content .markdown-mermaid svg {
