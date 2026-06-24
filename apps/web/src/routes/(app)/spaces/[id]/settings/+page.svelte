@@ -161,6 +161,11 @@ const canManageSpaceMods = $derived(
 const canManageSpaceSandbox = $derived(
 	space?.access?.permissions.includes("sandbox.manage") === true,
 );
+const memberRoleOptions: { value: SpaceRole; label: string }[] = [
+	{ value: "guest", label: "Guest" },
+	{ value: "builder", label: "Builder" },
+	{ value: "host", label: "Host" },
+];
 
 onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
@@ -753,6 +758,20 @@ async function copyMemberUuid(member: SpaceMember) {
 	}
 }
 
+function selectAddingMemberRole(role: SpaceRole) {
+	if (!canManageSpaceMembers) return;
+	addingMemberRole = role;
+}
+
+async function selectMemberRole(
+	userId: string,
+	currentRole: SpaceRole,
+	nextRole: SpaceRole,
+) {
+	if (currentRole === nextRole) return;
+	await updateMemberRole(userId, nextRole);
+}
+
 async function updateMemberRole(userId: string, role: SpaceRole) {
 	if (!canManageSpaceMembers) return;
 	updatingMemberUserId = userId;
@@ -1143,7 +1162,11 @@ $effect(() => {
 							<div class="flex flex-col gap-2 sm:flex-row">
 								<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" disabled={!canManageSpaceMembers} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="min-h-9 min-w-0 flex-1 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" />
 								<div class="grid grid-cols-[1fr_auto] gap-2 sm:flex">
-									<select bind:value={addingMemberRole} disabled={!canManageSpaceMembers} class="min-h-9 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[12px] text-text-secondary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
+									<div class="inline-grid min-h-9 grid-cols-3 overflow-hidden rounded-[6px] border border-border-subtle bg-bg-input" role="radiogroup" aria-label="New member role">
+										{#each memberRoleOptions as option (option.value)}
+											<button type="button" role="radio" aria-checked={addingMemberRole === option.value} disabled={!canManageSpaceMembers} onclick={() => selectAddingMemberRole(option.value)} class="min-h-9 px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60 {addingMemberRole === option.value ? 'bg-brand-bg text-brand-muted-fg' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}">{option.label}</button>
+										{/each}
+									</div>
 									<button type="button" onclick={() => { void addMember(); }} disabled={!canManageSpaceMembers || savingMember || !addingMemberUuid.trim()} class="inline-flex min-h-9 min-w-20 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if savingMember}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
 								</div>
 							</div>
@@ -1161,7 +1184,11 @@ $effect(() => {
 											<button type="button" onclick={() => { void copyMemberUuid(member); }} title="Click to copy user UUID" class="mt-0.5 inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-left font-mono text-[10px] text-text-placeholder transition-colors hover:bg-bg-hover/60 hover:text-text-secondary"><span class="min-w-0 truncate">{getMemberUuid(member)}</span>{#if copiedMemberUserId === member.userId}<Check class="h-3 w-3 shrink-0 text-success-soft" />{/if}</button>
 										</div>
 										<div class="col-span-2 flex items-center justify-end gap-1 sm:ml-auto sm:shrink-0">
-											<select value={member.role} disabled={updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onchange={(event) => { const role = (event.currentTarget as HTMLSelectElement).value as SpaceRole; void updateMemberRole(member.userId, role); }} class="rounded-[5px] bg-transparent px-2 py-1 text-[10px] uppercase tracking-wider text-text-placeholder hover:bg-bg-hover focus:bg-bg-input focus:outline-none disabled:opacity-50"><option value="guest">Guest</option><option value="builder">Builder</option><option value="host">Host</option></select>
+											<div class="inline-grid min-h-8 grid-cols-3 overflow-hidden rounded-[5px] bg-bg-input/70" role="radiogroup" aria-label={`${getMemberDisplayName(member)} role`}>
+												{#each memberRoleOptions as option (option.value)}
+													<button type="button" role="radio" aria-checked={member.role === option.value} disabled={updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onclick={() => { void selectMemberRole(member.userId, member.role, option.value); }} class="min-h-8 px-2 text-[10px] font-medium uppercase tracking-wider transition-colors disabled:opacity-50 {member.role === option.value ? 'bg-brand-bg text-brand-muted-fg' : 'text-text-placeholder hover:bg-bg-hover hover:text-text-secondary'}">{option.label}</button>
+												{/each}
+											</div>
 											<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={removingMemberUserId === member.userId} title="Remove member" class="inline-flex h-8 w-8 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50">{#if removingMemberUserId === member.userId}<Loader2 class="h-3 w-3 animate-spin" />{:else}<X class="h-3.5 w-3.5" />{/if}</button>
 										</div>
 									</div>
