@@ -11,6 +11,11 @@ import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { authStore } from "$lib/stores/auth.svelte";
+import {
+	clearGrantedWorkScopes,
+	hasGrantedWorkScopes,
+	setGrantedWorkScopes,
+} from "$lib/stores/work-grant-cache";
 
 type WorkSurfaceMode = "page" | "background";
 type WorkContent =
@@ -295,6 +300,25 @@ async function handleMessage(event: MessageEvent) {
 				});
 				return;
 			}
+			// Returning viewers who previously granted the requested scopes are
+			// re-authorized silently with a fresh token — no consent dialog.
+			await authStore.ensureLoaded();
+			const viewerUuid = authStore.userUuid;
+			if (viewerUuid && hasGrantedWorkScopes(viewerUuid, work.id, scopes)) {
+				try {
+					const token = await authorize(scopes);
+					reply(data.requestId, {
+						type: "cohub.work.authorize.result",
+						token,
+					});
+					return;
+				} catch {
+					// Granted scopes may have changed server-side; clear the stale
+					// cache and fall back to the consent dialog so the viewer can
+					// re-authorize.
+					clearGrantedWorkScopes(viewerUuid, work.id);
+				}
+			}
 			pendingAuth = {
 				requestId: data.requestId,
 				scopes,
@@ -317,6 +341,8 @@ async function confirmAuth() {
 	authSaving = true;
 	try {
 		const token = await authorize(pendingAuth.scopes);
+		await authStore.ensureLoaded();
+		setGrantedWorkScopes(authStore.userUuid, work.id, pendingAuth.scopes);
 		reply(pendingAuth.requestId, {
 			type: "cohub.work.authorize.result",
 			token,

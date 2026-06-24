@@ -148,6 +148,7 @@ import {
 	setCachedTaskRuns,
 } from "$lib/stores/task-runs-cache";
 import { uiState } from "$lib/stores/ui.svelte";
+import { clearGrantedWorkScopes } from "$lib/stores/work-grant-cache";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
 
 const {
@@ -2279,6 +2280,7 @@ async function handleLogout() {
 	});
 	const userUuid = authStore.userUuid;
 	if (userUuid) clearRecentSpace(userUuid);
+	if (userUuid) clearGrantedWorkScopes(userUuid);
 	try {
 		await logtoClient.signOut(`${window.location.origin}/`);
 	} catch (error) {
