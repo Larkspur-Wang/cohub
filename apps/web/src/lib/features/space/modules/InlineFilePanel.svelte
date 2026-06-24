@@ -263,7 +263,7 @@ let {
       onResizeStart={onPreviewResizeStart}
       immersive={previewImmersiveMode}
     >
-      <div class="flex h-full min-w-0 flex-col bg-bg-content">
+      <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
@@ -476,3 +476,9 @@ let {
       </div>
     </WorkspacePreviewPane>
   {/if}
+
+<style>
+  .inline-file-preview--immersive > :global(:first-child) {
+    display: none;
+  }
+</style>

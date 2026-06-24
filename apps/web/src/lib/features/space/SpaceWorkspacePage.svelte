@@ -5182,7 +5182,11 @@ const sessionWorkspaceProps = $derived.by<
 	context={headerContext}
 	sessionRename={sessionRenameState}
 	resourceActions={resourceActionState}
-	actions={headerActions}
+	actions={{
+		...headerActions,
+		exitImmersivePreview: togglePreviewImmersiveMode,
+	}}
+	presentation={previewImmersiveMode ? "immersive" : "default"}
 />
 {#if portReadyToast}
 	<PortReadyToastView

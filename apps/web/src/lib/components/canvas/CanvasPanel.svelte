@@ -237,7 +237,7 @@ $effect(() => {
 });
 </script>
 
-<div class="flex h-full min-w-0 flex-col bg-bg-content">
+<div class="canvas-panel flex h-full min-w-0 flex-col bg-bg-content" class:canvas-panel--immersive={immersive}>
   <CanvasToolbar
     title={getCanvasTitle(path)}
     {dirty}
@@ -273,3 +273,9 @@ $effect(() => {
     </div>
   {/if}
 </div>
+
+<style>
+  .canvas-panel--immersive > :global(:first-child) {
+    display: none;
+  }
+</style>

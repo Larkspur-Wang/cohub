@@ -100,7 +100,7 @@ onDestroy(() => {
 });
 </script>
 
-<div class="flex h-full min-w-0 flex-col bg-bg-content">
+<div class="port-preview flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive}>
 	<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 		<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-primary text-text-secondary">
 			<Globe class="h-3.5 w-3.5" />
@@ -191,6 +191,10 @@ onDestroy(() => {
 </div>
 
 <style>
+	.port-preview--immersive > :global(:first-child) {
+		display: none;
+	}
+
 	.preview-icon-btn {
 		display: inline-flex;
 		height: 32px;

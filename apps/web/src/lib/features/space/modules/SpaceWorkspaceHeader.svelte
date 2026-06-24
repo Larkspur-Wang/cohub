@@ -5,6 +5,7 @@ import {
 	Globe,
 	ListTree,
 	Loader2,
+	Minimize2,
 	MoreHorizontal,
 	PanelRightClose,
 	PanelRightOpen,
@@ -73,16 +74,28 @@ export type SpaceWorkspaceHeaderActions = {
 	labelHeaderResource: () => void | Promise<void>;
 	insertHeaderReference: () => void;
 	toggleRightSidebar: () => void | Promise<void>;
+	exitImmersivePreview?: () => void | Promise<void>;
 };
+
+type HeaderPresentation = "default" | "immersive";
 
 type Props = {
 	context: SpaceWorkspaceHeaderContext;
 	sessionRename: SessionRenameState;
 	resourceActions: ResourceActionState;
 	actions: SpaceWorkspaceHeaderActions;
+	presentation?: HeaderPresentation;
 };
 
-let { context, sessionRename, resourceActions, actions }: Props = $props();
+let {
+	context,
+	sessionRename,
+	resourceActions,
+	actions,
+	presentation = "default",
+}: Props = $props();
+
+const immersive = $derived(presentation === "immersive");
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
 let sessionRenameFocused = $state(false);
 
@@ -122,6 +135,13 @@ $effect(() => {
 	sessionRenameInputEl.select();
 });
 
+function runAction(action: (() => void | Promise<void>) | undefined) {
+	if (!action) return;
+	Promise.resolve(action()).catch((error) => {
+		console.error("Workspace header action failed", error);
+	});
+}
+
 function handleSessionRenameKeydown(event: KeyboardEvent) {
 	if (
 		event.key === "Enter" &&
@@ -138,161 +158,214 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 }
 </script>
 
-<PageHeader>
-	{#snippet left()}
-		<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
-			{#if showSessionTitle}
-				<button
-					type="button"
-					class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-					title={spaceTitle}
-					aria-label="Open space"
-				>
-					<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
-				</button>
-				<div class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-					{#if sessionRename.renaming && context.activeSession}
-						<input
-							bind:this={sessionRenameInputEl}
-							value={sessionRename.value}
-							type="text"
-							class="max-w-[40vw] min-w-0 flex-1 rounded bg-bg-hover-strong px-1 py-0.5 text-[13px] leading-tight text-text-primary outline-none"
-							placeholder="Session name"
-							maxlength={80}
-							disabled={sessionRename.saving}
-							oninput={(event) => {
-								actions.setSessionRenameValue(event.currentTarget.value);
-							}}
-							onkeydown={handleSessionRenameKeydown}
-						/>
-						<button
-							type="button"
-							class="shrink-0 rounded p-0.5 text-status-running transition-colors hover:bg-bg-hover"
-							disabled={sessionRename.saving}
-							onclick={() => void actions.submitSessionRename()}
-							title="Save"
-						>
-							<Check class="h-3.5 w-3.5" />
-						</button>
-						<button
-							type="button"
-							class="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
-							disabled={sessionRename.saving}
-							onclick={actions.cancelSessionRename}
-							title="Cancel"
-						>
-							<X class="h-3.5 w-3.5" />
-						</button>
-					{:else}
-						<button
-							type="button"
-							class="min-w-0 flex-1 truncate text-[13px] text-text-secondary transition-colors hover:text-text-primary"
-							onclick={context.activeSession ? actions.startSessionRename : undefined}
-							title={context.activeSession ? "Click to rename" : "New chat"}
-						>
-							{context.activeSession ? getSessionTitle(context.activeSession) : "New chat"}
-						</button>
-						{#if context.activeSessionLoading && context.activeSessionLoaded}
-							<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />
-						{/if}
-						{#if context.wsConnectionState === "reconnecting"}
-							<span class="inline-flex shrink-0 items-center text-[12px] text-warning">Reconnecting...</span>
-						{/if}
-					{/if}
-				</div>
-			{:else if routeHeaderTitle}
-				<button
-					type="button"
-					class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
-					title={spaceTitle}
-					aria-label="Open space"
-				>
-					<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
-				</button>
-				<span class="min-w-0 truncate text-[13px] text-text-secondary">{routeHeaderTitle}</span>
-			{:else}
-				<button
-					type="button"
-					class="inline-flex min-w-0 items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary"
-				>
-					<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
-					{spaceTitle}
-				</button>
-			{/if}
-		</div>
-	{/snippet}
+{#snippet HeaderActions()}
+	{#if immersive}
+		<button
+			type="button"
+			class="header-action-btn"
+			onclick={() => runAction(actions.exitImmersivePreview)}
+			title="Exit immersive"
+			aria-label="Exit immersive"
+		>
+			<Minimize2 class="h-4 w-4 shrink-0" />
+		</button>
+	{/if}
 
-	{#snippet right()}
-		{#if context.activeSessionId && context.canManageSessionAccess}
+	{#if context.activeSessionId && context.canManageSessionAccess}
+		<button
+			type="button"
+			class="header-action-btn {context.isActiveSessionPublic ? 'is-shared' : ''}"
+			onclick={() => actions.openShareModal(context.activeSessionId!)}
+			title={context.isActiveSessionPublic ? "Session is public" : "Share session"}
+		>
+			{#if context.isActiveSessionPublic}
+				<Globe class="h-4 w-4 shrink-0" />
+				{#if !immersive}<span class="hidden text-[13px] font-medium lg:inline">Shared</span>{/if}
+			{:else}
+				<Share2 class="h-4 w-4 shrink-0" />
+				{#if !immersive}<span class="hidden text-[13px] font-medium lg:inline">Share</span>{/if}
+			{/if}
+		</button>
+	{/if}
+
+	{#if resourceActions.available}
+		<div class="relative" data-resource-actions>
 			<button
 				type="button"
-				class="flex h-8 items-center gap-1.5 rounded-[5px] px-2 transition-colors duration-100 {context.isActiveSessionPublic ? 'text-success-soft hover:bg-success-bg hover:text-success' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-				onclick={() => actions.openShareModal(context.activeSessionId!)}
-				title={context.isActiveSessionPublic ? "Session is public" : "Share session"}
+				class="header-action-btn is-square"
+				onclick={(event) => {
+					event.stopPropagation();
+					actions.toggleResourceActionMenu();
+				}}
+				title="More actions"
+				aria-haspopup="menu"
+				aria-expanded={resourceActions.open}
 			>
-				{#if context.isActiveSessionPublic}
-					<Globe class="h-4 w-4 shrink-0" />
-					<span class="hidden text-[13px] font-medium lg:inline">Shared</span>
-				{:else}
-					<Share2 class="h-4 w-4 shrink-0" />
-					<span class="hidden text-[13px] font-medium lg:inline">Share</span>
-				{/if}
+				<MoreHorizontal class="h-4 w-4 shrink-0" />
 			</button>
-		{/if}
+			{#if resourceActions.open}
+				<div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
+					<button
+						type="button"
+						class="menu-item"
+						onclick={() => {
+							void actions.labelHeaderResource();
+							actions.closeResourceActionMenu();
+						}}
+						role="menuitem"
+					>
+						<ListTree class="h-3.5 w-3.5" />
+						<span>Label as…</span>
+					</button>
+					<button type="button" class="menu-item" onclick={actions.insertHeaderReference} role="menuitem">
+						<TextCursorInput class="h-3.5 w-3.5" />
+						<span>Insert reference</span>
+					</button>
+				</div>
+			{/if}
+		</div>
+	{/if}
 
-		{#if resourceActions.available}
-			<div class="relative" data-resource-actions>
-				<button
-					type="button"
-					class="flex h-8 w-8 items-center justify-center rounded-[5px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-					onclick={(event) => {
-						event.stopPropagation();
-						actions.toggleResourceActionMenu();
-					}}
-					title="More actions"
-					aria-haspopup="menu"
-					aria-expanded={resourceActions.open}
-				>
-					<MoreHorizontal class="h-4 w-4 shrink-0" />
-				</button>
-				{#if resourceActions.open}
-					<div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
-						<button
-							type="button"
-							class="menu-item"
-							onclick={() => {
-								void actions.labelHeaderResource();
-								actions.closeResourceActionMenu();
-							}}
-							role="menuitem"
-						>
-							<ListTree class="h-3.5 w-3.5" />
-							<span>Label as…</span>
-						</button>
-						<button type="button" class="menu-item" onclick={actions.insertHeaderReference} role="menuitem">
-							<TextCursorInput class="h-3.5 w-3.5" />
-							<span>Insert reference</span>
-						</button>
+	{#if !context.spaceHasMinimalAccess}
+		<button
+			type="button"
+			class="header-action-btn"
+			onclick={() => runAction(actions.toggleRightSidebar)}
+			title={context.rightSidebarCollapsed ? "Show files" : "Hide files"}
+		>
+			{#if context.rightSidebarCollapsed}
+				<PanelRightOpen class="h-4 w-4 shrink-0" />
+			{:else}
+				<PanelRightClose class="h-4 w-4 shrink-0" />
+			{/if}
+		</button>
+	{/if}
+{/snippet}
+
+{#if immersive}
+	<div class="immersive-header-controls" aria-label="Workspace controls">
+		{@render HeaderActions()}
+	</div>
+{:else}
+	<PageHeader>
+		{#snippet left()}
+			<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
+				{#if showSessionTitle}
+					<button
+						type="button"
+						class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden"
+						title={spaceTitle}
+						aria-label="Open space"
+					>
+						<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
+					</button>
+					<div class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+						{#if sessionRename.renaming && context.activeSession}
+							<input
+								bind:this={sessionRenameInputEl}
+								value={sessionRename.value}
+								type="text"
+								class="max-w-[40vw] min-w-0 flex-1 rounded bg-bg-hover-strong px-1 py-0.5 text-[13px] leading-tight text-text-primary outline-none"
+								placeholder="Session name"
+								maxlength={80}
+								disabled={sessionRename.saving}
+								oninput={(event) => {
+									actions.setSessionRenameValue(event.currentTarget.value);
+								}}
+								onkeydown={handleSessionRenameKeydown}
+							/>
+							<button type="button" class="shrink-0 rounded p-0.5 text-status-running transition-colors hover:bg-bg-hover" disabled={sessionRename.saving} onclick={() => void actions.submitSessionRename()} title="Save">
+								<Check class="h-3.5 w-3.5" />
+							</button>
+							<button type="button" class="shrink-0 rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" disabled={sessionRename.saving} onclick={actions.cancelSessionRename} title="Cancel">
+								<X class="h-3.5 w-3.5" />
+							</button>
+						{:else}
+							<button
+								type="button"
+								class="min-w-0 flex-1 truncate text-[13px] text-text-secondary transition-colors hover:text-text-primary"
+								onclick={context.activeSession ? actions.startSessionRename : undefined}
+								title={context.activeSession ? "Click to rename" : "New chat"}
+							>
+								{context.activeSession ? getSessionTitle(context.activeSession) : "New chat"}
+							</button>
+							{#if context.activeSessionLoading && context.activeSessionLoaded}
+								<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin text-text-placeholder" aria-label="Syncing" />
+							{/if}
+							{#if context.wsConnectionState === "reconnecting"}
+								<span class="inline-flex shrink-0 items-center text-[12px] text-warning">Reconnecting...</span>
+							{/if}
+						{/if}
 					</div>
+				{:else if routeHeaderTitle}
+					<button type="button" class="inline-flex shrink-0 items-center text-text-primary transition-colors hover:text-text-secondary lg:hidden" title={spaceTitle} aria-label="Open space">
+						<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
+					</button>
+					<span class="min-w-0 truncate text-[13px] text-text-secondary">{routeHeaderTitle}</span>
+				{:else}
+					<button type="button" class="inline-flex min-w-0 items-center gap-1.5 truncate text-left text-[13px] text-text-primary transition-colors hover:text-text-secondary">
+						<SpaceAvatar name={spaceTitle} profile={context.space?.publicProfile} size="xs" />
+						{spaceTitle}
+					</button>
 				{/if}
 			</div>
-		{/if}
+		{/snippet}
 
-		{#if !context.spaceHasMinimalAccess}
-			<div class="relative">
-				<button
-					type="button"
-					class="flex h-8 items-center gap-1.5 rounded-[5px] px-2 text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-					onclick={() => void actions.toggleRightSidebar()}
-					title={context.rightSidebarCollapsed ? "Show files" : "Hide files"}
-				>
-					{#if context.rightSidebarCollapsed}
-						<PanelRightOpen class="h-4 w-4 shrink-0" />
-					{:else}
-						<PanelRightClose class="h-4 w-4 shrink-0" />
-					{/if}
-				</button>
-			</div>
-		{/if}
-	{/snippet}
-</PageHeader>
+		{#snippet right()}
+			{@render HeaderActions()}
+		{/snippet}
+	</PageHeader>
+{/if}
+
+<style>
+	.immersive-header-controls {
+		position: fixed;
+		top: 8px;
+		right: 10px;
+		z-index: 90;
+		display: flex;
+		align-items: center;
+		gap: 2px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 10px;
+		background: var(--bg-elevated);
+		padding: 3px;
+		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
+	}
+
+	.header-action-btn {
+		display: inline-flex;
+		height: 32px;
+		min-width: 32px;
+		align-items: center;
+		justify-content: center;
+		gap: 6px;
+		border: 0;
+		border-radius: 7px;
+		background: transparent;
+		padding: 0 8px;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		transition: background-color 120ms ease, color 120ms ease;
+	}
+
+	.header-action-btn.is-square,
+	.immersive-header-controls .header-action-btn {
+		width: 32px;
+		padding: 0;
+	}
+
+	.header-action-btn:hover {
+		background: var(--bg-hover);
+		color: var(--text-secondary);
+	}
+
+	.header-action-btn.is-shared {
+		color: var(--success-soft);
+	}
+
+	.header-action-btn.is-shared:hover {
+		background: var(--success-bg);
+		color: var(--success);
+	}
+</style>
