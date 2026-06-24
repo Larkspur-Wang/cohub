@@ -49,6 +49,10 @@ function sessionActivityAt(session: SessionRecord) {
 	);
 }
 
+function spaceActivityAt(space: SpaceRecord) {
+	return space.lastActivityAt ?? space.updatedAt ?? space.createdAt ?? null;
+}
+
 function newerTime(
 	current: string | null | undefined,
 	candidate: string | null | undefined,
@@ -86,7 +90,7 @@ function spaceToDefaultItem(
 	currentSpaceId?: string | null,
 	activityAt?: string | null,
 ): CommandPaletteItem {
-	const updatedAt = activityAt ?? space.updatedAt ?? null;
+	const updatedAt = activityAt ?? spaceActivityAt(space);
 	const score = defaultScore(rank, updatedAt);
 	return {
 		type: "space",
@@ -260,7 +264,7 @@ export async function getCommandPaletteDefaultItems(
 			Math.max(
 				timeValue(activityBySpace.get(space.id) ?? null),
 				timestampValue(recentActivityBySpace.get(space.id)),
-				timeValue(space.updatedAt ?? space.createdAt ?? null),
+				timeValue(spaceActivityAt(space)),
 			);
 		const orderedSpaces = [...spacesById.values()].sort((a, b) => {
 			const activityDelta = effectiveActivityTime(b) - effectiveActivityTime(a);
@@ -273,7 +277,7 @@ export async function getCommandPaletteDefaultItems(
 				(recentRankBySpace.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
 				(recentRankBySpace.get(b.id) ?? Number.MAX_SAFE_INTEGER);
 			if (recentDelta !== 0) return recentDelta;
-			return timeValue(b.updatedAt) - timeValue(a.updatedAt);
+			return timeValue(spaceActivityAt(b)) - timeValue(spaceActivityAt(a));
 		});
 		orderedSpaces.forEach((space, rank) => {
 			const effectiveActivityAt = isoFromTimestamp(

@@ -64,6 +64,10 @@ function compactText(value: string | null | undefined, limit: number) {
 		: text;
 }
 
+function spaceActivityAt(space: SpaceRecord) {
+	return space.lastActivityAt ?? space.updatedAt ?? space.createdAt ?? null;
+}
+
 function spaceToItem(
 	space: SpaceRecord,
 	query: string,
@@ -72,13 +76,14 @@ function spaceToItem(
 	const descriptionScore = textMatchScore(space.description, query);
 	if (Math.max(nameScore, descriptionScore) <= 0) return null;
 	const matchedField = nameScore >= descriptionScore ? "name" : "description";
+	const activityAt = spaceActivityAt(space);
 	const scored = scoreCommandItem({
 		type: "space",
 		query,
 		primary: matchedField === "name" ? space.name : space.description,
 		secondary: matchedField === "name" ? space.description : space.name,
 		matchedField,
-		updatedAt: space.updatedAt,
+		updatedAt: activityAt,
 	});
 	return {
 		type: "space",
@@ -95,7 +100,7 @@ function spaceToItem(
 		sessionTitle: null,
 		matchedField,
 		href: buildSpaceLandingRoute(space.id),
-		updatedAt: space.updatedAt ?? null,
+		updatedAt: activityAt,
 		source: "local",
 		localScore: scored.score,
 		...scored,

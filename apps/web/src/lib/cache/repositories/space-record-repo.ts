@@ -67,7 +67,7 @@ async function writeRecord(
 		space,
 		updatedAt: now,
 		lastAccessedAt: now,
-		watermark: space.updatedAt ?? null,
+		watermark: space.lastActivityAt ?? space.updatedAt ?? null,
 	};
 	memory.set(key, record);
 	await idbPut("space_records", record);

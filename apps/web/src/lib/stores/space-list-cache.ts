@@ -4,23 +4,16 @@ import { cacheSpaceRecordsSoon } from "$lib/stores/space-record-cache";
 
 const SPACE_LIST_SCOPE = "all";
 
-function sortSpaces(spaces: SpaceRecord[]) {
-	return [...spaces].sort((a, b) => {
-		const aTime = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
-		const bTime = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
-		if (aTime !== bTime) return bTime - aTime;
-		const aName = (a.name ?? a.title ?? a.id).toLowerCase();
-		const bName = (b.name ?? b.title ?? b.id).toLowerCase();
-		return aName.localeCompare(bName);
-	});
-}
-
 function dedupeSpaces(spaces: SpaceRecord[]) {
 	const byId = new Map<string, SpaceRecord>();
 	for (const space of spaces) {
-		byId.set(space.id, space);
+		if (!byId.has(space.id)) {
+			byId.set(space.id, space);
+			continue;
+		}
+		byId.set(space.id, { ...byId.get(space.id), ...space });
 	}
-	return sortSpaces(Array.from(byId.values()));
+	return Array.from(byId.values());
 }
 
 const cache = createLocalListCache<SpaceRecord>({

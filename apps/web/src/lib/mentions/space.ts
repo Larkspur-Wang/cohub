@@ -22,7 +22,7 @@ export type SpaceMentionSuggestion = {
 	spaceProfile: SpacePublicProfile;
 	href: string;
 	uri: string;
-	updatedAt: string | null;
+	activityAt: string | null;
 	source: "local" | "remote" | "local+remote";
 	score: number;
 	textScore: number;

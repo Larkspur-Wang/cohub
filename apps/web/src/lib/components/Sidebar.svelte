@@ -680,15 +680,18 @@ function mergeSpaceIntoSidebarList(space: SpaceRecord) {
 	spaces = [merged, ...spaces.filter((item) => item.id !== space.id)];
 }
 
-function mergeSpaceListPreservingCurrent(nextSpaces: SpaceRecord[]) {
+function mergeSpaceListWithCurrent(nextSpaces: SpaceRecord[]) {
 	const current = currentSpaceId
 		? spaces.find((space) => space.id === currentSpaceId)
 		: null;
-	return nextSpaces.map((space) =>
+	const merged = nextSpaces.map((space) =>
 		space.id === currentSpaceId
 			? mergeDefinedSpaceRecordFields(space, current)
 			: space,
 	);
+	if (!current || nextSpaces.some((space) => space.id === current.id))
+		return merged;
+	return [current, ...merged];
 }
 
 const currentSpaceRefreshes = new Map<string, Promise<void>>();
@@ -767,12 +770,7 @@ async function loadSpaces(force = false) {
 	if (!force) {
 		const cached = getCachedSpaceList();
 		if (cached && cached.length > 0) {
-			spaces = requestedSpaceId
-				? [
-						...spaces.filter((space) => space.id === requestedSpaceId),
-						...cached.filter((space) => space.id !== requestedSpaceId),
-					]
-				: mergeSpaceListPreservingCurrent(cached);
+			spaces = mergeSpaceListWithCurrent(cached);
 		}
 	}
 
@@ -786,12 +784,7 @@ async function loadSpaces(force = false) {
 			async () => await sdk.spaces.list(),
 			{ force },
 		);
-		spaces = requestedSpaceId
-			? [
-					...spaces.filter((space) => space.id === requestedSpaceId),
-					...listedSpaces.filter((space) => space.id !== requestedSpaceId),
-				]
-			: mergeSpaceListPreservingCurrent(listedSpaces);
+		spaces = mergeSpaceListWithCurrent(listedSpaces);
 	} catch (error) {
 		if (await handleUnauthorizedError(error)) {
 			return;
@@ -2316,7 +2309,7 @@ onMount(() => {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
 			({ spaces: nextSpaces }) => {
 				if (!authStore.isAuthenticated) return;
-				spaces = mergeSpaceListPreservingCurrent(nextSpaces);
+				spaces = mergeSpaceListWithCurrent(nextSpaces);
 			},
 		);
 		offSessionListCacheUpdated = onSessionListCacheUpdated(

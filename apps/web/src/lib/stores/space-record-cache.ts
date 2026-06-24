@@ -31,6 +31,9 @@ function mergeSpaceRecord(
 		ownerProfile: hasOwn(next, "ownerProfile")
 			? next.ownerProfile
 			: current.ownerProfile,
+		lastActivityAt: hasOwn(next, "lastActivityAt")
+			? (next.lastActivityAt ?? null)
+			: current.lastActivityAt,
 		channels: hasOwn(next, "channels") ? next.channels : current.channels,
 		access: hasOwn(next, "access") ? next.access : current.access,
 		accessLevel: hasOwn(next, "accessLevel")

@@ -234,7 +234,7 @@ router.get("/", async (c) => {
           WHEN scores.name_text_score >= scores.description_text_score THEN 'name'::text
           ELSE 'description'::text
         END AS matched_field,
-        coalesce(s.updated_at, s.created_at) AS updated_at,
+        coalesce(s.last_activity_at, s.updated_at, s.created_at) AS updated_at,
         GREATEST(scores.name_text_score, scores.description_text_score) AS text_score,
         1.00::double precision AS type_priority_score,
         s.membership_priority_score AS membership_priority_score,

@@ -38,13 +38,13 @@ function scoreSpace(input: {
 	name: string | null | undefined;
 	description?: string | null;
 	query: string;
-	updatedAt?: string | null;
+	activityAt?: string | null;
 }) {
 	const nameScore = textMatchScore(input.name, input.query);
 	const descriptionScore =
 		textMatchScore(input.description, input.query) * 0.72;
 	const textScore = Math.max(nameScore, descriptionScore);
-	const fresh = recencyScore(input.updatedAt);
+	const fresh = recencyScore(input.activityAt);
 	const score = textScore * 0.82 + fresh * 0.18;
 	return { score, textScore, recencyScore: fresh };
 }
@@ -58,12 +58,17 @@ function localSpaceToSuggestion(
 	query: string,
 	activityAt?: string | null,
 ): SpaceMentionSuggestion | null {
-	const updatedAt = activityAt ?? space.updatedAt ?? space.createdAt ?? null;
+	const spaceActivityAt =
+		activityAt ??
+		space.lastActivityAt ??
+		space.updatedAt ??
+		space.createdAt ??
+		null;
 	const scored = scoreSpace({
 		name: space.name ?? space.title,
 		description: space.description,
 		query,
-		updatedAt,
+		activityAt: spaceActivityAt,
 	});
 	if (query.trim() && scored.textScore <= 0) return null;
 	return {
@@ -76,7 +81,7 @@ function localSpaceToSuggestion(
 		spaceProfile: getSpacePublicProfile(space),
 		href: buildSpaceMentionHref(space.id),
 		uri: buildSpaceMentionUri(space.id),
-		updatedAt,
+		activityAt: spaceActivityAt,
 		source: "local",
 		...scored,
 	};
@@ -98,7 +103,7 @@ function remoteSpaceToSuggestion(
 		spaceProfile: normalizeSpacePublicProfile(spaceProfile),
 		href: item.href || buildSpaceMentionHref(item.spaceId),
 		uri: buildSpaceMentionUri(item.spaceId),
-		updatedAt: item.updatedAt,
+		activityAt: item.updatedAt,
 		source: "remote",
 		score: item.score,
 		textScore: item.textScore,
@@ -112,7 +117,7 @@ function sortSuggestions(items: SpaceMentionSuggestion[]) {
 		if (Math.abs(scoreDelta) > 0.0001) return scoreDelta;
 		const textDelta = b.textScore - a.textScore;
 		if (Math.abs(textDelta) > 0.0001) return textDelta;
-		return timeValue(b.updatedAt) - timeValue(a.updatedAt);
+		return timeValue(b.activityAt) - timeValue(a.activityAt);
 	});
 }
 
