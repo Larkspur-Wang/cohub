@@ -4,6 +4,7 @@
 const LEGACY_STORAGE_KEYS = {
 	leftSidebarWidth: "cohub:layout:left-sidebar-width",
 	rightSidebarWidth: "cohub:layout:right-sidebar-width",
+	immersiveChatWidth: "cohub:layout:immersive-chat-width",
 	rightSidebarCollapsed: "cohub:layout:right-sidebar-collapsed",
 	leftSidebarCollapsed: "cohub:layout:left-sidebar-collapsed",
 } as const;
@@ -27,6 +28,9 @@ const LEFT_SIDEBAR_DEFAULT = 240;
 const RIGHT_SIDEBAR_MIN = 260;
 const RIGHT_SIDEBAR_MAX = 520;
 const RIGHT_SIDEBAR_DEFAULT = 320;
+const IMMERSIVE_CHAT_MIN = 360;
+const IMMERSIVE_CHAT_MAX = 760;
+const IMMERSIVE_CHAT_DEFAULT = 640;
 
 function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value));
@@ -62,6 +66,7 @@ class UIState {
 	settingsOverlayOpen = $state(false);
 	leftSidebarWidth = $state(LEFT_SIDEBAR_DEFAULT);
 	rightSidebarWidth = $state(RIGHT_SIDEBAR_DEFAULT);
+	immersiveChatWidth = $state(IMMERSIVE_CHAT_DEFAULT);
 	leftSidebarCollapsed = $state(false);
 	rightSidebarCollapsed = $state(false);
 	private layoutScope: string | null = null;
@@ -99,6 +104,7 @@ class UIState {
 	private persistLayoutPrefs() {
 		this.writeLayoutPref("leftSidebarWidth", String(this.leftSidebarWidth));
 		this.writeLayoutPref("rightSidebarWidth", String(this.rightSidebarWidth));
+		this.writeLayoutPref("immersiveChatWidth", String(this.immersiveChatWidth));
 		this.writeLayoutPref(
 			"leftSidebarCollapsed",
 			String(this.leftSidebarCollapsed),
@@ -118,6 +124,7 @@ class UIState {
 
 		const rawLeftWidth = this.readLayoutPref("leftSidebarWidth");
 		const rawRightWidth = this.readLayoutPref("rightSidebarWidth");
+		const rawImmersiveChatWidth = this.readLayoutPref("immersiveChatWidth");
 		const rawLeftCollapsed = this.readLayoutPref("leftSidebarCollapsed");
 		const rawRightCollapsed = this.readLayoutPref("rightSidebarCollapsed");
 
@@ -132,6 +139,12 @@ class UIState {
 			RIGHT_SIDEBAR_DEFAULT,
 			RIGHT_SIDEBAR_MIN,
 			RIGHT_SIDEBAR_MAX,
+		);
+		this.immersiveChatWidth = this.parseWidth(
+			rawImmersiveChatWidth,
+			IMMERSIVE_CHAT_DEFAULT,
+			IMMERSIVE_CHAT_MIN,
+			IMMERSIVE_CHAT_MAX,
 		);
 		this.leftSidebarCollapsed = this.parseCollapsed(rawLeftCollapsed, false);
 		this.rightSidebarCollapsed = this.parseCollapsed(rawRightCollapsed, false);
@@ -148,6 +161,12 @@ class UIState {
 		const next = clamp(width, RIGHT_SIDEBAR_MIN, RIGHT_SIDEBAR_MAX);
 		this.rightSidebarWidth = next;
 		this.writeLayoutPref("rightSidebarWidth", String(next));
+	}
+
+	setImmersiveChatWidth(width: number) {
+		const next = clamp(width, IMMERSIVE_CHAT_MIN, IMMERSIVE_CHAT_MAX);
+		this.immersiveChatWidth = next;
+		this.writeLayoutPref("immersiveChatWidth", String(next));
 	}
 
 	setLeftSidebarCollapsed(collapsed: boolean) {
@@ -171,6 +190,9 @@ class UIState {
 
 export const uiState = new UIState();
 export {
+	IMMERSIVE_CHAT_DEFAULT,
+	IMMERSIVE_CHAT_MAX,
+	IMMERSIVE_CHAT_MIN,
 	LEFT_SIDEBAR_DEFAULT,
 	LEFT_SIDEBAR_MAX,
 	LEFT_SIDEBAR_MIN,

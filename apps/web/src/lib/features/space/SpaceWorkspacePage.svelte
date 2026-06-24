@@ -148,6 +148,8 @@ import {
 	loadTurnIntermediate,
 } from "$lib/stores/turn-intermediate-cache";
 import {
+	IMMERSIVE_CHAT_MAX,
+	IMMERSIVE_CHAT_MIN,
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
 	uiState,
@@ -642,6 +644,7 @@ let programmaticScrollActive = false;
 let programmaticScrollTarget: number | null = null;
 let userScrollActive = false;
 let rightSidebarResizeCleanup: (() => void) | null = null;
+let immersiveChatResizeCleanup: (() => void) | null = null;
 const listEl = $derived(sessionScroll.listEl);
 const chatTimelineRef = $derived(sessionScroll.chatTimelineRef);
 const sessionTurnLoading = createSessionTurnLoadingController({
@@ -3774,7 +3777,7 @@ function beginRightSidebarResize(event: PointerEvent) {
 	rightSidebarResizeCleanup?.();
 	const startX = event.clientX;
 	const startWidth = uiState.rightSidebarWidth;
-	const minMainWidth = 720;
+	const minMainWidth = previewImmersiveMode ? 96 : 720;
 	const onPointerMove = (moveEvent: PointerEvent) => {
 		const delta = startX - moveEvent.clientX;
 		const viewportLimit = window.innerWidth - minMainWidth;
@@ -3800,6 +3803,44 @@ function beginRightSidebarResize(event: PointerEvent) {
 	window.addEventListener("pointerup", stop);
 	window.addEventListener("pointercancel", stop);
 }
+function beginImmersiveChatResize(event: PointerEvent) {
+	event.preventDefault();
+	if (!previewImmersiveMode || window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX)
+		return;
+	const target = event.currentTarget as HTMLElement | null;
+	target?.setPointerCapture?.(event.pointerId);
+	immersiveChatResizeCleanup?.();
+	const startX = event.clientX;
+	const startWidth = uiState.immersiveChatWidth;
+	const rightReserved = uiState.rightSidebarCollapsed
+		? 0
+		: uiState.rightSidebarWidth + 36;
+	const onPointerMove = (moveEvent: PointerEvent) => {
+		const delta = moveEvent.clientX - startX;
+		const viewportLimit = window.innerWidth - rightReserved - 48;
+		const nextWidth = Math.min(
+			IMMERSIVE_CHAT_MAX,
+			Math.max(IMMERSIVE_CHAT_MIN, Math.min(startWidth + delta, viewportLimit)),
+		);
+		uiState.setImmersiveChatWidth(nextWidth);
+	};
+	const stop = () => {
+		if (target?.hasPointerCapture?.(event.pointerId)) {
+			target.releasePointerCapture(event.pointerId);
+		}
+		document.body.classList.remove("sidebar-resizing");
+		window.removeEventListener("pointermove", onPointerMove);
+		window.removeEventListener("pointerup", stop);
+		window.removeEventListener("pointercancel", stop);
+		if (immersiveChatResizeCleanup === stop) immersiveChatResizeCleanup = null;
+	};
+	immersiveChatResizeCleanup = stop;
+	document.body.classList.add("sidebar-resizing");
+	window.addEventListener("pointermove", onPointerMove);
+	window.addEventListener("pointerup", stop);
+	window.addEventListener("pointercancel", stop);
+}
+
 function setPreviewPanelWidth(width: number) {
 	previewLayout.setWidth(width);
 }
@@ -4269,6 +4310,7 @@ onMount(() => {
 		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
+		immersiveChatResizeCleanup?.();
 		previewLayout.dispose();
 		deactivateSpaceStyle();
 		deactivateSpaceConfig();
@@ -5136,6 +5178,7 @@ const sessionWorkspaceProps = $derived.by<
 	bind:this={workspaceBodyEl}
 	class="workspace-body relative flex-1 min-h-0 flex overflow-hidden bg-bg-content"
 	class:workspace-body--preview-immersive={previewImmersiveMode}
+	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
   <div class="workspace-main flex-1 flex flex-col min-w-0 bg-bg-content">
     {#if isRouteDetailView}
@@ -5231,6 +5274,15 @@ const sessionWorkspaceProps = $derived.by<
         {/snippet}
       </SessionWorkspace>
     {/if}
+    {#if previewImmersiveMode}
+      <button
+        type="button"
+        class="immersive-chat-resize-handle"
+        aria-label="Resize chat panel"
+        title="Resize chat panel"
+        onpointerdown={beginImmersiveChatResize}
+      ></button>
+    {/if}
   </div>
   <SpaceFileDomain
     {...spaceFileDomainProps}
@@ -5307,16 +5359,46 @@ const sessionWorkspaceProps = $derived.by<
     .workspace-body--preview-immersive .workspace-main {
       position: relative;
       z-index: 20;
-      flex: 0 0 min(56vw, 720px);
-      max-width: min(56vw, 720px);
+      flex: 0 0 min(var(--immersive-chat-width), calc(100vw - 96px));
+      max-width: min(var(--immersive-chat-width), calc(100vw - 96px));
       min-width: min(420px, calc(100vw - 96px));
-      margin: 12px 0 12px 12px;
+      margin: 10px 0 10px 10px;
       overflow: hidden;
       border: 1px solid var(--border-subtle);
-      border-radius: 12px;
+      border-radius: 10px;
       background: var(--bg-elevated);
-      box-shadow: 0 18px 48px color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
+      box-shadow: 0 10px 26px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
     }
+  }
+
+  .immersive-chat-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    bottom: 0;
+    z-index: 10;
+    width: 8px;
+    border: 0;
+    padding: 0;
+    cursor: col-resize;
+    background: transparent;
+    touch-action: none;
+  }
+
+  .immersive-chat-resize-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 3px;
+    width: 2px;
+    height: 100%;
+    background: transparent;
+    transition: background-color 120ms ease;
+  }
+
+  .immersive-chat-resize-handle:hover::after,
+  :global(body.sidebar-resizing) .immersive-chat-resize-handle::after {
+    background: var(--border-subtle);
   }
 
   :global(.right-sidebar-resize-handle) {

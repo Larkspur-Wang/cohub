@@ -128,15 +128,13 @@ let {
 				onClose={onUploadPaneClose}
 				onComplete={onUploadComplete}
 			/>
-			{#if !desktopFloating}
-				<button
-					type="button"
-					class="right-sidebar-resize-handle"
-					aria-label="Resize files sidebar"
-					title="Resize files sidebar"
-					onpointerdown={onResizeStart}
-				></button>
-			{/if}
+			<button
+				type="button"
+				class="right-sidebar-resize-handle"
+				aria-label="Resize files sidebar"
+				title="Resize files sidebar"
+				onpointerdown={onResizeStart}
+			></button>
 		</div>
 	</div>
 {/if}
@@ -186,16 +184,16 @@ let {
 	@media (min-width: 960px) {
 		.files-sidebar-shell--floating {
 			position: absolute;
-			top: 12px;
-			right: 12px;
-			bottom: 12px;
+			top: 10px;
+			right: 10px;
+			bottom: 10px;
 			z-index: 30;
 			width: var(--files-sidebar-width);
 			overflow: hidden;
 			border: 1px solid var(--border-subtle);
-			border-radius: 12px;
+			border-radius: 10px;
 			background: var(--bg-elevated);
-			box-shadow: 0 18px 48px color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
+			box-shadow: 0 10px 26px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 		}
 	}
 </style>

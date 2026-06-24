@@ -1,5 +1,5 @@
 <script lang="ts">
-import { Maximize2, Minimize2 } from "lucide-svelte";
+import { Layers2, Maximize2, Minimize2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 
 const {
@@ -101,12 +101,12 @@ onDestroy(() => {
 	{#if open}
 		<div class="preview-expand-popover" role="menu">
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleFocus)} role="menuitem">
-				<span class="preview-expand-item-title">Focus preview</span>
-				<span class="preview-expand-item-desc">Keep panels docked</span>
+				<Maximize2 class="h-3.5 w-3.5" />
+				<span>Focus</span>
 			</button>
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleImmersive)} role="menuitem">
-				<span class="preview-expand-item-title">Immersive preview</span>
-				<span class="preview-expand-item-desc">Float chat and files</span>
+				<Layers2 class="h-3.5 w-3.5" />
+				<span>Float</span>
 			</button>
 		</div>
 	{/if}
@@ -118,43 +118,34 @@ onDestroy(() => {
 		right: 0;
 		top: calc(100% + 6px);
 		z-index: 80;
-		width: 190px;
+		width: 132px;
 		overflow: hidden;
 		border-radius: 8px;
 		border: 1px solid var(--border-subtle);
 		background: var(--bg-elevated);
 		padding: 4px;
-		box-shadow: 0 16px 42px color-mix(in srgb, var(--overlay-scrim-strong) 22%, transparent);
+		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
 	}
 
 	.preview-expand-item {
 		display: flex;
 		width: 100%;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 2px;
+		align-items: center;
+		gap: 7px;
 		border: 0;
 		border-radius: 6px;
 		background: transparent;
 		padding: 7px 8px;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1.2;
 		text-align: left;
 		cursor: pointer;
 	}
 
 	.preview-expand-item:hover {
 		background: var(--bg-hover);
-	}
-
-	.preview-expand-item-title {
-		font-size: 12px;
-		font-weight: 500;
-		line-height: 1.25;
 		color: var(--text-primary);
-	}
-
-	.preview-expand-item-desc {
-		font-size: 11px;
-		line-height: 1.25;
-		color: var(--text-tertiary);
 	}
 </style>
