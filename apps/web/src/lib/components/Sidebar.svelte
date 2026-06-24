@@ -3061,17 +3061,17 @@ $effect(() => {
               {/snippet}
               {@render sessionsFlyoutList()}
             </SidebarFlyout>
-            <SidebarFlyout label="Saves" active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
-              {#snippet trigger()}
-                <History class="h-4 w-4" />
-              {/snippet}
-              {@render checkpointsFlyoutList()}
-            </SidebarFlyout>
             <SidebarFlyout label="Works" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Rocket class="h-4 w-4" />
               {/snippet}
               {@render worksFlyoutList()}
+            </SidebarFlyout>
+            <SidebarFlyout label="Saves" active={Boolean(activeCheckpointId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <History class="h-4 w-4" />
+              {/snippet}
+              {@render checkpointsFlyoutList()}
             </SidebarFlyout>
             <SidebarFlyout label="Scheduled" active={Boolean(activeCronjobId)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
@@ -3448,6 +3448,59 @@ $effect(() => {
             {/if}
           {/if}
 
+          <!-- Works -->
+          <div class="mt-3">
+            <button
+              type="button"
+              class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
+              onclick={() => { worksCollapsed = !worksCollapsed; }}
+              title={worksCollapsed ? "Expand works" : "Collapse works"}
+            >
+              <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {worksCollapsed ? 'rotate-180' : ''}" />
+              <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
+              <span class="text-[11px] text-text-placeholder select-none">Works</span>
+              {@render syncSpinner(refreshingWorks, "ml-auto")}
+            </button>
+
+            {#if !worksCollapsed}
+              {#if loadingWorks && works.length === 0}
+                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
+                  <Loader2 class="w-3 h-3 animate-spin" />
+                  Loading works...
+                </div>
+              {:else if works.length === 0}
+                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No works</div>
+              {:else}
+                <div class="space-y-[2px] mt-1">
+                  {#each works as work (work.id)}
+                    {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
+                    {@const isActive = activeWork?.id === work.id}
+                    <a
+                      href={manageHref}
+                      class="flex items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+                      onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
+                    >
+                      <div class="min-w-0 flex-1">
+                        <div class="truncate font-mono leading-tight">{work.slug}</div>
+                      </div>
+                    </a>
+                  {/each}
+                </div>
+              {/if}
+            {:else if activeWork}
+              {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, activeWork.id) : "#"}
+              <a
+                href={manageHref}
+                class="mt-1 flex items-center gap-2 rounded-[6px] bg-bg-active px-1.5 py-1.5 text-[13px] font-medium text-text-primary transition-colors duration-100"
+                onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork.id); }}
+              >
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-mono leading-tight">{activeWork.slug}</div>
+                </div>
+              </a>
+            {/if}
+          </div>
+
           <div class="mt-3">
             <button
               type="button"
@@ -3508,59 +3561,6 @@ $effect(() => {
             {/if}
           </div>
 
-
-          <!-- Works -->
-          <div class="mt-3">
-            <button
-              type="button"
-              class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
-              onclick={() => { worksCollapsed = !worksCollapsed; }}
-              title={worksCollapsed ? "Expand works" : "Collapse works"}
-            >
-              <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {worksCollapsed ? 'rotate-180' : ''}" />
-              <Rocket class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-              <span class="text-[11px] text-text-placeholder select-none">Works</span>
-              {@render syncSpinner(refreshingWorks, "ml-auto")}
-            </button>
-
-            {#if !worksCollapsed}
-              {#if loadingWorks && works.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
-                  <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading works...
-                </div>
-              {:else if works.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No works</div>
-              {:else}
-                <div class="space-y-[2px] mt-1">
-                  {#each works as work (work.id)}
-                    {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
-                    {@const isActive = activeWork?.id === work.id}
-                    <a
-                      href={manageHref}
-                      class="flex items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-                      onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
-                    >
-                      <div class="min-w-0 flex-1">
-                        <div class="truncate font-mono leading-tight">{work.slug}</div>
-                      </div>
-                    </a>
-                  {/each}
-                </div>
-              {/if}
-            {:else if activeWork}
-              {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, activeWork.id) : "#"}
-              <a
-                href={manageHref}
-                class="mt-1 flex items-center gap-2 rounded-[6px] bg-bg-active px-1.5 py-1.5 text-[13px] font-medium text-text-primary transition-colors duration-100"
-                onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork.id); }}
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="truncate font-mono leading-tight">{activeWork.slug}</div>
-                </div>
-              </a>
-            {/if}
-          </div>
 
           <!-- Scheduled Jobs -->
           <div class="mt-3">
