@@ -248,6 +248,22 @@ function getPatchTurnId(event: WebsocketEventPayload) {
   return typeof turnId === "string" ? turnId : null;
 }
 
+function getPatchMessageIdentity(event: WebsocketEventPayload) {
+  if (event.type !== "session.turn.patch") {
+    return { messageId: null, messageOrdinal: null };
+  }
+  return {
+    messageId:
+      typeof event.payload.messageId === "string"
+        ? event.payload.messageId
+        : null,
+    messageOrdinal:
+      typeof event.payload.messageOrdinal === "number"
+        ? event.payload.messageOrdinal
+        : null,
+  };
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -309,7 +325,9 @@ export class SessionGenerationStreamClient {
       options.recover === true || options.initialSnapshot !== undefined;
     let recovering = shouldRecover;
     let disposed = false;
-    const bufferedEvents: WebsocketEventPayload[] = [];
+    let recoveryAborted = false;
+    let bufferedEvents: WebsocketEventPayload[] = [];
+    let bufferedEventsReplayed = false;
     const unsubscribe = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId || event.sessionId !== this.sessionId) {
         return;
@@ -317,9 +335,11 @@ export class SessionGenerationStreamClient {
       if (recovering && isGenerationRealtimeEvent(event)) {
         bufferedEvents.push(event);
         if (bufferedEvents.length > SNAPSHOT_RECOVERY_MAX_BUFFERED_EVENTS) {
+          recoveryAborted = true;
           recovering = false;
           stream.replayBufferedEvents(bufferedEvents, handlers);
-          bufferedEvents.length = 0;
+          bufferedEvents = [];
+          bufferedEventsReplayed = true;
         }
         return;
       }
@@ -327,11 +347,18 @@ export class SessionGenerationStreamClient {
     });
 
     if (shouldRecover) {
-      void stream.recoverFromSnapshot(handlers, options).finally(() => {
-        if (disposed) return;
-        recovering = false;
-        stream.replayBufferedEvents(bufferedEvents, handlers);
-      });
+      void stream
+        .recoverFromSnapshot(
+          handlers,
+          options,
+          () => !recoveryAborted && !disposed,
+        )
+        .finally(() => {
+          if (disposed || bufferedEventsReplayed) return;
+          recovering = false;
+          stream.replayBufferedEvents(bufferedEvents, handlers);
+          bufferedEventsReplayed = true;
+        });
     }
 
     return () => {
@@ -343,6 +370,7 @@ export class SessionGenerationStreamClient {
   private async recoverFromSnapshot(
     handlers: GenerationStreamSubscriptionHandlers,
     options: GenerationStreamSubscribeOptions,
+    shouldContinue: () => boolean,
   ) {
     const snapshot =
       options.initialSnapshot !== undefined
@@ -361,6 +389,7 @@ export class SessionGenerationStreamClient {
               })
             ).snapshot
           : null;
+    if (!shouldContinue()) return;
     if (!snapshot) return;
     this.seedFromSnapshot(snapshot, handlers, options);
   }
@@ -409,14 +438,29 @@ export class SessionGenerationStreamClient {
     for (const event of events) {
       const seq = getPatchSeq(event);
       const turnId = getPatchTurnId(event);
+      const identity = getPatchMessageIdentity(event);
       const sameTurn = Boolean(
         seq != null &&
           this.patchState?.turnId &&
           turnId &&
           this.patchState.turnId === turnId,
       );
-      if (
+      const sameMessage =
         sameTurn &&
+        Boolean(
+          this.messageId &&
+            ((identity.messageId && identity.messageId === this.messageId) ||
+              (identity.messageId == null &&
+                identity.messageOrdinal != null &&
+                identity.messageOrdinal === this.messageOrdinal)),
+        );
+      const olderMessageInSameTurn =
+        sameTurn &&
+        identity.messageOrdinal != null &&
+        this.messageOrdinal != null &&
+        identity.messageOrdinal < this.messageOrdinal;
+      if (
+        (sameMessage || olderMessageInSameTurn) &&
         this.patchState &&
         seq != null &&
         seq <= this.patchState.patchSeq

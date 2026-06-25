@@ -213,14 +213,53 @@ export function buildTurnTimelineItems(input: {
 			kind: "message",
 			message: turnToUserMessage(turn),
 		});
-		if (turn.intermediateSummary && turn.intermediateSummary.messageCount > 0) {
+		const isStreamingActiveTurn =
+			hasStreamingState && streamingTurnId === turn.id;
+		if (
+			isStreamingActiveTurn &&
+			input.streaming?.intermediateMessages?.length
+		) {
+			const processIntermediateMessages = input.streaming.intermediateMessages;
+			const liveToolCallCount = processIntermediateMessages.reduce(
+				(count, message) =>
+					count +
+					message.content.filter((block) => block.type === "tool_use").length,
+				0,
+			);
+			const summary = {
+				...(turn.intermediateSummary ?? {}),
+				messageCount: Math.max(
+					turn.intermediateSummary?.messageCount ?? 0,
+					processIntermediateMessages.length,
+				),
+				toolCallCount: Math.max(
+					turn.intermediateSummary?.toolCallCount ?? 0,
+					liveToolCallCount,
+				),
+			} satisfies SessionTurnIntermediateSummary;
+			items.push({
+				id: `${turnRenderKey}:process:streaming`,
+				kind: "process",
+				turn,
+				summary,
+				intermediateMessages: processIntermediateMessages,
+				streaming: true,
+				runtimePhase: input.streaming?.runtimePhase ?? null,
+				runtimeProvider: input.streaming?.runtimeProvider ?? null,
+				runtimeModel: input.streaming?.runtimeModel ?? null,
+			});
+			streamingProcessInserted = true;
+		} else if (
+			turn.intermediateSummary &&
+			turn.intermediateSummary.messageCount > 0
+		) {
 			items.push({
 				id: `${turnRenderKey}:process`,
 				kind: "process",
 				turn,
 				summary: turn.intermediateSummary,
 			});
-			if (streamingTurnId === turn.id) streamingProcessInserted = true;
+			if (isStreamingActiveTurn) streamingProcessInserted = true;
 		} else if (
 			hasStreamingState &&
 			(!streamingTurnId || streamingTurnId === turn.id)
