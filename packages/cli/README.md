@@ -62,6 +62,7 @@ cohub spaces ls --json
 cohub spaces get <spaceId> --json
 cohub spaces create --name "<name>" --description "<description>" --json
 cohub spaces rename <spaceId> "<new name>"
+cohub -s <spaceId> run -- git status
 ```
 
 Many space-scoped commands need a target Space:
@@ -73,6 +74,7 @@ cohub -s <spaceId> spaces prompt "message" --json
 ## Chats and prompts
 
 Use `spaces prompt` for immediate sends, delayed sends, one-time schedules, recurring schedules, new Chats, and existing Chats.
+Use `run` for a one-off shell command in the current Space workspace.
 
 ```bash
 # Send now
@@ -203,6 +205,16 @@ cohub -s <spaceId> spaces checkpoints ls --json
 cohub -s <spaceId> spaces checkpoints get <checkpointId> --json
 cohub -s <spaceId> spaces checkpoints create "<description>" --json
 ```
+
+## Run commands
+
+```bash
+cohub -s <spaceId> run -- git status
+cohub -s <spaceId> run --command "pnpm test"
+cohub -s <spaceId> run --async --command "pnpm build"
+```
+
+Use `run` for one-off shell commands in a Space workspace. Use `--async` to queue and return immediately.
 
 ## Tasks
 

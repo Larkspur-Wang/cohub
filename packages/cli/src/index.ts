@@ -10,6 +10,7 @@ import { registerModels } from "./commands/models.js";
 import { registerProfile } from "./commands/profile.js";
 import { registerSearch } from "./commands/search.js";
 import { registerPrompt, registerSpaces } from "./commands/spaces.js";
+import { maybeHandleRunCommand } from "./commands/run.js";
 import { registerTasks } from "./commands/tasks.js";
 import { registerWorks } from "./commands/works.js";
 import { ensureCliSelfUpdated } from "./self-update.js";
@@ -40,6 +41,7 @@ Common commands:
   cohub profile avatar ./avatar.png
   cohub spaces ls
   cohub -s <space-id> prompt "Fix the failing tests"
+  cohub -s <space-id> run -- git status
   cohub search "release notes"
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
@@ -69,7 +71,11 @@ registerWorks(program);
 const isVersionRequest = (argv: string[]) => argv.some((arg) => arg === "-v" || arg === "--version");
 
 try {
-  if (!isVersionRequest(process.argv.slice(2))) {
+  const argv = process.argv.slice(2);
+  if (await maybeHandleRunCommand(argv)) {
+    process.exit();
+  }
+  if (!isVersionRequest(argv)) {
     await ensureCliSelfUpdated();
   }
 } catch (error) {
