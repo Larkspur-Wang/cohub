@@ -333,17 +333,19 @@ export function registerSpaces(program: Command): void {
 
   // ── spaces get ──
   spacesCmd
-    .command("get <id>")
+    .command("get [id]")
     .description("Show space details")
     .option("--json", "Output as JSON")
-    .action(async (id: string, opts: { json?: boolean }) => {
+    .action(async (id: string | undefined, opts: { json?: boolean }) => {
+      const spaceId = id?.trim() || resolveSpace(spacesCmd);
       const client = createClient();
       try {
-        const space = await client.spaces.get(id);
+        const space = await client.spaces.get(spaceId);
         if (jsonRequested(opts)) return outJson(space);
         table([space], [
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
+          { key: "slug", label: "Slug" },
           { key: "description", label: "Description" },
           { key: "status", label: "Status" },
           { key: "createdAt", label: "Created" },

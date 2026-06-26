@@ -60,6 +60,8 @@ cohub spaces prompt -h
 ```bash
 cohub spaces ls --json
 cohub spaces get <spaceId> --json
+cohub -s <spaceId> spaces get
+COHUB_SPACE_ID=<spaceId> cohub spaces get
 cohub spaces create --name "<name>" --description "<description>" --json
 cohub spaces update <spaceId> --slug <space-slug>
 cohub spaces rename <spaceId> "<new name>"
@@ -70,6 +72,7 @@ Many space-scoped commands need a target Space:
 
 ```bash
 cohub -s <spaceId> spaces prompt "message" --json
+COHUB_SPACE_ID=<spaceId> cohub spaces prompt "message" --json
 ```
 
 ## Chats and prompts
