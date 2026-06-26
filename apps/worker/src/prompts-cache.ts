@@ -101,7 +101,8 @@ export async function publishPromptsCacheFromDir(input: {
       : undefined;
     if (code !== "ENOENT") throw error;
     cached = createCachedPromptTemplatesConfig({
-      content: null,
+      rawText: "",
+      content: { templates: [] },
       sourceCheckpointId: input.sourceCheckpointId ?? null,
     });
   }

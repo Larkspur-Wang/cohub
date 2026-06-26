@@ -128,7 +128,7 @@ async function loadPromptsFromDir(input: {
       ? String((error as { code?: unknown }).code)
       : undefined;
     if (code !== "ENOENT" || !input.allowMissing) throw error;
-    const cached = createCachedPromptTemplatesConfig({ content: null });
+    const cached = createCachedPromptTemplatesConfig({ rawText: "", content: { templates: [] } });
     await redisCommandClient.set(input.redisKey, JSON.stringify(cached), "EX", PROMPTS_CACHE_TTL_SEC).catch(() => undefined);
     return cached;
   }
@@ -165,9 +165,8 @@ async function fetchPromptTemplates(options: LoadPromptTemplatesOptions): Promis
     redisKey: PLATFORM_PROMPTS_REDIS_KEY,
     dir: getPlatformPromptsDir(),
     scope: "platform",
-    allowMissing: false,
+    allowMissing: true,
   });
-  if (!platformPrompts) throw new Error("Platform prompt templates directory not found");
 
   const configs: Array<PromptTemplatesConfig | null> = [platformPrompts];
 

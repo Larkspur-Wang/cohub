@@ -85,7 +85,7 @@ export function createCachedPromptTemplatesConfig(input: {
   updatedAt?: string;
 }): CachedPromptTemplatesConfig {
   return {
-    rev: input.rev ?? (input.rawText ? createFastContentHash(input.rawText) : `missing:${input.sourceCheckpointId ?? "unknown"}`),
+    rev: input.rev ?? (input.rawText !== undefined ? createFastContentHash(input.rawText) : `missing:${input.sourceCheckpointId ?? "unknown"}`),
     updatedAt: input.updatedAt ?? new Date().toISOString(),
     sourceCheckpointId: input.sourceCheckpointId ?? null,
     content: input.content,
