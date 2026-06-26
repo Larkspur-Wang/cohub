@@ -5,9 +5,8 @@ import type { MessageRecord, SessionTurnRecord } from "@cohub/protocol/model";
 import type { GatewaySessionOutput } from "@cohub/protocol/gateway";
 import {
   dispatchOutboundMessage,
-  dispatchRealtimeEventToUsers,
+  dispatchRealtimeEvent,
   getProviderMessageRefBySessionMessage,
-  getReadableUserIdsForSpace,
   getBindingsBySessionId,
 } from "./channels.js";
 import { db } from "./db/index.js";
@@ -50,11 +49,9 @@ const shouldClearStreamSnapshotForMessage = (message: MessageRecord) => {
 };
 
 const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => {
-  const readableUserIds = await getReadableUserIdsForSpace(output.spaceId).catch(() => [] as string[]);
-
   if (output.type === "session.turn.error") {
     await clearSessionStreamSnapshot({ spaceId: output.spaceId, sessionId: output.sessionId });
-    await dispatchRealtimeEventToUsers({
+    await dispatchRealtimeEvent({
       id: randomUUID(),
       timestamp: Date.now(),
       domain: "session",
@@ -64,7 +61,6 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
       payload: {
         anchorUserMessageId: output.anchorUserMessageId,
         error: output.error,
-        targetUserIds: readableUserIds,
       },
     });
     return;
@@ -74,7 +70,7 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
   if (shouldClearStreamSnapshotForMessage(output.message)) {
     await clearSessionStreamSnapshot({ spaceId: output.spaceId, sessionId: output.sessionId });
   }
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "session",
@@ -83,7 +79,6 @@ const dispatchSessionOutputToRealtime = async (output: GatewaySessionOutput) => 
     sessionId: output.sessionId,
     payload: {
       message: toRealtimeMessageRecord(output.message),
-      targetUserIds: readableUserIds,
     },
   });
 };
@@ -147,8 +142,7 @@ export const dispatchSessionOutput = async (output: GatewaySessionOutput) => {
 };
 
 export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
-  const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "session",
@@ -157,15 +151,13 @@ export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: s
     sessionId: input.sessionId,
     payload: {
       turn: toRealtimeTurnRecord(input.turn),
-      targetUserIds: readableUserIds,
     },
   });
 };
 
 export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
   await clearSessionStreamSnapshot({ spaceId: input.spaceId, sessionId: input.sessionId });
-  const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "session",
@@ -174,7 +166,6 @@ export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId:
     sessionId: input.sessionId,
     payload: {
       turn: toRealtimeTurnRecord(input.turn),
-      targetUserIds: readableUserIds,
     },
   });
 };

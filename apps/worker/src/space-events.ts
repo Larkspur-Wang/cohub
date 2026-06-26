@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
-import { recomputeSpaceWsUsers } from "@cohub/core/spaces";
 import { redisCommandClient } from "./redis.js";
-import { db } from "./db.js";
 import { enqueueFsCdnWarmForChanges } from "./space-fs-cdn-prewarm.js";
 import { createLogger } from "@cohub/infra/logging";
 
@@ -12,7 +10,6 @@ const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 
 export async function publishSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
   try {
-    const targetUserIds = await recomputeSpaceWsUsers({ db, redis: redisCommandClient, spaceId });
     await Promise.all([
       redisCommandClient.publish(
         REALTIME_OUTBOUND_CHANNEL,
@@ -23,10 +20,7 @@ export async function publishSpaceFsChanged(spaceId: string, payload: SpaceFsCha
           type: "space.fs.changed",
           spaceId,
           sessionId: null,
-          payload: {
-            ...payload,
-            targetUserIds,
-          },
+          payload,
         }),
       ),
       enqueueFsCdnWarmForChanges(spaceId, payload.changes).catch((error) => {

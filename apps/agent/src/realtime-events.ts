@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { RealtimeTaskRecord } from "@cohub/protocol/realtime";
 import type { TaskRunStatus } from "@cohub/protocol/task";
-import { recomputeSpaceWsUsers } from "@cohub/core/spaces";
-import { db } from "./db.js";
 import { redis } from "./redis.js";
 
 const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
@@ -57,12 +55,7 @@ function toRealtimeTaskRecord(task: {
 
 export async function dispatchTaskCreated(task: Parameters<typeof toRealtimeTaskRecord>[0]) {
   const realtimeTask = toRealtimeTaskRecord(task);
-  const targetUserIds = realtimeTask.spaceId
-    ? await recomputeSpaceWsUsers({ db, redis, spaceId: realtimeTask.spaceId }).catch(() => [] as string[])
-    : realtimeTask.userId
-      ? [realtimeTask.userId]
-      : [];
-  if (!realtimeTask.spaceId && targetUserIds.length === 0) return;
+  if (!realtimeTask.spaceId && !realtimeTask.userId) return;
 
   await redis.publish(
     REALTIME_OUTBOUND_CHANNEL,
@@ -75,7 +68,7 @@ export async function dispatchTaskCreated(task: Parameters<typeof toRealtimeTask
       sessionId: realtimeTask.sessionId,
       payload: {
         task: realtimeTask,
-        ...(targetUserIds.length > 0 ? { targetUserIds } : {}),
+        ...(realtimeTask.userId && !realtimeTask.spaceId ? { userId: realtimeTask.userId } : {}),
       },
     }),
   );

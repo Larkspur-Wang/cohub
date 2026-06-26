@@ -5,9 +5,38 @@ import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
 
 export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
+export const WS_ROOM_SUBSCRIPTION_CAPABILITY = "realtime.rooms.v1";
+
+export type RealtimeRoom = `space:${string}` | `user:${string}`;
+
+export const getRealtimeSpaceRoom = (spaceId: string): RealtimeRoom => `space:${spaceId}`;
+export const getRealtimeUserRoom = (userId: string): RealtimeRoom => `user:${userId}`;
+
+export const parseRealtimeRoom = (room: string): { kind: "space" | "user"; id: string } | null => {
+  const trimmed = room.trim();
+  const separatorIndex = trimmed.indexOf(":");
+  if (separatorIndex <= 0) return null;
+  const kind = trimmed.slice(0, separatorIndex);
+  const id = trimmed.slice(separatorIndex + 1).trim();
+  if (!id) return null;
+  if (kind !== "space" && kind !== "user") return null;
+  return { kind, id };
+};
+
+export const normalizeRealtimeRooms = (rooms: readonly string[]): RealtimeRoom[] => {
+  const normalized = new Set<RealtimeRoom>();
+  for (const room of rooms) {
+    const parsed = typeof room === "string" ? parseRealtimeRoom(room) : null;
+    if (!parsed) continue;
+    normalized.add(`${parsed.kind}:${parsed.id}` as RealtimeRoom);
+  }
+  return [...normalized];
+};
 
 export type WsClientEvent =
   | { type: "auth"; requestId?: string; payload: { token: string; capabilities?: string[] } }
+  | { type: "subscribe"; requestId?: string; payload: { rooms: string[] } }
+  | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string } }
   | { type: "canvas.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
@@ -21,6 +50,7 @@ export type RealtimeEnvelope = {
   requestId?: string | null;
   spaceId?: string | null;
   sessionId?: string | null;
+  rooms?: RealtimeRoom[];
   payload: Record<string, unknown>;
 };
 
@@ -85,6 +115,28 @@ export type SystemAckOkEvent = {
   spaceId?: string | null;
   sessionId?: string | null;
   payload: { eventId?: string };
+};
+
+export type SystemSubscribeOkEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.subscribe.ok";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: { rooms: RealtimeRoom[] };
+};
+
+export type SystemSubscribeErrorEvent = {
+  id: string;
+  timestamp: number;
+  domain: "system";
+  type: "system.subscribe.error";
+  requestId?: string | null;
+  spaceId?: string | null;
+  sessionId?: string | null;
+  payload: { rejected: Array<{ room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string }> };
 };
 
 export type RealtimeSessionRecord = Pick<
@@ -466,6 +518,8 @@ export type RealtimeServerEvent =
   | SystemRequestErrorEvent
   | SystemPongEvent
   | SystemAckOkEvent
+  | SystemSubscribeOkEvent
+  | SystemSubscribeErrorEvent
   | SessionCreatedEvent
   | SessionUpdatedEvent
   | SessionRequestAcceptedEvent

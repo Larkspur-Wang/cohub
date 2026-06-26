@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { dispatchRealtimeEventToUsers, getReadableUserIdsForSpace } from "./channels.js";
+import { dispatchRealtimeEvent } from "./channels.js";
 
 export async function dispatchCanvasTransactionApplied(input: {
   spaceId: string;
@@ -9,8 +9,7 @@ export async function dispatchCanvasTransactionApplied(input: {
   version: number;
   ops: Array<Record<string, unknown>>;
 }) {
-  const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "space",
@@ -23,7 +22,6 @@ export async function dispatchCanvasTransactionApplied(input: {
       txId: input.txId,
       version: input.version,
       ops: input.ops,
-      targetUserIds: readableUserIds,
     },
   });
 }

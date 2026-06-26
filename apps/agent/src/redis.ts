@@ -19,6 +19,8 @@ export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: 
   return client.xadd(streamKey, "MAXLEN", "~", 2000, ...args);
 };
 
+export const getGatewayNodeOutboundStreamKey = (nodeId: string) => `stream:gateway:node:${nodeId}:outbound`;
+
 const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 const SESSION_STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;

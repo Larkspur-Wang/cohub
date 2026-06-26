@@ -31,10 +31,9 @@ redisCommandClient.on("reconnecting", () => {
   logger.info("[Redis] Command client reconnecting...");
 });
 
-export const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
+export const getGatewayNodeOutboundStreamKey = (nodeId: string) => `stream:gateway:node:${nodeId}:outbound`;
 export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
-export const getSpaceWsUsersKey = (spaceId: string) => `realtime:space:${spaceId}:ws_users`;
 export const STREAM_MAXLEN = 2000;
 export const STREAM_APPROX = "~";
 

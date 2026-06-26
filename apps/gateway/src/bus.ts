@@ -8,7 +8,9 @@ import {
   createBlockingRedisClient,
   type RedisStreamEntry,
   redisCommandClient,
-  GATEWAY_OUTBOUND_STREAM,
+  getGatewayNodeOutboundStreamKey,
+  STREAM_APPROX,
+  STREAM_MAXLEN,
 } from "./redis.js";
 import { gatewayConfig } from "./config.js";
 
@@ -23,9 +25,7 @@ const ensureConsumerGroup = async (streamKey: string, groupName: string) => {
   }
 };
 
-export const OUTBOUND_STREAM = GATEWAY_OUTBOUND_STREAM;
-
-logger.info(`[Bus] Stream names: outbound=${OUTBOUND_STREAM}`);
+export const getOutboundStreamForNode = getGatewayNodeOutboundStreamKey;
 
 // Inbound event dedup — prevents duplicate processing on WS reconnects
 const inboundDedup = new Map<string, number>();
@@ -82,23 +82,169 @@ export const publishConversationCreateEvent = async (
   });
 };
 
-// Consumer Group 配置
 const OUTBOUND_CONSUMER_GROUP = "gateway-outbound-consumers";
-const OUTBOUND_CONSUMER_NAME = `gateway-${process.env.POD_NAME || process.env.HOSTNAME || Math.random().toString(36).slice(2, 8)}`;
 const OUTBOUND_BATCH_SIZE = 10;
 const OUTBOUND_BLOCK_MS = 5000;
+const PENDING_CLAIM_MIN_IDLE_MS = 30_000;
+const OUTBOUND_COMMAND_DONE_TTL_SECONDS = 24 * 60 * 60;
+const OUTBOUND_COMMAND_LOCK_TTL_SECONDS = 60;
+const MAX_OUTBOUND_DELIVERY_ATTEMPTS = 3;
 
-export const initOutboundConsumerGroup = async () => {
-  await ensureConsumerGroup(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP);
-  logger.info("[Bus] Outbound consumer group ready:", OUTBOUND_CONSUMER_GROUP);
+export const initOutboundConsumerGroup = async (nodeId: string) => {
+  const streamKey = getGatewayNodeOutboundStreamKey(nodeId);
+  await ensureConsumerGroup(streamKey, OUTBOUND_CONSUMER_GROUP);
+  logger.info("[Bus] Outbound consumer group ready", { group: OUTBOUND_CONSUMER_GROUP, streamKey });
 };
 
+type ClaimedPendingResult = {
+  nextStartId: string;
+  messages: RedisStreamEntry[];
+};
 
+const parseClaimedPending = (value: unknown): ClaimedPendingResult => {
+  if (!Array.isArray(value)) return { nextStartId: "0-0", messages: [] };
+  const nextStartId = typeof value[0] === "string" ? value[0] : "0-0";
+  const messages = Array.isArray(value[1]) ? value[1] as RedisStreamEntry[] : [];
+  return { nextStartId, messages };
+};
+
+const ackAndDelete = async (streamKey: string, id: string) => {
+  await redisCommandClient.xack(streamKey, OUTBOUND_CONSUMER_GROUP, id);
+  await redisCommandClient.xdel(streamKey, id).catch(() => undefined);
+};
+
+const getCommandAttempts = (cmd: PlannedGatewayOutboundCommand) => {
+  const value = cmd.meta?.deliveryAttempt;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+};
+
+const requeueCommand = async (streamKey: string, cmd: PlannedGatewayOutboundCommand, error: string) => {
+  const nextAttempt = getCommandAttempts(cmd) + 1;
+  if (nextAttempt >= MAX_OUTBOUND_DELIVERY_ATTEMPTS) {
+    logger.error("[Bus] Outbound command exhausted retries", {
+      commandId: cmd.commandId,
+      channelId: cmd.channelId,
+      attempts: nextAttempt,
+      error,
+    });
+    return false;
+  }
+
+  const retryCommand: PlannedGatewayOutboundCommand = {
+    ...cmd,
+    meta: {
+      ...(cmd.meta ?? {}),
+      deliveryAttempt: nextAttempt,
+      lastDeliveryError: error,
+      retriedAt: Date.now(),
+    },
+  };
+  await redisCommandClient.xadd(streamKey, "MAXLEN", STREAM_APPROX, STREAM_MAXLEN, "*", "payload", JSON.stringify(retryCommand));
+  logger.warn("[Bus] Requeued outbound command", {
+    commandId: cmd.commandId,
+    channelId: cmd.channelId,
+    attempt: nextAttempt,
+    error,
+  });
+  return true;
+};
+
+const acquireCommandLock = async (cmd: PlannedGatewayOutboundCommand) => {
+  const doneKey = `gateway:outbound:done:${cmd.commandId}`;
+  if (await redisCommandClient.exists(doneKey)) return { acquired: false, done: true, lockKey: null, token: null } as const;
+
+  const lockKey = `gateway:outbound:lock:${cmd.commandId}`;
+  const token = randomUUID();
+  const locked = await redisCommandClient.set(lockKey, token, "EX", OUTBOUND_COMMAND_LOCK_TTL_SECONDS, "NX");
+  return locked === "OK"
+    ? { acquired: true, done: false, lockKey, token } as const
+    : { acquired: false, done: false, lockKey, token: null } as const;
+};
+
+const releaseCommandLock = async (lockKey: string | null, token: string | null) => {
+  if (!lockKey || !token) return;
+  const current = await redisCommandClient.get(lockKey).catch(() => null);
+  if (current === token) await redisCommandClient.del(lockKey).catch(() => undefined);
+};
+
+const markCommandDone = async (cmd: PlannedGatewayOutboundCommand) => {
+  await redisCommandClient.set(`gateway:outbound:done:${cmd.commandId}`, "1", "EX", OUTBOUND_COMMAND_DONE_TTL_SECONDS);
+};
+
+const processOutboundEntry = async (
+  streamKey: string,
+  id: string,
+  fields: string[],
+  onCommand: (cmd: PlannedGatewayOutboundCommand) => Promise<{ success: boolean; error?: string; externalMessageId?: string }>,
+) => {
+  const payload = fields[fields.indexOf("payload") + 1];
+  if (!payload) {
+    await ackAndDelete(streamKey, id);
+    return;
+  }
+
+  let cmd: PlannedGatewayOutboundCommand;
+  try {
+    cmd = JSON.parse(payload) as PlannedGatewayOutboundCommand;
+  } catch (error) {
+    logger.error("[Bus] Dropping invalid outbound command payload", { streamId: id, error });
+    await ackAndDelete(streamKey, id);
+    return;
+  }
+
+  const lock = await acquireCommandLock(cmd);
+  if (lock.done) {
+    logger.info("[Bus] Dropping already completed duplicate outbound command", { streamId: id, commandId: cmd.commandId });
+    await ackAndDelete(streamKey, id);
+    return;
+  }
+  if (!lock.acquired) {
+    logger.warn("[Bus] Outbound command is already being processed; leaving pending", { streamId: id, commandId: cmd.commandId });
+    return;
+  }
+
+  try {
+    logger.info("[Bus] Consuming outbound command", {
+      streamId: id,
+      commandId: cmd.commandId,
+      channelId: cmd.channelId,
+      provider: cmd.provider,
+      externalChatId: cmd.externalChatId,
+      replyToExternalMessageId: cmd.replyToExternalMessageId ?? null,
+      attempt: getCommandAttempts(cmd),
+    });
+    const result = await onCommand(cmd);
+    if (result.success) {
+      await markCommandDone(cmd);
+      await ackAndDelete(streamKey, id);
+      logger.info("[Bus] Acked outbound command", {
+        streamId: id,
+        commandId: cmd.commandId,
+        success: true,
+        externalMessageId: result.externalMessageId ?? null,
+      });
+      return;
+    }
+
+    await requeueCommand(streamKey, cmd, result.error ?? "outbound command failed");
+    await ackAndDelete(streamKey, id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`[Bus] Failed ${id}:`, error);
+    await requeueCommand(streamKey, cmd, message);
+    await ackAndDelete(streamKey, id);
+  } finally {
+    await releaseCommandLock(lock.lockKey, lock.token);
+  }
+};
 
 export const listenOutboundCommands = async (
+  nodeId: string,
   onCommand: (cmd: PlannedGatewayOutboundCommand) => Promise<{ success: boolean; error?: string; externalMessageId?: string }>
 ) => {
-  logger.info(`[Bus] Listening: ${OUTBOUND_STREAM}`);
+  const streamKey = getGatewayNodeOutboundStreamKey(nodeId);
+  const consumerName = `gateway-${nodeId}`;
+  logger.info(`[Bus] Listening: ${streamKey}`);
 
   const client = createBlockingRedisClient();
   logger.info("[Bus] Outbound redis client status before connect:", client.status);
@@ -107,49 +253,50 @@ export const listenOutboundCommands = async (
   }
   logger.info("[Bus] Outbound redis client status after connect:", client.status);
 
+  let reclaimPending = true;
+  let reclaimStartId = "0-0";
+  let lastPendingReclaimAt = 0;
+
   while (true) {
     try {
-      const result = await client.xreadgroup(
-        "GROUP", OUTBOUND_CONSUMER_GROUP, OUTBOUND_CONSUMER_NAME,
-        "COUNT", OUTBOUND_BATCH_SIZE,
-        "BLOCK", OUTBOUND_BLOCK_MS,
-        "STREAMS", OUTBOUND_STREAM, ">"
-      );
+      if (!reclaimPending && Date.now() - lastPendingReclaimAt >= PENDING_CLAIM_MIN_IDLE_MS) {
+        reclaimPending = true;
+        reclaimStartId = "0-0";
+      }
+      const claimed = reclaimPending
+        ? parseClaimedPending(await client.xautoclaim(
+            streamKey,
+            OUTBOUND_CONSUMER_GROUP,
+            consumerName,
+            PENDING_CLAIM_MIN_IDLE_MS,
+            reclaimStartId,
+            "COUNT",
+            OUTBOUND_BATCH_SIZE,
+          ))
+        : null;
+      const result = claimed
+        ? (claimed.messages.length > 0 ? [[streamKey, claimed.messages]] as Array<[string, RedisStreamEntry[]]> : null)
+        : await client.xreadgroup(
+            "GROUP", OUTBOUND_CONSUMER_GROUP, consumerName,
+            "COUNT", OUTBOUND_BATCH_SIZE,
+            "BLOCK", OUTBOUND_BLOCK_MS,
+            "STREAMS", streamKey, ">",
+          ) as Array<[string, RedisStreamEntry[]]> | null;
 
-      if (!result) continue;
+      if (claimed) {
+        lastPendingReclaimAt = Date.now();
+        reclaimStartId = claimed.nextStartId;
+        if (claimed.nextStartId === "0-0") reclaimPending = false;
+      }
 
-      for (const [, messages] of result as Array<[string, RedisStreamEntry[]]>) {
+      if (!result) {
+        reclaimPending = false;
+        continue;
+      }
+
+      for (const [, messages] of result) {
         for (const [id, fields] of messages) {
-          const payload = fields[fields.indexOf("payload") + 1];
-          if (!payload) {
-            await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
-            continue;
-          }
-
-          try {
-            // at-most-once: 处理失败也 ACK，避免坏消息阻塞整条队列
-            const cmd = JSON.parse(payload) as PlannedGatewayOutboundCommand;
-            logger.info("[Bus] Consuming outbound command", {
-              streamId: id,
-              commandId: cmd.commandId,
-              channelId: cmd.channelId,
-              provider: cmd.provider,
-              externalChatId: cmd.externalChatId,
-              replyToExternalMessageId: cmd.replyToExternalMessageId ?? null,
-            });
-            const result = await onCommand(cmd);
-            await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
-            logger.info("[Bus] Acked outbound command", {
-              streamId: id,
-              commandId: cmd.commandId,
-              success: result.success,
-              externalMessageId: result.externalMessageId ?? null,
-              error: result.error ?? null,
-            });
-          } catch (err) {
-            logger.error(`[Bus] Failed ${id}:`, err);
-            await redisCommandClient.xack(OUTBOUND_STREAM, OUTBOUND_CONSUMER_GROUP, id);
-          }
+          await processOutboundEntry(streamKey, id, fields, onCommand);
         }
       }
     } catch (error) {

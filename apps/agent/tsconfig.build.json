@@ -94,12 +94,6 @@
       "@cohub/core/space-mods": [
         "../../packages/core/dist/space-mods/index.d.ts"
       ],
-      "@cohub/core/spaces": [
-        "../../packages/core/dist/spaces/index.d.ts"
-      ],
-      "@cohub/core/spaces/audience": [
-        "../../packages/core/dist/spaces/audience.d.ts"
-      ],
       "@cohub/core/sandbox-lifecycle": [
         "../../packages/core/dist/sandbox-lifecycle/index.d.ts"
       ],

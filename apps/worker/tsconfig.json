@@ -103,17 +103,11 @@
       "@cohub/core/security/execution-grants": [
         "../../packages/core/src/security/execution-grants.ts"
       ],
-      "@cohub/core/spaces": [
-        "../../packages/core/src/spaces/index.ts"
-      ],
       "@cohub/core/labels": [
         "../../packages/core/src/labels/index.ts"
       ],
       "@cohub/core/labels/session-source": [
         "../../packages/core/src/labels/session-source.ts"
-      ],
-      "@cohub/core/spaces/audience": [
-        "../../packages/core/src/spaces/audience.ts"
       ],
       "@cohub/core/sandbox-lifecycle": [
         "../../packages/core/src/sandbox-lifecycle/index.ts"

@@ -1,9 +1,13 @@
 import {
+  getRealtimeSpaceRoom,
   getSessionTurnPatchStreamKey,
   WS_COMPACT_STREAM_CAPABILITY,
+  WS_ROOM_SUBSCRIPTION_CAPABILITY,
+  normalizeRealtimeRooms,
   type ChannelEnvelope,
   type RealtimeCompactFrame,
   type RealtimePatchOperation,
+  type RealtimeRoom,
   type WsClientEvent,
 } from "@cohub/protocol/realtime/types";
 import type { ContentBlock } from "@cohub/protocol/core";
@@ -65,6 +69,8 @@ export type WebsocketClientEvents = {
     spaceId?: string | null;
     clientMessageId?: string | null;
   };
+  subscribed: { rooms: RealtimeRoom[]; requestId?: string | null };
+  subscribeError: { rejected: Array<{ room: string; code: string; message: string }>; requestId?: string | null };
   pong: { requestId?: string | null };
 };
 
@@ -85,6 +91,8 @@ const createEventMap = (): EventMap => ({
   auth: new Set(),
   messageAccepted: new Set(),
   serverError: new Set(),
+  subscribed: new Set(),
+  subscribeError: new Set(),
   pong: new Set(),
 });
 
@@ -186,6 +194,12 @@ type PatchStreamBuffer = {
   pending: Map<number, ChannelEnvelope>;
 };
 
+type RoomSubscriptionState = {
+  refCount: number;
+  subscribed: boolean;
+  pending: boolean;
+};
+
 export class WebsocketClient {
   private readonly url: string;
   private readonly autoReconnect: boolean;
@@ -214,6 +228,7 @@ export class WebsocketClient {
   private pongDeadlineAt = 0;
   private readonly compactStreamContexts = new Map<string, CompactStreamContext>();
   private readonly patchStreamBuffers = new Map<string, PatchStreamBuffer>();
+  private readonly roomSubscriptions = new Map<RealtimeRoom, RoomSubscriptionState>();
 
   public state: WebsocketClientState = "idle";
   public connectionId: string | null = null;
@@ -354,6 +369,10 @@ export class WebsocketClient {
     this.connectPromise = null;
     this.compactStreamContexts.clear();
     this.patchStreamBuffers.clear();
+    for (const state of this.roomSubscriptions.values()) {
+      state.subscribed = false;
+      state.pending = false;
+    }
   }
 
   async sendCanvasTransaction(input: {
@@ -406,6 +425,52 @@ export class WebsocketClient {
     });
   }
 
+  retainRooms(rooms: readonly string[]) {
+    const normalized = normalizeRealtimeRooms(rooms);
+    if (normalized.length === 0) return () => undefined;
+    for (const room of normalized) {
+      const state = this.roomSubscriptions.get(room) ?? { refCount: 0, subscribed: false, pending: false };
+      state.refCount += 1;
+      this.roomSubscriptions.set(room, state);
+    }
+    this.flushRoomSubscriptions();
+    if (this.state !== "open" && this.state !== "connecting" && this.state !== "reconnecting") {
+      void this.connect()
+        .then(() => this.flushRoomSubscriptions())
+        .catch((error) => this.emit("error", { error, recoverable: true }));
+    }
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const roomsToRelease: RealtimeRoom[] = [];
+      for (const room of normalized) {
+        const state = this.roomSubscriptions.get(room);
+        if (!state) continue;
+        state.refCount -= 1;
+        if (state.refCount > 0) {
+          this.roomSubscriptions.set(room, state);
+          continue;
+        }
+        this.roomSubscriptions.delete(room);
+        if (state.subscribed) roomsToRelease.push(room);
+      }
+      if (roomsToRelease.length === 0) return;
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.send({ type: "unsubscribe", payload: { rooms: roomsToRelease } });
+      }
+    };
+  }
+
+  subscribeRooms(rooms: readonly string[]) {
+    return this.retainRooms(rooms);
+  }
+
+  subscribeSpace(spaceId: string) {
+    return this.retainRooms([getRealtimeSpaceRoom(spaceId)]);
+  }
+
   ack(eventId?: string, requestId?: string) {
     this.send({
       type: "ack",
@@ -442,9 +507,30 @@ export class WebsocketClient {
     const waiter = this.createAuthWaiter();
     this.send({
       type: "auth",
-      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY] },
+      payload: { token, capabilities: [WS_COMPACT_STREAM_CAPABILITY, WS_ROOM_SUBSCRIPTION_CAPABILITY] },
     });
     await waiter.promise;
+    await this.restoreRoomSubscriptions();
+  }
+
+  private flushRoomSubscriptions() {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    const rooms = [...this.roomSubscriptions.entries()]
+      .filter(([, state]) => state.refCount > 0 && !state.subscribed && !state.pending)
+      .map(([room]) => room);
+    if (rooms.length === 0) return;
+    this.send({ type: "subscribe", payload: { rooms } });
+    for (const room of rooms) {
+      const state = this.roomSubscriptions.get(room);
+      if (state) state.pending = true;
+    }
+  }
+
+  private async restoreRoomSubscriptions() {
+    for (const state of this.roomSubscriptions.values()) {
+      state.subscribed = false;
+    }
+    this.flushRoomSubscriptions();
   }
 
   private createAuthWaiter() {
@@ -579,6 +665,41 @@ export class WebsocketClient {
           this.pongDeadlineAt = 0;
         }
         this.emit("pong", { requestId });
+        return;
+      }
+      case "system.subscribe.ok": {
+        const payload = envelope.payload as Record<string, unknown>;
+        const rooms = normalizeRealtimeRooms(Array.isArray(payload.rooms) ? payload.rooms.filter((room): room is string => typeof room === "string") : []);
+        for (const room of rooms) {
+          const state = this.roomSubscriptions.get(room);
+          if (state) {
+            state.subscribed = true;
+            state.pending = false;
+          }
+        }
+        this.emit("subscribed", { rooms, requestId: envelope.requestId ?? null });
+        this.emit("event", envelope);
+        return;
+      }
+      case "system.subscribe.error": {
+        const payload = envelope.payload as Record<string, unknown>;
+        const rejected = Array.isArray(payload.rejected)
+          ? payload.rejected
+              .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+              .map((entry) => ({
+                room: typeof entry.room === "string" ? entry.room : "",
+                code: typeof entry.code === "string" ? entry.code : "UNKNOWN",
+                message: typeof entry.message === "string" ? entry.message : "Subscription failed",
+              }))
+              .filter((entry) => entry.room)
+          : [];
+        for (const item of rejected) {
+          const room = normalizeRealtimeRooms([item.room])[0];
+          if (!room) continue;
+          this.roomSubscriptions.delete(room);
+        }
+        this.emit("subscribeError", { rejected, requestId: envelope.requestId ?? null });
+        this.emit("event", envelope);
         return;
       }
       case "system.ack.ok": {
