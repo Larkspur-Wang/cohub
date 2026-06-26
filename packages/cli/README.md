@@ -61,6 +61,7 @@ cohub spaces prompt -h
 cohub spaces ls --json
 cohub spaces get <spaceId> --json
 cohub spaces create --name "<name>" --description "<description>" --json
+cohub spaces update <spaceId> --slug <space-slug>
 cohub spaces rename <spaceId> "<new name>"
 cohub -s <spaceId> run -- git status
 ```
@@ -177,9 +178,11 @@ Confirm before deleting files or directories.
 
 ## Works
 
-Publish and manage Work entries from a Space workspace.
+Publish and manage Work entries from a Space workspace. Public Work URLs require a username and a Space slug.
 
 ```bash
+cohub profile update --username <username>
+cohub spaces update <spaceId> --slug <space-slug>
 cohub -s <spaceId> works ls --json
 cohub works get <workId> --json
 cohub -s <spaceId> works publish demo --file dist/index.html

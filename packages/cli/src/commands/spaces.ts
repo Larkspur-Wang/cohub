@@ -17,6 +17,12 @@ type ModOptions = {
   yes?: boolean;
 };
 
+type SpaceUpdateOptions = {
+  name?: string;
+  slug?: string;
+  json?: boolean;
+};
+
 type PromptOptions = {
   session?: string;
   title?: string;
@@ -371,6 +377,37 @@ export function registerSpaces(program: Command): void {
           { key: "id", label: "ID" },
           { key: "name", label: "Name" },
           { key: "taskRunId", label: "Task" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  // ── spaces update ──
+  spacesCmd
+    .command("update <id>")
+    .description("Update a space")
+    .option("--name <name>", "Space name")
+    .option("--slug <slug>", "Public space slug")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: SpaceUpdateOptions) => {
+      const input = {
+        name: opts.name,
+        slug: opts.slug,
+      };
+      if (input.name === undefined && input.slug === undefined) {
+        return error("Nothing to update", "Pass --name or --slug.");
+      }
+
+      const client = createClient();
+      try {
+        const result = await client.space(id).update(input);
+        if (jsonRequested(opts)) return outJson(result);
+        ok("Space updated");
+        table([result.space], [
+          { key: "id", label: "ID" },
+          { key: "name", label: "Name" },
+          { key: "slug", label: "Slug" },
         ]);
       } catch (e: unknown) {
         handleHttp(e);
