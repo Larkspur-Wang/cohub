@@ -215,40 +215,51 @@ export function buildTurnTimelineItems(input: {
 		});
 		const isStreamingActiveTurn =
 			hasStreamingState && streamingTurnId === turn.id;
-		if (
-			isStreamingActiveTurn &&
-			input.streaming?.intermediateMessages?.length
-		) {
-			const processIntermediateMessages = input.streaming.intermediateMessages;
+		if (isStreamingActiveTurn) {
+			const processIntermediateMessages =
+				input.streaming?.intermediateMessages ?? [];
 			const liveToolCallCount = processIntermediateMessages.reduce(
 				(count, message) =>
 					count +
 					message.content.filter((block) => block.type === "tool_use").length,
 				0,
 			);
-			const summary = {
-				...(turn.intermediateSummary ?? {}),
-				messageCount: Math.max(
-					turn.intermediateSummary?.messageCount ?? 0,
-					processIntermediateMessages.length,
-				),
-				toolCallCount: Math.max(
-					turn.intermediateSummary?.toolCallCount ?? 0,
-					liveToolCallCount,
-				),
-			} satisfies SessionTurnIntermediateSummary;
-			items.push({
-				id: `${turnRenderKey}:process:streaming`,
-				kind: "process",
-				turn,
-				summary,
-				intermediateMessages: processIntermediateMessages,
-				streaming: true,
-				runtimePhase: input.streaming?.runtimePhase ?? null,
-				runtimeProvider: input.streaming?.runtimeProvider ?? null,
-				runtimeModel: input.streaming?.runtimeModel ?? null,
-			});
+			const showRuntimeStatus =
+				input.streaming?.runtimePhase === "llm_call_started";
+			const showStartingStatus =
+				input.streaming?.status === "pending" &&
+				(input.streaming?.contentBlocks.length ?? 0) === 0;
+			const shouldShowProcess = Boolean(
+				processIntermediateMessages.length > 0 ||
+					(turn.intermediateSummary?.messageCount ?? 0) > 0 ||
+					showRuntimeStatus ||
+					showStartingStatus,
+			);
 			streamingProcessInserted = true;
+			if (shouldShowProcess) {
+				const summary = {
+					...(turn.intermediateSummary ?? {}),
+					messageCount: Math.max(
+						turn.intermediateSummary?.messageCount ?? 0,
+						processIntermediateMessages.length,
+					),
+					toolCallCount: Math.max(
+						turn.intermediateSummary?.toolCallCount ?? 0,
+						liveToolCallCount,
+					),
+				} satisfies SessionTurnIntermediateSummary;
+				items.push({
+					id: `${turnRenderKey}:process:streaming`,
+					kind: "process",
+					turn,
+					summary,
+					intermediateMessages: processIntermediateMessages,
+					streaming: true,
+					runtimePhase: input.streaming?.runtimePhase ?? null,
+					runtimeProvider: input.streaming?.runtimeProvider ?? null,
+					runtimeModel: input.streaming?.runtimeModel ?? null,
+				});
+			}
 		} else if (
 			turn.intermediateSummary &&
 			turn.intermediateSummary.messageCount > 0

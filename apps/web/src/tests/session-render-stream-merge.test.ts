@@ -289,6 +289,63 @@ test("buildTurnTimelineItems keeps streaming intermediate messages after final t
 	);
 });
 
+test("buildTurnTimelineItems keeps active running process streaming when live details are empty", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "running",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: null,
+				assistantText: null,
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: {
+					messageCount: 2,
+					toolCallCount: 1,
+				},
+				meta: null,
+				startedAt: null,
+				durationMs: null,
+				completedAt: null,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			},
+		],
+		streaming: {
+			sessionId: "s1",
+			turnId: "t1",
+			contentBlocks: [{ type: "text", text: "current" }],
+			intermediateMessages: [],
+			status: "streaming",
+		},
+	});
+
+	const process = items.find((item) => item.kind === "process");
+	assert.equal(process?.kind, "process");
+	assert.equal(process?.kind === "process" ? process.streaming : false, true);
+	assert.equal(
+		process?.kind === "process" ? process.summary?.messageCount : 0,
+		2,
+	);
+	assert.deepEqual(
+		process?.kind === "process" ? process.intermediateMessages : null,
+		[],
+	);
+});
+
 test("buildTurnTimelineItems exposes persisted assistant duration metadata", () => {
 	const items = buildTurnTimelineItems({
 		sessionId: "s1",
