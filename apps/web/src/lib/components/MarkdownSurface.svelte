@@ -1,6 +1,7 @@
 <script lang="ts">
 import { onDestroy, onMount } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
+import { insertComposerSnippet } from "$lib/stores/composer-insert";
 
 type MarkdownVariant = "chat" | "document";
 
@@ -123,6 +124,18 @@ onMount(() => {
 
 	function onClick(e: Event) {
 		const target = e.target as HTMLElement;
+		const askOption = target.closest<HTMLButtonElement>(
+			"[data-cohub-ask-option]",
+		);
+		if (askOption) {
+			e.preventDefault();
+			e.stopPropagation();
+			const encodedValue = askOption.dataset.cohubAskValue;
+			if (!encodedValue) return;
+			insertComposerSnippet(`${decodeURIComponent(encodedValue)} `);
+			return;
+		}
+
 		const copyButton = target.closest<HTMLButtonElement>("[data-code-copy]");
 		if (copyButton) {
 			e.preventDefault();

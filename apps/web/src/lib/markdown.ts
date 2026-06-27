@@ -323,9 +323,157 @@ function enhanceMediaPreviewTokens(tokens: Token[]) {
 	}
 }
 
+function getCodeTokenLanguage(token: Token) {
+	if (token.type !== "code" || !("lang" in token) || !token.lang) return null;
+	return token.lang.split(" ")[0]?.toLowerCase() ?? null;
+}
+
 function isMermaidCodeToken(token: Token): token is Tokens.Code {
-	if (token.type !== "code" || !("lang" in token) || !token.lang) return false;
-	return token.lang.split(" ")[0]?.toLowerCase() === "mermaid";
+	return getCodeTokenLanguage(token) === "mermaid";
+}
+
+type CohubAskOption = {
+	label: string;
+	description: string;
+	value?: string;
+	preview?: string;
+};
+
+type CohubAskQuestion = {
+	question: string;
+	header: string;
+	options: CohubAskOption[];
+	multiSelect?: boolean;
+};
+
+type CohubAskBlock = {
+	version?: 1;
+	questions: CohubAskQuestion[];
+	metadata?: Record<string, unknown>;
+};
+
+const COHUB_ASK_LANGUAGES = new Set(["cohub-ask", "ask-user-question"]);
+const MAX_COHUB_ASK_SOURCE_LENGTH = 16_000;
+const MAX_COHUB_ASK_INSERT_LENGTH = 2_000;
+
+function isCohubAskCodeToken(token: Token): token is Tokens.Code {
+	const lang = getCodeTokenLanguage(token);
+	return Boolean(lang && COHUB_ASK_LANGUAGES.has(lang));
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function sanitizeCohubAskText(value: unknown, maxLength: number) {
+	if (typeof value !== "string") return null;
+	const trimmed = value.trim();
+	if (!trimmed || trimmed.length > maxLength) return null;
+	return trimmed;
+}
+
+function parseCohubAskBlock(source: string): CohubAskBlock | null {
+	if (source.length > MAX_COHUB_ASK_SOURCE_LENGTH) return null;
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(source);
+	} catch {
+		return null;
+	}
+
+	if (!isPlainRecord(parsed)) return null;
+	if (parsed.version !== undefined && parsed.version !== 1) return null;
+	if (!Array.isArray(parsed.questions)) return null;
+	if (parsed.questions.length < 1 || parsed.questions.length > 4) return null;
+
+	const seenQuestions = new Set<string>();
+	const questions: CohubAskQuestion[] = [];
+	for (const rawQuestion of parsed.questions) {
+		if (!isPlainRecord(rawQuestion)) return null;
+		const question = sanitizeCohubAskText(rawQuestion.question, 600);
+		const header = sanitizeCohubAskText(rawQuestion.header, 24);
+		if (!question || !header || !Array.isArray(rawQuestion.options))
+			return null;
+		if (seenQuestions.has(question)) return null;
+		seenQuestions.add(question);
+		if (rawQuestion.options.length < 2 || rawQuestion.options.length > 4) {
+			return null;
+		}
+
+		const seenLabels = new Set<string>();
+		const options: CohubAskOption[] = [];
+		for (const rawOption of rawQuestion.options) {
+			if (!isPlainRecord(rawOption)) return null;
+			const label = sanitizeCohubAskText(rawOption.label, 64);
+			const description = sanitizeCohubAskText(rawOption.description, 320);
+			if (!label || !description || seenLabels.has(label)) return null;
+			seenLabels.add(label);
+			const value = sanitizeCohubAskText(
+				rawOption.value ?? rawOption.label,
+				MAX_COHUB_ASK_INSERT_LENGTH,
+			);
+			if (!value) return null;
+			const preview =
+				sanitizeCohubAskText(rawOption.preview, 1_200) ?? undefined;
+			options.push({ label, description, value, preview });
+		}
+
+		questions.push({
+			question,
+			header,
+			options,
+			multiSelect: rawQuestion.multiSelect === true,
+		});
+	}
+
+	return { version: 1, questions };
+}
+
+function renderCohubAskPreviewHtml(source: string) {
+	const block = parseCohubAskBlock(source);
+	if (!block) return null;
+
+	const questionCount = block.questions.length;
+	const questionsHtml = block.questions
+		.map((question) => {
+			const mode = question.multiSelect ? "Multi select" : "Choose one";
+			const optionsHtml = question.options
+				.map((option) => {
+					const encodedValue = encodeURIComponent(option.value ?? option.label);
+					const previewHtml = option.preview
+						? `<details class="markdown-cohub-ask-preview"><summary>Preview</summary><pre class="markdown-cohub-ask-preview-source">${escapeHtml(option.preview)}</pre></details>`
+						: "";
+					return `<li class="markdown-cohub-ask-option-item"><button type="button" class="markdown-cohub-ask-option" data-cohub-ask-option="true" data-cohub-ask-value="${encodedValue}" aria-label="Insert ${escapeHtml(option.label)}"><span class="markdown-cohub-ask-option-label">${escapeHtml(option.label)}</span><span class="markdown-cohub-ask-option-description">${escapeHtml(option.description)}</span></button>${previewHtml}</li>`;
+				})
+				.join("");
+			return `<section class="markdown-cohub-ask-question"><div class="markdown-cohub-ask-question-meta"><span>${escapeHtml(question.header)}</span><span class="markdown-cohub-ask-question-mode">${mode}</span></div><div class="markdown-cohub-ask-question-title">${escapeHtml(question.question)}</div><ol class="markdown-cohub-ask-options">${optionsHtml}</ol></section>`;
+		})
+		.join("");
+
+	return `<figure class="markdown-cohub-ask" data-cohub-ask-version="1"><figcaption class="markdown-cohub-ask-caption"><span>Question</span><span>${questionCount} item${questionCount === 1 ? "" : "s"}</span></figcaption>${questionsHtml}</figure>`;
+}
+
+function enhanceCohubAskTokens(tokens: Token[]) {
+	for (let i = 0; i < tokens.length; i++) {
+		const token = tokens[i];
+		if (isCohubAskCodeToken(token)) {
+			const html = renderCohubAskPreviewHtml(token.text);
+			if (html) {
+				tokens[i] = {
+					type: "html",
+					raw: token.raw,
+					text: html,
+					pre: false,
+				} as Tokens.HTML;
+			}
+			continue;
+		}
+
+		if ("tokens" in token && Array.isArray(token.tokens)) {
+			enhanceCohubAskTokens(token.tokens);
+		}
+	}
 }
 
 const MAX_MERMAID_SOURCE_LENGTH = 12_000;
@@ -437,6 +585,7 @@ async function renderMarkdownHtml(
 		gfm: true,
 	});
 	enhanceMediaPreviewTokens(tokens);
+	enhanceCohubAskTokens(tokens);
 	enhanceMermaidTokens(tokens);
 	if (options?.highlight !== false) await highlightCodeTokens(tokens);
 	return marked.parser(tokens);
