@@ -55,8 +55,8 @@ type SessionStreamSnapshot = {
 const getSnapshotIdentityKey = (
   message: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
 ) => {
-  if (message.messageId) return `message:${message.messageId}`;
   if (message.messageOrdinal != null) return `ordinal:${message.messageOrdinal}`;
+  if (message.messageId) return `message:${message.messageId}`;
   return null;
 };
 

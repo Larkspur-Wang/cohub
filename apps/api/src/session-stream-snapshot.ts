@@ -4,6 +4,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { redisCommandClient } from "./redis.js";
 import { db } from "./db/index.js";
 import { sessionMessages } from "@cohub/db";
+import { mergeSessionStreamSnapshotIntermediates, resolveSnapshotStreamMessageId } from "./session-stream-snapshot-merge.js";
 
 export const getSessionStreamSnapshotKey = (spaceId: string, sessionId: string) =>
   `session:stream:snapshot:${spaceId}:${sessionId}`;
@@ -82,9 +83,16 @@ const toIso = (value: Date | string | null | undefined) =>
 const normalizeRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
-const toSnapshotIntermediateMessage = (row: typeof sessionMessages.$inferSelect, messageOrdinal: number): EnrichedSessionStreamSnapshotMessage => ({
-  messageId: row.id,
-  messageOrdinal,
+const toSnapshotIntermediateMessage = (
+  row: typeof sessionMessages.$inferSelect,
+  input: { messageOrdinal: number; turnId: string },
+): EnrichedSessionStreamSnapshotMessage => ({
+  messageId: resolveSnapshotStreamMessageId({
+    sessionId: row.sessionId,
+    turnId: input.turnId,
+    messageOrdinal: input.messageOrdinal,
+  }),
+  messageOrdinal: input.messageOrdinal,
   id: row.id,
   sessionId: row.sessionId,
   role: row.role as "user" | "assistant" | "system",
@@ -100,23 +108,6 @@ const toSnapshotIntermediateMessage = (row: typeof sessionMessages.$inferSelect,
   createdAt: toIso(row.createdAt),
 });
 
-const getSnapshotMessageKey = (message: Pick<EnrichedSessionStreamSnapshotMessage, "messageId" | "messageOrdinal">) => {
-  if (message.messageId) return `id:${message.messageId}`;
-  if (message.messageOrdinal != null) return `ordinal:${message.messageOrdinal}`;
-  return null;
-};
-
-const mergeSnapshotMessage = (
-  snapshotMessage: EnrichedSessionStreamSnapshotMessage,
-  persistedMessage: EnrichedSessionStreamSnapshotMessage,
-): EnrichedSessionStreamSnapshotMessage => ({
-  ...snapshotMessage,
-  ...persistedMessage,
-  messageId: snapshotMessage.messageId ?? persistedMessage.messageId,
-  messageOrdinal: snapshotMessage.messageOrdinal ?? persistedMessage.messageOrdinal,
-  content: persistedMessage.content,
-});
-
 const listPersistedIntermediateMessages = async (input: { sessionId: string; turnId: string }) => {
   const rows = await db.select().from(sessionMessages).where(and(
     eq(sessionMessages.sessionId, input.sessionId),
@@ -124,31 +115,20 @@ const listPersistedIntermediateMessages = async (input: { sessionId: string; tur
     sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`,
     sql`coalesce(${sessionMessages.meta}->>'messageKind', '') not in ('assistant_final', 'assistant_error')`,
   )).orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
-  return rows.map(toSnapshotIntermediateMessage);
+  return rows.map((row, index) => toSnapshotIntermediateMessage(row, { messageOrdinal: index, turnId: input.turnId }));
 };
 
 const enrichSessionStreamSnapshot = async (snapshot: SessionStreamSnapshot): Promise<SessionStreamSnapshot> => {
   if (!snapshot.turnId) return snapshot;
   const persisted = await listPersistedIntermediateMessages({ sessionId: snapshot.sessionId, turnId: snapshot.turnId }).catch(() => []);
-  if (persisted.length === 0) return snapshot;
 
-  const persistedByKey = new Map(
-    persisted
-      .map((message) => [getSnapshotMessageKey(message), message] as const)
-      .filter((entry): entry is [string, EnrichedSessionStreamSnapshotMessage] => Boolean(entry[0])),
-  );
-  const usedPersisted = new Set<EnrichedSessionStreamSnapshotMessage>();
-  const merged = snapshot.intermediateMessages.map((message, index) => {
-    const key = getSnapshotMessageKey(message);
-    const persistedMessage = (key ? persistedByKey.get(key) : undefined) ?? persisted[index];
-    if (!persistedMessage) return message;
-    usedPersisted.add(persistedMessage);
-    return mergeSnapshotMessage(message, persistedMessage);
-  });
-  for (const message of persisted) {
-    if (!usedPersisted.has(message)) merged.push(message);
-  }
-  return { ...snapshot, intermediateMessages: merged };
+  return {
+    ...snapshot,
+    intermediateMessages: mergeSessionStreamSnapshotIntermediates(
+      snapshot.intermediateMessages,
+      persisted,
+    ),
+  };
 };
 
 export const getSessionStreamSnapshot = async (input: { spaceId: string; sessionId: string }) => {

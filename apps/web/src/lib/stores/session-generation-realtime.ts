@@ -104,10 +104,10 @@ function normalizeIntermediateMessages(
 }
 
 function getIntermediateMessageKey(message: StreamingIntermediateMessage) {
-	if (message.messageId) return `message:${message.messageId}`;
-	if (message.id) return `id:${message.id}`;
 	if (message.messageOrdinal != null)
 		return `ordinal:${message.messageOrdinal}`;
+	if (message.messageId) return `message:${message.messageId}`;
+	if (message.id) return `id:${message.id}`;
 	try {
 		return `content:${JSON.stringify(message.content)}`;
 	} catch {

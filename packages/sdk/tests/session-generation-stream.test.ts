@@ -147,6 +147,49 @@ test("generation subscriptions compact duplicate keyless snapshot intermediates"
 	assert.equal(intermediateCount, 1);
 });
 
+test("generation subscriptions compact snapshot intermediates by ordinal", async () => {
+	const websocket = new WebsocketClient({
+		url: "ws://localhost",
+		getAccessToken: () => "token",
+	});
+	websocket.state = "open";
+	const generation = new SessionGenerationStreamClient(
+		websocket,
+		"space-1",
+		"session-1",
+	);
+	const snapshot = createSnapshot().snapshot;
+	snapshot.intermediateMessages = [
+		{
+			messageId: "turn:turn-1:assistant:0",
+			messageOrdinal: 0,
+			content: [{ type: "text", text: "synthetic" }],
+		},
+		{
+			messageId: "db-message-1",
+			messageOrdinal: 0,
+			content: [{ type: "text", text: "db" }],
+		},
+	];
+
+	let intermediateMessages: Array<{ content: unknown[] }> = [];
+	const stop = generation.subscribe(
+		{
+			state: (event) => {
+				intermediateMessages = event.intermediateMessages;
+			},
+		},
+		{ initialSnapshot: snapshot },
+	);
+	await delay(0);
+	stop();
+
+	assert.equal(intermediateMessages.length, 1);
+	assert.deepEqual(intermediateMessages[0]?.content, [
+		{ type: "text", text: "db" },
+	]);
+});
+
 test("generation subscriptions can seed from a snapshot and replay buffered patches", async () => {
 	const websocket = new WebsocketClient({
 		url: "ws://localhost",
