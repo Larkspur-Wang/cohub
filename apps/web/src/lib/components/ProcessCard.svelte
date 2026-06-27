@@ -63,7 +63,7 @@ const effectiveMessages = $derived(
 const expandedMessages = $derived(effectiveMessages);
 
 async function ensureLoaded() {
-	if (streaming && liveIntermediateMessages) return;
+	if (streaming && liveIntermediateMessages?.length) return;
 	if (!onLoadIntermediate) return;
 	if (loadedIntermediateMessages) return;
 	loading = true;

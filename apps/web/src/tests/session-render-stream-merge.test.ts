@@ -340,9 +340,9 @@ test("buildTurnTimelineItems keeps active running process streaming when live de
 		process?.kind === "process" ? process.summary?.messageCount : 0,
 		2,
 	);
-	assert.deepEqual(
+	assert.equal(
 		process?.kind === "process" ? process.intermediateMessages : null,
-		[],
+		undefined,
 	);
 });
 

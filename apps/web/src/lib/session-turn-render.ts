@@ -253,7 +253,10 @@ export function buildTurnTimelineItems(input: {
 					kind: "process",
 					turn,
 					summary,
-					intermediateMessages: processIntermediateMessages,
+					intermediateMessages:
+						processIntermediateMessages.length > 0
+							? processIntermediateMessages
+							: undefined,
 					streaming: true,
 					runtimePhase: input.streaming?.runtimePhase ?? null,
 					runtimeProvider: input.streaming?.runtimeProvider ?? null,
