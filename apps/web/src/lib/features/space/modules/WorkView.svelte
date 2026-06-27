@@ -53,6 +53,13 @@ const workVersionsLoading = $derived(workDetailController.versionsLoading);
 const workVersionsError = $derived(workDetailController.versionsError);
 const workPublishSubmitting = $derived(workDetailController.publishSubmitting);
 const workPublishError = $derived(workDetailController.publishError);
+const workHideCohubBar = $derived(
+	workDetail?.meta?.presentation?.hideCohubBar === true,
+);
+const workCanToggleHideCohubBar = $derived(
+	workDetailController.hideCohubBarAllowed ||
+		workDetailController.formHideCohubBar,
+);
 
 $effect(() => {
 	workDetailController.syncRoute();
@@ -154,6 +161,21 @@ onDestroy(() => {
                   <option value="disabled">Disabled</option>
                 </select>
               </div>
+              <div class="space-y-1.5">
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Presentation</div>
+                <label class="flex min-h-11 gap-3 rounded-[6px] border border-border-subtle bg-bg-elevated/25 px-3 py-2.5 text-text-secondary transition-colors hover:border-border-default hover:bg-bg-elevated/40" class:opacity-60={!workCanToggleHideCohubBar}>
+                  <input type="checkbox" bind:checked={workDetailController.formHideCohubBar} disabled={!workCanToggleHideCohubBar || workDetailController.hideCohubBarLoading} class="mt-0.5" />
+                  <span class="min-w-0">
+                    <span class="block text-[12px] text-text-primary">Hide Cohub bar</span>
+                    <span class="block text-[11px] leading-5 text-text-placeholder">Remove the Cohub footer from the public page.</span>
+                  </span>
+                </label>
+                {#if workDetailController.hideCohubBarLoading}
+                  <div class="text-[11px] text-text-tertiary">Checking availability…</div>
+                {:else if !workDetailController.hideCohubBarAllowed}
+                  <div class="text-[11px] text-text-tertiary">Included with Pro and Max.</div>
+                {/if}
+              </div>
             </div>
             <aside class="space-y-5 text-[13px]">
               <div class="space-y-3">
@@ -226,7 +248,7 @@ onDestroy(() => {
                 <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{workPublishError}</div>
               {/if}
             </section>
-            <section class="grid gap-3 sm:grid-cols-2">
+            <section class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px]">
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
                 <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Work permissions</div>
                 <div class="mt-1 text-[13px] text-text-primary">{workDetail.workScopes.length ? workDetail.workScopes.join(', ') : 'None'}</div>
@@ -234,6 +256,13 @@ onDestroy(() => {
               <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
                 <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Viewer grants</div>
                 <div class="mt-1 text-[13px] text-text-primary">{workDetail.allowedViewerScopes.length ? workDetail.allowedViewerScopes.join(', ') : 'None'}</div>
+              </div>
+              <div class="rounded-[7px] bg-bg-elevated/30 px-3 py-2.5">
+                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Cohub bar</div>
+                <div class="mt-1 inline-flex items-center gap-1.5 text-[13px] text-text-primary">
+                  <span class="h-1.5 w-1.5 rounded-full {workHideCohubBar ? 'bg-text-placeholder' : 'bg-status-running'}"></span>
+                  <span>{workHideCohubBar ? 'Hidden' : 'Shown'}</span>
+                </div>
               </div>
             </section>
           </div>

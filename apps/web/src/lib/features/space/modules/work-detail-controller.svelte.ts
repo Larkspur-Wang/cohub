@@ -1,4 +1,4 @@
-import type { WorkRecord, WorkVersionRecord } from "@neta-art/cohub";
+import type { WorkMeta, WorkRecord, WorkVersionRecord } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
@@ -12,6 +12,39 @@ import {
 
 export type WorkTargetType = "file" | "directory" | "port";
 export type WorkStatus = "draft" | "published" | "disabled";
+
+const WORK_HIDE_COHUB_BAR_FEATURE = "work.publish.hide_cohub_bar";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+function getHideCohubBar(meta: WorkMeta | null | undefined) {
+	return (
+		isRecord(meta?.presentation) && meta.presentation.hideCohubBar === true
+	);
+}
+
+function buildWorkMeta(
+	currentMeta: WorkMeta | null | undefined,
+	hideCohubBar: boolean,
+): WorkMeta | null {
+	const meta: WorkMeta = isRecord(currentMeta) ? { ...currentMeta } : {};
+	const presentation: NonNullable<WorkMeta["presentation"]> &
+		Record<string, unknown> = isRecord(meta.presentation)
+		? { ...meta.presentation }
+		: {};
+	if (hideCohubBar) {
+		presentation.hideCohubBar = true;
+	} else {
+		delete presentation.hideCohubBar;
+	}
+	if (Object.keys(presentation).length) {
+		meta.presentation = presentation;
+	} else {
+		delete meta.presentation;
+	}
+	return Object.keys(meta).length ? meta : null;
+}
 
 export function createWorkDetailController(options: {
 	getSpaceId: () => string;
@@ -30,6 +63,9 @@ export function createWorkDetailController(options: {
 	let formTargetType = $state<WorkTargetType>("file");
 	let formTargetRef = $state("");
 	let formStatus = $state<WorkStatus>("published");
+	let formHideCohubBar = $state(false);
+	let hideCohubBarAllowed = $state(false);
+	let hideCohubBarLoading = $state(false);
 	let formScopes = $state<Record<string, boolean>>({});
 	let formViewerScopes = $state<Record<string, boolean>>({});
 	let formSubmitting = $state(false);
@@ -55,6 +91,7 @@ export function createWorkDetailController(options: {
 		formTargetType = detail.targetType;
 		formTargetRef = detail.targetRef;
 		formStatus = detail.status;
+		formHideCohubBar = getHideCohubBar(detail.meta);
 		formScopes = scopeState(detail.workScopes, WORK_SCOPE_OPTIONS);
 		formViewerScopes = scopeState(
 			detail.allowedViewerScopes,
@@ -64,6 +101,25 @@ export function createWorkDetailController(options: {
 		publishTargetType = detail.targetType;
 		publishTargetRef = detail.targetRef;
 		publishError = "";
+	}
+
+	async function loadHideCohubBarEntitlement() {
+		const stateKey = routeStateKey;
+		hideCohubBarLoading = true;
+		try {
+			const { enabled } = await sdk.billing.getFeatureEntitlement(
+				WORK_HIDE_COHUB_BAR_FEATURE,
+			);
+			if (routeStateKey !== stateKey) return;
+			hideCohubBarAllowed = enabled;
+			if (!enabled && !getHideCohubBar(detail?.meta)) formHideCohubBar = false;
+		} catch {
+			if (routeStateKey !== stateKey) return;
+			hideCohubBarAllowed = false;
+			if (!getHideCohubBar(detail?.meta)) formHideCohubBar = false;
+		} finally {
+			if (routeStateKey === stateKey) hideCohubBarLoading = false;
+		}
 	}
 
 	function notifyWorksUpdated() {
@@ -96,6 +152,7 @@ export function createWorkDetailController(options: {
 			detail = work;
 			notify(work);
 			syncFormFromDetail();
+			void loadHideCohubBarEntitlement();
 			void loadVersions(work.id);
 		} catch (cause) {
 			if (!isCurrentRequest()) return;
@@ -245,6 +302,7 @@ export function createWorkDetailController(options: {
 					formViewerScopes,
 					WORK_VIEWER_SCOPE_OPTIONS,
 				),
+				meta: buildWorkMeta(detail.meta, formHideCohubBar),
 			});
 			detail = work;
 			notify(work);
@@ -269,6 +327,8 @@ export function createWorkDetailController(options: {
 		actionInProgress = false;
 		deleteInProgress = false;
 		formError = "";
+		hideCohubBarAllowed = false;
+		hideCohubBarLoading = false;
 		publishError = "";
 	}
 
@@ -336,6 +396,18 @@ export function createWorkDetailController(options: {
 		},
 		set formStatus(value: WorkStatus) {
 			formStatus = value;
+		},
+		get formHideCohubBar() {
+			return formHideCohubBar;
+		},
+		set formHideCohubBar(value: boolean) {
+			formHideCohubBar = value;
+		},
+		get hideCohubBarAllowed() {
+			return hideCohubBarAllowed;
+		},
+		get hideCohubBarLoading() {
+			return hideCohubBarLoading;
 		},
 		get formScopes() {
 			return formScopes;
