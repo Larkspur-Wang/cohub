@@ -1,6 +1,6 @@
 import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 function getCacheKey(spaceId: string) {
 	return `cohub:space-prompt-templates:${spaceId}:v${CACHE_VERSION}`;
@@ -15,7 +15,10 @@ function isPromptTemplate(value: unknown): value is PromptTemplateCatalogEntry {
 		(record.argumentHint === undefined ||
 			typeof record.argumentHint === "string") &&
 		(record.category === undefined || typeof record.category === "string") &&
-		record.scope === "platform"
+		(record.scope === "platform" ||
+			record.scope === "mod" ||
+			record.scope === "user" ||
+			record.scope === "project")
 	);
 }
 

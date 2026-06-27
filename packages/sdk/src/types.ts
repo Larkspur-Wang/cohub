@@ -744,7 +744,7 @@ export type PromptTemplateCatalogEntry = {
   description: string;
   argumentHint?: string;
   category?: string;
-  scope: "platform";
+  scope: "platform" | "mod" | "user" | "project";
 };
 
 export type PromptTemplateCatalogResponse = {

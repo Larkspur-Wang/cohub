@@ -1,11 +1,13 @@
 export const PROMPTS_REDIS_KEY_VERSION = "v1";
 export const PLATFORM_PROMPTS_REDIS_KEY = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:platform`;
 export const USER_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:user`;
+export const MOD_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:mod`;
+export const SPACE_MOD_PROMPTS_REDIS_KEY_PREFIX = `configs:prompts:${PROMPTS_REDIS_KEY_VERSION}:space-mods`;
 export const PROMPTS_CACHE_TTL_SEC = 24 * 60 * 60;
 
 const SAFE_REDIS_KEY_SEGMENT_REGEX = /^[0-9a-zA-Z_-]+$/;
 
-export type PromptTemplateScope = "platform" | "user" | "project";
+export type PromptTemplateScope = "platform" | "mod" | "user" | "project";
 
 export type PromptTemplate = {
   name: string;
@@ -48,13 +50,21 @@ export function getUserPromptsRedisKey(userId: string): string {
   return `${USER_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(userId, "userId")}`;
 }
 
+export function getModPromptsRedisKey(modSpaceId: string, revision: string): string {
+  return `${MOD_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(modSpaceId, "modSpaceId")}:${createFastContentHash(revision)}`;
+}
+
+export function getSpaceModPromptsRedisKey(spaceId: string, fingerprint: string): string {
+  return `${SPACE_MOD_PROMPTS_REDIS_KEY_PREFIX}:${assertSafeRedisKeySegment(spaceId, "spaceId")}:${createFastContentHash(fingerprint)}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 export function isPromptTemplate(value: unknown): value is PromptTemplate {
   if (!isRecord(value)) return false;
-  if (value.scope !== "platform" && value.scope !== "user" && value.scope !== "project") return false;
+  if (value.scope !== "platform" && value.scope !== "mod" && value.scope !== "user" && value.scope !== "project") return false;
   return typeof value.name === "string"
     && typeof value.description === "string"
     && typeof value.content === "string"

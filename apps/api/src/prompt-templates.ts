@@ -1,7 +1,9 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import {
   createCachedPromptTemplatesConfig,
+  getModPromptsRedisKey,
+  getSpaceModPromptsRedisKey,
   getUserPromptsRedisKey,
   mergePromptTemplatesConfigs,
   parseCachedPromptTemplatesConfig,
@@ -13,7 +15,9 @@ import {
   type PromptTemplatesConfig,
   type PromptTemplateScope,
 } from "@cohub/infra/config-runtime/prompts";
+import { getSpaceModMountSignature, listEnabledSpaceMods } from "@cohub/core/space-mods";
 import { config } from "./config.js";
+import { db } from "./db/index.js";
 import { redisCommandClient } from "./redis.js";
 
 export type { PromptTemplateCatalogEntry } from "@cohub/infra/config-runtime/prompts";
@@ -31,6 +35,7 @@ export type LoadPromptTemplatesOptions = {
 };
 
 const PROMPTS_DIR = ".agents/prompts";
+const CHECKPOINT_META_PATH = ".cohub/system/checkpoint-meta.v1.json";
 const PROJECT_PROMPTS_CACHE_KEY_PREFIX = "configs:prompts:v1:project";
 
 const inflightByCacheKey = new Map<string, Promise<PromptTemplatesConfig | null>>();
@@ -47,8 +52,31 @@ function getProjectPromptsDir(spaceId: string) {
   return resolve(config.spaceStorageRoot, spaceId, "workspace", PROMPTS_DIR);
 }
 
+function getModLatestDir(modSpaceId: string) {
+  return resolve(config.checkpointCacheRoot, modSpaceId, "latest");
+}
+
+function getModPromptsDir(modSpaceId: string) {
+  return resolve(getModLatestDir(modSpaceId), PROMPTS_DIR);
+}
+
 function getProjectPromptsRedisKey(spaceId: string) {
   return `${PROJECT_PROMPTS_CACHE_KEY_PREFIX}:${spaceId}`;
+}
+
+async function getDirectoryRevision(dir: string): Promise<string> {
+  for (const path of [join(dir, CHECKPOINT_META_PATH), dir]) {
+    try {
+      const stats = await stat(path);
+      return `${path}:${Math.trunc(stats.mtimeMs)}:${stats.size}`;
+    } catch (error) {
+      const code = typeof error === "object" && error !== null && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : undefined;
+      if (code !== "ENOENT") throw error;
+    }
+  }
+  return `${dir}:missing`;
 }
 
 function parseFrontmatter(markdown: string): {
@@ -160,6 +188,39 @@ async function loadCachedPrompts(input: {
   }
 }
 
+async function loadSpaceModPrompts(spaceId: string): Promise<PromptTemplatesConfig | null> {
+  const mods = await listEnabledSpaceMods(db, spaceId);
+  if (mods.length === 0) return null;
+
+  const signature = getSpaceModMountSignature(mods);
+  const sources = await Promise.all(mods.map(async (mod) => ({
+    mod,
+    promptsDir: getModPromptsDir(mod.modSpaceId),
+    revision: await getDirectoryRevision(getModLatestDir(mod.modSpaceId)),
+  })));
+  const aggregateKey = getSpaceModPromptsRedisKey(
+    spaceId,
+    JSON.stringify({ signature, revisions: sources.map((source) => [source.mod.modSpaceId, source.revision]) }),
+  );
+
+  const cached = await redisCommandClient.get(aggregateKey).catch(() => null);
+  if (cached) {
+    const parsed = parseCachedPromptTemplatesConfig(cached);
+    if (parsed) return parsed.content;
+  }
+
+  const configs = await Promise.all(sources.map((source) => loadCachedPrompts({
+    redisKey: getModPromptsRedisKey(source.mod.modSpaceId, source.revision),
+    dir: source.promptsDir,
+    scope: "mod",
+    allowMissing: true,
+  })));
+  const content = mergePromptTemplatesConfigs(...configs);
+  const aggregate = createCachedPromptTemplatesConfig({ rawText: aggregateKey, content });
+  await redisCommandClient.set(aggregateKey, JSON.stringify(aggregate), "EX", PROMPTS_CACHE_TTL_SEC).catch(() => undefined);
+  return content;
+}
+
 async function fetchPromptTemplates(options: LoadPromptTemplatesOptions): Promise<PromptTemplate[]> {
   const platformPrompts = await loadCachedPrompts({
     redisKey: PLATFORM_PROMPTS_REDIS_KEY,
@@ -169,6 +230,10 @@ async function fetchPromptTemplates(options: LoadPromptTemplatesOptions): Promis
   });
 
   const configs: Array<PromptTemplatesConfig | null> = [platformPrompts];
+
+  if (options.spaceId) {
+    configs.push(await loadSpaceModPrompts(options.spaceId));
+  }
 
   if (options.userId) {
     configs.push(await loadCachedPrompts({

@@ -100,7 +100,7 @@ export type PromptTemplateUsageMeta = {
   description: string;
   argumentHint: string | null;
   category: string | null;
-  scope: "platform" | "user" | "project";
+  scope: "platform" | "mod" | "user" | "project";
   rawInput: string;
   args: string[];
 };
@@ -144,7 +144,7 @@ export type ExpandedPromptTemplate = {
     description: string;
     argumentHint?: string | null;
     category?: string | null;
-    scope: "platform" | "user" | "project";
+    scope: "platform" | "mod" | "user" | "project";
   };
   args: string[];
   rawInput: string;
