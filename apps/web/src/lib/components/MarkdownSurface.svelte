@@ -122,17 +122,70 @@ onMount(() => {
 	const el = markdownEl;
 	if (!el) return;
 
+	function getAskOption(target: EventTarget | null) {
+		return target instanceof HTMLElement
+			? target.closest<HTMLButtonElement>("[data-cohub-ask-option]")
+			: null;
+	}
+
+	function getAskOptionValue(option: HTMLButtonElement) {
+		const encodedValue = option.dataset.cohubAskValue;
+		return encodedValue ? decodeURIComponent(encodedValue) : "";
+	}
+
+	function setAskOptionPressed(option: HTMLButtonElement, pressed: boolean) {
+		option.setAttribute("aria-pressed", pressed ? "true" : "false");
+	}
+
+	function buildMultiSelectSnippet(questionEl: HTMLElement) {
+		return Array.from(
+			questionEl.querySelectorAll<HTMLButtonElement>(
+				'[data-cohub-ask-option][aria-pressed="true"]',
+			),
+		)
+			.map(getAskOptionValue)
+			.filter(Boolean)
+			.join("\n");
+	}
+
+	function onPointerDown(e: Event) {
+		if (!getAskOption(e.target)) return;
+		// Pointer clicks should not steal composer focus on mobile.
+		e.preventDefault();
+	}
+
 	function onClick(e: Event) {
 		const target = e.target as HTMLElement;
-		const askOption = target.closest<HTMLButtonElement>(
-			"[data-cohub-ask-option]",
-		);
+		const askOption = getAskOption(e.target);
 		if (askOption) {
 			e.preventDefault();
 			e.stopPropagation();
-			const encodedValue = askOption.dataset.cohubAskValue;
-			if (!encodedValue) return;
-			insertComposerSnippet(`${decodeURIComponent(encodedValue)} `);
+			const questionEl = askOption.closest<HTMLElement>(
+				"[data-cohub-ask-question]",
+			);
+			const questionKey = askOption.dataset.cohubAskKey;
+			const replacementKey = questionKey
+				? `cohub-ask:${questionKey}`
+				: undefined;
+			const isMultiSelect = askOption.dataset.cohubAskMulti === "true";
+			if (isMultiSelect && questionEl) {
+				const nextPressed = askOption.getAttribute("aria-pressed") !== "true";
+				setAskOptionPressed(askOption, nextPressed);
+				insertComposerSnippet(buildMultiSelectSnippet(questionEl), {
+					focus: false,
+					replacementKey,
+				});
+				return;
+			}
+
+			questionEl
+				?.querySelectorAll<HTMLButtonElement>("[data-cohub-ask-option]")
+				.forEach((option) => {
+					setAskOptionPressed(option, option === askOption);
+				});
+			const value = getAskOptionValue(askOption);
+			if (!value) return;
+			insertComposerSnippet(value, { focus: false, replacementKey });
 			return;
 		}
 
@@ -171,6 +224,7 @@ onMount(() => {
 		}
 	}
 
+	el.addEventListener("pointerdown", onPointerDown);
 	el.addEventListener("click", onClick);
 	themeObserver = new MutationObserver(() => resetMermaidDiagrams());
 	themeObserver.observe(document.documentElement, {
@@ -178,6 +232,7 @@ onMount(() => {
 	});
 
 	return () => {
+		el.removeEventListener("pointerdown", onPointerDown);
 		el.removeEventListener("click", onClick);
 		themeObserver?.disconnect();
 		themeObserver = null;

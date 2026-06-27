@@ -434,24 +434,25 @@ function renderCohubAskPreviewHtml(source: string) {
 	const block = parseCohubAskBlock(source);
 	if (!block) return null;
 
-	const questionCount = block.questions.length;
 	const questionsHtml = block.questions
 		.map((question) => {
 			const mode = question.multiSelect ? "Multi select" : "Choose one";
+			const encodedQuestionKey = encodeURIComponent(question.question);
+			const multiSelect = question.multiSelect ? "true" : "false";
 			const optionsHtml = question.options
 				.map((option) => {
 					const encodedValue = encodeURIComponent(option.value ?? option.label);
 					const previewHtml = option.preview
 						? `<details class="markdown-cohub-ask-preview"><summary>Preview</summary><pre class="markdown-cohub-ask-preview-source">${escapeHtml(option.preview)}</pre></details>`
 						: "";
-					return `<li class="markdown-cohub-ask-option-item"><button type="button" class="markdown-cohub-ask-option" data-cohub-ask-option="true" data-cohub-ask-value="${encodedValue}" aria-label="Insert ${escapeHtml(option.label)}"><span class="markdown-cohub-ask-option-label">${escapeHtml(option.label)}</span><span class="markdown-cohub-ask-option-description">${escapeHtml(option.description)}</span></button>${previewHtml}</li>`;
+					return `<li class="markdown-cohub-ask-option-item"><button type="button" class="markdown-cohub-ask-option" data-cohub-ask-option="true" data-cohub-ask-key="${encodedQuestionKey}" data-cohub-ask-multi="${multiSelect}" data-cohub-ask-value="${encodedValue}" aria-pressed="false" aria-label="Insert ${escapeHtml(option.label)}"><span class="markdown-cohub-ask-option-label">${escapeHtml(option.label)}</span><span class="markdown-cohub-ask-option-description">${escapeHtml(option.description)}</span></button>${previewHtml}</li>`;
 				})
 				.join("");
-			return `<section class="markdown-cohub-ask-question"><div class="markdown-cohub-ask-question-meta"><span>${escapeHtml(question.header)}</span><span class="markdown-cohub-ask-question-mode">${mode}</span></div><div class="markdown-cohub-ask-question-title">${escapeHtml(question.question)}</div><ol class="markdown-cohub-ask-options">${optionsHtml}</ol></section>`;
+			return `<section class="markdown-cohub-ask-question" data-cohub-ask-question="true" data-cohub-ask-key="${encodedQuestionKey}"><div class="markdown-cohub-ask-question-meta"><span>${escapeHtml(question.header)}</span><span class="markdown-cohub-ask-question-mode">${mode}</span></div><div class="markdown-cohub-ask-question-title">${escapeHtml(question.question)}</div><ol class="markdown-cohub-ask-options">${optionsHtml}</ol></section>`;
 		})
 		.join("");
 
-	return `<figure class="markdown-cohub-ask" data-cohub-ask-version="1"><figcaption class="markdown-cohub-ask-caption"><span>Question</span><span>${questionCount} item${questionCount === 1 ? "" : "s"}</span></figcaption>${questionsHtml}</figure>`;
+	return `<figure class="markdown-cohub-ask" data-cohub-ask-version="1">${questionsHtml}</figure>`;
 }
 
 function enhanceCohubAskTokens(tokens: Token[]) {

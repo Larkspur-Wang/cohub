@@ -135,6 +135,10 @@ let voicePartialText = $state("");
 let isVoiceRecording = $state(false);
 let isVoiceStarting = $state(false);
 let voiceError = $state<string | null>(null);
+const composerInsertRanges = new Map<
+	string,
+	{ start: number; end: number; text: string }
+>();
 
 const hasDraft = $derived(Boolean(value.trim() || attachments.length > 0));
 const showAbort = $derived(Boolean(isRunning && !hasDraft));
@@ -574,22 +578,38 @@ function handlePathDragLeave() {
 	isPathDragOver = false;
 }
 
-function insertSnippet(snippet: string) {
-	if (!textareaEl) {
-		const start = value.length;
-		value = `${value}${snippet}`;
-		return { start, end: value.length };
-	}
-	const start = textareaEl.selectionStart;
-	const end = textareaEl.selectionEnd;
+function insertSnippet(
+	snippet: string,
+	options: { focus?: boolean; replacementKey?: string } = {},
+) {
+	const replacement = options.replacementKey
+		? composerInsertRanges.get(options.replacementKey)
+		: null;
+	const canReplace = Boolean(
+		replacement &&
+			value.slice(replacement.start, replacement.end) === replacement.text,
+	);
+	const start = canReplace
+		? (replacement?.start ?? value.length)
+		: (textareaEl?.selectionStart ?? value.length);
+	const end = canReplace
+		? (replacement?.end ?? start)
+		: (textareaEl?.selectionEnd ?? start);
+
 	value = value.slice(0, start) + snippet + value.slice(end);
+	const range = { start, end: start + snippet.length, text: snippet };
+	if (options.replacementKey) {
+		if (snippet) composerInsertRanges.set(options.replacementKey, range);
+		else composerInsertRanges.delete(options.replacementKey);
+	}
+
 	requestAnimationFrame(() => {
 		const pos = start + snippet.length;
 		textareaEl?.setSelectionRange(pos, pos);
-		textareaEl?.focus();
+		if (options.focus !== false) textareaEl?.focus();
 		resizeTextarea();
 	});
-	return { start, end: start + snippet.length };
+	return range;
 }
 
 function focusComposer() {
@@ -668,10 +688,17 @@ function handlePaste(event: ClipboardEvent) {
 onMount(() => {
 	if (mobileAutoFocusOnMount || !isMobile()) focusComposer();
 	const handleComposerInsert = (event: Event) => {
-		const custom = event as CustomEvent<{ snippet?: string }>;
+		const custom = event as CustomEvent<{
+			snippet?: string;
+			focus?: boolean;
+			replacementKey?: string;
+		}>;
 		const snippet = custom.detail?.snippet;
-		if (!snippet) return;
-		insertSnippet(snippet);
+		if (snippet === undefined) return;
+		insertSnippet(snippet, {
+			focus: custom.detail.focus,
+			replacementKey: custom.detail.replacementKey,
+		});
 	};
 	const handleFocusComposer = () => focusComposer();
 	const handleViewportResize = () => resizeTextarea();
