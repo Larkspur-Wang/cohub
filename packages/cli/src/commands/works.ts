@@ -74,6 +74,14 @@ function printWork(work: Record<string, unknown>): void {
   ]);
 }
 
+function printWorkUrls(result: { publicUrl?: string | null; content?: { url: string } | null }): void {
+  const lines = [
+    result.publicUrl ? `Public URL: ${result.publicUrl}` : null,
+    result.content?.url ? `Content URL: ${result.content.url}` : null,
+  ].filter((line): line is string => Boolean(line));
+  if (lines.length) console.log(`\n${lines.join("\n")}`);
+}
+
 async function confirmDelete(opts: { yes?: boolean }): Promise<void> {
   if (opts.yes) return;
   if (!process.stdin.isTTY || !process.stdout.isTTY) return error("Confirmation required", "Pass --yes to delete the work.");
@@ -153,6 +161,7 @@ export function registerWorks(program: Command): void {
         const result = await client.works.get(id);
         if (jsonRequested(opts)) return outJson(result);
         printWork(result.work);
+        printWorkUrls(result);
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -172,7 +181,7 @@ export function registerWorks(program: Command): void {
         const result = await client.works.getBySlug(opts.owner.trim(), opts.spaceSlug.trim(), workSlug);
         if (jsonRequested(opts)) return outJson(result);
         printWork(result.work);
-        if (result.content?.url) console.log(`\nURL: ${result.content.url}`);
+        printWorkUrls(result);
       } catch (e: unknown) {
         handleHttp(e);
       }

@@ -986,6 +986,7 @@ router.patch("/:id", async (c) => {
   if (body.slug !== undefined) {
     const { slug, error: slugError } = normalizeSpaceSlug(body.slug);
     if (slugError) return c.json({ message: slugError }, 400);
+    if (!slug && space.slug) return c.json({ message: "space slug cannot be cleared once set" }, 400);
     if (slug !== space.slug) updates.slug = slug;
   }
 

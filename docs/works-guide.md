@@ -153,7 +153,11 @@ The example app in `docs/work-capability-lab/` demonstrates runtime context, tok
 
 The SDK exposes `works.create`, `works.update`, `works.delete`, `works.get`, `works.getBySlug`, and `works.listBySpace`.
 
-Before creating a publicly addressable Work through the API, make sure the owner has a username and the Space has a slug. The API rejects published Works when either public identity part is missing.
+`works.get(workId)` returns the Work record plus `publicUrl`, `content`, `owner`, and `space` when the Work can be publicly resolved.
+
+Before creating a Work through the API, make sure the owner has a username and the Space has a slug. The API rejects Works when either public identity part is missing.
+
+Usernames and Space slugs can be set or changed, but they cannot be cleared once set.
 
 Create a single-file Work:
 

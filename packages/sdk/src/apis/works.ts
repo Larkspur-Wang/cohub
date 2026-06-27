@@ -72,6 +72,33 @@ export type WorkContent =
   | { url: string; targetType: "port"; port: string }
   | { url: string; targetType: WorkTargetType; path: string };
 
+export type WorkPublicSpaceRecord = {
+  id: string;
+  slug: string;
+  name: string | null;
+  userUuid: string;
+  publicProfile?: SpacePublicProfile | null;
+};
+
+export type WorkPublicOwnerRecord = {
+  userUuid: string;
+  username: string;
+  displayName: string;
+  avatarUrl?: string | null;
+};
+
+export type WorkDetailResponse = {
+  work: WorkRecord;
+  space: WorkPublicSpaceRecord;
+  owner: WorkPublicOwnerRecord;
+  publicUrl: string | null;
+  content: WorkContent | null;
+};
+
+export type WorkGetResponse = WorkDetailResponse;
+
+export type WorkResolveResponse = WorkDetailResponse;
+
 export type WorkSessionResponse = {
   token: string;
   expiresIn: number;
@@ -96,16 +123,11 @@ export class WorksApi {
   }
 
   get(id: string) {
-    return this.transport.request<{ work: WorkRecord }>(`/api/works/${id}`);
+    return this.transport.request<WorkGetResponse>(`/api/works/${id}`);
   }
 
   getBySlug(username: string, spaceSlug: string, workSlug: string) {
-    return this.transport.request<{
-      work: WorkRecord;
-      space: { id: string; slug: string | null; name: string | null; userUuid: string; publicProfile?: SpacePublicProfile | null };
-      owner: { userUuid: string; username: string | null; displayName: string; avatarUrl?: string | null };
-      content?: WorkContent | null;
-    }>(
+    return this.transport.request<WorkResolveResponse>(
       `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(workSlug)}`,
     );
   }

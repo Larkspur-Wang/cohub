@@ -12,6 +12,7 @@ import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
+import { config } from "../config.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -73,6 +74,12 @@ const pgErrorConstraint = (error: unknown) => typeof error === "object" && error
 const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
 const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: draft, published, disabled" }, 400);
 const workHideCohubBarRequiredResponse = (c: Context) => c.json({ message: "This option is available on Pro and Max.", code: "work_hide_cohub_bar_required" }, 402);
+const getWorkPublicOrigin = () => (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
+
+const createWorkPublicUrl = (input: { ownerUsername: string; spaceSlug: string; workSlug: string; status: string }) => {
+  if (input.status !== "published") return null;
+  return `${getWorkPublicOrigin()}/${encodeURIComponent(input.ownerUsername)}/${encodeURIComponent(input.spaceSlug)}/w/${encodeURIComponent(input.workSlug)}`;
+};
 
 async function getMissingPublicWorkIdentity(spaceId: string) {
   const [row] = await db
@@ -87,16 +94,16 @@ async function getMissingPublicWorkIdentity(spaceId: string) {
   };
 }
 
-async function ensurePublicWorkIdentity(c: Context, spaceId: string) {
+async function ensureWorkPublicIdentity(c: Context, spaceId: string) {
   const identity = await getMissingPublicWorkIdentity(spaceId);
   const missingOwner = !identity.ownerUsername;
   const missingSpaceSlug = !identity.spaceSlug;
   if (!missingOwner && !missingSpaceSlug) return null;
   if (missingOwner && missingSpaceSlug) {
-    return c.json({ message: "published works require an owner username and a space slug" }, 400);
+    return c.json({ message: "works require an owner username and a space slug" }, 400);
   }
-  if (missingOwner) return c.json({ message: "published works require an owner username" }, 400);
-  return c.json({ message: "published works require a space slug" }, 400);
+  if (missingOwner) return c.json({ message: "works require an owner username" }, 400);
+  return c.json({ message: "works require a space slug" }, 400);
 }
 
 const ensureUniqueWorkSlug = async (input: { spaceId: string; slug: string; excludeId?: string }) => {
@@ -242,11 +249,13 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
     .where(eq(userProfiles.username, username))
     .limit(1);
   if (!row) return c.json({ message: "work not found" }, 404);
+  if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
 
   return c.json({
     work: serializeWork(row.work),
     space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
-    owner: row.owner,
+    owner: { ...row.owner, username: row.owner.username },
+    publicUrl: createWorkPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, workSlug: row.work.slug, status: row.work.status }),
     content: getWorkContent(row.work),
   });
 });
@@ -267,7 +276,25 @@ router.get("/:id", async (c) => {
   const work = await getWorkById(id);
   if (!work) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
-  return c.json({ work: serializeWork(work) });
+  const [row] = await db
+    .select({
+      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName, avatarUrl: userProfiles.avatarUrl },
+      space: spaces,
+    })
+    .from(spaces)
+    .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
+    .where(eq(spaces.id, work.spaceId))
+    .limit(1);
+  if (!row) return c.json({ message: "work not found" }, 404);
+  if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
+  const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
+  return c.json({
+    work: serializeWork(work),
+    space,
+    owner: { ...row.owner, username: row.owner.username },
+    publicUrl: createWorkPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, workSlug: work.slug, status: work.status }),
+    content: work.status === "published" ? getWorkContent(work) : null,
+  });
 });
 
 router.post("/", async (c) => {
@@ -294,10 +321,8 @@ router.post("/", async (c) => {
     return invalidWorkStatusResponse(c);
   }
   const status = typeof body?.status === "string" ? body.status : "published";
-  if (status === "published") {
-    const identityError = await ensurePublicWorkIdentity(c, spaceId);
-    if (identityError) return identityError;
-  }
+  const identityError = await ensureWorkPublicIdentity(c, spaceId);
+  if (identityError) return identityError;
   const meta = getWorkMeta(body?.meta);
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: user.uuid, meta });
   if (presentationError) return presentationError;
@@ -391,10 +416,8 @@ async function updateWorkWithVersion(
     return invalidWorkStatusResponse(c);
   }
   const nextStatus = overrides?.status ?? (typeof body?.status === "string" ? body.status : current.status);
-  if (nextStatus === "published") {
-    const identityError = await ensurePublicWorkIdentity(c, current.spaceId);
-    if (identityError) return identityError;
-  }
+  const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
+  if (identityError) return identityError;
   const publishVersion = overrides?.publishVersion ?? body?.publishVersion === true;
   const nextMeta = "meta" in (body ?? {}) ? getWorkMeta(body?.meta) : getWorkMeta(current.meta);
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: actorUserId, meta: nextMeta });

@@ -23,6 +23,10 @@ export class UsernameConflictError extends Error {
   override name = "UsernameConflictError";
 }
 
+export class UsernameClearError extends Error {
+  override name = "UsernameClearError";
+}
+
 type UserProfileFields = {
   username: string | null;
   displayName: string;
@@ -168,24 +172,26 @@ async function upsertUserProfile(input: {
   fields: UserProfileFields;
 }) {
   const now = new Date();
+  const stored = input.fields.username ? null : await getStoredUserProfile(input.userUuid);
+  const fields = input.fields.username ? input.fields : { ...input.fields, username: stored?.username ?? null };
   try {
     const [row] = await db.insert(userProfiles).values({
       userUuid: input.userUuid,
       logtoUserId: input.logtoUserId,
-      username: input.fields.username,
-      displayName: input.fields.displayName,
-      avatarUrl: input.fields.avatarUrl,
-      source: input.fields.source,
+      username: fields.username,
+      displayName: fields.displayName,
+      avatarUrl: fields.avatarUrl,
+      source: fields.source,
       syncedAt: now,
       updatedAt: now,
     }).onConflictDoUpdate({
       target: userProfiles.userUuid,
       set: {
         logtoUserId: input.logtoUserId,
-        username: input.fields.username,
-        displayName: input.fields.displayName,
-        avatarUrl: input.fields.avatarUrl,
-        source: input.fields.source,
+        username: fields.username,
+        displayName: fields.displayName,
+        avatarUrl: fields.avatarUrl,
+        source: fields.source,
         syncedAt: now,
         updatedAt: now,
       },
@@ -258,6 +264,11 @@ export async function updateCurrentUserProfile(user: AuthUser, input: { displayN
 
   const previousLogtoUser = await getLogtoUser(logtoUserId);
   const previousFields = normalizeUserProfile({ userUuid: user.uuid, source: previousLogtoUser });
+  const storedProfile = await getStoredUserProfile(user.uuid);
+  const previousUsername = storedProfile?.username ?? previousFields.username;
+  if (input.username !== undefined && !username && previousUsername) {
+    throw new UsernameClearError("username cannot be cleared once set");
+  }
 
   if (username) {
     const existing = await db.select({ userUuid: userProfiles.userUuid }).from(userProfiles).where(

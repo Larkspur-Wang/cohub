@@ -6,7 +6,7 @@ import * as schema from "@cohub/db";
 import { db } from "../db/index.js";
 import { config } from "../config.js";
 import { requireValidId, useAuth, authzDenied } from "../lib/middleware.js";
-import { ensureCurrentUserProfile, updateCurrentUserProfile, UsernameConflictError, validateUsername } from "../user-profiles.js";
+import { ensureCurrentUserProfile, updateCurrentUserProfile, UsernameClearError, UsernameConflictError, validateUsername } from "../user-profiles.js";
 import { hasPermission } from "../permissions.js";
 import { hydrateSessionParticipantProfiles, listUserSessions } from "../space-sessions.js";
 import { aggregateUsageRows, buildUsageDateRange, resolveUsageDays, USAGE_SELECT_COLUMNS, type UsageRow } from "../usage-aggregation.js";
@@ -120,6 +120,9 @@ router.patch("/profile", async (c) => {
   } catch (error) {
     if (error instanceof UsernameConflictError) {
       return c.json({ message: error.message }, 409);
+    }
+    if (error instanceof UsernameClearError) {
+      return c.json({ message: error.message }, 400);
     }
     throw error;
   }
