@@ -107,6 +107,46 @@ const createSnapshot = () => ({
 	},
 });
 
+test("generation subscriptions compact duplicate keyless snapshot intermediates", async () => {
+	const websocket = new WebsocketClient({
+		url: "ws://localhost",
+		getAccessToken: () => "token",
+	});
+	websocket.state = "open";
+	const generation = new SessionGenerationStreamClient(
+		websocket,
+		"space-1",
+		"session-1",
+	);
+	const snapshot = createSnapshot().snapshot;
+	snapshot.intermediateMessages = [
+		{
+			messageId: null,
+			messageOrdinal: null,
+			content: [{ type: "text", text: "same" }],
+		},
+		{
+			messageId: null,
+			messageOrdinal: null,
+			content: [{ type: "text", text: "same" }],
+		},
+	];
+
+	let intermediateCount = 0;
+	const stop = generation.subscribe(
+		{
+			state: (event) => {
+				intermediateCount = event.intermediateMessages.length;
+			},
+		},
+		{ initialSnapshot: snapshot },
+	);
+	await delay(0);
+	stop();
+
+	assert.equal(intermediateCount, 1);
+});
+
 test("generation subscriptions can seed from a snapshot and replay buffered patches", async () => {
 	const websocket = new WebsocketClient({
 		url: "ws://localhost",

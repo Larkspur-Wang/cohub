@@ -104,37 +104,44 @@ function normalizeIntermediateMessages(
 }
 
 function getIntermediateMessageKey(message: StreamingIntermediateMessage) {
-	if (message.messageId) return `id:${message.messageId}`;
+	if (message.messageId) return `message:${message.messageId}`;
 	if (message.id) return `id:${message.id}`;
 	if (message.messageOrdinal != null)
 		return `ordinal:${message.messageOrdinal}`;
-	return null;
+	try {
+		return `content:${JSON.stringify(message.content)}`;
+	} catch {
+		return null;
+	}
+}
+
+function compactIntermediateMessages(messages: StreamingIntermediateMessage[]) {
+	const merged: StreamingIntermediateMessage[] = [];
+	const indexByKey = new Map<string, number>();
+	for (const message of messages) {
+		const key = getIntermediateMessageKey(message);
+		if (!key) {
+			merged.push(message);
+			continue;
+		}
+		const index = indexByKey.get(key);
+		if (index == null) {
+			indexByKey.set(key, merged.length);
+			merged.push(message);
+			continue;
+		}
+		merged[index] = { ...merged[index], ...message };
+	}
+	return merged;
 }
 
 function mergeIntermediateMessages(
 	current: StreamingIntermediateMessage[],
 	incoming: StreamingIntermediateMessage[],
 ) {
-	if (current.length === 0) return incoming;
-	if (incoming.length === 0) return current;
-	let changed = false;
-	const merged = [...current];
-	for (const message of incoming) {
-		const key = getIntermediateMessageKey(message);
-		const index = key
-			? merged.findIndex(
-					(existing) => getIntermediateMessageKey(existing) === key,
-				)
-			: -1;
-		if (index < 0) {
-			merged.push(message);
-			changed = true;
-			continue;
-		}
-		merged[index] = { ...merged[index], ...message };
-		changed = true;
-	}
-	return changed ? merged : current;
+	if (current.length === 0) return compactIntermediateMessages(incoming);
+	if (incoming.length === 0) return compactIntermediateMessages(current);
+	return compactIntermediateMessages([...current, ...incoming]);
 }
 
 function resolveIntermediateMessagesForState(

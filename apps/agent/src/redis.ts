@@ -52,20 +52,30 @@ type SessionStreamSnapshot = {
   updatedAt: number;
 };
 
-const getSnapshotMessageKey = (
+const getSnapshotIdentityKey = (
   message: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
 ) => {
-  if (message.messageId) return `id:${message.messageId}`;
+  if (message.messageId) return `message:${message.messageId}`;
   if (message.messageOrdinal != null) return `ordinal:${message.messageOrdinal}`;
   return null;
+};
+
+const getSnapshotMessageKey = (message: SessionStreamSnapshotMessage) => {
+  const identityKey = getSnapshotIdentityKey(message);
+  if (identityKey) return identityKey;
+  try {
+    return `content:${JSON.stringify(message.content)}`;
+  } catch {
+    return null;
+  }
 };
 
 const isSameSnapshotMessage = (
   a: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
   b: Pick<SessionStreamSnapshotMessage, "messageId" | "messageOrdinal">,
 ) => {
-  const aKey = getSnapshotMessageKey(a);
-  const bKey = getSnapshotMessageKey(b);
+  const aKey = getSnapshotIdentityKey(a);
+  const bKey = getSnapshotIdentityKey(b);
   if (!aKey && !bKey) return true;
   if (!aKey || !bKey) return false;
   return aKey === bKey;

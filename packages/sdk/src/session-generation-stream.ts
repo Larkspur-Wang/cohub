@@ -280,17 +280,50 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   }
 }
 
+function getIntermediateMessageKey(message: GenerationStreamIntermediateMessage) {
+  if (message.messageId) return `message:${message.messageId}`;
+  if (message.id) return `id:${message.id}`;
+  if (message.messageOrdinal != null) return `ordinal:${message.messageOrdinal}`;
+  try {
+    return `content:${JSON.stringify(message.content)}`;
+  } catch {
+    return null;
+  }
+}
+
+function compactIntermediateMessages(messages: GenerationStreamIntermediateMessage[]) {
+  const merged: GenerationStreamIntermediateMessage[] = [];
+  const indexByKey = new Map<string, number>();
+  for (const message of messages) {
+    const key = getIntermediateMessageKey(message);
+    if (!key) {
+      merged.push(message);
+      continue;
+    }
+    const index = indexByKey.get(key);
+    if (index == null) {
+      indexByKey.set(key, merged.length);
+      merged.push(message);
+      continue;
+    }
+    merged[index] = { ...merged[index], ...message };
+  }
+  return merged;
+}
+
 function normalizeSnapshotIntermediateMessages(
   messages: NonNullable<SessionTurnStreamSnapshotResponse["snapshot"]>["intermediateMessages"],
 ): GenerationStreamIntermediateMessage[] {
-  return messages
-    .filter((message) => Array.isArray(message.content))
-    .map((message) => ({
-      ...message,
-      messageId: message.messageId ?? null,
-      messageOrdinal: message.messageOrdinal ?? null,
-      content: message.content,
-    }));
+  return compactIntermediateMessages(
+    messages
+      .filter((message) => Array.isArray(message.content))
+      .map((message) => ({
+        ...message,
+        messageId: message.messageId ?? null,
+        messageOrdinal: message.messageOrdinal ?? null,
+        content: message.content,
+      })),
+  );
 }
 
 export class SessionGenerationStreamClient {
@@ -501,22 +534,10 @@ export class SessionGenerationStreamClient {
   }
 
   private addIntermediateMessage(message: GenerationStreamIntermediateMessage) {
-    const index = this.intermediateMessages.findIndex((existing) => {
-      if (message.messageId && existing.messageId) {
-        return existing.messageId === message.messageId;
-      }
-      return (
-        message.messageOrdinal !== null &&
-        existing.messageOrdinal === message.messageOrdinal
-      );
-    });
-    if (index < 0) {
-      this.intermediateMessages = [...this.intermediateMessages, message];
-      return;
-    }
-    this.intermediateMessages = this.intermediateMessages.map((existing, i) =>
-      i === index ? { ...existing, ...message } : existing,
-    );
+    this.intermediateMessages = compactIntermediateMessages([
+      ...this.intermediateMessages,
+      message,
+    ]);
   }
 
   private handleAppliedState(
