@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { ContentBlock } from "@cohub/protocol/core";
-import { Check, Copy, GitFork, Loader2, UserRound } from "lucide-svelte";
+import { Check, Copy, GitFork, Loader2 } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import {
@@ -116,6 +116,58 @@ const cancelledByDisplay = $derived.by(() => {
 });
 
 const isUserMessage = $derived(message.role === "user");
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+const turnMeta = $derived(asRecord(message.meta?.turn?.meta));
+const turnContext = $derived(asRecord(turnMeta?.context));
+const turnClientMessageId = $derived.by(() => {
+	const value = turnMeta?.clientMessageId;
+	return typeof value === "string" && value.trim() ? value.trim() : "";
+});
+
+const isBackgroundTaskUserMessage = $derived(
+	message.role === "user" &&
+		(turnContext?.kind === "background_bash_task" ||
+			turnClientMessageId.startsWith("background-bash-task:")),
+);
+
+const backgroundTaskRunId = $derived.by(() => {
+	const value = turnContext?.taskRunId;
+	return typeof value === "string" && value.trim() ? value.trim() : "";
+});
+
+const backgroundTaskDetail = $derived(
+	backgroundTaskRunId
+		? `Background bash task ${backgroundTaskRunId}`
+		: "Background bash task",
+);
+
+const messageContainerClass = $derived(
+	message.role === "user" ? "ml-auto max-w-full sm:max-w-[52rem]" : "",
+);
+
+const messageBubbleClass = $derived.by(() => {
+	const base = "px-2 py-2 text-[14px] leading-[1.7]";
+	if (message.role === "user") {
+		if (isCancelledBeforeDispatch)
+			return `${base} rounded-xl rounded-br-md bg-bg-hover/60 text-text-tertiary`;
+		if (isBackgroundTaskUserMessage)
+			return `${base} rounded-xl rounded-br-md border border-border-subtle/70 bg-bg-hover/45 text-text-secondary`;
+		return `${base} rounded-xl rounded-br-md bg-brand/5 text-text-primary`;
+	}
+	if (message.role === "assistant") {
+		return assistantErrorMessage
+			? `${base} rounded-xl bg-status-error/5 text-text-primary`
+			: `${base} text-text-primary`;
+	}
+	if (message.role === "system") return `${base} bg-info-bg text-info-soft`;
+	return `${base} bg-error-bg text-error-soft`;
+});
 
 const defaultExpandToolCalls = $derived(
 	message.role === "assistant" &&
@@ -352,8 +404,8 @@ function handleCopy() {
     {onOpenFile}
   />
 {:else}
-  <div class={`w-full ${message.role === 'user' ? 'ml-auto max-w-full sm:max-w-[52rem]' : ''}`}>
-    <div class={`px-2 py-2 text-[14px] leading-[1.7] ${message.role === 'user' ? (isCancelledBeforeDispatch ? 'rounded-xl rounded-br-md bg-bg-hover/60 text-text-tertiary' : 'bg-brand/5 text-text-primary rounded-xl rounded-br-md') : message.role === 'assistant' ? (assistantErrorMessage ? 'text-text-primary rounded-xl bg-status-error/5' : 'text-text-primary') : message.role === 'system' ? 'bg-info-bg text-info-soft' : 'bg-error-bg text-error-soft'}`}>
+  <div class={`w-full ${messageContainerClass}`}>
+    <div class={messageBubbleClass}>
 
       <MessageContentFlow
         content={message.content?.length ? message.content : [{ type: 'text', text: message.text }]}
@@ -412,11 +464,18 @@ function handleCopy() {
         {/if}
 
         {#if message.role === 'user'}
-          <!-- User identity -->
-          <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={userDisplayName}>
-            <UserAvatar name={userDisplayName} avatarUrl={message.authorProfile?.avatarUrl} size="xxs" class="border-0 bg-brand/15 text-brand" />
-            <span class="min-w-0 truncate">{userDisplayName}</span>
-          </span>
+          {#if isBackgroundTaskUserMessage}
+            <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default text-text-placeholder/70" title={backgroundTaskDetail}>
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-text-placeholder/55"></span>
+              <span class="min-w-0 truncate font-medium">Background task</span>
+            </span>
+          {:else}
+            <!-- User identity -->
+            <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={userDisplayName}>
+              <UserAvatar name={userDisplayName} avatarUrl={message.authorProfile?.avatarUrl} size="xxs" class="border-0 bg-brand/15 text-brand" />
+              <span class="min-w-0 truncate">{userDisplayName}</span>
+            </span>
+          {/if}
           {#if isCancelledBeforeDispatch}
             <span class="shrink-0 text-[11px] font-medium text-text-placeholder/65" title={cancelledByDisplay ? `Cancelled by ${cancelledByDisplay}. Not sent to agent.` : 'Not sent to agent.'}>cancelled</span>
           {/if}
