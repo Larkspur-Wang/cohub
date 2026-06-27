@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { RealtimeCompactFrame, RealtimeEnvelope, RealtimeRoom } from "./types.js";
-export * from "./types.js";
+export type * from "./types.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
 const realtimeRoomSchema = z.string().regex(/^(space|user):[^:]+$/);
