@@ -1,4 +1,5 @@
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
+import { getRealtimeSpaceRoom } from "@cohub/protocol/realtime/types";
 import { ensureRealtimeConnected } from "../realtime.js";
 import type { WebsocketClient, WebsocketEventPayload } from "../websocket.js";
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
@@ -501,6 +502,7 @@ class SessionRealtimeClient {
       throw new Error("realtime transport is not configured for this client");
     }
     ensureRealtimeConnected(this.websocketClient);
+    const releaseRoom = this.websocketClient.retainRooms([getRealtimeSpaceRoom(this.spaceId)]);
     const unsubscribe = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId || event.sessionId !== this.sessionId) return;
       handlers.event?.(event);
@@ -564,7 +566,10 @@ class SessionRealtimeClient {
         });
       }
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      releaseRoom();
+    };
   }
 
   on(type: SessionEventName, handler: (event: WebsocketEventPayload) => void) {
@@ -740,10 +745,15 @@ export class SpaceEventsApi {
       throw new Error("realtime transport is not configured for this client");
     }
     ensureRealtimeConnected(this.websocketClient);
-    return this.websocketClient.on("event", (event) => {
+    const releaseRoom = this.websocketClient.retainRooms([getRealtimeSpaceRoom(this.spaceId)]);
+    const offEvent = this.websocketClient.on("event", (event) => {
       if (event.spaceId !== this.spaceId) return;
       handler(event);
     });
+    return () => {
+      offEvent();
+      releaseRoom();
+    };
   }
 
   on(type: SpaceEventName, handler: (event: WebsocketEventPayload) => void) {

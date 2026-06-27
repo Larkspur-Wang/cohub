@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { RealtimeMessageRecord, RealtimeSessionRecord, RealtimeTaskRecord, RealtimeTurnRecord } from "@cohub/protocol/realtime";
 import type { MessageRecord, SessionRecord, SessionTurnRecord } from "@cohub/protocol/model";
 import type { TaskRunStatus } from "@cohub/protocol/task";
-import { dispatchRealtimeEventToUsers, getReadableUserIdsForSpace } from "./channels.js";
+import { dispatchRealtimeEvent } from "./channels.js";
 import { buildResourceLabelSnapshot, type LabelResourceType } from "@cohub/core/labels/resource-events";
 import { db } from "./db/index.js";
 
@@ -150,15 +150,14 @@ export const toRealtimeTaskRecord = (task: {
 
 export async function dispatchSessionCreated(session: Parameters<typeof toRealtimeSessionRecord>[0]) {
   const realtimeSession = toRealtimeSessionRecord(session);
-  const readableUserIds = await getReadableUserIdsForSpace(realtimeSession.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "session",
     type: "session.created",
     spaceId: realtimeSession.spaceId,
     sessionId: realtimeSession.id,
-    payload: { session: realtimeSession, targetUserIds: readableUserIds },
+    payload: { session: realtimeSession },
   });
 }
 
@@ -168,15 +167,14 @@ export async function dispatchSessionUpdated(input: {
 }) {
   if (input.changed.length === 0) return;
   const realtimeSession = toRealtimeSessionRecord(input.session);
-  const readableUserIds = await getReadableUserIdsForSpace(realtimeSession.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "session",
     type: "session.updated",
     spaceId: realtimeSession.spaceId,
     sessionId: realtimeSession.id,
-    payload: { session: realtimeSession, changed: input.changed, targetUserIds: readableUserIds },
+    payload: { session: realtimeSession, changed: input.changed },
   });
 }
 
@@ -186,8 +184,7 @@ export async function dispatchTurnCreated(input: {
   turn: SessionTurnRecord;
   requestId?: string | null;
 }) {
-  const readableUserIds = await getReadableUserIdsForSpace(input.spaceId).catch(() => [] as string[]);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "session",
@@ -197,14 +194,13 @@ export async function dispatchTurnCreated(input: {
     sessionId: input.sessionId,
     payload: {
       turn: toRealtimeTurnRecord(input.turn),
-      targetUserIds: readableUserIds,
     },
   });
 }
 
 export async function dispatchTaskCreated(task: Parameters<typeof toRealtimeTaskRecord>[0]) {
   const realtimeTask = toRealtimeTaskRecord(task);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "space",
@@ -213,7 +209,7 @@ export async function dispatchTaskCreated(task: Parameters<typeof toRealtimeTask
     sessionId: realtimeTask.sessionId,
     payload: {
       task: realtimeTask,
-      ...(realtimeTask.userId && !realtimeTask.spaceId ? { targetUserIds: [realtimeTask.userId] } : {}),
+      ...(realtimeTask.userId && !realtimeTask.spaceId ? { userId: realtimeTask.userId } : {}),
     },
   });
 }
@@ -224,7 +220,7 @@ export async function dispatchTaskUpdated(input: {
 }) {
   if (input.changed.length === 0) return;
   const realtimeTask = toRealtimeTaskRecord(input.task);
-  await dispatchRealtimeEventToUsers({
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "space",
@@ -234,7 +230,7 @@ export async function dispatchTaskUpdated(input: {
     payload: {
       task: realtimeTask,
       changed: input.changed,
-      ...(realtimeTask.userId && !realtimeTask.spaceId ? { targetUserIds: [realtimeTask.userId] } : {}),
+      ...(realtimeTask.userId && !realtimeTask.spaceId ? { userId: realtimeTask.userId } : {}),
     },
   });
 }
@@ -246,12 +242,8 @@ export async function dispatchLabelAssignmentsUpdated(input: {
   sessionId?: string | null;
   affectedLabelIds?: string[];
 }) {
-  const [snapshot, readableUserIds] = await Promise.all([
-    buildResourceLabelSnapshot({ db, ...input }),
-    getReadableUserIdsForSpace(input.spaceId),
-  ]);
-  if (readableUserIds.length === 0) return;
-  await dispatchRealtimeEventToUsers({
+  const snapshot = await buildResourceLabelSnapshot({ db, ...input });
+  await dispatchRealtimeEvent({
     id: randomUUID(),
     timestamp: Date.now(),
     domain: "label",
@@ -265,7 +257,6 @@ export async function dispatchLabelAssignmentsUpdated(input: {
       assignments: snapshot.assignments,
       items: snapshot.items,
       affectedLabelIds: snapshot.affectedLabelIds,
-      targetUserIds: readableUserIds,
     },
   });
 }

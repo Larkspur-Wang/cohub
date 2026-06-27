@@ -13,6 +13,7 @@ const GATEWAY_NODE_TTL_MS = 15_000;
 interface ChannelConfig {
   provider: string;
   credentials: Record<string, unknown>;
+  spaceId?: string;
   externalChatId?: string;
 }
 

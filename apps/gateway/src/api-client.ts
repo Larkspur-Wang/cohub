@@ -2,6 +2,7 @@ import type { AuthUserProfile } from "@cohub/identity";
 import { AuthorizationError, verifyUserAccessToken } from "@cohub/identity";
 import { buildTraceHeaders, getTraceResponseHeaders, type TraceIdentifiers } from "@cohub/infra/tracing";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { RealtimeRoom } from "@cohub/protocol/realtime";
 import type { GatewayAuthUser } from "./config.js";
 import { gatewayConfig } from "./config.js";
 
@@ -114,6 +115,31 @@ export const requestGatewayChannelReconcile = async (): Promise<{ stats: unknown
   const data = await parseJson<{ ok?: boolean; stats?: unknown }>(response);
   if (!data?.ok) throw new Error("Gateway channel reconcile returned an invalid response");
   return { stats: data.stats };
+};
+
+export const authorizeRealtimeRooms = async (input: {
+  userId: string;
+  rooms: string[];
+}): Promise<{ rooms: RealtimeRoom[]; rejected: Array<{ room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string }> }> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-realtime-rooms`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Realtime room authorization failed ${response.status}: ${text}`);
+  }
+  const data = await parseJson<{ ok?: boolean; rooms?: string[]; rejected?: Array<{ room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string }> }>(response);
+  if (!data?.ok || !Array.isArray(data.rooms)) throw new Error("Realtime room authorization returned an invalid response");
+  return {
+    rooms: data.rooms as RealtimeRoom[],
+    rejected: Array.isArray(data.rejected) ? data.rejected : [],
+  };
 };
 
 export const submitCanvasTransaction = async (input: {

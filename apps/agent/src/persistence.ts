@@ -6,16 +6,14 @@ import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/ga
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, tokenUsageStatsHourly, userChannels } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "@cohub/core/sessions";
-import { getReadableUserIdsForSpace } from "@cohub/core/spaces";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
 import { db } from "./db.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
-import { redis, publishRealtimeEnvelope, clearPersistedSessionStreamSnapshot, xaddWithMaxlen } from "./redis.js";
+import { redis, publishRealtimeEnvelope, clearPersistedSessionStreamSnapshot, getGatewayNodeOutboundStreamKey, xaddWithMaxlen } from "./redis.js";
 import { buildTurnObjectPrefix, writeTurnObjectJson } from "./turn-object-storage.js";
 
-const GATEWAY_OUTBOUND_STREAM = "stream:gateway:outbound";
 
 const INTERNAL_API_BASE_URL =
   env.ENV === "prod"
@@ -156,7 +154,6 @@ const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefine
 };
 
 async function publishMessagePersisted(spaceId: string, message: MessageRecord) {
-  const targetUserIds = await getReadableUserIdsForSpace({ db, spaceId }).catch(() => [] as string[]);
   await publishRealtimeEnvelope({
     domain: "session",
     type: "session.message.persisted",
@@ -164,20 +161,17 @@ async function publishMessagePersisted(spaceId: string, message: MessageRecord) 
     sessionId: message.sessionId,
     payload: {
       message: { ...message, text: message.content.length > 0 ? null : message.text, meta: pickRealtimeMessageMeta(message.meta) },
-      targetUserIds,
     },
   });
 }
 
 async function publishTurnCreated(spaceId: string, turn: SessionTurnRecord) {
-  const targetUserIds = await getReadableUserIdsForSpace({ db, spaceId }).catch(() => [] as string[]);
-  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.created", spaceId, sessionId: turn.sessionId, payload: { turn, targetUserIds } });
+  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.created", spaceId, sessionId: turn.sessionId, payload: { turn } });
 }
 
 async function publishTurnFinalized(spaceId: string, turn: SessionTurnRecord) {
   await clearPersistedSessionStreamSnapshot(spaceId, turn.sessionId);
-  const targetUserIds = await getReadableUserIdsForSpace({ db, spaceId }).catch(() => [] as string[]);
-  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.finalized", spaceId, sessionId: turn.sessionId, payload: { turn, targetUserIds } });
+  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.finalized", spaceId, sessionId: turn.sessionId, payload: { turn } });
 }
 
 async function updateSessionAfterAppend(sessionId: string, message: typeof sessionMessages.$inferSelect) {
@@ -578,6 +572,36 @@ async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionI
   return row ? toTurnRecord(row) : null;
 }
 
+async function requestGatewayChannelReconcile(reason: string) {
+  try {
+    const response = await fetch(`${INTERNAL_API_BASE_URL}/internal/gateway/reconcile-channels`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}), ...buildTraceHeaders({ requestId: getCurrentRequestId() }) },
+      body: JSON.stringify({ reason }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new Error(`Gateway reconcile failed ${response.status}: ${text}`);
+    }
+  } catch (error) {
+    logger.warn("[GatewayBinding] failed to request channel reconcile", { reason, error });
+  }
+}
+
+const GATEWAY_ROUTE_RETRY_DELAYS_MS = [200, 800, 2_000];
+
+async function resolveGatewayNodeForOutbound(input: { spaceChannelId: string; spaceId: string; sessionId: string; messageId: string }) {
+  for (let attempt = 0; attempt <= GATEWAY_ROUTE_RETRY_DELAYS_MS.length; attempt += 1) {
+    const nodeId = await redis.hget("gateway:channel_routing", input.spaceChannelId);
+    if (nodeId) return nodeId;
+    await requestGatewayChannelReconcile(`missing_agent_outbound_route:${input.spaceChannelId}`);
+    const retryDelay = GATEWAY_ROUTE_RETRY_DELAYS_MS[attempt];
+    if (retryDelay == null) break;
+    await sleep(retryDelay);
+  }
+  throw new Error(`Gateway route is missing for final assistant outbound channel ${input.spaceChannelId}`);
+}
+
 async function dispatchFinalAssistantToGateway(input: { spaceId: string; sessionId: string; message: MessageRecord }) {
   if (input.message.role !== "assistant") return;
   const kind = input.message.meta?.messageKind;
@@ -590,6 +614,7 @@ async function dispatchFinalAssistantToGateway(input: { spaceId: string; session
 
   for (const binding of targetBindings) {
     if (!binding.externalChatId) continue;
+    const nodeId = await resolveGatewayNodeForOutbound({ spaceChannelId: binding.spaceChannelId, spaceId: input.spaceId, sessionId: input.sessionId, messageId: input.message.id });
     const turnAnchorMessageId = typeof input.message.meta?.anchorUserMessageId === "string" ? input.message.meta.anchorUserMessageId : input.message.id;
     const [anchorRef] = await db.select({ externalMessageId: providerMessageRefs.externalMessageId }).from(providerMessageRefs).where(and(eq(providerMessageRefs.spaceChannelId, binding.spaceChannelId), eq(providerMessageRefs.sessionMessageId, turnAnchorMessageId), eq(providerMessageRefs.direction, "inbound"))).orderBy(desc(providerMessageRefs.createdAt)).limit(1);
     const command: GatewayOutboundCommand = {
@@ -603,9 +628,9 @@ async function dispatchFinalAssistantToGateway(input: { spaceId: string; session
       spaceId: input.spaceId,
       spaceSessionId: input.sessionId,
       sessionMessageId: input.message.id,
-      meta: { sessionOutput: { type: "session.message.persisted", spaceId: input.spaceId, sessionId: input.sessionId, message: input.message }, bindingKey: binding.bindingKey, sessionMessageRole: input.message.role, turnAnchorMessageId },
+      meta: { sessionOutput: { type: "session.message.persisted", spaceId: input.spaceId, sessionId: input.sessionId, message: input.message }, bindingKey: binding.bindingKey, sessionMessageRole: input.message.role, turnAnchorMessageId, targetNodeId: nodeId },
     };
-    await xaddWithMaxlen(redis, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
+    await xaddWithMaxlen(redis, getGatewayNodeOutboundStreamKey(nodeId), "*", "payload", JSON.stringify(command));
   }
 }
 

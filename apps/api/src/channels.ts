@@ -3,11 +3,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ChannelConfig, ChannelProvider, GatewayChannelCommandEvent, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
-import type { RealtimeServerEvent } from "@cohub/protocol/realtime";
+import type { RealtimeRoom, RealtimeServerEvent } from "@cohub/protocol/realtime";
+import { getRealtimeSpaceRoom, getRealtimeUserRoom, normalizeRealtimeRooms } from "@cohub/protocol/realtime";
 import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
-import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels, spaces, spaceMembers } from "@cohub/db";
-import { GATEWAY_OUTBOUND_STREAM, REALTIME_OUTBOUND_CHANNEL, getSpaceWsUsersKey, getSpaceWsUsersUpdatedAtKey, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels } from "@cohub/db";
+import { REALTIME_OUTBOUND_CHANNEL, getGatewayNodeOutboundStreamKey, redisCommandClient, xaddWithMaxlen } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";
 import {
   executeSessionInteraction,
@@ -22,10 +23,6 @@ import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 const logger = createLogger({ serviceName: "cohub-api" });
 const bindingLocks = new Map<string, Promise<unknown>>();
 const GATEWAY_NODE_TTL_MS = 15_000;
-const READABLE_USER_IDS_CACHE_TTL_MS = 4_000;
-const READABLE_USER_IDS_CACHE_MAX_SIZE = 10_000;
-const readableUserIdsCache = new Map<string, { expiresAt: number; value: string[] }>();
-
 type ResolvedChannelInbound = {
   spaceId: string;
   spaceChannelId: string;
@@ -42,15 +39,6 @@ export function resolveInboundBindingKey(event: GatewayInboundEvent, conversatio
 
 export function resolveInboundParentBindingKey(event: GatewayInboundEvent) {
   return event.binding?.parentKey?.trim() || null;
-}
-
-function setReadableUserIdsCache(spaceId: string, value: string[]) {
-  if (READABLE_USER_IDS_CACHE_TTL_MS <= 0) return;
-  if (readableUserIdsCache.size >= READABLE_USER_IDS_CACHE_MAX_SIZE && !readableUserIdsCache.has(spaceId)) {
-    const firstKey = readableUserIdsCache.keys().next().value;
-    if (firstKey) readableUserIdsCache.delete(firstKey);
-  }
-  readableUserIdsCache.set(spaceId, { expiresAt: Date.now() + READABLE_USER_IDS_CACHE_TTL_MS, value });
 }
 
 async function pruneStaleGatewayNodes() {
@@ -83,6 +71,64 @@ async function pickGatewayNode(channelId: string): Promise<string> {
 }
 
 const getSpaceChannelConfigKey = (spaceChannelId: string) => `gateway:space_channel_config:${spaceChannelId}`;
+const OUTBOUND_STREAM_SCAN_COUNT = 500;
+const OUTBOUND_MIGRATION_LOCK_TTL_MS = 60_000;
+const OUTBOUND_ROUTE_RETRY_DELAYS_MS = [200, 800, 2_000];
+
+async function withRedisLock<T>(input: { key: string; ttlMs: number; run: () => Promise<T>; fallback: T }) {
+  const token = randomUUID();
+  const acquired = await redisCommandClient.set(input.key, token, "PX", input.ttlMs, "NX");
+  if (acquired !== "OK") return input.fallback;
+  try {
+    return await input.run();
+  } finally {
+    const current = await redisCommandClient.get(input.key).catch(() => null);
+    if (current === token) await redisCommandClient.del(input.key).catch(() => undefined);
+  }
+}
+
+async function migrateOutboundCommandsForChannel(input: { spaceChannelId: string; fromNodeId: string; toNodeId: string }) {
+  if (input.fromNodeId === input.toNodeId) return 0;
+  return withRedisLock({
+    key: `gateway:channel_migration:${input.spaceChannelId}:${input.fromNodeId}:${input.toNodeId}`,
+    ttlMs: OUTBOUND_MIGRATION_LOCK_TTL_MS,
+    fallback: 0,
+    run: async () => {
+      const fromStream = getGatewayNodeOutboundStreamKey(input.fromNodeId);
+      const toStream = getGatewayNodeOutboundStreamKey(input.toNodeId);
+      let moved = 0;
+      let start = "-";
+
+      while (true) {
+        const messages = await redisCommandClient.xrange(fromStream, start, "+", "COUNT", OUTBOUND_STREAM_SCAN_COUNT).catch(() => [] as Array<[string, string[]]>);
+        if (messages.length === 0) break;
+
+        for (const [id, fields] of messages) {
+          const payload = fields[fields.indexOf("payload") + 1];
+          if (!payload) continue;
+          let command: GatewayOutboundCommand;
+          try {
+            command = JSON.parse(payload) as GatewayOutboundCommand;
+          } catch {
+            continue;
+          }
+          if (command.channelId !== input.spaceChannelId) continue;
+          await xaddWithMaxlen(redisCommandClient, toStream, "*", "payload", JSON.stringify({
+            ...command,
+            meta: { ...(command.meta ?? {}), targetNodeId: input.toNodeId },
+          }));
+          await redisCommandClient.xdel(fromStream, id).catch(() => undefined);
+          moved += 1;
+        }
+
+        if (messages.length < OUTBOUND_STREAM_SCAN_COUNT) break;
+        start = `(${messages[messages.length - 1]?.[0]}`;
+      }
+      if (moved > 0) logger.info("[GatewayBinding] migrated outbound commands", { ...input, moved });
+      return moved;
+    },
+  });
+}
 
 export async function syncSpaceChannelConfigCache(input: { spaceChannelId: string; config: ChannelConfig | Record<string, unknown> | null }) {
   await redisCommandClient.set(getSpaceChannelConfigKey(input.spaceChannelId), JSON.stringify(input.config ?? {}));
@@ -167,6 +213,7 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
 
   const serializedTask = JSON.stringify({
     channelId: spaceChannel.id,
+    spaceId: spaceChannel.spaceId,
     provider: userChannel.provider,
     credentials: userChannel.credentials,
   });
@@ -184,6 +231,11 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
   }
 
   await pipeline.exec();
+  if (staleNodeId && staleNodeId !== nodeId) {
+    await migrateOutboundCommandsForChannel({ spaceChannelId: spaceChannel.id, fromNodeId: staleNodeId, toNodeId: nodeId }).catch((error) => {
+      logger.warn("[GatewayBinding] failed to migrate stale outbound commands", { spaceChannelId: spaceChannel.id, staleNodeId, nodeId, error });
+    });
+  }
 }
 
 export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {
@@ -198,6 +250,23 @@ export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {
   await redisCommandClient.del(getSpaceChannelConfigKey(spaceChannelId));
 }
 
+async function resolveGatewayNodeForOutbound(input: { spaceChannelId: string; spaceId: string }) {
+  for (let attempt = 0; attempt <= OUTBOUND_ROUTE_RETRY_DELAYS_MS.length; attempt += 1) {
+    const nodeId = await redisCommandClient.hget("gateway:channel_routing", input.spaceChannelId);
+    if (nodeId) return nodeId;
+
+    logger.warn("[GatewayBinding] missing routing for outbound channel; requesting rebind", { ...input, attempt: attempt + 1 });
+    await bindSpaceChannelsToGateway(input.spaceId).catch((error) => {
+      logger.warn("[GatewayBinding] failed to rebind missing outbound route", { ...input, attempt: attempt + 1, error });
+    });
+
+    const retryDelay = OUTBOUND_ROUTE_RETRY_DELAYS_MS[attempt];
+    if (retryDelay == null) break;
+    await new Promise((resolve) => setTimeout(resolve, retryDelay));
+  }
+  throw new Error(`Gateway route is missing for channel ${input.spaceChannelId}`);
+}
+
 export async function dispatchOutboundMessage(input: {
   spaceChannelId: string;
   spaceId?: string;
@@ -209,14 +278,13 @@ export async function dispatchOutboundMessage(input: {
   replyToExternalMessageId?: string;
   meta?: Record<string, unknown> | null;
 }) {
-  const nodeId = await redisCommandClient.hget("gateway:channel_routing", input.spaceChannelId);
-  if (!nodeId) return;
-
   const [spaceChannel] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, input.spaceChannelId)).limit(1);
   if (!spaceChannel) return;
 
   const [userChannel] = await db.select().from(userChannels).where(eq(userChannels.id, spaceChannel.channelId)).limit(1);
   if (!userChannel) return;
+
+  const nodeId = await resolveGatewayNodeForOutbound({ spaceChannelId: input.spaceChannelId, spaceId: spaceChannel.spaceId });
 
   const externalChatId = input.externalChatId?.trim();
   if (!externalChatId) return;
@@ -232,66 +300,43 @@ export async function dispatchOutboundMessage(input: {
     spaceId: input.spaceId ?? spaceChannel.spaceId,
     spaceSessionId: input.spaceSessionId,
     sessionMessageId: input.sessionMessageId,
-    meta: input.meta ?? null,
+    meta: { ...(input.meta ?? {}), targetNodeId: nodeId },
   };
 
-  await xaddWithMaxlen(redisCommandClient, GATEWAY_OUTBOUND_STREAM, "*", "payload", JSON.stringify(command));
+  await xaddWithMaxlen(redisCommandClient, getGatewayNodeOutboundStreamKey(nodeId), "*", "payload", JSON.stringify(command));
 }
 
-export async function dispatchRealtimeEventToUsers(input: RealtimeServerEvent & { payload: RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null } }) {
-  const { targetUserIds: rawTargetUserIds, targetConnectionId, ...cleanPayload } = input.payload as RealtimeServerEvent["payload"] & { targetUserIds?: string[]; targetConnectionId?: string | null };
-  let targetUserIds = Array.from(new Set((rawTargetUserIds ?? []).map((value) => value.trim()).filter(Boolean)));
-  const hasExplicitTarget = targetUserIds.length > 0 || Boolean(targetConnectionId);
-  if (input.spaceId && !hasExplicitTarget) {
-    targetUserIds = await recomputeSpaceWsUsers(input.spaceId).catch((error) => {
-      logger.warn(`[RealtimeAudience] failed to refresh ws users for ${input.spaceId}:`, error);
-      return targetUserIds;
-    });
-  }
+const resolveRealtimeEventRooms = (input: {
+  spaceId?: string | null;
+  rooms?: string[];
+  userIds?: string[];
+}): RealtimeRoom[] => {
+  const rooms = normalizeRealtimeRooms(input.rooms ?? []);
+  if (rooms.length > 0) return rooms;
+  const userIds = Array.from(new Set(
+    (input.userIds ?? [])
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ));
+  if (userIds.length > 0) return userIds.map(getRealtimeUserRoom);
+  return input.spaceId ? [getRealtimeSpaceRoom(input.spaceId)] : [];
+};
+
+export async function dispatchRealtimeEvent(input: RealtimeServerEvent & { rooms?: RealtimeRoom[] }) {
+  const payload = input.payload as Record<string, unknown>;
+  const rooms = input.rooms?.length ? input.rooms : resolveRealtimeEventRooms({
+    spaceId: input.spaceId,
+    userIds: typeof payload.userId === "string" ? [payload.userId] : undefined,
+  });
+  if (rooms.length === 0) return;
 
   await redisCommandClient.publish(
     REALTIME_OUTBOUND_CHANNEL,
     JSON.stringify({
       ...input,
-      payload: targetConnectionId
-        ? { ...cleanPayload, targetConnectionId }
-        : targetUserIds.length > 0
-          ? { ...cleanPayload, targetUserIds }
-          : cleanPayload,
+      rooms,
     }),
   );
-}
-
-export async function getReadableUserIdsForSpace(spaceId: string) {
-  const now = Date.now();
-  const cached = readableUserIdsCache.get(spaceId);
-  if (cached && cached.expiresAt > now) return cached.value;
-  if (cached) readableUserIdsCache.delete(spaceId);
-
-  const [space] = await db.select({ ownerId: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  const members = await db
-    .select({ userId: spaceMembers.userId })
-    .from(spaceMembers)
-    .where(eq(spaceMembers.spaceId, spaceId));
-  const userIds = new Set<string>();
-  if (space?.ownerId) userIds.add(space.ownerId);
-  for (const member of members) {
-    if (member.userId) userIds.add(member.userId);
-  }
-  const result = Array.from(userIds);
-  setReadableUserIdsCache(spaceId, result);
-  return result;
-}
-
-export async function recomputeSpaceWsUsers(spaceId: string, userIds?: string[]) {
-  const readableUserIds = userIds ?? await getReadableUserIdsForSpace(spaceId);
-  const key = getSpaceWsUsersKey(spaceId);
-  const pipeline = redisCommandClient.pipeline();
-  pipeline.del(key);
-  if (readableUserIds.length > 0) pipeline.sadd(key, ...readableUserIds);
-  pipeline.set(getSpaceWsUsersUpdatedAtKey(spaceId), String(Date.now()));
-  await pipeline.exec();
-  return readableUserIds;
 }
 
 export async function getBindingBySpaceChannelAndKey(input: { spaceChannelId: string; bindingKey: string }) {

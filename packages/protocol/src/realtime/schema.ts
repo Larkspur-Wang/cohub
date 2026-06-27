@@ -1,9 +1,10 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
-import type { RealtimeCompactFrame, RealtimeEnvelope } from "./types.js";
+import type { RealtimeCompactFrame, RealtimeEnvelope, RealtimeRoom } from "./types.js";
 export * from "./types.js";
 
 const contentBlockMetaSchema = z.record(z.string(), z.unknown());
+const realtimeRoomSchema = z.string().regex(/^(space|user):[^:]+$/);
 
 export const contentBlockSchema = z.discriminatedUnion("type", [
   z.object({
@@ -63,6 +64,20 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
+    type: z.literal("subscribe"),
+    requestId: z.string().optional(),
+    payload: z.object({
+      rooms: z.array(realtimeRoomSchema).min(1),
+    }),
+  }),
+  z.object({
+    type: z.literal("unsubscribe"),
+    requestId: z.string().optional(),
+    payload: z.object({
+      rooms: z.array(realtimeRoomSchema).min(1),
+    }),
+  }),
+  z.object({
     type: z.literal("session.message.create"),
     requestId: z.string().optional(),
     payload: z.object({
@@ -72,6 +87,19 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
       content: z.array(contentBlockSchema).min(1),
       model: z.string().optional(),
       provider: z.string().optional(),
+    }),
+  }),
+  z.object({
+    type: z.literal("canvas.tx"),
+    requestId: z.string().optional(),
+    payload: z.object({
+      spaceId: z.string().uuid(),
+      documentId: z.string().min(1),
+      txId: z.string().min(1),
+      baseVersion: z.number().nullable().optional(),
+      clientId: z.string().nullable().optional(),
+      undoGroupId: z.string().nullable().optional(),
+      ops: z.array(z.record(z.string(), z.unknown())).min(1),
     }),
   }),
   z.object({
@@ -94,6 +122,7 @@ export const realtimeEnvelopeSchema = z.object({
   requestId: z.string().nullable().optional(),
   spaceId: z.string().nullable().optional(),
   sessionId: z.string().nullable().optional(),
+  rooms: z.array(realtimeRoomSchema).optional() as z.ZodType<RealtimeRoom[] | undefined>,
   payload: z.record(z.string(), z.unknown()),
 }) satisfies z.ZodType<RealtimeEnvelope>;
 

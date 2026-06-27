@@ -7,7 +7,6 @@ import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "../content/sanitize.js";
 import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
-import { recomputeSpaceWsUsers } from "../spaces/index.js";
 import { submitSessionPrompt, type ExpandedPromptTemplate, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
 
 export type PromptTemplateService = {
@@ -220,10 +219,6 @@ export function createSessionServices(input: {
     content: ContentBlock[];
     meta: Record<string, unknown>;
   }) {
-    await recomputeSpaceWsUsers({ db: input.db, redis: input.redis, spaceId: promptInput.spaceId }).catch((error) => {
-      logger.warn(`[RealtimeAudience] failed to refresh ws users for ${promptInput.spaceId}:`, error);
-    });
-
     const actorUserId = typeof promptInput.meta.userId === "string" && promptInput.meta.userId.trim() ? promptInput.meta.userId.trim() : null;
     const dispatchIntent = promptInput.meta.dispatchIntent === "steer" ? "steer" : "followup";
     const [activeTurn] = await input.db.select({ id: sessionTurns.id })

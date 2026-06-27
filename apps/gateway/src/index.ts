@@ -14,19 +14,24 @@ import type {
   RealtimeCompactFrame,
   RealtimeEnvelope,
   RealtimePatchOperation,
+  RealtimeRoom,
   RealtimeServerEvent,
   WsClientEvent,
 } from "@cohub/protocol/realtime";
 
 import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import {
+  getRealtimeSpaceRoom,
+  getRealtimeUserRoom,
   getSessionTurnPatchStreamKey,
+  normalizeRealtimeRooms,
   realtimeEnvelopeSchema,
   WS_COMPACT_STREAM_CAPABILITY,
+  WS_ROOM_SUBSCRIPTION_CAPABILITY,
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, authorizeRealtimeRooms, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -37,7 +42,6 @@ import {
   redisCommandClient,
   REALTIME_OUTBOUND_CHANNEL,
   AGENT_REALTIME_PATCH_CHANNEL,
-  getSpaceWsUsersKey,
 } from "./redis.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -47,14 +51,16 @@ type WsConnectionContext = {
   userName?: string;
   token?: string;
   capabilities: Set<string>;
+  rooms: Set<RealtimeRoom>;
   compactStreamAliases: Map<string, string>;
   nextCompactStreamAlias: number;
 };
 
 type GatewayWsBroadcastPayload = RealtimeServerEvent & {
+  rooms?: RealtimeRoom[];
   payload: RealtimeServerEvent["payload"] & {
-    targetUserIds?: string[];
     targetConnectionId?: string | null;
+    targetUserIds?: string[];
   };
 };
 
@@ -62,10 +68,8 @@ const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
 
 const wsConnections = new Map<string, WsConnectionContext>();
-const wsConnectionsByUserId = new Map<string, Set<string>>();
+const wsConnectionIdsByRoom = new Map<RealtimeRoom, Set<string>>();
 const wsSockets = new Map<string, WebSocket>();
-const SPACE_WS_USERS_CACHE_TTL_MS = 10_000;
-const spaceWsUsersCache = new Map<string, { expiresAt: number; userIds: string[] }>();
 
 const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
 const getWsUserConnectionsKey = (userId: string) => `gateway:ws:user:${userId}:connections`;
@@ -82,20 +86,27 @@ function logStartupInfo() {
   logger.info("=".repeat(60));
 }
 
-const addUserConnection = (userId: string, connectionId: string) => {
-  let set = wsConnectionsByUserId.get(userId);
-  if (!set) {
-    set = new Set<string>();
-    wsConnectionsByUserId.set(userId, set);
+const subscribeConnectionToRoom = (ctx: WsConnectionContext, room: RealtimeRoom) => {
+  if (ctx.rooms.has(room)) return;
+  ctx.rooms.add(room);
+  let connectionIds = wsConnectionIdsByRoom.get(room);
+  if (!connectionIds) {
+    connectionIds = new Set<string>();
+    wsConnectionIdsByRoom.set(room, connectionIds);
   }
-  set.add(connectionId);
+  connectionIds.add(ctx.connectionId);
 };
 
-const removeUserConnection = (userId: string, connectionId: string) => {
-  const set = wsConnectionsByUserId.get(userId);
-  if (!set) return;
-  set.delete(connectionId);
-  if (set.size === 0) wsConnectionsByUserId.delete(userId);
+const unsubscribeConnectionFromRoom = (ctx: WsConnectionContext, room: RealtimeRoom) => {
+  ctx.rooms.delete(room);
+  const connectionIds = wsConnectionIdsByRoom.get(room);
+  if (!connectionIds) return;
+  connectionIds.delete(ctx.connectionId);
+  if (connectionIds.size === 0) wsConnectionIdsByRoom.delete(room);
+};
+
+const unsubscribeConnectionFromAllRooms = (ctx: WsConnectionContext) => {
+  for (const room of [...ctx.rooms]) unsubscribeConnectionFromRoom(ctx, room);
 };
 
 const persistWsConnection = async (ctx: WsConnectionContext) => {
@@ -104,6 +115,7 @@ const persistWsConnection = async (ctx: WsConnectionContext) => {
     userId: ctx.userId ?? null,
     userName: ctx.userName ?? null,
     capabilities: [...ctx.capabilities],
+    rooms: [...ctx.rooms],
     connectedAt: Date.now(),
     nodeId: process.env.POD_NAME || process.env.HOSTNAME || "unknown",
   }), "EX", WS_CONNECTION_TTL_SECONDS);
@@ -115,11 +127,11 @@ const persistWsConnection = async (ctx: WsConnectionContext) => {
 
 const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
   if (!ctx) return;
+  unsubscribeConnectionFromAllRooms(ctx);
   wsSockets.delete(ctx.connectionId);
   wsConnections.delete(ctx.connectionId);
   await redisCommandClient.del(getWsConnectionKey(ctx.connectionId)).catch(() => undefined);
   if (ctx.userId) {
-    removeUserConnection(ctx.userId, ctx.connectionId);
     await redisCommandClient.srem(getWsUserConnectionsKey(ctx.userId), ctx.connectionId).catch(() => undefined);
   }
 };
@@ -296,48 +308,64 @@ class WsClientInputError extends Error {
   }
 }
 
-const getSpaceWsUsers = async (spaceId: string) => {
-  const now = Date.now();
-  const cached = spaceWsUsersCache.get(spaceId);
-  if (cached && cached.expiresAt > now) return cached.userIds;
-  if (cached) spaceWsUsersCache.delete(spaceId);
-  const userIds = await redisCommandClient.smembers(getSpaceWsUsersKey(spaceId)).catch(() => [] as string[]);
-  const normalized = userIds.map((value) => value.trim()).filter(Boolean);
-  spaceWsUsersCache.set(spaceId, { expiresAt: now + SPACE_WS_USERS_CACHE_TTL_MS, userIds: normalized });
-  return normalized;
+const resolveRealtimeRoomsForEnvelope = (payload: GatewayWsBroadcastPayload): RealtimeRoom[] => {
+  const payloadRecord = (payload.payload ?? {}) as Record<string, unknown>;
+  const explicitRooms = normalizeRealtimeRooms(Array.isArray(payload.rooms) ? payload.rooms : []);
+  if (explicitRooms.length > 0) return explicitRooms;
+
+  const targetUserIds = Array.isArray(payloadRecord.targetUserIds)
+    ? payloadRecord.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  if (targetUserIds.length > 0) return targetUserIds.map((userId) => getRealtimeUserRoom(userId.trim()));
+
+  if (typeof payload.spaceId === "string" && payload.spaceId.trim()) {
+    return [getRealtimeSpaceRoom(payload.spaceId.trim())];
+  }
+
+  const task = payloadRecord.task;
+  if (task && typeof task === "object") {
+    const taskRecord = task as { spaceId?: unknown; userId?: unknown };
+    if (typeof taskRecord.spaceId === "string" && taskRecord.spaceId.trim()) {
+      return [getRealtimeSpaceRoom(taskRecord.spaceId.trim())];
+    }
+    if (typeof taskRecord.userId === "string" && taskRecord.userId.trim()) {
+      return [getRealtimeUserRoom(taskRecord.userId.trim())];
+    }
+  }
+
+  const userId = typeof payloadRecord.userId === "string" ? payloadRecord.userId.trim() : "";
+  return userId ? [getRealtimeUserRoom(userId)] : [];
 };
 
 async function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
-  const targetConnectionId = typeof payload.payload?.targetConnectionId === "string" ? payload.payload.targetConnectionId.trim() : "";
-  const targetUserIds = Array.isArray(payload.payload?.targetUserIds)
-    ? payload.payload.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    : [];
-  const resolvedUserIds = targetUserIds.length > 0
-    ? targetUserIds
-    : typeof payload.spaceId === "string" && payload.spaceId.trim()
-      ? await getSpaceWsUsers(payload.spaceId)
-      : [];
   const {
+    targetConnectionId,
     targetUserIds: _targetUserIds,
-    targetConnectionId: _targetConnectionId,
     ...cleanPayload
-  } = (payload.payload ?? {}) as Record<string, unknown>;
+  } = ((payload.payload ?? {}) as Record<string, unknown>) as Record<string, unknown> & {
+    targetConnectionId?: string | null;
+    targetUserIds?: string[];
+  };
   const envelope = { ...payload, payload: cleanPayload } as RealtimeEnvelope;
+  const deliveredConnectionIds = new Set<string>();
 
-  if (targetConnectionId) {
-    const socket = wsSockets.get(targetConnectionId);
-    if (socket) sendWsRealtime(socket, wsConnections.get(targetConnectionId), envelope);
+  const deliverConnection = (connectionId: string) => {
+    if (deliveredConnectionIds.has(connectionId)) return;
+    const socket = wsSockets.get(connectionId);
+    if (!socket) return;
+    deliveredConnectionIds.add(connectionId);
+    sendWsRealtime(socket, wsConnections.get(connectionId), envelope);
+  };
+
+  if (typeof targetConnectionId === "string" && targetConnectionId.trim()) {
+    deliverConnection(targetConnectionId.trim());
     return;
   }
 
-  for (const userId of resolvedUserIds) {
-    const connectionIds = wsConnectionsByUserId.get(userId);
+  for (const room of resolveRealtimeRoomsForEnvelope(payload)) {
+    const connectionIds = wsConnectionIdsByRoom.get(room);
     if (!connectionIds) continue;
-    for (const connectionId of connectionIds) {
-      const socket = wsSockets.get(connectionId);
-      if (!socket) continue;
-      sendWsRealtime(socket, wsConnections.get(connectionId), envelope);
-    }
+    for (const connectionId of connectionIds) deliverConnection(connectionId);
   }
 }
 
@@ -409,7 +437,6 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
 async function main() {
   logStartupInfo();
 
-  await initOutboundConsumerGroup();
   startWsConnectionSweeper();
   await startSpaceOutputSubscriber();
 
@@ -467,12 +494,13 @@ async function main() {
   const manager = new GatewayManager({
     onStaleNodesPruned: (nodeIds) => requestChannelReconcile(`stale_nodes_pruned:${nodeIds.join(",")}`),
   });
+  await initOutboundConsumerGroup(manager.nodeId);
   await manager.start();
   void requestChannelReconcile("node_started");
 
   logger.info("[Gateway] Listening for outbound commands from API...");
 
-  listenOutboundCommands(async (cmd: PlannedGatewayOutboundCommand) => {
+  listenOutboundCommands(manager.nodeId, async (cmd: PlannedGatewayOutboundCommand) => {
     logger.info("[Gateway] Received outbound command:", {
       commandId: cmd.commandId,
       channelId: cmd.channelId,
@@ -481,54 +509,36 @@ async function main() {
       contentPreview: cmd.content.map((c: { type: string }) => c.type).join(", "),
     });
 
+    const targetNodeId = typeof cmd.meta?.targetNodeId === "string" ? cmd.meta.targetNodeId : null;
+    if (targetNodeId && targetNodeId !== manager.nodeId) {
+      logger.warn("[Gateway] Command rejected: wrong target node", { commandId: cmd.commandId, channelId: cmd.channelId, targetNodeId, nodeId: manager.nodeId });
+      return { success: false, error: `Wrong target node ${targetNodeId}` };
+    }
+
     if (cmd.provider === "websocket") {
-      const targetConnectionId = typeof cmd.meta?.targetConnectionId === "string" ? cmd.meta.targetConnectionId.trim() : "";
-      const targetUserIds = Array.isArray(cmd.meta?.targetUserIds)
-        ? (cmd.meta.targetUserIds as unknown[]).filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        : [];
-      const payload = {
-        ...(cmd.meta?.payload && typeof cmd.meta.payload === "object" ? cmd.meta.payload as Record<string, unknown> : {}),
-        targetUserIds,
-        targetConnectionId: targetConnectionId || null,
-      };
       const domain = cmd.meta?.domain === "system" || cmd.meta?.domain === "space" || cmd.meta?.domain === "session"
         ? cmd.meta.domain
         : "session";
+      const targetConnectionId = typeof cmd.meta?.targetConnectionId === "string" ? cmd.meta.targetConnectionId.trim() : "";
+      const targetUserIds = Array.isArray(cmd.meta?.targetUserIds)
+        ? cmd.meta.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        : [];
+      const payload = {
+        ...(cmd.meta?.payload && typeof cmd.meta.payload === "object" ? cmd.meta.payload as Record<string, unknown> : {}),
+        ...(targetConnectionId ? { targetConnectionId } : {}),
+        ...(targetUserIds.length > 0 ? { targetUserIds } : {}),
+      };
       const envelope = buildRealtimeEnvelope({
         domain,
         type: typeof cmd.meta?.type === "string" ? cmd.meta.type : "session.message.persisted",
         requestId: typeof cmd.meta?.requestId === "string" ? cmd.meta.requestId : null,
         spaceId: cmd.spaceId ?? null,
         sessionId: cmd.spaceSessionId ?? null,
+        rooms: normalizeRealtimeRooms(Array.isArray(cmd.meta?.rooms) ? cmd.meta.rooms.filter((room): room is string => typeof room === "string") : []),
         payload,
       });
-
-      if (targetConnectionId) {
-        const socket = wsSockets.get(targetConnectionId);
-        if (!socket) {
-          return { success: true, externalMessageId: targetConnectionId, error: "offline" };
-        }
-        const ctx = wsConnections.get(targetConnectionId);
-        const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = envelope.payload as Record<string, unknown>;
-        sendWsRealtime(socket, ctx, { ...envelope, payload: cleanPayload });
-        return { success: true, externalMessageId: targetConnectionId };
-      }
-
-      let delivered = 0;
-      for (const userId of targetUserIds) {
-        const connectionIds = wsConnectionsByUserId.get(userId);
-        if (!connectionIds) continue;
-        for (const connectionId of connectionIds) {
-          const socket = wsSockets.get(connectionId);
-          if (!socket) continue;
-          const ctx = wsConnections.get(connectionId);
-          const { targetUserIds: _targetUserIds, targetConnectionId: _targetConnectionId, ...cleanPayload } = envelope.payload as Record<string, unknown>;
-          sendWsRealtime(socket, ctx, { ...envelope, payload: cleanPayload });
-          delivered += 1;
-        }
-      }
-
-      return { success: true, externalMessageId: String(delivered) };
+      await fanOutBroadcastToLocalSockets(envelope as GatewayWsBroadcastPayload);
+      return { success: true };
     }
 
     const provider = manager.getProvider(cmd.channelId);
@@ -609,6 +619,7 @@ async function main() {
     const ctx: WsConnectionContext = {
       connectionId,
       capabilities: new Set(),
+      rooms: new Set(),
       compactStreamAliases: new Map(),
       nextCompactStreamAlias: 0,
     };
@@ -659,6 +670,12 @@ async function main() {
             sendWsError(socket, "UNAUTHORIZED", result.error.message, requestId);
             return;
           }
+          const previousUserId = ctx.userId;
+          unsubscribeConnectionFromAllRooms(ctx);
+          ctx.compactStreamAliases.clear();
+          if (previousUserId && previousUserId !== result.user.uuid) {
+            await redisCommandClient.srem(getWsUserConnectionsKey(previousUserId), connectionId).catch(() => undefined);
+          }
           ctx.userId = result.user.uuid;
           ctx.userName = typeof result.user.nick_name === "string" ? result.user.nick_name : undefined;
           ctx.token = token;
@@ -667,13 +684,13 @@ async function main() {
               ? message.payload.capabilities.filter((value) => typeof value === "string" && value.trim())
               : [],
           );
-          addUserConnection(result.user.uuid, connectionId);
+          subscribeConnectionToRoom(ctx, getRealtimeUserRoom(result.user.uuid));
           await persistWsConnection(ctx);
           sendWsEnvelope(socket, buildRealtimeEnvelope({
             domain: "system",
             type: "system.auth.ok",
             requestId: requestId ?? null,
-            payload: { connectionId, user: result.user },
+            payload: { connectionId, user: result.user, capabilities: [WS_ROOM_SUBSCRIPTION_CAPABILITY] },
           }));
           return;
         }
@@ -684,6 +701,63 @@ async function main() {
         }
 
         await touchWsConnection(ctx);
+
+        if (message.type === "subscribe") {
+          const rooms = normalizeRealtimeRooms(message.payload.rooms);
+          if (rooms.length === 0) {
+            sendWsError(socket, "BAD_REQUEST", "rooms are required", requestId);
+            return;
+          }
+          try {
+            const result = await authorizeRealtimeRooms({ userId: ctx.userId, rooms });
+            for (const room of result.rooms) subscribeConnectionToRoom(ctx, room);
+            await persistWsConnection(ctx);
+            sendWsEnvelope(socket, buildRealtimeEnvelope({
+              domain: "system",
+              type: "system.subscribe.ok",
+              requestId: requestId ?? null,
+              payload: { rooms: result.rooms },
+            }));
+            if (result.rejected.length > 0) {
+              sendWsEnvelope(socket, buildRealtimeEnvelope({
+                domain: "system",
+                type: "system.subscribe.error",
+                requestId: requestId ?? null,
+                payload: { rejected: result.rejected },
+              }));
+            }
+          } catch (error) {
+            logger.warn("[Gateway] Realtime room authorization failed", { connectionId, error });
+            sendWsEnvelope(socket, buildRealtimeEnvelope({
+              domain: "system",
+              type: "system.subscribe.error",
+              requestId: requestId ?? null,
+              payload: {
+                rejected: rooms.map((room) => ({
+                  room,
+                  code: "FORBIDDEN",
+                  message: "Failed to authorize realtime room",
+                })),
+              },
+            }));
+          }
+          return;
+        }
+
+        if (message.type === "unsubscribe") {
+          for (const room of normalizeRealtimeRooms(message.payload.rooms)) {
+            if (room === getRealtimeUserRoom(ctx.userId)) continue;
+            unsubscribeConnectionFromRoom(ctx, room);
+          }
+          await persistWsConnection(ctx);
+          sendWsEnvelope(socket, buildRealtimeEnvelope({
+            domain: "system",
+            type: "system.subscribe.ok",
+            requestId: requestId ?? null,
+            payload: { rooms: [...ctx.rooms] },
+          }));
+          return;
+        }
 
         if (message.type === "canvas.tx") {
           try {

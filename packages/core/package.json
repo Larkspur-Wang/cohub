@@ -52,14 +52,6 @@
       "types": "./src/labels/resource-events.ts",
       "default": "./dist/labels/resource-events.js"
     },
-    "./spaces": {
-      "types": "./dist/spaces/index.d.ts",
-      "default": "./dist/spaces/index.js"
-    },
-    "./spaces/audience": {
-      "types": "./dist/spaces/audience.d.ts",
-      "default": "./dist/spaces/audience.js"
-    },
     "./content": {
       "types": "./dist/content/index.d.ts",
       "default": "./dist/content/index.js"

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { buildResourceLabelSnapshot, type LabelResourceType } from "@cohub/core/labels/resource-events";
-import { recomputeSpaceWsUsers } from "@cohub/core/spaces";
 import { db } from "./db.js";
 import { redisCommandClient } from "./redis.js";
 
@@ -13,11 +12,7 @@ export async function dispatchLabelAssignmentsUpdated(input: {
   sessionId?: string | null;
   affectedLabelIds?: string[];
 }) {
-  const [snapshot, targetUserIds] = await Promise.all([
-    buildResourceLabelSnapshot({ db, ...input }),
-    recomputeSpaceWsUsers({ db, redis: redisCommandClient, spaceId: input.spaceId }),
-  ]);
-  if (targetUserIds.length === 0) return;
+  const snapshot = await buildResourceLabelSnapshot({ db, ...input });
   await redisCommandClient.publish(
     REALTIME_OUTBOUND_CHANNEL,
     JSON.stringify({
@@ -34,7 +29,6 @@ export async function dispatchLabelAssignmentsUpdated(input: {
         assignments: snapshot.assignments,
         items: snapshot.items,
         affectedLabelIds: snapshot.affectedLabelIds,
-        targetUserIds,
       },
     }),
   );

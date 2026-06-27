@@ -13,16 +13,10 @@ import {
   sessionMessages,
   sessionTurnSegments,
   sessionTurns,
-  spaceMembers,
   spaceSessions,
   spaces,
   tokenUsageStatsHourly,
 } from "@cohub/db";
-import {
-  getSpaceWsUsersKey,
-  getSpaceWsUsersUpdatedAtKey,
-  redisCommandClient,
-} from "./redis.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
 import { dispatchSessionCreated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
@@ -294,24 +288,6 @@ export const setSpaceEnv = async (spaceId: string, envs: Array<{ name: string; v
 export const getSpaceById = async (spaceId: string) => {
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   return space ?? null;
-};
-
-export const recomputeSpaceWsUsers = async (spaceId: string) => {
-  const [space] = await db.select({ ownerId: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  const members = await db.select({ userId: spaceMembers.userId }).from(spaceMembers).where(eq(spaceMembers.spaceId, spaceId));
-  const userIds = new Set<string>();
-  if (space?.ownerId) userIds.add(space.ownerId);
-  for (const member of members) {
-    if (member.userId) userIds.add(member.userId);
-  }
-  const values = [...userIds];
-  const pipeline = redisCommandClient.pipeline();
-  const key = getSpaceWsUsersKey(spaceId);
-  pipeline.del(key);
-  if (values.length > 0) pipeline.sadd(key, ...values);
-  pipeline.set(getSpaceWsUsersUpdatedAtKey(spaceId), String(Date.now()));
-  await pipeline.exec();
-  return values;
 };
 
 export const getSpaceSessionById = async (spaceSessionId: string) => {

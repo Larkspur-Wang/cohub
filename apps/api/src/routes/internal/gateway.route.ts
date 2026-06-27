@@ -2,8 +2,10 @@ import { context, trace, SpanStatusCode } from "@opentelemetry/api";
 import { createLogger } from "@cohub/infra/logging";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { gatewayInboundEventSchema, type GatewayInboundEvent } from "@cohub/protocol/gateway";
+import { parseRealtimeRoom } from "@cohub/protocol/realtime";
 import { Hono } from "hono";
 import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEvent } from "../../channels.js";
+import { hasPermission } from "../../permissions.js";
 import { ensureInternalRequest } from "../../lib/middleware.js";
 import { PublicAssetConfigError, PublicAssetValidationError, createInternalPublicAssetUploadPlan } from "../../public-asset-storage.js";
 import {
@@ -72,6 +74,52 @@ router.post("/reconcile-channels", async (c) => {
   } finally {
     span.end();
   }
+});
+
+router.post("/authorize-realtime-rooms", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const body = await c.req.json<{ userId?: string; rooms?: string[] }>().catch(() => null);
+  const userId = body?.userId?.trim();
+  if (!userId) return c.json({ ok: false, message: "userId is required" }, 400);
+
+  const requestedRooms = Array.isArray(body?.rooms) ? Array.from(new Set(body.rooms.filter((room): room is string => typeof room === "string").map((room) => room.trim()).filter(Boolean))) : [];
+  if (requestedRooms.length === 0) return c.json({ ok: true, rooms: [], rejected: [] });
+
+  const user = { uuid: userId } as Parameters<typeof hasPermission>[0];
+  const accepted: string[] = [];
+  const rejected: Array<{ room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string }> = [];
+
+  for (const room of requestedRooms) {
+    const parsed = parseRealtimeRoom(room);
+    if (!parsed) {
+      rejected.push({ room, code: "BAD_ROOM", message: "Invalid room" });
+      continue;
+    }
+    const normalizedRoom = `${parsed.kind}:${parsed.id}`;
+
+    if (parsed.kind === "user") {
+      if (parsed.id === userId) {
+        accepted.push(normalizedRoom);
+      } else {
+        rejected.push({ room, code: "FORBIDDEN", message: "Cannot subscribe to another user" });
+      }
+      continue;
+    }
+
+    const allowed = await hasPermission(user, "space.view", { spaceId: parsed.id }).catch((error) => {
+      logger.warn("[RealtimeRooms] failed to authorize room", { room, userId, error });
+      return false;
+    });
+    if (allowed) {
+      accepted.push(normalizedRoom);
+    } else {
+      rejected.push({ room, code: "FORBIDDEN", message: "Missing space.view permission" });
+    }
+  }
+
+  return c.json({ ok: true, rooms: accepted, rejected });
 });
 
 router.post("/attachments/plan", async (c) => {
