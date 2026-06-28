@@ -11,6 +11,7 @@ type Props = {
 let { users, limit = 4 }: Props = $props();
 
 const visibleUsers = $derived(users.slice(0, limit));
+const firstUser = $derived(users[0]);
 const overflowCount = $derived(Math.max(0, users.length - visibleUsers.length));
 const itemPriority = (item: Record<string, unknown>) => {
 	if (item.kind === "session") return 0;
@@ -66,6 +67,16 @@ const title = $derived.by(() => {
 			{/each}
 			{#if overflowCount > 0}
 				<span class="presence-overflow">+{overflowCount}</span>
+			{/if}
+		</div>
+		<div class="presence-mobile-avatar" aria-hidden="true">
+			{#if firstUser}
+				<UserAvatar
+					name={displayUserName(firstUser.profile, firstUser.userId)}
+					avatarUrl={firstUser.profile.avatarUrl}
+					size="xxs"
+					class="border-bg-elevated"
+				/>
 			{/if}
 		</div>
 		<span class="presence-count">{users.length}</span>
@@ -132,6 +143,10 @@ const title = $derived.by(() => {
 		box-shadow: 0 0 0 1px var(--bg-elevated);
 	}
 
+	.presence-mobile-avatar {
+		display: none;
+	}
+
 	.presence-count {
 		font-size: 11px;
 		font-weight: 550;
@@ -142,11 +157,15 @@ const title = $derived.by(() => {
 	@media (max-width: 640px) {
 		.presence-stack {
 			gap: 4px;
-			padding-right: 4px;
+			padding-right: 5px;
 		}
 
-		.presence-count {
+		.presence-avatars {
 			display: none;
+		}
+
+		.presence-mobile-avatar {
+			display: inline-flex;
 		}
 	}
 </style>
