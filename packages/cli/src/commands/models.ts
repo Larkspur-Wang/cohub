@@ -28,10 +28,12 @@ type GenerationParameterSpec = NonNullable<PublicGenerationDeclaration["paramete
 
 function formatContentSpec(spec: GenerationContentSpec): string {
   const details: string[] = [];
+  const roles = (spec as GenerationContentSpec & { roles?: string[] }).roles;
   details.push(spec.required === false ? "optional" : "required");
   if (typeof spec.min === "number") details.push(`min ${spec.min}`);
   if (typeof spec.max === "number") details.push(`max ${spec.max}`);
   if (spec.sources?.length) details.push(`sources: ${spec.sources.join(", ")}`);
+  if (roles?.length) details.push(`roles: ${roles.join(", ")}`);
   if (spec.merge) details.push(`merge: ${spec.merge}`);
   if (spec.description) details.push(spec.description);
   return `${spec.type}${details.length > 0 ? ` — ${details.join("; ")}` : ""}`;

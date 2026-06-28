@@ -149,6 +149,16 @@ cohub generate "restyle this image" \
   --param size=1024x1024 \
   --json
 
+cohub generate "smoothly transition from the first frame to the last frame" \
+  --model seedance-2-0-fast \
+  --image first_frame=https://example.com/first.png \
+  --image last_frame=https://example.com/last.png
+
+cohub generate "keep the character identity from all reference images" \
+  --model seedance-2-0-fast \
+  --image reference_image=https://example.com/reference-1.png \
+  --image reference_image=https://example.com/reference-2.png
+
 cohub generate "a calm lake" \
   --model <model> \
   --async
@@ -160,9 +170,15 @@ Supported inputs:
 
 ```bash
 --image <path-or-url>
+--image first_frame=<path-or-url>
+--image last_frame=<path-or-url>
+--image reference_image=<path-or-url>
 --video <path-or-url>
+--video reference_video=<path-or-url>
 --audio <path-or-url>
 ```
+
+Role-qualified media values add `meta.role` to that content block. Repeat `--image reference_image=...` for multiple reference images. Seedance role-qualified media should use public URL inputs. Do not mix first/last frame roles with reference roles in one request.
 
 Pass generation parameters with `--param key=value` or `--parameters '<json>'`.
 

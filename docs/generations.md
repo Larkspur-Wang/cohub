@@ -116,6 +116,18 @@ cohub generate "a cat playing piano in a cozy jazz club" \
   --param duration=5 \
   --param resolution=720p
 
+cohub generate "smoothly transition from the first frame to the last frame" \
+  --model seedance-2-0-fast \
+  --image first_frame=https://example.com/first.png \
+  --image last_frame=https://example.com/last.png \
+  --param duration=5
+
+cohub generate "keep the character identity from all reference images" \
+  --model seedance-2-0-fast \
+  --image reference_image=https://example.com/reference-1.png \
+  --image reference_image=https://example.com/reference-2.png \
+  --param duration=5
+
 cohub generate "uplifting cinematic pop with warm piano and clear chorus" \
   --model suno_music \
   --param operation=music \
@@ -125,3 +137,5 @@ cohub generate "write a hopeful chorus about sunrise after a storm" \
   --model suno_music \
   --param operation=lyrics
 ```
+
+Role-qualified media values add `meta.role` to that content block. Repeat `--image reference_image=...` for multiple reference images. Seedance role-qualified media should use public URL inputs. Do not mix first/last frame roles with reference roles in one request.
