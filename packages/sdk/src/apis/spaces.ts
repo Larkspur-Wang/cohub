@@ -30,6 +30,7 @@ import type {
   SpaceAccessPolicy,
   SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
+  SpaceDefaultResponse,
   CreateSpacePromptInput,
   CreateSpacePromptResponse,
   SpaceEnvInput,
@@ -157,6 +158,13 @@ export class SpacesApi {
 
   list(customFetch?: Fetch) {
     return this.transport.request<SpaceRecord[]>("/api/spaces", {
+      method: "GET",
+      fetch: customFetch,
+    });
+  }
+
+  getDefault(customFetch?: Fetch) {
+    return this.transport.request<SpaceDefaultResponse>("/api/spaces/default", {
       method: "GET",
       fetch: customFetch,
     });

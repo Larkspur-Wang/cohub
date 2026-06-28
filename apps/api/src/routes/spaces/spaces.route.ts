@@ -277,6 +277,7 @@ const DEFAULT_SPACE_SANDBOX_AUTO_DESTROY: SpaceSandboxAutoDestroyPolicy = {
 const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;
 const MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_SPACE_DESCRIPTION_LENGTH = 10_000;
+const HOME_SPACE_SLUG = "home";
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -301,6 +302,35 @@ const uniqueViolationConstraint = (error: unknown): string | null => {
   if (record?.code !== "23505") return null;
   return record.constraint_name ?? record.constraint ?? null;
 };
+
+type SpaceRow = typeof spaces.$inferSelect;
+
+async function listAccessibleSpaceIds(user: AuthUser): Promise<string[]> {
+  const owned = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(eq(spaces.userUuid, user.uuid));
+  const member = await db
+    .select({ id: spaceMembers.spaceId })
+    .from(spaceMembers)
+    .where(eq(spaceMembers.userId, user.uuid));
+
+  return Array.from(new Set([...owned.map((item) => item.id), ...member.map((item) => item.id)]));
+}
+
+function compareSpaceActivityDesc(left: SpaceRow, right: SpaceRow): number {
+  const leftActivity = left.lastActivityAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const rightActivity = right.lastActivityAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  if (leftActivity !== rightActivity) return rightActivity - leftActivity;
+
+  const leftCreated = left.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  const rightCreated = right.createdAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  return rightCreated - leftCreated;
+}
+
+function selectMostRecentSpace(candidates: Array<SpaceRow | null | undefined>): SpaceRow | null {
+  return candidates.filter((space): space is SpaceRow => Boolean(space)).sort(compareSpaceActivityDesc)[0] ?? null;
+}
 
 const readSpaceConfig = (space: typeof spaces.$inferSelect) => {
   const meta = isRecord(space.meta) ? space.meta : {};
@@ -457,16 +487,7 @@ router.get("/", async (c) => {
   const user = useAuth(c);
   if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
 
-  const owned = await db
-    .select({ id: spaces.id })
-    .from(spaces)
-    .where(eq(spaces.userUuid, user.uuid));
-  const member = await db
-    .select({ id: spaceMembers.spaceId })
-    .from(spaceMembers)
-    .where(eq(spaceMembers.userId, user.uuid));
-
-  const spaceIds = Array.from(new Set([...owned.map((item) => item.id), ...member.map((item) => item.id)]));
+  const spaceIds = await listAccessibleSpaceIds(user);
   if (spaceIds.length === 0) return c.json([]);
 
   const spaceList = await db
@@ -478,6 +499,47 @@ router.get("/", async (c) => {
   const items = await buildSpaceListItems(spaceList);
   const workSession = getWorkSessionPrincipal(c);
   return c.json(workSession ? items.map(stripSensitiveSpaceFields) : items);
+});
+
+router.get("/default", async (c) => {
+  const user = useAuth(c);
+  if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
+
+  const [[ownedHome], [memberHome]] = await Promise.all([
+    db
+      .select()
+      .from(spaces)
+      .where(and(eq(spaces.userUuid, user.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+      .limit(1),
+    db
+      .select({ space: spaces })
+      .from(spaceMembers)
+      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
+      .where(and(eq(spaceMembers.userId, user.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+      .limit(1),
+  ]);
+  const homeSpace = selectMostRecentSpace([ownedHome, memberHome?.space]);
+  if (homeSpace) return c.json({ space: await buildDefaultSpaceResponse(c, homeSpace, user) });
+
+  const [[ownedRecent], [memberRecent]] = await Promise.all([
+    db
+      .select()
+      .from(spaces)
+      .where(eq(spaces.userUuid, user.uuid))
+      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+      .limit(1),
+    db
+      .select({ space: spaces })
+      .from(spaceMembers)
+      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
+      .where(eq(spaceMembers.userId, user.uuid))
+      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+      .limit(1),
+  ]);
+  const space = selectMostRecentSpace([ownedRecent, memberRecent?.space]);
+
+  return c.json({ space: space ? await buildDefaultSpaceResponse(c, space, user) : null });
 });
 
 // ── POST /api/spaces ─────────────────────────────────────────────────────────
@@ -825,6 +887,12 @@ function stripSensitiveSpaceFields(item: Record<string, unknown>): Record<string
     return { ...rest, meta: safeMeta };
   }
   return rest;
+}
+
+async function buildDefaultSpaceResponse(c: Context, space: SpaceRow, user: AuthUser) {
+  if (!getWorkSessionPrincipal(c)) return serializeSpaceForResponse(space, user);
+  const [item] = await buildSpaceListItems([space]);
+  return item ? stripSensitiveSpaceFields(item) : null;
 }
 
 // ── GET /api/spaces/:id ──────────────────────────────────────────────────────

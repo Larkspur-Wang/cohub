@@ -41,8 +41,10 @@ onMount(async () => {
 	try {
 		const spaces = setCachedSpaceList(await sdk.spaces.list());
 		spaceCount = spaces.length;
-		if (spaces.length > 0) {
-			await goto(buildSpaceLandingRoute(spaces[0].id));
+		const defaultResult = await sdk.spaces.getDefault().catch(() => null);
+		const targetSpace = defaultResult?.space ?? spaces[0] ?? null;
+		if (targetSpace) {
+			await goto(buildSpaceLandingRoute(targetSpace.id));
 			return;
 		}
 	} catch {

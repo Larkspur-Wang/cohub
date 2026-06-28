@@ -638,6 +638,10 @@ export type SpaceCreateResponse = {
   taskRunId: string;
 };
 
+export type SpaceDefaultResponse = {
+  space: SpaceRecord | null;
+};
+
 export type SpaceListItem = SpaceRecord;
 
 export type SessionMessagesResponse = {
