@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 1.34.0
+
+### Minor Changes
+
+- Add Space default resolution and presence APIs, including presence snapshots, websocket presence updates, and `presence.updated` events.
+
 ## 1.33.1
 
 ### Patch Changes
