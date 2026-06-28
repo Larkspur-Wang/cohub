@@ -16,7 +16,7 @@ export const getAgentInstanceInputQueueKey = (instanceId: string) =>
   `agent:instance:${instanceId}:input_queue`;
 
 export const getGatewayNodeOutboundStreamKey = (nodeId: string) => `stream:gateway:node:${nodeId}:outbound`;
-export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
+export { REALTIME_OUTBOUND_CHANNEL } from "@cohub/protocol/realtime";
 
 export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: (string | number)[]) => {
   return client.xadd(streamKey, "MAXLEN", "~", 2000, ...args);

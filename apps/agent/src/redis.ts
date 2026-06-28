@@ -3,7 +3,7 @@ import { context, trace, type Span } from "@opentelemetry/api";
 import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { RealtimeEnvelope, SessionStreamError, SessionStreamEvent, SessionTurnLifecycleOutput } from "@cohub/protocol/realtime";
+import { AGENT_REALTIME_PATCH_CHANNEL, REALTIME_OUTBOUND_CHANNEL, type RealtimeEnvelope, type SessionStreamError, type SessionStreamEvent, type SessionTurnLifecycleOutput } from "@cohub/protocol/realtime";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { SpacePortsChangedPayload } from "@cohub/protocol/ports";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -21,8 +21,6 @@ export const xaddWithMaxlen = async (client: Redis, streamKey: string, ...args: 
 
 export const getGatewayNodeOutboundStreamKey = (nodeId: string) => `stream:gateway:node:${nodeId}:outbound`;
 
-const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
-const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 const SESSION_STREAM_SNAPSHOT_TTL_SECONDS = 60 * 60;
 const getSessionStreamSnapshotKey = (spaceId: string, sessionId: string) =>
   `session:stream:snapshot:${spaceId}:${sessionId}`;

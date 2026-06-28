@@ -32,8 +32,7 @@ redisCommandClient.on("reconnecting", () => {
 });
 
 export const getGatewayNodeOutboundStreamKey = (nodeId: string) => `stream:gateway:node:${nodeId}:outbound`;
-export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
-export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
+export { REALTIME_OUTBOUND_CHANNEL, AGENT_REALTIME_PATCH_CHANNEL } from "@cohub/protocol/realtime";
 export const STREAM_MAXLEN = 2000;
 export const STREAM_APPROX = "~";
 

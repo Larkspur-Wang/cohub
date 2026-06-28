@@ -3,7 +3,7 @@ import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord } from "../model/session.js";
 export type { ChannelConfig, DiscordChannelConfig, FeishuChannelConfig, WeChatChannelConfig } from "./types.js";
 
-export type ChannelProvider = "web" | "websocket" | "discord" | "feishu" | "wechat" | "telegram" | "slack";
+export type ChannelProvider = "web" | "discord" | "feishu" | "wechat" | "telegram" | "slack";
 export const GATEWAY_CHANNEL_COMMAND_SPECS = [
   {
     name: "new",
@@ -85,7 +85,7 @@ export const gatewayChannelCommandSchema = z.object({
   args: z.string().optional(),
 });
 
-const channelProviderSchema = z.enum(["web", "websocket", "discord", "feishu", "wechat", "telegram", "slack"]);
+const channelProviderSchema = z.enum(["web", "discord", "feishu", "wechat", "telegram", "slack"]);
 const gatewayInboundBindingSchema = z.object({
   key: z.string().min(1),
   parentKey: z.string().min(1).nullable().optional(),

@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { buildResourceLabelSnapshot, type LabelResourceType } from "@cohub/core/labels/resource-events";
+import { REALTIME_OUTBOUND_CHANNEL } from "@cohub/protocol/realtime";
 import { db } from "./db.js";
 import { redisCommandClient } from "./redis.js";
-
-const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 
 export async function dispatchLabelAssignmentsUpdated(input: {
   spaceId: string;

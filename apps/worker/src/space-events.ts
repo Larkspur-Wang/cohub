@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
+import { REALTIME_OUTBOUND_CHANNEL } from "@cohub/protocol/realtime";
 import { redisCommandClient } from "./redis.js";
 import { enqueueFsCdnWarmForChanges } from "./space-fs-cdn-prewarm.js";
 import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-worker" });
-const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 
 export async function publishSpaceFsChanged(spaceId: string, payload: SpaceFsChangedPayload) {
   try {

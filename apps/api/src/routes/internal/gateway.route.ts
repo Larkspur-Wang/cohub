@@ -6,7 +6,7 @@ import { parseRealtimeRoom } from "@cohub/protocol/realtime";
 import { Hono } from "hono";
 import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEvent } from "../../channels.js";
 import { hasPermission } from "../../permissions.js";
-import { ensureInternalRequest } from "../../lib/middleware.js";
+import { ensureInternalRequest, getOptionalAuth } from "../../lib/middleware.js";
 import { PublicAssetConfigError, PublicAssetValidationError, createInternalPublicAssetUploadPlan } from "../../public-asset-storage.js";
 import {
   beginSpaceUploadComplete,
@@ -80,14 +80,13 @@ router.post("/authorize-realtime-rooms", async (c) => {
   const forbidden = ensureInternalRequest(c);
   if (forbidden) return forbidden;
 
-  const body = await c.req.json<{ userId?: string; rooms?: string[] }>().catch(() => null);
-  const userId = body?.userId?.trim();
-  if (!userId) return c.json({ ok: false, message: "userId is required" }, 400);
+  const user = getOptionalAuth(c);
+  if (!user) return c.json({ ok: false, message: "authentication is required" }, 401);
 
+  const body = await c.req.json<{ rooms?: string[] }>().catch(() => null);
   const requestedRooms = Array.isArray(body?.rooms) ? Array.from(new Set(body.rooms.filter((room): room is string => typeof room === "string").map((room) => room.trim()).filter(Boolean))) : [];
   if (requestedRooms.length === 0) return c.json({ ok: true, rooms: [], rejected: [] });
 
-  const user = { uuid: userId } as Parameters<typeof hasPermission>[0];
   const accepted: string[] = [];
   const rejected: Array<{ room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string }> = [];
 
@@ -100,7 +99,7 @@ router.post("/authorize-realtime-rooms", async (c) => {
     const normalizedRoom = `${parsed.kind}:${parsed.id}`;
 
     if (parsed.kind === "user") {
-      if (parsed.id === userId) {
+      if (parsed.id === user.uuid) {
         accepted.push(normalizedRoom);
       } else {
         rejected.push({ room, code: "FORBIDDEN", message: "Cannot subscribe to another user" });
@@ -109,7 +108,7 @@ router.post("/authorize-realtime-rooms", async (c) => {
     }
 
     const allowed = await hasPermission(user, "space.view", { spaceId: parsed.id }).catch((error) => {
-      logger.warn("[RealtimeRooms] failed to authorize room", { room, userId, error });
+      logger.warn("[RealtimeRooms] failed to authorize room", { room, userId: user.uuid, error });
       return false;
     });
     if (allowed) {

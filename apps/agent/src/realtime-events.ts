@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { RealtimeTaskRecord } from "@cohub/protocol/realtime";
+import { REALTIME_OUTBOUND_CHANNEL, type RealtimeTaskRecord } from "@cohub/protocol/realtime";
 import type { TaskRunStatus } from "@cohub/protocol/task";
 import { redis } from "./redis.js";
-
-const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
 
 const toIsoOrNull = (value: Date | string | null | undefined) => {
   if (!value) return null;

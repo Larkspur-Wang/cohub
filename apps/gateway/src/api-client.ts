@@ -118,7 +118,7 @@ export const requestGatewayChannelReconcile = async (): Promise<{ stats: unknown
 };
 
 export const authorizeRealtimeRooms = async (input: {
-  userId: string;
+  authToken: string;
   rooms: string[];
 }): Promise<{ rooms: RealtimeRoom[]; rejected: Array<{ room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string }> }> => {
   const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/authorize-realtime-rooms`, {
@@ -126,9 +126,10 @@ export const authorizeRealtimeRooms = async (input: {
     headers: {
       "content-type": "application/json",
       "x-worker-secret": gatewayConfig.workerSecret,
+      authorization: `Bearer ${input.authToken}`,
       ...buildTraceHeaders(),
     },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ rooms: input.rooms }),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");

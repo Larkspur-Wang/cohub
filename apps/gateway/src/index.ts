@@ -3,7 +3,7 @@ import "./tracing.js";
 import { createLogger } from "@cohub/infra/logging";
 
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -58,21 +58,21 @@ type WsConnectionContext = {
 
 type GatewayWsBroadcastPayload = RealtimeServerEvent & {
   rooms?: RealtimeRoom[];
-  payload: RealtimeServerEvent["payload"] & {
-    targetConnectionId?: string | null;
-    targetUserIds?: string[];
-  };
 };
 
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
+const ROOM_AUTH_CACHE_TTL_MS = 30_000;
+const ROOM_AUTH_CACHE_MAX_ENTRIES = 10_000;
+
+type RealtimeRoomRejection = { room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string };
 
 const wsConnections = new Map<string, WsConnectionContext>();
 const wsConnectionIdsByRoom = new Map<RealtimeRoom, Set<string>>();
 const wsSockets = new Map<string, WebSocket>();
+const roomAuthCache = new Map<string, { expiresAt: number; accepted: boolean; rejection?: RealtimeRoomRejection }>();
 
 const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
-const getWsUserConnectionsKey = (userId: string) => `gateway:ws:user:${userId}:connections`;
 
 function logStartupInfo() {
   logger.info("=".repeat(60));
@@ -119,10 +119,6 @@ const persistWsConnection = async (ctx: WsConnectionContext) => {
     connectedAt: Date.now(),
     nodeId: process.env.POD_NAME || process.env.HOSTNAME || "unknown",
   }), "EX", WS_CONNECTION_TTL_SECONDS);
-  if (ctx.userId) {
-    await redisCommandClient.sadd(getWsUserConnectionsKey(ctx.userId), ctx.connectionId);
-    await redisCommandClient.expire(getWsUserConnectionsKey(ctx.userId), WS_CONNECTION_TTL_SECONDS);
-  }
 };
 
 const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
@@ -131,9 +127,6 @@ const cleanupWsConnection = async (ctx: WsConnectionContext | undefined) => {
   wsSockets.delete(ctx.connectionId);
   wsConnections.delete(ctx.connectionId);
   await redisCommandClient.del(getWsConnectionKey(ctx.connectionId)).catch(() => undefined);
-  if (ctx.userId) {
-    await redisCommandClient.srem(getWsUserConnectionsKey(ctx.userId), ctx.connectionId).catch(() => undefined);
-  }
 };
 
 const sendWsEnvelope = (socket: WebSocket, envelope: RealtimeEnvelope) => {
@@ -312,10 +305,73 @@ const parseWsJson = (value: string): WsClientEvent => {
 
 const touchWsConnection = async (ctx: WsConnectionContext) => {
   await redisCommandClient.expire(getWsConnectionKey(ctx.connectionId), WS_CONNECTION_TTL_SECONDS).catch(() => undefined);
-  if (ctx.userId) {
-    await redisCommandClient.sadd(getWsUserConnectionsKey(ctx.userId), ctx.connectionId).catch(() => undefined);
-    await redisCommandClient.expire(getWsUserConnectionsKey(ctx.userId), WS_CONNECTION_TTL_SECONDS).catch(() => undefined);
+};
+
+const getRoomAuthCacheKey = (authToken: string, room: RealtimeRoom) => {
+  const tokenHash = createHash("sha256").update(authToken).digest("base64url");
+  return `${tokenHash}:${room}`;
+};
+
+const getCachedRoomAuth = (authToken: string, room: RealtimeRoom) => {
+  const key = getRoomAuthCacheKey(authToken, room);
+  const cached = roomAuthCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    roomAuthCache.delete(key);
+    return null;
   }
+  return cached;
+};
+
+const pruneRoomAuthCache = () => {
+  const now = Date.now();
+  for (const [key, value] of roomAuthCache) {
+    if (value.expiresAt <= now) roomAuthCache.delete(key);
+  }
+  while (roomAuthCache.size >= ROOM_AUTH_CACHE_MAX_ENTRIES) {
+    const firstKey = roomAuthCache.keys().next().value;
+    if (!firstKey) break;
+    roomAuthCache.delete(firstKey);
+  }
+};
+
+const setCachedRoomAuth = (authToken: string, room: RealtimeRoom, value: { accepted: boolean; rejection?: RealtimeRoomRejection }) => {
+  if (roomAuthCache.size >= ROOM_AUTH_CACHE_MAX_ENTRIES) pruneRoomAuthCache();
+  roomAuthCache.set(getRoomAuthCacheKey(authToken, room), {
+    ...value,
+    expiresAt: Date.now() + ROOM_AUTH_CACHE_TTL_MS,
+  });
+};
+
+const authorizeRoomsForConnection = async (ctx: WsConnectionContext, rooms: RealtimeRoom[]) => {
+  if (!ctx.token) throw new Error("authentication required");
+
+  const accepted: RealtimeRoom[] = [];
+  const rejected: RealtimeRoomRejection[] = [];
+  const misses: RealtimeRoom[] = [];
+
+  for (const room of rooms) {
+    const cached = getCachedRoomAuth(ctx.token, room);
+    if (!cached) {
+      misses.push(room);
+      continue;
+    }
+    if (cached.accepted) accepted.push(room);
+    else if (cached.rejection) rejected.push(cached.rejection);
+  }
+
+  if (misses.length > 0) {
+    const result = await authorizeRealtimeRooms({ authToken: ctx.token, rooms: misses });
+    accepted.push(...result.rooms);
+    rejected.push(...result.rejected);
+    for (const room of result.rooms) setCachedRoomAuth(ctx.token, room, { accepted: true });
+    for (const rejection of result.rejected) {
+      const room = normalizeRealtimeRooms([rejection.room])[0];
+      if (room) setCachedRoomAuth(ctx.token, room, { accepted: false, rejection });
+    }
+  }
+
+  return { rooms: accepted, rejected };
 };
 
 const startWsConnectionSweeper = () => {
@@ -338,11 +394,6 @@ const resolveRealtimeRoomsForEnvelope = (payload: GatewayWsBroadcastPayload): Re
   const explicitRooms = normalizeRealtimeRooms(Array.isArray(payload.rooms) ? payload.rooms : []);
   if (explicitRooms.length > 0) return explicitRooms;
 
-  const targetUserIds = Array.isArray(payloadRecord.targetUserIds)
-    ? payloadRecord.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-    : [];
-  if (targetUserIds.length > 0) return targetUserIds.map((userId) => getRealtimeUserRoom(userId.trim()));
-
   if (typeof payload.spaceId === "string" && payload.spaceId.trim()) {
     return [getRealtimeSpaceRoom(payload.spaceId.trim())];
   }
@@ -363,15 +414,7 @@ const resolveRealtimeRoomsForEnvelope = (payload: GatewayWsBroadcastPayload): Re
 };
 
 async function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload) {
-  const {
-    targetConnectionId,
-    targetUserIds: _targetUserIds,
-    ...cleanPayload
-  } = ((payload.payload ?? {}) as Record<string, unknown>) as Record<string, unknown> & {
-    targetConnectionId?: string | null;
-    targetUserIds?: string[];
-  };
-  const envelope = { ...payload, payload: cleanPayload } as RealtimeEnvelope;
+  const envelope = payload as RealtimeEnvelope;
   const deliveredConnectionIds = new Set<string>();
 
   const deliverConnection = (connectionId: string) => {
@@ -381,11 +424,6 @@ async function fanOutBroadcastToLocalSockets(payload: GatewayWsBroadcastPayload)
     deliveredConnectionIds.add(connectionId);
     sendWsRealtime(socket, wsConnections.get(connectionId), envelope);
   };
-
-  if (typeof targetConnectionId === "string" && targetConnectionId.trim()) {
-    deliverConnection(targetConnectionId.trim());
-    return;
-  }
 
   for (const room of resolveRealtimeRoomsForEnvelope(payload)) {
     const connectionIds = wsConnectionIdsByRoom.get(room);
@@ -540,32 +578,6 @@ async function main() {
       return { success: false, error: `Wrong target node ${targetNodeId}` };
     }
 
-    if (cmd.provider === "websocket") {
-      const domain = cmd.meta?.domain === "system" || cmd.meta?.domain === "space" || cmd.meta?.domain === "session"
-        ? cmd.meta.domain
-        : "session";
-      const targetConnectionId = typeof cmd.meta?.targetConnectionId === "string" ? cmd.meta.targetConnectionId.trim() : "";
-      const targetUserIds = Array.isArray(cmd.meta?.targetUserIds)
-        ? cmd.meta.targetUserIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-        : [];
-      const payload = {
-        ...(cmd.meta?.payload && typeof cmd.meta.payload === "object" ? cmd.meta.payload as Record<string, unknown> : {}),
-        ...(targetConnectionId ? { targetConnectionId } : {}),
-        ...(targetUserIds.length > 0 ? { targetUserIds } : {}),
-      };
-      const envelope = buildRealtimeEnvelope({
-        domain,
-        type: typeof cmd.meta?.type === "string" ? cmd.meta.type : "session.message.persisted",
-        requestId: typeof cmd.meta?.requestId === "string" ? cmd.meta.requestId : null,
-        spaceId: cmd.spaceId ?? null,
-        sessionId: cmd.spaceSessionId ?? null,
-        rooms: normalizeRealtimeRooms(Array.isArray(cmd.meta?.rooms) ? cmd.meta.rooms.filter((room): room is string => typeof room === "string") : []),
-        payload,
-      });
-      await fanOutBroadcastToLocalSockets(envelope as GatewayWsBroadcastPayload);
-      return { success: true };
-    }
-
     const provider = manager.getProvider(cmd.channelId);
     if (!provider) {
       logger.warn(`[Gateway] Command rejected: provider not found for channel ${cmd.channelId}`);
@@ -696,12 +708,8 @@ async function main() {
             sendWsError(socket, "UNAUTHORIZED", result.error.message, requestId);
             return;
           }
-          const previousUserId = ctx.userId;
           unsubscribeConnectionFromAllRooms(ctx);
           ctx.compactStreamAliases.clear();
-          if (previousUserId && previousUserId !== result.user.uuid) {
-            await redisCommandClient.srem(getWsUserConnectionsKey(previousUserId), connectionId).catch(() => undefined);
-          }
           ctx.userId = result.user.uuid;
           ctx.userName = typeof result.user.nick_name === "string" ? result.user.nick_name : undefined;
           ctx.token = token;
@@ -735,7 +743,7 @@ async function main() {
             return;
           }
           try {
-            const result = await authorizeRealtimeRooms({ userId: ctx.userId, rooms });
+            const result = await authorizeRoomsForConnection(ctx, rooms);
             for (const room of result.rooms) subscribeConnectionToRoom(ctx, room);
             await persistWsConnection(ctx);
             sendWsEnvelope(socket, buildRealtimeEnvelope({

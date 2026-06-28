@@ -6,6 +6,8 @@ import type { SpacePortsChangedPayload } from "../ports/index.js";
 
 export const WS_COMPACT_STREAM_CAPABILITY = "session.compact_stream.v1";
 export const WS_ROOM_SUBSCRIPTION_CAPABILITY = "realtime.rooms.v1";
+export const REALTIME_OUTBOUND_CHANNEL = "pubsub:realtime:outbound";
+export const AGENT_REALTIME_PATCH_CHANNEL = "pubsub:realtime:agent_patches";
 
 export type RealtimeRoom = `space:${string}` | `user:${string}`;
 
