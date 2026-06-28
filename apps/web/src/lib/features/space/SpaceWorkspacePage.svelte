@@ -5292,7 +5292,7 @@ const sessionWorkspaceProps = $derived.by<
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
   <div
-    class="workspace-main flex-1 flex flex-col min-w-0 bg-bg-content"
+    class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
   >
     {#if isRouteDetailView}

@@ -490,7 +490,7 @@ onMount(() => {
     <CenteredLoading label="Loading…" size="page" />
   </main>
 {:else}
-  <div class="h-[100dvh] flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
+  <div class="h-[100dvh] min-h-0 overflow-hidden flex flex-col lg:flex-row bg-bg-primary text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
     <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarCollapsed ? 52 : uiState.leftSidebarWidth}px`}>
       <div class="min-w-0 flex-1 {uiState.leftSidebarCollapsed ? '' : 'border-r border-border-subtle'}">
@@ -508,10 +508,10 @@ onMount(() => {
     </div>
 
     <!-- Main content area -->
-    <main class="flex-1 flex flex-col min-w-0 overflow-hidden mobile-drawer-gesture-surface">
+    <main class="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden mobile-drawer-gesture-surface">
 
       <!-- Page content -->
-      <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div class="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
         {@render children?.()}
       </div>
     </main>
