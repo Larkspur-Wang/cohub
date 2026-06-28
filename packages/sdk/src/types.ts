@@ -54,6 +54,21 @@ export type BatchUserProfilesResponse = {
   missingUserUuids: string[];
 };
 
+export type SpacePresenceUser = {
+  userId: string;
+  connectionCount: number;
+  lastSeenAt: string;
+  meta: Record<string, unknown> | null;
+  metas: Record<string, unknown>[];
+  profile: PublicUserProfile;
+};
+
+export type SpacePresenceSnapshot = {
+  spaceId: string;
+  users: SpacePresenceUser[];
+  updatedAt: string;
+};
+
 export type MeResponse = {
   uuid: string;
   profile: UserProfile;

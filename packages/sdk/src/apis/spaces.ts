@@ -30,6 +30,7 @@ import type {
   SpaceAccessPolicy,
   SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
+  SpacePresenceSnapshot,
   SpaceDefaultResponse,
   CreateSpacePromptInput,
   CreateSpacePromptResponse,
@@ -96,7 +97,7 @@ export type SessionSubscriptionHandlers = {
 };
 
 export type SessionEventName = "created" | "updated" | "turn.created" | "turn.patch" | "turn.lifecycle" | "turn.updated" | "turn.finalized" | "turn.error" | "message.persisted";
-export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "canvas.tx.applied" | "canvas.tx.ack" | "canvas.tx.error" | "task.created" | "task.updated" | "event";
+export type SpaceEventName = SessionEventName | "fs.changed" | "ports.changed" | "presence.updated" | "canvas.tx.applied" | "canvas.tx.ack" | "canvas.tx.error" | "task.created" | "task.updated" | "event";
 
 const toSessionEventName = (type: WebsocketEventPayload["type"]): SessionEventName | null => {
   switch (type) {
@@ -742,6 +743,20 @@ export type WebSocketConnectionState = {
   recoverable?: boolean;
 };
 
+export class SpacePresenceApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  get(customFetch?: Fetch) {
+    return this.transport.request<SpacePresenceSnapshot>(
+      `/api/spaces/${this.spaceId}/presence`,
+      { fetch: customFetch },
+    );
+  }
+}
+
 export class SpaceEventsApi {
   constructor(
     private readonly websocketClient: WebsocketClient | null,
@@ -775,6 +790,10 @@ export class SpaceEventsApi {
         return;
       }
       if (type === "ports.changed" && event.type === "space.ports.changed") {
+        handler(event);
+        return;
+      }
+      if (type === "presence.updated" && event.type === "space.presence.updated") {
         handler(event);
         return;
       }
@@ -1304,6 +1323,7 @@ export class SpaceClient {
   readonly files: SpaceFilesApi;
   readonly sessions: SpaceSessionsApi;
   readonly members: SpaceMembersApi;
+  readonly presence: SpacePresenceApi;
   readonly access: SpaceAccessApi;
   readonly checkpoints: SpaceCheckpointsApi;
   readonly usage: SpaceUsageApi;
@@ -1323,6 +1343,7 @@ export class SpaceClient {
     this.files = new SpaceFilesApi(transport, id);
     this.sessions = new SpaceSessionsApi(transport, id, websocketClient);
     this.members = new SpaceMembersApi(transport, id);
+    this.presence = new SpacePresenceApi(transport, id);
     this.access = new SpaceAccessApi(transport, id);
     this.checkpoints = createSpaceCheckpointsApi(transport, id);
     this.usage = new SpaceUsageApi(transport, id);
@@ -1448,6 +1469,11 @@ export class SpaceClient {
 
   session(sessionId: string) {
     return new SessionClient(this.id, sessionId, this.transport, this.websocketClient);
+  }
+
+  updatePresence(meta?: Record<string, unknown> | null) {
+    if (!this.websocketClient) return Promise.resolve();
+    return this.websocketClient.updatePresence({ spaceId: this.id, meta: meta ?? null });
   }
 
   subscribe(handler: (event: WebsocketEventPayload) => void) {

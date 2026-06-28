@@ -401,6 +401,22 @@ export class WebsocketClient {
     });
   }
 
+  async updatePresence(input: {
+    spaceId: string;
+    meta?: Record<string, unknown> | null;
+    requestId?: string;
+  }) {
+    await this.ensureOpen();
+    this.send({
+      type: "presence.update",
+      requestId: input.requestId,
+      payload: {
+        spaceId: input.spaceId,
+        meta: input.meta ?? null,
+      },
+    });
+  }
+
   async sendMessage(input: {
     spaceId: string;
     sessionId: string;

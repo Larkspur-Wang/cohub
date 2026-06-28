@@ -216,6 +216,7 @@ import {
 	createSpaceBootstrapController,
 	withBootstrapCacheTimeout,
 } from "./modules/space-bootstrap-controller.svelte";
+import { createSpacePresenceController } from "./modules/space-presence-controller.svelte";
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { mergeTaskRunRecord } from "./modules/task-run-utils";
@@ -776,6 +777,7 @@ const pendingTimelineMarkdownRenders = $derived(
 const anchorRestoreWaitingForMarkdown = $derived(
 	sessionScroll.anchorRestoreWaitingForMarkdown,
 );
+const spacePresence = createSpacePresenceController(() => spaceId);
 const spaceRealtime = createSpaceRealtimeController({
 	onTransportOpen: () => generationRealtime.onTransportOpen(),
 	onConnectionOpened: () => {
@@ -813,6 +815,9 @@ const spaceRealtime = createSpaceRealtimeController({
 const pageVisible = $derived(spaceRealtime.pageVisible);
 const pageOnline = $derived(spaceRealtime.pageOnline);
 const wsConnectionState = $derived(spaceRealtime.connectionState);
+const onlineUsers = $derived(
+	spacePresence.users.filter((user) => user.userId !== authStore.userUuid),
+);
 const wsCanRecover = $derived(spaceRealtime.canRecover);
 const generationRealtime = createSessionGenerationRealtimeController({
 	getSpaceId: () => spaceId,
@@ -1314,6 +1319,14 @@ const activeRouteDetailHeader = $derived.by(() => {
 		task: routeTaskId,
 	} satisfies Record<RouteDetailHeaderMeta["view"], string | null>;
 	return routeIdByView[meta.view] === meta.id ? meta : null;
+});
+const presenceMeta = $derived.by(() => {
+	const panels: Record<string, unknown>[] = [];
+	if (activeSessionId ?? routeSessionId) panels.push({ kind: "session" });
+	if (routeFilePath) panels.push({ kind: "file" });
+	if (activeRouteDetailHeader)
+		panels.push({ kind: activeRouteDetailHeader.view });
+	return { panels };
 });
 
 const browserTabTitle = $derived.by(() => {
@@ -4273,6 +4286,7 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 onMount(() => {
 	pageMounted = true;
 	spaceRealtime.start();
+	spacePresence.start();
 	loadSessionScrollAnchors();
 	window.addEventListener("keydown", handleSessionVimKeydown);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
@@ -4389,6 +4403,7 @@ onMount(() => {
 		generationRealtime.dispose();
 		persistSessionScrollAnchorsNow();
 		pageMounted = false;
+		spacePresence.dispose();
 		spaceRealtime.dispose();
 		window.removeEventListener("resize", handlePreviewWindowResize);
 		window.removeEventListener(
@@ -4500,6 +4515,8 @@ $effect(() => {
 // React to space changes: subscribe to WS events for the new space
 $effect(() => {
 	const currentSpaceId = spaceId;
+	spacePresence.syncSpace();
+	spacePresence.updateMeta(presenceMeta);
 	if (!pageMounted || !currentSpaceId) return;
 	const wsEventCleanup = sdk.space(currentSpaceId).subscribe((event) => {
 		void handleWsEvent(event as ChannelEnvelope);
@@ -4984,6 +5001,7 @@ const headerContext = $derived({
 	activeSessionLoading: activeSessionState?.loading ?? false,
 	isNewSessionRoute,
 	wsConnectionState,
+	onlineUsers,
 	activeRouteDetailHeader,
 	activeSessionId,
 	canManageSessionAccess,

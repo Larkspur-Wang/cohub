@@ -117,6 +117,22 @@ export const requestGatewayChannelReconcile = async (): Promise<{ stats: unknown
   return { stats: data.stats };
 };
 
+export const notifySpacePresenceUpdated = async (spaceId: string): Promise<void> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/space-presence-updated`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify({ spaceId }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Space presence update failed ${response.status}: ${text}`);
+  }
+};
+
 export const authorizeRealtimeRooms = async (input: {
   authToken: string;
   rooms: string[];

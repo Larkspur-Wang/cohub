@@ -41,6 +41,7 @@ export type WsClientEvent =
   | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string } }
   | { type: "canvas.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
+  | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
   | { type: "ack"; requestId?: string; payload?: { eventId?: string } };
 
@@ -408,6 +409,37 @@ export type SpacePortsChangedEvent = {
   payload: SpacePortsChangedPayload;
 };
 
+export type SpacePresenceUser = {
+  userId: string;
+  connectionCount: number;
+  lastSeenAt: string;
+  meta: Record<string, unknown> | null;
+  metas: Record<string, unknown>[];
+  profile: {
+    userUuid: string;
+    username: string | null;
+    displayName: string;
+    avatarUrl: string | null;
+  };
+};
+
+export type SpacePresenceSnapshot = {
+  spaceId: string;
+  users: SpacePresenceUser[];
+  updatedAt: string;
+};
+
+export type SpacePresenceUpdatedEvent = {
+  id: string;
+  timestamp: number;
+  domain: "space";
+  type: "space.presence.updated";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+  payload: SpacePresenceSnapshot;
+};
+
 export type CanvasTransactionAppliedEvent = {
   id: string;
   timestamp: number;
@@ -535,6 +567,7 @@ export type RealtimeServerEvent =
   | SessionMessagePersistedEvent
   | SpaceFsChangedEvent
   | SpacePortsChangedEvent
+  | SpacePresenceUpdatedEvent
   | CanvasTransactionAppliedEvent
   | CanvasTransactionAckEvent
   | CanvasTransactionErrorEvent

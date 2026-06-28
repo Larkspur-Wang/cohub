@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { RealtimeMessageRecord, RealtimeSessionRecord, RealtimeTaskRecord, RealtimeTurnRecord } from "@cohub/protocol/realtime";
+import type { RealtimeMessageRecord, RealtimeSessionRecord, RealtimeTaskRecord, RealtimeTurnRecord, SpacePresenceSnapshot } from "@cohub/protocol/realtime";
 import type { MessageRecord, SessionRecord, SessionTurnRecord } from "@cohub/protocol/model";
 import type { TaskRunStatus } from "@cohub/protocol/task";
 import { dispatchRealtimeEvent } from "./channels.js";
@@ -232,6 +232,18 @@ export async function dispatchTaskUpdated(input: {
       changed: input.changed,
       ...(realtimeTask.userId && !realtimeTask.spaceId ? { userId: realtimeTask.userId } : {}),
     },
+  });
+}
+
+export async function dispatchSpacePresenceUpdated(snapshot: SpacePresenceSnapshot) {
+  await dispatchRealtimeEvent({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "space",
+    type: "space.presence.updated",
+    spaceId: snapshot.spaceId,
+    sessionId: null,
+    payload: snapshot,
   });
 }
 

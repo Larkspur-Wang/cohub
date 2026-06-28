@@ -1,5 +1,9 @@
 <script lang="ts">
-import type { SessionRecord, SpaceRecord } from "@neta-art/cohub";
+import type {
+	SessionRecord,
+	SpacePresenceUser,
+	SpaceRecord,
+} from "@neta-art/cohub";
 import {
 	Check,
 	Globe,
@@ -16,6 +20,7 @@ import {
 import PageHeader from "$lib/components/PageHeader.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import SpacePresenceStack from "./SpacePresenceStack.svelte";
 import { getSessionTitle } from "./session-utils";
 
 type HeaderRouteView =
@@ -44,6 +49,7 @@ export type SpaceWorkspaceHeaderContext = {
 	activeSessionLoading: boolean;
 	isNewSessionRoute: boolean;
 	wsConnectionState: string;
+	onlineUsers: SpacePresenceUser[];
 	activeRouteDetailHeader: RouteDetailHeader | null;
 	activeSessionId: string | null;
 	canManageSessionAccess: boolean;
@@ -312,6 +318,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		{/snippet}
 
 		{#snippet right()}
+			<SpacePresenceStack users={context.onlineUsers} />
 			{@render HeaderActions()}
 		{/snippet}
 	</PageHeader>

@@ -31,7 +31,7 @@ import {
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, authorizeRealtimeRooms, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, authorizeRealtimeRooms, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -49,9 +49,11 @@ type WsConnectionContext = {
   connectionId: string;
   userId?: string;
   userName?: string;
+  userAvatarUrl?: string;
   token?: string;
   capabilities: Set<string>;
   rooms: Set<RealtimeRoom>;
+  presenceMetaBySpace: Map<string, Record<string, unknown> | null>;
   compactStreamAliases: Map<string, string>;
   nextCompactStreamAlias: number;
 };
@@ -63,6 +65,7 @@ type GatewayWsBroadcastPayload = RealtimeServerEvent & {
 const WS_CONNECTION_TTL_SECONDS = 60 * 5;
 const WS_MAX_MESSAGE_BYTES = 64 * 1024;
 const ROOM_AUTH_CACHE_TTL_MS = 30_000;
+const PRESENCE_UPDATE_DEBOUNCE_MS = 200;
 const ROOM_AUTH_CACHE_MAX_ENTRIES = 10_000;
 
 type RealtimeRoomRejection = { room: string; code: "BAD_ROOM" | "FORBIDDEN"; message: string };
@@ -71,8 +74,47 @@ const wsConnections = new Map<string, WsConnectionContext>();
 const wsConnectionIdsByRoom = new Map<RealtimeRoom, Set<string>>();
 const wsSockets = new Map<string, WebSocket>();
 const roomAuthCache = new Map<string, { expiresAt: number; accepted: boolean; rejection?: RealtimeRoomRejection }>();
+const presenceUpdateTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const getWsConnectionKey = (connectionId: string) => `gateway:ws:connection:${connectionId}`;
+const getSpacePresenceConnectionsKey = (spaceId: string) => `gateway:presence:space:${spaceId}:connections`;
+
+const getSpaceIdFromRoom = (room: RealtimeRoom) => {
+  if (!room.startsWith("space:")) return null;
+  const spaceId = room.slice("space:".length).trim();
+  return spaceId || null;
+};
+
+const scheduleSpacePresenceUpdate = (spaceId: string) => {
+  const existing = presenceUpdateTimers.get(spaceId);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    presenceUpdateTimers.delete(spaceId);
+    notifySpacePresenceUpdated(spaceId).catch((error) => {
+      logger.warn("[Gateway] failed to notify space presence update", { spaceId, error });
+    });
+  }, PRESENCE_UPDATE_DEBOUNCE_MS);
+  presenceUpdateTimers.set(spaceId, timer);
+};
+
+const writeSpacePresenceConnection = async (ctx: WsConnectionContext, spaceId: string) => {
+  if (!ctx.userId) return;
+  await redisCommandClient.hset(
+    getSpacePresenceConnectionsKey(spaceId),
+    ctx.connectionId,
+    JSON.stringify({
+      connectionId: ctx.connectionId,
+      userId: ctx.userId,
+      lastSeenAt: Date.now(),
+      meta: ctx.presenceMetaBySpace.get(spaceId) ?? null,
+    }),
+  );
+  await redisCommandClient.expire(getSpacePresenceConnectionsKey(spaceId), WS_CONNECTION_TTL_SECONDS).catch(() => undefined);
+};
+
+const removeSpacePresenceConnection = async (connectionId: string, spaceId: string) => {
+  await redisCommandClient.hdel(getSpacePresenceConnectionsKey(spaceId), connectionId).catch(() => undefined);
+};
 
 function logStartupInfo() {
   logger.info("=".repeat(60));
@@ -95,14 +137,27 @@ const subscribeConnectionToRoom = (ctx: WsConnectionContext, room: RealtimeRoom)
     wsConnectionIdsByRoom.set(room, connectionIds);
   }
   connectionIds.add(ctx.connectionId);
+  const spaceId = getSpaceIdFromRoom(room);
+  if (spaceId) {
+    void writeSpacePresenceConnection(ctx, spaceId)
+      .then(() => scheduleSpacePresenceUpdate(spaceId))
+      .catch((error) => logger.warn("[Gateway] failed to write space presence", { spaceId, error }));
+  }
 };
 
 const unsubscribeConnectionFromRoom = (ctx: WsConnectionContext, room: RealtimeRoom) => {
-  ctx.rooms.delete(room);
+  const hadRoom = ctx.rooms.delete(room);
   const connectionIds = wsConnectionIdsByRoom.get(room);
-  if (!connectionIds) return;
-  connectionIds.delete(ctx.connectionId);
-  if (connectionIds.size === 0) wsConnectionIdsByRoom.delete(room);
+  if (connectionIds) {
+    connectionIds.delete(ctx.connectionId);
+    if (connectionIds.size === 0) wsConnectionIdsByRoom.delete(room);
+  }
+  const spaceId = hadRoom ? getSpaceIdFromRoom(room) : null;
+  if (spaceId) {
+    void removeSpacePresenceConnection(ctx.connectionId, spaceId)
+      .then(() => scheduleSpacePresenceUpdate(spaceId))
+      .catch((error) => logger.warn("[Gateway] failed to remove space presence", { spaceId, error }));
+  }
 };
 
 const unsubscribeConnectionFromAllRooms = (ctx: WsConnectionContext) => {
@@ -114,6 +169,7 @@ const persistWsConnection = async (ctx: WsConnectionContext) => {
     connectionId: ctx.connectionId,
     userId: ctx.userId ?? null,
     userName: ctx.userName ?? null,
+    userAvatarUrl: ctx.userAvatarUrl ?? null,
     capabilities: [...ctx.capabilities],
     rooms: [...ctx.rooms],
     connectedAt: Date.now(),
@@ -305,6 +361,11 @@ const parseWsJson = (value: string): WsClientEvent => {
 
 const touchWsConnection = async (ctx: WsConnectionContext) => {
   await redisCommandClient.expire(getWsConnectionKey(ctx.connectionId), WS_CONNECTION_TTL_SECONDS).catch(() => undefined);
+  const spaceIds = [...ctx.rooms]
+    .map(getSpaceIdFromRoom)
+    .filter((spaceId): spaceId is string => Boolean(spaceId));
+  if (spaceIds.length === 0 || !ctx.userId) return;
+  await Promise.all(spaceIds.map((spaceId) => writeSpacePresenceConnection(ctx, spaceId))).catch(() => undefined);
 };
 
 const getRoomAuthCacheKey = (authToken: string, room: RealtimeRoom) => {
@@ -657,6 +718,7 @@ async function main() {
       connectionId,
       capabilities: new Set(),
       rooms: new Set(),
+      presenceMetaBySpace: new Map(),
       compactStreamAliases: new Map(),
       nextCompactStreamAlias: 0,
     };
@@ -710,8 +772,10 @@ async function main() {
           }
           unsubscribeConnectionFromAllRooms(ctx);
           ctx.compactStreamAliases.clear();
+          ctx.presenceMetaBySpace.clear();
           ctx.userId = result.user.uuid;
           ctx.userName = typeof result.user.nick_name === "string" ? result.user.nick_name : undefined;
+          ctx.userAvatarUrl = typeof result.user.avatar_url === "string" ? result.user.avatar_url : undefined;
           ctx.token = token;
           ctx.capabilities = new Set(
             Array.isArray(message.payload.capabilities)
@@ -781,6 +845,8 @@ async function main() {
         if (message.type === "unsubscribe") {
           for (const room of normalizeRealtimeRooms(message.payload.rooms)) {
             if (room === getRealtimeUserRoom(ctx.userId)) continue;
+            const spaceId = getSpaceIdFromRoom(room);
+            if (spaceId) ctx.presenceMetaBySpace.delete(spaceId);
             unsubscribeConnectionFromRoom(ctx, room);
           }
           await persistWsConnection(ctx);
@@ -790,6 +856,29 @@ async function main() {
             requestId: requestId ?? null,
             payload: { rooms: [...ctx.rooms] },
           }));
+          return;
+        }
+
+        if (message.type === "presence.update") {
+          const spaceId = typeof message.payload.spaceId === "string" ? message.payload.spaceId : "";
+          const room = getRealtimeSpaceRoom(spaceId);
+          if (!ctx.rooms.has(room)) {
+            const result = await authorizeRoomsForConnection(ctx, [room]);
+            if (result.rooms.length === 0) {
+              sendWsEnvelope(socket, buildRealtimeEnvelope({
+                domain: "system",
+                type: "system.subscribe.error",
+                requestId: requestId ?? null,
+                payload: { rejected: result.rejected },
+              }));
+              return;
+            }
+            subscribeConnectionToRoom(ctx, room);
+            await persistWsConnection(ctx);
+          }
+          ctx.presenceMetaBySpace.set(spaceId, message.payload.meta ?? null);
+          await writeSpacePresenceConnection(ctx, spaceId);
+          scheduleSpacePresenceUpdate(spaceId);
           return;
         }
 

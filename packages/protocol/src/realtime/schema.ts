@@ -103,6 +103,14 @@ export const wsClientEventSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
+    type: z.literal("presence.update"),
+    requestId: z.string().optional(),
+    payload: z.object({
+      spaceId: z.string().uuid(),
+      meta: z.record(z.string(), z.unknown()).nullable().optional(),
+    }),
+  }),
+  z.object({
     type: z.literal("ping"),
     requestId: z.string().optional(),
     payload: z.record(z.string(), z.unknown()).optional(),

@@ -3,10 +3,12 @@ import { createLogger } from "@cohub/infra/logging";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { gatewayInboundEventSchema, type GatewayInboundEvent } from "@cohub/protocol/gateway";
 import { parseRealtimeRoom } from "@cohub/protocol/realtime";
+import { dispatchSpacePresenceUpdated } from "../../realtime-events.js";
+import { getSpacePresenceSnapshot } from "../../space-presence.js";
 import { Hono } from "hono";
 import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEvent } from "../../channels.js";
 import { hasPermission } from "../../permissions.js";
-import { ensureInternalRequest, getOptionalAuth } from "../../lib/middleware.js";
+import { ensureInternalRequest, getOptionalAuth, requireValidId } from "../../lib/middleware.js";
 import { PublicAssetConfigError, PublicAssetValidationError, createInternalPublicAssetUploadPlan } from "../../public-asset-storage.js";
 import {
   beginSpaceUploadComplete,
@@ -74,6 +76,19 @@ router.post("/reconcile-channels", async (c) => {
   } finally {
     span.end();
   }
+});
+
+router.post("/space-presence-updated", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const body = await c.req.json<{ spaceId?: string }>().catch(() => null);
+  const spaceId = typeof body?.spaceId === "string" ? body.spaceId.trim() : "";
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ ok: false, message: "spaceId is required" }, 400);
+
+  const snapshot = await getSpacePresenceSnapshot(spaceId);
+  await dispatchSpacePresenceUpdated(snapshot);
+  return c.json({ ok: true, snapshot });
 });
 
 router.post("/authorize-realtime-rooms", async (c) => {
