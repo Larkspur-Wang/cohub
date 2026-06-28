@@ -324,9 +324,15 @@ const resolveRealtimeEventRooms = (input: {
 
 export async function dispatchRealtimeEvent(input: RealtimeServerEvent & { rooms?: RealtimeRoom[] }) {
   const payload = input.payload as Record<string, unknown>;
+  const task = payload.task && typeof payload.task === "object" ? payload.task as { userId?: unknown } : null;
+  const userId = typeof payload.userId === "string"
+    ? payload.userId
+    : typeof task?.userId === "string"
+      ? task.userId
+      : undefined;
   const rooms = input.rooms?.length ? input.rooms : resolveRealtimeEventRooms({
     spaceId: input.spaceId,
-    userIds: typeof payload.userId === "string" ? [payload.userId] : undefined,
+    userIds: userId ? [userId] : undefined,
   });
   if (rooms.length === 0) return;
 
