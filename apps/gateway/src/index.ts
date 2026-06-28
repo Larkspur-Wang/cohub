@@ -270,10 +270,42 @@ const sendWsError = (
   }));
 };
 
+class WsClientInputError extends Error {
+  readonly requestId?: string;
+
+  constructor(message: string, requestId?: string) {
+    super(message);
+    this.name = "WsClientInputError";
+    this.requestId = requestId;
+  }
+}
+
+const getWsRequestId = (value: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const requestId = (value as Record<string, unknown>).requestId;
+  return typeof requestId === "string" ? requestId : undefined;
+};
+
+const formatWsValidationError = (issues: ReadonlyArray<{ path: readonly PropertyKey[]; message: string }>) => {
+  const details = issues.map((issue) => {
+    const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+    return `${path}${issue.message}`;
+  }).join("; ");
+  return details ? `invalid websocket message: ${details}` : "invalid websocket message";
+};
+
 const parseWsJson = (value: string): WsClientEvent => {
-  const result = wsClientEventSchema.safeParse(JSON.parse(value));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new WsClientInputError("invalid JSON");
+  }
+
+  const requestId = getWsRequestId(parsed);
+  const result = wsClientEventSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error(result.error.issues.map((issue) => issue.message).join("; "));
+    throw new WsClientInputError(formatWsValidationError(result.error.issues), requestId);
   }
   return result.data as WsClientEvent;
 };
@@ -300,13 +332,6 @@ const startWsConnectionSweeper = () => {
     }
   }, 30_000);
 };
-
-class WsClientInputError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "WsClientInputError";
-  }
-}
 
 const resolveRealtimeRoomsForEnvelope = (payload: GatewayWsBroadcastPayload): RealtimeRoom[] => {
   const payloadRecord = (payload.payload ?? {}) as Record<string, unknown>;
@@ -632,6 +657,7 @@ async function main() {
     }));
 
     socket.on("message", async (data: RawData) => {
+      let requestId: string | undefined;
       try {
         const raw = typeof data === "string"
           ? data
@@ -646,7 +672,7 @@ async function main() {
         }
 
         const message = parseWsJson(raw);
-        const requestId = typeof message.requestId === "string" ? message.requestId : undefined;
+        requestId = typeof message.requestId === "string" ? message.requestId : undefined;
 
         if (message.type === "ping") {
           await touchWsConnection(ctx);
@@ -851,9 +877,8 @@ async function main() {
 
         sendWsError(socket, "UNSUPPORTED_EVENT", "unsupported event type", requestId);
       } catch (error) {
-        const requestId = undefined;
         if (error instanceof WsClientInputError) {
-          sendWsError(socket, "BAD_REQUEST", error.message, requestId);
+          sendWsError(socket, "BAD_REQUEST", error.message, error.requestId ?? requestId);
           return;
         }
         logger.error("[Gateway] WebSocket message handling failed:", error);
