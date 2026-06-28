@@ -15,6 +15,19 @@ type GenerationSource =
   | { type: "url"; url: string }
   | { type: "base64"; mediaType: string; data: string };
 
+type MediaInputType = "image" | "video" | "audio";
+
+const frameMediaRoles = new Set(["first_frame", "last_frame"]);
+const referenceMediaRoles = new Set(["reference_image", "reference_video"]);
+
+const rolesByMediaType: Record<MediaInputType, ReadonlySet<string>> = {
+  image: new Set([...frameMediaRoles, "reference_image"]),
+  video: new Set(["reference_video"]),
+  audio: new Set(),
+};
+
+const mediaRoles = new Set([...frameMediaRoles, ...referenceMediaRoles]);
+
 const mimeByExt: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -54,11 +67,51 @@ function parseParams(param?: string[], parameters?: string): Record<string, unkn
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-async function contentFromPathOrUrl(type: "image" | "video" | "audio", value: string): Promise<GenerationContentBlock> {
-  if (/^https?:\/\//.test(value)) return { type, source: { type: "url", url: value } } as GenerationContentBlock;
+async function pathExists(path: string): Promise<boolean> {
+  return Boolean(await stat(path).catch(() => null));
+}
+
+async function parseMediaInput(type: MediaInputType, rawValue: string): Promise<{ value: string; role?: string }> {
+  const separator = rawValue.indexOf("=");
+  if (separator <= 0) return { value: rawValue };
+
+  const role = rawValue.slice(0, separator).trim();
+  if (!mediaRoles.has(role)) return { value: rawValue };
+  if (await pathExists(rawValue)) return { value: rawValue };
+  if (!rolesByMediaType[type].has(role)) {
+    return error("Invalid media role", `${role} cannot be used with --${type}`);
+  }
+
+  const value = rawValue.slice(separator + 1).trim();
+  if (!value) return error("Invalid media input", `--${type} ${role}= requires a path or URL`);
+  return { value, role };
+}
+
+async function contentFromPathOrUrl(type: MediaInputType, rawValue: string): Promise<GenerationContentBlock> {
+  const { value, role } = await parseMediaInput(type, rawValue);
+  const meta = role ? { role } : undefined;
+  if (/^https?:\/\//.test(value)) {
+    return { type, source: { type: "url", url: value }, ...(meta ? { meta } : {}) } as GenerationContentBlock;
+  }
   const data = await readFile(value);
   const mediaType = mimeByExt[extname(value).toLowerCase()] ?? "application/octet-stream";
-  return { type, source: { type: "base64", mediaType, data: data.toString("base64") } } as GenerationContentBlock;
+  return {
+    type,
+    source: { type: "base64", mediaType, data: data.toString("base64") },
+    ...(meta ? { meta } : {}),
+  } as GenerationContentBlock;
+}
+
+function validateMediaRoleModes(content: GenerationContentBlock[]): void {
+  const roles = content.map(metaRole).filter((role): role is string => Boolean(role));
+  const hasFrameRole = roles.some((role) => frameMediaRoles.has(role));
+  const hasReferenceRole = roles.some((role) => referenceMediaRoles.has(role));
+  if (hasFrameRole && hasReferenceRole) {
+    error(
+      "Invalid media role mix",
+      "Use first_frame/last_frame or reference_image/reference_video, not both.",
+    );
+  }
 }
 
 async function saveOutputs(output: GenerationContentBlock[], outputPath: string): Promise<string[]> {
@@ -224,8 +277,18 @@ export function registerGenerations(program: Command): void {
     .description("Generate multimodal outputs")
     .argument("<prompt>", "Prompt text")
     .requiredOption("-m, --model <model>", "Multimodal model ID from `cohub models ls --model-type multimodal`")
-    .option("--image <path-or-url>", "Image input file path or URL; repeatable", collect, [])
-    .option("--video <path-or-url>", "Video input file path or URL; repeatable", collect, [])
+    .option(
+      "--image <path-or-url>",
+      "Image input file path or URL; prefix with first_frame=, last_frame=, or reference_image= when needed; repeatable",
+      collect,
+      [],
+    )
+    .option(
+      "--video <path-or-url>",
+      "Video input file path or URL; prefix with reference_video= when needed; repeatable",
+      collect,
+      [],
+    )
     .option("--audio <path-or-url>", "Audio input file path or URL; repeatable", collect, [])
     .option("--param <key=value>", "Generation parameter; repeatable, values may be JSON/number/boolean", collect, [])
     .option("--parameters <json>", "Generation parameters as a JSON object")
@@ -240,6 +303,8 @@ Examples:
   cohub models ls --model-type multimodal
   cohub -s <space-id> generate "A calm lake at sunrise" -m <model> -o lake.png
   COHUB_SPACE_ID=<space-id> cohub generate "Restyle this image" -m <model> --image input.png
+  cohub -s <space-id> generate "Smooth transition" -m seedance-2-0-fast --image first_frame=https://example.com/first.png --image last_frame=https://example.com/last.png
+  cohub -s <space-id> generate "Use these references" -m seedance-2-0-fast --image reference_image=https://example.com/a.png --image reference_image=https://example.com/b.png
   cohub -s <space-id> generate "A calm lake" -m <model> --async
 `)
     .action(async (prompt: string, opts: {
@@ -261,6 +326,7 @@ Examples:
         content.push(...await Promise.all(opts.image.map((value) => contentFromPathOrUrl("image", value))));
         content.push(...await Promise.all(opts.video.map((value) => contentFromPathOrUrl("video", value))));
         content.push(...await Promise.all(opts.audio.map((value) => contentFromPathOrUrl("audio", value))));
+        validateMediaRoleModes(content);
 
         const parameters = parseParams(opts.param, opts.parameters);
         try {
