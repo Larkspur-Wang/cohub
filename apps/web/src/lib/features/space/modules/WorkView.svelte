@@ -48,6 +48,7 @@ const workDeleteInProgress = $derived(workDetailController.deleteInProgress);
 const workFormSubmitting = $derived(workDetailController.formSubmitting);
 const workFormError = $derived(workDetailController.formError);
 const workCopiedId = $derived(workDetailController.copiedId);
+const workCopiedPublicRoute = $derived(workDetailController.copiedPublicRoute);
 const workVersions = $derived(workDetailController.versions);
 const workVersionsLoading = $derived(workDetailController.versionsLoading);
 const workVersionsError = $derived(workDetailController.versionsError);
@@ -117,7 +118,7 @@ onDestroy(() => {
           {#if publicRoute}
             <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto">
               <ExternalLink class="h-3.5 w-3.5" />
-              <span>Open public page</span>
+              <span>Open</span>
             </a>
           {/if}
           <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary sm:w-auto" onclick={() => { workDetailController.syncFormFromDetail(); workDetailController.editMode = !workDetailController.editMode; }}>
@@ -227,32 +228,25 @@ onDestroy(() => {
         <section class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:gap-8">
           <div class="min-w-0 space-y-6">
             <section class="space-y-3">
-              <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div class="min-w-0">
+                  <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
+                  <div class="mt-1 font-mono text-[11px] text-text-placeholder">Current v{workDetail.latestVersion || 0}</div>
+                </div>
+                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
+                  {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+                  <span>{workPublishSubmitting ? 'Updating…' : 'Update version'}</span>
+                </button>
+              </div>
               <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/40 ring-1 ring-border-subtle/60">
                 <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
                 <div class="px-5 py-4 pl-6">
                   <div class="font-mono text-[13px] text-text-primary break-all">{workDetail.targetRef}</div>
-                  <div class="mt-2 text-[12px] text-text-tertiary">{workDetail.targetType} · asset {workDetail.assetKey ? 'ready' : 'not stored'}</div>
+                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
+                    <span>{workDetail.targetType}</span>
+                    <span>asset {workDetail.assetKey ? 'ready' : 'not stored'}</span>
+                  </div>
                 </div>
-              </div>
-            </section>
-            <section class="space-y-3 border-y border-border-subtle/70 py-4">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0 space-y-1">
-                  <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Release version</div>
-                  <div class="text-[12px] leading-5 text-text-tertiary">Create a fresh snapshot from the current Work target.</div>
-                </div>
-                <div class="font-mono text-[11px] text-text-placeholder">Current v{workDetail.latestVersion || 0}</div>
-              </div>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div class="min-w-0">
-                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Current target</div>
-                  <div class="mt-1 truncate font-mono text-[12px] text-text-secondary">{workDetail.targetType}:{workDetail.targetRef}</div>
-                </div>
-                <button type="button" class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
-                  {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
-                  <span>Release</span>
-                </button>
               </div>
               {#if workPublishError}
                 <div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] font-mono text-error-soft break-all">{workPublishError}</div>
@@ -277,32 +271,19 @@ onDestroy(() => {
             </section>
           </div>
           <aside class="space-y-5 text-[13px]">
-            <div class="space-y-2.5">
-              <div class="flex items-center justify-between gap-3">
-                <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
-                {#if workVersionsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />{/if}
-              </div>
-              {#if workVersionsError}
-                <div class="border-y border-error-soft/30 py-3 text-[12px] text-error-soft">{workVersionsError}</div>
-              {:else if workVersions.length}
-                <div class="divide-y divide-border-subtle/70 border-y border-border-subtle/70">
-                  {#each workVersions.slice(0, 6) as version (version.id)}
-                    <div class="py-2.5">
-                      <div class="flex items-center justify-between gap-2">
-                        <div class="flex min-w-0 items-center gap-2">
-                          <span class="font-mono text-[12px] text-text-primary">v{version.version}</span>
-                          <span class="truncate font-mono text-[11px] text-text-tertiary">{version.targetType}:{version.targetRef}</span>
-                        </div>
-                        {#if version.id === workDetail.currentVersionId}<span class="shrink-0 rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
-                      </div>
-                      <div class="mt-1 text-[11px] text-text-placeholder">{formatDateTime(version.createdAt)}</div>
-                    </div>
-                  {/each}
+            {#if publicRoute}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
+                  <button type="button" class="inline-flex min-h-7 shrink-0 items-center justify-center gap-1.5 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void workDetailController.copyPublicRoute(publicRoute)} title="Copy public link">
+                    {#if workCopiedPublicRoute}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
+                    <span>{workCopiedPublicRoute ? 'Copied' : 'Copy'}</span>
+                  </button>
                 </div>
-              {:else}
-                <div class="border-y border-border-subtle/70 py-3 text-[12px] text-text-tertiary">First publish creates v1.</div>
-              {/if}
-            </div>
+                <div class="rounded-[6px] bg-bg-elevated/30 px-3 py-2 font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
+              </div>
+              <div class="h-px bg-border-subtle/70"></div>
+            {/if}
             <div class="space-y-3">
               <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Metadata</div>
               <div class="grid grid-cols-[76px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12px]">
@@ -312,13 +293,37 @@ onDestroy(() => {
                 <div class="text-text-placeholder">Owner</div><div class="font-mono text-text-secondary break-all">{workDetail.userUuid}</div>
               </div>
             </div>
-            {#if publicRoute}
-              <div class="space-y-1.5">
-                <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
-                <div class="font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
-              </div>
-            {/if}
           </aside>
+        </section>
+        <section class="border-t border-border-subtle/70 pt-6">
+          <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
+              <div class="mt-1 text-[12px] text-text-tertiary">{workVersions.length ? `${workVersions.length} loaded · newest first` : workVersionsLoading ? 'Loading versions' : 'No versions yet'}</div>
+            </div>
+            {#if workVersionsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />{/if}
+          </div>
+          {#if workVersionsError}
+            <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workVersionsError}</div>
+          {:else if workVersionsLoading && workVersions.length === 0}
+            <CenteredLoading label="Loading versions…" size="panel" />
+          {:else if workVersions.length}
+            <div class="divide-y divide-border-subtle/60">
+              {#each workVersions as version (version.id)}
+                <div class="py-3 text-[12px] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_180px_88px] sm:items-center sm:gap-3 sm:py-2.5">
+                  <div class="flex items-center gap-2 px-1">
+                    <span class="font-mono text-text-primary">v{version.version}</span>
+                    {#if version.id === workDetail.currentVersionId}<span class="rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
+                  </div>
+                  <div class="mt-1 truncate font-mono text-text-tertiary sm:mt-0" title={`${version.targetType}:${version.targetRef}`}>{version.targetType}:{version.targetRef}</div>
+                  <div class="mt-1 font-mono text-text-placeholder sm:mt-0">{formatDateTime(version.createdAt)}</div>
+                  <div class="mt-1 text-text-placeholder sm:mt-0">{version.assetKey ? 'stored' : 'not stored'}</div>
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="py-6 text-[13px] text-text-tertiary">Update version creates v1.</div>
+          {/if}
         </section>
       {/if}
     </div>

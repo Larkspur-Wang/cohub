@@ -73,7 +73,9 @@ export function createWorkDetailController(options: {
 	let formSubmitting = $state(false);
 	let formError = $state("");
 	let copiedId = $state(false);
+	let copiedPublicRoute = $state(false);
 	let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+	let copiedPublicRouteTimer: ReturnType<typeof setTimeout> | null = null;
 	let routeStateKey = "";
 	let versions = $state<WorkVersionRecord[]>([]);
 	let versionsLoading = $state(false);
@@ -215,6 +217,24 @@ export function createWorkDetailController(options: {
 		}
 	}
 
+	async function copyPublicRoute(route: string) {
+		const value =
+			typeof window === "undefined"
+				? route
+				: `${window.location.origin}${route}`;
+		try {
+			await navigator.clipboard.writeText(value);
+			copiedPublicRoute = true;
+			if (copiedPublicRouteTimer) clearTimeout(copiedPublicRouteTimer);
+			copiedPublicRouteTimer = setTimeout(() => {
+				copiedPublicRoute = false;
+			}, 1600);
+		} catch (cause) {
+			error =
+				cause instanceof Error ? cause.message : "Failed to copy public link";
+		}
+	}
+
 	async function toggleStatus(status: "published" | "disabled") {
 		if (!detail || actionInProgress) return;
 		actionInProgress = true;
@@ -329,6 +349,7 @@ export function createWorkDetailController(options: {
 		hideCohubBarAllowed = false;
 		hideCohubBarLoading = false;
 		publishError = "";
+		copiedPublicRoute = false;
 	}
 
 	function syncRoute() {
@@ -347,7 +368,9 @@ export function createWorkDetailController(options: {
 
 	function dispose() {
 		if (copiedTimer) clearTimeout(copiedTimer);
+		if (copiedPublicRouteTimer) clearTimeout(copiedPublicRouteTimer);
 		copiedTimer = null;
+		copiedPublicRouteTimer = null;
 	}
 
 	return {
@@ -435,6 +458,9 @@ export function createWorkDetailController(options: {
 		get copiedId() {
 			return copiedId;
 		},
+		get copiedPublicRoute() {
+			return copiedPublicRoute;
+		},
 		get versions() {
 			return versions;
 		},
@@ -454,6 +480,7 @@ export function createWorkDetailController(options: {
 		publicRoute,
 		publishVersion,
 		copyId,
+		copyPublicRoute,
 		toggleStatus,
 		deleteWork,
 		submitUpdate,
