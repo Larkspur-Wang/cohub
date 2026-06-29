@@ -113,7 +113,6 @@ $effect(() => {
 			aria-expanded={open}
 			aria-label={title}
 		>
-			<span class="presence-dot" aria-hidden="true"></span>
 			<div class="presence-avatars" aria-hidden="true">
 				{#each visibleUsers as user (user.userId)}
 					<UserAvatar
@@ -146,6 +145,7 @@ $effect(() => {
 		</button>
 
 		{#if open}
+			<div class="presence-backdrop" aria-hidden="true" onclick={() => (open = false)}></div>
 			<div class="presence-popover" role="dialog" aria-label={popoverTitle}>
 				<div class="presence-popover-header">
 					<span class="presence-popover-title">Online</span>
@@ -194,7 +194,7 @@ $effect(() => {
 		border-radius: 999px;
 		border: 0;
 		background: transparent;
-		padding: 0 5px 0 4px;
+		padding: 0 5px 0 1px;
 		color: var(--text-tertiary);
 		cursor: pointer;
 		transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
@@ -213,15 +213,6 @@ $effect(() => {
 	.presence-stack:focus-visible {
 		outline: 2px solid color-mix(in srgb, var(--brand) 38%, transparent);
 		outline-offset: 1px;
-	}
-
-	.presence-dot {
-		height: 6px;
-		width: 6px;
-		flex: 0 0 auto;
-		border-radius: 999px;
-		background: var(--success-soft);
-		box-shadow: 0 0 0 2px color-mix(in srgb, var(--success-soft) 14%, transparent);
 	}
 
 	.presence-avatars {
@@ -271,6 +262,10 @@ $effect(() => {
 	}
 
 	.presence-count-mobile {
+		display: none;
+	}
+
+	.presence-backdrop {
 		display: none;
 	}
 
@@ -366,7 +361,6 @@ $effect(() => {
 			padding: 0 5px 0 3px;
 		}
 
-		.presence-dot,
 		.presence-avatars {
 			display: none;
 		}
@@ -381,6 +375,14 @@ $effect(() => {
 
 		.presence-count-mobile {
 			display: inline-flex;
+		}
+
+		.presence-backdrop {
+			position: fixed;
+			inset: 0;
+			z-index: 70;
+			display: block;
+			background: var(--overlay-scrim);
 		}
 
 		.presence-popover {
