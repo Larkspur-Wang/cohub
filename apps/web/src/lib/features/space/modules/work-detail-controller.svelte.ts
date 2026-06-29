@@ -11,7 +11,7 @@ import {
 } from "./work-utils";
 
 export type WorkTargetType = "file" | "directory" | "port";
-export type WorkStatus = "draft" | "published" | "disabled";
+export type WorkStatus = "published" | "disabled";
 export type WorkVisibility = "public" | "space";
 
 const WORK_HIDE_COHUB_BAR_FEATURE = "work.publish.hide_cohub_bar";

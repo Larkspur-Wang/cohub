@@ -10,7 +10,7 @@ A Work record belongs to one Space and has a few important fields.
 
 `slug` is the public name used in the URL.
 
-`status` can be `draft`, `published`, or `disabled`.
+`status` can be `published` or `disabled`.
 
 `targetType` can be `file`, `directory`, or `port`.
 
@@ -48,11 +48,11 @@ The Work management page is:
 /spaces/:spaceId/works/:workId
 ```
 
-From that page you can open the public page, edit the slug, target, status, and permissions, disable or publish the Work, delete it, and copy the Work ID.
+From that page you can open the public page, edit the slug, target, status, and permissions, disable or publish the Work, update its published version, delete it, and copy the Work ID.
 
-Disabling a Work removes it from the public by-slug lookup. Deleting a Work removes the management record, viewer grants, and associated published assets.
+Disabling a Work removes it from the public by-slug lookup. Publishing or updating a version creates a fresh snapshot from the current target. Deleting a Work removes the management record, viewer grants, and version records.
 
-Changing a published file or directory target refreshes the stored public asset. Changing a Work away from `published` clears the stored asset reference.
+Editing a target changes the source used by the next version. The public page changes only after publishing or updating a version.
 
 ## Targets and Limits
 
@@ -151,7 +151,7 @@ The example app in `docs/work-capability-lab/` demonstrates runtime context, tok
 
 ## Publish Through the API or SDK
 
-The SDK exposes `works.create`, `works.update`, `works.delete`, `works.get`, `works.getBySlug`, and `works.listBySpace`.
+The SDK exposes `works.create`, `works.update`, `works.publishVersion`, `works.delete`, `works.get`, `works.getBySlug`, and `works.listBySpace`.
 
 `works.get(workId)` returns the Work record plus `publicUrl`, `content`, `owner`, and `space` when the Work can be publicly resolved.
 
@@ -205,6 +205,12 @@ Fetch a public Work by URL parts:
 
 ```js
 await sdk.works.getBySlug(username, spaceSlug, workSlug);
+```
+
+Update the published version from the current target:
+
+```js
+await sdk.works.publishVersion(workId);
 ```
 
 List a Space's Works:

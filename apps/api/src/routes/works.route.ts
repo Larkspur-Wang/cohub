@@ -17,7 +17,7 @@ import { config } from "../config.js";
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
-const WORK_STATUSES = new Set(["draft", "published", "disabled"]);
+const WORK_STATUSES = new Set(["published", "disabled"]);
 const WORK_VISIBILITIES = new Set(["public", "space"]);
 const TARGET_TYPES = new Set(["file", "directory", "port"]);
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
@@ -73,7 +73,7 @@ const isSubset = (requested: Permission[], allowed: string[]) => requested.every
 const pgErrorCode = (error: unknown) => typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : null;
 const pgErrorConstraint = (error: unknown) => typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint?: unknown }).constraint) : null;
 const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
-const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: draft, published, disabled" }, 400);
+const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: published, disabled" }, 400);
 const invalidWorkVisibilityResponse = (c: Context) => c.json({ message: "visibility must be one of: public, space" }, 400);
 const requiresSpaceWorkAccess = (work: Pick<typeof works.$inferSelect, "visibility">) => (work.visibility ?? "public") === "space";
 const workHideCohubBarRequiredResponse = (c: Context) => c.json({ message: "This option is available on Pro and Max.", code: "work_hide_cohub_bar_required" }, 402);
@@ -217,19 +217,31 @@ async function cleanupWorkAssets(assetKey: string | null | undefined, context: {
   }
 }
 
-const getWorkContent = (work: typeof works.$inferSelect) => {
-  if (work.targetType === "port") {
-    const portRef = normalizePortRef(work.targetRef);
+const getWorkContent = (input: { spaceId: string; targetType: string; targetRef: string; assetKey: string | null }) => {
+  if (input.targetType === "port") {
+    const portRef = normalizePortRef(input.targetRef);
     if (!portRef) return null;
-    const url = getSandboxPublicEndpoints(work.spaceId)[portRef]?.url;
+    const url = getSandboxPublicEndpoints(input.spaceId)[portRef]?.url;
     if (!url || !isAllowedWorkContentUrl(url, "port")) return null;
     return { url, targetType: "port" as const, port: portRef };
   }
-  if (!work.assetKey) return null;
-  const url = createWorkAssetPublicUrl(work.assetKey);
+  if (!input.assetKey) return null;
+  const url = createWorkAssetPublicUrl(input.assetKey);
   if (!isAllowedWorkContentUrl(url, "asset")) return null;
-  return { url, targetType: work.targetType, path: work.targetRef };
+  return { url, targetType: input.targetType, path: input.targetRef };
 };
+
+async function getPublishedWorkContent(work: typeof works.$inferSelect) {
+  if (work.status !== "published" || !work.currentVersionId) return null;
+  const [version] = await db.select().from(workVersions).where(eq(workVersions.id, work.currentVersionId)).limit(1);
+  if (!version) return null;
+  return getWorkContent({
+    spaceId: work.spaceId,
+    targetType: version.targetType,
+    targetRef: version.targetRef,
+    assetKey: version.assetKey,
+  });
+}
 
 router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
   const user = getOptionalAuth(c);
@@ -258,7 +270,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
     space: { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) },
     owner: { ...row.owner, username: row.owner.username },
     publicUrl: createWorkPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, workSlug: row.work.slug, status: row.work.status }),
-    content: getWorkContent(row.work),
+    content: await getPublishedWorkContent(row.work),
   });
 });
 
@@ -296,7 +308,7 @@ router.get("/:id", async (c) => {
     space,
     owner: { ...row.owner, username: row.owner.username },
     publicUrl: createWorkPublicUrl({ ownerUsername: row.owner.username, spaceSlug: row.space.slug, workSlug: work.slug, status: work.status }),
-    content: work.status === "published" ? getWorkContent(work) : null,
+    content: await getPublishedWorkContent(work),
   });
 });
 
@@ -421,7 +433,7 @@ async function updateWork(
   }
   const nextStatus = typeof body?.status === "string" ? body.status : current.status;
   if (nextStatus === "published" && current.status !== "published") {
-    return c.json({ message: "release a version to publish this work" }, 409);
+    return c.json({ message: "publish a version to publish this work" }, 409);
   }
   const nextVisibility = typeof body?.visibility === "string" ? body.visibility : (current.visibility ?? "public");
   const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
@@ -430,63 +442,32 @@ async function updateWork(
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: actorUserId, meta: nextMeta });
   if (presentationError) return presentationError;
 
-  const nextNeedsAssetRefresh = nextStatus === "published" && (
-    current.status !== "published" ||
-    nextSlug !== current.slug ||
-    nextTargetType !== current.targetType ||
-    nextTargetRef !== current.targetRef
-  );
-  let newAssetKey: string | null = null;
-  let assetKey = current.assetKey;
-  if (nextStatus !== "published") {
-    assetKey = null;
-  } else if (nextNeedsAssetRefresh) {
-    try {
-      newAssetKey = await writeWorkAsset({
-        spaceId: current.spaceId,
-        slug: nextSlug,
-        targetType: nextTargetType,
-        targetRef: nextTargetRef,
-        status: nextStatus,
-      });
-      assetKey = newAssetKey;
-    } catch (error) {
-      return workAssetErrorResponse(c, error, { spaceId: current.spaceId, targetType: nextTargetType, targetRef: nextTargetRef });
-    }
-  }
+  const assetKey = nextStatus === "published" ? current.assetKey : null;
 
   const now = new Date();
-  try {
-    const work = await db.transaction(async (tx) => {
-      const [updatedWork] = await tx.update(works).set({
-        slug: nextSlug,
-        status: nextStatus,
-        visibility: nextVisibility,
-        targetType: nextTargetType,
-        targetRef: nextTargetRef,
-        assetKey,
-        currentVersionId: nextStatus === "published" ? current.currentVersionId : null,
-        latestVersion: current.latestVersion,
-        publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
-        workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
-        allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
-        meta: nextMeta,
-        updatedAt: now,
-      }).where(eq(works.id, current.id)).returning();
-      return updatedWork ?? null;
-    }).catch((error: unknown) => {
-      if (isWorkSlugConflict(error)) return null;
-      throw error;
-    });
-    if (!work) {
-      await cleanupWorkAssets(newAssetKey, { workId: current.id, spaceId: current.spaceId, reason: "update_slug_conflict" });
-      return c.json({ message: "slug already exists" }, 409);
-    }
-    return c.json({ work: serializeWork(work) });
-  } catch (error) {
-    await cleanupWorkAssets(newAssetKey, { workId: current.id, spaceId: current.spaceId, reason: "update_failed" });
+  const work = await db.transaction(async (tx) => {
+    const [updatedWork] = await tx.update(works).set({
+      slug: nextSlug,
+      status: nextStatus,
+      visibility: nextVisibility,
+      targetType: nextTargetType,
+      targetRef: nextTargetRef,
+      assetKey,
+      currentVersionId: current.currentVersionId,
+      latestVersion: current.latestVersion,
+      publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
+      workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
+      allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
+      meta: nextMeta,
+      updatedAt: now,
+    }).where(eq(works.id, current.id)).returning();
+    return updatedWork ?? null;
+  }).catch((error: unknown) => {
+    if (isWorkSlugConflict(error)) return null;
     throw error;
-  }
+  });
+  if (!work) return c.json({ message: "slug already exists" }, 409);
+  return c.json({ work: serializeWork(work) });
 }
 
 async function publishWorkVersion(c: Context, current: typeof works.$inferSelect) {

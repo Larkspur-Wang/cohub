@@ -207,7 +207,7 @@ cohub works get <workId> --json
 cohub -s <spaceId> works publish demo --file dist/index.html
 cohub -s <spaceId> works publish site --dir dist
 cohub -s <spaceId> works publish app --port 3000
-cohub works update <workId> --publish-version
+cohub works publish-version <workId>
 cohub works versions <workId> --json
 cohub works rm <workId> --yes
 ```

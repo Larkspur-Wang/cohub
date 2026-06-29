@@ -2,7 +2,7 @@ import type { HttpTransport } from "../transport.js";
 import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
-export type WorkStatus = "draft" | "published" | "disabled";
+export type WorkStatus = "published" | "disabled";
 export type WorkVisibility = "public" | "space";
 
 export type WorkPresentationMeta = {

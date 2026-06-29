@@ -7,7 +7,6 @@ import {
 	Loader2,
 	Pencil,
 	Power,
-	PowerOff,
 	Rocket,
 	Trash2,
 } from "lucide-svelte";
@@ -115,7 +114,7 @@ onDestroy(() => {
           </div>
         </div>
         <div class="flex shrink-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          {#if publicRoute}
+          {#if publicRoute && workDetail.status === 'published'}
             <a href={publicRoute} target="_blank" rel="noopener" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover sm:w-auto">
               <ExternalLink class="h-3.5 w-3.5" />
               <span>Open</span>
@@ -126,7 +125,7 @@ onDestroy(() => {
             <span>{workDetailController.editMode ? 'Close edit' : 'Edit'}</span>
           </button>
           <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-bg-elevated px-3 py-2 text-[12px] font-medium transition-colors hover:bg-bg-hover disabled:opacity-50 sm:w-auto {workDetail.status === 'published' ? 'text-status-running' : 'text-text-secondary'}" onclick={() => workDetailController.toggleStatus(workDetail!.status === 'published' ? 'disabled' : 'published')} disabled={workActionInProgress}>
-            {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if workDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<PowerOff class="h-3.5 w-3.5" />{/if}
+            {#if workActionInProgress}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else if workDetail.status === 'published'}<Power class="h-3.5 w-3.5" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
             <span>{workDetail.status === 'published' ? 'Disable' : 'Publish'}</span>
           </button>
           <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] px-3 py-2 text-[12px] font-medium text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50 sm:w-auto" onclick={workDetailController.deleteWork} disabled={workActionInProgress || workDeleteInProgress}>
@@ -162,7 +161,6 @@ onDestroy(() => {
                 <div class="space-y-1.5">
                   <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
                   <select id="work-edit-status" bind:value={workDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
-                    <option value="draft">Draft</option>
                     <option value="published">Published</option>
                     <option value="disabled">Disabled</option>
                   </select>
@@ -233,19 +231,18 @@ onDestroy(() => {
                   <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Target</div>
                   <div class="mt-1 font-mono text-[11px] text-text-placeholder">Current v{workDetail.latestVersion || 0}</div>
                 </div>
-                <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
-                  {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
-                  <span>{workPublishSubmitting ? 'Updating…' : 'Update version'}</span>
-                </button>
+                {#if workDetail.status === 'published'}
+                  <button type="button" class="inline-flex min-h-9 w-full items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50 sm:w-auto" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
+                    {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
+                    <span>{workPublishSubmitting ? 'Updating…' : 'Update version'}</span>
+                  </button>
+                {/if}
               </div>
               <div class="relative overflow-hidden rounded-[8px] bg-bg-elevated/40 ring-1 ring-border-subtle/60">
                 <div class="absolute left-0 top-0 h-full w-[3px] bg-brand"></div>
                 <div class="px-5 py-4 pl-6">
                   <div class="font-mono text-[13px] text-text-primary break-all">{workDetail.targetRef}</div>
-                  <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-text-tertiary">
-                    <span>{workDetail.targetType}</span>
-                    <span>asset {workDetail.assetKey ? 'ready' : 'not stored'}</span>
-                  </div>
+                  <div class="mt-2 text-[12px] text-text-tertiary">{workDetail.targetType}</div>
                 </div>
               </div>
               {#if workPublishError}
@@ -271,13 +268,12 @@ onDestroy(() => {
             </section>
           </div>
           <aside class="space-y-5 text-[13px]">
-            {#if publicRoute}
+            {#if publicRoute && workDetail.status === 'published'}
               <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
                   <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Public path</div>
-                  <button type="button" class="inline-flex min-h-7 shrink-0 items-center justify-center gap-1.5 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void workDetailController.copyPublicRoute(publicRoute)} title="Copy public link">
+                  <button type="button" class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => void workDetailController.copyPublicRoute(publicRoute)} title={workCopiedPublicRoute ? 'Copied' : 'Copy public link'} aria-label={workCopiedPublicRoute ? 'Copied' : 'Copy public link'}>
                     {#if workCopiedPublicRoute}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}
-                    <span>{workCopiedPublicRoute ? 'Copied' : 'Copy'}</span>
                   </button>
                 </div>
                 <div class="rounded-[6px] bg-bg-elevated/30 px-3 py-2 font-mono text-[12px] text-text-secondary break-all">{publicRoute}</div>
@@ -296,11 +292,8 @@ onDestroy(() => {
           </aside>
         </section>
         <section class="border-t border-border-subtle/70 pt-6">
-          <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
-              <div class="mt-1 text-[12px] text-text-tertiary">{workVersions.length ? `${workVersions.length} loaded · newest first` : workVersionsLoading ? 'Loading versions' : 'No versions yet'}</div>
-            </div>
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Versions</div>
             {#if workVersionsLoading}<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />{/if}
           </div>
           {#if workVersionsError}
@@ -310,19 +303,18 @@ onDestroy(() => {
           {:else if workVersions.length}
             <div class="divide-y divide-border-subtle/60">
               {#each workVersions as version (version.id)}
-                <div class="py-3 text-[12px] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_180px_88px] sm:items-center sm:gap-3 sm:py-2.5">
+                <div class="py-3 text-[12px] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_180px] sm:items-center sm:gap-3 sm:py-2.5">
                   <div class="flex items-center gap-2 px-1">
                     <span class="font-mono text-text-primary">v{version.version}</span>
                     {#if version.id === workDetail.currentVersionId}<span class="rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
                   </div>
                   <div class="mt-1 truncate font-mono text-text-tertiary sm:mt-0" title={`${version.targetType}:${version.targetRef}`}>{version.targetType}:{version.targetRef}</div>
                   <div class="mt-1 font-mono text-text-placeholder sm:mt-0">{formatDateTime(version.createdAt)}</div>
-                  <div class="mt-1 text-text-placeholder sm:mt-0">{version.assetKey ? 'stored' : 'not stored'}</div>
                 </div>
               {/each}
             </div>
           {:else}
-            <div class="py-6 text-[13px] text-text-tertiary">Update version creates v1.</div>
+            <div class="py-6 text-[13px] text-text-tertiary">Publish creates v1.</div>
           {/if}
         </section>
       {/if}

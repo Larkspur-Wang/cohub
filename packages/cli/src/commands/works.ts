@@ -4,7 +4,7 @@ import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
 
-const WORK_STATUSES = ["draft", "published", "disabled"] as const;
+const WORK_STATUSES = ["published", "disabled"] as const;
 const WORK_VISIBILITIES = ["public", "space"] as const;
 
 const collectOption = (value: string, previous: string[] = []): string[] => [...previous, value];
@@ -57,9 +57,9 @@ function resolveTarget(opts: { file?: string; dir?: string; port?: string }): { 
   return targets[0] ?? null;
 }
 
-function resolveStatus(opts: { draft?: boolean; disabled?: boolean; status?: string }): WorkStatus {
-  const values = [opts.status, opts.draft ? "draft" : undefined, opts.disabled ? "disabled" : undefined].filter(Boolean);
-  if (values.length > 1) return error("Conflicting status", "Use only one of --status, --draft, or --disabled");
+function resolveStatus(opts: { disabled?: boolean; status?: string }): WorkStatus {
+  const values = [opts.status, opts.disabled ? "disabled" : undefined].filter(Boolean);
+  if (values.length > 1) return error("Conflicting status", "Use only one of --status or --disabled");
   return values[0] ? parseChoice(values[0], "status", WORK_STATUSES) : "published";
 }
 
@@ -101,11 +101,22 @@ async function confirmDelete(opts: { yes?: boolean }): Promise<void> {
   if (answer !== "y" && answer !== "yes") return error("Cancelled");
 }
 
+async function publishWorkVersion(id: string, opts: { json?: boolean }): Promise<void> {
+  const client = createClient();
+  try {
+    const result = await client.works.publishVersion(id);
+    if (jsonRequested(opts)) return outJson(result);
+    ok(`Work version updated: v${result.version.version}`);
+    printWork(result.work);
+  } catch (e: unknown) {
+    handleHttp(e);
+  }
+}
+
 type PublishOptions = {
   file?: string;
   dir?: string;
   port?: string;
-  draft?: boolean;
   disabled?: boolean;
   status?: string;
   visibility?: string;
@@ -200,9 +211,8 @@ export function registerWorks(program: Command): void {
     .option("--file <path>", "Publish a HTML file")
     .option("--dir <path>", "Publish a directory site")
     .option("--port <port>", "Publish a public sandbox port")
-    .option("--draft", "Create as draft")
     .option("--disabled", "Create as disabled")
-    .option("--status <status>", "Work status: draft, published, disabled")
+    .option("--status <status>", "Work status: published, disabled")
     .option("--visibility <visibility>", "Work visibility: public, space")
     .option("--work-scope <scope>", "Scope granted to the work runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
     .option("--viewer-scope <scope>", "Scope viewers may request (session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
@@ -253,10 +263,10 @@ export function registerWorks(program: Command): void {
             allowedViewerScopes: opts.viewerScope as Permission[],
             meta,
           });
-          const release = status === "published" ? await client.works.publishVersion(work.id) : null;
-          const result = release ?? { work };
+          const publishedVersion = status === "published" ? await client.works.publishVersion(work.id) : null;
+          const result = publishedVersion ?? { work };
           if (jsonRequested(opts)) return outJson(result);
-          ok(status === "published" && release ? `Work version published: v${release.version.version}` : `Work updated: ${work.id}`);
+          ok(status === "published" && publishedVersion ? `Work version updated: v${publishedVersion.version.version}` : `Work updated: ${work.id}`);
           printWork(result.work);
         } catch (fallbackError: unknown) {
           handleHttp(fallbackError);
@@ -271,9 +281,8 @@ export function registerWorks(program: Command): void {
     .option("--file <path>", "Use a HTML file target")
     .option("--dir <path>", "Use a directory site target")
     .option("--port <port>", "Use a public sandbox port target")
-    .option("--draft", "Set status to draft")
     .option("--disabled", "Set status to disabled")
-    .option("--status <status>", "Work status: draft, published, disabled")
+    .option("--status <status>", "Work status: published, disabled")
     .option("--visibility <visibility>", "Work visibility: public, space")
     .option("--work-scope <scope>", "Scope granted to the work runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
     .option("--viewer-scope <scope>", "Scope viewers may request (session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
@@ -306,7 +315,7 @@ export function registerWorks(program: Command): void {
           showCohubBar: opts.showCohubBar,
         });
       }
-      const nextStatus = opts.status || opts.draft || opts.disabled ? resolveStatus(opts) : undefined;
+      const nextStatus = opts.status || opts.disabled ? resolveStatus(opts) : undefined;
       const currentWork = nextStatus === "published" ? (await client.works.get(id)).work : null;
       const input = compactObject<WorkUpdateInput>({
         slug: opts.slug,
@@ -321,12 +330,12 @@ export function registerWorks(program: Command): void {
       if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --visibility, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
       try {
         const updated = await client.works.update(id, input);
-        const release = nextStatus === "published" && currentWork?.status !== "published"
+        const publishedVersion = nextStatus === "published" && currentWork?.status !== "published"
           ? await client.works.publishVersion(updated.work.id)
           : null;
-        const result = release ?? updated;
+        const result = publishedVersion ?? updated;
         if (jsonRequested(opts)) return outJson(result);
-        ok(release ? `Work version published: v${release.version.version}` : "Work updated");
+        ok(publishedVersion ? `Work published: v${publishedVersion.version.version}` : "Work updated");
         printWork(result.work);
       } catch (e: unknown) {
         handleHttp(e);
@@ -334,20 +343,16 @@ export function registerWorks(program: Command): void {
     });
 
   worksCmd
-    .command("release <id>")
-    .description("Publish a new version from the current work target")
+    .command("publish-version <id>")
+    .description("Publish or update the current work version")
     .option("--json", "Output as JSON")
-    .action(async (id: string, opts: { json?: boolean }) => {
-      const client = createClient();
-      try {
-        const result = await client.works.publishVersion(id);
-        if (jsonRequested(opts)) return outJson(result);
-        ok(`Work version published: v${result.version.version}`);
-        printWork(result.work);
-      } catch (e: unknown) {
-        handleHttp(e);
-      }
-    });
+    .action(publishWorkVersion);
+
+  worksCmd
+    .command("release <id>", { hidden: true })
+    .description("Deprecated alias for publish-version")
+    .option("--json", "Output as JSON")
+    .action(publishWorkVersion);
 
   worksCmd
     .command("versions <id>")
