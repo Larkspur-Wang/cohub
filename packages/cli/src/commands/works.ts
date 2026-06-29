@@ -1,4 +1,4 @@
-import type { Permission, WorkCreateInput, WorkMeta, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVisibility } from "@neta-art/cohub";
+import { HttpError, type Permission, type WorkCreateInput, type WorkMeta, type WorkStatus, type WorkTargetType, type WorkUpdateInput, type WorkVisibility } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
@@ -119,7 +119,6 @@ type PublishOptions = {
 
 type UpdateOptions = PublishOptions & {
   slug?: string;
-  publishVersion?: boolean;
   clearWorkScopes?: boolean;
   clearViewerScopes?: boolean;
 };
@@ -240,13 +239,34 @@ export function registerWorks(program: Command): void {
         ok(`Work published: ${result.work.id}`);
         printWork(result.work);
       } catch (e: unknown) {
-        handleHttp(e);
+        if (!(e instanceof HttpError) || e.status !== 409) handleHttp(e);
+        try {
+          const { works } = await client.works.listBySpace(spaceId);
+          const existingWork = works.find((work) => work.slug === slug);
+          if (!existingWork) return handleHttp(e);
+          const { work } = await client.works.update(existingWork.id, {
+            status: status === "published" && existingWork.status !== "published" ? existingWork.status : status,
+            visibility: resolveVisibility(opts.visibility),
+            targetType: target.targetType,
+            targetRef: target.targetRef,
+            workScopes: opts.workScope as Permission[],
+            allowedViewerScopes: opts.viewerScope as Permission[],
+            meta,
+          });
+          const release = status === "published" ? await client.works.publishVersion(work.id) : null;
+          const result = release ?? { work };
+          if (jsonRequested(opts)) return outJson(result);
+          ok(status === "published" && release ? `Work version published: v${release.version.version}` : `Work updated: ${work.id}`);
+          printWork(result.work);
+        } catch (fallbackError: unknown) {
+          handleHttp(fallbackError);
+        }
       }
     });
 
   worksCmd
     .command("update <id>")
-    .description("Update work settings or publish a new version")
+    .description("Update work settings")
     .option("--slug <slug>", "New work slug")
     .option("--file <path>", "Use a HTML file target")
     .option("--dir <path>", "Use a directory site target")
@@ -255,7 +275,6 @@ export function registerWorks(program: Command): void {
     .option("--disabled", "Set status to disabled")
     .option("--status <status>", "Work status: draft, published, disabled")
     .option("--visibility <visibility>", "Work visibility: public, space")
-    .option("--publish-version", "Force publishing a new version")
     .option("--work-scope <scope>", "Scope granted to the work runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
     .option("--viewer-scope <scope>", "Scope viewers may request (session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
     .option("--clear-work-scopes", "Clear work runtime scopes")
@@ -287,22 +306,43 @@ export function registerWorks(program: Command): void {
           showCohubBar: opts.showCohubBar,
         });
       }
+      const nextStatus = opts.status || opts.draft || opts.disabled ? resolveStatus(opts) : undefined;
+      const currentWork = nextStatus === "published" ? (await client.works.get(id)).work : null;
       const input = compactObject<WorkUpdateInput>({
         slug: opts.slug,
-        status: opts.status || opts.draft || opts.disabled ? resolveStatus(opts) : undefined,
+        status: nextStatus === "published" && currentWork?.status !== "published" ? currentWork?.status : nextStatus,
         visibility: resolveVisibility(opts.visibility),
         targetType: target?.targetType,
         targetRef: target?.targetRef,
-        publishVersion: opts.publishVersion || undefined,
         workScopes: opts.clearWorkScopes ? [] : opts.workScope?.length ? opts.workScope as Permission[] : undefined,
         allowedViewerScopes: opts.clearViewerScopes ? [] : opts.viewerScope?.length ? opts.viewerScope as Permission[] : undefined,
         meta,
       });
-      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --visibility, --publish-version, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
+      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --visibility, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
       try {
-        const result = await client.works.update(id, input);
+        const updated = await client.works.update(id, input);
+        const release = nextStatus === "published" && currentWork?.status !== "published"
+          ? await client.works.publishVersion(updated.work.id)
+          : null;
+        const result = release ?? updated;
         if (jsonRequested(opts)) return outJson(result);
-        ok("Work updated");
+        ok(release ? `Work version published: v${release.version.version}` : "Work updated");
+        printWork(result.work);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  worksCmd
+    .command("release <id>")
+    .description("Publish a new version from the current work target")
+    .option("--json", "Output as JSON")
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const result = await client.works.publishVersion(id);
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Work version published: v${result.version.version}`);
         printWork(result.work);
       } catch (e: unknown) {
         handleHttp(e);
@@ -321,10 +361,9 @@ export function registerWorks(program: Command): void {
         table(result.versions, [
           { key: "version", label: "Version" },
           { key: "id", label: "ID" },
-          { key: "status", label: "Status" },
           { key: "targetType", label: "Target" },
           { key: "targetRef", label: "Ref" },
-          { key: "publishedAt", label: "Published" },
+          { key: "createdAt", label: "Created" },
         ]);
       } catch (e: unknown) {
         handleHttp(e);

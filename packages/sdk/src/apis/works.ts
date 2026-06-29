@@ -52,7 +52,6 @@ export type WorkUpdateInput = Partial<{
   visibility: WorkVisibility;
   targetType: WorkTargetType;
   targetRef: string;
-  publishVersion: boolean;
   workScopes: Permission[];
   allowedViewerScopes: Permission[];
   meta: WorkMeta | null;
@@ -61,15 +60,11 @@ export type WorkUpdateInput = Partial<{
 export type WorkVersionRecord = {
   id: string;
   workId: string;
-  spaceId: string;
   version: number;
-  status: WorkStatus;
   targetType: WorkTargetType;
   targetRef: string;
   assetKey: string | null;
-  meta: WorkMeta | null;
   createdAt: string | null;
-  publishedAt: string | null;
 };
 
 export type WorkContent =
@@ -160,6 +155,12 @@ export class WorksApi {
 
   listVersions(workId: string) {
     return this.transport.request<{ versions: WorkVersionRecord[] }>(`/api/works/${workId}/versions`);
+  }
+
+  publishVersion(workId: string) {
+    return this.transport.request<{ work: WorkRecord; version: WorkVersionRecord }>(`/api/works/${workId}/versions`, {
+      method: "POST",
+    });
   }
 
   createSession(workId: string) {

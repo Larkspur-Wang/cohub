@@ -237,25 +237,21 @@ onDestroy(() => {
               </div>
             </section>
             <section class="space-y-3 border-y border-border-subtle/70 py-4">
-              <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                <div class="flex min-w-0 items-baseline gap-2">
-                  <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Publish version</div>
-                  <div class="hidden text-[12px] text-text-tertiary sm:block">Move the public link to a fresh snapshot.</div>
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0 space-y-1">
+                  <div class="text-[10px] font-medium uppercase tracking-[0.18em] text-text-placeholder">Release version</div>
+                  <div class="text-[12px] leading-5 text-text-tertiary">Create a fresh snapshot from the current Work target.</div>
                 </div>
                 <div class="font-mono text-[11px] text-text-placeholder">Current v{workDetail.latestVersion || 0}</div>
               </div>
-              <div class="grid gap-2 sm:grid-cols-[128px_minmax(0,1fr)_112px] sm:items-center">
-                <label class="sr-only" for="work-publish-target-type">Target type</label>
-                <select id="work-publish-target-type" bind:value={workDetailController.publishTargetType} class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors hover:border-border-default focus:border-brand/50 focus:outline-none">
-                  <option value="file">File</option>
-                  <option value="directory">Directory</option>
-                  <option value="port">Port</option>
-                </select>
-                <label class="sr-only" for="work-publish-target-ref">Target reference</label>
-                <input id="work-publish-target-ref" type="text" bind:value={workDetailController.publishTargetRef} placeholder="Target reference" class="min-h-10 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-primary transition-colors placeholder:text-text-placeholder hover:border-border-default focus:border-brand/50 focus:outline-none" />
-                <button type="button" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0">
+                  <div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">Current target</div>
+                  <div class="mt-1 truncate font-mono text-[12px] text-text-secondary">{workDetail.targetType}:{workDetail.targetRef}</div>
+                </div>
+                <button type="button" class="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity hover:opacity-90 disabled:opacity-50" onclick={() => void workDetailController.publishVersion()} disabled={workPublishSubmitting}>
                   {#if workPublishSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Rocket class="h-3.5 w-3.5" />{/if}
-                  <span>Publish</span>
+                  <span>Release</span>
                 </button>
               </div>
               {#if workPublishError}
@@ -299,7 +295,7 @@ onDestroy(() => {
                         </div>
                         {#if version.id === workDetail.currentVersionId}<span class="shrink-0 rounded-full bg-brand-muted px-2 py-0.5 text-[10px] font-medium text-brand">Current</span>{/if}
                       </div>
-                      <div class="mt-1 text-[11px] text-text-placeholder">{formatDateTime(version.publishedAt)}</div>
+                      <div class="mt-1 text-[11px] text-text-placeholder">{formatDateTime(version.createdAt)}</div>
                     </div>
                   {/each}
                 </div>

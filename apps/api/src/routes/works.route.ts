@@ -161,15 +161,11 @@ const serializeWork = (work: typeof works.$inferSelect) => ({
 const serializeWorkVersion = (version: typeof workVersions.$inferSelect) => ({
   id: version.id,
   workId: version.workId,
-  spaceId: version.spaceId,
   version: version.version,
-  status: version.status,
   targetType: version.targetType,
   targetRef: version.targetRef,
   assetKey: version.assetKey,
-  meta: version.meta ?? null,
   createdAt: version.createdAt?.toISOString() ?? null,
-  publishedAt: version.publishedAt?.toISOString() ?? null,
 });
 
 async function getWorkById(id: string) {
@@ -340,9 +336,7 @@ router.post("/", async (c) => {
   const now = new Date();
 
   const [existingWork] = await db.select().from(works).where(and(eq(works.spaceId, spaceId), eq(works.slug, slug))).limit(1);
-  if (existingWork) {
-    return updateWorkWithVersion(c, existingWork, body, user.uuid, { targetType, targetRef, status, publishVersion: status === "published" });
-  }
+  if (existingWork) return c.json({ message: "slug already exists" }, 409);
 
   let assetKey: string | null = null;
   try {
@@ -372,14 +366,11 @@ router.post("/", async (c) => {
       if (status !== "published") return createdWork;
       const [version] = await tx.insert(workVersions).values({
         workId: createdWork.id,
-        spaceId,
         version: 1,
-        status,
         targetType,
         targetRef,
         assetKey,
-        meta: { reason: "create" },
-        publishedAt: now,
+        createdAt: now,
       }).returning();
       if (!version) throw new Error("failed to create work version");
       const [updatedWork] = await tx.update(works).set({ currentVersionId: version.id }).where(eq(works.id, createdWork.id)).returning();
@@ -399,12 +390,11 @@ router.post("/", async (c) => {
   }
 });
 
-async function updateWorkWithVersion(
+async function updateWork(
   c: Context,
   current: typeof works.$inferSelect,
   body: Record<string, unknown> | null,
   actorUserId: string,
-  overrides?: { targetType?: string; targetRef?: string; status?: string; publishVersion?: boolean },
 ) {
   const nextSlug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : current.slug;
   if (!SLUG_RE.test(nextSlug)) return c.json({ message: "slug must use lowercase letters, numbers, hyphens, or underscores" }, 400);
@@ -412,8 +402,8 @@ async function updateWorkWithVersion(
     return c.json({ message: "slug already exists" }, 409);
   }
 
-  const nextTargetType = overrides?.targetType ?? (typeof body?.targetType === "string" ? body.targetType : current.targetType);
-  let nextTargetRef = overrides?.targetRef ?? (typeof body?.targetRef === "string" ? body.targetRef.trim() : current.targetRef);
+  const nextTargetType = typeof body?.targetType === "string" ? body.targetType : current.targetType;
+  let nextTargetRef = typeof body?.targetRef === "string" ? body.targetRef.trim() : current.targetRef;
   if (!TARGET_TYPES.has(nextTargetType) || !nextTargetRef) return c.json({ message: "target is invalid" }, 400);
   if (nextTargetType === "file" && !/\.html?$/i.test(nextTargetRef)) {
     return c.json({ message: "only HTML files can be published as work" }, 400);
@@ -423,68 +413,51 @@ async function updateWorkWithVersion(
     if (!portRef) return c.json({ message: "port is invalid" }, 400);
     nextTargetRef = portRef;
   }
-  if (overrides?.status !== undefined && !WORK_STATUSES.has(overrides.status)) return invalidWorkStatusResponse(c);
-  if (overrides?.status === undefined && body && "status" in body && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
+  if (body && "status" in body && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
     return invalidWorkStatusResponse(c);
   }
   if (body && "visibility" in body && (typeof body.visibility !== "string" || !WORK_VISIBILITIES.has(body.visibility))) {
     return invalidWorkVisibilityResponse(c);
   }
-  const nextStatus = overrides?.status ?? (typeof body?.status === "string" ? body.status : current.status);
+  const nextStatus = typeof body?.status === "string" ? body.status : current.status;
+  if (nextStatus === "published" && current.status !== "published") {
+    return c.json({ message: "release a version to publish this work" }, 409);
+  }
   const nextVisibility = typeof body?.visibility === "string" ? body.visibility : (current.visibility ?? "public");
   const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
   if (identityError) return identityError;
-  const publishVersion = overrides?.publishVersion ?? body?.publishVersion === true;
   const nextMeta = "meta" in (body ?? {}) ? getWorkMeta(body?.meta) : getWorkMeta(current.meta);
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: actorUserId, meta: nextMeta });
   if (presentationError) return presentationError;
 
-  let assetKey = current.assetKey;
-  let newAssetKey: string | null = null;
-  const needsAssetRefresh = nextStatus === "published" && (
-    publishVersion ||
+  const nextNeedsAssetRefresh = nextStatus === "published" && (
     current.status !== "published" ||
     nextSlug !== current.slug ||
     nextTargetType !== current.targetType ||
     nextTargetRef !== current.targetRef
   );
-  if (nextStatus !== "published") assetKey = null;
-  else if (nextTargetType === "port") assetKey = null;
-  else if (needsAssetRefresh) {
+  let newAssetKey: string | null = null;
+  let assetKey = current.assetKey;
+  if (nextStatus !== "published") {
+    assetKey = null;
+  } else if (nextNeedsAssetRefresh) {
     try {
-      newAssetKey = await writeWorkAsset({ spaceId: current.spaceId, slug: nextSlug, targetType: nextTargetType, targetRef: nextTargetRef, status: nextStatus });
+      newAssetKey = await writeWorkAsset({
+        spaceId: current.spaceId,
+        slug: nextSlug,
+        targetType: nextTargetType,
+        targetRef: nextTargetRef,
+        status: nextStatus,
+      });
       assetKey = newAssetKey;
     } catch (error) {
       return workAssetErrorResponse(c, error, { spaceId: current.spaceId, targetType: nextTargetType, targetRef: nextTargetRef });
     }
   }
 
+  const now = new Date();
   try {
     const work = await db.transaction(async (tx) => {
-      const now = new Date();
-      let currentVersionId = current.currentVersionId;
-      let latestVersion = current.latestVersion ?? 0;
-      if (nextStatus === "published" && needsAssetRefresh) {
-        const [versionedWork] = await tx.update(works).set({
-          latestVersion: sql`${works.latestVersion} + 1`,
-          updatedAt: now,
-        }).where(eq(works.id, current.id)).returning({ latestVersion: works.latestVersion });
-        if (!versionedWork) throw new Error("failed to reserve work version");
-        latestVersion = versionedWork.latestVersion;
-        const [version] = await tx.insert(workVersions).values({
-          workId: current.id,
-          spaceId: current.spaceId,
-          version: latestVersion,
-          status: nextStatus,
-          targetType: nextTargetType,
-          targetRef: nextTargetRef,
-          assetKey,
-          meta: { reason: publishVersion ? "publish" : "update" },
-          publishedAt: now,
-        }).returning();
-        if (!version) throw new Error("failed to create work version");
-        currentVersionId = version.id;
-      }
       const [updatedWork] = await tx.update(works).set({
         slug: nextSlug,
         status: nextStatus,
@@ -492,13 +465,13 @@ async function updateWorkWithVersion(
         targetType: nextTargetType,
         targetRef: nextTargetRef,
         assetKey,
-        currentVersionId: nextStatus === "published" ? currentVersionId : null,
-        latestVersion,
+        currentVersionId: nextStatus === "published" ? current.currentVersionId : null,
+        latestVersion: current.latestVersion,
         publishedAt: nextStatus === "published" ? (current.publishedAt ?? now) : null,
         workScopes: "workScopes" in (body ?? {}) ? normalizeScopes(body?.workScopes, ALLOWED_WORK_SCOPES) : current.workScopes,
         allowedViewerScopes: "allowedViewerScopes" in (body ?? {}) ? normalizeScopes(body?.allowedViewerScopes, ALLOWED_VIEWER_SCOPES) : current.allowedViewerScopes,
         meta: nextMeta,
-        updatedAt: new Date(),
+        updatedAt: now,
       }).where(eq(works.id, current.id)).returning();
       return updatedWork ?? null;
     }).catch((error: unknown) => {
@@ -516,6 +489,61 @@ async function updateWorkWithVersion(
   }
 }
 
+async function publishWorkVersion(c: Context, current: typeof works.$inferSelect) {
+  const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
+  if (identityError) return identityError;
+  let assetKey: string | null = null;
+  try {
+    assetKey = await writeWorkAsset({
+      spaceId: current.spaceId,
+      slug: current.slug,
+      targetType: current.targetType,
+      targetRef: current.targetRef,
+      status: "published",
+    });
+  } catch (error) {
+    return workAssetErrorResponse(c, error, { spaceId: current.spaceId, targetType: current.targetType, targetRef: current.targetRef });
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const now = new Date();
+      const [versionedWork] = await tx.update(works).set({
+        latestVersion: sql`${works.latestVersion} + 1`,
+        updatedAt: now,
+      }).where(eq(works.id, current.id)).returning({ latestVersion: works.latestVersion });
+      if (!versionedWork) throw new Error("failed to reserve work version");
+      const [version] = await tx.insert(workVersions).values({
+        workId: current.id,
+        version: versionedWork.latestVersion,
+        targetType: current.targetType,
+        targetRef: current.targetRef,
+        assetKey,
+        createdAt: now,
+      }).returning();
+      if (!version) throw new Error("failed to create work version");
+      const [work] = await tx.update(works).set({
+        status: "published",
+        assetKey,
+        currentVersionId: version.id,
+        latestVersion: versionedWork.latestVersion,
+        publishedAt: current.publishedAt ?? now,
+        updatedAt: now,
+      }).where(eq(works.id, current.id)).returning();
+      if (!work) throw new Error("failed to publish work version");
+      return { work, version };
+    });
+    return c.json({ work: serializeWork(result.work), version: serializeWorkVersion(result.version) });
+  } catch (error) {
+    try {
+      await cleanupWorkAssets(assetKey, { workId: current.id, spaceId: current.spaceId, reason: "publish_failed" });
+    } catch (cleanupError) {
+      logger.warn("[works] failed to run publish cleanup", { workId: current.id, spaceId: current.spaceId, cleanupError });
+    }
+    throw error;
+  }
+}
+
 router.patch("/:id", async (c) => {
   const user = useAuth(c);
   const id = c.req.param("id");
@@ -525,7 +553,7 @@ router.patch("/:id", async (c) => {
   if (!(await hasPermission(user, "space.edit", { spaceId: current.spaceId }))) return authzDenied(c);
 
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  return updateWorkWithVersion(c, current, body, user.uuid);
+  return updateWork(c, current, body, user.uuid);
 });
 
 router.get("/:id/versions", async (c) => {
@@ -537,6 +565,16 @@ router.get("/:id/versions", async (c) => {
   if (!(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
   const rows = await db.select().from(workVersions).where(eq(workVersions.workId, id)).orderBy(desc(workVersions.version));
   return c.json({ versions: rows.map(serializeWorkVersion) });
+});
+
+router.post("/:id/versions", async (c) => {
+  const user = useAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const work = await getWorkById(id);
+  if (!work) return c.json({ message: "work not found" }, 404);
+  if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
+  return publishWorkVersion(c, work);
 });
 
 router.delete("/:id", async (c) => {

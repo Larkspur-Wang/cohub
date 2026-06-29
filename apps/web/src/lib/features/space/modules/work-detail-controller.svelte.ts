@@ -78,8 +78,6 @@ export function createWorkDetailController(options: {
 	let versions = $state<WorkVersionRecord[]>([]);
 	let versionsLoading = $state(false);
 	let versionsError = $state("");
-	let publishTargetType = $state<WorkTargetType>("file");
-	let publishTargetRef = $state("");
 	let publishSubmitting = $state(false);
 	let publishError = $state("");
 
@@ -101,8 +99,6 @@ export function createWorkDetailController(options: {
 			WORK_VIEWER_SCOPE_OPTIONS,
 		);
 		formError = "";
-		publishTargetType = detail.targetType;
-		publishTargetRef = detail.targetRef;
 		publishError = "";
 	}
 
@@ -190,18 +186,9 @@ export function createWorkDetailController(options: {
 	async function publishVersion() {
 		if (!detail || publishSubmitting) return;
 		publishError = "";
-		if (!publishTargetRef.trim()) {
-			publishError = "Target is required";
-			return;
-		}
 		publishSubmitting = true;
 		try {
-			const { work } = await sdk.works.update(detail.id, {
-				status: "published",
-				targetType: publishTargetType,
-				targetRef: publishTargetRef.trim(),
-				publishVersion: true,
-			});
+			const { work } = await sdk.works.publishVersion(detail.id);
 			detail = work;
 			notify(work);
 			syncFormFromDetail();
@@ -233,7 +220,10 @@ export function createWorkDetailController(options: {
 		actionInProgress = true;
 		error = "";
 		try {
-			const { work } = await sdk.works.update(detail.id, { status });
+			const { work } =
+				status === "published"
+					? await sdk.works.publishVersion(detail.id)
+					: await sdk.works.update(detail.id, { status });
 			detail = work;
 			notify(work);
 			syncFormFromDetail();
@@ -295,9 +285,11 @@ export function createWorkDetailController(options: {
 		}
 		formSubmitting = true;
 		try {
-			const { work } = await sdk.works.update(detail.id, {
+			const shouldRelease =
+				formStatus === "published" && detail.status !== "published";
+			const { work: savedWork } = await sdk.works.update(detail.id, {
 				slug: formSlug.trim(),
-				status: formStatus,
+				status: shouldRelease ? detail.status : formStatus,
 				visibility: formVisibility,
 				targetType: formTargetType,
 				targetRef: formTargetRef.trim(),
@@ -308,6 +300,9 @@ export function createWorkDetailController(options: {
 				),
 				meta: buildWorkMeta(detail.meta, formHideCohubBar),
 			});
+			const { work } = shouldRelease
+				? await sdk.works.publishVersion(savedWork.id)
+				: { work: savedWork };
 			detail = work;
 			notify(work);
 			editMode = false;
@@ -448,18 +443,6 @@ export function createWorkDetailController(options: {
 		},
 		get versionsError() {
 			return versionsError;
-		},
-		get publishTargetType() {
-			return publishTargetType;
-		},
-		set publishTargetType(value: WorkTargetType) {
-			publishTargetType = value;
-		},
-		get publishTargetRef() {
-			return publishTargetRef;
-		},
-		set publishTargetRef(value: string) {
-			publishTargetRef = value;
 		},
 		get publishSubmitting() {
 			return publishSubmitting;

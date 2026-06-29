@@ -1,10 +1,11 @@
 <script lang="ts">
-import type {
-	Permission,
-	SpaceRecord,
-	WorkMeta,
-	WorkRecord,
-	WorkTargetType,
+import {
+	HttpError,
+	type Permission,
+	type SpaceRecord,
+	type WorkMeta,
+	type WorkRecord,
+	type WorkTargetType,
 } from "@neta-art/cohub";
 import { Check, Copy, ExternalLink, Loader2, Rocket } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
@@ -205,18 +206,35 @@ async function publish() {
 		await ensurePublicAddress();
 		if (!currentWorkSlug)
 			throw new Error(workSlugValidation.error ?? "Work slug is required.");
-		const result = await sdk.works.create({
-			spaceId,
-			slug: currentWorkSlug,
-			status: "published",
-			visibility,
-			targetType,
-			targetRef,
-			workScopes: selectedScopes(workScopes),
-			allowedViewerScopes: selectedScopes(allowedViewerScopes),
-			meta: buildWorkMeta(),
-		});
-		published = result.work;
+		try {
+			const result = await sdk.works.create({
+				spaceId,
+				slug: currentWorkSlug,
+				status: "published",
+				visibility,
+				targetType,
+				targetRef,
+				workScopes: selectedScopes(workScopes),
+				allowedViewerScopes: selectedScopes(allowedViewerScopes),
+				meta: buildWorkMeta(),
+			});
+			published = result.work;
+		} catch (cause) {
+			if (!(cause instanceof HttpError) || cause.status !== 409) throw cause;
+			const { works } = await sdk.works.listBySpace(spaceId);
+			const existingWork = works.find((work) => work.slug === currentWorkSlug);
+			if (!existingWork) throw cause;
+			const { work } = await sdk.works.update(existingWork.id, {
+				status: existingWork.status,
+				visibility,
+				targetType,
+				targetRef,
+				workScopes: selectedScopes(workScopes),
+				allowedViewerScopes: selectedScopes(allowedViewerScopes),
+				meta: buildWorkMeta(),
+			});
+			published = (await sdk.works.publishVersion(work.id)).work;
+		}
 		window.dispatchEvent(
 			new CustomEvent("cohub:works-changed", { detail: { spaceId } }),
 		);

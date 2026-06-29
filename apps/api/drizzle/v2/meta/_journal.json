@@ -204,6 +204,13 @@
       "when": 1782733740000,
       "tag": "0028_work_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782733740001,
+      "tag": "0029_slim_work_versions",
+      "breakpoints": true
     }
   ]
 }
