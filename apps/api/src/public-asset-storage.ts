@@ -9,6 +9,8 @@ import {
 } from "./object-presign.js";
 import { redisCommandClient } from "./redis.js";
 
+const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 export type PublicAssetPurpose = "user_avatar" | "space_avatar" | "chat_attachment";
 
 export type CreatePublicAssetUploadInput = {
@@ -153,6 +155,7 @@ export const createPublicAssetUploadPlan = (input: {
     objectKey,
     contentType: input.file.mimeType,
     maxBytes: input.purpose === "chat_attachment" ? MAX_CHAT_ATTACHMENT_BYTES : MAX_AVATAR_BYTES,
+    cacheControl: input.purpose === "chat_attachment" ? IMMUTABLE_PUBLIC_CACHE_CONTROL : undefined,
   });
   return {
     expiresAt: signed.expiresAt,
@@ -183,7 +186,12 @@ export const createInternalPublicAssetUploadPlan = (input: {
     sessionId: input.sessionId,
     mimeType: input.file.mimeType,
   });
-  const signed = createPresignedPutObjectUrl(getInternalStorageConfig(), objectKey, input.file.mimeType);
+  const signed = createPresignedPutObjectUrl(
+    getInternalStorageConfig(),
+    objectKey,
+    input.file.mimeType,
+    input.purpose === "chat_attachment" ? IMMUTABLE_PUBLIC_CACHE_CONTROL : undefined,
+  );
   return {
     expiresAt: signed.expiresAt,
     asset: {

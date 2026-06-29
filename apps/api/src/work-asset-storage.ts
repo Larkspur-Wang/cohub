@@ -7,6 +7,7 @@ const MAX_WORK_ASSET_BYTES = 5 * 1024 * 1024;
 const MAX_WORK_SITE_BYTES = 100 * 1024 * 1024;
 const MAX_WORK_SITE_FILES = 1000;
 const WORK_SITE_UPLOAD_CONCURRENCY = 8;
+const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 let s3Client: S3Client | null = null;
 
@@ -99,6 +100,7 @@ const putWorkAssetObject = async (input: {
     Key: input.objectKey,
     Body: input.body,
     ContentType: input.contentType,
+    CacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
     Metadata: { sha256: input.sha256 },
   }));
 };

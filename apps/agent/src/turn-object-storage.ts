@@ -3,6 +3,8 @@ import { normalize } from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { env } from "./env.js";
 
+const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 let s3Client: S3Client | null = null;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -69,6 +71,7 @@ export const writeTurnObjectJson = async (objectKey: string, value: unknown) => 
         Key: safeKey,
         Body: content,
         ContentType: "application/json; charset=utf-8",
+        CacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
         Metadata: { sha256 },
       }), { abortSignal: abortController.signal });
       return { sizeBytes, sha256 };

@@ -4,6 +4,7 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { config } from "./config.js";
 
 const CDN_BASE_URL = config.turnObjectCdnBaseUrl;
+const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 let s3Client: S3Client | null = null;
 const getS3Client = () => {
@@ -84,6 +85,7 @@ export const writeTurnObjectJson = async (objectKey: string, value: unknown) => 
     Key: safeKey,
     Body: content,
     ContentType: "application/json; charset=utf-8",
+    CacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
     Metadata: { sha256 },
   }));
   return { sizeBytes, sha256 };

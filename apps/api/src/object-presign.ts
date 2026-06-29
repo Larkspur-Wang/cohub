@@ -41,6 +41,7 @@ const createPresignedObjectUrl = (
   storage: PresignStorageConfig,
   objectKey: string,
   contentType?: string | null,
+  cacheControl?: string | null,
 ) => {
   if (!storage.bucket) throw new Error("bucket is required");
   if (!storage.endpoint) throw new Error("endpoint is required");
@@ -54,7 +55,12 @@ const createPresignedObjectUrl = (
   const credentialScope = `${dateStamp}/${storage.region}/s3/aws4_request`;
   const endpoint = getBucketPublicEndpoint(storage);
   const url = new URL(`${endpoint}/${encodePath(objectKey)}`);
-  const signedHeaders = "host";
+  const headers = {
+    host: url.host,
+    ...(method === "PUT" && contentType ? { "content-type": contentType } : {}),
+    ...(method === "PUT" && cacheControl ? { "cache-control": cacheControl } : {}),
+  };
+  const signedHeaders = Object.keys(headers).sort().join(";");
   url.searchParams.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
   url.searchParams.set("X-Amz-Credential", `${storage.accessKeyId}/${credentialScope}`);
   url.searchParams.set("X-Amz-Date", amzDate);
@@ -65,11 +71,15 @@ const createPresignedObjectUrl = (
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     .join("&");
+  const canonicalHeaders = Object.entries(headers)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}:${value}\n`)
+    .join("");
   const canonicalRequest = [
     method,
     url.pathname,
     canonicalQuery,
-    `host:${url.host}\n`,
+    canonicalHeaders,
     signedHeaders,
     "UNSIGNED-PAYLOAD",
   ].join("\n");
@@ -82,10 +92,11 @@ const createPresignedObjectUrl = (
   const signature = hexHmac(signingKey(storage.secretAccessKey, dateStamp, storage.region), stringToSign);
   url.searchParams.set("X-Amz-Signature", signature);
 
+  const uploadHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => key !== "host"));
   return {
     url: url.toString(),
     expiresAt: new Date(now.getTime() + PRESIGN_TTL_SECONDS * 1000).toISOString(),
-    headers: method === "PUT" && contentType ? { "content-type": contentType } : undefined,
+    headers: method === "PUT" && Object.keys(uploadHeaders).length > 0 ? uploadHeaders : undefined,
   };
 };
 
@@ -93,8 +104,9 @@ export const createPresignedPutObjectUrl = (
   storage: PresignStorageConfig,
   objectKey: string,
   contentType?: string | null,
+  cacheControl?: string | null,
 ) => {
-  const signed = createPresignedObjectUrl("PUT", storage, objectKey, contentType);
+  const signed = createPresignedObjectUrl("PUT", storage, objectKey, contentType, cacheControl);
   return { uploadUrl: signed.url, expiresAt: signed.expiresAt, headers: signed.headers };
 };
 
@@ -117,8 +129,9 @@ export const createPresignedPostObject = (input: {
   objectKey: string;
   contentType: string;
   maxBytes: number;
+  cacheControl?: string | null;
 }): PresignedPostObject => {
-  const { storage, objectKey, contentType, maxBytes } = input;
+  const { storage, objectKey, contentType, maxBytes, cacheControl } = input;
   if (!storage.bucket) throw new Error("bucket is required");
   if (!storage.endpoint) throw new Error("endpoint is required");
   if (!storage.accessKeyId || !storage.secretAccessKey) {
@@ -136,6 +149,7 @@ export const createPresignedPostObject = (input: {
       { bucket: storage.bucket },
       { key: objectKey },
       { "Content-Type": contentType },
+      ...(cacheControl ? [{ "Cache-Control": cacheControl }] : []),
       { "x-amz-algorithm": "AWS4-HMAC-SHA256" },
       { "x-amz-credential": credential },
       { "x-amz-date": amzDate },
@@ -151,6 +165,7 @@ export const createPresignedPostObject = (input: {
     fields: {
       key: objectKey,
       "Content-Type": contentType,
+      ...(cacheControl ? { "Cache-Control": cacheControl } : {}),
       "x-amz-algorithm": "AWS4-HMAC-SHA256",
       "x-amz-credential": credential,
       "x-amz-date": amzDate,

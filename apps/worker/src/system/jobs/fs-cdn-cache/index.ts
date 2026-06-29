@@ -23,6 +23,8 @@ import {
 } from "./policy.js";
 
 
+const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 const logger = createLogger({ serviceName: "cohub-worker" });
 let s3Client: S3Client | null = null;
 
@@ -102,7 +104,7 @@ async function processWarmFile(job: Job<FsCdnWarmFileJob>) {
     Body: createReadStream(target),
     ContentType: payload.mimeType ?? "application/octet-stream",
     ContentLength: before.size,
-    CacheControl: "public, max-age=604800",
+    CacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
   }));
 
   const after = await lstat(target);

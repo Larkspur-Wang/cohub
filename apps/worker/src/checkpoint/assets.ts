@@ -2,6 +2,8 @@ import { createReadStream } from "node:fs";
 import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { config } from "../config.js";
 
+const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
 let client: S3Client | null = null;
 
 export const getCheckpointAssetClient = () => {
@@ -42,6 +44,7 @@ export const uploadObjectFileIfMissing = async (input: {
       Body: createReadStream(input.filePath),
       ContentLength: input.size,
       ContentType: input.mimeType ?? undefined,
+      CacheControl: IMMUTABLE_PUBLIC_CACHE_CONTROL,
       Metadata: input.metadata,
     }));
   }
