@@ -214,7 +214,7 @@ onDestroy(() => {
           {#if workFormError}
             <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{workFormError}</div>
           {/if}
-          <div class="flex flex-col-reverse gap-2 border-t border-border-subtle/70 pt-4 sm:flex-row sm:justify-end">
+          <div class="sticky bottom-0 z-10 -mx-4 -mb-5 flex flex-col-reverse gap-2 border-t border-border-subtle/70 bg-bg-primary/95 px-4 py-4 backdrop-blur sm:-mx-6 sm:-mb-5 sm:flex-row sm:justify-end sm:px-6 lg:-mx-8 lg:px-8">
             <button type="button" class="inline-flex min-h-10 items-center justify-center rounded-[5px] border border-border-subtle px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => { workDetailController.editMode = false; workDetailController.syncFormFromDetail(); }}>Cancel</button>
             <button type="submit" class="inline-flex min-h-10 items-center justify-center gap-2 rounded-[5px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50" disabled={workFormSubmitting}>
               {#if workFormSubmitting}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}

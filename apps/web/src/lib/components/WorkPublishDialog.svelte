@@ -399,7 +399,7 @@ async function copyUrl() {
 	.disabled-option { opacity: .6; }
 	.error-box { border-radius: 6px; border: 1px solid color-mix(in srgb, var(--error-soft) 30%, transparent); background: var(--error-bg); padding: 8px 10px; font-size: 12px; color: var(--error-soft); }
 	.button-row { display: flex; justify-content: flex-end; gap: 8px; }
-	.footer-row { border-top: 1px solid var(--border-subtle); padding-top: 12px; }
+	.footer-row { position: sticky; bottom: 0; z-index: 2; margin: 0 -16px -16px; border-top: 1px solid var(--border-subtle); background: color-mix(in srgb, var(--bg-primary) 94%, transparent); padding: 12px 16px 16px; backdrop-filter: blur(10px); }
 	.primary-btn, .secondary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 34px; border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 500; transition: background 120ms ease, border-color 120ms ease, color 120ms ease, opacity 120ms ease; }
 	.primary-btn { border: 1px solid var(--brand); background: var(--brand); color: var(--brand-contrast-fg); }
 	.primary-btn:hover:not(:disabled) { opacity: .92; }
