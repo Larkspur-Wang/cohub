@@ -45,7 +45,7 @@ const prompt = await buildCohubSystemPrompt({
 });
 
 assert.ok(prompt.includes("# User Context"), "should include user context section");
-assert.ok(prompt.includes("/configs/user/AGENTS.md"), "should expose sandbox user rule path");
+assert.ok(!prompt.includes("/configs/user/AGENTS.md"), "should not expose sandbox user rule path");
 assert.ok(prompt.includes("Always prefer concise answers."), "should include user rules content");
 assert.ok(prompt.includes("# Project Context"), "should include project context section");
 assert.ok(prompt.includes("Project rule: run typecheck."), "should include project rules content");
