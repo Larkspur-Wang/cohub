@@ -71,7 +71,8 @@ const title = $derived.by(() => {
 	return `${names.join(", ")}${suffix} online`;
 });
 
-const popoverTitle = $derived(`${users.length} online`);
+const peopleLabel = $derived(users.length === 1 ? "person" : "people");
+const popoverTitle = $derived(`${users.length} ${peopleLabel} online`);
 const desktopCountVisible = $derived(overflowCount > 0);
 const mobileCountVisible = $derived(users.length > 1);
 
@@ -148,7 +149,7 @@ $effect(() => {
 			<div class="presence-popover" role="dialog" aria-label={popoverTitle}>
 				<div class="presence-popover-header">
 					<span class="presence-popover-title">Online</span>
-					<span class="presence-popover-meta">{users.length} users</span>
+					<span class="presence-popover-meta">{users.length} {peopleLabel}</span>
 				</div>
 				<div class="presence-popover-list" role="list">
 					{#each users as user (user.userId)}
@@ -171,7 +172,6 @@ $effect(() => {
 									{/if}
 								</div>
 							</div>
-							<span class="presence-row-count">{user.connectionCount}</span>
 						</div>
 					{/each}
 				</div>
@@ -188,19 +188,20 @@ $effect(() => {
 
 	.presence-stack {
 		display: inline-flex;
-		min-height: 24px;
+		height: 24px;
 		align-items: center;
-		gap: 5px;
+		gap: 4px;
 		border-radius: 999px;
 		border: 0;
 		background: transparent;
-		padding: 2px 5px 2px 4px;
+		padding: 0 5px 0 4px;
 		color: var(--text-tertiary);
 		cursor: pointer;
 		transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
 	}
 
-	.presence-stack:hover {
+	.presence-stack:hover,
+	.presence-stack[aria-expanded="true"] {
 		background: var(--bg-hover);
 		color: var(--text-secondary);
 	}
@@ -259,6 +260,7 @@ $effect(() => {
 
 	.presence-mobile-avatar {
 		display: none;
+		align-items: center;
 	}
 
 	.presence-count {
@@ -316,7 +318,7 @@ $effect(() => {
 
 	.presence-row {
 		display: grid;
-		grid-template-columns: auto minmax(0, 1fr) auto;
+		grid-template-columns: auto minmax(0, 1fr);
 		align-items: center;
 		gap: 8px;
 		border-radius: 10px;
@@ -358,18 +360,13 @@ $effect(() => {
 		white-space: nowrap;
 	}
 
-	.presence-row-count {
-		font-size: 11px;
-		font-variant-numeric: tabular-nums;
-		color: var(--text-tertiary);
-	}
-
 	@media (max-width: 640px) {
 		.presence-stack {
 			gap: 4px;
-			padding-right: 5px;
+			padding: 0 5px 0 3px;
 		}
 
+		.presence-dot,
 		.presence-avatars {
 			display: none;
 		}
