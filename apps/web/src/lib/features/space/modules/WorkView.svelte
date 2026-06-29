@@ -104,6 +104,10 @@ onDestroy(() => {
                 <span class="h-1.5 w-1.5 rounded-full {workDetail.status === 'published' ? 'bg-status-running' : workDetail.status === 'disabled' ? 'bg-status-error' : 'bg-text-placeholder'}"></span>
                 {workDetail.status}
               </span>
+              <span class="inline-flex items-center gap-1.5 text-[11px] font-medium text-text-tertiary">
+                <span class="h-1.5 w-1.5 rounded-full {workDetail.visibility === 'public' ? 'bg-brand' : 'bg-text-placeholder'}"></span>
+                {workDetail.visibility === 'public' ? 'public' : 'space access'}
+              </span>
               {@render CopyIdMetaItem(workDetail.id, workCopiedId, () => void workDetailController.copyId(workDetail!.id), 'Copy work ID')}
               <span class="font-mono text-[11px] text-text-placeholder">{workDetail.targetType}:{workDetail.targetRef}</span>
             </div>
@@ -153,13 +157,23 @@ onDestroy(() => {
                   <input id="work-edit-target-ref" type="text" bind:value={workDetailController.formTargetRef} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 font-mono text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none" />
                 </div>
               </div>
-              <div class="space-y-1.5">
-                <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
-                <select id="work-edit-status" bind:value={workDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none sm:max-w-[220px]">
-                  <option value="draft">Draft</option>
-                  <option value="published">Published</option>
-                  <option value="disabled">Disabled</option>
-                </select>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-status">Status</label>
+                  <select id="work-edit-status" bind:value={workDetailController.formStatus} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                    <option value="draft">Draft</option>
+                    <option value="published">Published</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary" for="work-edit-visibility">Access</label>
+                  <select id="work-edit-visibility" bind:value={workDetailController.formVisibility} class="w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none">
+                    <option value="public">Anyone with the link</option>
+                    <option value="space">Use space access</option>
+                  </select>
+                  <div class="text-[11px] leading-5 text-text-placeholder">Space access follows this Space's permissions.</div>
+                </div>
               </div>
               <div class="space-y-1.5">
                 <div class="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">Presentation</div>

@@ -5,7 +5,7 @@ import { readSpaceDirectoryFiles, readSpaceFile, SpaceFsError, spaceFsJsonError 
 import { createWorkAssetPublicUrl, deleteWorkAssetsByObjectKey, isConfiguredWorkAssetPublicUrl, writeWorkHtmlAsset, writeWorkSiteAssets } from "../work-asset-storage.js";
 import type { Permission } from "@cohub/core/permissions";
 import { db } from "../db/index.js";
-import { authzDenied, getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
+import { authzDenied, getOptionalAuth, getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
 import { hasPermission } from "../permissions.js";
 import { createWorkSessionToken, WORK_SESSION_TTL_SECONDS } from "../work-sessions.js";
 import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
@@ -18,6 +18,7 @@ const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 
 const WORK_STATUSES = new Set(["draft", "published", "disabled"]);
+const WORK_VISIBILITIES = new Set(["public", "space"]);
 const TARGET_TYPES = new Set(["file", "directory", "port"]);
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 const SANDBOX_PUBLIC_PORT_SET = new Set<number>(SANDBOX_PUBLIC_PORTS as readonly number[]);
@@ -73,6 +74,8 @@ const pgErrorCode = (error: unknown) => typeof error === "object" && error !== n
 const pgErrorConstraint = (error: unknown) => typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint?: unknown }).constraint) : null;
 const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" && pgErrorConstraint(error) === "v2_uq_works_space_slug";
 const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: draft, published, disabled" }, 400);
+const invalidWorkVisibilityResponse = (c: Context) => c.json({ message: "visibility must be one of: public, space" }, 400);
+const requiresSpaceWorkAccess = (work: Pick<typeof works.$inferSelect, "visibility">) => (work.visibility ?? "public") === "space";
 const workHideCohubBarRequiredResponse = (c: Context) => c.json({ message: "This option is available on Pro and Max.", code: "work_hide_cohub_bar_required" }, 402);
 const getWorkPublicOrigin = () => (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
 
@@ -141,6 +144,7 @@ const serializeWork = (work: typeof works.$inferSelect) => ({
   userUuid: work.userUuid,
   slug: work.slug,
   status: work.status,
+  visibility: work.visibility ?? "public",
   targetType: work.targetType,
   targetRef: work.targetRef,
   assetKey: work.assetKey,
@@ -232,6 +236,7 @@ const getWorkContent = (work: typeof works.$inferSelect) => {
 };
 
 router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
+  const user = getOptionalAuth(c);
   const username = c.req.param("username");
   const spaceSlug = c.req.param("spaceSlug");
   const workSlug = c.req.param("workSlug");
@@ -250,6 +255,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
     .limit(1);
   if (!row) return c.json({ message: "work not found" }, 404);
   if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
+  if (requiresSpaceWorkAccess(row.work) && !(await hasPermission(user, "space.view", { spaceId: row.space.id }))) return authzDenied(c);
 
   return c.json({
     work: serializeWork(row.work),
@@ -259,6 +265,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
     content: getWorkContent(row.work),
   });
 });
+
 
 router.get("/space/:spaceId", async (c) => {
   const user = useAuth(c);
@@ -320,7 +327,11 @@ router.post("/", async (c) => {
   if (body?.status !== undefined && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
     return invalidWorkStatusResponse(c);
   }
+  if (body?.visibility !== undefined && (typeof body.visibility !== "string" || !WORK_VISIBILITIES.has(body.visibility))) {
+    return invalidWorkVisibilityResponse(c);
+  }
   const status = typeof body?.status === "string" ? body.status : "published";
+  const visibility = typeof body?.visibility === "string" ? body.visibility : "public";
   const identityError = await ensureWorkPublicIdentity(c, spaceId);
   if (identityError) return identityError;
   const meta = getWorkMeta(body?.meta);
@@ -347,6 +358,7 @@ router.post("/", async (c) => {
         userUuid: user.uuid,
         slug,
         status,
+        visibility,
         targetType,
         targetRef,
         assetKey,
@@ -415,7 +427,11 @@ async function updateWorkWithVersion(
   if (overrides?.status === undefined && body && "status" in body && (typeof body.status !== "string" || !WORK_STATUSES.has(body.status))) {
     return invalidWorkStatusResponse(c);
   }
+  if (body && "visibility" in body && (typeof body.visibility !== "string" || !WORK_VISIBILITIES.has(body.visibility))) {
+    return invalidWorkVisibilityResponse(c);
+  }
   const nextStatus = overrides?.status ?? (typeof body?.status === "string" ? body.status : current.status);
+  const nextVisibility = typeof body?.visibility === "string" ? body.visibility : (current.visibility ?? "public");
   const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
   if (identityError) return identityError;
   const publishVersion = overrides?.publishVersion ?? body?.publishVersion === true;
@@ -472,6 +488,7 @@ async function updateWorkWithVersion(
       const [updatedWork] = await tx.update(works).set({
         slug: nextSlug,
         status: nextStatus,
+        visibility: nextVisibility,
         targetType: nextTargetType,
         targetRef: nextTargetRef,
         assetKey,
@@ -543,6 +560,7 @@ router.post("/:id/session", async (c) => {
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
   if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (requiresSpaceWorkAccess(work) && !(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
   const token = createWorkSessionToken({
     userUuid: user.uuid,
     workId: work.id,
@@ -558,6 +576,7 @@ router.post("/:id/authorize", async (c) => {
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
   if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (requiresSpaceWorkAccess(work) && !(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
   const body = await c.req.json().catch(() => null) as { scopes?: unknown } | null;
   const requested = normalizeScopes(body?.scopes, ALLOWED_VIEWER_SCOPES);
   if (requested.length === 0) return c.json({ message: "no valid scopes requested" }, 400);

@@ -72,5 +72,5 @@ export * from "./types.js";
 export type { ChannelEnvelope, LabelAssignmentsUpdatedEvent, RealtimeServerEvent } from "@cohub/protocol/realtime";
 export type { SessionEventName, SessionSubscriptionHandlers, SpaceChannelBindingRecord, SpaceEventName, WebSocketConnectionState } from "./apis/spaces.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
-export type { WorkAuthorizeResponse, WorkCreateInput, WorkDetailResponse, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord } from "./apis/works.js";
+export type { WorkAuthorizeResponse, WorkCreateInput, WorkDetailResponse, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkVisibility } from "./apis/works.js";
 export type { WorkRuntimeContext } from "./work-runtime.js";

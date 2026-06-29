@@ -229,6 +229,7 @@ export const works = v2.table(
     userUuid: varchar("user_uuid", { length: 255 }).notNull(),
     slug: varchar("slug", { length: 80 }).notNull(),
     status: varchar("status", { length: 20 }).notNull().default("draft"),
+    visibility: varchar("visibility", { length: 20 }).notNull().default("public"),
     targetType: varchar("target_type", { length: 20 }).notNull(),
     targetRef: text("target_ref").notNull(),
     assetKey: text("asset_key"),
@@ -245,6 +246,8 @@ export const works = v2.table(
     spaceIdx: index("v2_idx_works_space_id").on(table.spaceId),
     userUuidIdx: index("v2_idx_works_user_uuid").on(table.userUuid),
     statusIdx: index("v2_idx_works_status").on(table.status),
+    visibilityIdx: index("v2_idx_works_visibility").on(table.visibility),
+    visibilityCheck: check("v2_chk_works_visibility", sql`${table.visibility} in ('public', 'space')`),
     spaceSlugUniqueIdx: uniqueIndex("v2_uq_works_space_slug").on(table.spaceId, table.slug),
     slugFormatCheck: check(
       "v2_chk_works_slug_format",

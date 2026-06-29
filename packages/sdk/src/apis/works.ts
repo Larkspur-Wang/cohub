@@ -3,6 +3,7 @@ import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
 export type WorkStatus = "draft" | "published" | "disabled";
+export type WorkVisibility = "public" | "space";
 
 export type WorkPresentationMeta = {
   hideCohubBar?: boolean;
@@ -18,6 +19,7 @@ export type WorkRecord = {
   userUuid: string;
   slug: string;
   status: WorkStatus;
+  visibility: WorkVisibility;
   targetType: WorkTargetType;
   targetRef: string;
   assetKey: string | null;
@@ -35,6 +37,7 @@ export type WorkCreateInput = {
   spaceId: string;
   slug: string;
   status?: WorkStatus;
+  visibility?: WorkVisibility;
   targetType: WorkTargetType;
   targetRef: string;
   assetKey?: string | null;
@@ -46,6 +49,7 @@ export type WorkCreateInput = {
 export type WorkUpdateInput = Partial<{
   slug: string;
   status: WorkStatus;
+  visibility: WorkVisibility;
   targetType: WorkTargetType;
   targetRef: string;
   publishVersion: boolean;

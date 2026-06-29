@@ -7,6 +7,7 @@ const props = $props<{
 			id: string;
 			spaceId: string;
 			slug: string;
+			visibility: "public" | "space";
 			targetType: "file" | "directory" | "port";
 			targetRef: string;
 			workScopes: string[];

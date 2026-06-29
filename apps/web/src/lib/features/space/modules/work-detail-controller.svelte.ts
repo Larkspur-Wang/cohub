@@ -12,6 +12,7 @@ import {
 
 export type WorkTargetType = "file" | "directory" | "port";
 export type WorkStatus = "draft" | "published" | "disabled";
+export type WorkVisibility = "public" | "space";
 
 const WORK_HIDE_COHUB_BAR_FEATURE = "work.publish.hide_cohub_bar";
 
@@ -63,6 +64,7 @@ export function createWorkDetailController(options: {
 	let formTargetType = $state<WorkTargetType>("file");
 	let formTargetRef = $state("");
 	let formStatus = $state<WorkStatus>("published");
+	let formVisibility = $state<WorkVisibility>("public");
 	let formHideCohubBar = $state(false);
 	let hideCohubBarAllowed = $state(false);
 	let hideCohubBarLoading = $state(false);
@@ -91,6 +93,7 @@ export function createWorkDetailController(options: {
 		formTargetType = detail.targetType;
 		formTargetRef = detail.targetRef;
 		formStatus = detail.status;
+		formVisibility = detail.visibility;
 		formHideCohubBar = getHideCohubBar(detail.meta);
 		formScopes = scopeState(detail.workScopes, WORK_SCOPE_OPTIONS);
 		formViewerScopes = scopeState(
@@ -295,6 +298,7 @@ export function createWorkDetailController(options: {
 			const { work } = await sdk.works.update(detail.id, {
 				slug: formSlug.trim(),
 				status: formStatus,
+				visibility: formVisibility,
 				targetType: formTargetType,
 				targetRef: formTargetRef.trim(),
 				workScopes: selectedScopeList(formScopes, WORK_SCOPE_OPTIONS),
@@ -396,6 +400,12 @@ export function createWorkDetailController(options: {
 		},
 		set formStatus(value: WorkStatus) {
 			formStatus = value;
+		},
+		get formVisibility() {
+			return formVisibility;
+		},
+		set formVisibility(value: WorkVisibility) {
+			formVisibility = value;
 		},
 		get formHideCohubBar() {
 			return formHideCohubBar;

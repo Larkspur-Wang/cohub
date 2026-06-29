@@ -1,10 +1,11 @@
-import type { Permission, WorkCreateInput, WorkMeta, WorkStatus, WorkTargetType, WorkUpdateInput } from "@neta-art/cohub";
+import type { Permission, WorkCreateInput, WorkMeta, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVisibility } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
 
 const WORK_STATUSES = ["draft", "published", "disabled"] as const;
+const WORK_VISIBILITIES = ["public", "space"] as const;
 
 const collectOption = (value: string, previous: string[] = []): string[] => [...previous, value];
 
@@ -62,11 +63,16 @@ function resolveStatus(opts: { draft?: boolean; disabled?: boolean; status?: str
   return values[0] ? parseChoice(values[0], "status", WORK_STATUSES) : "published";
 }
 
+function resolveVisibility(value: string | undefined): WorkVisibility | undefined {
+  return value ? parseChoice(value, "visibility", WORK_VISIBILITIES) : undefined;
+}
+
 function printWork(work: Record<string, unknown>): void {
   table([work], [
     { key: "id", label: "ID" },
     { key: "slug", label: "Slug" },
     { key: "status", label: "Status" },
+    { key: "visibility", label: "Visibility" },
     { key: "targetType", label: "Target" },
     { key: "targetRef", label: "Ref" },
     { key: "latestVersion", label: "Version" },
@@ -102,6 +108,7 @@ type PublishOptions = {
   draft?: boolean;
   disabled?: boolean;
   status?: string;
+  visibility?: string;
   workScope?: string[];
   viewerScope?: string[];
   meta?: string;
@@ -141,6 +148,7 @@ export function registerWorks(program: Command): void {
           { key: "id", label: "ID" },
           { key: "slug", label: "Slug" },
           { key: "status", label: "Status" },
+          { key: "visibility", label: "Visibility" },
           { key: "targetType", label: "Target" },
           { key: "targetRef", label: "Ref" },
           { key: "latestVersion", label: "Version" },
@@ -196,6 +204,7 @@ export function registerWorks(program: Command): void {
     .option("--draft", "Create as draft")
     .option("--disabled", "Create as disabled")
     .option("--status <status>", "Work status: draft, published, disabled")
+    .option("--visibility <visibility>", "Work visibility: public, space")
     .option("--work-scope <scope>", "Scope granted to the work runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
     .option("--viewer-scope <scope>", "Scope viewers may request (session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
     .option("--meta <json>", "Work metadata as a JSON object")
@@ -218,6 +227,7 @@ export function registerWorks(program: Command): void {
         spaceId,
         slug,
         status,
+        visibility: resolveVisibility(opts.visibility),
         targetType: target.targetType,
         targetRef: target.targetRef,
         workScopes: opts.workScope as Permission[],
@@ -244,6 +254,7 @@ export function registerWorks(program: Command): void {
     .option("--draft", "Set status to draft")
     .option("--disabled", "Set status to disabled")
     .option("--status <status>", "Work status: draft, published, disabled")
+    .option("--visibility <visibility>", "Work visibility: public, space")
     .option("--publish-version", "Force publishing a new version")
     .option("--work-scope <scope>", "Scope granted to the work runtime (space.view, session.view, file.view, taskrun.view)", collectOption, [])
     .option("--viewer-scope <scope>", "Scope viewers may request (session.prompt.readonly, session.prompt.fullaccess, generation.create, user.space.list, user.session.list, user.usage.read)", collectOption, [])
@@ -279,6 +290,7 @@ export function registerWorks(program: Command): void {
       const input = compactObject<WorkUpdateInput>({
         slug: opts.slug,
         status: opts.status || opts.draft || opts.disabled ? resolveStatus(opts) : undefined,
+        visibility: resolveVisibility(opts.visibility),
         targetType: target?.targetType,
         targetRef: target?.targetRef,
         publishVersion: opts.publishVersion || undefined,
@@ -286,7 +298,7 @@ export function registerWorks(program: Command): void {
         allowedViewerScopes: opts.clearViewerScopes ? [] : opts.viewerScope?.length ? opts.viewerScope as Permission[] : undefined,
         meta,
       });
-      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --publish-version, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
+      if (Object.keys(input).length === 0) return error("Nothing to update", "Pass --slug, --file, --dir, --port, --status, --visibility, --publish-version, --work-scope, --viewer-scope, --clear-work-scopes, --clear-viewer-scopes, --meta, --hide-cohub-bar, or --show-cohub-bar.");
       try {
         const result = await client.works.update(id, input);
         if (jsonRequested(opts)) return outJson(result);

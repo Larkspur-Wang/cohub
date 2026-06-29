@@ -43,6 +43,7 @@ type Props = {
 		| "spaceId"
 		| "userUuid"
 		| "slug"
+		| "visibility"
 		| "targetType"
 		| "targetRef"
 		| "workScopes"

@@ -48,6 +48,7 @@ let error = $state<string | null>(null);
 let published = $state<WorkRecord | null>(null);
 let copied = $state(false);
 let initializedTargetRef = $state("");
+let visibility = $state<"public" | "space">("public");
 let hideCohubBar = $state(false);
 let hideCohubBarAllowed = $state(false);
 let hideCohubBarLoading = $state(false);
@@ -110,6 +111,7 @@ $effect(() => {
 		published = null;
 		copied = false;
 		initializedTargetRef = "";
+		visibility = "public";
 		hideCohubBar = false;
 		hideCohubBarAllowed = false;
 		hideCohubBarLoading = false;
@@ -126,6 +128,7 @@ $effect(() => {
 		published = null;
 		error = null;
 		copied = false;
+		visibility = "public";
 		hideCohubBar = false;
 		initializedTargetRef = targetRef;
 	}
@@ -206,6 +209,7 @@ async function publish() {
 			spaceId,
 			slug: currentWorkSlug,
 			status: "published",
+			visibility,
 			targetType,
 			targetRef,
 			workScopes: selectedScopes(workScopes),
@@ -284,6 +288,18 @@ async function copyUrl() {
 				</div>
 			</section>
 
+			<section class="access-section">
+				<div class="section-label">Access</div>
+				<label class="access-row">
+					<input type="radio" bind:group={visibility} value="public" />
+					<span><span class="access-title">Anyone with the link</span><span class="access-copy">The work page is fully public.</span></span>
+				</label>
+				<label class="access-row">
+					<input type="radio" bind:group={visibility} value="space" />
+					<span><span class="access-title">Use space access</span><span class="access-copy">Viewers need this Space's access.</span></span>
+				</label>
+			</section>
+
 			<section class="permissions-grid">
 				<div>
 					<div class="section-label">Work can</div>
@@ -346,6 +362,11 @@ async function copyUrl() {
 	.readonly-value { display: flex; align-items: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-tertiary); }
 	.source-ref { display: flex; min-width: 0; gap: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
 	.source-ref span { color: var(--text-placeholder); }
+	.access-section { display: grid; gap: 8px; }
+	.access-row { display: flex; align-items: flex-start; gap: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-surface); padding: 10px; font-size: 12px; color: var(--text-secondary); }
+	.access-row input { margin-top: 2px; accent-color: var(--brand); }
+	.access-title { display: block; font-weight: 500; color: var(--text-primary); }
+	.access-copy { display: block; margin-top: 2px; color: var(--text-tertiary); }
 	.permissions-grid { display: grid; gap: 14px; }
 	@media (min-width: 640px) { .permissions-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 	.permission-row { display: flex; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; color: var(--text-secondary); }
@@ -373,7 +394,7 @@ async function copyUrl() {
 	@media (max-width: 639px) {
 		.form-input, .readonly-value { height: 44px; padding: 0 11px; font-size: 14px; }
 		.permission-row { min-height: 40px; align-items: center; }
-		.permission-row input { width: 16px; height: 16px; }
+		.permission-row input, .access-row input { width: 16px; height: 16px; }
 		.button-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); }
 		.primary-btn, .secondary-btn { width: 100%; min-height: 44px; font-size: 13px; }
 	}
