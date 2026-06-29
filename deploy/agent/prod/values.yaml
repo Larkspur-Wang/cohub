@@ -6,7 +6,7 @@ image: git.talesofai.com/talesofai/cohub-agent:v1.43.0
 replicas: "4"
 maxUnavailable: "0"
 maxSurge: "1"
-terminationGracePeriodSeconds: "2400"
+terminationGracePeriodSeconds: "86400"
 imagePullPolicy: IfNotPresent
 env: prod
 logLevel: info
@@ -20,7 +20,7 @@ sessionsSubpath: sessions/prod
 configsSubpath: configs/prod
 sessionsNamespace: cohub-sessions
 agentWorkerConcurrency: "8"
-agentShutdownDrainTimeoutMs: "2100000"
+agentShutdownDrainTimeoutMs: "86400000"
 resourceRequestCpu: "0.5"
 resourceRequestMemory: "512Mi"
 resourceLimitCpu: "2"
