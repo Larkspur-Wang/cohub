@@ -41,6 +41,7 @@ export type BuildCohubSystemPromptOptions = {
   toolSnippets?: Record<string, string>;
   promptGuidelines?: string[];
   spaceMods?: SpaceModListItem[];
+  includeUserSkills?: boolean;
 };
 
 async function pathExists(path: string): Promise<boolean> {
@@ -158,7 +159,7 @@ async function loadSkillsFromDir(input: {
   return results.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: SpaceModListItem[] = []): Promise<LoadedSkill[]> {
+async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: SpaceModListItem[] = [], options: { includeUserSkills?: boolean } = {}): Promise<LoadedSkill[]> {
   const modSkillGroups = await Promise.all(spaceMods.map((mod) => loadSkillsFromDir({
     agentDir: join(getAgentWorkspacePath(mod.modSpaceId), ".agents", "skills"),
     sandboxDir: `${mod.mountPath}/.agents/skills`,
@@ -169,7 +170,7 @@ async function loadMergedSkills(cwd: string, userId?: string | null, spaceMods: 
       agentDir: getAgentPlatformSkillsPath(),
       sandboxDir: SANDBOX_PLATFORM_SKILLS_PATH,
     }),
-    userId
+    userId && options.includeUserSkills !== false
       ? loadSkillsFromDir({
           agentDir: getAgentUserSkillsPath(userId),
           sandboxDir: SANDBOX_USER_SKILLS_PATH,
@@ -217,6 +218,7 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
     toolSnippets = {},
     promptGuidelines = [],
     spaceMods = [],
+    includeUserSkills = true,
   } = options;
 
   const workspaceAgentDir = getAgentWorkspaceAgentsPath(cwd);
@@ -238,7 +240,7 @@ export async function buildCohubSystemPrompt(options: BuildCohubSystemPromptOpti
     userId ? loadContextFilesFromRoot(getAgentUserConfigPath(userId), SANDBOX_USER_CONFIG_PATH) : Promise.resolve([]),
     Promise.all(spaceMods.map((mod) => loadContextFilesFromRoot(getAgentWorkspacePath(mod.modSpaceId), mod.mountPath))),
     loadContextFilesFromRoot(cwd, SANDBOX_WORKSPACE_PATH),
-    selectedTools.includes("read") ? loadMergedSkills(cwd, userId, spaceMods) : Promise.resolve([]),
+    selectedTools.includes("read") ? loadMergedSkills(cwd, userId, spaceMods, { includeUserSkills }) : Promise.resolve([]),
   ]);
 
   const sections: string[] = [systemPrompt, ...appendSystemPrompts];

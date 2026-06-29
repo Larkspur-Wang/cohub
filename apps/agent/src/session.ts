@@ -1051,6 +1051,7 @@ async function pathExists(path: string): Promise<boolean> {
 export async function loadOrCreateSessionHandle(input: {
   spaceId: string;
   sessionId: string;
+  userId?: string | null;
   modelRegistry: CohubModelRegistry;
   tools: ReturnType<typeof createSandboxCodingTools>;
   model?: { provider: string; id: string };
@@ -1068,9 +1069,16 @@ export async function loadOrCreateSessionHandle(input: {
   const spaceSessionsDir = getAgentSpaceSessionsPath(input.spaceId);
   const fileSignature = await getSessionFileSignature(existingSessionFile);
 
+  const spaceInfo = await getSpace({ spaceId: input.spaceId }).catch((error: unknown) => {
+    logger.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);
+    return null;
+  });
+  const spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
+
   const existing = input.sessionHandles.get(sessionKey);
   if (existing) {
     if (sameSessionFileSignature(existing.sessionFileSignature, fileSignature)) {
+      existing.spaceOwnerUserId = spaceOwnerUserId;
       logger.debug(`[Session] reuse sessionId=${input.sessionId} spaceId=${input.spaceId}`);
       return existing;
     }
@@ -1081,11 +1089,6 @@ export async function loadOrCreateSessionHandle(input: {
     input.sessionHandles.delete(sessionKey);
   }
 
-  const spaceInfo = await getSpace({ spaceId: input.spaceId }).catch((error: unknown) => {
-    logger.warn(`[Agent] Failed to load space info for ${input.spaceId}; falling back to platform config`, error);
-    return null;
-  });
-  const spaceOwnerUserId = spaceInfo?.space?.userUuid?.trim() || null;
   const spaceMods = await listEnabledSpaceMods(db, input.spaceId).catch((error: unknown) => {
     logger.warn(`[Agent] Failed to load space mods for ${input.spaceId}; continuing without mods`, error);
     return [];
@@ -1108,7 +1111,8 @@ export async function loadOrCreateSessionHandle(input: {
 
   const { session } = await createCohubAgentSession({
     cwd: spaceWorkspaceDir,
-    userId: spaceOwnerUserId,
+    userId: input.userId?.trim() || spaceOwnerUserId,
+    spaceOwnerUserId,
     sessionManager,
     modelRegistry: input.modelRegistry,
     tools: input.tools,

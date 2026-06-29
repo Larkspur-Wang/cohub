@@ -517,27 +517,26 @@ async function runDirectShellCommandTurn(input: {
 async function prepareHandle(input: {
   spaceId: string;
   sessionId: string;
-  ownerUserId: string | null;
+  actorUserId: string;
   requestedModel?: { provider: string; id: string };
 }) {
-  const modelRegistry = await getModelRegistryForUser(input.ownerUserId);
+  const modelRegistry = await getModelRegistryForUser(input.actorUserId);
   const handle = await loadOrCreateSessionHandle({
     spaceId: input.spaceId,
     sessionId: input.sessionId,
+    userId: input.actorUserId,
     modelRegistry,
     tools,
     model: input.requestedModel,
     sessionHandles,
   });
 
-  const requested = input.requestedModel;
-  if (requested) {
-    const currentModel = handle.session.agent.state.model;
-    if (!(currentModel.provider === requested.provider && currentModel.id === requested.id)) {
-      const target = handle.session.modelRegistry.find(requested.provider, requested.id);
-      if (target) await handle.session.setModel(target);
-    }
-  }
+  await handle.session.configureRuntimeIdentity({
+    userId: input.actorUserId,
+    spaceOwnerUserId: handle.spaceOwnerUserId,
+    modelRegistry,
+    requestedModel: input.requestedModel,
+  });
 
   return handle;
 }
@@ -742,11 +741,10 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
       const spaceInfo = await getSpace({ spaceId: data.spaceId }).catch(() => null);
       logSpaceBootstrapWarning(data.spaceId, spaceInfo?.space?.meta);
-      const ownerUserId = spaceInfo?.space?.userUuid?.trim() || null;
       const handle = await prepareHandle({
         spaceId: data.spaceId,
         sessionId: data.sessionId,
-        ownerUserId,
+        actorUserId,
         requestedModel: resolveRequestedModel(ownerMeta),
       });
       try {

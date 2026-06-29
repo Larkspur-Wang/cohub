@@ -29,6 +29,7 @@ export type CohubAgentSession = {
   enqueueSteer(text: string, images?: ImageContent[]): void;
   waitForIdle(): Promise<void>;
   setModel(model: Model<Api>): Promise<void>;
+  configureRuntimeIdentity(input: { userId?: string | null; spaceOwnerUserId?: string | null; modelRegistry: CohubModelRegistry; requestedModel?: { provider: string; id: string } }): Promise<void>;
   configureTools(tools: ToolLike[]): Promise<void>;
   reload(): Promise<void>;
   abort(): Promise<void>;
@@ -128,6 +129,7 @@ export function shouldResetAssistantRetryState(message: AssistantMessage | undef
 export type CreateCohubAgentSessionOptions = {
   cwd: string;
   userId?: string | null;
+  spaceOwnerUserId?: string | null;
   sessionManager: SessionManager;
   modelRegistry: CohubModelRegistry;
   tools: ToolLike[];
@@ -305,10 +307,23 @@ function toLlmMessages(messages: AgentMessage[]) {
   return result as never;
 }
 
-function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | null): StreamFn {
+function normalizeUserId(userId?: string | null) {
+  return userId?.trim() || null;
+}
+
+function toolsStateKey(tools: ToolLike[]) {
+  return tools.map((tool) => tool.name).join("\0");
+}
+
+function shouldIncludeUserSkills(userId: string | null, spaceOwnerUserId: string | null) {
+  return Boolean(userId && spaceOwnerUserId && userId === spaceOwnerUserId);
+}
+
+function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; userId: string | null }): StreamFn {
   const tracer = getAgentTracer();
 
   return async (model: Model<Api>, ctx: Context, options?: SimpleStreamOptions) => {
+    const runtime = getRuntime();
     const toolCtx = getCurrentToolExecutionContext();
     const round = (toolCtx?.llmRound ?? 0) + 1;
     if (toolCtx) {
@@ -336,7 +351,7 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
         if (toolCtx?.assistantMessageTiming && !toolCtx.assistantMessageTiming.startedAt) {
           toolCtx.assistantMessageTiming.startedAt = new Date().toISOString();
         }
-        const headers = modelRegistry.getHeaders(model.provider, model.id);
+        const headers = runtime.modelRegistry.getHeaders(model.provider, model.id);
         const streamHeaders = headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers;
         if (toolCtx?.spaceId && toolCtx.sessionId) {
           const at = new Date().toISOString();
@@ -362,7 +377,7 @@ function createStreamFn(modelRegistry: CohubModelRegistry, userId?: string | nul
             ? {
                 ...streamHeaders,
                 "x-litellm-track-extra": JSON.stringify({
-                  user_uuid: userId?.trim() || null,
+                  user_uuid: runtime.userId,
                   cohub_space_uuid: toolCtx?.spaceId ?? null,
                   cohub_session_uuid: toolCtx?.sessionId ?? null,
                 }),
@@ -447,7 +462,13 @@ function toolSnippets(toolName: string): string | undefined {
 
 export async function createCohubAgentSession(options: CreateCohubAgentSessionOptions): Promise<{ session: CohubAgentSession }> {
   const sessionContext = options.sessionManager.buildSessionContext();
-  const model = options.model ?? (sessionContext.model ? options.modelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId) : undefined) ?? options.modelRegistry.getDefault();
+  let runtimeUserId = normalizeUserId(options.userId);
+  let runtimeSpaceOwnerUserId = normalizeUserId(options.spaceOwnerUserId);
+  let runtimeModelRegistry = options.modelRegistry;
+  let runtimeTools = options.tools;
+  let systemPromptStateKey: string | null = null;
+  const getRuntime = () => ({ modelRegistry: runtimeModelRegistry, userId: runtimeUserId });
+  const model = options.model ?? (sessionContext.model ? runtimeModelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId) : undefined) ?? runtimeModelRegistry.getDefault();
   if (!model) {
     throw new Error("No model available. Check platform models.json");
   }
@@ -462,28 +483,36 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     options.sessionManager.appendThinkingLevelChange(initialThinkingLevel);
   }
 
-  const buildSystemPromptForTools = (tools: ToolLike[]) => buildCohubSystemPrompt({
-    cwd: options.cwd,
-    userId: options.userId,
-    selectedTools: tools.map((tool) => tool.name),
-    toolSnippets: Object.fromEntries(tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
-    spaceMods: options.spaceMods ?? [],
-  });
+  const systemPromptStateKeyFor = (userId: string | null, spaceOwnerUserId: string | null, tools: ToolLike[]) => `${userId ?? ""}\0${shouldIncludeUserSkills(userId, spaceOwnerUserId) ? "user-skills" : "no-user-skills"}\0${toolsStateKey(tools)}`;
 
-  const systemPrompt = await buildSystemPromptForTools(options.tools);
+  const buildSystemPromptForTools = (tools: ToolLike[], input?: { userId?: string | null; spaceOwnerUserId?: string | null }) => {
+    const userId = input && "userId" in input ? normalizeUserId(input.userId) : runtimeUserId;
+    const spaceOwnerUserId = input && "spaceOwnerUserId" in input ? normalizeUserId(input.spaceOwnerUserId) : runtimeSpaceOwnerUserId;
+    return buildCohubSystemPrompt({
+      cwd: options.cwd,
+      userId,
+      selectedTools: tools.map((tool) => tool.name),
+      toolSnippets: Object.fromEntries(tools.map((tool) => [tool.name, toolSnippets(tool.name)]).filter((entry): entry is [string, string] => Boolean(entry[1]))),
+      spaceMods: options.spaceMods ?? [],
+      includeUserSkills: shouldIncludeUserSkills(userId, spaceOwnerUserId),
+    });
+  };
+
+  const systemPrompt = await buildSystemPromptForTools(runtimeTools);
+  systemPromptStateKey = systemPromptStateKeyFor(runtimeUserId, runtimeSpaceOwnerUserId, runtimeTools);
 
   const agent = new PiAgent({
     initialState: {
       systemPrompt,
       model,
       thinkingLevel: initialThinkingLevel,
-      tools: options.tools as never,
+      tools: runtimeTools as never,
       messages: sessionContext.messages,
     },
     steeringMode: "all",
     convertToLlm: toLlmMessages,
-    streamFn: createStreamFn(options.modelRegistry, options.userId),
-    getApiKey: (provider: string) => options.modelRegistry.getApiKey(provider),
+    streamFn: createStreamFn(getRuntime),
+    getApiKey: (provider: string) => runtimeModelRegistry.getApiKey(provider),
     async afterToolCall({ result }) {
       if (isToolFailureDetails(result.details)) return { isError: true };
       const details = result.details as Record<string, unknown> | undefined;
@@ -492,6 +521,20 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       return undefined;
     },
   });
+
+  const configureToolsState = async (tools: ToolLike[], options?: { force?: boolean }) => {
+    const nextKey = systemPromptStateKeyFor(runtimeUserId, runtimeSpaceOwnerUserId, tools);
+    if (!options?.force && systemPromptStateKey === nextKey) {
+      runtimeTools = tools;
+      agent.state.tools = tools as never;
+      return;
+    }
+    const nextSystemPrompt = await buildSystemPromptForTools(tools);
+    runtimeTools = tools;
+    agent.state.systemPrompt = nextSystemPrompt;
+    systemPromptStateKey = nextKey;
+    agent.state.tools = tools as never;
+  };
 
   let lastAssistantMessage: AssistantMessage | undefined;
   let retryAttempt = 0;
@@ -617,7 +660,9 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
 
   const session: CohubAgentSession = {
     agent,
-    modelRegistry: options.modelRegistry,
+    get modelRegistry() {
+      return runtimeModelRegistry;
+    },
     sessionManager: options.sessionManager,
     get isStreaming() {
       return agent.state.isStreaming;
@@ -662,12 +707,48 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       options.sessionManager.appendModelChange(nextModel.provider, nextModel.id);
       options.sessionManager.appendThinkingLevelChange(nextThinkingLevel);
     },
+    async configureRuntimeIdentity(input) {
+      const nextUserId = normalizeUserId(input.userId);
+      const nextSpaceOwnerUserId = normalizeUserId(input.spaceOwnerUserId) ?? runtimeSpaceOwnerUserId;
+      const currentModel = agent.state.model;
+      const requested = input.requestedModel
+        ? input.modelRegistry.find(input.requestedModel.provider, input.requestedModel.id)
+        : undefined;
+      if (input.requestedModel && !requested) {
+        throw new Error(`Requested model is not available: ${input.requestedModel.provider}/${input.requestedModel.id}`);
+      }
+      const target = requested
+        ?? input.modelRegistry.find(currentModel.provider, currentModel.id)
+        ?? input.modelRegistry.getDefault();
+      if (!target) throw new Error("No model available. Check platform models.json");
+
+      const nextKey = systemPromptStateKeyFor(nextUserId, nextSpaceOwnerUserId, runtimeTools);
+      const nextSystemPrompt = systemPromptStateKey === nextKey
+        ? agent.state.systemPrompt
+        : await buildSystemPromptForTools(runtimeTools, { userId: nextUserId, spaceOwnerUserId: nextSpaceOwnerUserId });
+      const shouldChangeModel = target.provider !== currentModel.provider || target.id !== currentModel.id;
+      const nextThinkingLevel = shouldChangeModel
+        ? resolveThinkingLevelForModel(target as CohubModel, agent.state.thinkingLevel)
+        : agent.state.thinkingLevel;
+
+      runtimeUserId = nextUserId;
+      runtimeSpaceOwnerUserId = nextSpaceOwnerUserId;
+      runtimeModelRegistry = input.modelRegistry;
+      agent.state.systemPrompt = nextSystemPrompt;
+      systemPromptStateKey = nextKey;
+      if (shouldChangeModel) {
+        agent.state.model = target;
+        agent.state.thinkingLevel = nextThinkingLevel;
+        options.sessionManager.appendModelChange(target.provider, target.id);
+        options.sessionManager.appendThinkingLevelChange(nextThinkingLevel);
+      }
+      agent.state.tools = runtimeTools as never;
+    },
     async configureTools(tools) {
-      agent.state.systemPrompt = await buildSystemPromptForTools(tools);
-      agent.state.tools = tools as never;
+      await configureToolsState(tools);
     },
     async reload() {
-      await this.configureTools(options.tools);
+      await configureToolsState(options.tools, { force: true });
     },
     async abort() {
       retryCancelled = true;
