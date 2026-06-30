@@ -201,7 +201,7 @@ const segments = $derived.by(() => {
 	{#each segments as segment, index (`${segment.type}:${index}`)}
 		<div class={index === 0 ? "" : "mt-2"}>
 			{#if segment.type === 'text'}
-				<MarkdownView blocks={segment.blocks} variant="chat" {isStreaming} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} />
+				<MarkdownView blocks={segment.blocks} variant="chat" {isStreaming} onStart={onMarkdownSegmentStart} onRendered={onMarkdownSegmentRendered} {onOpenFile} />
 			{:else if segment.type === 'thinking'}
 				<ThinkingBlocks blocks={segment.blocks} expanded={thinkingExpanded} {isStreaming} onToggle={onToggleThinking} />
 			{:else if segment.type === 'image'}

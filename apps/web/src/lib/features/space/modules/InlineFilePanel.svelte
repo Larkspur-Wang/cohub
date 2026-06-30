@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { SpaceFsFileResponse } from "@neta-art/cohub";
 import {
+	ArrowLeft,
 	Check,
 	Copy,
 	Download,
@@ -34,6 +35,7 @@ type PanHandlers = {
 
 type Props = {
 	inlineFile: InlineFilePanelState;
+	inlineFileCanGoBack: boolean;
 	inlineFileDownloadUrl: string;
 	inlineFileDownloadName: string;
 	inlineFileIsText: boolean;
@@ -60,6 +62,8 @@ type Props = {
 	inlineFileDragging: boolean;
 	inlineFilePanHandlers: PanHandlers;
 	onCloseInlineFile: () => void;
+	onBackInlineFile: () => void | Promise<void>;
+	onOpenLinkedInlineFile: (path: string) => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
@@ -76,6 +80,7 @@ type Props = {
 
 let {
 	inlineFile,
+	inlineFileCanGoBack,
 	inlineFileDownloadUrl,
 	inlineFileDownloadName,
 	inlineFileIsText,
@@ -102,6 +107,8 @@ let {
 	inlineFileDragging,
 	inlineFilePanHandlers,
 	onCloseInlineFile,
+	onBackInlineFile,
+	onOpenLinkedInlineFile,
 	onDownloadInlineFile,
 	onCopyInlineFileContent,
 	onSaveInlineFile,
@@ -155,6 +162,11 @@ let {
         <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
           <X class="w-5 h-5" />
         </button>
+        {#if inlineFileCanGoBack}
+          <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
+            <ArrowLeft class="w-5 h-5" />
+          </button>
+        {/if}
         <div class="min-w-0 flex-1 truncate text-sm text-text-secondary">
           {#if inlineFile.response}{inlineFile.response.path}{:else}{inlineFile.path}{/if}
         </div>
@@ -214,6 +226,8 @@ let {
                   name={inlineFile.response.name}
                   source={inlineFile.draft}
                   type={inlineFileIsMarkdown ? "markdown" : "html"}
+                  path={inlineFile.response.path}
+                  onOpenFile={onOpenLinkedInlineFile}
                 />
               {:catch}
                 <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
@@ -309,6 +323,11 @@ let {
         {:else if inlineFile.response}
           {#if inlineFileIsText}
             <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+              {#if inlineFileCanGoBack}
+                <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
+                  <ArrowLeft class="w-4 h-4" />
+                </button>
+              {/if}
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
@@ -387,6 +406,8 @@ let {
                     name={inlineFile.response.name}
                     source={inlineFile.draft}
                     type={inlineFileIsMarkdown ? "markdown" : "html"}
+                    path={inlineFile.response.path}
+                    onOpenFile={onOpenLinkedInlineFile}
                   />
                 {:catch}
                   <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>

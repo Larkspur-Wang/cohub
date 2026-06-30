@@ -83,6 +83,7 @@ export function createFileWorkspaceController(
 	let openFileTooLarge = $state(false);
 	let inlineFile = $state<FileWorkspaceInlineFile | null>(null);
 	let inlineFileRequestToken = $state(0);
+	let inlineFileBackStack = $state<string[]>([]);
 	let fileEdit = $state(true);
 	let inlineFileEdit = $state(true);
 	let fileActionMenuOpenPath = $state<string | null>(null);
@@ -158,6 +159,7 @@ export function createFileWorkspaceController(
 		fileTreeRequestToken += 1;
 		inlineFileRequestToken += 1;
 		inlineFile = null;
+		inlineFileBackStack = [];
 		void loadFileTree(false);
 	}
 
@@ -184,6 +186,7 @@ export function createFileWorkspaceController(
 		openFileTooLarge = false;
 		openFileSaving = false;
 		inlineFile = null;
+		inlineFileBackStack = [];
 		uploadPaneVisible = false;
 		pendingUploadFiles = [];
 		pendingUploadEntries = [];
@@ -496,7 +499,20 @@ export function createFileWorkspaceController(
 		}
 	}
 
-	async function openInlineFile(path: string) {
+	async function openInlineFile(
+		path: string,
+		optionsArg: { preserveHistory?: boolean; skipHistoryPush?: boolean } = {},
+	) {
+		if (
+			optionsArg.preserveHistory &&
+			!optionsArg.skipHistoryPush &&
+			inlineFile?.path &&
+			inlineFile.path !== path
+		) {
+			inlineFileBackStack = [...inlineFileBackStack, inlineFile.path];
+		} else if (!optionsArg.preserveHistory) {
+			inlineFileBackStack = [];
+		}
 		const sourceKey = options.getActiveFsSourceKey();
 		const requestToken = inlineFileRequestToken + 1;
 		inlineFileRequestToken = requestToken;
@@ -575,7 +591,18 @@ export function createFileWorkspaceController(
 	function closeInlineFile() {
 		inlineFileRequestToken += 1;
 		inlineFile = null;
+		inlineFileBackStack = [];
 		options.onClosePreviewFocusMode();
+	}
+
+	async function goBackInlineFile() {
+		const previousPath = inlineFileBackStack.at(-1);
+		if (!previousPath) return;
+		inlineFileBackStack = inlineFileBackStack.slice(0, -1);
+		await openInlineFile(previousPath, {
+			preserveHistory: true,
+			skipHistoryPush: true,
+		});
 	}
 
 	async function saveInlineFile() {
@@ -991,6 +1018,9 @@ export function createFileWorkspaceController(
 		get inlineFile() {
 			return inlineFile;
 		},
+		get inlineFileCanGoBack() {
+			return inlineFileBackStack.length > 0;
+		},
 		get inlineFileDirty() {
 			return Boolean(
 				inlineFile &&
@@ -1128,6 +1158,7 @@ export function createFileWorkspaceController(
 		closeFile,
 		openInlineFile,
 		closeInlineFile,
+		goBackInlineFile,
 		saveInlineFile,
 		copyFileContent,
 		copyInlineFileContent,

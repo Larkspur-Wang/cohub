@@ -567,6 +567,7 @@ const openFileSaving = $derived(fileWorkspace.openFileSaving);
 const openFileError = $derived(fileWorkspace.openFileError);
 const openFileTooLarge = $derived(fileWorkspace.openFileTooLarge);
 const inlineFile = $derived(fileWorkspace.inlineFile);
+const inlineFileCanGoBack = $derived(fileWorkspace.inlineFileCanGoBack);
 const inlineCanvas = $derived(canvasPreview.canvas);
 const selectedFilePath = $derived(
 	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
@@ -4010,6 +4011,12 @@ function closeFile() {
 async function openInlineFile(path: string) {
 	await fileWorkspace.openInlineFile(path);
 }
+async function openLinkedInlineFile(path: string) {
+	await fileWorkspace.openInlineFile(path, { preserveHistory: true });
+}
+async function goBackInlineFile() {
+	await fileWorkspace.goBackInlineFile();
+}
 function closeInlineFile() {
 	fileWorkspace.closeInlineFile();
 }
@@ -4927,6 +4934,7 @@ const spaceFileDomainProps = $derived.by<
 	fileTreeError,
 	selectedFilePath,
 	inlineFile,
+	inlineFileCanGoBack,
 	inlineCanvas,
 	inlinePortPreview,
 	inlinePortEndpoint,
@@ -4969,8 +4977,10 @@ const spaceFileDomainProps = $derived.by<
 	onUploadFiles: handleUploadFiles,
 	onInsertPathReference: insertPathReference,
 	onOpenInlineFile: openInlineFile,
+	onOpenLinkedInlineFile: openLinkedInlineFile,
 	onOpenInlineCanvas: openInlineCanvas,
 	onCloseInlineFile: closeInlineFile,
+	onBackInlineFile: goBackInlineFile,
 	onDownloadInlineFile: downloadInlineFile,
 	onCopyInlineFileContent: copyInlineFileContent,
 	onSaveInlineFile: saveInlineFile,
@@ -5093,7 +5103,7 @@ const sessionWorkspaceProps = $derived.by<
 		}),
 	handleForkTurn,
 	forkingTurnId,
-	openInlineFile,
+	openInlineFile: openLinkedInlineFile,
 	modelsCatalog,
 	sessionTaskNotices,
 	sessionTaskHasMore,
@@ -5355,6 +5365,7 @@ const sessionWorkspaceProps = $derived.by<
         onDownloadFilePath={(path) => handleDownloadNode(getFileActionNode(path))}
         onRenameFilePath={(path) => handleRenameNode(getFileActionNode(path))}
         onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
+        onOpenLinkedInlineFile={openLinkedInlineFile}
       />
     {:else}
       <SessionWorkspace

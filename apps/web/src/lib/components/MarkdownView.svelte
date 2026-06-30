@@ -37,8 +37,10 @@ type Props = {
 	blocks?: MarkdownTextBlock[];
 	variant?: MarkdownVariant;
 	isStreaming?: boolean;
+	baseFilePath?: string | null;
 	onStart?: () => void;
 	onRendered?: () => void;
+	onOpenFile?: (path: string) => void | Promise<void>;
 };
 
 const {
@@ -46,8 +48,10 @@ const {
 	blocks,
 	variant = "chat",
 	isStreaming = false,
+	baseFilePath = null,
 	onStart,
 	onRendered,
+	onOpenFile,
 }: Props = $props();
 
 let renderedHtml = $state("");
@@ -134,5 +138,11 @@ onDestroy(() => {
 			entries={frontmatter.entries}
 		/>
 	{/if}
-	<MarkdownSurface html={renderedHtml} {variant} streamingLive={isStreaming} />
+	<MarkdownSurface
+		html={renderedHtml}
+		{variant}
+		streamingLive={isStreaming}
+		{baseFilePath}
+		{onOpenFile}
+	/>
 </div>

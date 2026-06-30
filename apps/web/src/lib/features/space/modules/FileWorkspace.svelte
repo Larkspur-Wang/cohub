@@ -59,6 +59,7 @@ type Props = {
 	onDownloadFilePath: (path: string) => void | Promise<void>;
 	onRenameFilePath: (path: string) => void | Promise<void>;
 	onDeleteFilePath: (path: string) => void | Promise<void>;
+	onOpenLinkedInlineFile?: (path: string) => void | Promise<void>;
 };
 
 let {
@@ -100,6 +101,7 @@ let {
 	onDownloadFilePath,
 	onRenameFilePath,
 	onDeleteFilePath,
+	onOpenLinkedInlineFile,
 }: Props = $props();
 </script>
 
@@ -245,6 +247,8 @@ let {
               name={openFile.name}
               source={openFileDraft}
               type={openFileIsMarkdown ? "markdown" : "html"}
+              path={openFile.path}
+              onOpenFile={onOpenLinkedInlineFile}
             />
           {:catch}
             <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>

@@ -2,6 +2,7 @@
 import { onDestroy, onMount } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
+import { normalizeWorkspaceFileLink } from "$lib/workspace-file-links";
 
 type MarkdownVariant = "chat" | "document";
 
@@ -9,9 +10,17 @@ type Props = {
 	html: string;
 	variant?: MarkdownVariant;
 	streamingLive?: boolean;
+	baseFilePath?: string | null;
+	onOpenFile?: (path: string) => void | Promise<void>;
 };
 
-const { html, variant = "chat", streamingLive = false }: Props = $props();
+const {
+	html,
+	variant = "chat",
+	streamingLive = false,
+	baseFilePath = null,
+	onOpenFile,
+}: Props = $props();
 
 let markdownEl = $state<HTMLElement | null>(null);
 let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -154,6 +163,10 @@ onMount(() => {
 		e.preventDefault();
 	}
 
+	function shouldPreserveNativeLinkClick(event: MouseEvent) {
+		return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+	}
+
 	function onClick(e: Event) {
 		const target = e.target as HTMLElement;
 		const askOption = getAskOption(e.target);
@@ -187,6 +200,19 @@ onMount(() => {
 			if (!value) return;
 			insertComposerSnippet(value, { focus: false, replacementKey });
 			return;
+		}
+
+		const link = target.closest<HTMLAnchorElement>("a[href]");
+		if (link && onOpenFile && e instanceof MouseEvent) {
+			const path = normalizeWorkspaceFileLink(link.getAttribute("href") ?? "", {
+				basePath: baseFilePath,
+			});
+			if (path && !shouldPreserveNativeLinkClick(e)) {
+				e.preventDefault();
+				e.stopPropagation();
+				void onOpenFile(path);
+				return;
+			}
 		}
 
 		const copyButton = target.closest<HTMLButtonElement>("[data-code-copy]");

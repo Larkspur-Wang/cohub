@@ -49,6 +49,7 @@ export type SpaceFileDomainProps = {
 	fileTreeError: string | null;
 	selectedFilePath: string;
 	inlineFile: FileWorkspaceInlineFile | null;
+	inlineFileCanGoBack: boolean;
 	inlineCanvas: InlineCanvasPanelState | null;
 	inlinePortPreview: { port: string; url: string } | null;
 	inlinePortEndpoint: SpacePublicEndpoint | null;
@@ -94,8 +95,10 @@ export type SpaceFileDomainProps = {
 	) => void;
 	onInsertPathReference: (path: string) => void;
 	onOpenInlineFile: (path: string) => void | Promise<void>;
+	onOpenLinkedInlineFile: (path: string) => void | Promise<void>;
 	onOpenInlineCanvas: (path: string) => void | Promise<void>;
 	onCloseInlineFile: () => void;
+	onBackInlineFile: () => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
@@ -140,6 +143,7 @@ let {
 	fileTreeError,
 	selectedFilePath,
 	inlineFile,
+	inlineFileCanGoBack,
 	inlineCanvas,
 	inlinePortPreview,
 	inlinePortEndpoint,
@@ -182,8 +186,10 @@ let {
 	onUploadFiles,
 	onInsertPathReference,
 	onOpenInlineFile,
+	onOpenLinkedInlineFile,
 	onOpenInlineCanvas,
 	onCloseInlineFile,
+	onBackInlineFile,
 	onDownloadInlineFile,
 	onCopyInlineFileContent,
 	onSaveInlineFile,
@@ -223,6 +229,7 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 {#if inlineFile}
 	<InlineFilePanel
 		{inlineFile}
+		{inlineFileCanGoBack}
 		{inlineFileDownloadUrl}
 		{inlineFileDownloadName}
 		{inlineFileIsText}
@@ -249,6 +256,8 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		{inlineFileDragging}
 		{inlineFilePanHandlers}
 		onCloseInlineFile={onCloseInlineFile}
+		onBackInlineFile={onBackInlineFile}
+		onOpenLinkedInlineFile={onOpenLinkedInlineFile}
 		onDownloadInlineFile={onDownloadInlineFile}
 		onCopyInlineFileContent={onCopyInlineFileContent}
 		onSaveInlineFile={onSaveInlineFile}
