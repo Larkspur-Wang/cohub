@@ -11,6 +11,7 @@ import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { WorksApi } from "./apis/works.js";
+import { WorkCommerceApi } from "./apis/work-commerce.js";
 import { HttpTransport, HttpError, type CohubClientOptions, type Fetch } from "./transport.js";
 import { resolveApiBaseUrl } from "./environment.js";
 
@@ -28,6 +29,7 @@ export class CohubHttpClient {
   readonly cronJobs: CronJobsApi;
   readonly invite: PublicInviteApi;
   readonly works: WorksApi;
+  readonly workCommerce: WorkCommerceApi;
 
   private readonly transport: HttpTransport;
 
@@ -52,6 +54,7 @@ export class CohubHttpClient {
     this.cronJobs = new CronJobsApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
     this.works = new WorksApi(this.transport);
+    this.workCommerce = new WorkCommerceApi(this.transport);
   }
 
   space(spaceId: string) {

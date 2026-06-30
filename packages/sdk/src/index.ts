@@ -5,6 +5,7 @@ export { WebsocketClient, createWebsocketClient } from "./websocket.js";
 export { VoiceApi, VoiceInputClient, createVoiceInputClient } from "./voice-input.js";
 export { UsersApi } from "./apis/users.js";
 export { WorksApi } from "./apis/works.js";
+export { WorkCommerceApi } from "./apis/work-commerce.js";
 export { WorkRuntimeApi, createWorkRuntime } from "./work-runtime.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export {
@@ -73,4 +74,5 @@ export type { ChannelEnvelope, LabelAssignmentsUpdatedEvent, RealtimeServerEvent
 export type { SessionEventName, SessionSubscriptionHandlers, SpaceChannelBindingRecord, SpaceEventName, WebSocketConnectionState } from "./apis/spaces.js";
 export type { CreatePublicAssetUploadInput, CreatePublicAssetUploadResponse, PublicAssetMimeType, PublicAssetPurpose, UploadChatImageAttachmentInput, UploadPublicAssetInput } from "./apis/public-assets.js";
 export type { WorkAuthorizeResponse, WorkCreateInput, WorkDetailResponse, WorkGetResponse, WorkMeta, WorkPresentationMeta, WorkPublicOwnerRecord, WorkPublicSpaceRecord, WorkRecord, WorkResolveResponse, WorkSessionResponse, WorkStatus, WorkTargetType, WorkUpdateInput, WorkVersionRecord, WorkVisibility } from "./apis/works.js";
-export type { WorkRuntimeContext } from "./work-runtime.js";
+export type { WorkCommerceCheckoutStatus, WorkCommerceEntitlementCheckItem, WorkCommerceEntitlementsResponse, WorkCommerceOrder, WorkCommerceProductResolveResponse, WorkCommercePurchaseResponse } from "./apis/work-commerce.js";
+export type { WorkRuntimeCheckoutState, WorkRuntimeCheckoutStatus, WorkRuntimeContext } from "./work-runtime.js";

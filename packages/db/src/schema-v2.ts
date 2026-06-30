@@ -296,6 +296,19 @@ export const workViewerGrants = v2.table(
   }),
 );
 
+export const spaceCommerceBusinesses = v2.table(
+  "space_commerce_businesses",
+  {
+    spaceId: uuid("space_id").primaryKey(),
+    billingBusinessKey: varchar("billing_business_key", { length: 128 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    businessKeyUniqueIdx: uniqueIndex("v2_uq_space_commerce_businesses_business_key").on(table.billingBusinessKey),
+  }),
+);
+
 export const canvasDocuments = v2.table(
   "canvas_documents",
   {

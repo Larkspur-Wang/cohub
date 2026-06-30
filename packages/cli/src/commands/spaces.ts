@@ -8,6 +8,7 @@ import type { Command } from "commander";
 import { uploadAvatarAsset, uploadChatImageAsset } from "../avatar.js";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, ok, error, handleHttp } from "../output.js";
+import type { SpaceCommerceFeatureBenefit, SpaceCommerceOrder, BillingCatalogProduct } from "@neta-art/cohub";
 import { resolveSpace } from "../space.js";
 
 type ModOptions = {
@@ -518,6 +519,9 @@ export function registerSpaces(program: Command): void {
   // ── spaces labels ──
   registerLabels(spacesCmd);
 
+  // ── spaces commerce ──
+  registerCommerce(spacesCmd);
+
   // ── spaces usage ──
   spacesCmd
     .command("usage [days]")
@@ -557,6 +561,73 @@ function parseLabelResourceType(value: string): LabelResourceType {
 function parseLabelRefs(value: string | undefined): string[] {
   if (!value?.trim()) return [];
   return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function registerCommerce(spacesCmd: Command): void {
+  const commerceCmd = spacesCmd.command("commerce").description("Space commerce");
+
+  commerceCmd
+    .command("products")
+    .description("List products")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).commerce.listProducts();
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.products as BillingCatalogProduct[], [
+          { key: "key", label: "Key" },
+          { key: "name", label: "Name" },
+          { key: "status", label: "Status" },
+          { key: "visibility", label: "Visibility" },
+          { key: "billingType", label: "Type" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  commerceCmd
+    .command("benefits")
+    .description("List benefits")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).commerce.listBenefits();
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.benefits as SpaceCommerceFeatureBenefit[], [
+          { key: "key", label: "Key" },
+          { key: "name", label: "Name" },
+          { key: "status", label: "Status" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  commerceCmd
+    .command("orders")
+    .description("List recent orders")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).commerce.listOrders();
+        if (jsonRequested(opts)) return outJson(result);
+        table(result.orders as SpaceCommerceOrder[], [
+          { key: "id", label: "ID" },
+          { key: "productKeySnapshot", label: "Product" },
+          { key: "status", label: "Status" },
+          { key: "createdAt", label: "Created" },
+        ]);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
 }
 
 function registerLabels(spacesCmd: Command): void {

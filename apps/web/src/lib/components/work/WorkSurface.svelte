@@ -1,6 +1,12 @@
 <script lang="ts">
 import type { Permission, WorkRecord, WorkTargetType } from "@neta-art/cohub";
-import { AlertTriangle, Check, Loader2, ShieldCheck } from "lucide-svelte";
+import {
+	AlertTriangle,
+	Check,
+	CreditCard,
+	Loader2,
+	ShieldCheck,
+} from "lucide-svelte";
 import { onDestroy, onMount } from "svelte";
 import { page } from "$app/state";
 import { PUBLIC_API_ORIGIN } from "$env/static/public";
@@ -8,6 +14,7 @@ import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
 import Dialog from "$lib/components/Dialog.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -68,6 +75,12 @@ let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
 let workToken = $state<string | null>(null);
 let authOpen = $state(false);
+let purchaseOpen = $state(false);
+let purchaseError = $state<string | null>(null);
+let purchaseSaving = $state(false);
+let pendingPurchase = $state<{ requestId: string; productKey: string } | null>(
+	null,
+);
 let pendingAuth = $state<{
 	requestId: string;
 	scopes: Permission[];
@@ -115,6 +128,8 @@ const framePreconnectOrigin = $derived.by(() => {
 });
 const frameSandbox =
 	"allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals";
+const checkoutState = $derived(readWorkCheckoutState(page.url));
+const pendingPurchaseStorageKey = $derived(`cohub-work-purchase:${work.id}`);
 
 function readTokenResponse(value: unknown) {
 	if (!value || typeof value !== "object") return null;
@@ -238,6 +253,95 @@ function replyAuthCancel() {
 	authSaving = false;
 }
 
+function replyPurchaseCancel() {
+	if (purchaseSaving) return;
+	if (!pendingPurchase) return;
+	reply(pendingPurchase.requestId, {
+		type: "cohub.work.purchase.result",
+		checkout: null,
+	});
+	purchaseOpen = false;
+	purchaseError = null;
+	pendingPurchase = null;
+	purchaseSaving = false;
+}
+
+function writePendingPurchase(input: { orderId: string; productKey: string }) {
+	if (typeof sessionStorage === "undefined") return;
+	try {
+		sessionStorage.setItem(
+			pendingPurchaseStorageKey,
+			JSON.stringify({ ...input, at: Date.now() }),
+		);
+	} catch {
+		// ignore storage failures
+	}
+}
+
+function readPendingPurchase(): {
+	orderId: string;
+	productKey: string;
+	at: number;
+} | null {
+	if (typeof sessionStorage === "undefined") return null;
+	try {
+		const raw = sessionStorage.getItem(pendingPurchaseStorageKey);
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as {
+			orderId?: unknown;
+			productKey?: unknown;
+			at?: unknown;
+		};
+		return typeof parsed.orderId === "string" &&
+			typeof parsed.productKey === "string" &&
+			typeof parsed.at === "number"
+			? {
+					orderId: parsed.orderId,
+					productKey: parsed.productKey,
+					at: parsed.at,
+				}
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+function clearPendingPurchase() {
+	if (typeof sessionStorage === "undefined") return;
+	try {
+		sessionStorage.removeItem(pendingPurchaseStorageKey);
+	} catch {
+		// ignore storage failures
+	}
+}
+
+async function createPurchase(productKey: string) {
+	const userToken = await getAuthToken();
+	if (!userToken) {
+		await signInWithRedirectPath(
+			location.pathname + location.search + location.hash,
+		);
+		return null;
+	}
+	const response = await fetch(
+		`${PUBLIC_API_ORIGIN ?? ""}/api/works/${work.id}/commerce/purchase`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${userToken}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({ productKey }),
+		},
+	);
+	if (!response.ok)
+		throw new Error(
+			(await response.json().catch(() => null))?.message ?? "Purchase failed.",
+		);
+	const json = await response.json();
+	return (json as { checkout?: unknown }).checkout ?? null;
+}
+
 async function handleMessage(event: MessageEvent) {
 	if (event.source !== frame?.contentWindow) return;
 	if (!frameOrigin || event.origin !== frameOrigin) return;
@@ -254,6 +358,7 @@ async function handleMessage(event: MessageEvent) {
 		scopes?: Permission[];
 		reason?: string;
 		forceRefresh?: boolean;
+		productKey?: string;
 	};
 	if (!data?.requestId) return;
 	try {
@@ -280,6 +385,30 @@ async function handleMessage(event: MessageEvent) {
 		if (data.type === "cohub.work.token") {
 			const token = await ensureBaseToken(Boolean(data.forceRefresh));
 			reply(data.requestId, { type: "cohub.work.token.result", token });
+		}
+		if (data.type === "cohub.work.checkout-state") {
+			const pendingPurchase = readPendingPurchase();
+			const orderId = checkoutState.orderId ?? pendingPurchase?.orderId ?? null;
+			if (checkoutState.status && checkoutState.orderId) clearPendingPurchase();
+			reply(data.requestId, {
+				type: "cohub.work.checkout-state.result",
+				status: checkoutState.status,
+				orderId,
+			});
+		}
+		if (data.type === "cohub.work.purchase") {
+			const productKey =
+				typeof data.productKey === "string" ? data.productKey.trim() : "";
+			if (!productKey) {
+				reply(data.requestId, {
+					type: "cohub.work.error",
+					message: "Product key is required.",
+				});
+				return;
+			}
+			pendingPurchase = { requestId: data.requestId, productKey };
+			purchaseError = null;
+			purchaseOpen = true;
 		}
 		if (data.type === "cohub.work.authorize") {
 			const allowedViewerScopes = clonePermissionScopes(
@@ -335,6 +464,47 @@ async function handleMessage(event: MessageEvent) {
 			type: "cohub.work.error",
 			message: error instanceof Error ? error.message : "Request failed.",
 		});
+	}
+}
+
+async function confirmPurchase() {
+	if (!pendingPurchase || purchaseSaving) return;
+	purchaseSaving = true;
+	purchaseError = null;
+	try {
+		const checkout = await createPurchase(pendingPurchase.productKey);
+		reply(pendingPurchase.requestId, {
+			type: "cohub.work.purchase.result",
+			checkout,
+		});
+		if (checkout && typeof checkout === "object") {
+			const next = checkout as {
+				checkoutUrl?: unknown;
+				checkoutUsable?: unknown;
+				orderId?: unknown;
+				productKey?: unknown;
+			};
+			if (
+				typeof next.orderId === "string" &&
+				typeof next.productKey === "string"
+			) {
+				writePendingPurchase({
+					orderId: next.orderId,
+					productKey: next.productKey,
+				});
+			}
+			const url = next.checkoutUrl;
+			const usable = next.checkoutUsable === true;
+			if (usable && typeof url === "string" && url) {
+				window.location.href = url;
+			}
+		}
+		purchaseOpen = false;
+		pendingPurchase = null;
+	} catch (error) {
+		purchaseError = error instanceof Error ? error.message : "Purchase failed.";
+	} finally {
+		purchaseSaving = false;
 	}
 }
 
@@ -416,6 +586,30 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 		</footer>
 	{/if}
 </div>
+
+<Dialog open={purchaseOpen && !!pendingPurchase} onClose={replyPurchaseCancel} title="Complete purchase" maxWidth="420px">
+	{#if pendingPurchase}
+		<div class="auth-panel">
+			<div class="auth-intro">
+				<div class="auth-icon"><CreditCard class="h-4 w-4" /></div>
+				<div class="min-w-0">
+					<div class="auth-title">Continue to checkout?</div>
+					<p class="auth-copy">This work wants to open a secure checkout for <span class="font-mono">{pendingPurchase.productKey}</span>.</p>
+				</div>
+			</div>
+			{#if purchaseError}
+				<div class="mt-3 rounded-[8px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{purchaseError}</div>
+			{/if}
+			<div class="auth-actions">
+				<button type="button" class="auth-cancel" onclick={replyPurchaseCancel} disabled={purchaseSaving}>Cancel</button>
+				<button type="button" class="auth-confirm" onclick={() => void confirmPurchase()} disabled={purchaseSaving}>
+					{#if purchaseSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
+					<span>{purchaseSaving ? 'Opening…' : 'Continue'}</span>
+				</button>
+			</div>
+		</div>
+	{/if}
+</Dialog>
 
 <Dialog open={authOpen && !!pendingAuth} onClose={replyAuthCancel} title="Work access" maxWidth="440px">
 	{#if pendingAuth}

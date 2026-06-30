@@ -147,7 +147,34 @@ await cohub.auth.request({
 const usage = await cohub.user.getUsage(30);
 ```
 
-The example app in `docs/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, and account-level data access from inside a published Work.
+For one-time product purchases inside a Work:
+
+```js
+const { products } = await cohub.work.commerce.resolveProducts({
+  productKeys: ["pro_unlock"],
+});
+
+const { entitlements } = await cohub.work.commerce.checkEntitlements({
+  benefitKeys: ["space_pro"],
+});
+
+const checkout = await cohub.work.commerce.purchase({
+  productKey: "pro_unlock",
+});
+
+const checkoutState = await cohub.work.commerce.getCheckoutState();
+if (checkoutState.orderId) {
+  const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+}
+```
+
+The example app in `docs/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, account-level data access, and a minimal commerce flow from inside a published Work.
+
+For a focused commerce example, see:
+
+- `docs/work-commerce-guide.md`
+- `docs/work-capability-lab/commerce-demo.md`
+- `docs/work-capability-lab/commerce-demo.html`
 
 ## Publish Through the API or SDK
 

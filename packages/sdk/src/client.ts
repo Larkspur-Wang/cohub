@@ -13,6 +13,7 @@ import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
 import { UsersApi } from "./apis/users.js";
 import { WorksApi } from "./apis/works.js";
+import { WorkCommerceApi } from "./apis/work-commerce.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { createWebsocketClient } from "./websocket.js";
@@ -20,6 +21,7 @@ import { VoiceApi } from "./voice-input.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 import { createWorkRuntime, type WorkRuntimeApi } from "./work-runtime.js";
 import type { Permission } from "./types.js";
+import type { WorkCommerceCheckoutStatus } from "./apis/work-commerce.js";
 
 export class CohubClient {
   readonly spaces: SpacesApi;
@@ -39,6 +41,7 @@ export class CohubClient {
   readonly invite: PublicInviteApi;
   readonly voice: VoiceApi;
   readonly works: WorksApi;
+  readonly workCommerce: WorkCommerceApi;
 
   private readonly transport: HttpTransport;
   private readonly websocketClient: ReturnType<typeof createWebsocketClient>;
@@ -87,6 +90,7 @@ export class CohubClient {
     this.explore = new ExploreApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
     this.works = new WorksApi(this.transport);
+    this.workCommerce = new WorkCommerceApi(this.transport);
   }
 
   context() {
@@ -95,6 +99,31 @@ export class CohubClient {
 
   readonly auth = {
     request: (input: { scopes: Permission[]; reason?: string }) => this.workRuntime.requestAuthorization(input),
+  };
+
+  readonly work = {
+    commerce: {
+      resolveProducts: async (input: { productKeys: string[] }) => {
+        const context = await this.workRuntime.context();
+        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        return this.workCommerce.resolveProducts(context.work.id, input);
+      },
+      checkEntitlements: async (input: { benefitKeys: string[] }) => {
+        const context = await this.workRuntime.context();
+        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        return this.workCommerce.checkEntitlements(context.work.id, input);
+      },
+      purchase: async (input: { productKey: string }) => this.workRuntime.purchase(input),
+      getCheckoutState: async (): Promise<{ status: WorkCommerceCheckoutStatus; orderId: string | null }> => {
+        const result = await this.workRuntime.checkoutState();
+        return { status: result?.status ?? null, orderId: result?.orderId ?? null };
+      },
+      getOrder: async (orderId: string) => {
+        const context = await this.workRuntime.context();
+        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        return this.workCommerce.getOrder(context.work.id, orderId);
+      },
+    },
   };
 
   space(spaceId: string) {

@@ -19,6 +19,7 @@ import billingRouter from "./billing.route.js";
 import queuesRouter from "./queues.route.js";
 import publicAssetsRouter from "./public-assets.route.js";
 import worksRouter from "./works.route.js";
+import workCommerceRouter from "./work-commerce.route.js";
 import usersRouter from "./users.route.js";
 
 const router = new Hono();
@@ -42,6 +43,7 @@ router.route("/api/billing", billingRouter);
 router.route("/api/queues", queuesRouter);
 router.route("/api/public-assets", publicAssetsRouter);
 router.route("/api/works", worksRouter);
+router.route("/api", workCommerceRouter);
 router.route("/api/users", usersRouter);
 router.route("/internal", internalRouter);
 

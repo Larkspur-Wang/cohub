@@ -1191,6 +1191,126 @@ export class SpaceLabelsApi {
   }
 }
 
+export class SpaceCommerceApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+  ) {}
+
+  setup() {
+    return this.transport.request<{ businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/setup`,
+      { method: "POST" },
+    );
+  }
+
+  listProducts() {
+    return this.transport.request<{ products: import("../types.js").BillingCatalogProduct[]; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/products`,
+    );
+  }
+
+  createProduct(input: {
+    key: string;
+    name: string;
+    description?: string;
+    amountUsd: number;
+    status?: "draft" | "active";
+    visibility?: "public" | "private";
+  }) {
+    return this.transport.request<{ product: import("../types.js").BillingCatalogProduct; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/products`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  updateProduct(productKey: string, input: {
+    name?: string;
+    description?: string | null;
+    status?: "draft" | "active" | "archived";
+    visibility?: "public" | "private";
+  }) {
+    return this.transport.request<{ product: import("../types.js").BillingCatalogProduct; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/products/${encodeURIComponent(productKey)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  listBenefits() {
+    return this.transport.request<{ benefits: import("../types.js").SpaceCommerceFeatureBenefit[]; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/benefits`,
+    );
+  }
+
+  createBenefit(input: {
+    key: string;
+    name: string;
+    description?: string;
+    metadata?: Record<string, string | number | boolean>;
+  }) {
+    return this.transport.request<{ benefit: import("../types.js").SpaceCommerceFeatureBenefit; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/benefits`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  updateBenefit(benefitKey: string, input: {
+    name?: string;
+    description?: string | null;
+    status?: "active" | "archived";
+    metadata?: Record<string, string | number | boolean>;
+  }) {
+    return this.transport.request<{ benefit: import("../types.js").SpaceCommerceFeatureBenefit; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/benefits/${encodeURIComponent(benefitKey)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  bindProductBenefit(input: { productKey: string; benefitKey: string }) {
+    return this.transport.request<{ productBenefit: unknown; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/product-benefits`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      },
+    );
+  }
+
+  unbindProductBenefit(input: { productKey: string; benefitKey: string }) {
+    const params = new URLSearchParams({ productKey: input.productKey, benefitKey: input.benefitKey });
+    return this.transport.request<{ ok: true; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/product-benefits?${params.toString()}`,
+      { method: "DELETE" },
+    );
+  }
+
+  listOrders(input?: { page?: number; limit?: number }) {
+    const params = new URLSearchParams();
+    if (input?.page) params.set("page", String(input.page));
+    if (input?.limit) params.set("limit", String(input.limit));
+    return this.transport.request<{ orders: import("../types.js").SpaceCommerceOrder[]; pagination: { hasMore: boolean; nextPage: number | null }; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/orders${params.toString() ? `?${params.toString()}` : ""}`,
+    );
+  }
+}
+
 export class SpaceCanvasApi {
   constructor(
     private readonly transport: HttpTransport,
@@ -1334,6 +1454,7 @@ export class SpaceClient {
   readonly invitations: SpaceInvitationsApi;
   readonly labels: SpaceLabelsApi;
   readonly canvas: SpaceCanvasApi;
+  readonly commerce: SpaceCommerceApi;
 
   constructor(
     readonly id: string,
@@ -1354,6 +1475,7 @@ export class SpaceClient {
     this.invitations = new SpaceInvitationsApi(transport, id);
     this.labels = new SpaceLabelsApi(transport, id);
     this.canvas = new SpaceCanvasApi(transport, id);
+    this.commerce = new SpaceCommerceApi(transport, id);
   }
 
   get(customFetch?: Fetch) {

@@ -7,10 +7,19 @@ export type WorkRuntimeContext = {
   permissions?: { scopes: Permission[]; workScopes: Permission[]; viewerScopes: Permission[] };
 };
 
+export type WorkRuntimeCheckoutStatus = "success" | "failed" | "cancel" | null;
+
+export type WorkRuntimeCheckoutState = {
+  status: WorkRuntimeCheckoutStatus;
+  orderId: string | null;
+};
+
 type RuntimeResponse =
   | { type: "cohub.work.context.result"; requestId: string; context: WorkRuntimeContext }
   | { type: "cohub.work.token.result"; requestId: string; token: string | null }
   | { type: "cohub.work.authorize.result"; requestId: string; token: string | null }
+  | { type: "cohub.work.purchase.result"; requestId: string; checkout: { providerKey: string | null; checkoutUrl: string | null; checkoutUsable: boolean; status: string | null; message: string | null; orderId: string; productKey: string } | null }
+  | { type: "cohub.work.checkout-state.result"; requestId: string; status: WorkRuntimeCheckoutStatus; orderId: string | null }
   | { type: "cohub.work.error"; requestId: string; message: string };
 
 const isBrowser = () => typeof window !== "undefined" && typeof window.parent !== "undefined";
@@ -87,6 +96,19 @@ export class WorkRuntimeApi {
     const response = await request<{ token: string | null }>({ type: "cohub.work.authorize", scopes: input.scopes, reason: input.reason }, 120_000);
     this.token = response?.token ?? null;
     return Boolean(this.token);
+  }
+
+  async purchase(input: { productKey: string }) {
+    const response = await request<{ checkout: { providerKey: string | null; checkoutUrl: string | null; checkoutUsable: boolean; status: string | null; message: string | null; orderId: string; productKey: string } | null }>(
+      { type: "cohub.work.purchase", productKey: input.productKey },
+      120_000,
+    );
+    return response?.checkout ?? null;
+  }
+
+  async checkoutState() {
+    const response = await request<WorkRuntimeCheckoutState>({ type: "cohub.work.checkout-state" }, 8_000, 250);
+    return response ?? null;
   }
 }
 

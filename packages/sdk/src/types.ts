@@ -186,6 +186,27 @@ export type BillingCatalogProduct = {
   isDefaultPlan: boolean;
 };
 
+export type SpaceCommerceFeatureBenefit = {
+  key: string;
+  name: string;
+  description: string | null;
+  status: string;
+  config: {
+    metadata: Record<string, string | number | boolean>;
+  };
+};
+
+export type SpaceCommerceOrder = {
+  id: string;
+  productKeySnapshot: string;
+  productNameSnapshot: string;
+  status: string;
+  amountSnapshot: number;
+  paidAmountSnapshot: number;
+  createdAt: string;
+  paidAt: string | null;
+};
+
 export type BillingSubscriptionSummary = {
   id: string;
   productKey: string | null;

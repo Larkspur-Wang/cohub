@@ -1036,6 +1036,7 @@ $effect(() => {
 				<div class="truncate text-[13px] font-medium text-text-primary">Space settings</div>
 			</div>
 		</div>
+		<a href={`/spaces/${spaceId}/settings/commerce`} class="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-primary px-2.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"><PackagePlus class="h-3.5 w-3.5" /> Commerce</a>
 	</header>
 
 	<main class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
