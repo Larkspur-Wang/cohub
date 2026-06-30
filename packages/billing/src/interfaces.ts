@@ -3,6 +3,7 @@ import type { ActiveBenefit, CreditSummary } from "@talesofai-billing/sdk/admin/
 
 export const COHUB_BILLING_TOKEN_TYPES = {
   usdMicroCent: "usd_micro_cent",
+  cohubCredit: "cohub_credit",
 } as const;
 
 export const COHUB_BILLING_CREDIT_UNITS = {
@@ -14,6 +15,14 @@ export const COHUB_BILLING_CREDIT_UNITS = {
     unitsPerUsd: 100_000_000,
     usdDecimalPlaces: 8,
   },
+  cohubCredit: {
+    tokenType: COHUB_BILLING_TOKEN_TYPES.cohubCredit,
+    displayCurrency: null,
+    displayUnit: "credit",
+    unitToUsd: 0,
+    unitsPerUsd: 0,
+    usdDecimalPlaces: 0,
+  },
 } as const;
 
 export const COHUB_BILLING_USAGE_TYPES = {
@@ -23,6 +32,7 @@ export const COHUB_BILLING_USAGE_TYPES = {
   generationVideo: "generation.video",
   sandboxCompute: "sandbox.compute",
   spaceStorage: "space.storage",
+  workConsumption: "work.consumption",
 } as const;
 
 export const COHUB_BILLING_FEATURES = {
@@ -68,7 +78,8 @@ export type BillingCreditBalance = {
 
 export type BillingCreditUnit = {
   tokenType: string;
-  displayCurrency: "USD";
+  /** `null` marks a non-monetary virtual unit (e.g. `cohub_credit`). */
+  displayCurrency: string | null;
   displayUnit: string;
   unitToUsd: number;
   unitsPerUsd: number;
@@ -383,6 +394,47 @@ export type BillingFeatureLimitCheck = {
   unlimited: boolean;
   entitlement: BillingFeatureEntitlement | null;
 };
+
+/**
+ * A single purchase result for a business-scoped credit pack.
+ */
+export type BusinessCreditConsumeStatus =
+  | "consumed"
+  | "insufficient"
+  | "disabled";
+
+export type BusinessCreditConsumeInput = BillingUserRef & {
+  /** Positive integer amount of virtual credits to consume. */
+  amount: number;
+  /** Client-generated idempotency key; reuse to safely retry the same consume. */
+  operationId: string;
+  /** Stable id of the consuming work, recorded as the billing usage `source_id`. */
+  sourceId: string;
+  reason?: string;
+};
+
+export type BusinessCreditConsumeResult = {
+  userId: string;
+  status: BusinessCreditConsumeStatus;
+  amount: number;
+  remaining: number;
+  shortfall: number | null;
+};
+
+/**
+ * Business-scoped billing operations for a single billing business (e.g. a
+ * Cohub Space). Shares the same credit mapping helpers and declarations as
+ * the platform {@link BillingOperations}, but is bound to one business key and
+ * exposes only the subset needed for space commerce: entitlement lookups,
+ * credit status, and credit consumption.
+ */
+export interface BusinessBillingOperations {
+  readonly status: BillingPluginStatus;
+  readonly businessKey: string;
+  getEntitlements(input: BillingUserRef): Promise<BillingAccountState>;
+  getCreditStatus(input: BillingUserRef): Promise<BillingCreditStatus>;
+  consume(input: BusinessCreditConsumeInput): Promise<BusinessCreditConsumeResult>;
+}
 
 export interface BillingOperations {
   readonly status: BillingPluginStatus;

@@ -1205,7 +1205,7 @@ export class SpaceCommerceApi {
   }
 
   listProducts() {
-    return this.transport.request<{ products: import("../types.js").BillingCatalogProduct[]; businessKey: string }>(
+    return this.transport.request<{ products: import("../types.js").SpaceCommerceProduct[]; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/products`,
     );
   }
@@ -1218,7 +1218,7 @@ export class SpaceCommerceApi {
     status?: "draft" | "active";
     visibility?: "public" | "private";
   }) {
-    return this.transport.request<{ product: import("../types.js").BillingCatalogProduct; businessKey: string }>(
+    return this.transport.request<{ product: import("../types.js").SpaceCommerceProduct; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/products`,
       {
         method: "POST",
@@ -1234,7 +1234,7 @@ export class SpaceCommerceApi {
     status?: "draft" | "active" | "archived";
     visibility?: "public" | "private";
   }) {
-    return this.transport.request<{ product: import("../types.js").BillingCatalogProduct; businessKey: string }>(
+    return this.transport.request<{ product: import("../types.js").SpaceCommerceProduct; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/products/${encodeURIComponent(productKey)}`,
       {
         method: "PATCH",
@@ -1245,7 +1245,7 @@ export class SpaceCommerceApi {
   }
 
   listBenefits() {
-    return this.transport.request<{ benefits: import("../types.js").SpaceCommerceFeatureBenefit[]; businessKey: string }>(
+    return this.transport.request<{ benefits: import("../types.js").SpaceCommerceBenefit[]; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/benefits`,
     );
   }
@@ -1254,9 +1254,12 @@ export class SpaceCommerceApi {
     key?: string;
     name: string;
     description?: string;
+    type?: "feature" | "credits";
     metadata?: Record<string, string | number | boolean>;
+    amount?: number;
+    expiresInDays?: number;
   }) {
-    return this.transport.request<{ benefit: import("../types.js").SpaceCommerceFeatureBenefit; businessKey: string }>(
+    return this.transport.request<{ benefit: import("../types.js").SpaceCommerceBenefit; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/benefits`,
       {
         method: "POST",
@@ -1272,7 +1275,7 @@ export class SpaceCommerceApi {
     status?: "active" | "archived";
     metadata?: Record<string, string | number | boolean>;
   }) {
-    return this.transport.request<{ benefit: import("../types.js").SpaceCommerceFeatureBenefit; businessKey: string }>(
+    return this.transport.request<{ benefit: import("../types.js").SpaceCommerceBenefit; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/benefits/${encodeURIComponent(benefitKey)}`,
       {
         method: "PATCH",

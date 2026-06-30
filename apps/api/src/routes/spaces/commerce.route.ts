@@ -10,8 +10,18 @@ import { createCommerceKey } from "../../lib/commerce-key.js";
 import {
   createSpaceCommerceSdk,
   ensureSpaceCommerceBusiness,
+  loadBusinessCreditBenefits,
   requireSpaceCommerceBusiness,
 } from "../../lib/space-commerce.js";
+import {
+  buildSpaceCreditsBenefitConfig,
+  serializeBenefit,
+  serializeOrder,
+  serializeProduct,
+  serializeProductBenefit,
+  type SerializedCommerceProductBenefitBinding,
+} from "../../lib/commerce-serialize.js";
+import type { Benefit, CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
 import type { Product, ProductBenefit } from "@talesofai-billing/sdk/admin/products";
 import { createLogger } from "@cohub/infra/logging";
 import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
@@ -21,120 +31,7 @@ const logger = createLogger({ serviceName: "cohub-api" });
 
 const COHUB_BOUND_BENEFIT_KEYS_META_KEY = "cohub_bound_benefit_keys";
 
-function serializeProduct(product: {
-  id: string;
-  key: string;
-  name: string;
-  description: string | null;
-  status: string;
-  visibility: string;
-  billing_type?: string;
-  billing_period?: string;
-  billing_interval_count?: number;
-  amount?: number;
-  currency?: string;
-  meta?: Record<string, unknown>;
-}) {
-  const amountMinor = product.amount ?? 0;
-  const amountUsd = amountMinor / 100;
-  return {
-    id: product.id,
-    key: product.key,
-    name: product.name,
-    description: product.description,
-    status: product.status,
-    visibility: product.visibility,
-    billingType: product.billing_type ?? "one_time",
-    billingPeriod: product.billing_period ?? "one_time",
-    billingIntervalCount: product.billing_interval_count ?? 1,
-    currency: product.currency ?? "USD",
-    kind: "addon",
-    interval: "one_time",
-    pricing: {
-      amountMinor,
-      amountUsd,
-      compareAtAmountMinor: null,
-      compareAtAmountUsd: null,
-      discountLabel: null,
-      discountRate: null,
-    },
-    display: {
-      description: product.description,
-      benefits: [],
-      creditsAmount: null,
-      validity: null,
-      creditBenefits: [],
-    },
-    isDefaultPlan: false,
-  };
-}
-
-function isFeatureBenefit(value: unknown): value is {
-  type: "feature";
-  key: string;
-  name: string;
-  description: string | null;
-  status: string;
-  config: { metadata?: Record<string, string | number | boolean> };
-} {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      (value as { type?: unknown }).type === "feature" &&
-      typeof (value as { key?: unknown }).key === "string",
-  );
-}
-
-function serializeBenefit(benefit: {
-  key: string;
-  name: string;
-  description: string | null;
-  status: string;
-  config: { metadata?: Record<string, string | number | boolean> };
-}) {
-  return {
-    key: benefit.key,
-    name: benefit.name,
-    description: benefit.description,
-    status: benefit.status,
-    config: {
-      metadata: benefit.config?.metadata ?? {},
-    },
-  };
-}
-
-function serializeOrder(order: {
-  id: string;
-  product_key_snapshot: string;
-  product_name_snapshot: string;
-  status: string;
-  amount_snapshot: number;
-  paid_amount_snapshot: number;
-  created_at: string;
-  paid_at: string | null;
-}) {
-  return {
-    id: order.id,
-    productKeySnapshot: order.product_key_snapshot,
-    productNameSnapshot: order.product_name_snapshot,
-    status: order.status,
-    amountSnapshot: order.amount_snapshot,
-    paidAmountSnapshot: order.paid_amount_snapshot,
-    createdAt: order.created_at,
-    paidAt: order.paid_at,
-  };
-}
-
-function serializeProductBenefit(binding: ProductBenefit) {
-  return {
-    id: binding.id,
-    productKey: binding.product_key,
-    benefitKey: binding.benefit_key,
-    createdAt: binding.created_at,
-  };
-}
-
-function serializeProductBenefitFallback(input: { productKey: string; benefitKey: string }) {
+function serializeProductBenefitFallback(input: { productKey: string; benefitKey: string }): SerializedCommerceProductBenefitBinding {
   return {
     id: null,
     productKey: input.productKey,
@@ -317,6 +214,28 @@ async function listBenefitKeys(sdk: SpaceCommerceSdk, businessKey: string): Prom
   }));
 }
 
+/**
+ * Builds a map of product key to its bound credit benefits.
+ */
+async function loadProductCreditBenefits(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+}): Promise<Map<string, CreditsBenefit[]>> {
+  const [creditBenefitsMap, bindings] = await Promise.all([
+    loadBusinessCreditBenefits({ sdk: input.sdk, businessKey: input.businessKey }),
+    listProductBenefitBindings({ sdk: input.sdk, businessKey: input.businessKey }),
+  ]);
+  const byProduct = new Map<string, CreditsBenefit[]>();
+  for (const binding of bindings) {
+    const creditBenefit = creditBenefitsMap.get(binding.benefitKey);
+    if (!creditBenefit) continue;
+    const list = byProduct.get(binding.productKey) ?? [];
+    list.push(creditBenefit);
+    byProduct.set(binding.productKey, list);
+  }
+  return byProduct;
+}
+
 router.post("/:id/commerce/setup", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
@@ -342,13 +261,19 @@ router.get("/:id/commerce/products", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
-    const result = await sdk.admin.products.list({
-      business_key: mapping.billingBusinessKey,
-      include_count: false,
-      limit: 100,
-      page: 1,
+    const [result, creditBenefitsByProduct] = await Promise.all([
+      sdk.admin.products.list({
+        business_key: mapping.billingBusinessKey,
+        include_count: false,
+        limit: 100,
+        page: 1,
+      }),
+      loadProductCreditBenefits({ sdk, businessKey: mapping.billingBusinessKey }),
+    ]);
+    return c.json({
+      products: result.items.map((product) => serializeProduct(product, creditBenefitsByProduct.get(product.key) ?? [])),
+      businessKey: mapping.billingBusinessKey,
     });
-    return c.json({ products: result.items.map(serializeProduct), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -404,7 +329,7 @@ router.post("/:id/commerce/products", async (c) => {
         product = await createProduct(generatedKey);
       }
     }
-    return c.json({ product: serializeProduct(product), businessKey: mapping.billingBusinessKey });
+    return c.json({ product: serializeProduct(product, []), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -444,7 +369,7 @@ router.patch("/:id/commerce/products/:productKey", async (c) => {
         }),
       },
     });
-    return c.json({ product: serializeProduct(product), businessKey: mapping.billingBusinessKey });
+    return c.json({ product: serializeProduct(product, []), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -466,7 +391,7 @@ router.get("/:id/commerce/benefits", async (c) => {
       limit: 100,
       page: 1,
     });
-    return c.json({ benefits: result.items.filter((item) => item.type === "feature").map((item) => serializeBenefit(item)), businessKey: mapping.billingBusinessKey });
+    return c.json({ benefits: result.items.map((item) => serializeBenefit(item)), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -485,23 +410,44 @@ router.post("/:id/commerce/benefits", async (c) => {
   const explicitKey = typeof body?.key === "string" ? body.key.trim() : "";
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const description = typeof body?.description === "string" ? body.description.trim() : undefined;
+  const benefitType = body?.type === "credits" ? "credits" : "feature";
   const metadata = typeof body?.metadata === "object" && body.metadata && !Array.isArray(body.metadata)
     ? body.metadata as Record<string, string | number | boolean>
     : {};
+  const creditAmount = typeof body?.amount === "number" ? Math.floor(body.amount) : null;
   if (!name) return c.json({ message: "name is required" }, 400);
+  if (benefitType === "credits") {
+    if (creditAmount === null || creditAmount <= 0) return c.json({ message: "amount must be a positive integer" }, 400);
+  }
+  const expiresInDays = typeof body?.expiresInDays === "number" && Number.isFinite(body.expiresInDays) && body.expiresInDays > 0
+    ? Math.floor(body.expiresInDays)
+    : undefined;
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
-    const createBenefit = (key: string) => sdk.admin.benefits.create({
-      business_key: mapping.billingBusinessKey,
-      key,
-      type: "feature" as const,
-      name,
-      description,
-      config: { metadata },
-      status: "active" as const,
-    });
-    let benefit: Awaited<ReturnType<typeof createBenefit>>;
+    const createBenefit = (key: string): Promise<Benefit> => {
+      if (benefitType === "credits") {
+        return sdk.admin.benefits.create({
+          business_key: mapping.billingBusinessKey,
+          key,
+          type: "credits" as const,
+          name,
+          description,
+          config: buildSpaceCreditsBenefitConfig({ amount: creditAmount ?? 0, expiresInDays }),
+          status: "active" as const,
+        });
+      }
+      return sdk.admin.benefits.create({
+        business_key: mapping.billingBusinessKey,
+        key,
+        type: "feature" as const,
+        name,
+        description,
+        config: { metadata },
+        status: "active" as const,
+      });
+    };
+    let benefit: Benefit;
     if (explicitKey) {
       benefit = await createBenefit(explicitKey);
     } else {
@@ -517,7 +463,6 @@ router.post("/:id/commerce/benefits", async (c) => {
         benefit = await createBenefit(generatedKey);
       }
     }
-    if (!isFeatureBenefit(benefit)) return c.json({ message: "feature benefit is required" }, 400);
     return c.json({ benefit: serializeBenefit(benefit), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
@@ -548,19 +493,24 @@ router.patch("/:id/commerce/benefits/:benefitKey", async (c) => {
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
+    // Credits benefits have an immutable config (amount, token, scope).
+    // Only feature benefits accept metadata updates.
+    if (patch.config) {
+      const existing = await sdk.admin.benefits.get({
+        benefit_key: benefitKey,
+        business_key: mapping.billingBusinessKey,
+      });
+      if (existing.type !== "feature") {
+        return c.json({ message: "metadata can only be updated for feature benefits" }, 400);
+      }
+    }
     const benefit = await sdk.admin.benefits.update({
       benefit_key: benefitKey,
       patch: {
         business_key: mapping.billingBusinessKey,
-        ...(patch as {
-          name?: string;
-          description?: string | null;
-          status?: "active" | "archived";
-          config?: { metadata: Record<string, string | number | boolean> };
-        }),
+        ...patch,
       },
     });
-    if (!isFeatureBenefit(benefit)) return c.json({ message: "feature benefit is required" }, 400);
     return c.json({ benefit: serializeBenefit(benefit), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);

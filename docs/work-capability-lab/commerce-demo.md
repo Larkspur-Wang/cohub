@@ -1,15 +1,16 @@
 # Work Commerce Demo
 
-This demo shows the smallest recommended purchase flow inside a Cohub Work.
+This demo shows the smallest recommended purchase and consumption flow inside a Cohub Work.
 
 ## Best practice
 
 1. Hardcode a known `productKey` and `benefitKey` in the Work.
 2. Resolve product details through `cohub.work.commerce.resolveProducts()`.
-3. Check viewer entitlements through `cohub.work.commerce.checkEntitlements()`.
+3. Check viewer entitlements and credit balance through `cohub.work.commerce.getEntitlements()`.
 4. Start checkout through `cohub.work.commerce.purchase()`.
 5. Read the return state through `cohub.work.commerce.getCheckoutState()`.
 6. If an `orderId` is present, query the order again through `cohub.work.commerce.getOrder(orderId)`.
+7. When the user performs a metered action, consume credits through `cohub.work.commerce.consumeCredits()`.
 
 The outer host owns:
 
@@ -23,11 +24,14 @@ The Work owns:
 
 - product selection
 - entitlement-aware UI
+- credit balance display and consumption
 - order-specific post-checkout messaging
 
 ## Prepare with the CLI
 
 Commerce is configured on the Space, then consumed by the Work.
+
+### Feature benefit example
 
 ```bash
 # Use -s or COHUB_SPACE_ID to target the Space.
@@ -48,6 +52,26 @@ cohub -s <space-id> spaces commerce bind \
   --benefit-key space_pro
 ```
 
+### Credit benefit example
+
+```bash
+cohub -s <space-id> spaces commerce benefits create \
+  --type credits \
+  --name "500 Credits" \
+  --amount 500 \
+  --expires-in-days 365
+
+cohub -s <space-id> spaces commerce products create \
+  --name "Credit Pack" \
+  --amount-usd 4.99 \
+  --visibility public \
+  --status active
+
+cohub -s <space-id> spaces commerce bind \
+  --product-key credit_pack \
+  --benefit-key 500_credits
+```
+
 Useful inspection commands:
 
 ```bash
@@ -56,18 +80,22 @@ cohub -s <space-id> spaces commerce benefits list
 cohub -s <space-id> spaces commerce orders list --limit 10
 ```
 
-## Debug a published Work
+## Operate a published Work
 
-Use the Work commerce commands to test the same server-side flow without opening the demo UI.
+Use the Work commerce commands to test the full server-side flow.
 
 ```bash
 cohub works commerce products resolve \
   --work-id <work-id> \
   --product-key pro_unlock
 
-cohub works commerce entitlements check \
+cohub works commerce entitlements \
+  --work-id <work-id>
+
+cohub works commerce credits consume \
   --work-id <work-id> \
-  --benefit-key space_pro
+  --amount 100 \
+  --reason "High-res export"
 
 cohub works commerce purchase \
   --work-id <work-id> \
@@ -93,9 +121,9 @@ cohub works commerce orders get \
   const buyBtn = document.getElementById("buy");
 
   async function load() {
-    const [{ products }, { entitlements }, checkoutState] = await Promise.all([
+    const [{ products }, { entitlements, credits }, checkoutState] = await Promise.all([
       cohub.work.commerce.resolveProducts({ productKeys: [PRODUCT_KEY] }),
-      cohub.work.commerce.checkEntitlements({ benefitKeys: [BENEFIT_KEY] }),
+      cohub.work.commerce.getEntitlements(),
       cohub.work.commerce.getCheckoutState(),
     ]);
 
@@ -150,11 +178,26 @@ cohub works commerce orders get \
 <button id="buy">Buy</button>
 ```
 
+## Credit consumption example
+
+```ts
+const result = await cohub.work.commerce.consumeCredits({
+  amount: 10,
+  operationId: crypto.randomUUID(),
+  reason: "Export high-res image",
+});
+
+if (result.status === "insufficient") {
+  // Prompt user to purchase a credit pack
+}
+```
+
 ## Notes
 
 - Do not cache order state only inside the iframe.
 - Treat `purchase()` as a user action that may redirect away immediately.
 - Treat `getCheckoutState()` as a transient signal from the outer host.
 - Treat `getOrder(orderId)` as the authoritative order-specific follow-up check.
+- Always pass a unique `operationId` to `consumeCredits()` for idempotent retries.
 - Keep Work copy simple and short.
 - Keep Space setup explicit in scripts: use `-s <space-id>` or `COHUB_SPACE_ID`.

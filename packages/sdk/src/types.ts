@@ -191,9 +191,57 @@ export type SpaceCommerceFeatureBenefit = {
   name: string;
   description: string | null;
   status: string;
-  config: {
-    metadata: Record<string, string | number | boolean>;
+  type: "feature";
+  config: { type: "feature"; metadata: Record<string, string | number | boolean> };
+};
+
+export type SpaceCommerceCreditsBenefit = {
+  key: string;
+  name: string;
+  description: string | null;
+  status: string;
+  type: "credits";
+  config: { type: "credits"; amount: number; expiresInDays: number | null };
+};
+
+export type SpaceCommerceBenefit = SpaceCommerceFeatureBenefit | SpaceCommerceCreditsBenefit;
+
+export type SpaceCommerceProductCreditBenefit = {
+  key: string;
+  name: string;
+  amount: number;
+  expiresInDays: number | null;
+};
+
+export type SpaceCommerceProduct = {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  status: string;
+  visibility: string;
+  billingType: string;
+  billingPeriod: string;
+  billingIntervalCount: number;
+  currency: string;
+  kind: "addon";
+  interval: "one_time";
+  pricing: {
+    amountMinor: number;
+    amountUsd: number;
+    compareAtAmountMinor: number | null;
+    compareAtAmountUsd: number | null;
+    discountLabel: string | null;
+    discountRate: number | null;
   };
+  display: {
+    description: string | null;
+    benefits: string[];
+    creditsAmount: number | null;
+    validity: string | null;
+    creditBenefits: SpaceCommerceProductCreditBenefit[];
+  };
+  isDefaultPlan: boolean;
 };
 
 export type SpaceCommerceProductBenefitBinding = {

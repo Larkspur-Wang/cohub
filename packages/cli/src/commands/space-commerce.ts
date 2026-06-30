@@ -1,4 +1,4 @@
-import type { BillingCatalogProduct, SpaceCommerceFeatureBenefit, SpaceCommerceOrder } from "@neta-art/cohub";
+import type { SpaceCommerceBenefit, SpaceCommerceOrder, SpaceCommerceProduct } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
@@ -40,6 +40,9 @@ type BenefitCreateOptions = JsonOption & {
   benefitKey?: string;
   name?: string;
   description?: string;
+  type?: string;
+  amount?: string;
+  expiresInDays?: string;
   metadataJson?: string;
 };
 
@@ -139,33 +142,46 @@ function formatMinorUsd(amountMinor: number): string {
   return formatUsd(amountMinor / 100);
 }
 
-function printProducts(products: BillingCatalogProduct[]): void {
+function printProducts(products: SpaceCommerceProduct[]): void {
   table(products.map((product) => ({
     key: product.key,
     name: product.name,
     status: product.status,
     visibility: product.visibility,
     price: formatUsd(product.pricing.amountUsd),
+    credits: product.display.creditsAmount ?? "",
   })), [
     { key: "key", label: "Key" },
     { key: "name", label: "Name" },
     { key: "status", label: "Status" },
     { key: "visibility", label: "Visibility" },
     { key: "price", label: "Price" },
+    { key: "credits", label: "Credits" },
   ]);
 }
 
-function printBenefits(benefits: SpaceCommerceFeatureBenefit[]): void {
-  table(benefits.map((benefit) => ({
-    key: benefit.key,
-    name: benefit.name,
-    status: benefit.status,
-    description: benefit.description ?? "",
-  })), [
+function printBenefits(benefits: SpaceCommerceBenefit[]): void {
+  table(benefits.map((benefit) => {
+    let detail: string;
+    if (benefit.type === "credits") {
+      const config = benefit.config;
+      detail = `${config.amount} credits${config.expiresInDays != null ? ` · ${config.expiresInDays}d` : ""}`;
+    } else {
+      detail = JSON.stringify(benefit.config.metadata);
+    }
+    return {
+      key: benefit.key,
+      name: benefit.name,
+      type: benefit.type,
+      status: benefit.status,
+      detail,
+    };
+  }), [
     { key: "key", label: "Key" },
     { key: "name", label: "Name" },
+    { key: "type", label: "Type" },
     { key: "status", label: "Status" },
-    { key: "description", label: "Description" },
+    { key: "detail", label: "Detail" },
   ]);
 }
 
@@ -363,13 +379,43 @@ Examples:
     .option("--benefit-key <key>", "Benefit key override")
     .option("--name <name>", "Benefit name")
     .option("--description <text>", "Benefit description")
-    .option("--metadata-json <json>", "Benefit metadata JSON object")
+    .option("--type <type>", "Benefit type: feature, credits (default: feature)")
+    .option("--amount <n>", "Credit amount (credits type only)")
+    .option("--expires-in-days <n>", "Credit expiry in days (credits type only)")
+    .option("--metadata-json <json>", "Benefit metadata JSON object (feature type only)")
     .option("--json", "Output as JSON")
     .action(async (opts: BenefitCreateOptions) => {
+      const name = requireText(opts.name, "name", "--name <name>");
+      const type = parseChoice(opts.type, "type", ["feature", "credits"]) ?? "feature";
+      if (type === "credits") {
+        const amount = parseInteger(opts.amount, "amount", { fallback: 0, min: 1 });
+        if (amount < 1) return error("Missing amount", "Pass --amount <n> with a positive integer for credits benefits.");
+        const input = {
+          key: opts.benefitKey?.trim() || undefined,
+          name,
+          description: opts.description,
+          type: "credits" as const,
+          amount,
+          expiresInDays: opts.expiresInDays !== undefined
+            ? parseInteger(opts.expiresInDays, "expires-in-days", { fallback: 0, min: 1 })
+            : undefined,
+        };
+        const { commerce } = commerceClient(spacesCmd);
+        try {
+          const result = await commerce.createBenefit(input);
+          if (jsonRequested(opts)) return outJson(result);
+          ok(`Benefit created: ${result.benefit.key}`);
+          printBenefits([result.benefit]);
+        } catch (e: unknown) {
+          handleHttp(e);
+        }
+        return;
+      }
       const input = {
         key: opts.benefitKey?.trim() || undefined,
-        name: requireText(opts.name, "name", "--name <name>"),
+        name,
         description: opts.description,
+        type: "feature" as const,
         metadata: parseMetadataJson(opts.metadataJson),
       };
       const { commerce } = commerceClient(spacesCmd);

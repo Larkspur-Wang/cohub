@@ -3,13 +3,14 @@ import { spaceCommerceBusinesses, spaces, works } from "@cohub/db";
 import { db } from "../db/index.js";
 import { config } from "../config.js";
 import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
-import { benefitsFeature } from "@talesofai-billing/sdk/admin/benefits";
+import { benefitsFeature, type CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
 import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
 import { ordersFeature } from "@talesofai-billing/sdk/admin/orders";
-import { productsFeature } from "@talesofai-billing/sdk/admin/products";
+import { productsFeature, type Product } from "@talesofai-billing/sdk/admin/products";
 import {
   billingOperations,
+  createBusinessBillingOperations,
   COHUB_BILLING_FEATURES,
 } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
@@ -71,6 +72,62 @@ export function createSpaceCommerceSdk() {
 }
 
 export type SpaceCommerceSdk = ReturnType<typeof createSpaceCommerceSdk>;
+
+/**
+ * Creates business-scoped billing operations bound to a space's billing
+ * business. Used by work commerce to query viewer entitlements and consume
+ * credits without exposing admin credentials to the work surface.
+ */
+export function createSpaceBusinessBillingOperations(businessKey: string) {
+  const client = requireBillingClientConfig();
+  return createBusinessBillingOperations({
+    clientConfig: {
+      baseUrl: client.baseURL,
+      adminApiKey: client.adminApiKey,
+      businessKey,
+    },
+    businessKey,
+  });
+}
+
+const COHUB_BOUND_BENEFIT_KEYS_META_KEY = "cohub_bound_benefit_keys";
+
+/**
+ * Loads all credit benefits for a business, keyed by benefit key. Used by both
+ * space and work commerce routes to populate product `display.creditBenefits`.
+ */
+export async function loadBusinessCreditBenefits(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+}): Promise<Map<string, CreditsBenefit>> {
+  const creditBenefits = new Map<string, CreditsBenefit>();
+  let page = 1;
+  while (true) {
+    const result = await input.sdk.admin.benefits.list({
+      business_key: input.businessKey,
+      include_count: false,
+      limit: 100,
+      page,
+    });
+    for (const benefit of result.items) {
+      if (benefit.type === "credits") creditBenefits.set(benefit.key, benefit);
+    }
+    if (!result.pagination.has_more) break;
+    page += 1;
+  }
+  return creditBenefits;
+}
+
+/**
+ * Reads bound benefit keys from a product's meta. Cohub stores the list of
+ * bound benefit keys in `meta.cohub_bound_benefit_keys` so product-benefit
+ * bindings can be resolved without extra API calls per product.
+ */
+export function readBoundBenefitKeys(product: Product): string[] {
+  const value = product.meta?.[COHUB_BOUND_BENEFIT_KEYS_META_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
 
 function normalizeBusinessKeyValue(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9_-]/g, "_");

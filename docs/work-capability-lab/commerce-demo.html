@@ -53,7 +53,7 @@
     async function render() {
       const [{ products }, { entitlements }, checkoutState] = await Promise.all([
         cohub.work.commerce.resolveProducts({ productKeys: [PRODUCT_KEY] }),
-        cohub.work.commerce.checkEntitlements({ benefitKeys: [BENEFIT_KEY] }),
+        cohub.work.commerce.getEntitlements(),
         cohub.work.commerce.getCheckoutState(),
       ]);
 

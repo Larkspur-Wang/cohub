@@ -1,22 +1,34 @@
 import type { HttpTransport } from "../transport.js";
-import type { BillingCatalogProduct } from "../types.js";
+import type { SpaceCommerceProduct } from "../types.js";
 
-export type WorkCommerceEntitlementCheckItem = {
+export type WorkCommerceEntitlement = {
   benefitKey: string;
   enabled: boolean;
-  reason: "active_grant" | "no_active_grant" | "benefit_not_found" | "benefit_not_feature";
-  metadata: Record<string, string | number | boolean> | null;
+  metadata: Record<string, string | number | boolean>;
+};
+
+export type WorkCommerceEntitlementsResponse = {
+  entitlements: WorkCommerceEntitlement[];
+  credits: {
+    available: number;
+    net: number;
+  };
+  businessKey: string;
 };
 
 export type WorkCommerceCheckoutStatus = "success" | "failed" | "cancel" | null;
 
 export type WorkCommerceProductResolveResponse = {
-  products: BillingCatalogProduct[];
+  products: SpaceCommerceProduct[];
 };
 
-export type WorkCommerceEntitlementsResponse = {
-  entitlements: WorkCommerceEntitlementCheckItem[];
-  checkedAt: string;
+export type WorkCommerceCreditConsumeStatus = "consumed" | "insufficient" | "disabled";
+
+export type WorkCommerceCreditConsumeResponse = {
+  status: WorkCommerceCreditConsumeStatus;
+  amount: number;
+  remaining: number;
+  shortfall: number | null;
   businessKey: string;
 };
 
@@ -57,9 +69,15 @@ export class WorkCommerceApi {
     );
   }
 
-  checkEntitlements(workId: string, input: { benefitKeys: string[] }) {
+  getEntitlements(workId: string) {
     return this.transport.request<WorkCommerceEntitlementsResponse>(
-      `/api/works/${encodeURIComponent(workId)}/commerce/entitlements/check`,
+      `/api/works/${encodeURIComponent(workId)}/commerce/entitlements`,
+    );
+  }
+
+  consumeCredits(workId: string, input: { amount: number; operationId: string; reason?: string }) {
+    return this.transport.request<WorkCommerceCreditConsumeResponse>(
+      `/api/works/${encodeURIComponent(workId)}/commerce/credits/consume`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

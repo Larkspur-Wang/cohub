@@ -108,10 +108,15 @@ export class CohubClient {
         if (!context?.work?.id) throw new Error("Work context is unavailable.");
         return this.workCommerce.resolveProducts(context.work.id, input);
       },
-      checkEntitlements: async (input: { benefitKeys: string[] }) => {
+      getEntitlements: async () => {
         const context = await this.workRuntime.context();
         if (!context?.work?.id) throw new Error("Work context is unavailable.");
-        return this.workCommerce.checkEntitlements(context.work.id, input);
+        return this.workCommerce.getEntitlements(context.work.id);
+      },
+      consumeCredits: async (input: { amount: number; operationId: string; reason?: string }) => {
+        const context = await this.workRuntime.context();
+        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        return this.workCommerce.consumeCredits(context.work.id, input);
       },
       purchase: async (input: { productKey: string }) => this.workRuntime.purchase(input),
       getCheckoutState: async (): Promise<{ status: WorkCommerceCheckoutStatus; orderId: string | null }> => {

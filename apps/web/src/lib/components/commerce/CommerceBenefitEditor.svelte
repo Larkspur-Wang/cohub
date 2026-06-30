@@ -1,8 +1,9 @@
 <script lang="ts">
-import type { SpaceCommerceFeatureBenefit } from "@neta-art/cohub";
+import type { SpaceCommerceBenefit } from "@neta-art/cohub";
 import { Loader2, Plus, Trash2 } from "lucide-svelte";
 import { untrack } from "svelte";
 
+type BenefitType = "feature" | "credits";
 type MetaType = "string" | "number" | "boolean";
 
 type MetaRow = {
@@ -13,18 +14,29 @@ type MetaRow = {
 	value: string;
 };
 
+type SubmitInput =
+	| {
+			type: "feature";
+			name: string;
+			description?: string;
+			metadata: Record<string, string | number | boolean>;
+	  }
+	| {
+			type: "credits";
+			name: string;
+			description?: string;
+			amount: number;
+			expiresInDays?: number;
+	  };
+
 const {
 	benefit,
 	onSubmit,
 	onCancel,
 	busy = false,
 }: {
-	benefit?: SpaceCommerceFeatureBenefit | null;
-	onSubmit: (input: {
-		name: string;
-		description?: string;
-		metadata: Record<string, string | number | boolean>;
-	}) => Promise<void>;
+	benefit?: SpaceCommerceBenefit | null;
+	onSubmit: (input: SubmitInput) => Promise<void>;
 	onCancel: () => void;
 	busy?: boolean;
 } = $props();
@@ -60,30 +72,56 @@ function parseMetadata(
 	});
 }
 
-// Snapshot the seed once: form fields are editable copies, not reactive mirrors.
 const seed = untrack(() => {
-	const metadata = benefit?.config?.metadata;
-	if (metadata && Object.keys(metadata).length > 0) {
+	const benefitType = benefit?.type ?? "feature";
+	if (benefitType === "credits" && benefit?.type === "credits") {
 		return {
 			key: benefit?.key ?? "",
 			name: benefit?.name ?? "",
 			description: benefit?.description ?? "",
-			rows: parseMetadata(metadata),
+			type: "credits" as BenefitType,
+			amount: String(benefit.config.amount ?? ""),
+			expiresInDays:
+				benefit.config.expiresInDays != null
+					? String(benefit.config.expiresInDays)
+					: "",
+			rows: [] as MetaRow[],
 		};
 	}
+	const metadata = benefit?.type === "feature" ? benefit.config.metadata : {};
+	const hasMetadata = metadata && Object.keys(metadata).length > 0;
 	return {
 		key: benefit?.key ?? "",
 		name: benefit?.name ?? "",
 		description: benefit?.description ?? "",
-		rows: [makeRow({ key: "enabled", type: "boolean", value: "true" })],
+		type: "feature" as BenefitType,
+		amount: "",
+		expiresInDays: "",
+		rows: hasMetadata
+			? parseMetadata(metadata)
+			: [makeRow({ key: "enabled", type: "boolean", value: "true" })],
 	};
 });
 
 const systemKey = seed.key;
+let benefitType = $state<BenefitType>(seed.type);
 let name = $state(seed.name);
 let description = $state(seed.description);
+let creditAmount = $state(seed.amount);
+let creditExpiresInDays = $state(seed.expiresInDays);
 let error = $state("");
 let rows = $state<MetaRow[]>(seed.rows);
+
+const isCredits = $derived(benefitType === "credits");
+const typeLocked = $derived(isEdit);
+
+function switchType(type: BenefitType) {
+	if (typeLocked || busy) return;
+	benefitType = type;
+	if (type === "feature" && rows.length === 0) {
+		rows = [makeRow({ key: "enabled", type: "boolean", value: "true" })];
+	}
+}
 
 function addRow() {
 	rows = [...rows, makeRow()];
@@ -122,16 +160,49 @@ function buildMetadata(): Record<string, string | number | boolean> {
 }
 
 const nameInvalid = $derived(!name.trim());
+const parsedAmount = $derived(
+	creditAmount.trim() === "" ? null : Number.parseInt(creditAmount, 10),
+);
+const amountInvalid = $derived(
+	isCredits &&
+		(parsedAmount === null ||
+			!Number.isSafeInteger(parsedAmount) ||
+			parsedAmount < 1 ||
+			String(parsedAmount) !== creditAmount.trim()),
+);
+const formInvalid = $derived(nameInvalid || (isCredits && amountInvalid));
 
 async function submit() {
 	error = "";
-	if (nameInvalid) return;
+	if (formInvalid) return;
 	try {
-		await onSubmit({
-			name: name.trim(),
-			description: description.trim() || undefined,
-			metadata: buildMetadata(),
-		});
+		if (isCredits) {
+			const amount = Number.parseInt(creditAmount.trim(), 10);
+			if (!Number.isSafeInteger(amount) || amount < 1) return;
+			const expiresInDaysRaw = creditExpiresInDays.trim();
+			const expiresInDays = expiresInDaysRaw
+				? Number.parseInt(expiresInDaysRaw, 10)
+				: undefined;
+			if (
+				expiresInDays !== undefined &&
+				(!Number.isSafeInteger(expiresInDays) || expiresInDays < 1)
+			)
+				return;
+			await onSubmit({
+				type: "credits",
+				name: name.trim(),
+				description: description.trim() || undefined,
+				amount,
+				expiresInDays,
+			});
+		} else {
+			await onSubmit({
+				type: "feature",
+				name: name.trim(),
+				description: description.trim() || undefined,
+				metadata: buildMetadata(),
+			});
+		}
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to save benefit.";
 	}
@@ -146,14 +217,32 @@ const readonlyClass =
 </script>
 
 <div class="flex flex-col gap-4 p-4 sm:p-5">
-	<!-- Type selector (extensibility scaffold: only Feature is active) -->
+	<!-- Type selector -->
 	<div class="flex flex-col gap-1.5">
 		<span class={labelClass}>Benefit type</span>
 		<div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
-			<span class="rounded-[5px] bg-bg-input px-3 py-1.5 font-medium text-text-primary shadow-sm">Feature</span>
-			<span class="rounded-[5px] px-3 py-1.5 text-text-placeholder">Credits · soon</span>
+			<button
+				type="button"
+				class="rounded-[5px] px-3 py-1.5 font-medium transition-colors {benefitType === 'feature' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-placeholder hover:text-text-tertiary'}"
+				onclick={() => switchType("feature")}
+				disabled={typeLocked || busy}
+			>
+				Feature
+			</button>
+			<button
+				type="button"
+				class="rounded-[5px] px-3 py-1.5 font-medium transition-colors {benefitType === 'credits' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-placeholder hover:text-text-tertiary'}"
+				onclick={() => switchType("credits")}
+				disabled={typeLocked || busy}
+			>
+				Credits
+			</button>
 		</div>
-		<span class="text-[11px] text-text-tertiary">Feature benefits gate access to product capabilities.</span>
+		<span class="text-[11px] text-text-tertiary">
+			{isCredits
+				? "Credit benefits grant consumable credits at business scope."
+				: "Feature benefits gate access to product capabilities."}
+		</span>
 	</div>
 
 	{#if isEdit}
@@ -183,7 +272,7 @@ const readonlyClass =
 				class={inputClass}
 				bind:value={name}
 				disabled={busy}
-				placeholder="Premium Export"
+				placeholder={isCredits ? "500 Credits" : "Premium Export"}
 				autocomplete="off"
 			/>
 			<span class="text-[11px] text-text-tertiary">A stable key is generated from this name.</span>
@@ -203,85 +292,121 @@ const readonlyClass =
 		></textarea>
 	</div>
 
-	<!-- Metadata editor -->
-	<div class="flex flex-col gap-2">
-		<div class="flex items-center justify-between">
-			<span class={labelClass}>Metadata</span>
-			<button
-				type="button"
-				class="inline-flex h-7 items-center gap-1 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
-				onclick={addRow}
-				disabled={busy}
-			>
-				<Plus class="h-3 w-3" /> Add field
-			</button>
+	{#if isCredits}
+		<!-- Credits configuration -->
+		<div class="grid gap-4 sm:grid-cols-2">
+			<div class="flex flex-col gap-1.5">
+				<label class={labelClass} for="credit-amount">Credit amount</label>
+				<input
+					id="credit-amount"
+					class={inputClass + " font-mono"}
+					type="number"
+					min="1"
+					step="1"
+					bind:value={creditAmount}
+					disabled={busy || isEdit}
+					placeholder="500"
+					autocomplete="off"
+				/>
+				<span class="text-[11px] text-text-tertiary">Positive integer. Immutable after creation.</span>
+			</div>
+			<div class="flex flex-col gap-1.5">
+				<label class={labelClass} for="credit-expires">Expires in (days, optional)</label>
+				<input
+					id="credit-expires"
+					class={inputClass + " font-mono"}
+					type="number"
+					min="1"
+					step="1"
+					bind:value={creditExpiresInDays}
+					disabled={busy || isEdit}
+					placeholder="365"
+					autocomplete="off"
+				/>
+				<span class="text-[11px] text-text-tertiary">Leave blank for no expiry. Immutable after creation.</span>
+			</div>
 		</div>
-		<span class="text-[11px] text-text-tertiary">Configure the entitlement. <code class="font-mono text-text-secondary">enabled</code> toggles access; numeric values set limits.</span>
-
+	{:else}
+		<!-- Metadata editor -->
 		<div class="flex flex-col gap-2">
-			{#each rows as row (row.id)}
-				<div class="flex flex-wrap items-center gap-2">
-					<input
-						class={inputClass + " min-w-[120px] flex-1 font-mono"}
-						bind:value={row.key}
-						disabled={busy}
-						placeholder="enabled"
-						autocomplete="off"
-						spellcheck="false"
-					/>
-					<select
-						class="h-9 rounded-[6px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60"
-						value={row.type}
-						onchange={(e) => changeType(row.id, e.currentTarget.value as MetaType)}
-						disabled={busy}
-						aria-label="Field type"
-					>
-						<option value="string">text</option>
-						<option value="number">number</option>
-						<option value="boolean">bool</option>
-					</select>
-					{#if row.type === "boolean"}
+			<div class="flex items-center justify-between">
+				<span class={labelClass}>Metadata</span>
+				<button
+					type="button"
+					class="inline-flex h-7 items-center gap-1 rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
+					onclick={addRow}
+					disabled={busy}
+				>
+					<Plus class="h-3 w-3" /> Add field
+				</button>
+			</div>
+			<span class="text-[11px] text-text-tertiary">Configure the entitlement. <code class="font-mono text-text-secondary">enabled</code> toggles access; numeric values set limits.</span>
+
+			<div class="flex flex-col gap-2">
+				{#each rows as row (row.id)}
+					<div class="flex flex-wrap items-center gap-2">
+						<input
+							class={inputClass + " min-w-[120px] flex-1 font-mono"}
+							bind:value={row.key}
+							disabled={busy}
+							placeholder="enabled"
+							autocomplete="off"
+							spellcheck="false"
+						/>
+						<select
+							class="h-9 rounded-[6px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60"
+							value={row.type}
+							onchange={(e) => changeType(row.id, e.currentTarget.value as MetaType)}
+							disabled={busy}
+							aria-label="Field type"
+						>
+							<option value="string">text</option>
+							<option value="number">number</option>
+							<option value="boolean">bool</option>
+						</select>
+						{#if row.type === "boolean"}
+							<button
+								type="button"
+								class="h-9 min-w-[72px] flex-1 rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-60"
+								onclick={() => (row.value = row.value === "true" ? "false" : "true")}
+								disabled={busy}
+							>
+								{row.value === "true" ? "true" : "false"}
+							</button>
+						{:else if row.type === "number"}
+							<input
+								class={inputClass + " min-w-[100px] flex-1 font-mono"}
+								type="number"
+								bind:value={row.value}
+								disabled={busy}
+								placeholder="0"
+							/>
+						{:else}
+							<input
+								class={inputClass + " min-w-[100px] flex-1"}
+								bind:value={row.value}
+								disabled={busy}
+								placeholder="value"
+							/>
+						{/if}
 						<button
 							type="button"
-							class="h-9 min-w-[72px] flex-1 rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-60"
-							onclick={() => (row.value = row.value === "true" ? "false" : "true")}
+							class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50"
+							onclick={() => removeRow(row.id)}
 							disabled={busy}
+							aria-label="Remove field"
 						>
-							{row.value === "true" ? "true" : "false"}
+							<Trash2 class="h-3.5 w-3.5" />
 						</button>
-					{:else if row.type === "number"}
-						<input
-							class={inputClass + " min-w-[100px] flex-1 font-mono"}
-							type="number"
-							bind:value={row.value}
-							disabled={busy}
-							placeholder="0"
-						/>
-					{:else}
-						<input
-							class={inputClass + " min-w-[100px] flex-1"}
-							bind:value={row.value}
-							disabled={busy}
-							placeholder="value"
-						/>
-					{/if}
-					<button
-						type="button"
-						class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[6px] text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50"
-						onclick={() => removeRow(row.id)}
-						disabled={busy}
-						aria-label="Remove field"
-					>
-						<Trash2 class="h-3.5 w-3.5" />
-					</button>
-				</div>
-			{:else}
-				<div class="rounded-[6px] border border-dashed border-border-subtle px-3 py-4 text-center text-[12px] text-text-tertiary">
-					No metadata fields. Add one to configure the entitlement.
-				</div>
-			{/each}
+					</div>
+				{:else}
+					<div class="rounded-[6px] border border-dashed border-border-subtle px-3 py-4 text-center text-[12px] text-text-tertiary">
+						No metadata fields. Add one to configure the entitlement.
+					</div>
+				{/each}
+			</div>
 		</div>
-	</div>
+	{/if}
 
 	{#if error}
 		<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{error}</div>
@@ -300,7 +425,7 @@ const readonlyClass =
 			type="button"
 			class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity disabled:opacity-50"
 			onclick={() => void submit()}
-			disabled={busy || nameInvalid}
+			disabled={busy || formInvalid}
 		>
 			{#if busy}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
 			{isEdit ? "Save changes" : "Create benefit"}

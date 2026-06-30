@@ -154,9 +154,7 @@ const { products } = await cohub.work.commerce.resolveProducts({
   productKeys: ["pro_unlock"],
 });
 
-const { entitlements } = await cohub.work.commerce.checkEntitlements({
-  benefitKeys: ["space_pro"],
-});
+const { entitlements, credits } = await cohub.work.commerce.getEntitlements();
 
 const checkout = await cohub.work.commerce.purchase({
   productKey: "pro_unlock",

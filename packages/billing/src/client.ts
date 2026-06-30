@@ -33,6 +33,7 @@ import type { Redis } from "ioredis";
 import {
   COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_TOKEN_TYPES,
+  COHUB_BILLING_USAGE_TYPES,
   type BillingAccountState,
   type BillingBalanceActivity,
   type BillingBalanceActivityList,
@@ -46,6 +47,9 @@ import {
   type BillingCreditExpiryGroup,
   type BillingCreditGrantStatus,
   type BillingCreditStatus,
+  type BillingCreditUnit,
+  type BusinessBillingOperations,
+  type BusinessCreditConsumeResult,
   type BillingFeatureEntitlement,
   type BillingFeatureLimitCheck,
   type BillingFeatureLimitInput,
@@ -185,18 +189,20 @@ function redemptionIdempotencyKey(input: {
 
 function roundUsd(
   value: number,
-  decimalPlaces = COHUB_BILLING_CREDIT_UNITS.usdMicroCent.usdDecimalPlaces,
+  decimalPlaces: number = COHUB_BILLING_CREDIT_UNITS.usdMicroCent.usdDecimalPlaces,
 ): number {
   if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(decimalPlaces));
 }
 
-function getCreditUnit(tokenType: string) {
+function getCreditUnit(tokenType: string): BillingCreditUnit {
   if (tokenType === COHUB_BILLING_TOKEN_TYPES.usdMicroCent)
     return COHUB_BILLING_CREDIT_UNITS.usdMicroCent;
+  if (tokenType === COHUB_BILLING_TOKEN_TYPES.cohubCredit)
+    return COHUB_BILLING_CREDIT_UNITS.cohubCredit;
   return {
     tokenType,
-    displayCurrency: "USD" as const,
+    displayCurrency: "USD",
     displayUnit: COHUB_BILLING_CREDIT_UNITS.usdMicroCent.displayUnit,
     unitToUsd: COHUB_BILLING_CREDIT_UNITS.usdMicroCent.unitToUsd,
     unitsPerUsd: COHUB_BILLING_CREDIT_UNITS.usdMicroCent.unitsPerUsd,
@@ -2607,6 +2613,230 @@ export function createTalesofaiBillingOperations(
         fallbackLimit: input.fallbackLimit,
         missingEntitlementPolicy: input.missingEntitlementPolicy,
       });
+    },
+  };
+}
+
+function createBusinessSdk(clientConfig: BillingClientConfig) {
+  return createSdk({
+    baseURL: clientConfig.baseUrl,
+    adminApiKey: clientConfig.adminApiKey,
+  })
+    .useAdmin(customersFeature())
+    .useAdmin(creditsFeature());
+}
+
+type BusinessSdk = ReturnType<typeof createBusinessSdk>;
+
+async function ensureBusinessCustomer(
+  sdk: BusinessSdk,
+  businessKey: string,
+  userId: string,
+): Promise<void> {
+  try {
+    await sdk.admin.customers.create({
+      external_user_id: userId,
+      status: "active",
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 409) throw error;
+  }
+}
+
+async function listBusinessCreditGrants(
+  sdk: BusinessSdk,
+  businessKey: string,
+  userId: string,
+): Promise<CreditGrant[]> {
+  const grants: CreditGrant[] = [];
+  for (let page = 1; page <= CREDIT_LIST_MAX_PAGES; page += 1) {
+    const result = await sdk.admin.credits.listGrants({
+      business_key: businessKey,
+      external_user_id: userId,
+      token_type: COHUB_BILLING_TOKEN_TYPES.cohubCredit,
+      include_count: false,
+      page,
+      limit: CREDIT_LIST_PAGE_LIMIT,
+    });
+    grants.push(...result.items);
+    if (!result.pagination.has_more) break;
+  }
+  return grants;
+}
+
+async function resolveRemaining(
+  sdk: BusinessSdk,
+  businessKey: string,
+  userId: string,
+): Promise<number> {
+  try {
+    const credits = await sdk.admin.customers.getCredits({
+      external_user_id: userId,
+      business_key: businessKey,
+    });
+    const balance =
+      credits.credits.find((c) => c.token_type === COHUB_BILLING_TOKEN_TYPES.cohubCredit) ?? null;
+    return balance?.available_balance ?? 0;
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    return 0;
+  }
+}
+
+/**
+ * Creates business-scoped billing operations bound to a single billing
+ * business (e.g. a Cohub Space). Shares the platform credit mapping helpers
+ * and declarations so space commerce and platform billing never drift apart.
+ * Credits use the virtual `cohub_credit` token at business scope.
+ */
+export function createBusinessBillingOperations(input: {
+  clientConfig: BillingClientConfig;
+  businessKey: string;
+}): BusinessBillingOperations {
+  const sdk = createBusinessSdk(input.clientConfig);
+  const businessKey = input.businessKey;
+  const status: BillingPluginStatus = {
+    provider: "talesofai",
+    configured: true,
+  };
+
+  const getEntitlements = async (
+    ref: BillingUserRef,
+  ): Promise<BillingAccountState> => {
+    await ensureBusinessCustomer(sdk, businessKey, ref.userId);
+    try {
+      const state = await sdk.admin.customers.getState({
+        external_user_id: ref.userId,
+        business_key: businessKey,
+      });
+      return {
+        userId: ref.userId,
+        credits: state.credits.map(mapCreditBalance),
+        entitlements: mapFeatureEntitlements(state.active_benefits),
+      };
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+      return { userId: ref.userId, credits: [], entitlements: [] };
+    }
+  };
+
+  const getCreditStatus = async (
+    ref: BillingUserRef,
+  ): Promise<BillingCreditStatus> => {
+    const tokenType = COHUB_BILLING_TOKEN_TYPES.cohubCredit;
+    await ensureBusinessCustomer(sdk, businessKey, ref.userId);
+    let netBalance = 0;
+    try {
+      const credits = await sdk.admin.customers.getCredits({
+        external_user_id: ref.userId,
+        business_key: businessKey,
+      });
+      const balance =
+        credits.credits.find((c) => c.token_type === tokenType) ?? null;
+      netBalance = balance?.net_balance ?? 0;
+    } catch (error) {
+      if (!isNotFound(error)) throw error;
+    }
+    const grants = (await listBusinessCreditGrants(sdk, businessKey, ref.userId)).filter(
+      (grant) =>
+        CREDIT_GRANT_DISPLAY_STATUSES.includes(
+          grant.status as CreditGrantDisplayStatus,
+        ) && isCreditGrantDisplayable(grant),
+    );
+    const grantStatuses = grants.map((grant) => mapCreditGrant(grant));
+    return {
+      netUsd: amountToUsd(netBalance, tokenType),
+      groups: groupCreditGrants(grantStatuses),
+    };
+  };
+
+  const consume = async (
+    ref: BillingUserRef & {
+      amount: number;
+      operationId: string;
+      sourceId: string;
+      reason?: string;
+    },
+  ): Promise<BusinessCreditConsumeResult> => {
+    const tokenType = COHUB_BILLING_TOKEN_TYPES.cohubCredit;
+    const amount = Math.max(0, Math.floor(ref.amount));
+    if (amount <= 0) {
+      return { userId: ref.userId, status: "consumed", amount: 0, remaining: 0, shortfall: null };
+    }
+    await ensureBusinessCustomer(sdk, businessKey, ref.userId);
+
+    // Consume is authoritative and idempotent via operationId: a retry returns
+    // the original result without double-charging.
+    const response = await sdk.admin.credits.consume(
+      {
+        business_key: businessKey,
+        external_user_id: ref.userId,
+        token_type: tokenType,
+        amount,
+        source_type: "usage",
+        source_id: ref.sourceId,
+        usage_type: COHUB_BILLING_USAGE_TYPES.workConsumption,
+        operation_id: ref.operationId,
+        reason: ref.reason,
+      },
+      { idempotencyKey: ref.operationId },
+    );
+
+    const remaining = await resolveRemaining(sdk, businessKey, ref.userId);
+
+    if (response.overage) {
+      return {
+        userId: ref.userId,
+        status: "insufficient",
+        amount: 0,
+        remaining,
+        shortfall: amount,
+      };
+    }
+
+    return {
+      userId: ref.userId,
+      status: "consumed",
+      amount,
+      remaining,
+      shortfall: null,
+    };
+  };
+
+  return {
+    status,
+    businessKey,
+    getEntitlements,
+    getCreditStatus,
+    consume,
+  };
+}
+
+export function createDisabledBusinessBillingOperations(
+  reason = "billing configuration is missing",
+): BusinessBillingOperations {
+  const status: BillingPluginStatus = {
+    provider: "disabled",
+    configured: false,
+    reason,
+  };
+  return {
+    status,
+    businessKey: "",
+    async getEntitlements(input: BillingUserRef): Promise<BillingAccountState> {
+      return { userId: input.userId, credits: [], entitlements: [] };
+    },
+    async getCreditStatus(): Promise<BillingCreditStatus> {
+      return emptyCreditStatus();
+    },
+    async consume(input): Promise<BusinessCreditConsumeResult> {
+      return {
+        userId: input.userId,
+        status: "disabled",
+        amount: 0,
+        remaining: 0,
+        shortfall: null,
+      };
     },
   };
 }

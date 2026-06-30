@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { BillingCatalogProduct } from "@neta-art/cohub";
+import type { SpaceCommerceProduct } from "@neta-art/cohub";
 import { Loader2 } from "lucide-svelte";
 import { untrack } from "svelte";
 
@@ -9,7 +9,7 @@ const {
 	onCancel,
 	busy = false,
 }: {
-	product?: BillingCatalogProduct | null;
+	product?: SpaceCommerceProduct | null;
 	onSubmit: (input: {
 		name: string;
 		description?: string;

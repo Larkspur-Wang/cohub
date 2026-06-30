@@ -1,8 +1,8 @@
 <script lang="ts">
 import type {
-	BillingCatalogProduct,
-	SpaceCommerceFeatureBenefit,
+	SpaceCommerceBenefit,
 	SpaceCommerceOrder,
+	SpaceCommerceProduct,
 	SpaceCommerceProductBenefitBinding,
 } from "@neta-art/cohub";
 import {
@@ -28,9 +28,9 @@ type MetaValue = string | number | boolean;
 type DialogState =
 	| { kind: "none" }
 	| { kind: "benefit-create" }
-	| { kind: "benefit-edit"; benefit: SpaceCommerceFeatureBenefit }
+	| { kind: "benefit-edit"; benefit: SpaceCommerceBenefit }
 	| { kind: "product-create" }
-	| { kind: "product-edit"; product: BillingCatalogProduct };
+	| { kind: "product-edit"; product: SpaceCommerceProduct };
 
 const NOT_INITIALIZED_CODE = "space_commerce_not_initialized";
 
@@ -40,8 +40,8 @@ const spaceId = $derived(props.data.spaceId);
 let loading = $state(true);
 let loadError = $state("");
 let commerceInitialized = $state(true);
-let products = $state<BillingCatalogProduct[]>([]);
-let benefits = $state<SpaceCommerceFeatureBenefit[]>([]);
+let products = $state<SpaceCommerceProduct[]>([]);
+let benefits = $state<SpaceCommerceBenefit[]>([]);
 let orders = $state<SpaceCommerceOrder[]>([]);
 let productBenefits = $state<SpaceCommerceProductBenefitBinding[]>([]);
 
@@ -134,7 +134,7 @@ async function loadInitial(targetSpaceId: string = spaceId) {
 		stale = targetSpaceId !== spaceId;
 		if (stale) return;
 		products = productResult.products;
-		benefits = benefitResult.benefits as SpaceCommerceFeatureBenefit[];
+		benefits = benefitResult.benefits as SpaceCommerceBenefit[];
 		productBenefits =
 			bindingResult.productBenefits as SpaceCommerceProductBenefitBinding[];
 		orders = orderResult.orders as SpaceCommerceOrder[];
@@ -171,7 +171,7 @@ async function refreshProducts() {
 async function refreshBenefits() {
 	try {
 		const { benefits: next } = await sdk.space(spaceId).commerce.listBenefits();
-		benefits = next as SpaceCommerceFeatureBenefit[];
+		benefits = next as SpaceCommerceBenefit[];
 	} catch (error) {
 		actionError = messageOf(error, "Failed to refresh benefits.");
 	}
@@ -252,11 +252,22 @@ async function setupCommerce() {
 
 // ---- Benefits ----
 
-async function submitBenefit(input: {
-	name: string;
-	description?: string;
-	metadata: Record<string, MetaValue>;
-}) {
+async function submitBenefit(
+	input:
+		| {
+				type: "feature";
+				name: string;
+				description?: string;
+				metadata: Record<string, MetaValue>;
+		  }
+		| {
+				type: "credits";
+				name: string;
+				description?: string;
+				amount: number;
+				expiresInDays?: number;
+		  },
+) {
 	benefitSaving = true;
 	clearNotice();
 	try {
@@ -264,15 +275,11 @@ async function submitBenefit(input: {
 			await sdk.space(spaceId).commerce.updateBenefit(dialog.benefit.key, {
 				name: input.name,
 				description: input.description ?? null,
-				metadata: input.metadata,
+				metadata: input.type === "feature" ? input.metadata : undefined,
 			});
 			notice = "Benefit updated.";
 		} else {
-			await sdk.space(spaceId).commerce.createBenefit({
-				name: input.name,
-				description: input.description,
-				metadata: input.metadata,
-			});
+			await sdk.space(spaceId).commerce.createBenefit(input);
 			notice = "Benefit created.";
 		}
 		dialog = { kind: "none" };
@@ -284,7 +291,7 @@ async function submitBenefit(input: {
 	// banner is hidden behind the dialog overlay while it is open).
 }
 
-async function archiveBenefit(benefit: SpaceCommerceFeatureBenefit) {
+async function archiveBenefit(benefit: SpaceCommerceBenefit) {
 	if (benefitActionBusyKey || benefit.status === "archived") return;
 	if (!window.confirm(`Archive benefit "${benefit.name}"?`)) return;
 	benefitActionBusyKey = benefit.key;
@@ -339,7 +346,7 @@ async function submitProduct(input: {
 	// banner is hidden behind the dialog overlay while it is open).
 }
 
-async function archiveProduct(product: BillingCatalogProduct) {
+async function archiveProduct(product: SpaceCommerceProduct) {
 	if (productActionBusyKey || product.status === "archived") return;
 	if (!window.confirm(`Archive product "${product.name}"?`)) return;
 	productActionBusyKey = product.key;
@@ -407,16 +414,35 @@ async function unbindBenefit(binding: SpaceCommerceProductBenefitBinding) {
 
 // ---- Formatting helpers ----
 
-function formatPrice(product: BillingCatalogProduct): string {
-	return `$${product.pricing.amountUsd.toLocaleString("en-US", {
+function formatPrice(product: SpaceCommerceProduct): string {
+	const price = `${product.pricing.amountUsd.toLocaleString("en-US", {
 		minimumFractionDigits: 2,
 		maximumFractionDigits: 2,
 	})}`;
+	if (
+		product.display.creditsAmount != null &&
+		product.display.creditsAmount > 0
+	) {
+		return `${price} · ${product.display.creditsAmount} credits`;
+	}
+	return price;
 }
 
 function metadataEntries(
-	benefit: SpaceCommerceFeatureBenefit,
+	benefit: SpaceCommerceBenefit,
 ): Array<{ key: string; value: string }> {
+	if (benefit.type === "credits") {
+		const entries: Array<{ key: string; value: string }> = [
+			{ key: "amount", value: String(benefit.config.amount) },
+		];
+		if (benefit.config.expiresInDays != null) {
+			entries.push({
+				key: "expires",
+				value: `${benefit.config.expiresInDays}d`,
+			});
+		}
+		return entries;
+	}
 	return Object.entries(benefit.config.metadata).map(([key, value]) => ({
 		key,
 		value:
@@ -553,7 +579,7 @@ $effect(() => {
 							<Sparkles class="h-4 w-4 text-text-tertiary" />
 							<div>
 								<div class="text-[15px] font-medium text-text-primary">Benefits</div>
-								<div class="text-[12px] text-text-tertiary">Reusable feature benefits bound to products.</div>
+								<div class="text-[12px] text-text-tertiary">Feature and credit benefits bound to products.</div>
 							</div>
 						</div>
 						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
@@ -564,7 +590,7 @@ $effect(() => {
 						{#if benefits.length === 0}
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-6 text-center">
 								<div class="text-[13px] font-medium text-text-secondary">No benefits yet</div>
-								<div class="mt-1 text-[12px] text-text-tertiary">Create a feature benefit to gate access to platform capabilities.</div>
+								<div class="mt-1 text-[12px] text-text-tertiary">Create a feature benefit to gate access, or a credits benefit to sell consumable credits.</div>
 								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
 									<Plus class="h-3.5 w-3.5" /> Create benefit
 								</button>
@@ -580,7 +606,7 @@ $effect(() => {
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="inline-flex h-1.5 w-1.5 shrink-0 rounded-full {archived ? 'bg-text-placeholder' : 'bg-brand'}" aria-hidden="true"></span>
 													<span class="text-[13px] font-medium text-text-primary {archived ? 'line-through' : ''}">{benefit.name}</span>
-													<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">Feature</span>
+													<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-tertiary">{benefit.type === 'credits' ? 'Credits' : 'Feature'}</span>
 													{#if archived}<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-placeholder">Archived</span>{/if}
 												</div>
 												<div class="mt-0.5 truncate font-mono text-[11px] text-text-tertiary">{benefit.key}</div>
