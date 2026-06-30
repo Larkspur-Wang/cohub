@@ -253,7 +253,6 @@ async function setupCommerce() {
 // ---- Benefits ----
 
 async function submitBenefit(input: {
-	key?: string;
 	name: string;
 	description?: string;
 	metadata: Record<string, MetaValue>;
@@ -270,7 +269,6 @@ async function submitBenefit(input: {
 			notice = "Benefit updated.";
 		} else {
 			await sdk.space(spaceId).commerce.createBenefit({
-				key: input.key,
 				name: input.name,
 				description: input.description,
 				metadata: input.metadata,
@@ -307,7 +305,6 @@ async function archiveBenefit(benefit: SpaceCommerceFeatureBenefit) {
 // ---- Products ----
 
 async function submitProduct(input: {
-	key?: string;
 	name: string;
 	description?: string;
 	amountUsd: number;
@@ -325,7 +322,6 @@ async function submitProduct(input: {
 			notice = "Product updated.";
 		} else {
 			await sdk.space(spaceId).commerce.createProduct({
-				key: input.key,
 				name: input.name,
 				description: input.description,
 				amountUsd: input.amountUsd,

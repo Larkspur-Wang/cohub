@@ -21,7 +21,6 @@ const {
 }: {
 	benefit?: SpaceCommerceFeatureBenefit | null;
 	onSubmit: (input: {
-		key?: string;
 		name: string;
 		description?: string;
 		metadata: Record<string, string | number | boolean>;
@@ -129,7 +128,6 @@ async function submit() {
 	if (nameInvalid) return;
 	try {
 		await onSubmit({
-			...(isEdit && systemKey ? { key: systemKey } : {}),
 			name: name.trim(),
 			description: description.trim() || undefined,
 			metadata: buildMetadata(),

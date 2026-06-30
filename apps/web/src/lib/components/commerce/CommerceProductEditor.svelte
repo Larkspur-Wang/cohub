@@ -11,7 +11,6 @@ const {
 }: {
 	product?: BillingCatalogProduct | null;
 	onSubmit: (input: {
-		key?: string;
 		name: string;
 		description?: string;
 		amountUsd: number;
@@ -51,7 +50,6 @@ async function submit() {
 	if (nameInvalid || amountInvalid) return;
 	try {
 		await onSubmit({
-			...(isEdit && systemKey ? { key: systemKey } : {}),
 			name: name.trim(),
 			description: description.trim() || undefined,
 			amountUsd: Number(amountUsd),
