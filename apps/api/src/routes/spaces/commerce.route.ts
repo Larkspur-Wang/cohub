@@ -1,28 +1,14 @@
-import { Hono, type Context } from "hono";
-import { ApiError } from "@talesofai-billing/sdk/base";
+import { Hono } from "hono";
 import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
+import { handleSpaceCommerceRouteError } from "../../lib/commerce-http.js";
 import { hasPermission } from "../../permissions.js";
-import { ensureSpaceCommerceBusiness, createSpaceCommerceSdk, getSpaceCommerceBusiness } from "../../lib/space-commerce.js";
+import {
+  createSpaceCommerceSdk,
+  ensureSpaceCommerceBusiness,
+  requireSpaceCommerceBusiness,
+} from "../../lib/space-commerce.js";
 
 const router = new Hono();
-
-function apiErrorResponse(c: Context, error: ApiError) {
-  const status = error.status >= 500 ? 502 : error.status;
-  const message =
-    status === 400 ? "Invalid commerce request" :
-    status === 401 ? "Unauthorized" :
-    status === 403 ? "Forbidden" :
-    status === 404 ? "Commerce resource not found" :
-    status === 409 ? "Commerce request conflicted" :
-    "Commerce request failed";
-  return c.json({ message }, status as never);
-}
-
-async function requireSpaceCommerceBusiness(spaceId: string) {
-  const mapping = await getSpaceCommerceBusiness(spaceId);
-  if (!mapping) throw new Error("Space commerce is not initialized");
-  return mapping;
-}
 
 function serializeProduct(product: {
   id: string;
@@ -136,7 +122,8 @@ router.post("/:id/commerce/setup", async (c) => {
     const mapping = await ensureSpaceCommerceBusiness(spaceId);
     return c.json({ businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -157,7 +144,8 @@ router.get("/:id/commerce/products", async (c) => {
     });
     return c.json({ products: result.items.map(serializeProduct), businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -195,7 +183,8 @@ router.post("/:id/commerce/products", async (c) => {
     });
     return c.json({ product: serializeProduct(product), businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -232,7 +221,8 @@ router.patch("/:id/commerce/products/:productKey", async (c) => {
     });
     return c.json({ product: serializeProduct(product), businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -253,7 +243,8 @@ router.get("/:id/commerce/benefits", async (c) => {
     });
     return c.json({ benefits: result.items.filter((item) => item.type === "feature").map((item) => serializeBenefit(item)), businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -287,7 +278,8 @@ router.post("/:id/commerce/benefits", async (c) => {
     if (!isFeatureBenefit(benefit)) return c.json({ message: "feature benefit is required" }, 400);
     return c.json({ benefit: serializeBenefit(benefit), businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -327,7 +319,8 @@ router.patch("/:id/commerce/benefits/:benefitKey", async (c) => {
     if (!isFeatureBenefit(benefit)) return c.json({ message: "feature benefit is required" }, 400);
     return c.json({ benefit: serializeBenefit(benefit), businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -352,7 +345,8 @@ router.post("/:id/commerce/product-benefits", async (c) => {
     });
     return c.json({ productBenefit, businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -376,7 +370,8 @@ router.delete("/:id/commerce/product-benefits", async (c) => {
     });
     return c.json({ ok: true, businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -400,7 +395,8 @@ router.get("/:id/commerce/orders", async (c) => {
     });
     return c.json({ orders: result.items.map(serializeOrder), pagination: { hasMore: result.pagination.has_more, nextPage: result.pagination.has_more ? page + 1 : null }, businessKey: mapping.billingBusinessKey });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });

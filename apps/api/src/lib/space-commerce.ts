@@ -11,6 +11,14 @@ import { productsFeature } from "@talesofai-billing/sdk/admin/products";
 
 const BILLING_NAMESPACE = "cohub_space";
 
+export class SpaceCommerceNotInitializedError extends Error {
+  override name = "SpaceCommerceNotInitializedError";
+
+  constructor(readonly spaceId: string) {
+    super("Space commerce is not initialized");
+  }
+}
+
 function requireBillingClientConfig() {
   const baseURL = config.talesofaiBillingBaseUrl?.trim();
   const adminApiKey = config.talesofaiBillingAdminApiKey?.trim();
@@ -104,8 +112,18 @@ export async function ensureSpaceCommerceBusiness(spaceId: string) {
   return mapping;
 }
 
+export async function requireSpaceCommerceBusiness(spaceId: string) {
+  const mapping = await getSpaceCommerceBusiness(spaceId);
+  if (!mapping) throw new SpaceCommerceNotInitializedError(spaceId);
+  return mapping;
+}
+
 export async function getSpaceCommerceBusinessKey(spaceId: string) {
   return (await getSpaceCommerceBusiness(spaceId))?.billingBusinessKey ?? null;
+}
+
+export async function requireSpaceCommerceBusinessKey(spaceId: string) {
+  return (await requireSpaceCommerceBusiness(spaceId)).billingBusinessKey;
 }
 
 export async function ensureSpaceCommerceBusinessKey(spaceId: string) {

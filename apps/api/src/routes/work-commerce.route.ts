@@ -1,13 +1,14 @@
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
 import type { Order } from "@talesofai-billing/sdk/admin/orders";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../lib/middleware.js";
+import { handleWorkCommerceRouteError } from "../lib/commerce-http.js";
 import { hasPermission } from "../permissions.js";
 import {
   buildWorkCheckoutReturnUrls,
   createSpaceCommerceSdk,
-  getSpaceCommerceBusinessKey,
   getWorkCommerceContextById,
+  requireSpaceCommerceBusinessKey,
 } from "../lib/space-commerce.js";
 import { db } from "../db/index.js";
 import { spaces, userProfiles } from "@cohub/db";
@@ -15,24 +16,6 @@ import { eq } from "drizzle-orm";
 import { config } from "../config.js";
 
 const router = new Hono();
-
-function apiErrorResponse(c: Context, error: ApiError) {
-  const status = error.status >= 500 ? 502 : error.status;
-  const message =
-    status === 400 ? "Invalid commerce request" :
-    status === 401 ? "Unauthorized" :
-    status === 403 ? "Forbidden" :
-    status === 404 ? "Commerce resource not found" :
-    status === 409 ? "Checkout is not available" :
-    "Commerce request failed";
-  return c.json({ message }, status as never);
-}
-
-async function requireWorkCommerceBusinessKey(spaceId: string) {
-  const businessKey = await getSpaceCommerceBusinessKey(spaceId);
-  if (!businessKey) throw new Error("Space commerce is not initialized");
-  return businessKey;
-}
 
 async function getPublishedWorkOrDeny(workId: string, userUuid?: string | null) {
   const work = await getWorkCommerceContextById(workId);
@@ -143,7 +126,7 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
     : [];
   if (requested.length === 0) return c.json({ message: "productKeys is required" }, 400);
   try {
-    const businessKey = await requireWorkCommerceBusinessKey(resolved.work.spaceId);
+    const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
     const sdk = createSpaceCommerceSdk();
     const products = await Promise.all(requested.map(async (productKey) => {
       try {
@@ -157,10 +140,8 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
     }));
     return c.json({ products: products.filter((item): item is NonNullable<typeof item> => Boolean(item)).map((item) => serializeProduct(item)) });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
-    if (error instanceof Error && error.message === "Space commerce is not initialized") {
-      return c.json({ message: "Commerce is not available for this work yet" }, 409);
-    }
+    const response = handleWorkCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -178,7 +159,7 @@ router.post("/works/:id/commerce/entitlements/check", async (c) => {
     : [];
   if (benefitKeys.length === 0) return c.json({ message: "benefitKeys is required" }, 400);
   try {
-    const businessKey = await requireWorkCommerceBusinessKey(resolved.work.spaceId);
+    const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
     const sdk = createSpaceCommerceSdk();
     const result = await sdk.admin.customers.checkEntitlements({
       external_user_id: user.uuid,
@@ -187,10 +168,8 @@ router.post("/works/:id/commerce/entitlements/check", async (c) => {
     });
     return c.json({ entitlements: result.entitlements.map(serializeEntitlement), checkedAt: result.checked_at, businessKey: result.business_key });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
-    if (error instanceof Error && error.message === "Space commerce is not initialized") {
-      return c.json({ message: "Commerce is not available for this work yet" }, 409);
-    }
+    const response = handleWorkCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -206,7 +185,7 @@ router.post("/works/:id/commerce/purchase", async (c) => {
   const productKey = typeof body?.productKey === "string" ? body.productKey.trim() : "";
   if (!productKey) return c.json({ message: "productKey is required" }, 400);
   try {
-    const businessKey = await requireWorkCommerceBusinessKey(resolved.work.spaceId);
+    const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
     const sdk = createSpaceCommerceSdk();
     const product = await sdk.admin.products.get({ business_key: businessKey, product_key: productKey });
     if (product.status !== "active" || product.visibility !== "public" || product.billing_type !== "one_time") {
@@ -243,10 +222,8 @@ router.post("/works/:id/commerce/purchase", async (c) => {
       productKey: result.order.product_key_snapshot,
     } });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
-    if (error instanceof Error && error.message === "Space commerce is not initialized") {
-      return c.json({ message: "Commerce is not available for this work yet" }, 409);
-    }
+    const response = handleWorkCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });
@@ -261,7 +238,7 @@ router.get("/works/:id/commerce/orders/:orderId", async (c) => {
   if ("error" in resolved) return c.json({ message: resolved.error }, 404);
   if ((resolved.work.workVisibility ?? "public") === "space" && !(await hasPermission(user, "space.view", { spaceId: resolved.work.spaceId }))) return authzDenied(c);
   try {
-    const businessKey = await requireWorkCommerceBusinessKey(resolved.work.spaceId);
+    const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
     const sdk = createSpaceCommerceSdk();
     const order = await sdk.admin.orders.get({
       business_key: businessKey,
@@ -270,10 +247,8 @@ router.get("/works/:id/commerce/orders/:orderId", async (c) => {
     if (order.external_user_id !== user.uuid) return authzDenied(c);
     return c.json({ order: serializeWorkCommerceOrder(order) });
   } catch (error) {
-    if (error instanceof ApiError) return apiErrorResponse(c, error);
-    if (error instanceof Error && error.message === "Space commerce is not initialized") {
-      return c.json({ message: "Commerce is not available for this work yet" }, 409);
-    }
+    const response = handleWorkCommerceRouteError(c, error);
+    if (response) return response;
     throw error;
   }
 });

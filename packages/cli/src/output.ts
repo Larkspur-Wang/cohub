@@ -101,6 +101,17 @@ function fetchFailureDetail(e: unknown): string | null {
     : "Network request failed. Check DNS/proxy/firewall settings and try again.";
 }
 
+function errorPresentationFromHttpError(e: unknown): { message?: string; detail?: string } | null {
+  const httpError = e as { code?: unknown };
+  if (httpError.code === "space_commerce_not_initialized") {
+    return {
+      message: "space commerce is not initialized",
+      detail: "run `cohub spaces commerce setup` first",
+    };
+  }
+  return null;
+}
+
 export function handleHttp(e: unknown): never {
   if (e instanceof Error && e.name === "AuthRequiredError") {
     return error("not authenticated", "run `cohub auth login`");
@@ -108,10 +119,12 @@ export function handleHttp(e: unknown): never {
 
   const status = (e as { status?: number }).status;
   const body = (e as { body?: unknown }).body;
-  const message = errorMessageFromBody(body) ?? (e instanceof Error ? e.message : String(e));
+  const presentation = errorPresentationFromHttpError(e);
+  const message = presentation?.message ?? errorMessageFromBody(body) ?? (e instanceof Error ? e.message : String(e));
   const fetchDetail = fetchFailureDetail(e);
 
   const detailParts: string[] = [];
+  if (presentation?.detail) detailParts.push(presentation.detail);
   if (process.env.COHUB_DEBUG_ERRORS) {
     if (status) detailParts.push(`HTTP ${status}`);
     detailParts.push(...debugErrorMetaFromBody(body));

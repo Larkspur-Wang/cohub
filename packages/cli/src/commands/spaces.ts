@@ -567,6 +567,22 @@ function registerCommerce(spacesCmd: Command): void {
   const commerceCmd = spacesCmd.command("commerce").description("Space commerce");
 
   commerceCmd
+    .command("setup")
+    .description("Initialize commerce for the current space")
+    .option("--json", "Output as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        const result = await client.space(spaceId).commerce.setup();
+        if (jsonRequested(opts)) return outJson(result);
+        ok(`Commerce initialized: ${result.businessKey}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  commerceCmd
     .command("products")
     .description("List products")
     .option("--json", "Output as JSON")

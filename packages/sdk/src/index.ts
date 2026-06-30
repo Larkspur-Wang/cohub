@@ -13,6 +13,7 @@ export {
   createSessionGenerationStreamClient,
   parseAssistantMessageCommit,
 } from "./session-generation-stream.js";
+export { isHttpErrorCode } from "./http-error.js";
 export { HttpError } from "./transport.js";
 export {
   GenerationPolicyError,

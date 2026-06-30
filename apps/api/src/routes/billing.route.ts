@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
 import { billingOperations, COHUB_BILLING_FEATURES, COHUB_BILLING_TOKEN_TYPES, type CohubBillingFeatureKey } from "@cohub/billing";
 import { config } from "../config.js";
+import { jsonError } from "../lib/json-error.js";
 import { getOptionalAuth, useAuth } from "../lib/middleware.js";
 
 const router = new Hono();
@@ -59,7 +60,11 @@ function parseRedemptionCode(value: unknown) {
 }
 
 function billingApiErrorResponse(c: Context, error: ApiError) {
-  return c.json({ message: error.message, code: error.code }, error.status as never);
+  return jsonError(c, {
+    status: error.status,
+    message: error.message,
+    code: error.code,
+  });
 }
 
 const BILLING_FEATURE_KEYS = new Set<string>(Object.values(COHUB_BILLING_FEATURES));

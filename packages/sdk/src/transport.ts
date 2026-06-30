@@ -44,15 +44,25 @@ export type CohubClientOptions = {
   voice?: VoiceInputCreateOptions;
 };
 
+function errorCodeFromBody(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const errorBody = body as { code?: unknown; error?: { code?: unknown } };
+  if (typeof errorBody.code === "string" && errorBody.code.trim()) return errorBody.code;
+  if (typeof errorBody.error?.code === "string" && errorBody.error.code.trim()) return errorBody.error.code;
+  return null;
+}
+
 export class HttpError extends Error {
   readonly status: number;
   readonly body: unknown;
+  readonly code: string | null;
 
   constructor(message: string, status: number, body: unknown) {
     super(message);
     this.name = "HttpError";
     this.status = status;
     this.body = body;
+    this.code = errorCodeFromBody(body);
   }
 }
 
