@@ -3,6 +3,7 @@ import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { error, handleHttp, json as outJson, jsonRequested, ok, table } from "../output.js";
 import { resolveSpace } from "../space.js";
+import { registerWorkCommerce } from "./work-commerce.js";
 
 const WORK_STATUSES = ["published", "disabled"] as const;
 const WORK_VISIBILITIES = ["public", "space"] as const;
@@ -374,6 +375,8 @@ export function registerWorks(program: Command): void {
         handleHttp(e);
       }
     });
+
+  registerWorkCommerce(worksCmd);
 
   worksCmd
     .command("rm <id>")

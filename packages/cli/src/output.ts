@@ -106,7 +106,7 @@ function errorPresentationFromHttpError(e: unknown): { message?: string; detail?
   if (httpError.code === "space_commerce_not_initialized") {
     return {
       message: "space commerce is not initialized",
-      detail: "run `cohub spaces commerce setup` first",
+      detail: "run `cohub -s <space-id> spaces commerce setup` first",
     };
   }
   return null;

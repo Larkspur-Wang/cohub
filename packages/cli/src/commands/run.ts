@@ -37,7 +37,7 @@ function shellJoin(values: string[]): string {
 
 function topLevelRunIndex(argv: string[]): number {
   for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index]!;
+    const token = argv[index] ?? "";
     if (token === "--") return -1;
     if (token === "-s" || token === "--space") {
       index += 1;
@@ -52,7 +52,7 @@ function topLevelRunIndex(argv: string[]): number {
 
 function parseSpaceId(tokens: string[]): string | undefined {
   for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index]!;
+    const token = tokens[index] ?? "";
     if (token === "-s" || token === "--space") {
       const value = tokens[index + 1];
       if (!value) return error("Missing space", `${token} requires a value`);
@@ -77,7 +77,7 @@ function parseRunCliOptions(argv: string[]): RunCliOptions {
   let positionalTokens: string[] = [];
 
   for (let index = 0; index < afterRun.length; index += 1) {
-    const token = afterRun[index]!;
+    const token = afterRun[index] ?? "";
 
     if (token === "-h" || token === "--help") {
       printRunHelp();

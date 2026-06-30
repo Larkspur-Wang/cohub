@@ -46,6 +46,7 @@ Common commands:
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
   cohub -s <space-id> works publish demo --file dist/index.html
+  cohub -s <space-id> spaces commerce products list
   cohub models ls
   cohub models ls --model-type multimodal
   cohub generate "A calm lake at sunrise" --model <model> --output lake.png
