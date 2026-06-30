@@ -1,6 +1,5 @@
 ---
 "@cohub/billing": minor
-"@cohub/api": minor
 "@neta-art/cohub": minor
 "@neta-art/cohub-cli": minor
 ---
