@@ -3,6 +3,11 @@ import type { SpacePresenceUser } from "@neta-art/cohub";
 import { onMount } from "svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { displayUserName } from "../space-utils";
+import {
+	isDanmakuEnabled,
+	setDanmakuEnabled,
+	subscribeDanmakuPrefs,
+} from "./space-danmaku-prefs";
 
 type Props = {
 	users: SpacePresenceUser[];
@@ -13,6 +18,7 @@ let { users, limit = 4 }: Props = $props();
 
 let rootEl = $state<HTMLDivElement | null>(null);
 let open = $state(false);
+let danmakuEnabled = $state(isDanmakuEnabled());
 
 const visibleUsers = $derived(users.slice(0, limit));
 const firstUser = $derived(users[0]);
@@ -80,7 +86,14 @@ function toggleOpen() {
 	open = !open;
 }
 
+function toggleDanmaku() {
+	setDanmakuEnabled(!danmakuEnabled);
+}
+
 onMount(() => {
+	const offDanmakuPrefs = subscribeDanmakuPrefs((value) => {
+		danmakuEnabled = value;
+	});
 	const handlePointerDown = (event: PointerEvent) => {
 		if (!open || !rootEl) return;
 		const target = event.target as Node | null;
@@ -93,6 +106,7 @@ onMount(() => {
 	document.addEventListener("pointerdown", handlePointerDown, true);
 	window.addEventListener("keydown", handleKeyDown);
 	return () => {
+		offDanmakuPrefs();
 		document.removeEventListener("pointerdown", handlePointerDown, true);
 		window.removeEventListener("keydown", handleKeyDown);
 	};
@@ -174,6 +188,20 @@ $effect(() => {
 							</div>
 						</div>
 					{/each}
+				</div>
+				<div class="presence-popover-footer">
+					<span class="presence-popover-footer-label">Live messages</span>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={danmakuEnabled}
+						class="danmaku-switch"
+						class:on={danmakuEnabled}
+						onclick={toggleDanmaku}
+						aria-label="Toggle live messages"
+					>
+						<span class="danmaku-switch-thumb"></span>
+					</button>
 				</div>
 			</div>
 		{/if}
@@ -353,6 +381,67 @@ $effect(() => {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	/* Live-messages toggle — pinned at the popover bottom so it stays
+	   visible even when the online list is long. */
+	.presence-popover-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		border-top: 1px solid var(--border-subtle);
+		padding: 8px 10px;
+	}
+
+	.presence-popover-footer-label {
+		font-size: 12px;
+		color: var(--text-secondary);
+	}
+
+	.danmaku-switch {
+		position: relative;
+		flex: 0 0 auto;
+		width: 30px;
+		height: 18px;
+		border: 0;
+		border-radius: 999px;
+		background: var(--bg-hover-strong);
+		cursor: pointer;
+		transition: background-color 150ms ease;
+	}
+
+	.danmaku-switch:hover {
+		background: color-mix(in srgb, var(--bg-hover-strong) 80%, var(--text-tertiary) 12%);
+	}
+
+	.danmaku-switch.on {
+		background: var(--brand);
+	}
+
+	.danmaku-switch.on:hover {
+		background: var(--brand-hover);
+	}
+
+	.danmaku-switch:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--brand) 38%, transparent);
+		outline-offset: 2px;
+	}
+
+	.danmaku-switch-thumb {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 14px;
+		height: 14px;
+		border-radius: 999px;
+		background: var(--bg-elevated);
+		box-shadow: 0 1px 2px color-mix(in srgb, var(--overlay-scrim-strong) 20%, transparent);
+		transition: transform 150ms ease;
+	}
+
+	.danmaku-switch.on .danmaku-switch-thumb {
+		transform: translateX(12px);
 	}
 
 	@media (max-width: 640px) {

@@ -178,6 +178,7 @@ import SessionShareDialog from "./modules/SessionShareDialog.svelte";
 import SessionWorkspace, {
 	type SessionWorkspaceProps,
 } from "./modules/SessionWorkspace.svelte";
+import SpaceDanmakuLayer from "./modules/SpaceDanmakuLayer.svelte";
 import SpaceFileDomain, {
 	type SpaceFileDomainProps,
 } from "./modules/SpaceFileDomain.svelte";
@@ -217,6 +218,14 @@ import {
 	createSpaceBootstrapController,
 	withBootstrapCacheTimeout,
 } from "./modules/space-bootstrap-controller.svelte";
+import {
+	createSpaceDanmakuController,
+	extractDanmakuText,
+} from "./modules/space-danmaku-controller.svelte";
+import {
+	isDanmakuEnabled,
+	subscribeDanmakuPrefs,
+} from "./modules/space-danmaku-prefs";
 import { createSpacePresenceController } from "./modules/space-presence-controller.svelte";
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
@@ -224,6 +233,7 @@ import { mergeTaskRunRecord } from "./modules/task-run-utils";
 import {
 	asRecord,
 	displayUserName,
+	fallbackUserName,
 	formatShortDateTime,
 	formatTokenCount,
 	formatUsageCost,
@@ -780,6 +790,7 @@ const anchorRestoreWaitingForMarkdown = $derived(
 	sessionScroll.anchorRestoreWaitingForMarkdown,
 );
 const spacePresence = createSpacePresenceController(() => spaceId);
+const danmakuController = createSpaceDanmakuController();
 const spaceRealtime = createSpaceRealtimeController({
 	onTransportOpen: () => generationRealtime.onTransportOpen(),
 	onConnectionOpened: () => {
@@ -3008,6 +3019,44 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		}
 		const currentActiveSessionId = activeSessionId;
 		const isActiveSession = targetSessionId === currentActiveSessionId;
+		// Live danmaku: float other users' messages from other sessions.
+		if (payload.type === "session.turn.created" && !isActiveSession) {
+			const turn = payload.payload.turn as
+				| {
+						id?: unknown;
+						userUuid?: unknown;
+						authorProfile?: {
+							displayName?: unknown;
+							avatarUrl?: unknown;
+						} | null;
+				  }
+				| undefined;
+			const senderUuid =
+				typeof turn?.userUuid === "string" ? turn.userUuid : null;
+			if (
+				senderUuid &&
+				senderUuid !== authStore.userUuid &&
+				isDanmakuEnabled()
+			) {
+				const text = extractDanmakuText(turn);
+				if (text) {
+					const ap = turn?.authorProfile;
+					const authorName =
+						(ap && typeof ap.displayName === "string"
+							? ap.displayName.trim()
+							: "") || fallbackUserName(senderUuid);
+					const avatarUrl =
+						ap && typeof ap.avatarUrl === "string" ? ap.avatarUrl : null;
+					danmakuController.push({
+						id: typeof turn?.id === "string" ? turn.id : payload.id,
+						text,
+						userUuid: senderUuid,
+						authorName,
+						avatarUrl,
+					});
+				}
+			}
+		}
 		if (payload.type === "session.request.accepted") {
 			clearPostSendRecovery(targetSessionId);
 			return;
@@ -4395,6 +4444,9 @@ onMount(() => {
 			void applyBackgroundComposerPayload(payload);
 		},
 	);
+	const offDanmakuPrefs = subscribeDanmakuPrefs((enabled) => {
+		if (!enabled) danmakuController.clear();
+	});
 	// Preload model catalogs so the selector is ready immediately
 	void loadModelsCatalog();
 	void loadGenerationModelsCatalog();
@@ -4431,6 +4483,8 @@ onMount(() => {
 		offTaskRunsCacheUpdated();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
+		offDanmakuPrefs();
+		danmakuController.dispose();
 		sessionShare.dispose();
 		spaceStatus.dispose();
 		fileWorkspace.dispose();
@@ -4554,6 +4608,11 @@ async function bootstrapSpace(currentSpaceId: string) {
 // React to space changes: reset state and reload data
 $effect(() => {
 	spaceBootstrap.runForCurrentSpace();
+});
+// Immersive preview takes over the viewport — clear any in-flight danmaku so
+// they never overlay a full-screen preview.
+$effect(() => {
+	if (previewImmersiveMode) danmakuController.clear();
 });
 // React to space changes: subscribe to WS events for the new space
 $effect(() => {
@@ -5339,6 +5398,7 @@ const sessionWorkspaceProps = $derived.by<
 	class:workspace-body--preview-immersive={previewImmersiveMode}
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
+  <SpaceDanmakuLayer controller={danmakuController} hidden={previewImmersiveMode} />
   <div
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
