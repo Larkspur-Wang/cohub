@@ -14,6 +14,7 @@ import {
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
 import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type IntermediateLoadState =
 	| { status: "idle" }
@@ -41,7 +42,7 @@ type Props = {
 		turn: SessionTurnRecord;
 		message: StoredIntermediateMessage;
 	}) => Promise<MessageToolCallsFile | null>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 };
 
 const {

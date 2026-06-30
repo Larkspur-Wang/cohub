@@ -6,13 +6,14 @@ import type {
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { ChatMessage } from "$lib/session-tree";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
 	message: StoredIntermediateMessage;
 	streaming?: boolean;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 };
 
 const {

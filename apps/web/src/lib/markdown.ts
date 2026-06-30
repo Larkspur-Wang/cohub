@@ -615,7 +615,9 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 
 	const element = node as Element;
 	const href = element.getAttribute("href")?.trim();
-	if (!href || !isExternalHttpLink(href)) return;
+	if (!href) return;
+	if (!element.hasAttribute("title")) element.setAttribute("title", href);
+	if (!isExternalHttpLink(href)) return;
 
 	element.setAttribute("target", "_blank");
 	element.setAttribute("rel", "noopener noreferrer");

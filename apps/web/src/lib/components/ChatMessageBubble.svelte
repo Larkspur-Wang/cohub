@@ -18,6 +18,7 @@ import {
 	formatCompactAbsoluteTime,
 	formatFullAbsoluteTime,
 } from "$lib/time-format";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
 	message: ChatMessage;
@@ -25,7 +26,7 @@ type Props = {
 	onMarkdownRenderStart?: (message: ChatMessage) => void;
 	onMarkdownRendered?: (message: ChatMessage) => void;
 	showToolCalls?: boolean;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 	onForkTurn?: () => void;
 	forkDisabled?: boolean;
 	forking?: boolean;

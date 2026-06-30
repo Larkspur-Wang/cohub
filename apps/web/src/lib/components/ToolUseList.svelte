@@ -2,12 +2,13 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { MessageToolCallsFile } from "@cohub/protocol/model";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
 	content: ContentBlock[];
 	toolCallsFile?: MessageToolCallsFile | null;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 };
 
 const {

@@ -14,6 +14,7 @@ import {
 	X,
 } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
 
 type PanHandlers = {
@@ -59,7 +60,9 @@ type Props = {
 	onDownloadFilePath: (path: string) => void | Promise<void>;
 	onRenameFilePath: (path: string) => void | Promise<void>;
 	onDeleteFilePath: (path: string) => void | Promise<void>;
-	onOpenLinkedInlineFile?: (path: string) => void | Promise<void>;
+	onOpenLinkedInlineFile?: (
+		target: string | WorkspaceFileLinkTarget,
+	) => void | Promise<void>;
 };
 
 let {

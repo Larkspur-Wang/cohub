@@ -2,7 +2,10 @@
 import { onDestroy, onMount } from "svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
-import { normalizeWorkspaceFileLink } from "$lib/workspace-file-links";
+import {
+	normalizeWorkspaceFileLinkTarget,
+	type WorkspaceFileLinkTarget,
+} from "$lib/workspace-file-links";
 
 type MarkdownVariant = "chat" | "document";
 
@@ -11,7 +14,7 @@ type Props = {
 	variant?: MarkdownVariant;
 	streamingLive?: boolean;
 	baseFilePath?: string | null;
-	onOpenFile?: (path: string) => void | Promise<void>;
+	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 };
 
 const {
@@ -204,13 +207,16 @@ onMount(() => {
 
 		const link = target.closest<HTMLAnchorElement>("a[href]");
 		if (link && onOpenFile && e instanceof MouseEvent) {
-			const path = normalizeWorkspaceFileLink(link.getAttribute("href") ?? "", {
-				basePath: baseFilePath,
-			});
-			if (path && !shouldPreserveNativeLinkClick(e)) {
+			const fileTarget = normalizeWorkspaceFileLinkTarget(
+				link.getAttribute("href") ?? "",
+				{
+					basePath: baseFilePath,
+				},
+			);
+			if (fileTarget && !shouldPreserveNativeLinkClick(e)) {
 				e.preventDefault();
 				e.stopPropagation();
-				void onOpenFile(path);
+				void onOpenFile(fileTarget);
 				return;
 			}
 		}

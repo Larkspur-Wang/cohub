@@ -35,16 +35,19 @@ import {
 	isResolvedTheme,
 	type ResolvedTheme,
 } from "$lib/theme-registry";
+import type { WorkspaceFilePosition } from "$lib/workspace-file-links";
 
 const {
 	value = "",
 	language = "plaintext",
 	readonly = false,
+	initialPosition = null,
 	onInput,
 }: {
 	value: string;
 	language?: string;
 	readonly?: boolean;
+	initialPosition?: WorkspaceFilePosition | null;
 	onInput?: (v: string) => void;
 } = $props();
 
@@ -56,6 +59,7 @@ const langConf = new Compartment();
 const themeConf = new Compartment();
 const readOnlyConf = new Compartment();
 let languageLoadId = 0;
+let appliedInitialPositionKey = "";
 
 async function getLanguageExtension(lang: string): Promise<Extension> {
 	const l = lang.toLowerCase();
@@ -328,6 +332,27 @@ $effect(() => {
 			EditorState.readOnly.of(readonly),
 		]),
 	});
+});
+
+function focusPosition(position: WorkspaceFilePosition | null | undefined) {
+	if (!view || !position) return;
+	const lineNumber = Math.max(1, Math.floor(position.line));
+	const line = view.state.doc.line(Math.min(lineNumber, view.state.doc.lines));
+	const column = position.column ? Math.max(1, Math.floor(position.column)) : 1;
+	const offset = Math.min(line.to, line.from + column - 1);
+	view.dispatch({
+		selection: { anchor: offset },
+		effects: EditorView.scrollIntoView(offset, { y: "center" }),
+	});
+}
+
+$effect(() => {
+	const position = initialPosition;
+	if (!view || !position) return;
+	const key = `${position.line}:${position.column ?? 1}:${value.length}`;
+	if (key === appliedInitialPositionKey) return;
+	appliedInitialPositionKey = key;
+	queueMicrotask(() => focusPosition(position));
 });
 
 // Sync external value changes into the editor (but not while typing)

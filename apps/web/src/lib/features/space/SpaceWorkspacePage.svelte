@@ -167,6 +167,7 @@ import {
 	uiState,
 } from "$lib/stores/ui.svelte";
 import type { LocalUploadEntry } from "$lib/upload-entries";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
 import FileWorkspace from "./modules/FileWorkspace.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
@@ -4135,8 +4136,14 @@ function closeFile() {
 async function openInlineFile(path: string) {
 	await fileWorkspace.openInlineFile(path);
 }
-async function openLinkedInlineFile(path: string) {
-	await fileWorkspace.openInlineFile(path, { preserveHistory: true });
+async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
+	const path = typeof target === "string" ? target : target.path;
+	const position =
+		typeof target === "string" ? null : (target.position ?? null);
+	await fileWorkspace.openInlineFile(path, {
+		preserveHistory: true,
+		position,
+	});
 }
 async function goBackInlineFile() {
 	await fileWorkspace.goBackInlineFile();

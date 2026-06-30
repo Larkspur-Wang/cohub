@@ -17,12 +17,17 @@ import {
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import type {
+	OpenWorkspaceFileTarget,
+	WorkspaceFilePosition,
+} from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
 
 type InlineFilePanelState = {
 	response: SpaceFsFileResponse | null;
 	draft: string;
 	path: string;
+	position: WorkspaceFilePosition | null;
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
@@ -63,7 +68,9 @@ type Props = {
 	inlineFilePanHandlers: PanHandlers;
 	onCloseInlineFile: () => void;
 	onBackInlineFile: () => void | Promise<void>;
-	onOpenLinkedInlineFile: (path: string) => void | Promise<void>;
+	onOpenLinkedInlineFile: (
+		target: OpenWorkspaceFileTarget,
+	) => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
@@ -215,7 +222,7 @@ let {
             {#if inlineFileEdit}
               {#await import("$lib/components/CodeEditor.svelte") then editorModule}
                 {@const LazyCodeEditor = editorModule.default}
-                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles || activeFsReadonly} />
+                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles || activeFsReadonly} />
               {:catch}
                 <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
               {/await}
@@ -235,7 +242,7 @@ let {
             {:else}
               {#await import("$lib/components/CodeEditor.svelte") then editorModule}
                 {@const LazyCodeEditor = editorModule.default}
-                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} readonly={true} />
+                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} readonly={true} />
               {:catch}
                 <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
               {/await}
@@ -393,6 +400,7 @@ let {
                   <LazyCodeEditor
                     value={inlineFile.draft}
                     language={inlineFileExt}
+                    initialPosition={inlineFile.position}
                     onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
                     readonly={!canEditFiles || activeFsReadonly}
                   />
@@ -418,6 +426,7 @@ let {
                   <LazyCodeEditor
                     value={inlineFile.draft}
                     language={inlineFileExt}
+                    initialPosition={inlineFile.position}
                     readonly={true}
                   />
                 {:catch}

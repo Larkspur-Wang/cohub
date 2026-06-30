@@ -11,6 +11,7 @@ import type { SpaceFsNode } from "$lib/space-fs";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import type { LocalUploadEntry } from "$lib/upload-entries";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import CanvasPreviewPanel from "./CanvasPreviewPanel.svelte";
 import type { InlineCanvasPanelState } from "./canvas-preview-controller.svelte";
 import FilesSidebarPanel from "./FilesSidebarPanel.svelte";
@@ -95,7 +96,9 @@ export type SpaceFileDomainProps = {
 	) => void;
 	onInsertPathReference: (path: string) => void;
 	onOpenInlineFile: (path: string) => void | Promise<void>;
-	onOpenLinkedInlineFile: (path: string) => void | Promise<void>;
+	onOpenLinkedInlineFile: (
+		target: string | WorkspaceFileLinkTarget,
+	) => void | Promise<void>;
 	onOpenInlineCanvas: (path: string) => void | Promise<void>;
 	onCloseInlineFile: () => void;
 	onBackInlineFile: () => void | Promise<void>;

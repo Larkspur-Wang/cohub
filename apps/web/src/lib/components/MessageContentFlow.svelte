@@ -10,6 +10,7 @@ import {
 	type SpaceMentionTextToken,
 	tokenizeSpaceMentionText,
 } from "$lib/mentions/space";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type TextBlock = Extract<ContentBlock, { type: "text" }>;
 type ThinkingBlock = Extract<ContentBlock, { type: "thinking" }>;
@@ -28,7 +29,7 @@ type Props = {
 	onMarkdownSegmentRendered?: () => void;
 	onMarkdownSegmentStart?: () => void;
 	onLoadToolCalls?: () => Promise<MessageToolCallsFile | null>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 };
 
 type Segment =

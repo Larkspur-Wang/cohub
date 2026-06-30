@@ -28,6 +28,7 @@ import MarkdownFrontmatter from "$lib/components/MarkdownFrontmatter.svelte";
 import MarkdownSurface from "$lib/components/MarkdownSurface.svelte";
 import { parseMarkdownFrontmatter } from "$lib/markdown-frontmatter";
 import { StreamingMarkdownController } from "$lib/streaming-markdown-controller";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 type MarkdownTextBlock = Extract<ContentBlock, { type: "text" }>;
 type MarkdownVariant = "chat" | "document";
@@ -40,7 +41,7 @@ type Props = {
 	baseFilePath?: string | null;
 	onStart?: () => void;
 	onRendered?: () => void;
-	onOpenFile?: (path: string) => void | Promise<void>;
+	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 };
 
 const {

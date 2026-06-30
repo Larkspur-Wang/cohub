@@ -23,6 +23,7 @@ import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { TimelineItem } from "$lib/session-tree";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
 import type { LocalUploadEntry } from "$lib/upload-entries";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
 
 type SelectedModel = {
@@ -66,7 +67,9 @@ export type SessionWorkspaceProps = {
 	) => Promise<boolean | undefined>;
 	handleForkTurn: (turn: SessionTurnRecord) => void | Promise<void>;
 	forkingTurnId: string | null;
-	openInlineFile: (path: string) => void | Promise<void>;
+	openInlineFile: (
+		target: string | WorkspaceFileLinkTarget,
+	) => void | Promise<void>;
 	modelsCatalog: ModelCatalogItem[] | null;
 	sessionTaskNotices: SessionTaskNotice[];
 	sessionTaskHasMore: boolean;

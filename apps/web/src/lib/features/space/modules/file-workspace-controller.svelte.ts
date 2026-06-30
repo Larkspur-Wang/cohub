@@ -19,6 +19,7 @@ import {
 	getCachedSpaceFsDir,
 	patchCachedSpaceFsDir,
 } from "$lib/stores/space-fs-cache";
+import type { WorkspaceFilePosition } from "$lib/workspace-file-links";
 import { type ActiveFsSource, createActiveFsClient } from "./active-fs-client";
 import {
 	buildFsEntry,
@@ -37,6 +38,7 @@ export type FileWorkspaceInlineFile = {
 	response: SpaceFsFileResponse | null;
 	draft: string;
 	path: string;
+	position: WorkspaceFilePosition | null;
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
@@ -501,7 +503,11 @@ export function createFileWorkspaceController(
 
 	async function openInlineFile(
 		path: string,
-		optionsArg: { preserveHistory?: boolean; skipHistoryPush?: boolean } = {},
+		optionsArg: {
+			preserveHistory?: boolean;
+			skipHistoryPush?: boolean;
+			position?: WorkspaceFilePosition | null;
+		} = {},
 	) {
 		if (
 			optionsArg.preserveHistory &&
@@ -524,6 +530,7 @@ export function createFileWorkspaceController(
 			response: null,
 			draft: "",
 			path,
+			position: optionsArg.position ?? null,
 			loading: true,
 			saving: false,
 			error: null,
@@ -541,6 +548,7 @@ export function createFileWorkspaceController(
 					response: null,
 					draft: "",
 					path,
+					position: optionsArg.position ?? null,
 					loading: false,
 					saving: false,
 					error: "File is being prepared. Please retry shortly.",
@@ -553,6 +561,7 @@ export function createFileWorkspaceController(
 				response: file,
 				draft: file.kind === "text" ? file.content : "",
 				path,
+				position: optionsArg.position ?? null,
 				loading: false,
 				saving: false,
 				error: null,
@@ -569,6 +578,7 @@ export function createFileWorkspaceController(
 					response: null,
 					draft: "",
 					path,
+					position: optionsArg.position ?? null,
 					loading: false,
 					saving: false,
 					error: null,
@@ -579,6 +589,7 @@ export function createFileWorkspaceController(
 					response: null,
 					draft: "",
 					path,
+					position: optionsArg.position ?? null,
 					loading: false,
 					saving: false,
 					error: error instanceof Error ? error.message : "Failed to open file",
@@ -602,6 +613,7 @@ export function createFileWorkspaceController(
 		await openInlineFile(previousPath, {
 			preserveHistory: true,
 			skipHistoryPush: true,
+			position: null,
 		});
 	}
 

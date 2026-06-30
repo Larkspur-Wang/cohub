@@ -1,5 +1,6 @@
 <script lang="ts">
 import MarkdownView from "$lib/components/MarkdownView.svelte";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 const {
 	name,
@@ -12,7 +13,7 @@ const {
 	source: string;
 	type: "markdown" | "html";
 	path?: string | null;
-	onOpenFile?: (path: string) => void | Promise<void>;
+	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 } = $props();
 </script>
 

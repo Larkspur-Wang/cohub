@@ -10,6 +10,7 @@ import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
 	timeline: TimelineItem[];
@@ -34,7 +35,7 @@ type Props = {
 		turn: SessionTurnRecord;
 		message: StoredIntermediateMessage;
 	}) => Promise<MessageToolCallsFile | null>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 	onForkTurn?: (turn: SessionTurnRecord) => void;
 	forkingTurnId?: string | null;
 };

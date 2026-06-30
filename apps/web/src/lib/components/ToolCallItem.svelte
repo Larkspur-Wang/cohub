@@ -13,6 +13,7 @@ import {
 	formatDurationMs,
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
+import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type Props = {
 	tool: ToolCallViewModel;
@@ -22,7 +23,7 @@ type Props = {
 	autoExpandWhileRunning?: boolean;
 	showDuration?: boolean;
 	onExpand?: () => void | Promise<void>;
-	onOpenFile?: (path: string) => void;
+	onOpenFile?: (target: OpenWorkspaceFileTarget) => void;
 };
 
 const {

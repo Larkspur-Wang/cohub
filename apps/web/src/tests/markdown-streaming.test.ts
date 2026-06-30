@@ -30,6 +30,18 @@ Then return the command output directly.
 	);
 });
 
+test("renderMarkdown adds href titles to links without overriding explicit titles", async () => {
+	const html = await renderMarkdown(
+		`[line](/workspace/apps/web/src/app.ts:12) [docs](docs/readme.md "Docs")`,
+	);
+
+	assert.match(
+		html,
+		/<a href="\/workspace\/apps\/web\/src\/app.ts:12" title="\/workspace\/apps\/web\/src\/app.ts:12">line<\/a>/,
+	);
+	assert.match(html, /<a href="docs\/readme.md" title="Docs">docs<\/a>/);
+});
+
 test("renderMarkdown renders mermaid fences as diagram placeholders", async () => {
 	const html = await renderMarkdown(`\`\`\`mermaid
 graph TD
