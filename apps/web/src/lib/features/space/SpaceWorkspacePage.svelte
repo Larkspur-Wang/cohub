@@ -117,6 +117,10 @@ import {
 	isBillingAccessBlockedCode,
 } from "$lib/stores/billing-conversion.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
+import {
+	readDraftSessionModel,
+	saveDraftSessionModel,
+} from "$lib/stores/draft-session-model";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import {
 	readSessionComposerDraftText,
@@ -481,6 +485,7 @@ let labelPickerResource = $state<{
 } | null>(null);
 let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 let draftSessionModel = $state<SelectedModel | null>(null);
+let draftSessionModelManuallySelected = $state(false);
 const portPreview = createPortPreviewController({
 	getSpaceId: () => spaceId,
 	getSpace: () => space,
@@ -1473,6 +1478,35 @@ const activeSessionModel = $derived.by(() => {
 		firstCatalogModel
 	);
 });
+// Reset the manual-selection flag whenever we enter a fresh new-session draft
+// so that a restored (non-manual) model is never persisted on send.
+$effect(() => {
+	if (isDraftNewSessionRoute) {
+		draftSessionModelManuallySelected = false;
+	}
+});
+// Restore the last manually-selected new-session model from localStorage when
+// entering a fresh new-session draft. Only applies while draftSessionModel is
+// still unset (i.e. before any manual selection in this draft) so we never
+// clobber an explicit choice. The stored model is validated against the live
+// catalog so an offline/taken-down model falls back to the catalog default.
+$effect(() => {
+	if (!isDraftNewSessionRoute) return;
+	const catalog = visibleModelsCatalog;
+	if (!catalog || catalog.length === 0) return;
+	if (draftSessionModel) return;
+	const stored = readDraftSessionModel();
+	if (!stored) return;
+	const catalogItem = catalog.find(
+		(item) => item.provider === stored.provider && item.id === stored.id,
+	);
+	if (!catalogItem) return;
+	draftSessionModel = {
+		provider: catalogItem.provider,
+		id: catalogItem.id,
+		name: catalogItem.model.name as string | undefined,
+	};
+});
 const activeGenerationState = $derived.by(() =>
 	sessionGenerationStore.get(activeSessionId),
 );
@@ -1797,6 +1831,7 @@ function handleModelSelect(model: { provider: string; id: string }) {
 	} satisfies SelectedModel;
 	if (!activeSessionId) {
 		draftSessionModel = selected;
+		draftSessionModelManuallySelected = true;
 		showModelSelector = false;
 		focusComposerSoon();
 		return;
@@ -3398,6 +3433,9 @@ async function handleSend() {
 					...sessionModelById,
 					[newSession.id]: model,
 				};
+				if (draftSessionModelManuallySelected) {
+					saveDraftSessionModel(model);
+				}
 			}
 			sessionWorkspace.activeSessionId = newSession.id;
 			sessionId = newSession.id;
