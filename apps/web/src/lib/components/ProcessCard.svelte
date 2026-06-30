@@ -5,7 +5,7 @@ import type {
 	SessionTurnRecord,
 	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-svelte";
+import { ChevronDown, ChevronRight, Loader2, RotateCw } from "lucide-svelte";
 import GenerationRuntimeStatusRow from "$lib/components/GenerationRuntimeStatusRow.svelte";
 import IntermediateMessageBubble from "$lib/components/IntermediateMessageBubble.svelte";
 import {
@@ -14,6 +14,13 @@ import {
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
 import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
+
+type IntermediateLoadState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "syncing" }
+	| { status: "ready"; messages: StoredIntermediateMessage[] }
+	| { status: "error"; message: string };
 
 type Props = {
 	turn: SessionTurnRecord;
@@ -27,6 +34,9 @@ type Props = {
 	onLoadIntermediate?: (
 		turn: SessionTurnRecord,
 	) => Promise<StoredIntermediateMessage[]>;
+	onRequestIntermediateSync?: (
+		turn: SessionTurnRecord,
+	) => Promise<boolean | undefined>;
 	onLoadToolCalls?: (input: {
 		turn: SessionTurnRecord;
 		message: StoredIntermediateMessage;
@@ -44,41 +54,120 @@ const {
 	runtimeModel = null,
 	modelsCatalog,
 	onLoadIntermediate,
+	onRequestIntermediateSync,
 	onLoadToolCalls,
 	onOpenFile,
 }: Props = $props();
 
 let expanded = $state(false);
-let loading = $state(false);
-let loadError = $state<string | null>(null);
-let loadedIntermediateMessages = $state<StoredIntermediateMessage[] | null>(
-	null,
-);
+let loadState = $state<IntermediateLoadState>({ status: "idle" });
 
+const persistedMessagesAvailable = $derived(
+	Boolean(turn.intermediateIndex?.messagesObjectKey),
+);
+const liveMessages = $derived(liveIntermediateMessages ?? []);
+const readyMessages = $derived(
+	loadState.status === "ready" ? loadState.messages : null,
+);
 const effectiveMessages = $derived(
 	streaming
-		? (liveIntermediateMessages ?? loadedIntermediateMessages ?? [])
-		: (loadedIntermediateMessages ?? []),
+		? liveMessages.length > 0
+			? liveMessages
+			: (readyMessages ?? [])
+		: (readyMessages ?? []),
 );
 const expandedMessages = $derived(effectiveMessages);
+const hasLiveMessages = $derived(liveMessages.length > 0);
+const hasPersistedMessages = $derived(
+	summary?.messageCount != null && summary.messageCount > 0,
+);
+const shouldShowSyncingState = $derived(
+	streaming &&
+		!hasLiveMessages &&
+		hasPersistedMessages &&
+		!persistedMessagesAvailable,
+);
+const syncUnavailableMessage =
+	"Process details are still syncing. Please retry";
+const isLoading = $derived(loadState.status === "loading");
+const isSyncing = $derived(loadState.status === "syncing");
+const loadError = $derived(
+	loadState.status === "error" ? loadState.message : null,
+);
 
-async function ensureLoaded() {
-	if (streaming && liveIntermediateMessages?.length) return;
-	if (!onLoadIntermediate) return;
-	if (loadedIntermediateMessages) return;
-	loading = true;
-	loadError = null;
+async function requestIntermediateSync(force = false) {
+	if (!onRequestIntermediateSync) return false;
+	if (!force && loadState.status === "syncing") return true;
+	loadState = { status: "syncing" };
 	try {
-		loadedIntermediateMessages = await onLoadIntermediate(turn);
+		const restored = await onRequestIntermediateSync(turn);
+		if (liveMessages.length > 0) {
+			loadState = { status: "ready", messages: liveMessages };
+			return true;
+		}
+		if (restored === false) {
+			loadState = {
+				status: "error",
+				message: syncUnavailableMessage,
+			};
+			return false;
+		}
+		loadState = { status: "syncing" };
+		return true;
 	} catch (error) {
-		loadError =
-			error instanceof Error
-				? error.message
-				: "Failed to load process details. Please retry";
-	} finally {
-		loading = false;
+		loadState = {
+			status: "error",
+			message:
+				error instanceof Error
+					? error.message
+					: "Failed to sync process details. Please retry",
+		};
+		return false;
 	}
 }
+
+async function ensureLoaded() {
+	if (streaming && liveMessages.length > 0) {
+		loadState = { status: "ready", messages: liveMessages };
+		return;
+	}
+	if (loadState.status === "loading") return;
+	if (loadState.status === "ready") return;
+	if (shouldShowSyncingState) {
+		await requestIntermediateSync();
+		return;
+	}
+	if (!onLoadIntermediate) return;
+	loadState = { status: "loading" };
+	try {
+		const messages = await onLoadIntermediate(turn);
+		if (messages.length === 0 && streaming && shouldShowSyncingState) {
+			loadState = { status: "syncing" };
+			await requestIntermediateSync(true);
+			return;
+		}
+		loadState = { status: "ready", messages };
+	} catch (error) {
+		loadState = {
+			status: "error",
+			message:
+				error instanceof Error
+					? error.message
+					: "Failed to load process details. Please retry",
+		};
+	}
+}
+
+$effect(() => {
+	if (streaming && liveMessages.length > 0) {
+		loadState = { status: "ready", messages: liveMessages };
+		return;
+	}
+	if (loadState.status === "ready" && !streaming) return;
+	if (shouldShowSyncingState && loadState.status === "idle") {
+		loadState = { status: "syncing" };
+	}
+});
 
 async function toggle() {
 	if (!expanded) await ensureLoaded();
@@ -198,8 +287,8 @@ const summaryLabel = $derived(
 			<GenerationRuntimeStatusRow label={runtimeDisplayLabel} compact />
 		</div>
 	{:else}
-		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={loading} onclick={() => void toggle()} title={usageTitle || undefined}>
-			{#if loading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
+		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={isLoading} onclick={() => void toggle()} title={usageTitle || undefined}>
+			{#if isLoading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
 			<span class="text-[13px] text-text-tertiary tabular-nums">{summaryLabel}</span>
 		</button>
 	{/if}
@@ -213,6 +302,11 @@ const summaryLabel = $derived(
 			{#if loadError}
 				<button type="button" class="mx-2 rounded-md border border-status-error/30 bg-status-error/5 px-3 py-2 text-left text-[12px] text-status-error hover:bg-status-error/10" onclick={() => void ensureLoaded()}>
 					{loadError} · Click to retry
+				</button>
+			{:else if isSyncing && expandedMessages.length === 0}
+				<button type="button" class="mx-2 flex items-center gap-2 rounded-md border border-border-subtle/80 bg-bg-surface px-3 py-2 text-left text-[12px] text-text-tertiary hover:bg-bg-hover/60" onclick={() => void requestIntermediateSync(true)}>
+					<RotateCw class="h-3.5 w-3.5 shrink-0" />
+					<span>Syncing steps…</span>
 				</button>
 			{/if}
 			{#each expandedMessages as msg (msg.id)}

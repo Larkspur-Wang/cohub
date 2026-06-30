@@ -213,8 +213,7 @@ export function buildTurnTimelineItems(input: {
 			kind: "message",
 			message: turnToUserMessage(turn),
 		});
-		const isStreamingActiveTurn =
-			hasStreamingState && streamingTurnId === turn.id;
+		const isStreamingActiveTurn = streamingTurnId === turn.id;
 		if (isStreamingActiveTurn) {
 			const processIntermediateMessages =
 				input.streaming?.intermediateMessages ?? [];

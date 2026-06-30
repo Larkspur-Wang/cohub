@@ -89,6 +89,9 @@ export function createSessionGenerationRealtimeController(options: {
 					.session(sessionId)
 					.turns.streamSnapshot();
 				if (!snapshot) return false;
+				if (turnId && snapshot.turnId && snapshot.turnId !== turnId) {
+					return false;
+				}
 				const current = sessionGenerationStore.get(sessionId);
 				if (
 					current?.turnId &&

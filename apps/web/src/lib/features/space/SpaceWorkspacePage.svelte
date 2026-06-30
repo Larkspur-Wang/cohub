@@ -127,6 +127,7 @@ import {
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	buildStreamingStoredIntermediateMessages,
+	clearCompletedIntermediateHandoff,
 	clearGenerationError,
 	completeGeneration,
 	failGeneration,
@@ -1537,6 +1538,8 @@ const timeline = $derived.by<TimelineItem[]>(() => {
 			activeGenerationState &&
 			(activeGenerationState.status === "streaming" ||
 				activeGenerationState.status === "pending" ||
+				(activeGenerationState.status === "completed" &&
+					activeStreamingIntermediateMessages.length > 0) ||
 				!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status))
 				? {
 						sessionId: activeSessionId ?? "active",
@@ -2253,9 +2256,15 @@ async function loadSessionState(sessionId: string, force = false) {
 		const guard = createKeyedRouteRequestGuard({
 			captureKey: () => `${spaceId}:${sessionId}`,
 		});
-		const cached = !force
-			? await sessionTurnsRepo.getCached(spaceId, sessionId)
-			: null;
+		let cached: Awaited<ReturnType<typeof sessionTurnsRepo.getCached>> | null =
+			null;
+		if (!force) {
+			try {
+				cached = await sessionTurnsRepo.getCached(spaceId, sessionId);
+			} catch (error) {
+				console.warn("[loadSessionState] Failed to read session cache:", error);
+			}
+		}
 		if (!guard.isCurrent()) return;
 		if (cached && (cached.turns.length > 0 || cached.session)) {
 			sessionWorkspace.sessionStateById = {
@@ -3117,6 +3126,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 						),
 					},
 				};
+				clearIntermediateHandoffIfPersisted(targetSessionId, turnId);
 			}
 			if (!existingTurn || payload.type === "session.turn.finalized") {
 				void hydrateTurnOnce({
@@ -3125,7 +3135,10 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					reason: "turn.event",
 					onHydrated:
 						payload.type === "session.turn.finalized"
-							? () => completeGenerationForTurn(targetSessionId, turnId)
+							? () => {
+									completeGenerationForTurn(targetSessionId, turnId);
+									clearIntermediateHandoffIfPersisted(targetSessionId, turnId);
+								}
 							: undefined,
 				});
 			}
@@ -3140,6 +3153,29 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
 }
+async function requestIntermediateSyncForTurn(
+	sessionId: string,
+	turnId: string | null,
+) {
+	const current = sessionGenerationStore.get(sessionId);
+	if (turnId && current?.turnId && current.turnId !== turnId) return false;
+	return restoreSessionStreamSnapshot(sessionId, {
+		turnId,
+		force: true,
+	});
+}
+
+function clearIntermediateHandoffIfPersisted(
+	sessionId: string,
+	turnId: string | null,
+) {
+	if (!turnId) return;
+	const state = sessionStateById[sessionId];
+	const turn = state?.turns.find((item) => item.id === turnId) ?? null;
+	if (!turn?.intermediateIndex?.messagesObjectKey) return;
+	clearCompletedIntermediateHandoff(sessionId, { turnId });
+}
+
 function completeGenerationForTurn(sessionId: string, turnId: string | null) {
 	const current = sessionGenerationStore.get(sessionId);
 	if (turnId && current?.turnId && current.turnId !== turnId) return;
@@ -5101,6 +5137,8 @@ const sessionWorkspaceProps = $derived.by<
 			turnId: turn.sourceTurnId ?? turn.id,
 			messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null,
 		}),
+	onRequestIntermediateSync: (turn: SessionTurnRecord) =>
+		requestIntermediateSyncForTurn(turn.sessionId, turn.id),
 	handleForkTurn,
 	forkingTurnId,
 	openInlineFile: openLinkedInlineFile,

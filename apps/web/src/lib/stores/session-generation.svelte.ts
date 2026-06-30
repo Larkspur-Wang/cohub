@@ -522,7 +522,7 @@ class SessionGenerationStore {
 			errorCode: null,
 			lastEventAt: Date.now(),
 			contentBlocks: [],
-			intermediateMessages: [],
+			intermediateMessages: current.intermediateMessages,
 			streamMessageId: null,
 			messageOrdinal: null,
 			anchorUserMessageId: null,
@@ -535,6 +535,22 @@ class SessionGenerationStore {
 			runtimeProvider: null,
 			runtimeModel: null,
 			finalizedPreview: false,
+		});
+	}
+
+	clearCompletedIntermediateHandoff(
+		sessionId: string,
+		input?: { turnId?: string | null },
+	) {
+		const current = this.get(sessionId);
+		if (current?.status !== "completed") return;
+		if (input?.turnId && current.turnId && current.turnId !== input.turnId) {
+			return;
+		}
+		if (current.intermediateMessages.length === 0) return;
+		this.setState(sessionId, {
+			...current,
+			intermediateMessages: [],
 		});
 	}
 

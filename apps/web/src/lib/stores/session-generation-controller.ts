@@ -84,6 +84,13 @@ export function completeGeneration(sessionId: string) {
 	sessionGenerationStore.complete(sessionId);
 }
 
+export function clearCompletedIntermediateHandoff(
+	sessionId: string,
+	input?: { turnId?: string | null },
+) {
+	sessionGenerationStore.clearCompletedIntermediateHandoff(sessionId, input);
+}
+
 export function resetGeneration(sessionId: string | null | undefined) {
 	sessionGenerationStore.reset(sessionId);
 }

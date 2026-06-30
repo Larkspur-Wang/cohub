@@ -27,6 +27,9 @@ type Props = {
 	onLoadIntermediate?: (
 		turn: SessionTurnRecord,
 	) => Promise<StoredIntermediateMessage[]>;
+	onRequestIntermediateSync?: (
+		turn: SessionTurnRecord,
+	) => Promise<boolean | undefined>;
 	onLoadToolCalls?: (input: {
 		turn: SessionTurnRecord;
 		message: StoredIntermediateMessage;
@@ -47,18 +50,15 @@ let {
 	onMarkdownRenderStart,
 	onMarkdownRendered,
 	onLoadIntermediate,
+	onRequestIntermediateSync,
 	onLoadToolCalls,
 	onOpenFile,
 	onForkTurn,
 	forkingTurnId = null,
 }: Props = $props();
 
-// Track all observed elements for re-observation.
 let observedNodes = new Map<HTMLElement, number>();
 let observer: IntersectionObserver | null = null;
-
-// Scroll-up pagination: old turns are prepended to DOM top.
-// We save/restore scrollTop to prevent the view from jumping.
 let prevScrollHeight = $state(0);
 
 export function preparePrepend() {
@@ -76,7 +76,6 @@ export function finalizePrepend() {
 	prevScrollHeight = 0;
 }
 
-// Svelte action: register element with IntersectionObserver
 function observeItem(node: HTMLElement, originalIndex: number) {
 	observedNodes.set(node, originalIndex);
 	if (observer) {
@@ -93,9 +92,7 @@ function observeItem(node: HTMLElement, originalIndex: number) {
 	};
 }
 
-// Create observer and observe all registered nodes
 $effect(() => {
-	// Reference bindListEl to ensure effect runs when it's set
 	const _root = bindListEl;
 
 	observer = new IntersectionObserver(
@@ -118,7 +115,6 @@ $effect(() => {
 		},
 	);
 
-	// Observe all previously registered nodes
 	for (const [node] of observedNodes) {
 		observer.observe(node);
 	}
@@ -177,7 +173,7 @@ $effect(() => {
 							forking={forkingTurnId === forkTurn?.id}
 					/>
 				{:else if item.kind === 'process' && item.turn}
-						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeProvider={item.runtimeProvider} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onLoadToolCalls} {onOpenFile} />
+						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeProvider={item.runtimeProvider} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onRequestIntermediateSync} {onLoadToolCalls} {onOpenFile} />
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} {onOpenFile} />
 				{/if}

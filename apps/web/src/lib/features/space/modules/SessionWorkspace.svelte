@@ -61,6 +61,9 @@ export type SessionWorkspaceProps = {
 	onLoadIntermediate: (
 		turn: SessionTurnRecord,
 	) => Promise<StoredIntermediateMessage[]>;
+	onRequestIntermediateSync: (
+		turn: SessionTurnRecord,
+	) => Promise<boolean | undefined>;
 	handleForkTurn: (turn: SessionTurnRecord) => void | Promise<void>;
 	forkingTurnId: string | null;
 	openInlineFile: (path: string) => void | Promise<void>;
@@ -149,6 +152,7 @@ let {
 	handleTimelineMarkdownRendered,
 	onLoadToolCalls,
 	onLoadIntermediate,
+	onRequestIntermediateSync,
 	handleForkTurn,
 	forkingTurnId,
 	openInlineFile,
@@ -258,6 +262,7 @@ let {
             onFirstVisible={handleFirstVisible}
             {onLoadToolCalls}
             {onLoadIntermediate}
+            {onRequestIntermediateSync}
             onMarkdownRenderStart={handleTimelineMarkdownRenderStart}
             onMarkdownRendered={handleTimelineMarkdownRendered}
             onForkTurn={handleForkTurn}
