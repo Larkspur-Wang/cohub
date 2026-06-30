@@ -1578,7 +1578,7 @@ function appendConsole(
     at: new Date().toISOString(),
     elapsedMs: Date.now() - state.startedAtMs,
     level,
-    args: args.map((arg) => serializeValue(arg, state.options)),
+    args: args.map((arg) => redactValue(serializeValue(arg, state.options))),
     stack: level === "trace" ? new Error().stack : undefined,
   });
   state.nextConsoleId += 1;
@@ -1590,6 +1590,9 @@ function appendNetwork(
 ): void {
   state.networkBuffer.push({
     ...entry,
+    url: redactUrl(entry.url),
+    payload:
+      entry.payload === undefined ? undefined : redactValue(entry.payload),
     id: state.nextNetworkId,
     at: new Date().toISOString(),
     elapsedMs: Date.now() - state.startedAtMs,
@@ -2044,6 +2047,116 @@ function shouldRedactHeader(
   const normalizedKey = key.toLowerCase();
   return options.redactHeaders.some(
     (header) => header.toLowerCase() === normalizedKey,
+  );
+}
+
+/**
+ * Content-level secret redaction.
+ *
+ * Header-based redaction (see {@link shouldRedactHeader}) only covers a fixed
+ * list of HTTP header names. Tokens and secrets that travel inside request /
+ * response bodies, WebSocket messages, EventSource lines, URL query strings or
+ * console output would otherwise be persisted verbatim into the debug log and
+ * HAR. The helpers below add a second layer that scrubs common secret shapes
+ * — JWTs, known API-key prefixes (sk-, github_pat_, ghp_…, pat_), Bearer
+ * tokens and sensitive JSON keys — from any text before it enters the ring
+ * buffers, so both `exportCohubDebugLog` and `exportCohubDebugHar` stay safe.
+ */
+const SENSITIVE_KEY_NAMES = new Set([
+  "token",
+  "accesstoken",
+  "access_token",
+  "refreshtoken",
+  "refresh_token",
+  "authtoken",
+  "auth_token",
+  "apikey",
+  "api_key",
+  "apitoken",
+  "api_token",
+  "secret",
+  "password",
+  "passwd",
+  "gittoken",
+  "git_token",
+  "authorization",
+  "credential",
+  "privatekey",
+  "private_key",
+]);
+
+// Matches `"<sensitiveKey>":"<value>"` and keeps the key, redacting only the
+// value. Runs case-insensitively and tolerates snake/kebab/camel casing via
+// the `[_-]?` separators (e.g. accessToken, access_token, access-token).
+const SENSITIVE_KEY_PATTERN =
+  /("(?:token|access[_-]?token|refresh[_-]?token|auth[_-]?token|api[_-]?key|api[_-]?token|secret|password|passwd|git[_-]?token|authorization|credential|private[_-]?key)"\s*:\s*")([^"]*)(")/gi;
+
+// Three base64url segments separated by dots, starting with `eyJ` (the
+// base64 of `{`). Catches both at+jwt and plain JWTs embedded anywhere.
+const JWT_PATTERN = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;
+
+const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._-]+/gi;
+
+const SECRET_PREFIX_PATTERN =
+  /\b(?:sk-[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|pat_[A-Za-z0-9_]{16,})/g;
+
+// Cheap pre-filter so the vast majority of payloads (no secret markers) skip
+// the regex passes entirely. This matters for high-frequency SSE / WebSocket
+// line captures.
+const REDACTION_HINT =
+  /eyJ|sk-|pat_|gh[pousr]_|github_pat_|bearer|token|secret|password|passwd|apikey|api_key|authorization|credential|privatekey|private_key/i;
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEY_NAMES.has(key.toLowerCase());
+}
+
+export function redactText(text: string): string {
+  if (typeof text !== "string" || text.length === 0) {
+    return text;
+  }
+  if (!REDACTION_HINT.test(text)) {
+    return text;
+  }
+
+  let out = text;
+  out = out.replace(SENSITIVE_KEY_PATTERN, "$1[redacted]$3");
+  out = out.replace(BEARER_PATTERN, "Bearer [redacted]");
+  out = out.replace(JWT_PATTERN, "[redacted jwt]");
+  out = out.replace(SECRET_PREFIX_PATTERN, "[redacted token]");
+  return out;
+}
+
+export function redactValue(value: SerializedValue, key?: string): SerializedValue {
+  if (typeof value === "string") {
+    return key !== undefined && isSensitiveKey(key)
+      ? "[redacted]"
+      : redactText(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item));
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, SerializedValue> = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = redactValue(v as SerializedValue, k);
+    }
+    return out;
+  }
+  return value;
+}
+
+// Redact sensitive query-parameter values in-place without re-parsing the URL,
+// so relative URLs and ws/wss schemes keep their original textual form.
+export function redactUrl(url: string): string {
+  if (typeof url !== "string" || url.indexOf("?") === -1) {
+    return url;
+  }
+  return url.replace(
+    /([?&])([^=&#?]*)=([^&#]*)/g,
+    (match, sep: string, key: string) =>
+      isSensitiveKey(key) || /token|secret|pass|key|auth|credential/i.test(key)
+        ? `${sep}${key}=[redacted]`
+        : match,
   );
 }
 
