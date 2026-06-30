@@ -8,8 +8,40 @@ import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
 import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
 import { ordersFeature } from "@talesofai-billing/sdk/admin/orders";
 import { productsFeature } from "@talesofai-billing/sdk/admin/products";
+import {
+  billingOperations,
+  COHUB_BILLING_FEATURES,
+} from "@cohub/billing";
+import { createLogger } from "@cohub/infra/logging";
 
 const BILLING_NAMESPACE = "cohub_space";
+
+const logger = createLogger({ serviceName: "cohub-api" });
+
+/**
+ * Resolves the space commerce entitlement. Returns `true` when entitled,
+ * `false` when explicitly not entitled, or `null` when the billing service
+ * could not be reached — letting callers distinguish a missing subscription
+ * (402) from a transient verification failure (503) instead of masking a
+ * billing outage as an upgrade prompt.
+ */
+export async function resolveSpaceCommerceEntitlement(
+  userId: string,
+): Promise<boolean | null> {
+  try {
+    const entitlement = await billingOperations.getFeatureEntitlement({
+      userId,
+      featureKey: COHUB_BILLING_FEATURES.spaceCommerce,
+    });
+    return Boolean(entitlement?.enabled);
+  } catch (error) {
+    logger.warn("[space-commerce] failed to check commerce entitlement", {
+      userId,
+      error,
+    });
+    return null;
+  }
+}
 
 export class SpaceCommerceNotInitializedError extends Error {
   override name = "SpaceCommerceNotInitializedError";

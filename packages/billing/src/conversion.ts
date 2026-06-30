@@ -2,7 +2,8 @@ export type BillingConversionLevel = "soft" | "hard";
 
 export type BillingConversionReason =
   | "negative_balance"
-  | "negative_balance_limit_exceeded";
+  | "negative_balance_limit_exceeded"
+  | "feature_not_entitled";
 
 export type BillingConversionAudience = "free" | "paid" | "unknown";
 
@@ -41,6 +42,31 @@ export function createBillingConversionIntent(input: {
       : "Your work can continue for now. Add credits to avoid interruption.",
     primaryAction: {
       label: isHard ? "Add credits" : "View options",
+      action: "open_billing_conversion",
+    },
+    source: input.source,
+  };
+}
+
+/**
+ * Builds a hard conversion intent for entitlement-gated features (e.g. a
+ * capability reserved for a paid plan). The resulting intent drives the
+ * shared billing conversion UI so callers only need to provide copy.
+ */
+export function createFeatureGateConversionIntent(input: {
+  source: string;
+  title?: string;
+  message?: string;
+}): BillingConversionIntent {
+  return {
+    level: "hard",
+    reason: "feature_not_entitled",
+    audience: "unknown",
+    preferredOfferKind: "upgrade",
+    title: input.title ?? "Upgrade to continue",
+    message: input.message ?? "This feature requires a higher plan.",
+    primaryAction: {
+      label: "View plans",
       action: "open_billing_conversion",
     },
     source: input.source,

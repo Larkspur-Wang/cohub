@@ -311,7 +311,10 @@ export type BillingRedemptionResult = {
 
 export type BillingConversionIntent = {
   level: "soft" | "hard";
-  reason: "negative_balance" | "negative_balance_limit_exceeded";
+  reason:
+    | "negative_balance"
+    | "negative_balance_limit_exceeded"
+    | "feature_not_entitled";
   audience: "free" | "paid" | "unknown";
   preferredOfferKind: "plan" | "upgrade" | "addon" | "mixed";
   title: string;

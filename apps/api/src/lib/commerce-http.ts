@@ -1,9 +1,12 @@
 import type { Context } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
+import { createFeatureGateConversionIntent } from "@cohub/billing";
 import { jsonError } from "./json-error.js";
-import { SpaceCommerceNotInitializedError } from "./space-commerce.js";
+import { SpaceCommerceNotInitializedError, resolveSpaceCommerceEntitlement } from "./space-commerce.js";
 
 export const SPACE_COMMERCE_NOT_INITIALIZED_CODE = "space_commerce_not_initialized";
+export const SPACE_COMMERCE_ENTITLEMENT_REQUIRED_CODE = "space_commerce_required";
+export const SPACE_COMMERCE_ENTITLEMENT_UNAVAILABLE_CODE = "space_commerce_unavailable";
 
 function commerceApiErrorResponse(c: Context, error: ApiError, input: { conflictMessage: string }) {
   const status = error.status >= 500 ? 502 : error.status;
@@ -43,4 +46,40 @@ export function handleWorkCommerceRouteError(c: Context, error: unknown) {
     });
   }
   return null;
+}
+
+/**
+ * Guards commerce management routes behind the `space.commerce` entitlement.
+ * Returns `null` when the user is entitled. Returns 503 when entitlement
+ * could not be verified (transient billing failure), and 402 with a billing
+ * conversion intent when the user is explicitly not entitled so the shared
+ * upgrade UI can pick it up.
+ */
+export async function requireSpaceCommerceEntitlement(
+  c: Context,
+  userId: string,
+): Promise<Response | null> {
+  const entitled = await resolveSpaceCommerceEntitlement(userId);
+  if (entitled === null) {
+    return jsonError(c, {
+      status: 503,
+      message: "Could not verify plan eligibility. Please try again.",
+      code: SPACE_COMMERCE_ENTITLEMENT_UNAVAILABLE_CODE,
+    });
+  }
+  if (entitled) return null;
+  return jsonError(c, {
+    status: 402,
+    message: "Managing space commerce requires a Max plan.",
+    code: SPACE_COMMERCE_ENTITLEMENT_REQUIRED_CODE,
+    extra: {
+      billing: {
+        conversion: createFeatureGateConversionIntent({
+          source: "space_commerce",
+          title: "Upgrade to Max",
+          message: "Managing space commerce requires a Max plan.",
+        }),
+      },
+    },
+  });
 }

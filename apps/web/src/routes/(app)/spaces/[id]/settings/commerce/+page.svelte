@@ -59,6 +59,10 @@ let bindBenefitKey = $state("");
 let ordersExpanded = $state(false);
 let ordersLoading = $state(false);
 
+const SPACE_COMMERCE_FEATURE = "space.commerce";
+let canManage = $state(false);
+let entitlementLoading = $state(true);
+
 const bindableProducts = $derived(
 	products.filter((product) => product.status !== "archived"),
 );
@@ -375,6 +379,27 @@ $effect(() => {
 	const targetSpaceId = spaceId;
 	void loadInitial(targetSpaceId);
 });
+
+$effect(() => {
+	let cancelled = false;
+	entitlementLoading = true;
+	void sdk.billing
+		.getFeatureEntitlement(SPACE_COMMERCE_FEATURE)
+		.then(({ enabled }) => {
+			if (cancelled) return;
+			canManage = enabled;
+		})
+		.catch(() => {
+			if (cancelled) return;
+			canManage = false;
+		})
+		.finally(() => {
+			if (!cancelled) entitlementLoading = false;
+		});
+	return () => {
+		cancelled = true;
+	};
+});
 </script>
 
 <svelte:head><title>Commerce — Cohub</title></svelte:head>
@@ -389,6 +414,16 @@ $effect(() => {
 
 	<main class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-6">
 		<div class="mx-auto w-full max-w-4xl space-y-4 sm:space-y-5">
+			{#if !entitlementLoading && !canManage}
+				<div class="flex items-center gap-2.5 rounded-[8px] border border-brand/30 bg-brand/5 p-3">
+					<Sparkles class="h-4 w-4 shrink-0 text-brand" />
+					<div class="min-w-0 flex-1">
+						<div class="text-[13px] font-medium text-text-primary">Managing commerce requires a Max plan</div>
+						<div class="text-[12px] text-text-tertiary">Upgrade to set up and configure space commerce.</div>
+					</div>
+					<a href="/settings/billing" class="inline-flex min-h-8 shrink-0 items-center rounded-[6px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand/90">Upgrade</a>
+				</div>
+			{/if}
 			{#if loading}
 				<CenteredLoading label="Loading commerce…" size="compact" variant="surface" />
 			{:else if loadError}
@@ -406,7 +441,7 @@ $effect(() => {
 					</div>
 					<div class="flex items-center justify-between gap-3 p-4 sm:p-5">
 						<div class="text-[12px] text-text-tertiary">This is a one-time setup for the current space.</div>
-						<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void setupCommerce()} disabled={setupSaving}>
+						<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void setupCommerce()} disabled={setupSaving || !canManage}>
 							{#if setupSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Sparkles class="h-3.5 w-3.5" />{/if}
 							Initialize
 						</button>
@@ -450,7 +485,7 @@ $effect(() => {
 								<div class="text-[12px] text-text-tertiary">Reusable feature entitlements linked to products.</div>
 							</div>
 						</div>
-						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }}>
+						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
 							<Plus class="h-3.5 w-3.5" /> New benefit
 						</button>
 					</div>
@@ -459,7 +494,7 @@ $effect(() => {
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-6 text-center">
 								<div class="text-[13px] font-medium text-text-secondary">No benefits yet</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">Create a feature benefit to gate access to platform capabilities.</div>
-								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }}>
+								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
 									<Plus class="h-3.5 w-3.5" /> Create benefit
 								</button>
 							</div>
@@ -491,10 +526,10 @@ $effect(() => {
 												{/if}
 											</div>
 											<div class="flex shrink-0 items-center gap-1">
-												<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-edit", benefit }; }} disabled={benefitActionBusyKey !== null || archived}>
+												<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-edit", benefit }; }} disabled={benefitActionBusyKey !== null || archived || !canManage}>
 													<Pencil class="h-3 w-3" /> Edit
 												</button>
-												<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void archiveBenefit(benefit)} disabled={benefitActionBusyKey !== null || archived}>
+												<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void archiveBenefit(benefit)} disabled={benefitActionBusyKey !== null || archived || !canManage}>
 													{#if benefitActionBusyKey === benefit.key}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Archive class="h-3 w-3" />{/if}
 													Archive
 												</button>
@@ -517,7 +552,7 @@ $effect(() => {
 								<div class="text-[12px] text-text-tertiary">One-time purchases buyers can check out.</div>
 							</div>
 						</div>
-						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }}>
+						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }} disabled={!canManage}>
 							<Plus class="h-3.5 w-3.5" /> New product
 						</button>
 					</div>
@@ -526,7 +561,7 @@ $effect(() => {
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-6 text-center">
 								<div class="text-[13px] font-medium text-text-secondary">No products yet</div>
 								<div class="mt-1 text-[12px] text-text-tertiary">Create a product to start selling.</div>
-								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }}>
+								<button type="button" class="mt-3 inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }} disabled={!canManage}>
 									<Plus class="h-3.5 w-3.5" /> Create product
 								</button>
 							</div>
@@ -562,10 +597,10 @@ $effect(() => {
 										{/if}
 
 										<div class="mt-3 flex items-center gap-1 border-t border-border-subtle pt-2.5">
-											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-edit", product }; }} disabled={productActionBusyKey !== null || archived}>
+											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-edit", product }; }} disabled={productActionBusyKey !== null || archived || !canManage}>
 												<Pencil class="h-3 w-3" /> Edit
 											</button>
-											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void archiveProduct(product)} disabled={productActionBusyKey !== null || archived}>
+											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void archiveProduct(product)} disabled={productActionBusyKey !== null || archived || !canManage}>
 												{#if productActionBusyKey === product.key}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Archive class="h-3 w-3" />{/if}
 												Archive
 											</button>
@@ -607,7 +642,7 @@ $effect(() => {
 							<div class="grid gap-3 sm:grid-cols-2">
 								<label class="flex flex-col gap-1.5">
 									<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Product</span>
-									<select bind:value={bindProductKey} disabled={bindingSaving} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
+									<select bind:value={bindProductKey} disabled={bindingSaving || !canManage} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
 										<option value="">Select a product…</option>
 										{#each bindableProducts as product (product.key)}
 											<option value={product.key}>{product.name} · {product.key}</option>
@@ -616,7 +651,7 @@ $effect(() => {
 								</label>
 								<label class="flex flex-col gap-1.5">
 									<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Benefit</span>
-									<select bind:value={bindBenefitKey} disabled={bindingSaving} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
+									<select bind:value={bindBenefitKey} disabled={bindingSaving || !canManage} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
 										<option value="">Select a benefit…</option>
 										{#each bindableBenefits as benefit (benefit.key)}
 											<option value={benefit.key}>{benefit.name} · {benefit.key}</option>
@@ -626,7 +661,7 @@ $effect(() => {
 							</div>
 							<div class="flex items-center justify-between gap-3">
 								<span class="text-[11px] text-text-tertiary">Links are applied immediately and verified at checkout.</span>
-								<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void applyBinding()} disabled={bindingSaving || !bindingReady}>
+								<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void applyBinding()} disabled={bindingSaving || !bindingReady || !canManage}>
 									{#if bindingSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Link2 class="h-3.5 w-3.5" />{/if}
 									{bindingMode === "attach" ? "Attach" : "Detach"}
 								</button>

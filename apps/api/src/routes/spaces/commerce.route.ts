@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
-import { handleSpaceCommerceRouteError } from "../../lib/commerce-http.js";
+import {
+  handleSpaceCommerceRouteError,
+  requireSpaceCommerceEntitlement,
+} from "../../lib/commerce-http.js";
 import { hasPermission } from "../../permissions.js";
 import {
   createSpaceCommerceSdk,
@@ -117,7 +120,9 @@ router.post("/:id/commerce/setup", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   try {
     const mapping = await ensureSpaceCommerceBusiness(spaceId);
     return c.json({ businessKey: mapping.billingBusinessKey });
@@ -132,7 +137,7 @@ router.get("/:id/commerce/products", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
@@ -154,7 +159,9 @@ router.post("/:id/commerce/products", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const key = typeof body?.key === "string" ? body.key.trim() : "";
   const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -195,7 +202,9 @@ router.patch("/:id/commerce/products/:productKey", async (c) => {
   const productKey = c.req.param("productKey").trim();
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!productKey) return c.json({ message: "product not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const patch: Record<string, unknown> = {};
   if (typeof body?.name === "string") patch.name = body.name.trim();
@@ -231,7 +240,7 @@ router.get("/:id/commerce/benefits", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
@@ -253,7 +262,9 @@ router.post("/:id/commerce/benefits", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const key = typeof body?.key === "string" ? body.key.trim() : "";
   const name = typeof body?.name === "string" ? body.name.trim() : "";
@@ -290,7 +301,9 @@ router.patch("/:id/commerce/benefits/:benefitKey", async (c) => {
   const benefitKey = c.req.param("benefitKey").trim();
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!benefitKey) return c.json({ message: "benefit not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const patch: Record<string, unknown> = {};
   if (typeof body?.name === "string") patch.name = body.name.trim();
@@ -329,7 +342,9 @@ router.post("/:id/commerce/product-benefits", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const productKey = typeof body?.productKey === "string" ? body.productKey.trim() : "";
   const benefitKey = typeof body?.benefitKey === "string" ? body.benefitKey.trim() : "";
@@ -355,7 +370,9 @@ router.delete("/:id/commerce/product-benefits", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.manage", { spaceId }))) return authzDenied(c);
+  const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
+  if (entitlementDenied) return entitlementDenied;
   const productKey = c.req.query("productKey")?.trim() ?? "";
   const benefitKey = c.req.query("benefitKey")?.trim() ?? "";
   if (!productKey) return c.json({ message: "productKey is required" }, 400);
@@ -380,7 +397,7 @@ router.get("/:id/commerce/orders", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
-  if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
+  if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
   const page = Math.max(1, Number.parseInt(c.req.query("page") ?? "1", 10) || 1);
   const limit = Math.min(50, Math.max(1, Number.parseInt(c.req.query("limit") ?? "20", 10) || 20));
   try {

@@ -32,6 +32,8 @@ export const ALL_PERMISSIONS = [
   "sandbox.manage",
   "mod.view",
   "mod.manage",
+  "space.commerce.view",
+  "space.commerce.manage",
   "user.space.list",
   "user.session.list",
   "user.usage.read",
@@ -115,6 +117,8 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "sandbox.manage",
     "mod.view",
     "mod.manage",
+    "space.commerce.view",
+    "space.commerce.manage",
   ]),
   builder: new Set([
     "space.view",

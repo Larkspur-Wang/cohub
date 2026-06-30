@@ -30,6 +30,7 @@ export const COHUB_BILLING_FEATURES = {
   sandboxAccess: "sandbox.access",
   spaceStorageMaxBytes: "space.storage.max_bytes",
   spaceModsMax: "space.mods.max",
+  spaceCommerce: "space.commerce",
   workPublishHideCohubBar: "work.publish.hide_cohub_bar",
 } as const;
 
