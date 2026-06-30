@@ -25,6 +25,60 @@ The Work owns:
 - entitlement-aware UI
 - order-specific post-checkout messaging
 
+## Prepare with the CLI
+
+Commerce is configured on the Space, then consumed by the Work.
+
+```bash
+# Use -s or COHUB_SPACE_ID to target the Space.
+cohub -s <space-id> spaces commerce setup
+
+cohub -s <space-id> spaces commerce benefits create \
+  --benefit-key space_pro \
+  --name "Space Pro"
+
+cohub -s <space-id> spaces commerce products create \
+  --product-key pro_unlock \
+  --name "Pro Unlock" \
+  --amount-usd 9.99 \
+  --visibility public \
+  --status active
+
+cohub -s <space-id> spaces commerce bind \
+  --product-key pro_unlock \
+  --benefit-key space_pro
+```
+
+Useful inspection commands:
+
+```bash
+cohub -s <space-id> spaces commerce products list
+cohub -s <space-id> spaces commerce benefits list
+cohub -s <space-id> spaces commerce orders list --limit 10
+```
+
+## Debug a published Work
+
+Use the Work commerce commands to test the same server-side flow without opening the demo UI.
+
+```bash
+cohub works commerce products resolve \
+  --work-id <work-id> \
+  --product-key pro_unlock
+
+cohub works commerce entitlements check \
+  --work-id <work-id> \
+  --benefit-key space_pro
+
+cohub works commerce purchase \
+  --work-id <work-id> \
+  --product-key pro_unlock
+
+cohub works commerce orders get \
+  --work-id <work-id> \
+  --order-id <order-id>
+```
+
 ## Minimal example
 
 ```html
@@ -104,3 +158,4 @@ The Work owns:
 - Treat `getCheckoutState()` as a transient signal from the outer host.
 - Treat `getOrder(orderId)` as the authoritative order-specific follow-up check.
 - Keep Work copy simple and short.
+- Keep Space setup explicit in scripts: use `-s <space-id>` or `COHUB_SPACE_ID`.
