@@ -1211,7 +1211,7 @@ export class SpaceCommerceApi {
   }
 
   createProduct(input: {
-    key: string;
+    key?: string;
     name: string;
     description?: string;
     amountUsd: number;
@@ -1251,7 +1251,7 @@ export class SpaceCommerceApi {
   }
 
   createBenefit(input: {
-    key: string;
+    key?: string;
     name: string;
     description?: string;
     metadata?: Record<string, string | number | boolean>;

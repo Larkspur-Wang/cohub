@@ -235,7 +235,7 @@ Examples:
     .addHelpText("after", `
 Examples:
   cohub -s <space-id> spaces commerce products list
-  cohub -s <space-id> spaces commerce products create --product-key pro_pack --name "Pro Pack" --amount-usd 9.99
+  cohub -s <space-id> spaces commerce products create --name "Pro Pack" --amount-usd 9.99
 `);
 
   productsCmd
@@ -256,7 +256,7 @@ Examples:
   productsCmd
     .command("create")
     .description("Create a product")
-    .option("--product-key <key>", "Product key")
+    .option("--product-key <key>", "Product key override")
     .option("--name <name>", "Product name")
     .option("--amount-usd <amount>", "One-time price in USD")
     .option("--description <text>", "Product description")
@@ -265,7 +265,7 @@ Examples:
     .option("--json", "Output as JSON")
     .action(async (opts: ProductCreateOptions) => {
       const input = {
-        key: requireText(opts.productKey, "product key", "--product-key <key>"),
+        key: opts.productKey?.trim() || undefined,
         name: requireText(opts.name, "name", "--name <name>"),
         description: opts.description,
         amountUsd: parseAmountUsd(opts.amountUsd),
@@ -339,7 +339,7 @@ Examples:
     .addHelpText("after", `
 Examples:
   cohub -s <space-id> spaces commerce benefits list
-  cohub -s <space-id> spaces commerce benefits create --benefit-key premium_export --name "Premium Export" --metadata-json '{"limit":100}'
+  cohub -s <space-id> spaces commerce benefits create --name "Premium Export" --metadata-json '{"limit":100}'
 `);
 
   benefitsCmd
@@ -360,14 +360,14 @@ Examples:
   benefitsCmd
     .command("create")
     .description("Create a benefit")
-    .option("--benefit-key <key>", "Benefit key")
+    .option("--benefit-key <key>", "Benefit key override")
     .option("--name <name>", "Benefit name")
     .option("--description <text>", "Benefit description")
     .option("--metadata-json <json>", "Benefit metadata JSON object")
     .option("--json", "Output as JSON")
     .action(async (opts: BenefitCreateOptions) => {
       const input = {
-        key: requireText(opts.benefitKey, "benefit key", "--benefit-key <key>"),
+        key: opts.benefitKey?.trim() || undefined,
         name: requireText(opts.name, "name", "--name <name>"),
         description: opts.description,
         metadata: parseMetadataJson(opts.metadataJson),

@@ -3,20 +3,6 @@ import type { SpaceCommerceFeatureBenefit } from "@neta-art/cohub";
 import { Loader2, Plus, Trash2 } from "lucide-svelte";
 import { untrack } from "svelte";
 
-/**
- * Known Cohub feature keys. Kept locally (instead of importing from
- * `@cohub/billing`, which carries server-side dependencies) to keep the web
- * bundle clean. These drive the benefit-key suggestions so space owners
- * configure entitlements that the platform actually recognises.
- */
-const FEATURE_KEY_SUGGESTIONS: Array<{ key: string; label: string }> = [
-	{ key: "generation.access", label: "Generation access" },
-	{ key: "sandbox.access", label: "Sandbox access" },
-	{ key: "space.storage.max_bytes", label: "Space storage limit" },
-	{ key: "space.mods.max", label: "Space mods limit" },
-	{ key: "work.publish.hide_cohub_bar", label: "Hide Cohub bar on works" },
-];
-
 type MetaType = "string" | "number" | "boolean";
 
 type MetaRow = {
@@ -35,7 +21,7 @@ const {
 }: {
 	benefit?: SpaceCommerceFeatureBenefit | null;
 	onSubmit: (input: {
-		key: string;
+		key?: string;
 		name: string;
 		description?: string;
 		metadata: Record<string, string | number | boolean>;
@@ -94,7 +80,7 @@ const seed = untrack(() => {
 	};
 });
 
-let key = $state(seed.key);
+const systemKey = seed.key;
 let name = $state(seed.name);
 let description = $state(seed.description);
 let error = $state("");
@@ -136,28 +122,14 @@ function buildMetadata(): Record<string, string | number | boolean> {
 	return metadata;
 }
 
-function humanizeKey(value: string): string {
-	return value
-		.split(/[._\s-]+/g)
-		.filter(Boolean)
-		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-		.join(" ");
-}
-
-function onKeyInput(event: Event) {
-	key = (event.currentTarget as HTMLInputElement).value;
-	if (!name.trim()) name = humanizeKey(key);
-}
-
-const keyInvalid = $derived(!key.trim());
 const nameInvalid = $derived(!name.trim());
 
 async function submit() {
 	error = "";
-	if (keyInvalid || nameInvalid) return;
+	if (nameInvalid) return;
 	try {
 		await onSubmit({
-			key: key.trim(),
+			...(isEdit && systemKey ? { key: systemKey } : {}),
 			name: name.trim(),
 			description: description.trim() || undefined,
 			metadata: buildMetadata(),
@@ -171,6 +143,8 @@ const inputClass =
 	"h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60";
 const labelClass =
 	"text-[11px] font-medium uppercase tracking-wide text-text-tertiary";
+const readonlyClass =
+	"flex h-9 w-full items-center rounded-[6px] border border-border-subtle bg-bg-input px-3 font-mono text-[13px] text-text-tertiary";
 </script>
 
 <div class="flex flex-col gap-4 p-4 sm:p-5">
@@ -181,46 +155,42 @@ const labelClass =
 			<span class="rounded-[5px] bg-bg-input px-3 py-1.5 font-medium text-text-primary shadow-sm">Feature</span>
 			<span class="rounded-[5px] px-3 py-1.5 text-text-placeholder">Credits · soon</span>
 		</div>
-		<span class="text-[11px] text-text-tertiary">Feature benefits gate access to platform capabilities.</span>
+		<span class="text-[11px] text-text-tertiary">Feature benefits gate access to product capabilities.</span>
 	</div>
 
-	<div class="flex flex-col gap-1.5">
-		<label class={labelClass} for="benefit-key">Key</label>
-		<input
-			id="benefit-key"
-			class={inputClass + " font-mono"}
-			class:opacity-60={isEdit}
-			value={key}
-			disabled={isEdit || busy}
-			placeholder="generation.access"
-			oninput={onKeyInput}
-			list="benefit-key-suggestions"
-			autocomplete="off"
-			spellcheck="false"
-		/>
-		<datalist id="benefit-key-suggestions">
-			{#each FEATURE_KEY_SUGGESTIONS as suggestion (suggestion.key)}
-				<option value={suggestion.key}>{suggestion.label}</option>
-			{/each}
-		</datalist>
-		{#if isEdit}
-			<span class="text-[11px] text-text-tertiary">Key can't be changed after creation.</span>
-		{:else}
-			<span class="text-[11px] text-text-tertiary">A unique identifier. Use a known feature key to gate a platform capability.</span>
-		{/if}
-	</div>
-
-	<div class="flex flex-col gap-1.5">
-		<label class={labelClass} for="benefit-name">Name</label>
-		<input
-			id="benefit-name"
-			class={inputClass}
-			bind:value={name}
-			disabled={busy}
-			placeholder="Generation access"
-			autocomplete="off"
-		/>
-	</div>
+	{#if isEdit}
+		<div class="grid gap-4 sm:grid-cols-2">
+			<div class="flex flex-col gap-1.5">
+				<label class={labelClass} for="benefit-name">Name</label>
+				<input
+					id="benefit-name"
+					class={inputClass}
+					bind:value={name}
+					disabled={busy}
+					placeholder="Premium Export"
+					autocomplete="off"
+				/>
+			</div>
+			<div class="flex flex-col gap-1.5">
+				<span class={labelClass}>System key</span>
+				<div class={readonlyClass}>{systemKey}</div>
+				<span class="text-[11px] text-text-tertiary">Generated at creation and immutable.</span>
+			</div>
+		</div>
+	{:else}
+		<div class="flex flex-col gap-1.5">
+			<label class={labelClass} for="benefit-name">Name</label>
+			<input
+				id="benefit-name"
+				class={inputClass}
+				bind:value={name}
+				disabled={busy}
+				placeholder="Premium Export"
+				autocomplete="off"
+			/>
+			<span class="text-[11px] text-text-tertiary">A stable key is generated from this name.</span>
+		</div>
+	{/if}
 
 	<div class="flex flex-col gap-1.5">
 		<label class={labelClass} for="benefit-description">Description</label>
@@ -332,7 +302,7 @@ const labelClass =
 			type="button"
 			class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-opacity disabled:opacity-50"
 			onclick={() => void submit()}
-			disabled={busy || keyInvalid || nameInvalid}
+			disabled={busy || nameInvalid}
 		>
 			{#if busy}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
 			{isEdit ? "Save changes" : "Create benefit"}

@@ -33,12 +33,11 @@ Commerce is configured on the Space, then consumed by the Work.
 # Use -s or COHUB_SPACE_ID to target the Space.
 cohub -s <space-id> spaces commerce setup
 
+# Keys are generated from names: "Space Pro" -> space_pro, "Pro Unlock" -> pro_unlock.
 cohub -s <space-id> spaces commerce benefits create \
-  --benefit-key space_pro \
   --name "Space Pro"
 
 cohub -s <space-id> spaces commerce products create \
-  --product-key pro_unlock \
   --name "Pro Unlock" \
   --amount-usd 9.99 \
   --visibility public \

@@ -185,7 +185,7 @@ async function setupCommerce() {
 // ---- Benefits ----
 
 async function submitBenefit(input: {
-	key: string;
+	key?: string;
 	name: string;
 	description?: string;
 	metadata: Record<string, MetaValue>;
@@ -239,7 +239,7 @@ async function archiveBenefit(benefit: SpaceCommerceFeatureBenefit) {
 // ---- Products ----
 
 async function submitProduct(input: {
-	key: string;
+	key?: string;
 	name: string;
 	description?: string;
 	amountUsd: number;

@@ -1,15 +1,18 @@
 import { Hono } from "hono";
+import { ApiError } from "@talesofai-billing/sdk/base";
 import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
 import {
   handleSpaceCommerceRouteError,
   requireSpaceCommerceEntitlement,
 } from "../../lib/commerce-http.js";
 import { hasPermission } from "../../permissions.js";
+import { createCommerceKey } from "../../lib/commerce-key.js";
 import {
   createSpaceCommerceSdk,
   ensureSpaceCommerceBusiness,
   requireSpaceCommerceBusiness,
 } from "../../lib/space-commerce.js";
+import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
 
 const router = new Hono();
 
@@ -116,6 +119,47 @@ function serializeOrder(order: {
   };
 }
 
+async function collectCommerceKeys<T extends { key: string }>(
+  loadPage: (page: number) => Promise<{ items: T[]; pagination: { has_more: boolean } }>,
+): Promise<Set<string>> {
+  const keys = new Set<string>();
+  let page = 1;
+  while (true) {
+    const result = await loadPage(page);
+    for (const item of result.items) keys.add(item.key);
+    if (!result.pagination.has_more) break;
+    page += 1;
+  }
+  return keys;
+}
+
+function isCommerceConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409;
+}
+
+function mergeKeys(target: Set<string>, source: Iterable<string>): Set<string> {
+  for (const key of source) target.add(key);
+  return target;
+}
+
+async function listProductKeys(sdk: SpaceCommerceSdk, businessKey: string): Promise<Set<string>> {
+  return collectCommerceKeys((page) => sdk.admin.products.list({
+    business_key: businessKey,
+    include_count: false,
+    limit: 100,
+    page,
+  }));
+}
+
+async function listBenefitKeys(sdk: SpaceCommerceSdk, businessKey: string): Promise<Set<string>> {
+  return collectCommerceKeys((page) => sdk.admin.benefits.list({
+    business_key: businessKey,
+    include_count: false,
+    limit: 100,
+    page,
+  }));
+}
+
 router.post("/:id/commerce/setup", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
@@ -163,19 +207,18 @@ router.post("/:id/commerce/products", async (c) => {
   const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
   if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  const key = typeof body?.key === "string" ? body.key.trim() : "";
+  const explicitKey = typeof body?.key === "string" ? body.key.trim() : "";
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const description = typeof body?.description === "string" ? body.description.trim() : undefined;
   const visibility = body?.visibility === "private" ? "private" : "public";
   const status = body?.status === "draft" ? "draft" : "active";
   const amount = Number(body?.amountUsd);
-  if (!key) return c.json({ message: "key is required" }, 400);
   if (!name) return c.json({ message: "name is required" }, 400);
   if (!Number.isFinite(amount) || amount < 0) return c.json({ message: "amountUsd must be a non-negative number" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
-    const product = await sdk.admin.products.create({
+    const createProduct = (key: string) => sdk.admin.products.create({
       business_key: mapping.billingBusinessKey,
       key,
       name,
@@ -188,6 +231,22 @@ router.post("/:id/commerce/products", async (c) => {
       billing_period: "one_time",
       billing_interval_count: 1,
     });
+    let product: Awaited<ReturnType<typeof createProduct>>;
+    if (explicitKey) {
+      product = await createProduct(explicitKey);
+    } else {
+      const occupiedKeys = await listProductKeys(sdk, mapping.billingBusinessKey);
+      let generatedKey = createCommerceKey({ name, fallback: "product", occupiedKeys });
+      try {
+        product = await createProduct(generatedKey);
+      } catch (error) {
+        if (!isCommerceConflict(error)) throw error;
+        occupiedKeys.add(generatedKey);
+        mergeKeys(occupiedKeys, await listProductKeys(sdk, mapping.billingBusinessKey));
+        generatedKey = createCommerceKey({ name, fallback: "product", occupiedKeys });
+        product = await createProduct(generatedKey);
+      }
+    }
     return c.json({ product: serializeProduct(product), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
@@ -266,26 +325,41 @@ router.post("/:id/commerce/benefits", async (c) => {
   const entitlementDenied = await requireSpaceCommerceEntitlement(c, user.uuid);
   if (entitlementDenied) return entitlementDenied;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  const key = typeof body?.key === "string" ? body.key.trim() : "";
+  const explicitKey = typeof body?.key === "string" ? body.key.trim() : "";
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const description = typeof body?.description === "string" ? body.description.trim() : undefined;
   const metadata = typeof body?.metadata === "object" && body.metadata && !Array.isArray(body.metadata)
     ? body.metadata as Record<string, string | number | boolean>
     : {};
-  if (!key) return c.json({ message: "key is required" }, 400);
   if (!name) return c.json({ message: "name is required" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
-    const benefit = await sdk.admin.benefits.create({
+    const createBenefit = (key: string) => sdk.admin.benefits.create({
       business_key: mapping.billingBusinessKey,
       key,
-      type: "feature",
+      type: "feature" as const,
       name,
       description,
       config: { metadata },
-      status: "active",
+      status: "active" as const,
     });
+    let benefit: Awaited<ReturnType<typeof createBenefit>>;
+    if (explicitKey) {
+      benefit = await createBenefit(explicitKey);
+    } else {
+      const occupiedKeys = await listBenefitKeys(sdk, mapping.billingBusinessKey);
+      let generatedKey = createCommerceKey({ name, fallback: "benefit", occupiedKeys });
+      try {
+        benefit = await createBenefit(generatedKey);
+      } catch (error) {
+        if (!isCommerceConflict(error)) throw error;
+        occupiedKeys.add(generatedKey);
+        mergeKeys(occupiedKeys, await listBenefitKeys(sdk, mapping.billingBusinessKey));
+        generatedKey = createCommerceKey({ name, fallback: "benefit", occupiedKeys });
+        benefit = await createBenefit(generatedKey);
+      }
+    }
     if (!isFeatureBenefit(benefit)) return c.json({ message: "feature benefit is required" }, 400);
     return c.json({ benefit: serializeBenefit(benefit), businessKey: mapping.billingBusinessKey });
   } catch (error) {
