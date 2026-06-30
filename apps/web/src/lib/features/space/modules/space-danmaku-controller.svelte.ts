@@ -12,6 +12,7 @@
 export type DanmakuItem = {
 	id: string;
 	text: string;
+	sessionId: string;
 	authorName: string;
 	avatarUrl: string | null;
 	lane: number;
@@ -21,6 +22,7 @@ export type DanmakuItem = {
 export type DanmakuPushInput = {
 	id: string;
 	text: string;
+	sessionId: string;
 	userUuid: string;
 	authorName: string;
 	avatarUrl: string | null;
@@ -175,6 +177,7 @@ export function createSpaceDanmakuController() {
 		const item: DanmakuItem = {
 			id: input.id,
 			text,
+			sessionId: input.sessionId,
 			authorName: input.authorName,
 			avatarUrl: input.avatarUrl,
 			lane: bestLane,

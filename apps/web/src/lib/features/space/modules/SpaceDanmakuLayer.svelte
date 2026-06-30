@@ -1,13 +1,15 @@
 <script lang="ts">
 import { onMount } from "svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { buildSpaceSessionRoute } from "$lib/space-routes";
 import type { SpaceDanmakuController } from "./space-danmaku-controller.svelte";
 
 type Props = {
 	controller: SpaceDanmakuController;
+	spaceId: string;
 	hidden?: boolean;
 };
-let { controller, hidden = false }: Props = $props();
+let { controller, spaceId, hidden = false }: Props = $props();
 
 const items = $derived(controller.items);
 
@@ -36,7 +38,11 @@ onMount(() => {
 				class="danmaku-item"
 				style="--lane: {item.lane}; --duration: {item.durationMs}ms"
 			>
-				<span class="danmaku-pill">
+				<a
+					class="danmaku-pill"
+					href={buildSpaceSessionRoute(spaceId, item.sessionId)}
+					title="Open in {item.authorName}'s chat"
+				>
 					<UserAvatar
 						name={item.authorName}
 						avatarUrl={item.avatarUrl}
@@ -46,7 +52,7 @@ onMount(() => {
 					<span class="danmaku-name">{item.authorName}</span>
 					<span class="danmaku-sep" aria-hidden="true">·</span>
 					<span class="danmaku-text">{item.text}</span>
-				</span>
+				</a>
 			</div>
 		{/each}
 	</div>
@@ -73,19 +79,11 @@ onMount(() => {
 		animation: danmaku-fly var(--duration) linear forwards;
 	}
 
-	/* Travel = item width (-100%) + viewport width (-100vw), so the item
-	   enters from the right edge and fully exits the left edge. Pure
-	   transform animation → GPU-composited, no layout work. */
-	@keyframes danmaku-fly {
-		from {
-			transform: translateX(0);
-		}
-		to {
-			transform: translateX(calc(-100% - 100vw));
-		}
-	}
-
+	/* The pill is clickable even though the layer passes through pointer
+	   events to the workspace beneath. Hover pauses the fly-through so the
+	   user has a still target to click. */
 	.danmaku-pill {
+		pointer-events: auto;
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
@@ -102,6 +100,31 @@ onMount(() => {
 		line-height: 1.4;
 		color: var(--text-secondary);
 		white-space: nowrap;
+		text-decoration: none;
+		cursor: pointer;
+		transition: border-color 120ms ease, box-shadow 120ms ease;
+	}
+
+	.danmaku-pill:hover {
+		border-color: color-mix(in srgb, var(--brand) 40%, var(--border-subtle));
+		box-shadow: 0 8px 22px
+			color-mix(in srgb, var(--brand) 12%, transparent);
+	}
+
+	.danmaku-item:hover {
+		animation-play-state: paused;
+	}
+
+	/* Travel = item width (-100%) + viewport width (-100vw), so the item
+	   enters from the right edge and fully exits the left edge. Pure
+	   transform animation → GPU-composited, no layout work. */
+	@keyframes danmaku-fly {
+		from {
+			transform: translateX(0);
+		}
+		to {
+			transform: translateX(calc(-100% - 100vw));
+		}
 	}
 
 	.danmaku-name {

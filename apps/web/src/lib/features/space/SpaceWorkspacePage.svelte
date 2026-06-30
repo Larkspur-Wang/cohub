@@ -3050,6 +3050,7 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 					danmakuController.push({
 						id: typeof turn?.id === "string" ? turn.id : payload.id,
 						text,
+						sessionId: targetSessionId,
 						userUuid: senderUuid,
 						authorName,
 						avatarUrl,
@@ -5398,7 +5399,7 @@ const sessionWorkspaceProps = $derived.by<
 	class:workspace-body--preview-immersive={previewImmersiveMode}
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
-  <SpaceDanmakuLayer controller={danmakuController} hidden={previewImmersiveMode} />
+  <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
   <div
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
