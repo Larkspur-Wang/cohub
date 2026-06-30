@@ -12,6 +12,10 @@ import {
 } from "$lib/cache/db";
 import { getCacheUserKey, sessionTurnsKey } from "$lib/cache/keys";
 import { MemoryLru } from "$lib/cache/memory-lru";
+import {
+	persistSessionTurnsCacheSafely,
+	readSessionTurnsCacheSafely,
+} from "$lib/cache/repositories/session-turns-cache-safety";
 import type { CacheSource } from "$lib/cache/types";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 
@@ -170,7 +174,11 @@ async function readRecord(spaceId: string, sessionId: string) {
 	const key = sessionTurnsKey(userKey, spaceId, sessionId);
 	const cached = memory.get(key);
 	if (cached) return { record: cached, source: "memory" as CacheSource };
-	const record = await idbGet<SessionTurnsCacheRecord>("session_turns", key);
+	const record = await readSessionTurnsCacheSafely({
+		read: () => idbGet<SessionTurnsCacheRecord>("session_turns", key),
+		onError: (error) =>
+			console.warn("[sessionTurnsRepo] Failed to read turn cache:", error),
+	});
 	if (!record) return null;
 	const touched = { ...record, lastAccessedAt: Date.now() };
 	memory.set(key, touched);
@@ -222,7 +230,11 @@ async function writeRecord(
 		tailWatermark: turns.at(-1)?.updatedAt ?? null,
 	};
 	memory.set(key, record);
-	await idbPut("session_turns", record);
+	await persistSessionTurnsCacheSafely({
+		write: () => idbPut("session_turns", record),
+		onError: (error) =>
+			console.warn("[sessionTurnsRepo] Failed to persist turn cache:", error),
+	});
 	if (options?.broadcast !== false) {
 		publishCacheMessage({
 			type: "cache-updated",
