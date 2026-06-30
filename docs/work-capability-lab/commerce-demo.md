@@ -4,13 +4,26 @@ This demo shows the smallest recommended purchase and consumption flow inside a 
 
 ## Best practice
 
-1. Hardcode a known `productKey` and `benefitKey` in the Work.
+The Work commerce loop has two patterns. Both share the same setup, checkout, and return flow — they differ in what the Work checks and what happens after purchase.
+
+### Feature unlock pattern
+
+1. Hardcode a known `productKey` and `benefitKey`.
 2. Resolve product details through `cohub.work.commerce.resolveProducts()`.
-3. Check viewer entitlements and credit balance through `cohub.work.commerce.getEntitlements()`.
-4. Start checkout through `cohub.work.commerce.purchase()`.
+3. Check viewer entitlements through `cohub.work.commerce.getEntitlements()`.
+4. If not entitled, start checkout through `cohub.work.commerce.purchase()`.
 5. Read the return state through `cohub.work.commerce.getCheckoutState()`.
-6. If an `orderId` is present, query the order again through `cohub.work.commerce.getOrder(orderId)`.
-7. When the user performs a metered action, consume credits through `cohub.work.commerce.consumeCredits()`.
+6. If an `orderId` is present, query the order through `cohub.work.commerce.getOrder(orderId)`.
+
+### Credit consumption pattern
+
+1. Hardcode a known `productKey` for a credit pack.
+2. Resolve product details through `cohub.work.commerce.resolveProducts()`.
+3. Check credit balance through `cohub.work.commerce.getEntitlements()`.
+4. If the user has credits, consume through `cohub.work.commerce.consumeCredits()`.
+5. If `status` is `"insufficient"` or balance is zero, start checkout through `cohub.work.commerce.purchase()`.
+6. Read the return state through `cohub.work.commerce.getCheckoutState()`.
+7. Re-check balance — credits are granted automatically when the order is paid.
 
 The outer host owns:
 
@@ -23,15 +36,15 @@ The outer host owns:
 The Work owns:
 
 - product selection
-- entitlement-aware UI
-- credit balance display and consumption
+- entitlement and credit balance display
+- credit consumption
 - order-specific post-checkout messaging
 
 ## Prepare with the CLI
 
 Commerce is configured on the Space, then consumed by the Work.
 
-### Feature benefit example
+### Feature benefit setup
 
 ```bash
 # Use -s or COHUB_SPACE_ID to target the Space.
@@ -52,7 +65,7 @@ cohub -s <space-id> spaces commerce bind \
   --benefit-key space_pro
 ```
 
-### Credit benefit example
+### Credit benefit setup
 
 ```bash
 cohub -s <space-id> spaces commerce benefits create \
@@ -85,28 +98,30 @@ cohub -s <space-id> spaces commerce orders list --limit 10
 Use the Work commerce commands to test the full server-side flow.
 
 ```bash
-cohub works commerce products resolve \
-  --work-id <work-id> \
-  --product-key pro_unlock
+# Feature: check entitlements
+cohub works commerce entitlements --work-id <work-id>
 
-cohub works commerce entitlements \
-  --work-id <work-id>
+# Credits: check balance
+cohub works commerce entitlements --work-id <work-id>
 
+# Credits: consume
 cohub works commerce credits consume \
   --work-id <work-id> \
   --amount 100 \
   --reason "High-res export"
 
+# Purchase (feature or credits)
 cohub works commerce purchase \
   --work-id <work-id> \
   --product-key pro_unlock
 
+# Order follow-up
 cohub works commerce orders get \
   --work-id <work-id> \
   --order-id <order-id>
 ```
 
-## Minimal example
+## Minimal example: feature unlock
 
 ```html
 <script type="module">
@@ -121,7 +136,7 @@ cohub works commerce orders get \
   const buyBtn = document.getElementById("buy");
 
   async function load() {
-    const [{ products }, { entitlements, credits }, checkoutState] = await Promise.all([
+    const [{ products }, { entitlements }, checkoutState] = await Promise.all([
       cohub.work.commerce.resolveProducts({ productKeys: [PRODUCT_KEY] }),
       cohub.work.commerce.getEntitlements(),
       cohub.work.commerce.getCheckoutState(),
@@ -178,18 +193,86 @@ cohub works commerce orders get \
 <button id="buy">Buy</button>
 ```
 
-## Credit consumption example
+## Minimal example: credit consumption
 
-```ts
-const result = await cohub.work.commerce.consumeCredits({
-  amount: 10,
-  operationId: crypto.randomUUID(),
-  reason: "Export high-res image",
-});
+```html
+<script type="module">
+  const { createCohubClient } = await import("https://esm.sh/@neta-art/cohub?bundle&target=es2022");
 
-if (result.status === "insufficient") {
-  // Prompt user to purchase a credit pack
-}
+  const cohub = createCohubClient();
+  const CREDIT_PRODUCT_KEY = "credit_pack";
+
+  const balanceEl = document.getElementById("balance");
+  const statusEl = document.getElementById("status");
+  const actionBtn = document.getElementById("action");
+  const buyBtn = document.getElementById("buy");
+
+  async function load() {
+    const [{ products }, { credits }, checkoutState] = await Promise.all([
+      cohub.work.commerce.resolveProducts({ productKeys: [CREDIT_PRODUCT_KEY] }),
+      cohub.work.commerce.getEntitlements(),
+      cohub.work.commerce.getCheckoutState(),
+    ]);
+
+    const product = products[0] ?? null;
+    balanceEl.textContent = `${credits.available} credits`;
+
+    if (checkoutState.status && checkoutState.orderId) {
+      const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
+      statusEl.textContent = order.status === "paid"
+        ? "Credits added — refresh balance"
+        : `Checkout ${checkoutState.status} · ${order.status}`;
+    }
+
+    actionBtn.disabled = credits.available <= 0;
+    buyBtn.disabled = !product || credits.available > 0;
+  }
+
+  actionBtn.onclick = async () => {
+    actionBtn.disabled = true;
+    try {
+      const result = await cohub.work.commerce.consumeCredits({
+        amount: 10,
+        operationId: crypto.randomUUID(),
+        reason: "Export high-res image",
+      });
+      if (result.status === "consumed") {
+        balanceEl.textContent = `${result.remaining} credits`;
+        statusEl.textContent = "Consumed 10 credits";
+      } else {
+        statusEl.textContent = "Insufficient credits — buy a pack";
+        buyBtn.disabled = false;
+      }
+    } catch (error) {
+      statusEl.textContent = error instanceof Error ? error.message : "Consumption failed";
+    } finally {
+      actionBtn.disabled = false;
+    }
+  };
+
+  buyBtn.onclick = async () => {
+    buyBtn.disabled = true;
+    try {
+      const checkout = await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+      if (!checkout?.checkoutUsable) {
+        statusEl.textContent = checkout?.message ?? "Checkout unavailable";
+        buyBtn.disabled = false;
+      }
+    } catch (error) {
+      statusEl.textContent = error instanceof Error ? error.message : "Purchase failed";
+      buyBtn.disabled = false;
+    }
+  };
+
+  load().catch((error) => {
+    statusEl.textContent = error instanceof Error ? error.message : "Failed to load";
+  });
+</script>
+
+<div id="balance">Loading…</div>
+<div id="status">Ready</div>
+<button id="action">Export (10 credits)</button>
+<button id="buy">Buy credits</button>
 ```
 
 ## Notes
@@ -199,5 +282,6 @@ if (result.status === "insufficient") {
 - Treat `getCheckoutState()` as a transient signal from the outer host.
 - Treat `getOrder(orderId)` as the authoritative order-specific follow-up check.
 - Always pass a unique `operationId` to `consumeCredits()` for idempotent retries.
+- After a credit pack purchase returns, re-check balance — credits are granted automatically on payment.
 - Keep Work copy simple and short.
 - Keep Space setup explicit in scripts: use `-s <space-id>` or `COHUB_SPACE_ID`.

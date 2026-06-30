@@ -19,6 +19,22 @@ Work commerce lets a published Work sell one-time products backed by Space-level
 
 Credit benefits are always business-scoped and one-time purchased. When an order is paid, billing automatically grants the credits to the customer — no fulfillment code is needed.
 
+## Minimal closed loop
+
+The smallest self-contained commerce flow has four states: **load → gate → purchase → return**. Feature benefits stop at "unlocked". Credit benefits add a fifth state: **consume**, which loops back to "purchase" when credits run out.
+
+### Feature unlock loop
+
+```
+load → check entitlement → [unlocked? done] → [locked? purchase] → checkout redirect → return → load
+```
+
+### Credit consumption loop
+
+```
+load → check balance → [has credits? consume] → [empty? purchase] → checkout redirect → return → load
+```
+
 ## Runtime flow
 
 1. The Work calls `cohub.work.commerce.resolveProducts()`.
@@ -73,6 +89,8 @@ Best practice:
 
 ## Recommended Work-side API usage
 
+### Feature unlock
+
 ```ts
 const cohub = createCohubClient();
 const PRODUCT_KEY = "pro_unlock";
@@ -82,18 +100,48 @@ const { products } = await cohub.work.commerce.resolveProducts({
   productKeys: [PRODUCT_KEY],
 });
 
-const { entitlements, credits } = await cohub.work.commerce.getEntitlements();
-// entitlements: [{ benefitKey, enabled, metadata }]
-// credits: { available, net }
+const { entitlements } = await cohub.work.commerce.getEntitlements();
+const unlocked = entitlements.some((e) => e.benefitKey === BENEFIT_KEY && e.enabled);
 
-const checkout = await cohub.work.commerce.purchase({
-  productKey: PRODUCT_KEY,
-});
+if (!unlocked) {
+  await cohub.work.commerce.purchase({ productKey: PRODUCT_KEY });
+  // host redirects to checkout, then returns
+}
 
 const checkoutState = await cohub.work.commerce.getCheckoutState();
 if (checkoutState.orderId) {
   const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
 }
+```
+
+### Credit consumption
+
+```ts
+const cohub = createCohubClient();
+const CREDIT_PRODUCT_KEY = "credit_pack";
+
+// 1. Check balance
+const { credits } = await cohub.work.commerce.getEntitlements();
+
+// 2. Consume for a metered action
+if (credits.available > 0) {
+  const result = await cohub.work.commerce.consumeCredits({
+    amount: 10,
+    operationId: crypto.randomUUID(),
+    reason: "Export high-res image",
+  });
+  if (result.status === "insufficient") {
+    // Balance changed between check and consume — prompt purchase
+    await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+  }
+} else {
+  // 3. No credits — prompt purchase
+  await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
+  // host redirects to checkout, then returns
+}
+
+// 4. After checkout return, re-check balance
+const { credits: updated } = await cohub.work.commerce.getEntitlements();
 ```
 
 ## Space management

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device=device-width, initial-scale=1">
   <title>Work Commerce Demo</title>
   <style>
     :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
@@ -23,49 +23,47 @@
 </head>
 <body>
   <main class="card">
-    <div class="eyebrow">Best-practice example</div>
+    <div class="eyebrow">Credit consumption example</div>
     <h1>Work Commerce Demo</h1>
-    <p>Hardcode a Space-owned product key and benefit key, let the outer host own checkout, and query order state by id after return.</p>
+    <p>Hardcode a Space-owned credit pack key, check the viewer's balance, consume credits for metered actions, and prompt purchase when empty.</p>
     <div class="meta">
-      <div class="row"><span class="label">Product</span><span id="product" class="value">Loading…</span></div>
-      <div class="row"><span class="label">Entitlement</span><span id="entitlement" class="value">Loading…</span></div>
+      <div class="row"><span class="label">Balance</span><span id="balance" class="value">Loading…</span></div>
+      <div class="row"><span class="label">Status</span><span id="status" class="value">Ready</span></div>
       <div class="row"><span class="label">Checkout</span><span id="checkout" class="value">Idle</span></div>
       <div class="row"><span class="label">Order</span><span id="order" class="value mono">—</span></div>
     </div>
-    <button id="buy">Buy unlock</button>
-    <div class="hint">Set <span class="mono">PRODUCT_KEY</span> and <span class="mono">BENEFIT_KEY</span> for your own Work.</div>
+    <div style="display:flex; gap:10px;">
+      <button id="action">Export (10 credits)</button>
+      <button id="buy">Buy credits</button>
+    </div>
+    <div class="hint">Set <span class="mono">CREDIT_PRODUCT_KEY</span> for your own Work.</div>
   </main>
 
   <script type="module">
-    const PRODUCT_KEY = "pro_unlock";
-    const BENEFIT_KEY = "space_pro";
+    const CREDIT_PRODUCT_KEY = "credit_pack";
     const SDK_URL = "https://esm.sh/@neta-art/cohub?bundle&target=es2022";
 
-    const productEl = document.getElementById("product");
-    const entitlementEl = document.getElementById("entitlement");
+    const balanceEl = document.getElementById("balance");
+    const statusEl = document.getElementById("status");
     const checkoutEl = document.getElementById("checkout");
     const orderEl = document.getElementById("order");
+    const actionBtn = document.getElementById("action");
     const buyBtn = document.getElementById("buy");
 
     const { createCohubClient } = await import(SDK_URL);
     const cohub = createCohubClient();
 
     async function render() {
-      const [{ products }, { entitlements }, checkoutState] = await Promise.all([
-        cohub.work.commerce.resolveProducts({ productKeys: [PRODUCT_KEY] }),
+      const [{ products }, { credits }, checkoutState] = await Promise.all([
+        cohub.work.commerce.resolveProducts({ productKeys: [CREDIT_PRODUCT_KEY] }),
         cohub.work.commerce.getEntitlements(),
         cohub.work.commerce.getCheckoutState(),
       ]);
 
       const product = products[0] ?? null;
-      const entitlement = entitlements.find((item) => item.benefitKey === BENEFIT_KEY) ?? null;
 
-      productEl.textContent = product
-        ? `${product.name} · $${product.pricing.amountUsd.toFixed(2)}`
-        : "Unavailable";
-
-      entitlementEl.textContent = entitlement?.enabled ? "Unlocked" : "Locked";
-      checkoutEl.textContent = checkoutState.status ? `${checkoutState.status}` : "Idle";
+      balanceEl.textContent = `${credits.available} credits`;
+      checkoutEl.textContent = checkoutState.status ?? "Idle";
       orderEl.textContent = checkoutState.orderId ?? "—";
 
       if (checkoutState.orderId) {
@@ -73,20 +71,45 @@
           const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
           checkoutEl.textContent = `${checkoutState.status ?? "returned"} · ${order.status}`;
           orderEl.textContent = order.id;
+          if (order.status === "paid") {
+            statusEl.textContent = "Credits added — refreshing…";
+          }
         } catch (error) {
           checkoutEl.textContent = error instanceof Error ? error.message : "Order lookup failed";
         }
       }
 
-      const unlocked = entitlement?.enabled === true;
-      buyBtn.disabled = unlocked || !product;
-      if (unlocked) buyBtn.textContent = "Already unlocked";
+      actionBtn.disabled = credits.available <= 0;
+      buyBtn.disabled = !product || credits.available > 0;
     }
+
+    actionBtn.onclick = async () => {
+      actionBtn.disabled = true;
+      try {
+        const result = await cohub.work.commerce.consumeCredits({
+          amount: 10,
+          operationId: crypto.randomUUID(),
+          reason: "Export high-res image",
+        });
+        if (result.status === "consumed") {
+          balanceEl.textContent = `${result.remaining} credits`;
+          statusEl.textContent = "Consumed 10 credits";
+          if (result.remaining <= 0) buyBtn.disabled = false;
+        } else {
+          statusEl.textContent = "Insufficient credits — buy a pack";
+          buyBtn.disabled = false;
+        }
+      } catch (error) {
+        statusEl.textContent = error instanceof Error ? error.message : "Consumption failed";
+      } finally {
+        actionBtn.disabled = false;
+      }
+    };
 
     buyBtn.onclick = async () => {
       buyBtn.disabled = true;
       try {
-        const checkout = await cohub.work.commerce.purchase({ productKey: PRODUCT_KEY });
+        const checkout = await cohub.work.commerce.purchase({ productKey: CREDIT_PRODUCT_KEY });
         if (!checkout?.checkoutUsable) {
           checkoutEl.textContent = checkout?.message ?? "Checkout unavailable";
           buyBtn.disabled = false;
@@ -98,7 +121,8 @@
     };
 
     render().catch((error) => {
-      checkoutEl.textContent = error instanceof Error ? error.message : "Failed to load";
+      statusEl.textContent = error instanceof Error ? error.message : "Failed to load";
+      actionBtn.disabled = true;
       buyBtn.disabled = true;
     });
   </script>

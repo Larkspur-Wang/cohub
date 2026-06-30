@@ -147,19 +147,29 @@ await cohub.auth.request({
 const usage = await cohub.user.getUsage(30);
 ```
 
-For one-time product purchases inside a Work:
+For commerce inside a Work — feature unlocks and credit consumption:
 
 ```js
-const { products } = await cohub.work.commerce.resolveProducts({
-  productKeys: ["pro_unlock"],
-});
-
+// Check entitlements and credit balance in one call
 const { entitlements, credits } = await cohub.work.commerce.getEntitlements();
 
-const checkout = await cohub.work.commerce.purchase({
-  productKey: "pro_unlock",
-});
+// Feature unlock: purchase if not entitled
+const unlocked = entitlements.some((e) => e.benefitKey === "space_pro" && e.enabled);
+if (!unlocked) {
+  await cohub.work.commerce.purchase({ productKey: "pro_unlock" });
+}
 
+// Credit consumption: consume for a metered action
+const result = await cohub.work.commerce.consumeCredits({
+  amount: 10,
+  operationId: crypto.randomUUID(),
+  reason: "Export high-res image",
+});
+if (result.status === "insufficient") {
+  await cohub.work.commerce.purchase({ productKey: "credit_pack" });
+}
+
+// After checkout return, query the order
 const checkoutState = await cohub.work.commerce.getCheckoutState();
 if (checkoutState.orderId) {
   const { order } = await cohub.work.commerce.getOrder(checkoutState.orderId);
