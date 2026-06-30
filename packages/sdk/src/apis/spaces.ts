@@ -1282,8 +1282,14 @@ export class SpaceCommerceApi {
     );
   }
 
+  listProductBenefits() {
+    return this.transport.request<{ productBenefits: import("../types.js").SpaceCommerceProductBenefitBinding[]; businessKey: string }>(
+      `/api/spaces/${this.spaceId}/commerce/product-benefits`,
+    );
+  }
+
   bindProductBenefit(input: { productKey: string; benefitKey: string }) {
-    return this.transport.request<{ productBenefit: unknown; businessKey: string }>(
+    return this.transport.request<{ productBenefit: import("../types.js").SpaceCommerceProductBenefitBinding; businessKey: string }>(
       `/api/spaces/${this.spaceId}/commerce/product-benefits`,
       {
         method: "POST",

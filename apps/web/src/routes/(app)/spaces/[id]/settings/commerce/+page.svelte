@@ -3,6 +3,7 @@ import type {
 	BillingCatalogProduct,
 	SpaceCommerceFeatureBenefit,
 	SpaceCommerceOrder,
+	SpaceCommerceProductBenefitBinding,
 } from "@neta-art/cohub";
 import {
 	Archive,
@@ -42,6 +43,7 @@ let commerceInitialized = $state(true);
 let products = $state<BillingCatalogProduct[]>([]);
 let benefits = $state<SpaceCommerceFeatureBenefit[]>([]);
 let orders = $state<SpaceCommerceOrder[]>([]);
+let productBenefits = $state<SpaceCommerceProductBenefitBinding[]>([]);
 
 let notice = $state("");
 let actionError = $state("");
@@ -53,11 +55,15 @@ let setupSaving = $state(false);
 let productActionBusyKey = $state<string | null>(null);
 let benefitActionBusyKey = $state<string | null>(null);
 let bindingSaving = $state(false);
-let bindingMode = $state<"attach" | "detach">("attach");
+let bindingBusyKey = $state<string | null>(null);
+let bindFormOpen = $state(false);
 let bindProductKey = $state("");
 let bindBenefitKey = $state("");
-let ordersExpanded = $state(false);
+let ordersExpanded = $state(true);
 let ordersLoading = $state(false);
+let ordersLoadingMore = $state(false);
+let ordersNextPage = $state<number | null>(null);
+let ordersHasMore = $state(false);
 
 const SPACE_COMMERCE_FEATURE = "space.commerce";
 let canManage = $state(false);
@@ -77,6 +83,26 @@ const readinessSteps = $derived([
 ]);
 const productsWithoutBenefitsHint = $derived(
 	commerceInitialized && products.length > 0 && benefits.length === 0,
+);
+const productByKey = $derived(
+	new Map(products.map((product) => [product.key, product])),
+);
+const benefitByKey = $derived(
+	new Map(benefits.map((benefit) => [benefit.key, benefit])),
+);
+const existingBindingKeys = $derived(
+	new Set(
+		productBenefits.map(
+			(binding) => `${binding.productKey}\u0000${binding.benefitKey}`,
+		),
+	),
+);
+const bindingCandidates = $derived(
+	bindableBenefits.filter(
+		(benefit) =>
+			!bindProductKey ||
+			!existingBindingKeys.has(`${bindProductKey}\u0000${benefit.key}`),
+	),
 );
 
 function isNotInitializedError(error: unknown): boolean {
@@ -98,16 +124,22 @@ async function loadInitial(targetSpaceId: string = spaceId) {
 	commerceInitialized = true;
 	let stale = false;
 	try {
-		const [productResult, benefitResult, orderResult] = await Promise.all([
-			sdk.space(targetSpaceId).commerce.listProducts(),
-			sdk.space(targetSpaceId).commerce.listBenefits(),
-			sdk.space(targetSpaceId).commerce.listOrders(),
-		]);
+		const [productResult, benefitResult, bindingResult, orderResult] =
+			await Promise.all([
+				sdk.space(targetSpaceId).commerce.listProducts(),
+				sdk.space(targetSpaceId).commerce.listBenefits(),
+				sdk.space(targetSpaceId).commerce.listProductBenefits(),
+				sdk.space(targetSpaceId).commerce.listOrders({ limit: 20 }),
+			]);
 		stale = targetSpaceId !== spaceId;
 		if (stale) return;
 		products = productResult.products;
 		benefits = benefitResult.benefits as SpaceCommerceFeatureBenefit[];
+		productBenefits =
+			bindingResult.productBenefits as SpaceCommerceProductBenefitBinding[];
 		orders = orderResult.orders as SpaceCommerceOrder[];
+		ordersHasMore = orderResult.pagination.hasMore;
+		ordersNextPage = orderResult.pagination.nextPage;
 	} catch (error) {
 		stale = targetSpaceId !== spaceId;
 		if (stale) return;
@@ -116,6 +148,9 @@ async function loadInitial(targetSpaceId: string = spaceId) {
 			products = [];
 			benefits = [];
 			orders = [];
+			productBenefits = [];
+			ordersHasMore = false;
+			ordersNextPage = null;
 		} else {
 			loadError = messageOf(error, "Failed to load commerce.");
 		}
@@ -142,15 +177,48 @@ async function refreshBenefits() {
 	}
 }
 
+async function refreshProductBenefits() {
+	try {
+		const { productBenefits: next } = await sdk
+			.space(spaceId)
+			.commerce.listProductBenefits();
+		productBenefits = next as SpaceCommerceProductBenefitBinding[];
+	} catch (error) {
+		actionError = messageOf(error, "Failed to refresh bindings.");
+	}
+}
+
 async function refreshOrders() {
 	ordersLoading = true;
 	try {
-		const { orders: next } = await sdk.space(spaceId).commerce.listOrders();
+		const { orders: next, pagination } = await sdk
+			.space(spaceId)
+			.commerce.listOrders({ limit: 20 });
 		orders = next as SpaceCommerceOrder[];
+		ordersHasMore = pagination.hasMore;
+		ordersNextPage = pagination.nextPage;
 	} catch (error) {
 		actionError = messageOf(error, "Failed to refresh orders.");
 	} finally {
 		ordersLoading = false;
+	}
+}
+
+async function loadMoreOrders() {
+	if (ordersLoadingMore || !ordersNextPage) return;
+	ordersLoadingMore = true;
+	clearNotice();
+	try {
+		const { orders: next, pagination } = await sdk
+			.space(spaceId)
+			.commerce.listOrders({ page: ordersNextPage, limit: 20 });
+		orders = [...orders, ...(next as SpaceCommerceOrder[])];
+		ordersHasMore = pagination.hasMore;
+		ordersNextPage = pagination.nextPage;
+	} catch (error) {
+		actionError = messageOf(error, "Failed to load more orders.");
+	} finally {
+		ordersLoadingMore = false;
 	}
 }
 
@@ -244,7 +312,6 @@ async function submitProduct(input: {
 	description?: string;
 	amountUsd: number;
 	status: "draft" | "active";
-	visibility: "public" | "private";
 }) {
 	productSaving = true;
 	clearNotice();
@@ -254,7 +321,6 @@ async function submitProduct(input: {
 				name: input.name,
 				description: input.description ?? null,
 				status: input.status,
-				visibility: input.visibility,
 			});
 			notice = "Product updated.";
 		} else {
@@ -264,7 +330,7 @@ async function submitProduct(input: {
 				description: input.description,
 				amountUsd: input.amountUsd,
 				status: input.status,
-				visibility: input.visibility,
+				visibility: "public",
 			});
 			notice = "Product created.";
 		}
@@ -301,36 +367,45 @@ const bindingReady = $derived(
 	Boolean(bindProductKey) && Boolean(bindBenefitKey),
 );
 
-async function applyBinding() {
+async function bindBenefit() {
 	if (bindingSaving || !bindingReady) return;
 	bindingSaving = true;
 	clearNotice();
 	const productKey = bindProductKey.trim();
 	const benefitKey = bindBenefitKey.trim();
 	try {
-		if (bindingMode === "attach") {
-			await sdk.space(spaceId).commerce.bindProductBenefit({
-				productKey,
-				benefitKey,
-			});
-			notice = `Benefit “${benefitKey}” linked to “${productKey}”.`;
-		} else {
-			await sdk.space(spaceId).commerce.unbindProductBenefit({
-				productKey,
-				benefitKey,
-			});
-			notice = `Benefit “${benefitKey}” unlinked from “${productKey}”.`;
-		}
+		await sdk.space(spaceId).commerce.bindProductBenefit({
+			productKey,
+			benefitKey,
+		});
+		notice = `Benefit “${benefitKey}” bound to “${productKey}”.`;
+		bindProductKey = "";
 		bindBenefitKey = "";
+		bindFormOpen = false;
+		await refreshProductBenefits();
 	} catch (error) {
-		actionError = messageOf(
-			error,
-			bindingMode === "attach"
-				? "Failed to link benefit."
-				: "Failed to unlink benefit.",
-		);
+		actionError = messageOf(error, "Failed to bind benefit.");
 	} finally {
 		bindingSaving = false;
+	}
+}
+
+async function unbindBenefit(binding: SpaceCommerceProductBenefitBinding) {
+	const bindingKey = `${binding.productKey}\u0000${binding.benefitKey}`;
+	if (bindingBusyKey || !canManage) return;
+	bindingBusyKey = bindingKey;
+	clearNotice();
+	try {
+		await sdk.space(spaceId).commerce.unbindProductBenefit({
+			productKey: binding.productKey,
+			benefitKey: binding.benefitKey,
+		});
+		notice = `Benefit “${binding.benefitKey}” unbound from “${binding.productKey}”.`;
+		await refreshProductBenefits();
+	} catch (error) {
+		actionError = messageOf(error, "Failed to unbind benefit.");
+	} finally {
+		bindingBusyKey = null;
 	}
 }
 
@@ -434,8 +509,8 @@ $effect(() => {
 						<div class="flex items-center gap-2.5">
 							<Sparkles class="h-4 w-4 text-text-tertiary" />
 							<div>
-								<div class="text-[15px] font-medium text-text-primary">Commerce is not initialized</div>
-								<div class="text-[12px] text-text-tertiary">Create the billing business mapping for this space to start selling products.</div>
+								<div class="text-[15px] font-medium text-text-primary">Commerce is not set up</div>
+								<div class="text-[12px] text-text-tertiary">Set up billing for this space to start selling products.</div>
 							</div>
 						</div>
 					</div>
@@ -443,7 +518,7 @@ $effect(() => {
 						<div class="text-[12px] text-text-tertiary">This is a one-time setup for the current space.</div>
 						<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void setupCommerce()} disabled={setupSaving || !canManage}>
 							{#if setupSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Sparkles class="h-3.5 w-3.5" />{/if}
-							Initialize
+							Set up
 						</button>
 					</div>
 				</section>
@@ -464,7 +539,7 @@ $effect(() => {
 						{/each}
 					</div>
 					{#if productsWithoutBenefitsHint}
-						<div class="mt-2.5 text-[11px] text-text-tertiary">Tip: add a benefit, then link it to a product so purchases grant access.</div>
+						<div class="mt-2.5 text-[11px] text-text-tertiary">Tip: add a benefit, then bind it to a product so purchases grant access.</div>
 					{/if}
 				</div>
 
@@ -482,7 +557,7 @@ $effect(() => {
 							<Sparkles class="h-4 w-4 text-text-tertiary" />
 							<div>
 								<div class="text-[15px] font-medium text-text-primary">Benefits</div>
-								<div class="text-[12px] text-text-tertiary">Reusable feature entitlements linked to products.</div>
+								<div class="text-[12px] text-text-tertiary">Reusable feature benefits bound to products.</div>
 							</div>
 						</div>
 						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "benefit-create" }; }} disabled={!canManage}>
@@ -549,7 +624,7 @@ $effect(() => {
 							<Package class="h-4 w-4 text-text-tertiary" />
 							<div>
 								<div class="text-[15px] font-medium text-text-primary">Products</div>
-								<div class="text-[12px] text-text-tertiary">One-time purchases buyers can check out.</div>
+								<div class="text-[12px] text-text-tertiary">Public one-time products for checkout.</div>
 							</div>
 						</div>
 						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => { clearNotice(); dialog = { kind: "product-create" }; }} disabled={!canManage}>
@@ -589,7 +664,6 @@ $effect(() => {
 												<span class="h-1.5 w-1.5 rounded-full {archived ? 'bg-text-placeholder' : draft ? 'bg-text-tertiary' : 'bg-brand'}" aria-hidden="true"></span>
 												{product.status}
 											</span>
-											<span class="rounded-[4px] border border-border-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-text-tertiary">{product.visibility}</span>
 										</div>
 
 										{#if product.description}
@@ -612,72 +686,110 @@ $effect(() => {
 					</div>
 				</section>
 
-				<!-- Link benefits to products -->
+				<!-- Bind benefits to products -->
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<div class="border-b border-border-subtle px-4 py-3 sm:px-5">
+					<div class="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 sm:px-5">
 						<div class="flex items-center gap-2.5">
 							<Link2 class="h-4 w-4 text-text-tertiary" />
 							<div>
-								<div class="text-[15px] font-medium text-text-primary">Link benefits</div>
-								<div class="text-[12px] text-text-tertiary">Attach a benefit to a product so purchases grant it.</div>
+								<div class="text-[15px] font-medium text-text-primary">Bindings</div>
+								<div class="text-[12px] text-text-tertiary">Benefits currently granted by product purchases.</div>
 							</div>
 						</div>
+						<button type="button" class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50" onclick={() => { bindFormOpen = !bindFormOpen; bindProductKey = ""; bindBenefitKey = ""; }} disabled={!canManage || bindableProducts.length === 0 || bindableBenefits.length === 0}>
+							<Plus class="h-3.5 w-3.5" /> Bind benefit
+						</button>
 					</div>
 					<div class="space-y-3 p-4 sm:p-5">
 						{#if bindableProducts.length === 0 || bindableBenefits.length === 0}
 							<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-5 text-center text-[12px] text-text-tertiary">
 								{#if bindableProducts.length === 0 && bindableBenefits.length === 0}
-									Create at least one product and one benefit to link them.
+									Create at least one product and one benefit to bind them.
 								{:else if bindableProducts.length === 0}
-									Create a product to link benefits to it.
+									Create a product to bind benefits to it.
 								{:else}
-									Create a benefit to link it to a product.
+									Create a benefit to bind it to a product.
 								{/if}
 							</div>
 						{:else}
-							<div class="inline-flex rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
-								<button type="button" class="rounded-[5px] px-3 py-1.5 transition-colors {bindingMode === 'attach' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}" onclick={() => (bindingMode = "attach")}>Attach</button>
-								<button type="button" class="rounded-[5px] px-3 py-1.5 transition-colors {bindingMode === 'detach' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}" onclick={() => (bindingMode = "detach")}>Detach</button>
-							</div>
-							<div class="grid gap-3 sm:grid-cols-2">
-								<label class="flex flex-col gap-1.5">
-									<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Product</span>
-									<select bind:value={bindProductKey} disabled={bindingSaving || !canManage} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
-										<option value="">Select a product…</option>
-										{#each bindableProducts as product (product.key)}
-											<option value={product.key}>{product.name} · {product.key}</option>
-										{/each}
-									</select>
-								</label>
-								<label class="flex flex-col gap-1.5">
-									<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Benefit</span>
-									<select bind:value={bindBenefitKey} disabled={bindingSaving || !canManage} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
-										<option value="">Select a benefit…</option>
-										{#each bindableBenefits as benefit (benefit.key)}
-											<option value={benefit.key}>{benefit.name} · {benefit.key}</option>
-										{/each}
-									</select>
-								</label>
-							</div>
-							<div class="flex items-center justify-between gap-3">
-								<span class="text-[11px] text-text-tertiary">Links are applied immediately and verified at checkout.</span>
-								<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void applyBinding()} disabled={bindingSaving || !bindingReady || !canManage}>
-									{#if bindingSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Link2 class="h-3.5 w-3.5" />{/if}
-									{bindingMode === "attach" ? "Attach" : "Detach"}
-								</button>
-							</div>
+							{#if bindFormOpen}
+								<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+									<div class="mb-3 flex items-center justify-between gap-2">
+										<div class="text-[12px] font-medium text-text-primary">New binding</div>
+										<button type="button" class="text-[11px] text-text-tertiary transition-colors hover:text-text-primary" onclick={() => { bindFormOpen = false; bindProductKey = ""; bindBenefitKey = ""; }} disabled={bindingSaving}>Cancel</button>
+									</div>
+									<div class="grid gap-3 sm:grid-cols-2">
+										<label class="flex flex-col gap-1.5">
+											<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Product</span>
+											<select bind:value={bindProductKey} disabled={bindingSaving || !canManage} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60" onchange={() => { bindBenefitKey = ""; }}>
+												<option value="">Select a product…</option>
+												{#each bindableProducts as product (product.key)}
+													<option value={product.key}>{product.name} · {product.key}</option>
+												{/each}
+											</select>
+										</label>
+										<label class="flex flex-col gap-1.5">
+											<span class="text-[11px] font-medium uppercase tracking-wide text-text-tertiary">Benefit</span>
+											<select bind:value={bindBenefitKey} disabled={bindingSaving || !canManage || !bindProductKey} class="h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 text-[13px] text-text-primary transition-colors focus:border-brand/50 focus:outline-none disabled:opacity-60">
+												<option value="">Select a benefit…</option>
+												{#each bindingCandidates as benefit (benefit.key)}
+													<option value={benefit.key}>{benefit.name} · {benefit.key}</option>
+												{/each}
+											</select>
+										</label>
+									</div>
+									<div class="mt-3 flex items-center justify-between gap-3">
+										<span class="text-[11px] text-text-tertiary">Bindings apply immediately and are verified at checkout.</span>
+										<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg disabled:opacity-50" onclick={() => void bindBenefit()} disabled={bindingSaving || !bindingReady || !canManage}>
+											{#if bindingSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Link2 class="h-3.5 w-3.5" />{/if}
+											Bind
+										</button>
+									</div>
+								</div>
+							{/if}
+
+							{#if productBenefits.length === 0}
+								<div class="rounded-[8px] border border-dashed border-border-subtle px-4 py-5 text-center text-[12px] text-text-tertiary">
+									No bindings yet. Bind a benefit to a product to grant access after purchase.
+								</div>
+							{:else}
+								<div class="grid gap-2">
+									{#each productBenefits as binding (`${binding.productKey}:${binding.benefitKey}`)}
+										{@const product = productByKey.get(binding.productKey)}
+										{@const benefit = benefitByKey.get(binding.benefitKey)}
+										{@const bindingKey = `${binding.productKey}\u0000${binding.benefitKey}`}
+										<div class="flex flex-wrap items-center justify-between gap-3 rounded-[8px] bg-bg-primary px-3 py-2.5">
+											<div class="min-w-0 flex-1">
+												<div class="flex min-w-0 flex-wrap items-center gap-2 text-[12px]">
+													<span class="truncate font-medium text-text-primary">{product?.name ?? binding.productKey}</span>
+													<span class="text-text-placeholder">→</span>
+													<span class="truncate text-text-secondary">{benefit?.name ?? binding.benefitKey}</span>
+												</div>
+												<div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10px] text-text-placeholder">
+													<span class="truncate">{binding.productKey}</span>
+													<span>→</span>
+													<span class="truncate">{binding.benefitKey}</span>
+												</div>
+											</div>
+											<button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[6px] px-2.5 text-[11px] font-medium text-text-placeholder transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50" onclick={() => void unbindBenefit(binding)} disabled={bindingBusyKey !== null || !canManage}>
+												{#if bindingBusyKey === bindingKey}<Loader2 class="h-3 w-3 animate-spin" />{/if}
+												Unbind
+											</button>
+										</div>
+									{/each}
+								</div>
+							{/if}
 						{/if}
 					</div>
 				</section>
-
 				<!-- Orders -->
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<button type="button" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-hover sm:px-5" onclick={() => { ordersExpanded = !ordersExpanded; if (ordersExpanded && orders.length === 0) void refreshOrders(); }}>
+					<button type="button" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-hover sm:px-5" onclick={() => { ordersExpanded = !ordersExpanded; }}>
 						<div class="flex items-center gap-2.5">
 							<Package class="h-4 w-4 text-text-tertiary" />
 							<div>
 								<div class="text-[15px] font-medium text-text-primary">Orders</div>
-								<div class="text-[12px] text-text-tertiary">Recent purchases for this space.</div>
+								<div class="text-[12px] text-text-tertiary">Recent purchases for this space. Showing 20 per page.</div>
 							</div>
 						</div>
 						<ChevronDown class="h-4 w-4 shrink-0 text-text-tertiary transition-transform {ordersExpanded ? 'rotate-180' : ''}" />
@@ -706,6 +818,14 @@ $effect(() => {
 										</div>
 									{/each}
 								</div>
+								{#if ordersHasMore}
+									<div class="mt-3 flex justify-center">
+										<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50" onclick={() => void loadMoreOrders()} disabled={ordersLoadingMore}>
+											{#if ordersLoadingMore}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
+											Load more
+										</button>
+									</div>
+								{/if}
 							{/if}
 						</div>
 					{/if}

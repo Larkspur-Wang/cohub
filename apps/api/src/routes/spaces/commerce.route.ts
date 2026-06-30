@@ -12,9 +12,14 @@ import {
   ensureSpaceCommerceBusiness,
   requireSpaceCommerceBusiness,
 } from "../../lib/space-commerce.js";
+import type { Product, ProductBenefit } from "@talesofai-billing/sdk/admin/products";
+import { createLogger } from "@cohub/infra/logging";
 import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
 
 const router = new Hono();
+const logger = createLogger({ serviceName: "cohub-api" });
+
+const COHUB_BOUND_BENEFIT_KEYS_META_KEY = "cohub_bound_benefit_keys";
 
 function serializeProduct(product: {
   id: string;
@@ -28,6 +33,7 @@ function serializeProduct(product: {
   billing_interval_count?: number;
   amount?: number;
   currency?: string;
+  meta?: Record<string, unknown>;
 }) {
   const amountMinor = product.amount ?? 0;
   const amountUsd = amountMinor / 100;
@@ -117,6 +123,157 @@ function serializeOrder(order: {
     createdAt: order.created_at,
     paidAt: order.paid_at,
   };
+}
+
+function serializeProductBenefit(binding: ProductBenefit) {
+  return {
+    id: binding.id,
+    productKey: binding.product_key,
+    benefitKey: binding.benefit_key,
+    createdAt: binding.created_at,
+  };
+}
+
+function serializeProductBenefitFallback(input: { productKey: string; benefitKey: string }) {
+  return {
+    id: null,
+    productKey: input.productKey,
+    benefitKey: input.benefitKey,
+    createdAt: null,
+  };
+}
+
+function metaBenefitKeys(product: Product): string[] {
+  const value = product.meta?.[COHUB_BOUND_BENEFIT_KEYS_META_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+async function syncProductBenefitMeta(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+  productKey: string;
+  benefitKey: string;
+  mode: "bind" | "unbind";
+}) {
+  try {
+    const product = await input.sdk.admin.products.get({
+      business_key: input.businessKey,
+      product_key: input.productKey,
+    });
+    const keys = new Set(metaBenefitKeys(product));
+    if (input.mode === "bind") keys.add(input.benefitKey);
+    else keys.delete(input.benefitKey);
+    await input.sdk.admin.products.update({
+      product_key: input.productKey,
+      patch: {
+        business_key: input.businessKey,
+        meta: {
+          ...product.meta,
+          [COHUB_BOUND_BENEFIT_KEYS_META_KEY]: [...keys].sort(),
+        },
+      },
+    });
+  } catch (error) {
+    logger.warn("[space-commerce] failed to sync product benefit meta", {
+      businessKey: input.businessKey,
+      productKey: input.productKey,
+      benefitKey: input.benefitKey,
+      mode: input.mode,
+      error,
+    });
+    throw error;
+  }
+}
+
+type SerializedProductBenefitBinding = {
+  id: string | null;
+  productKey: string;
+  benefitKey: string;
+  createdAt: string | null;
+};
+
+function productBenefitItemsFromResponse(response: unknown, productKey: string): SerializedProductBenefitBinding[] {
+  if (!response || typeof response !== "object") return [];
+  const record = response as {
+    items?: unknown;
+    product_benefits?: unknown;
+    benefits?: unknown;
+  };
+  const source = Array.isArray(record.items)
+    ? record.items
+    : Array.isArray(record.product_benefits)
+      ? record.product_benefits
+      : Array.isArray(record.benefits)
+        ? record.benefits
+        : [];
+  return source.flatMap((item): SerializedProductBenefitBinding[] => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as Partial<ProductBenefit> & { key?: unknown };
+    const benefitKey = typeof candidate.benefit_key === "string" ? candidate.benefit_key : typeof candidate.key === "string" ? candidate.key : "";
+    if (!benefitKey) return [];
+    return [{
+      id: typeof candidate.id === "string" ? candidate.id : null,
+      productKey: typeof candidate.product_key === "string" ? candidate.product_key : productKey,
+      benefitKey,
+      createdAt: typeof candidate.created_at === "string" ? candidate.created_at : null,
+    }];
+  });
+}
+
+async function listSpaceCommerceProducts(input: { sdk: SpaceCommerceSdk; businessKey: string }): Promise<Product[]> {
+  const products: Product[] = [];
+  let page = 1;
+  while (true) {
+    const result = await input.sdk.admin.products.list({
+      business_key: input.businessKey,
+      include_count: false,
+      limit: 100,
+      page,
+    });
+    products.push(...result.items);
+    if (!result.pagination.has_more) break;
+    page += 1;
+  }
+  return products;
+}
+
+async function listProductBenefitBindings(input: {
+  sdk: SpaceCommerceSdk;
+  businessKey: string;
+}): Promise<SerializedProductBenefitBinding[]> {
+  const products = await listSpaceCommerceProducts(input);
+  const bindings = new Map<string, SerializedProductBenefitBinding>();
+  let billingListSupported = true;
+
+  for (const product of products) {
+    if (billingListSupported) {
+      try {
+        const response = await input.sdk.admin.products.http.request({
+          method: "GET",
+          path: "/products/:product_key/benefits",
+          pathParams: { product_key: product.key },
+          query: { business_key: input.businessKey },
+        });
+        for (const binding of productBenefitItemsFromResponse(response, product.key)) {
+          bindings.set(`${binding.productKey}\u0000${binding.benefitKey}`, binding);
+        }
+        continue;
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 405)) {
+          billingListSupported = false;
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    for (const benefitKey of metaBenefitKeys(product)) {
+      const binding = serializeProductBenefitFallback({ productKey: product.key, benefitKey });
+      bindings.set(`${binding.productKey}\u0000${binding.benefitKey}`, binding);
+    }
+  }
+  return [...bindings.values()].sort((left, right) => left.productKey.localeCompare(right.productKey) || left.benefitKey.localeCompare(right.benefitKey));
 }
 
 async function collectCommerceKeys<T extends { key: string }>(
@@ -412,6 +569,26 @@ router.patch("/:id/commerce/benefits/:benefitKey", async (c) => {
   }
 });
 
+router.get("/:id/commerce/product-benefits", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
+  try {
+    const mapping = await requireSpaceCommerceBusiness(spaceId);
+    const sdk = createSpaceCommerceSdk();
+    const productBenefits = await listProductBenefitBindings({
+      sdk,
+      businessKey: mapping.billingBusinessKey,
+    });
+    return c.json({ productBenefits, businessKey: mapping.billingBusinessKey });
+  } catch (error) {
+    const response = handleSpaceCommerceRouteError(c, error);
+    if (response) return response;
+    throw error;
+  }
+});
+
 router.post("/:id/commerce/product-benefits", async (c) => {
   const user = useAuth(c);
   const spaceId = c.req.param("id");
@@ -432,7 +609,14 @@ router.post("/:id/commerce/product-benefits", async (c) => {
       product_key: productKey,
       benefit_key: benefitKey,
     });
-    return c.json({ productBenefit, businessKey: mapping.billingBusinessKey });
+    await syncProductBenefitMeta({
+      sdk,
+      businessKey: mapping.billingBusinessKey,
+      productKey,
+      benefitKey,
+      mode: "bind",
+    });
+    return c.json({ productBenefit: serializeProductBenefit(productBenefit), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -458,6 +642,13 @@ router.delete("/:id/commerce/product-benefits", async (c) => {
       business_key: mapping.billingBusinessKey,
       product_key: productKey,
       benefit_key: benefitKey,
+    });
+    await syncProductBenefitMeta({
+      sdk,
+      businessKey: mapping.billingBusinessKey,
+      productKey,
+      benefitKey,
+      mode: "unbind",
     });
     return c.json({ ok: true, businessKey: mapping.billingBusinessKey });
   } catch (error) {

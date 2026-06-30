@@ -196,6 +196,13 @@ export type SpaceCommerceFeatureBenefit = {
   };
 };
 
+export type SpaceCommerceProductBenefitBinding = {
+  id: string | null;
+  productKey: string;
+  benefitKey: string;
+  createdAt: string | null;
+};
+
 export type SpaceCommerceOrder = {
   id: string;
   productKeySnapshot: string;

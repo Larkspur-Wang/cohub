@@ -16,7 +16,6 @@ const {
 		description?: string;
 		amountUsd: number;
 		status: "draft" | "active";
-		visibility: "public" | "private";
 	}) => Promise<void>;
 	onCancel: () => void;
 	busy?: boolean;
@@ -30,9 +29,6 @@ const seed = untrack(() => ({
 	name: product?.name ?? "",
 	description: product?.description ?? "",
 	amountUsd: product ? product.pricing.amountUsd.toFixed(2) : "9.99",
-	visibility: (product?.visibility === "private" ? "private" : "public") as
-		| "public"
-		| "private",
 	status: (product?.status === "draft" ? "draft" : "active") as
 		| "draft"
 		| "active",
@@ -42,7 +38,6 @@ const systemKey = seed.key;
 let name = $state(seed.name);
 let description = $state(seed.description);
 let amountUsd = $state(seed.amountUsd);
-let visibility = $state<"public" | "private">(seed.visibility);
 let status = $state<"draft" | "active">(seed.status);
 let error = $state("");
 
@@ -61,7 +56,6 @@ async function submit() {
 			description: description.trim() || undefined,
 			amountUsd: Number(amountUsd),
 			status,
-			visibility,
 		});
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to save product.";
@@ -154,25 +148,6 @@ const readonlyClass =
 			</select>
 			<span class="text-[11px] text-text-tertiary">Draft products are hidden from buyers.</span>
 		</div>
-	</div>
-
-	<div class="flex flex-col gap-1.5">
-		<span class={labelClass}>Visibility</span>
-		<div class="inline-flex w-fit rounded-[6px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
-			<button
-				type="button"
-				class="rounded-[5px] px-3 py-1.5 transition-colors {visibility === 'public' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}"
-				onclick={() => (visibility = "public")}
-				disabled={busy}
-			>Public</button>
-			<button
-				type="button"
-				class="rounded-[5px] px-3 py-1.5 transition-colors {visibility === 'private' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary hover:text-text-secondary'}"
-				onclick={() => (visibility = "private")}
-				disabled={busy}
-			>Private</button>
-		</div>
-		<span class="text-[11px] text-text-tertiary">Private products are only purchasable via direct links.</span>
 	</div>
 
 	<div class="flex flex-col gap-1.5">
