@@ -7,7 +7,6 @@ import type {
 } from "@neta-art/cohub";
 import {
 	Archive,
-	ChevronDown,
 	Link2,
 	Loader2,
 	Package,
@@ -20,6 +19,7 @@ import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import CommerceBenefitEditor from "$lib/components/commerce/CommerceBenefitEditor.svelte";
 import CommerceProductEditor from "$lib/components/commerce/CommerceProductEditor.svelte";
 import Dialog from "$lib/components/Dialog.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { sdk } from "$lib/sdk";
 import { buildSpaceSettingsRoute } from "$lib/space-routes";
 
@@ -59,7 +59,6 @@ let bindingBusyKey = $state<string | null>(null);
 let bindFormOpen = $state(false);
 let bindProductKey = $state("");
 let bindBenefitKey = $state("");
-let ordersExpanded = $state(true);
 let ordersLoading = $state(false);
 let ordersLoadingMore = $state(false);
 let ordersNextPage = $state<number | null>(null);
@@ -806,51 +805,56 @@ $effect(() => {
 				</section>
 				<!-- Orders -->
 				<section class="overflow-hidden rounded-[10px] border border-border-subtle bg-bg-surface">
-					<button type="button" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-bg-hover sm:px-5" onclick={() => { ordersExpanded = !ordersExpanded; }}>
-						<div class="flex items-center gap-2.5">
-							<Package class="h-4 w-4 text-text-tertiary" />
-							<div>
-								<div class="text-[15px] font-medium text-text-primary">Orders</div>
-								<div class="text-[12px] text-text-tertiary">Recent purchases for this space. Showing 20 per page.</div>
-							</div>
-						</div>
-						<ChevronDown class="h-4 w-4 shrink-0 text-text-tertiary transition-transform {ordersExpanded ? 'rotate-180' : ''}" />
-					</button>
-					{#if ordersExpanded}
-						<div class="border-t border-border-subtle p-4 sm:p-5">
-							{#if ordersLoading}
-								<div class="flex items-center gap-2 py-4 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading orders…</div>
-							{:else if orders.length === 0}
-								<div class="py-4 text-center text-[12px] text-text-tertiary">No orders yet.</div>
-							{:else}
-								<div class="grid gap-2">
-									{#each orders as order (order.id)}
-										<div class="flex flex-wrap items-center justify-between gap-2 rounded-[7px] bg-bg-primary px-3 py-2">
+					<div class="flex items-center gap-2.5 px-4 py-3 sm:px-5">
+						<Package class="h-4 w-4 text-text-tertiary" />
+						<div class="text-[15px] font-medium text-text-primary">Orders</div>
+					</div>
+					<div class="border-t border-border-subtle p-4 sm:p-5">
+						{#if ordersLoading}
+							<div class="flex items-center gap-2 py-4 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading orders…</div>
+						{:else if orders.length === 0}
+							<div class="py-4 text-center text-[12px] text-text-tertiary">No orders yet.</div>
+						{:else}
+							<div class="grid gap-2">
+								{#each orders as order (order.id)}
+									<div class="flex flex-wrap items-center justify-between gap-3 rounded-[7px] bg-bg-primary px-3 py-2">
+										<div class="flex min-w-0 items-center gap-2.5">
+											{#if order.buyerProfile}
+												<UserAvatar
+													name={order.buyerProfile.displayName}
+													avatarUrl={order.buyerProfile.avatarUrl}
+													size="xs"
+													class="border-0 bg-bg-surface"
+												/>
+											{/if}
 											<div class="min-w-0">
 												<div class="truncate text-[12px] font-medium text-text-primary">{order.productNameSnapshot}</div>
-												<div class="mt-0.5 flex items-center gap-2">
-													<span class="truncate font-mono text-[10px] text-text-placeholder">{order.productKeySnapshot}</span>
-													<span class="text-[10px] text-text-tertiary">{formatDate(order.createdAt)}</span>
+												<div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-tertiary">
+													{#if order.buyerProfile}
+														<span class="truncate text-text-secondary">{order.buyerProfile.displayName}</span>
+													{/if}
+													<span class="truncate font-mono text-text-placeholder">{order.productKeySnapshot}</span>
+													<span>{formatDate(order.createdAt)}</span>
 												</div>
 											</div>
-											<div class="text-right">
-												<div class="font-mono text-[12px] text-text-primary">{orderAmount(order)}</div>
-												<div class="text-[10px] uppercase tracking-wide text-text-tertiary">{order.status}</div>
-											</div>
 										</div>
-									{/each}
-								</div>
-								{#if ordersHasMore}
-									<div class="mt-3 flex justify-center">
-										<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50" onclick={() => void loadMoreOrders()} disabled={ordersLoadingMore}>
-											{#if ordersLoadingMore}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-											Load more
-										</button>
+										<div class="text-right">
+											<div class="font-mono text-[12px] text-text-primary">{orderAmount(order)}</div>
+											<div class="text-[10px] uppercase tracking-wide text-text-tertiary">{order.status}</div>
+										</div>
 									</div>
-								{/if}
+								{/each}
+							</div>
+							{#if ordersHasMore}
+								<div class="mt-3 flex justify-center">
+									<button type="button" class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50" onclick={() => void loadMoreOrders()} disabled={ordersLoadingMore}>
+										{#if ordersLoadingMore}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
+										Load more
+									</button>
+								</div>
 							{/if}
-						</div>
-					{/if}
+						{/if}
+					</div>
 				</section>
 			{/if}
 		</div>

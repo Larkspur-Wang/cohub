@@ -19,17 +19,20 @@ import {
   serializeOrder,
   serializeProduct,
   serializeProductBenefit,
+  type SerializedCommerceBuyerProfile,
   type SerializedCommerceProductBenefitBinding,
 } from "../../lib/commerce-serialize.js";
 import type { Benefit, CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
 import type { Product, ProductBenefit } from "@talesofai-billing/sdk/admin/products";
 import { createLogger } from "@cohub/infra/logging";
 import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
+import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 
 const router = new Hono();
 const logger = createLogger({ serviceName: "cohub-api" });
 
 const COHUB_BOUND_BENEFIT_KEYS_META_KEY = "cohub_bound_benefit_keys";
+const MIN_PRODUCT_AMOUNT_USD = 0.5;
 
 function serializeProductBenefitFallback(input: { productKey: string; benefitKey: string }): SerializedCommerceProductBenefitBinding {
   return {
@@ -44,6 +47,27 @@ function metaBenefitKeys(product: Product): string[] {
   const value = product.meta?.[COHUB_BOUND_BENEFIT_KEYS_META_KEY];
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function resolveOrderBuyerUserUuid(order: { external_user_id?: string | null; external_user_id_snapshot?: string | null }) {
+  const userUuid = order.external_user_id ?? order.external_user_id_snapshot ?? null;
+  return typeof userUuid === "string" && userUuid.trim() ? userUuid.trim() : null;
+}
+
+async function buildOrderBuyerProfiles(orders: Array<{ external_user_id?: string | null; external_user_id_snapshot?: string | null }>) {
+  const userUuids = orders.map(resolveOrderBuyerUserUuid).filter((value): value is string => Boolean(value));
+  const profiles = await getProfilesByUuids(userUuids);
+  const buyerProfiles = new Map<string, SerializedCommerceBuyerProfile>();
+
+  for (const userUuid of userUuids) {
+    const profile = profiles.get(userUuid) ?? fallbackPublicUserProfile(userUuid);
+    buyerProfiles.set(userUuid, {
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarUrl,
+    });
+  }
+
+  return buyerProfiles;
 }
 
 async function syncProductBenefitMeta(input: {
@@ -296,7 +320,7 @@ router.post("/:id/commerce/products", async (c) => {
   const status = body?.status === "draft" ? "draft" : "active";
   const amount = Number(body?.amountUsd);
   if (!name) return c.json({ message: "name is required" }, 400);
-  if (!Number.isFinite(amount) || amount < 0) return c.json({ message: "amountUsd must be a non-negative number" }, 400);
+  if (!Number.isFinite(amount) || amount < MIN_PRODUCT_AMOUNT_USD) return c.json({ message: "amountUsd must be at least 0.5" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
     const sdk = createSpaceCommerceSdk();
@@ -625,7 +649,17 @@ router.get("/:id/commerce/orders", async (c) => {
       limit,
       sorting: "-created_at",
     });
-    return c.json({ orders: result.items.map(serializeOrder), pagination: { hasMore: result.pagination.has_more, nextPage: result.pagination.has_more ? page + 1 : null }, businessKey: mapping.billingBusinessKey });
+    const buyerProfiles = await buildOrderBuyerProfiles(result.items);
+    return c.json({
+      orders: result.items.map((order) => {
+        const userUuid = resolveOrderBuyerUserUuid(order);
+        return serializeOrder(order, {
+          buyerProfile: userUuid ? (buyerProfiles.get(userUuid) ?? null) : null,
+        });
+      }),
+      pagination: { hasMore: result.pagination.has_more, nextPage: result.pagination.has_more ? page + 1 : null },
+      businessKey: mapping.billingBusinessKey,
+    });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;

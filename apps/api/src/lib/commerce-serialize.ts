@@ -75,6 +75,11 @@ export type SerializedCommerceProductBenefitBinding = {
   createdAt: string | null;
 };
 
+export type SerializedCommerceBuyerProfile = {
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export type SerializedCommerceOrder = {
   id: string;
   productKeySnapshot: string;
@@ -84,6 +89,7 @@ export type SerializedCommerceOrder = {
   paidAmountSnapshot: number;
   createdAt: string;
   paidAt: string | null;
+  buyerProfile: SerializedCommerceBuyerProfile | null;
 };
 
 export function serializeOrder(order: {
@@ -95,6 +101,8 @@ export function serializeOrder(order: {
   paid_amount_snapshot: number;
   created_at: string;
   paid_at: string | null;
+}, input?: {
+  buyerProfile?: SerializedCommerceBuyerProfile | null;
 }): SerializedCommerceOrder {
   return {
     id: order.id,
@@ -105,6 +113,7 @@ export function serializeOrder(order: {
     paidAmountSnapshot: order.paid_amount_snapshot,
     createdAt: order.created_at,
     paidAt: order.paid_at,
+    buyerProfile: input?.buyerProfile ?? null,
   };
 }
 

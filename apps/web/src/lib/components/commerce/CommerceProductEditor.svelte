@@ -21,6 +21,7 @@ const {
 } = $props();
 
 const isEdit = $derived(Boolean(product));
+const MIN_PRODUCT_AMOUNT_USD = 0.5;
 
 // Snapshot the seed once: form fields are editable copies, not reactive mirrors.
 const seed = untrack(() => ({
@@ -42,7 +43,8 @@ let error = $state("");
 
 const nameInvalid = $derived(!name.trim());
 const amountInvalid = $derived(
-	!Number.isFinite(Number(amountUsd)) || Number(amountUsd) < 0,
+	!Number.isFinite(Number(amountUsd)) ||
+		Number(amountUsd) < MIN_PRODUCT_AMOUNT_USD,
 );
 
 async function submit() {
@@ -124,13 +126,13 @@ const readonlyClass =
 					class:opacity-60={isEdit}
 					type="number"
 					step="0.01"
-					min="0"
+					min={MIN_PRODUCT_AMOUNT_USD}
 					bind:value={amountUsd}
 					disabled={isEdit || busy}
 					placeholder="9.99"
 				/>
 			</div>
-			<span class="text-[11px] text-text-tertiary">{isEdit ? "Price can't be changed after creation." : "Charged once at checkout."}</span>
+			<span class="text-[11px] text-text-tertiary">{isEdit ? "Price can't be changed after creation." : "Minimum $0.50."}</span>
 		</div>
 
 		<div class="flex flex-col gap-1.5">

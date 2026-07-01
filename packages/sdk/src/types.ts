@@ -251,6 +251,11 @@ export type SpaceCommerceProductBenefitBinding = {
   createdAt: string | null;
 };
 
+export type SpaceCommerceBuyerProfile = {
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export type SpaceCommerceOrder = {
   id: string;
   productKeySnapshot: string;
@@ -260,6 +265,7 @@ export type SpaceCommerceOrder = {
   paidAmountSnapshot: number;
   createdAt: string;
   paidAt: string | null;
+  buyerProfile: SpaceCommerceBuyerProfile | null;
 };
 
 export type BillingSubscriptionSummary = {

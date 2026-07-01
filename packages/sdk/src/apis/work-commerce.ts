@@ -53,6 +53,7 @@ export type WorkCommerceOrder = {
   paidAmountSnapshot: number;
   createdAt: string;
   paidAt: string | null;
+  buyerProfile: import("../types.js").SpaceCommerceBuyerProfile | null;
 };
 
 export class WorkCommerceApi {

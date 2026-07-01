@@ -13,6 +13,8 @@ type MetaValue = string | number | boolean;
 
 type JsonOption = { json?: boolean };
 
+const MIN_PRODUCT_AMOUNT_USD = 0.5;
+
 type ProductCreateOptions = JsonOption & {
   productKey?: string;
   name?: string;
@@ -99,10 +101,11 @@ function parseInteger(value: string | undefined, label: string, options: { fallb
 function parseAmountUsd(value: string | undefined): number {
   const text = requireText(value, "amount", "--amount-usd <amount>");
   if (!/^(?:\d+|\d+\.\d{1,2}|\.\d{1,2})$/.test(text)) {
-    return error("Invalid amount", "--amount-usd must be a non-negative USD amount with at most 2 decimals.");
+    return error("Invalid amount", "--amount-usd must be a USD amount with at most 2 decimals.");
   }
   const amount = Number(text);
   if (!Number.isFinite(amount)) return error("Invalid amount", "--amount-usd must be a finite USD amount.");
+  if (amount < MIN_PRODUCT_AMOUNT_USD) return error("Invalid amount", "--amount-usd must be at least 0.5.");
   return amount;
 }
 
