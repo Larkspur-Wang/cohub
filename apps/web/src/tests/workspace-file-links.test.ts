@@ -19,7 +19,7 @@ test("normalizeWorkspaceFileLink converts workspace absolute links", () => {
 		normalizeWorkspaceFileLink(
 			"/workspace/cohub/apps/web/src/lib/features/space/SpaceWorkspacePage.svelte:1778",
 		),
-		"apps/web/src/lib/features/space/SpaceWorkspacePage.svelte",
+		"cohub/apps/web/src/lib/features/space/SpaceWorkspacePage.svelte",
 	);
 });
 
@@ -73,7 +73,7 @@ test("normalizeWorkspaceFileLinkTarget preserves optional line positions", () =>
 			"/workspace/cohub/apps/web/src/lib/features/space/SpaceWorkspacePage.svelte:1778",
 		),
 		{
-			path: "apps/web/src/lib/features/space/SpaceWorkspacePage.svelte",
+			path: "cohub/apps/web/src/lib/features/space/SpaceWorkspacePage.svelte",
 			position: { line: 1778 },
 		},
 	);

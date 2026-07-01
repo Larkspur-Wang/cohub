@@ -16,15 +16,6 @@ export type NormalizeWorkspaceFileLinkOptions = {
 };
 
 const SCHEME_PATTERN = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
-const WORKSPACE_TOP_LEVEL_MARKERS = new Set([
-	"apps",
-	"deploy",
-	"docs",
-	"packages",
-	"scripts",
-	"skills",
-]);
-
 function stripQueryAndHash(value: string) {
 	const queryIndex = value.indexOf("?");
 	const hashIndex = value.indexOf("#");
@@ -87,20 +78,6 @@ function normalizeWorkspacePath(path: string) {
 	return parts.length > 0 ? parts.join("/") : null;
 }
 
-function normalizeWorkspaceAbsolutePath(path: string) {
-	const normalized = normalizeWorkspacePath(path);
-	if (!normalized) return null;
-	const [firstSegment, secondSegment] = normalized.split("/");
-	if (
-		firstSegment &&
-		secondSegment &&
-		WORKSPACE_TOP_LEVEL_MARKERS.has(secondSegment)
-	) {
-		return normalized.slice(firstSegment.length + 1);
-	}
-	return normalized;
-}
-
 /**
  * Converts Markdown hrefs that refer to files inside /workspace into the
  * workspace-relative path used by the file tree and preview panel.
@@ -128,14 +105,14 @@ export function normalizeWorkspaceFileLinkTarget(
 
 	if (pathWithPosition.startsWith("/")) {
 		if (!pathWithPosition.startsWith("/workspace/")) return null;
-		const path = normalizeWorkspaceAbsolutePath(
+		const path = normalizeWorkspacePath(
 			pathWithPosition.slice("/workspace/".length),
 		);
 		return path ? { path, position } : null;
 	}
 
 	if (pathWithPosition.startsWith("workspace/")) {
-		const path = normalizeWorkspaceAbsolutePath(
+		const path = normalizeWorkspacePath(
 			pathWithPosition.slice("workspace/".length),
 		);
 		return path ? { path, position } : null;
