@@ -259,7 +259,7 @@ export const createSessionTurn = async (input: {
   const meta = input.meta ? sanitizePostgresJsonValue(input.meta) : null;
   const userText = deriveMessagePreviewText({ content: userContent }) || null;
   const [row] = await db.transaction(async (tx) => {
-    const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
+    const [sessionRow] = await tx.select({ meta: spaceSessions.meta, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).for("update").limit(1);
     if (!sessionRow) throw new Error("session not found");
     const [seqRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, input.sessionId));
     let startSequence = 1;

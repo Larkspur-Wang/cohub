@@ -125,10 +125,15 @@ import {
 	flattenLabelsWithRefs,
 	getCachedLabelItemsSnapshot,
 	getCachedSpaceLabelsSnapshot,
+	getLabelDisplayName,
+	getLabelDisplayTitle,
 	getLabelRefById,
+	getLabelUserProfile,
+	isSessionUserLabel,
 	LABEL_ITEMS_PAGE_SIZE,
 	markLabelItemsStale,
 	onSpaceLabelsCacheUpdated,
+	onUserLabelProfilesUpdated,
 } from "$lib/stores/space-labels";
 import {
 	clearAllCachedSpaceLists,
@@ -197,6 +202,7 @@ let labels = $state<LabelListItem[]>([]);
 let labelItemsBySpace = $state<
 	Record<string, Record<string, LabelAssignmentListItem[]>>
 >({});
+let userLabelProfileVersion = $state(0);
 let labelSessionDetailsBySpace = $state<
 	Record<string, Record<string, SessionRecord>>
 >({});
@@ -1348,8 +1354,16 @@ function getDropResource(event: DragEvent): {
 	return { payload, resource };
 }
 
+function canAssignResourceToLabel(label: LabelListItem) {
+	return canAssignLabels && label.source === "user";
+}
+
 function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
-	if (!canAssignLabels || !hasCohubResourceDragData(event.dataTransfer)) return;
+	if (
+		!canAssignResourceToLabel(label) ||
+		!hasCohubResourceDragData(event.dataTransfer)
+	)
+		return;
 	event.preventDefault();
 	event.stopPropagation();
 	labelDropTargetId = label.id;
@@ -1391,7 +1405,7 @@ function handleLabelDragLeave(event: DragEvent, label: LabelListItem) {
 }
 
 async function handleLabelDrop(event: DragEvent, label: LabelListItem) {
-	if (!canAssignLabels || !currentSpaceId) return;
+	if (!canAssignResourceToLabel(label) || !currentSpaceId) return;
 	const spaceId = currentSpaceId;
 	const drop = getDropResource(event);
 	if (!drop) return;
@@ -1480,7 +1494,7 @@ function handleLabelItemDragStart(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (!canAssignLabels || !isDraggableLabelItem(item)) {
+	if (!canAssignResourceToLabel(label) || !isDraggableLabelItem(item)) {
 		event.preventDefault();
 		return;
 	}
@@ -1500,7 +1514,7 @@ function handleLabelItemDragStart(
 			origin: {
 				kind: "label-items",
 				labelRef: labelRefForId(label.id) ?? label.name,
-				labelName: label.name,
+				labelName: getLabelDisplayName(label),
 			},
 			createdAt: Date.now(),
 		},
@@ -1518,7 +1532,7 @@ function handleLabelItemDragStart(
 	activeLabelDragOrigin = {
 		labelId: label.id,
 		labelRef: labelRefForId(label.id) ?? label.name,
-		labelName: label.name,
+		labelName: getLabelDisplayName(label),
 	};
 }
 
@@ -1532,7 +1546,7 @@ async function removeLabelAssignment(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (!canAssignLabels || !currentSpaceId) return;
+	if (!canAssignResourceToLabel(label) || !currentSpaceId) return;
 	if (!isDraggableLabelItem(item)) return;
 	const spaceId = currentSpaceId;
 	const sourceLabelRef = labelRefForId(label.id);
@@ -2304,6 +2318,7 @@ onMount(() => {
 	let offSpaceListCacheUpdated = () => {};
 	let offSessionListCacheUpdated = () => {};
 	let offSpaceLabelsCacheUpdated = () => {};
+	let offUserLabelProfilesUpdated = () => {};
 	let offTaskRunsCacheUpdated = () => {};
 	if (mode === "space") {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
@@ -2331,6 +2346,9 @@ onMount(() => {
 				pruneExpandedLabelIds(spaceId, nextLabels);
 			},
 		);
+		offUserLabelProfilesUpdated = onUserLabelProfilesUpdated(() => {
+			userLabelProfileVersion += 1;
+		});
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
 			if (spaceId !== currentSpaceId) return;
 			tasks = runs;
@@ -2415,6 +2433,7 @@ onMount(() => {
 		offSpaceListCacheUpdated();
 		offSessionListCacheUpdated();
 		offSpaceLabelsCacheUpdated();
+		offUserLabelProfilesUpdated();
 		offTaskRunsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
@@ -2580,6 +2599,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet labelAssignmentRows(label: LabelListItem, depth: number)}
+	{@const _userLabelProfileVersion = userLabelProfileVersion}
 	{@const items = currentLabelItemsById[label.id] ?? []}
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
@@ -2593,8 +2613,8 @@ $effect(() => {
 			<div class="space-y-[1px] {depth > 0 ? 'pl-6' : 'pl-4'}">
 				{#each items as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
-					{@const itemDraggable = canAssignLabels && isDraggableLabelItem(item)}
-					{@const labelRemoveTitle = `Remove from “${label.name}”`}
+					{@const itemDraggable = canAssignResourceToLabel(label) && isDraggableLabelItem(item)}
+					{@const labelRemoveTitle = `Remove from “${getLabelDisplayName(label)}”`}
 					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
 						{@const session = labelSessionsById.get(item.resourceRef)!}
 						{@const sessionItem = sidebarSessionItems.find((candidate) => candidate.session.id === session.id)}
@@ -2684,6 +2704,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet labelsSection(showHeader = true)}
+	{@const _userLabelProfileVersion = userLabelProfileVersion}
 	<div class={showHeader ? "mt-2" : "mt-0"}>
 		{#if showHeader}
 			<div
@@ -2757,7 +2778,11 @@ $effect(() => {
 									</button>
 								</span>
 							{:else}
-								<span class="min-w-0 flex-1 truncate">{label.name}</span>
+								{@const labelProfile = getLabelUserProfile(label)}
+								{#if labelProfile || isSessionUserLabel(label)}
+									<UserAvatar name={getLabelDisplayName(label)} avatarUrl={labelProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+								{/if}
+								<span class="min-w-0 flex-1 truncate" title={getLabelDisplayTitle(label)}>{getLabelDisplayName(label)}</span>
 								{#if canManageUserLabel(label)}
 									<span class="label-row-actions">
 										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
@@ -2807,7 +2832,11 @@ $effect(() => {
 											</button>
 										</span>
 									{:else}
-										<span class="min-w-0 flex-1 truncate">{child.name}</span>
+										{@const childProfile = getLabelUserProfile(child)}
+										{#if childProfile || isSessionUserLabel(child)}
+											<UserAvatar name={getLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+										{/if}
+										<span class="min-w-0 flex-1 truncate" title={getLabelDisplayTitle(child)}>{getLabelDisplayName(child)}</span>
 										{#if canManageUserLabel(child)}
 											<span class="label-row-actions">
 												<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>

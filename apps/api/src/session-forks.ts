@@ -1,12 +1,16 @@
+import { createLogger } from "@cohub/infra/logging";
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
 import { labelAssignments, sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
-import { setSessionParticipantsMeta } from "@cohub/core/sessions";
+import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
+import { readSessionParticipantUserUuids, setSessionParticipantsMeta } from "@cohub/core/sessions";
 
 type SegmentRow = typeof sessionTurnSegments.$inferSelect;
 type ForkRow = typeof sessionForks.$inferSelect;
+
+const logger = createLogger({ serviceName: "cohub-api" });
 
 const toIso = (value: Date | string | null | undefined) => {
   if (!value) return new Date().toISOString();
@@ -162,7 +166,7 @@ export async function createSessionFork(input: {
     if (existingChild[0]) {
       const [existingFork] = await tx.select().from(sessionForks).where(eq(sessionForks.childSessionId, input.childSessionId)).limit(1);
       if (existingFork?.parentSessionId === parent.id && existingFork.anchorTurnId === input.turnId && existingFork.anchorSequence === anchorSequence) {
-        return { session: existingChild[0], fork: existingFork };
+        return { session: existingChild[0], fork: existingFork, participantUserUuids: [createdBy, ...readSessionParticipantUserUuids(existingChild[0].meta)] };
       }
       throw new Error("Session id already exists");
     }
@@ -199,6 +203,8 @@ export async function createSessionFork(input: {
       for (const row of rows) if (row.userUuid?.trim()) visibleTurnUserUuids.add(row.userUuid.trim());
     }
 
+    const childParticipantUserUuids = [createdBy, ...visibleTurnUserUuids];
+
     const [child] = await tx.insert(spaceSessions).values({
       id: input.childSessionId,
       spaceId: input.spaceId,
@@ -215,7 +221,7 @@ export async function createSessionFork(input: {
           createdAt: now.toISOString(),
           createdBy,
         },
-      }, [createdBy, ...visibleTurnUserUuids], now)),
+      }, childParticipantUserUuids, now)),
       lastMessageAt: now,
       lastMessageId: null,
       latestMessageText: anchorTurn.userText ?? parent.latestMessageText ?? null,
@@ -274,7 +280,15 @@ export async function createSessionFork(input: {
       }))).onConflictDoNothing();
     }
 
-    return { session: child, fork };
+    return { session: child, fork, participantUserUuids: childParticipantUserUuids };
+  });
+  await assignSessionParticipantSystemLabels({
+    db,
+    spaceId: input.spaceId,
+    sessionId: result.session.id,
+    userUuids: result.participantUserUuids,
+  }).catch((error) => {
+    logger.warn("[SessionFork] failed to assign participant labels", { sessionId: result.session.id, error });
   });
   return { session: result.session, fork: toForkRecord(result.fork) };
 }

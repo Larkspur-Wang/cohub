@@ -4,6 +4,7 @@ import type {
 	LabelAssignmentRecord,
 	LabelListItem,
 	LabelResourceType,
+	PublicUserProfile,
 } from "@neta-art/cohub";
 import { labelItemsRepo } from "$lib/cache/repositories/label-items-repo";
 import { labelTreeRepo } from "$lib/cache/repositories/label-tree-repo";
@@ -11,19 +12,142 @@ import { resourceLabelsRepo } from "$lib/cache/repositories/resource-labels-repo
 import { sdk } from "$lib/sdk";
 
 const LABEL_ITEMS_PAGE_SIZE = 30;
+const SESSION_USER_LABEL_SYSTEM_KEY_PREFIX = "session-user:";
+const USER_PROFILE_BATCH_SIZE = 100;
+const USER_LABEL_PROFILE_CACHE_LIMIT = 500;
+
+const userLabelProfiles = new Map<string, PublicUserProfile | null>();
+let userLabelProfileVersion = 0;
+
+function fallbackUserName(userUuid: string) {
+	return userUuid.replaceAll("-", "").slice(0, 8) || "User";
+}
+
+export function getSessionUserUuidFromLabel(label: LabelListItem) {
+	const systemKey = label.systemKey?.trim() ?? "";
+	if (systemKey.startsWith(SESSION_USER_LABEL_SYSTEM_KEY_PREFIX)) {
+		const userUuid = systemKey
+			.slice(SESSION_USER_LABEL_SYSTEM_KEY_PREFIX.length)
+			.trim();
+		return userUuid && userUuid !== "root" ? userUuid : null;
+	}
+	return null;
+}
+
+export function isSessionUserLabel(label: LabelListItem) {
+	return Boolean(getSessionUserUuidFromLabel(label));
+}
+
+export function getLabelDisplayName(label: LabelListItem) {
+	if (label.systemKey === `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`)
+		return "User";
+	const userUuid = getSessionUserUuidFromLabel(label);
+	if (!userUuid) return label.name;
+	return (
+		userLabelProfiles.get(userUuid)?.displayName?.trim() ||
+		fallbackUserName(userUuid)
+	);
+}
+
+export function getLabelDisplayTitle(label: LabelListItem) {
+	if (label.systemKey === `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`)
+		return label.name === "User" ? "User" : `${label.name} · User`;
+	const userUuid = getSessionUserUuidFromLabel(label);
+	if (!userUuid) return label.name;
+	const profile = userLabelProfiles.get(userUuid);
+	return [
+		profile?.displayName?.trim() || fallbackUserName(userUuid),
+		profile?.username ? `@${profile.username}` : null,
+		userUuid,
+	]
+		.filter(Boolean)
+		.join(" · ");
+}
+
+export function getLabelUserProfile(label: LabelListItem) {
+	const userUuid = getSessionUserUuidFromLabel(label);
+	return userUuid ? (userLabelProfiles.get(userUuid) ?? null) : null;
+}
+
+export function onUserLabelProfilesUpdated(handler: () => void) {
+	if (typeof window === "undefined") return () => {};
+	const listener = () => handler();
+	window.addEventListener("cohub:user-label-profiles-updated", listener);
+	return () =>
+		window.removeEventListener("cohub:user-label-profiles-updated", listener);
+}
+
+function collectSessionUserUuids(labels: LabelListItem[]) {
+	const userUuids = new Set<string>();
+	const visit = (items: LabelListItem[]) => {
+		for (const label of items) {
+			const userUuid = getSessionUserUuidFromLabel(label);
+			if (userUuid) userUuids.add(userUuid);
+			if (label.children?.length) visit(label.children);
+		}
+	};
+	visit(labels);
+	return [...userUuids];
+}
+
+function trimUserLabelProfileCache() {
+	while (userLabelProfiles.size > USER_LABEL_PROFILE_CACHE_LIMIT) {
+		const oldestKey = userLabelProfiles.keys().next().value;
+		if (!oldestKey) break;
+		userLabelProfiles.delete(oldestKey);
+	}
+}
+
+async function hydrateUserLabelProfiles(labels: LabelListItem[]) {
+	const missing = collectSessionUserUuids(labels).filter(
+		(userUuid) => !userLabelProfiles.has(userUuid),
+	);
+	if (missing.length === 0) return;
+	for (
+		let index = 0;
+		index < missing.length;
+		index += USER_PROFILE_BATCH_SIZE
+	) {
+		const chunk = missing.slice(index, index + USER_PROFILE_BATCH_SIZE);
+		for (const userUuid of chunk) userLabelProfiles.set(userUuid, null);
+		try {
+			const result = await sdk.users.getProfiles({ userUuids: chunk });
+			for (const userUuid of chunk)
+				userLabelProfiles.set(userUuid, result.profiles[userUuid] ?? null);
+			trimUserLabelProfileCache();
+			userLabelProfileVersion += 1;
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(
+					new CustomEvent("cohub:user-label-profiles-updated", {
+						detail: { version: userLabelProfileVersion },
+					}),
+				);
+			}
+		} catch {
+			for (const userUuid of chunk) userLabelProfiles.delete(userUuid);
+		}
+	}
+}
+
+function queueHydrateUserLabelProfiles(labels: LabelListItem[]) {
+	void hydrateUserLabelProfiles(labels);
+}
 
 export async function getCachedSpaceLabelsSnapshot(spaceId: string) {
 	return labelTreeRepo.get(spaceId);
 }
 
 export async function getCachedSpaceLabels(spaceId: string) {
-	return (await labelTreeRepo.get(spaceId))?.labels ?? null;
+	const labels = (await labelTreeRepo.get(spaceId))?.labels ?? null;
+	if (labels) queueHydrateUserLabelProfiles(labels);
+	return labels;
 }
 
 export async function setCachedSpaceLabels(
 	spaceId: string,
 	labels: LabelListItem[],
 ) {
+	queueHydrateUserLabelProfiles(labels);
 	return (await labelTreeRepo.set(spaceId, labels)).labels;
 }
 
@@ -46,6 +170,7 @@ export function onSpaceLabelsCacheUpdated(
 
 export async function fetchSpaceLabelsFresh(spaceId: string) {
 	const labels = (await sdk.space(spaceId).labels.list()).labels ?? [];
+	queueHydrateUserLabelProfiles(labels);
 	return (await labelTreeRepo.set(spaceId, labels, { source: "network" }))
 		.labels;
 }
@@ -53,7 +178,10 @@ export async function fetchSpaceLabelsFresh(spaceId: string) {
 export async function fetchSpaceLabels(spaceId: string, force = false) {
 	if (!force) {
 		const cached = await labelTreeRepo.get(spaceId);
-		if (cached && !cached.stale) return cached.labels;
+		if (cached && !cached.stale) {
+			queueHydrateUserLabelProfiles(cached.labels);
+			return cached.labels;
+		}
 	}
 	return fetchSpaceLabelsFresh(spaceId);
 }
@@ -161,6 +289,7 @@ export async function getResourceLabels(
 			source: "network",
 		}),
 	]);
+	queueHydrateUserLabelProfiles(result.labels);
 	return result;
 }
 
@@ -185,6 +314,7 @@ export async function fetchResourceLabels(
 			resourceRef,
 		);
 		if (cached && !cached.stale) {
+			queueHydrateUserLabelProfiles(cached.labels);
 			return {
 				labels: cached.labels,
 				assignments: cached.assignments,
@@ -267,6 +397,7 @@ export async function setResourceLabels(
 			source: "network",
 		}),
 	]);
+	queueHydrateUserLabelProfiles(result.labels);
 
 	const affectedRefs = previousLabelRefs
 		? Array.from(new Set([...previousLabelRefs, ...labelRefs]))

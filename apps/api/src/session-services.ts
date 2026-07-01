@@ -3,6 +3,7 @@ import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue, defaultJobRetention } from 
 import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices } from "@cohub/core/sessions";
+import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import { config } from "./config.js";
@@ -11,7 +12,7 @@ import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPro
 import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
 import { getSpaceSessionById, getSpaceById } from "./space-sessions.js";
 import { touchSpaceActivity } from "./space-activity.js";
-import { dispatchSessionUpdated } from "./realtime-events.js";
+import { dispatchLabelAssignmentsUpdated, dispatchSessionUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
 
 
@@ -89,6 +90,16 @@ export function getSessionDomainServices(input?: {
         logger.warn("[SpaceActivity] failed to touch after session activity update", error);
       });
       await dispatchSessionUpdated({ session, changed });
+    },
+    onSessionParticipantsUpdated: async ({ spaceId, sessionId, userUuids }) => {
+      const affectedLabelIds = await assignSessionParticipantSystemLabels({ db, spaceId, sessionId, userUuids });
+      await dispatchLabelAssignmentsUpdated({
+        spaceId,
+        resourceType: "session",
+        resourceRef: sessionId,
+        sessionId,
+        affectedLabelIds,
+      });
     },
     agentTurnQueue: {
       enqueue: (job) => agentTurnQueue.add(AGENT_TURN_JOB_NAME, {

@@ -6,6 +6,7 @@ import type {
 } from "@neta-art/cohub";
 import { Check, Loader2, Plus, X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
+import UserAvatar from "$lib/components/UserAvatar.svelte";
 import {
 	createSpaceLabel,
 	fetchResourceLabelsFresh,
@@ -13,8 +14,13 @@ import {
 	flattenLabelsWithRefs,
 	getCachedResourceLabelsSnapshot,
 	getCachedSpaceLabelsSnapshot,
+	getLabelDisplayName,
+	getLabelDisplayTitle,
+	getLabelUserProfile,
 	getResourceLabels,
+	isSessionUserLabel,
 	onSpaceLabelsCacheUpdated,
+	onUserLabelProfilesUpdated,
 	setResourceLabels,
 } from "$lib/stores/space-labels";
 
@@ -39,10 +45,16 @@ let showCreate = $state(false);
 let initialLoadSettled = $state(false);
 let loading = $state(false);
 let loadVersion = 0;
+let userLabelProfileVersion = $state(0);
 
 const flatLabels = $derived(flattenLabels(labels));
 const labelOptions = $derived(flattenLabelsWithRefs(labels));
-const selectedCount = $derived(selected.size);
+const selectableLabelRefs = $derived(
+	new Set(labelOptions.filter(canSelectLabel).map((label) => label.ref)),
+);
+const selectedCount = $derived(
+	[...selected].filter((labelRef) => selectableLabelRefs.has(labelRef)).length,
+);
 
 function labelsEqual(a: LabelListItem[], b: LabelListItem[]): boolean {
 	if (a === b) return true;
@@ -121,6 +133,10 @@ async function load() {
 	}
 }
 
+function canSelectLabel(label: LabelListItem) {
+	return label.source === "user";
+}
+
 function toggleLabel(labelRef: string) {
 	const next = new Set(selected);
 	if (next.has(labelRef)) next.delete(labelRef);
@@ -144,8 +160,12 @@ async function save() {
 			spaceId,
 			resourceType,
 			resourceRef,
-			[...selected],
-			{ previousLabelRefs: [...previousLabelRefs] },
+			[...selected].filter((labelRef) => selectableLabelRefs.has(labelRef)),
+			{
+				previousLabelRefs: [...previousLabelRefs].filter((labelRef) =>
+					selectableLabelRefs.has(labelRef),
+				),
+			},
 		);
 		updateLabels(result.labels);
 		assignments = result.assignments;
@@ -192,6 +212,13 @@ $effect(() => {
 	);
 	return unsubscribe;
 });
+
+$effect(() => {
+	const unsubscribe = onUserLabelProfilesUpdated(() => {
+		userLabelProfileVersion += 1;
+	});
+	return unsubscribe;
+});
 </script>
 
 <svelte:window onkeydown={(event) => { if (event.key === "Escape") onClose(); }} />
@@ -225,18 +252,23 @@ $effect(() => {
 				<div class="mt-1">Create one to group chats, files, and checkpoints.</div>
 			</div>
 		{:else if flatLabels.length > 0}
+			{@const _userLabelProfileVersion = userLabelProfileVersion}
 			<div class="space-y-[1px]">
 				{#each labels as label (label.id)}
 					{@const labelRef = labelOptions.find((item) => item.id === label.id)?.ref ?? label.name}
-					<label class="label-row">
-						<input type="checkbox" checked={selected.has(labelRef)} onchange={() => toggleLabel(labelRef)} />
-						<span class="truncate">{label.name}</span>
+					<label class="label-row" class:system={!canSelectLabel(label)} title={getLabelDisplayTitle(label)}>
+						<input type="checkbox" checked={selected.has(labelRef)} disabled={!canSelectLabel(label)} onchange={() => toggleLabel(labelRef)} />
+						<span class="truncate">{getLabelDisplayName(label)}</span>
 					</label>
 					{#each label.children ?? [] as child (child.id)}
 						{@const childRef = labelOptions.find((item) => item.id === child.id)?.ref ?? `${labelRef}/${child.name}`}
-						<label class="label-row child">
-							<input type="checkbox" checked={selected.has(childRef)} onchange={() => toggleLabel(childRef)} />
-							<span class="truncate">{child.name}</span>
+						{@const childProfile = getLabelUserProfile(child)}
+						<label class="label-row child" class:system={!canSelectLabel(child)} title={getLabelDisplayTitle(child)}>
+							<input type="checkbox" checked={selected.has(childRef)} disabled={!canSelectLabel(child)} onchange={() => toggleLabel(childRef)} />
+							{#if childProfile || isSessionUserLabel(child)}
+								<UserAvatar name={getLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+							{/if}
+							<span class="truncate">{getLabelDisplayName(child)}</span>
 						</label>
 					{/each}
 				{/each}
@@ -295,6 +327,7 @@ $effect(() => {
 
 	.label-row:hover { background: var(--bg-hover); color: var(--text-primary); }
 	.label-row.child { padding-left: 28px; color: var(--text-tertiary); }
+	.label-row.system { cursor: default; opacity: 0.82; }
 	.label-row input { flex-shrink: 0; accent-color: var(--brand); }
 
 	.create-panel {

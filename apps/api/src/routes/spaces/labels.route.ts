@@ -372,6 +372,8 @@ router.post("/attach", async (c) => {
   }
   const labelId = labelIds[0];
   if (!labelId) return c.json({ message: "label not found" }, 404);
+  const label = await getLabelInSpace(access.spaceId, labelId);
+  if (label?.source !== "user") return authzDenied(c);
   const [{ value: maxRank } = { value: 0 }] = await db.select({ value: max(labelAssignments.rank) }).from(labelAssignments).where(eq(labelAssignments.labelId, labelId));
   const [assignment] = await db.insert(labelAssignments).values({
     labelId,
@@ -420,6 +422,7 @@ router.post("/detach", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
   if (!label) return c.json({ message: "label not found" }, 404);
+  if (label.source !== "user") return authzDenied(c);
   await db.delete(labelAssignments).where(and(eq(labelAssignments.labelId, label.id), eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
   await dispatchLabelAssignmentsUpdated({
     spaceId: access.spaceId,
@@ -460,16 +463,21 @@ export async function setResourceLabels(c: Context) {
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
+  const resolvedLabels = labelIds.length > 0
+    ? await db.select().from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
+    : [];
+  const userLabelIds = resolvedLabels.filter((label) => label.source === "user").map((label) => label.id);
   const existing = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef)));
-  const wanted = new Set(labelIds);
+  const preservedSystemLabelIds = existing.filter((assignment) => assignment.source === "system").map((assignment) => assignment.labelId);
+  const wanted = new Set([...userLabelIds, ...preservedSystemLabelIds]);
   const existingIds = new Set(existing.map((assignment) => assignment.labelId));
-  const affectedLabelIds = Array.from(new Set([...existingIds, ...labelIds]));
-  const removeIds = existing.filter((assignment) => !wanted.has(assignment.labelId)).map((assignment) => assignment.id);
+  const affectedLabelIds = Array.from(new Set([...existingIds, ...userLabelIds]));
+  const removeIds = existing.filter((assignment) => assignment.source !== "system" && !wanted.has(assignment.labelId)).map((assignment) => assignment.id);
   const existingByLabelId = new Map(existing.map((assignment) => [assignment.labelId, assignment]));
-  const addIds = labelIds.filter((labelId) => !existingIds.has(labelId));
+  const addIds = userLabelIds.filter((labelId) => !existingIds.has(labelId));
   await db.transaction(async (tx) => {
     if (removeIds.length > 0) await tx.delete(labelAssignments).where(inArray(labelAssignments.id, removeIds));
-    for (const [index, labelId] of labelIds.entries()) {
+    for (const [index, labelId] of userLabelIds.entries()) {
       const rank = (index + 1) * 10;
       const existingAssignment = existingByLabelId.get(labelId);
       if (existingAssignment) {

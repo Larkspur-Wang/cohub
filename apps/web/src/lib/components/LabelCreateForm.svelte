@@ -2,7 +2,11 @@
 import type { LabelListItem } from "@neta-art/cohub";
 import { ChevronDown, Loader2, Plus } from "lucide-svelte";
 import { tick } from "svelte";
-import { flattenLabels, flattenLabelsWithRefs } from "$lib/stores/space-labels";
+import {
+	flattenLabels,
+	flattenLabelsWithRefs,
+	getLabelDisplayName,
+} from "$lib/stores/space-labels";
 
 const {
 	labels,
@@ -30,7 +34,9 @@ let error = $state("");
 let nameInput = $state<HTMLInputElement>();
 
 const rootLabels = $derived(
-	flattenLabels(labels).filter((label) => label.depth === 0),
+	flattenLabels(labels).filter(
+		(label) => label.depth === 0 && label.source === "user",
+	),
 );
 
 async function focusNameInput() {
@@ -84,7 +90,7 @@ async function submit() {
 			<select id="label-create-parent" bind:value={parentId}>
 				<option value="">None</option>
 				{#each rootLabels as label (label.id)}
-					<option value={label.id}>{label.name}</option>
+					<option value={label.id}>{getLabelDisplayName(label)}</option>
 				{/each}
 			</select>
 			<ChevronDown class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-tertiary" />

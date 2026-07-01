@@ -2,10 +2,12 @@ import { billingOperations, createBillingUsageGate } from "@cohub/billing";
 import { COHUB_AGENT_TURNS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices } from "@cohub/core/sessions";
+import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import { db } from "./db.js";
 import { redisCommandClient } from "./redis.js";
 import { config } from "./config.js";
 import type { PromptTemplateService } from "./prompt-templates.js";
+import { dispatchLabelAssignmentsUpdated } from "./label-events.js";
 
 const AGENT_TURN_JOB_NAME = "agent_turns";
 
@@ -37,6 +39,16 @@ export function getSessionDomainServices(input: {
     billingUsageGate,
     injectTrace,
     getRequestId: () => null,
+    onSessionParticipantsUpdated: async ({ spaceId, sessionId, userUuids }) => {
+      const affectedLabelIds = await assignSessionParticipantSystemLabels({ db, spaceId, sessionId, userUuids });
+      await dispatchLabelAssignmentsUpdated({
+        spaceId,
+        resourceType: "session",
+        resourceRef: sessionId,
+        sessionId,
+        affectedLabelIds,
+      });
+    },
     agentTurnQueue: {
       enqueue: (job) => agentTurnQueue.add(AGENT_TURN_JOB_NAME, {
         spaceId: job.spaceId,

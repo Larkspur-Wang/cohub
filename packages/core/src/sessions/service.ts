@@ -82,6 +82,7 @@ export function createSessionServices(input: {
   getRequestId?: () => string | null | undefined;
   logger?: Pick<Console, "warn">;
   onSessionActivityUpdated?: (input: { sessionId: string; changed: string[] }) => void | Promise<void>;
+  onSessionParticipantsUpdated?: (input: { spaceId: string; sessionId: string; userUuids: string[] }) => void | Promise<void>;
 }) {
   const randomUUID = input.randomUUID ?? defaultRandomUUID;
   const injectTrace = input.injectTrace ?? (() => ({}));
@@ -121,6 +122,11 @@ export function createSessionServices(input: {
     }).returning();
     if (!session) throw new Error("failed to register cronjob session");
     await ensureRootSessionTurnSegment(session.id);
+    await Promise.resolve(input.onSessionParticipantsUpdated?.({
+      spaceId,
+      sessionId: session.id,
+      userUuids: [userUuid],
+    })).catch((error) => logger.warn("[Session] failed to publish session participant labels", error));
     return session;
   }
 
@@ -137,8 +143,8 @@ export function createSessionServices(input: {
     const model = typeof meta.model === "string" && meta.model.trim() ? meta.model.trim() : null;
     const provider = typeof meta.provider === "string" && meta.provider.trim() ? meta.provider.trim() : null;
     const touchedAt = new Date();
-    const [row] = await input.db.transaction(async (tx) => {
-      const [sessionRow] = await tx.select({ meta: spaceSessions.meta }).from(spaceSessions).where(eq(spaceSessions.id, turnInput.sessionId)).for("update").limit(1);
+    const { row, spaceId } = await input.db.transaction(async (tx) => {
+      const [sessionRow] = await tx.select({ meta: spaceSessions.meta, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, turnInput.sessionId)).for("update").limit(1);
       if (!sessionRow) throw new Error("session not found");
       const [seqRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionTurns.sequence}), 0)::int` }).from(sessionTurns).where(eq(sessionTurns.sessionId, turnInput.sessionId));
       const [localSegment] = await tx.select({ fromSequence: sessionTurnSegments.fromSequence }).from(sessionTurnSegments).where(and(
@@ -153,7 +159,7 @@ export function createSessionServices(input: {
         updatedAt: touchedAt,
         meta: sanitizePostgresJsonValue(addSessionParticipantMeta(sessionRow.meta, turnInput.userUuid)),
       }).where(eq(spaceSessions.id, turnInput.sessionId));
-      return tx.insert(sessionTurns).values({
+      const [row] = await tx.insert(sessionTurns).values({
         sessionId: turnInput.sessionId,
         sequence,
         userUuid: turnInput.userUuid,
@@ -165,12 +171,18 @@ export function createSessionServices(input: {
         model,
         meta,
       }).returning();
+      return { row, spaceId: sessionRow.spaceId };
     });
     if (!row) throw new Error("failed to create session turn");
     await Promise.resolve(input.onSessionActivityUpdated?.({
       sessionId: turnInput.sessionId,
       changed: ["latestMessageText", "lastMessageAt", "updatedAt"],
     })).catch((error) => logger.warn("[Session] failed to publish session activity update", error));
+    await Promise.resolve(input.onSessionParticipantsUpdated?.({
+      spaceId,
+      sessionId: turnInput.sessionId,
+      userUuids: [turnInput.userUuid],
+    })).catch((error) => logger.warn("[Session] failed to publish session participant labels", error));
     return row;
   }
 

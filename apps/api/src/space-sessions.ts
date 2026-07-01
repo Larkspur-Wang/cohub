@@ -7,6 +7,7 @@ import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
 import { isSandboxUsableStatus } from "@cohub/sandbox-controller";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
+import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import { initializeSessionParticipantsMeta, readSessionParticipantUserUuids } from "@cohub/core/sessions";
 import { db } from "./db/index.js";
 import {
@@ -19,7 +20,7 @@ import {
 } from "@cohub/db";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
-import { dispatchSessionCreated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
+import { dispatchLabelAssignmentsUpdated, dispatchSessionCreated, dispatchSessionUpdated, dispatchTurnCreated } from "./realtime-events.js";
 import { finalizeSessionTurnFromMessage, hydrateTurnAuthorProfiles } from "./session-turns.js";
 import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
@@ -318,6 +319,22 @@ const normalizeRequiredUserUuid = (userUuid: string | null | undefined) => {
   return normalized;
 };
 
+async function assignSessionUserLabelsAndDispatch(input: { spaceId: string; sessionId: string; userUuids: string[] }) {
+  const affectedLabelIds = await assignSessionParticipantSystemLabels({
+    db,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    userUuids: input.userUuids,
+  });
+  await dispatchLabelAssignmentsUpdated({
+    spaceId: input.spaceId,
+    resourceType: "session",
+    resourceRef: input.sessionId,
+    sessionId: input.sessionId,
+    affectedLabelIds,
+  });
+}
+
 export const createInitialSpaceSession = async (input: RegisterSessionInput) => {
   const userUuid = normalizeRequiredUserUuid(input.userUuid);
   const [session] = await db.insert(spaceSessions).values({
@@ -336,6 +353,9 @@ export const createInitialSpaceSession = async (input: RegisterSessionInput) => 
   await ensureRootSessionTurnSegment(input.sessionId);
   await dispatchSessionCreated(session).catch((error) => {
     logger.warn("[Realtime] failed to dispatch session.created", error);
+  });
+  await assignSessionUserLabelsAndDispatch({ spaceId: input.spaceId, sessionId: session.id, userUuids: [userUuid] }).catch((error) => {
+    logger.warn("[SessionUserLabel] failed to assign participant label", error);
   });
   return session;
 };
@@ -363,6 +383,9 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
     await ensureRootSessionTurnSegment(input.sessionId);
     await dispatchSessionCreated(session).catch((error) => {
       logger.warn("[Realtime] failed to dispatch session.created", error);
+    });
+    await assignSessionUserLabelsAndDispatch({ spaceId: input.spaceId, sessionId: session.id, userUuids: [userUuid] }).catch((error) => {
+      logger.warn("[SessionUserLabel] failed to assign participant label", error);
     });
     return session;
   } catch (error) {

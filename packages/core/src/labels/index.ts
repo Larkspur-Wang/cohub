@@ -10,6 +10,7 @@ export type LabelSource = "user" | "system";
 const SCOPE_TYPE = "space";
 const MAX_LABEL_NAME_LENGTH = 80;
 const MAX_LABEL_REFS = 20;
+const RESERVED_SYSTEM_ROOT_LABELS = new Set(["source", "user"]);
 const pathKey = (path: LabelPath) => path.map((part) => part.toLowerCase()).join("/");
 const hasControlCharacter = (value: string) => [...value].some((char) => {
   const code = char.charCodeAt(0);
@@ -138,6 +139,9 @@ export async function resolveOrCreateLabelPaths(input: {
   const source = input.source ?? "user";
   const labelIds: string[] = [];
   for (const path of input.paths) {
+    if (source === "user" && RESERVED_SYSTEM_ROOT_LABELS.has(path[0].toLowerCase())) {
+      throw new Error(`label path "${path[0]}" is reserved`);
+    }
     const parent = await getOrCreateLabel(input.db, {
       spaceId: input.spaceId,
       name: path[0],
@@ -210,3 +214,5 @@ export async function listLabelsByRank(db: LabelsDb, spaceId: string) {
     .where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, spaceId)))
     .orderBy(asc(labels.rank), asc(labels.name));
 }
+
+export { assignSessionParticipantSystemLabels, getSessionUserLabelSystemKey, parseSessionUserLabelSystemKey, SESSION_USER_LABEL_SYSTEM_KEY_PREFIX, SESSION_USER_ROOT_LABEL_SYSTEM_KEY } from "./session-user.js";
