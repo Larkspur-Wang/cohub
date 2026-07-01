@@ -105,17 +105,17 @@ export class CohubClient {
     commerce: {
       resolveProducts: async (input: { productKeys: string[] }) => {
         const context = await this.workRuntime.context();
-        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        if (!context?.work?.id) throw new Error("Work context is unavailable — not running inside a published Work runtime.");
         return this.workCommerce.resolveProducts(context.work.id, input);
       },
       getEntitlements: async () => {
         const context = await this.workRuntime.context();
-        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        if (!context?.work?.id) throw new Error("Work context is unavailable — not running inside a published Work runtime.");
         return this.workCommerce.getEntitlements(context.work.id);
       },
       consumeCredits: async (input: { amount: number; operationId: string; reason?: string }) => {
         const context = await this.workRuntime.context();
-        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        if (!context?.work?.id) throw new Error("Work context is unavailable — not running inside a published Work runtime.");
         return this.workCommerce.consumeCredits(context.work.id, input);
       },
       purchase: async (input: { productKey: string }) => this.workRuntime.purchase(input),
@@ -125,7 +125,7 @@ export class CohubClient {
       },
       getOrder: async (orderId: string) => {
         const context = await this.workRuntime.context();
-        if (!context?.work?.id) throw new Error("Work context is unavailable.");
+        if (!context?.work?.id) throw new Error("Work context is unavailable — not running inside a published Work runtime.");
         return this.workCommerce.getOrder(context.work.id, orderId);
       },
     },

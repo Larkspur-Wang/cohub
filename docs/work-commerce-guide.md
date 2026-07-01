@@ -2,6 +2,10 @@
 
 Work commerce lets a published Work sell one-time products backed by Space-level billing data. Products can carry **feature benefits** (access gates) and **credit benefits** (consumable credits).
 
+## Runtime requirements
+
+`cohub.context()`, `cohub.auth.*`, and `cohub.work.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
+
 ## Scope
 
 - `business = space`
@@ -144,16 +148,28 @@ if (credits.available > 0) {
 const { credits: updated } = await cohub.work.commerce.getEntitlements();
 ```
 
-## Space management
+## Price changes
 
-Space owners manage commerce at the Space level.
+Product prices are immutable after creation — `updateProduct` does not accept `amountUsd`. To change a price, create a new product with a versioned key (e.g. `image_credit_pack_050`), bind the same benefit, update the Work to use the new key, then set the old product to `private` or `archived`. Treat commerce config as a migration, not mutable state.
 
-Current supported operations:
+## Script-backed commerce actions
 
-- create products
-- create feature benefits and credit benefits
-- attach benefits to products
-- inspect recent Space orders
+For expensive metered actions, run the real work in a script and keep the Work as a thin front-end. The Work sends a prompt, the agent consumes credits and writes results to a Space file, then the Work reads the structured result back — instead of parsing chat turns.
+
+```
+Work → space.prompt("!script") → agent consumes credits, runs action, writes result file
+Work → space.files.read(resultPath) → render structured result
+```
+
+Keep the Work responsible for displaying products and balances, initiating purchases, and triggering metered actions. Put side effects in the script and persist raw results to Space files.
+
+## Best practices
+
+- Use versioned product keys to manage price and tier changes.
+- Keep the Work responsible for display, purchase, and triggering metered actions — not for side-effect execution.
+- Run side effects in scripts and persist raw results to Space files; the Work reads structured results.
+- Use the smallest permission set the Work needs.
+- Always pass a unique `operationId` to `consumeCredits()` for idempotent retries.
 
 ## Demo
 

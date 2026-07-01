@@ -4,6 +4,10 @@ Works are published, shareable surfaces that turn a Space file, directory, or pu
 
 Use Works when a Space produces something people should open directly: a static HTML prototype, a small site, a generated app, a demo running on a sandbox port, or a Work that uses the Cohub SDK to read approved context and request explicit viewer authorization.
 
+## Runtime requirements
+
+`cohub.context()`, `cohub.auth.*`, and `cohub.work.commerce.*` only function inside a **published** Work — the Cohub-hosted iframe where `window.parent` is the Cohub shell. They do not work from a static asset URL or a local preview. In those environments `context()` is `null` and commerce calls fail. Always develop against a published Work.
+
 ## What a Work Contains
 
 A Work record belongs to one Space and has a few important fields.
@@ -266,7 +270,7 @@ If a file Work fails, check that the target is an HTML file between 1 byte and 5
 
 If a directory Work fails, check that the directory contains `index.html`, has 1 to 1000 files, and is under 100 MB.
 
-If a Work opens but cannot use Cohub APIs, check its `workScopes` and the viewer-granted scopes shown in `cohub.context()`.
+If a Work opens but cannot use Cohub APIs, check that it is running inside a published Work iframe — static asset URLs and local previews do not provide the Work runtime. If it is, check its `workScopes` and the viewer-granted scopes shown in `cohub.context()`.
 
 If a viewer authorization request is denied, check that the requested scope is included in `allowedViewerScopes`.
 

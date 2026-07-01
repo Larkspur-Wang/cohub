@@ -1,5 +1,4 @@
-const SDK_VERSION = "1.29.0";
-const DEFAULT_SDK_URL = `https://esm.sh/@neta-art/cohub@${SDK_VERSION}?bundle&target=es2022`;
+const DEFAULT_SDK_URL = `https://esm.sh/@neta-art/cohub?bundle&target=es2022`;
 const $ = (id) => document.getElementById(id);
 
 const state = {
