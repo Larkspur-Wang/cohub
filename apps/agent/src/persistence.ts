@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { MessageRecord, MessageToolCallsFile, PersistMessageInput, SessionTurnRecord, SessionTurnStatus, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile } from "@cohub/protocol/model";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
-import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, tokenUsageStatsHourly, userChannels } from "@cohub/db";
+import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, tokenUsageStatsHourly, userChannels, userProfiles } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
@@ -145,6 +145,31 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   updatedAt: toIso(row.updatedAt),
 });
 
+const fallbackDisplayName = (userUuid: string) => userUuid.replaceAll("-", "").slice(0, 8);
+
+async function hydrateTurnAuthorProfile(turn: SessionTurnRecord): Promise<SessionTurnRecord> {
+  if (!turn.userUuid) return { ...turn, authorProfile: null };
+  const [profile] = await db.select({
+    userUuid: userProfiles.userUuid,
+    displayName: userProfiles.displayName,
+    avatarUrl: userProfiles.avatarUrl,
+  }).from(userProfiles).where(eq(userProfiles.userUuid, turn.userUuid)).limit(1);
+  return {
+    ...turn,
+    authorProfile: profile
+      ? {
+          userUuid: profile.userUuid,
+          displayName: profile.displayName,
+          avatarUrl: profile.avatarUrl ?? null,
+        }
+      : {
+          userUuid: turn.userUuid,
+          displayName: fallbackDisplayName(turn.userUuid),
+          avatarUrl: null,
+        },
+  };
+}
+
 const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
   if (!meta) return null;
   const keys = ["messageKind", "clientMessageId", "anchorUserMessageId", "userId", "contentDetail", "contentPlaceholder", "historySummary", "turnId", "messageId"];
@@ -166,7 +191,8 @@ async function publishMessagePersisted(spaceId: string, message: MessageRecord) 
 }
 
 async function publishTurnCreated(spaceId: string, turn: SessionTurnRecord) {
-  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.created", spaceId, sessionId: turn.sessionId, payload: { turn } });
+  const hydratedTurn = await hydrateTurnAuthorProfile(turn);
+  await publishRealtimeEnvelope({ domain: "session", type: "session.turn.created", spaceId, sessionId: hydratedTurn.sessionId, payload: { turn: hydratedTurn } });
 }
 
 async function publishTurnFinalized(spaceId: string, turn: SessionTurnRecord) {
