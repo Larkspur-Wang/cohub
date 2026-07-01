@@ -214,7 +214,14 @@ export const userProfilesRepo = {
 			return options?.force || !snapshot || snapshot.stale;
 		});
 		if (staleOrMissing.length === 0) return;
-		await refreshMissingOrStale(staleOrMissing);
+		try {
+			await refreshMissingOrStale(staleOrMissing);
+		} catch {
+			// Emit even on failure so subscribers re-check the memory cache.
+			// Records restored from IndexedDB are already in memory; missing
+			// ones will be retried on the next hydrate call.
+			emitBatch(staleOrMissing);
+		}
 	},
 
 	subscribe(handler: (event: { userUuids: string[] }) => void) {

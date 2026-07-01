@@ -7,7 +7,6 @@ import type {
 import { Check, Loader2, Plus, X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
-import { authStore } from "$lib/stores/auth.svelte";
 import {
 	createSpaceLabel,
 	fetchResourceLabelsFresh,
@@ -94,10 +93,7 @@ function assignmentRefsEqual(a: Set<string>, b: Set<string>) {
 }
 
 function hydrateLabelUserProfiles(nextLabels = labels) {
-	void authStore
-		.ensureLoaded()
-		.then(() => hydrateUserProfilesForLabels(nextLabels))
-		.catch(() => undefined);
+	void hydrateUserProfilesForLabels(nextLabels).catch(() => undefined);
 }
 
 function updateLabels(nextLabels: LabelListItem[]) {

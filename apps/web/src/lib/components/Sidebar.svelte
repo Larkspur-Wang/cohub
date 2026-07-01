@@ -1016,10 +1016,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (cached) {
 			labels = cached.labels;
 			pruneExpandedLabelIds(spaceId, cached.labels);
-			void authStore
-				.ensureLoaded()
-				.then(() => hydrateUserProfilesForLabels(cached.labels))
-				.catch(() => undefined);
+			void hydrateUserProfilesForLabels(cached.labels).catch(() => undefined);
 		}
 		if (cached && !cached.stale) return;
 	}
@@ -1031,10 +1028,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (spaceId === currentSpaceId) {
 			labels = next;
 			pruneExpandedLabelIds(spaceId, next);
-			void authStore
-				.ensureLoaded()
-				.then(() => hydrateUserProfilesForLabels(next))
-				.catch(() => undefined);
+			void hydrateUserProfilesForLabels(next).catch(() => undefined);
 		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
@@ -2402,6 +2396,7 @@ onMount(() => {
 				if (spaceId !== currentSpaceId) return;
 				labels = nextLabels;
 				pruneExpandedLabelIds(spaceId, nextLabels);
+				void hydrateUserProfilesForLabels(nextLabels).catch(() => undefined);
 			},
 		);
 		offUserLabelProfilesUpdated = onUserLabelProfilesUpdated(() => {
