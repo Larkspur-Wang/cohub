@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderMarkdown, renderStreamingMarkdown } from "../lib/markdown";
+import { renderMarkdown, renderStreamingMarkdownSplit } from "../lib/markdown";
 
 test("renderMarkdown keeps nested fences inside markdown code blocks", async () => {
 	const html = await renderMarkdown(`\`\`\`markdown
@@ -54,14 +54,17 @@ graph TD
 	assert.doesNotMatch(html, /<pre class="shiki/);
 });
 
-test("renderStreamingMarkdown keeps mermaid fences as plain code", async () => {
-	const html = await renderStreamingMarkdown(`\`\`\`mermaid
-graph TD
-	A --> B
-\`\`\``);
+test("renderStreamingMarkdownSplit places closed mermaid fence in stable region", async () => {
+	// Closed fences go through renderMarkdownBlock (same as the old
+	// renderStreamingMarkdownBlocks production code), which runs
+	// enhanceMermaidTokens. The diagram itself is only rendered after
+	// streaming ends — MarkdownSurface skips renderMermaid() while live.
+	const { stableHtml, tailHtml } = await renderStreamingMarkdownSplit(
+		`\`\`\`mermaid\ngraph TD\n\tA --> B\n\`\`\``,
+	);
 
-	assert.match(html, /data-streaming-code="true"/);
-	assert.doesNotMatch(html, /markdown-mermaid/);
+	assert.match(stableHtml, /markdown-mermaid/);
+	assert.equal(tailHtml, "");
 });
 
 test("renderMarkdown renders cohub ask fences as composer options", async () => {
@@ -96,15 +99,6 @@ test("renderMarkdown renders cohub ask fences as composer options", async () => 
 	assert.doesNotMatch(html, /<pre class="shiki/);
 });
 
-test("renderStreamingMarkdown keeps cohub ask fences as plain code", async () => {
-	const html = await renderStreamingMarkdown(`\`\`\`cohub-ask
-{"version":1,"questions":[]}
-\`\`\``);
-
-	assert.match(html, /data-streaming-code="true"/);
-	assert.doesNotMatch(html, /markdown-cohub-ask/);
-});
-
 test("renderMarkdown keeps invalid cohub ask fences as code", async () => {
 	const html = await renderMarkdown(`\`\`\`cohub-ask
 {"version":1,"questions":[]}
@@ -115,28 +109,49 @@ test("renderMarkdown keeps invalid cohub ask fences as code", async () => {
 	assert.doesNotMatch(html, /markdown-cohub-ask/);
 });
 
-test("renderStreamingMarkdown keeps incomplete emphasis in a plain tail", async () => {
-	const html = await renderStreamingMarkdown(
-		"A stable paragraph.\n\nThe answer ends with **bol",
+test("renderStreamingMarkdownSplit renders unclosed fence as plain code in tail", async () => {
+	const { stableHtml, tailHtml } = await renderStreamingMarkdownSplit(
+		"```ts\nconst value = 1;",
 	);
 
-	assert.match(html, /A stable paragraph/);
-	assert.match(html, /markdown-streaming-tail/);
-	assert.match(html, /\*\*bol/);
-	assert.doesNotMatch(html, /<strong>bol/);
+	// Short source (< 140 chars) → everything in tail, stable empty
+	assert.equal(stableHtml, "");
+	assert.match(tailHtml, /data-streaming-code="true"/);
+	assert.match(tailHtml, /const value = 1;/);
+	assert.doesNotMatch(tailHtml, /shiki/);
 });
 
-test("renderStreamingMarkdown renders incomplete fenced code as plain code", async () => {
-	const html = await renderStreamingMarkdown("```ts\nconst value = 1;");
+test("renderStreamingMarkdownSplit does not run shiki on closed fence", async () => {
+	const { stableHtml, tailHtml } = await renderStreamingMarkdownSplit(
+		"```ts\nconst value = 1;\n```",
+	);
 
-	assert.match(html, /data-streaming-code="true"/);
-	assert.match(html, /const value = 1;/);
-	assert.doesNotMatch(html, /shiki/);
+	// Closed fence → stable region, rendered without shiki during streaming
+	assert.match(stableHtml, /<pre/);
+	assert.doesNotMatch(stableHtml, /shiki/);
+	assert.equal(tailHtml, "");
 });
 
-test("renderStreamingMarkdown does not run shiki while streaming", async () => {
-	const html = await renderStreamingMarkdown("```ts\nconst value = 1;\n```");
+test("renderStreamingMarkdownSplit splits long content into stable and tail", async () => {
+	// The tail must be long enough (>= 84 chars) for findStreamingSafeIndex
+	// to place the paragraph boundary in the stable region.
+	const stablePara =
+		"This is a stable paragraph that is long enough to be promoted.".repeat(3);
+	const tailPara =
+		"The answer ends with **bol and we need enough text here to ensure the tail is long enough for splitting.";
+	const source = `${stablePara}\n\n${tailPara}`;
 
-	assert.match(html, /data-streaming-code="true"/);
-	assert.doesNotMatch(html, /shiki/);
+	const { stableHtml, tailHtml } = await renderStreamingMarkdownSplit(source);
+
+	assert.match(stableHtml, /stable paragraph/);
+	assert.ok(tailHtml.length > 0, "tail should contain the growing paragraph");
+	// remend repairs the unclosed **, so the tail renders as bold
+	assert.match(tailHtml, /bol/);
+});
+
+test("renderStreamingMarkdownSplit returns empty for empty source", async () => {
+	const { stableHtml, tailHtml } = await renderStreamingMarkdownSplit("");
+
+	assert.equal(stableHtml, "");
+	assert.equal(tailHtml, "");
 });

@@ -55,7 +55,8 @@ const {
 	onOpenFile,
 }: Props = $props();
 
-let renderedHtml = $state("");
+let stableHtml = $state("");
+let tailHtml = $state("");
 let renderSeq = 0;
 let controller: StreamingMarkdownController | null = null;
 let unsubscribeController: (() => void) | null = null;
@@ -77,7 +78,8 @@ function ensureController() {
 	if (controller) return controller;
 	controller = new StreamingMarkdownController();
 	unsubscribeController = controller.subscribe((snapshot) => {
-		renderedHtml = snapshot.html;
+		stableHtml = snapshot.stableHtml;
+		tailHtml = snapshot.tailHtml;
 		requestAnimationFrame(() => untrack(() => onRendered?.()));
 	});
 	return controller;
@@ -92,13 +94,15 @@ function destroyController() {
 
 function renderFullMarkdown(markdownSource: string) {
 	const seq = ++renderSeq;
-	renderedHtml = renderPlainTextFallback(markdownSource);
+	stableHtml = renderPlainTextFallback(markdownSource);
+	tailHtml = "";
 	untrack(() => onStart?.());
 	void loadMarkdownModule()
 		.then(({ renderMarkdown }) => renderMarkdown(markdownSource))
 		.then((html) => {
 			if (seq !== renderSeq) return;
-			renderedHtml = html;
+			stableHtml = html;
+			tailHtml = "";
 			requestAnimationFrame(() => {
 				if (seq === renderSeq) untrack(() => onRendered?.());
 			});
@@ -140,7 +144,8 @@ onDestroy(() => {
 		/>
 	{/if}
 	<MarkdownSurface
-		html={renderedHtml}
+		{stableHtml}
+		{tailHtml}
 		{variant}
 		streamingLive={isStreaming}
 		{baseFilePath}

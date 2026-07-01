@@ -647,12 +647,12 @@ function splitMarkdownBlocks(source: string): MarkdownBlock[] {
 	let buffer: string[] = [];
 	let fence: { fence: string; marker: string } | null = null;
 
-	const pushBuffer = () => {
+	const commitBlock = (kind: "text" | "fence", closed: boolean) => {
 		if (buffer.length === 0) return;
 		blocks.push({
 			text: buffer.join("\n"),
-			kind: fence ? "fence" : "text",
-			closedFence: !fence,
+			kind,
+			closedFence: closed,
 		});
 		buffer = [];
 	};
@@ -667,15 +667,15 @@ function splitMarkdownBlocks(source: string): MarkdownBlock[] {
 				fenceState.marker === fence.marker &&
 				fenceState.fence.length >= fence.fence.length
 			) {
+				commitBlock("fence", true);
 				fence = null;
-				pushBuffer();
 			}
 			continue;
 		}
 
 		const openingFence = isFencedCodeFenceLine(line.trim());
 		if (openingFence) {
-			pushBuffer();
+			commitBlock("text", true);
 			buffer.push(line);
 			fence = openingFence;
 			continue;
@@ -684,7 +684,7 @@ function splitMarkdownBlocks(source: string): MarkdownBlock[] {
 		buffer.push(line);
 	}
 
-	pushBuffer();
+	commitBlock(fence ? "fence" : "text", !fence);
 	return blocks;
 }
 
@@ -708,11 +708,6 @@ function escapeHtml(source: string) {
 		.replaceAll(">", "&gt;")
 		.replaceAll('"', "&quot;")
 		.replaceAll("'", "&#039;");
-}
-
-function renderStreamingTail(source: string) {
-	if (!source) return "";
-	return `<span class="markdown-streaming-tail">${escapeHtml(source)}</span>`;
 }
 
 async function renderMarkdownBlock(
@@ -789,14 +784,6 @@ export function splitStreamingStableMarkdown(source: string) {
 	};
 }
 
-function countMarkdownBlockMarkers(source: string) {
-	const headingCount = (source.match(/^#{1,6}\s/gm) ?? []).length;
-	const listCount = (source.match(/^\s*(?:[-+*]|\d+[.)])\s+/gm) ?? []).length;
-	const quoteCount = (source.match(/^>\s?/gm) ?? []).length;
-	const fenceCount = (source.match(/^\s*([`~]{3,})/gm) ?? []).length;
-	return headingCount + listCount + quoteCount + fenceCount;
-}
-
 function repairStreamingMarkdown(source: string) {
 	return remend(source, {
 		images: false,
@@ -805,62 +792,30 @@ function repairStreamingMarkdown(source: string) {
 	});
 }
 
-export const renderStreamingMarkdownLive = async (source: string) => {
+export const renderStreamingMarkdownSplit = async (
+	source: string,
+): Promise<{ stableHtml: string; tailHtml: string }> => {
 	const streamingSource = source.trimStart();
-	if (!streamingSource.trim()) return "";
-	return cacheMarkdownRender(`stream-live:${streamingSource}`, async () =>
-		renderMarkdownBlock(repairStreamingMarkdown(streamingSource), {
-			highlight: false,
-		}),
-	);
-};
-
-export const renderStreamingMarkdownBlocks = async (source: string) => {
-	const streamingSource = source.trimStart();
-	if (!streamingSource.trim()) return "";
+	if (!streamingSource.trim()) return { stableHtml: "", tailHtml: "" };
 
 	const blocks = splitMarkdownBlocks(streamingSource);
-	if (blocks.length === 0) return "";
-
-	const renderedBlocks = await Promise.all(
-		blocks.map((block, index) => {
-			const isLast = index === blocks.length - 1;
-			const shouldRepair = isLast && !block.closedFence;
-			const cacheKey = shouldRepair
-				? `stream-live-block:${block.text}`
-				: `stream-complete-block:${block.text}`;
-			return cacheMarkdownRender(cacheKey, async () =>
-				renderMarkdownBlock(
-					shouldRepair ? repairStreamingMarkdown(block.text) : block.text,
-					{ highlight: false },
-				),
-			);
-		}),
-	);
-
-	return renderedBlocks.filter(Boolean).join("\n\n");
-};
-
-export const renderStreamingMarkdownStable = async (source: string) => {
-	const streamingSource = source.trimStart();
-	if (!streamingSource.trim()) {
-		return { stableSource: "", tailSource: "", stableHtml: "" };
-	}
-
-	const blocks = splitMarkdownBlocks(streamingSource);
-	if (blocks.length === 0) {
-		return { stableSource: "", tailSource: streamingSource, stableHtml: "" };
-	}
+	if (blocks.length === 0) return { stableHtml: "", tailHtml: "" };
 
 	const stableSources: string[] = [];
 	let tailSource = "";
+	let tailIsFence = false;
 
 	for (let index = 0; index < blocks.length; index += 1) {
 		const block = blocks[index];
 		const isLast = index === blocks.length - 1;
+
 		if (block.kind === "fence") {
-			if (block.closedFence || !isLast) stableSources.push(block.text);
-			else tailSource = block.text;
+			if (block.closedFence || !isLast) {
+				stableSources.push(block.text);
+			} else {
+				tailSource = block.text;
+				tailIsFence = true;
+			}
 			continue;
 		}
 
@@ -869,69 +824,31 @@ export const renderStreamingMarkdownStable = async (source: string) => {
 			continue;
 		}
 
+		// Last text block: split at the most recent paragraph boundary so
+		// only the growing tail is re-rendered each commit.
 		const { stable, tail } = splitStreamingStableMarkdown(block.text);
 		if (stable.trim()) stableSources.push(stable);
 		tailSource = tail;
+		tailIsFence = false;
 	}
 
 	const stableSource = stableSources.join("\n\n");
-	const hasMeaningfulTail = tailSource.trim().length > 0;
+	const hasTail = tailSource.trim().length > 0;
 	const stableHtml = stableSource.trim()
 		? await cacheMarkdownRender(`stream-stable-v2:${stableSource}`, async () =>
-				renderMarkdownBlock(stableSource, {
-					highlight:
-						!hasMeaningfulTail || countMarkdownBlockMarkers(stableSource) <= 1,
-				}),
+				renderMarkdownBlock(stableSource, { highlight: false }),
 			)
 		: "";
 
-	return { stableSource, tailSource, stableHtml };
-};
-
-export const renderStreamingMarkdown = async (source: string) => {
-	const streamingSource = source.trimStart();
-	if (!streamingSource.trim()) return "";
-
-	const blocks = splitMarkdownBlocks(streamingSource);
-	if (blocks.length === 0) return "";
-
-	const renderedBlocks = await Promise.all(
-		blocks.map(async (block, index) => {
-			const isLast = index === blocks.length - 1;
-			if (block.kind === "fence") return renderPlainCodeBlock(block.text);
-
-			if (
-				isLast &&
-				/^\s*([`~]{3,})[\s\S]*\n\1\s*$/.test(block.text) &&
-				block.text.trim().length < 120
-			) {
-				return renderPlainCodeBlock(block.text);
-			}
-
-			const shouldRenderWholeLastBlock =
-				isLast &&
-				block.text.endsWith("\n") &&
-				block.text.trim().length < 120 &&
-				!hasUnclosedInlineMarkdown(block.text);
-			if (shouldRenderWholeLastBlock) {
-				return renderMarkdownBlock(block.text, { highlight: false });
-			}
-
-			if (!isLast) {
-				return cacheMarkdownRender(`stream-block:${block.text}`, async () =>
-					renderMarkdownBlock(block.text, { highlight: false }),
+	const tailHtml = !hasTail
+		? ""
+		: tailIsFence
+			? renderPlainCodeBlock(tailSource)
+			: await cacheMarkdownRender(`stream-tail:${tailSource}`, async () =>
+					renderMarkdownBlock(repairStreamingMarkdown(tailSource), {
+						highlight: false,
+					}),
 				);
-			}
 
-			const { stable, tail } = splitStreamingStableMarkdown(block.text);
-			const stableHtml = stable.trim()
-				? await cacheMarkdownRender(`stream-stable:${stable}`, async () =>
-						renderMarkdownBlock(stable, { highlight: false }),
-					)
-				: "";
-			return [stableHtml, renderStreamingTail(tail)].filter(Boolean).join("\n");
-		}),
-	);
-
-	return renderedBlocks.filter(Boolean).join("\n\n");
+	return { stableHtml, tailHtml };
 };

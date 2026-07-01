@@ -10,7 +10,8 @@ import {
 type MarkdownVariant = "chat" | "document";
 
 type Props = {
-	html: string;
+	stableHtml: string;
+	tailHtml: string;
 	variant?: MarkdownVariant;
 	streamingLive?: boolean;
 	baseFilePath?: string | null;
@@ -18,7 +19,8 @@ type Props = {
 };
 
 const {
-	html,
+	stableHtml,
+	tailHtml,
 	variant = "chat",
 	streamingLive = false,
 	baseFilePath = null,
@@ -36,7 +38,7 @@ const CHECK_ICON =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
 
 $effect(() => {
-	const _html = html;
+	const _stableHtml = stableHtml;
 	const _streamingLive = streamingLive;
 	if (!markdownEl || _streamingLive) return;
 	enhanceCodeBlocks();
@@ -280,8 +282,17 @@ onDestroy(() => {
 <div
 	bind:this={markdownEl}
 	class="markdown-content"
-	class:streaming-live-markdown={streamingLive}
 	data-variant={variant}
 >
-	{@html html}
+	{#if stableHtml}
+		<div class="markdown-stable-region">{@html stableHtml}</div>
+	{/if}
+	{#if tailHtml || streamingLive}
+		<div
+			class="markdown-live-region"
+			class:streaming-live-markdown={streamingLive}
+		>
+			{@html tailHtml}
+		</div>
+	{/if}
 </div>

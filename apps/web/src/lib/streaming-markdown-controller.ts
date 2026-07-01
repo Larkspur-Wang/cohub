@@ -1,5 +1,6 @@
 type StreamingMarkdownSnapshot = {
-	html: string;
+	stableHtml: string;
+	tailHtml: string;
 	source: string;
 };
 
@@ -37,7 +38,7 @@ function advanceByWord(source: string, from: number, maxStep: number) {
 }
 
 function createEmptySnapshot(): StreamingMarkdownSnapshot {
-	return { html: "", source: "" };
+	return { stableHtml: "", tailHtml: "", source: "" };
 }
 
 export class StreamingMarkdownController {
@@ -162,15 +163,16 @@ export class StreamingMarkdownController {
 		}
 
 		try {
-			const { renderStreamingMarkdownBlocks } = await import("$lib/markdown");
-			const html = await renderStreamingMarkdownBlocks(source);
+			const { renderStreamingMarkdownSplit } = await import("$lib/markdown");
+			const { stableHtml, tailHtml } =
+				await renderStreamingMarkdownSplit(source);
 			if (
 				this.#disposed ||
 				seq !== this.#renderSeq ||
 				source !== this.#displayedSource
 			)
 				return;
-			this.#publish({ html, source });
+			this.#publish({ stableHtml, tailHtml, source });
 		} catch {
 			if (
 				this.#disposed ||
@@ -178,7 +180,7 @@ export class StreamingMarkdownController {
 				source !== this.#displayedSource
 			)
 				return;
-			this.#publish({ html: "", source });
+			this.#publish({ stableHtml: "", tailHtml: "", source });
 		}
 	}
 }
