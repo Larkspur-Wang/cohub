@@ -2273,6 +2273,40 @@ function buildSidebarSessionItems(
 	return items;
 }
 
+function buildLabelSessionItems(items: LabelAssignmentListItem[]) {
+	const labelSessions = items
+		.filter((item) => item.resourceType === "session")
+		.map((item) => labelSessionsById.get(item.resourceRef))
+		.filter((session): session is SessionRecord => Boolean(session));
+	return buildSidebarSessionItems(labelSessions);
+}
+
+function orderLabelItemsBySessionTree(
+	items: LabelAssignmentListItem[],
+	sessionItems: SidebarSessionItem[],
+) {
+	const sessionItemByRef = new Map(
+		items
+			.filter((item) => item.resourceType === "session")
+			.map((item) => [item.resourceRef, item]),
+	);
+	const orderedSessionItems = sessionItems
+		.map((sessionItem) => sessionItemByRef.get(sessionItem.session.id))
+		.filter((item): item is LabelAssignmentListItem => Boolean(item));
+	const orderedSessionRefs = new Set(
+		orderedSessionItems.map((item) => item.resourceRef),
+	);
+	const remainingSessionItems = items.filter(
+		(item) =>
+			item.resourceType === "session" &&
+			!orderedSessionRefs.has(item.resourceRef),
+	);
+	const sessionQueue = [...orderedSessionItems, ...remainingSessionItems];
+	return items.map((item) =>
+		item.resourceType === "session" ? (sessionQueue.shift() ?? item) : item,
+	);
+}
+
 async function handleLogout() {
 	onClose?.();
 	const commandPaletteRecentKey = `cohub:command-palette:recent:${encodeURIComponent(getCacheUserKey())}`;
@@ -2603,21 +2637,24 @@ $effect(() => {
 	{@const items = currentLabelItemsById[label.id] ?? []}
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
+		{@const labelSessionItems = buildLabelSessionItems(items)}
+		{@const labelSessionItemById = new Map(labelSessionItems.map((item) => [item.session.id, item]))}
+		{@const orderedItems = orderLabelItemsBySessionTree(items, labelSessionItems)}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
 				<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-8' : 'pl-6'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
 			{:else}
 				<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-8' : 'pl-6'}">No items</div>
 			{/if}
-		{:else if items.length > 0}
+		{:else if orderedItems.length > 0}
 			<div class="space-y-[1px] {depth > 0 ? 'pl-6' : 'pl-4'}">
-				{#each items as item (item.id)}
+				{#each orderedItems as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
 					{@const itemDraggable = canAssignResourceToLabel(label) && isDraggableLabelItem(item)}
 					{@const labelRemoveTitle = `Remove from “${getLabelDisplayName(label)}”`}
 					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
 						{@const session = labelSessionsById.get(item.resourceRef)!}
-						{@const sessionItem = sidebarSessionItems.find((candidate) => candidate.session.id === session.id)}
+						{@const sessionItem = labelSessionItemById.get(session.id)}
 						<SidebarSessionRow
 							{session}
 							title={sessionItem?.displayTitle ?? getSessionTitle(session, 0)}
