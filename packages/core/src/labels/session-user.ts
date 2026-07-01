@@ -13,7 +13,7 @@ export type SessionUserLabelInput = {
 const SCOPE_TYPE = "space";
 const ROOT_LABEL_NAME = "User";
 const CUSTOM_LABEL_NAME_SUFFIX = " (Custom)";
-const USER_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_LABEL_NAME_LENGTH = 80;
 export const SESSION_USER_LABEL_SYSTEM_KEY_PREFIX = "session-user:";
 export const SESSION_USER_ROOT_LABEL_SYSTEM_KEY = `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`;
 
@@ -30,7 +30,7 @@ const normalizeUserUuids = (userUuids: Array<string | null | undefined>) => {
   const values: string[] = [];
   for (const value of userUuids) {
     const normalized = value?.trim();
-    if (!normalized || !USER_UUID_PATTERN.test(normalized) || seen.has(normalized)) continue;
+    if (!normalized || normalized.length > MAX_LABEL_NAME_LENGTH || normalized.includes("/") || seen.has(normalized)) continue;
     seen.add(normalized);
     values.push(normalized);
   }
