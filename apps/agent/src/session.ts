@@ -47,25 +47,8 @@ export type PendingUserMessage = {
   meta?: Record<string, unknown> | null;
 };
 
-function getAgentMessageMeta(message: AgentMessage): Record<string, unknown> | null {
-  const meta = (message as unknown as { meta?: unknown }).meta;
-  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta as Record<string, unknown> : null;
-}
-
-function getSessionUserMessageId(message: AgentMessage): string | null {
-  const meta = getAgentMessageMeta(message);
-  const messageId = meta?.messageId;
-  if (typeof messageId === "string" && messageId.trim()) return messageId.trim();
-  const userMessageId = meta?.userMessageId;
-  if (typeof userMessageId === "string" && userMessageId.trim()) return userMessageId.trim();
-  return null;
-}
-
 export function hasSessionUserMessage(handle: SessionHandle, userMessageId: string) {
-  const normalizedUserMessageId = userMessageId.trim();
-  if (!normalizedUserMessageId) return false;
-  const messages = handle.sessionManager.buildSessionContext().messages;
-  return messages.some((message) => getSessionUserMessageId(message) === normalizedUserMessageId);
+  return handle.sessionManager.hasUserMessage(userMessageId);
 }
 
 export function ensurePendingUserMessage(handle: SessionHandle, pending: PendingUserMessage) {

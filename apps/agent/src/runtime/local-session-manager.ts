@@ -1,4 +1,6 @@
-import { access, appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { access, appendFile, mkdir, writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -87,7 +89,7 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function generateEntryId(existing: Set<string>) {
+function generateEntryId(existing: { has(id: string): boolean }) {
   for (let i = 0; i < 100; i++) {
     const id = randomUUID().slice(0, 8);
     if (!existing.has(id)) return id;
@@ -97,6 +99,20 @@ function generateEntryId(existing: Set<string>) {
 
 function createSessionId() {
   return randomUUID();
+}
+
+function getAgentMessageMeta(message: AgentMessage): Record<string, unknown> | null {
+  const meta = (message as unknown as { meta?: unknown }).meta;
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta as Record<string, unknown> : null;
+}
+
+function getSessionUserMessageId(message: AgentMessage): string | null {
+  const meta = getAgentMessageMeta(message);
+  const messageId = meta?.messageId;
+  if (typeof messageId === "string" && messageId.trim()) return messageId.trim();
+  const userMessageId = meta?.userMessageId;
+  if (typeof userMessageId === "string" && userMessageId.trim()) return userMessageId.trim();
+  return null;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -110,10 +126,17 @@ async function pathExists(path: string): Promise<boolean> {
 
 async function parseEntries(path: string): Promise<FileEntry[]> {
   if (!(await pathExists(path))) return [];
-  const lines = (await readFile(path, "utf-8")).split(/\r?\n/).filter(Boolean);
   const entries: FileEntry[] = [];
-  for (const line of lines) {
-    entries.push(JSON.parse(line) as FileEntry);
+  const lines = createInterface({ input: createReadStream(path, { encoding: "utf-8" }), crlfDelay: Infinity });
+  let lineNumber = 0;
+  for await (const line of lines) {
+    lineNumber += 1;
+    if (!line.trim()) continue;
+    try {
+      entries.push(JSON.parse(line) as FileEntry);
+    } catch (error) {
+      throw new Error(`Invalid session JSONL ${path}:${lineNumber}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   return entries;
 }
@@ -122,9 +145,11 @@ export class SessionManager {
   private header: SessionHeader | null = null;
   private entries: SessionEntry[] = [];
   private byId = new Map<string, SessionEntry>();
+  private userMessageIds = new Set<string>();
   private leafId: string | null = null;
   public sessionFile?: string;
   private fileReady = false;
+  private sessionDirReady = false;
   private writeChain: Promise<void> = Promise.resolve();
   private writeError: unknown = null;
 
@@ -182,6 +207,7 @@ export class SessionManager {
     };
     this.entries = [];
     this.byId.clear();
+    this.userMessageIds.clear();
     this.leafId = null;
     this.fileReady = false;
     this.rewriteFile();
@@ -206,9 +232,13 @@ export class SessionManager {
     return { messages, thinkingLevel, model };
   }
 
+  hasUserMessage(userMessageId: string): boolean {
+    const normalizedUserMessageId = userMessageId.trim();
+    return normalizedUserMessageId ? this.userMessageIds.has(normalizedUserMessageId) : false;
+  }
+
   appendMessage(message: AgentMessage, options?: { id?: string }): string {
-    const existingIds = new Set(this.entries.map((item) => item.id));
-    const entryId = options?.id && !existingIds.has(options.id) ? options.id : generateEntryId(existingIds);
+    const entryId = options?.id && !this.byId.has(options.id) ? options.id : generateEntryId(this.byId);
     const entry: SessionMessageEntry = {
       type: "message",
       id: entryId,
@@ -223,7 +253,7 @@ export class SessionManager {
   appendModelChange(provider: string, modelId: string): string {
     const entry: ModelChangeEntry = {
       type: "model_change",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: generateEntryId(this.byId),
       parentId: this.leafId,
       timestamp: nowIso(),
       provider,
@@ -236,7 +266,7 @@ export class SessionManager {
   appendThinkingLevelChange(thinkingLevel: string): string {
     const entry: ThinkingLevelChangeEntry = {
       type: "thinking_level_change",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: generateEntryId(this.byId),
       parentId: this.leafId,
       timestamp: nowIso(),
       thinkingLevel,
@@ -248,7 +278,7 @@ export class SessionManager {
   appendCompaction(summary: string, firstKeptEntryId: string, tokensBefore: number, details?: unknown, fromHook?: boolean): string {
     const entry: CompactionEntry = {
       type: "compaction",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: generateEntryId(this.byId),
       parentId: this.leafId,
       timestamp: nowIso(),
       summary,
@@ -264,7 +294,7 @@ export class SessionManager {
   appendCustomEntry(customType: string, data?: unknown): string {
     const entry: CustomEntry = {
       type: "custom",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: generateEntryId(this.byId),
       parentId: this.leafId,
       timestamp: nowIso(),
       customType,
@@ -277,7 +307,7 @@ export class SessionManager {
   appendCustomMessageEntry(customType: string, content: unknown, display: boolean, details?: unknown): string {
     const entry: CustomMessageEntry = {
       type: "custom_message",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: generateEntryId(this.byId),
       parentId: this.leafId,
       timestamp: nowIso(),
       customType,
@@ -292,7 +322,7 @@ export class SessionManager {
   appendSessionInfo(name: string): string {
     const entry: SessionInfoEntry = {
       type: "session_info",
-      id: generateEntryId(new Set(this.entries.map((item) => item.id))),
+      id: generateEntryId(this.byId),
       parentId: this.leafId,
       timestamp: nowIso(),
       name,
@@ -317,7 +347,7 @@ export class SessionManager {
       cwd: this.cwd,
       parentSession: options?.parentSession ?? this.sessionFile,
     };
-    await mkdir(this.sessionDir, { recursive: true });
+    await this.ensureSessionDir();
     const lines = `${[JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
     await writeFile(newSessionFile, lines, "utf-8");
     return newSessionFile;
@@ -327,6 +357,7 @@ export class SessionManager {
     this.entries.push(entry);
     this.byId.set(entry.id, entry);
     this.leafId = entry.id;
+    this.indexBranchUserMessage(entry);
     this.appendToFile(entry);
   }
 
@@ -353,7 +384,7 @@ export class SessionManager {
 
     this.enqueueWrite(`append:${entry.id}`, async () => {
       if (!this.sessionFile) return;
-      await mkdir(this.sessionDir, { recursive: true });
+      await this.ensureSessionDir();
       await appendFile(this.sessionFile, `${JSON.stringify(entry)}\n`, "utf-8");
     });
   }
@@ -362,16 +393,34 @@ export class SessionManager {
     if (!this.sessionFile || !this.header) return;
     this.enqueueWrite("rewrite", async () => {
       if (!this.sessionFile || !this.header) return;
-      await mkdir(this.sessionDir, { recursive: true });
+      await this.ensureSessionDir();
       const lines = [JSON.stringify(this.header), ...this.entries.map((entry) => JSON.stringify(entry))].join("\n");
       await writeFile(this.sessionFile, `${lines}${lines ? "\n" : ""}`, "utf-8");
       this.fileReady = true;
     });
   }
 
+  private async ensureSessionDir() {
+    if (this.sessionDirReady) return;
+    await mkdir(this.sessionDir, { recursive: true });
+    this.sessionDirReady = true;
+  }
+
+  private indexBranchUserMessage(entry: SessionEntry) {
+    if (entry.type !== "message") return;
+    const userMessageId = getSessionUserMessageId(entry.message);
+    if (userMessageId) this.userMessageIds.add(userMessageId);
+  }
+
+  private rebuildBranchUserMessageIndex() {
+    this.userMessageIds = new Set();
+    for (const entry of this.getBranch()) this.indexBranchUserMessage(entry);
+  }
+
   private rebuildIndex() {
     this.byId = new Map(this.entries.map((entry) => [entry.id, entry]));
     this.leafId = this.entries.at(-1)?.id ?? null;
+    this.rebuildBranchUserMessageIndex();
   }
 
   private getBranch(fromId?: string): SessionEntry[] {
