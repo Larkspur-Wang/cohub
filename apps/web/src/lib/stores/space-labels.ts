@@ -80,10 +80,12 @@ function collectSessionUserUuids(labels: LabelListItem[]) {
 	return [...userUuids];
 }
 
+export async function hydrateUserProfilesForLabels(labels: LabelListItem[]) {
+	await userProfilesRepo.hydrate(collectSessionUserUuids(labels));
+}
+
 function queueHydrateUserLabelProfiles(labels: LabelListItem[]) {
-	void userProfilesRepo
-		.hydrate(collectSessionUserUuids(labels))
-		.catch(() => undefined);
+	void hydrateUserProfilesForLabels(labels).catch(() => undefined);
 }
 
 export async function getCachedSpaceLabelsSnapshot(spaceId: string) {

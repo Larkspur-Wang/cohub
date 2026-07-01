@@ -129,6 +129,7 @@ import {
 	getLabelDisplayTitle,
 	getLabelRefById,
 	getLabelUserProfile,
+	hydrateUserProfilesForLabels,
 	isSessionUserLabel,
 	LABEL_ITEMS_PAGE_SIZE,
 	markLabelItemsStale,
@@ -1015,6 +1016,10 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (cached) {
 			labels = cached.labels;
 			pruneExpandedLabelIds(spaceId, cached.labels);
+			void authStore
+				.ensureLoaded()
+				.then(() => hydrateUserProfilesForLabels(cached.labels))
+				.catch(() => undefined);
 		}
 		if (cached && !cached.stale) return;
 	}
@@ -1026,6 +1031,10 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (spaceId === currentSpaceId) {
 			labels = next;
 			pruneExpandedLabelIds(spaceId, next);
+			void authStore
+				.ensureLoaded()
+				.then(() => hydrateUserProfilesForLabels(next))
+				.catch(() => undefined);
 		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
@@ -2398,6 +2407,7 @@ onMount(() => {
 		offUserLabelProfilesUpdated = onUserLabelProfilesUpdated(() => {
 			userLabelProfileVersion += 1;
 		});
+		void hydrateUserProfilesForLabels(labels).catch(() => undefined);
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
 			if (spaceId !== currentSpaceId) return;
 			tasks = runs;
@@ -2409,6 +2419,7 @@ onMount(() => {
 		);
 		void (async () => {
 			await loadSpaces();
+			void hydrateUserProfilesForLabels(labels).catch(() => undefined);
 
 			window.addEventListener(
 				"cohub:space-created",

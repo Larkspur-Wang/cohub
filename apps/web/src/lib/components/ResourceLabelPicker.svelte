@@ -7,6 +7,7 @@ import type {
 import { Check, Loader2, Plus, X } from "lucide-svelte";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { authStore } from "$lib/stores/auth.svelte";
 import {
 	createSpaceLabel,
 	fetchResourceLabelsFresh,
@@ -18,6 +19,7 @@ import {
 	getLabelDisplayTitle,
 	getLabelUserProfile,
 	getResourceLabels,
+	hydrateUserProfilesForLabels,
 	isSessionUserLabel,
 	onSpaceLabelsCacheUpdated,
 	onUserLabelProfilesUpdated,
@@ -91,8 +93,16 @@ function assignmentRefsEqual(a: Set<string>, b: Set<string>) {
 	return true;
 }
 
+function hydrateLabelUserProfiles(nextLabels = labels) {
+	void authStore
+		.ensureLoaded()
+		.then(() => hydrateUserProfilesForLabels(nextLabels))
+		.catch(() => undefined);
+}
+
 function updateLabels(nextLabels: LabelListItem[]) {
 	if (!labelsEqual(labels, nextLabels)) labels = nextLabels;
+	hydrateLabelUserProfiles(nextLabels);
 }
 
 function applyAssignments(
@@ -232,6 +242,7 @@ $effect(() => {
 	const unsubscribe = onUserLabelProfilesUpdated(() => {
 		userLabelProfileVersion += 1;
 	});
+	hydrateLabelUserProfiles();
 	return unsubscribe;
 });
 </script>

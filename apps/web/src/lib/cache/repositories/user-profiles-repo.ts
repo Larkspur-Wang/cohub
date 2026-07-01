@@ -4,7 +4,7 @@ import {
 	subscribeCacheMessages,
 } from "$lib/cache/broadcast";
 import { idbGet, idbPut, type UserProfileCacheRecord } from "$lib/cache/db";
-import { getCacheUserKey, userProfileKey } from "$lib/cache/keys";
+import { userProfileKey } from "$lib/cache/keys";
 import { MemoryLru } from "$lib/cache/memory-lru";
 import type { CacheSource } from "$lib/cache/types";
 import { sdk } from "$lib/sdk";
@@ -12,6 +12,7 @@ import { sdk } from "$lib/sdk";
 const USER_PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
 const MISSING_USER_PROFILE_TTL_MS = 10 * 60 * 1000;
 const USER_PROFILE_BATCH_SIZE = 100;
+const USER_PROFILE_CACHE_USER_KEY = "public";
 const memory = new MemoryLru<string, UserProfileCacheRecord>(1_000);
 const inflight = new Map<string, Promise<void>>();
 const listeners = new Set<
@@ -69,8 +70,12 @@ function emitBatch(userUuids: string[]) {
 	);
 }
 
+function getUserProfileCacheUserKey() {
+	return USER_PROFILE_CACHE_USER_KEY;
+}
+
 async function readRecord(userUuid: string) {
-	const userKey = getCacheUserKey();
+	const userKey = getUserProfileCacheUserKey();
 	const key = userProfileKey(userKey, userUuid);
 	const cached = memory.get(key);
 	if (cached) return { record: cached, source: "memory" as CacheSource };
@@ -87,7 +92,7 @@ async function writeRecord(
 	profile: PublicUserProfile | null,
 	options?: { broadcast?: boolean; source?: CacheSource },
 ) {
-	const userKey = getCacheUserKey();
+	const userKey = getUserProfileCacheUserKey();
 	const key = userProfileKey(userKey, userUuid);
 	const now = Date.now();
 	const record: UserProfileCacheRecord = {
@@ -118,7 +123,7 @@ function ensureBroadcastSubscription() {
 	subscribedToBroadcast = true;
 	subscribeCacheMessages((message) => {
 		if (message.store !== "user_profiles" || !message.userUuid) return;
-		if (message.userKey !== getCacheUserKey()) return;
+		if (message.userKey !== getUserProfileCacheUserKey()) return;
 		if (message.key) memory.delete(message.key);
 		if (message.type === "cache-deleted") {
 			emit(message.userUuid, {
@@ -143,7 +148,7 @@ async function refreshMissingOrStale(userUuids: string[]) {
 	const unique = normalizeUserUuids(userUuids);
 	for (let index = 0; index < unique.length; index += USER_PROFILE_BATCH_SIZE) {
 		const chunk = unique.slice(index, index + USER_PROFILE_BATCH_SIZE);
-		const inflightKey = `${getCacheUserKey()}:${chunk.join(",")}`;
+		const inflightKey = `${getUserProfileCacheUserKey()}:${chunk.join(",")}`;
 		let promise = inflight.get(inflightKey);
 		if (!promise) {
 			promise = (async () => {
@@ -169,7 +174,7 @@ export const userProfilesRepo = {
 	getSync(userUuid: string) {
 		const normalized = userUuid.trim();
 		if (!normalized) return null;
-		const key = userProfileKey(getCacheUserKey(), normalized);
+		const key = userProfileKey(getUserProfileCacheUserKey(), normalized);
 		return memory.get(key)?.profile ?? null;
 	},
 
@@ -214,12 +219,19 @@ export const userProfilesRepo = {
 
 	subscribe(handler: (event: { userUuids: string[] }) => void) {
 		if (typeof window === "undefined") return () => {};
+		let active = true;
 		const listener = (event: Event) => {
+			if (!active) return;
 			const custom = event as CustomEvent<{ userUuids?: string[] }>;
 			handler({ userUuids: custom.detail?.userUuids ?? [] });
 		};
 		window.addEventListener("cohub:user-profiles-updated", listener);
-		return () =>
+		queueMicrotask(() => {
+			if (active) handler({ userUuids: [] });
+		});
+		return () => {
+			active = false;
 			window.removeEventListener("cohub:user-profiles-updated", listener);
+		};
 	},
 };
