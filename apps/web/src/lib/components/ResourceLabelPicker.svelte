@@ -49,6 +49,21 @@ let userLabelProfileVersion = $state(0);
 
 const flatLabels = $derived(flattenLabels(labels));
 const labelOptions = $derived(flattenLabelsWithRefs(labels));
+
+function getReactiveLabelDisplayName(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelDisplayName(label);
+}
+
+function getReactiveLabelDisplayTitle(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelDisplayTitle(label);
+}
+
+function getReactiveLabelUserProfile(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelUserProfile(label);
+}
 const selectableLabelRefs = $derived(
 	new Set(labelOptions.filter(canSelectLabel).map((label) => label.ref)),
 );
@@ -252,23 +267,22 @@ $effect(() => {
 				<div class="mt-1">Create one to group chats, files, and checkpoints.</div>
 			</div>
 		{:else if flatLabels.length > 0}
-			{@const _userLabelProfileVersion = userLabelProfileVersion}
 			<div class="space-y-[1px]">
 				{#each labels as label (label.id)}
 					{@const labelRef = labelOptions.find((item) => item.id === label.id)?.ref ?? label.name}
-					<label class="label-row" class:system={!canSelectLabel(label)} title={getLabelDisplayTitle(label)}>
+					<label class="label-row" class:system={!canSelectLabel(label)} title={getReactiveLabelDisplayTitle(label)}>
 						<input type="checkbox" checked={selected.has(labelRef)} disabled={!canSelectLabel(label)} onchange={() => toggleLabel(labelRef)} />
-						<span class="truncate">{getLabelDisplayName(label)}</span>
+						<span class="truncate">{getReactiveLabelDisplayName(label)}</span>
 					</label>
 					{#each label.children ?? [] as child (child.id)}
 						{@const childRef = labelOptions.find((item) => item.id === child.id)?.ref ?? `${labelRef}/${child.name}`}
-						{@const childProfile = getLabelUserProfile(child)}
-						<label class="label-row child" class:system={!canSelectLabel(child)} title={getLabelDisplayTitle(child)}>
+						{@const childProfile = getReactiveLabelUserProfile(child)}
+						<label class="label-row child" class:system={!canSelectLabel(child)} title={getReactiveLabelDisplayTitle(child)}>
 							<input type="checkbox" checked={selected.has(childRef)} disabled={!canSelectLabel(child)} onchange={() => toggleLabel(childRef)} />
 							{#if childProfile || isSessionUserLabel(child)}
-								<UserAvatar name={getLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+								<UserAvatar name={getReactiveLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
 							{/if}
-							<span class="truncate">{getLabelDisplayName(child)}</span>
+							<span class="truncate">{getReactiveLabelDisplayName(child)}</span>
 						</label>
 					{/each}
 				{/each}

@@ -6,6 +6,7 @@ import {
 	flattenLabels,
 	flattenLabelsWithRefs,
 	getLabelDisplayName,
+	onUserLabelProfilesUpdated,
 } from "$lib/stores/space-labels";
 
 const {
@@ -32,12 +33,18 @@ let parentId = $state("");
 let saving = $state(false);
 let error = $state("");
 let nameInput = $state<HTMLInputElement>();
+let userLabelProfileVersion = $state(0);
 
 const rootLabels = $derived(
 	flattenLabels(labels).filter(
 		(label) => label.depth === 0 && label.source === "user",
 	),
 );
+
+function getReactiveLabelDisplayName(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelDisplayName(label);
+}
 
 async function focusNameInput() {
 	if (!autofocus) return;
@@ -47,6 +54,13 @@ async function focusNameInput() {
 
 $effect(() => {
 	void focusNameInput();
+});
+
+$effect(() => {
+	const unsubscribe = onUserLabelProfilesUpdated(() => {
+		userLabelProfileVersion += 1;
+	});
+	return unsubscribe;
 });
 
 async function submit() {
@@ -90,7 +104,7 @@ async function submit() {
 			<select id="label-create-parent" bind:value={parentId}>
 				<option value="">None</option>
 				{#each rootLabels as label (label.id)}
-					<option value={label.id}>{getLabelDisplayName(label)}</option>
+					<option value={label.id}>{getReactiveLabelDisplayName(label)}</option>
 				{/each}
 			</select>
 			<ChevronDown class="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-tertiary" />

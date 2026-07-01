@@ -957,6 +957,21 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 	}
 }
 
+function getReactiveLabelDisplayName(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelDisplayName(label);
+}
+
+function getReactiveLabelDisplayTitle(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelDisplayTitle(label);
+}
+
+function getReactiveLabelUserProfile(label: LabelListItem) {
+	userLabelProfileVersion;
+	return getLabelUserProfile(label);
+}
+
 async function loadMoreCheckpointsForSpace(spaceId: string) {
 	if (loadingMoreCheckpoints) return;
 	const cursor = checkpointsPageInfo.nextCursor;
@@ -1514,7 +1529,7 @@ function handleLabelItemDragStart(
 			origin: {
 				kind: "label-items",
 				labelRef: labelRefForId(label.id) ?? label.name,
-				labelName: getLabelDisplayName(label),
+				labelName: getReactiveLabelDisplayName(label),
 			},
 			createdAt: Date.now(),
 		},
@@ -1532,7 +1547,7 @@ function handleLabelItemDragStart(
 	activeLabelDragOrigin = {
 		labelId: label.id,
 		labelRef: labelRefForId(label.id) ?? label.name,
-		labelName: getLabelDisplayName(label),
+		labelName: getReactiveLabelDisplayName(label),
 	};
 }
 
@@ -2633,7 +2648,6 @@ $effect(() => {
 {/snippet}
 
 {#snippet labelAssignmentRows(label: LabelListItem, depth: number)}
-	{@const _userLabelProfileVersion = userLabelProfileVersion}
 	{@const items = currentLabelItemsById[label.id] ?? []}
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
@@ -2651,7 +2665,7 @@ $effect(() => {
 				{#each orderedItems as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
 					{@const itemDraggable = canAssignResourceToLabel(label) && isDraggableLabelItem(item)}
-					{@const labelRemoveTitle = `Remove from “${getLabelDisplayName(label)}”`}
+					{@const labelRemoveTitle = `Remove from “${getReactiveLabelDisplayName(label)}”`}
 					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
 						{@const session = labelSessionsById.get(item.resourceRef)!}
 						{@const sessionItem = labelSessionItemById.get(session.id)}
@@ -2741,7 +2755,6 @@ $effect(() => {
 {/snippet}
 
 {#snippet labelsSection(showHeader = true)}
-	{@const _userLabelProfileVersion = userLabelProfileVersion}
 	<div class={showHeader ? "mt-2" : "mt-0"}>
 		{#if showHeader}
 			<div
@@ -2815,11 +2828,11 @@ $effect(() => {
 									</button>
 								</span>
 							{:else}
-								{@const labelProfile = getLabelUserProfile(label)}
+								{@const labelProfile = getReactiveLabelUserProfile(label)}
 								{#if labelProfile || isSessionUserLabel(label)}
-									<UserAvatar name={getLabelDisplayName(label)} avatarUrl={labelProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+									<UserAvatar name={getReactiveLabelDisplayName(label)} avatarUrl={labelProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
 								{/if}
-								<span class="min-w-0 flex-1 truncate" title={getLabelDisplayTitle(label)}>{getLabelDisplayName(label)}</span>
+								<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(label)}>{getReactiveLabelDisplayName(label)}</span>
 								{#if canManageUserLabel(label)}
 									<span class="label-row-actions">
 										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
@@ -2869,11 +2882,11 @@ $effect(() => {
 											</button>
 										</span>
 									{:else}
-										{@const childProfile = getLabelUserProfile(child)}
+										{@const childProfile = getReactiveLabelUserProfile(child)}
 										{#if childProfile || isSessionUserLabel(child)}
-											<UserAvatar name={getLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+											<UserAvatar name={getReactiveLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
 										{/if}
-										<span class="min-w-0 flex-1 truncate" title={getLabelDisplayTitle(child)}>{getLabelDisplayName(child)}</span>
+										<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(child)}>{getReactiveLabelDisplayName(child)}</span>
 										{#if canManageUserLabel(child)}
 											<span class="label-row-actions">
 												<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>
