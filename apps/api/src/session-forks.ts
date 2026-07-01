@@ -1,7 +1,7 @@
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protocol/model";
 import { db } from "./db/index.js";
-import { sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
+import { labelAssignments, sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { setSessionParticipantsMeta } from "@cohub/core/sessions";
 
@@ -244,6 +244,35 @@ export async function createSessionFork(input: {
       fromSequence: segment.fromSequence,
       toSequence: segment.toSequence,
     })));
+
+    // Inherit the parent session's label assignments so the fork is categorized
+    // consistently with its origin. Preserves the original source (user/system)
+    // and provenance while pointing the assignment at the new child session.
+    const parentLabelAssignments = await tx.select({
+      labelId: labelAssignments.labelId,
+      rank: labelAssignments.rank,
+      source: labelAssignments.source,
+      createdBy: labelAssignments.createdBy,
+      meta: labelAssignments.meta,
+    }).from(labelAssignments).where(and(
+      eq(labelAssignments.scopeType, "space"),
+      eq(labelAssignments.scopeId, input.spaceId),
+      eq(labelAssignments.resourceType, "session"),
+      eq(labelAssignments.resourceRef, parent.id),
+    ));
+    if (parentLabelAssignments.length > 0) {
+      await tx.insert(labelAssignments).values(parentLabelAssignments.map((assignment) => ({
+        labelId: assignment.labelId,
+        scopeType: "space",
+        scopeId: input.spaceId,
+        resourceType: "session",
+        resourceRef: child.id,
+        rank: assignment.rank,
+        source: assignment.source,
+        createdBy: assignment.createdBy,
+        meta: assignment.meta,
+      }))).onConflictDoNothing();
+    }
 
     return { session: child, fork };
   });

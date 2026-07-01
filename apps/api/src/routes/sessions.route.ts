@@ -17,6 +17,7 @@ import { markMessageAsFull, summarizeMessageForHistory } from "../session-conten
 import { createSignedTurnUrls, getSessionTurnById, getSessionTurnSequenceById, hydrateTurnAuthorProfiles, listSessionTurnIndex, listSessionTurns, listSessionTurnWindow } from "../session-turns.js";
 import { clearSessionStreamSnapshot, getSessionStreamSnapshot } from "../session-stream-snapshot.js";
 import { createSessionFork, listSessionForksForSessions } from "../session-forks.js";
+import { dispatchLabelAssignmentsUpdated } from "../realtime-events.js";
 import { buildSessionTurnResponse } from "../session-turn-response.js";
 
 
@@ -60,6 +61,15 @@ router.post("/:id/turns/:turnId/fork", async (c) => {
       sequence: sourceTurn.sequence,
       title: body.title,
       createdBy: user.uuid,
+    });
+    // Notify clients so they proactively cache the inherited labels.
+    dispatchLabelAssignmentsUpdated({
+      spaceId: session.spaceId,
+      resourceType: "session",
+      resourceRef: childSession.id,
+      sessionId: childSession.id,
+    }).catch((error) => {
+      logger.warn("[SessionFork] failed to dispatch label assignments updated", error);
     });
     try {
       await enqueueSessionFork({
