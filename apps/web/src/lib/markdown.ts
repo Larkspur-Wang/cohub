@@ -9,6 +9,7 @@ import {
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 
 const MARKDOWN_RENDER_CACHE_LIMIT = 256;
+const STREAMING_MARKDOWN_TAIL_PLAIN_THRESHOLD = 1_800;
 const markdownRenderCache = new Map<string, Promise<string>>();
 
 function cacheMarkdownRender(key: string, render: () => Promise<string>) {
@@ -580,14 +581,16 @@ function normalizeNestedMarkdownCodeFences(source: string) {
 
 async function renderMarkdownHtml(
 	source: string,
-	options?: { highlight?: boolean },
+	options?: { highlight?: boolean; streamingSafe?: boolean },
 ) {
 	const tokens = marked.lexer(normalizeNestedMarkdownCodeFences(source), {
 		gfm: true,
 	});
-	enhanceMediaPreviewTokens(tokens);
-	enhanceCohubAskTokens(tokens);
-	enhanceMermaidTokens(tokens);
+	if (!options?.streamingSafe) {
+		enhanceMediaPreviewTokens(tokens);
+		enhanceCohubAskTokens(tokens);
+		enhanceMermaidTokens(tokens);
+	}
 	if (options?.highlight !== false) await highlightCodeTokens(tokens);
 	return marked.parser(tokens);
 }
@@ -712,7 +715,7 @@ function escapeHtml(source: string) {
 
 async function renderMarkdownBlock(
 	source: string,
-	options?: { highlight?: boolean },
+	options?: { highlight?: boolean; streamingSafe?: boolean },
 ) {
 	const html = await renderMarkdownHtml(source, options);
 	return sanitizeMarkdownHtml(html);
@@ -792,6 +795,13 @@ function repairStreamingMarkdown(source: string) {
 	});
 }
 
+function renderStreamingPlainTail(source: string) {
+	if (!source) return "";
+	return sanitizeMarkdownHtml(
+		`<span class="markdown-streaming-tail">${escapeHtml(source)}</span>`,
+	);
+}
+
 export const renderStreamingMarkdownSplit = async (
 	source: string,
 ): Promise<{ stableHtml: string; tailHtml: string }> => {
@@ -836,7 +846,10 @@ export const renderStreamingMarkdownSplit = async (
 	const hasTail = tailSource.trim().length > 0;
 	const stableHtml = stableSource.trim()
 		? await cacheMarkdownRender(`stream-stable-v2:${stableSource}`, async () =>
-				renderMarkdownBlock(stableSource, { highlight: false }),
+				renderMarkdownBlock(stableSource, {
+					highlight: false,
+					streamingSafe: true,
+				}),
 			)
 		: "";
 
@@ -844,11 +857,12 @@ export const renderStreamingMarkdownSplit = async (
 		? ""
 		: tailIsFence
 			? renderPlainCodeBlock(tailSource)
-			: await cacheMarkdownRender(`stream-tail:${tailSource}`, async () =>
-					renderMarkdownBlock(repairStreamingMarkdown(tailSource), {
+			: tailSource.length > STREAMING_MARKDOWN_TAIL_PLAIN_THRESHOLD
+				? renderStreamingPlainTail(tailSource)
+				: await renderMarkdownBlock(repairStreamingMarkdown(tailSource), {
 						highlight: false,
-					}),
-				);
+						streamingSafe: true,
+					});
 
 	return { stableHtml, tailHtml };
 };
