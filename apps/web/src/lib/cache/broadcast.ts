@@ -7,7 +7,8 @@ export type CacheBroadcastStore =
 	| "space_fs_dirs"
 	| "label_trees"
 	| "label_items"
-	| "resource_labels";
+	| "resource_labels"
+	| "user_profiles";
 
 export type CacheBroadcastMessage = {
 	type: "cache-updated" | "cache-deleted" | "cache-scope-invalidated";
@@ -20,6 +21,7 @@ export type CacheBroadcastMessage = {
 	labelId?: string;
 	resourceType?: string;
 	resourceRef?: string;
+	userUuid?: string;
 	prefix?: string;
 	updatedAt: number;
 };
