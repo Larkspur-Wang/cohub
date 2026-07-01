@@ -23,6 +23,9 @@ deploy/worker/dev/secrets.yaml
 deploy/agent/prod/secrets.yaml
 deploy/agent/dev/secrets.yaml
 
+# Whale Shrine runtime data
+docs/work-capability-lab/whale-shrine/data/
+
 # K8s rendered files (generated)
 deploy/api/prod/rendered/
 deploy/api/dev/rendered/

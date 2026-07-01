@@ -1,0 +1,760 @@
+/* ==========================================================================
+   課金殿 — The Whale Shrine
+   A gacha-shrine where whales offer $5 to summon their echoes into the void.
+   ========================================================================== */
+
+@property --rainbow-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Void shrine palette — tinted indigo, never pure black */
+  --bg: oklch(0.10 0.025 280);
+  --bg-2: oklch(0.07 0.02 280);
+  --surface: oklch(0.14 0.03 280);
+  --surface-2: oklch(0.18 0.035 280);
+  --surface-3: oklch(0.22 0.04 280);
+
+  --line: oklch(0.30 0.03 280);
+  --line-soft: oklch(0.24 0.025 280);
+
+  --text: oklch(0.93 0.008 70);
+  --muted: oklch(0.62 0.02 280);
+  --faint: oklch(0.45 0.02 280);
+
+  /* Shrine vermilion — close to brand #FF3E00 */
+  --burn: oklch(0.64 0.23 35);
+  --burn-dim: oklch(0.50 0.20 35);
+  --gold: oklch(0.82 0.14 85);
+  --spirit: oklch(0.75 0.12 200);
+
+  /* Rarity auras */
+  --r-lr: oklch(0.70 0.18 0);
+  --r-ur: oklch(0.60 0.27 310);
+  --r-ssr: oklch(0.80 0.15 85);
+  --r-sr: oklch(0.68 0.18 230);
+  --r-r: oklch(0.72 0.17 160);
+  --r-n: oklch(0.55 0.01 280);
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 20px 60px oklch(0 0 0 / 0.4);
+
+  --font-display: "Cinzel", "Cormorant Garamond", Georgia, serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- Background atmosphere --- */
+.void-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, oklch(0.20 0.05 280 / 0.5), transparent 60%),
+    radial-gradient(ellipse 40% 40% at 80% 90%, oklch(0.30 0.08 350 / 0.15), transparent 50%),
+    var(--bg);
+}
+
+.particles {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.particle {
+  position: absolute;
+  bottom: -10px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--spirit);
+  opacity: 0;
+  box-shadow: 0 0 6px var(--spirit);
+  animation: drift linear infinite;
+}
+
+@keyframes drift {
+  0% { transform: translateY(0) translateX(0); opacity: 0; }
+  10% { opacity: 0.7; }
+  90% { opacity: 0.5; }
+  100% { transform: translateY(-110vh) translateX(var(--drift, 20px)); opacity: 0; }
+}
+
+/* --- Layout shell --- */
+.shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+
+/* --- Hero --- */
+.hero {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.hero-kanji {
+  font-family: var(--font-display);
+  font-size: clamp(56px, 10vw, 104px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg, var(--gold) 30%, var(--burn) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 6px;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(15px, 2.4vw, 20px);
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hero-sub {
+  max-width: 520px;
+  margin: 18px auto 0;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+/* --- Ticker --- */
+.ticker {
+  margin: 22px auto 0;
+  max-width: 580px;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.ticker-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--burn);
+  box-shadow: 0 0 8px var(--burn);
+  flex-shrink: 0;
+}
+
+.ticker-text {
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+
+.ticker-text.visible { opacity: 1; }
+
+/* --- Banner (preview / status) --- */
+.banner {
+  margin: 0 auto 28px;
+  max-width: 680px;
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  background: oklch(0.30 0.06 280 / 0.4);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  display: none;
+}
+
+.banner.visible { display: block; }
+.banner .accent { color: var(--burn); font-weight: 600; }
+
+/* --- Main grid --- */
+.main-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+/* --- Leaderboard --- */
+.leaderboard {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 20px;
+  box-shadow: var(--shadow);
+}
+
+.section-label {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 18px;
+}
+
+.lb-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  transition: border-color 200ms ease, transform 200ms ease;
+}
+
+.lb-row:hover { border-color: var(--line); transform: translateX(2px); }
+
+.lb-rank {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--faint);
+}
+
+.lb-row[data-rank="1"] .lb-rank { color: var(--gold); }
+.lb-row[data-rank="2"] .lb-rank { color: oklch(0.70 0.02 70); }
+.lb-row[data-rank="3"] .lb-rank { color: oklch(0.65 0.04 60); }
+
+.lb-info { min-width: 0; }
+
+.lb-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-title {
+  font-size: 11px;
+  color: var(--faint);
+  letter-spacing: 0.02em;
+}
+
+.lb-amount {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.lb-empty {
+  text-align: center;
+  padding: 32px 12px;
+  color: var(--faint);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* --- Summon form --- */
+.summon-form {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 26px 24px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summon-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.summon-price {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--burn);
+  line-height: 1;
+}
+
+.summon-price-unit {
+  font-size: 13px;
+  color: var(--faint);
+  font-weight: 400;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.field input,
+.field textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-2);
+  color: var(--text);
+  padding: 11px 13px;
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 150ms ease;
+}
+
+.field input:focus,
+.field textarea:focus { border-color: var(--burn); }
+
+.field textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.field-counter {
+  align-self: flex-end;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.summon-btn {
+  position: relative;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 15px 20px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: oklch(0.15 0.02 35);
+  background: linear-gradient(135deg, var(--burn), var(--gold));
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 150ms ease, box-shadow 200ms ease;
+  box-shadow: 0 4px 20px oklch(0.64 0.23 35 / 0.35);
+}
+
+.summon-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 30px oklch(0.64 0.23 35 / 0.5);
+}
+
+.summon-btn:active:not(:disabled) { transform: translateY(0); }
+.summon-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.summon-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, oklch(0.93 0.008 70 / 0.3), transparent);
+  transition: left 600ms ease;
+}
+
+.summon-btn:hover:not(:disabled)::after { left: 100%; }
+
+.summon-status {
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 18px;
+  text-align: center;
+}
+
+.summon-status.error { color: oklch(0.70 0.20 20); }
+.summon-status.success { color: oklch(0.70 0.18 150); }
+
+/* --- Echo wall --- */
+.wall-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.wall-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.echo-card {
+  position: relative;
+  border-radius: var(--radius);
+  padding: 18px 18px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  overflow: hidden;
+  transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.echo-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--line);
+}
+
+/* Rarity: N */
+.echo-card[data-rarity="N"] { border-color: var(--line-soft); }
+
+/* Rarity: R */
+.echo-card[data-rarity="R"] {
+  border-color: oklch(0.72 0.17 160 / 0.4);
+  box-shadow: 0 0 16px oklch(0.72 0.17 160 / 0.08);
+}
+
+/* Rarity: SR */
+.echo-card[data-rarity="SR"] {
+  border-color: oklch(0.68 0.18 230 / 0.5);
+  box-shadow: 0 0 20px oklch(0.68 0.18 230 / 0.12);
+}
+
+/* Rarity: SSR */
+.echo-card[data-rarity="SSR"] {
+  border-color: oklch(0.80 0.15 85 / 0.55);
+  box-shadow: 0 0 24px oklch(0.80 0.15 85 / 0.15);
+}
+
+.echo-card[data-rarity="SSR"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+/* Rarity: UR */
+.echo-card[data-rarity="UR"] {
+  border-color: oklch(0.60 0.27 310 / 0.6);
+  box-shadow: 0 0 28px oklch(0.60 0.27 310 / 0.2);
+}
+
+.echo-card[data-rarity="UR"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, oklch(0.60 0.27 310), transparent);
+}
+
+/* Rarity: LR — animated rainbow */
+.echo-card[data-rarity="LR"] {
+  --rainbow-angle: 0deg;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--surface-2), var(--surface-2)) padding-box,
+    conic-gradient(
+      from var(--rainbow-angle),
+      oklch(0.70 0.25 0),
+      oklch(0.70 0.25 60),
+      oklch(0.70 0.25 120),
+      oklch(0.70 0.25 180),
+      oklch(0.70 0.25 240),
+      oklch(0.70 0.25 300),
+      oklch(0.70 0.25 360)
+    ) border-box;
+  box-shadow: 0 0 32px oklch(0.70 0.25 0 / 0.2);
+  animation: rainbow-spin 5s linear infinite;
+}
+
+@keyframes rainbow-spin {
+  to { --rainbow-angle: 360deg; }
+}
+
+.echo-card[data-rarity="LR"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from var(--rainbow-angle),
+    oklch(0.70 0.25 0 / 0.04),
+    oklch(0.70 0.25 60 / 0.04),
+    oklch(0.70 0.25 120 / 0.04),
+    oklch(0.70 0.25 180 / 0.04),
+    oklch(0.70 0.25 240 / 0.04),
+    oklch(0.70 0.25 300 / 0.04),
+    oklch(0.70 0.25 360 / 0.04)
+  );
+  pointer-events: none;
+  animation: rainbow-spin 5s linear infinite;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rarity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  background: var(--surface-3);
+  color: var(--faint);
+}
+
+.echo-card[data-rarity="R"] .rarity-badge { color: var(--r-r); background: oklch(0.72 0.17 160 / 0.12); }
+.echo-card[data-rarity="SR"] .rarity-badge { color: var(--r-sr); background: oklch(0.68 0.18 230 / 0.12); }
+.echo-card[data-rarity="SSR"] .rarity-badge { color: var(--r-ssr); background: oklch(0.80 0.15 85 / 0.12); }
+.echo-card[data-rarity="UR"] .rarity-badge { color: var(--r-ur); background: oklch(0.60 0.27 310 / 0.12); }
+.echo-card[data-rarity="LR"] .rarity-badge {
+  background: oklch(0.25 0.05 0 / 0.6);
+  background-image: linear-gradient(90deg, oklch(0.70 0.25 0), oklch(0.70 0.25 120), oklch(0.70 0.25 240), oklch(0.70 0.25 360));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.card-amount {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.card-message {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  flex: 1;
+  word-break: break-word;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+  flex-shrink: 0;
+}
+
+.wall-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 64px 24px;
+  color: var(--faint);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.wall-empty-icon {
+  font-family: var(--font-display);
+  font-size: 40px;
+  margin-bottom: 12px;
+  opacity: 0.4;
+}
+
+/* --- Summon animation overlay --- */
+.summon-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: oklch(0.05 0.02 280 / 0);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.summon-overlay.active {
+  pointer-events: auto;
+  opacity: 1;
+}
+
+.summon-portal {
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  border-radius: 50%;
+  background: radial-gradient(circle, oklch(0.64 0.23 35 / 0.3), transparent 65%);
+  opacity: 0;
+}
+
+.summon-card-3d {
+  position: relative;
+  width: 200px;
+  height: 280px;
+  transform-style: preserve-3d;
+  opacity: 0;
+}
+
+.summon-card-face {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.summon-card-back {
+  background: linear-gradient(135deg, oklch(0.30 0.06 280), oklch(0.20 0.04 280));
+  border: 2px solid var(--burn);
+  box-shadow: 0 0 40px oklch(0.64 0.23 35 / 0.4);
+}
+
+.summon-card-back-glyph {
+  font-family: var(--font-display);
+  font-size: 64px;
+  font-weight: 900;
+  color: var(--burn);
+  text-shadow: 0 0 20px var(--burn);
+}
+
+.summon-card-front {
+  transform: rotateY(180deg);
+  background: var(--surface);
+  border: 2px solid var(--gold);
+  box-shadow: 0 0 50px oklch(0.82 0.14 85 / 0.4);
+}
+
+.summon-rarity-label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  margin-bottom: 12px;
+}
+
+.summon-rarity-title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--gold);
+  margin-bottom: 8px;
+}
+
+.summon-rarity-msg {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.summon-rays {
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  opacity: 0;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    oklch(0.82 0.14 85 / 0.12) 8deg,
+    transparent 16deg,
+    transparent 30deg,
+    oklch(0.82 0.14 85 / 0.08) 38deg,
+    transparent 46deg
+  );
+  border-radius: 50%;
+}
+
+.summon-text {
+  position: absolute;
+  bottom: 18%;
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--gold);
+  text-shadow: 0 0 30px oklch(0.82 0.14 85 / 0.6);
+  opacity: 0;
+}
+
+/* --- Responsive --- */
+@media (max-width: 760px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .shell { padding: 32px 16px 60px; }
+  .wall { grid-template-columns: 1fr; }
+  .hero-kanji { font-size: 56px; }
+  .summon-card-3d { width: 160px; height: 224px; }
+  .summon-card-back-glyph { font-size: 48px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .particle { display: none; }
+}

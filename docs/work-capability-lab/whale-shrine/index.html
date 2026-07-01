@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>課金殿 — The Whale Shrine</title>
+  <meta name="description" content="Offer $5. Summon your echo into the void. The gacha gods remember their whales.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="void-bg" aria-hidden="true"></div>
+  <div class="particles" id="particles" aria-hidden="true"></div>
+
+  <main class="shell">
+    <header class="hero">
+      <div class="hero-kanji">課金殿</div>
+      <div class="hero-title">The Whale Shrine</div>
+      <p class="hero-sub">Offer $5. Summon your echo into the void.<br>The gacha gods remember every whale.</p>
+      <div class="ticker" aria-live="polite">
+        <span class="ticker-dot"></span>
+        <span class="ticker-text" id="tickerText"></span>
+      </div>
+    </header>
+
+    <div class="banner" id="banner"></div>
+
+    <section class="main-grid">
+      <aside class="leaderboard">
+        <div class="section-label">Hall of Whales</div>
+        <div class="lb-list" id="leaderboard"></div>
+      </aside>
+
+      <div class="summon-form">
+        <div class="summon-header">
+          <div>
+            <div class="section-label" style="margin-bottom:4px">Summon Echo</div>
+            <div style="font-size:12px;color:var(--faint)">One tribute per echo. No refunds. No regrets.</div>
+          </div>
+          <div class="summon-price">$5<span class="summon-price-unit"> /pull</span></div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="nameInput">Whale Name</label>
+          <input id="nameInput" type="text" maxlength="32" placeholder="What shall the gods call you?" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="messageInput">Echo Message</label>
+          <textarea id="messageInput" maxlength="280" placeholder="Leave your mark on the spirit realm..."></textarea>
+          <span class="field-counter" id="messageCounter">0 / 280</span>
+        </div>
+
+        <button class="summon-btn" id="summonBtn" type="button">Burn $5 to Summon</button>
+        <div class="summon-status" id="summonStatus"></div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wall-head">
+        <div class="section-label">Echo Wall</div>
+        <div class="wall-count" id="wallCount"></div>
+      </div>
+      <div class="wall" id="wall"></div>
+    </section>
+  </main>
+
+  <div class="summon-overlay" id="summonOverlay" aria-hidden="true">
+    <div class="summon-rays" id="summonRays"></div>
+    <div class="summon-portal" id="summonPortal"></div>
+    <div class="summon-card-3d" id="summonCard3d">
+      <div class="summon-card-face summon-card-back">
+        <div class="summon-card-back-glyph">課</div>
+      </div>
+      <div class="summon-card-face summon-card-front" id="summonCardFront"></div>
+    </div>
+    <div class="summon-text" id="summonText"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.2/lib/anime.min.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
