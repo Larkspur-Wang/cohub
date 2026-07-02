@@ -70,6 +70,30 @@ async function requeueTurnJob(data: AgentTurnJobData, reason: RetryReason, job?:
 
 type DrainNextQueuedResult = { enqueued: boolean; turnId: string | null };
 
+type SessionSettleMode = "strict" | "best_effort";
+
+async function settleSessionHandle(handle: SessionHandle, mode: SessionSettleMode) {
+  const awaitOrWarn = async (label: "persistence" | "flush" | "signature", task: () => Promise<void>) => {
+    if (mode === "strict") {
+      await task();
+      return;
+    }
+    await task().catch((error) => {
+      logger.warn(`[Agent] failed to settle session ${handle.sessionId} (${label}):`, error);
+    });
+  };
+
+  await awaitOrWarn("persistence", async () => {
+    await handle.persistenceChain;
+  });
+  await awaitOrWarn("flush", async () => {
+    await handle.sessionManager.flush();
+  });
+  await awaitOrWarn("signature", async () => {
+    await refreshSessionHandleFileSignature(handle);
+  });
+}
+
 async function drainNextQueuedTurn(input: { spaceId: string; sessionId: string; reason: string }): Promise<DrainNextQueuedResult> {
   try {
     const turnId = await enqueueNextRunnableTurn({
@@ -677,6 +701,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
     }
     let activeTurn: { id: string; controller: AbortController } | null = null;
     let claimedBatch: ClaimedTurnBatch | null = null;
+    let handle: SessionHandle | null = null;
+    let handleSettled = false;
     let terminalHandled = false;
     let caughtError: unknown = null;
     let drainAfterRelease: PostReleaseDrain = null;
@@ -741,14 +767,15 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
       }
       const spaceInfo = await getSpace({ spaceId: data.spaceId }).catch(() => null);
       logSpaceBootstrapWarning(data.spaceId, spaceInfo?.space?.meta);
-      const handle = await prepareHandle({
+      handle = await prepareHandle({
         spaceId: data.spaceId,
         sessionId: data.sessionId,
         actorUserId,
         requestedModel: resolveRequestedModel(ownerMeta),
       });
+      const activeHandle = handle;
       try {
-        await configureHandleAccessMode(handle, accessMode);
+        await configureHandleAccessMode(activeHandle, accessMode);
       } catch (error) {
         logger.error(`[Agent] failed to configure tools sessionId=${data.sessionId} turnId=${batch.ownerTurn.id} accessMode=${accessMode}:`, error);
         throw error;
@@ -767,7 +794,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         }));
       for (const item of turnUserMessages) {
         const meta = normalizeTurnUserMeta(item);
-        ensurePendingUserMessage(handle, {
+        ensurePendingUserMessage(activeHandle, {
           userMessageId: item.userMessageId,
           turnId: item.turnId,
           turnSeq: item.turnSeq,
@@ -798,19 +825,19 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         abortController.abort();
       }
 
-      setActiveTurnContext(handle, {
+      setActiveTurnContext(activeHandle, {
         turnId: batch.ownerTurn.id,
         turnSeq: batch.ownerTurn.sequence,
         userMessageId: ownerUserMessageId,
         userMeta: ownerMeta,
         llmRound: 0,
       });
-      handle.currentExecutionTurnIds = new Set(batch.executionBatch.turnIds);
-      await drainStreamStateBeforeReset(handle);
-      resetStreamState(handle);
+      activeHandle.currentExecutionTurnIds = new Set(batch.executionBatch.turnIds);
+      await drainStreamStateBeforeReset(activeHandle);
+      resetStreamState(activeHandle);
 
       const messages = await Promise.all(turnUserMessages
-        .filter((item) => !hasSessionUserMessage(handle, item.userMessageId))
+        .filter((item) => !hasSessionUserMessage(activeHandle, item.userMessageId))
         .map((item) => contentToAgentMessage(item.content, normalizeTurnUserMeta(item))));
 
       const directShellItem = accessMode === "full_access" && turnUserMessages.length === 1 ? turnUserMessages[0] : null;
@@ -825,9 +852,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           turnSeq: batch.ownerTurn.sequence,
           userMessageId: directShellItem.userMessageId,
           requestId,
-          modelProvider: handle.session.agent.state.model.provider,
-          modelId: handle.session.agent.state.model.id,
-          isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
+          modelProvider: activeHandle.session.agent.state.model.provider,
+          modelId: activeHandle.session.agent.state.model.id,
+          isResumedSession: activeHandle.sessionManager.buildSessionContext().messages.length > 0,
         }, async (turnSpan) => {
           await runWithToolExecutionContext({
             spaceId: data.spaceId,
@@ -849,7 +876,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           }, async () => {
             logger.debug(`[Agent] shell-command:start sessionId=${data.sessionId}`);
             await runDirectShellCommandTurn({
-              handle,
+              handle: activeHandle,
               tools,
               spaceId: data.spaceId,
               sessionId: data.sessionId,
@@ -869,9 +896,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           turnSpan.setAttribute("agent.outcome", "ok");
         });
 
-        await handle.persistenceChain;
-        await handle.sessionManager.flush().catch((error) => logger.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
-        await refreshSessionHandleFileSignature(handle);
+        await settleSessionHandle(activeHandle, "strict");
+        handleSettled = true;
         if (!abortController.signal.aborted) terminalHandled = true;
         drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "direct_shell_complete" };
         clearRetryState(data);
@@ -895,9 +921,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         turnSeq: batch.ownerTurn.sequence,
         userMessageId: ownerUserMessageId,
         requestId,
-        modelProvider: handle.session.agent.state.model.provider,
-        modelId: handle.session.agent.state.model.id,
-        isResumedSession: handle.sessionManager.buildSessionContext().messages.length > 0,
+        modelProvider: activeHandle.session.agent.state.model.provider,
+        modelId: activeHandle.session.agent.state.model.id,
+        isResumedSession: activeHandle.sessionManager.buildSessionContext().messages.length > 0,
       }, async (turnSpan) => {
         await runWithToolExecutionContext({
           spaceId: data.spaceId,
@@ -921,18 +947,18 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
             if (abortController.signal.aborted) throw new Error("aborted");
             const abortPromise = new Promise<never>((_, reject) => {
               abortController.signal.addEventListener("abort", () => {
-                handle.activeDirectShellCommand?.abortController.abort();
-                handle.session.abort().catch(() => undefined);
+                activeHandle.activeDirectShellCommand?.abortController.abort();
+                activeHandle.session.abort().catch(() => undefined);
                 reject(new Error("aborted"));
               }, { once: true });
             });
             if (messages.length > 0) {
-              await Promise.race([handle.session.promptMessages(messages), abortPromise]);
+              await Promise.race([activeHandle.session.promptMessages(messages), abortPromise]);
             } else {
               await Promise.race([
                 (async () => {
-                  await handle.session.agent.continue();
-                  await handle.session.waitForIdle();
+                  await activeHandle.session.agent.continue();
+                  await activeHandle.session.waitForIdle();
                 })(),
                 abortPromise,
               ]);
@@ -940,8 +966,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           } catch (error) {
             if (abortController.signal.aborted || (error instanceof Error && error.message === "aborted")) {
               const abortEvent = getActiveAbortEvent(batch.ownerTurn.id);
-              await handle.session.abort().catch(() => undefined);
-              await persistInterruptedAssistantSnapshot(handle, {
+              await activeHandle.session.abort().catch(() => undefined);
+              await persistInterruptedAssistantSnapshot(activeHandle, {
                 abortEvent,
                 actorUserId,
                 fallbackTurnId: batch.ownerTurn.id,
@@ -949,7 +975,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
               }).catch((snapshotError) => {
                 logger.warn(`[Agent] failed to persist interrupted snapshot sessionId=${data.sessionId} turnId=${batch.ownerTurn.id}:`, snapshotError);
               });
-              await handle.persistenceChain.catch(() => undefined);
+              await activeHandle.persistenceChain.catch(() => undefined);
               if (abortEvent?.reason === "interrupt" && abortEvent.continuedByTurnId) {
                 await interruptSessionTurn({
                   spaceId: data.spaceId,
@@ -967,8 +993,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
                 });
                 terminalHandled = true;
               }
-              await handle.sessionManager.flush().catch(() => undefined);
-              await refreshSessionHandleFileSignature(handle).catch(() => undefined);
+              await settleSessionHandle(activeHandle, "best_effort");
+              handleSettled = true;
               return;
             }
             throw error;
@@ -979,9 +1005,8 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         turnSpan.setAttribute("agent.outcome", "ok");
       });
 
-      await handle.persistenceChain;
-      await handle.sessionManager.flush().catch((error) => logger.warn(`[Agent] failed to flush session ${data.sessionId}:`, error));
-      await refreshSessionHandleFileSignature(handle);
+      await settleSessionHandle(activeHandle, "strict");
+      handleSettled = true;
       if (!abortController.signal.aborted) terminalHandled = true;
       drainAfterRelease = { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_complete" };
       clearRetryState(data);
@@ -1015,6 +1040,9 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
           error: caughtError ?? new Error("Agent turn exited without terminal state."),
         });
         if (reconciled) drainAfterRelease = drainAfterRelease ?? { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_reconciled" };
+      }
+      if (handle && !handleSettled) {
+        await settleSessionHandle(handle, terminalHandled ? "strict" : "best_effort");
       }
       await lock.release();
       if (drainAfterRelease) await drainNextQueuedTurn(drainAfterRelease);
