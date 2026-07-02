@@ -749,8 +749,13 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
       if (finalized) await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
     }
     await dispatchFinalAssistantToGateway({ spaceId: input.spaceId, sessionId: input.spaceSessionId, message: record }).catch((error) => logger.error("[GatewayOutbound] failed to dispatch assistant message", error));
-    await notifyMessageSideEffects({ spaceId: input.spaceId, sessionId: input.spaceSessionId, messageId: record.id });
   }
+  // Record billing for every persisted assistant message. Each LLM round incurs
+  // cost, so intermediate tool_use messages must be billed too — not just the
+  // final one — to match the cost shown on the page. The side-effects endpoint
+  // is idempotent per messageId, and error/aborted messages are skipped inside
+  // recordLlmUsageBilling (counted as our cost).
+  await notifyMessageSideEffects({ spaceId: input.spaceId, sessionId: input.spaceSessionId, messageId: record.id });
   return { ok: true, message: record };
 }
 
