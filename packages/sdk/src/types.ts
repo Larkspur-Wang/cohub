@@ -946,7 +946,7 @@ export type CreateSpacePromptInput = {
   provider?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: GenerationPolicy | null;
-  intent?: "followup" | "steer" | null;
+  intent?: "followup" | "steer" | "compact" | null;
   accessMode?: PromptAccessMode | null;
   env?: Record<string, string> | null;
   labelRefs?: string[];

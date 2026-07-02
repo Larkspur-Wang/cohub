@@ -15,6 +15,7 @@ import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
+import { maybeAutoCompact } from "./runtime/compaction.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.js";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
@@ -952,6 +953,22 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
                 reject(new Error("aborted"));
               }, { once: true });
             });
+            // Pre-turn auto-compaction: check if context exceeds threshold and compact if needed.
+            // maybeAutoCompact replaces agent.state.messages with the compacted context.
+            // promptMessages below appends `messages` (new user messages) to agent.state.messages,
+            // so the LLM sees [compacted context, new user messages].
+            if (messages.length > 0) {
+              const compactOutcome = await maybeAutoCompact(activeHandle, { actorUserId, abortSignal: abortController.signal }).catch((error) => {
+                logger.warn(`[Agent] auto-compact check failed sessionId=${data.sessionId}:`, error);
+                return { compacted: false, reason: "error" } as const;
+              });
+              if (compactOutcome.compacted) {
+                turnSpan.addEvent("agent.auto_compact", {
+                  "agent.compaction.tokens_before": compactOutcome.tokensBefore,
+                  "agent.compaction.summary_length": compactOutcome.summary.length,
+                });
+              }
+            }
             if (messages.length > 0) {
               await Promise.race([activeHandle.session.promptMessages(messages), abortPromise]);
             } else {

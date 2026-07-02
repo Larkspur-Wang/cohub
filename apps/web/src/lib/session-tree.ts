@@ -66,6 +66,11 @@ export type TimelineItem =
 			runtimePhase?: "llm_call_started" | null;
 			runtimeProvider?: string | null;
 			runtimeModel?: string | null;
+	  }
+	| {
+			id: string;
+			kind: "compact";
+			turn: SessionTurnRecord;
 	  };
 
 export const stringifyUnknown = (value: unknown) => {

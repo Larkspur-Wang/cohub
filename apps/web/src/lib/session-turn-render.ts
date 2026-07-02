@@ -208,6 +208,14 @@ export function buildTurnTimelineItems(input: {
 		// reconciling with the local optimistic one. Other queued follow-ups are
 		// rendered by the follow-up queue instead of the main timeline.
 		if (isQueuedFollowupTurn(turn) && turn.id !== streamingTurnId) continue;
+		if (turn.intent === "compact") {
+			items.push({
+				id: `${turnRenderKey}:compact`,
+				kind: "compact",
+				turn,
+			});
+			continue;
+		}
 		items.push({
 			id: `${turnRenderKey}:user`,
 			kind: "message",

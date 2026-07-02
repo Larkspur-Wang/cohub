@@ -43,6 +43,9 @@ const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
 
+const COMPACTION_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary:\n\n<summary>\n";
+const COMPACTION_SUMMARY_SUFFIX = "\n</summary>";
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
@@ -302,6 +305,16 @@ function toLlmMessages(messages: AgentMessage[]) {
 
     if (role === "toolResult") {
       result.push(toLlmToolResultMessage(message));
+      continue;
+    }
+
+    if (role === "compactionSummary") {
+      const summary = typeof record.summary === "string" ? record.summary : "";
+      result.push({
+        role: "user",
+        content: [{ type: "text", text: COMPACTION_SUMMARY_PREFIX + summary + COMPACTION_SUMMARY_SUFFIX }],
+        timestamp: typeof record.timestamp === "number" ? record.timestamp : Date.now(),
+      });
     }
   }
   return result as never;

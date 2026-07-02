@@ -10,7 +10,7 @@ export type SessionTurnStatus =
   | "interrupted"
   | "merged"
   | "cancelled";
-export type SessionTurnIntent = "steer" | "followup";
+export type SessionTurnIntent = "steer" | "followup" | "compact";
 
 export type SessionTurnSummary = {
   text?: string | null;

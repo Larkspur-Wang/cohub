@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { MessageRecord, MessageToolCallsFile, PersistMessageInput, SessionTurnRecord, SessionTurnStatus, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile } from "@cohub/protocol/model";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
@@ -790,4 +790,130 @@ export async function failSessionTurn(input: { spaceId: string; sessionId: strin
   const turn = row ? toTurnRecord(row) : null;
   if (turn) await publishTurnFinalized(input.spaceId, turn);
   return turn;
+}
+
+/**
+ * Persist a compaction event as a special turn + system message.
+ *
+ * Re-sequences existing turns with sequence >= insertBeforeSequence to make
+ * room for the compact turn, which is inserted at insertBeforeSequence so it
+ * appears before the first retained turn.
+ *
+ * Uses a big-offset trick to avoid unique constraint violations during re-sequence:
+ *   1. Shift affected turns by +1,000,000
+ *   2. Shift them back by 999,999 (net +1)
+ *   3. Insert compact turn at the freed position
+ *
+ * Turn insert and message insert are in a single transaction.
+ */
+export async function persistCompactionTurn(input: {
+  spaceId: string;
+  sessionId: string;
+  actorUserId: string | null;
+  summary: string;
+  tokensBefore: number;
+  tokensAfter: number;
+  firstKeptEntryId: string;
+  model: { provider: string; id: string };
+  contextWindow: number;
+  keepRecentTokens: number;
+  summarizedMessageCount: number;
+  archivePath: string | undefined;
+  /** DB sequence at which to insert the compact turn (existing turns >= this are shifted +1). */
+  insertBeforeSequence: number;
+}): Promise<{ compactTurnId: string; compactSequence: number } | null> {
+  const now = new Date();
+  const compactSequence = input.insertBeforeSequence;
+
+  const compactionMeta = {
+    compaction: {
+      triggerReason: "threshold" as const,
+      contextWindow: input.contextWindow,
+      tokensBefore: input.tokensBefore,
+      tokensAfter: input.tokensAfter,
+      model: input.model.id,
+      provider: input.model.provider,
+      keepRecentTokens: input.keepRecentTokens,
+      summarizedMessageCount: input.summarizedMessageCount,
+      firstKeptEntryId: input.firstKeptEntryId,
+      archivePath: input.archivePath ?? null,
+      compactedAt: now.toISOString(),
+    },
+  };
+
+  const state: { turnRow: typeof sessionTurns.$inferSelect | null; messageSequence: number } = { turnRow: null, messageSequence: 0 };
+
+  try {
+    await db.transaction(async (tx) => {
+      // Step 1: Shift turns with sequence >= compactSequence by big offset.
+      await tx.update(sessionTurns)
+        .set({ sequence: sql`${sessionTurns.sequence} + 1000000` })
+        .where(and(eq(sessionTurns.sessionId, input.sessionId), gte(sessionTurns.sequence, compactSequence)));
+
+      // Step 2: Shift them back by 999,999 (net +1, freeing compactSequence).
+      await tx.update(sessionTurns)
+        .set({ sequence: sql`${sessionTurns.sequence} - 999999` })
+        .where(and(eq(sessionTurns.sessionId, input.sessionId), gte(sessionTurns.sequence, compactSequence + 1000000)));
+
+      // Step 3: Insert compact turn at the freed position.
+      const [row] = await tx.insert(sessionTurns).values({
+        sessionId: input.sessionId,
+        userUuid: input.actorUserId,
+        sequence: compactSequence,
+        status: "completed",
+        intent: "compact",
+        userContent: [],
+        userText: null,
+        assistantContent: [{ type: "system_note", note_type: "compacted", text: input.summary }],
+        assistantText: null,
+        provider: input.model.provider,
+        model: input.model.id,
+        stopReason: null,
+        errorMessage: null,
+        finalUsage: null,
+        totalUsage: null,
+        summary: { finishReason: "completed" },
+        meta: compactionMeta,
+        startedAt: now,
+        completedAt: now,
+        durationMs: 0,
+      }).returning();
+      if (!row) throw new Error("Failed to insert compact turn");
+      state.turnRow = row;
+
+      // Step 4: Insert system message in the same transaction.
+      const [maxMsgRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionMessages.sequence}), 0)::int` }).from(sessionMessages).where(eq(sessionMessages.sessionId, input.sessionId));
+      state.messageSequence = (maxMsgRow?.max ?? 0) + 1;
+      await tx.insert(sessionMessages).values({
+        sessionId: input.sessionId,
+        role: "system",
+        content: [{ type: "system_note", note_type: "compacted", text: input.summary }],
+        text: null,
+        sequence: state.messageSequence,
+        meta: { messageKind: "compacted", turnId: state.turnRow?.id ?? null, ...compactionMeta },
+        startedAt: now,
+        completedAt: now,
+        durationMs: 0,
+      });
+    });
+  } catch (error) {
+    logger.error(`[Compaction] DB transaction failed sessionId=${input.sessionId}:`, error);
+    return null;
+  }
+
+  if (state.turnRow) {
+    const turn = toTurnRecord(state.turnRow);
+    await publishTurnCreated(input.spaceId, turn).catch((error) => {
+      logger.warn("[Compaction] failed to publish turn created", error);
+    });
+    await publishTurnFinalized(input.spaceId, turn).catch((error) => {
+      logger.warn("[Compaction] failed to publish turn finalized", error);
+    });
+  }
+
+  logger.info(
+    `[Compaction] persisted turn seq=${compactSequence} msgSeq=${state.messageSequence} sessionId=${input.sessionId}`,
+  );
+
+  return state.turnRow ? { compactTurnId: state.turnRow.id, compactSequence } : null;
 }

@@ -6,6 +6,7 @@ import type {
 } from "@cohub/protocol/model";
 import { Loader2 } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
+import CompactionDivider from "$lib/components/CompactionDivider.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
@@ -177,6 +178,8 @@ $effect(() => {
 						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeProvider={item.runtimeProvider} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onRequestIntermediateSync} {onLoadToolCalls} {onOpenFile} />
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} {onOpenFile} />
+				{:else if item.kind === 'compact'}
+					<CompactionDivider turn={item.turn} />
 				{/if}
 			</div>
 		{/each}

@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { access, appendFile, mkdir, writeFile } from "node:fs/promises";
+import { access, appendFile, copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -15,6 +15,8 @@ export type SessionHeader = {
   timestamp: string;
   cwd: string;
   parentSession?: string;
+  /** Relative path to the pre-compaction archive, set when the file is rewritten after compaction. */
+  compactionArchive?: string;
 };
 
 export type SessionEntryBase = {
@@ -115,6 +117,12 @@ function getSessionUserMessageId(message: AgentMessage): string | null {
   return null;
 }
 
+function getSessionTurnId(message: AgentMessage): string | null {
+  const meta = getAgentMessageMeta(message);
+  const turnId = meta?.turnId;
+  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
+}
+
 async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
@@ -196,6 +204,41 @@ export class SessionManager {
     return [...this.entries];
   }
 
+  /** Returns the linear branch from root to current leaf. */
+  getBranchEntries(): SessionEntry[] {
+    return this.getBranch();
+  }
+
+  /**
+   * Find the entry ID of the user message that starts the turn containing
+   * the given entry. If the entry itself is a user message, returns its ID.
+   * Returns null if no turn-start user message is found.
+   */
+  findTurnStartEntryId(entryId: string): string | null {
+    const branch = this.getBranch();
+    const idx = branch.findIndex((e) => e.id === entryId);
+    if (idx < 0) return null;
+    for (let i = idx; i >= 0; i--) {
+      const entry = branch[i];
+      if (entry?.type === "message" && entry.message.role === "user") {
+        return entry.id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get the turnId from the entry at the given ID.
+   * Returns null if the entry is not a message or has no turnId.
+   */
+  getEntryTurnId(entryId: string): string | null {
+    const entry = this.byId.get(entryId);
+    if (entry?.type === "message") {
+      return getSessionTurnId(entry.message);
+    }
+    return null;
+  }
+
   newSession(options: { id?: string; parentSession?: string }) {
     this.header = {
       type: "session",
@@ -215,20 +258,69 @@ export class SessionManager {
 
   buildSessionContext(): SessionContext {
     const branch = this.getBranch();
-    const messages: AgentMessage[] = [];
+
+    // Scan all entries for the latest settings (model/thinking persist across compaction boundaries).
     let thinkingLevel = "off";
     let model: { provider: string; modelId: string } | null = null;
+    let compaction: CompactionEntry | null = null;
     for (const entry of branch) {
-      if (entry.type === "message") {
-        messages.push(entry.message);
-      } else if (entry.type === "thinking_level_change") {
+      if (entry.type === "thinking_level_change") {
         thinkingLevel = entry.thinkingLevel;
       } else if (entry.type === "model_change") {
         model = { provider: entry.provider, modelId: entry.modelId };
+      } else if (entry.type === "message" && entry.message.role === "assistant") {
+        const msg = entry.message as unknown as { provider?: string; model?: string };
+        if (msg.provider && msg.model) model = { provider: msg.provider, modelId: msg.model };
+      } else if (entry.type === "compaction") {
+        compaction = entry;
+      }
+    }
+
+    const messages: AgentMessage[] = [];
+    const appendMessage = (entry: SessionEntry) => {
+      if (entry.type === "message") {
+        messages.push(entry.message);
       } else if (entry.type === "custom_message") {
         messages.push({ role: "user", content: entry.content as never, timestamp: Date.now() } as AgentMessage);
       }
+    };
+
+    if (compaction) {
+      // Prepend a compactionSummary message, then only entries from firstKeptEntryId onward.
+      messages.push({
+        role: "compactionSummary",
+        summary: compaction.summary,
+        tokensBefore: compaction.tokensBefore,
+        timestamp: new Date(compaction.timestamp).getTime(),
+      } as AgentMessage);
+
+      const compactionIdx = branch.findIndex((e) => e.id === compaction?.id);
+      const firstKeptIdx = branch.findIndex((e) => e.id === compaction.firstKeptEntryId);
+      if (firstKeptIdx < 0 || firstKeptIdx >= compactionIdx) {
+        // firstKeptEntryId not found before compaction entry — fallback to
+        // including all pre-compaction messages to avoid silent data loss.
+        logger.warn(`[SessionManager] firstKeptEntryId ${compaction.firstKeptEntryId} not found before compaction; including all pre-compaction entries`);
+        for (let i = 0; i < compactionIdx; i++) {
+          const entry = branch[i];
+          if (entry) appendMessage(entry);
+        }
+      } else {
+        let foundFirstKept = false;
+        for (let i = 0; i < compactionIdx; i++) {
+          const entry = branch[i];
+          if (!entry) continue;
+          if (entry.id === compaction.firstKeptEntryId) foundFirstKept = true;
+          if (foundFirstKept) appendMessage(entry);
+        }
+      }
+      for (let i = compactionIdx + 1; i < branch.length; i++) {
+        const entry = branch[i];
+        if (entry) appendMessage(entry);
+      }
+    } else {
+      for (const entry of branch) appendMessage(entry);
     }
+
     return { messages, thinkingLevel, model };
   }
 
@@ -329,6 +421,143 @@ export class SessionManager {
     };
     this.appendEntry(entry);
     return entry.id;
+  }
+
+  /**
+   * Archive the current file and rewrite it with only post-compaction entries.
+   * The archive preserves the full pre-compaction history on disk.
+   * Returns the relative archive path (stored in the header).
+   */
+  async archiveAndRewrite(compactionEntryId: string, firstKeptEntryId: string): Promise<string | undefined> {
+    if (!this.sessionFile || !this.header) return undefined;
+    await this.flush();
+
+    const branch = this.getBranch();
+    const compactionIdx = branch.findIndex((e) => e.id === compactionEntryId);
+    if (compactionIdx < 0) return undefined;
+
+    const firstKeptIdx = branch.findIndex((e) => e.id === firstKeptEntryId);
+    if (firstKeptIdx < 0 || firstKeptIdx >= compactionIdx) return undefined;
+
+    // Archive: copy the current file before rewriting.
+    // Sanitize header.id to prevent path traversal (it comes from file parsing).
+    const safeId = this.header.id.replace(/[^a-zA-Z0-9-]/g, "");
+    const archiveName = `${safeId}.${this.nextArchiveNumber()}.jsonl`;
+    const archiveDir = join(this.sessionDir, "archives");
+    await mkdir(archiveDir, { recursive: true });
+    const archivePath = join(archiveDir, archiveName);
+    await copyFile(this.sessionFile, archivePath);
+
+    // Rewrite: compaction entry becomes the new root (parentId: null),
+    // followed by kept entries from firstKeptEntryId onward, then any
+    // entries that were appended after the compaction entry.
+    // Fix the parentId chain so getBranch() can walk leaf → root uninterrupted.
+    const compactionEntry = branch[compactionIdx];
+    if (compactionEntry?.type !== "compaction") return undefined;
+    const keptBefore = branch.slice(firstKeptIdx, compactionIdx);
+    const keptAfter = branch.slice(compactionIdx + 1);
+
+    // Rebuild chain: compaction → firstKept → ... → leaf
+    const rewrittenCompaction: CompactionEntry = { ...compactionEntry, parentId: null };
+    const rewrittenKept: SessionEntry[] = keptBefore.map((entry, i) => ({
+      ...entry,
+      parentId: i === 0 ? compactionEntry.id : (keptBefore[i - 1]?.id ?? null),
+    }));
+    // keptAfter entries already chain to each other; fix the first one's parent
+    // to point to the last entry in keptBefore (or compaction if keptBefore is empty).
+    const rewrittenAfter: SessionEntry[] = keptAfter.length > 0
+      ? keptAfter.map((entry, i) => ({
+          ...entry,
+          parentId: i === 0
+            ? (rewrittenKept.at(-1)?.id ?? compactionEntry.id)
+            : (keptAfter[i - 1]?.id ?? null),
+        }))
+      : [];
+
+    const keptEntries = [rewrittenCompaction, ...rewrittenKept, ...rewrittenAfter];
+
+    // Snapshot state so we can roll back if the file rewrite fails.
+    const savedHeader = this.header;
+    const savedEntries = this.entries;
+
+    this.header = { ...this.header, compactionArchive: `archives/${archiveName}` };
+    this.entries = keptEntries;
+    this.rebuildIndex();
+    this.fileReady = false;
+    this.rewriteFile();
+    try {
+      await this.flush();
+    } catch (flushError) {
+      // Restore in-memory state to pre-rewrite. The file on disk may be
+      // stale (old content + appended compaction entry), but removeLastEntry
+      // will be called by the caller to rewrite it back to the old state.
+      this.header = savedHeader;
+      this.entries = savedEntries;
+      this.rebuildIndex();
+      this.fileReady = false;
+      this.writeError = null;
+      this.rewriteFile();
+      throw flushError;
+    }
+    return `archives/${archiveName}`;
+  }
+
+  private nextArchiveNumber(): number {
+    const match = this.header?.compactionArchive?.match(/\.(\d+)\.jsonl$/);
+    return match ? Number(match[1]) + 1 : 1;
+  }
+
+  /**
+   * Remove the last appended entry and restore the previous leaf.
+   * Used to roll back an appendCompaction when archiveAndRewrite fails
+   * *before* rewriting (returns undefined). The entry is still at the end.
+   * Rewrites the file so the stale compaction entry is removed from disk too.
+   */
+  removeLastEntry(): void {
+    if (this.entries.length === 0) return;
+    const removed = this.entries[this.entries.length - 1];
+    if (!removed) return;
+    // Safety: only roll back if the last entry is a compaction entry.
+    if (removed.type !== "compaction") {
+      logger.warn(`[SessionManager] removeLastEntry: last entry is ${removed.type}, not compaction; skipping`);
+      return;
+    }
+    this.entries.pop();
+    this.byId.delete(removed.id);
+    this.leafId = this.entries.at(-1)?.id ?? null;
+    this.rebuildBranchUserMessageIndex();
+    // The stale compaction entry was already appended to disk. Rewrite to
+    // remove it. Clear writeError first so the rewrite is not skipped.
+    if (this.writeError) {
+      logger.warn("[SessionManager] clearing writeError during removeLastEntry rollback");
+      this.writeError = null;
+    }
+    this.fileReady = false;
+    this.rewriteFile();
+  }
+
+  /**
+   * Restore the full pre-compaction state by reloading from the archive file.
+   * Used when DB persistence fails *after* archiveAndRewrite succeeded.
+   * At that point the compaction entry is root (index 0), not last, so
+   * removeLastEntry cannot be used.
+   */
+  async restoreFromArchive(archivePath: string): Promise<boolean> {
+    if (!this.sessionFile) return false;
+    const fullArchivePath = join(this.sessionDir, archivePath);
+    if (!(await pathExists(fullArchivePath))) return false;
+    const parsed = await parseEntries(fullArchivePath);
+    const header = parsed.find((e) => e.type === "session") as SessionHeader | undefined;
+    if (!header) return false;
+    const entries = parsed.filter((e) => e.type !== "session") as SessionEntry[];
+    this.header = { ...header, compactionArchive: undefined };
+    this.entries = entries;
+    this.rebuildIndex();
+    this.fileReady = false;
+    this.writeError = null;
+    this.rewriteFile();
+    await this.flush();
+    return true;
   }
 
   async createBranchedSession(leafId: string, options?: { id?: string; filePath?: string; parentSession?: string }): Promise<string | undefined> {
