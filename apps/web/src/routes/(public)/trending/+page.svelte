@@ -82,6 +82,17 @@ function getUserProfile(
 	return null;
 }
 
+function getRowKey(tab: Tab, row: SpaceRow | UserRow | ModelRow): string {
+	switch (tab) {
+		case "spaces":
+			return `spaces:${(row as SpaceRow).spaceId}`;
+		case "users":
+			return `users:${(row as UserRow).userId}`;
+		case "models":
+			return `models:${(row as ModelRow).provider}:${(row as ModelRow).model}`;
+	}
+}
+
 function getInitials(name: string): string {
 	const initials = name
 		.trim()
@@ -187,7 +198,7 @@ const hasData = $derived(
 				</div>
 
 				<!-- Rows — staggered fade-in, varied visual treatment by rank -->
-				{#each currentRows as row, i (row.rank)}
+				{#each currentRows as row, i (getRowKey(activeTab, row))}
 					{@const userProfile = getUserProfile(activeTab, row)}
 					{@const spaceHref = getSpaceHref(activeTab, row)}
 					<div
