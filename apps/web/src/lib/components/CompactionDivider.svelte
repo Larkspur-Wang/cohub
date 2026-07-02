@@ -32,10 +32,21 @@ function formatTokens(tokens: number): string {
 	if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
 	return String(tokens);
 }
+
+function toggle() {
+	expanded = !expanded;
+}
+
+function handleKeydown(e: KeyboardEvent) {
+	if (e.key === "Enter" || e.key === " ") {
+		e.preventDefault();
+		expanded = !expanded;
+	}
+}
 </script>
 
 <div class="compact-divider">
-	<div class="compact-header" role="button" tabindex="0" onclick={() => (expanded = !expanded)} onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); expanded = !expanded; } }>
+	<div class="compact-header" role="button" tabindex="0" onclick={toggle} onkeydown={handleKeydown}>
 		<Archive class="h-3.5 w-3.5 text-text-tertiary shrink-0" />
 		<span class="compact-label">Context compacted</span>
 		{#if tokensBefore != null && tokensAfter != null}
