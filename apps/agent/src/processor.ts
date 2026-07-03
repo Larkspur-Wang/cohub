@@ -88,7 +88,9 @@ async function settleSessionHandle(handle: SessionHandle, mode: SessionSettleMod
     await handle.persistenceChain;
   });
   await awaitOrWarn("flush", async () => {
-    await handle.sessionManager.flush();
+    // close() flushes pending writes then releases the append stream fd,
+    // so the fd is only held during an active turn — not across idle periods.
+    await handle.sessionManager.close();
   });
   await awaitOrWarn("signature", async () => {
     await refreshSessionHandleFileSignature(handle);
