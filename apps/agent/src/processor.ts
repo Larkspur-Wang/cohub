@@ -74,7 +74,7 @@ type DrainNextQueuedResult = { enqueued: boolean; turnId: string | null };
 type SessionSettleMode = "strict" | "best_effort";
 
 async function settleSessionHandle(handle: SessionHandle, mode: SessionSettleMode) {
-  const awaitOrWarn = async (label: "persistence" | "flush" | "signature", task: () => Promise<void>) => {
+  const awaitOrWarn = async (label: "persistence" | "close" | "signature", task: () => Promise<void>) => {
     if (mode === "strict") {
       await task();
       return;
@@ -87,7 +87,7 @@ async function settleSessionHandle(handle: SessionHandle, mode: SessionSettleMod
   await awaitOrWarn("persistence", async () => {
     await handle.persistenceChain;
   });
-  await awaitOrWarn("flush", async () => {
+  await awaitOrWarn("close", async () => {
     // close() flushes pending writes then releases the append stream fd,
     // so the fd is only held during an active turn — not across idle periods.
     await handle.sessionManager.close();
