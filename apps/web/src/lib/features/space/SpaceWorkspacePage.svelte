@@ -12,7 +12,6 @@ import type {
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type { CanvasSemanticOp } from "@neta-art/cohub";
 import {
-	type GenerationStreamEvent,
 	HttpError,
 	type Permission,
 	type SessionRecord,
@@ -3265,12 +3264,6 @@ function completeGenerationForTurn(sessionId: string, turnId: string | null) {
 	completeGeneration(sessionId);
 }
 
-function handleGenerationStreamEvent(
-	sessionId: string,
-	event: GenerationStreamEvent,
-) {
-	return generationRealtime.handleGenerationStreamEvent(sessionId, event);
-}
 async function handleForkTurn(turn: SessionTurnRecord) {
 	if (!activeSessionId || forkingTurnId) return;
 	forkingTurnId = turn.id;
@@ -4626,18 +4619,9 @@ $effect(() => {
 $effect(() => {
 	const currentSpaceId = spaceId;
 	const sessionId = activeSessionId;
-	if (!pageMounted || !currentSpaceId || !sessionId) return;
-	return sdk
-		.space(currentSpaceId)
-		.session(sessionId)
-		.subscribeGeneration(
-			{
-				event: (event) => {
-					void handleGenerationStreamEvent(sessionId, event);
-				},
-			},
-			{ recover: true },
-		);
+	generationRealtime.syncActiveSubscription(
+		pageMounted && Boolean(currentSpaceId && sessionId),
+	);
 });
 $effect(() => {
 	const currentSpaceId = spaceId;
@@ -4978,11 +4962,9 @@ $effect(() => {
 	const ro = new ResizeObserver(() => {
 		if (!listEl) return;
 		const currentHeight = listEl.scrollHeight;
-		if (
-			currentHeight > prevHeight &&
-			(shouldAutoFollow || restoringBottomSessionId === activeSessionId)
-		) {
-			requestBottomFollow();
+		const restoringBottom = restoringBottomSessionId === activeSessionId;
+		if (currentHeight > prevHeight && (shouldAutoFollow || restoringBottom)) {
+			requestBottomFollow({ immediate: restoringBottom });
 		}
 		prevHeight = currentHeight;
 		updateTimelineScrollMetrics();
