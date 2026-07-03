@@ -109,6 +109,9 @@ function formatBashTerminationNote(termination: BashTermination) {
   if (termination.reason === "aborted") {
     return termination.message ?? "Command aborted.";
   }
+  if (termination.exitCode != null && termination.exitCode !== 0) {
+    return `Command exited with code ${termination.exitCode}`;
+  }
   return "";
 }
 
@@ -330,7 +333,7 @@ export function createBashTool(cwd: string, options: { operations: BashOperation
       const output = Buffer.concat(chunks).toString("utf-8");
       const termination = normalizeBashTermination(result);
       const note = formatBashTerminationNote(termination);
-      const renderedOutput = note ? `${output}${output ? "\n\n" : ""}[${note}]` : output;
+      const renderedOutput = note ? `${output}${output ? "\n\n" : ""}[${note}]` : output || "(no output)";
       const truncated = truncateHead(renderedOutput, { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES });
       return {
         content: [{ type: "text", text: truncated.truncated ? truncated.content : renderedOutput }],
