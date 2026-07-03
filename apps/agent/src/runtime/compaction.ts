@@ -3,7 +3,6 @@ import {
   compact,
   DEFAULT_COMPACTION_SETTINGS,
   estimateContextTokens,
-  estimateTokens,
   prepareCompaction,
   shouldCompact,
 } from "@earendil-works/pi-agent-core/base";
@@ -158,19 +157,14 @@ export async function maybeAutoCompact(
         return { compacted: false, reason: "archive_rewrite_failed" };
       }
 
-      // ── 3. Rebuild agent state + measure tokensAfter ──
-      // Use raw estimateTokens per message instead of estimateContextTokens,
-      // which would inherit the pre-compaction assistant usage (stale).
+      // ── 3. Rebuild agent state ──
+      // tokensAfter is not computed here — it would be a rough estimate (char/4)
+      // that misleads users. The precise value arrives on the next LLM call's
+      // usage. We store null and let the UI show only tokensBefore (accurate).
       const sessionContext = handle.sessionManager.buildSessionContext();
       handle.session.agent.state.messages = sessionContext.messages;
       await refreshSessionHandleFileSignature(handle);
 
-      const tokensAfter = sessionContext.messages.reduce(
-        (sum, msg) => sum + estimateTokens(msg),
-        0,
-      );
-
-      span.setAttribute("agent.compaction.tokens_after", tokensAfter);
       span.setAttribute("agent.compaction.archive_path", archivePath);
 
       // ── 4. Resolve DB sequence for the first kept turn ──
@@ -201,7 +195,7 @@ export async function maybeAutoCompact(
         actorUserId: input.actorUserId,
         summary: result.summary,
         tokensBefore: result.tokensBefore,
-        tokensAfter,
+        tokensAfter: null,
         firstKeptEntryId,
         model: { provider: model.provider, id: model.id },
         contextWindow,
@@ -232,7 +226,7 @@ export async function maybeAutoCompact(
       }
 
       logger.info(
-        `[Compaction] done sessionId=${handle.sessionId} tokensBefore=${result.tokensBefore} tokensAfter=${tokensAfter} archive=${archivePath}`,
+        `[Compaction] done sessionId=${handle.sessionId} tokensBefore=${result.tokensBefore} archive=${archivePath}`,
       );
 
       return {

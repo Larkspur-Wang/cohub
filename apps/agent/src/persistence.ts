@@ -812,7 +812,7 @@ export async function persistCompactionTurn(input: {
   actorUserId: string | null;
   summary: string;
   tokensBefore: number;
-  tokensAfter: number;
+  tokensAfter: number | null;
   firstKeptEntryId: string;
   model: { provider: string; id: string };
   contextWindow: number;

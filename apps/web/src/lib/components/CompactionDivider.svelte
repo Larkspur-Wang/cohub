@@ -22,7 +22,6 @@ const summary = $derived(
 );
 
 const tokensBefore = $derived(compaction.tokensBefore as number | undefined);
-const tokensAfter = $derived(compaction.tokensAfter as number | undefined);
 const summarizedMessageCount = $derived(
 	compaction.summarizedMessageCount as number | undefined,
 );
@@ -49,13 +48,11 @@ function handleKeydown(e: KeyboardEvent) {
 	<div class="compact-header" role="button" tabindex="0" onclick={toggle} onkeydown={handleKeydown}>
 		<Archive class="h-3.5 w-3.5 text-text-tertiary shrink-0" />
 		<span class="compact-label">Context compacted</span>
-		{#if tokensBefore != null && tokensAfter != null}
-			<span class="compact-stats">
-				{formatTokens(tokensBefore)} → {formatTokens(tokensAfter)} tokens
-			</span>
-		{/if}
 		{#if summarizedMessageCount != null}
 			<span class="compact-msgs">{summarizedMessageCount} msgs</span>
+		{/if}
+		{#if tokensBefore != null}
+			<span class="compact-stats">{formatTokens(tokensBefore)} tokens</span>
 		{/if}
 		{#if model}
 			<span class="compact-model">{model}</span>
