@@ -40,6 +40,7 @@ const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
 const MAX_UPLOAD_COUNT = 20;
 const MAX_DIRECTORY_EXPORT_FILES = 1000;
 const MAX_DIRECTORY_EXPORT_TOTAL_BYTES = 100 * 1024 * 1024;
+const SPACE_REAL_ROOT_CACHE_TTL_MS = 30_000;
 const logger = createLogger({ serviceName: "cohub-api" });
 const tracer = getTracer("cohub-api");
 
@@ -178,12 +179,25 @@ export function assertSafeRelativePath(input: string, options?: { allowEmpty?: b
   return value;
 }
 
+type CachedSpaceRealRoot = {
+  root: string;
+  rootReal: string;
+  expiresAt: number;
+};
+
+const spaceRealRootCache = new Map<string, CachedSpaceRealRoot>();
+
 async function resolveSpaceRealRoot(spaceId: string) {
   const root = getSpaceRoot(spaceId);
+  const now = Date.now();
+  const cached = spaceRealRootCache.get(spaceId);
+  if (cached && cached.root === root && cached.expiresAt > now) return { root, rootReal: cached.rootReal };
   try {
     const rootReal = await realpath(root);
+    spaceRealRootCache.set(spaceId, { root, rootReal, expiresAt: now + SPACE_REAL_ROOT_CACHE_TTL_MS });
     return { root, rootReal };
   } catch {
+    spaceRealRootCache.delete(spaceId);
     throw new SpaceFsError(404, "space_not_found", "Space directory not found.");
   }
 }
