@@ -590,7 +590,14 @@ export class SessionManager {
 
   async createBranchedSession(leafId: string, options?: { id?: string; filePath?: string; parentSession?: string }): Promise<string | undefined> {
     await this.flush();
-    const pathEntries = this.getBranch(leafId);
+    let pathEntries = this.getBranch(leafId);
+
+    // If the entry was removed by compaction, try to recover from the archive chain.
+    // Each compaction archives the full pre-compaction file; the entry may exist there.
+    if (pathEntries.length === 0 && this.header?.compactionArchive) {
+      pathEntries = await this.recoverBranchFromArchive(leafId);
+    }
+
     if (pathEntries.length === 0) {
       throw new Error(`Entry ${leafId} not found`);
     }
@@ -608,6 +615,40 @@ export class SessionManager {
     const lines = `${[JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;
     await writeFile(newSessionFile, lines, "utf-8");
     return newSessionFile;
+  }
+
+  /**
+   * Walk the compactionArchive chain to find a branch path ending at leafId.
+   * Each archive is a full pre-compaction snapshot. We load each archive,
+   * try getBranch, and if found return the path. If not found, follow the
+   * archive's own compactionArchive link further back.
+   */
+  private async recoverBranchFromArchive(leafId: string): Promise<SessionEntry[]> {
+    let archivePath = this.header?.compactionArchive;
+    let depth = 0;
+    while (archivePath && depth < 32) {
+      depth++;
+      const fullPath = join(this.sessionDir, archivePath);
+      if (!(await pathExists(fullPath))) break;
+      const parsed = await parseEntries(fullPath);
+      const archiveHeader = parsed.find((e) => e.type === "session") as SessionHeader | undefined;
+      const entries = parsed.filter((e) => e.type !== "session") as SessionEntry[];
+      const byId = new Map(entries.map((e) => [e.id, e]));
+      // Walk from leafId to root within this archive's entries.
+      const path: SessionEntry[] = [];
+      let current = byId.get(leafId);
+      while (current) {
+        path.push(current);
+        current = current.parentId ? (byId.get(current.parentId) ?? undefined) : undefined;
+      }
+      if (path.length > 0) {
+        path.reverse();
+        return path;
+      }
+      // Not found in this archive — go deeper.
+      archivePath = archiveHeader?.compactionArchive;
+    }
+    return [];
   }
 
   private appendEntry(entry: SessionEntry) {
