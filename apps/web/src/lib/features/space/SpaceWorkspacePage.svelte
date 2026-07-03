@@ -2267,6 +2267,24 @@ async function syncGenerationStateFromTail(
 			typeof runningTurn.meta?.userMessageId === "string"
 				? runningTurn.meta.userMessageId
 				: runningTurn.id;
+		// DEBUG(each_key_duplicate 排查): 核心疑点——这是与 SDK subscribeGeneration({recover:true})
+		// 并行的第二条快照恢复路径。resumePending 会提前把 sessionGenerationStore 的
+		// turnId 设为 runningTurn.id，但不会清空 intermediateMessages(直接 spread 旧值)。
+		// 如果这时 SDK 那侧的 seedFromSnapshot 还没完成/刚完成，后面它 emit 的 state 事件会在
+		// resolveIntermediateMessagesForState 里看到 sameTurn=true，与本路径写入的
+		// intermediateMessages 发生拼接。这条日志用于确认两条路径的触发时序。
+		console.log(
+			"[each_key_duplicate DEBUG] syncGenerationStateFromTail resumePending",
+			{
+				sessionId,
+				runningTurnId: runningTurn.id,
+				priorStoreTurnId: current?.turnId ?? null,
+				priorStoreIntermediateOrdinals: (
+					current?.intermediateMessages ?? []
+				).map((m) => m.messageOrdinal),
+				requestStartedAt,
+			},
+		);
 		sessionGenerationStore.resumePending(sessionId, {
 			spaceId,
 			turnId: runningTurn.id,
