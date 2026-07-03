@@ -705,7 +705,7 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
 
 const EMPTY_ASSISTANT_MESSAGE_ERROR = "LLM returned an empty assistant message after streaming completed.";
 
-export async function persistAssistantMessage(input: { spaceId: string; spaceSessionId: string; userMessageId: string; event: Record<string, unknown>; userId?: string | null; turnId?: string | null; startedAt?: string | null; completedAt?: string | null }) {
+export async function persistAssistantMessage(input: { spaceId: string; spaceSessionId: string; userMessageId: string; event: Record<string, unknown>; userId?: string | null; turnId?: string | null; startedAt?: string | null; completedAt?: string | null; messageOrdinal?: number | null }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults) ? input.event.toolResults as Array<Record<string, unknown>> : [];
   if (!assistantMessage || typeof assistantMessage !== "object") {
@@ -731,7 +731,13 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     model: typeof assistant.model === "string" ? assistant.model : null,
     stopReason: effectiveStopReason,
     errorMessage: effectiveErrorMessage,
-    meta: { ...(normalizeRecord(assistant.meta) ?? {}), turnId: input.turnId ?? null, spaceId: input.spaceId, sessionId: input.spaceSessionId, rawStopReason: stopReason, ...(isEmptySuccessfulAssistant ? { emptyAssistantMessageConvertedToError: true } : {}), thinking: normalized.thinking, thinkingSummary: normalized.thinkingSummary, toolCallRenderStates: normalized.toolCallRenderStates, agentSessionEntryId: typeof assistant.sessionEntryId === "string" ? assistant.sessionEntryId : null },
+    // messageOrdinal 必须与 stream_update(session.turn.patch) 事件里的 messageOrdinal 保持同一套编号体系，
+    // 否则 SDK 的 messageRecordToIntermediate(处理 session.message.persisted 事件)
+    // 会因为读不到 meta.messageOrdinal 而 fallback 到 messageId=message.id(DB UUID)，
+    // 与 stream-snapshot API 重新编号的 ordinal:N 不在同一套去重 key 体系里，
+    // 导致同一条中间消息在快照恢复与实时事件两条路径里无法合并，最终在
+    // ProcessCard/ToolCallList 的 {#each ... (id)} 产生重复 key(each_key_duplicate)。
+    meta: { ...(normalizeRecord(assistant.meta) ?? {}), turnId: input.turnId ?? null, spaceId: input.spaceId, sessionId: input.spaceSessionId, rawStopReason: stopReason, messageOrdinal: input.messageOrdinal ?? null, ...(isEmptySuccessfulAssistant ? { emptyAssistantMessageConvertedToError: true } : {}), thinking: normalized.thinking, thinkingSummary: normalized.thinkingSummary, toolCallRenderStates: normalized.toolCallRenderStates, agentSessionEntryId: typeof assistant.sessionEntryId === "string" ? assistant.sessionEntryId : null },
     usage: normalizeUsage(assistant.usage as PersistMessageInput["message"]["usage"]),
     ...timing,
   };

@@ -533,6 +533,7 @@ export async function persistInterruptedAssistantSnapshot(
       turnId,
       startedAt: handle.activeAssistantContext?.startedAt ?? null,
       completedAt: now,
+      messageOrdinal: handle.activeAssistantContext?.assistantOrdinal ?? null,
     });
   });
 
@@ -985,6 +986,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             turnId: assistantContext.turnId,
             startedAt: assistantContext.startedAt,
             completedAt,
+            messageOrdinal: assistantContext.assistantOrdinal,
           });
         } catch (error) {
           if (error instanceof Error) span.recordException(error);

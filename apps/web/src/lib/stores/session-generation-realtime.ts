@@ -115,6 +115,56 @@ function getIntermediateMessageKey(message: StreamingIntermediateMessage) {
 	}
 }
 
+function getToolUseIds(content: ContentBlock[]): string[] {
+	return content
+		.filter(
+			(block): block is Extract<ContentBlock, { type: "tool_use" }> =>
+				block.type === "tool_use",
+		)
+		.map((block) => block.id);
+}
+
+/**
+ * Root cause (each_key_duplicate): assistant_intermediate messages persisted via
+ * `session.message.persisted` never carried `meta.messageOrdinal` (the agent only
+ * attached it to the `stream_update`/`session.turn.patch` payload, not to the
+ * persisted message meta). The SDK then falls back to `messageId`/`message.id` (a
+ * DB UUID) for those records, while the stream-snapshot REST API re-numbers
+ * messages by array index (`ordinal:N`). The same logical message can end up under
+ * two incompatible dedupe keys when a snapshot-recovery path (ordinal-keyed) and a
+ * persisted-message path (id-keyed) both feed into the same intermediateMessages
+ * array — producing duplicate entries that crash Svelte's `{#each ... (id)}` in
+ * ProcessCard/ToolCallList with each_key_duplicate.
+ *
+ * The backend fix (apps/agent/src/persistence.ts) now always writes messageOrdinal
+ * into persisted meta so both paths share one key space going forward. This
+ * cross-key pass stays as defense-in-depth for any message that still lacks an
+ * ordinal (e.g. data persisted before the backend fix, or future gaps): if two
+ * entries land under different dedupe keys but share a tool_use.id, they are the
+ * same logical message and must be merged into one.
+ */
+function mergeMessagesSharingToolUseId(
+	messages: StreamingIntermediateMessage[],
+): StreamingIntermediateMessage[] {
+	const indexByToolUseId = new Map<string, number>();
+	const merged: StreamingIntermediateMessage[] = [];
+	for (const message of messages) {
+		const toolUseIds = getToolUseIds(message.content ?? []);
+		const existingIndex = toolUseIds
+			.map((id) => indexByToolUseId.get(id))
+			.find((idx): idx is number => idx != null);
+		if (existingIndex == null) {
+			const newIndex = merged.length;
+			merged.push(message);
+			for (const id of toolUseIds) indexByToolUseId.set(id, newIndex);
+			continue;
+		}
+		merged[existingIndex] = { ...merged[existingIndex], ...message };
+		for (const id of toolUseIds) indexByToolUseId.set(id, existingIndex);
+	}
+	return merged;
+}
+
 function compactIntermediateMessages(messages: StreamingIntermediateMessage[]) {
 	const merged: StreamingIntermediateMessage[] = [];
 	const indexByKey = new Map<string, number>();
@@ -132,32 +182,7 @@ function compactIntermediateMessages(messages: StreamingIntermediateMessage[]) {
 		}
 		merged[index] = { ...merged[index], ...message };
 	}
-	// DEBUG(each_key_duplicate 排查): 合并后再次全量掃描 ordinal 重复，确认去重是否真正收敛。
-	const ordinalOwners = new Map<number, number>();
-	for (const message of merged) {
-		if (message.messageOrdinal == null) continue;
-		ordinalOwners.set(
-			message.messageOrdinal,
-			(ordinalOwners.get(message.messageOrdinal) ?? 0) + 1,
-		);
-	}
-	const dupOrdinals = [...ordinalOwners.entries()].filter(
-		([, count]) => count > 1,
-	);
-	if (dupOrdinals.length > 0) {
-		console.log(
-			"[each_key_duplicate DEBUG] web compactIntermediateMessages produced duplicate ordinals",
-			{
-				inputCount: messages.length,
-				inputOrdinals: messages.map((m) => m.messageOrdinal),
-				inputKeys: messages.map((m) => getIntermediateMessageKey(m)),
-				mergedCount: merged.length,
-				mergedOrdinals: merged.map((m) => m.messageOrdinal),
-				dupOrdinals,
-			},
-		);
-	}
-	return merged;
+	return mergeMessagesSharingToolUseId(merged);
 }
 
 function mergeIntermediateMessages(
@@ -179,33 +204,6 @@ function resolveIntermediateMessagesForState(
 		current?.turnId &&
 			event.state.turnId &&
 			current.turnId === event.state.turnId,
-	);
-	// DEBUG(each_key_duplicate 排查): 核心疑点——页面刷新时存在两条并行的快照恢复路径：
-	// (1) SDK 内部 SessionGenerationStreamClient.subscribe({recover:true}) -> seedFromSnapshot
-	//     -> emit type:"state",source:"snapshot" -> 运行到这里
-	// (2) SpaceWorkspacePage 的 syncGenerationStateFromTail -> resumePending(不清空
-	//     intermediateMessages) + restoreSessionStreamSnapshot -> applyGenerationStreamSnapshot
-	// 两者都写同一个 sessionGenerationStore。如果路径(2)先把 turnId/intermediateMessages
-	// 写入 store，路径(1)的 state 事件后到达时 sameTurn 会为 true，触发 current+incoming 拼接，
-	// 如果两边相同 ordinal 的记录 key 计算结果不一致(比如字段缺失导致 fallback 到不同 key)，
-	// 就会导致 compactIntermediateMessages 去重失败，最终在 ProcessCard 产生重复 msg.id。
-	console.log(
-		"[each_key_duplicate DEBUG] resolveIntermediateMessagesForState",
-		{
-			sessionId,
-			eventSource: event.source,
-			eventTurnId: event.state.turnId,
-			currentTurnId: current?.turnId ?? null,
-			sameTurn,
-			currentIntermediateOrdinals: (current?.intermediateMessages ?? []).map(
-				(m) => m.messageOrdinal,
-			),
-			currentIntermediateKeys: (current?.intermediateMessages ?? []).map((m) =>
-				getIntermediateMessageKey(m),
-			),
-			incomingOrdinals: incoming.map((m) => m.messageOrdinal),
-			incomingKeys: incoming.map((m) => getIntermediateMessageKey(m)),
-		},
 	);
 	return sameTurn
 		? mergeIntermediateMessages(current?.intermediateMessages ?? [], incoming)
@@ -305,27 +303,6 @@ export function applyGenerationStreamSnapshot(
 	const incomingIntermediateMessages = normalizeIntermediateMessages(
 		input.intermediateMessages,
 	);
-	// DEBUG(each_key_duplicate 排查): 核心疑点——这是路径(2)：页面初始化时
-	// syncGenerationStateFromTail -> resumePending + restoreSessionStreamSnapshot 最终调到
-	// 这里。如果此时 current.turnId 已被 resumePending 提前设为本次 turn(但
-	// intermediateMessages 还是旧的/空的)，会触发 mergeIntermediateMessages 拼接，
-	// 与另一条并行路径(SDK seedFromSnapshot -> resolveIntermediateMessagesForState)
-	// 存在竟态，可能导致同一批 ordinal 被两条路径各自写入一遍。
-	console.log("[each_key_duplicate DEBUG] applyGenerationStreamSnapshot", {
-		sessionId,
-		inputTurnId: input.turnId,
-		currentTurnId: current?.turnId ?? null,
-		resolvedTurnId,
-		sameTurnAsCurrent: Boolean(
-			current?.turnId && resolvedTurnId && current.turnId === resolvedTurnId,
-		),
-		currentIntermediateOrdinals: currentIntermediateMessages.map(
-			(m) => m.messageOrdinal,
-		),
-		incomingIntermediateOrdinals: incomingIntermediateMessages.map(
-			(m) => m.messageOrdinal,
-		),
-	});
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: input.spaceId ?? current?.spaceId ?? null,
 		contentBlocks: skipContentUpdate ? currentBlocks : snapshotBlocks,
