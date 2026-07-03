@@ -3,6 +3,7 @@ import {
   compact,
   DEFAULT_COMPACTION_SETTINGS,
   estimateContextTokens,
+  estimateTokens,
   prepareCompaction,
   shouldCompact,
 } from "@earendil-works/pi-agent-core/base";
@@ -102,6 +103,10 @@ export async function maybeAutoCompact(
       if (!preparation) {
         return { compacted: false, reason: "nothing_to_compact" };
       }
+      if (preparation.messagesToSummarize.length === 0) {
+        // Nothing to summarize — the session is too small to benefit from compaction.
+        return { compacted: false, reason: "nothing_to_summarize" };
+      }
 
       span.setAttribute("agent.compaction.tokens_before", preparation.tokensBefore);
       span.setAttribute("agent.compaction.messages_to_summarize", preparation.messagesToSummarize.length);
@@ -154,17 +159,24 @@ export async function maybeAutoCompact(
       }
 
       // ── 3. Rebuild agent state + measure tokensAfter ──
+      // Use raw estimateTokens per message instead of estimateContextTokens,
+      // which would inherit the pre-compaction assistant usage (stale).
       const sessionContext = handle.sessionManager.buildSessionContext();
       handle.session.agent.state.messages = sessionContext.messages;
       await refreshSessionHandleFileSignature(handle);
 
-      const tokensAfter = estimateContextTokens(sessionContext.messages).tokens;
+      const tokensAfter = sessionContext.messages.reduce(
+        (sum, msg) => sum + estimateTokens(msg),
+        0,
+      );
 
       span.setAttribute("agent.compaction.tokens_after", tokensAfter);
       span.setAttribute("agent.compaction.archive_path", archivePath);
 
       // ── 4. Resolve DB sequence for the first kept turn ──
-      const firstKeptTurnId = handle.sessionManager.getEntryTurnId(firstKeptEntryId);
+      // Try the firstKeptEntryId first, then scan forward through kept entries
+      // until we find one with a turnId.
+      const firstKeptTurnId = handle.sessionManager.getFirstKeptTurnId(firstKeptEntryId);
       let insertBeforeSequence: number | null = null;
       if (firstKeptTurnId) {
         const [turnRow] = await db.select({ sequence: sessionTurns.sequence })

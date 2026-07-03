@@ -239,6 +239,25 @@ export class SessionManager {
     return null;
   }
 
+  /**
+   * Find the turnId of the first kept entry, starting from firstKeptEntryId
+   * and scanning forward through the branch. Handles entries without turnId
+   * (e.g. model_change, thinking_level_change) by skipping them.
+   */
+  getFirstKeptTurnId(firstKeptEntryId: string): string | null {
+    const branch = this.getBranch();
+    const startIdx = branch.findIndex((e) => e.id === firstKeptEntryId);
+    if (startIdx < 0) return null;
+    for (let i = startIdx; i < branch.length; i++) {
+      const entry = branch[i];
+      if (entry?.type === "message") {
+        const turnId = getSessionTurnId(entry.message);
+        if (turnId) return turnId;
+      }
+    }
+    return null;
+  }
+
   newSession(options: { id?: string; parentSession?: string }) {
     this.header = {
       type: "session",
@@ -296,15 +315,24 @@ export class SessionManager {
 
       const compactionIdx = branch.findIndex((e) => e.id === compaction?.id);
       const firstKeptIdx = branch.findIndex((e) => e.id === compaction.firstKeptEntryId);
-      if (firstKeptIdx < 0 || firstKeptIdx >= compactionIdx) {
-        // firstKeptEntryId not found before compaction entry — fallback to
-        // including all pre-compaction messages to avoid silent data loss.
+
+      if (compactionIdx === 0) {
+        // Post-rewrite layout: compaction is root, all other entries are kept.
+        // No filtering needed — the file was already trimmed by archiveAndRewrite.
+        for (let i = 1; i < branch.length; i++) {
+          const entry = branch[i];
+          if (entry) appendMessage(entry);
+        }
+      } else if (firstKeptIdx < 0 || firstKeptIdx >= compactionIdx) {
+        // Pre-rewrite layout (compaction at end) but firstKeptEntryId not found
+        // before compaction — fallback to avoid silent data loss.
         logger.warn(`[SessionManager] firstKeptEntryId ${compaction.firstKeptEntryId} not found before compaction; including all pre-compaction entries`);
         for (let i = 0; i < compactionIdx; i++) {
           const entry = branch[i];
           if (entry) appendMessage(entry);
         }
       } else {
+        // Pre-rewrite layout: include entries from firstKeptEntryId to compaction.
         let foundFirstKept = false;
         for (let i = 0; i < compactionIdx; i++) {
           const entry = branch[i];
