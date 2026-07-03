@@ -8,8 +8,18 @@ export const AGENT_IMAGE_MAX_EDGE = 1984;
 export const AGENT_IMAGE_WEBP_QUALITY = 86;
 export const AGENT_IMAGE_MAX_INPUT_BYTES = 32 * 1024 * 1024;
 export const AGENT_IMAGE_MAX_INPUT_PIXELS = 64_000_000;
+export const AGENT_IMAGE_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 const IMAGE_NORMALIZE_CONCURRENCY = 2;
+const IMAGE_NORMALIZE_ATTEMPTS = [
+  { edge: AGENT_IMAGE_MAX_EDGE, quality: AGENT_IMAGE_WEBP_QUALITY },
+  { edge: AGENT_IMAGE_MAX_EDGE, quality: 78 },
+  { edge: 1600, quality: 78 },
+  { edge: 1600, quality: 70 },
+  { edge: 1280, quality: 70 },
+  { edge: 1280, quality: 62 },
+  { edge: 1024, quality: 62 },
+];
 const OUTPUT_MIME_TYPE = "image/webp";
 const BASE64_PREFIX_PATTERN = /^data:[^;,]+;base64,/;
 const BASE64_INPUT_MAX_CHARS = Math.ceil(AGENT_IMAGE_MAX_INPUT_BYTES / 3) * 4 + 64;
@@ -45,7 +55,7 @@ export function imageOmittedText(reason: string, label?: string) {
   return label ? `Image omitted (${label}): ${reason}.` : `Image omitted: ${reason}.`;
 }
 
-function getImageMeta(input: NormalizeImageInput, normalized: { data: Buffer; width?: number; height?: number }) {
+function getImageMeta(input: NormalizeImageInput, normalized: { data: Buffer; width?: number; height?: number; edge: number; quality: number }) {
   return {
     imageNormalized: true,
     imageFormat: "webp",
@@ -57,8 +67,9 @@ function getImageMeta(input: NormalizeImageInput, normalized: { data: Buffer; wi
     normalizedSizeBytes: normalized.data.byteLength,
     normalizedWidth: normalized.width ?? null,
     normalizedHeight: normalized.height ?? null,
-    normalizedMaxEdge: AGENT_IMAGE_MAX_EDGE,
-    normalizedQuality: AGENT_IMAGE_WEBP_QUALITY,
+    normalizedMaxEdge: normalized.edge,
+    normalizedQuality: normalized.quality,
+    normalizedMaxBytes: AGENT_IMAGE_MAX_OUTPUT_BYTES,
   };
 }
 
@@ -70,18 +81,28 @@ export async function normalizeAgentImage(input: NormalizeImageInput): Promise<N
   }
 
   try {
-    const transformer = sharp(input.data, { animated: false, limitInputPixels: AGENT_IMAGE_MAX_INPUT_PIXELS }).rotate();
-    const metadata = await transformer.metadata();
-    const output = await transformer
-      .resize(AGENT_IMAGE_MAX_EDGE, AGENT_IMAGE_MAX_EDGE, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: AGENT_IMAGE_WEBP_QUALITY })
-      .toBuffer({ resolveWithObject: true });
+    const metadata = await sharp(input.data, { animated: false, limitInputPixels: AGENT_IMAGE_MAX_INPUT_PIXELS }).metadata();
+    let bestOutput: { data: Buffer; info: sharp.OutputInfo; edge: number; quality: number } | null = null;
+    for (const attempt of IMAGE_NORMALIZE_ATTEMPTS) {
+      const output = await sharp(input.data, { animated: false, limitInputPixels: AGENT_IMAGE_MAX_INPUT_PIXELS })
+        .rotate()
+        .resize(attempt.edge, attempt.edge, { fit: "inside", withoutEnlargement: true })
+        .webp({ quality: attempt.quality })
+        .toBuffer({ resolveWithObject: true });
+      bestOutput = { ...output, edge: attempt.edge, quality: attempt.quality };
+      if (output.data.byteLength <= AGENT_IMAGE_MAX_OUTPUT_BYTES) break;
+    }
+    if (!bestOutput) return null;
+    if (bestOutput.data.byteLength > AGENT_IMAGE_MAX_OUTPUT_BYTES) {
+      logger.warn(`[AgentImage] skip image after normalization source=${input.sourceKind} outputSize=${bestOutput.data.byteLength} maxOutputSize=${AGENT_IMAGE_MAX_OUTPUT_BYTES}`);
+      return null;
+    }
 
     return {
-      data: output.data.toString("base64"),
+      data: bestOutput.data.toString("base64"),
       mimeType: OUTPUT_MIME_TYPE,
       meta: {
-        ...getImageMeta(input, { data: output.data, width: output.info.width, height: output.info.height }),
+        ...getImageMeta(input, { data: bestOutput.data, width: bestOutput.info.width, height: bestOutput.info.height, edge: bestOutput.edge, quality: bestOutput.quality }),
         originalWidth: metadata.width ?? null,
         originalHeight: metadata.height ?? null,
       },
