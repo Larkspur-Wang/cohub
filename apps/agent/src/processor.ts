@@ -1060,9 +1060,24 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         });
         if (reconciled) drainAfterRelease = drainAfterRelease ?? { spaceId: data.spaceId, sessionId: data.sessionId, reason: "turn_reconciled" };
       }
+      // Reset residual per-turn state to prevent leakage into the next turn
+      // on the same reused session handle. handleSettled is true only on
+      // normal exits (success/abort) where event handlers + settleSessionHandle
+      // have already cleaned up; on error exits — even when failActiveTurn
+      // marked the DB turn terminal — the agent may still be streaming and
+      // per-turn fields are still set.
       if (handle && !handleSettled) {
+        await handle.session.abort().catch(() => undefined);
+        clearActiveTurnContext(handle, data.sessionId);
+        handle.toolExecutionStartedAtById.clear();
+        if (claimedBatch) {
+          for (const userMessageId of claimedBatch.executionBatch.userMessageIds) {
+            removePendingUserMessage(handle, userMessageId);
+          }
+        }
         await settleSessionHandle(handle, terminalHandled ? "strict" : "best_effort");
       }
+      if (claimedBatch) clearRetryState(data);
       await lock.release();
       if (drainAfterRelease) await drainNextQueuedTurn(drainAfterRelease);
     }
