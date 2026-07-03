@@ -37,7 +37,7 @@ export const queueDefinitions = [
     criticality: "normal",
     concurrencyEnv: "FS_CDN_WORKER_CONCURRENCY",
     defaultConcurrencyPerWorker: DEFAULT_FS_CDN_WORKER_CONCURRENCY,
-    registeredJobs: ["cdn_cache.warm_file", "sandbox.idle_check", "sandbox.idle_reaper"],
+    registeredJobs: ["cdn_cache.warm_file", "sandbox.idle_check", "sandbox.idle_reaper", "work.publish_asset"],
   },
 ] as const;
 

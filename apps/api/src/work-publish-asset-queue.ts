@@ -1,0 +1,51 @@
+import { QueueEvents } from "bullmq";
+import { COHUB_SYSTEM_FS_QUEUE, createBullmqConnectionOptions, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { getCurrentRequestId } from "@cohub/infra/tracing";
+import { injectTrace } from "@cohub/infra/tracing/propagator";
+import { config } from "./config.js";
+
+export const WORK_PUBLISH_ASSET_JOB = "work.publish_asset";
+
+export type WorkPublishAssetJobData = {
+  spaceId: string;
+  slug: string;
+  targetType: "file" | "directory";
+  targetRef: string;
+  requestId?: string | null;
+  trace?: Record<string, unknown>;
+};
+
+export type WorkPublishAssetJobResult = {
+  ok: true;
+  assetKey: string;
+  sizeBytes: number;
+  fileCount?: number;
+} | {
+  ok: false;
+  status: number;
+  message: string;
+  code?: string;
+};
+
+const workPublishAssetQueue = createBullmqQueue<WorkPublishAssetJobData, WorkPublishAssetJobResult>(COHUB_SYSTEM_FS_QUEUE, {
+  redisUrl: config.bullmqRedisUrl,
+  telemetryServiceName: "cohub-api-work-publish-asset",
+});
+
+const workPublishAssetQueueEvents = new QueueEvents(COHUB_SYSTEM_FS_QUEUE, {
+  connection: createBullmqConnectionOptions(config.bullmqRedisUrl),
+});
+
+export async function publishWorkAssetInWorker(input: Omit<WorkPublishAssetJobData, "requestId" | "trace">) {
+  const job = await workPublishAssetQueue.add(WORK_PUBLISH_ASSET_JOB, {
+    ...input,
+    requestId: getCurrentRequestId() ?? null,
+    trace: injectTrace(),
+  }, {
+    jobId: `work-publish-asset-${input.spaceId}-${input.slug}-${Date.now()}`,
+    attempts: 1,
+    ...defaultJobRetention,
+  });
+
+  return job.waitUntilFinished(workPublishAssetQueueEvents, 15 * 60 * 1000) as Promise<WorkPublishAssetJobResult>;
+}

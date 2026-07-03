@@ -1,8 +1,8 @@
 import { Hono, type Context } from "hono";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { spaces, works, workVersions, workViewerGrants, userProfiles } from "@cohub/db";
-import { readSpaceDirectoryFiles, readSpaceFile, SpaceFsError, spaceFsJsonError } from "../space-fs.js";
-import { createWorkAssetPublicUrl, deleteWorkAssetsByObjectKey, isConfiguredWorkAssetPublicUrl, writeWorkHtmlAsset, writeWorkSiteAssets } from "../work-asset-storage.js";
+import { createWorkAssetPublicUrl, deleteWorkAssetsByObjectKey, isConfiguredWorkAssetPublicUrl } from "../work-asset-storage.js";
+import { publishWorkAssetInWorker, type WorkPublishAssetJobResult } from "../work-publish-asset-queue.js";
 import type { Permission } from "@cohub/core/permissions";
 import { db } from "../db/index.js";
 import { authzDenied, getOptionalAuth, getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
@@ -173,39 +173,26 @@ async function getWorkById(id: string) {
   return work ?? null;
 }
 
+class WorkAssetPublishError extends Error {
+  constructor(public result: Extract<WorkPublishAssetJobResult, { ok: false }>) {
+    super(result.message);
+  }
+}
+
 async function writeWorkAsset(input: { spaceId: string; slug: string; targetType: string; targetRef: string; status: string }) {
   const { spaceId, slug, targetType, targetRef, status } = input;
   if (status !== "published" || (targetType !== "file" && targetType !== "directory")) return null;
-  if (targetType === "directory") {
-    const result = await readSpaceDirectoryFiles(spaceId, targetRef, { visibility: "full" });
-    const written = await writeWorkSiteAssets({ spaceId, workSlug: slug, files: result.files });
-    return written.objectKey;
-  }
-  const result = await readSpaceFile(spaceId, targetRef, { visibility: "full" });
-  if (!("content" in result)) throw new Error("file is still preparing");
-  const written = await writeWorkHtmlAsset({ spaceId, workSlug: slug, html: result.content });
-  return written.objectKey;
+  const result = await publishWorkAssetInWorker({ spaceId, slug, targetType, targetRef });
+  if (!result.ok) throw new WorkAssetPublishError(result);
+  return result.assetKey;
 }
 
 function workAssetErrorResponse(c: Context, error: unknown, context: { spaceId: string; targetType: string; targetRef: string }) {
-  if (error instanceof Error && (
-    error.message === "work asset must be 1 byte to 5MB" ||
-    error.message === "work site must contain index.html" ||
-    error.message === "work site must be 1 byte to 100MB" ||
-    error.message === "file is still preparing" ||
-    error.message.startsWith("work site must contain 1 to ")
-  )) {
-    return c.json({ message: error.message }, error.message === "file is still preparing" ? 409 : 400);
+  if (error instanceof WorkAssetPublishError) {
+    return c.json({ message: error.result.message.toLowerCase().replace(/\.$/, ""), code: error.result.code }, error.result.status as never);
   }
-  if (error instanceof Error && error.message === "work asset storage is not configured") {
-    return c.json({ message: error.message }, 500);
-  }
-  if (!(error instanceof SpaceFsError)) {
-    logger.warn("[works] failed to write work asset", { ...context, error });
-    return c.json({ message: "work asset storage failed" }, 502);
-  }
-  const { status: errorStatus, body: errorBody } = spaceFsJsonError(error);
-  return c.json(errorBody, errorStatus as never);
+  logger.warn("[works] failed to write work asset", { ...context, error });
+  return c.json({ message: "work asset storage failed" }, 502);
 }
 
 async function cleanupWorkAssets(assetKey: string | null | undefined, context: { workId: string; spaceId: string; reason: string }) {

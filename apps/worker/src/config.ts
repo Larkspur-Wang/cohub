@@ -22,6 +22,11 @@ export interface WorkerConfig {
   turnObjectCdnBaseUrl: string;
   turnObjectS3AccessKeyId?: string;
   turnObjectS3SecretAccessKey?: string;
+  publicAssetOssEndpoint?: string;
+  publicAssetOssRegion: string;
+  publicAssetOssBucket?: string;
+  publicAssetOssAccessKeyId?: string;
+  publicAssetOssSecretAccessKey?: string;
   checkpointAssetOssEndpoint?: string;
   checkpointAssetOssRegion: string;
   checkpointAssetOssBucket?: string;
@@ -71,6 +76,11 @@ export const config: WorkerConfig = {
   turnObjectCdnBaseUrl: (process.env.TURN_OBJECT_CDN_BASE_URL ?? "https://sessions.cohub.run").replace(/\/+$/, ""),
   turnObjectS3AccessKeyId: process.env.TURN_OBJECT_S3_ACCESS_KEY_ID,
   turnObjectS3SecretAccessKey: process.env.TURN_OBJECT_S3_SECRET_ACCESS_KEY,
+  publicAssetOssEndpoint: process.env.PUBLIC_ASSET_OSS_ENDPOINT,
+  publicAssetOssRegion: process.env.PUBLIC_ASSET_OSS_REGION ?? "us-west-1",
+  publicAssetOssBucket: process.env.PUBLIC_ASSET_OSS_BUCKET,
+  publicAssetOssAccessKeyId: process.env.PUBLIC_ASSET_OSS_ACCESS_KEY_ID,
+  publicAssetOssSecretAccessKey: process.env.PUBLIC_ASSET_OSS_SECRET_ACCESS_KEY,
   checkpointAssetOssEndpoint: process.env.CHECKPOINT_ASSET_OSS_ENDPOINT ?? process.env.TURN_OBJECT_S3_ENDPOINT ?? "https://oss-us-west-1-internal.aliyuncs.com",
   checkpointAssetOssRegion: process.env.CHECKPOINT_ASSET_OSS_REGION ?? process.env.TURN_OBJECT_S3_REGION ?? "us-west-1",
   checkpointAssetOssBucket: process.env.CHECKPOINT_ASSET_OSS_BUCKET ?? process.env.TURN_OBJECT_S3_BUCKET,
