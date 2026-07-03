@@ -1079,7 +1079,7 @@ export function getActiveSessionHandles() {
 export async function disposeAllSessionHandles() {
   for (const handle of sessionHandles.values()) {
     try {
-      await handle.sessionManager.flush().catch(() => undefined);
+      await handle.sessionManager.close().catch(() => undefined);
       await handle.persistenceChain.catch(() => undefined);
       clearCurrentSessionExecutionAuth(handle.sessionId);
       handle.session.dispose();

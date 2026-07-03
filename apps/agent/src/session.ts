@@ -1068,6 +1068,7 @@ export async function loadOrCreateSessionHandle(input: {
 
     logger.debug(`[Session] reload stale sessionId=${input.sessionId} spaceId=${input.spaceId}`);
     existing.session.dispose();
+    await existing.sessionManager.close().catch(() => undefined);
     clearCurrentSessionExecutionAuth(existing.sessionId);
     input.sessionHandles.delete(sessionKey);
   }

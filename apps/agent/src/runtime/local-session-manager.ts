@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { access, appendFile, copyFile, mkdir, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream, type WriteStream } from "node:fs";
+import { access, copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -160,6 +160,8 @@ export class SessionManager {
   private sessionDirReady = false;
   private writeChain: Promise<void> = Promise.resolve();
   private writeError: unknown = null;
+  /** Persistent append stream — keeps the fd open to avoid per-write open/close overhead on NFS. */
+  private appendStream: WriteStream | null = null;
 
   private constructor(
     private readonly cwd: string,
@@ -197,6 +199,15 @@ export class SessionManager {
     await this.writeChain;
     if (this.writeError) {
       throw this.writeError;
+    }
+  }
+
+  /** Flush pending writes and close the persistent append stream. */
+  async close(): Promise<void> {
+    try {
+      await this.flush();
+    } finally {
+      await this.closeAppendStream();
     }
   }
 
@@ -681,9 +692,36 @@ export class SessionManager {
     }
 
     this.enqueueWrite(`append:${entry.id}`, async () => {
-      if (!this.sessionFile) return;
-      await this.ensureSessionDir();
-      await appendFile(this.sessionFile, `${JSON.stringify(entry)}\n`, "utf-8");
+      if (!this.sessionFile || this.writeError) return;
+      const stream = this.getAppendStream();
+      if (!stream || stream.destroyed) return;
+      await new Promise<void>((resolve, reject) => {
+        stream.write(`${JSON.stringify(entry)}\n`, (error) => (error ? reject(error) : resolve()));
+      });
+    });
+  }
+
+  private getAppendStream(): WriteStream | null {
+    if (!this.sessionFile) return null;
+    if (!this.appendStream) {
+      const stream = createWriteStream(this.sessionFile, { flags: "a", encoding: "utf-8" });
+      stream.on("error", (error) => {
+        this.appendStream = null;
+        this.writeError = error;
+        logger.error(`[SessionManager] Append stream error ${this.sessionFile ?? "<unset>"}:`, error);
+      });
+      this.appendStream = stream;
+    }
+    return this.appendStream;
+  }
+
+  private async closeAppendStream(): Promise<void> {
+    const stream = this.appendStream;
+    if (!stream) return;
+    this.appendStream = null;
+    if (stream.destroyed) return;
+    await new Promise<void>((resolve) => {
+      stream.end(resolve);
     });
   }
 
@@ -692,6 +730,7 @@ export class SessionManager {
     this.enqueueWrite("rewrite", async () => {
       if (!this.sessionFile || !this.header) return;
       await this.ensureSessionDir();
+      await this.closeAppendStream();
       const lines = [JSON.stringify(this.header), ...this.entries.map((entry) => JSON.stringify(entry))].join("\n");
       await writeFile(this.sessionFile, `${lines}${lines ? "\n" : ""}`, "utf-8");
       this.fileReady = true;
