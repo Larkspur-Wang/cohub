@@ -320,6 +320,7 @@ async function runDirectShellCommandTurn(input: {
 
   setCurrentSessionExecutionAuth({
     sessionId: input.sessionId,
+    turnId: user.turnId,
     actorUserId: input.actorUserId,
     executionToken: input.executionToken,
     executionScopes: input.executionScopes ?? [],
