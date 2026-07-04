@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."space_sandboxes" ADD COLUMN "provider" varchar(20) DEFAULT 'cloud' NOT NULL;

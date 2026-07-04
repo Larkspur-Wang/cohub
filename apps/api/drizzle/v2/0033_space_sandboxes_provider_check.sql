@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."space_sandboxes" ADD CONSTRAINT "v2_chk_space_sandboxes_provider" CHECK ("v2"."space_sandboxes"."provider" in ('cloud', 'local'));

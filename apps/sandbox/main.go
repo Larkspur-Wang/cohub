@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,6 +54,13 @@ func (s *prepareState) GetSetup() *protocol.SandboxSetupInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.setup
+}
+
+func sandboxWSEndpoint(podIP string) string {
+	if strings.TrimSpace(podIP) == "" {
+		return ""
+	}
+	return fmt.Sprintf("ws://%s:%d/sandbox", podIP, env.DefaultSandboxWSPort)
 }
 
 func toProtocolFSChanges(changes []filewatch.Change) []protocol.FSChange {
@@ -143,6 +151,7 @@ func main() {
 		"imageVersion": cfg.ImageVersion,
 		"startedAt":    startedAt,
 		"podIp":        cfg.PodIP,
+		"wsEndpoint":   sandboxWSEndpoint(cfg.PodIP),
 	}
 	if err := reporter.Report(report.Payload{
 		Status: "provisioning",
@@ -164,6 +173,7 @@ func main() {
 					"imageVersion": cfg.ImageVersion,
 					"lastError":    err.Error(),
 					"podIp":        cfg.PodIP,
+					"wsEndpoint":   sandboxWSEndpoint(cfg.PodIP),
 				},
 			}); reportErr != nil {
 				logger.Warn("failed to report sandbox error", slog.String("error", reportErr.Error()))
@@ -205,6 +215,7 @@ func main() {
 					"platformAgentsDir": summary.PlatformAgentsDir,
 					"userAgentsDir":     cfg.UserAgentsDir,
 					"podIp":             cfg.PodIP,
+					"wsEndpoint":        sandboxWSEndpoint(cfg.PodIP),
 				},
 			}); reportErr != nil {
 				logger.Warn("failed to report sandbox ready", slog.String("error", reportErr.Error()))

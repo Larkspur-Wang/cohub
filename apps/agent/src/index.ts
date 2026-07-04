@@ -22,7 +22,7 @@ import { closeRedisConnections } from "./redis.js";
 import { logger } from "./logger.js";
 import { invalidateSandboxConnection, closeSandboxPool } from "./sandbox-pool.js";
 import { closeSandboxLifecycleEventSubscriber, subscribeSandboxLifecycleEvents } from "./sandbox-events.js";
-import { SandboxRpcError } from "./sandbox/rpc-error.js";
+import { SandboxRpcError } from "@cohub/sandbox-client";
 
 export const __test = {
   runInSessionOperation: async <T>(_handle: unknown, fn: () => Promise<T>) => fn(),

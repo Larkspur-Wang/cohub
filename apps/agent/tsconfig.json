@@ -109,6 +109,9 @@
       ],
       "@cohub/sandbox-controller": [
         "../../packages/sandbox-controller/src/index.ts"
+      ],
+      "@cohub/sandbox-client": [
+        "../../packages/sandbox-client/src/index.ts"
       ]
     }
   },

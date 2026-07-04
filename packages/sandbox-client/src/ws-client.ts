@@ -9,18 +9,17 @@ import type {
   SandboxCapabilities,
   SandboxHeartbeat,
 } from "@cohub/protocol/sandbox";
-import type { SpaceFsChange } from "@cohub/protocol/fs";
-import type { SpacePortChange } from "@cohub/protocol/ports";
+import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
+import type { SpacePortsChangedPayload } from "@cohub/protocol/ports";
 import { AGENT_SANDBOX_PROTOCOL_VERSION } from "@cohub/protocol/sandbox";
-import { env } from "../env.js";
-import { sendSpaceFsChanged, sendSpacePortsChanged } from "../redis.js";
-import { refreshUserEnv } from "../runtime/env-cache.js";
-import { logger } from "../logger.js";
+import { createLogger } from "@cohub/infra/logging";
 import {
   SANDBOX_CONNECTION_LOST_MESSAGE,
   SandboxRpcError,
   type SandboxRpcDiagnostics,
 } from "./rpc-error.js";
+
+const logger = createLogger({ serviceName: "sandbox-client" });
 
 
 const ACCEPTED_RPC_DISCONNECT_GRACE_MS = 3_000;
@@ -119,6 +118,9 @@ type PendingOperation = {
 
 type SandboxStatusHooks = {
   onHeartbeat?: (message: SandboxHeartbeat) => void | Promise<void>;
+  onAttached?: (input: { spaceId: string; sandboxId: string; connectionId: string }) => void | Promise<void>;
+  onFsChanged?: (payload: SpaceFsChangedPayload) => void | Promise<void>;
+  onPortsChanged?: (payload: SpacePortsChangedPayload) => void | Promise<void>;
   onDisconnected?: (input: { spaceId: string; reason?: string }) => void | Promise<void>;
   onConnectionError?: (input: { spaceId: string; error: Error }) => void | Promise<void>;
   onRefreshWsUrl?: (input: { spaceId: string; currentWsUrl: string; error?: Error }) => string | null | Promise<string | null>;
@@ -127,6 +129,7 @@ type SandboxStatusHooks = {
 type SandboxClientRegistration = {
   spaceId: string;
   wsUrl: string;
+  identity: string;
   started: boolean;
   connection: SandboxConnection | null;
   resolveWaiters: Array<(connection: SandboxConnection) => void>;
@@ -336,7 +339,7 @@ const registrations = new Map<string, SandboxClientRegistration>();
 
 function callHookSafely(
   spaceId: string,
-  hookName: "onHeartbeat" | "onDisconnected" | "onConnectionError",
+  hookName: "onHeartbeat" | "onAttached" | "onFsChanged" | "onPortsChanged" | "onDisconnected" | "onConnectionError",
   fn: (() => void | Promise<void>) | undefined,
 ) {
   if (!fn) return;
@@ -347,10 +350,11 @@ function callHookSafely(
     });
 }
 
-function getOrCreateRegistration(spaceId: string, wsUrl: string, hooks?: SandboxStatusHooks) {
+function getOrCreateRegistration(spaceId: string, wsUrl: string, identity: string, hooks?: SandboxStatusHooks) {
   const existing = registrations.get(spaceId);
   if (existing) {
     if (existing.wsUrl !== wsUrl) existing.wsUrl = wsUrl;
+    if (existing.identity !== identity) existing.identity = identity;
     if (hooks) existing.hooks = hooks;
     return existing;
   }
@@ -358,6 +362,7 @@ function getOrCreateRegistration(spaceId: string, wsUrl: string, hooks?: Sandbox
   const created: SandboxClientRegistration = {
     spaceId,
     wsUrl,
+    identity,
     started: false,
     connection: null,
     resolveWaiters: [],
@@ -407,10 +412,10 @@ export async function waitForSandboxConnection(spaceId: string, timeoutMs = 3000
   });
 }
 
-export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string; hooks?: SandboxStatusHooks }) {
+export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string; identity: string; hooks?: SandboxStatusHooks }) {
   const spaceId = input.spaceId;
   const wsUrl = input.wsUrl;
-  const registration = getOrCreateRegistration(spaceId, wsUrl, input.hooks);
+  const registration = getOrCreateRegistration(spaceId, wsUrl, input.identity, input.hooks);
   if (registration.started) return;
   registration.started = true;
 
@@ -565,7 +570,7 @@ async function connectOnce(registration: SandboxClientRegistration) {
               spaceId: registration.spaceId,
               sandboxId: message.sandboxId,
               timestamp: Date.now(),
-              identity: env.AGENT_INSTANCE_ID,
+              identity: registration.identity,
             }));
           }
           return;
@@ -578,11 +583,14 @@ async function connectOnce(registration: SandboxClientRegistration) {
             return;
           }
           attached = true;
-          connection = new SandboxConnection(registration.spaceId, heartbeat.sandboxId, message.identity, message.connectionId, heartbeat.capabilities, socket, registration);
+          const attachedSandboxId = heartbeat.sandboxId;
+          connection = new SandboxConnection(registration.spaceId, attachedSandboxId, message.identity, message.connectionId, heartbeat.capabilities, socket, registration);
           setActiveConnection(registration.spaceId, connection);
-          void refreshUserEnv(registration.spaceId).catch((err) => {
-            logger.warn(`[SandboxWS] Failed to refresh env for ${registration.spaceId}: ${err instanceof Error ? err.message : String(err)}`);
-          });
+          callHookSafely(registration.spaceId, "onAttached", () => registration.hooks?.onAttached?.({
+            spaceId: registration.spaceId,
+            sandboxId: attachedSandboxId,
+            connectionId: message.connectionId,
+          }));
           const setupSummary = heartbeat.metadata?.setup
             ? heartbeat.metadata.setup.ran
               ? heartbeat.metadata.setup.exitCode === 0 && !heartbeat.metadata.setup.error
@@ -594,24 +602,24 @@ async function connectOnce(registration: SandboxClientRegistration) {
           return;
         }
 
-        const typedMessage = message as AgentSandboxMessage | { type: "fs.changed"; payload: { resync: boolean; changes: SpaceFsChange[]; seq: number } } | { type: "ports.changed"; payload: { resync: boolean; ports: SpacePortChange[]; seq: number } };
+        const typedMessage = message as AgentSandboxMessage | { type: "fs.changed"; payload: { resync: boolean; changes: SpaceFsChangedPayload["changes"]; seq: number } } | { type: "ports.changed"; payload: { resync: boolean; ports: SpacePortsChangedPayload["ports"]; seq: number } };
         if (typedMessage.type === "fs.changed") {
-          void sendSpaceFsChanged(registration.spaceId, {
+          callHookSafely(registration.spaceId, "onFsChanged", () => registration.hooks?.onFsChanged?.({
             source: typedMessage.payload.resync && typedMessage.payload.changes.length === 0 ? "sandbox-watch-started" : "sandbox-inotify",
             seq: typedMessage.payload.seq,
             resync: typedMessage.payload.resync,
             changes: typedMessage.payload.changes,
-          });
+          }));
           return;
         }
 
         if (typedMessage.type === "ports.changed") {
-          void sendSpacePortsChanged(registration.spaceId, {
+          callHookSafely(registration.spaceId, "onPortsChanged", () => registration.hooks?.onPortsChanged?.({
             source: typedMessage.payload.resync && typedMessage.payload.ports.length === 0 ? "sandbox-port-watch-started" : "sandbox-port-watch",
             seq: typedMessage.payload.seq,
             resync: typedMessage.payload.resync,
             ports: typedMessage.payload.ports,
-          });
+          }));
           return;
         }
 

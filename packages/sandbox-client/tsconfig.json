@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@cohub/infra/logging": ["../infra/src/logging/index.ts"],
+      "@cohub/protocol/sandbox": ["../protocol/src/sandbox/index.ts"],
+      "@cohub/protocol/fs": ["../protocol/src/fs/index.ts"],
+      "@cohub/protocol/ports": ["../protocol/src/ports/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

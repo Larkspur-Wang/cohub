@@ -1043,6 +1043,7 @@ export class SpaceEnvApi {
 }
 
 export type SpaceSandboxRecord = {
+  provider?: "cloud" | "local";
   status: string | null;
   runtimeStatus?: string | null;
   podName?: string | null;

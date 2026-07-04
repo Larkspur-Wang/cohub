@@ -24,7 +24,7 @@ export const SANDBOX_RUNTIME_STATUSES = [
 ] as const;
 export type SandboxRuntimeStatus = (typeof SANDBOX_RUNTIME_STATUSES)[number];
 
-export const SANDBOX_STOP_REASONS = ["idle", "manual", "replaced", "cleanup"] as const;
+export const SANDBOX_STOP_REASONS = ["idle", "manual", "replaced", "cleanup", "disconnected"] as const;
 export type SandboxStopReason = (typeof SANDBOX_STOP_REASONS)[number];
 
 export type SandboxActivityReason = "rpc" | "manual" | "resume";
@@ -96,6 +96,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export function buildSandboxIdleCheckJobId(spaceId: string) {
   return `sandbox-idle-check-${spaceId}`;
+}
+
+export function isLocalSandboxProvider(provider: string | null | undefined) {
+  return provider === "local";
 }
 
 export function isSandboxUsableStatus(status: string | null | undefined) {
@@ -292,6 +296,11 @@ export function createSandboxLifecycleController(input: {
 
   async function ensureRunning(input: { spaceId: string; reason: SandboxResumeReason }) {
     const sandbox = await getSandbox(input.spaceId);
+    if (sandbox && isLocalSandboxProvider(sandbox.provider)) {
+      // Local sandboxes are provided by the user's machine; they cannot be
+      // resumed server-side. Usable only while the local runner is connected.
+      return { ok: isSandboxUsableStatus(sandbox.status), status: sandbox.status, resumed: false, local: true };
+    }
     if (sandbox && isSandboxUsableStatus(sandbox.status)) return { ok: true as const, status: sandbox.status, resumed: false };
     if (sandbox?.status === "provisioning") return { ok: true as const, status: sandbox.status, resumed: false, provisioning: true };
     if (sandbox?.status === "terminated") return { ok: false as const, status: sandbox.status, resumed: false, message: "sandbox is terminated" };
@@ -357,6 +366,7 @@ export function createSandboxLifecycleController(input: {
     const [space, sandbox] = await Promise.all([getSpace(input.spaceId), getSandbox(input.spaceId)]);
     if (!space) return { ok: false as const, skipped: true, reason: "space_not_found" };
     if (!sandbox) return { ok: true as const, skipped: true, reason: "sandbox_not_found" };
+    if (isLocalSandboxProvider(sandbox.provider)) return { ok: true as const, skipped: true, reason: "local_provider" };
     if (!isSandboxUsableStatus(sandbox.status)) return { ok: true as const, skipped: true, reason: "not_usable" };
 
     const policy = resolveSpaceSandboxAutoDestroyPolicy(space.meta);
@@ -408,6 +418,7 @@ export function createSandboxLifecycleController(input: {
       .innerJoin(spaces, eq(spaceSandboxes.spaceId, spaces.id))
       .where(sql`
         ${spaceSandboxes.status} in ('ready', 'running')
+        and ${spaceSandboxes.provider} <> 'local'
         and coalesce(${spaces.meta}->'config'->'sandbox'->'autoDestroy'->>'mode', 'idle') <> 'never'
         and coalesce(${spaceSandboxes.lastActivityAt}, ${spaceSandboxes.lastHeartbeatAt}, ${spaceSandboxes.createdAt}) is not null
         and coalesce(${spaceSandboxes.lastActivityAt}, ${spaceSandboxes.lastHeartbeatAt}, ${spaceSandboxes.createdAt})
@@ -424,6 +435,7 @@ export function createSandboxLifecycleController(input: {
       .from(spaceSandboxes)
       .where(sql`
         ${spaceSandboxes.status} in ('stopping', 'error')
+        and ${spaceSandboxes.provider} <> 'local'
         and ${spaceSandboxes.podName} is not null
         and coalesce(${spaceSandboxes.updatedAt}, ${spaceSandboxes.createdAt}) <= ${staleBefore.toISOString()}::timestamptz
       `)

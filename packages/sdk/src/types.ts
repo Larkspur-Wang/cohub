@@ -590,7 +590,10 @@ export type SpaceSandboxAutoDestroyPolicy =
   | { mode: "idle"; ttlSeconds: number }
   | { mode: "never" };
 
+export type SpaceSandboxProvider = "cloud" | "local";
+
 export type SpaceSandboxConfig = {
+  provider?: SpaceSandboxProvider;
   autoDestroy: SpaceSandboxAutoDestroyPolicy;
 };
 
@@ -642,6 +645,7 @@ export type SpaceBootstrapSource =
 
 export type SpaceConfigInput = {
   sandbox?: {
+    provider?: SpaceSandboxProvider;
     autoDestroy?: SpaceSandboxAutoDestroyPolicy;
   };
 };

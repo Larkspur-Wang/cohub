@@ -51,6 +51,9 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@cohub/sandbox-client':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-client
       '@cohub/sandbox-controller':
         specifier: workspace:*
         version: link:../../packages/sandbox-controller
@@ -744,6 +747,28 @@ importers:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260527.2
         version: 7.0.0-dev.20260527.2
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
+  packages/sandbox-client:
+    dependencies:
+      '@cohub/infra':
+        specifier: workspace:*
+        version: link:../infra
+      '@cohub/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      ws:
+        specifier: ^8.21.0
+        version: 8.21.0
+    devDependencies:
+      '@types/node':
+        specifier: 25.9.1
+        version: 25.9.1
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

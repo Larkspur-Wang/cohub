@@ -94,6 +94,7 @@ export const getSpaceSandboxBySpaceId = async (spaceId: string) => {
 
 export const ensureSpaceSandbox = async (input: {
   spaceId: string;
+  provider?: "cloud" | "local";
   status?: SpaceSandboxStatus;
   runtimeStatus?: SpaceSandboxRuntimeStatus;
   podName?: string | null;
@@ -109,6 +110,7 @@ export const ensureSpaceSandbox = async (input: {
     .insert(spaceSandboxes)
     .values({
       spaceId: input.spaceId,
+      provider: input.provider ?? "cloud",
       status: input.status ?? "pending",
       runtimeStatus: input.runtimeStatus ?? "unknown",
       podName: input.podName ?? null,
@@ -123,6 +125,7 @@ export const ensureSpaceSandbox = async (input: {
     .onConflictDoUpdate({
       target: spaceSandboxes.spaceId,
       set: {
+        ...(input.provider !== undefined ? { provider: input.provider } : {}),
         status: input.status ?? "pending",
         runtimeStatus: input.runtimeStatus ?? "unknown",
         podName: input.podName ?? null,
@@ -478,6 +481,17 @@ export const recoverSpaceSandbox = async (input: {
   source?: string;
   verify?: boolean;
 }) => {
+  const existing = await getSpaceSandboxBySpaceId(input.spaceId);
+  if (existing?.provider === "local") {
+    // Local sandboxes live on the user's machine; there is nothing to recover
+    // server-side. Report current status without attempting a cloud recreate.
+    return {
+      ok: existing.status === "ready" || existing.status === "running",
+      status: existing.status,
+      verified: false,
+      local: true,
+    };
+  }
   const lockKey = `sandbox:recover:${input.spaceId}`;
   const cooldownKey = `sandbox:recover:cooldown:${input.spaceId}`;
   const locked = await redisCommandClient.set(lockKey, `${process.pid}:${Date.now()}`, "PX", RECOVERY_LOCK_TTL_MS, "NX");

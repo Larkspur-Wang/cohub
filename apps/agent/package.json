@@ -21,6 +21,7 @@
     "@cohub/db": "workspace:*",
     "@cohub/infra": "workspace:*",
     "@cohub/protocol": "workspace:*",
+    "@cohub/sandbox-client": "workspace:*",
     "@cohub/sandbox-controller": "workspace:*",
     "@earendil-works/pi-agent-core": "0.79.8",
     "@earendil-works/pi-ai": "0.79.8",

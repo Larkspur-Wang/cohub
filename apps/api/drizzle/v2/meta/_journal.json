@@ -225,6 +225,20 @@
       "when": 1782751873177,
       "tag": "0031_dear_shadowcat",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783101264958,
+      "tag": "0032_space_sandboxes_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783123985629,
+      "tag": "0033_space_sandboxes_provider_check",
+      "breakpoints": true
     }
   ]
 }

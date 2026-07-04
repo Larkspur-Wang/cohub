@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const { classifySandboxInfrastructureError } = await import("../sandbox/infra-error.js");
+const { classifySandboxInfrastructureError } = await import("@cohub/sandbox-client");
 
 assert.equal(
   classifySandboxInfrastructureError("stat /workspace/node_modules/lucide-svelte/dist/icons: no such file or directory"),

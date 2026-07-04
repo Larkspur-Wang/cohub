@@ -170,6 +170,7 @@ export const spaceSandboxes = v2.table(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     spaceId: uuid("space_id").notNull(),
+    provider: varchar("provider", { length: 20 }).notNull().default("cloud"),
     status: varchar("status", { length: 30 }).notNull().default("pending"),
     runtimeStatus: varchar("runtime_status", { length: 30 }).notNull().default("unknown"),
     podName: varchar("pod_name", { length: 255 }),
@@ -193,6 +194,10 @@ export const spaceSandboxes = v2.table(
     activityIdx: index("v2_idx_space_sandboxes_last_activity_at").on(table.lastActivityAt),
     runtimeStatusIdx: index("v2_idx_space_sandboxes_runtime_status").on(table.runtimeStatus),
     stoppedAtIdx: index("v2_idx_space_sandboxes_stopped_at").on(table.stoppedAt),
+    providerCheck: check(
+      "v2_chk_space_sandboxes_provider",
+      sql`${table.provider} in ('cloud', 'local')`,
+    ),
   }),
 );
 

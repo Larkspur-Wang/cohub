@@ -60,18 +60,18 @@ import {
   createSpaceAwareReadTool,
 } from "../runtime/tools/space-aware-query-tools.js";
 import { getUserEnvForProcess } from "../runtime/env-cache.js";
-import { type SandboxConnection, disconnectSandboxWsClient } from "./ws-client.js";
+import { type SandboxConnection, disconnectSandboxWsClient } from "@cohub/sandbox-client";
 import {
   getSandboxRpcFailurePresentation,
   isSandboxRpcError,
   SANDBOX_NOT_READY_MESSAGE,
   SandboxRpcError,
   type SandboxRpcDiagnostics,
-} from "./rpc-error.js";
+} from "@cohub/sandbox-client";
 
 import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
 import { recoverSpaceSandbox } from "../api.js";
-import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "./infra-error.js";
+import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "@cohub/sandbox-client";
 import { logger } from "../logger.js";
 import { registerActiveAbortHandle } from "../active-turns.js";
 import { db } from "../db.js";

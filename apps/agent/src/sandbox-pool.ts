@@ -2,16 +2,19 @@ import { createLogger } from "@cohub/infra/logging";
 import { createHash } from "node:crypto";
 import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
 import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
-import { getSpaceSandbox, recoverSpaceSandbox } from "./api.js";
-import { db } from "./db.js";
-import { updateSpaceRuntime } from "./ownership.js";
 import {
   disconnectSandboxWsClient,
   hasPendingSandboxRequests,
   startSandboxWsClient,
   type SandboxConnection,
   waitForSandboxConnection,
-} from "./sandbox/ws-client.js";
+} from "@cohub/sandbox-client";
+import { getSpaceSandbox, recoverSpaceSandbox } from "./api.js";
+import { db } from "./db.js";
+import { env } from "./env.js";
+import { updateSpaceRuntime } from "./ownership.js";
+import { sendSpaceFsChanged, sendSpacePortsChanged } from "./redis.js";
+import { refreshUserEnv } from "./runtime/env-cache.js";
 
 
 const logger = createLogger({ serviceName: "cohub-agent" });
@@ -108,14 +111,51 @@ async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   if (sandbox?.status === "stopped" || sandbox?.status === "error" || sandbox?.status === "terminated") {
     await recoverSandboxOnce(spaceId, sandbox.status === "error" ? "auto_recover" : "auto_resume");
     const resumed = (await getSpaceSandbox({ spaceId }))?.sandbox;
-    const resumedMeta = (resumed?.meta as Record<string, unknown> | null) ?? null;
-    const resumedPodIp = typeof resumedMeta?.podIp === "string" ? resumedMeta.podIp.trim() : "";
-    if (resumedPodIp) return `ws://${resumedPodIp}:8788/sandbox`;
+    const resumedEndpoint = resolveSandboxWsEndpoint(resumed?.meta);
+    if (resumedEndpoint) return resumedEndpoint;
   }
-  const meta = (sandbox?.meta as Record<string, unknown> | null) ?? null;
-  const podIp = typeof meta?.podIp === "string" ? meta.podIp.trim() : "";
-  if (!podIp) throw new Error(`sandbox is not ready for requests yet: missing podIp for ${spaceId}`);
-  return `ws://${podIp}:8788/sandbox`;
+  const endpoint = resolveSandboxWsEndpoint(sandbox?.meta);
+  if (!endpoint) throw new Error(`sandbox is not ready for requests yet: missing endpoint for ${spaceId}`);
+  return endpoint;
+}
+
+/**
+ * Resolve the sandbox websocket endpoint from persisted meta. Prefers an
+ * explicit `wsEndpoint` (reported by the sandbox / relay) and falls back to the
+ * legacy `podIp` form for sandboxes that have not yet reported an endpoint.
+ */
+function resolveSandboxWsEndpoint(meta: unknown): string | null {
+  const record = (meta as Record<string, unknown> | null) ?? null;
+  const wsEndpoint = typeof record?.wsEndpoint === "string" ? record.wsEndpoint.trim() : "";
+  if (wsEndpoint) return validateSandboxWsEndpoint(wsEndpoint);
+  const podIp = typeof record?.podIp === "string" ? record.podIp.trim() : "";
+  if (podIp) return validateSandboxWsEndpoint(`ws://${podIp}:8788/sandbox`);
+  return null;
+}
+
+/**
+ * Guard against tainted meta pointing the agent at an arbitrary address.
+ * Only ws:// and wss:// with a real host are accepted. Per-provider host
+ * allowlisting (pod CIDR for cloud, relay domain for local) will be added
+ * alongside the relay in a later milestone.
+ */
+function validateSandboxWsEndpoint(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    logger.warn(`[SandboxPool] rejecting malformed wsEndpoint: ${value}`);
+    return null;
+  }
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    logger.warn(`[SandboxPool] rejecting wsEndpoint with unsupported scheme: ${url.protocol}`);
+    return null;
+  }
+  if (!url.hostname) {
+    logger.warn(`[SandboxPool] rejecting wsEndpoint with empty host: ${value}`);
+    return null;
+  }
+  return url.toString();
 }
 
 function resolveSandboxWsUrlOnce(spaceId: string) {
@@ -178,8 +218,20 @@ export async function ensureSandboxConnection(spaceId: string, options?: { timeo
   await startSandboxWsClient({
     spaceId,
     wsUrl,
+    identity: env.AGENT_INSTANCE_ID,
     hooks: {
       onHeartbeat: (message) => syncSandboxHeartbeat(spaceId, message),
+      onAttached: () => {
+        void refreshUserEnv(spaceId).catch((err) => {
+          logger.warn(`[SandboxPool] Failed to refresh env for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      },
+      onFsChanged: (payload) => {
+        void sendSpaceFsChanged(spaceId, payload);
+      },
+      onPortsChanged: (payload) => {
+        void sendSpacePortsChanged(spaceId, payload);
+      },
       onDisconnected: ({ reason }) => syncSandboxConnectionState({
         spaceId,
         status: "provisioning",

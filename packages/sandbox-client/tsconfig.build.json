@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": false,
+    "outDir": "dist",
+    "types": ["node"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "paths": {
+      "@cohub/infra/logging": ["../infra/dist/logging/index.d.ts"],
+      "@cohub/protocol/sandbox": ["../protocol/dist/sandbox/index.d.ts"],
+      "@cohub/protocol/fs": ["../protocol/dist/fs/index.d.ts"],
+      "@cohub/protocol/ports": ["../protocol/dist/ports/index.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

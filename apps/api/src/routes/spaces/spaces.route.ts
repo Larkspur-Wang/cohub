@@ -22,7 +22,7 @@ import { useAuth, getOptionalAuth, getWorkSessionPrincipal, requireValidId, buil
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
-import { getSpaceSandboxBySpaceId, recoverSpaceSandbox, reconcileSpaceSandbox } from "../../space-sandboxes.js";
+import { ensureSpaceSandbox, getSpaceSandboxBySpaceId, recoverSpaceSandbox, reconcileSpaceSandbox } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -263,8 +263,11 @@ type SpaceSandboxAutoDestroyPolicy =
   | { mode: "idle"; ttlSeconds: number }
   | { mode: "never" };
 
+type SpaceSandboxProvider = "cloud" | "local";
+
 type SpaceConfigInput = {
   sandbox?: {
+    provider?: SpaceSandboxProvider;
     autoDestroy?: SpaceSandboxAutoDestroyPolicy;
   };
 };
@@ -368,17 +371,35 @@ const getSpaceSandboxAutoDestroyPolicy = (space: typeof spaces.$inferSelect) => 
   }
 };
 
+const normalizeSpaceSandboxProvider = (value: unknown): SpaceSandboxProvider => {
+  if (value === "local") return "local";
+  if (value === undefined || value === null || value === "cloud") return "cloud";
+  throw new Error("sandbox.provider must be 'cloud' or 'local'");
+};
+
+const getSpaceSandboxProvider = (space: typeof spaces.$inferSelect): SpaceSandboxProvider => {
+  const { config } = readSpaceConfig(space);
+  const sandbox = isRecord(config.sandbox) ? config.sandbox : {};
+  return sandbox.provider === "local" ? "local" : "cloud";
+};
+
 const normalizeSpaceConfigInput = (input?: SpaceConfigInput | null): SpaceConfigInput => {
+  const provider = normalizeSpaceSandboxProvider(input?.sandbox?.provider);
   const policy = input?.sandbox?.autoDestroy;
-  if (!policy) return { sandbox: { autoDestroy: DEFAULT_SPACE_SANDBOX_AUTO_DESTROY } };
-  return { sandbox: { autoDestroy: normalizeSpaceSandboxAutoDestroyPolicy(policy) } };
+  return {
+    sandbox: {
+      provider,
+      autoDestroy: policy ? normalizeSpaceSandboxAutoDestroyPolicy(policy) : DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+    },
+  };
 };
 
 const mergeSpaceConfig = (space: typeof spaces.$inferSelect, patch: SpaceConfigInput) => {
   const { meta, config } = readSpaceConfig(space);
   const nextSandbox = {
     ...(isRecord(config.sandbox) ? config.sandbox : {}),
-    ...(patch.sandbox ? { autoDestroy: patch.sandbox.autoDestroy } : {}),
+    ...(patch.sandbox?.provider ? { provider: patch.sandbox.provider } : {}),
+    ...(patch.sandbox?.autoDestroy ? { autoDestroy: patch.sandbox.autoDestroy } : {}),
   };
   const nextConfig = {
     ...config,
@@ -702,6 +723,7 @@ router.post("/", async (c) => {
               ...(isRecord(body.meta?.config) ? body.meta.config : {}),
               sandbox: {
                 ...((isRecord(body.meta?.config) && isRecord((body.meta.config as Record<string, unknown>).sandbox) ? (body.meta.config as Record<string, unknown>).sandbox : {}) as Record<string, unknown>),
+                provider: normalizedConfig.sandbox?.provider ?? "cloud",
                 autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
               },
             },
@@ -779,18 +801,37 @@ router.post("/", async (c) => {
     void bindSpaceChannelsToGateway(space.id).catch((error) => logger.error("[SpaceChannels] failed to bind channels after space creation", { spaceId: space.id, error }));
   }
 
-  void scheduleSandboxAutoDestroy({
-    spaceId: space.id,
-    policy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
-    baseAt: space.createdAt ? new Date(space.createdAt) : new Date(),
-  }).catch((error) => logger.error("[SandboxAutoDestroy] failed to schedule policy after space creation", { spaceId: space.id, error }));
-  void reconcileSpaceSandbox(
-    {
-      ...getSpaceProvisionParams(user, space),
-      mode: "ensure",
-      reason: "space_created",
-    },
-  ).catch((error) => logger.error("[SandboxPublicNetwork] failed to reconcile after space creation", { spaceId: space.id, error }));
+  if ((normalizedConfig.sandbox?.provider ?? "cloud") === "local") {
+    // Local sandboxes are provided by the user's machine via the gateway relay.
+    // Skip cloud pod provisioning and idle auto-destroy; register the row before
+    // enqueuing bootstrap so the worker never races ahead of a missing sandbox.
+    try {
+      await ensureSpaceSandbox({
+        spaceId: space.id,
+        provider: "local",
+        status: "stopped",
+        runtimeStatus: "unknown",
+        stopReason: "disconnected",
+        stoppedAt: new Date(),
+      });
+    } catch (error) {
+      logger.error("[LocalSandbox] failed to register local sandbox after space creation", { spaceId: space.id, error });
+      return c.json({ message: "failed to register local sandbox" }, 500);
+    }
+  } else {
+    void scheduleSandboxAutoDestroy({
+      spaceId: space.id,
+      policy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+      baseAt: space.createdAt ? new Date(space.createdAt) : new Date(),
+    }).catch((error) => logger.error("[SandboxAutoDestroy] failed to schedule policy after space creation", { spaceId: space.id, error }));
+    void reconcileSpaceSandbox(
+      {
+        ...getSpaceProvisionParams(user, space),
+        mode: "ensure",
+        reason: "space_created",
+      },
+    ).catch((error) => logger.error("[SandboxPublicNetwork] failed to reconcile after space creation", { spaceId: space.id, error }));
+  }
 
   const taskData: Record<string, unknown> = { source: normalizedBootstrapSource };
   // TODO: gitToken is stored in taskData (BullMQ Redis + DB task_runs).
@@ -1451,6 +1492,7 @@ router.get("/:id/config", async (c) => {
   return c.json({
     config: {
       sandbox: {
+        provider: getSpaceSandboxProvider(space),
         autoDestroy: getSpaceSandboxAutoDestroyPolicy(space),
       },
     },
