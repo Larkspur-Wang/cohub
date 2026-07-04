@@ -10,23 +10,10 @@
     <link rel="apple-touch-icon" href="/pwa/icon-192x192.png" />
     <script>
       (() => {
-        var reservedPublicRoots = new Set([
-          'callback',
-          'explore',
-          'invite',
-          'pricing',
-          'settings',
-          'spaces',
-          'trending'
-        ]);
         var segments = location.pathname.split('/').filter(Boolean);
-        var isShortcutUrl =
-          (segments.length === 4 && segments[2] === 'w') ||
-          (segments.length === 4 && segments[0] === 'spaces' && segments[2] === 'works') ||
-          (segments[0] === 'spaces' && segments.length >= 2 && segments[1] !== 'new') ||
-          (segments.length === 2 && !reservedPublicRoots.has(segments[0]));
-        var href = isShortcutUrl
-          ? `/shortcut.webmanifest?start_url=${encodeURIComponent(location.pathname)}`
+        var isPublicWorkUrl = segments.length === 4 && segments[2] === 'w';
+        var href = isPublicWorkUrl
+          ? `/work.webmanifest?start_url=${encodeURIComponent(location.pathname)}`
           : '/manifest.webmanifest';
         document.write(`<link rel="manifest" href="${href}" />`);
       })();
