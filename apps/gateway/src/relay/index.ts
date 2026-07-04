@@ -1,0 +1,244 @@
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import type { WebSocket } from "ws";
+import { createLogger } from "@cohub/infra/logging";
+import { gatewayConfig } from "../config.js";
+import { authorizeLocalSandbox, reportLocalSandboxStatus } from "../api-client.js";
+
+const logger = createLogger({ serviceName: "cohub-gateway" });
+
+// A local sandbox runner's control connection. One per space (last writer wins;
+// a new registration replaces the previous one). The gateway asks it, over this
+// socket, to open data channels that get transparently piped to cloud peers.
+type RegisteredRunner = {
+  spaceId: string;
+  socket: WebSocket;
+  tokenHash: string;
+  connectedAt: number;
+};
+
+// A cloud peer (agent, worker…) waiting for its data channel to be paired with
+// the freshly dialed runner data connection.
+type PendingPeer = {
+  channelId: string;
+  spaceId: string;
+  peerSocket: WebSocket;
+  createdAt: number;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+const CONTROL_MAX_MESSAGE_BYTES = 64 * 1024;
+const DATA_PAIR_TIMEOUT_MS = 15_000;
+
+const runnersBySpace = new Map<string, RegisteredRunner>();
+const pendingPeers = new Map<string, PendingPeer>();
+
+const hashToken = (token: string) => createHash("sha256").update(token).digest();
+
+const sameHash = (a: Buffer, b: Buffer) => a.length === b.length && timingSafeEqual(a, b);
+
+const parseBearer = (request: IncomingMessage): string | null => {
+  const header = request.headers.authorization;
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1]?.trim() || null;
+};
+
+const getQueryParam = (request: IncomingMessage, key: string): string | null => {
+  const url = request.url ? new URL(request.url, "http://localhost") : null;
+  return url?.searchParams.get(key)?.trim() || null;
+};
+
+const closeSocket = (socket: WebSocket, code: number, reason: string) => {
+  try {
+    socket.close(code, reason);
+  } catch {
+    // ignore
+  }
+};
+
+const buildRelayWsEndpoint = (spaceId: string) =>
+  `ws://${gatewayConfig.podIp}:${gatewayConfig.port}/internal/sandbox-relay/${spaceId}`;
+
+// ── Control channel (local runner ⇒ gateway) ───────────────────────────────
+
+export async function handleRelayControlConnection(socket: WebSocket, request: IncomingMessage) {
+  const token = parseBearer(request);
+  if (!token) {
+    closeSocket(socket, 4401, "unauthorized");
+    return;
+  }
+
+  let runner: RegisteredRunner | null = null;
+
+  socket.on("message", async (data) => {
+    if (Buffer.byteLength(data as Buffer) > CONTROL_MAX_MESSAGE_BYTES) {
+      closeSocket(socket, 4400, "message too large");
+      return;
+    }
+    let frame: { type?: string; spaceId?: string };
+    try {
+      frame = JSON.parse(data.toString());
+    } catch {
+      return;
+    }
+
+    if (frame.type === "register") {
+      const spaceId = typeof frame.spaceId === "string" ? frame.spaceId.trim() : "";
+      if (!spaceId) {
+        socket.send(JSON.stringify({ type: "error", message: "spaceId is required" }));
+        closeSocket(socket, 4400, "spaceId is required");
+        return;
+      }
+      const auth = await authorizeLocalSandbox({ authToken: token, spaceId }).catch((error) => {
+        logger.error("[Relay] authorize failed", { spaceId, error });
+        return { ok: false as const, status: 500, message: "authorization failed" };
+      });
+      if (!auth.ok) {
+        socket.send(JSON.stringify({ type: "error", message: auth.message }));
+        closeSocket(socket, 4403, "forbidden");
+        return;
+      }
+
+      // Replace any existing runner for this space (last writer wins).
+      const previous = runnersBySpace.get(spaceId);
+      if (previous && previous.socket !== socket) {
+        closeSocket(previous.socket, 4409, "replaced by new runner");
+      }
+      runner = { spaceId, socket, tokenHash: hashToken(token).toString("base64"), connectedAt: Date.now() };
+      runnersBySpace.set(spaceId, runner);
+      socket.send(JSON.stringify({ type: "registered" }));
+      logger.info("[Relay] local sandbox registered", { spaceId });
+
+      await reportLocalSandboxStatus({
+        spaceId,
+        status: "ready",
+        wsEndpoint: buildRelayWsEndpoint(spaceId),
+        hostname: gatewayConfig.nodeId,
+        gatewayNodeId: gatewayConfig.nodeId,
+      }).catch((error) => logger.warn("[Relay] failed to report ready", { spaceId, error }));
+      return;
+    }
+
+    if (frame.type === "ping") {
+      socket.send(JSON.stringify({ type: "pong" }));
+      return;
+    }
+    // "pong" and unknown frames are ignored.
+  });
+
+  const cleanup = async () => {
+    if (!runner) return;
+    const spaceId = runner.spaceId;
+    // Only clear if this socket is still the active runner for the space.
+    if (runnersBySpace.get(spaceId)?.socket === socket) {
+      runnersBySpace.delete(spaceId);
+      logger.info("[Relay] local sandbox disconnected", { spaceId });
+      await reportLocalSandboxStatus({ spaceId, status: "stopped" }).catch((error) =>
+        logger.warn("[Relay] failed to report stopped", { spaceId, error }),
+      );
+    }
+    runner = null;
+  };
+
+  socket.on("close", () => void cleanup());
+  socket.on("error", () => void cleanup());
+}
+
+// ── Agent side (cloud peer ⇒ gateway) ───────────────────────────────────────
+// A cloud peer connects to /internal/sandbox-relay/:spaceId. The gateway asks
+// the registered runner to dial a fresh data channel, then pipes the two raw.
+
+export function handleRelayPeerConnection(socket: WebSocket, request: IncomingMessage, spaceId: string) {
+  // The peer route shares the public port with /ws, so it must be authenticated.
+  // Only cloud services holding the shared worker secret may attach.
+  const secret = request.headers["x-worker-secret"];
+  if (!gatewayConfig.workerSecret || secret !== gatewayConfig.workerSecret) {
+    closeSocket(socket, 4401, "unauthorized");
+    return;
+  }
+  const runner = runnersBySpace.get(spaceId);
+  if (!runner) {
+    closeSocket(socket, 4404, "local sandbox not connected");
+    return;
+  }
+
+  const channelId = randomUUID();
+  const timer = setTimeout(() => {
+    if (pendingPeers.delete(channelId)) {
+      logger.warn("[Relay] data channel pairing timed out", { spaceId, channelId });
+      closeSocket(socket, 4408, "pairing timed out");
+    }
+  }, DATA_PAIR_TIMEOUT_MS);
+
+  pendingPeers.set(channelId, { channelId, spaceId, peerSocket: socket, createdAt: Date.now(), timer });
+  socket.on("close", () => {
+    const pending = pendingPeers.get(channelId);
+    if (pending) {
+      clearTimeout(pending.timer);
+      pendingPeers.delete(channelId);
+    }
+  });
+
+  try {
+    runner.socket.send(JSON.stringify({ type: "open", channel: channelId }));
+  } catch (error) {
+    clearTimeout(timer);
+    pendingPeers.delete(channelId);
+    logger.warn("[Relay] failed to ask runner to open channel", { spaceId, channelId, error });
+    closeSocket(socket, 4503, "runner unavailable");
+  }
+}
+
+// ── Data channel (runner dial-out ⇒ gateway) ────────────────────────────────
+// The runner dials /sandbox/relay/data?channel=<id>. We pair it with the
+// waiting peer and pipe frames transparently in both directions.
+
+export function handleRelayDataConnection(runnerSocket: WebSocket, request: IncomingMessage) {
+  const channelId = getQueryParam(request, "channel");
+  if (!channelId) {
+    closeSocket(runnerSocket, 4400, "channel is required");
+    return;
+  }
+  const pending = pendingPeers.get(channelId);
+  if (!pending) {
+    closeSocket(runnerSocket, 4404, "unknown or expired channel");
+    return;
+  }
+  // Second factor beyond the unguessable channel id: the data connection must
+  // carry the same runner token as the registered control connection for this
+  // space, so a leaked channel id alone cannot hijack the pairing.
+  const token = parseBearer(request);
+  const runner = runnersBySpace.get(pending.spaceId);
+  if (!token || !runner || !sameHash(hashToken(token), Buffer.from(runner.tokenHash, "base64"))) {
+    closeSocket(runnerSocket, 4401, "unauthorized data channel");
+    return;
+  }
+  clearTimeout(pending.timer);
+  pendingPeers.delete(channelId);
+  pipe(pending.spaceId, channelId, pending.peerSocket, runnerSocket);
+}
+
+// pipe wires two sockets together with transparent frame forwarding. The
+// gateway does not parse the agent-sandbox protocol; it only relays bytes.
+function pipe(spaceId: string, channelId: string, peer: WebSocket, runner: WebSocket) {
+  logger.info("[Relay] data channel paired", { spaceId, channelId });
+
+  const forward = (from: WebSocket, to: WebSocket) => {
+    from.on("message", (data, isBinary) => {
+      if (to.readyState !== to.OPEN) return;
+      to.send(data, { binary: isBinary });
+    });
+  };
+  forward(peer, runner);
+  forward(runner, peer);
+
+  const teardown = (reason: string) => {
+    closeSocket(peer, 1000, reason);
+    closeSocket(runner, 1000, reason);
+  };
+  peer.on("close", () => teardown("peer closed"));
+  runner.on("close", () => teardown("runner closed"));
+  peer.on("error", () => teardown("peer error"));
+  runner.on("error", () => teardown("runner error"));
+}

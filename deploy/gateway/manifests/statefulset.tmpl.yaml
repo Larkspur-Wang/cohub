@@ -38,6 +38,10 @@ __IMAGE_PULL_SECRETS_BLOCK__
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           resources:
             requests:
               cpu: "__REQUEST_CPU__"

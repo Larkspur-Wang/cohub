@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cohub/apps/sandbox/env"
@@ -14,6 +17,7 @@ import (
 	"github.com/cohub/apps/sandbox/portwatch"
 	"github.com/cohub/apps/sandbox/process"
 	"github.com/cohub/apps/sandbox/protocol"
+	"github.com/cohub/apps/sandbox/relay"
 	"github.com/cohub/apps/sandbox/report"
 	"github.com/cohub/apps/sandbox/rpc"
 	"github.com/cohub/apps/sandbox/workspace"
@@ -93,6 +97,10 @@ func toProtocolPortChanges(changes []portwatch.Change) []protocol.PortChange {
 
 func main() {
 	showVersion := flag.Bool("version", false, "print sandbox version and exit")
+	localMode := flag.Bool("local", false, "run in local dial-out mode (connect to the gateway relay)")
+	localRoot := flag.String("root", "", "local mode: workspace directory to expose")
+	localSpace := flag.String("space", "", "local mode: target space id")
+	localRelay := flag.String("relay", "", "local mode: gateway relay control url (wss://…/sandbox/relay)")
 	flag.Parse()
 	if *showVersion {
 		version := os.Getenv("IMAGE_VERSION")
@@ -105,21 +113,28 @@ func main() {
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
+	if *localMode {
+		runLocal(logger, *localSpace, *localRoot, *localRelay)
+		return
+	}
+
 	cfg, err := env.Load()
 	if err != nil {
 		logger.Error("failed to load env", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+	runCloud(logger, cfg)
+}
 
-	state := &prepareState{status: "preparing"}
-	startedAt := time.Now().UTC().Format(time.RFC3339)
-	hostname, _ := os.Hostname()
-	reporter := report.NewClient(cfg, hostname)
-
+// buildRuntime wires the shared sandbox runtime (process manager, dispatcher, ws
+// server) and starts the file/port watchers. The returned cleanup closes the
+// watchers. It is used by both cloud (listen) and local (dial-out) modes.
+func buildRuntime(logger *slog.Logger, cfg env.Config, state *prepareState, reporter *report.Client, hostname string) (*ws.Server, func()) {
 	processManager := process.NewManager(logger)
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
 	server := ws.NewServer(cfg, dispatcher, processManager, reporter, state, hostname, logger)
 
+	var closers []func()
 	if watcher, err := filewatch.Start(cfg.WorkspaceDir, logger, func(batch filewatch.Batch) {
 		server.BroadcastFSChanged(protocol.FSChangedPayload{
 			Seq:     batch.Seq,
@@ -129,7 +144,7 @@ func main() {
 	}); err != nil {
 		logger.Warn("file watcher disabled", slog.String("error", err.Error()))
 	} else {
-		defer watcher.Close()
+		closers = append(closers, func() { watcher.Close() })
 		logger.Info("file watcher started", slog.String("workspaceDir", cfg.WorkspaceDir))
 	}
 
@@ -142,9 +157,25 @@ func main() {
 	}); err != nil {
 		logger.Warn("port watcher disabled", slog.String("error", err.Error()))
 	} else {
-		defer watcher.Close()
+		closers = append(closers, func() { watcher.Close() })
 		logger.Info("port watcher started", slog.Any("ports", cfg.PublicPorts))
 	}
+
+	return server, func() {
+		for _, close := range closers {
+			close()
+		}
+	}
+}
+
+func runCloud(logger *slog.Logger, cfg env.Config) {
+	state := &prepareState{status: "preparing"}
+	startedAt := time.Now().UTC().Format(time.RFC3339)
+	hostname, _ := os.Hostname()
+	reporter := report.NewClient(cfg, hostname)
+
+	server, closeWatchers := buildRuntime(logger, cfg, state, reporter, hostname)
+	defer closeWatchers()
 
 	initialMeta := map[string]interface{}{
 		"hostname":     hostname,
@@ -227,4 +258,47 @@ func main() {
 		logger.Error("sandbox exited", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
+}
+
+// runLocal connects the sandbox to the gateway relay in dial-out mode. There is
+// no reporter (the gateway owns status reporting for local sandboxes) and no
+// workspace bootstrap — the user's directory is already the workspace.
+func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
+	relayToken := strings.TrimSpace(os.Getenv("COHUB_RELAY_TOKEN"))
+	// Remove the user token from the environment immediately so it can never be
+	// inherited by agent-started processes via os.Environ().
+	_ = os.Unsetenv("COHUB_RELAY_TOKEN")
+	cfg, err := env.LoadLocal(env.LocalOptions{
+		SpaceID:    spaceID,
+		RootDir:    root,
+		RelayURL:   relayURL,
+		RelayToken: relayToken,
+	})
+	if err != nil {
+		logger.Error("failed to load local config", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
+	state := &prepareState{status: "ready"}
+	hostname, _ := os.Hostname()
+	server, closeWatchers := buildRuntime(logger, cfg, state, nil, hostname)
+	defer closeWatchers()
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	logger.Info("local sandbox starting",
+		slog.String("spaceId", cfg.SpaceID),
+		slog.String("workspaceDir", cfg.WorkspaceDir),
+		slog.String("relay", cfg.RelayURL),
+	)
+
+	relay.Run(ctx, relay.Options{
+		RelayURL: cfg.RelayURL,
+		Token:    cfg.RelayToken,
+		SpaceID:  cfg.SpaceID,
+		Server:   server,
+		Logger:   logger,
+	})
+	logger.Info("local sandbox stopped")
 }

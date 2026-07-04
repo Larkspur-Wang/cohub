@@ -156,7 +156,11 @@ type processAbortParams struct {
 func (d *Dispatcher) resolvePathForRequest(request protocol.RPCRequest, rawPath string, cwd string) (resolvedSandboxPath, interface{}, bool) {
 	resolved, err := resolveSandboxPath(d.cfg, rawPath, cwd)
 	if err != nil {
-		return resolvedSandboxPath{}, d.failed(request, "", "INVALID_PATH", err.Error()), false
+		code := "INVALID_PATH"
+		if errors.Is(err, errPathOutsideRoot) {
+			code = "ACCESS_DENIED"
+		}
+		return resolvedSandboxPath{}, d.failed(request, "", code, err.Error()), false
 	}
 	return resolved, nil, true
 }

@@ -20,8 +20,18 @@ const (
 	DefaultHeartbeatSecs = 5
 )
 
+// Mode selects how the sandbox exposes itself.
+//   - ModeListen: cloud sandbox; accepts inbound websocket connections (default).
+//   - ModeLocal:  local sandbox; dials out to the gateway relay and fences all
+//     filesystem/process access inside WorkspaceDir.
+const (
+	ModeListen = "listen"
+	ModeLocal  = "local"
+)
+
 type Config struct {
 	SpaceID                        string
+	Mode                           string
 	WorkspaceDir                   string
 	PlatformAgentsDir              string
 	UserAgentsDir                  string
@@ -33,7 +43,17 @@ type Config struct {
 	PublicPorts                    []int
 	ZombieSelfHealThreshold        int
 	ZombieSelfHealConsecutiveTicks int
+
+	// Local mode only. RelayURL is the gateway control endpoint the sandbox
+	// dials out to; RelayToken is the user's access token used to authorize the
+	// space binding. Fence, when true, restricts all path access to WorkspaceDir.
+	RelayURL   string
+	RelayToken string
+	Fence      bool
 }
+
+// IsLocal reports whether the sandbox runs in local dial-out mode.
+func (c Config) IsLocal() bool { return c.Mode == ModeLocal }
 
 func Load() (Config, error) {
 	spaceID := strings.TrimSpace(os.Getenv("COHUB_SPACE_ID"))
@@ -66,6 +86,7 @@ func Load() (Config, error) {
 
 	return Config{
 		SpaceID:                        spaceID,
+		Mode:                           ModeListen,
 		WorkspaceDir:                   workspaceDir,
 		PlatformAgentsDir:              platformAgentsDir,
 		UserAgentsDir:                  userAgentsDir,
@@ -77,6 +98,71 @@ func Load() (Config, error) {
 		PublicPorts:                    parsePortsEnv("COHUB_PUBLIC_PORTS", []int{3000, 5173}),
 		ZombieSelfHealThreshold:        parseIntEnv("ZOMBIE_SELF_HEAL_THRESHOLD", 0),
 		ZombieSelfHealConsecutiveTicks: parseIntEnv("ZOMBIE_SELF_HEAL_CONSECUTIVE_TICKS", 3),
+	}, nil
+}
+
+// LocalOptions carries the flag values for local dial-out mode.
+type LocalOptions struct {
+	SpaceID    string
+	RootDir    string
+	RelayURL   string
+	RelayToken string
+}
+
+// LoadLocal builds a Config for local dial-out mode. The workspace is the
+// user-chosen directory and all access is fenced inside it. Platform/user
+// agents dirs point at a per-space cache under the user's home directory so
+// skills can be materialized later without touching the workspace.
+func LoadLocal(opts LocalOptions) (Config, error) {
+	if strings.TrimSpace(opts.SpaceID) == "" {
+		return Config{}, fmt.Errorf("space id is required")
+	}
+	if strings.TrimSpace(opts.RelayURL) == "" {
+		return Config{}, fmt.Errorf("relay url is required")
+	}
+	if strings.TrimSpace(opts.RelayToken) == "" {
+		return Config{}, fmt.Errorf("relay token is required")
+	}
+
+	rootDir := strings.TrimSpace(opts.RootDir)
+	if rootDir == "" {
+		return Config{}, fmt.Errorf("root dir is required")
+	}
+	absRoot, err := filepath.Abs(rootDir)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve root dir: %w", err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return Config{}, fmt.Errorf("root dir does not exist: %w", err)
+	}
+	info, err := os.Stat(resolvedRoot)
+	if err != nil || !info.IsDir() {
+		return Config{}, fmt.Errorf("root dir is not a directory: %s", resolvedRoot)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve home dir: %w", err)
+	}
+	cacheDir := filepath.Join(homeDir, ".cache", "cohub", "spaces", opts.SpaceID)
+
+	imageVersion := strings.TrimSpace(os.Getenv("IMAGE_VERSION"))
+	if imageVersion == "" {
+		imageVersion = "sandboxd:dev"
+	}
+
+	return Config{
+		SpaceID:           opts.SpaceID,
+		Mode:              ModeLocal,
+		WorkspaceDir:      resolvedRoot,
+		PlatformAgentsDir: filepath.Join(cacheDir, "platform-agents"),
+		UserAgentsDir:     filepath.Join(cacheDir, "user-agents"),
+		ImageVersion:      imageVersion,
+		PublicPorts:       parsePortsEnv("COHUB_PUBLIC_PORTS", []int{3000, 5173}),
+		RelayURL:          strings.TrimSpace(opts.RelayURL),
+		RelayToken:        strings.TrimSpace(opts.RelayToken),
+		Fence:             true,
 	}, nil
 }
 

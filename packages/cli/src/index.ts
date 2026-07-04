@@ -11,6 +11,7 @@ import { registerProfile } from "./commands/profile.js";
 import { registerSearch } from "./commands/search.js";
 import { registerPrompt, registerSpaces } from "./commands/spaces.js";
 import { maybeHandleRunCommand } from "./commands/run.js";
+import { registerSandbox } from "./commands/sandbox.js";
 import { registerTasks } from "./commands/tasks.js";
 import { registerWorks } from "./commands/works.js";
 import { ensureCliSelfUpdated } from "./self-update.js";
@@ -42,6 +43,7 @@ Common commands:
   cohub spaces ls
   cohub -s <space-id> prompt "Fix the failing tests"
   cohub -s <space-id> run -- git status
+  cohub sandbox up ./my-project
   cohub search "release notes"
   cohub -s <space-id> spaces sessions turns ls <session-id>
   cohub -s <space-id> spaces files ls
@@ -61,6 +63,7 @@ registerProfile(program);
 registerMe(program);
 registerPrompt(program);
 registerSpaces(program);
+registerSandbox(program);
 registerChannels(program);
 registerGenerations(program);
 registerModels(program);

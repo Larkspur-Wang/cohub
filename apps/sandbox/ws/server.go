@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -122,6 +123,14 @@ func (s *Server) handleSandbox(w http.ResponseWriter, r *http.Request) {
 	}
 	conn.SetReadLimit(wsReadLimit)
 	s.serveSession(r.Context(), conn, r.RemoteAddr)
+}
+
+// ServeDialedConn drives one protocol session over a connection the sandbox
+// itself dialed out (local mode via the gateway relay). It mirrors
+// handleSandbox for the dial-out direction and blocks until the session ends.
+func (s *Server) ServeDialedConn(ctx context.Context, conn *websocket.Conn, remote string) {
+	conn.SetReadLimit(wsReadLimit)
+	s.serveSession(ctx, conn, remote)
 }
 
 func (s *Server) broadcastAttached(message interface{}, warnMessage string) {
@@ -347,6 +356,11 @@ func (s *Server) maybeSelfHealOnZombies(zombieCount int, observedAt time.Time, a
 }
 
 func (s *Server) maybeSelfHealOnStaleMount(request protocol.RPCRequest, failed protocol.RPCFailed) {
+	// Stale-mount self-heal is a cloud (NFS-backed) concern; local sandboxes
+	// have no reporter and run on the user's real filesystem.
+	if s.reporter == nil {
+		return
+	}
 	message := strings.ToLower(failed.Error.Message)
 	if !strings.Contains(message, "stale file handle") && !strings.Contains(message, "stale nfs file handle") {
 		return

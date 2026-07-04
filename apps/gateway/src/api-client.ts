@@ -325,3 +325,54 @@ export const authorizeSessionAccess = async (input: {
     sessionId: data.session.id,
   };
 };
+
+export type LocalSandboxAuthorizeResult =
+  | { ok: true; spaceId: string; userId: string }
+  | { ok: false; status: number; message: string };
+
+// Authorize a local sandbox runner's control connection. The user's access
+// token is forwarded so the API can verify sandbox.manage on the target space.
+export const authorizeLocalSandbox = async (input: {
+  authToken: string;
+  spaceId: string;
+}): Promise<LocalSandboxAuthorizeResult> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/local-sandbox/authorize`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      authorization: `Bearer ${input.authToken}`,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify({ spaceId: input.spaceId }),
+  });
+  const data = await parseJson<{ ok?: boolean; spaceId?: string; userId?: string; message?: string }>(response);
+  if (!response.ok || !data?.ok || !data.spaceId || !data.userId) {
+    return { ok: false, status: response.status, message: data?.message ?? "authorization failed" };
+  }
+  return { ok: true, spaceId: data.spaceId, userId: data.userId };
+};
+
+// Report a local sandbox connection state transition (ready on connect,
+// stopped on disconnect). The gateway is the sole reporter for local sandboxes.
+export const reportLocalSandboxStatus = async (input: {
+  spaceId: string;
+  status: "ready" | "stopped";
+  wsEndpoint?: string | null;
+  hostname?: string | null;
+  gatewayNodeId?: string | null;
+}): Promise<void> => {
+  const response = await fetch(`${gatewayConfig.apiBaseUrl}/internal/gateway/local-sandbox/status`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-worker-secret": gatewayConfig.workerSecret,
+      ...buildTraceHeaders(),
+    },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Local sandbox status report failed ${response.status}: ${text}`);
+  }
+};

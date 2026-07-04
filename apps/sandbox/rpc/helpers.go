@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -93,7 +94,60 @@ func resolveSandboxPath(cfg env.Config, rawPath string, cwd string) (resolvedSan
 		cleaned = filepath.Clean(filepath.Join(base, candidate))
 	}
 
+	if cfg.Fence {
+		if err := ensureWithinRoot(cfg.WorkspaceDir, cleaned); err != nil {
+			return resolvedSandboxPath{}, err
+		}
+	}
+
 	return resolvedSandboxPath{path: cleaned}, nil
+}
+
+// errPathOutsideRoot is returned when a fenced sandbox receives a path that
+// would escape the workspace root, either lexically or via a symlink.
+var errPathOutsideRoot = errors.New("path escapes sandbox root")
+
+// ensureWithinRoot verifies that cleaned resolves inside root. It guards
+// against both lexical traversal (..) and symlink escape by resolving the
+// longest existing ancestor of the path through EvalSymlinks before comparing.
+// The root itself is assumed to be already symlink-resolved (see env.LoadLocal).
+func ensureWithinRoot(root, cleaned string) error {
+	root = filepath.Clean(root)
+	if cleaned == root {
+		return nil
+	}
+
+	// Resolve symlinks on the longest existing ancestor so a symlinked
+	// directory cannot be used to step outside the root. Non-existent leaf
+	// components (e.g. a file about to be written) are re-appended afterwards.
+	probe := cleaned
+	var trailing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(probe)
+		if err == nil {
+			full := resolved
+			for i := len(trailing) - 1; i >= 0; i-- {
+				full = filepath.Join(full, trailing[i])
+			}
+			if full == root || strings.HasPrefix(full, root+string(filepath.Separator)) {
+				return nil
+			}
+			return errPathOutsideRoot
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			// Reached the filesystem root without finding an existing ancestor.
+			break
+		}
+		trailing = append(trailing, filepath.Base(probe))
+		probe = parent
+	}
+
+	// No existing ancestor resolved; fall back to a lexical prefix check.
+	if cleaned == root || strings.HasPrefix(cleaned, root+string(filepath.Separator)) {
+		return nil
+	}
+	return errPathOutsideRoot
 }
 
 func isReadOnlyPath(cfg env.Config, path string) bool {

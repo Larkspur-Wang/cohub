@@ -37,6 +37,7 @@ import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
 import { handleAsrWebSocketConnection } from "./asr/session.js";
+import { handleRelayControlConnection, handleRelayDataConnection, handleRelayPeerConnection } from "./relay/index.js";
 import {
   createPubSubRedisClient,
   redisCommandClient,
@@ -689,16 +690,39 @@ async function main() {
   const server = serve({ fetch: app.fetch, port: gatewayConfig.port }) as unknown as import("node:http").Server;
   const wss = new WebSocketServer({ noServer: true });
   const asrWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  // Local sandbox relay: control (runner⇒gateway), data (runner dial-out), and
+  // peer (agent/worker⇒gateway) channels. Large payloads flow on data channels.
+  const relayControlWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  const relayDataWss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
+  const relayPeerWss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
 
   const websocketRoutes = new Map<string, WebSocketServer>([
     ["/ws", wss],
     ["/asr/ws", asrWss],
+    ["/sandbox/relay", relayControlWss],
+    ["/sandbox/relay/data", relayDataWss],
   ]);
+
+  // Match /internal/sandbox-relay/:spaceId for cloud peers.
+  const RELAY_PEER_PREFIX = "/internal/sandbox-relay/";
 
   server.on("upgrade", (request, socket, head) => {
     const pathname = request.url ? new URL(request.url, "http://localhost").pathname : "";
-    const websocketServer = websocketRoutes.get(pathname);
 
+    if (pathname.startsWith(RELAY_PEER_PREFIX)) {
+      const spaceId = decodeURIComponent(pathname.slice(RELAY_PEER_PREFIX.length)).trim();
+      if (!spaceId) {
+        socket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      relayPeerWss.handleUpgrade(request, socket, head, (websocket) => {
+        handleRelayPeerConnection(websocket, request, spaceId);
+      });
+      return;
+    }
+
+    const websocketServer = websocketRoutes.get(pathname);
     if (!websocketServer) {
       socket.write("HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
       socket.destroy();
@@ -711,6 +735,8 @@ async function main() {
   });
 
   asrWss.on("connection", handleAsrWebSocketConnection);
+  relayControlWss.on("connection", (socket, request) => void handleRelayControlConnection(socket, request));
+  relayDataWss.on("connection", (socket, request) => handleRelayDataConnection(socket, request));
 
   wss.on("connection", (socket: WebSocket) => {
     const connectionId = randomUUID();

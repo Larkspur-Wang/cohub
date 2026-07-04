@@ -24,6 +24,9 @@ var blockedInheritedEnvKeys = map[string]struct{}{
 	"SANDBOX_REPORT_TOKEN":  {},
 	"INTERNAL_API_BASE_URL": {},
 	"POD_IP":                {},
+	// Local mode: the user's access token must never leak into agent-started
+	// processes (main.go also unsets it from the environment after reading).
+	"COHUB_RELAY_TOKEN": {},
 }
 
 func sanitizeInheritedEnv(env []string) []string {

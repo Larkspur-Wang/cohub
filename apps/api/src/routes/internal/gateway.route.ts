@@ -9,6 +9,9 @@ import { Hono } from "hono";
 import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEvent } from "../../channels.js";
 import { hasPermission } from "../../permissions.js";
 import { ensureInternalRequest, getOptionalAuth, requireValidId } from "../../lib/middleware.js";
+import { getSpaceById } from "../../space-sessions.js";
+import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
+import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
 import { PublicAssetConfigError, PublicAssetValidationError, createInternalPublicAssetUploadPlan } from "../../public-asset-storage.js";
 import {
   beginSpaceUploadComplete,
@@ -134,6 +137,98 @@ router.post("/authorize-realtime-rooms", async (c) => {
   }
 
   return c.json({ ok: true, rooms: accepted, rejected });
+});
+
+// POST /internal/gateway/local-sandbox/authorize
+// Called by the gateway relay when a local sandbox runner opens its control
+// connection. Verifies the forwarded user token has sandbox.manage on the space
+// and that the space is configured for a local sandbox provider.
+router.post("/local-sandbox/authorize", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const user = getOptionalAuth(c);
+  if (!user) return c.json({ ok: false, message: "authentication is required" }, 401);
+
+  const body = await c.req.json<{ spaceId?: string }>().catch(() => null);
+  const spaceId = typeof body?.spaceId === "string" ? body.spaceId.trim() : "";
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ ok: false, message: "spaceId is required" }, 400);
+
+  const space = await getSpaceById(spaceId);
+  if (!space) return c.json({ ok: false, message: "space not found" }, 404);
+
+  const allowed = await hasPermission(user, "sandbox.manage", { spaceId }).catch((error) => {
+    logger.warn("[LocalSandbox] failed to authorize connect", { spaceId, userId: user.uuid, error });
+    return false;
+  });
+  if (!allowed) return c.json({ ok: false, message: "missing sandbox.manage permission" }, 403);
+
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+  if (sandbox?.provider !== "local") {
+    return c.json({ ok: false, message: "space is not configured for a local sandbox" }, 409);
+  }
+
+  return c.json({ ok: true, spaceId, userId: user.uuid });
+});
+
+// POST /internal/gateway/local-sandbox/status
+// Called by the gateway relay to report a local sandbox's connection state. The
+// gateway is the sole status reporter for local sandboxes: on connect it
+// publishes a ready status plus the relay wsEndpoint; on disconnect it marks the
+// sandbox stopped(disconnected).
+router.post("/local-sandbox/status", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const body = await c.req.json<{
+    spaceId?: string;
+    status?: "ready" | "stopped";
+    wsEndpoint?: string | null;
+    hostname?: string | null;
+    gatewayNodeId?: string | null;
+  }>().catch(() => null);
+  const spaceId = typeof body?.spaceId === "string" ? body.spaceId.trim() : "";
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ ok: false, message: "spaceId is required" }, 400);
+  const status = body?.status === "ready" ? "ready" : "stopped";
+
+  const sandbox = await getSpaceSandboxBySpaceId(spaceId);
+  if (sandbox?.provider !== "local") {
+    return c.json({ ok: false, message: "local sandbox not found" }, 404);
+  }
+
+  const prevMeta = (sandbox.meta as Record<string, unknown> | null) ?? {};
+  const now = new Date();
+  if (status === "ready") {
+    const wsEndpoint = typeof body?.wsEndpoint === "string" ? body.wsEndpoint.trim() : "";
+    await updateSpaceSandbox({
+      spaceId,
+      status: normalizeSandboxLifecycleStatus("ready"),
+      runtimeStatus: normalizeSandboxRuntimeStatus("ready"),
+      reportedAt: now,
+      lastHeartbeatAt: now,
+      lastActivityAt: now,
+      stoppedAt: null,
+      stopReason: null,
+      meta: {
+        ...prevMeta,
+        kind: "local",
+        wsEndpoint: wsEndpoint || null,
+        hostname: body?.hostname ?? null,
+        gatewayNodeId: body?.gatewayNodeId ?? null,
+      },
+    });
+  } else {
+    await updateSpaceSandbox({
+      spaceId,
+      status: "stopped",
+      runtimeStatus: normalizeSandboxRuntimeStatus("error"),
+      stoppedAt: now,
+      stopReason: "disconnected",
+      meta: { ...prevMeta, wsEndpoint: null },
+    });
+  }
+
+  return c.json({ ok: true });
 });
 
 router.post("/attachments/plan", async (c) => {

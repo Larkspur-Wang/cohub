@@ -9,6 +9,10 @@ export const gatewayConfig = {
   workerSecret: process.env.WORKER_SECRET ?? "",
   logtoEndpoint: resolveLogtoEndpoint({ endpoint: process.env.LOGTO_ENDPOINT, env }),
   port: Number(process.env.PORT ?? 8788),
+  // Pod IP used to build the cluster-internal relay endpoint advertised to
+  // agents for local sandboxes. Falls back to localhost for single-node dev.
+  podIp: (process.env.POD_IP ?? "127.0.0.1").trim(),
+  nodeId: process.env.POD_NAME || process.env.HOSTNAME || "unknown",
   volcAsr: {
     apiKey: process.env.VOLC_ASR_API_KEY ?? "",
     resourceId: "volc.seedasr.sauc.duration",

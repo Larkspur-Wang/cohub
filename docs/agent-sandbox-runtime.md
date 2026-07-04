@@ -15,6 +15,25 @@
   - 提供 WebSocket server 等待 agent 连接
   - 执行通用 sandbox filesystem / process primitive
 
+## Local sandbox (dial-out) 模式
+
+除云端 listen 模式外，sandbox 二进制支持 `--local` 拨出模式，让用户本机文件夹成为某个 space 的 sandbox：
+
+- `apps/sandbox --local --space <id> --root <dir> --relay wss://gateway/sandbox/relay`
+  - 复用同一套 dispatcher / process / filewatch / ws session 代码
+  - **路径围栏**：fs RPC（read/write/stat/ls/find/grep）与 process cwd 强制限制在 `--root` 内（realpath + symlink 防逃逸）
+  - **进程执行不做 OS 级隔离**：`bash` / argv 以当前用户身份运行，可访问 `--root` 之外的宿主机资源。这与"在本机运行 AI coding agent"的信任模型一致，属刻意设计；`sandbox up` 启动前有显式知情同意提示。若需强隔离，请在容器 / VM 内运行 runner
+  - relay data channel 目前仅以一次性随机 channelId（经已鉴权的 control 通道下发、15s 过期、单次配对）绑定；后续可加 per-channel HMAC
+  - 通过 `COHUB_RELAY_TOKEN`（用户 access token）向 gateway 鉴权
+- `apps/gateway` 提供 relay：
+  - `/sandbox/relay`（control，本机 runner 接入，鉴权 `sandbox.manage`）
+  - `/sandbox/relay/data?channel=<id>`（本机按需回拨的数据通道）
+  - `/internal/sandbox-relay/:spaceId`（集群内 agent/worker 接入，`x-worker-secret` 鉴权）
+  - control 建立后由 gateway 作为唯一状态上报方：ready + `wsEndpoint`；断开 → stopped(disconnected)
+  - 数据通道逐帧透明 pipe，gateway 不解析 RPC
+- `space_sandboxes.provider = "local"` 时，controller 短路 provision / idle-destroy / recover
+- CLI：`cohub sandbox up <dir>` 建/绑 space、拉起 runner、输出 web 链接
+
 ## 当前 transport 模式
 
 当前系统只保留一种模式：

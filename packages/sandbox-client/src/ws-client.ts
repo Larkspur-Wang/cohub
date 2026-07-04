@@ -130,6 +130,7 @@ type SandboxClientRegistration = {
   spaceId: string;
   wsUrl: string;
   identity: string;
+  headers?: Record<string, string>;
   started: boolean;
   connection: SandboxConnection | null;
   resolveWaiters: Array<(connection: SandboxConnection) => void>;
@@ -350,11 +351,14 @@ function callHookSafely(
     });
 }
 
-function getOrCreateRegistration(spaceId: string, wsUrl: string, identity: string, hooks?: SandboxStatusHooks) {
+function getOrCreateRegistration(spaceId: string, wsUrl: string, identity: string, headers: Record<string, string> | undefined, hooks?: SandboxStatusHooks) {
   const existing = registrations.get(spaceId);
   if (existing) {
     if (existing.wsUrl !== wsUrl) existing.wsUrl = wsUrl;
     if (existing.identity !== identity) existing.identity = identity;
+    // Always assign (including undefined) so stale auth headers never leak
+    // when an endpoint switches provider (e.g. local relay -> cloud pod).
+    existing.headers = headers;
     if (hooks) existing.hooks = hooks;
     return existing;
   }
@@ -363,6 +367,7 @@ function getOrCreateRegistration(spaceId: string, wsUrl: string, identity: strin
     spaceId,
     wsUrl,
     identity,
+    headers,
     started: false,
     connection: null,
     resolveWaiters: [],
@@ -412,10 +417,10 @@ export async function waitForSandboxConnection(spaceId: string, timeoutMs = 3000
   });
 }
 
-export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string; identity: string; hooks?: SandboxStatusHooks }) {
+export async function startSandboxWsClient(input: { spaceId: string; wsUrl: string; identity: string; headers?: Record<string, string>; hooks?: SandboxStatusHooks }) {
   const spaceId = input.spaceId;
   const wsUrl = input.wsUrl;
-  const registration = getOrCreateRegistration(spaceId, wsUrl, input.identity, input.hooks);
+  const registration = getOrCreateRegistration(spaceId, wsUrl, input.identity, input.headers, input.hooks);
   if (registration.started) return;
   registration.started = true;
 
@@ -510,7 +515,7 @@ async function runLoop(registration: SandboxClientRegistration) {
 
 async function connectOnce(registration: SandboxClientRegistration) {
   await new Promise<void>((resolve, reject) => {
-    const socket = new WebSocket(registration.wsUrl);
+    const socket = new WebSocket(registration.wsUrl, registration.headers ? { headers: registration.headers } : undefined);
     let heartbeat: SandboxHeartbeat | null = null;
     let connection: SandboxConnection | null = null;
     let attached = false;
