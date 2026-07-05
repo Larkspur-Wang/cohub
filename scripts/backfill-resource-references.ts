@@ -2,7 +2,7 @@ import "dotenv/config";
 import { config as loadDotenv } from "dotenv";
 loadDotenv({ path: "apps/api/.env", override: false });
 
-import { asc, eq, gt, sql } from "drizzle-orm";
+import { asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@cohub/db";
@@ -235,7 +235,7 @@ async function main() {
         })
         .from(schema.sessionMessages)
         .where(
-          sql`${schema.sessionMessages.meta}->>'turnId' = ANY(${turnIds})`,
+          inArray(sql`${schema.sessionMessages.meta}->>'turnId'`, turnIds),
         );
       const assistantContentByTurn = new Map<string, ContentBlock[]>();
       for (const message of messageRows) {
