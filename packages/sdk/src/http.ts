@@ -5,6 +5,7 @@ import { ModelsApi } from "./apis/models.js";
 import { PromptsApi } from "./apis/prompts.js";
 import { PublicAssetsApi } from "./apis/public-assets.js";
 import { SearchApi } from "./apis/search.js";
+import { ReferencesApi } from "./apis/references.js";
 import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
@@ -25,6 +26,7 @@ export class CohubHttpClient {
   readonly publicAssets: PublicAssetsApi;
   readonly sessionAccess: SessionAccessApi;
   readonly search: SearchApi;
+  readonly references: ReferencesApi;
   readonly tasks: TasksApi;
   readonly cronJobs: CronJobsApi;
   readonly invite: PublicInviteApi;
@@ -50,6 +52,7 @@ export class CohubHttpClient {
     this.publicAssets = new PublicAssetsApi(this.transport);
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.search = new SearchApi(this.transport);
+    this.references = new ReferencesApi(this.transport);
     this.tasks = new TasksApi(this.transport);
     this.cronJobs = new CronJobsApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);

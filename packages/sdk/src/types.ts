@@ -1322,3 +1322,59 @@ export type AcceptInvitationResponse = {
   spaceName: string;
   role: SpaceRole;
 };
+
+// ─── Reference types ───
+
+export type ReferenceResourceType =
+  | "space"
+  | "session"
+  | "checkpoint"
+  | "user"
+  | "file"
+  | "tool";
+
+export type ReferenceKind =
+  | "session_fork"
+  | "space_fork"
+  | "checkpoint_fork"
+  | "mention"
+  | "tool_call"
+  | "mod"
+  | "participant";
+
+export type ReferenceDirection = "out" | "in" | "both";
+
+export type ReferenceRecord = {
+  kind: ReferenceKind;
+  sourceType: ReferenceResourceType;
+  sourceId: string;
+  sourceTurnId: string | null;
+  targetType: ReferenceResourceType;
+  targetId: string;
+  spaceId: string;
+  sessionId: string | null;
+  count: number;
+  createdAt: string;
+  updatedAt: string;
+  meta: Record<string, unknown> | null;
+};
+
+export type ReferenceQueryResponse = {
+  source: string;
+  direction: ReferenceDirection;
+  references: ReferenceRecord[];
+};
+
+export type ReferenceAggregateGroupBy = "kind" | "targetType" | "sourceType" | "day";
+
+export type ReferenceAggregateGroup = {
+  group: string;
+  references: number;
+  total: number;
+};
+
+export type ReferenceAggregateResponse = {
+  space: string;
+  groupBy: ReferenceAggregateGroupBy;
+  groups: ReferenceAggregateGroup[];
+};

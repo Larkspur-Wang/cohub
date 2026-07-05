@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { listSpaceMods } from "@cohub/core/space-mods";
+import { deleteReference } from "@cohub/core/references";
 import { spaceMods } from "@cohub/db";
 import { db } from "../../db/index.js";
 import { getOptionalAuth, requireValidId, useAuth, authzDenied } from "../../lib/middleware.js";
@@ -111,6 +112,16 @@ router.delete("/:modId", async (c) => {
 
   const [deleted] = await db.delete(spaceMods).where(and(eq(spaceMods.id, modId), eq(spaceMods.spaceId, spaceId))).returning();
   if (!deleted) return c.json({ message: "mod not found" }, 404);
+
+  // Keep the reference index consistent: drop the mod edge when unmounted.
+  // Idempotent single-row delete; a rare miss is recoverable via backfill --reset.
+  void deleteReference(db, {
+    kind: "mod",
+    sourceType: "space",
+    sourceId: spaceId,
+    targetType: "space",
+    targetId: deleted.modSpaceId,
+  }).catch(() => undefined);
 
   await restartSandboxForMods(spaceId);
   return c.json({ ok: true, sandboxRestarting: true });

@@ -6,6 +6,8 @@ import type { TaskPayload } from "@cohub/protocol/task";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { checkpoints, spaces } from "@cohub/db";
+import { checkpointForkReference, spaceForkReference } from "@cohub/core/references";
+import { enqueueReferences } from "../reference-index-queue.js";
 import { assertDirectoryEmpty, ensureSpaceWorkspaceReady, getSpaceWorkspaceDir, runGit } from "../git.js";
 import { publishSpaceFsChanged } from "../space-events.js";
 import { enqueueTask } from "./enqueue.js";
@@ -169,6 +171,22 @@ async function createCheckpointAlias(input: {
   if (!alias) throw new Error("failed to create checkpoint alias");
   const [updated] = await db.update(spaces).set({ headCheckpointId: alias.id, baseCheckpointId: input.sourceCheckpoint.id, updatedAt: new Date() }).where(eq(spaces.id, input.targetSpace.id)).returning();
   await db.update(checkpoints).set({ forkCount: sql`${checkpoints.forkCount} + 1` }).where(eq(checkpoints.id, input.sourceCheckpoint.id));
+  // Index the fork lineage: the new space forks from the source checkpoint, and
+  // the alias checkpoint derives from it. Enqueued for async, retryable
+  // indexing so stats never block or fail the fork.
+  enqueueReferences([
+    spaceForkReference({
+      spaceId: input.targetSpace.id,
+      baseCheckpointId: input.sourceCheckpoint.id,
+      sourceSpaceId: input.sourceCheckpoint.spaceId,
+    }),
+    checkpointForkReference({
+      spaceId: input.targetSpace.id,
+      checkpointId: alias.id,
+      parentCheckpointId: input.sourceCheckpoint.id,
+      rootCheckpointId: alias.rootCheckpointId,
+    }),
+  ]);
   return { alias, space: updated ?? input.targetSpace };
 }
 

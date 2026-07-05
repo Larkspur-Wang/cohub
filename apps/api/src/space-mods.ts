@@ -1,6 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { createDefaultMountSlug, listSpaceMods, assertValidMountSlug, type SpaceModListItem } from "@cohub/core/space-mods";
 import { spaceMods, spaces } from "@cohub/db";
+import { modReference } from "@cohub/core/references";
+import { enqueueReferences } from "./reference-index-queue.js";
 import { db } from "./db/index.js";
 import type { AuthUser } from "./lib/middleware.js";
 import { requireValidId } from "./lib/middleware.js";
@@ -167,6 +169,18 @@ export async function createSpaceMods(input: {
     if (response) throw new SpaceModInputError(response.message, response.status);
     throw error;
   }
+
+  // Index mod dependencies. Enqueued for async, retryable indexing so stats
+  // never block or fail the mount.
+  enqueueReferences(
+    values.map((value) =>
+      modReference({
+        spaceId: value.spaceId,
+        modSpaceId: value.modSpaceId,
+        mountSlug: value.mountSlug,
+      }),
+    ),
+  );
 
   if (input.restartSandbox ?? true) await restartSandboxForMods(input.spaceId);
   return { items: await listSpaceMods(db, input.spaceId), sandboxRestarting: input.restartSandbox ?? true };

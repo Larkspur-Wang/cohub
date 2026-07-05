@@ -83,6 +83,10 @@
     "./sandbox-lifecycle": {
       "types": "./dist/sandbox-lifecycle/index.d.ts",
       "default": "./dist/sandbox-lifecycle/index.js"
+    },
+    "./references": {
+      "types": "./dist/references/index.d.ts",
+      "default": "./dist/references/index.js"
     }
   },
   "types": "./dist/index.d.ts",

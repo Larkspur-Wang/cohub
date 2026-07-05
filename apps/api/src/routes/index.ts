@@ -21,6 +21,7 @@ import publicAssetsRouter from "./public-assets.route.js";
 import worksRouter from "./works.route.js";
 import workCommerceRouter from "./work-commerce.route.js";
 import usersRouter from "./users.route.js";
+import referencesRouter from "./references.route.js";
 
 const router = new Hono();
 
@@ -45,6 +46,7 @@ router.route("/api/public-assets", publicAssetsRouter);
 router.route("/api/works", worksRouter);
 router.route("/api", workCommerceRouter);
 router.route("/api/users", usersRouter);
+router.route("/api/references", referencesRouter);
 router.route("/internal", internalRouter);
 
 export default router;

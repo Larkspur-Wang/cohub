@@ -4,6 +4,8 @@ import type { SessionForkRecord, SessionTurnSegmentRecord } from "@cohub/protoco
 import { db } from "./db/index.js";
 import { labelAssignments, sessionForks, sessionTurnSegments, sessionTurns, spaceSessions } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
+import { sessionForkReference } from "@cohub/core/references";
+import { enqueueReferences } from "./reference-index-queue.js";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
 import { readSessionParticipantUserUuids, setSessionParticipantsMeta } from "@cohub/core/sessions";
 
@@ -290,5 +292,16 @@ export async function createSessionFork(input: {
   }).catch((error) => {
     logger.warn("[SessionFork] failed to assign participant labels", { sessionId: result.session.id, error });
   });
+  // Index the fork lineage. Enqueued for async, retryable indexing so stats
+  // never block or fail the fork.
+  enqueueReferences([
+    sessionForkReference({
+      spaceId: input.spaceId,
+      parentSessionId: result.fork.parentSessionId,
+      childSessionId: result.fork.childSessionId,
+      anchorTurnId: result.fork.anchorTurnId,
+      createdBy: result.fork.createdBy,
+    }),
+  ]);
   return { session: result.session, fork: toForkRecord(result.fork) };
 }

@@ -8,6 +8,7 @@ import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from 
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
+import { indexTurnReferences } from "./reference-index.js";
 import { db } from "./db.js";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
@@ -752,7 +753,10 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     const turnId = typeof record.meta.turnId === "string" ? record.meta.turnId : null;
     if (turnId) {
       const finalized = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}) } });
-      if (finalized) await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
+      if (finalized) {
+        indexTurnReferences({ spaceId: input.spaceId, turn: finalized });
+        await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
+      }
     }
     await dispatchFinalAssistantToGateway({ spaceId: input.spaceId, sessionId: input.spaceSessionId, message: record }).catch((error) => logger.error("[GatewayOutbound] failed to dispatch assistant message", error));
   }

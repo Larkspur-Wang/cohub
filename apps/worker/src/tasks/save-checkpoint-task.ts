@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { checkpoints, spaces } from "@cohub/db";
+import { checkpointForkReference } from "@cohub/core/references";
+import { enqueueReferences } from "../reference-index-queue.js";
 import { registerTask } from "./registry.js";
 import { db } from "../db.js";
 import { config } from "../config.js";
@@ -233,6 +235,18 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   }).returning());
 
   if (!checkpoint) throw new Error("failed to create checkpoint record");
+  // Index checkpoint lineage. Enqueued for async, retryable indexing so stats
+  // never block or fail the save.
+  if (checkpoint.parentCheckpointId) {
+    enqueueReferences([
+      checkpointForkReference({
+        spaceId,
+        checkpointId: checkpoint.id,
+        parentCheckpointId: checkpoint.parentCheckpointId,
+        rootCheckpointId: checkpoint.rootCheckpointId,
+      }),
+    ]);
+  }
   const canvasSnapshots = await timeIt(timings, "saveCanvasCheckpointSnapshots", () => saveCanvasCheckpointSnapshots({ checkpointId: checkpoint.id, spaceId }));
   await timeIt(timings, "updateCheckpointCanvasMeta", () => db.update(checkpoints).set({ meta: { ...(checkpoint.meta as Record<string, unknown> | null), timings, canvas: { snapshotCount: canvasSnapshots.count } } }).where(eq(checkpoints.id, checkpoint.id)));
   await timeIt(timings, "updateSpaceHead", () => db.update(spaces).set({ headCheckpointId: checkpoint.id, updatedAt: new Date() }).where(eq(spaces.id, spaceId)));
