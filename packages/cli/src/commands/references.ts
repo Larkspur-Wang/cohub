@@ -2,19 +2,16 @@ import type {
   ReferenceAggregateGroupBy,
   ReferenceDirection,
   ReferenceKind,
-  ReferenceResourceType,
+  ReferenceQueryableType,
 } from "@neta-art/cohub";
 import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, error, handleHttp, type Row } from "../output.js";
 
-const RESOURCE_TYPES = new Set<ReferenceResourceType>([
+const RESOURCE_TYPES = new Set<ReferenceQueryableType>([
   "space",
   "session",
   "checkpoint",
-  "user",
-  "file",
-  "tool",
 ]);
 const REFERENCE_KINDS = new Set<ReferenceKind>([
   "session_fork",
@@ -44,10 +41,10 @@ type AggregateOpts = {
   json?: boolean;
 };
 
-function parseSource(value: string): { type: ReferenceResourceType; id: string } {
+function parseSource(value: string): { type: ReferenceQueryableType; id: string } {
   const idx = value.indexOf(":");
   if (idx <= 0) throw new Error("Source must be <type>:<id>, e.g. session:<uuid>");
-  const type = value.slice(0, idx) as ReferenceResourceType;
+  const type = value.slice(0, idx) as ReferenceQueryableType;
   const id = value.slice(idx + 1).trim();
   if (!RESOURCE_TYPES.has(type)) throw new Error(`Invalid resource type: ${type}`);
   if (!id) throw new Error("Missing resource id");

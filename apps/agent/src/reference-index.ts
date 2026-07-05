@@ -1,78 +1,56 @@
-import { and, asc, eq, sql } from "drizzle-orm";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { SessionTurnRecord } from "@cohub/protocol/model";
-import { sessionMessages } from "@cohub/db";
+import type { sessionMessages } from "@cohub/db";
 import { extractTurnReferences } from "@cohub/core/references";
-import { db } from "./db.js";
 import { logger } from "./logger.js";
 import { enqueueReferences } from "./reference-index-queue.js";
 
-/**
- * Collect assistant content across every message in a turn.
- *
- * A turn may span several assistant messages (intermediate tool_use rounds plus
- * the final answer). We aggregate them at the turn boundary so cross-resource
- * tool calls from intermediate steps are not lost, while keeping the reference
- * index at turn granularity — the surface users actually work with.
- */
-const collectTurnAssistantContent = async (input: {
-  sessionId: string;
-  turnId: string;
-}): Promise<ContentBlock[]> => {
-  const rows = await db
-    .select({ role: sessionMessages.role, content: sessionMessages.content })
-    .from(sessionMessages)
-    .where(
-      and(
-        eq(sessionMessages.sessionId, input.sessionId),
-        sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`,
-      ),
-    )
-    .orderBy(asc(sessionMessages.sequence), asc(sessionMessages.createdAt));
-
-  const blocks: ContentBlock[] = [];
-  for (const row of rows) {
-    if (row.role !== "assistant") continue;
-    if (Array.isArray(row.content)) blocks.push(...(row.content as ContentBlock[]));
-  }
-  return blocks;
-};
+type MessageRow = typeof sessionMessages.$inferSelect;
 
 /**
  * Index the references carried by a finalized turn (participant, @mentions,
  * cross-resource tool calls) into resource_references.
  *
- * Tool calls are aggregated from all assistant messages in the turn so nothing
- * from intermediate steps is dropped. Fire-and-forget: this is a stats
- * side-effect and must never block or fail the turn lifecycle. The backfill
- * script rebuilds anything missed, so a dropped write is self-healing.
+ * Takes the turn's messages that the caller has already loaded — a turn's
+ * message set can be large, so we never re-query it here. Tool calls are
+ * aggregated across all assistant messages so intermediate steps are not lost,
+ * while the index stays at turn granularity.
+ *
+ * Fire-and-forget: this is a stats side-effect and must never block or fail the
+ * turn lifecycle. The backfill script rebuilds anything missed, so a dropped
+ * write is self-healing.
  */
 export const indexTurnReferences = (input: {
   spaceId: string;
-  turn: SessionTurnRecord;
+  sessionId: string;
+  turnId: string;
+  userUuid: string | null;
+  /** All messages of the turn, already loaded by the caller. */
+  messages: readonly MessageRow[];
 }): void => {
-  const { spaceId, turn } = input;
-  void (async () => {
-    const assistantContent = await collectTurnAssistantContent({
-      sessionId: turn.sessionId,
-      turnId: turn.id,
-    });
-    const references = extractTurnReferences({
-      spaceId,
-      sessionId: turn.sessionId,
-      turnId: turn.id,
-      userUuid: turn.userUuid,
-      userContent: turn.userContent,
-      userText: turn.userText,
-      assistantContent: assistantContent.length > 0 ? assistantContent : turn.assistantContent,
-    });
-    if (references.length === 0) return;
+  const { spaceId, sessionId, turnId, userUuid, messages } = input;
+
+  const userContent: ContentBlock[] = [];
+  const assistantContent: ContentBlock[] = [];
+  for (const row of messages) {
+    if (!Array.isArray(row.content)) continue;
+    const blocks = row.content as ContentBlock[];
+    if (row.role === "user") userContent.push(...blocks);
+    else if (row.role === "assistant") assistantContent.push(...blocks);
+  }
+
+  const references = extractTurnReferences({
+    spaceId,
+    sessionId,
+    turnId,
+    userUuid,
+    userContent,
+    assistantContent,
+  });
+  if (references.length === 0) return;
+
+  try {
     enqueueReferences(references);
-  })().catch((error) =>
-    logger.warn("[ReferenceIndex] failed to index turn references", {
-      sessionId: turn.sessionId,
-      turnId: turn.id,
-      error,
-    }),
-  );
+  } catch (error) {
+    logger.warn("[ReferenceIndex] failed to index turn references", { sessionId, turnId, error });
+  }
 };

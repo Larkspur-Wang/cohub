@@ -1333,6 +1333,12 @@ export type ReferenceResourceType =
   | "file"
   | "tool";
 
+/**
+ * Resource types usable as a query `source`. Only these have an owning space to
+ * authorize against; user/file/tool appear only as reference targets.
+ */
+export type ReferenceQueryableType = "space" | "session" | "checkpoint";
+
 export type ReferenceKind =
   | "session_fork"
   | "space_fork"

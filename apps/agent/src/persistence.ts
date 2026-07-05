@@ -545,7 +545,7 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
     lastMessageText: messages.at(-1)?.text ?? null,
     hasError,
   };
-  if (messages.length === 0) return { index: null, summary };
+  if (messages.length === 0) return { index: null, summary, rows };
 
   try {
     await writeTurnObjects(toolFiles);
@@ -567,10 +567,11 @@ const buildIntermediateObjectsForTurn = async (input: { spaceId: string; session
         toolCallsBaseObjectKey,
       },
       summary,
+      rows,
     };
   } catch (error) {
     logger.warn("[SessionTurn] failed to write intermediate objects", error);
-    return { index: null, summary };
+    return { index: null, summary, rows };
   }
 };
 
@@ -596,7 +597,7 @@ async function finalizeSessionTurnFromMessage(input: { spaceId: string; sessionI
     durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`,
     updatedAt: completedAt,
   }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested"]))).returning();
-  return row ? toTurnRecord(row) : null;
+  return { turn: row ? toTurnRecord(row) : null, messages: intermediate.rows };
 }
 
 async function requestGatewayChannelReconcile(reason: string) {
@@ -752,9 +753,9 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   if (record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error") {
     const turnId = typeof record.meta.turnId === "string" ? record.meta.turnId : null;
     if (turnId) {
-      const finalized = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}) } });
+      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}) } });
       if (finalized) {
-        indexTurnReferences({ spaceId: input.spaceId, turn: finalized });
+        indexTurnReferences({ spaceId: input.spaceId, sessionId: finalized.sessionId, turnId: finalized.id, userUuid: finalized.userUuid, messages: turnMessages });
         await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
       }
     }
@@ -771,25 +772,31 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
 
 async function finalizeInterruptedTurn(input: { spaceId: string; sessionId: string; turnId: string; stopReason: "interrupted" | "aborted"; summary: Record<string, unknown> }) {
   const [existing] = await db.select().from(sessionTurns).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId))).limit(1);
-  if (!existing) return null;
-  if (!["running", "abort_requested", "interrupted"].includes(existing.status)) return toTurnRecord(existing);
+  if (!existing) return { turn: null, messages: [] };
+  if (!["running", "abort_requested", "interrupted"].includes(existing.status)) return { turn: toTurnRecord(existing), messages: [] };
   const [last] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.role, "assistant"), sql`${sessionMessages.meta}->>'turnId' = ${input.turnId}`)).orderBy(desc(sessionMessages.sequence)).limit(1);
   const intermediate = await buildIntermediateObjectsForTurn(input);
   const completedAt = new Date();
   const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({ status: "interrupted", assistantContent: last?.content ?? null, assistantText: last?.text ?? null, provider: last?.provider ?? null, model: last?.model ?? null, stopReason: input.stopReason, errorMessage: null, finalUsage: last?.usage as Usage | null ?? null, totalUsage: intermediate?.summary.usage ?? null, summary: input.summary, intermediateIndex: intermediate?.index ?? null, intermediateSummary: intermediate?.summary ?? null, completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["running", "abort_requested", "interrupted"]))).returning();
-  return row ? toTurnRecord(row) : null;
+  return { turn: row ? toTurnRecord(row) : null, messages: intermediate.rows };
 }
 
 export async function interruptSessionTurn(input: { spaceId: string; sessionId: string; turnId: string; continuedByTurnId: string }) {
-  const turn = await finalizeInterruptedTurn({ ...input, stopReason: "interrupted", summary: { finishReason: "interrupted", reason: "steer", continuedByTurnId: input.continuedByTurnId } });
-  if (turn) await publishTurnFinalized(input.spaceId, turn);
+  const { turn, messages } = await finalizeInterruptedTurn({ ...input, stopReason: "interrupted", summary: { finishReason: "interrupted", reason: "steer", continuedByTurnId: input.continuedByTurnId } });
+  if (turn) {
+    indexTurnReferences({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, userUuid: turn.userUuid, messages });
+    await publishTurnFinalized(input.spaceId, turn);
+  }
   return turn;
 }
 
 export async function abortSessionTurn(input: { spaceId: string; sessionId: string; turnId: string; actorUserId?: string | null }) {
-  const turn = await finalizeInterruptedTurn({ ...input, stopReason: "aborted", summary: { finishReason: "interrupted", reason: "abort" } });
-  if (turn) await publishTurnFinalized(input.spaceId, turn);
+  const { turn, messages } = await finalizeInterruptedTurn({ ...input, stopReason: "aborted", summary: { finishReason: "interrupted", reason: "abort" } });
+  if (turn) {
+    indexTurnReferences({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, userUuid: turn.userUuid, messages });
+    await publishTurnFinalized(input.spaceId, turn);
+  }
   return turn;
 }
 
@@ -798,7 +805,12 @@ export async function failSessionTurn(input: { spaceId: string; sessionId: strin
   const completedAtIso = completedAt.toISOString();
   const [row] = await db.update(sessionTurns).set({ status: "failed", errorMessage: input.errorMessage, summary: { finishReason: "failed", text: input.errorMessage }, completedAt, durationMs: sql<number>`greatest(0, floor(extract(epoch from (${completedAtIso}::timestamptz - ${sessionTurns.startedAt})) * 1000)::int)`, updatedAt: completedAt }).where(and(eq(sessionTurns.id, input.turnId), eq(sessionTurns.sessionId, input.sessionId), inArray(sessionTurns.status, ["queued", "running", "abort_requested"]))).returning();
   const turn = row ? toTurnRecord(row) : null;
-  if (turn) await publishTurnFinalized(input.spaceId, turn);
+  if (turn) {
+    // No message load on the failure path, so we skip live reference indexing
+    // here (avoiding an extra query for a rare error case); the backfill script
+    // reconciles any references from a failed turn's messages.
+    await publishTurnFinalized(input.spaceId, turn);
+  }
   return turn;
 }
 

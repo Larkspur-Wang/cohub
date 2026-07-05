@@ -4,13 +4,13 @@ import type {
   ReferenceAggregateResponse,
   ReferenceDirection,
   ReferenceKind,
+  ReferenceQueryableType,
   ReferenceQueryResponse,
-  ReferenceResourceType,
 } from "../types.js";
 
 export type ReferenceResourceSelector =
-  | `${ReferenceResourceType}:${string}`
-  | { type: ReferenceResourceType; id: string };
+  | `${ReferenceQueryableType}:${string}`
+  | { type: ReferenceQueryableType; id: string };
 
 const toSelector = (ref: ReferenceResourceSelector): string =>
   typeof ref === "string" ? ref : `${ref.type}:${ref.id}`;

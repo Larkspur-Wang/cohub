@@ -2,6 +2,7 @@ import { COHUB_SYSTEM_FS_QUEUE, createBullmqQueue, defaultJobRetention } from "@
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { enqueueReferenceIndex, type ReferenceInput } from "@cohub/core/references";
 import { env } from "./env.js";
+import { logger } from "./logger.js";
 
 const referenceIndexQueue = createBullmqQueue(COHUB_SYSTEM_FS_QUEUE, {
   redisUrl: env.BULLMQ_REDIS_URL,
@@ -23,5 +24,10 @@ export const enqueueReferences = (references: readonly ReferenceInput[]): void =
       }),
     references,
     { trace: injectTrace() },
-  ).catch(() => undefined);
+  ).catch((error) =>
+    // BullMQ retries only cover enqueued jobs; a failure here (Redis down) would
+    // otherwise drop these references silently. Log so it is recoverable via
+    // `backfill-resource-references --reset`.
+    logger.warn("[ReferenceIndex] failed to enqueue references", { count: references.length, error }),
+  );
 };
