@@ -10,6 +10,8 @@ spec:
   hostnames:
     - "__API_HOSTNAME__"
   rules:
+    # Space filesystem requests, including checkpoint snapshot browsing, are routed
+    # from the main API to this fs-api deployment.
     - matches:
         - path:
             type: RegularExpression

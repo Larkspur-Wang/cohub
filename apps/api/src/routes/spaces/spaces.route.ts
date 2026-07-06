@@ -1324,6 +1324,8 @@ router.get("/:id/checkpoints/:checkpointId", async (c) => {
   return c.json({ checkpoint });
 });
 
+// In production, these checkpoints/fs routes are routed to fs-api by the gateway.
+// This remains a local/non-split fallback.
 router.get("/:id/checkpoints/:checkpointId/fs/tree", async (c) => {
   const user = getOptionalAuth(c);
   const spaceId = c.req.param("id");

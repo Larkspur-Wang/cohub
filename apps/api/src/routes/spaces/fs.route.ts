@@ -1,3 +1,5 @@
+// In production, /api/spaces/:id/fs/* is routed by the gateway to the
+// fs-api deployment. See deploy/fs-api/manifests/httproute.tmpl.yaml.
 import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import { readFile } from "node:fs/promises";

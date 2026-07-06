@@ -14,6 +14,8 @@ import commerceRouter from "./commerce.route.js";
 const router = new Hono();
 
 router.route("/", spacesRouter);
+// In production, /:id/fs/* is routed to fs-api by the gateway.
+// This remains a local/non-split fallback.
 router.route("/:id/fs", fsRouter);
 router.route("/:id/members", membersRouter);
 router.route("/:id/access", accessRouter);
