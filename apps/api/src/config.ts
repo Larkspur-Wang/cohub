@@ -76,10 +76,12 @@ const parseCommaList = (value: string | undefined) => {
 const parseSandboxNodeSelector = (value: string | undefined) => {
   return Object.fromEntries(
     parseCommaList(value).map((entry) => {
-      const [key, selectorValue] = entry.split("=");
-      if (!key || !selectorValue) {
+      const separatorIndex = entry.indexOf("=");
+      if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
         throw new Error("SANDBOX_NODE_SELECTOR must use key=value format");
       }
+      const key = entry.slice(0, separatorIndex);
+      const selectorValue = entry.slice(separatorIndex + 1);
       return [key.trim(), selectorValue.trim()];
     }),
   );
@@ -89,14 +91,23 @@ const parseSandboxTolerations = (value: string | undefined): SandboxToleration[]
   const effects = new Set(["NoSchedule", "PreferNoSchedule", "NoExecute"]);
 
   return parseCommaList(value).map((entry) => {
-    const [selector, effect = "NoSchedule"] = entry.split(":");
-    const [key, tolerationValue] = selector.split("=");
-    if (!key || !tolerationValue) {
+    const effectSeparatorIndex = entry.lastIndexOf(":");
+    const selector =
+      effectSeparatorIndex >= 0 ? entry.slice(0, effectSeparatorIndex) : entry;
+    const effect =
+      effectSeparatorIndex >= 0 ? entry.slice(effectSeparatorIndex + 1) : "NoSchedule";
+    const selectorSeparatorIndex = selector.indexOf("=");
+    if (
+      selectorSeparatorIndex <= 0 ||
+      selectorSeparatorIndex === selector.length - 1
+    ) {
       throw new Error("SANDBOX_TOLERATIONS must use key=value:Effect format");
     }
     if (!effects.has(effect)) {
       throw new Error(`SANDBOX_TOLERATIONS contains invalid effect: ${effect}`);
     }
+    const key = selector.slice(0, selectorSeparatorIndex);
+    const tolerationValue = selector.slice(selectorSeparatorIndex + 1);
     return {
       key: key.trim(),
       operator: "Equal",
