@@ -40,7 +40,7 @@ Billing 启用后，Cohub 使用 `usd_micro_cent` credit type：`1 usd_micro_cen
 
 同时请确认 `values.yaml` 中已填写：
 - `GITEA_MANAGED_EMAIL_DOMAIN` - 托管 Gitea 影子账号使用的邮箱域名后缀
-- `PUBLIC_ASSET_OSS_ENDPOINT` / `PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT` / `PUBLIC_ASSET_OSS_REGION` / `PUBLIC_ASSET_OSS_BUCKET` / `PUBLIC_ASSET_CDN_BASE_URL` - 公开资产上传与访问配置
+- `PUBLIC_ASSET_OSS_ENDPOINT` / `PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT` / `PUBLIC_ASSET_OSS_REGION` / `PUBLIC_ASSET_OSS_BUCKET` / `PUBLIC_ASSET_CDN_BASE_URL` / `WORK_ASSET_CDN_BASE_URL` - 公开资产上传与 Work asset 访问配置
 
 CI 构建还需要配置 `GITEA_NPM_TOKEN` secret。该 token 只在构建期用于读取 `git.talesofai.com/api/packages/talesofai/npm/` 中的私有 npm 包，不是 API 运行时 secret。
 

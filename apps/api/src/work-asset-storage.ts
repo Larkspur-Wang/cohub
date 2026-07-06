@@ -49,7 +49,8 @@ const getS3Client = () => {
 const encodeObjectKeyPath = (objectKey: string) => objectKey.split("/").map(encodeURIComponent).join("/");
 
 export const createWorkAssetPublicUrl = (objectKey: string) => {
-  if (config.publicAssetCdnBaseUrl) return `${config.publicAssetCdnBaseUrl}/${encodeObjectKeyPath(objectKey)}`;
+  const baseUrl = config.workAssetCdnBaseUrl || config.publicAssetCdnBaseUrl;
+  if (baseUrl) return `${baseUrl}/${encodeObjectKeyPath(objectKey)}`;
   return buildPublicObjectUrl(requireStorage(), objectKey);
 };
 

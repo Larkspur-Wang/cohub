@@ -60,6 +60,7 @@ PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT: "https://oss-us-west-1.aliyuncs.com"
 PUBLIC_ASSET_OSS_REGION: "us-west-1"
 PUBLIC_ASSET_OSS_BUCKET: "cohub-public"
 PUBLIC_ASSET_CDN_BASE_URL: "https://public.cohub.run"
+WORK_ASSET_CDN_BASE_URL: "https://works.cohub.run"
 CONFIGS_SUBPATH: "configs/dev"
 
 # ========== 路由配置 ==========
