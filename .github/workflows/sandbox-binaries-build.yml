@@ -155,6 +155,17 @@ jobs:
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} upload/ \;
           ls -la upload
 
+      - name: Configure AWS CLI addressing style
+        # OSS buckets in non-mainland-China regions (e.g. us-west-1) reject
+        # path-style addressing with SecondLevelDomainForbidden. The AWS CLI
+        # defaults to path-style when --endpoint-url is set (botocore sets
+        # ForcePathStyle=True for custom endpoints), so force virtual-host
+        # style via config to land on https://<bucket>.oss-us-west-1.aliyuncs.com.
+        run: |
+          mkdir -p ~/.aws
+          printf '[default]\ns3 =\n    addressing_style = virtual\n' > ~/.aws/config
+          cat ~/.aws/config
+
       - name: Upload to public CDN (OSS, S3-compatible)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.PUBLIC_ASSET_OSS_ACCESS_KEY_ID }}
