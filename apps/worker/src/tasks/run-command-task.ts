@@ -137,6 +137,7 @@ async function notifyRunCommandCompletion(input: {
       }),
     }],
     source: input.notify.source ?? BACKGROUND_BASH_TASK_SOURCE,
+    intent: "steer",
     context: {
       kind: "background_bash_task",
       taskRunId: input.taskRunId,
