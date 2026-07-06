@@ -70,7 +70,7 @@ import {
 } from "@cohub/sandbox-client";
 
 import { ensureSandboxConnection, pruneSandboxConnections } from "../sandbox-pool.js";
-import { recoverSpaceSandbox } from "../api.js";
+import { getSpaceSandbox, recoverSpaceSandbox } from "../api.js";
 import { classifySandboxInfrastructureError, type SandboxInfrastructureError } from "@cohub/sandbox-client";
 import { logger } from "../logger.js";
 import { registerActiveAbortHandle } from "../active-turns.js";
@@ -84,6 +84,8 @@ const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
 });
 
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
+const SANDBOX_PROVIDER_CACHE_TTL_MS = 30_000;
+const sandboxProviderCache = new Map<string, { provider: "cloud" | "local"; expiresAt: number }>();
 
 type ToolRpcContext = {
   spaceId: string;
@@ -1257,6 +1259,27 @@ async function assertCurrentActorCanViewSpaceFiles(spaceId: string): Promise<Age
   return resolveSpaceFileVisibility({ actorUserId: actorUserId.trim(), spaceId });
 }
 
+async function resolveSandboxProvider(spaceId: string): Promise<"cloud" | "local"> {
+  const now = Date.now();
+  const cached = sandboxProviderCache.get(spaceId);
+  if (cached && cached.expiresAt > now) return cached.provider;
+  try {
+    const sandbox = (await getSpaceSandbox({ spaceId }))?.sandbox;
+    const provider = sandbox?.provider === "local" ? "local" : "cloud";
+    sandboxProviderCache.set(spaceId, { provider, expiresAt: now + SANDBOX_PROVIDER_CACHE_TTL_MS });
+    return provider;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new SandboxRpcError("Unable to resolve target sandbox provider.", {
+      method: "sandbox.provider",
+      rpcErrorCode: "IO_ERROR",
+      retryable: true,
+      transportReason: message,
+      diagnostics: { targetSpaceId: spaceId },
+    });
+  }
+}
+
 function withSandboxFailureResult<T extends AgentTool>(tool: T): T {
   const execute: AgentTool["execute"] = async (toolCallId, params, signal, onUpdate) => {
     try {
@@ -1300,6 +1323,7 @@ export function createSandboxCodingTools() {
       sandboxTool: sandboxReadTool,
       crossSpaceTool: crossSpaceReadTool,
       checkAccess: assertCurrentActorCanViewSpaceFiles,
+      resolveSandboxProvider,
     })),
     withSandboxFailureResult(createBashTool(toolCwd, { operations: createRemoteBashOperations() })),
     withSandboxFailureResult(createEditTool(toolCwd, { operations: createRemoteEditOperations() })),
@@ -1308,16 +1332,19 @@ export function createSandboxCodingTools() {
       sandboxTool: sandboxLsTool,
       crossSpaceTool: crossSpaceLsTool,
       checkAccess: assertCurrentActorCanViewSpaceFiles,
+      resolveSandboxProvider,
     })),
     withSandboxFailureResult(createSpaceAwareFindTool({
       sandboxTool: sandboxFindTool,
       crossSpaceTool: crossSpaceFindTool,
       checkAccess: assertCurrentActorCanViewSpaceFiles,
+      resolveSandboxProvider,
     })),
     withSandboxFailureResult(createSpaceAwareGrepTool({
       sandboxTool: sandboxGrepTool,
       crossSpaceTool: crossSpaceGrepTool,
       checkAccess: assertCurrentActorCanViewSpaceFiles,
+      resolveSandboxProvider,
     })),
   ];
 }

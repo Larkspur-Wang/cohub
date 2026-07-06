@@ -61,6 +61,7 @@ export async function getSpaceSandbox(input: { spaceId: string }) {
 
   return response.json().catch(() => null) as Promise<{
     sandbox: {
+      provider?: "cloud" | "local" | string | null;
       status: string;
       podName?: string | null;
       lastActivityAt?: string | null;

@@ -7,11 +7,14 @@ import { assertCrossSpaceQueryPathAllowed } from "./query-path-policy.js";
 const SPACE_ID_DESCRIPTION = "Only set when querying another space by id";
 
 type AccessCheck = (spaceId: string) => Promise<AgentFileVisibility>;
+type SandboxProvider = "cloud" | "local";
+type SandboxProviderResolver = (spaceId: string) => Promise<SandboxProvider>;
 
 type SpaceAwareToolOptions = {
   sandboxTool: AgentTool;
   crossSpaceTool: AgentTool;
   checkAccess: AccessCheck;
+  resolveSandboxProvider: SandboxProviderResolver;
 };
 
 function getRequestedSpaceId(params: unknown) {
@@ -31,7 +34,8 @@ function withoutSpaceId(input: unknown) {
   return rest;
 }
 
-function routeExecute({ sandboxTool, crossSpaceTool, checkAccess }: SpaceAwareToolOptions) {
+function routeExecute(options: SpaceAwareToolOptions) {
+  const { sandboxTool, crossSpaceTool, checkAccess } = options;
   return async (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<unknown>) => {
     const ctx = getCurrentToolExecutionContext();
     if (!ctx?.spaceId) {
@@ -40,11 +44,21 @@ function routeExecute({ sandboxTool, crossSpaceTool, checkAccess }: SpaceAwareTo
 
     const requestedSpaceId = getRequestedSpaceId(params);
     const targetSpaceId = requestedSpaceId ?? ctx.spaceId;
-    const tool = targetSpaceId === ctx.spaceId ? sandboxTool : crossSpaceTool;
+    const isCrossSpace = targetSpaceId !== ctx.spaceId;
+    let tool = sandboxTool;
     let visibility = ctx.fileVisibility;
-    if (targetSpaceId !== ctx.spaceId) {
+
+    if (isCrossSpace) {
       assertCrossSpaceQueryPathAllowed(getQueryPath(params));
       visibility = await checkAccess(targetSpaceId);
+      const provider = await options.resolveSandboxProvider(targetSpaceId);
+      if (provider === "local") {
+        if (visibility === "filtered") {
+          throw new Error("Filtered file access is not available for local sandboxes.");
+        }
+      } else {
+        tool = crossSpaceTool;
+      }
     }
 
     return runWithToolExecutionContext({
