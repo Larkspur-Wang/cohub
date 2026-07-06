@@ -19,6 +19,9 @@ COPY packages/core/tsconfig.build.json ./packages/core/tsconfig.build.json
 COPY packages/sandbox-controller/package.json ./packages/sandbox-controller/package.json
 COPY packages/sandbox-controller/tsconfig.json ./packages/sandbox-controller/tsconfig.json
 COPY packages/sandbox-controller/tsconfig.build.json ./packages/sandbox-controller/tsconfig.build.json
+COPY packages/sandbox-client/package.json ./packages/sandbox-client/package.json
+COPY packages/sandbox-client/tsconfig.json ./packages/sandbox-client/tsconfig.json
+COPY packages/sandbox-client/tsconfig.build.json ./packages/sandbox-client/tsconfig.build.json
 COPY packages/protocol/package.json ./packages/protocol/package.json
 COPY packages/protocol/tsconfig.json ./packages/protocol/tsconfig.json
 COPY packages/protocol/tsconfig.build.json ./packages/protocol/tsconfig.build.json
@@ -51,6 +54,7 @@ COPY packages/identity ./packages/identity
 COPY packages/billing ./packages/billing
 COPY packages/core ./packages/core
 COPY packages/sandbox-controller ./packages/sandbox-controller
+COPY packages/sandbox-client ./packages/sandbox-client
 COPY packages/protocol ./packages/protocol
 COPY packages/infra ./packages/infra
 COPY packages/db ./packages/db
