@@ -863,7 +863,7 @@ export async function persistCompactionTurn(input: {
     },
   };
 
-  const state: { turnRow: typeof sessionTurns.$inferSelect | null; messageSequence: number } = { turnRow: null, messageSequence: 0 };
+  const state: { turnRow: typeof sessionTurns.$inferSelect | null; messageRow: typeof sessionMessages.$inferSelect | null; messageSequence: number } = { turnRow: null, messageRow: null, messageSequence: 0 };
 
   try {
     await db.transaction(async (tx) => {
@@ -906,7 +906,7 @@ export async function persistCompactionTurn(input: {
       // Step 4: Insert system message in the same transaction.
       const [maxMsgRow] = await tx.select({ max: sql<number>`coalesce(max(${sessionMessages.sequence}), 0)::int` }).from(sessionMessages).where(eq(sessionMessages.sessionId, input.sessionId));
       state.messageSequence = (maxMsgRow?.max ?? 0) + 1;
-      await tx.insert(sessionMessages).values({
+      const [msgRow] = await tx.insert(sessionMessages).values({
         sessionId: input.sessionId,
         role: "system",
         content: [{ type: "system_note", note_type: "compacted", text: input.summary }],
@@ -916,7 +916,8 @@ export async function persistCompactionTurn(input: {
         startedAt: now,
         completedAt: now,
         durationMs: 0,
-      });
+      }).returning();
+      state.messageRow = msgRow ?? null;
     });
   } catch (error) {
     logger.error(`[Compaction] DB transaction failed sessionId=${input.sessionId}:`, error);
@@ -930,6 +931,11 @@ export async function persistCompactionTurn(input: {
     });
     await publishTurnFinalized(input.spaceId, turn).catch((error) => {
       logger.warn("[Compaction] failed to publish turn finalized", error);
+    });
+  }
+  if (state.messageRow) {
+    await publishMessagePersisted(input.spaceId, toMessageRecord(state.messageRow)).catch((error) => {
+      logger.warn("[Compaction] failed to publish compact message persisted", error);
     });
   }
 
