@@ -59,7 +59,7 @@ $effect(() => {
 		bind:this={outputElement}
 		id={bodyId}
 		onscroll={handleOutputScroll}
-		class={`whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] max-sm:text-[12px] ${failed ? 'text-status-error' : 'text-text-secondary'} ${tailMode ? 'max-h-[min(38dvh,14rem)] overflow-auto overscroll-contain rounded-[4px] border border-border-subtle/60 bg-bg-subtle/35 px-2 py-1.5' : collapsed ? 'max-h-[calc(var(--leading-snug)*12em)] overflow-hidden' : ''}`}
+		class={`whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] max-sm:text-[12px] ${failed ? 'text-status-error' : 'text-text-secondary'} ${tailMode ? 'max-h-[min(38dvh,14rem)] overflow-auto overscroll-contain pr-1 [scrollbar-width:thin]' : collapsed ? 'max-h-[calc(var(--leading-snug)*12em)] overflow-hidden' : ''}`}
 	>{value}</pre>
 
 	{#if collapsible}

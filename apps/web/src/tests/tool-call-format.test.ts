@@ -41,9 +41,9 @@ test("formats write input with collapsible content section", () => {
 	});
 	assert.ok(view);
 	assert.equal(view?.primary?.value, "apps/web/src/lib/foo.ts");
-	assert.equal(view?.fields[0]?.label, "content");
-	assert.match(view?.fields[0]?.value ?? "", /12 lines/);
+	assert.deepEqual(view?.fields, []);
 	assert.equal(view?.sections[0]?.id, "content");
+	assert.match(view?.sections[0]?.summary ?? "", /12 lines/);
 	assert.equal(view?.sections[0]?.collapsible, true);
 });
 

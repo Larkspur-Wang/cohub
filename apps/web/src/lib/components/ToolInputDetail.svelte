@@ -8,9 +8,15 @@ type Props = {
 	name: string;
 	input?: Record<string, unknown>;
 	idPrefix?: string;
+	autoFollow?: boolean;
 };
 
-const { name, input, idPrefix = "tool-input" }: Props = $props();
+const {
+	name,
+	input,
+	idPrefix = "tool-input",
+	autoFollow = false,
+}: Props = $props();
 
 const view = $derived(formatToolInputView(name, input));
 let expandedSections = $state<Record<string, boolean>>({});
@@ -24,7 +30,7 @@ function isExpanded(section: ToolInputSection) {
 }
 
 function shouldCollapse(section: ToolInputSection) {
-	return section.collapsible && !isExpanded(section);
+	return Boolean(section.collapsible) && !isExpanded(section);
 }
 
 function sectionBodyId(section: ToolInputSection) {
@@ -41,6 +47,41 @@ function diffLineClass(sign: "+" | "-") {
 
 function diffTextClass(sign: "+" | "-") {
 	return `whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${sign === "+" ? "text-success" : "text-error"}`;
+}
+
+function isPinnedToBottom(element: HTMLElement) {
+	return element.scrollHeight - element.scrollTop - element.clientHeight <= 6;
+}
+
+function autoFollowScroll(
+	node: HTMLElement,
+	params: { enabled: boolean; value: unknown },
+) {
+	let pinned = true;
+	const handleScroll = () => {
+		pinned = isPinnedToBottom(node);
+	};
+	const scrollToBottom = () => {
+		if (!params.enabled || !pinned) return;
+		node.scrollTop = node.scrollHeight;
+	};
+	node.addEventListener("scroll", handleScroll, { passive: true });
+	requestAnimationFrame(scrollToBottom);
+	return {
+		update(next: { enabled: boolean; value: unknown }) {
+			params = next;
+			requestAnimationFrame(scrollToBottom);
+		},
+		destroy() {
+			node.removeEventListener("scroll", handleScroll);
+		},
+	};
+}
+
+function sectionFollowValue(section: ToolInputSection) {
+	return section.kind === "diff"
+		? section.lines?.map((line) => `${line.sign}${line.text}`).join("\n")
+		: section.value;
 }
 </script>
 
@@ -77,8 +118,12 @@ function diffTextClass(sign: "+" | "-") {
 						{#if section.kind === 'diff'}
 							<div class="relative min-w-0">
 								<div
+									use:autoFollowScroll={{
+										enabled: autoFollow === true && shouldCollapse(section),
+										value: sectionFollowValue(section),
+									}}
 									id={sectionBodyId(section)}
-									class={`${shouldCollapse(section) ? 'max-h-56 overflow-auto overscroll-contain rounded-[4px] border border-border-subtle/60 bg-bg-subtle/25' : 'overflow-hidden'}`}
+									class={`${shouldCollapse(section) ? 'max-h-56 overflow-auto overscroll-contain pr-1 [scrollbar-width:thin]' : 'overflow-hidden'}`}
 								>
 									{#each section.lines ?? [] as line, index (`${index}-${line.sign}`)}
 										<div class={diffLineClass(line.sign)}>
@@ -91,8 +136,12 @@ function diffTextClass(sign: "+" | "-") {
 						{:else}
 							<div class="relative min-w-0">
 								<pre
+									use:autoFollowScroll={{
+										enabled: autoFollow === true && shouldCollapse(section),
+										value: sectionFollowValue(section),
+									}}
 									id={sectionBodyId(section)}
-									class={`whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] ${shouldCollapse(section) ? 'max-h-56 overflow-auto overscroll-contain rounded-[4px] border border-border-subtle/60 bg-bg-subtle/25 px-2 py-1.5' : ''}`}
+									class={`whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] ${shouldCollapse(section) ? 'max-h-56 overflow-auto overscroll-contain pr-1 [scrollbar-width:thin]' : ''}`}
 								>{section.value}</pre>
 							</div>
 						{/if}

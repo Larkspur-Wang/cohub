@@ -231,13 +231,10 @@ export function formatToolInputView(
 			}
 		}
 		if (name === "write" && typeof input.content === "string") {
-			view.fields.push({
-				label: "content",
-				value: describeTextValue(input.content),
-			});
 			view.sections.push({
 				id: "content",
 				label: "content",
+				summary: describeTextValue(input.content),
 				kind: "text",
 				value: input.content,
 				collapsible: isLongTextValue(input.content),
