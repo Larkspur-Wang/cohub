@@ -155,15 +155,19 @@ jobs:
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp {} upload/ \;
           ls -la upload
 
-      - name: Configure AWS CLI addressing style
-        # OSS buckets in non-mainland-China regions (e.g. us-west-1) reject
-        # path-style addressing with SecondLevelDomainForbidden. The AWS CLI
-        # defaults to path-style when --endpoint-url is set (botocore sets
-        # ForcePathStyle=True for custom endpoints), so force virtual-host
-        # style via config to land on https://<bucket>.oss-us-west-1.aliyuncs.com.
+      - name: Configure AWS CLI for Alibaba Cloud OSS
+        # OSS (us-west-1, a non-mainland-China region) is incompatible with
+        # two aws-cli v2 defaults that break PutObject:
+        #   1. Path-style addressing for custom endpoints -> OSS rejects with
+        #      SecondLevelDomainForbidden; force virtual-hosted style.
+        #   2. CRC64NVME flexible checksum + aws-chunked STREAMING-UNSIGNED-
+        #      PAYLOAD-TRAILER encoding -> OSS rejects with NotImplemented;
+        #      disable via request_checksum_calculation=when_required.
+        # NOTE: request_checksum_calculation / response_checksum_validation
+        # are top-level botocore Config options, NOT under the [s3] section.
         run: |
           mkdir -p ~/.aws
-          printf '[default]\ns3 =\n    addressing_style = virtual\n' > ~/.aws/config
+          printf '[default]\nrequest_checksum_calculation = when_required\nresponse_checksum_validation = when_required\ns3 =\n    addressing_style = virtual\n' > ~/.aws/config
           cat ~/.aws/config
 
       - name: Upload to public CDN (OSS, S3-compatible)
