@@ -85,6 +85,9 @@
       "@cohub/sandbox-controller": [
         "../../packages/sandbox-controller/dist/index.d.ts"
       ],
+      "@cohub/sandbox-client": [
+        "../../packages/sandbox-client/dist/index.d.ts"
+      ],
       "@cohub/core/fs-cdn": [
         "../../packages/core/dist/fs-cdn/index.d.ts"
       ]

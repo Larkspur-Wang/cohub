@@ -121,6 +121,9 @@
       "@cohub/sandbox-controller": [
         "../../packages/sandbox-controller/src/index.ts"
       ],
+      "@cohub/sandbox-client": [
+        "../../packages/sandbox-client/src/index.ts"
+      ],
       "@cohub/core/fs-cdn": [
         "../../packages/core/src/fs-cdn/index.ts"
       ]
