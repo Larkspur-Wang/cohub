@@ -134,14 +134,34 @@ func main() {
 // buildRuntime wires the shared sandbox runtime (process manager, dispatcher, ws
 // server) and starts the file/port watchers. The returned cleanup closes the
 // watchers. It is used by both cloud (listen) and local (dial-out) modes.
-func buildRuntime(logger *slog.Logger, cfg env.Config, state *prepareState, reporter *report.Client, hostname string) (*ws.Server, func()) {
+//
+// fsSink/portsSink override where watcher batches are delivered. Cloud mode
+// leaves them nil and broadcasts to attached data sessions; local mode routes
+// them over the relay control channel so the web file tree stays live without
+// an attached agent (and avoids double-publishing on data sessions).
+func buildRuntime(
+	logger *slog.Logger,
+	cfg env.Config,
+	state *prepareState,
+	reporter *report.Client,
+	hostname string,
+	fsSink func(protocol.FSChangedPayload),
+	portsSink func(protocol.PortsChangedPayload),
+) (*ws.Server, func()) {
 	processManager := process.NewManager(logger)
 	dispatcher := rpc.NewDispatcher(cfg, processManager, logger)
 	server := ws.NewServer(cfg, dispatcher, processManager, reporter, state, hostname, logger)
 
+	if fsSink == nil {
+		fsSink = server.BroadcastFSChanged
+	}
+	if portsSink == nil {
+		portsSink = server.BroadcastPortsChanged
+	}
+
 	var closers []func()
 	if watcher, err := filewatch.Start(cfg.WorkspaceDir, logger, func(batch filewatch.Batch) {
-		server.BroadcastFSChanged(protocol.FSChangedPayload{
+		fsSink(protocol.FSChangedPayload{
 			Seq:     batch.Seq,
 			Resync:  batch.Resync,
 			Changes: toProtocolFSChanges(batch.Changes),
@@ -154,7 +174,7 @@ func buildRuntime(logger *slog.Logger, cfg env.Config, state *prepareState, repo
 	}
 
 	if watcher, err := portwatch.Start(cfg.PublicPorts, logger, func(batch portwatch.Batch) {
-		server.BroadcastPortsChanged(protocol.PortsChangedPayload{
+		portsSink(protocol.PortsChangedPayload{
 			Seq:    batch.Seq,
 			Resync: batch.Resync,
 			Ports:  toProtocolPortChanges(batch.Changes),
@@ -179,7 +199,7 @@ func runCloud(logger *slog.Logger, cfg env.Config) {
 	hostname, _ := os.Hostname()
 	reporter := report.NewClient(cfg, hostname)
 
-	server, closeWatchers := buildRuntime(logger, cfg, state, reporter, hostname)
+	server, closeWatchers := buildRuntime(logger, cfg, state, reporter, hostname, nil, nil)
 	defer closeWatchers()
 
 	initialMeta := map[string]interface{}{
@@ -286,8 +306,27 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 
 	state := &prepareState{status: "ready"}
 	hostname, _ := os.Hostname()
-	server, closeWatchers := buildRuntime(logger, cfg, state, nil, hostname)
+
+	// Create the relay client first so the runtime's watchers can publish
+	// fs.changed / ports.changed over the control channel (kept off data
+	// sessions to avoid double-publishing; the gateway republishes them).
+	client := relay.NewClient(relay.Options{
+		RelayURL: cfg.RelayURL,
+		Token:    cfg.RelayToken,
+		SpaceID:  cfg.SpaceID,
+		Logger:   logger,
+	})
+
+	fsSink := func(payload protocol.FSChangedPayload) {
+		client.PublishEvent("fs.changed", payload)
+	}
+	portsSink := func(payload protocol.PortsChangedPayload) {
+		client.PublishEvent("ports.changed", payload)
+	}
+
+	server, closeWatchers := buildRuntime(logger, cfg, state, nil, hostname, fsSink, portsSink)
 	defer closeWatchers()
+	client.SetServer(server)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -298,12 +337,6 @@ func runLocal(logger *slog.Logger, spaceID, root, relayURL string) {
 		slog.String("relay", cfg.RelayURL),
 	)
 
-	relay.Run(ctx, relay.Options{
-		RelayURL: cfg.RelayURL,
-		Token:    cfg.RelayToken,
-		SpaceID:  cfg.SpaceID,
-		Server:   server,
-		Logger:   logger,
-	})
+	client.Run(ctx)
 	logger.Info("local sandbox stopped")
 }

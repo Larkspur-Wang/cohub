@@ -157,6 +157,9 @@ importers:
       '@cohub/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@cohub/sandbox-client':
+        specifier: workspace:*
+        version: link:../../packages/sandbox-client
       '@cohub/sandbox-controller':
         specifier: workspace:*
         version: link:../../packages/sandbox-controller

@@ -18,6 +18,7 @@ export const RPC_METHODS = [
   "fs.write",
   "fs.stat",
   "fs.ls",
+  "fs.tree",
   "fs.find",
   "fs.grep",
   "process.start",
@@ -68,6 +69,7 @@ export const RPC_ERROR_CODES = [
   "BAD_REQUEST",
   "UNSUPPORTED_METHOD",
   "NOT_FOUND",
+  "ALREADY_EXISTS",
   "NOT_DIRECTORY",
   "INVALID_PATH",
   "ACCESS_DENIED",
@@ -108,6 +110,8 @@ export type SandboxCapabilities = {
   fsWrite: boolean;
   fsStat: boolean;
   fsLs: boolean;
+  /** Supports the structured recursive fs.tree method. */
+  fsTree?: boolean;
   fsFind: boolean;
   fsGrep: boolean;
   processStart: boolean;
@@ -179,17 +183,27 @@ export type FsReadResult = {
   contentBase64?: string;
   /** MIME type detected for binary content */
   mimeType?: string;
+  /** Full file size in bytes (not the returned slice). */
+  size?: number;
+  /** File modification time in epoch milliseconds. */
+  mtimeMs?: number;
 };
 
 export type FsWriteParams = {
   path: string;
   cwd?: string;
   content: string;
+  /** Content encoding; base64 enables binary-safe writes. Defaults to utf-8. */
+  encoding?: "utf-8" | "base64";
+  /** Fail with ALREADY_EXISTS instead of overwriting when the path exists (O_EXCL). */
+  exclusive?: boolean;
 };
 
 export type FsWriteResult = {
   path: string;
   bytesWritten: number;
+  /** File modification time in epoch milliseconds after the write. */
+  mtimeMs?: number;
 };
 
 export type FsStatParams = {
@@ -201,6 +215,10 @@ export type FsStatResult = {
   path?: string;
   exists: boolean;
   isDirectory: boolean;
+  /** File size in bytes when the node exists and is a regular file. */
+  size?: number;
+  /** Modification time in epoch milliseconds when the node exists. */
+  mtimeMs?: number;
 };
 
 export type FsLsParams = {
@@ -212,6 +230,35 @@ export type FsLsParams = {
 export type FsLsResult = {
   path: string;
   entries: string[];
+  truncated?: boolean;
+};
+
+export type FsTreeParams = {
+  /** Directory to list; resolved like other fs paths. Defaults to cwd. */
+  path?: string;
+  cwd?: string;
+  /** Recursion depth; 1 lists only direct children. Defaults to 1, max 10. */
+  depth?: number;
+  /** Total entry cap across the walk. Defaults to 1000, max 5000. */
+  limit?: number;
+  /** Apply workspace .gitignore rules (and always hide .git). Defaults to true. */
+  respectGitignore?: boolean;
+};
+
+export type FsTreeEntry = {
+  name: string;
+  /** Posix path relative to the requested tree root. */
+  path: string;
+  type: "file" | "dir" | "symlink";
+  size: number;
+  mtimeMs: number;
+};
+
+export type FsTreeResult = {
+  /** Resolved absolute path of the tree root. */
+  path: string;
+  /** Flat list in depth-first order; directories sort before recursion. */
+  entries: FsTreeEntry[];
   truncated?: boolean;
 };
 
@@ -317,6 +364,10 @@ export type RpcRequestMap = {
   "fs.ls": {
     params: FsLsParams;
     result: FsLsResult;
+  };
+  "fs.tree": {
+    params: FsTreeParams;
+    result: FsTreeResult;
   };
   "fs.find": {
     params: FsFindParams;

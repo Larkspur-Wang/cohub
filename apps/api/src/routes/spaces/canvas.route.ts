@@ -5,7 +5,7 @@ import { applyCanvasTransaction, CanvasServiceError, normalizeNodes, type Canvas
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
-import { createSpaceFileExclusive, deleteSpaceNode, SpaceFsError } from "../../space-fs.js";
+import { createSpaceFileExclusive, deleteSpaceNode, SpaceFsError } from "../../space-fs-backend.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 
 const router = new Hono();

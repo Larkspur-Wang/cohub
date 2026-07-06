@@ -692,7 +692,7 @@ async function main() {
   const asrWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   // Local sandbox relay: control (runner⇒gateway), data (runner dial-out), and
   // peer (agent/worker⇒gateway) channels. Large payloads flow on data channels.
-  const relayControlWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+  const relayControlWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const relayDataWss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
   const relayPeerWss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024 });
 

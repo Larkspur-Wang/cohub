@@ -146,6 +146,21 @@ pnpm dev
 - `find` -> `fs.stat` + `fs.find`
 - `grep` -> `fs.grep`
 
+## Web/API 文件系统（local sandbox，M4）
+
+cloud space 的 fs tree/read/write 直接读写共享 PVC（不变）。local space 经 relay 走 sandbox RPC 动态读写用户本机目录，`apps/api/src/space-fs-backend.ts` 按 `space_sandboxes.provider` 分叉：
+
+- fs tree -> `fs.tree`（结构化递归、gitignore-aware、depth/limit）
+- 读文件/批量读 -> `fs.stat`（大小护栏）+ `fs.read`（binary base64）
+- 下载 -> RPC 读入内存直出（≤10MB，local 不走 CDN）
+- 写/新建文件、上传 -> `fs.write`（支持 base64 编码）
+- 建目录/删除/移动 -> `process.start` argv（`mkdir -p` / `rm`·`rmdir` / `mv`），操作前 `fs.stat` 预检
+- 本机离线 -> API 返回 `503 sandbox_offline`，web 展示离线态
+
+协议新增：`fs.tree` 方法（capability `fsTree`），`fs.read`/`fs.stat` 结果补 `size`/`mtimeMs`，`fs.write` 参数补 `encoding`。云端沙箱同步实现，两端能力恒等。
+
+local 模式下 `fs.changed` / `ports.changed` 只经 control 通道上报（不发 data session，避免与 agent 转发重复），gateway 收到后 republish 到 space 订阅者，因此 web 文件树在无 agent 连接时也保持实时。
+
 ## 当前状态语义
 
 1. API 先上报 `provisioning`

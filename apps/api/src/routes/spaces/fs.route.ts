@@ -13,11 +13,12 @@ import {
   moveSpaceNode,
   readSpaceFile,
   readSpaceFiles,
+  resolveSpaceFileDownload,
   spaceFsJsonError,
   streamSpaceFile,
   uploadSpaceFiles,
   writeSpaceFile,
-} from "../../space-fs.js";
+} from "../../space-fs-backend.js";
 import { dispatchSpaceFsChanged } from "../../space-events.js";
 import type { SpaceFsVisibility } from "../../space-fs-ignore.js";
 import {
@@ -242,6 +243,13 @@ router.get("/download", async (c) => {
 
   const path = c.req.query("path") ?? "";
   try {
+    const download = await resolveSpaceFileDownload(spaceId, path, { visibility });
+    if (download.kind === "buffer") {
+      return c.body(new Uint8Array(download.buffer), 200, {
+        "content-type": download.mimeType ?? "application/octet-stream",
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(download.name)}`,
+      });
+    }
     const info = await streamSpaceFile(spaceId, path, { visibility });
     const meta = {
       spaceId,

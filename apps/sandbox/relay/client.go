@@ -8,10 +8,12 @@ package relay
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -40,13 +42,17 @@ type Options struct {
 }
 
 // control frames exchanged on the control channel. Kept intentionally small and
-// separate from the agent-sandbox protocol carried on data channels.
+// separate from the agent-sandbox protocol carried on data channels. The
+// Payload field carries watcher events (fs.changed / ports.changed) that the
+// gateway republishes to space subscribers, so the web file tree stays live
+// even when no agent is attached.
 type controlFrame struct {
-	Type    string `json:"type"`
-	SpaceID string `json:"spaceId,omitempty"`
-	Token   string `json:"token,omitempty"`
-	Channel string `json:"channel,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type    string          `json:"type"`
+	SpaceID string          `json:"spaceId,omitempty"`
+	Token   string          `json:"token,omitempty"`
+	Channel string          `json:"channel,omitempty"`
+	Message string          `json:"message,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
 const (
@@ -63,16 +69,64 @@ var reconnectDelays = []time.Duration{
 	30 * time.Second,
 }
 
+// Client maintains the control connection and lets the runtime publish watcher
+// events over it. The zero value is not usable; construct with NewClient.
+type Client struct {
+	opts Options
+	mu   sync.Mutex
+	conn *websocket.Conn // active control connection, nil when disconnected
+}
+
+func NewClient(opts Options) *Client {
+	return &Client{opts: opts}
+}
+
+// SetServer sets the session server used to serve opened data channels. It must
+// be called before Run when the client is constructed without Options.Server.
+func (c *Client) SetServer(server SessionServer) {
+	c.opts.Server = server
+}
+
+// PublishEvent sends a watcher event (fs.changed / ports.changed) over the
+// active control connection. It is a no-op (drops the event) when the control
+// connection is down; the gateway/web recover via the watcher's resync frame
+// on reconnect. Safe for concurrent use.
+func (c *Client) PublishEvent(eventType string, payload interface{}) {
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		c.opts.Logger.Warn("relay marshal event failed", slog.String("type", eventType), slog.String("error", err.Error()))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := wsjson.Write(ctx, conn, controlFrame{Type: eventType, SpaceID: c.opts.SpaceID, Payload: raw}); err != nil {
+		c.opts.Logger.Debug("relay publish event failed", slog.String("type", eventType), slog.String("error", err.Error()))
+	}
+}
+
+func (c *Client) setConn(conn *websocket.Conn) {
+	c.mu.Lock()
+	c.conn = conn
+	c.mu.Unlock()
+}
+
 // Run maintains the control connection, reconnecting with backoff until ctx is
 // cancelled. It never returns until ctx is done.
-func Run(ctx context.Context, opts Options) {
+func (c *Client) Run(ctx context.Context) {
+	opts := c.opts
 	attempt := 0
 	for {
 		if ctx.Err() != nil {
 			return
 		}
 		start := time.Now()
-		if err := connectControl(ctx, opts); err != nil && ctx.Err() == nil {
+		if err := c.connectControl(ctx); err != nil && ctx.Err() == nil {
 			opts.Logger.Warn("relay control connection ended", slog.String("error", err.Error()))
 		}
 		// A connection that stayed up for a while resets the backoff.
@@ -92,7 +146,14 @@ func Run(ctx context.Context, opts Options) {
 	}
 }
 
-func connectControl(ctx context.Context, opts Options) error {
+// Run maintains the control connection using a throwaway client. Retained for
+// call sites that do not need to publish events.
+func Run(ctx context.Context, opts Options) {
+	NewClient(opts).Run(ctx)
+}
+
+func (c *Client) connectControl(ctx context.Context) error {
+	opts := c.opts
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
@@ -103,7 +164,9 @@ func connectControl(ctx context.Context, opts Options) error {
 		return fmt.Errorf("dial control: %w", err)
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "closing")
-	conn.SetReadLimit(64 * 1024)
+	// Allow larger control frames so batched watcher events fit (the gateway
+	// caps this side too). Data channels keep their own larger limit.
+	conn.SetReadLimit(1024 * 1024)
 
 	if err := wsjson.Write(ctx, conn, controlFrame{Type: "register", SpaceID: opts.SpaceID, Token: opts.Token}); err != nil {
 		return fmt.Errorf("send register: %w", err)
@@ -111,6 +174,8 @@ func connectControl(ctx context.Context, opts Options) error {
 
 	ctx, cancelLoop := context.WithCancel(ctx)
 	defer cancelLoop()
+	c.setConn(conn)
+	defer c.setConn(nil)
 	go controlPingLoop(ctx, conn, opts.Logger)
 
 	for {

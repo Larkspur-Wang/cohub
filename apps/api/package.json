@@ -27,6 +27,7 @@
     "@cohub/identity": "workspace:*",
     "@cohub/infra": "workspace:*",
     "@cohub/protocol": "workspace:*",
+    "@cohub/sandbox-client": "workspace:*",
     "@cohub/sandbox-controller": "workspace:*",
     "@hono/node-server": "2.0.4",
     "@hono/otel": "^1.1.2",

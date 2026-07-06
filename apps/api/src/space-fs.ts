@@ -127,7 +127,7 @@ export function getMimeType(path: string) {
   return null;
 }
 
-function isTextMime(mimeType: string | null) {
+export function isTextMime(mimeType: string | null) {
   if (!mimeType) return false;
   return (
     mimeType.startsWith("text/") ||
@@ -1351,6 +1351,10 @@ export async function uploadSpaceFiles(
 export function spaceFsJsonError(error: unknown) {
   if (error instanceof SpaceFsError) {
     return { status: error.status, body: { code: error.code, message: error.message.toLowerCase().replace(/\.$/, "") } };
+  }
+  // Local sandbox offline (matched by name to avoid a cross-module import cycle).
+  if (error instanceof Error && error.name === "SandboxOfflineError") {
+    return { status: 503, body: { code: "sandbox_offline", message: "local sandbox is offline" } };
   }
   return { status: 500, body: { code: "space_fs_error", message: "space file operation failed" } };
 }

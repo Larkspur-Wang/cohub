@@ -3,6 +3,7 @@ import type { IncomingMessage } from "node:http";
 import type { WebSocket } from "ws";
 import { createLogger } from "@cohub/infra/logging";
 import { gatewayConfig } from "../config.js";
+import { redisCommandClient, REALTIME_OUTBOUND_CHANNEL } from "../redis.js";
 import { authorizeLocalSandbox, reportLocalSandboxStatus } from "../api-client.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -27,7 +28,7 @@ type PendingPeer = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-const CONTROL_MAX_MESSAGE_BYTES = 64 * 1024;
+const CONTROL_MAX_MESSAGE_BYTES = 1024 * 1024;
 const DATA_PAIR_TIMEOUT_MS = 15_000;
 
 const runnersBySpace = new Map<string, RegisteredRunner>();
@@ -60,6 +61,52 @@ const closeSocket = (socket: WebSocket, code: number, reason: string) => {
 const buildRelayWsEndpoint = (spaceId: string) =>
   `ws://${gatewayConfig.podIp}:${gatewayConfig.port}/internal/sandbox-relay/${spaceId}`;
 
+// Republish a local sandbox watcher event (fs.changed / ports.changed) to space
+// subscribers, mirroring the shape the agent produces so web consumers are
+// provider-agnostic. In local mode these events arrive on the control channel
+// (not data sessions), so this is the sole publish path.
+async function publishRelayWatcherEvent(spaceId: string, frameType: string, payload: unknown) {
+  if (!payload || typeof payload !== "object") return;
+  const record = payload as Record<string, unknown>;
+  const seq = typeof record.seq === "number" ? record.seq : undefined;
+  const resync = record.resync === true;
+
+  let type: string;
+  let eventPayload: Record<string, unknown>;
+  if (frameType === "fs.changed") {
+    const changes = Array.isArray(record.changes) ? record.changes : [];
+    type = "space.fs.changed";
+    eventPayload = {
+      source: resync && changes.length === 0 ? "sandbox-watch-started" : "sandbox-inotify",
+      seq,
+      resync,
+      changes,
+    };
+  } else if (frameType === "ports.changed") {
+    const ports = Array.isArray(record.ports) ? record.ports : [];
+    type = "space.ports.changed";
+    eventPayload = {
+      source: resync && ports.length === 0 ? "sandbox-port-watch-started" : "sandbox-port-watch",
+      seq,
+      resync,
+      ports,
+    };
+  } else {
+    return;
+  }
+
+  const message = JSON.stringify({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "space",
+    type,
+    spaceId,
+    sessionId: null,
+    payload: eventPayload,
+  });
+  await redisCommandClient.publish(REALTIME_OUTBOUND_CHANNEL, message);
+}
+
 // ── Control channel (local runner ⇒ gateway) ───────────────────────────────
 
 export async function handleRelayControlConnection(socket: WebSocket, request: IncomingMessage) {
@@ -76,7 +123,7 @@ export async function handleRelayControlConnection(socket: WebSocket, request: I
       closeSocket(socket, 4400, "message too large");
       return;
     }
-    let frame: { type?: string; spaceId?: string };
+    let frame: { type?: string; spaceId?: string; payload?: unknown };
     try {
       frame = JSON.parse(data.toString());
     } catch {
@@ -122,6 +169,13 @@ export async function handleRelayControlConnection(socket: WebSocket, request: I
 
     if (frame.type === "ping") {
       socket.send(JSON.stringify({ type: "pong" }));
+      return;
+    }
+
+    if ((frame.type === "fs.changed" || frame.type === "ports.changed") && runner) {
+      void publishRelayWatcherEvent(runner.spaceId, frame.type, (frame as { payload?: unknown }).payload).catch((error) =>
+        logger.warn("[Relay] failed to publish watcher event", { spaceId: runner?.spaceId, type: frame.type, error }),
+      );
       return;
     }
     // "pong" and unknown frames are ignored.

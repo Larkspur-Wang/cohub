@@ -12,8 +12,10 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
+	ignore "github.com/sabhiram/go-gitignore"
 
 	"github.com/cohub/apps/sandbox/env"
 	"github.com/cohub/apps/sandbox/process"
@@ -31,6 +33,63 @@ type Dispatcher struct {
 	router         IdentityRouter
 	opSeq          int64
 	mu             sync.Mutex
+	gitignoreMu    sync.Mutex
+	gitignoreCache *gitignoreCacheEntry
+}
+
+type gitignoreMatcher struct {
+	gi *ignore.GitIgnore
+}
+
+// ignore reports whether a workspace-root-relative path should be hidden. It
+// always hides the .git directory and, when a .gitignore is present, applies
+// its rules (checking the directory form so ignored dirs are pruned).
+func (m *gitignoreMatcher) ignore(relPath string, isDir bool) bool {
+	if relPath == ".git" || strings.HasPrefix(relPath, ".git/") {
+		return true
+	}
+	if m.gi == nil {
+		return false
+	}
+	if m.gi.MatchesPath(relPath) {
+		return true
+	}
+	return isDir && m.gi.MatchesPath(relPath+"/")
+}
+
+type gitignoreCacheEntry struct {
+	matcher   *gitignoreMatcher
+	signature string
+	expiresAt time.Time
+}
+
+const gitignoreCacheTTL = 30 * time.Second
+
+// loadGitignore builds (and briefly caches) a matcher from the workspace root
+// .gitignore. When respect is false it returns a matcher that only hides .git.
+func (d *Dispatcher) loadGitignore(respect bool) *gitignoreMatcher {
+	if !respect {
+		return &gitignoreMatcher{}
+	}
+	path := filepath.Join(d.cfg.WorkspaceDir, ".gitignore")
+	signature := "missing"
+	if info, err := os.Stat(path); err == nil {
+		signature = fmt.Sprintf("%d:%d", info.ModTime().UnixNano(), info.Size())
+	}
+
+	d.gitignoreMu.Lock()
+	defer d.gitignoreMu.Unlock()
+	now := time.Now()
+	if d.gitignoreCache != nil && d.gitignoreCache.signature == signature && d.gitignoreCache.expiresAt.After(now) {
+		return d.gitignoreCache.matcher
+	}
+
+	matcher := &gitignoreMatcher{}
+	if gi, err := ignore.CompileIgnoreFile(path); err == nil {
+		matcher.gi = gi
+	}
+	d.gitignoreCache = &gitignoreCacheEntry{matcher: matcher, signature: signature, expiresAt: now.Add(gitignoreCacheTTL)}
+	return matcher
 }
 
 func NewDispatcher(cfg env.Config, processManager *process.Manager, logger *slog.Logger) *Dispatcher {
@@ -73,6 +132,8 @@ func (d *Dispatcher) Handle(request protocol.RPCRequest, ownerIdentity string) (
 		return accepted, d.complete(request, accepted.OpID, d.handleFSStat(request))
 	case "fs.ls":
 		return accepted, d.complete(request, accepted.OpID, d.handleFSLs(request))
+	case "fs.tree":
+		return accepted, d.complete(request, accepted.OpID, d.handleFSTree(request))
 	case "fs.find":
 		return accepted, d.complete(request, accepted.OpID, d.handleFSFind(request))
 	case "fs.grep":
@@ -95,15 +156,25 @@ type fsReadParams struct {
 }
 
 type fsWriteParams struct {
-	Path    string `json:"path"`
-	CWD     string `json:"cwd"`
-	Content string `json:"content"`
+	Path      string `json:"path"`
+	CWD       string `json:"cwd"`
+	Content   string `json:"content"`
+	Encoding  string `json:"encoding"`
+	Exclusive bool   `json:"exclusive"`
 }
 
 type fsLsParams struct {
 	Path  string `json:"path"`
 	CWD   string `json:"cwd"`
 	Limit int    `json:"limit"`
+}
+
+type fsTreeParams struct {
+	Path             string `json:"path"`
+	CWD              string `json:"cwd"`
+	Depth            int    `json:"depth"`
+	Limit            int    `json:"limit"`
+	RespectGitignore *bool  `json:"respectGitignore"`
 }
 
 type fsFindParams struct {
@@ -185,12 +256,18 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 			return d.failed(request, "", "IO_ERROR", err.Error())
 		}
 		mimeType := detectMimeType(resolved.path, rawBytes)
-		return map[string]interface{}{
+		result := map[string]interface{}{
 			"path":          resolved.path,
 			"content":       "",
 			"contentBase64": fileToBase64(rawBytes),
 			"mimeType":      mimeType,
+			"size":          int64(len(rawBytes)),
 		}
+		if info, statErr := os.Stat(resolved.path); statErr == nil {
+			result["size"] = info.Size()
+			result["mtimeMs"] = info.ModTime().UnixMilli()
+		}
+		return result
 	}
 
 	content, err := osReadFile(resolved.path)
@@ -218,10 +295,15 @@ func (d *Dispatcher) handleFSRead(request protocol.RPCRequest) interface{} {
 		end = start + params.Limit
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"path":    resolved.path,
 		"content": joinLines(lines[start:end]),
 	}
+	if info, statErr := os.Stat(resolved.path); statErr == nil {
+		result["size"] = info.Size()
+		result["mtimeMs"] = info.ModTime().UnixMilli()
+	}
+	return result
 }
 
 func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
@@ -244,14 +326,35 @@ func (d *Dispatcher) handleFSWrite(request protocol.RPCRequest) interface{} {
 	if err := ensureParentDir(resolved.path); err != nil {
 		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
-	if err := osWriteFile(resolved.path, []byte(params.Content)); err != nil {
+	data := []byte(params.Content)
+	if params.Encoding == "base64" {
+		decoded, decErr := decodeBase64(params.Content)
+		if decErr != nil {
+			return d.failed(request, "", "BAD_REQUEST", decErr.Error())
+		}
+		data = decoded
+	}
+	if params.Exclusive {
+		// Atomic create: O_EXCL fails if the path already exists, so concurrent
+		// exclusive creates cannot clobber each other.
+		if err := osWriteFileExclusive(resolved.path, data); err != nil {
+			if os.IsExist(err) {
+				return d.failed(request, "", "ALREADY_EXISTS", fmt.Sprintf("path already exists: %s", resolved.path))
+			}
+			return d.failed(request, "", "IO_ERROR", err.Error())
+		}
+	} else if err := osWriteFile(resolved.path, data); err != nil {
 		return d.failed(request, "", "IO_ERROR", err.Error())
 	}
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"path":         resolved.path,
-		"bytesWritten": len([]byte(params.Content)),
+		"bytesWritten": len(data),
 	}
+	if info, statErr := os.Stat(resolved.path); statErr == nil {
+		result["mtimeMs"] = info.ModTime().UnixMilli()
+	}
+	return result
 }
 
 type fsStatParams struct {
@@ -286,6 +389,8 @@ func (d *Dispatcher) handleFSStat(request protocol.RPCRequest) interface{} {
 		"path":        resolved.path,
 		"exists":      true,
 		"isDirectory": info.IsDir(),
+		"size":        info.Size(),
+		"mtimeMs":     info.ModTime().UnixMilli(),
 	}
 }
 
@@ -340,6 +445,137 @@ func (d *Dispatcher) handleFSLs(request protocol.RPCRequest) interface{} {
 	return map[string]interface{}{
 		"path":      resolved.path,
 		"entries":   results,
+		"truncated": truncated,
+	}
+}
+
+type fsTreeEntry struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Type    string `json:"type"`
+	Size    int64  `json:"size"`
+	MtimeMs int64  `json:"mtimeMs"`
+}
+
+// handleFSTree walks a directory breadth-first up to depth, returning a flat
+// list of entries with metadata. Entry paths are relative to the requested
+// root so callers can compose their own workspace-relative paths. It always
+// hides .git and, when respectGitignore is set (default), applies the
+// workspace root .gitignore for parity with the web file tree.
+func (d *Dispatcher) handleFSTree(request protocol.RPCRequest) interface{} {
+	var params fsTreeParams
+	if err := json.Unmarshal(request.Params, &params); err != nil {
+		return d.failed(request, "", "BAD_REQUEST", err.Error())
+	}
+
+	resolved, errResponse, ok := d.resolvePathForRequest(request, params.Path, params.CWD)
+	if !ok {
+		return errResponse
+	}
+
+	info, err := os.Stat(resolved.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return d.failed(request, "", "NOT_FOUND", err.Error())
+		}
+		return d.failed(request, "", "IO_ERROR", err.Error())
+	}
+	if !info.IsDir() {
+		return d.failed(request, "", "NOT_DIRECTORY", fmt.Sprintf("not a directory: %s", resolved.path))
+	}
+
+	depth := params.Depth
+	if depth <= 0 {
+		depth = 1
+	}
+	if depth > 10 {
+		depth = 10
+	}
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 1000
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	respectGitignore := params.RespectGitignore == nil || *params.RespectGitignore
+
+	matcher := d.loadGitignore(respectGitignore)
+
+	entries := make([]fsTreeEntry, 0, 64)
+	truncated := false
+
+	type queued struct {
+		absPath string
+		relPath string
+		level   int
+	}
+	queue := []queued{{absPath: resolved.path, relPath: "", level: 0}}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if current.level >= depth {
+			continue
+		}
+
+		dirEntries, readErr := osReadDir(current.absPath)
+		if readErr != nil {
+			// The requested root must be readable; a failure there is a hard
+			// error rather than a silently empty tree. Deeper directories may
+			// legitimately be unreadable (permissions, races) and are skipped.
+			if current.level == 0 {
+				return d.failed(request, "", "IO_ERROR", readErr.Error())
+			}
+			continue
+		}
+		sort.Slice(dirEntries, func(i, j int) bool {
+			return strings.ToLower(dirEntries[i].Name()) < strings.ToLower(dirEntries[j].Name())
+		})
+
+		for _, entry := range dirEntries {
+			name := entry.Name()
+			relPath := name
+			if current.relPath != "" {
+				relPath = current.relPath + "/" + name
+			}
+			if matcher != nil && matcher.ignore(relPath, entry.IsDir()) {
+				continue
+			}
+
+			if len(entries) >= limit {
+				truncated = true
+				queue = nil
+				break
+			}
+
+			absChild := filepath.Join(current.absPath, name)
+			stats, statErr := os.Lstat(absChild)
+			if statErr != nil {
+				continue
+			}
+			nodeType := "file"
+			if stats.Mode()&os.ModeSymlink != 0 {
+				nodeType = "symlink"
+			} else if stats.IsDir() {
+				nodeType = "dir"
+			}
+			entries = append(entries, fsTreeEntry{
+				Name:    name,
+				Path:    relPath,
+				Type:    nodeType,
+				Size:    stats.Size(),
+				MtimeMs: stats.ModTime().UnixMilli(),
+			})
+			if nodeType == "dir" && current.level+1 < depth {
+				queue = append(queue, queued{absPath: absChild, relPath: relPath, level: current.level + 1})
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"path":      resolved.path,
+		"entries":   entries,
 		"truncated": truncated,
 	}
 }

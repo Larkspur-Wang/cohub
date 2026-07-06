@@ -20,6 +20,20 @@ func osWriteFile(path string, content []byte) error {
 	return os.WriteFile(path, content, 0o644)
 }
 
+// osWriteFileExclusive creates path atomically, failing with os.IsExist when it
+// already exists (O_EXCL). Used for exclusive-create semantics.
+func osWriteFileExclusive(path string, content []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(content); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 func osReadFile(path string) (string, error) {
 	bytes, err := os.ReadFile(path)
 	if err != nil {
@@ -34,6 +48,10 @@ func osReadFileBytes(path string) ([]byte, error) {
 
 func fileToBase64(data []byte) string {
 	return base64.StdEncoding.EncodeToString(data)
+}
+
+func decodeBase64(value string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(value)
 }
 
 // detectMimeType uses file extension first, then content sniffing as fallback.

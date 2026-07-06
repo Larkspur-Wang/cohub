@@ -46,6 +46,7 @@ type SandboxCapabilities struct {
 	FSWrite          bool `json:"fsWrite"`
 	FSStat           bool `json:"fsStat"`
 	FSLs             bool `json:"fsLs"`
+	FSTree           bool `json:"fsTree,omitempty"`
 	FSFind           bool `json:"fsFind"`
 	FSGrep           bool `json:"fsGrep"`
 	ProcessStart     bool `json:"processStart"`
