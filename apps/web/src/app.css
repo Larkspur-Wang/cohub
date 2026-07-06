@@ -184,6 +184,9 @@ body.drawer-open {
 	}
 }
 
+/* Trim only the outer Markdown edges. Stable/live streaming regions must keep
+   their shared boundary as normal Markdown flow so text does not jump when a
+   paragraph is promoted from the live tail into the stable region. */
 .markdown-content > :first-child,
 .markdown-content > :first-child > :first-child {
 	margin-top: 0;
@@ -191,16 +194,6 @@ body.drawer-open {
 
 .markdown-content > :last-child,
 .markdown-content > :last-child > :last-child {
-	margin-bottom: 0;
-}
-
-.markdown-stable-region > :first-child,
-.markdown-live-region > :first-child {
-	margin-top: 0;
-}
-
-.markdown-stable-region > :last-child,
-.markdown-live-region > :last-child {
 	margin-bottom: 0;
 }
 
