@@ -15,7 +15,7 @@ import { Readable } from "node:stream";
 // published by .github/workflows/sandbox-binaries-build.yml. Only bump it AFTER
 // that tag's publish-cdn job has succeeded, otherwise `sandbox up` 404s on the
 // default download.
-export const SANDBOXD_VERSION = "v1.80.2";
+export const SANDBOXD_VERSION = "v1.82.2";
 
 const BINARY_NAME = "cohub-sandboxd";
 
