@@ -34,6 +34,12 @@ export const SANDBOX_POD_TEMPLATE = {
     restartPolicy: "Always",
     enableServiceLinks: false,
     automountServiceAccountToken: false,
+    ...(Object.keys(config.sandboxNodeSelector).length > 0
+      ? { nodeSelector: config.sandboxNodeSelector }
+      : {}),
+    ...(config.sandboxTolerations.length > 0
+      ? { tolerations: config.sandboxTolerations }
+      : {}),
     imagePullSecrets: [{ name: "gitea-registry" }],
     securityContext: {
       runAsUser: 1000,

@@ -76,6 +76,53 @@ vim secrets.yaml
 - [ ] secrets.yaml 已配置
 - [ ] CI 已配置 `GITEA_NPM_TOKEN` secret（仅构建期使用，用于读取 `git.talesofai.com/api/packages/talesofai/npm/` 私有 npm 包）
 
+## Sandbox 专用节点池
+
+API 通过 `SANDBOX_NODE_SELECTOR` 和 `SANDBOX_TOLERATIONS` 控制新建 sandbox Pod 的调度位置。当前 CI 发布 API 时只更新 Deployment image，因此不要把这两个参数写进 `deploy.sh`；在 live Deployment 上设置 env，后续 `kubectl set image` 会保留这些 env。
+
+对应节点池需要配置同名 label 和 taint。优先在云厂商的节点池配置里设置；临时验证时可以对节点执行：
+
+```bash
+kubectl label node <node> cohub.run/workload=sandbox
+kubectl taint node <node> cohub.run/workload=sandbox:NoSchedule
+```
+
+启用 dev：
+
+```bash
+kubectl set env deployment/cohub-api-dev -n cohub-dev \
+  SANDBOX_NODE_SELECTOR=cohub.run/workload=sandbox \
+  SANDBOX_TOLERATIONS=cohub.run/workload=sandbox:NoSchedule
+kubectl rollout status deployment/cohub-api-dev -n cohub-dev --timeout=300s
+```
+
+启用 prod：
+
+```bash
+kubectl set env deployment/cohub-api -n cohub \
+  SANDBOX_NODE_SELECTOR=cohub.run/workload=sandbox \
+  SANDBOX_TOLERATIONS=cohub.run/workload=sandbox:NoSchedule
+kubectl rollout status deployment/cohub-api -n cohub --timeout=300s
+```
+
+回滚 dev：
+
+```bash
+kubectl set env deployment/cohub-api-dev -n cohub-dev \
+  SANDBOX_NODE_SELECTOR- SANDBOX_TOLERATIONS-
+kubectl rollout status deployment/cohub-api-dev -n cohub-dev --timeout=300s
+```
+
+回滚 prod：
+
+```bash
+kubectl set env deployment/cohub-api -n cohub \
+  SANDBOX_NODE_SELECTOR- SANDBOX_TOLERATIONS-
+kubectl rollout status deployment/cohub-api -n cohub --timeout=300s
+```
+
+Recover/recreate 会删除旧 Pod 并用当前模板创建新 Pod，因此配置生效后的新 sandbox 或被 recover 的旧 sandbox 会自然落到专用节点池。
+
 ## 可选 Billing 配置
 
 API 支持可插拔 Talesofai Billing。`secrets.yaml` 中以下三项全部非空时启用，任意一项留空时自动禁用 billing：

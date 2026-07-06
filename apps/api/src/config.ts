@@ -11,6 +11,8 @@ export type AppConfig = {
   env: "dev" | "prod";
   appEncryptionKey: string;
   sandboxImage: string;
+  sandboxNodeSelector: Record<string, string>;
+  sandboxTolerations: SandboxToleration[];
   bullmqRedisUrl: string;
   workerSecret: string;
   spaceStorageRoot: string;
@@ -45,6 +47,13 @@ export type AppConfig = {
   checkpointAssetOssSecretAccessKey?: string;
 };
 
+export type SandboxToleration = {
+  key: string;
+  operator: "Equal";
+  value: string;
+  effect?: "NoSchedule" | "PreferNoSchedule" | "NoExecute";
+};
+
 const getSessionsNamespace = (env: string): string => {
   return env === "dev" ? "cohub-sessions-dev" : "cohub-sessions";
 };
@@ -56,6 +65,46 @@ const getDefaultSandboxImage = (env: "dev" | "prod") => {
 };
 
 const env = (process.env.ENV === "prod" ? "prod" : "dev") as "dev" | "prod";
+
+const parseCommaList = (value: string | undefined) => {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const parseSandboxNodeSelector = (value: string | undefined) => {
+  return Object.fromEntries(
+    parseCommaList(value).map((entry) => {
+      const [key, selectorValue] = entry.split("=");
+      if (!key || !selectorValue) {
+        throw new Error("SANDBOX_NODE_SELECTOR must use key=value format");
+      }
+      return [key.trim(), selectorValue.trim()];
+    }),
+  );
+};
+
+const parseSandboxTolerations = (value: string | undefined): SandboxToleration[] => {
+  const effects = new Set(["NoSchedule", "PreferNoSchedule", "NoExecute"]);
+
+  return parseCommaList(value).map((entry) => {
+    const [selector, effect = "NoSchedule"] = entry.split(":");
+    const [key, tolerationValue] = selector.split("=");
+    if (!key || !tolerationValue) {
+      throw new Error("SANDBOX_TOLERATIONS must use key=value:Effect format");
+    }
+    if (!effects.has(effect)) {
+      throw new Error(`SANDBOX_TOLERATIONS contains invalid effect: ${effect}`);
+    }
+    return {
+      key: key.trim(),
+      operator: "Equal",
+      value: tolerationValue.trim(),
+      effect: effect as SandboxToleration["effect"],
+    };
+  });
+};
 
 export const config: AppConfig = {
   workerSecret: process.env.WORKER_SECRET ?? "",
@@ -70,6 +119,8 @@ export const config: AppConfig = {
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
   sandboxImage:
     process.env.SANDBOX_IMAGE ?? getDefaultSandboxImage(env),
+  sandboxNodeSelector: parseSandboxNodeSelector(process.env.SANDBOX_NODE_SELECTOR),
+  sandboxTolerations: parseSandboxTolerations(process.env.SANDBOX_TOLERATIONS),
   bullmqRedisUrl:
     process.env.BULLMQ_REDIS_URL ?? "",
   spaceStorageRoot: process.env.SPACE_STORAGE_ROOT ?? "",
