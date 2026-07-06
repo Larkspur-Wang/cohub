@@ -139,19 +139,46 @@ const composerInsertRanges = new Map<
 	string,
 	{ start: number; end: number; text: string }
 >();
+const SLASH_COMMAND_SCAN_LIMIT = 160;
+const SLASH_COMMAND_QUERY_LIMIT = 80;
+const SPACE_MENTION_TRIGGER_SCAN_LIMIT = 96;
+const COMPOSER_MENTION_MIRROR_TEXT_LIMIT = 50_000;
 
-const hasDraft = $derived(Boolean(value.trim() || attachments.length > 0));
+let isTextareaFocused = $state(false);
+let resizeFrame: number | null = null;
+
+const hasDraft = $derived(hasVisibleDraftText(value) || attachments.length > 0);
 const showAbort = $derived(Boolean(isRunning && !hasDraft));
 const submitDisabled = $derived(
 	disabled || sending || (!hasDraft && !showAbort),
 );
 
+function hasVisibleDraftText(text: string) {
+	return /\S/.test(text);
+}
+
+function getSlashCommandToken(text: string): { query: string } | null {
+	const scanned = text.slice(0, SLASH_COMMAND_SCAN_LIMIT + 1);
+	const firstNonWhitespace = scanned.search(/\S/);
+	if (firstNonWhitespace === -1 || scanned[firstNonWhitespace] !== "/") {
+		return null;
+	}
+
+	const afterSlash = scanned.slice(firstNonWhitespace + 1);
+	const terminatorIndex = afterSlash.search(/\s/);
+	if (terminatorIndex !== -1) return null;
+	const query = afterSlash;
+
+	if (query.length > SLASH_COMMAND_QUERY_LIMIT) return null;
+	if (text.length > scanned.length) return null;
+	return { query };
+}
+
+const slashCommandToken = $derived.by(() => getSlashCommandToken(value));
+
 const filteredPromptTemplates = $derived.by<SlashCommandMenuItem[]>(() => {
-	const trimmed = value.trimStart();
-	if (!trimmed.startsWith("/")) return [];
-	if (trimmed.includes("\n")) return [];
-	const firstToken = trimmed.split(/\s+/, 1)[0] ?? "";
-	const query = firstToken.slice(1).toLowerCase();
+	const query = slashCommandToken?.query.toLowerCase();
+	if (query === undefined) return [];
 	const scored: SlashCommandMenuItem[] = [];
 	for (const item of promptTemplates) {
 		const name = item.name.toLowerCase();
@@ -178,17 +205,8 @@ const filteredPromptTemplates = $derived.by<SlashCommandMenuItem[]>(() => {
 	});
 });
 
-const slashCommandQuery = $derived.by(() => {
-	const trimmed = value.trimStart();
-	if (!trimmed.startsWith("/") || trimmed.includes("\n")) return "";
-	return (trimmed.split(/\s+/, 1)[0] ?? "").slice(1);
-});
-const slashCommandActive = $derived.by(() => {
-	const trimmed = value.trimStart();
-	return (
-		trimmed.startsWith("/") && !trimmed.includes("\n") && !/\s/.test(trimmed)
-	);
-});
+const slashCommandQuery = $derived(slashCommandToken?.query ?? "");
+const slashCommandActive = $derived(slashCommandToken !== null);
 const slashCommandLoading = $derived(
 	slashCommandActive && !promptTemplatesLoaded,
 );
@@ -213,15 +231,20 @@ const spaceMentionStatus = $derived.by(() => {
 		return `Local ${localSpaceMentionItems.length} · syncing server…`;
 	return `${spaceMentionItems.length} space${spaceMentionItems.length === 1 ? "" : "s"}`;
 });
+const shouldPrepareComposerMentionMirror = $derived(
+	!isTextareaFocused &&
+		value.length <= COMPOSER_MENTION_MIRROR_TEXT_LIMIT &&
+		value.includes("@[") &&
+		value.includes("](cohub://spaces/"),
+);
 const composerMentionTokens = $derived.by<SpaceMentionTextToken[]>(() =>
-	tokenizeSpaceMentionText(value),
+	shouldPrepareComposerMentionMirror ? tokenizeSpaceMentionText(value) : [],
 );
 const composerHasRenderableMentions = $derived(
 	composerMentionTokens.some((token) => token.type === "spaceMention"),
 );
-let isTextareaFocused = $state(false);
 const shouldRenderComposerMentionMirror = $derived(
-	composerHasRenderableMentions && !isTextareaFocused,
+	composerHasRenderableMentions,
 );
 
 // Detect mobile/touch — on mobile, Enter should insert newline, not send
@@ -253,37 +276,45 @@ function getTextareaLimits(expanded = isComposerExpanded) {
 	};
 }
 
-function getDraftLineCount(text: string): number {
-	return text.length === 0 ? 1 : text.split(/\r\n|\r|\n/).length;
+function getDraftLineCount(text: string, stopAt: number): number {
+	if (text.length === 0) return 1;
+	let lineCount = 1;
+	for (let index = 0; index < text.length; index += 1) {
+		const char = text.charCodeAt(index);
+		if (char !== 10 && char !== 13) continue;
+		lineCount += 1;
+		if (lineCount >= stopAt) return lineCount;
+		if (char === 13 && text.charCodeAt(index + 1) === 10) index += 1;
+	}
+	return lineCount;
 }
 
 function shouldAutoExpandComposer(scrollHeight: number): boolean {
-	const draft = value.trim();
-	if (!draft) return false;
+	if (!hasVisibleDraftText(value)) return false;
 
 	const mobile = isMobile();
-	const lineCount = getDraftLineCount(value);
+	const lengthThreshold = mobile ? 360 : 560;
+	if (value.length >= lengthThreshold) return true;
+
+	const lineThreshold = mobile ? 5 : 7;
+	const lineCount = getDraftLineCount(value, lineThreshold);
 	const compactMax = getTextareaLimits(false).max;
 
-	return (
-		lineCount >= (mobile ? 5 : 7) ||
-		value.length >= (mobile ? 360 : 560) ||
-		scrollHeight > compactMax + 1
-	);
+	return lineCount >= lineThreshold || scrollHeight > compactMax + 1;
 }
 
 function shouldAutoCollapseComposer(scrollHeight: number): boolean {
-	if (!value.trim()) return true;
+	if (!hasVisibleDraftText(value)) return true;
 
 	const mobile = isMobile();
-	const lineCount = getDraftLineCount(value);
+	const lengthThreshold = mobile ? 220 : 360;
+	if (value.length >= lengthThreshold) return false;
+
+	const lineThreshold = mobile ? 2 : 3;
+	const lineCount = getDraftLineCount(value, lineThreshold + 1);
 	const compactMax = getTextareaLimits(false).max;
 
-	return (
-		lineCount <= (mobile ? 2 : 3) &&
-		value.length < (mobile ? 220 : 360) &&
-		scrollHeight <= compactMax * 0.78
-	);
+	return lineCount <= lineThreshold && scrollHeight <= compactMax * 0.78;
 }
 
 function syncAutoComposerExpansion(scrollHeight: number) {
@@ -296,6 +327,7 @@ function syncAutoComposerExpansion(scrollHeight: number) {
 }
 
 function resizeTextarea() {
+	resizeFrame = null;
 	if (!textareaEl) return;
 	textareaEl.style.height = "0px";
 	const scrollHeight = textareaEl.scrollHeight;
@@ -304,6 +336,21 @@ function resizeTextarea() {
 	const nextHeight = Math.min(scrollHeight, max);
 	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
 	syncMentionMirrorScroll();
+}
+
+function scheduleResizeTextarea() {
+	if (typeof window === "undefined") {
+		resizeTextarea();
+		return;
+	}
+	if (resizeFrame !== null) return;
+	resizeFrame = window.requestAnimationFrame(resizeTextarea);
+}
+
+function cancelScheduledResize() {
+	if (resizeFrame === null || typeof window === "undefined") return;
+	window.cancelAnimationFrame(resizeFrame);
+	resizeFrame = null;
 }
 
 function syncMentionMirrorScroll() {
@@ -315,7 +362,7 @@ function syncMentionMirrorScroll() {
 function collapseComposer() {
 	if (!isComposerExpanded) return;
 	isComposerExpanded = false;
-	requestAnimationFrame(resizeTextarea);
+	scheduleResizeTextarea();
 }
 
 function submitDraft() {
@@ -411,11 +458,13 @@ function detectSpaceMentionTrigger() {
 	if (!textareaEl) return null;
 	const cursor = textareaEl.selectionStart;
 	if (cursor !== textareaEl.selectionEnd) return null;
-	const prefix = value.slice(0, cursor);
+	const scanStart = Math.max(0, cursor - SPACE_MENTION_TRIGGER_SCAN_LIMIT);
+	const prefix = value.slice(scanStart, cursor);
 	const match = /(^|\s)@([^@\s[\]()]{0,80})$/.exec(prefix);
 	if (!match) return null;
 	const token = match[2] ?? "";
 	const atIndex = cursor - token.length - 1;
+	if (atIndex > 0 && !/\s/.test(value[atIndex - 1] ?? "")) return null;
 	return { start: atIndex, end: cursor, query: token };
 }
 
@@ -665,7 +714,7 @@ function handlePaste(event: ClipboardEvent) {
 						resolvedSegment +
 						value.slice(inserted.end);
 					inserted.end = inserted.start + resolvedSegment.length;
-					requestAnimationFrame(resizeTextarea);
+					scheduleResizeTextarea();
 				})
 				.catch((error) => {
 					if (error?.name !== "AbortError")
@@ -701,7 +750,7 @@ onMount(() => {
 		});
 	};
 	const handleFocusComposer = () => focusComposer();
-	const handleViewportResize = () => resizeTextarea();
+	const handleViewportResize = () => scheduleResizeTextarea();
 	window.addEventListener("cohub:composer-focus", handleFocusComposer);
 	window.addEventListener("cohub:composer-insert", handleComposerInsert);
 	window.addEventListener("resize", handleViewportResize);
@@ -715,6 +764,7 @@ onMount(() => {
 		spaceMentionRemoteController?.abort();
 		pastedSpaceResolveController?.abort();
 		voiceClient?.close();
+		cancelScheduledResize();
 		if (spaceMentionDebounceTimer != null)
 			window.clearTimeout(spaceMentionDebounceTimer);
 	};
@@ -724,7 +774,7 @@ $effect(() => {
 	value;
 	attachments.length;
 	isComposerExpanded;
-	resizeTextarea();
+	scheduleResizeTextarea();
 });
 
 $effect(() => {
@@ -887,7 +937,7 @@ $effect(() => {
 							onpointerdown={() => {
 								isTextareaFocused = true;
 							}}
-							oninput={() => resizeTextarea()}
+							oninput={scheduleResizeTextarea}
 							onscroll={syncMentionMirrorScroll}
 							ondragover={handlePathDragOver}
 						ondragleave={handlePathDragLeave}
@@ -1005,7 +1055,7 @@ $effect(() => {
 								event.preventDefault();
 								if (isComposerExpanded) {
 									isComposerExpanded = false;
-									requestAnimationFrame(resizeTextarea);
+									scheduleResizeTextarea();
 									return;
 								}
 								textareaEl?.blur();
