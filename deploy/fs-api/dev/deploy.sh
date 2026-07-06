@@ -1,0 +1,183 @@
+#!/bin/bash
+# FS API Dev 环境部署脚本
+# 仅服务于 /api/spaces/:id/fs/* 和 /api/spaces/:id/checkpoints/:checkpointId/fs/* 路由
+
+set -e
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFESTS_DIR="$(dirname "$SCRIPT_DIR")/manifests"
+
+get_value() {
+  local key="$1"
+  grep -E "^${key}:" values.yaml | head -1 | sed 's/^[^:]*:[[:space:]]*//' | sed 's/^"//' | sed 's/"$//'
+}
+
+NAMESPACE=$(get_value "NAMESPACE")
+APP_NAME=$(get_value "APP_NAME")
+API_SECRET_NAME=$(get_value "API_SECRET_NAME")
+IMAGE_REPOSITORY=$(get_value "IMAGE_REPOSITORY")
+IMAGE_TAG=${OVERRIDE_IMAGE_TAG:-$(get_value "IMAGE_TAG")}
+IMAGE_PULL_POLICY=$(get_value "IMAGE_PULL_POLICY")
+IMAGE_PULL_SECRET=$(get_value "IMAGE_PULL_SECRET")
+SERVICE_PORT=$(get_value "SERVICE_PORT")
+CONTAINER_PORT=$(get_value "CONTAINER_PORT")
+REPLICAS=$(get_value "REPLICAS")
+MAX_UNAVAILABLE=$(get_value "MAX_UNAVAILABLE")
+MAX_SURGE=$(get_value "MAX_SURGE")
+TERMINATION_GRACE_PERIOD_SECONDS=$(get_value "TERMINATION_GRACE_PERIOD_SECONDS")
+REQUEST_CPU=$(get_value "REQUEST_CPU")
+REQUEST_MEMORY=$(get_value "REQUEST_MEMORY")
+LIMIT_CPU=$(get_value "LIMIT_CPU")
+LIMIT_MEMORY=$(get_value "LIMIT_MEMORY")
+LIVENESS_PATH=$(get_value "LIVENESS_PATH")
+LIVENESS_INITIAL_DELAY=$(get_value "LIVENESS_INITIAL_DELAY")
+LIVENESS_PERIOD=$(get_value "LIVENESS_PERIOD")
+LIVENESS_TIMEOUT=$(get_value "LIVENESS_TIMEOUT")
+LIVENESS_FAILURE_THRESHOLD=$(get_value "LIVENESS_FAILURE_THRESHOLD")
+READINESS_PATH=$(get_value "READINESS_PATH")
+READINESS_INITIAL_DELAY=$(get_value "READINESS_INITIAL_DELAY")
+READINESS_PERIOD=$(get_value "READINESS_PERIOD")
+READINESS_TIMEOUT=$(get_value "READINESS_TIMEOUT")
+READINESS_FAILURE_THRESHOLD=$(get_value "READINESS_FAILURE_THRESHOLD")
+LOGTO_ENDPOINT=$(get_value "LOGTO_ENDPOINT")
+LOGTO_MANAGEMENT_API_RESOURCE=$(get_value "LOGTO_MANAGEMENT_API_RESOURCE")
+GITEA_BASE_URL=$(get_value "GITEA_BASE_URL")
+GITEA_MANAGED_EMAIL_DOMAIN=$(get_value "GITEA_MANAGED_EMAIL_DOMAIN")
+WEB_ORIGIN=$(get_value "WEB_ORIGIN")
+SANDBOX_IMAGE=${OVERRIDE_SANDBOX_IMAGE:-$(get_value "SANDBOX_IMAGE")}
+SPACE_STORAGE_ROOT=$(get_value "SPACE_STORAGE_ROOT")
+SPACE_SYSTEM_ROOT=$(get_value "SPACE_SYSTEM_ROOT")
+SPACE_STORAGE_PVC=$(get_value "SPACE_STORAGE_PVC")
+SPACE_SYSTEM_PVC=$(get_value "SPACE_SYSTEM_PVC")
+CHECKPOINT_CACHE_PVC=$(get_value "CHECKPOINT_CACHE_PVC")
+SPACE_STORAGE_SUBPATH=$(get_value "SPACE_STORAGE_SUBPATH")
+SPACE_SYSTEM_SUBPATH=$(get_value "SPACE_SYSTEM_SUBPATH")
+CHECKPOINT_CACHE_SUBPATH=$(get_value "CHECKPOINT_CACHE_SUBPATH")
+PLATFORM_CONFIG_ROOT=$(get_value "PLATFORM_CONFIG_ROOT")
+TURN_OBJECT_S3_ENDPOINT=$(get_value "TURN_OBJECT_S3_ENDPOINT")
+TURN_OBJECT_S3_REGION=$(get_value "TURN_OBJECT_S3_REGION")
+TURN_OBJECT_S3_BUCKET=$(get_value "TURN_OBJECT_S3_BUCKET")
+TURN_OBJECT_CDN_BASE_URL=$(get_value "TURN_OBJECT_CDN_BASE_URL")
+PUBLIC_ASSET_OSS_ENDPOINT=$(get_value "PUBLIC_ASSET_OSS_ENDPOINT")
+PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT=$(get_value "PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT")
+PUBLIC_ASSET_OSS_REGION=$(get_value "PUBLIC_ASSET_OSS_REGION")
+PUBLIC_ASSET_OSS_BUCKET=$(get_value "PUBLIC_ASSET_OSS_BUCKET")
+PUBLIC_ASSET_CDN_BASE_URL=$(get_value "PUBLIC_ASSET_CDN_BASE_URL")
+CONFIGS_SUBPATH=$(get_value "CONFIGS_SUBPATH")
+ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
+API_HOSTNAME=$(get_value "API_HOSTNAME")
+ENV=$(get_value "ENV")
+LOG_LEVEL=$(get_value "LOG_LEVEL")
+
+echo -e "${BLUE}╔════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║   Cohub FS API Dev 环境部署      ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════╝${NC}"
+
+mkdir -p rendered
+
+render_template() {
+  local src="$1"
+  local dst="$2"
+
+  cp "$src" "$dst"
+
+  python - "$dst" "$IMAGE_PULL_SECRET" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+secret = sys.argv[2]
+text = path.read_text()
+placeholder = "__IMAGE_PULL_SECRETS_BLOCK__\n"
+if placeholder in text:
+    replacement = ""
+    if secret:
+        replacement = f"      imagePullSecrets:\n        - name: {secret}\n"
+    text = text.replace(placeholder, replacement)
+path.write_text(text)
+PY
+
+  sed -i.bak \
+    -e "s|__NAMESPACE__|${NAMESPACE}|g" \
+    -e "s|__APP_NAME__|${APP_NAME}|g" \
+    -e "s|__API_SECRET_NAME__|${API_SECRET_NAME}|g" \
+    -e "s|__IMAGE_REPOSITORY__|${IMAGE_REPOSITORY}|g" \
+    -e "s|__IMAGE_TAG__|${IMAGE_TAG}|g" \
+    -e "s|__IMAGE_PULL_POLICY__|${IMAGE_PULL_POLICY}|g" \
+    -e "s|__SERVICE_PORT__|${SERVICE_PORT}|g" \
+    -e "s|__CONTAINER_PORT__|${CONTAINER_PORT}|g" \
+    -e "s|__REPLICAS__|${REPLICAS}|g" \
+    -e "s|__MAX_UNAVAILABLE__|${MAX_UNAVAILABLE}|g" \
+    -e "s|__MAX_SURGE__|${MAX_SURGE}|g" \
+    -e "s|__TERMINATION_GRACE_PERIOD_SECONDS__|${TERMINATION_GRACE_PERIOD_SECONDS}|g" \
+    -e "s|__REQUEST_CPU__|${REQUEST_CPU}|g" \
+    -e "s|__REQUEST_MEMORY__|${REQUEST_MEMORY}|g" \
+    -e "s|__LIMIT_CPU__|${LIMIT_CPU}|g" \
+    -e "s|__LIMIT_MEMORY__|${LIMIT_MEMORY}|g" \
+    -e "s|__LIVENESS_PATH__|${LIVENESS_PATH}|g" \
+    -e "s|__LIVENESS_INITIAL_DELAY__|${LIVENESS_INITIAL_DELAY}|g" \
+    -e "s|__LIVENESS_PERIOD__|${LIVENESS_PERIOD}|g" \
+    -e "s|__LIVENESS_TIMEOUT__|${LIVENESS_TIMEOUT}|g" \
+    -e "s|__LIVENESS_FAILURE_THRESHOLD__|${LIVENESS_FAILURE_THRESHOLD}|g" \
+    -e "s|__READINESS_PATH__|${READINESS_PATH}|g" \
+    -e "s|__READINESS_INITIAL_DELAY__|${READINESS_INITIAL_DELAY}|g" \
+    -e "s|__READINESS_PERIOD__|${READINESS_PERIOD}|g" \
+    -e "s|__READINESS_TIMEOUT__|${READINESS_TIMEOUT}|g" \
+    -e "s|__READINESS_FAILURE_THRESHOLD__|${READINESS_FAILURE_THRESHOLD}|g" \
+    -e "s|__LOGTO_ENDPOINT__|${LOGTO_ENDPOINT}|g" \
+    -e "s|__LOGTO_MANAGEMENT_API_RESOURCE__|${LOGTO_MANAGEMENT_API_RESOURCE}|g" \
+    -e "s|__GITEA_BASE_URL__|${GITEA_BASE_URL}|g" \
+    -e "s|__GITEA_MANAGED_EMAIL_DOMAIN__|${GITEA_MANAGED_EMAIL_DOMAIN}|g" \
+    -e "s|__WEB_ORIGIN__|${WEB_ORIGIN}|g" \
+    -e "s|__SANDBOX_IMAGE__|${SANDBOX_IMAGE}|g" \
+    -e "s|__SPACE_STORAGE_ROOT__|${SPACE_STORAGE_ROOT}|g" \
+    -e "s|__SPACE_SYSTEM_ROOT__|${SPACE_SYSTEM_ROOT}|g" \
+    -e "s|__SPACE_STORAGE_PVC__|${SPACE_STORAGE_PVC}|g" \
+    -e "s|__SPACE_SYSTEM_PVC__|${SPACE_SYSTEM_PVC}|g" \
+    -e "s|__CHECKPOINT_CACHE_PVC__|${CHECKPOINT_CACHE_PVC}|g" \
+    -e "s|__SPACE_STORAGE_SUBPATH__|${SPACE_STORAGE_SUBPATH}|g" \
+    -e "s|__SPACE_SYSTEM_SUBPATH__|${SPACE_SYSTEM_SUBPATH}|g" \
+    -e "s|__CHECKPOINT_CACHE_SUBPATH__|${CHECKPOINT_CACHE_SUBPATH}|g" \
+    -e "s|__PLATFORM_CONFIG_ROOT__|${PLATFORM_CONFIG_ROOT}|g" \
+    -e "s|__TURN_OBJECT_S3_ENDPOINT__|${TURN_OBJECT_S3_ENDPOINT}|g" \
+    -e "s|__TURN_OBJECT_S3_REGION__|${TURN_OBJECT_S3_REGION}|g" \
+    -e "s|__TURN_OBJECT_S3_BUCKET__|${TURN_OBJECT_S3_BUCKET}|g" \
+    -e "s|__TURN_OBJECT_CDN_BASE_URL__|${TURN_OBJECT_CDN_BASE_URL}|g" \
+    -e "s|__PUBLIC_ASSET_OSS_ENDPOINT__|${PUBLIC_ASSET_OSS_ENDPOINT}|g" \
+    -e "s|__PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT__|${PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT}|g" \
+    -e "s|__PUBLIC_ASSET_OSS_REGION__|${PUBLIC_ASSET_OSS_REGION}|g" \
+    -e "s|__PUBLIC_ASSET_OSS_BUCKET__|${PUBLIC_ASSET_OSS_BUCKET}|g" \
+    -e "s|__PUBLIC_ASSET_CDN_BASE_URL__|${PUBLIC_ASSET_CDN_BASE_URL}|g" \
+    -e "s|__CONFIGS_SUBPATH__|${CONFIGS_SUBPATH}|g" \
+    -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
+    -e "s|__ENV__|${ENV}|g" \
+    -e "s|__LOG_LEVEL__|${LOG_LEVEL:-info}|g" \
+    "$dst"
+  rm -f "$dst.bak"
+}
+
+render_template "$MANIFESTS_DIR/configmap.tmpl.yaml" rendered/configmap.yaml
+render_template "$MANIFESTS_DIR/deployment.tmpl.yaml" rendered/deployment.yaml
+render_template "$MANIFESTS_DIR/service.tmpl.yaml" rendered/service.yaml
+
+kubectl apply -f rendered/configmap.yaml
+kubectl apply -f rendered/service.yaml
+kubectl apply -f rbac.yaml
+kubectl apply -f rendered/deployment.yaml
+
+if [ "$ROUTE_ENABLED" = "true" ]; then
+  render_template "$MANIFESTS_DIR/httproute.tmpl.yaml" rendered/httproute.yaml
+  kubectl apply -f rendered/httproute.yaml
+fi
+
+echo ""
+echo -e "${GREEN}✅ FS API Dev 环境部署完成${NC}"
+echo ""
+echo "查看状态："
+echo "  kubectl get pods -n ${NAMESPACE} -l app.kubernetes.io/name=${APP_NAME}"
+echo "  kubectl logs -n ${NAMESPACE} -l app.kubernetes.io/name=${APP_NAME} -f"

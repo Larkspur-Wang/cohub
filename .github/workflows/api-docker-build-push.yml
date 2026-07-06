@@ -209,10 +209,12 @@ jobs:
       - name: Deploy to Dev
         run: |
           kubectl set image deployment/cohub-api-dev cohub-api-dev=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub-dev
+          kubectl set image deployment/cohub-fs-api-dev cohub-fs-api-dev=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -n cohub-dev
 
       - name: Verify deployment
         run: |
           kubectl rollout status deployment/cohub-api-dev -n cohub-dev --timeout=300s
+          kubectl rollout status deployment/cohub-fs-api-dev -n cohub-dev --timeout=300s
 
   deploy-prod:
     needs: build-and-push
@@ -289,10 +291,12 @@ jobs:
         run: |
           TAG="${{ steps.get-tag.outputs.tag }}"
           kubectl set image deployment/cohub-api cohub-api=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:$TAG -n cohub
+          kubectl set image deployment/cohub-fs-api cohub-fs-api=${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:$TAG -n cohub
 
       - name: Verify deployment
         run: |
           kubectl rollout status deployment/cohub-api -n cohub --timeout=300s
+          kubectl rollout status deployment/cohub-fs-api -n cohub --timeout=300s
 
   # Manual migration trigger for dev/prod
   migrate-dev:

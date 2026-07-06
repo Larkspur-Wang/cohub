@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cohub-fs-api
+  namespace: cohub
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cohub-fs-api-sessions-manager
+  namespace: cohub-sessions
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "list", "watch", "delete", "update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
+    verbs: ["create", "get", "list", "watch", "delete", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cohub-fs-api-sessions-manager
+  namespace: cohub-sessions
+subjects:
+  - kind: ServiceAccount
+    name: cohub-fs-api
+    namespace: cohub
+roleRef:
+  kind: Role
+  name: cohub-fs-api-sessions-manager
+  apiGroup: rbac.authorization.k8s.io
