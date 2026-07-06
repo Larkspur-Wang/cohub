@@ -21,8 +21,45 @@ import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
-const bindingLocks = new Map<string, Promise<unknown>>();
 const GATEWAY_NODE_TTL_MS = 15_000;
+const INBOUND_BINDING_LOCK_TTL_MS = 30_000;
+const INBOUND_BINDING_LOCK_WAIT_TIMEOUT_MS = 35_000;
+const INBOUND_BINDING_LOCK_RETRY_MS = 50;
+const RELEASE_REDIS_LOCK_SCRIPT = `
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+`;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const inboundBindingLockKey = (lockKey: string) => `gateway:inbound_binding_lock:${createHash("sha256").update(lockKey).digest("hex")}`;
+
+function getInboundEventBindingLockKey(event: GatewayInboundEvent) {
+  const bindingKey = resolveInboundBindingKey(event);
+  return bindingKey ? `${event.channelId}:${bindingKey}` : null;
+}
+
+async function withBindingLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
+  const redisKey = inboundBindingLockKey(lockKey);
+  const token = randomUUID();
+  const deadline = Date.now() + INBOUND_BINDING_LOCK_WAIT_TIMEOUT_MS;
+
+  while (true) {
+    const acquired = await redisCommandClient.set(redisKey, token, "PX", INBOUND_BINDING_LOCK_TTL_MS, "NX");
+    if (acquired === "OK") break;
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for inbound binding lock: ${redisKey}`);
+    await sleep(INBOUND_BINDING_LOCK_RETRY_MS + Math.floor(Math.random() * INBOUND_BINDING_LOCK_RETRY_MS));
+  }
+
+  try {
+    return await fn();
+  } finally {
+    await redisCommandClient.eval(RELEASE_REDIS_LOCK_SCRIPT, 1, redisKey, token).catch((error) => {
+      logger.warn("[GatewayBinding] failed to release inbound binding lock", { redisKey, error });
+    });
+  }
+}
 type ResolvedChannelInbound = {
   spaceId: string;
   spaceChannelId: string;
@@ -511,22 +548,7 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
 }
 
 async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
-  const lockKey = `${input.spaceChannelId}:${input.bindingKey}`;
-  const existingLock = bindingLocks.get(lockKey);
-  if (existingLock) {
-    await existingLock;
-    const existing = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: input.bindingKey });
-    if (existing?.spaceSessionId) return existing;
-  }
-  let unlock: (() => void) | undefined;
-  const lock = new Promise<void>((resolve) => { unlock = resolve; });
-  bindingLocks.set(lockKey, lock);
-  try {
-    return await resolveOrCreateSessionBindingForEventImpl(input);
-  } finally {
-    unlock?.();
-    bindingLocks.delete(lockKey);
-  }
+  return resolveOrCreateSessionBindingForEventImpl(input);
 }
 
 async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: string; spaceChannelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
@@ -679,7 +701,21 @@ async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
   });
 }
 
+export async function resolveChannelInboundForEventWithLock(event: GatewayInboundEvent) {
+  const lockKey = getInboundEventBindingLockKey(event);
+  return lockKey
+    ? withBindingLock(lockKey, () => resolveChannelInboundForEvent(event))
+    : resolveChannelInboundForEvent(event);
+}
+
 export async function handleInboundEvent(event: GatewayInboundEvent) {
+  const lockKey = getInboundEventBindingLockKey(event);
+  return lockKey
+    ? withBindingLock(lockKey, () => processInboundEvent(event))
+    : processInboundEvent(event);
+}
+
+async function processInboundEvent(event: GatewayInboundEvent) {
   switch (event.eventType) {
     case "channel_command":
       await handleChannelCommandInboundEvent(event);

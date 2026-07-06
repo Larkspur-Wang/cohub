@@ -6,7 +6,7 @@ import { parseRealtimeRoom } from "@cohub/protocol/realtime";
 import { dispatchSpacePresenceUpdated } from "../../realtime-events.js";
 import { getSpacePresenceSnapshot } from "../../space-presence.js";
 import { Hono } from "hono";
-import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEvent } from "../../channels.js";
+import { bindAllActiveSpaceChannelsToGateway, handleInboundEvent, resolveChannelInboundForEventWithLock } from "../../channels.js";
 import { hasPermission } from "../../permissions.js";
 import { ensureInternalRequest, getOptionalAuth, requireValidId } from "../../lib/middleware.js";
 import { getSpaceById } from "../../space-sessions.js";
@@ -243,7 +243,7 @@ router.post("/attachments/plan", async (c) => {
   const parsed = gatewayInboundEventSchema.safeParse(body?.event);
   if (!parsed.success) return c.json({ message: "invalid gateway attachment event", issues: parsed.error.issues }, 400);
 
-  const resolved = await resolveChannelInboundForEvent(parsed.data);
+  const resolved = await resolveChannelInboundForEventWithLock(parsed.data);
   if (!resolved) return c.json({ message: "gateway inbound already processed" }, 409);
 
   const requestedImages = Array.isArray(body?.images) ? body.images : [];
