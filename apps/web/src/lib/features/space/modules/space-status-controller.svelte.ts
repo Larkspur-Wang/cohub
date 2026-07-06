@@ -3,6 +3,7 @@ import type {
 	SpaceRecord,
 	SpaceUsageResponse,
 } from "@neta-art/cohub";
+import { HttpError } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
 import {
 	fetchSpaceMembersWithCache,
@@ -43,6 +44,7 @@ export function createSpaceStatusController(options: {
 	onSpaceLoaded: (space: SpaceRecord) => void;
 }) {
 	let loadError = $state("");
+	let loadErrorStatus = $state<number | null>(null);
 	let members = $state<SpaceMember[]>([]);
 	let membersLoadedFor = $state<string | null>(null);
 	let usage = $state<SpaceUsageResponse | null>(null);
@@ -84,6 +86,7 @@ export function createSpaceStatusController(options: {
 			if (options.getSpaceId() !== currentSpaceId) return false;
 			loadError =
 				error instanceof Error ? error.message : "Failed to load space";
+			loadErrorStatus = error instanceof HttpError ? error.status : null;
 			return false;
 		}
 	}
@@ -188,6 +191,7 @@ export function createSpaceStatusController(options: {
 		refreshTimer = null;
 		requests.clear();
 		loadError = "";
+		loadErrorStatus = null;
 		members = [];
 		membersLoadedFor = null;
 		usage = null;
@@ -208,6 +212,9 @@ export function createSpaceStatusController(options: {
 	return {
 		get loadError() {
 			return loadError;
+		},
+		get loadErrorStatus() {
+			return loadErrorStatus;
 		},
 		get members() {
 			return members;

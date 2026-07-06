@@ -55,6 +55,7 @@ export type SpaceWorkspaceHeaderContext = {
 	canManageSessionAccess: boolean;
 	isActiveSessionPublic: boolean;
 	spaceHasMinimalAccess: boolean;
+	rightSidebarAvailable: boolean;
 	rightSidebarCollapsed: boolean;
 };
 
@@ -232,7 +233,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		</div>
 	{/if}
 
-	{#if !context.spaceHasMinimalAccess}
+	{#if context.rightSidebarAvailable}
 		<button
 			type="button"
 			class="header-action-btn"

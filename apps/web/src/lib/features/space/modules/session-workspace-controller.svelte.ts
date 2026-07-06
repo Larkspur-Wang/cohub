@@ -1,4 +1,5 @@
 import type { SessionRecord, SessionTurnRecord } from "@neta-art/cohub";
+import type { AccessState } from "$lib/access/access-state";
 import { mergeSessionRecord } from "$lib/session-record-merge";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import { createRequestDedupe } from "./request-dedupe";
@@ -8,7 +9,7 @@ export type SessionViewState = {
 	turns: SessionTurnRecord[];
 	loading: boolean;
 	loaded: boolean;
-	error: string;
+	error: AccessState | null;
 	hasMore: boolean;
 	hasMoreNewer: boolean;
 	loadingOlder: boolean;
@@ -32,7 +33,7 @@ export function createSessionWorkspaceController() {
 			turns: [],
 			loading: true,
 			loaded: false,
-			error: "",
+			error: null,
 			hasMore: true,
 			hasMoreNewer: false,
 			loadingOlder: false,
@@ -58,7 +59,7 @@ export function createSessionWorkspaceController() {
 				turns: existing?.turns ?? [],
 				loading: existing?.loading ?? false,
 				loaded: existing?.loaded ?? false,
-				error: existing?.error ?? "",
+				error: existing?.error ?? null,
 				hasMore: existing?.hasMore ?? true,
 				hasMoreNewer: existing?.hasMoreNewer ?? false,
 				loadingOlder: existing?.loadingOlder ?? false,
@@ -91,7 +92,7 @@ export function createSessionWorkspaceController() {
 				turns: existing?.turns ?? [],
 				loading: existing?.loading ?? false,
 				loaded: existing?.loaded ?? false,
-				error: existing?.error ?? "",
+				error: existing?.error ?? null,
 				hasMore: existing?.hasMore ?? true,
 				hasMoreNewer: existing?.hasMoreNewer ?? false,
 				loadingOlder: existing?.loadingOlder ?? false,

@@ -17,6 +17,9 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import type { AccessState } from "$lib/access/access-state";
+import { classifyAccessError } from "$lib/access/access-state";
+import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
 import {
@@ -48,7 +51,7 @@ let {
 
 let checkpointDetail = $state<CheckpointRecord | null>(null);
 let checkpointDetailLoading = $state(false);
-let checkpointDetailError = $state("");
+let checkpointDetailError = $state<AccessState | null>(null);
 let checkpointIdCopied = $state(false);
 let checkpointCopied = $state(false);
 let checkpointCopiedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -103,12 +106,16 @@ function formatCheckpointBytes(value: number | null): string {
 	}).format(value);
 }
 
+function checkpointErrorMessage(error: unknown): AccessState {
+	return classifyAccessError(error);
+}
+
 async function loadCheckpointDetail(targetCheckpointId: string) {
 	const guard = createKeyedRouteRequestGuard({
 		captureKey: () => `${spaceId}:${mode}:${checkpointId ?? ""}`,
 	});
 	checkpointDetailLoading = true;
-	checkpointDetailError = "";
+	checkpointDetailError = null;
 	try {
 		const { checkpoint } = await sdk
 			.space(spaceId)
@@ -120,8 +127,7 @@ async function loadCheckpointDetail(targetCheckpointId: string) {
 		if (!guard.isCurrent()) return;
 		checkpointDetail = null;
 		onDetailLoaded?.(null);
-		checkpointDetailError =
-			error instanceof Error ? error.message : "Failed to load checkpoint";
+		checkpointDetailError = checkpointErrorMessage(error);
 	} finally {
 		if (guard.isCurrent()) checkpointDetailLoading = false;
 	}
@@ -194,7 +200,12 @@ onDestroy(() => {
 {#if mode === "create"}
 	<div class="flex-1 p-4 overflow-y-auto max-w-2xl">
 		{#if spaceLoadError && !spaceHasMinimalAccess}
-			<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
+			<div class="mb-3">
+				<AccessStateView
+					state={{ kind: "error", message: spaceLoadError }}
+					size="compact"
+				/>
+			</div>
 		{:else}
 			<form onsubmit={handleCreateCheckpointSubmit} class="space-y-3">
 				<div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
@@ -249,7 +260,10 @@ onDestroy(() => {
 			{#if checkpointDetailLoading && checkpointDetail?.id !== checkpointId}
 				<CenteredLoading label="Loading save…" size="panel" />
 			{:else if checkpointDetailError}
-				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointDetailError}</div>
+				<AccessStateView
+					state={checkpointDetailError}
+					size="compact"
+				/>
 			{:else if checkpointDetail && checkpointDetail.id === checkpointId}
 				{@const sourceTaskRunId = sourceTaskRunIdFromCheckpoint(checkpointDetail)}
 				{@const fileCount = readCheckpointStat(checkpointDetail, "fileCount")}

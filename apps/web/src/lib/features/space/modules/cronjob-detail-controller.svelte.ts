@@ -1,6 +1,10 @@
 import type { CronJobRecord, TaskRunRecord } from "@neta-art/cohub";
 import { untrack } from "svelte";
 import { goto } from "$app/navigation";
+import {
+	type AccessState,
+	classifyAccessError,
+} from "$lib/access/access-state";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceCronjobRoute,
@@ -20,6 +24,10 @@ import { mergeTaskRunList } from "./task-run-utils";
 
 export type CronjobMode = "create" | "detail";
 export type SelectedModel = { provider: string; id: string; name?: string };
+
+function cronjobErrorMessage(error: unknown): AccessState {
+	return classifyAccessError(error);
+}
 
 const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
@@ -45,7 +53,7 @@ export function createCronjobDetailController(options: {
 
 	let detail = $state<CronJobRecord | null>(null);
 	let detailLoading = $state(false);
-	let detailError = $state("");
+	let detailError = $state<AccessState | null>(null);
 	let runs = $state<TaskRunRecord[]>([]);
 	let runsLoading = $state(false);
 	let runsLoadingMore = $state(false);
@@ -110,7 +118,7 @@ export function createCronjobDetailController(options: {
 	function resetDetailState() {
 		detail = null;
 		notify(null);
-		detailError = "";
+		detailError = null;
 		toggleError = "";
 		editMode = false;
 		actionInProgress = false;
@@ -186,7 +194,7 @@ export function createCronjobDetailController(options: {
 			options.getMode() === "detail" &&
 			options.getCronjobId() === targetCronjobId;
 		detailLoading = true;
-		detailError = "";
+		detailError = null;
 		toggleError = "";
 		try {
 			const { job } = await sdk.cronJobs.get(targetCronjobId);
@@ -198,10 +206,7 @@ export function createCronjobDetailController(options: {
 			if (!isCurrentRequest()) return;
 			detail = null;
 			notify(null);
-			detailError =
-				error instanceof Error
-					? error.message
-					: "Failed to load scheduled prompt";
+			detailError = cronjobErrorMessage(error);
 		} finally {
 			if (isCurrentRequest()) detailLoading = false;
 		}
@@ -286,7 +291,7 @@ export function createCronjobDetailController(options: {
 		const deletedCronjobId = detail.id;
 		actionInProgress = true;
 		deleteInProgress = true;
-		detailError = "";
+		detailError = null;
 		toggleError = "";
 		try {
 			await sdk.cronJobs.delete(deletedCronjobId);
@@ -298,7 +303,10 @@ export function createCronjobDetailController(options: {
 				replaceState: true,
 			});
 		} catch (error) {
-			detailError = error instanceof Error ? error.message : "Failed to delete";
+			detailError = {
+				kind: "error",
+				message: error instanceof Error ? error.message : "Failed to delete",
+			};
 			actionInProgress = false;
 			deleteInProgress = false;
 		}

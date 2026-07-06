@@ -15,6 +15,7 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
@@ -143,7 +144,12 @@ function payloadProviderLabel(payload: unknown) {
 	<div class="flex-1 min-h-0 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
 		<div class="max-w-3xl">
 			{#if spaceLoadError && !spaceHasMinimalAccess}
-				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
+				<div class="mb-3">
+					<AccessStateView
+						state={{ kind: "error", message: spaceLoadError }}
+						size="compact"
+					/>
+				</div>
 			{:else}
 				<form onsubmit={cronjob.submitCreate} class="space-y-6">
 					<header class="border-b border-border-subtle/70 pb-5">
@@ -204,7 +210,10 @@ function payloadProviderLabel(payload: unknown) {
 			{#if cronjobDetailLoading && cronjobDetail?.id !== cronjobId}
 				<CenteredLoading label="Loading cronjob…" size="panel" />
 			{:else if cronjobDetailError}
-				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{cronjobDetailError}</div>
+				<AccessStateView
+					state={cronjobDetailError}
+					size="compact"
+				/>
 			{:else if cronjobDetail && cronjobDetail.id === cronjobId}
 				<div class="space-y-6 sm:space-y-8">
 					<header class="flex flex-col gap-4 border-b border-border-subtle/70 pb-5 lg:flex-row lg:items-start lg:justify-between">

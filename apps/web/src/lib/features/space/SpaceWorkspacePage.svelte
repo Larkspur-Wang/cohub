@@ -36,6 +36,11 @@ import {
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
 import { beforeNavigate, goto } from "$app/navigation";
+import {
+	type AccessState,
+	classifyAccessError,
+	isBlockingAccessState,
+} from "$lib/access/access-state";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	deleteCanvasPendingTransaction,
@@ -53,6 +58,7 @@ import {
 } from "$lib/canvas/canvas-document";
 import { ensureCovasExtension } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
+import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { mediaLightbox } from "$lib/components/media-lightbox";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
@@ -280,7 +286,7 @@ type SessionViewState = {
 	turns: SessionTurnRecord[];
 	loading: boolean;
 	loaded: boolean;
-	error: string;
+	error: AccessState | null;
 	hasMore: boolean;
 	hasMoreNewer: boolean;
 	loadingOlder: boolean;
@@ -357,9 +363,6 @@ const isRouteDetailView = $derived(
 		routeView === "work" ||
 		routeView === "task",
 );
-const isRightDrawerVisible = $derived(
-	uiState.rightIsDragging || uiState.mobileRightDrawerOpen,
-);
 let space = $state<SpaceRecord | null>(null);
 let spaceConfig = $state<SpaceConfig | null>(null);
 let newChatProfileExpanded = $state(false);
@@ -374,6 +377,12 @@ function hasAccessPermission(permission: Permission): boolean {
 const canManageSessionAccess = $derived(hasAccessPermission("member.manage"));
 // True when the backend returned only minimal info (session-level access only)
 const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
+// Right sidebar (files panel) is only available when the user has full space
+// access. While the space is still loading or the user only has session-level
+// access, the sidebar stays collapsed to prevent layout jumps.
+const rightSidebarAvailable = $derived(
+	Boolean(space) && !spaceHasMinimalAccess,
+);
 const canEditSpaceProfile = $derived(hasAccessPermission("space.edit"));
 const canEditFiles = $derived(hasAccessPermission("file.edit"));
 const spaceOwnerUsername = $derived(
@@ -519,6 +528,31 @@ const spaceStatus = createSpaceStatusController({
 	},
 });
 const spaceLoadError = $derived(spaceStatus.loadError);
+const spaceAccessState = $derived.by<AccessState>(() => {
+	if (spaceLoadError) {
+		const status = spaceStatus.loadErrorStatus;
+		if (status === 404) return { kind: "not-found", resource: "space" };
+		if (status === 403)
+			return {
+				kind: "forbidden",
+				isAuthenticated: authStore.isAuthenticated,
+				resource: "space",
+			};
+		if (status === 401) return { kind: "unauthorized" };
+		return { kind: "error", message: spaceLoadError };
+	}
+	if (!space) return { kind: "loading" };
+	if (spaceHasMinimalAccess) return { kind: "minimal" };
+	return { kind: "full" };
+});
+const isBlockingAccess = $derived(isBlockingAccessState(spaceAccessState));
+const effectiveRightSidebarCollapsed = $derived(
+	!rightSidebarAvailable || uiState.rightSidebarCollapsed,
+);
+const isRightDrawerVisible = $derived(
+	rightSidebarAvailable &&
+		(uiState.rightIsDragging || uiState.mobileRightDrawerOpen),
+);
 const spaceMembers = $derived(spaceStatus.members);
 const spaceMembersLoadedFor = $derived(spaceStatus.membersLoadedFor);
 const spaceUsage = $derived(spaceStatus.usage);
@@ -659,7 +693,7 @@ let workspaceBodyEl = $state<HTMLDivElement | null>(null);
 const previewLayout = createPreviewLayoutController({
 	getIsMobile: () => isMobile,
 	getWorkspaceBodyEl: () => workspaceBodyEl,
-	getSpaceHasMinimalAccess: () => spaceHasMinimalAccess,
+	getRightSidebarAvailable: () => rightSidebarAvailable,
 	getActivePreviewKind: () => activePreviewKind,
 });
 const previewPanelWidth = $derived(previewLayout.width);
@@ -1192,7 +1226,7 @@ const draftSessionState = $derived<SessionViewState | null>(
 				turns: [],
 				loading: false,
 				loaded: true,
-				error: "",
+				error: null,
 				hasMore: false,
 				hasMoreNewer: false,
 				loadingOlder: false,
@@ -2095,6 +2129,13 @@ function applyPortsChanged(payload: ChannelEnvelope) {
 function loadSpace() {
 	return spaceStatus.loadSpace();
 }
+function retryLoadSpace() {
+	void spaceStatus.loadSpace().then((ok) => {
+		if (!ok) return;
+		spaceBootstrap.resetLoaded();
+		spaceBootstrap.runForCurrentSpace();
+	});
+}
 function loadSpaceMembers(currentSpaceId = spaceId) {
 	return spaceStatus.loadMembers(currentSpaceId);
 }
@@ -2320,7 +2361,7 @@ async function loadSessionState(sessionId: string, force = false) {
 					turns: cached.turns,
 					loading: true,
 					loaded: true,
-					error: "",
+					error: null,
 					hasMore: cached.hasMoreOlder,
 					hasMoreNewer: cached.hasMoreNewer,
 					loadingOlder: false,
@@ -2357,7 +2398,7 @@ async function loadSessionState(sessionId: string, force = false) {
 				turns: currentSeed?.turns ?? existing?.turns ?? [],
 				loading: true,
 				loaded: currentSeed?.loaded ?? existing?.loaded ?? false,
-				error: currentSeed?.error ?? existing?.error ?? "",
+				error: currentSeed?.error ?? existing?.error ?? null,
 				hasMore: currentSeed?.hasMore ?? existing?.hasMore ?? true,
 				hasMoreNewer:
 					currentSeed?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
@@ -2398,7 +2439,7 @@ async function loadSessionState(sessionId: string, force = false) {
 					turns: nextTurns,
 					loading: false,
 					loaded: true,
-					error: "",
+					error: null,
 					hasMore: snapshot.hasMoreOlder,
 					hasMoreNewer: snapshot.hasMoreNewer,
 					loadingOlder: false,
@@ -2419,8 +2460,10 @@ async function loadSessionState(sessionId: string, force = false) {
 					turns: fallback?.turns ?? existing?.turns ?? [],
 					loading: false,
 					loaded: Boolean(fallback?.loaded ?? existing?.loaded),
-					error:
-						error instanceof Error ? error.message : "Failed to load session",
+					error: classifyAccessError(error, {
+						isAuthenticated: authStore.isAuthenticated,
+						resource: "session",
+					}),
 					hasMore: fallback?.hasMore ?? existing?.hasMore ?? true,
 					hasMoreNewer:
 						fallback?.hasMoreNewer ?? existing?.hasMoreNewer ?? false,
@@ -2714,8 +2757,13 @@ async function loadOlderTurns(sessionId: string) {
 			[sessionId]: {
 				...state,
 				loadingOlder: false,
-				error:
-					error instanceof Error ? error.message : "Failed to load older turns",
+				error: {
+					kind: "error",
+					message:
+						error instanceof Error
+							? error.message
+							: "Failed to load older turns",
+				},
 			},
 		};
 	}
@@ -3407,7 +3455,7 @@ async function handleSend() {
 				turns: [],
 				loading: false,
 				loaded: true,
-				error: "",
+				error: null,
 				hasMore: false,
 				hasMoreNewer: false,
 				loadingOlder: false,
@@ -3943,7 +3991,7 @@ function beginRightSidebarResize(event: PointerEvent) {
 	event.preventDefault();
 	if (
 		window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX ||
-		uiState.rightSidebarCollapsed
+		effectiveRightSidebarCollapsed
 	)
 		return;
 	const target = event.currentTarget as HTMLElement | null;
@@ -3986,7 +4034,7 @@ function beginImmersiveChatResize(event: PointerEvent) {
 	immersiveChatResizeCleanup?.();
 	const startX = event.clientX;
 	const startWidth = uiState.immersiveChatWidth;
-	const rightReserved = uiState.rightSidebarCollapsed
+	const rightReserved = effectiveRightSidebarCollapsed
 		? 0
 		: uiState.rightSidebarWidth + 36;
 	const onPointerMove = (moveEvent: PointerEvent) => {
@@ -4600,6 +4648,11 @@ async function bootstrapSpace(currentSpaceId: string) {
 $effect(() => {
 	spaceBootstrap.runForCurrentSpace();
 });
+// Close mobile right drawer when the sidebar becomes unavailable (e.g.
+// entering a minimal-access space) so it doesn't linger from a previous space.
+$effect(() => {
+	if (!rightSidebarAvailable) uiState.mobileRightDrawerOpen = false;
+});
 // Immersive preview takes over the viewport — clear any in-flight danmaku so
 // they never overlay a full-screen preview.
 $effect(() => {
@@ -4997,7 +5050,7 @@ const spaceFileDomainProps = $derived.by<
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
-	rightSidebarCollapsed: uiState.rightSidebarCollapsed,
+	rightSidebarCollapsed: effectiveRightSidebarCollapsed,
 	rightSidebarWidth: uiState.rightSidebarWidth,
 	rightDragOffsetPx: uiState.rightDragOffsetPx,
 	rightIsDragging: uiState.rightIsDragging,
@@ -5091,7 +5144,8 @@ const headerContext = $derived({
 		? hasSessionPermission(activeSessionId)
 		: false,
 	spaceHasMinimalAccess,
-	rightSidebarCollapsed: uiState.rightSidebarCollapsed,
+	rightSidebarAvailable,
+	rightSidebarCollapsed: effectiveRightSidebarCollapsed,
 });
 const sessionRenameState = $derived({
 	renaming: sessionRenaming,
@@ -5351,6 +5405,9 @@ const sessionWorkspaceProps = $derived.by<
 
 
 
+{#if isBlockingAccess}
+	<AccessStateView state={spaceAccessState} retry={retryLoadSpace} />
+{:else}
 <SpaceWorkspaceHeader
 	context={headerContext}
 	sessionRename={sessionRenameState}
@@ -5538,6 +5595,7 @@ const sessionWorkspaceProps = $derived.by<
     onGenerationBooleanConstraintChange={setGenerationBooleanConstraint}
   />
 </div>
+{/if}
 
 {#if labelPickerResource}
 	<ResourceLabelPicker

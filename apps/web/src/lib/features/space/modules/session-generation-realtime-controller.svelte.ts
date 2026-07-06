@@ -194,7 +194,7 @@ export function createSessionGenerationRealtimeController(options: {
 					currentState.hasMoreNewer === snapshot.hasMoreNewer &&
 					currentState.loading === false &&
 					currentState.loaded === true &&
-					currentState.error === "" &&
+					currentState.error === null &&
 					currentState.loadingOlder === false &&
 					currentState.loadingNewer === false &&
 					currentState.oldestCursor === nextOldestCursor
@@ -209,7 +209,7 @@ export function createSessionGenerationRealtimeController(options: {
 					hasMoreNewer: snapshot.hasMoreNewer,
 					loading: false,
 					loaded: true,
-					error: "",
+					error: null,
 					loadingOlder: false,
 					loadingNewer: false,
 					oldestCursor: nextOldestCursor,

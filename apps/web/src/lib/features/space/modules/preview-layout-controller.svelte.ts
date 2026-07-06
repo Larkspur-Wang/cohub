@@ -8,7 +8,7 @@ const PREVIEW_PANEL_MIN_WIDTH = 280;
 export function createPreviewLayoutController(options: {
 	getIsMobile: () => boolean;
 	getWorkspaceBodyEl: () => HTMLDivElement | null;
-	getSpaceHasMinimalAccess: () => boolean;
+	getRightSidebarAvailable: () => boolean;
 	getActivePreviewKind: () => string | null;
 }) {
 	let width = $state(480);
@@ -22,7 +22,7 @@ export function createPreviewLayoutController(options: {
 	} | null = null;
 
 	function getRightSidebarReservedWidth() {
-		if (uiState.rightSidebarCollapsed || options.getSpaceHasMinimalAccess())
+		if (uiState.rightSidebarCollapsed || !options.getRightSidebarAvailable())
 			return 0;
 		return uiState.rightSidebarWidth;
 	}
@@ -149,9 +149,11 @@ export function createPreviewLayoutController(options: {
 
 	async function toggleRightSidebar() {
 		if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
-			uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
+			if (options.getRightSidebarAvailable())
+				uiState.mobileRightDrawerOpen = !uiState.mobileRightDrawerOpen;
 			return;
 		}
+		if (!options.getRightSidebarAvailable()) return;
 		const nextCollapsed = !uiState.rightSidebarCollapsed;
 		const rightWidth = uiState.rightSidebarWidth;
 		uiState.setRightSidebarCollapsed(nextCollapsed);

@@ -8,6 +8,7 @@ import type {
 import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
 import { ArrowDown, ListTree, Plus } from "lucide-svelte";
 import type { Snippet } from "svelte";
+import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
 import NewChatBackground from "$lib/components/NewChatBackground.svelte";
@@ -217,10 +218,20 @@ let {
 
   <!-- Chat -->
 {#if spaceLoadError && !spaceHasMinimalAccess}
-  <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{spaceLoadError}</div>
+  <div class="m-4">
+    <AccessStateView
+      state={{ kind: "error", message: spaceLoadError }}
+      size="compact"
+    />
+  </div>
 {/if}
 {#if createSessionError}
-  <div class="m-4 mt-0 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{createSessionError}</div>
+  <div class="m-4 mt-0">
+    <AccessStateView
+      state={{ kind: "error", message: createSessionError }}
+      size="compact"
+    />
+  </div>
 {/if}
 {#if bootstrapping && !activeSessionState && !isNewSessionRoute}
   <CenteredLoading label="Loading space…" />
@@ -243,8 +254,11 @@ let {
   <CenteredLoading label="Loading turns…" />
 {:else}
   {#if activeSessionState.error}
-    <div class="m-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">
-      {activeSessionState.error}
+    <div class="m-4">
+      <AccessStateView
+        state={activeSessionState.error}
+        size="compact"
+      />
     </div>
   {/if}
   <div class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
