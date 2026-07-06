@@ -89,6 +89,12 @@ function previewToolResult(content: string | ContentBlock[]) {
 	return content.map(blockText).filter(Boolean).join(" ");
 }
 
+function previewPartialResult(value: unknown) {
+	if (typeof value === "string") return value;
+	if (Array.isArray(value)) return previewToolResult(value as ContentBlock[]);
+	return "";
+}
+
 function findToolNameForResult(blocks: ContentBlock[], resultIndex: number) {
 	const result = blocks[resultIndex];
 	if (result?.type !== "tool_result") return null;
@@ -118,15 +124,18 @@ function findLatestSignal(blocks: ContentBlock[]) {
 			};
 		}
 		if (block.type === "tool_use") {
-			const text = compactInlineText(
-				previewToolInput(block.input),
+			const partialText = compactInlineText(
+				previewPartialResult(block._meta?.partialResult),
 				TOOL_TEXT_LIMIT,
 			);
+			const text =
+				partialText ||
+				compactInlineText(previewToolInput(block.input), TOOL_TEXT_LIMIT);
 			return {
-				phase: "tool" as const,
+				phase: partialText ? ("result" as const) : ("tool" as const),
 				label: block.name,
 				text: text || null,
-				progressKey: `tool:${block.id}:${index}`,
+				progressKey: `tool:${block.id}:${index}:${partialText.length}`,
 			};
 		}
 		if (block.type === "shell_command") {

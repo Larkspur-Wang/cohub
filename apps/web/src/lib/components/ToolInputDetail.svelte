@@ -78,7 +78,7 @@ function diffTextClass(sign: "+" | "-") {
 							<div class="relative min-w-0">
 								<div
 									id={sectionBodyId(section)}
-									class={`overflow-hidden ${shouldCollapse(section) ? 'max-h-56' : ''}`}
+									class={`${shouldCollapse(section) ? 'max-h-56 overflow-auto overscroll-contain rounded-[4px] border border-border-subtle/60 bg-bg-subtle/25' : 'overflow-hidden'}`}
 								>
 									{#each section.lines ?? [] as line, index (`${index}-${line.sign}`)}
 										<div class={diffLineClass(line.sign)}>
@@ -92,7 +92,7 @@ function diffTextClass(sign: "+" | "-") {
 							<div class="relative min-w-0">
 								<pre
 									id={sectionBodyId(section)}
-									class={`whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] ${shouldCollapse(section) ? 'max-h-56 overflow-hidden' : ''}`}
+									class={`whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] ${shouldCollapse(section) ? 'max-h-56 overflow-auto overscroll-contain rounded-[4px] border border-border-subtle/60 bg-bg-subtle/25 px-2 py-1.5' : ''}`}
 								>{section.value}</pre>
 							</div>
 						{/if}

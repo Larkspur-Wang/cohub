@@ -58,8 +58,6 @@ const blockIdentityCompatible = (prev: ContentBlock, next: ContentBlock) => {
 };
 
 const MAX_BLOCK_DIFF_DEPTH = 48;
-const shouldReplaceStringPatch = (segments: string[]) =>
-  segments.at(-2) === "_meta" && segments.at(-1) === "partialResult";
 
 function diffUnknownToOps(
   blockBasePath: string,
@@ -77,10 +75,6 @@ function diffUnknownToOps(
   }
   if (next === undefined) return "fallback";
   if (typeof prev === "string" && typeof next === "string") {
-    if (shouldReplaceStringPatch(segments)) {
-      if (prev !== next) out.push({ o: "replace", p: joinPointerPath(blockBasePath, segments), v: next });
-      return "ok";
-    }
     if (next.startsWith(prev) && next.length > prev.length) {
       out.push({ o: "append", p: joinPointerPath(blockBasePath, segments), v: next.slice(prev.length) });
       return "ok";

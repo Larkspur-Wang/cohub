@@ -1,4 +1,5 @@
 <script lang="ts">
+import { tick } from "svelte";
 import {
 	describeTextValue,
 	isLongTextValue,
@@ -19,11 +20,32 @@ const {
 }: Props = $props();
 
 let expanded = $state(false);
+let outputElement = $state<HTMLPreElement | null>(null);
+let tailPinned = $state(true);
 
 const summary = $derived(describeTextValue(value));
-const collapsible = $derived(isLongTextValue(value));
+const tailMode = $derived(partial);
+const collapsible = $derived(!tailMode && isLongTextValue(value));
 const collapsed = $derived(collapsible && !expanded);
 const bodyId = $derived(`${idPrefix}-${failed ? "err" : "out"}-body`);
+
+function isPinnedToBottom(element: HTMLElement) {
+	return element.scrollHeight - element.scrollTop - element.clientHeight <= 6;
+}
+
+function handleOutputScroll() {
+	if (!outputElement || !tailMode) return;
+	tailPinned = isPinnedToBottom(outputElement);
+}
+
+$effect(() => {
+	if (!tailMode) return;
+	const currentValue = value;
+	void tick().then(() => {
+		if (!outputElement || !tailPinned || currentValue !== value) return;
+		outputElement.scrollTop = outputElement.scrollHeight;
+	});
+});
 </script>
 
 <div class="min-w-0 space-y-1 pt-px">
@@ -34,8 +56,10 @@ const bodyId = $derived(`${idPrefix}-${failed ? "err" : "out"}-body`);
 	{/if}
 
 	<pre
+		bind:this={outputElement}
 		id={bodyId}
-		class={`whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] max-sm:text-[12px] ${failed ? 'text-status-error' : 'text-text-secondary'} ${collapsed ? 'max-h-[calc(var(--leading-snug)*12em)] overflow-hidden' : ''}`}
+		onscroll={handleOutputScroll}
+		class={`whitespace-pre-wrap break-words font-mono text-[13px] leading-snug [overflow-wrap:anywhere] max-sm:text-[12px] ${failed ? 'text-status-error' : 'text-text-secondary'} ${tailMode ? 'max-h-[min(38dvh,14rem)] overflow-auto overscroll-contain rounded-[4px] border border-border-subtle/60 bg-bg-subtle/35 px-2 py-1.5' : collapsed ? 'max-h-[calc(var(--leading-snug)*12em)] overflow-hidden' : ''}`}
 	>{value}</pre>
 
 	{#if collapsible}
