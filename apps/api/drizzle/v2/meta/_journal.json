@@ -246,6 +246,20 @@
       "when": 1783236067771,
       "tag": "0034_misty_chimera",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783393682020,
+      "tag": "0035_lame_punisher",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1783398207307,
+      "tag": "0036_perpetual_blackheart",
+      "breakpoints": true
     }
   ]
 }

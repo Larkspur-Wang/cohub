@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { checkpoints, labelAssignments, type labels, spaceSessions } from "@cohub/db";
 import { listLabelsByRank } from "./index.js";
@@ -112,7 +112,7 @@ export async function buildResourceLabelSnapshot(input: {
         eq(labelAssignments.resourceType, input.resourceType),
         eq(labelAssignments.resourceRef, input.resourceRef),
       ))
-      .orderBy(asc(labelAssignments.rank), asc(labelAssignments.createdAt), asc(labelAssignments.id)),
+      .orderBy(sql`${labelAssignments.rank} asc nulls last`, asc(labelAssignments.createdAt), asc(labelAssignments.id)),
   ]);
   const items = await hydrateLabelAssignments(input.db, input.spaceId, assignments);
   return {

@@ -879,7 +879,7 @@ export const labelAssignments = v2.table(
     scopeId: text("scope_id").notNull(),
     resourceType: varchar("resource_type", { length: 30 }).notNull(),
     resourceRef: text("resource_ref").notNull(),
-    rank: integer("rank").notNull().default(0),
+    rank: integer("rank"),
     source: varchar("source", { length: 30 }).notNull().default("user"),
     createdBy: varchar("created_by", { length: 255 }),
     meta: jsonb("meta"),
@@ -907,6 +907,10 @@ export const labelAssignments = v2.table(
       table.scopeId,
       table.labelId,
     ),
+    sessionLabelResourceIdx: index("v2_idx_label_assignments_session_label_resource").on(
+      table.labelId,
+      table.resourceRef,
+    ).where(sql`${table.resourceType} = 'session'`),
     resourceLabelIdx: index("v2_idx_label_assignments_resource_label").on(
       table.resourceType,
       table.resourceRef,

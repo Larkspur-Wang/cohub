@@ -1113,7 +1113,7 @@ export type LabelAssignmentRecord = {
   scopeId: string;
   resourceType: LabelResourceType;
   resourceRef: string;
-  rank: number;
+  rank: number | null;
   source: LabelSource;
   createdBy: string | null;
   meta: Record<string, unknown> | null;

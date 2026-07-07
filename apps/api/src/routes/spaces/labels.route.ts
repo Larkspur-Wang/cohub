@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { and, asc, count, desc, eq, inArray, max, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, max, or, sql } from "drizzle-orm";
 import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db";
 import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";
@@ -35,19 +35,32 @@ function parseItemsLimit(value: string | undefined) {
   return Math.min(limit, MAX_ITEMS_LIMIT);
 }
 
-function encodeItemsCursor(row: typeof labelAssignments.$inferSelect) {
-  return Buffer.from(JSON.stringify({ rank: row.rank, createdAt: row.createdAt?.toISOString() ?? null, id: row.id })).toString("base64url");
+function encodeManualItemsCursor(row: typeof labelAssignments.$inferSelect) {
+  return Buffer.from(JSON.stringify({ type: "manual", rank: row.rank, createdAt: row.createdAt?.toISOString() ?? null, id: row.id })).toString("base64url");
+}
+
+function encodeSessionActivityItemsCursor(row: { lastMessageAt: Date | null; sessionId: string }) {
+  return Buffer.from(JSON.stringify({ type: "sessionActivity", lastMessageAt: row.lastMessageAt?.toISOString() ?? null, sessionId: row.sessionId })).toString("base64url");
 }
 
 function decodeItemsCursor(value: string | undefined) {
   if (!value) return { ok: true as const, cursor: null };
   try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { rank?: unknown; createdAt?: unknown; id?: unknown };
-    if (!Number.isSafeInteger(parsed.rank) || typeof parsed.id !== "string" || !requireValidId(parsed.id)) return { ok: false as const };
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as { type?: unknown; rank?: unknown; createdAt?: unknown; id?: unknown; lastMessageAt?: unknown; sessionId?: unknown };
+    if (parsed.type === "sessionActivity") {
+      if (parsed.lastMessageAt !== null && typeof parsed.lastMessageAt !== "string") return { ok: false as const };
+      if (typeof parsed.sessionId !== "string" || !requireValidId(parsed.sessionId)) return { ok: false as const };
+      const lastMessageAt = parsed.lastMessageAt ? new Date(parsed.lastMessageAt) : null;
+      if (lastMessageAt && !Number.isFinite(lastMessageAt.getTime())) return { ok: false as const };
+      return { ok: true as const, cursor: { type: "sessionActivity" as const, lastMessageAt, sessionId: parsed.sessionId } };
+    }
+    if (parsed.type !== undefined && parsed.type !== "manual") return { ok: false as const };
+    if (parsed.rank === undefined || (parsed.rank !== null && !Number.isSafeInteger(parsed.rank))) return { ok: false as const };
+    if (typeof parsed.id !== "string" || !requireValidId(parsed.id)) return { ok: false as const };
     if (parsed.createdAt !== null && typeof parsed.createdAt !== "string") return { ok: false as const };
     const createdAt = parsed.createdAt ? new Date(parsed.createdAt) : null;
     if (createdAt && !Number.isFinite(createdAt.getTime())) return { ok: false as const };
-    return { ok: true as const, cursor: { rank: parsed.rank, createdAt, id: parsed.id } };
+    return { ok: true as const, cursor: { type: "manual" as const, rank: parsed.rank ?? null, createdAt, id: parsed.id } };
   } catch {
     return { ok: false as const };
   }
@@ -268,6 +281,7 @@ router.patch("/by-ref", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
   if (!label) return c.json({ message: "label not found" }, 404);
+  if (label.source !== "user") return authzDenied(c);
   const patch: Partial<typeof labels.$inferInsert> = { updatedAt: new Date() };
   if (body?.name !== undefined) {
     const name = normalizeName(body.name);
@@ -318,6 +332,7 @@ router.delete("/by-ref", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
   if (!label) return c.json({ message: "label not found" }, 404);
+  if (label.source !== "user") return authzDenied(c);
   const [{ value: childCount } = { value: 0 }] = await db.select({ value: count() }).from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), eq(labels.parentId, label.id)));
   if (Number(childCount) > 0) return c.json({ message: "delete child labels first" }, 400);
   await db.transaction(async (tx) => {
@@ -337,6 +352,10 @@ router.post("/reorder", async (c) => {
     const resolved = await resolveLabelPaths({ db, spaceId: access.spaceId, paths });
     if (resolved.missingPaths.length > 0) return c.json({ message: "label not found" }, 404);
     labelIds = resolved.labelIds;
+    const rows = labelIds.length > 0
+      ? await db.select({ id: labels.id, source: labels.source }).from(labels).where(and(eq(labels.scopeType, SCOPE_TYPE), eq(labels.scopeId, access.spaceId), inArray(labels.id, labelIds)))
+      : [];
+    if (rows.length !== labelIds.length || rows.some((label) => label.source !== "user")) return authzDenied(c);
   } catch (error) {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
@@ -362,6 +381,36 @@ router.get("/items", async (c) => {
   const decodedCursor = decodeItemsCursor(c.req.query("cursor"));
   if (!decodedCursor.ok) return c.json({ message: "invalid cursor" }, 400);
   const cursor = decodedCursor.cursor;
+  if (label.source === "system") {
+    if (cursor?.type === "manual") return c.json({ message: "invalid cursor" }, 400);
+    const rows = await db
+      .select({ assignment: labelAssignments, lastMessageAt: spaceSessions.lastMessageAt, sessionId: spaceSessions.id })
+      .from(spaceSessions)
+      .innerJoin(labelAssignments, and(
+        eq(labelAssignments.scopeType, SCOPE_TYPE),
+        eq(labelAssignments.scopeId, access.spaceId),
+        eq(labelAssignments.labelId, label.id),
+        eq(labelAssignments.resourceType, "session"),
+        sql`${labelAssignments.resourceRef} = ${spaceSessions.id}::text`,
+      ))
+      .where(and(
+        eq(spaceSessions.spaceId, access.spaceId),
+        ...(cursor ? [cursor.lastMessageAt
+          ? or(
+            sql`${spaceSessions.lastMessageAt} < ${cursor.lastMessageAt}`,
+            isNull(spaceSessions.lastMessageAt),
+            and(eq(spaceSessions.lastMessageAt, cursor.lastMessageAt), sql`${spaceSessions.id} < ${cursor.sessionId}`),
+          )
+          : and(isNull(spaceSessions.lastMessageAt), sql`${spaceSessions.id} < ${cursor.sessionId}`)] : []),
+      ))
+      .orderBy(sql`${spaceSessions.lastMessageAt} desc nulls last`, desc(spaceSessions.id))
+      .limit(limit + 1);
+    const pageRows = rows.slice(0, limit);
+    const lastRow = pageRows.at(-1);
+    const nextCursor = rows.length > limit && lastRow ? encodeSessionActivityItemsCursor({ lastMessageAt: lastRow.lastMessageAt, sessionId: lastRow.sessionId }) : null;
+    return c.json({ items: await hydrateAssignments(access.spaceId, pageRows.map((row) => row.assignment)), pageInfo: { hasMore: Boolean(nextCursor), nextCursor } });
+  }
+  if (cursor?.type === "sessionActivity") return c.json({ message: "invalid cursor" }, 400);
   const rows = await db
     .select()
     .from(labelAssignments)
@@ -369,13 +418,13 @@ router.get("/items", async (c) => {
       eq(labelAssignments.scopeType, SCOPE_TYPE),
       eq(labelAssignments.scopeId, access.spaceId),
       eq(labelAssignments.labelId, label.id),
-      ...(cursor ? [sql`(${labelAssignments.rank}, ${labelAssignments.createdAt}, ${labelAssignments.id}) < (${cursor.rank}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
+      ...(cursor ? [sql`(coalesce(${labelAssignments.rank}, -2147483648), ${labelAssignments.createdAt}, ${labelAssignments.id}) < (${cursor.rank ?? -2147483648}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
     ))
-    .orderBy(desc(labelAssignments.rank), desc(labelAssignments.createdAt), desc(labelAssignments.id))
+    .orderBy(sql`${labelAssignments.rank} desc nulls last`, desc(labelAssignments.createdAt), desc(labelAssignments.id))
     .limit(limit + 1);
   const pageRows = rows.slice(0, limit);
   const lastRow = pageRows.at(-1);
-  const nextCursor = rows.length > limit && lastRow ? encodeItemsCursor(lastRow) : null;
+  const nextCursor = rows.length > limit && lastRow ? encodeManualItemsCursor(lastRow) : null;
   return c.json({ items: await hydrateAssignments(access.spaceId, pageRows), pageInfo: { hasMore: Boolean(nextCursor), nextCursor } });
 });
 
@@ -493,7 +542,7 @@ export async function patchResourceLabels(c: Context) {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
 
-  const existing = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef))).orderBy(asc(labelAssignments.rank), asc(labelAssignments.createdAt), asc(labelAssignments.id));
+  const existing = await db.select().from(labelAssignments).where(and(eq(labelAssignments.scopeType, SCOPE_TYPE), eq(labelAssignments.scopeId, access.spaceId), eq(labelAssignments.resourceType, resourceType), eq(labelAssignments.resourceRef, resourceRef))).orderBy(sql`${labelAssignments.rank} asc nulls last`, asc(labelAssignments.createdAt), asc(labelAssignments.id));
   const removeSet = new Set(removeLabelIds);
   const nextUserLabelIds = existing
     .filter((assignment) => assignment.source === "user" && !removeSet.has(assignment.labelId))

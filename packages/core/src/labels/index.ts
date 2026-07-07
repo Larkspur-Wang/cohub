@@ -185,17 +185,19 @@ export async function assignLabelsToSession(input: {
   const existingIds = existing.map((label) => label.id);
   if (existingIds.length === 0) return;
   const rows = await Promise.all(existingIds.map(async (labelId) => {
-    const [{ value } = { value: 0 }] = await input.db
-      .select({ value: max(labelAssignments.rank) })
-      .from(labelAssignments)
-      .where(eq(labelAssignments.labelId, labelId));
+    const rank = source === "user"
+      ? Number((await input.db
+        .select({ value: max(labelAssignments.rank) })
+        .from(labelAssignments)
+        .where(eq(labelAssignments.labelId, labelId)))[0]?.value ?? 0) + 10
+      : null;
     return {
       labelId,
       scopeType: SCOPE_TYPE,
       scopeId: input.spaceId,
       resourceType: "session",
       resourceRef: input.sessionId,
-      rank: Number(value ?? 0) + 10,
+      rank,
       source,
       createdBy: input.userId,
     };

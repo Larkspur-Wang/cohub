@@ -186,24 +186,15 @@ export async function assignSessionParticipantSystemLabels(input: SessionUserLab
     ));
   const existingIds = new Set(existingAssignments.map((row) => row.labelId));
   const userUuidByLabelId = new Map(childLabels.map((label, index) => [label.id, userUuids[index] ?? null]));
-  const [{ value: maxRank } = { value: 0 }] = await input.db
-    .select({ value: max(labelAssignments.rank) })
-    .from(labelAssignments)
-    .where(and(
-      eq(labelAssignments.scopeType, SCOPE_TYPE),
-      eq(labelAssignments.scopeId, input.spaceId),
-      eq(labelAssignments.resourceType, "session"),
-      eq(labelAssignments.resourceRef, input.sessionId),
-    ));
   const rows = childLabels
     .filter((label) => !existingIds.has(label.id))
-    .map((label, index) => ({
+    .map((label) => ({
       labelId: label.id,
       scopeType: SCOPE_TYPE,
       scopeId: input.spaceId,
       resourceType: "session",
       resourceRef: input.sessionId,
-      rank: Number(maxRank ?? 0) + (index + 1) * 10,
+      rank: null,
       source: "system" as const,
       createdBy: input.userId ?? null,
       meta: { kind: "session_participant", userUuid: userUuidByLabelId.get(label.id) },

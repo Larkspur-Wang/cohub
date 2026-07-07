@@ -203,7 +203,9 @@ function labelAssignmentToItem(input: {
 				updatedAt,
 			})
 		: {
-				score: 0.72 + Math.min(0.2, (1000 - input.assignment.rank) / 10000),
+				score:
+					0.72 +
+					Math.min(0.2, (1000 - (input.assignment.rank ?? 1000)) / 10000),
 				textScore: 1,
 				recencyScore: 0.5,
 				typePriorityScore: 0.72,

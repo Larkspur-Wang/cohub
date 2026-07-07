@@ -6,9 +6,7 @@ import type {
 } from "@neta-art/cohub";
 import { resourceLabelsRepo } from "$lib/cache/repositories/resource-labels-repo";
 import {
-	getCachedLabelItemsSnapshot,
 	markLabelItemsStale,
-	setCachedLabelItemsFirstPage,
 	setCachedSpaceLabels,
 } from "$lib/stores/space-labels";
 
@@ -43,7 +41,7 @@ function isAssignment(value: unknown): value is LabelAssignmentRecord {
 		isRecord(value) &&
 		typeof value.id === "string" &&
 		typeof value.labelId === "string" &&
-		typeof value.rank === "number" &&
+		(value.rank === null || typeof value.rank === "number") &&
 		isLabelResourceType(value.resourceType) &&
 		typeof value.resourceRef === "string"
 	);
@@ -52,39 +50,6 @@ function isAssignment(value: unknown): value is LabelAssignmentRecord {
 function isLabelItem(value: unknown): value is LabelAssignmentListItem {
 	if (!isRecord(value) || !isAssignment(value)) return false;
 	return typeof (value as Record<string, unknown>).href === "string";
-}
-
-function sortLabelItems(items: LabelAssignmentListItem[]) {
-	return [...items].sort((a, b) => {
-		if (a.rank !== b.rank) return b.rank - a.rank;
-		return (
-			(b.createdAt ?? "").localeCompare(a.createdAt ?? "") ||
-			b.id.localeCompare(a.id)
-		);
-	});
-}
-
-async function upsertCachedLabelItems(input: {
-	spaceId: string;
-	labelId: string;
-	items: LabelAssignmentListItem[];
-}) {
-	const cached = await getCachedLabelItemsSnapshot(
-		input.spaceId,
-		input.labelId,
-	);
-	if (!cached) {
-		await markLabelItemsStale(input.spaceId, input.labelId).catch(
-			() => undefined,
-		);
-		return;
-	}
-	const byId = new Map(cached.items.map((item) => [item.id, item]));
-	for (const item of input.items) byId.set(item.id, item);
-	await setCachedLabelItemsFirstPage(input.spaceId, input.labelId, {
-		items: sortLabelItems([...byId.values()]),
-		pageInfo: cached.pageInfo,
-	});
 }
 
 export async function syncResourceLabelsToCache(
@@ -106,23 +71,10 @@ export async function syncResourceLabelsToCache(
 			...snapshot.assignments.map((assignment) => assignment.labelId),
 		]),
 	);
-	const itemsByLabelId = new Map<string, LabelAssignmentListItem[]>();
-	for (const item of snapshot.items ?? []) {
-		const items = itemsByLabelId.get(item.labelId) ?? [];
-		items.push(item);
-		itemsByLabelId.set(item.labelId, items);
-	}
 	await Promise.all(
-		affectedLabelIds.map((labelId) => {
-			const items = itemsByLabelId.get(labelId);
-			return items
-				? upsertCachedLabelItems({
-						spaceId: snapshot.spaceId,
-						labelId,
-						items,
-					})
-				: markLabelItemsStale(snapshot.spaceId, labelId).catch(() => undefined);
-		}),
+		affectedLabelIds.map((labelId) =>
+			markLabelItemsStale(snapshot.spaceId, labelId).catch(() => undefined),
+		),
 	);
 	if (typeof window !== "undefined") {
 		window.dispatchEvent(
