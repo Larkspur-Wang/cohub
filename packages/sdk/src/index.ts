@@ -10,6 +10,9 @@ export { ReferencesApi } from "./apis/references.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export { ParentBridgeTransport, PopupBrokerTransport, WorkRuntimeApi, createWorkRuntime, resolveWorkTransport } from "./work-runtime.js";
 export type { WorkRuntimeModeConfig, WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";
+export { createWorkBridgeCore } from "./work-bridge-core.js";
+export type { WorkBridgeCore, WorkBridgeCoreConfig, WorkBridgeCoreWork, WorkBridgeDialogState, WorkAuthorizeRequest, WorkPurchaseRequest, WorkBridgeGetAccessToken, WorkBridgeGetViewerUuid, WorkBridgeRequestSignIn } from "./work-bridge-core.js";
+export { clearGrantedWorkScopes, hasGrantedWorkScopes, setGrantedWorkScopes } from "./work-grant-cache.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export {
   SessionGenerationStreamClient,
