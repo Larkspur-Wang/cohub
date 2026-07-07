@@ -1,28 +1,15 @@
 <script lang="ts">
-import type { Permission, WorkRecord, WorkTargetType } from "@neta-art/cohub";
-import {
-	AlertTriangle,
-	Check,
-	CreditCard,
-	Loader2,
-	ShieldCheck,
-} from "lucide-svelte";
-import { onDestroy, onMount } from "svelte";
+import type { WorkRecord, WorkTargetType } from "@neta-art/cohub";
+import { onDestroy, onMount, untrack } from "svelte";
 import { page } from "$app/state";
-import { PUBLIC_API_ORIGIN } from "$env/static/public";
-import { getAuthToken, signInWithRedirectPath } from "$lib/auth";
-import Dialog from "$lib/components/Dialog.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
+import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
+import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
+import WorkPurchaseDialog from "$lib/features/work/WorkPurchaseDialog.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
-import { authStore } from "$lib/stores/auth.svelte";
-import {
-	clearGrantedWorkScopes,
-	hasGrantedWorkScopes,
-	setGrantedWorkScopes,
-} from "$lib/stores/work-grant-cache";
 
 type WorkSurfaceMode = "page" | "background";
 type WorkContent =
@@ -73,21 +60,6 @@ const {
 
 let frame: HTMLIFrameElement | null = $state(null);
 let bridgeReady = $state(false);
-let workToken = $state<string | null>(null);
-let authOpen = $state(false);
-let purchaseOpen = $state(false);
-let purchaseError = $state<string | null>(null);
-let purchaseSaving = $state(false);
-let pendingPurchase = $state<{ requestId: string; productKey: string } | null>(
-	null,
-);
-let pendingAuth = $state<{
-	requestId: string;
-	scopes: Permission[];
-	reason?: string;
-} | null>(null);
-let authError = $state<string | null>(null);
-let authSaving = $state(false);
 
 const isBackground = $derived(mode === "background");
 const spaceName = $derived(space?.name || space?.slug || "Space");
@@ -129,220 +101,26 @@ const framePreconnectOrigin = $derived.by(() => {
 const frameSandbox =
 	"allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals";
 const checkoutState = $derived(readWorkCheckoutState(page.url));
-const pendingPurchaseStorageKey = $derived(`cohub-work-purchase:${work.id}`);
 
-function readTokenResponse(value: unknown) {
-	if (!value || typeof value !== "object") return null;
-	const token = (value as Record<string, unknown>).token;
-	return typeof token === "string" && token ? token : null;
-}
-
-async function isCurrentViewerWorkOwner() {
-	await authStore.ensureLoaded();
-	return Boolean(authStore.userUuid && authStore.userUuid === work.userUuid);
-}
-
-async function ensureBaseToken(forceRefresh = false) {
-	if (workToken && !forceRefresh) return workToken;
-	const userToken = await getAuthToken({ forceRefresh });
-	if (!userToken) {
-		await signInWithRedirectPath(location.pathname);
-		return null;
-	}
-	const response = await fetch(
-		`${PUBLIC_API_ORIGIN ?? ""}/api/works/${work.id}/session`,
-		{
-			method: "POST",
-			headers: { Authorization: `Bearer ${userToken}` },
+// `work` and `isBackground` are constant for the lifetime of this surface
+// (a different work remounts the component), so capturing their initial values
+// is intentional. `reply`/`getCheckoutState` stay reactive via their closures.
+const host = untrack(() =>
+	createWorkBridgeHost({
+		work,
+		isBackground,
+		reply: (requestId, payload) => {
+			if (!frameOrigin) return;
+			frame?.contentWindow?.postMessage(
+				{ requestId, ...payload },
+				frameReplyTarget,
+			);
 		},
-	);
-	if (!response.ok) throw new Error("Failed to create work session.");
-	const token = readTokenResponse(await response.json());
-	if (!token) throw new Error("Invalid work session response.");
-	workToken = token;
-	return workToken;
-}
+		getCheckoutState: () => checkoutState,
+	}),
+);
 
-async function authorize(scopes: Permission[]) {
-	const userToken = await getAuthToken();
-	if (!userToken) {
-		await signInWithRedirectPath(location.pathname);
-		return null;
-	}
-	const response = await fetch(
-		`${PUBLIC_API_ORIGIN ?? ""}/api/works/${work.id}/authorize`,
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${userToken}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ scopes }),
-		},
-	);
-	if (!response.ok)
-		throw new Error(
-			(await response.json().catch(() => null))?.message ??
-				"Authorization failed.",
-		);
-	const token = readTokenResponse(await response.json());
-	if (!token) throw new Error("Invalid work authorization response.");
-	workToken = token;
-	return workToken;
-}
-
-function clonePermissionScopes(
-	scopes: readonly Permission[] | null | undefined,
-) {
-	return Array.from(scopes ?? []).filter(
-		(scope): scope is Permission => typeof scope === "string",
-	);
-}
-
-function reply(requestId: string, payload: Record<string, unknown>) {
-	if (!frameOrigin) return;
-	frame?.contentWindow?.postMessage(
-		{ requestId, ...payload },
-		frameReplyTarget,
-	);
-}
-
-function formatScopeLabel(scope: string) {
-	const labels: Record<string, string> = {
-		"session.prompt.readonly": "Prompt read-only",
-		"session.prompt.fullaccess": "Prompt full access",
-		"generation.create": "Create generations",
-		"file.view": "View files",
-		"taskrun.view": "View task runs",
-		"user.space.list": "List your spaces",
-		"user.session.list": "List your sessions",
-		"user.usage.read": "Read your usage",
-	};
-	return labels[scope] ?? scope;
-}
-
-function formatScopeDescription(scope: string) {
-	const descriptions: Record<string, string> = {
-		"session.prompt.readonly":
-			"Read prompts and session context without making changes.",
-		"session.prompt.fullaccess":
-			"Send prompts and act in the session with your approval.",
-		"generation.create": "Start image, video, or other generation tasks.",
-		"file.view": "Read files in this space.",
-		"taskrun.view": "View task progress and results in this space.",
-		"user.space.list":
-			"See the list of spaces you own or belong to across your account.",
-		"user.session.list": "See sessions you created across all your spaces.",
-		"user.usage.read": "Read your aggregated token usage and cost statistics.",
-	};
-	return (
-		descriptions[scope] ?? "Grant this work the requested Cohub permission."
-	);
-}
-
-function replyAuthCancel() {
-	if (authSaving) return;
-	if (!pendingAuth) return;
-	reply(pendingAuth.requestId, {
-		type: "cohub.work.authorize.result",
-		token: null,
-	});
-	authOpen = false;
-	pendingAuth = null;
-	authError = null;
-	authSaving = false;
-}
-
-function replyPurchaseCancel() {
-	if (purchaseSaving) return;
-	if (!pendingPurchase) return;
-	reply(pendingPurchase.requestId, {
-		type: "cohub.work.purchase.result",
-		checkout: null,
-	});
-	purchaseOpen = false;
-	purchaseError = null;
-	pendingPurchase = null;
-	purchaseSaving = false;
-}
-
-function writePendingPurchase(input: { orderId: string; productKey: string }) {
-	if (typeof sessionStorage === "undefined") return;
-	try {
-		sessionStorage.setItem(
-			pendingPurchaseStorageKey,
-			JSON.stringify({ ...input, at: Date.now() }),
-		);
-	} catch {
-		// ignore storage failures
-	}
-}
-
-function readPendingPurchase(): {
-	orderId: string;
-	productKey: string;
-	at: number;
-} | null {
-	if (typeof sessionStorage === "undefined") return null;
-	try {
-		const raw = sessionStorage.getItem(pendingPurchaseStorageKey);
-		if (!raw) return null;
-		const parsed = JSON.parse(raw) as {
-			orderId?: unknown;
-			productKey?: unknown;
-			at?: unknown;
-		};
-		return typeof parsed.orderId === "string" &&
-			typeof parsed.productKey === "string" &&
-			typeof parsed.at === "number"
-			? {
-					orderId: parsed.orderId,
-					productKey: parsed.productKey,
-					at: parsed.at,
-				}
-			: null;
-	} catch {
-		return null;
-	}
-}
-
-function clearPendingPurchase() {
-	if (typeof sessionStorage === "undefined") return;
-	try {
-		sessionStorage.removeItem(pendingPurchaseStorageKey);
-	} catch {
-		// ignore storage failures
-	}
-}
-
-async function createPurchase(productKey: string) {
-	const userToken = await getAuthToken();
-	if (!userToken) {
-		await signInWithRedirectPath(
-			location.pathname + location.search + location.hash,
-		);
-		return null;
-	}
-	const response = await fetch(
-		`${PUBLIC_API_ORIGIN ?? ""}/api/works/${work.id}/commerce/purchase`,
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${userToken}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ productKey }),
-		},
-	);
-	if (!response.ok)
-		throw new Error(
-			(await response.json().catch(() => null))?.message ?? "Purchase failed.",
-		);
-	const json = await response.json();
-	return (json as { checkout?: unknown }).checkout ?? null;
-}
-
-async function handleMessage(event: MessageEvent) {
+async function onFrameMessage(event: MessageEvent) {
 	if (event.source !== frame?.contentWindow) return;
 	if (!frameOrigin || event.origin !== frameOrigin) return;
 	if (isBackground) {
@@ -352,189 +130,14 @@ async function handleMessage(event: MessageEvent) {
 			return;
 		}
 	}
-	const data = event.data as {
-		type?: string;
-		requestId?: string;
-		scopes?: Permission[];
-		reason?: string;
-		forceRefresh?: boolean;
-		productKey?: string;
-	};
-	if (!data?.requestId) return;
-	try {
-		if (!frameOrigin) return;
-		if (data.type === "cohub.work.context") {
-			const workScopes = clonePermissionScopes(work.workScopes);
-			reply(data.requestId, {
-				type: "cohub.work.context.result",
-				context: {
-					work: {
-						id: work.id,
-						slug: work.slug,
-						url: location.href,
-					},
-					space: { id: work.spaceId },
-					permissions: {
-						scopes: workScopes,
-						workScopes,
-						viewerScopes: [],
-					},
-				},
-			});
-		}
-		if (data.type === "cohub.work.token") {
-			const token = await ensureBaseToken(Boolean(data.forceRefresh));
-			reply(data.requestId, { type: "cohub.work.token.result", token });
-		}
-		if (data.type === "cohub.work.checkout-state") {
-			const pendingPurchase = readPendingPurchase();
-			const orderId = checkoutState.orderId ?? pendingPurchase?.orderId ?? null;
-			if (checkoutState.status && checkoutState.orderId) clearPendingPurchase();
-			reply(data.requestId, {
-				type: "cohub.work.checkout-state.result",
-				status: checkoutState.status,
-				orderId,
-			});
-		}
-		if (data.type === "cohub.work.purchase") {
-			const productKey =
-				typeof data.productKey === "string" ? data.productKey.trim() : "";
-			if (!productKey) {
-				reply(data.requestId, {
-					type: "cohub.work.error",
-					message: "Product key is required.",
-				});
-				return;
-			}
-			pendingPurchase = { requestId: data.requestId, productKey };
-			purchaseError = null;
-			purchaseOpen = true;
-		}
-		if (data.type === "cohub.work.authorize") {
-			const allowedViewerScopes = clonePermissionScopes(
-				work.allowedViewerScopes,
-			);
-			const scopes = clonePermissionScopes(data.scopes).filter((scope) =>
-				allowedViewerScopes.includes(scope),
-			);
-			if (scopes.length === 0) {
-				reply(data.requestId, {
-					type: "cohub.work.error",
-					message: "No allowed scopes requested.",
-				});
-				return;
-			}
-			if (isBackground && (await isCurrentViewerWorkOwner())) {
-				const token = await authorize(scopes);
-				reply(data.requestId, {
-					type: "cohub.work.authorize.result",
-					token,
-				});
-				return;
-			}
-			// Returning viewers who previously granted the requested scopes are
-			// re-authorized silently with a fresh token — no consent dialog.
-			await authStore.ensureLoaded();
-			const viewerUuid = authStore.userUuid;
-			if (viewerUuid && hasGrantedWorkScopes(viewerUuid, work.id, scopes)) {
-				try {
-					const token = await authorize(scopes);
-					reply(data.requestId, {
-						type: "cohub.work.authorize.result",
-						token,
-					});
-					return;
-				} catch {
-					// Granted scopes may have changed server-side; clear the stale
-					// cache and fall back to the consent dialog so the viewer can
-					// re-authorize.
-					clearGrantedWorkScopes(viewerUuid, work.id);
-				}
-			}
-			pendingAuth = {
-				requestId: data.requestId,
-				scopes,
-				reason: data.reason,
-			};
-			authError = null;
-			authOpen = true;
-		}
-	} catch (error) {
-		reply(data.requestId, {
-			type: "cohub.work.error",
-			message: error instanceof Error ? error.message : "Request failed.",
-		});
-	}
-}
-
-async function confirmPurchase() {
-	if (!pendingPurchase || purchaseSaving) return;
-	purchaseSaving = true;
-	purchaseError = null;
-	try {
-		const checkout = await createPurchase(pendingPurchase.productKey);
-		reply(pendingPurchase.requestId, {
-			type: "cohub.work.purchase.result",
-			checkout,
-		});
-		if (checkout && typeof checkout === "object") {
-			const next = checkout as {
-				checkoutUrl?: unknown;
-				checkoutUsable?: unknown;
-				orderId?: unknown;
-				productKey?: unknown;
-			};
-			if (
-				typeof next.orderId === "string" &&
-				typeof next.productKey === "string"
-			) {
-				writePendingPurchase({
-					orderId: next.orderId,
-					productKey: next.productKey,
-				});
-			}
-			const url = next.checkoutUrl;
-			const usable = next.checkoutUsable === true;
-			if (usable && typeof url === "string" && url) {
-				window.location.href = url;
-			}
-		}
-		purchaseOpen = false;
-		pendingPurchase = null;
-	} catch (error) {
-		purchaseError = error instanceof Error ? error.message : "Purchase failed.";
-	} finally {
-		purchaseSaving = false;
-	}
-}
-
-async function confirmAuth() {
-	if (!pendingAuth || authSaving) return;
-	authError = null;
-	authSaving = true;
-	try {
-		const token = await authorize(pendingAuth.scopes);
-		await authStore.ensureLoaded();
-		setGrantedWorkScopes(authStore.userUuid, work.id, pendingAuth.scopes);
-		reply(pendingAuth.requestId, {
-			type: "cohub.work.authorize.result",
-			token,
-		});
-		authOpen = false;
-		pendingAuth = null;
-	} catch (error) {
-		authError =
-			error instanceof Error ? error.message : "Authorization failed.";
-	} finally {
-		authSaving = false;
-	}
+	await host.handleMessage(event);
 }
 
 onMount(() => {
-	window.addEventListener("message", handleMessage);
+	window.addEventListener("message", onFrameMessage);
 	bridgeReady = true;
 });
-onDestroy(() => window.removeEventListener("message", handleMessage));
+onDestroy(() => window.removeEventListener("message", onFrameMessage));
 </script>
 
 <svelte:head>
@@ -587,70 +190,23 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 	{/if}
 </div>
 
-<Dialog open={purchaseOpen && !!pendingPurchase} onClose={replyPurchaseCancel} title="Complete purchase" maxWidth="420px">
-	{#if pendingPurchase}
-		<div class="auth-panel">
-			<div class="auth-intro">
-				<div class="auth-icon"><CreditCard class="h-4 w-4" /></div>
-				<div class="min-w-0">
-					<div class="auth-title">Continue to checkout?</div>
-					<p class="auth-copy">This work wants to open a secure checkout for <span class="font-mono">{pendingPurchase.productKey}</span>.</p>
-				</div>
-			</div>
-			{#if purchaseError}
-				<div class="mt-3 rounded-[8px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft">{purchaseError}</div>
-			{/if}
-			<div class="auth-actions">
-				<button type="button" class="auth-cancel" onclick={replyPurchaseCancel} disabled={purchaseSaving}>Cancel</button>
-				<button type="button" class="auth-confirm" onclick={() => void confirmPurchase()} disabled={purchaseSaving}>
-					{#if purchaseSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-					<span>{purchaseSaving ? 'Opening…' : 'Continue'}</span>
-				</button>
-			</div>
-		</div>
-	{/if}
-</Dialog>
+<WorkPurchaseDialog
+	open={host.purchaseOpen && !!host.pendingPurchase}
+	pending={host.pendingPurchase}
+	error={host.purchaseError}
+	saving={host.purchaseSaving}
+	onConfirm={() => void host.confirmPurchase()}
+	onCancel={host.cancelPurchase}
+/>
 
-<Dialog open={authOpen && !!pendingAuth} onClose={replyAuthCancel} title="Work access" maxWidth="440px">
-	{#if pendingAuth}
-		<div class="auth-panel">
-			<div class="auth-intro">
-				<div class="auth-icon"><ShieldCheck class="h-4 w-4" /></div>
-				<div class="min-w-0">
-					<div class="auth-title">Allow work access?</div>
-					<p class="auth-copy">{pendingAuth.reason || "This work wants to use Cohub on your behalf."}</p>
-				</div>
-			</div>
-
-			<section class="auth-section">
-				<div class="auth-section-label">Requested permissions</div>
-				<div class="auth-scope-list">
-					{#each pendingAuth.scopes as scope}
-						<div class="auth-scope-row">
-							<div class="auth-scope-check"><Check class="h-3 w-3" /></div>
-							<div class="min-w-0">
-								<div class="auth-scope-name">{formatScopeLabel(scope)}</div>
-								<div class="auth-scope-description">{formatScopeDescription(scope)}</div>
-							</div>
-						</div>
-					{/each}
-				</div>
-			</section>
-
-			{#if authError}
-				<div class="auth-error"><AlertTriangle class="h-3.5 w-3.5" /> {authError}</div>
-			{/if}
-
-			<div class="auth-actions">
-				<button type="button" class="auth-cancel" disabled={authSaving} onclick={replyAuthCancel}>Cancel</button>
-				<button type="button" class="auth-confirm" disabled={authSaving} onclick={confirmAuth}>
-					{#if authSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-					Allow
-				</button>
-			</div>
-		</div>
-	{/if}
-</Dialog>
+<WorkAuthorizeDialog
+	open={host.authOpen && !!host.pendingAuth}
+	pending={host.pendingAuth}
+	error={host.authError}
+	saving={host.authSaving}
+	onConfirm={() => void host.confirmAuth()}
+	onCancel={host.cancelAuth}
+/>
 
 <style>
 	.work-surface {
@@ -691,234 +247,5 @@ onDestroy(() => window.removeEventListener("message", handleMessage));
 		padding: 1.5rem;
 		font-size: 0.875rem;
 		color: var(--text-tertiary);
-	}
-
-	.auth-panel {
-		display: grid;
-		gap: 18px;
-		padding: 16px;
-	}
-
-	.auth-intro {
-		display: grid;
-		grid-template-columns: 34px minmax(0, 1fr);
-		gap: 12px;
-		align-items: flex-start;
-	}
-
-	.auth-icon {
-		display: inline-flex;
-		width: 34px;
-		height: 34px;
-		align-items: center;
-		justify-content: center;
-		border-radius: 9px;
-		background: var(--brand-muted);
-		color: var(--brand-muted-fg);
-		border: 1px solid var(--brand-border);
-		box-shadow: inset 0 1px 0 color-mix(in srgb, var(--bg-elevated) 80%, transparent);
-	}
-
-	.auth-title {
-		font-size: 15px;
-		font-weight: 650;
-		line-height: 1.25;
-		letter-spacing: -0.01em;
-		color: var(--text-primary);
-	}
-
-	.auth-copy {
-		margin-top: 6px;
-		font-size: 13px;
-		line-height: 1.55;
-		color: var(--text-secondary);
-	}
-
-	.auth-section {
-		display: grid;
-		gap: 9px;
-	}
-
-	.auth-section-label {
-		font-size: 10px;
-		font-weight: 650;
-		text-transform: uppercase;
-		letter-spacing: 0.09em;
-		color: var(--text-tertiary);
-	}
-
-	.auth-scope-list {
-		display: grid;
-		overflow: hidden;
-		border: 1px solid var(--border-subtle);
-		border-radius: 10px;
-		background: var(--bg-elevated);
-	}
-
-	.auth-scope-row {
-		display: grid;
-		grid-template-columns: 18px minmax(0, 1fr);
-		gap: 11px;
-		padding: 12px;
-		background: var(--bg-elevated);
-	}
-
-	.auth-scope-row + .auth-scope-row {
-		border-top: 1px solid var(--border-subtle);
-	}
-
-	.auth-scope-check {
-		display: inline-flex;
-		width: 18px;
-		height: 18px;
-		align-items: center;
-		justify-content: center;
-		border-radius: 999px;
-		background: var(--brand);
-		color: var(--brand-contrast-fg);
-		flex: 0 0 auto;
-		margin-top: 1px;
-		box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 24%, transparent);
-	}
-
-	.auth-scope-name {
-		font-size: 12.5px;
-		font-weight: 650;
-		line-height: 1.25;
-		color: var(--text-primary);
-	}
-
-	.auth-scope-description {
-		margin-top: 3px;
-		font-size: 12px;
-		line-height: 1.45;
-		color: var(--text-secondary);
-	}
-
-	.auth-error {
-		display: flex;
-		align-items: center;
-		gap: 7px;
-		border-radius: 8px;
-		border: 1px solid color-mix(in srgb, var(--error-soft) 28%, transparent);
-		background: var(--error-bg);
-		padding: 9px 10px;
-		font-size: 12px;
-		line-height: 1.35;
-		color: var(--error-soft);
-	}
-
-	.auth-actions {
-		display: flex;
-		justify-content: flex-end;
-		gap: 8px;
-		padding-top: 2px;
-	}
-
-	.auth-cancel,
-	.auth-confirm {
-		display: inline-flex;
-		height: 34px;
-		min-width: 72px;
-		align-items: center;
-		justify-content: center;
-		gap: 6px;
-		border-radius: 7px;
-		padding: 0 13px;
-		font-size: 12.5px;
-		font-weight: 650;
-		line-height: 1;
-		transition:
-			background-color 0.15s ease,
-			border-color 0.15s ease,
-			color 0.15s ease,
-			transform 0.15s ease,
-			opacity 0.15s ease;
-	}
-
-	.auth-cancel {
-		border: 1px solid transparent;
-		color: var(--text-secondary);
-	}
-
-	.auth-cancel:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.auth-confirm {
-		border: 1px solid var(--brand);
-		background: var(--brand);
-		color: var(--brand-contrast-fg);
-	}
-
-	.auth-confirm:hover {
-		background: var(--brand-hover);
-		border-color: var(--brand-hover);
-	}
-
-	.auth-cancel:focus-visible,
-	.auth-confirm:focus-visible {
-		outline: none;
-		box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--brand-ring);
-	}
-
-	.auth-cancel:active,
-	.auth-confirm:active {
-		transform: translateY(1px);
-	}
-
-	.auth-cancel:disabled,
-	.auth-confirm:disabled {
-		pointer-events: none;
-		opacity: 0.55;
-		transform: none;
-	}
-
-	@media (max-width: 640px) {
-		.auth-panel {
-			gap: 16px;
-			padding: 14px 14px max(14px, env(safe-area-inset-bottom));
-		}
-
-		.auth-intro {
-			grid-template-columns: 32px minmax(0, 1fr);
-			gap: 11px;
-		}
-
-		.auth-icon {
-			width: 32px;
-			height: 32px;
-		}
-
-		.auth-title {
-			font-size: 14.5px;
-		}
-
-		.auth-copy {
-			font-size: 13px;
-			line-height: 1.5;
-		}
-
-		.auth-scope-row {
-			padding: 11px;
-		}
-
-		.auth-actions {
-			position: sticky;
-			bottom: calc(-1 * max(14px, env(safe-area-inset-bottom)));
-			display: grid;
-			grid-template-columns: 1fr 1fr;
-			margin: 0 -14px calc(-1 * max(14px, env(safe-area-inset-bottom)));
-			padding: 10px 14px max(14px, env(safe-area-inset-bottom));
-			border-top: 1px solid var(--border-subtle);
-			background: var(--bg-primary);
-		}
-
-		.auth-cancel,
-		.auth-confirm {
-			height: 44px;
-			min-width: 0;
-		}
 	}
 </style>
