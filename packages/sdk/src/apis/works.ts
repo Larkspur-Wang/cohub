@@ -125,6 +125,14 @@ export class WorksApi {
     return this.transport.request<WorkGetResponse>(`/api/works/${id}`);
   }
 
+  /**
+   * Loads a published work's metadata + owner info by id (public access model).
+   * Used by the standalone work auth broker page.
+   */
+  getPublicById(id: string) {
+    return this.transport.request<WorkResolveResponse>(`/api/works/${id}/public`);
+  }
+
   getBySlug(username: string, spaceSlug: string, workSlug: string) {
     return this.transport.request<WorkResolveResponse>(
       `/api/works/by-slug/${encodeURIComponent(username)}/${encodeURIComponent(spaceSlug)}/${encodeURIComponent(workSlug)}`,

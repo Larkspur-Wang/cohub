@@ -2,6 +2,7 @@ import type { CohubEnvironment } from "./environment.js";
 import { resolveApiBaseUrl } from "./environment.js";
 import type { WebsocketClientOptions } from "./websocket.js";
 import type { VoiceInputCreateOptions } from "./voice-input.js";
+import type { WorkRuntimeModeConfig } from "./work-runtime.js";
 
 export type Fetch = typeof globalThis.fetch;
 
@@ -42,6 +43,8 @@ export type CohubClientOptions = {
   fetch?: Fetch;
   websocket?: WebsocketClientOptions;
   voice?: VoiceInputCreateOptions;
+  /** Work runtime mode configuration (bridge vs broker). */
+  work?: WorkRuntimeModeConfig;
 };
 
 function errorCodeFromBody(body: unknown): string | null {

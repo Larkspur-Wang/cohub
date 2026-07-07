@@ -204,6 +204,8 @@ onDestroy(() => window.removeEventListener("message", onFrameMessage));
 	pending={host.pendingAuth}
 	error={host.authError}
 	saving={host.authSaving}
+	workName={work.slug}
+	authorName={owner?.displayName}
 	onConfirm={() => void host.confirmAuth()}
 	onCancel={host.cancelAuth}
 />

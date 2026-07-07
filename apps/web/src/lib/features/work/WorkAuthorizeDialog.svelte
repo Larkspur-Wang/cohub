@@ -8,6 +8,8 @@ const {
 	pending,
 	error,
 	saving,
+	workName,
+	authorName,
 	onConfirm,
 	onCancel,
 }: {
@@ -15,79 +17,117 @@ const {
 	pending: { scopes: Permission[]; reason?: string } | null;
 	error: string | null;
 	saving: boolean;
+	workName?: string;
+	authorName?: string;
 	onConfirm: () => void;
 	onCancel: () => void;
 } = $props();
 
-function formatScopeLabel(scope: string) {
-	const labels: Record<string, string> = {
-		"session.prompt.readonly": "Prompt read-only",
-		"session.prompt.fullaccess": "Prompt full access",
-		"generation.create": "Create generations",
-		"file.view": "View files",
-		"taskrun.view": "View task runs",
-		"user.space.list": "List your spaces",
-		"user.session.list": "List your sessions",
-		"user.usage.read": "Read your usage",
-	};
-	return labels[scope] ?? scope;
-}
+type OperationGroup = {
+	title: string;
+	description: string;
+	scopes: string[];
+};
 
-function formatScopeDescription(scope: string) {
-	const descriptions: Record<string, string> = {
-		"session.prompt.readonly":
-			"Read prompts and session context without making changes.",
-		"session.prompt.fullaccess":
-			"Send prompts and act in the session with your approval.",
-		"generation.create": "Start image, video, or other generation tasks.",
-		"file.view": "Read files in this space.",
-		"taskrun.view": "View task progress and results in this space.",
-		"user.space.list":
-			"See the list of spaces you own or belong to across your account.",
-		"user.session.list": "See sessions you created across all your spaces.",
-		"user.usage.read": "Read your aggregated token usage and cost statistics.",
-	};
-	return (
-		descriptions[scope] ?? "Grant this work the requested Cohub permission."
+// Maps viewer scopes to user-facing operation groups shown in the consent
+// dialog. Each group is shown only when at least one of its scopes is present
+// in the requested set. Unmapped scopes fall back to a generic group.
+const OPERATION_GROUPS: OperationGroup[] = [
+	{
+		title: "发起 AI 生成",
+		description: "创建图片、视频等生成任务，每次消耗你的生成额度",
+		scopes: ["generation.create"],
+	},
+	{
+		title: "在会话中发送指令",
+		description: "以你的身份在当前空间中发送 prompt 并运行 agent 操作",
+		scopes: ["session.prompt.fullaccess"],
+	},
+	{
+		title: "读取数据",
+		description: "读取当前空间内的文件内容，读取你在当前空间内的会话列表",
+		scopes: [
+			"session.prompt.readonly",
+			"user.session.list",
+			"user.space.list",
+			"user.usage.read",
+		],
+	},
+];
+
+const operationGroups = $derived.by<OperationGroup[]>(() => {
+	if (!pending) return [];
+	const requested = new Set(pending.scopes);
+	const groups = OPERATION_GROUPS.filter((g) =>
+		g.scopes.some((s) => requested.has(s as Permission)),
 	);
-}
+	// Surface any scopes not covered by the predefined groups.
+	const mapped = new Set(groups.flatMap((g) => g.scopes));
+	const unmapped = pending.scopes.filter((s) => !mapped.has(s));
+	if (unmapped.length > 0) {
+		groups.push({
+			title: "其他操作",
+			description: `该作品请求以下额外权限：${unmapped.join("、")}`,
+			scopes: unmapped,
+		});
+	}
+	return groups;
+});
+
+const displayName = $derived(workName?.trim() || "该作品");
 </script>
 
-<Dialog {open} onClose={onCancel} title="Work access" maxWidth="440px">
+<Dialog {open} onClose={onCancel} maxWidth="440px">
 	{#if pending}
 		<div class="auth-panel">
 			<div class="auth-intro">
 				<div class="auth-icon"><ShieldCheck class="h-4 w-4" /></div>
 				<div class="min-w-0">
-					<div class="auth-title">Allow work access?</div>
-					<p class="auth-copy">{pending.reason || "This work wants to use Cohub on your behalf."}</p>
+					<div class="auth-title">授权请求</div>
+					<p class="auth-copy">「{displayName}」请求以你的身份使用 Cohub</p>
+					{#if authorName}
+						<p class="auth-author">作者：{authorName}</p>
+					{/if}
 				</div>
 			</div>
 
+			<hr class="auth-divider" />
+
 			<section class="auth-section">
-				<div class="auth-section-label">Requested permissions</div>
+				<div class="auth-section-label">授权后，该作品可以执行以下操作：</div>
 				<div class="auth-scope-list">
-					{#each pending.scopes as scope}
+					{#each operationGroups as group (group.title)}
 						<div class="auth-scope-row">
 							<div class="auth-scope-check"><Check class="h-3 w-3" /></div>
 							<div class="min-w-0">
-								<div class="auth-scope-name">{formatScopeLabel(scope)}</div>
-								<div class="auth-scope-description">{formatScopeDescription(scope)}</div>
+								<div class="auth-scope-name">{group.title}</div>
+								<div class="auth-scope-description">{group.description}</div>
 							</div>
 						</div>
 					{/each}
 				</div>
 			</section>
 
+			<section class="auth-usage">
+				<div class="auth-usage-label">关于用量</div>
+				<p class="auth-usage-copy">
+					生成的次数和时机由作品自行决定，每次调用都会消耗你的额度。
+				</p>
+			</section>
+
+			<hr class="auth-divider" />
+
+			<div class="auth-validity">授权后 14 天内有效，期间无需再次确认</div>
+
 			{#if error}
 				<div class="auth-error"><AlertTriangle class="h-3.5 w-3.5" /> {error}</div>
 			{/if}
 
 			<div class="auth-actions">
-				<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>Cancel</button>
+				<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>拒绝</button>
 				<button type="button" class="auth-confirm" disabled={saving} onclick={onConfirm}>
 					{#if saving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-					Allow
+					授权并继续
 				</button>
 			</div>
 		</div>
@@ -97,8 +137,8 @@ function formatScopeDescription(scope: string) {
 <style>
 	.auth-panel {
 		display: grid;
-		gap: 18px;
-		padding: 16px;
+		gap: 16px;
+		padding: 18px;
 	}
 
 	.auth-intro {
@@ -136,17 +176,28 @@ function formatScopeDescription(scope: string) {
 		color: var(--text-secondary);
 	}
 
+	.auth-author {
+		margin-top: 3px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: var(--text-tertiary);
+	}
+
+	.auth-divider {
+		border: 0;
+		border-top: 1px solid var(--border-subtle);
+		margin: 0;
+	}
+
 	.auth-section {
 		display: grid;
 		gap: 9px;
 	}
 
 	.auth-section-label {
-		font-size: 10px;
-		font-weight: 650;
-		text-transform: uppercase;
-		letter-spacing: 0.09em;
-		color: var(--text-tertiary);
+		font-size: 12px;
+		font-weight: 500;
+		color: var(--text-secondary);
 	}
 
 	.auth-scope-list {
@@ -195,6 +246,29 @@ function formatScopeDescription(scope: string) {
 		font-size: 12px;
 		line-height: 1.45;
 		color: var(--text-secondary);
+	}
+
+	.auth-usage {
+		display: grid;
+		gap: 4px;
+	}
+
+	.auth-usage-label {
+		font-size: 12px;
+		font-weight: 650;
+		color: var(--text-primary);
+	}
+
+	.auth-usage-copy {
+		font-size: 12px;
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.auth-validity {
+		font-size: 12px;
+		line-height: 1.4;
+		color: var(--text-tertiary);
 	}
 
 	.auth-error {
@@ -279,7 +353,7 @@ function formatScopeDescription(scope: string) {
 
 	@media (max-width: 640px) {
 		.auth-panel {
-			gap: 16px;
+			gap: 14px;
 			padding: 14px 14px max(14px, env(safe-area-inset-bottom));
 		}
 

@@ -20,7 +20,11 @@ import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { createWebsocketClient } from "./websocket.js";
 import { VoiceApi } from "./voice-input.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
-import { createWorkRuntime, type WorkRuntimeApi } from "./work-runtime.js";
+import {
+  createWorkRuntime,
+  resolveWorkTransport,
+  type WorkRuntimeApi,
+} from "./work-runtime.js";
 import type { Permission } from "./types.js";
 import type { WorkCommerceCheckoutStatus } from "./apis/work-commerce.js";
 
@@ -51,7 +55,8 @@ export class CohubClient {
 
   constructor(options: CohubClientOptions = {}) {
     const apiBaseUrl = resolveApiBaseUrl(options);
-    this.workRuntime = createWorkRuntime();
+    const workTransport = resolveWorkTransport(options.work);
+    this.workRuntime = createWorkRuntime(workTransport, options.work?.workId);
     const getAccessToken = options.getAccessToken ?? ((tokenOptions?: { forceRefresh?: boolean }) => this.workRuntime.getAccessToken(tokenOptions));
     const resolvedOptions = { ...options, getAccessToken };
     this.transport = new HttpTransport(resolvedOptions);

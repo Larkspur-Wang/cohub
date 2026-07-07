@@ -271,6 +271,35 @@ router.get("/space/:spaceId", async (c) => {
   return c.json({ works: rows.map(serializeWork) });
 });
 
+router.get("/:id/public", async (c) => {
+  // Public endpoint used by the standalone work auth broker page to load work
+  // metadata + owner info by workId. Mirrors the by-slug access model: only
+  // space-visibility works require space.view; public works are open.
+  const user = getOptionalAuth(c);
+  const id = c.req.param("id");
+  if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
+  const work = await getWorkById(id);
+  if (work?.status !== "published") return c.json({ message: "work not found" }, 404);
+  if (requiresSpaceWorkAccess(work) && !(await hasPermission(user, "space.view", { spaceId: work.spaceId }))) return authzDenied(c);
+  const [row] = await db
+    .select({
+      owner: { userUuid: userProfiles.userUuid, username: userProfiles.username, displayName: userProfiles.displayName, avatarUrl: userProfiles.avatarUrl },
+      space: spaces,
+    })
+    .from(spaces)
+    .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
+    .where(eq(spaces.id, work.spaceId))
+    .limit(1);
+  if (!row) return c.json({ message: "work not found" }, 404);
+  if (!row.owner.username || !row.space.slug) return c.json({ message: "work public identity is incomplete" }, 409);
+  const space = { id: row.space.id, slug: row.space.slug, name: row.space.name, userUuid: row.space.userUuid, publicProfile: getSpacePublicProfile(row.space) };
+  return c.json({
+    work: serializeWork(work),
+    space,
+    owner: { ...row.owner, username: row.owner.username },
+  });
+});
+
 router.get("/:id", async (c) => {
   const user = useAuth(c);
   const id = c.req.param("id");

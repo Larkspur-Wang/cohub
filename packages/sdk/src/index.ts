@@ -8,8 +8,8 @@ export { WorksApi } from "./apis/works.js";
 export { WorkCommerceApi } from "./apis/work-commerce.js";
 export { ReferencesApi } from "./apis/references.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
-export { ParentBridgeTransport, WorkRuntimeApi, createWorkRuntime } from "./work-runtime.js";
-export type { WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";
+export { ParentBridgeTransport, PopupBrokerTransport, WorkRuntimeApi, createWorkRuntime, resolveWorkTransport } from "./work-runtime.js";
+export type { WorkRuntimeModeConfig, WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";
 export { SessionPatchReducer, createSessionPatchReducer } from "./session-patch-reducer.js";
 export {
   SessionGenerationStreamClient,
