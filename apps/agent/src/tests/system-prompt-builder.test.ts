@@ -61,6 +61,37 @@ const promptWithoutUser = await buildCohubSystemPrompt({
 assert.ok(!promptWithoutUser.includes("# User Context"), "should not include user context without userId");
 assert.ok(promptWithoutUser.includes("# Project Context"), "should still include project context without userId");
 
+// Test YAML block scalar frontmatter parsing
+await mkdir(join(workspace, ".agents", "skills", "test-folded"), { recursive: true });
+await mkdir(join(workspace, ".agents", "skills", "test-literal"), { recursive: true });
+await writeFile(
+  join(workspace, ".agents", "skills", "test-folded", "SKILL.md"),
+  "---\nname: test-folded\ndescription: >\n  This is a folded\n  multi-line description.\n---\nFolded skill body.",
+);
+await writeFile(
+  join(workspace, ".agents", "skills", "test-literal", "SKILL.md"),
+  "---\nname: test-literal\ndescription: |\n  This is a literal\n  multi-line description.\n---\nLiteral skill body.",
+);
+
+const promptWithSkills = await buildCohubSystemPrompt({
+  cwd: workspace,
+  userId,
+  selectedTools: ["read"],
+});
+
+assert.ok(
+  promptWithSkills.includes("This is a folded multi-line description."),
+  "folded block scalar (>) should be joined with spaces",
+);
+assert.ok(
+  promptWithSkills.includes("This is a literal\nmulti-line description."),
+  "literal block scalar (|) should preserve newlines",
+);
+assert.ok(
+  !promptWithSkills.includes("<description>></description>") && !promptWithSkills.includes("<description>|</description>"),
+  "block scalar indicators should not appear as description text",
+);
+
 const { createCohubAgentSession } = await import("../runtime/session-runtime.js");
 const { CohubModelRegistry } = await import("../runtime/model-registry.js");
 const { SessionManager } = await import("../runtime/local-session-manager.js");

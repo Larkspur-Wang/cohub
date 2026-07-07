@@ -67,11 +67,33 @@ function extractFrontmatter(markdown: string): { attributes: Record<string, stri
   if (!match) return { attributes: {}, body: markdown };
   const raw = match[1] ?? "";
   const attributes: Record<string, string> = {};
-  for (const line of raw.split(/\r?\n/)) {
+  const lines = raw.split(/\r?\n/);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const idx = line.indexOf(":");
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
-    const value = line.slice(idx + 1).trim();
+    let value = line.slice(idx + 1).trim();
+
+    // Handle YAML block scalars: folded (`>`) and literal (`|`)
+    // Collection of indented continuation lines following a block scalar indicator
+    if (key && (value === ">" || value === "|")) {
+      const blockType = value as ">" | "|";
+      const parts: string[] = [];
+      while (i + 1 < lines.length) {
+        const nextLine = lines[i + 1]!;
+        // Block scalar continuation lines must be indented (start with a space)
+        if (nextLine.length === 0 || nextLine[0] !== " ") break;
+        i++;
+        parts.push(nextLine.trim());
+      }
+      if (parts.length > 0) {
+        // Folded (`>`): join with spaces; literal (`|`): join with newlines
+        value = blockType === ">" ? parts.join(" ") : parts.join("\n");
+      }
+    }
+
     if (key) attributes[key] = value;
   }
   return { attributes, body: markdown.slice(match[0].length) };
