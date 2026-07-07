@@ -125,6 +125,7 @@ import {
 	findWebAppSourceLabel,
 	getDisplayLabels,
 	getSourceLabels,
+	getSystemUserLabels,
 	isWebSessionSource,
 	SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX,
 } from "$lib/stores/sidebar-source-labels";
@@ -440,6 +441,7 @@ const currentLoadingLabelIds = $derived(
 );
 const sourceRootLabel = $derived(findSourceRootLabel(labels));
 const sourceLabels = $derived(getSourceLabels(labels));
+const systemUserLabels = $derived(getSystemUserLabels(labels));
 const displayLabels = $derived(getDisplayLabels(labels));
 const userDisplayName = $derived(
 	authStore.profile?.displayName?.trim() || "User",
@@ -2885,6 +2887,119 @@ $effect(() => {
 	{/if}
 {/snippet}
 
+{#snippet labelTreeRows(labelItems: LabelListItem[])}
+	{#each labelItems as label (label.id)}
+		<div
+			role="button"
+			tabindex="0"
+			class="label-tree-row group/label"
+			class:drop-target={labelDropTargetId === label.id}
+			class:drop-busy={labelDropBusyId === label.id}
+			class:drop-success={labelDropSuccessId === label.id}
+			class:drop-error={labelDropErrorId === label.id}
+			class:renaming={renamingLabelId === label.id}
+			onclick={() => handleLabelRowClick(label)}
+			onkeydown={(event) => handleLabelRowKeydown(event, label)}
+			ondragover={(event) => handleLabelDragOver(event, label)}
+			ondragleave={(event) => handleLabelDragLeave(event, label)}
+			ondrop={(event) => handleLabelDrop(event, label)}
+		>
+			<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
+			{#if renamingLabelId === label.id}
+				<input
+					bind:this={renameLabelInputElement}
+					bind:value={renameLabelValue}
+					class="label-rename-input"
+					disabled={renameLabelSaving}
+					onclick={(event) => event.stopPropagation()}
+					onkeydown={(event) => handleLabelRenameKeydown(event, label)}
+				/>
+				<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
+					<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(label); }}>
+						{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+					</button>
+					<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
+						<X class="h-3.5 w-3.5" />
+					</button>
+				</span>
+			{:else}
+				{@const labelProfile = getReactiveLabelUserProfile(label)}
+				{#if labelProfile || isSessionUserLabel(label)}
+					<UserAvatar name={getReactiveLabelDisplayName(label)} avatarUrl={labelProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+				{/if}
+				<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(label)}>{getReactiveLabelDisplayName(label)}</span>
+				{#if canManageUserLabel(label)}
+					<span class="label-row-actions">
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
+							<Pencil class="h-3.5 w-3.5" />
+						</button>
+						<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(label); }}>
+							{#if deletingLabelId === label.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+						</button>
+					</span>
+				{/if}
+			{/if}
+		</div>
+		{@render labelAssignmentRows(label, 0)}
+		{#if currentExpandedLabelIds.has(label.id)}
+			{#each label.children ?? [] as child (child.id)}
+				<div
+					role="button"
+					tabindex="0"
+					class="label-tree-row child group/label"
+					class:drop-target={labelDropTargetId === child.id}
+					class:drop-busy={labelDropBusyId === child.id}
+					class:drop-success={labelDropSuccessId === child.id}
+					class:drop-error={labelDropErrorId === child.id}
+					class:renaming={renamingLabelId === child.id}
+					onclick={() => handleLabelRowClick(child)}
+					onkeydown={(event) => handleLabelRowKeydown(event, child)}
+					ondragover={(event) => handleLabelDragOver(event, child)}
+					ondragleave={(event) => handleLabelDragLeave(event, child)}
+					ondrop={(event) => handleLabelDrop(event, child)}
+				>
+					<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
+					{#if renamingLabelId === child.id}
+						<input
+							bind:this={renameLabelInputElement}
+							bind:value={renameLabelValue}
+							class="label-rename-input"
+							disabled={renameLabelSaving}
+							onclick={(event) => event.stopPropagation()}
+							onkeydown={(event) => handleLabelRenameKeydown(event, child)}
+						/>
+						<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
+							<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(child); }}>
+								{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
+							</button>
+							<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
+								<X class="h-3.5 w-3.5" />
+							</button>
+						</span>
+					{:else}
+						{@const childProfile = getReactiveLabelUserProfile(child)}
+						{#if childProfile || isSessionUserLabel(child)}
+							<UserAvatar name={getReactiveLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+						{/if}
+						<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(child)}>{getReactiveLabelDisplayName(child)}</span>
+						{#if canManageUserLabel(child)}
+							<span class="label-row-actions">
+								<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>
+									<Pencil class="h-3.5 w-3.5" />
+								</button>
+								<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(child); }}>
+									{#if deletingLabelId === child.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
+								</button>
+							</span>
+						{/if}
+					{/if}
+				</div>
+				{@render labelAssignmentRows(child, 1)}
+			{/each}
+		{/if}
+	{/each}
+{/snippet}
+
 {#snippet labelsSection(showHeader = true)}
 	<div class={showHeader ? "mt-2" : "mt-0"}>
 		{#if showHeader}
@@ -2924,6 +3039,7 @@ $effect(() => {
 				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 			{:else}
 				<div class="mt-1 space-y-[1px]">
+					{@render labelTreeRows(displayLabels)}
 					{#each sourceLabels as label (label.id)}
 						<div
 							role="button"
@@ -2944,116 +3060,7 @@ $effect(() => {
 						</div>
 						{@render labelAssignmentRows(label, 0)}
 					{/each}
-					{#each displayLabels as label (label.id)}
-						<div
-							role="button"
-							tabindex="0"
-							class="label-tree-row group/label"
-							class:drop-target={labelDropTargetId === label.id}
-							class:drop-busy={labelDropBusyId === label.id}
-							class:drop-success={labelDropSuccessId === label.id}
-							class:drop-error={labelDropErrorId === label.id}
-							class:renaming={renamingLabelId === label.id}
-							onclick={() => handleLabelRowClick(label)}
-							onkeydown={(event) => handleLabelRowKeydown(event, label)}
-							ondragover={(event) => handleLabelDragOver(event, label)}
-							ondragleave={(event) => handleLabelDragLeave(event, label)}
-							ondrop={(event) => handleLabelDrop(event, label)}
-						>
-							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
-							{#if renamingLabelId === label.id}
-								<input
-									bind:this={renameLabelInputElement}
-									bind:value={renameLabelValue}
-									class="label-rename-input"
-									disabled={renameLabelSaving}
-									onclick={(event) => event.stopPropagation()}
-									onkeydown={(event) => handleLabelRenameKeydown(event, label)}
-								/>
-								<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
-									<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(label); }}>
-										{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-									</button>
-									<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
-										<X class="h-3.5 w-3.5" />
-									</button>
-								</span>
-							{:else}
-								{@const labelProfile = getReactiveLabelUserProfile(label)}
-								{#if labelProfile || isSessionUserLabel(label)}
-									<UserAvatar name={getReactiveLabelDisplayName(label)} avatarUrl={labelProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
-								{/if}
-								<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(label)}>{getReactiveLabelDisplayName(label)}</span>
-								{#if canManageUserLabel(label)}
-									<span class="label-row-actions">
-										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(label); }}>
-											<Pencil class="h-3.5 w-3.5" />
-										</button>
-										<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === label.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(label); }}>
-											{#if deletingLabelId === label.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
-										</button>
-									</span>
-								{/if}
-							{/if}
-						</div>
-						{@render labelAssignmentRows(label, 0)}
-						{#if currentExpandedLabelIds.has(label.id)}
-							{#each label.children ?? [] as child (child.id)}
-								<div
-									role="button"
-									tabindex="0"
-									class="label-tree-row child group/label"
-									class:drop-target={labelDropTargetId === child.id}
-									class:drop-busy={labelDropBusyId === child.id}
-									class:drop-success={labelDropSuccessId === child.id}
-									class:drop-error={labelDropErrorId === child.id}
-									class:renaming={renamingLabelId === child.id}
-									onclick={() => handleLabelRowClick(child)}
-									onkeydown={(event) => handleLabelRowKeydown(event, child)}
-									ondragover={(event) => handleLabelDragOver(event, child)}
-									ondragleave={(event) => handleLabelDragLeave(event, child)}
-									ondrop={(event) => handleLabelDrop(event, child)}
-								>
-									<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(child.id) ? '' : '-rotate-90'}" />
-									{#if renamingLabelId === child.id}
-										<input
-											bind:this={renameLabelInputElement}
-											bind:value={renameLabelValue}
-											class="label-rename-input"
-											disabled={renameLabelSaving}
-											onclick={(event) => event.stopPropagation()}
-											onkeydown={(event) => handleLabelRenameKeydown(event, child)}
-										/>
-										<span class="ml-auto inline-flex shrink-0 items-center gap-0.5">
-											<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Save" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void submitRenameLabel(child); }}>
-												{#if renameLabelSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}
-											</button>
-											<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" title="Cancel" disabled={renameLabelSaving} onclick={(event) => { event.preventDefault(); event.stopPropagation(); cancelRenameLabel(); }}>
-												<X class="h-3.5 w-3.5" />
-											</button>
-										</span>
-									{:else}
-										{@const childProfile = getReactiveLabelUserProfile(child)}
-										{#if childProfile || isSessionUserLabel(child)}
-											<UserAvatar name={getReactiveLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
-										{/if}
-										<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(child)}>{getReactiveLabelDisplayName(child)}</span>
-										{#if canManageUserLabel(child)}
-											<span class="label-row-actions">
-												<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-text-primary disabled:opacity-50" draggable="false" title="Rename" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); startRenameLabel(child); }}>
-													<Pencil class="h-3.5 w-3.5" />
-												</button>
-												<button type="button" class="rounded p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover-strong hover:text-status-error disabled:opacity-50" draggable="false" title="Delete" disabled={deletingLabelId === child.id} onclick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteLabel(child); }}>
-													{#if deletingLabelId === child.id}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}
-												</button>
-											</span>
-										{/if}
-									{/if}
-								</div>
-								{@render labelAssignmentRows(child, 1)}
-							{/each}
-						{/if}
-					{/each}
+					{@render labelTreeRows(systemUserLabels)}
 					<div
 						role="button"
 						tabindex="0"
