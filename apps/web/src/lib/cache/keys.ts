@@ -37,7 +37,7 @@ export function labelItemsKey(
 	spaceId: string,
 	labelId: string,
 ) {
-	return [userKey, spaceId, labelId, "items"].map(encodeKeyPart).join(":");
+	return [userKey, spaceId, labelId, "items-v2"].map(encodeKeyPart).join(":");
 }
 
 export function resourceLabelsKey(

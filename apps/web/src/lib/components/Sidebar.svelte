@@ -127,6 +127,7 @@ import {
 	getDisplayLabels,
 	getSourceLabels,
 	isWebSessionSource,
+	SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX,
 } from "$lib/stores/sidebar-source-labels";
 import {
 	fetchLabelItemsFirstPageFresh,
@@ -1287,6 +1288,36 @@ function toggleLabelExpanded(labelId: string) {
 		[spaceId]: next,
 	};
 	setCachedExpandedLabelIds(spaceId, next);
+}
+
+function isSessionActivityLabel(label: LabelListItem) {
+	return (
+		isSessionUserLabel(label) ||
+		label.systemKey?.startsWith(SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX)
+	);
+}
+
+function didSessionActivityChange(
+	previous: SessionRecord | undefined,
+	next: SessionRecord,
+) {
+	if (!previous) return true;
+	return (
+		previous.lastMessageAt !== next.lastMessageAt ||
+		previous.updatedAt !== next.updatedAt ||
+		previous.latestMessageText !== next.latestMessageText ||
+		previous.status !== next.status ||
+		previous.title !== next.title
+	);
+}
+
+function refreshExpandedSessionActivityLabels(spaceId: string) {
+	const expanded = expandedLabelIdsBySpace[spaceId];
+	if (!expanded || spaceId !== currentSpaceId) return;
+	for (const label of flattenLabels(labels)) {
+		if (!expanded.has(label.id) || !isSessionActivityLabel(label)) continue;
+		void loadLabelItems(label.id, { force: true });
+	}
 }
 
 function optimisticPrependWebAppLabelSession(
@@ -2460,17 +2491,25 @@ onMount(() => {
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
 			({ spaceId, sessions: nextSessions, forks, pageInfo }) => {
 				if (spaceId !== currentSpaceId) return;
-				const previousSessionIds = new Set(
-					sessions.map((session) => session.id),
+				const previousSessionsById = new Map(
+					sessions.map((session) => [session.id, session]),
 				);
 				const shouldPreserveLoadedPageInfo =
 					sessions.length > nextSessions.length;
+				let shouldRefreshActivityLabels = false;
 				sessions = mergeSessionSnapshotForDisplay(sessions, nextSessions);
 				for (const session of nextSessions) {
-					if (!previousSessionIds.has(session.id)) {
+					const previous = previousSessionsById.get(session.id);
+					if (!previous) {
 						optimisticPrependWebAppLabelSession(spaceId, session);
+						continue;
+					}
+					if (didSessionActivityChange(previous, session)) {
+						shouldRefreshActivityLabels = true;
 					}
 				}
+				if (shouldRefreshActivityLabels)
+					refreshExpandedSessionActivityLabels(spaceId);
 				sessionForks = forks ?? [];
 				if (pageInfo && !shouldPreserveLoadedPageInfo)
 					sessionsPageInfo = pageInfo;
@@ -2743,9 +2782,10 @@ $effect(() => {
 	{@const items = currentLabelItemsById[label.id] ?? []}
 	{@const hasChildLabels = Boolean(label.children?.length)}
 	{#if currentExpandedLabelIds.has(label.id)}
-		{@const labelSessionItems = buildLabelSessionItems(items)}
+		{@const useSessionTreeOrder = isSessionActivityLabel(label)}
+		{@const labelSessionItems = useSessionTreeOrder ? buildLabelSessionItems(items) : []}
 		{@const labelSessionItemById = new Map(labelSessionItems.map((item) => [item.session.id, item]))}
-		{@const orderedItems = orderLabelItemsBySessionTree(items, labelSessionItems)}
+		{@const orderedItems = useSessionTreeOrder ? orderLabelItemsBySessionTree(items, labelSessionItems) : items}
 		{@const canEditLabelItems = canAssignResourceToLabel(label)}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
