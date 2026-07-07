@@ -239,6 +239,7 @@ export const checkpoints = v2.table(
     spaceIdx: index("v2_idx_checkpoints_space_id").on(table.spaceId),
     parentIdx: index("v2_idx_checkpoints_parent_id").on(table.parentCheckpointId),
     rootIdx: index("v2_idx_checkpoints_root_id").on(table.rootCheckpointId),
+    descriptionSearchIdx: index("v2_idx_checkpoints_description_trgm").using("gin", table.description.op("gin_trgm_ops")),
     spaceCommitUniqueIdx: uniqueIndex("v2_uq_checkpoints_space_commit").on(
       table.spaceId,
       table.commitHash,
@@ -484,6 +485,7 @@ export const spaceSessions = v2.table(
     lastMessageIdx: index("v2_idx_space_sessions_last_message_id").on(table.lastMessageId),
     lastMessageAtIdx: index("v2_idx_space_sessions_last_message_at").on(table.lastMessageAt),
     titleSearchIdx: index("v2_idx_space_sessions_title_trgm").using("gin", table.title.op("gin_trgm_ops")),
+    latestMessageTextSearchIdx: index("v2_idx_space_sessions_latest_message_text_trgm").using("gin", table.latestMessageText.op("gin_trgm_ops")),
     spaceLastMessageIdx: index("v2_idx_space_sessions_space_last_message_id").on(
       table.spaceId,
       table.lastMessageAt.desc().nullsLast(),
@@ -916,6 +918,7 @@ export const labelAssignments = v2.table(
       table.resourceRef,
       table.labelId,
     ),
+    resourceRefSearchIdx: index("v2_idx_label_assignments_resource_ref_trgm").using("gin", table.resourceRef.op("gin_trgm_ops")),
   }),
 );
 

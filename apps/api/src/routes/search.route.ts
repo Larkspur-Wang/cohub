@@ -9,6 +9,7 @@ import { createLogger } from "@cohub/infra/logging";
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
 const MIN_QUERY_LENGTH = 2;
+const MIN_GLOBAL_TURN_QUERY_LENGTH = 3;
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 50;
 
@@ -80,6 +81,7 @@ function parseSearchTypes(typeValues: string[] | undefined, typesValue: string |
   const invalidTypes = rawTypes.filter((type) => !SEARCH_RESOURCE_TYPE_SET.has(type));
   if (invalidTypes.length > 0) return { error: `invalid search type: ${invalidTypes[0]}` } as const;
   return {
+    explicitTypes: rawTypes.length > 0,
     types: new Set<SearchResourceType>(
       rawTypes.length > 0 ? (rawTypes as SearchResourceType[]) : SEARCH_RESOURCE_TYPES,
     ),
@@ -153,18 +155,33 @@ router.get("/", async (c) => {
   const limit = clampLimit(c.req.query("limit"));
   const parsedTypes = parseSearchTypes(c.req.queries("type"), c.req.query("types"));
   if ("error" in parsedTypes) return c.json({ message: parsedTypes.error }, 400);
-  const includeTurns = parsedTypes.types.has("turn");
-  const includeSessions = parsedTypes.types.has("session");
-  const includeSpaces = parsedTypes.types.has("space");
-  const includeLabels = parsedTypes.types.has("label");
   const labelRef = normalizeLabelRef(c.req.query("labelRef"));
   const parsedSpaceId = parseSpaceId(c.req.query("spaceId"));
   if ("error" in parsedSpaceId) return c.json({ message: parsedSpaceId.error }, 400);
   const spaceId = parsedSpaceId.spaceId;
+  const includeTurns =
+    parsedTypes.types.has("turn") &&
+    (parsedTypes.explicitTypes || spaceId !== null || q.length >= MIN_GLOBAL_TURN_QUERY_LENGTH);
+  const includeSessions = parsedTypes.types.has("session");
+  const includeSpaces = parsedTypes.types.has("space");
+  const includeLabels = parsedTypes.types.has("label") && labelRef !== "";
 
   if ((!includeLabels || !labelRef) && (q.length < MIN_QUERY_LENGTH || !hasInformativeQuery(q))) {
     return c.json({ items: [], query: q, source: "remote" });
   }
+
+  const resultQueries = [
+    ...(includeTurns ? [sql`SELECT * FROM turn_results`] : []),
+    ...(includeSessions ? [sql`SELECT * FROM session_results`] : []),
+    ...(includeSpaces ? [sql`SELECT * FROM space_results`] : []),
+    ...(includeLabels ? [sql`SELECT * FROM label_results`] : []),
+  ];
+  if (resultQueries.length === 0) {
+    return c.json({ items: [], query: q, source: "remote" });
+  }
+  const combinedResults = sql.join(resultQueries, sql`
+      UNION ALL
+      `);
 
   try {
     const rows = await db.execute<SearchResultRow>(sql`
@@ -262,9 +279,9 @@ router.get("/", async (c) => {
         ${includeSpaces}
         AND (
           s.name ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-          OR coalesce(s.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR s.description ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
           OR similarity(s.name, ${q}) > 0.2
-          OR similarity(coalesce(s.description, ''), ${q}) > 0.2
+          OR similarity(s.description, ${q}) > 0.2
         )
     ),
     session_results AS (
@@ -299,8 +316,8 @@ router.get("/", async (c) => {
       WHERE
         ${includeSessions}
         AND (
-          coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-          OR similarity(coalesce(sess.title, ''), ${q}) > 0.2
+          sess.title ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR similarity(sess.title, ${q}) > 0.2
         )
     ),
     turn_results AS (
@@ -320,10 +337,10 @@ router.get("/", async (c) => {
         'userText'::text AS matched_field,
         coalesce(t.updated_at, t.created_at) AS updated_at,
         CASE
-          WHEN lower(coalesce(t.user_text, '')) = lower(${q}) THEN 1.00
-          WHEN lower(coalesce(t.user_text, '')) LIKE lower(${escapedQ}) || '%' ESCAPE '\\' THEN 0.92
-          WHEN coalesce(t.user_text, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
-          ELSE similarity(coalesce(t.user_text, ''), ${q}) * 0.70
+          WHEN lower(t.user_text) = lower(${q}) THEN 1.00
+          WHEN lower(t.user_text) LIKE lower(${escapedQ}) || '%' ESCAPE '\\' THEN 0.92
+          WHEN t.user_text ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\' THEN 0.74
+          ELSE similarity(t.user_text, ${q}) * 0.70
         END AS text_score,
         0.66::double precision AS type_priority_score,
         sess.membership_priority_score AS membership_priority_score,
@@ -430,25 +447,19 @@ router.get("/", async (c) => {
         )
         AND (
           ${q} = ''
-          OR coalesce(sess.title, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-          OR coalesce(sess.latest_message_text, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-          OR coalesce(cp.description, '') ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR sess.title ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR sess.latest_message_text ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
+          OR cp.description ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
           OR cp.commit_hash ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
           OR la.resource_ref ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-          OR similarity(coalesce(sess.title, ''), ${q}) > 0.2
-          OR similarity(coalesce(sess.latest_message_text, ''), ${q}) > 0.2
-          OR similarity(coalesce(cp.description, ''), ${q}) > 0.2
+          OR similarity(sess.title, ${q}) > 0.2
+          OR similarity(sess.latest_message_text, ${q}) > 0.2
+          OR similarity(cp.description, ${q}) > 0.2
           OR similarity(la.resource_ref, ${q}) > 0.2
         )
     ),
     combined AS (
-      SELECT * FROM turn_results
-      UNION ALL
-      SELECT * FROM session_results
-      UNION ALL
-      SELECT * FROM space_results
-      UNION ALL
-      SELECT * FROM label_results
+      ${combinedResults}
     ),
     scored AS (
       SELECT

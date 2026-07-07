@@ -1,0 +1,3 @@
+CREATE INDEX "v2_idx_checkpoints_description_trgm" ON "v2"."checkpoints" USING gin ("description" gin_trgm_ops);--> statement-breakpoint
+CREATE INDEX "v2_idx_label_assignments_resource_ref_trgm" ON "v2"."label_assignments" USING gin ("resource_ref" gin_trgm_ops);--> statement-breakpoint
+CREATE INDEX "v2_idx_space_sessions_latest_message_text_trgm" ON "v2"."space_sessions" USING gin ("latest_message_text" gin_trgm_ops);

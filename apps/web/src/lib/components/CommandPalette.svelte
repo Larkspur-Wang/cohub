@@ -171,6 +171,16 @@ function handleResultPointerMove(index: number) {
 	activeIndex = index;
 }
 
+function remoteSearchSpaceId(
+	spaceId: string | null,
+	remoteResourceTypes: ReturnType<typeof getRemoteResourceTypes>,
+) {
+	if (!spaceId) return undefined;
+	if (!remoteResourceTypes || remoteResourceTypes.includes("space"))
+		return undefined;
+	return spaceId;
+}
+
 function handleCommandInput(event: Event) {
 	const value = (event.currentTarget as HTMLInputElement).value;
 	if (runMode) {
@@ -388,6 +398,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 			signal: remoteController?.signal,
 			limit: RESULT_LIMIT,
 			types: remoteResourceTypes,
+			spaceId: remoteSearchSpaceId(spaceId, remoteResourceTypes),
 			labelRef: plan.labelRef,
 		})
 			.then((items) => {
