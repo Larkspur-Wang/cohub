@@ -244,10 +244,17 @@ export class PopupBrokerTransport implements WorkRuntimeTransport {
 
 const TOKEN_STORAGE_PREFIX = "cohub:work-token";
 
+const AUTHORIZED_SCOPES_STORAGE_PREFIX = "cohub:work-auth-scopes";
+
 export class WorkRuntimeApi {
   private token: string | null = null;
   private readonly transport: WorkRuntimeTransport;
   private readonly tokenStorageKey: string | null;
+  private readonly scopesStorageKey: string | null;
+  /** Scopes previously granted via requestAuthorization, retained so token
+   * refreshes can re-authorize (preserving viewerScopes) instead of falling
+   * back to a base session token that only carries workScopes. */
+  private authorizedScopes: Permission[] | null = null;
 
   constructor(
     transport: WorkRuntimeTransport = new ParentBridgeTransport(),
@@ -255,9 +262,11 @@ export class WorkRuntimeApi {
   ) {
     this.transport = transport;
     this.tokenStorageKey = workId ? `${TOKEN_STORAGE_PREFIX}:${workId}` : null;
+    this.scopesStorageKey = workId ? `${AUTHORIZED_SCOPES_STORAGE_PREFIX}:${workId}` : null;
     // Restore a cached token from localStorage (broker-mode UX optimization;
     // see §0 — this is not a security measure).
     this.token = this.readStoredToken();
+    this.authorizedScopes = this.readStoredScopes();
   }
 
   private readStoredToken(): string | null {
@@ -279,6 +288,30 @@ export class WorkRuntimeApi {
     }
   }
 
+  private readStoredScopes(): Permission[] | null {
+    if (!this.scopesStorageKey || typeof localStorage === "undefined") return null;
+    try {
+      const raw = localStorage.getItem(this.scopesStorageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.every((s) => typeof s === "string")
+        ? (parsed as Permission[])
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private writeStoredScopes(scopes: Permission[] | null) {
+    if (!this.scopesStorageKey || typeof localStorage === "undefined") return;
+    try {
+      if (scopes && scopes.length > 0) localStorage.setItem(this.scopesStorageKey, JSON.stringify(scopes));
+      else localStorage.removeItem(this.scopesStorageKey);
+    } catch {
+      // ignore storage failures
+    }
+  }
+
   async context() {
     const response = await this.transport.request<{ context: WorkRuntimeContext }>(
       { type: "cohub.work.context" },
@@ -292,6 +325,19 @@ export class WorkRuntimeApi {
     if (options?.forceRefresh) {
       this.token = null;
       this.writeStoredToken(null);
+    }
+    // When refreshing a token, if the work previously obtained viewer
+    // scopes via requestAuthorization, re-authorize so the refreshed token
+    // retains those viewerScopes. A plain /session token only carries
+    // workScopes, which would cause 403 on viewer-scoped operations.
+    if (options?.forceRefresh && this.authorizedScopes && this.authorizedScopes.length > 0) {
+      const response = await this.transport.request<{ token: string | null }>(
+        { type: "cohub.work.authorize", scopes: this.authorizedScopes },
+        { timeoutMs: 120_000 },
+      );
+      this.token = response?.token ?? null;
+      this.writeStoredToken(this.token);
+      return this.token;
     }
     const response = await this.transport.request<{ token: string | null }>(
       { type: "cohub.work.token", forceRefresh: Boolean(options?.forceRefresh) },
@@ -309,6 +355,10 @@ export class WorkRuntimeApi {
     );
     this.token = response?.token ?? null;
     this.writeStoredToken(this.token);
+    if (this.token) {
+      this.authorizedScopes = input.scopes;
+      this.writeStoredScopes(input.scopes);
+    }
     return Boolean(this.token);
   }
 

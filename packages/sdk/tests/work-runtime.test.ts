@@ -384,3 +384,138 @@ test("WorkRuntimeApi clears stored token on forceRefresh", async () => {
 	assert.equal(token, "fresh-token");
 	assert.equal(store["cohub:work-token:work-1"], "fresh-token");
 });
+
+test("forceRefresh re-authorizes when viewer scopes were previously granted", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-token:work-1": "expired-token",
+		"cohub:work-auth-scopes:work-1": JSON.stringify(["session.prompt.fullaccess"]),
+	};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const calls: { message: Record<string, unknown> }[] = [];
+	const transport: WorkRuntimeTransport = {
+		request<T>(message: Record<string, unknown>): Promise<T | null> {
+			calls.push({ message });
+			// Return a token for any request type
+			return Promise.resolve({ token: "refreshed-with-viewer-scopes" } as T);
+		},
+	};
+	const runtime = createWorkRuntime(transport, "work-1");
+
+	const token = await runtime.getAccessToken({ forceRefresh: true });
+
+	assert.equal(token, "refreshed-with-viewer-scopes");
+	assert.equal(calls.length, 1);
+	// Must re-authorize (not plain token) to preserve viewerScopes
+	assert.equal(calls[0].message.type, "cohub.work.authorize");
+	assert.deepEqual(calls[0].message.scopes, ["session.prompt.fullaccess"]);
+	assert.equal(store["cohub:work-token:work-1"], "refreshed-with-viewer-scopes");
+});
+
+test("forceRefresh falls back to plain token when no viewer scopes were granted", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-token:work-1": "expired-token",
+	};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const calls: { message: Record<string, unknown> }[] = [];
+	const transport: WorkRuntimeTransport = {
+		request<T>(message: Record<string, unknown>): Promise<T | null> {
+			calls.push({ message });
+			return Promise.resolve({ token: "base-token" } as T);
+		},
+	};
+	const runtime = createWorkRuntime(transport, "work-1");
+
+	const token = await runtime.getAccessToken({ forceRefresh: true });
+
+	assert.equal(token, "base-token");
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0].message.type, "cohub.work.token");
+});
+
+test("requestAuthorization persists authorized scopes for later refresh", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const transport: WorkRuntimeTransport = {
+		request: () => Promise.resolve({ token: "authorized-token" }),
+	};
+	const runtime = createWorkRuntime(transport, "work-1");
+
+	const granted = await runtime.requestAuthorization({
+		scopes: ["session.prompt.fullaccess", "generation.create"],
+	});
+
+	assert.equal(granted, true);
+	assert.deepEqual(
+		JSON.parse(store["cohub:work-auth-scopes:work-1"]),
+		["session.prompt.fullaccess", "generation.create"],
+	);
+});
+
+test("forceRefresh after requestAuthorization re-authorizes with saved scopes", async () => {
+	const store: Record<string, string> = {};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	let callCount = 0;
+	const calls: { message: Record<string, unknown> }[] = [];
+	const transport: WorkRuntimeTransport = {
+		request<T>(message: Record<string, unknown>): Promise<T | null> {
+			callCount += 1;
+			calls.push({ message });
+			return Promise.resolve({ token: `tok-${callCount}` } as T);
+		},
+	};
+	const runtime = createWorkRuntime(transport, "work-1");
+
+	// Step 1: initial authorization
+	await runtime.requestAuthorization({ scopes: ["session.prompt.fullaccess"] });
+	assert.equal(calls[0].message.type, "cohub.work.authorize");
+
+	// Step 2: normal getAccessToken returns cached token (no transport call)
+	calls.length = 0;
+	const cached = await runtime.getAccessToken();
+	assert.equal(cached, "tok-1");
+	assert.equal(calls.length, 0);
+
+	// Step 3: forceRefresh re-authorizes with saved scopes
+	calls.length = 0;
+	const refreshed = await runtime.getAccessToken({ forceRefresh: true });
+	assert.equal(refreshed, "tok-2");
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0].message.type, "cohub.work.authorize");
+	assert.deepEqual(calls[0].message.scopes, ["session.prompt.fullaccess"]);
+});
