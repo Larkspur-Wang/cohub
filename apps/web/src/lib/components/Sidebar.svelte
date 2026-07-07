@@ -2924,6 +2924,26 @@ $effect(() => {
 				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 			{:else}
 				<div class="mt-1 space-y-[1px]">
+					{#each sourceLabels as label (label.id)}
+						<div
+							role="button"
+							tabindex="0"
+							class="label-tree-row group/label"
+							class:drop-target={labelDropTargetId === label.id}
+							class:drop-busy={labelDropBusyId === label.id}
+							class:drop-success={labelDropSuccessId === label.id}
+							class:drop-error={labelDropErrorId === label.id}
+							onclick={() => handleLabelRowClick(label)}
+							onkeydown={(event) => handleLabelRowKeydown(event, label)}
+							ondragover={(event) => handleLabelDragOver(event, label)}
+							ondragleave={(event) => handleLabelDragLeave(event, label)}
+							ondrop={(event) => handleLabelDrop(event, label)}
+						>
+							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
+							<span class="min-w-0 flex-1 truncate" title={`Source / ${getReactiveLabelDisplayTitle(label)}`}>{getReactiveLabelDisplayName(label)}</span>
+						</div>
+						{@render labelAssignmentRows(label, 0)}
+					{/each}
 					{#each displayLabels as label (label.id)}
 						<div
 							role="button"
@@ -3033,26 +3053,6 @@ $effect(() => {
 								{@render labelAssignmentRows(child, 1)}
 							{/each}
 						{/if}
-					{/each}
-					{#each sourceLabels as label (label.id)}
-						<div
-							role="button"
-							tabindex="0"
-							class="label-tree-row group/label"
-							class:drop-target={labelDropTargetId === label.id}
-							class:drop-busy={labelDropBusyId === label.id}
-							class:drop-success={labelDropSuccessId === label.id}
-							class:drop-error={labelDropErrorId === label.id}
-							onclick={() => handleLabelRowClick(label)}
-							onkeydown={(event) => handleLabelRowKeydown(event, label)}
-							ondragover={(event) => handleLabelDragOver(event, label)}
-							ondragleave={(event) => handleLabelDragLeave(event, label)}
-							ondrop={(event) => handleLabelDrop(event, label)}
-						>
-							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
-							<span class="min-w-0 flex-1 truncate" title={`Source / ${getReactiveLabelDisplayTitle(label)}`}>{getReactiveLabelDisplayName(label)}</span>
-						</div>
-						{@render labelAssignmentRows(label, 0)}
 					{/each}
 					<div
 						role="button"
