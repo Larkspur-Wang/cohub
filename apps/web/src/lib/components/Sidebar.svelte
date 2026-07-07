@@ -27,7 +27,6 @@ import {
 	Keyboard,
 	Loader2,
 	LogOut,
-	MessageSquare,
 	Network,
 	NotebookPen,
 	PanelLeftClose,
@@ -3063,7 +3062,6 @@ $effect(() => {
 						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleLabelExpanded(ALL_CHATS_LABEL_ID); } }}
 					>
 						<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID) ? '' : '-rotate-90'}" />
-						<MessageSquare class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
 						<span class="min-w-0 flex-1 truncate" title="All chats">All Chats</span>
 						{@render syncSpinner(refreshingSessions, "ml-auto")}
 					</div>
