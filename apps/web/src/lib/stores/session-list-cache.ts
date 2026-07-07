@@ -25,7 +25,13 @@ export function getCachedSessionListMeta(spaceId: string) {
 }
 
 export async function getCachedSessionListSnapshot(spaceId: string) {
-	return sessionListIndexRepo.getRecent(spaceId);
+	return sessionListIndexRepo.getRecent(spaceId).catch((error) => {
+		console.warn("[session-list-cache] Failed to read cached sessions", {
+			spaceId,
+			error,
+		});
+		return null;
+	});
 }
 
 export async function setCachedSessionList(

@@ -1351,8 +1351,8 @@ function optimisticPrependWebAppLabelSession(
 }
 
 function restoreExpandedLabelIds(spaceId: string) {
-	const expanded =
-		getCachedExpandedLabelIdsSnapshot(spaceId) ?? new Set<string>();
+	const expanded = getCachedExpandedLabelIdsSnapshot(spaceId);
+	if (!expanded) return;
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
 		[spaceId]: expanded,
@@ -3033,12 +3033,12 @@ $effect(() => {
 			<div class="label-drop-message" role="status">{labelDropErrorMessage}</div>
 		{/if}
 		{#if !showHeader || !labelsCollapsed}
-			{#if loadingLabels && labels.length === 0}
-				{@render sidebarEmptyState("Loading labels…", true)}
-			{:else if labels.length === 0 && sessions.length === 0}
-				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
-			{:else}
-				<div class="mt-1 space-y-[1px]">
+			<div class="mt-1 space-y-[1px]">
+				{#if loadingLabels && labels.length === 0}
+					{@render sidebarEmptyState("Loading labels…", true)}
+				{:else if labels.length === 0 && sessions.length === 0}
+					<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
+				{:else}
 					{@render labelTreeRows(displayLabels)}
 					{#each sourceLabels as label (label.id)}
 						<div
@@ -3061,26 +3061,30 @@ $effect(() => {
 						{@render labelAssignmentRows(label, 0)}
 					{/each}
 					{@render labelTreeRows(systemUserLabels)}
-					<div
-						role="button"
-						tabindex="0"
-						class="label-tree-row group/label mt-1"
-						onclick={() => toggleLabelExpanded(ALL_CHATS_LABEL_ID)}
-						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleLabelExpanded(ALL_CHATS_LABEL_ID); } }}
-					>
-						<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID) ? '' : '-rotate-90'}" />
-						<span class="min-w-0 flex-1 truncate" title="All chats">All Chats</span>
-						{@render syncSpinner(refreshingSessions, "ml-auto")}
-					</div>
-					{#if currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID)}
-						<div class="mt-1 pl-4">
-							{@render allChatsList(false)}
-						</div>
-					{/if}
-				</div>
-			{/if}
+				{/if}
+				{@render allChatsLabelRow()}
+			</div>
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet allChatsLabelRow()}
+	<div
+		role="button"
+		tabindex="0"
+		class="label-tree-row group/label mt-1"
+		onclick={() => toggleLabelExpanded(ALL_CHATS_LABEL_ID)}
+		onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleLabelExpanded(ALL_CHATS_LABEL_ID); } }}
+	>
+		<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID) ? '' : '-rotate-90'}" />
+		<span class="min-w-0 flex-1 truncate" title="All chats">All Chats</span>
+		{@render syncSpinner(refreshingSessions, "ml-auto")}
+	</div>
+	{#if currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID)}
+		<div class="mt-1 pl-4">
+			{@render allChatsList(false)}
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet allChatsList(preview = true)}

@@ -89,11 +89,17 @@ function queueHydrateUserLabelProfiles(labels: LabelListItem[]) {
 }
 
 export async function getCachedSpaceLabelsSnapshot(spaceId: string) {
-	return labelTreeRepo.get(spaceId);
+	return labelTreeRepo.get(spaceId).catch((error) => {
+		console.warn("[space-labels] Failed to read cached labels", {
+			spaceId,
+			error,
+		});
+		return null;
+	});
 }
 
 export async function getCachedSpaceLabels(spaceId: string) {
-	const labels = (await labelTreeRepo.get(spaceId))?.labels ?? null;
+	const labels = (await getCachedSpaceLabelsSnapshot(spaceId))?.labels ?? null;
 	if (labels) queueHydrateUserLabelProfiles(labels);
 	return labels;
 }
@@ -126,13 +132,18 @@ export function onSpaceLabelsCacheUpdated(
 export async function fetchSpaceLabelsFresh(spaceId: string) {
 	const labels = (await sdk.space(spaceId).labels.list()).labels ?? [];
 	queueHydrateUserLabelProfiles(labels);
-	return (await labelTreeRepo.set(spaceId, labels, { source: "network" }))
-		.labels;
+	try {
+		return (await labelTreeRepo.set(spaceId, labels, { source: "network" }))
+			.labels;
+	} catch (error) {
+		console.warn("[space-labels] Failed to cache labels", { spaceId, error });
+		return labels;
+	}
 }
 
 export async function fetchSpaceLabels(spaceId: string, force = false) {
 	if (!force) {
-		const cached = await labelTreeRepo.get(spaceId);
+		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
 		if (cached && !cached.stale) {
 			queueHydrateUserLabelProfiles(cached.labels);
 			return cached.labels;
