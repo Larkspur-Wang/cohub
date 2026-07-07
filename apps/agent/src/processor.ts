@@ -16,7 +16,7 @@ import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
-import { maybeAutoCompact } from "./runtime/compaction.js";
+import { maybeAutoCompact, type CompactionOutcome } from "./runtime/compaction.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.js";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
@@ -270,6 +270,49 @@ function clearActiveTurnContext(handle: SessionHandle, sessionId: string) {
   handle.currentUserMessageMeta = null;
   handle.currentUserMessageContent = null;
   handle.lastActiveAt = Date.now();
+}
+
+async function runWithRoundAutoCompaction<T>(
+  handle: SessionHandle,
+  input: {
+    actorUserId: string | null;
+    abortSignal?: AbortSignal;
+    onCompacted?: (outcome: Extract<CompactionOutcome, { compacted: true }>) => void;
+  },
+  fn: () => Promise<T>,
+): Promise<T> {
+  const previousTransform = handle.session.agent.transformContext;
+  let compacting = false;
+
+  handle.session.agent.transformContext = async (_messages, signal) => {
+    if (!compacting) {
+      compacting = true;
+      try {
+        const compactOutcome = await maybeAutoCompact(handle, {
+          actorUserId: input.actorUserId,
+          abortSignal: signal ?? input.abortSignal,
+        }).catch((error) => {
+          logger.warn(`[Agent] auto-compact check failed sessionId=${handle.sessionId}:`, error);
+          return { compacted: false, reason: "error" } as const;
+        });
+        if (compactOutcome.compacted) {
+          input.onCompacted?.(compactOutcome);
+        }
+      } finally {
+        compacting = false;
+      }
+    }
+
+    const sessionMessages = handle.sessionManager.buildSessionContext().messages;
+    if (!previousTransform) return sessionMessages;
+    return await Promise.resolve(previousTransform(sessionMessages, signal));
+  };
+
+  try {
+    return await fn();
+  } finally {
+    handle.session.agent.transformContext = previousTransform;
+  }
 }
 
 async function appendAndPersistUserMessage(input: {
@@ -973,33 +1016,29 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
                 reject(new Error("aborted"));
               }, { once: true });
             });
-            // Pre-turn auto-compaction: check if context exceeds threshold and compact if needed.
-            // maybeAutoCompact replaces agent.state.messages with the compacted context.
-            // promptMessages below appends `messages` (new user messages) to agent.state.messages,
-            // so the LLM sees [compacted context, new user messages].
-            if (messages.length > 0) {
-              const compactOutcome = await maybeAutoCompact(activeHandle, { actorUserId, abortSignal: abortController.signal }).catch((error) => {
-                logger.warn(`[Agent] auto-compact check failed sessionId=${data.sessionId}:`, error);
-                return { compacted: false, reason: "error" } as const;
-              });
-              if (compactOutcome.compacted) {
+            await runWithRoundAutoCompaction(activeHandle, {
+              actorUserId,
+              abortSignal: abortController.signal,
+              onCompacted: (compactOutcome) => {
                 turnSpan.addEvent("agent.auto_compact", {
                   "agent.compaction.tokens_before": compactOutcome.tokensBefore,
                   "agent.compaction.summary_length": compactOutcome.summary.length,
+                  "agent.compaction.compact_sequence": compactOutcome.compactSequence,
                 });
+              },
+            }, async () => {
+              if (messages.length > 0) {
+                await Promise.race([activeHandle.session.promptMessages(messages), abortPromise]);
+              } else {
+                await Promise.race([
+                  (async () => {
+                    await activeHandle.session.agent.continue();
+                    await activeHandle.session.waitForIdle();
+                  })(),
+                  abortPromise,
+                ]);
               }
-            }
-            if (messages.length > 0) {
-              await Promise.race([activeHandle.session.promptMessages(messages), abortPromise]);
-            } else {
-              await Promise.race([
-                (async () => {
-                  await activeHandle.session.agent.continue();
-                  await activeHandle.session.waitForIdle();
-                })(),
-                abortPromise,
-              ]);
-            }
+            });
           } catch (error) {
             if (abortController.signal.aborted || (error instanceof Error && error.message === "aborted")) {
               const abortEvent = getActiveAbortEvent(batch.ownerTurn.id);

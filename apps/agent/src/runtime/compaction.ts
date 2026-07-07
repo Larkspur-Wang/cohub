@@ -2,7 +2,7 @@ import {
   calculateContextTokens,
   compact,
   DEFAULT_COMPACTION_SETTINGS,
-  estimateContextTokens,
+  estimateTokens,
   prepareCompaction,
   shouldCompact,
 } from "@earendil-works/pi-agent-core/base";
@@ -15,9 +15,11 @@ import { getAgentTracer } from "@cohub/infra/tracing/agent";
 import { db } from "../db.js";
 import { sessionTurns } from "@cohub/db";
 import { and, eq, sql } from "drizzle-orm";
+import { getCurrentToolExecutionContext } from "../tool-context.js";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 export type CompactionOutcome =
-  | { compacted: true; summary: string; tokensBefore: number; firstKeptEntryId: string; archivePath: string | undefined }
+  | { compacted: true; summary: string; tokensBefore: number; firstKeptEntryId: string; archivePath: string | undefined; compactSequence: number }
   | { compacted: false; reason: string };
 
 const COMPACTION_SETTINGS = {
@@ -25,9 +27,48 @@ const COMPACTION_SETTINGS = {
   enabled: true,
 };
 
+function getAgentMessageTurnId(message: AgentMessage): string | null {
+  const meta = (message as unknown as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
+  const turnId = (meta as Record<string, unknown>).turnId;
+  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
+}
+
+function getContextTokenBudget(messages: AgentMessage[]): { accurateTokens: number; estimatedTokens: number } | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message?.role !== "assistant") continue;
+    const assistant = message as unknown as AssistantMessage;
+    if (assistant.stopReason === "aborted" || assistant.stopReason === "error" || !assistant.usage) continue;
+    const accurateTokens = calculateContextTokens(assistant.usage);
+    if (accurateTokens <= 0) continue;
+
+    let trailingTokens = 0;
+    for (let j = i + 1; j < messages.length; j++) {
+      const trailingMessage = messages[j];
+      if (trailingMessage) trailingTokens += estimateTokens(trailingMessage);
+    }
+    return { accurateTokens, estimatedTokens: accurateTokens + trailingTokens };
+  }
+  return null;
+}
+
+function getCompactableBranchEntries(handle: SessionHandle) {
+  const branchEntries = handle.sessionManager.getBranchEntries() as Parameters<typeof prepareCompaction>[0];
+  const currentTurnId = handle.currentTurnId?.trim();
+  if (!currentTurnId) return branchEntries;
+
+  const currentTurnStartIndex = branchEntries.findIndex((entry) => {
+    if (entry.type !== "message") return false;
+    return getAgentMessageTurnId(entry.message as AgentMessage) === currentTurnId;
+  });
+
+  return currentTurnStartIndex >= 0 ? branchEntries.slice(0, currentTurnStartIndex) : branchEntries;
+}
+
 /**
  * Check if the session needs auto-compaction and run it if so.
- * Called before a new turn starts (pre-turn), inside the session lock.
+ * Called before LLM requests while the session lock is held.
  *
  * Order of operations (failures are non-destructive):
  *   1. LLM summarization — if fails, nothing is touched
@@ -35,10 +76,9 @@ const COMPACTION_SETTINGS = {
  *   3. Rebuild agent state from compacted context, measure tokensAfter
  *   4. DB persistence (compact turn + system message, re-sequence) with real tokensAfter + archivePath
  *
- * Note on promptMessages: pi's `Agent.prompt(messages)` calls `createContextSnapshot()`
- * which reads `agent.state.messages` at call time. Since step 3 replaces
- * `agent.state.messages` with the compacted context before the caller invokes
- * `promptMessages`, the new user messages are appended to the compacted context.
+ * The caller is responsible for returning the rebuilt session context to the
+ * current LLM request after compaction. This keeps the active request aligned
+ * with the rewritten session file and refreshed agent state.
  */
 export async function maybeAutoCompact(
   handle: SessionHandle,
@@ -51,38 +91,18 @@ export async function maybeAutoCompact(
   const contextWindow = model.contextWindow ?? 0;
   if (!contextWindow) return { compacted: false, reason: "no_context_window" };
 
-  // Find the last valid assistant message to get usage info.
   const messages = handle.session.agent.state.messages;
-  let lastAssistant: AssistantMessage | undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (!msg) continue;
-    if (msg.role === "assistant") {
-      const am = msg as unknown as AssistantMessage;
-      if (am.stopReason !== "aborted" && am.usage && calculateContextTokens(am.usage) > 0) {
-        lastAssistant = am;
-        break;
-      }
-    }
+  const tokenBudget = getContextTokenBudget(messages);
+  if (!tokenBudget) {
+    return { compacted: false, reason: "no_usage_data" };
   }
 
-  let contextTokens: number;
-  if (lastAssistant?.usage) {
-    contextTokens = calculateContextTokens(lastAssistant.usage);
-  } else {
-    const estimate = estimateContextTokens(messages);
-    if (estimate.tokens === 0 || estimate.lastUsageIndex === null) {
-      return { compacted: false, reason: "no_usage_data" };
-    }
-    contextTokens = estimate.tokens;
-  }
-
-  if (!shouldCompact(contextTokens, contextWindow, settings)) {
+  if (!shouldCompact(tokenBudget.estimatedTokens, contextWindow, settings)) {
     return { compacted: false, reason: "below_threshold" };
   }
 
   logger.info(
-    `[Compaction] auto-compact triggered sessionId=${handle.sessionId} contextWindow=${contextWindow} tokens=${contextTokens}`,
+    `[Compaction] auto-compact triggered sessionId=${handle.sessionId} contextWindow=${contextWindow} tokens=${tokenBudget.estimatedTokens}`,
   );
 
   const tracer = getAgentTracer();
@@ -92,16 +112,17 @@ export async function maybeAutoCompact(
 
     try {
       // ── 1. Prepare & summarize ──
-      const branchEntries = handle.sessionManager.getBranchEntries() as Parameters<typeof prepareCompaction>[0];
+      const branchEntries = getCompactableBranchEntries(handle);
       const preparationResult = prepareCompaction(branchEntries, settings);
       if (!preparationResult.ok) {
         span.setAttribute("agent.compaction.error", preparationResult.error.message);
         return { compacted: false, reason: `prepare_failed: ${preparationResult.error.message}` };
       }
-      const preparation = preparationResult.value;
-      if (!preparation) {
+      const preparationValue = preparationResult.value;
+      if (!preparationValue) {
         return { compacted: false, reason: "nothing_to_compact" };
       }
+      const preparation = { ...preparationValue, tokensBefore: tokenBudget.accurateTokens };
       if (preparation.messagesToSummarize.length === 0) {
         // Nothing to summarize — the session is too small to benefit from compaction.
         return { compacted: false, reason: "nothing_to_summarize" };
@@ -225,6 +246,17 @@ export async function maybeAutoCompact(
         return { compacted: false, reason: "db_persistence_failed" };
       }
 
+      if (handle.currentTurnSeq != null && dbResult.compactSequence <= handle.currentTurnSeq) {
+        handle.currentTurnSeq += 1;
+        if (handle.activeAssistantContext?.turnSeq != null) {
+          handle.activeAssistantContext.turnSeq += 1;
+        }
+      }
+      const toolContext = getCurrentToolExecutionContext();
+      if (toolContext?.sessionId === handle.sessionId && toolContext.turnSeq != null && dbResult.compactSequence <= toolContext.turnSeq) {
+        toolContext.turnSeq += 1;
+      }
+
       logger.info(
         `[Compaction] done sessionId=${handle.sessionId} tokensBefore=${result.tokensBefore} archive=${archivePath}`,
       );
@@ -235,6 +267,7 @@ export async function maybeAutoCompact(
         tokensBefore: result.tokensBefore,
         firstKeptEntryId,
         archivePath,
+        compactSequence: dbResult.compactSequence,
       };
     } catch (error) {
       span.recordException(error as Error);
