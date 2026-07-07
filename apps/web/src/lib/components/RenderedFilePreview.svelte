@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { WorkRecord } from "@neta-art/cohub";
-import { env } from "$env/dynamic/public";
+import * as publicEnv from "$env/static/public";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
 import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
@@ -29,7 +29,8 @@ const {
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 } = $props();
 
-const previewOrigin = env.PUBLIC_PREVIEW_ORIGIN?.replace(/\/+$/, "") ?? "";
+const previewOrigin =
+	publicEnv.PUBLIC_PREVIEW_ORIGIN?.replace(/\/+$/, "") ?? "";
 let frame: HTMLIFrameElement | null = $state(null);
 let previewSrc = $state<string | null>(null);
 let previewError = $state<string | null>(null);
