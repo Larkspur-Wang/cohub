@@ -50,13 +50,10 @@ function normalizeNextPath(input: string | undefined, spaceId: string) {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-router.use("*", async (c, next) => {
+router.get("/__session", (c) => {
   const denied = previewOnly(c);
   if (denied) return denied;
-  return next();
-});
 
-router.get("/__session", (c) => {
   const token = c.req.query("token") ?? "";
   const session = verifyPreviewSessionToken(token);
   if (!session) return c.json({ message: "unauthorized" }, 401);
@@ -74,6 +71,9 @@ router.get("/__session", (c) => {
 });
 
 router.get("/s/:spaceId/*", async (c) => {
+  const denied = previewOnly(c);
+  if (denied) return denied;
+
   const user = getOptionalAuth(c);
   const session = getPreviewSessionPrincipal(c);
   const spaceId = c.req.param("spaceId");
