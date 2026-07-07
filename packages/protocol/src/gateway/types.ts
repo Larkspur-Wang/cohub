@@ -1,4 +1,13 @@
-export type DiscordChannelConfig = {
+export type ChannelModelConfig = {
+  provider: string;
+  id: string;
+};
+
+export type BaseChannelConfig = {
+  model?: ChannelModelConfig | null;
+};
+
+export type DiscordChannelConfig = BaseChannelConfig & {
   inbound?: {
     requireMentionInGuild?: boolean;
   };
@@ -8,7 +17,7 @@ export type DiscordChannelConfig = {
   };
 };
 
-export type FeishuChannelConfig = {
+export type FeishuChannelConfig = BaseChannelConfig & {
   brand?: "feishu" | "lark";
   inbound?: {
     requireMentionInGroup?: boolean;
@@ -20,10 +29,10 @@ export type FeishuChannelConfig = {
   };
 };
 
-export type WeChatChannelConfig = {
+export type WeChatChannelConfig = BaseChannelConfig & {
   outbound?: {
     showIntermediateStatus?: boolean;
   };
 };
 
-export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | WeChatChannelConfig | Record<string, unknown>;
+export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | WeChatChannelConfig | (BaseChannelConfig & Record<string, unknown>);

@@ -35,7 +35,7 @@ import {
   SandboxNotReadyError,
   SpaceEnvValidationError,
 } from "../../space-sessions.js";
-import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway } from "../../channels.js";
+import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway, updateSpaceChannelConfig } from "../../channels.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
@@ -58,6 +58,7 @@ import { listSessionForksForSessions } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
 import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput } from "../../space-mods.js";
+import { parseChannelConfigPatch, mergeChannelConfig, validateChannelModelConfig } from "../../lib/channel-model-config.js";
 import { redisCommandClient } from "../../redis.js";
 
 
@@ -629,11 +630,16 @@ router.post("/", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : "invalid space config" }, 400);
   }
 
-  const normalizedChannelBindings = Array.isArray(body.channelBindings)
-    ? body.channelBindings
-        .filter((binding) => binding?.channelId && requireValidId(binding.channelId))
-        .map((binding) => ({ channelId: binding.channelId, config: binding.config ?? null }))
-    : [];
+  let normalizedChannelBindings: Array<{ channelId: string; config: ReturnType<typeof parseChannelConfigPatch> }> = [];
+  try {
+    normalizedChannelBindings = Array.isArray(body.channelBindings)
+      ? body.channelBindings
+          .filter((binding) => binding?.channelId && requireValidId(binding.channelId))
+          .map((binding) => ({ channelId: binding.channelId, config: parseChannelConfigPatch(binding.config ?? null) }))
+      : [];
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "invalid channel config" }, 400);
+  }
 
   if (normalizedChannelBindings.length > 0) {
     const ids = normalizedChannelBindings.map((binding) => binding.channelId);
@@ -754,6 +760,12 @@ router.post("/", async (c) => {
         await tx.insert(spaceMods).values(preparedModValues);
       }
 
+      for (const binding of normalizedChannelBindings) {
+        if (!(await validateChannelModelConfig(tx as unknown as typeof db, createdSpace.id, binding.config?.model ?? null))) {
+          throw new Error("model not found");
+        }
+      }
+
       const createdChannels = normalizedChannelBindings.length > 0
         ? await tx
             .insert(spaceChannels)
@@ -776,6 +788,7 @@ router.post("/", async (c) => {
     if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
     const modResponse = spaceModErrorResponse(error);
     if (modResponse) return c.json({ message: modResponse.message }, modResponse.status);
+    if (error instanceof Error && error.message === "model not found") return c.json({ message: "model not found" }, 400);
     throw error;
   }
 
@@ -1996,12 +2009,21 @@ router.post("/:id/channels/:channelId", async (c) => {
   const [existingBinding] = await db.select({ id: spaceChannels.id }).from(spaceChannels).where(eq(spaceChannels.channelId, channelId)).limit(1);
   if (existingBinding) return c.json({ message: "channel is already bound to another space" }, 409);
 
-  const body = (await c.req.json<{ config?: Record<string, unknown> | null }>().catch(() => ({}))) as { config?: Record<string, unknown> | null };
+  const body = (await c.req.json<{ config?: unknown }>().catch(() => ({}))) as { config?: unknown };
+  let channelConfig: ReturnType<typeof parseChannelConfigPatch>;
+  try {
+    channelConfig = parseChannelConfigPatch(body.config ?? null);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "invalid channel config" }, 400);
+  }
+  if (!(await validateChannelModelConfig(db, spaceId, channelConfig?.model ?? null))) {
+    return c.json({ message: "model not found" }, 400);
+  }
 
   const [spaceChannel] = await db.insert(spaceChannels).values({
     spaceId,
     channelId,
-    config: body.config ?? null,
+    config: channelConfig,
   }).returning();
 
   if (!spaceChannel) return c.json({ message: "failed to bind channel" }, 500);
@@ -2010,6 +2032,39 @@ router.post("/:id/channels/:channelId", async (c) => {
   void bindSpaceChannelsToGateway(spaceId).catch((error) => logger.error("[SpaceChannels] failed to bind channel to gateway", { spaceId, error }));
 
   return c.json(spaceChannel, 201);
+});
+
+// ── PATCH /api/spaces/:id/channels/:channelId — update channel config ───────────────────
+
+router.patch("/:id/channels/:channelId", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  const channelId = c.req.param("channelId");
+  if (!requireValidId(spaceId) || !requireValidId(channelId)) {
+    return c.json({ message: "space or channel not found" }, 404);
+  }
+  if (!(await hasPermission(user, "channel.manage", { spaceId }))) return authzDenied(c);
+
+  const [spaceChannel] = await db.select().from(spaceChannels).where(and(eq(spaceChannels.spaceId, spaceId), eq(spaceChannels.channelId, channelId))).limit(1);
+  if (!spaceChannel) return c.json({ message: "channel not bound to this space" }, 404);
+
+  const body = (await c.req.json<{ config?: unknown }>().catch(() => ({}))) as { config?: unknown };
+  let configPatch: ReturnType<typeof parseChannelConfigPatch>;
+  try {
+    configPatch = parseChannelConfigPatch(body.config ?? null);
+  } catch (error) {
+    return c.json({ message: error instanceof Error ? error.message : "invalid channel config" }, 400);
+  }
+
+  const nextConfig = mergeChannelConfig(spaceChannel.config, configPatch);
+  if (!(await validateChannelModelConfig(db, spaceId, nextConfig?.model ?? null))) {
+    return c.json({ message: "model not found" }, 400);
+  }
+
+  const updated = await updateSpaceChannelConfig({ spaceChannelId: spaceChannel.id, config: nextConfig });
+  if (!updated) return c.json({ message: "failed to update channel config" }, 500);
+
+  return c.json(updated);
 });
 
 // ── DELETE /api/spaces/:id/channels/:channelId — unbind a channel at runtime ─────────────

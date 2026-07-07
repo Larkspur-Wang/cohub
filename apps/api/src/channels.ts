@@ -15,6 +15,7 @@ import {
   extractInboundText,
 } from "./session-interactions.js";
 import { hasPermission } from "./permissions.js";
+import { getRecord, normalizeChannelModelConfig } from "./lib/channel-model-config.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
@@ -68,7 +69,17 @@ type ResolvedChannelInbound = {
   binding: typeof spaceSessionBindings.$inferSelect;
   conversationId: string;
   bindingKey: string;
+  model: { provider: string; id: string } | null;
 };
+
+function resolveChannelInboundModel(input: {
+  binding: typeof spaceSessionBindings.$inferSelect;
+  spaceChannel: typeof spaceChannels.$inferSelect;
+}) {
+  const bindingModel = normalizeChannelModelConfig(getRecord(input.binding.meta)?.model);
+  if (bindingModel) return bindingModel;
+  return normalizeChannelModelConfig(getRecord(input.spaceChannel.config)?.model);
+}
 
 export function resolveInboundBindingKey(event: GatewayInboundEvent, conversationId = event.conversation?.id?.trim() || event.externalChatId) {
   return event.binding?.key?.trim() || event.bindingKey?.trim() || `${event.provider}:conversation:${conversationId}`;
@@ -648,6 +659,7 @@ export async function resolveChannelInboundForEvent(event: GatewayInboundEvent):
     binding,
     conversationId,
     bindingKey,
+    model: resolveChannelInboundModel({ binding, spaceChannel }),
   };
 }
 
@@ -689,6 +701,8 @@ async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
     source: event.provider,
     userId: resolved.userId,
     clientMessageId: event.externalMessageId,
+    model: resolved.model?.id,
+    provider: resolved.model?.provider,
     inboundRef: {
       provider: event.provider,
       spaceChannelId: resolved.spaceChannelId,

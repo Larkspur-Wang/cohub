@@ -65,6 +65,7 @@ import type {
   SpaceConfigResponse,
   CanvasBootstrapResponse,
   CanvasCreateInput,
+  ChannelConfig,
   CanvasDocumentRecord,
   CanvasTransactionInput,
 } from "../types.js";
@@ -902,7 +903,7 @@ export type SpaceChannelBindingRecord = {
   id: string;
   spaceId: string;
   channelId: string;
-  config: Record<string, unknown> | null;
+  config: ChannelConfig | null;
   createdAt: string;
   channel: {
     id: string;
@@ -928,11 +929,22 @@ export class SpaceChannelsApi {
     );
   }
 
-  bind(channelId: string, config?: Record<string, unknown> | null) {
+  bind(channelId: string, config?: ChannelConfig | null) {
     return this.transport.request<SpaceChannelBindingRecord>(
       `/api/spaces/${this.spaceId}/channels/${channelId}`,
       {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: config ?? null }),
+      },
+    );
+  }
+
+  updateConfig(channelId: string, config?: ChannelConfig | null) {
+    return this.transport.request<SpaceChannelBindingRecord>(
+      `/api/spaces/${this.spaceId}/channels/${channelId}`,
+      {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: config ?? null }),
       },

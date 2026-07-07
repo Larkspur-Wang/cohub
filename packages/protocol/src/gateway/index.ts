@@ -15,6 +15,11 @@ export const GATEWAY_CHANNEL_COMMAND_SPECS = [
     slash: "/status",
     description: "Show the current Cohub session status.",
   },
+  {
+    name: "model",
+    slash: "/model",
+    description: "Show or change the model for this conversation.",
+  },
 ] as const;
 
 export type GatewayChannelCommandName = typeof GATEWAY_CHANNEL_COMMAND_SPECS[number]["name"];

@@ -120,6 +120,27 @@ function updateEnvValue(index: number, value: string) {
 	);
 }
 
+function setChannelModel(channelId: string, value: string) {
+	const trimmed = value.trim();
+	const separatorIndex = trimmed.indexOf("/");
+	const provider =
+		separatorIndex >= 0 ? trimmed.slice(0, separatorIndex).trim() : "";
+	const id =
+		separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1).trim() : "";
+	channelConfigById = {
+		...channelConfigById,
+		[channelId]: {
+			...(channelConfigById[channelId] ?? {}),
+			model: provider && id ? { provider, id } : null,
+		},
+	};
+}
+
+function getChannelModelInput(channelId: string) {
+	const model = channelConfigById[channelId]?.model;
+	return model?.provider && model.id ? `${model.provider}/${model.id}` : "";
+}
+
 function updateDiscordConfig(
 	channelId: string,
 	updater: (config: DiscordChannelConfig) => DiscordChannelConfig,
@@ -463,6 +484,15 @@ async function handleSubmit(event: SubmitEvent) {
                         <span class="text-[13px] font-medium text-text-primary truncate">{channel.name}</span>
                         <span class="text-[10px] uppercase tracking-wider text-text-tertiary shrink-0">{channel.provider}</span>
                       </div>
+
+                      {#if selectedChannelIds.includes(channel.id)}
+                        <input
+                          value={getChannelModelInput(channel.id)}
+                          oninput={(event) => setChannelModel(channel.id, event.currentTarget.value)}
+                          placeholder="Default model · provider/model-id"
+                          class="mt-3 min-h-8 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none"
+                        />
+                      {/if}
 
                       {#if selectedChannelIds.includes(channel.id) && channel.provider === "discord"}
                         {@const config = (channelConfigById[channel.id] ?? {}) as DiscordChannelConfig}

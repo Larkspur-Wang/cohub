@@ -85,6 +85,8 @@ let error = $state("");
 let envName = $state("");
 let envValue = $state("");
 let selectedChannelId = $state("");
+let channelModelInputById = $state<Record<string, string>>({});
+let savingChannelConfigId = $state<string | null>(null);
 let modSpaceId = $state("");
 let modName = $state("");
 let modMountSlug = $state("");
@@ -618,6 +620,12 @@ async function loadPage() {
 		members = memberResult.items;
 		env = envResult.env;
 		channels = channelResult;
+		channelModelInputById = Object.fromEntries(
+			channelResult.map((binding) => [
+				binding.id,
+				getChannelModelInput(binding),
+			]),
+		);
 		mods = modResult.items;
 		allChannels = allChannelResult;
 		sandbox = sandboxResult?.sandbox ?? null;
@@ -891,6 +899,61 @@ async function revokeInvite(token: string) {
 	} catch (err) {
 		invitationsError =
 			err instanceof Error ? err.message : "Failed to revoke invitation";
+	}
+}
+
+function getChannelModelInput(binding: SpaceChannelBindingRecord) {
+	const model = binding.config?.model;
+	return model?.provider && model.id ? `${model.provider}/${model.id}` : "";
+}
+
+function setChannelModelInput(channelId: string, value: string) {
+	channelModelInputById = { ...channelModelInputById, [channelId]: value };
+}
+
+function parseChannelModelInput(value: string) {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	const separatorIndex = trimmed.indexOf("/");
+	if (separatorIndex < 0) return null;
+	const provider = trimmed.slice(0, separatorIndex).trim();
+	const id = trimmed.slice(separatorIndex + 1).trim();
+	return provider && id ? { provider, id } : null;
+}
+
+async function saveChannelModel(binding: SpaceChannelBindingRecord) {
+	if (!canManageSpaceChannels) return;
+	const value =
+		channelModelInputById[binding.id] ?? getChannelModelInput(binding);
+	const model = parseChannelModelInput(value);
+	if (value.trim() && !model) {
+		channelError = "Use provider/model-id.";
+		return;
+	}
+	channelError = "";
+	savingChannelConfigId = binding.id;
+	try {
+		const nextConfig = { ...(binding.config ?? {}), model };
+		const updated = await sdk
+			.space(spaceId)
+			.channels.updateConfig(binding.channelId, nextConfig);
+		channels = channels.map((item) =>
+			item.id === binding.id
+				? { ...item, ...updated, channel: item.channel }
+				: item,
+		);
+		channelModelInputById = {
+			...channelModelInputById,
+			[binding.id]: getChannelModelInput({
+				...binding,
+				config: updated.config,
+			}),
+		};
+	} catch (err) {
+		channelError =
+			err instanceof Error ? err.message : "Failed to save channel model";
+	} finally {
+		savingChannelConfigId = null;
 	}
 }
 
@@ -1274,7 +1337,7 @@ $effect(() => {
 					<div class="space-y-3 p-4 sm:p-5">
 						<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><select bind:value={selectedChannelId} disabled={!canManageSpaceChannels} class="min-h-9 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} disabled={!canManageSpaceChannels || !selectedChannelId} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">Bind</button></div>
 						{#if channelError}<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{channelError}</div>{/if}
-						<div class="space-y-1.5">{#each channels as binding (binding.id)}<div class="flex items-center justify-between gap-3 rounded-[7px] bg-bg-primary px-3 py-2"><span class="min-w-0 truncate text-[12px] text-text-secondary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span><button type="button" onclick={() => unbindChannel(binding.channelId)} disabled={!canManageSpaceChannels} class="shrink-0 text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Unbind</button></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No bound channels.</div>{/each}</div>
+						<div class="space-y-1.5">{#each channels as binding (binding.id)}<div class="space-y-2 rounded-[7px] bg-bg-primary px-3 py-2"><div class="flex items-center justify-between gap-3"><span class="min-w-0 truncate text-[12px] text-text-secondary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span><button type="button" onclick={() => unbindChannel(binding.channelId)} disabled={!canManageSpaceChannels} class="shrink-0 text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Unbind</button></div><div class="grid gap-2 sm:grid-cols-[1fr_auto]"><input value={channelModelInputById[binding.id] ?? getChannelModelInput(binding)} oninput={(event) => setChannelModelInput(binding.id, event.currentTarget.value)} disabled={!canManageSpaceChannels} placeholder="Default model · provider/model-id" class="min-h-8 min-w-0 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={() => saveChannelModel(binding)} disabled={!canManageSpaceChannels || savingChannelConfigId === binding.id} class="inline-flex min-h-8 items-center justify-center rounded-[6px] border border-border-subtle px-3 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-bg-secondary disabled:opacity-50">{savingChannelConfigId === binding.id ? 'Saving' : 'Save model'}</button></div></div>{:else}<div class="rounded-[7px] bg-bg-primary px-3 py-2 text-[12px] text-text-tertiary">No bound channels.</div>{/each}</div>
 					</div>
 				</section>
 

@@ -1,27 +1,15 @@
-import { desc, eq } from "drizzle-orm";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import {
-  createCachedModelsConfig,
-  getUserModelsRedisKey,
-  mergeModelsConfigs,
-  MODELS_CACHE_TTL_SEC,
-  parseCachedModelsConfig,
-  parseModelsConfig,
-  PLATFORM_MODELS_REDIS_KEY,
-  type ModelsConfig,
-} from "@cohub/infra/config-runtime/models";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { GatewayChannelCommand, GatewayChannelCommandName, GatewayInboundEvent } from "@cohub/protocol/gateway";
+import { getRecord, loadMergedModelsCatalog, normalizeChannelModelConfig, resolveChannelModelSelection } from "./lib/channel-model-config.js";
 import { config } from "./config.js";
 import { db } from "./db/index.js";
-import { sessionMessages, spaces } from "@cohub/db";
+import { sessionMessages, spaceSessionBindings, spaceChannels } from "@cohub/db";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
-import { redisCommandClient } from "./redis.js";
 import { registerSpaceSession } from "./space-sessions.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -84,65 +72,17 @@ type ChannelCommandExecutionInput = {
 type ChannelCommandHandler = (input: ChannelCommandExecutionInput) => Promise<boolean>;
 
 const DEFAULT_MODEL_CONTEXT_WINDOW = 128_000;
-const PLATFORM_MODELS_PATH = join(config.platformConfigRoot, "platform", ".cohub", "models.json");
-const getUserModelsPath = (userId: string) => join(config.platformConfigRoot, "users", userId, ".cohub", "models.json");
 
 const getSessionUrl = (spaceId: string, sessionId: string) => {
   const origin = (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
   return `${origin}/spaces/${spaceId}/sessions/${sessionId}`;
 };
 
-const loadModelsConfig = async (input: {
-  redisKey: string;
-  modelsPath: string;
-  allowMissing: boolean;
-}): Promise<ModelsConfig | null> => {
-  const cached = await redisCommandClient.get(input.redisKey);
-  if (cached) {
-    const parsed = parseCachedModelsConfig(cached);
-    if (parsed) return parsed.content;
-  }
-
-  let rawText: string;
-  try {
-    rawText = await readFile(input.modelsPath, "utf-8");
-  } catch (error) {
-    const code = typeof error === "object" && error !== null && "code" in error
-      ? String((error as { code?: unknown }).code)
-      : undefined;
-    if (code === "ENOENT" && input.allowMissing) {
-      const missing = createCachedModelsConfig({ content: null });
-      await redisCommandClient.set(input.redisKey, JSON.stringify(missing), "EX", MODELS_CACHE_TTL_SEC).catch(() => undefined);
-      return null;
-    }
-    throw error;
-  }
-
-  const content = parseModelsConfig(rawText);
-  const cacheValue = createCachedModelsConfig({ rawText, content });
-  await redisCommandClient.set(input.redisKey, JSON.stringify(cacheValue), "EX", MODELS_CACHE_TTL_SEC).catch(() => undefined);
-  return content;
-};
-
 const getModelContextWindow = async (spaceId: string, provider?: string | null, model?: string | null) => {
   const modelId = model?.trim();
   if (!modelId) return DEFAULT_MODEL_CONTEXT_WINDOW;
 
-  const [space] = await db.select({ userUuid: spaces.userUuid }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  const platformModels = await loadModelsConfig({
-    redisKey: PLATFORM_MODELS_REDIS_KEY,
-    modelsPath: PLATFORM_MODELS_PATH,
-    allowMissing: false,
-  });
-  const userModels = space?.userUuid
-    ? await loadModelsConfig({
-        redisKey: getUserModelsRedisKey(space.userUuid),
-        modelsPath: getUserModelsPath(space.userUuid),
-        allowMissing: true,
-      })
-    : null;
-
-  const catalog = mergeModelsConfigs(platformModels, userModels);
+  const catalog = await loadMergedModelsCatalog(db, spaceId);
   const providers = provider?.trim()
     ? [[provider.trim(), catalog.providers[provider.trim()]] as const]
     : Object.entries(catalog.providers);
@@ -182,6 +122,29 @@ const getContextUsageText = async (spaceId: string, provider?: string | null, mo
   const usedTokens = getUsageTotalTokens(usage) ?? 0;
   const contextWindow = await getModelContextWindow(spaceId, provider, model).catch(() => DEFAULT_MODEL_CONTEXT_WINDOW);
   return `${formatTokenCount(usedTokens)}/${formatTokenCount(contextWindow)}`;
+};
+
+const formatModelSelection = (model: { provider: string; id: string }) => `${model.provider}/${model.id}`;
+
+const getBindingModelConfig = async (resolved: ResolvedGatewayInbound) => {
+  const [binding] = await db.select({ meta: spaceSessionBindings.meta }).from(spaceSessionBindings).where(and(eq(spaceSessionBindings.spaceChannelId, resolved.spaceChannelId), eq(spaceSessionBindings.bindingKey, resolved.bindingKey))).limit(1);
+  const bindingModel = normalizeChannelModelConfig(getRecord(binding?.meta)?.model);
+  if (bindingModel) return { model: bindingModel, source: "conversation" as const };
+
+  const [channel] = await db.select({ config: spaceChannels.config }).from(spaceChannels).where(eq(spaceChannels.id, resolved.spaceChannelId)).limit(1);
+  const channelModel = normalizeChannelModelConfig(getRecord(channel?.config)?.model);
+  if (channelModel) return { model: channelModel, source: "channel" as const };
+
+  return { model: null, source: "default" as const };
+};
+
+const updateBindingModelConfig = async (resolved: ResolvedGatewayInbound, model: { provider: string; id: string } | null) => {
+  const [binding] = await db.select().from(spaceSessionBindings).where(and(eq(spaceSessionBindings.spaceChannelId, resolved.spaceChannelId), eq(spaceSessionBindings.bindingKey, resolved.bindingKey))).limit(1);
+  if (!binding) return;
+  const currentMeta = getRecord(binding.meta) ?? {};
+  const nextMeta: Record<string, unknown> = { ...currentMeta, model };
+  if (!model) delete nextMeta.model;
+  await db.update(spaceSessionBindings).set({ meta: nextMeta, updatedAt: new Date() }).where(eq(spaceSessionBindings.id, binding.id));
 };
 
 const createInboundCommandRef = async (input: {
@@ -284,6 +247,7 @@ const createFreshSessionForBinding = async (
   ).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
 
   const defaultBindingMeta = deps.buildDefaultBindingMeta(event);
+  const currentModel = await getBindingModelConfig(resolved);
   await deps.createSpaceSessionBinding({
     spaceId: resolved.spaceId,
     spaceSessionId: session.id,
@@ -293,6 +257,7 @@ const createFreshSessionForBinding = async (
     externalChatId: event.externalChatId,
     meta: {
       ...defaultBindingMeta,
+      ...(currentModel.source === "conversation" && currentModel.model ? { model: currentModel.model } : {}),
       lifecycle: {
         ...(defaultBindingMeta.lifecycle as Record<string, unknown>),
         initializedAt: new Date(event.timestamp).toISOString(),
@@ -333,7 +298,51 @@ const handleNewCommand: ChannelCommandHandler = async (input) => {
   return true;
 };
 
+const canSenderManageChannelModel = (event: GatewayInboundEvent, resolved: ResolvedGatewayInbound) => event.sender.id === resolved.userId;
+
+const handleModelCommand: ChannelCommandHandler = async (input) => {
+  const { event, resolved, command, deps } = input;
+  const args = command.args?.trim() ?? "";
+  await createInboundCommandRef({ deps, event, resolved, command });
+
+  if (!args) {
+    const current = await getBindingModelConfig(resolved);
+    await dispatchCommandReply({
+      deps,
+      event,
+      resolved,
+      sessionId: resolved.sessionId,
+      text: current.model
+        ? `Model: ${formatModelSelection(current.model)}\nSource: ${current.source}`
+        : "Model: default",
+    });
+    return true;
+  }
+
+  if (!canSenderManageChannelModel(event, resolved)) {
+    await dispatchCommandReply({ deps, event, resolved, sessionId: resolved.sessionId, text: "Only the channel owner can change the model." });
+    return true;
+  }
+
+  if (["default", "clear", "reset"].includes(args.toLowerCase())) {
+    await updateBindingModelConfig(resolved, null);
+    await dispatchCommandReply({ deps, event, resolved, sessionId: resolved.sessionId, text: "Model override cleared." });
+    return true;
+  }
+
+  const model = await resolveChannelModelSelection(db, resolved.spaceId, args);
+  if (!model) {
+    await dispatchCommandReply({ deps, event, resolved, sessionId: resolved.sessionId, text: "Model not found or ambiguous. Use provider/model-id." });
+    return true;
+  }
+
+  await updateBindingModelConfig(resolved, { provider: model.provider, id: model.id });
+  await dispatchCommandReply({ deps, event, resolved, sessionId: resolved.sessionId, text: `Model set to ${model.display}.` });
+  return true;
+};
+
 const channelCommandHandlers: Record<GatewayChannelCommandName, ChannelCommandHandler> = {
+  model: handleModelCommand,
   new: handleNewCommand,
   status: handleStatusCommand,
 };
