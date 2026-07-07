@@ -19,11 +19,13 @@ function storageKey(spaceId: string) {
 	return `${PREFIX}:${encodeURIComponent(getCacheUserKey())}:${encodeURIComponent(spaceId)}:v${VERSION}`;
 }
 
-export function getCachedExpandedLabelIds(spaceId: string): Set<string> {
-	if (!isBrowser()) return new Set();
+export function getCachedExpandedLabelIdsSnapshot(
+	spaceId: string,
+): Set<string> | null {
+	if (!isBrowser()) return null;
 	try {
 		const raw = localStorage.getItem(storageKey(spaceId));
-		if (!raw) return new Set();
+		if (!raw) return null;
 		const parsed = JSON.parse(raw) as ExpandedLabelsCache;
 		if (
 			parsed.version !== VERSION ||
@@ -31,14 +33,18 @@ export function getCachedExpandedLabelIds(spaceId: string): Set<string> {
 			parsed.spaceId !== spaceId ||
 			!Array.isArray(parsed.expandedLabelIds)
 		) {
-			return new Set();
+			return null;
 		}
 		return new Set(
 			parsed.expandedLabelIds.filter((id) => typeof id === "string" && id),
 		);
 	} catch {
-		return new Set();
+		return null;
 	}
+}
+
+export function getCachedExpandedLabelIds(spaceId: string): Set<string> {
+	return getCachedExpandedLabelIdsSnapshot(spaceId) ?? new Set();
 }
 
 export function setCachedExpandedLabelIds(

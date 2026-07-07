@@ -115,9 +115,19 @@ import {
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
 import {
-	getCachedExpandedLabelIds,
+	getCachedExpandedLabelIdsSnapshot,
 	setCachedExpandedLabelIds,
 } from "$lib/stores/sidebar-label-expanded";
+import {
+	ALL_CHATS_LABEL_ID,
+	buildOptimisticWebAppLabelSessionItem,
+	findDefaultExpandedLabelId,
+	findSourceRootLabel,
+	findWebAppSourceLabel,
+	getDisplayLabels,
+	getSourceLabels,
+	isWebSessionSource,
+} from "$lib/stores/sidebar-source-labels";
 import {
 	fetchLabelItemsFirstPageFresh,
 	fetchSpaceLabelsFresh,
@@ -248,7 +258,6 @@ let billingConfigured = $state<boolean | null>(null);
 let billingSubscriptionName = $state<string | null>(null);
 const modelsCatalog = $derived(modelsCatalogStore.items);
 
-let sessionsCollapsed = $state(false);
 let checkpointsCollapsed = $state(false);
 let labelsCollapsed = $state(false);
 let labelDropTargetId = $state<string | null>(null);
@@ -429,7 +438,9 @@ const currentLoadingLabelIds = $derived(
 		? (loadingLabelIdsBySpace[currentSpaceId] ?? new Set<string>())
 		: new Set<string>(),
 );
-
+const sourceRootLabel = $derived(findSourceRootLabel(labels));
+const sourceLabels = $derived(getSourceLabels(labels));
+const displayLabels = $derived(getDisplayLabels(labels));
 const userDisplayName = $derived(
 	authStore.profile?.displayName?.trim() || "User",
 );
@@ -1020,6 +1031,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (cached) {
 			labels = cached.labels;
 			pruneExpandedLabelIds(spaceId, cached.labels);
+			applyDefaultExpandedLabelId(spaceId, cached.labels);
 			void hydrateUserProfilesForLabels(cached.labels).catch(() => undefined);
 		}
 		if (cached && !cached.stale) return;
@@ -1032,6 +1044,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 		if (spaceId === currentSpaceId) {
 			labels = next;
 			pruneExpandedLabelIds(spaceId, next);
+			applyDefaultExpandedLabelId(spaceId, next);
 			void hydrateUserProfilesForLabels(next).catch(() => undefined);
 		}
 	} catch (error) {
@@ -1267,7 +1280,7 @@ function toggleLabelExpanded(labelId: string) {
 	if (next.has(labelId)) next.delete(labelId);
 	else {
 		next.add(labelId);
-		void loadLabelItems(labelId);
+		if (labelId !== ALL_CHATS_LABEL_ID) void loadLabelItems(labelId);
 	}
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
@@ -1276,19 +1289,70 @@ function toggleLabelExpanded(labelId: string) {
 	setCachedExpandedLabelIds(spaceId, next);
 }
 
+function optimisticPrependWebAppLabelSession(
+	spaceId: string,
+	session: SessionRecord,
+) {
+	if (!isWebSessionSource(session)) return;
+	const labelId = findWebAppSourceLabel(labels)?.id ?? null;
+	if (!labelId || !currentExpandedLabelIds.has(labelId)) return;
+	const existingItems = labelItemsBySpace[spaceId]?.[labelId] ?? [];
+	if (
+		existingItems.some(
+			(item) =>
+				item.resourceType === "session" && item.resourceRef === session.id,
+		)
+	)
+		return;
+	patchLabelItems(
+		spaceId,
+		labelId,
+		[
+			buildOptimisticWebAppLabelSessionItem({ spaceId, labelId, session }),
+			...existingItems,
+		],
+		currentLabelItemsPageInfoById[labelId] ?? {
+			hasMore: false,
+			nextCursor: null,
+		},
+	);
+}
+
 function restoreExpandedLabelIds(spaceId: string) {
-	const expanded = getCachedExpandedLabelIds(spaceId);
+	const expanded =
+		getCachedExpandedLabelIdsSnapshot(spaceId) ?? new Set<string>();
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
 		[spaceId]: expanded,
 	};
-	for (const labelId of expanded) void loadLabelItems(labelId);
+	for (const labelId of expanded) {
+		if (labelId !== ALL_CHATS_LABEL_ID) void loadLabelItems(labelId);
+	}
+}
+
+function applyDefaultExpandedLabelId(
+	spaceId: string,
+	nextLabels: LabelListItem[],
+) {
+	if (getCachedExpandedLabelIdsSnapshot(spaceId)) return;
+	if (expandedLabelIdsBySpace[spaceId]?.size) return;
+	const labelId = findDefaultExpandedLabelId(nextLabels);
+	const expanded = new Set([labelId]);
+	expandedLabelIdsBySpace = {
+		...expandedLabelIdsBySpace,
+		[spaceId]: expanded,
+	};
+	setCachedExpandedLabelIds(spaceId, expanded);
+	if (labelId !== ALL_CHATS_LABEL_ID) void loadLabelItems(labelId);
 }
 
 function pruneExpandedLabelIds(spaceId: string, nextLabels: LabelListItem[]) {
 	const expanded = expandedLabelIdsBySpace[spaceId];
 	if (!expanded?.size) return;
-	const validIds = new Set(flattenLabels(nextLabels).map((label) => label.id));
+	const validIds = new Set([
+		...flattenLabels(nextLabels).map((label) => label.id),
+		ALL_CHATS_LABEL_ID,
+	]);
 	const next = new Set(
 		[...expanded].filter((labelId) => validIds.has(labelId)),
 	);
@@ -1303,7 +1367,10 @@ function pruneExpandedLabelIds(spaceId: string, nextLabels: LabelListItem[]) {
 function refreshExpandedLabelItems(spaceId: string) {
 	const expanded = expandedLabelIdsBySpace[spaceId];
 	if (!expanded || spaceId !== currentSpaceId) return;
-	for (const labelId of expanded) void loadLabelItems(labelId, { force: true });
+	for (const labelId of expanded) {
+		if (labelId !== ALL_CHATS_LABEL_ID)
+			void loadLabelItems(labelId, { force: true });
+	}
 }
 
 function ensureLabelExpanded(labelId: string) {
@@ -1516,10 +1583,13 @@ function handleLabelItemDragStart(
 	label: LabelListItem,
 	item: LabelAssignmentListItem,
 ) {
-	if (!canAssignResourceToLabel(label) || !isDraggableLabelItem(item)) {
+	if (!isDraggableLabelItem(item)) {
 		event.preventDefault();
 		return;
 	}
+	const sourceLabelRef = canAssignResourceToLabel(label)
+		? (labelRefForId(label.id) ?? label.name)
+		: null;
 	const resource: LabelAssignableCohubResource = {
 		type: item.resourceType,
 		ref: item.resourceRef,
@@ -1533,11 +1603,13 @@ function handleLabelItemDragStart(
 		{
 			version: 1,
 			resources: [resource],
-			origin: {
-				kind: "label-items",
-				labelRef: labelRefForId(label.id) ?? label.name,
-				labelName: getReactiveLabelDisplayName(label),
-			},
+			origin: sourceLabelRef
+				? {
+						kind: "label-items",
+						labelRef: sourceLabelRef,
+						labelName: getReactiveLabelDisplayName(label),
+					}
+				: undefined,
 			createdAt: Date.now(),
 		},
 		{
@@ -1551,11 +1623,13 @@ function handleLabelItemDragStart(
 			effectAllowed: "copyMove",
 		},
 	);
-	activeLabelDragOrigin = {
-		labelId: label.id,
-		labelRef: labelRefForId(label.id) ?? label.name,
-		labelName: getReactiveLabelDisplayName(label),
-	};
+	activeLabelDragOrigin = sourceLabelRef
+		? {
+				labelId: label.id,
+				labelRef: sourceLabelRef,
+				labelName: getReactiveLabelDisplayName(label),
+			}
+		: null;
 }
 
 function handleResourceDragEnd() {
@@ -2386,9 +2460,17 @@ onMount(() => {
 		offSessionListCacheUpdated = onSessionListCacheUpdated(
 			({ spaceId, sessions: nextSessions, forks, pageInfo }) => {
 				if (spaceId !== currentSpaceId) return;
+				const previousSessionIds = new Set(
+					sessions.map((session) => session.id),
+				);
 				const shouldPreserveLoadedPageInfo =
 					sessions.length > nextSessions.length;
 				sessions = mergeSessionSnapshotForDisplay(sessions, nextSessions);
+				for (const session of nextSessions) {
+					if (!previousSessionIds.has(session.id)) {
+						optimisticPrependWebAppLabelSession(spaceId, session);
+					}
+				}
 				sessionForks = forks ?? [];
 				if (pageInfo && !shouldPreserveLoadedPageInfo)
 					sessionsPageInfo = pageInfo;
@@ -2664,6 +2746,7 @@ $effect(() => {
 		{@const labelSessionItems = buildLabelSessionItems(items)}
 		{@const labelSessionItemById = new Map(labelSessionItems.map((item) => [item.session.id, item]))}
 		{@const orderedItems = orderLabelItemsBySessionTree(items, labelSessionItems)}
+		{@const canEditLabelItems = canAssignResourceToLabel(label)}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
 				<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-8' : 'pl-6'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
@@ -2674,7 +2757,7 @@ $effect(() => {
 			<div class="space-y-[1px] {depth > 0 ? 'pl-6' : 'pl-4'}">
 				{#each orderedItems as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
-					{@const itemDraggable = canAssignResourceToLabel(label) && isDraggableLabelItem(item)}
+					{@const itemDraggable = isDraggableLabelItem(item)}
 					{@const labelRemoveTitle = `Remove from “${getReactiveLabelDisplayName(label)}”`}
 					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
 						{@const session = labelSessionsById.get(item.resourceRef)!}
@@ -2699,7 +2782,7 @@ $effect(() => {
 									}
 								: { titleText: sourceTooltip(session.source) || undefined }}
 							draggable={itemDraggable}
-							removeLabelTitle={labelRemoveTitle}
+							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={(target) => void handleNavigateToSession(target.id)}
 							onDoubleClick={handleSessionRowDoubleClick}
@@ -2708,7 +2791,7 @@ $effect(() => {
 							onRenameValueChange={(value) => { renameTitleValue = value; }}
 							onSubmitRename={(target) => void submitRenameSession(target)}
 							onCancelRename={cancelRenameSession}
-							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
 							onDragStart={(event) => handleLabelItemDragStart(event, label, item)}
 							onDragEnd={handleResourceDragEnd}
 						/>
@@ -2718,10 +2801,10 @@ $effect(() => {
 							{checkpoint}
 							href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
 							active={isActive}
-							removeLabelTitle={labelRemoveTitle}
+							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={(target) => void handleNavigateToCheckpoint(target.id)}
-							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
 						/>
 					{:else if item.resourceType === "file"}
 						<SidebarFileRow
@@ -2731,20 +2814,20 @@ $effect(() => {
 							href={labelAssignmentHref(item)}
 							active={isActive}
 							{isMobile}
-							removeLabelTitle={labelRemoveTitle}
+							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={() => void handleNavigate(labelAssignmentHref(item))}
 							onInsert={insertPathReference}
-							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
 						/>
 					{:else}
 						<SidebarFallbackResourceRow
 							{item}
 							active={isActive}
-							removeLabelTitle={labelRemoveTitle}
+							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={(href) => void handleNavigate(href)}
-							onRemoveLabel={() => void removeLabelAssignment(label, item)}
+							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
 						/>
 					{/if}
 				{/each}
@@ -2798,11 +2881,31 @@ $effect(() => {
 		{#if !showHeader || !labelsCollapsed}
 			{#if loadingLabels && labels.length === 0}
 				{@render sidebarEmptyState("Loading labels…", true)}
-			{:else if labels.length === 0}
+			{:else if labels.length === 0 && sessions.length === 0}
 				<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 			{:else}
 				<div class="mt-1 space-y-[1px]">
-					{#each labels as label (label.id)}
+					{#each sourceLabels as label (label.id)}
+						<div
+							role="button"
+							tabindex="0"
+							class="label-tree-row group/label"
+							class:drop-target={labelDropTargetId === label.id}
+							class:drop-busy={labelDropBusyId === label.id}
+							class:drop-success={labelDropSuccessId === label.id}
+							class:drop-error={labelDropErrorId === label.id}
+							onclick={() => handleLabelRowClick(label)}
+							onkeydown={(event) => handleLabelRowKeydown(event, label)}
+							ondragover={(event) => handleLabelDragOver(event, label)}
+							ondragleave={(event) => handleLabelDragLeave(event, label)}
+							ondrop={(event) => handleLabelDrop(event, label)}
+						>
+							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
+							<span class="min-w-0 flex-1 truncate" title={`Source / ${getReactiveLabelDisplayTitle(label)}`}>{getReactiveLabelDisplayName(label)}</span>
+						</div>
+						{@render labelAssignmentRows(label, 0)}
+					{/each}
+					{#each displayLabels as label (label.id)}
 						<div
 							role="button"
 							tabindex="0"
@@ -2912,20 +3015,38 @@ $effect(() => {
 							{/each}
 						{/if}
 					{/each}
+					<div
+						role="button"
+						tabindex="0"
+						class="label-tree-row group/label mt-1"
+						onclick={() => toggleLabelExpanded(ALL_CHATS_LABEL_ID)}
+						onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleLabelExpanded(ALL_CHATS_LABEL_ID); } }}
+					>
+						<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID) ? '' : '-rotate-90'}" />
+						<MessageSquare class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+						<span class="min-w-0 flex-1 truncate" title="All chats">All Chats</span>
+						{@render syncSpinner(refreshingSessions, "ml-auto")}
+					</div>
+					{#if currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID)}
+						<div class="mt-1 pl-4">
+							{@render allChatsList(false)}
+						</div>
+					{/if}
 				</div>
 			{/if}
 		{/if}
 	</div>
 {/snippet}
 
-{#snippet sessionsFlyoutList()}
+{#snippet allChatsList(preview = true)}
 	{#if loadingSessions && sessions.length === 0}
 		{@render sidebarEmptyState("Loading chats…", true)}
 	{:else if sessions.length === 0}
 		{@render sidebarEmptyState("No chats")}
 	{:else}
+		{@const chatItems = preview ? sidebarSessionItems.slice(0, sidebarFlyoutPreviewLimit) : sidebarSessionItems}
 		<div class="space-y-[2px]">
-			{#each sidebarSessionItems.slice(0, sidebarFlyoutPreviewLimit) as item (item.session.id)}
+			{#each chatItems as item (item.session.id)}
 				{@const session = item.session}
 				{@const isActive = activeSession?.id === session.id}
 				<SidebarSessionRow
@@ -2933,7 +3054,11 @@ $effect(() => {
 					title={item.displayTitle}
 					href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
 					active={isActive}
+					{isMobile}
 					modelsCatalog={modelsCatalog ?? undefined}
+					renaming={renamingSessionId === session.id}
+					renameValue={renameTitleValue}
+					renameSaving={renameSaving}
 					rowState={{
 						isFork: item.isFork,
 						isLastVisibleChild: item.isLastVisibleChild,
@@ -2941,11 +3066,14 @@ $effect(() => {
 						titleText: item.titleText || sourceTooltip(session.source) || undefined,
 						ariaLabel: item.ariaLabel,
 					}}
-					draggable={true}
+					draggable={!isMobile}
 					onNavigate={(target) => scheduleSessionRowNavigate(target.id)}
 					onDoubleClick={handleSessionRowDoubleClick}
 					onInsert={insertPathReference}
 					onRename={startRenameSession}
+					onRenameValueChange={(value) => { renameTitleValue = value; }}
+					onSubmitRename={(target) => void submitRenameSession(target)}
+					onCancelRename={cancelRenameSession}
 					onDragStart={(event, target, title) => handleSessionDragStart(event, target, title)}
 					onDragEnd={handleResourceDragEnd}
 				/>
@@ -3124,7 +3252,7 @@ $effect(() => {
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
-            <SidebarFlyout label="Labels" active={false} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Labels" active={Boolean(activeSession || activeLabelResource)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Tags class="h-4 w-4" />
               {/snippet}
@@ -3142,12 +3270,6 @@ $effect(() => {
                 {/snippet}
               {/if}
               {@render labelsSection(false)}
-            </SidebarFlyout>
-            <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
-              {#snippet trigger()}
-                <MessageSquare class="h-4 w-4" />
-              {/snippet}
-              {@render sessionsFlyoutList()}
             </SidebarFlyout>
             <SidebarFlyout label="Works" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
@@ -3357,184 +3479,6 @@ $effect(() => {
           </div>
         {:else}
           {@render labelsSection()}
-
-          <button
-            type="button"
-            class="flex items-center gap-2 px-1.5 py-1.5 w-full text-left hover:bg-bg-hover transition-colors duration-100 rounded-[6px]"
-            onclick={() => { sessionsCollapsed = !sessionsCollapsed; }}
-            title={sessionsCollapsed ? "Expand chats" : "Collapse chats"}
-          >
-            <ChevronDown class="w-3 h-3 text-text-tertiary shrink-0 transition-transform duration-150 {sessionsCollapsed ? 'rotate-180' : ''}" />
-            <MessageSquare class="w-3.5 h-3.5 shrink-0 text-text-placeholder" />
-            <span class="text-[11px] text-text-placeholder select-none">Chats</span>
-            {@render syncSpinner(refreshingSessions, "ml-auto")}
-          </button>
-
-          {#if !sessionsCollapsed}
-            {#if sessions.length === 0}
-              <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No chats</div>
-            {:else}
-              <div class="space-y-[2px] mt-1">
-                {#each sidebarSessionItems as item, index (item.session.id)}
-                  {@const session = item.session}
-                  {@const isActive = activeSession?.id === session.id}
-                  {@const isRenaming = renamingSessionId === session.id}
-
-                  {#if isRenaming}
-                    <!-- Inline rename input -->
-                    <div class="flex items-center gap-1 px-1.5 py-1 rounded-[6px] bg-bg-active" data-session-rename>
-                      <input
-                        bind:this={renameInputElement}
-                        bind:value={renameTitleValue}
-                        type="text"
-                        class="flex-1 min-w-0 bg-transparent text-[13px] text-text-primary outline-none leading-tight"
-                        placeholder="Session name"
-                        maxlength={80}
-                        disabled={renameSaving}
-                        onkeydown={(e) => {
-                          if (
-                            e.key === "Enter" &&
-                            !renameSaving &&
-                            !isComposingKeyboardEvent(e)
-                          ) {
-                            e.preventDefault();
-                            void submitRenameSession(session);
-                          }
-                          if (e.key === "Escape" && !renameSaving) {
-                            e.preventDefault();
-                            cancelRenameSession();
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        class="p-0.5 rounded text-status-running hover:bg-bg-hover transition-colors shrink-0"
-                        disabled={renameSaving}
-                        onclick={() => void submitRenameSession(session)}
-                        title="Save"
-                      >
-                        <Check class="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
-                        disabled={renameSaving}
-                        onclick={cancelRenameSession}
-                        title="Cancel"
-                      >
-                        <X class="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  {:else}
-                    <SidebarSessionRow
-                      {session}
-                      title={item.displayTitle}
-                      href={buildPreferredSessionRoute(currentSpaceId!, session.id)}
-                      active={isActive}
-                      {isMobile}
-                      modelsCatalog={modelsCatalog ?? undefined}
-                      rowState={{
-                        isFork: item.isFork,
-                        isLastVisibleChild: item.isLastVisibleChild,
-                        style: getSessionRowStyle(item),
-                        titleText: item.titleText || sourceTooltip(session.source) || undefined,
-                        ariaLabel: item.ariaLabel,
-                      }}
-                      draggable={!isMobile}
-                      onNavigate={(target) => scheduleSessionRowNavigate(target.id)}
-                      onDoubleClick={handleSessionRowDoubleClick}
-                      onInsert={insertPathReference}
-                      onRename={startRenameSession}
-                      onDragStart={(event, target, title) => handleSessionDragStart(event, target, title)}
-                      onDragEnd={handleResourceDragEnd}
-                    />
-                  {/if}
-                {/each}
-                {#if shouldShowLoadMoreSessions()}
-                  <button
-                    type="button"
-                    class="mt-1 flex items-center justify-center gap-2 w-full px-1.5 py-1.5 rounded-[6px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100 disabled:opacity-60"
-                    disabled={loadingMoreSessions}
-                    onclick={() => currentSpaceId && void loadMoreSessionsForSpace(currentSpaceId)}
-                  >
-                    {#if loadingMoreSessions}
-                      <Loader2 class="w-3 h-3 animate-spin" />
-                      Loading...
-                    {:else}
-                      Load more
-                    {/if}
-                  </button>
-                {/if}
-              </div>
-            {/if}
-          {:else if activeSession}
-            {@const isRenamingActive = renamingSessionId === activeSession.id}
-            {#if isRenamingActive}
-              <div class="flex items-center gap-1 px-1.5 py-1 mt-1 rounded-[6px] bg-bg-active" data-session-rename>
-                <input
-                  bind:this={renameInputElement}
-                  bind:value={renameTitleValue}
-                  type="text"
-                  class="flex-1 min-w-0 bg-transparent text-[13px] text-text-primary outline-none leading-tight"
-                  placeholder="Session name"
-                  maxlength={80}
-                  disabled={renameSaving}
-                  onkeydown={(e) => {
-                    if (
-                      e.key === "Enter" &&
-                      !renameSaving &&
-                      !isComposingKeyboardEvent(e)
-                    ) {
-                      e.preventDefault();
-                      void submitRenameSession(activeSession);
-                    }
-                    if (e.key === "Escape" && !renameSaving) {
-                      e.preventDefault();
-                      cancelRenameSession();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  class="p-0.5 rounded text-status-running hover:bg-bg-hover transition-colors shrink-0"
-                  disabled={renameSaving}
-                  onclick={() => void submitRenameSession(activeSession)}
-                  title="Save"
-                >
-                  <Check class="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  class="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
-                  disabled={renameSaving}
-                  onclick={cancelRenameSession}
-                  title="Cancel"
-                >
-                  <X class="w-3.5 h-3.5" />
-                </button>
-              </div>
-            {:else}
-              <SidebarSessionRow
-                session={activeSession}
-                title={getSessionTitle(activeSession, 0)}
-                href={buildPreferredSessionRoute(currentSpaceId!, activeSession.id)}
-                active={true}
-                {isMobile}
-                modelsCatalog={modelsCatalog ?? undefined}
-                rowState={{
-                  style: isMobile ? "-webkit-touch-callout: none; user-select: none;" : undefined,
-                  titleText: sourceTooltip(activeSession.source) || undefined,
-                }}
-                draggable={!isMobile}
-                onNavigate={(target) => scheduleSessionRowNavigate(target.id)}
-                onDoubleClick={handleSessionRowDoubleClick}
-                onInsert={insertPathReference}
-                onRename={startRenameSession}
-                onDragStart={(event, target) => handleSessionDragStart(event, target, getSessionTitle(target, 0))}
-                onDragEnd={handleResourceDragEnd}
-              />
-            {/if}
-          {/if}
 
           <!-- Works -->
           <div class="mt-3">
