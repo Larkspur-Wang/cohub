@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { AuthUserProfile } from "../auth.js";
 import type { ExecutionAuthPrincipal } from "../auth.js";
+import type { PreviewSessionPrincipal } from "../preview-sessions.js";
 import type { WorkSessionPrincipal } from "../work-sessions.js";
 
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
@@ -17,6 +18,7 @@ export class UnauthorizedError extends Error {
 export type RequestPrincipal =
   | { type: "user"; user: AuthUser }
   | { type: "execution"; execution: ExecutionAuthPrincipal }
+  | { type: "preview_session"; previewSession: PreviewSessionPrincipal }
   | { type: "work_session"; workSession: WorkSessionPrincipal };
 
 import { config } from "../config.js";
@@ -48,6 +50,16 @@ const principalToAuthUser = (principal: RequestPrincipal | null | undefined): Au
       avatar_url: undefined,
       workSession: principal.workSession,
     } as AuthUser & { workSession: WorkSessionPrincipal };
+  }
+  if (principal?.type === "preview_session") {
+    return {
+      uuid: principal.previewSession.userUuid,
+      id: undefined,
+      nick_name: undefined,
+      phone_num: undefined,
+      avatar_url: undefined,
+      previewSession: principal.previewSession,
+    } as AuthUser & { previewSession: PreviewSessionPrincipal };
   }
   return null;
 };
@@ -107,6 +119,11 @@ export const getExecutionPrincipal = (c: Context): ExecutionAuthPrincipal | null
 export const getWorkSessionPrincipal = (c: Context): WorkSessionPrincipal | null => {
   const principal = c.get("principal") as RequestPrincipal | null | undefined;
   return principal?.type === "work_session" ? principal.workSession : null;
+};
+
+export const getPreviewSessionPrincipal = (c: Context): PreviewSessionPrincipal | null => {
+  const principal = c.get("principal") as RequestPrincipal | null | undefined;
+  return principal?.type === "preview_session" ? principal.previewSession : null;
 };
 
 // ── Internal request validation ──────────────────────────────────────────────

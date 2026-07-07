@@ -66,6 +66,7 @@ CONFIGS_SUBPATH: "configs/prod"
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
 API_HOSTNAME: "api.cohub.run"
+PREVIEW_HOSTNAME: "preview.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "prod"

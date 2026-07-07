@@ -3,6 +3,8 @@ import { db } from "./db/index.js";
 import type { AuthUserProfile } from "./auth.js";
 import { workViewerGrants, type SpaceRole } from "@cohub/db";
 import type { Permission, AccessPolicy, PermissionAccess } from "@cohub/core/permissions";
+import type { PreviewSessionPrincipal } from "./preview-sessions.js";
+import { hasPreviewSessionPermission } from "./preview-sessions.js";
 import type { WorkSessionPrincipal } from "./work-sessions.js";
 import { eq } from "drizzle-orm";
 
@@ -33,6 +35,12 @@ const getUserExecution = (user: AuthUserProfile | null): ScopedExecutionPrincipa
   const execution = (user as (AuthUserProfile & { execution?: ScopedExecutionPrincipal }) | null)?.execution;
   if (!execution || !Array.isArray(execution.scopes)) return null;
   return execution;
+};
+
+const getUserPreviewSession = (user: AuthUserProfile | null): PreviewSessionPrincipal | null => {
+  const session = (user as (AuthUserProfile & { previewSession?: PreviewSessionPrincipal }) | null)?.previewSession;
+  if (!session || user?.uuid !== session.userUuid) return null;
+  return session;
 };
 
 const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
@@ -86,6 +94,8 @@ export async function hasPermission(
 
   const workSession = getUserWorkSession(user);
   if (workSession) return hasWorkSessionScopedPermission(workSession, permission, context.spaceId);
+  const previewSession = getUserPreviewSession(user);
+  if (previewSession) return hasPreviewSessionPermission(previewSession, permission, context.spaceId);
   const execution = getUserExecution(user);
   if (execution?.spaceId === context.spaceId && scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission)) return true;
   return hasSharedPermission({
@@ -108,6 +118,8 @@ export async function resolvePermissionAccess(
   if (workSession && workSession.spaceId === context.spaceId) {
     return { role: null, permissions: await resolveWorkSessionScopes(workSession) };
   }
+  const previewSession = getUserPreviewSession(user);
+  if (previewSession?.spaceId === context.spaceId) return { role: null, permissions: normalizePermissionScopes(previewSession.scopes) };
   const execution = getUserExecution(user);
   if (execution?.spaceId === context.spaceId) return { role: null, permissions: normalizePermissionScopes(execution.scopes ?? []) };
   return resolveSharedPermissionAccess({
@@ -135,6 +147,8 @@ export async function filterSessionsByPermission(
   if (workSession) {
     return await hasWorkSessionScopedPermission(workSession, permission, spaceId) ? sessions : [];
   }
+  const previewSession = getUserPreviewSession(user);
+  if (previewSession) return hasPreviewSessionPermission(previewSession, permission, spaceId) ? sessions : [];
   const execution = getUserExecution(user);
   if (execution?.spaceId === spaceId) return scopeListHasPermission(normalizePermissionScopes(execution.scopes ?? []), permission) ? sessions : [];
   return permissionStore.filterSessionsByPermission({

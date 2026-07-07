@@ -8,12 +8,14 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { trace } from "@opentelemetry/api";
 import { cors } from "hono/cors";
+import { getCookie } from "hono/cookie";
 import { httpInstrumentationMiddleware } from "@hono/otel";
 
 import { applyTraceResponseHeaders, getActiveTraceIdentifiers, getOrCreateRequestId, runWithRequestTraceContext, setRequestContextAttributes } from "@cohub/infra/tracing";
 import { verifyUserAccessToken } from "@cohub/identity";
 
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
+import { verifyPreviewSessionToken, type PreviewSessionPrincipal } from "./preview-sessions.js";
 import { verifyWorkSessionToken, type WorkSessionPrincipal } from "./work-sessions.js";
 import { UnauthorizedError } from "./lib/middleware.js";
 import { assertRequiredConfig, config } from "./config.js";
@@ -28,8 +30,9 @@ const app = new Hono<{
     token: string | null;
     authUser: AuthUserProfile | null;
     executionAuth: ExecutionAuthPrincipal | null;
+    previewSession: PreviewSessionPrincipal | null;
     workSession: WorkSessionPrincipal | null;
-    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | { type: "work_session"; workSession: WorkSessionPrincipal } | null;
+    principal: { type: "user"; user: AuthUserProfile } | { type: "execution"; execution: ExecutionAuthPrincipal } | { type: "preview_session"; previewSession: PreviewSessionPrincipal } | { type: "work_session"; workSession: WorkSessionPrincipal } | null;
     requestId: string;
     traceId: string | null;
   };
@@ -64,11 +67,20 @@ app.use(
   }),
 );
 
+const PREVIEW_SESSION_COOKIE = "__preview_session";
+
+const isPreviewHost = (host: string | undefined) => {
+  const normalized = host?.split(":")[0]?.toLowerCase();
+  const configured = process.env.PREVIEW_HOSTNAME?.trim().toLowerCase();
+  return Boolean(normalized && configured && normalized === configured);
+};
+
 app.use(async (c, next) => {
-  const token = getTokenFromRequest(c);
+  const token = getTokenFromRequest(c) ?? (isPreviewHost(c.req.header("host")) ? getCookie(c, PREVIEW_SESSION_COOKIE) ?? null : null);
   c.set("token", token);
   c.set("authUser", null);
   c.set("executionAuth", null);
+  c.set("previewSession", null);
   c.set("workSession", null);
   c.set("principal", null);
 
@@ -82,6 +94,16 @@ app.use(async (c, next) => {
       c.set("principal", { type: "execution", execution: executionAuth });
       await next();
       return;
+    }
+
+    if (isPreviewHost(c.req.header("host"))) {
+      const previewSession = verifyPreviewSessionToken(token);
+      if (previewSession) {
+        c.set("previewSession", previewSession);
+        c.set("principal", { type: "preview_session", previewSession });
+        await next();
+        return;
+      }
     }
 
     const workSession = verifyWorkSessionToken(token);

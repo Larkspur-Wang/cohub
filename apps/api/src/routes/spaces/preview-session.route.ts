@@ -1,0 +1,17 @@
+import { Hono } from "hono";
+import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
+import { hasPermission } from "../../permissions.js";
+import { createPreviewSessionToken, PREVIEW_SESSION_TTL_SECONDS } from "../../preview-sessions.js";
+
+const router = new Hono();
+
+router.post("/:id/preview-session", async (c) => {
+  const user = useAuth(c);
+  const spaceId = c.req.param("id");
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+  const token = createPreviewSessionToken({ userUuid: user.uuid, spaceId });
+  return c.json({ token, expiresIn: PREVIEW_SESSION_TTL_SECONDS });
+});
+
+export default router;

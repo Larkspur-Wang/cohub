@@ -3,7 +3,11 @@ import type {
 	SpacePublicEndpoint,
 	SpacePublicEndpoints,
 } from "@cohub/protocol/ports";
-import type { CanvasSemanticOp, SpaceRecord } from "@neta-art/cohub";
+import type {
+	CanvasSemanticOp,
+	SpaceRecord,
+	WorkRecord,
+} from "@neta-art/cohub";
 import { isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
@@ -68,6 +72,7 @@ export type SpaceFileDomainProps = {
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
 	inlineFileDataUrl: string | null;
+	inlineFileDebugWork: WorkRecord | null;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
 	inlineFilePanX: number;
@@ -164,6 +169,7 @@ let {
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileDataUrl,
+	inlineFileDebugWork,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
 	inlineFilePanX = $bindable(),
@@ -248,6 +254,8 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		{inlineFileIsImage}
 		{inlineFileIsVideo}
 		{inlineFileDataUrl}
+		inlineFileSpaceId={spaceId}
+		{inlineFileDebugWork}
 		previewPanelWidth={previewPanelWidth}
 		previewFocusMode={previewFocusMode}
 		previewImmersiveMode={previewImmersiveMode}

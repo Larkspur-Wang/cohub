@@ -73,6 +73,7 @@ WORK_ASSET_CDN_BASE_URL=$(get_value "WORK_ASSET_CDN_BASE_URL")
 CONFIGS_SUBPATH=$(get_value "CONFIGS_SUBPATH")
 ROUTE_ENABLED=$(get_value "ROUTE_ENABLED")
 API_HOSTNAME=$(get_value "API_HOSTNAME")
+PREVIEW_HOSTNAME=$(get_value "PREVIEW_HOSTNAME")
 ENV=$(get_value "ENV")
 LOG_LEVEL=$(get_value "LOG_LEVEL")
 
@@ -135,6 +136,7 @@ PY
     -e "s|__GITEA_BASE_URL__|${GITEA_BASE_URL}|g" \
     -e "s|__GITEA_MANAGED_EMAIL_DOMAIN__|${GITEA_MANAGED_EMAIL_DOMAIN}|g" \
     -e "s|__WEB_ORIGIN__|${WEB_ORIGIN}|g" \
+    -e "s|__PREVIEW_HOSTNAME__|${PREVIEW_HOSTNAME}|g" \
     -e "s|__SANDBOX_IMAGE__|${SANDBOX_IMAGE}|g" \
     -e "s|__SPACE_STORAGE_ROOT__|${SPACE_STORAGE_ROOT}|g" \
     -e "s|__SPACE_SYSTEM_ROOT__|${SPACE_SYSTEM_ROOT}|g" \
@@ -157,6 +159,7 @@ PY
     -e "s|__WORK_ASSET_CDN_BASE_URL__|${WORK_ASSET_CDN_BASE_URL}|g" \
     -e "s|__CONFIGS_SUBPATH__|${CONFIGS_SUBPATH}|g" \
     -e "s|__API_HOSTNAME__|${API_HOSTNAME}|g" \
+    -e "s|__PREVIEW_HOSTNAME__|${PREVIEW_HOSTNAME}|g" \
     -e "s|__ENV__|${ENV}|g" \
     -e "s|__LOG_LEVEL__|${LOG_LEVEL:-info}|g" \
     "$dst"

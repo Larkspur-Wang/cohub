@@ -9,6 +9,7 @@ import labelsRouter, { getResourceLabels, patchResourceLabels, setResourceLabels
 import modsRouter from "./mods.route.js";
 import canvasRouter from "./canvas.route.js";
 import presenceRouter from "./presence.route.js";
+import previewSessionRouter from "./preview-session.route.js";
 import commerceRouter from "./commerce.route.js";
 
 const router = new Hono();
@@ -28,6 +29,7 @@ router.put("/:id/resources/:resourceType/labels", setResourceLabels);
 router.route("/:id/mods", modsRouter);
 router.route("/:id/canvas", canvasRouter);
 router.route("/:id/presence", presenceRouter);
+router.route("/", previewSessionRouter);
 router.route("/", commerceRouter);
 
 export default router;

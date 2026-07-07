@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SpaceFsFileResponse } from "@neta-art/cohub";
+import type { SpaceFsFileResponse, WorkRecord } from "@neta-art/cohub";
 import {
 	ArrowLeft,
 	Check,
@@ -56,6 +56,8 @@ type Props = {
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
 	inlineFileDataUrl: string | null;
+	inlineFileSpaceId: string;
+	inlineFileDebugWork: WorkRecord | null;
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
@@ -103,6 +105,8 @@ let {
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileDataUrl,
+	inlineFileSpaceId,
+	inlineFileDebugWork,
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
@@ -234,6 +238,9 @@ let {
                   source={inlineFile.draft}
                   type={inlineFileIsMarkdown ? "markdown" : "html"}
                   path={inlineFile.response.path}
+                  spaceId={inlineFileSpaceId}
+                  readonly={activeFsReadonly}
+                  debugWork={inlineFileDebugWork}
                   onOpenFile={onOpenLinkedInlineFile}
                 />
               {:catch}
@@ -415,6 +422,9 @@ let {
                     source={inlineFile.draft}
                     type={inlineFileIsMarkdown ? "markdown" : "html"}
                     path={inlineFile.response.path}
+                    spaceId={inlineFileSpaceId}
+                    readonly={activeFsReadonly}
+                    debugWork={inlineFileDebugWork}
                     onOpenFile={onOpenLinkedInlineFile}
                   />
                 {:catch}

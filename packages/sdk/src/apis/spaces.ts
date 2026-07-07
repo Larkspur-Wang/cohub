@@ -247,6 +247,13 @@ export class SpaceFilesApi {
     return `/api/spaces/${this.spaceId}/fs/download?${params.toString()}`;
   }
 
+  createPreviewSession(customFetch?: Fetch) {
+    return this.transport.request<{ token: string; expiresIn: number }>(
+      `/api/spaces/${this.spaceId}/preview-session`,
+      { method: "POST", fetch: customFetch },
+    );
+  }
+
 	async download(path: string, customFetch?: Fetch) {
 		const params = new URLSearchParams({ path });
 		const raw = await this.transport.raw(

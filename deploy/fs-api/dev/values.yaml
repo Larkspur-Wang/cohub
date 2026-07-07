@@ -66,6 +66,7 @@ CONFIGS_SUBPATH: "configs/dev"
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
 API_HOSTNAME: "api-dev.cohub.run"
+PREVIEW_HOSTNAME: "preview-dev.cohub.run"
 
 # ========== 环境标识 ==========
 ENV: "dev"

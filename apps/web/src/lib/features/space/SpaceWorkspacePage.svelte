@@ -19,6 +19,7 @@ import {
 	type SpaceRecord,
 	type TaskRunRecord,
 	type UserProfile,
+	type WorkRecord,
 } from "@neta-art/cohub";
 import {
 	ArrowDown,
@@ -642,8 +643,56 @@ const inlineFileIsImage = $derived(fileWorkspace.inlineFileIsImage);
 const inlineFileIsVideo = $derived(fileWorkspace.inlineFileIsVideo);
 const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
 const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
+let previewDebugWorks = $state<WorkRecord[]>([]);
+let previewDebugWorksLoadedFor = $state<string | null>(null);
+let previewDebugWorksToken = 0;
+const inlineFileDebugWork = $derived.by(() => {
+	const filePath = inlineFile?.response?.path ?? null;
+	if (!filePath || activeFsReadonly || authStore.userUuid !== space?.userUuid)
+		return null;
+	return (
+		previewDebugWorks.find(
+			(work) =>
+				work.status === "published" &&
+				work.targetType === "file" &&
+				work.targetRef === filePath,
+		) ?? null
+	);
+});
 const inlineFileDownloadUrl = $derived(fileWorkspace.inlineFileDownloadUrl);
 const inlineFileDownloadName = $derived(fileWorkspace.inlineFileDownloadName);
+
+$effect(() => {
+	const currentSpaceId = spaceId;
+	const currentOwnerId = space?.userUuid ?? null;
+	if (
+		!currentSpaceId ||
+		!currentOwnerId ||
+		activeFsReadonly ||
+		previewDebugWorksLoadedFor === currentSpaceId
+	)
+		return;
+	const token = ++previewDebugWorksToken;
+	void (async () => {
+		try {
+			await authStore.ensureLoaded();
+			if (token !== previewDebugWorksToken) return;
+			if (!authStore.userUuid || authStore.userUuid !== currentOwnerId) {
+				previewDebugWorks = [];
+				previewDebugWorksLoadedFor = currentSpaceId;
+				return;
+			}
+			const { works } = await sdk.works.listBySpace(currentSpaceId);
+			if (token !== previewDebugWorksToken) return;
+			previewDebugWorks = works;
+			previewDebugWorksLoadedFor = currentSpaceId;
+		} catch {
+			if (token !== previewDebugWorksToken) return;
+			previewDebugWorks = [];
+			previewDebugWorksLoadedFor = currentSpaceId;
+		}
+	})();
+});
 const inlinePortEndpoint = $derived.by(() => {
 	if (!inlinePortPreview) return null;
 	return previewEndpoints[inlinePortPreview.port] ?? null;
@@ -5076,6 +5125,7 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileDataUrl,
+	inlineFileDebugWork,
 	inlineFileDragging: fileWorkspace.inlineFileDragging,
 	inlineFilePanHandlers,
 	uploadPaneVisible: fileWorkspace.uploadPaneVisible,

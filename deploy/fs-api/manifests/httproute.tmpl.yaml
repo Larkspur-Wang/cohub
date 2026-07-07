@@ -9,6 +9,7 @@ spec:
       namespace: kube-system
   hostnames:
     - "__API_HOSTNAME__"
+    - "__PREVIEW_HOSTNAME__"
   rules:
     # Space filesystem requests, including checkpoint snapshot browsing, are routed
     # from the main API to this fs-api deployment.
@@ -19,6 +20,12 @@ spec:
         - path:
             type: RegularExpression
             value: /api/spaces/[^/]+/checkpoints/[^/]+/fs/.*
+        - path:
+            type: PathPrefix
+            value: /__session
+        - path:
+            type: PathPrefix
+            value: /s/
       backendRefs:
         - name: __APP_NAME__
           port: __SERVICE_PORT__
