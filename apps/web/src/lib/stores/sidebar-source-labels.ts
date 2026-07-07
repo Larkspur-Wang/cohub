@@ -59,11 +59,7 @@ export function getSystemUserLabels(labels: LabelListItem[]) {
 }
 
 export function getDisplayLabels(labels: LabelListItem[]) {
-	const sourceRootId = findSourceRootLabel(labels)?.id ?? null;
-	const userRootId = findSessionUserRootLabel(labels)?.id ?? null;
-	return labels.flatMap((label) =>
-		label.id === sourceRootId || label.id === userRootId ? [] : [label],
-	);
+	return labels.filter((label) => label.source === "user");
 }
 
 export function findWebAppSourceLabel(labels: LabelListItem[]) {

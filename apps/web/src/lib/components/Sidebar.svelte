@@ -27,6 +27,7 @@ import {
 	Keyboard,
 	Loader2,
 	LogOut,
+	MessageSquare,
 	Network,
 	NotebookPen,
 	PanelLeftClose,
@@ -41,7 +42,6 @@ import {
 	Trash2,
 	User,
 	X,
-	Zap,
 } from "lucide-svelte";
 import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
@@ -121,7 +121,6 @@ import {
 	ALL_CHATS_LABEL_ID,
 	buildOptimisticWebAppLabelSessionItem,
 	findDefaultExpandedLabelId,
-	findSourceRootLabel,
 	findWebAppSourceLabel,
 	getDisplayLabels,
 	getSourceLabels,
@@ -260,6 +259,7 @@ let billingSubscriptionName = $state<string | null>(null);
 const modelsCatalog = $derived(modelsCatalogStore.items);
 
 let checkpointsCollapsed = $state(false);
+let chatsCollapsed = $state(false);
 let labelsCollapsed = $state(false);
 let labelDropTargetId = $state<string | null>(null);
 let labelDropBusyId = $state<string | null>(null);
@@ -439,7 +439,6 @@ const currentLoadingLabelIds = $derived(
 		? (loadingLabelIdsBySpace[currentSpaceId] ?? new Set<string>())
 		: new Set<string>(),
 );
-const sourceRootLabel = $derived(findSourceRootLabel(labels));
 const sourceLabels = $derived(getSourceLabels(labels));
 const systemUserLabels = $derived(getSystemUserLabels(labels));
 const displayLabels = $derived(getDisplayLabels(labels));
@@ -3036,33 +3035,65 @@ $effect(() => {
 			<div class="mt-1 space-y-[1px]">
 				{#if loadingLabels && labels.length === 0}
 					{@render sidebarEmptyState("Loading labels…", true)}
-				{:else if labels.length === 0 && sessions.length === 0}
+				{:else if displayLabels.length === 0}
 					<div class="px-6 py-1.5 text-[12px] text-text-tertiary">No labels yet</div>
 				{:else}
 					{@render labelTreeRows(displayLabels)}
-					{#each sourceLabels as label (label.id)}
-						<div
-							role="button"
-							tabindex="0"
-							class="label-tree-row group/label"
-							class:drop-target={labelDropTargetId === label.id}
-							class:drop-busy={labelDropBusyId === label.id}
-							class:drop-success={labelDropSuccessId === label.id}
-							class:drop-error={labelDropErrorId === label.id}
-							onclick={() => handleLabelRowClick(label)}
-							onkeydown={(event) => handleLabelRowKeydown(event, label)}
-							ondragover={(event) => handleLabelDragOver(event, label)}
-							ondragleave={(event) => handleLabelDragLeave(event, label)}
-							ondrop={(event) => handleLabelDrop(event, label)}
-						>
-							<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
-							<span class="min-w-0 flex-1 truncate" title={`Source / ${getReactiveLabelDisplayTitle(label)}`}>{getReactiveLabelDisplayName(label)}</span>
-						</div>
-						{@render labelAssignmentRows(label, 0)}
-					{/each}
-					{@render labelTreeRows(systemUserLabels)}
 				{/if}
-				{@render allChatsLabelRow()}
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet sourceLabelRows()}
+	{#each sourceLabels as label (label.id)}
+		<div
+			role="button"
+			tabindex="0"
+			class="label-tree-row group/label"
+			class:drop-target={labelDropTargetId === label.id}
+			class:drop-busy={labelDropBusyId === label.id}
+			class:drop-success={labelDropSuccessId === label.id}
+			class:drop-error={labelDropErrorId === label.id}
+			onclick={() => handleLabelRowClick(label)}
+			onkeydown={(event) => handleLabelRowKeydown(event, label)}
+			ondragover={(event) => handleLabelDragOver(event, label)}
+			ondragleave={(event) => handleLabelDragLeave(event, label)}
+			ondrop={(event) => handleLabelDrop(event, label)}
+		>
+			<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(label.id) ? '' : '-rotate-90'}" />
+			<span class="min-w-0 flex-1 truncate" title={`Source / ${getReactiveLabelDisplayTitle(label)}`}>{getReactiveLabelDisplayName(label)}</span>
+		</div>
+		{@render labelAssignmentRows(label, 0)}
+	{/each}
+{/snippet}
+
+{#snippet chatsSection(showHeader = true)}
+	<div class={showHeader ? "mt-2" : "mt-0"}>
+		{#if showHeader}
+			<div
+				class="flex w-full cursor-pointer items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-left transition-colors duration-100 hover:bg-bg-hover"
+				onclick={() => { chatsCollapsed = !chatsCollapsed; }}
+				title={chatsCollapsed ? "Expand chats" : "Collapse chats"}
+				role="button"
+				tabindex="0"
+				onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chatsCollapsed = !chatsCollapsed; } }}
+			>
+				<ChevronDown class="h-3 w-3 shrink-0 text-text-tertiary transition-transform duration-150 {chatsCollapsed ? 'rotate-180' : ''}" />
+				<MessageSquare class="h-3.5 w-3.5 shrink-0 text-text-placeholder" />
+				<span class="text-[11px] text-text-placeholder select-none">Chats</span>
+				{@render syncSpinner(refreshingSessions, "ml-auto")}
+			</div>
+		{/if}
+		{#if !showHeader || !chatsCollapsed}
+			<div class="mt-1 space-y-[1px]">
+				{#if loadingLabels && labels.length === 0 && loadingSessions && sessions.length === 0}
+					{@render sidebarEmptyState("Loading chats…", true)}
+				{:else}
+					{@render sourceLabelRows()}
+					{@render labelTreeRows(systemUserLabels)}
+					{@render allChatsLabelRow()}
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -3077,7 +3108,7 @@ $effect(() => {
 		onkeydown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleLabelExpanded(ALL_CHATS_LABEL_ID); } }}
 	>
 		<ChevronDown class="h-3 w-3 shrink-0 transition-transform {currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID) ? '' : '-rotate-90'}" />
-		<span class="min-w-0 flex-1 truncate" title="All chats">All Chats</span>
+		<span class="min-w-0 flex-1 truncate" title="All chats">All</span>
 		{@render syncSpinner(refreshingSessions, "ml-auto")}
 	</div>
 	{#if currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID)}
@@ -3301,7 +3332,7 @@ $effect(() => {
         {#if currentSpace}
           <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
           <nav class="mt-2 flex w-full flex-1 flex-col items-center gap-1 overflow-visible">
-            <SidebarFlyout label="Labels" active={Boolean(activeSession || activeLabelResource)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+            <SidebarFlyout label="Labels" active={Boolean(activeLabelResource)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
                 <Tags class="h-4 w-4" />
               {/snippet}
@@ -3319,6 +3350,12 @@ $effect(() => {
                 {/snippet}
               {/if}
               {@render labelsSection(false)}
+            </SidebarFlyout>
+            <SidebarFlyout label="Chats" active={Boolean(activeSession)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
+              {#snippet trigger()}
+                <MessageSquare class="h-4 w-4" />
+              {/snippet}
+              {@render chatsSection(false)}
             </SidebarFlyout>
             <SidebarFlyout label="Works" active={Boolean(activeWork)} onTriggerClick={() => uiState.setLeftSidebarCollapsed(false)}>
               {#snippet trigger()}
@@ -3528,6 +3565,7 @@ $effect(() => {
           </div>
         {:else}
           {@render labelsSection()}
+          {@render chatsSection()}
 
           <!-- Works -->
           <div class="mt-3">
