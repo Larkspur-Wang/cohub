@@ -19,6 +19,7 @@ import { page } from "$app/state";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
 import { ensureAuth } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
@@ -120,25 +121,17 @@ function updateEnvValue(index: number, value: string) {
 	);
 }
 
-function setChannelModel(channelId: string, value: string) {
-	const trimmed = value.trim();
-	const separatorIndex = trimmed.indexOf("/");
-	const provider =
-		separatorIndex >= 0 ? trimmed.slice(0, separatorIndex).trim() : "";
-	const id =
-		separatorIndex >= 0 ? trimmed.slice(separatorIndex + 1).trim() : "";
+function setChannelModel(
+	channelId: string,
+	model: { provider: string; id: string } | null,
+) {
 	channelConfigById = {
 		...channelConfigById,
 		[channelId]: {
 			...(channelConfigById[channelId] ?? {}),
-			model: provider && id ? { provider, id } : null,
+			model,
 		},
 	};
-}
-
-function getChannelModelInput(channelId: string) {
-	const model = channelConfigById[channelId]?.model;
-	return model?.provider && model.id ? `${model.provider}/${model.id}` : "";
 }
 
 function updateDiscordConfig(
@@ -471,7 +464,7 @@ async function handleSubmit(event: SubmitEvent) {
           {:else}
             <div class="space-y-2">
               {#each channels as channel (channel.id)}
-                <label class="block rounded-[6px] border border-border-subtle bg-bg-code p-3 transition-colors hover:border-border-primary">
+                <div class="block rounded-[6px] border border-border-subtle bg-bg-code p-3 transition-colors hover:border-border-primary">
                   <div class="flex items-start gap-3">
                     <input
                       type="checkbox"
@@ -486,12 +479,12 @@ async function handleSubmit(event: SubmitEvent) {
                       </div>
 
                       {#if selectedChannelIds.includes(channel.id)}
-                        <input
-                          value={getChannelModelInput(channel.id)}
-                          oninput={(event) => setChannelModel(channel.id, event.currentTarget.value)}
-                          placeholder="Default model · provider/model-id"
-                          class="mt-3 min-h-8 w-full rounded-[6px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none"
-                        />
+                        <div class="mt-3">
+                          <ChannelModelPicker
+                            model={channelConfigById[channel.id]?.model ?? null}
+                            onSelect={(model) => setChannelModel(channel.id, model)}
+                          />
+                        </div>
                       {/if}
 
                       {#if selectedChannelIds.includes(channel.id) && channel.provider === "discord"}
@@ -531,7 +524,7 @@ async function handleSubmit(event: SubmitEvent) {
                       {/if}
                     </div>
                   </div>
-                </label>
+                </div>
               {/each}
             </div>
           {/if}
