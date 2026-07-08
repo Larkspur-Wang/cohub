@@ -1,0 +1,198 @@
+/* --- Neta Studio Theme --- */
+/* Warm walnut-desk palette inspired by Neta Studio: dark warm-brown
+   "desk" backgrounds, cream / parchment foreground, and a gold accent.
+   Reference tokens (Neta Studio globals.css):
+     desk        #1a1410 / #0a0a0a
+     cream       #f4ecd9 / #ece1d2 / #c8b89c
+     gold        #c9a961 / #d9bb74 / #b09349
+   The scales below are expressed in oklch so they interoperate with the
+   rest of the design system (color-mix, semantic tokens) while staying
+   faithful to the warm hue (~65) and low chroma of the source palette. */
+[data-theme="neta-studio"] {
+	color-scheme: dark;
+
+	/* Neutral scale — warm walnut tint (hue ~65), cream at the top,
+	   deep espresso-brown desk at the bottom. */
+	--neutral-0: oklch(93% 0.02 80); /* #f4ecd9 cream primary */
+	--neutral-5: oklch(89% 0.022 80); /* #ece1d2 cream */
+	--neutral-10: oklch(78% 0.026 78); /* #c8b89c cream secondary */
+	--neutral-20: oklch(64% 0.028 72); /* #8a7e6a cream tertiary */
+	--neutral-30: oklch(52% 0.026 68); /* muted supporting */
+	--neutral-40: oklch(46% 0.026 66); /* #5a5247 cream disabled */
+	--neutral-50: oklch(40% 0.028 64);
+	--neutral-60: oklch(34% 0.03 60); /* #362a1d surface 3 */
+	--neutral-70: oklch(29% 0.03 58); /* #2d2218 surface 2 */
+	--neutral-80: oklch(25% 0.028 56); /* #241b14 surface 1 */
+	--neutral-90: oklch(20% 0.026 54); /* #1a1410 desk */
+	--neutral-95: oklch(16.5% 0.022 52); /* deeper desk */
+	--neutral-100: oklch(12% 0.016 50); /* #0a0a0a-ish deepest */
+
+	/* Brand scale — Neta gold (#c9a961), warm and restrained. */
+	--brand-50: oklch(95% 0.03 85);
+	--brand-100: oklch(90% 0.05 85);
+	--brand-200: oklch(84% 0.07 85);
+	--brand-300: oklch(80% 0.085 85);
+	--brand-400: oklch(76% 0.095 85); /* base — #c9a961 */
+	--brand-500: oklch(80% 0.1 86); /* hover — #d9bb74 */
+	--brand-600: oklch(70% 0.09 84); /* pressed — #b09349 */
+	--brand-700: oklch(55% 0.075 82);
+	--brand-800: oklch(42% 0.06 80);
+	--brand-900: oklch(32% 0.045 78);
+	--brand-bg: color-mix(in srgb, var(--brand) 16%, var(--bg-content));
+
+	/* Semantic colors — warm-leaning, tuned to the parchment palette. */
+	--success-400: oklch(76% 0.11 140);
+	--success-500: oklch(68% 0.12 140);
+	--success-700: oklch(48% 0.09 140);
+	--success-900: oklch(26% 0.05 140);
+
+	--warning-400: oklch(82% 0.12 82);
+	--warning-500: oklch(75% 0.13 82);
+	--warning-700: oklch(53% 0.1 82);
+	--warning-900: oklch(28% 0.05 82);
+
+	/* Error — warm red matching Neta's #e0726c sync-error accent. */
+	--error-400: oklch(70% 0.15 30);
+	--error-500: oklch(64% 0.17 30);
+	--error-700: oklch(45% 0.13 30);
+	--error-fg: var(--neutral-0);
+	--error-900: oklch(25% 0.06 30);
+
+	--info-400: oklch(72% 0.1 230);
+	--info-500: oklch(64% 0.12 230);
+	--info-700: oklch(44% 0.1 230);
+	--info-900: oklch(24% 0.05 230);
+
+	/* Backgrounds — layered walnut desk. */
+	--bg-primary: var(--neutral-95); /* deepest desk */
+	--bg-content: var(--neutral-90); /* main desk #1a1410 */
+	--bg-surface: var(--neutral-80); /* cards #241b14 */
+	--bg-surface-hover: var(--neutral-70); /* #2d2218 */
+	--bg-elevated: var(--neutral-60); /* overlays #362a1d */
+	--bg-input: var(--neutral-95);
+	--bg-code: var(--neutral-100); /* deepest for code */
+	--bg-header-alt: var(--neutral-80);
+
+	/* Text — cream on walnut. */
+	--text-primary: var(--neutral-0); /* #f4ecd9 */
+	--text-reading: var(--neutral-5); /* #ece1d2 */
+	--text-secondary: var(--neutral-10); /* #c8b89c */
+	--text-tertiary: var(--neutral-20); /* #8a7e6a */
+	--text-placeholder: var(--neutral-30);
+	--text-disabled: var(--neutral-40); /* #5a5247 */
+
+	/* Borders — cream hairlines over dark desk. */
+	--border-primary: var(--neutral-60);
+	--border-subtle: var(--neutral-70);
+
+	/* Interactive states — warm cream washes (echo --neta-hover-bg). */
+	--bg-hover: oklch(26% 0.028 56 / 1);
+	--bg-hover-strong: oklch(31% 0.03 58 / 1);
+	--bg-active: oklch(36% 0.032 60 / 1);
+
+	/* Scrollbar */
+	--scrollbar-thumb: var(--neutral-50);
+	--scrollbar-thumb-hover: var(--neutral-30);
+
+	/* Selection */
+	--selection-bg: color-mix(in srgb, var(--brand) 30%, var(--bg-content));
+	--divider-muted: color-mix(in srgb, var(--border-subtle) 60%, transparent);
+
+	/* Brand semantics */
+	--brand: var(--brand-400);
+	--brand-hover: var(--brand-500);
+	--brand-soft: var(--brand-700);
+	--brand-contrast-fg: var(--neutral-100); /* dark ink on gold */
+	--brand-muted-fg: var(--brand);
+	--brand-muted: color-mix(in srgb, var(--brand) 11%, transparent);
+	--brand-muted-hover: color-mix(in srgb, var(--brand) 16%, transparent);
+	--brand-border: color-mix(in srgb, var(--brand) 24%, transparent);
+
+	/* Overlays */
+	--overlay-scrim: oklch(0% 0 0 / 0.62);
+	--overlay-scrim-strong: oklch(0% 0 0 / 0.86);
+	--overlay-control-bg: oklch(100% 0 0 / 0.1);
+	--overlay-control-bg-hover: oklch(100% 0 0 / 0.18);
+	--overlay-control-text: var(--neutral-0);
+
+	/* Provider colors */
+	--provider-discord: oklch(62% 0.16 275);
+	--provider-discord-bg: color-mix(
+		in srgb,
+		var(--provider-discord) 10%,
+		transparent
+	);
+	--provider-discord-bg-hover: color-mix(
+		in srgb,
+		var(--provider-discord) 14%,
+		transparent
+	);
+	--provider-discord-border: color-mix(
+		in srgb,
+		var(--provider-discord) 22%,
+		transparent
+	);
+	--provider-discord-border-hover: color-mix(
+		in srgb,
+		var(--provider-discord) 42%,
+		transparent
+	);
+	--provider-feishu: oklch(70% 0.12 220);
+	--provider-feishu-bg: color-mix(
+		in srgb,
+		var(--provider-feishu) 10%,
+		transparent
+	);
+	--provider-feishu-bg-hover: color-mix(
+		in srgb,
+		var(--provider-feishu) 14%,
+		transparent
+	);
+	--provider-feishu-border: color-mix(
+		in srgb,
+		var(--provider-feishu) 22%,
+		transparent
+	);
+	--provider-feishu-border-hover: color-mix(
+		in srgb,
+		var(--provider-feishu) 42%,
+		transparent
+	);
+	--provider-wechat: oklch(72% 0.14 160);
+	--provider-wechat-bg: color-mix(
+		in srgb,
+		var(--provider-wechat) 10%,
+		transparent
+	);
+	--provider-wechat-bg-hover: color-mix(
+		in srgb,
+		var(--provider-wechat) 14%,
+		transparent
+	);
+	--provider-wechat-border: color-mix(
+		in srgb,
+		var(--provider-wechat) 22%,
+		transparent
+	);
+	--provider-wechat-border-hover: color-mix(
+		in srgb,
+		var(--provider-wechat) 42%,
+		transparent
+	);
+
+	/* Effects */
+	--shadow-subtle: oklch(0% 0 0 / 0.12);
+	--shadow-medium: oklch(0% 0 0 / 0.22);
+	--shadow-strong: oklch(0% 0 0 / 0.34);
+	--brand-ring: color-mix(in srgb, var(--brand) 28%, transparent);
+	--mask-opaque: black;
+	--avatar-placeholder-bg: var(--bg-hover-strong);
+	--avatar-placeholder-fg: var(--text-placeholder);
+
+	/* Data visualizations */
+	--heatmap-0: var(--bg-elevated);
+	--heatmap-1: color-mix(in srgb, var(--brand) 35%, transparent);
+	--heatmap-2: color-mix(in srgb, var(--brand) 55%, transparent);
+	--heatmap-3: color-mix(in srgb, var(--brand) 75%, transparent);
+	--heatmap-4: color-mix(in srgb, var(--brand) 95%, transparent);
+}

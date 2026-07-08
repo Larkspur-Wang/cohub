@@ -2,6 +2,7 @@
 @import "./themes/light.css";
 @import "./themes/solarized-dark.css";
 @import "./themes/solarized-light.css";
+@import "./themes/neta-studio.css";
 
 /* ============================================================
    Tailwind v4 @theme — semantic design tokens
@@ -132,7 +133,8 @@ html[data-theme-transition="circle"]::view-transition-old(root) {
 }
 
 html[data-theme-transition="circle"]::view-transition-new(root) {
-	animation: theme-circle-reveal var(--theme-transition-duration) var(--theme-transition-ease) both;
+	animation: theme-circle-reveal var(--theme-transition-duration)
+		var(--theme-transition-ease) both;
 	mix-blend-mode: normal;
 }
 
@@ -141,7 +143,10 @@ html[data-theme-transition="circle"]::view-transition-new(root) {
 		clip-path: circle(0 at var(--theme-transition-x) var(--theme-transition-y));
 	}
 	to {
-		clip-path: circle(var(--theme-transition-radius) at var(--theme-transition-x) var(--theme-transition-y));
+		clip-path: circle(
+			var(--theme-transition-radius) at var(--theme-transition-x)
+				var(--theme-transition-y)
+		);
 	}
 }
 

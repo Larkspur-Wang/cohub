@@ -5,10 +5,25 @@ export const RESOLVED_THEMES = [
 	"light",
 	"solarized-dark",
 	"solarized-light",
+	"neta-studio",
 ] as const;
 
 export type ResolvedTheme = (typeof RESOLVED_THEMES)[number];
 export type ThemeMode = ResolvedTheme | "system";
+
+export type ThemeMetadata = {
+	value: ResolvedTheme;
+	label: string;
+	description: string;
+	themeColor: string;
+	isDark: boolean;
+	shikiTheme:
+		| "github-dark"
+		| "github-light"
+		| "solarized-dark"
+		| "solarized-light";
+	mermaidVariables: Record<string, string>;
+};
 
 export type ThemeOption = {
 	value: ThemeMode;
@@ -16,27 +31,90 @@ export type ThemeOption = {
 	description: string;
 };
 
-export const THEME_OPTIONS: ThemeOption[] = [
-	{
+export const THEME_REGISTRY = {
+	dark: {
 		value: "dark",
 		label: "Dark",
 		description: "Always use the default dark theme",
+		themeColor: "#1F2026",
+		isDark: true,
+		shikiTheme: "github-dark",
+		mermaidVariables: {
+			lineColor: "#5A5B66",
+			primaryColor: "#33343B",
+			primaryTextColor: "#ECEEF2",
+			secondaryColor: "#3F4048",
+			tertiaryColor: "#4E4F59",
+		},
 	},
-	{
+	light: {
 		value: "light",
 		label: "Light",
 		description: "Always use the default light theme",
+		themeColor: "#F8F8FA",
+		isDark: false,
+		shikiTheme: "github-light",
+		mermaidVariables: {
+			lineColor: "#D0D1D7",
+			primaryColor: "#F2F2F5",
+			primaryTextColor: "#22232A",
+			secondaryColor: "#E8E8EC",
+			tertiaryColor: "#FFFFFF",
+		},
 	},
-	{
+	"solarized-dark": {
 		value: "solarized-dark",
 		label: "Solarized Dark",
 		description: "A calm low-contrast dark theme for long sessions",
+		themeColor: "#002B36",
+		isDark: true,
+		shikiTheme: "solarized-dark",
+		mermaidVariables: {
+			lineColor: "#4E6770",
+			primaryColor: "#12343D",
+			primaryTextColor: "#F3E9C5",
+			secondaryColor: "#173F49",
+			tertiaryColor: "#214A53",
+		},
 	},
-	{
+	"solarized-light": {
 		value: "solarized-light",
 		label: "Solarized Light",
 		description: "A warm light theme tuned for reading and code",
+		themeColor: "#FDF6E3",
+		isDark: false,
+		shikiTheme: "solarized-light",
+		mermaidVariables: {
+			lineColor: "#D9CC9E",
+			primaryColor: "#F6EFCF",
+			primaryTextColor: "#3A3524",
+			secondaryColor: "#EFE4BC",
+			tertiaryColor: "#FDF6E3",
+		},
 	},
+	"neta-studio": {
+		value: "neta-studio",
+		label: "Neta Studio",
+		description: "A warm walnut-desk theme with cream ink and gold accents",
+		themeColor: "#1A1410",
+		isDark: true,
+		shikiTheme: "github-dark",
+		mermaidVariables: {
+			lineColor: "#5A5247",
+			primaryColor: "#241B14",
+			primaryTextColor: "#ECE1D2",
+			secondaryColor: "#2D2218",
+			tertiaryColor: "#362A1D",
+		},
+	},
+} satisfies Record<ResolvedTheme, ThemeMetadata>;
+
+export const THEME_OPTIONS: ThemeOption[] = [
+	...RESOLVED_THEMES.map((theme) => ({
+		value: theme,
+		label: THEME_REGISTRY[theme].label,
+		description: THEME_REGISTRY[theme].description,
+	})),
 	{
 		value: "system",
 		label: "System",
@@ -44,12 +122,9 @@ export const THEME_OPTIONS: ThemeOption[] = [
 	},
 ];
 
-export const THEME_COLOR: Record<ResolvedTheme, string> = {
-	dark: "#1F2026",
-	light: "#F8F8FA",
-	"solarized-dark": "#002B36",
-	"solarized-light": "#FDF6E3",
-};
+export const THEME_COLOR: Record<ResolvedTheme, string> = Object.fromEntries(
+	RESOLVED_THEMES.map((theme) => [theme, THEME_REGISTRY[theme].themeColor]),
+) as Record<ResolvedTheme, string>;
 
 export function isResolvedTheme(value: string | null): value is ResolvedTheme {
 	return RESOLVED_THEMES.includes(value as ResolvedTheme);
@@ -60,7 +135,7 @@ export function isThemeMode(value: string | null): value is ThemeMode {
 }
 
 export function isDarkTheme(theme: ResolvedTheme): boolean {
-	return theme === "dark" || theme === "solarized-dark";
+	return THEME_REGISTRY[theme].isDark;
 }
 
 export function getSystemTheme(): ResolvedTheme {

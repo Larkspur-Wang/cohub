@@ -476,8 +476,7 @@ body.drawer-open {
 
 .streaming-tail {
 	opacity: 0;
-	animation: streaming-tail-enter 180ms cubic-bezier(0.22, 1, 0.36, 1)
-		forwards;
+	animation: streaming-tail-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .streaming-tail-muted {
@@ -1083,6 +1082,15 @@ body.drawer-open {
 
 [data-theme="solarized-dark"] .markdown-content .shiki {
 	background-color: var(--shiki-solarized-dark-bg, var(--shiki-dark-bg));
+}
+
+[data-theme="neta-studio"] .markdown-content .shiki,
+[data-theme="neta-studio"] .markdown-content .shiki span {
+	color: var(--shiki-neta-studio, var(--shiki-dark));
+}
+
+[data-theme="neta-studio"] .markdown-content .shiki {
+	background-color: var(--shiki-neta-studio-bg, var(--bg-code));
 }
 
 .markdown-code-copy {

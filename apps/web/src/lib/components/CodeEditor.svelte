@@ -201,6 +201,20 @@ const EDITOR_PALETTES: Record<ResolvedTheme, EditorPalette> = {
 		comment: "#93a1a1",
 		invalid: "#dc322f",
 	},
+	"neta-studio": {
+		background: "var(--bg-code)",
+		foreground: "var(--text-reading)",
+		muted: "var(--text-tertiary)",
+		selection: "color-mix(in srgb, var(--brand) 26%, transparent)",
+		activeLine: "color-mix(in srgb, var(--bg-hover-strong) 46%, transparent)",
+		keyword: "oklch(78% 0.1 30)",
+		atom: "oklch(80% 0.1 85)",
+		string: "oklch(76% 0.1 140)",
+		definition: "oklch(76% 0.09 210)",
+		variable: "var(--text-reading)",
+		comment: "var(--text-placeholder)",
+		invalid: "var(--error-400)",
+	},
 };
 
 function getThemeExtension(theme: ResolvedTheme): Extension {

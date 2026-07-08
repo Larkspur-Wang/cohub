@@ -1,4 +1,9 @@
-import { isDarkTheme, type ResolvedTheme } from "$lib/theme-registry";
+import {
+	isDarkTheme,
+	isResolvedTheme,
+	type ResolvedTheme,
+	THEME_REGISTRY,
+} from "$lib/theme-registry";
 
 type MermaidApi = typeof import("mermaid").default;
 
@@ -12,37 +17,6 @@ const MAX_SCALE = 2.5;
 const DEFAULT_MAX_WIDTH = 860;
 const DEFAULT_MIN_SCALE = 0.72;
 
-const MERMAID_THEME_VARIABLES = {
-	dark: {
-		lineColor: "#5A5B66",
-		primaryColor: "#33343B",
-		primaryTextColor: "#ECEEF2",
-		secondaryColor: "#3F4048",
-		tertiaryColor: "#4E4F59",
-	},
-	light: {
-		lineColor: "#D0D1D7",
-		primaryColor: "#F2F2F5",
-		primaryTextColor: "#22232A",
-		secondaryColor: "#E8E8EC",
-		tertiaryColor: "#FFFFFF",
-	},
-	"solarized-dark": {
-		lineColor: "#4E6770",
-		primaryColor: "#12343D",
-		primaryTextColor: "#F3E9C5",
-		secondaryColor: "#173F49",
-		tertiaryColor: "#214A53",
-	},
-	"solarized-light": {
-		lineColor: "#D9CC9E",
-		primaryColor: "#F6EFCF",
-		primaryTextColor: "#3A3524",
-		secondaryColor: "#EFE4BC",
-		tertiaryColor: "#FDF6E3",
-	},
-} satisfies Record<ResolvedTheme, Record<string, string>>;
-
 let mermaidPromise: Promise<MermaidApi> | null = null;
 let renderSeq = 0;
 let currentTheme: ResolvedTheme | null = null;
@@ -54,15 +28,7 @@ function getMermaid() {
 
 function resolveTheme(): ResolvedTheme {
 	const theme = document.documentElement.getAttribute("data-theme");
-	if (
-		theme === "dark" ||
-		theme === "light" ||
-		theme === "solarized-dark" ||
-		theme === "solarized-light"
-	) {
-		return theme;
-	}
-	return "dark";
+	return isResolvedTheme(theme) ? theme : "dark";
 }
 
 function initializeMermaid(mermaid: MermaidApi, theme: ResolvedTheme) {
@@ -75,7 +41,7 @@ function initializeMermaid(mermaid: MermaidApi, theme: ResolvedTheme) {
 		theme: isDarkTheme(theme) ? "dark" : "default",
 		themeVariables: {
 			fontFamily: FONT_FAMILY,
-			...MERMAID_THEME_VARIABLES[theme],
+			...THEME_REGISTRY[theme].mermaidVariables,
 		},
 	});
 }

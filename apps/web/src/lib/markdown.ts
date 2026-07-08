@@ -7,9 +7,13 @@ import {
 	type LanguageRegistration,
 } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { RESOLVED_THEMES, THEME_REGISTRY } from "$lib/theme-registry";
 
 const MARKDOWN_RENDER_CACHE_LIMIT = 256;
 const STREAMING_MARKDOWN_TAIL_PLAIN_THRESHOLD = 1_800;
+const SHIKI_THEME_MAP = Object.fromEntries(
+	RESOLVED_THEMES.map((theme) => [theme, THEME_REGISTRY[theme].shikiTheme]),
+);
 const markdownRenderCache = new Map<string, Promise<string>>();
 
 function cacheMarkdownRender(key: string, render: () => Promise<string>) {
@@ -199,12 +203,7 @@ async function highlightCodeTokens(tokens: Token[]) {
 			try {
 				const highlighted = highlighter.codeToHtml(token.text, {
 					lang,
-					themes: {
-						light: "github-light",
-						dark: "github-dark",
-						"solarized-light": "solarized-light",
-						"solarized-dark": "solarized-dark",
-					},
+					themes: SHIKI_THEME_MAP,
 					defaultColor: false,
 				});
 

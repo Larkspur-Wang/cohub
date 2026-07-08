@@ -12,6 +12,7 @@ const themeIcon = {
 	light: Sun,
 	"solarized-dark": Palette,
 	"solarized-light": Palette,
+	"neta-studio": Palette,
 	system: Monitor,
 } satisfies Record<ThemeMode, typeof Sun>;
 
