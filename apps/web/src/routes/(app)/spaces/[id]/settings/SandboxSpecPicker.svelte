@@ -21,7 +21,6 @@ const props = $props<{
 	appliedSpec?: SandboxSpecId | null;
 	allowedSpec: SandboxSpecId;
 	specs: Record<string, SandboxSpec>;
-	saving?: boolean;
 	onClose: () => void;
 	onSelect: (spec: SandboxSpecId) => void;
 	onUpgrade: (spec: SandboxSpecId) => void;
@@ -68,9 +67,9 @@ function choose(spec: SandboxSpec) {
 				<button
 					type="button"
 					class="w-full rounded-[8px] border p-3.5 text-left transition-colors {selected
-						? 'border-brand/50 bg-brand-bg'
+						? 'cursor-default border-brand/50 bg-brand-bg'
 						: 'border-border-subtle bg-bg-content hover:border-border-primary'}"
-					disabled={props.saving}
+					aria-current={selected}
 					onclick={() => choose(spec)}
 				>
 					<div class="flex items-center justify-between gap-3">

@@ -187,6 +187,9 @@ let sandboxSpecs =
 	$state<Record<string, SandboxSpecOption>>(defaultSandboxSpecs);
 let specPickerOpen = $state(false);
 let savingSandboxSpec = $state(false);
+let sandboxSpecMessage = $state("");
+let sandboxSpecError = $state("");
+let sandboxSpecMessageTimer: ReturnType<typeof setTimeout> | null = null;
 let renamingSpace = $state(false);
 let renameInput = $state("");
 let renameSaving = $state(false);
@@ -236,6 +239,7 @@ onDestroy(() => {
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
 	if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
 	if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
+	if (sandboxSpecMessageTimer) clearTimeout(sandboxSpecMessageTimer);
 });
 
 function getSpaceAutoDestroyPolicy(
@@ -301,30 +305,42 @@ function openSandboxSpecUpgrade(specId: SandboxSpecId) {
 	});
 }
 
+function setSandboxSpecMessage(message: string) {
+	sandboxSpecMessage = message;
+	if (sandboxSpecMessageTimer) clearTimeout(sandboxSpecMessageTimer);
+	sandboxSpecMessageTimer = setTimeout(() => {
+		sandboxSpecMessage = "";
+	}, 4000);
+}
+
 async function saveSandboxSpec(spec: SandboxSpecId) {
 	if (!canManageSpaceSandbox || savingSandboxSpec) return;
+	specPickerOpen = false;
+	if (spec === sandboxSpec) return;
+	// Optimistic: reflect the choice immediately, save in the background.
+	const previousSpec = sandboxSpec;
+	sandboxSpec = spec;
 	savingSandboxSpec = true;
-	sandboxConfigMessage = "";
-	sandboxConfigError = "";
+	sandboxSpecMessage = "";
+	sandboxSpecError = "";
 	try {
 		const result = await sdk.space(spaceId).updateConfig({ sandbox: { spec } });
 		space = result.space;
 		cacheSpaceRecordSoon(result.space);
 		applySandboxConfigFromSpace(result.space);
-		sandboxSpec = spec;
-		await Promise.all([loadSandboxConfig(), loadSandbox()]);
-		specPickerOpen = false;
+		void Promise.all([loadSandboxConfig(), loadSandbox()]);
 		const sandboxResult = (
 			result as unknown as {
 				sandbox?: { pendingRestart?: boolean; resized?: boolean };
 			}
 		).sandbox;
-		sandboxConfigMessage = sandboxResult?.pendingRestart
-			? "Saved. Applies after restart."
-			: sandboxResult?.resized
-				? "Spec updated."
-				: "Spec saved.";
+		setSandboxSpecMessage(
+			sandboxResult?.pendingRestart
+				? "Saved. Applies after restart."
+				: "Spec updated.",
+		);
 	} catch (err) {
+		sandboxSpec = previousSpec;
 		if (err instanceof HttpError && err.status === 402 && isRecord(err.body)) {
 			const billing = isRecord(err.body.billing) ? err.body.billing : null;
 			if (billing?.conversion)
@@ -334,7 +350,7 @@ async function saveSandboxSpec(spec: SandboxSpecId) {
 					>[0],
 				);
 		}
-		sandboxConfigError =
+		sandboxSpecError =
 			err instanceof Error ? err.message : "Failed to save sandbox spec";
 	} finally {
 		savingSandboxSpec = false;
@@ -1620,16 +1636,24 @@ $effect(() => {
 						<!-- Settings rows -->
 						<div class="divide-y divide-border-subtle border-b border-border-subtle">
 							<!-- Compute spec -->
-							<div class="flex items-center justify-between gap-4 py-4">
-								<div class="min-w-0">
-									<div class="text-[13px] text-text-primary">Compute spec</div>
-									<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-										<span class="text-[12px] font-medium text-text-secondary">{getSandboxSpecLabel(sandboxSpec)}</span>
-										<span class="font-mono text-[11px] text-text-tertiary">{getSandboxSpecSummary(sandboxSpec)}</span>
-										{#if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec}<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart pending</span>{/if}
+							<div class="py-4">
+								<div class="flex items-center justify-between gap-4">
+									<div class="min-w-0">
+										<div class="text-[13px] text-text-primary">Compute spec</div>
+										<div class="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+											<span class="text-[12px] font-medium text-text-secondary">{getSandboxSpecLabel(sandboxSpec)}</span>
+											<span class="font-mono text-[11px] text-text-tertiary">{getSandboxSpecSummary(sandboxSpec)}</span>
+											{#if savingSandboxSpec}
+												<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
+											{:else if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec}
+												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart pending</span>
+											{/if}
+										</div>
 									</div>
+									<button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Zap class="h-3.5 w-3.5" /> Change</button>
 								</div>
-								<button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox || savingSandboxSpec} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Zap class="h-3.5 w-3.5" />{savingSandboxSpec ? "Saving…" : "Change"}</button>
+								{#if sandboxSpecError}<p class="mt-1.5 text-[12px] text-error-soft break-words">{sandboxSpecError}</p>{/if}
+								{#if sandboxSpecMessage}<p class="mt-1.5 text-[12px] text-success-soft">{sandboxSpecMessage}</p>{/if}
 							</div>
 
 							<!-- Hibernate policy -->
@@ -1711,7 +1735,6 @@ $effect(() => {
 	appliedSpec={appliedSandboxSpec}
 	allowedSpec={allowedSandboxSpec}
 	specs={sandboxSpecs}
-	saving={savingSandboxSpec}
 	onClose={() => (specPickerOpen = false)}
 	onSelect={saveSandboxSpec}
 	onUpgrade={openSandboxSpecUpgrade}
