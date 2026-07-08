@@ -147,6 +147,7 @@ let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
 let sandboxSpec = $state<SandboxSpecId>("standard");
 let appliedSandboxSpec = $state<SandboxSpecId | null>(null);
+let sandboxSpecPendingRestart = $state(false);
 let allowedSandboxSpec = $state<SandboxSpecId>("standard");
 const defaultSandboxSpecs: Record<string, SandboxSpecOption> = {
 	standard: {
@@ -271,6 +272,7 @@ async function loadSandboxConfig() {
 	const config = result.config.sandbox;
 	sandboxSpec = config.spec ?? "standard";
 	appliedSandboxSpec = config.appliedSpec ?? null;
+	sandboxSpecPendingRestart = config.specPendingRestart === true;
 	allowedSandboxSpec = config.allowedSpec ?? "standard";
 	sandboxSpecs =
 		(config.specs as Record<string, SandboxSpecOption> | undefined) ??
@@ -334,9 +336,10 @@ async function saveSandboxSpec(spec: SandboxSpecId) {
 				sandbox?: { pendingRestart?: boolean; resized?: boolean };
 			}
 		).sandbox;
+		if (sandboxResult?.pendingRestart) sandboxSpecPendingRestart = true;
 		setSandboxSpecMessage(
 			sandboxResult?.pendingRestart
-				? "Saved. Applies on next sandbox start."
+				? "Saved. Restart the sandbox to apply."
 				: "Spec updated.",
 		);
 	} catch (err) {
@@ -691,8 +694,7 @@ function confirmModRestart(): boolean {
 }
 
 function noteModRestart() {
-	modRestartMessage =
-		"Restarting sandbox to apply mod changes.";
+	modRestartMessage = "Restarting sandbox to apply mod changes.";
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 	modRestartTimer = setTimeout(() => {
 		modRestartMessage = "";
@@ -718,7 +720,7 @@ async function forceRecoverSandbox() {
 		sandboxRecoveryMessage = result.verified
 			? "Sandbox recovered."
 			: "Recovery completed.";
-		await loadSandbox();
+		await Promise.all([loadSandbox(), loadSandboxConfig()]);
 	} catch (err) {
 		sandboxRecoveryError =
 			err instanceof Error ? err.message : "Sandbox recovery failed";
@@ -1218,9 +1220,18 @@ async function removeMod(mod: SpaceModListItem) {
 	}
 }
 
-type SettingsSection = "profile" | "access" | "environment" | "channels" | "sandbox";
+type SettingsSection =
+	| "profile"
+	| "access"
+	| "environment"
+	| "channels"
+	| "sandbox";
 
-const settingsSections: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
+const settingsSections: {
+	id: SettingsSection;
+	label: string;
+	icon: typeof Globe;
+}[] = [
 	{ id: "profile", label: "Profile", icon: Globe },
 	{ id: "access", label: "Access", icon: Users },
 	{ id: "environment", label: "Environment", icon: Terminal },
@@ -1645,8 +1656,11 @@ $effect(() => {
 											<span class="font-mono text-[11px] text-text-tertiary">{getSandboxSpecSummary(sandboxSpec)}</span>
 											{#if savingSandboxSpec}
 												<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
-											{:else if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec}
-												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Applies on next start</span>
+											{:else if sandboxSpecPendingRestart || (appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec)}
+												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart to apply</span>
+												{#if canManageSpaceSandbox}
+													<button type="button" onclick={forceRecoverSandbox} disabled={recoveringSandbox} class="inline-flex items-center gap-1 text-[11px] font-medium text-brand transition-colors hover:text-brand-hover disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3 w-3 animate-spin" />{:else}<RefreshCw class="h-3 w-3" />{/if} Restart now</button>
+												{/if}
 											{/if}
 										</div>
 									</div>

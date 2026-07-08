@@ -47,11 +47,6 @@ const getSpaceSandboxSpec = async (spaceId: string): Promise<SandboxSpecId> => {
   return normalizeSandboxSpecId(sandbox.spec);
 };
 
-const getAppliedSandboxSpec = (meta: unknown): SandboxSpecId | null => {
-  const value = asMetaObject(meta).appliedSpec;
-  return value ? normalizeSandboxSpecId(value) : null;
-};
-
 const getAllowedSandboxSpecId = async (userId: string): Promise<SandboxSpecId> => {
   try {
     const state = await billingOperations.getState({ userId });
@@ -104,16 +99,21 @@ const resourcesMatch = (actual: unknown, expected: { limits: Record<string, stri
     && requests.memory === expected.requests.memory;
 };
 
-const waitForSandboxPodResizeApplied = async (input: { podName: string; resources: { limits: Record<string, string>; requests: Record<string, string> }; timeoutMs?: number }) => {
-  const timeoutMs = input.timeoutMs ?? 60_000;
+type SandboxPodResizeOutcome = { status: "applied" } | { status: "pending" } | { status: "timeout" };
+
+const waitForSandboxPodResizeApplied = async (input: { podName: string; resources: { limits: Record<string, string>; requests: Record<string, string> }; timeoutMs?: number }): Promise<SandboxPodResizeOutcome> => {
+  const timeoutMs = input.timeoutMs ?? 15_000;
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const pod = await k8sCoreApi.readNamespacedPod({ name: input.podName, namespace: sessionsNamespace });
     const sandboxStatus = pod.status?.containerStatuses?.find((container) => container.name === "sandbox");
-    if (resourcesMatch((sandboxStatus as { resources?: unknown } | undefined)?.resources, input.resources)) return true;
+    if (resourcesMatch((sandboxStatus as { resources?: unknown } | undefined)?.resources, input.resources)) return { status: "applied" };
+    // kubelet defers or rejects the in-place resize when the node lacks capacity; a restart reschedules the pod.
+    const resizePending = pod.status?.conditions?.some((condition) => condition.type === "PodResizePending" && condition.status === "True") === true;
+    if (resizePending) return { status: "pending" };
     await sleep(1000);
   }
-  return false;
+  return { status: "timeout" };
 };
 
 export const markSandboxSpecPendingRestart = async (input: { spaceId: string; specId: SandboxSpecId; reason: string }) => {
@@ -121,6 +121,7 @@ export const markSandboxSpecPendingRestart = async (input: { spaceId: string; sp
   await mergeSpaceSandboxMeta(input.spaceId, {
     desiredSpec: input.specId,
     desiredSpecResources: spec.resources,
+    specApplying: false,
     specPendingRestart: true,
     specPendingRestartReason: input.reason,
     specPendingRestartAt: new Date().toISOString(),
@@ -165,8 +166,12 @@ export const resizeSpaceSandboxToSpec = async (input: { spaceId: string; specId:
     specPendingRestart: false,
   });
 
-  const applied = await waitForSandboxPodResizeApplied({ podName, resources: spec.resources });
-  if (!applied) return { resized: true, applying: true, pendingRestart: false, message: "pod resize is still applying" };
+  const outcome = await waitForSandboxPodResizeApplied({ podName, resources: spec.resources });
+  if (outcome.status === "pending") {
+    await markSandboxSpecPendingRestart({ spaceId: input.spaceId, specId: input.specId, reason: "resize_deferred" });
+    return { resized: false, pendingRestart: true, message: "restart the sandbox to apply the new spec" };
+  }
+  if (outcome.status === "timeout") return { resized: true, applying: true, pendingRestart: false, message: "pod resize is still applying" };
 
   await mergeSpaceSandboxMeta(input.spaceId, {
     appliedSpec: input.specId,
