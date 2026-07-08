@@ -2,12 +2,6 @@
 
 Cohub SDK for interacting with spaces, sessions, checkpoints, and realtime agent collaboration.
 
-## Guides
-
-| Guide | Path | Covers |
-|---|---|---|
-| **Work Runtime Guide** | [`./docs/work-runtime-guide.md`](./docs/work-runtime-guide.md) | Building a published Work that uses Cohub capabilities from browser-side JS: runtime context, viewer authorization, scope model, LLM chat, image generation, file reads, account-level data, and commerce. **Read this before writing any Work.** |
-
 ## Install
 
 ```bash
