@@ -1,5 +1,5 @@
 <script lang="ts">
-import { X } from "lucide-svelte";
+import { FileText, Globe, MousePointer2, X } from "lucide-svelte";
 
 type PreviewTab = {
 	kind: "file" | "canvas" | "port";
@@ -18,16 +18,17 @@ type Props = {
 
 let { tabs, onActivate, onClose }: Props = $props();
 
-const kindColor: Record<PreviewTab["kind"], string> = {
-	file: "var(--color-text-tertiary)",
-	canvas: "var(--color-brand)",
-	port: "var(--color-success-soft)",
-};
+const kindIcon = {
+	file: FileText,
+	canvas: MousePointer2,
+	port: Globe,
+} as const;
 </script>
 
 {#if tabs.length > 1}
 	<div class="preview-tabs" role="tablist" aria-label="Open previews">
 		{#each tabs as tab (`${tab.kind}:${tab.key}`)}
+			{@const Icon = kindIcon[tab.kind]}
 			<div class="preview-tab-shell" class:active={tab.active}>
 				<button
 					type="button"
@@ -37,7 +38,9 @@ const kindColor: Record<PreviewTab["kind"], string> = {
 					title={tab.title}
 					onclick={() => onActivate(tab.kind, tab.key)}
 				>
-					<span class="preview-tab-kind" style:background={kindColor[tab.kind]}></span>
+					<span class="preview-tab-icon">
+						<Icon class="h-3 w-3" />
+					</span>
 					<span class="truncate">{tab.label}</span>
 					{#if tab.dirty}<span class="preview-tab-dot" aria-label="Unsaved changes"></span>{/if}
 				</button>
@@ -104,15 +107,13 @@ const kindColor: Record<PreviewTab["kind"], string> = {
 		white-space: nowrap;
 	}
 
-	.preview-tab-kind {
-		width: 0.375rem;
-		height: 0.375rem;
+	.preview-tab-icon {
+		display: inline-flex;
 		flex: 0 0 auto;
-		border-radius: 9999px;
-		opacity: 0.7;
+		opacity: 0.6;
 	}
 
-	.preview-tab-shell.active .preview-tab-kind {
+	.preview-tab-shell.active .preview-tab-icon {
 		opacity: 1;
 	}
 
