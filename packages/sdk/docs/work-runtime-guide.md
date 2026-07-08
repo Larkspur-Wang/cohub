@@ -97,9 +97,11 @@ a direct static-asset URL not wrapped in the Cohub iframe. The SDK opens a
   `${brokerOrigin}/work-auth?work=${workId}`.
 
 > **Broker mode requires configuration.** You must pass `work: { brokerOrigin,
-> workId }` to `createCohubClient` for broker mode to activate. Without it, a
-> standalone page gets `ParentBridgeTransport` which has no parent to talk to,
-> so `context()` returns `null`. See [Initialization recipe](#4-initialization-recipe).
+> workId }` — or `work: { brokerOrigin, ownerUsername, spaceSlug, workSlug }`
+> when the workId isn't known yet — to `createCohubClient` for broker mode to
+> activate. Without it, a standalone page gets `ParentBridgeTransport` which
+> has no parent to talk to, so `context()` returns `null`. See
+> [Initialization recipe](#4-initialization-recipe).
 
 ### Detecting the mode at runtime
 
@@ -307,6 +309,36 @@ const client = createCohubClient({
 When inside the Cohub iframe, the SDK auto-detects bridge mode and ignores
 broker config. When standalone, it uses broker mode. **One codebase, both
 deployments.**
+
+#### Broker mode without a pre-known workId
+
+The `workId` is only generated at publish time, so you often cannot hardcode
+it while writing the Work. In standalone deployments you can omit `workId` and
+instead pass the Work's public **slug triple**. The SDK resolves the workId at
+runtime via the public `works.getBySlug` API (anonymous, no auth required),
+caches it, and starts broker mode with it.
+
+All three values are known before publishing:
+
+- `workSlug` — the slug you chose when creating the Work.
+- `ownerUsername` — the space owner's username (`cohub auth whoami`).
+- `spaceSlug` — the space's slug (`cohub spaces get <spaceId>`).
+
+```js
+const client = createCohubClient({
+  env: isDevWork ? "dev" : "prod",
+  work: {
+    brokerOrigin: isDevWork ? "https://dev.cohub.run" : "https://cohub.run",
+    ownerUsername,
+    spaceSlug,
+    workSlug,
+  },
+});
+```
+
+Either `workId` or the full slug triple is enough to activate broker mode. If
+you pass both, the explicit `workId` wins and no lookup is performed. Inside
+the Cohub iframe both are ignored (bridge mode).
 
 ### Standard initialization sequence
 

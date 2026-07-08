@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import {
+	createSlugWorkIdResolver,
 	createWorkRuntime,
 	ParentBridgeTransport,
 	PopupBrokerTransport,
@@ -518,4 +519,201 @@ test("forceRefresh after requestAuthorization re-authorizes with saved scopes", 
 	assert.equal(calls.length, 1);
 	assert.equal(calls[0].message.type, "cohub.work.authorize");
 	assert.deepEqual(calls[0].message.scopes, ["session.prompt.fullaccess"]);
+});
+
+// --- Slug-based workId resolution tests ---
+
+test("createSlugWorkIdResolver resolves workId from getBySlug and caches it", async () => {
+	let calls = 0;
+	const resolver = createSlugWorkIdResolver({
+		apiBaseUrl: "https://api.cohub.run",
+		ownerUsername: "tzwm",
+		spaceSlug: "playground",
+		workSlug: "pulsewall",
+		fetch: (async (url: string) => {
+			calls += 1;
+			assert.equal(
+				url,
+				"https://api.cohub.run/api/works/by-slug/tzwm/playground/pulsewall",
+			);
+			return {
+				ok: true,
+				json: async () => ({ work: { id: "resolved-work-id" } }),
+			} as Response;
+		}) as typeof globalThis.fetch,
+	});
+
+	const first = await resolver();
+	const second = await resolver();
+	assert.equal(first, "resolved-work-id");
+	assert.equal(second, "resolved-work-id");
+	assert.equal(calls, 1);
+});
+
+test("createSlugWorkIdResolver does not cache failures", async () => {
+	let calls = 0;
+	const resolver = createSlugWorkIdResolver({
+		apiBaseUrl: "https://api.cohub.run",
+		ownerUsername: "tzwm",
+		spaceSlug: "playground",
+		workSlug: "pulsewall",
+		fetch: (async () => {
+			calls += 1;
+			if (calls === 1) return { ok: false, status: 404 } as Response;
+			return {
+				ok: true,
+				json: async () => ({ work: { id: "recovered-id" } }),
+			} as Response;
+		}) as typeof globalThis.fetch,
+	});
+
+	assert.equal(await resolver(), null);
+	assert.equal(await resolver(), "recovered-id");
+	assert.equal(calls, 2);
+});
+
+test("resolveWorkTransport returns broker when only a resolver is provided", () => {
+	const windowMock: { location: { origin: string }; parent?: unknown } = {
+		location: { origin: "https://my-work.example" },
+	};
+	windowMock.parent = windowMock;
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+
+	const transport = resolveWorkTransport(
+		{ brokerOrigin: "https://cohub.run", ownerUsername: "u", spaceSlug: "s", workSlug: "w" },
+		() => Promise.resolve("late-work-id"),
+	);
+	assert.ok(transport instanceof PopupBrokerTransport);
+});
+
+test("resolveWorkTransport falls back to bridge without workId or resolver", () => {
+	const windowMock: { location: { origin: string }; parent?: unknown } = {
+		location: { origin: "https://my-work.example" },
+	};
+	windowMock.parent = windowMock;
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+
+	const transport = resolveWorkTransport({ brokerOrigin: "https://cohub.run" });
+	assert.ok(transport instanceof ParentBridgeTransport);
+});
+
+test("PopupBrokerTransport answers context using resolved workId", async () => {
+	const windowMock = {
+		location: { origin: "https://my-work.example" },
+		open: () => ({ closed: false, close() {}, postMessage() {} }),
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	};
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+
+	const transport = new PopupBrokerTransport({
+		brokerOrigin: "https://cohub.run",
+		getWorkId: () => Promise.resolve("late-work-id"),
+	});
+	const result = await transport.request<{ context: { work: { id: string } } }>(
+		{ type: "cohub.work.context" },
+	);
+	assert.equal(result?.context?.work?.id, "late-work-id");
+});
+
+test("PopupBrokerTransport uses resolved workId in the broker URL", async () => {
+	let messageHandler: ((event: MessageEvent) => void) | null = null;
+	let openedUrl = "";
+	const popupMock = {
+		closed: false,
+		close() {
+			this.closed = true;
+		},
+		postMessage: (data: Record<string, unknown>) => {
+			queueMicrotask(() => {
+				messageHandler?.({
+					data: {
+						type: "cohub.work.token.result",
+						requestId: data.requestId,
+						token: "tok-from-broker",
+					},
+					origin: "https://cohub.run",
+					source: popupMock,
+				} as MessageEvent);
+			});
+		},
+	};
+	const windowMock = {
+		location: { origin: "https://my-work.example" },
+		open: (url: string) => {
+			openedUrl = url;
+			queueMicrotask(() => {
+				messageHandler?.({
+					data: { type: "cohub.work.broker.ready" },
+					origin: "https://cohub.run",
+					source: popupMock,
+				} as MessageEvent);
+			});
+			return popupMock;
+		},
+		addEventListener: (_t: string, h: (event: MessageEvent) => void) => {
+			messageHandler = h;
+		},
+		removeEventListener: () => {
+			messageHandler = null;
+		},
+	};
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+
+	const transport = new PopupBrokerTransport({
+		brokerOrigin: "https://cohub.run",
+		getWorkId: () => Promise.resolve("late-work-id"),
+	});
+	const result = await transport.request<{ token: string | null }>(
+		{ type: "cohub.work.token" },
+		{ timeoutMs: 5_000 },
+	);
+	assert.equal(result?.token, "tok-from-broker");
+	assert.ok(openedUrl.includes("work=late-work-id"));
+});
+
+test("PopupBrokerTransport rejects interactive request when workId cannot be resolved", async () => {
+	const windowMock = {
+		location: { origin: "https://my-work.example" },
+		open: () => ({ closed: false, close() {}, postMessage() {} }),
+		addEventListener: () => {},
+		removeEventListener: () => {},
+	};
+	globalThis.window = windowMock as unknown as Window & typeof globalThis;
+
+	const transport = new PopupBrokerTransport({
+		brokerOrigin: "https://cohub.run",
+		getWorkId: () => Promise.resolve(null),
+	});
+	await assert.rejects(
+		() => transport.request({ type: "cohub.work.token" }, { timeoutMs: 1_000 }),
+		/resolve the work id/i,
+	);
+});
+
+test("WorkRuntimeApi isolates localStorage by resolved workId", async () => {
+	const store: Record<string, string> = {
+		"cohub:work-token:late-work-id": "cached-late-token",
+	};
+	globalThis.localStorage = {
+		getItem: (key: string) => store[key] ?? null,
+		setItem: (key: string, value: string) => {
+			store[key] = value;
+		},
+		removeItem: (key: string) => {
+			delete store[key];
+		},
+	} as Storage;
+
+	const transport: WorkRuntimeTransport = {
+		request: () => {
+			throw new Error("should not be called");
+		},
+	};
+	const runtime = createWorkRuntime(transport, undefined, () =>
+		Promise.resolve("late-work-id"),
+	);
+
+	const token = await runtime.getAccessToken();
+	assert.equal(token, "cached-late-token");
 });

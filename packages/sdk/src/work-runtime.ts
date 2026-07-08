@@ -128,39 +128,73 @@ export class ParentBridgeTransport implements WorkRuntimeTransport {
  */
 export class PopupBrokerTransport implements WorkRuntimeTransport {
   private readonly brokerOrigin: string;
-  private readonly workId: string;
+  private readonly workId?: string;
+  private readonly getWorkId?: () => Promise<string | null>;
 
-  constructor(config: { brokerOrigin: string; workId: string }) {
+  constructor(config: {
+    brokerOrigin: string;
+    /** Explicit work id. When absent, {@link getWorkId} is used to resolve it. */
+    workId?: string;
+    /**
+     * Lazily resolves the work id at runtime (e.g. via the public
+     * `works.getBySlug` reverse lookup). Used in standalone deployments where
+     * the workId is not known at code-authoring time. The resolver is expected
+     * to cache its own result.
+     */
+    getWorkId?: () => Promise<string | null>;
+  }) {
     this.brokerOrigin = config.brokerOrigin;
     this.workId = config.workId;
+    this.getWorkId = config.getWorkId;
+    // Warm the workId cache eagerly so that a click-triggered popup does not
+    // have to await a network round-trip (which would break the browser's
+    // transient user-activation and get the popup blocked).
+    if (!this.workId && this.getWorkId) void this.getWorkId();
   }
 
-  request<T>(
+  private resolveWorkId(): Promise<string | null> {
+    if (this.workId) return Promise.resolve(this.workId);
+    if (this.getWorkId) return this.getWorkId();
+    return Promise.resolve(null);
+  }
+
+  async request<T>(
     message: Record<string, unknown>,
     options?: WorkRuntimeRequestOptions,
   ): Promise<T | null> {
     // Non-interactive messages are answered locally to avoid popping up a
     // window for data the work already has (or cannot have).
     if (message.type === "cohub.work.context") {
-      return Promise.resolve({
+      const workId = await this.resolveWorkId();
+      return {
         type: "cohub.work.context.result",
         context: {
-          work: { id: this.workId, slug: "", url: null },
+          work: { id: workId ?? "", slug: "", url: null },
           space: { id: "" },
           permissions: { scopes: [], workScopes: [], viewerScopes: [] },
         },
-      } as T);
+      } as T;
     }
     if (message.type === "cohub.work.checkout-state") {
-      return Promise.resolve({
+      return {
         type: "cohub.work.checkout-state.result",
         status: null,
         orderId: null,
-      } as T);
+      } as T;
     }
 
     const timeoutMs = options?.timeoutMs ?? 120_000;
     const requestId = generateRequestId();
+
+    // Resolve the workId before opening the popup. When warmed at construction
+    // this is an already-settled promise, so the await is a microtask and the
+    // popup still opens within the user-activation window.
+    const workId = await this.resolveWorkId();
+    if (!workId) {
+      throw new Error(
+        "Unable to resolve the work id for broker mode. Provide `workId` or a valid slug triple (ownerUsername, spaceSlug, workSlug).",
+      );
+    }
 
     return new Promise<T | null>((resolve, reject) => {
       if (typeof window === "undefined" || typeof window.open !== "function") {
@@ -169,7 +203,7 @@ export class PopupBrokerTransport implements WorkRuntimeTransport {
       }
 
       const workOrigin = window.location.origin;
-      const brokerUrl = `${this.brokerOrigin}/work-auth?work=${encodeURIComponent(this.workId)}&origin=${encodeURIComponent(workOrigin)}`;
+      const brokerUrl = `${this.brokerOrigin}/work-auth?work=${encodeURIComponent(workId)}&origin=${encodeURIComponent(workOrigin)}`;
 
       const popup = window.open(brokerUrl, "cohub-work-auth", "popup,width=480,height=640");
       if (!popup) {
@@ -249,8 +283,11 @@ const AUTHORIZED_SCOPES_STORAGE_PREFIX = "cohub:work-auth-scopes";
 export class WorkRuntimeApi {
   private token: string | null = null;
   private readonly transport: WorkRuntimeTransport;
-  private readonly tokenStorageKey: string | null;
-  private readonly scopesStorageKey: string | null;
+  private tokenStorageKey: string | null;
+  private scopesStorageKey: string | null;
+  private readonly workIdResolver?: WorkIdResolver;
+  /** Ensures storage keys are resolved (via slug lookup) at most once. */
+  private storageKeysReady: Promise<void> | null;
   /** Scopes previously granted via requestAuthorization, retained so token
    * refreshes can re-authorize (preserving viewerScopes) instead of falling
    * back to a base session token that only carries workScopes. */
@@ -259,14 +296,52 @@ export class WorkRuntimeApi {
   constructor(
     transport: WorkRuntimeTransport = new ParentBridgeTransport(),
     workId?: string,
+    workIdResolver?: WorkIdResolver,
   ) {
     this.transport = transport;
-    this.tokenStorageKey = workId ? `${TOKEN_STORAGE_PREFIX}:${workId}` : null;
-    this.scopesStorageKey = workId ? `${AUTHORIZED_SCOPES_STORAGE_PREFIX}:${workId}` : null;
-    // Restore a cached token from localStorage (broker-mode UX optimization;
-    // see §0 — this is not a security measure).
-    this.token = this.readStoredToken();
-    this.authorizedScopes = this.readStoredScopes();
+    this.workIdResolver = workIdResolver;
+    if (workId) {
+      // workId known up-front — keys are immediately available.
+      this.tokenStorageKey = `${TOKEN_STORAGE_PREFIX}:${workId}`;
+      this.scopesStorageKey = `${AUTHORIZED_SCOPES_STORAGE_PREFIX}:${workId}`;
+      this.storageKeysReady = Promise.resolve();
+      // Restore a cached token from localStorage (broker-mode UX optimization;
+      // see §0 — this is not a security measure).
+      this.token = this.readStoredToken();
+      this.authorizedScopes = this.readStoredScopes();
+    } else if (workIdResolver) {
+      // workId resolved lazily via slug reverse lookup. Storage keys — and any
+      // cached token — become available only after the lookup completes.
+      this.tokenStorageKey = null;
+      this.scopesStorageKey = null;
+      this.storageKeysReady = null;
+    } else {
+      this.tokenStorageKey = null;
+      this.scopesStorageKey = null;
+      this.storageKeysReady = Promise.resolve();
+    }
+  }
+
+  /**
+   * Resolves the localStorage keys once the workId is known. When the workId is
+   * only available via slug reverse lookup, this performs the lookup on first
+   * use and then restores any cached token/scopes for that workId.
+   */
+  private ensureStorageKeys(): Promise<void> {
+    if (this.storageKeysReady) return this.storageKeysReady;
+    this.storageKeysReady = (async () => {
+      const workId = this.workIdResolver ? await this.workIdResolver() : null;
+      if (workId) {
+        this.tokenStorageKey = `${TOKEN_STORAGE_PREFIX}:${workId}`;
+        this.scopesStorageKey = `${AUTHORIZED_SCOPES_STORAGE_PREFIX}:${workId}`;
+        // Now that keys are known, hydrate from localStorage.
+        const stored = this.readStoredToken();
+        if (stored && !this.token) this.token = stored;
+        const storedScopes = this.readStoredScopes();
+        if (storedScopes && !this.authorizedScopes) this.authorizedScopes = storedScopes;
+      }
+    })();
+    return this.storageKeysReady;
   }
 
   private readStoredToken(): string | null {
@@ -321,6 +396,7 @@ export class WorkRuntimeApi {
   }
 
   async getAccessToken(options?: { forceRefresh?: boolean }) {
+    await this.ensureStorageKeys();
     if (this.token && !options?.forceRefresh) return this.token;
     if (options?.forceRefresh) {
       this.token = null;
@@ -349,6 +425,7 @@ export class WorkRuntimeApi {
   }
 
   async requestAuthorization(input: { scopes: Permission[]; reason?: string }) {
+    await this.ensureStorageKeys();
     const response = await this.transport.request<{ token: string | null }>(
       { type: "cohub.work.authorize", scopes: input.scopes, reason: input.reason },
       { timeoutMs: 120_000 },
@@ -387,9 +464,56 @@ export type WorkRuntimeModeConfig = {
   mode?: "bridge" | "broker";
   /** Cohub origin for the broker page (e.g. "https://cohub.run"). */
   brokerOrigin?: string;
-  /** The work's public id. Required for broker mode. */
+  /**
+   * The work's public id. Required for broker mode unless the slug triple
+   * below is supplied, in which case the id is resolved at runtime.
+   */
   workId?: string;
+  /** Space owner's username. Used with {@link spaceSlug} + {@link workSlug} to
+   * resolve the workId at runtime via the public `works.getBySlug` API. */
+  ownerUsername?: string;
+  /** Space slug. Part of the slug triple used for runtime workId resolution. */
+  spaceSlug?: string;
+  /** Work slug. Part of the slug triple used for runtime workId resolution. */
+  workSlug?: string;
 };
+
+/** Lazily resolves a work's public id, e.g. via slug reverse lookup. */
+export type WorkIdResolver = () => Promise<string | null>;
+
+/**
+ * Builds a memoized workId resolver that reverse-looks-up the workId from the
+ * public slug triple via `GET /api/works/by-slug/:username/:spaceSlug/:workSlug`.
+ * The endpoint is anonymous (no auth) for public works, so no token is needed.
+ * The result is cached; a failed lookup is not cached so it can be retried.
+ */
+export function createSlugWorkIdResolver(deps: {
+  apiBaseUrl: string;
+  fetch?: typeof globalThis.fetch;
+  ownerUsername: string;
+  spaceSlug: string;
+  workSlug: string;
+}): WorkIdResolver {
+  let cached: Promise<string | null> | null = null;
+  return () => {
+    if (cached) return cached;
+    const run = (async (): Promise<string | null> => {
+      const doFetch = deps.fetch ?? globalThis.fetch;
+      if (typeof doFetch !== "function") return null;
+      const url = `${deps.apiBaseUrl}/api/works/by-slug/${encodeURIComponent(deps.ownerUsername)}/${encodeURIComponent(deps.spaceSlug)}/${encodeURIComponent(deps.workSlug)}`;
+      const response = await doFetch(url);
+      if (!response.ok) throw new Error(`getBySlug failed: ${response.status}`);
+      const data = (await response.json()) as { work?: { id?: string } } | null;
+      return data?.work?.id ?? null;
+    })().catch(() => {
+      // Do not cache failures — allow a later retry.
+      cached = null;
+      return null;
+    });
+    cached = run;
+    return run;
+  };
+}
 
 /**
  * Resolves the appropriate transport based on the work mode configuration.
@@ -398,15 +522,17 @@ export type WorkRuntimeModeConfig = {
  */
 export function resolveWorkTransport(
   config?: WorkRuntimeModeConfig,
+  workIdResolver?: WorkIdResolver,
 ): WorkRuntimeTransport {
   const explicitMode = config?.mode;
   const brokerOrigin = config?.brokerOrigin;
   const workId = config?.workId;
-  const hasBrokerConfig = Boolean(brokerOrigin && workId);
+  const canResolveWorkId = Boolean(workId || workIdResolver);
+  const hasBrokerConfig = Boolean(brokerOrigin && canResolveWorkId);
 
   const createBroker = (): WorkRuntimeTransport =>
-    brokerOrigin && workId
-      ? new PopupBrokerTransport({ brokerOrigin, workId })
+    brokerOrigin && canResolveWorkId
+      ? new PopupBrokerTransport({ brokerOrigin, workId, getWorkId: workIdResolver })
       : new ParentBridgeTransport();
 
   if (explicitMode === "bridge") return new ParentBridgeTransport();
@@ -426,4 +552,5 @@ export function resolveWorkTransport(
 export const createWorkRuntime = (
   transport?: WorkRuntimeTransport,
   workId?: string,
-) => new WorkRuntimeApi(transport, workId);
+  workIdResolver?: WorkIdResolver,
+) => new WorkRuntimeApi(transport, workId, workIdResolver);

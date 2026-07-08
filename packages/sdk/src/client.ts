@@ -22,8 +22,10 @@ import { createWebsocketClient, type WebsocketEventPayload } from "./websocket.j
 import { VoiceApi } from "./voice-input.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 import {
+  createSlugWorkIdResolver,
   createWorkRuntime,
   resolveWorkTransport,
+  type WorkIdResolver,
   type WorkRuntimeApi,
 } from "./work-runtime.js";
 import type { Permission } from "./types.js";
@@ -56,8 +58,25 @@ export class CohubClient {
 
   constructor(options: CohubClientOptions = {}) {
     const apiBaseUrl = resolveApiBaseUrl(options);
-    const workTransport = resolveWorkTransport(options.work);
-    this.workRuntime = createWorkRuntime(workTransport, options.work?.workId);
+    // When broker mode is configured with a slug triple instead of an explicit
+    // workId, build a resolver that reverse-looks-up the workId at runtime via
+    // the public getBySlug API. Shared by both the transport (popup) and the
+    // runtime API (localStorage key isolation).
+    const workIdResolver: WorkIdResolver | undefined =
+      !options.work?.workId &&
+      options.work?.ownerUsername &&
+      options.work?.spaceSlug &&
+      options.work?.workSlug
+        ? createSlugWorkIdResolver({
+            apiBaseUrl,
+            fetch: options.fetch,
+            ownerUsername: options.work.ownerUsername,
+            spaceSlug: options.work.spaceSlug,
+            workSlug: options.work.workSlug,
+          })
+        : undefined;
+    const workTransport = resolveWorkTransport(options.work, workIdResolver);
+    this.workRuntime = createWorkRuntime(workTransport, options.work?.workId, workIdResolver);
     const getAccessToken = options.getAccessToken ?? ((tokenOptions?: { forceRefresh?: boolean }) => this.workRuntime.getAccessToken(tokenOptions));
     const resolvedOptions = { ...options, getAccessToken };
     this.transport = new HttpTransport(resolvedOptions);
