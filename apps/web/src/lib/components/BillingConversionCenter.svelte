@@ -5,6 +5,7 @@ import type {
 	BillingCreditStatus,
 } from "@neta-art/cohub";
 import { AlertCircle, Check, CreditCard, Loader2, X } from "lucide-svelte";
+import Sheet from "$lib/components/Sheet.svelte";
 import { sdk } from "$lib/sdk";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
@@ -299,19 +300,18 @@ async function startCheckout(product: BillingCatalogProduct) {
 </script>
 
 {#if open && intent}
-	<div class="fixed inset-0 z-[110] flex items-end justify-center lg:items-center lg:p-4" role="dialog" aria-modal="true">
-		<button class="absolute inset-0 cursor-default bg-overlay-scrim" aria-label="Close billing options" onclick={() => billingConversion.close()}></button>
-		<section class="relative flex max-h-[88vh] w-full max-w-[760px] flex-col overflow-hidden rounded-t-[14px] border-border-subtle bg-bg-primary shadow-2xl lg:rounded-[14px] lg:border">
-			<header class="flex items-center justify-between gap-4 border-b border-border-subtle px-5 py-3">
+	<Sheet open onClose={() => billingConversion.close()} maxWidth="760px">
+		<div class="flex max-h-[88vh] flex-col">
+			<header class="flex items-center justify-between gap-4 border-b border-border-subtle px-5 py-3.5">
 				<div class="min-w-0">
-					<h2 class="text-[18px] font-semibold leading-6 text-text-primary">{headline}</h2>
+					<h2 class="truncate text-[16px] font-semibold leading-6 text-text-primary">{headline}</h2>
 				</div>
-				<button type="button" class="cursor-pointer rounded-[6px] p-2 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40" onclick={() => billingConversion.close()} aria-label="Close">
+				<button type="button" class="shrink-0 cursor-pointer rounded-[6px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand/40" onclick={() => billingConversion.close()} aria-label="Close">
 					<X class="h-4 w-4" />
 				</button>
 			</header>
 
-			<div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+			<div class="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-safe">
 				<div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
 						<div class="text-[11px] text-text-tertiary">Current balance</div>
@@ -321,7 +321,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 						{/if}
 					</div>
 					{#if catalog && !hasActivePaidPlan && (monthlyPlans.length > 0 || yearlyPlans.length > 0)}
-						<div class="inline-flex rounded-[7px] border border-border-subtle bg-bg-subtle p-0.5 text-[12px]">
+						<div class="inline-flex rounded-[7px] border border-border-subtle bg-bg-hover p-0.5 text-[12px]">
 							<button type="button" onclick={() => (selectedPlanInterval = "monthly")} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'monthly' ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'}">Monthly</button>
 							<button type="button" onclick={() => (selectedPlanInterval = "yearly")} disabled={!hasYearlyPlans} class="min-h-10 cursor-pointer rounded-[5px] px-3 py-1.5 transition-colors hover:text-text-secondary focus:outline-none focus:ring-1 focus:ring-brand/40 sm:min-h-8 {selectedPlanInterval === 'yearly' && hasYearlyPlans ? 'bg-bg-input text-text-primary shadow-sm' : 'text-text-tertiary'} disabled:cursor-not-allowed disabled:opacity-40">
 								Yearly
@@ -336,7 +336,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 				{#if catalogRefreshing && !catalog}
 					<div class="flex items-center gap-2 py-8 text-[13px] text-text-secondary"><Loader2 class="h-4 w-4 animate-spin" /> Loading billing options</div>
 				{:else if error}
-					<div class="rounded-[8px] border border-border-subtle bg-bg-secondary p-4">
+					<div class="rounded-[8px] border border-border-subtle bg-bg-content p-4">
 						<div class="flex items-center gap-2 text-[13px] text-text-primary"><AlertCircle class="h-4 w-4 text-error" /> {error}</div>
 						<button type="button" class="mt-3 cursor-pointer rounded-[6px] border border-border-subtle px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary" onclick={() => loadCatalog({ force: true })}>Retry</button>
 					</div>
@@ -354,7 +354,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 									{@const recommended = isRecommended(product)}
 									{@const current = isCurrentPlanProduct(product)}
 									{@const note = annualNote(product)}
-									<div class="relative flex min-h-[218px] flex-col rounded-[10px] border bg-bg-content px-4 py-4 transition-colors {recommended ? 'border-brand/55' : 'border-border-subtle hover:border-border-strong'}">
+									<div class="relative flex min-h-[218px] flex-col rounded-[10px] border bg-bg-content px-4 py-4 transition-colors {recommended ? 'border-brand/55' : 'border-border-subtle hover:border-border-primary'}">
 										{#if recommended}
 											<div class="absolute -top-px left-4 right-4 h-px bg-brand/70"></div>
 											<span class="absolute -top-2.5 left-4 rounded-[4px] bg-brand px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-contrast-fg">Popular</span>
@@ -410,7 +410,7 @@ async function startCheckout(product: BillingCatalogProduct) {
 						<div class="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-text-tertiary">{primaryLabel}</div>
 						<div class="grid gap-2 sm:grid-cols-3">
 							{#each primaryProducts as product (product.key)}
-								<button type="button" class="group cursor-pointer rounded-[10px] border border-border-subtle bg-bg-secondary p-3 text-left transition-colors hover:border-brand/70 hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
+								<button type="button" class="group cursor-pointer rounded-[10px] border border-border-subtle bg-bg-content p-3 text-left transition-colors hover:border-brand/70 hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-60" disabled={!!busyKey || catalog.payment.available === false} onclick={() => startCheckout(product)}>
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">
 											<div class="truncate text-[13px] font-medium text-text-primary">{product.name}</div>
@@ -433,7 +433,6 @@ async function startCheckout(product: BillingCatalogProduct) {
 					{/if}
 				{/if}
 			</div>
-
-		</section>
-	</div>
+		</div>
+	</Sheet>
 {/if}
