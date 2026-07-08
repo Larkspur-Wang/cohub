@@ -1,5 +1,6 @@
 import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord, SessionRecord, SessionTurnRecord } from "../model/session.js";
+import type { SessionTurnSummary } from "../model/turn.js";
 import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
 import type { SpacePortsChangedPayload } from "../ports/index.js";
@@ -376,6 +377,30 @@ export type SessionTurnFinalizedEvent = {
   payload: { turn: RealtimeTurnRecord };
 };
 
+export type SessionTurnNotifyEvent = {
+  id: string;
+  timestamp: number;
+  domain: "session";
+  type: "session.turn.notify";
+  requestId?: string | null;
+  spaceId: string;
+  sessionId: string;
+  payload: {
+    spaceId: string;
+    sessionId: string;
+    turnId: string;
+    status: SessionTurnRecord["status"];
+    finishReason?: SessionTurnSummary["finishReason"] | null;
+    userPreview: string | null;
+    durationMs: number | null;
+    stepCount: number | null;
+    sequence: number | null;
+    provider: string | null;
+    model: string | null;
+    completedAt: string | null;
+  };
+};
+
 export type SessionMessagePersistedEvent = {
   id: string;
   timestamp: number;
@@ -564,6 +589,7 @@ export type RealtimeServerEvent =
   | SessionTurnLifecycleEvent
   | SessionTurnUpdatedEvent
   | SessionTurnFinalizedEvent
+  | SessionTurnNotifyEvent
   | SessionMessagePersistedEvent
   | SpaceFsChangedEvent
   | SpacePortsChangedEvent

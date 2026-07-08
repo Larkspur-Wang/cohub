@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { MessageRecord, SessionTurnRecord } from "@cohub/protocol/model";
 import type { GatewaySessionOutput } from "@cohub/protocol/gateway";
+import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import {
   dispatchOutboundMessage,
   dispatchRealtimeEvent,
@@ -155,6 +156,12 @@ export const dispatchTurnUpdated = async (input: { spaceId: string; sessionId: s
   });
 };
 
+const truncateTurnPreview = (text: string | null | undefined) => {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+};
+
 export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId: string; turn: SessionTurnRecord }) => {
   await clearSessionStreamSnapshot({ spaceId: input.spaceId, sessionId: input.sessionId });
   await dispatchRealtimeEvent({
@@ -166,6 +173,31 @@ export const dispatchTurnFinalized = async (input: { spaceId: string; sessionId:
     sessionId: input.sessionId,
     payload: {
       turn: toRealtimeTurnRecord(input.turn),
+    },
+  });
+
+  if (!input.turn.userUuid) return;
+  await dispatchRealtimeEvent({
+    id: randomUUID(),
+    timestamp: Date.now(),
+    domain: "session",
+    type: "session.turn.notify",
+    spaceId: input.spaceId,
+    sessionId: input.sessionId,
+    rooms: [getRealtimeUserRoom(input.turn.userUuid)],
+    payload: {
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      turnId: input.turn.id,
+      status: input.turn.status,
+      finishReason: input.turn.summary?.finishReason ?? null,
+      userPreview: truncateTurnPreview(input.turn.userText),
+      durationMs: input.turn.durationMs,
+      stepCount: input.turn.intermediateSummary?.messageCount ?? null,
+      sequence: input.turn.sequence ?? null,
+      provider: input.turn.provider,
+      model: input.turn.model,
+      completedAt: input.turn.completedAt,
     },
   });
 };

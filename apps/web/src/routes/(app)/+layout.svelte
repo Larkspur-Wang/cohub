@@ -10,6 +10,7 @@ import HelpPanel from "$lib/components/HelpPanel.svelte";
 import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
+import TurnNotificationStack from "$lib/components/TurnNotificationStack.svelte";
 import {
 	type DrawerGestureDirection,
 	type DrawerGesturePhase,
@@ -28,6 +29,7 @@ import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
 import { authStore } from "$lib/stores/auth.svelte";
+import { turnNotifications } from "$lib/stores/turn-notifications.svelte";
 import {
 	LEFT_SIDEBAR_MAX,
 	LEFT_SIDEBAR_MIN,
@@ -463,6 +465,7 @@ onMount(() => {
 	void authStore.ensureLoaded().finally(() => {
 		authReady = true;
 		scheduleCacheCleanup();
+		if (authStore.isAuthenticated) turnNotifications.start();
 	});
 
 	// Register PWA Service Worker (conservative update: closes all tabs to activate)
@@ -474,6 +477,7 @@ onMount(() => {
 
 	return () => {
 		disposed = true;
+		turnNotifications.stop();
 		vConsole?.destroy();
 		vConsole = null;
 		leftSidebarResizeCleanup?.();
@@ -530,6 +534,7 @@ onMount(() => {
   <CommandPalette />
   <HelpPanel open={showHelpPanel} onClose={() => { showHelpPanel = false; }} />
   <BillingConversionCenter />
+  <TurnNotificationStack />
 
 {/if}
 

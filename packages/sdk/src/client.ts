@@ -17,7 +17,8 @@ import { WorksApi } from "./apis/works.js";
 import { WorkCommerceApi } from "./apis/work-commerce.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
-import { createWebsocketClient } from "./websocket.js";
+import { ensureRealtimeConnected } from "./realtime.js";
+import { createWebsocketClient, type WebsocketEventPayload } from "./websocket.js";
 import { VoiceApi } from "./voice-input.js";
 import { resolveApiBaseUrl, resolveWebsocketUrl } from "./environment.js";
 import {
@@ -141,6 +142,11 @@ export class CohubClient {
 
   space(spaceId: string) {
     return new SpaceClient(spaceId, this.transport, this.websocketClient);
+  }
+
+  onUserEvent(handler: (event: WebsocketEventPayload) => void): () => void {
+    ensureRealtimeConnected(this.websocketClient);
+    return this.websocketClient.on("event", handler);
   }
 
   onConnection(
