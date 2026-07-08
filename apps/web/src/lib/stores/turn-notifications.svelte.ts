@@ -533,17 +533,23 @@ class TurnNotificationsStore {
 			tag: `turn:${item.turnId}`,
 			data: { url: targetUrl },
 		};
-		const registration = await navigator.serviceWorker?.ready.catch(() => null);
-		if (registration?.showNotification) {
-			await registration.showNotification(`${title} finished a turn`, options);
+		try {
+			const notification = new Notification(
+				`${title} finished a turn`,
+				options,
+			);
+			notification.onclick = () => {
+				window.focus();
+				void goto(targetUrl);
+				notification.close();
+			};
 			return;
+		} catch {
+			const registration = await navigator.serviceWorker?.ready.catch(
+				() => null,
+			);
+			await registration?.showNotification(`${title} finished a turn`, options);
 		}
-		const notification = new Notification(`${title} finished a turn`, options);
-		notification.onclick = () => {
-			window.focus();
-			void goto(targetUrl);
-			notification.close();
-		};
 	}
 
 	private syncCountdowns() {
