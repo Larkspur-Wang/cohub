@@ -141,8 +141,17 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/cohub-user-worker-dev -n cohub-dev --timeout=300s
-          kubectl rollout status deployment/cohub-system-worker-dev -n cohub-dev --timeout=300s
+          status=0
+
+          kubectl rollout status deployment/cohub-user-worker-dev -n cohub-dev --timeout=300s &
+          user_worker_pid=$!
+
+          kubectl rollout status deployment/cohub-system-worker-dev -n cohub-dev --timeout=300s &
+          system_worker_pid=$!
+
+          wait "$user_worker_pid" || status=1
+          wait "$system_worker_pid" || status=1
+          exit "$status"
 
   deploy-prod:
     needs: build-and-push
@@ -174,8 +183,17 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/cohub-user-worker -n cohub --timeout=300s
-          kubectl rollout status deployment/cohub-system-worker -n cohub --timeout=300s
+          status=0
+
+          kubectl rollout status deployment/cohub-user-worker -n cohub --timeout=300s &
+          user_worker_pid=$!
+
+          kubectl rollout status deployment/cohub-system-worker -n cohub --timeout=300s &
+          system_worker_pid=$!
+
+          wait "$user_worker_pid" || status=1
+          wait "$system_worker_pid" || status=1
+          exit "$status"
 
   # Manual deploy for dev/prod
   deploy-manual-dev:
@@ -203,8 +221,17 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/cohub-user-worker-dev -n cohub-dev --timeout=300s
-          kubectl rollout status deployment/cohub-system-worker-dev -n cohub-dev --timeout=300s
+          status=0
+
+          kubectl rollout status deployment/cohub-user-worker-dev -n cohub-dev --timeout=300s &
+          user_worker_pid=$!
+
+          kubectl rollout status deployment/cohub-system-worker-dev -n cohub-dev --timeout=300s &
+          system_worker_pid=$!
+
+          wait "$user_worker_pid" || status=1
+          wait "$system_worker_pid" || status=1
+          exit "$status"
 
   deploy-manual-prod:
     needs: build-and-push
@@ -231,5 +258,14 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/cohub-user-worker -n cohub --timeout=300s
-          kubectl rollout status deployment/cohub-system-worker -n cohub --timeout=300s
+          status=0
+
+          kubectl rollout status deployment/cohub-user-worker -n cohub --timeout=300s &
+          user_worker_pid=$!
+
+          kubectl rollout status deployment/cohub-system-worker -n cohub --timeout=300s &
+          system_worker_pid=$!
+
+          wait "$user_worker_pid" || status=1
+          wait "$system_worker_pid" || status=1
+          exit "$status"

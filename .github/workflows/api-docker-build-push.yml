@@ -213,8 +213,17 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/cohub-api-dev -n cohub-dev --timeout=300s
-          kubectl rollout status deployment/cohub-fs-api-dev -n cohub-dev --timeout=300s
+          status=0
+
+          kubectl rollout status deployment/cohub-api-dev -n cohub-dev --timeout=300s &
+          api_pid=$!
+
+          kubectl rollout status deployment/cohub-fs-api-dev -n cohub-dev --timeout=300s &
+          fs_api_pid=$!
+
+          wait "$api_pid" || status=1
+          wait "$fs_api_pid" || status=1
+          exit "$status"
 
   deploy-prod:
     needs: build-and-push
@@ -295,8 +304,17 @@ jobs:
 
       - name: Verify deployment
         run: |
-          kubectl rollout status deployment/cohub-api -n cohub --timeout=300s
-          kubectl rollout status deployment/cohub-fs-api -n cohub --timeout=300s
+          status=0
+
+          kubectl rollout status deployment/cohub-api -n cohub --timeout=300s &
+          api_pid=$!
+
+          kubectl rollout status deployment/cohub-fs-api -n cohub --timeout=300s &
+          fs_api_pid=$!
+
+          wait "$api_pid" || status=1
+          wait "$fs_api_pid" || status=1
+          exit "$status"
 
   # Manual migration trigger for dev/prod
   migrate-dev:
