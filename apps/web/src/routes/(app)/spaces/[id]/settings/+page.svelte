@@ -42,7 +42,6 @@ import {
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
-import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
 import Sheet from "$lib/components/Sheet.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -1230,7 +1229,41 @@ $effect(() => {
 	<main class="min-h-0 flex-1 overflow-y-auto px-6 py-7">
 		<div class="mx-auto w-full max-w-2xl">
 			{#if loading}
-				<CenteredLoading label="Loading settings…" size="compact" variant="surface" />
+				<!-- Skeleton: Profile -->
+				<section class="border-b border-border-subtle pb-6" aria-hidden="true">
+					<div class="flex items-center gap-2.5">
+						<div class="h-4 w-4 rounded bg-bg-hover-strong"></div>
+						<div class="space-y-1.5">
+							<div class="h-3.5 w-16 rounded bg-bg-hover-strong"></div>
+							<div class="h-2.5 w-32 rounded bg-bg-hover-strong"></div>
+						</div>
+					</div>
+					<div class="mt-5 flex gap-4">
+						<div class="h-14 w-14 shrink-0 rounded-full border border-border-subtle bg-bg-hover-strong"></div>
+						<div class="flex-1 space-y-3 pt-0.5">
+							<div class="h-4 w-40 rounded bg-bg-hover-strong"></div>
+							<div class="h-3 w-56 rounded bg-bg-hover-strong"></div>
+							<div class="h-16 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
+						</div>
+					</div>
+				</section>
+
+				<!-- Skeleton: Access + Runtime + Channels + Sandbox -->
+				{#each Array(4) as _}
+					<section class="border-b border-border-subtle py-6">
+						<div class="flex items-center gap-2.5">
+							<div class="h-4 w-4 rounded bg-bg-hover-strong"></div>
+							<div class="space-y-1.5">
+								<div class="h-3.5 w-20 rounded bg-bg-hover-strong"></div>
+								<div class="h-2.5 w-36 rounded bg-bg-hover-strong"></div>
+							</div>
+						</div>
+						<div class="mt-5 space-y-2">
+							<div class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
+							<div class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
+						</div>
+					</section>
+				{/each}
 			{:else if error}
 				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
 			{:else}
