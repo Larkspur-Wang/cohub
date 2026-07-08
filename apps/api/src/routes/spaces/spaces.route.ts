@@ -1,5 +1,5 @@
 import { BillingAccessBlockedError, COHUB_BILLING_FEATURES, billingOperations, createFeatureGateConversionIntent } from "@cohub/billing";
-import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getHighestAllowedSandboxSpecId, getSandboxSpecRank, isSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
+import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, isSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
 import { createLogger } from "@cohub/infra/logging";
 import { Hono, type Context } from "hono";
 import type { ContentBlock } from "@cohub/protocol/core";
@@ -400,15 +400,11 @@ const getSpaceSandboxSpec = (space: typeof spaces.$inferSelect): SandboxSpecId =
 
 async function getAllowedSandboxSpecId(userId: string): Promise<SandboxSpecId> {
   try {
-    const limit = await billingOperations.checkFeatureLimit({
-      userId,
-      featureKey: COHUB_BILLING_FEATURES.sandboxSpecMax,
-      quantity: 0,
-      metadataKey: "limit",
-      fallbackLimit: 0,
-      missingEntitlementPolicy: "allow",
-    });
-    return getHighestAllowedSandboxSpecId(limit.limit);
+    const state = await billingOperations.getState({ userId });
+    const keys = new Set(state.entitlements.filter((entitlement) => entitlement.enabled).map((entitlement) => entitlement.key));
+    if (keys.has(COHUB_BILLING_FEATURES.sandboxSpecUltra)) return "ultra";
+    if (keys.has(COHUB_BILLING_FEATURES.sandboxSpecBoost)) return "boost";
+    return DEFAULT_SANDBOX_SPEC_ID;
   } catch (error) {
     logger.warn("[SandboxSpec] failed to check entitlement", { userId, error });
     return DEFAULT_SANDBOX_SPEC_ID;

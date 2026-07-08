@@ -1,6 +1,6 @@
 import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
-import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getHighestAllowedSandboxSpecId, getSandboxSpecRank, normalizeSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
+import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, normalizeSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import { listEnabledSpaceMods, getSpaceModMountSignature } from "@cohub/core/space-mods";
 import { spaceSandboxes, spaces } from "@cohub/db";
@@ -54,15 +54,11 @@ const getAppliedSandboxSpec = (meta: unknown): SandboxSpecId | null => {
 
 const getAllowedSandboxSpecId = async (userId: string): Promise<SandboxSpecId> => {
   try {
-    const limit = await billingOperations.checkFeatureLimit({
-      userId,
-      featureKey: COHUB_BILLING_FEATURES.sandboxSpecMax,
-      quantity: 0,
-      metadataKey: "limit",
-      fallbackLimit: 0,
-      missingEntitlementPolicy: "allow",
-    });
-    return getHighestAllowedSandboxSpecId(limit.limit);
+    const state = await billingOperations.getState({ userId });
+    const keys = new Set(state.entitlements.filter((entitlement) => entitlement.enabled).map((entitlement) => entitlement.key));
+    if (keys.has(COHUB_BILLING_FEATURES.sandboxSpecUltra)) return "ultra";
+    if (keys.has(COHUB_BILLING_FEATURES.sandboxSpecBoost)) return "boost";
+    return DEFAULT_SANDBOX_SPEC_ID;
   } catch (error) {
     logger.warn("[SandboxSpec] failed to check entitlement during reconcile", { userId, error });
     return DEFAULT_SANDBOX_SPEC_ID;

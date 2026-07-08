@@ -38,7 +38,8 @@ export const COHUB_BILLING_USAGE_TYPES = {
 export const COHUB_BILLING_FEATURES = {
   generationAccess: "generation.access",
   sandboxAccess: "sandbox.access",
-  sandboxSpecMax: "sandbox.spec.max",
+  sandboxSpecBoost: "sandbox.spec.boost",
+  sandboxSpecUltra: "sandbox.spec.ultra",
   spaceStorageMaxBytes: "space.storage.max_bytes",
   spaceModsMax: "space.mods.max",
   spaceCommerce: "space.commerce",
