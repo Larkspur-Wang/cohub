@@ -98,6 +98,28 @@ export const waitForSandboxPodDeleted = async (podName: string, timeoutMs = 120_
   return false;
 };
 
+const resourcesMatch = (actual: unknown, expected: { limits: Record<string, string>; requests: Record<string, string> }) => {
+  const value = asMetaObject(actual);
+  const limits = asMetaObject(value.limits);
+  const requests = asMetaObject(value.requests);
+  return limits.cpu === expected.limits.cpu
+    && limits.memory === expected.limits.memory
+    && requests.cpu === expected.requests.cpu
+    && requests.memory === expected.requests.memory;
+};
+
+const waitForSandboxPodResizeApplied = async (input: { podName: string; resources: { limits: Record<string, string>; requests: Record<string, string> }; timeoutMs?: number }) => {
+  const timeoutMs = input.timeoutMs ?? 60_000;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const pod = await k8sCoreApi.readNamespacedPod({ name: input.podName, namespace: sessionsNamespace });
+    const sandboxStatus = pod.status?.containerStatuses?.find((container) => container.name === "sandbox");
+    if (resourcesMatch((sandboxStatus as { resources?: unknown } | undefined)?.resources, input.resources)) return true;
+    await sleep(1000);
+  }
+  return false;
+};
+
 export const markSandboxSpecPendingRestart = async (input: { spaceId: string; specId: SandboxSpecId; reason: string }) => {
   const spec = SANDBOX_SPECS[input.specId] ?? SANDBOX_SPECS[DEFAULT_SANDBOX_SPEC_ID];
   await mergeSpaceSandboxMeta(input.spaceId, {
@@ -126,24 +148,38 @@ export const resizeSpaceSandboxToSpec = async (input: { spaceId: string; specId:
     return { resized: false, pendingRestart: true, message: "pod resize API is unavailable; restart required" };
   }
 
+  const startedAt = new Date();
   await k8sObjectApi.patchNamespacedPodResize({
     name: podName,
     namespace: sessionsNamespace,
-    body: {
-      spec: {
-        containers: [{ name: "sandbox", resources: spec.resources }],
+    body: [
+      {
+        op: "replace",
+        path: "/spec/containers/0/resources",
+        value: spec.resources,
       },
-    },
+    ],
   });
 
   await mergeSpaceSandboxMeta(input.spaceId, {
     desiredSpec: input.specId,
     desiredSpecResources: spec.resources,
     specApplying: true,
-    specApplyingStartedAt: new Date().toISOString(),
+    specApplyingStartedAt: startedAt.toISOString(),
     specPendingRestart: false,
   });
-  return { resized: true, applying: true, pendingRestart: false };
+
+  const applied = await waitForSandboxPodResizeApplied({ podName, resources: spec.resources });
+  if (!applied) return { resized: true, applying: true, pendingRestart: false, message: "pod resize is still applying" };
+
+  await mergeSpaceSandboxMeta(input.spaceId, {
+    appliedSpec: input.specId,
+    appliedSpecResources: spec.resources,
+    appliedSpecUpdatedAt: new Date().toISOString(),
+    specApplying: false,
+    specPendingRestart: false,
+  });
+  return { resized: true, applying: false, pendingRestart: false, appliedSpec: input.specId };
 };
 
 export const waitForSandboxPodReady = async (podName: string, timeoutMs = 120_000) => {

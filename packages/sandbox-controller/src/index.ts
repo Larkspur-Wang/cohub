@@ -38,8 +38,8 @@ export const SANDBOX_SPECS = {
     description: "Everyday building",
     requiredPlan: null,
     resources: {
-      limits: { cpu: "2", memory: "4Gi", "ephemeral-storage": "10Gi" },
-      requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "1Gi" },
+      limits: { cpu: "2", memory: "4Gi" },
+      requests: { cpu: "100m", memory: "256Mi" },
     },
   },
   boost: {
@@ -49,8 +49,8 @@ export const SANDBOX_SPECS = {
     description: "Faster builds and heavier dev servers",
     requiredPlan: "Pro",
     resources: {
-      limits: { cpu: "4", memory: "8Gi", "ephemeral-storage": "20Gi" },
-      requests: { cpu: "250m", memory: "768Mi", "ephemeral-storage": "2Gi" },
+      limits: { cpu: "4", memory: "8Gi" },
+      requests: { cpu: "250m", memory: "768Mi" },
     },
   },
   ultra: {
@@ -60,8 +60,8 @@ export const SANDBOX_SPECS = {
     description: "Highest-priority compute for large work",
     requiredPlan: "Max",
     resources: {
-      limits: { cpu: "4", memory: "12Gi", "ephemeral-storage": "30Gi" },
-      requests: { cpu: "500m", memory: "1536Mi", "ephemeral-storage": "3Gi" },
+      limits: { cpu: "4", memory: "12Gi" },
+      requests: { cpu: "500m", memory: "1536Mi" },
     },
   },
 } as const;
