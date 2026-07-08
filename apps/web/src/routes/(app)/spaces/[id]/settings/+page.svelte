@@ -1202,12 +1202,12 @@ async function removeMod(mod: SpaceModListItem) {
 	}
 }
 
-type SettingsSection = "profile" | "access" | "runtime" | "channels" | "sandbox";
+type SettingsSection = "profile" | "access" | "environment" | "channels" | "sandbox";
 
 const settingsSections: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
 	{ id: "profile", label: "Profile", icon: Globe },
 	{ id: "access", label: "Access", icon: Users },
-	{ id: "runtime", label: "Runtime", icon: Terminal },
+	{ id: "environment", label: "Environment", icon: Terminal },
 	{ id: "channels", label: "Channels", icon: Network },
 	{ id: "sandbox", label: "Sandbox", icon: Settings },
 ];
@@ -1479,18 +1479,18 @@ $effect(() => {
 							{/if}
 						</div>
 					</section>
-				{:else if activeSection === "runtime"}
-					<!-- ════════ Runtime ════════ -->
+				{:else if activeSection === "environment"}
+					<!-- ════════ Environment ════════ -->
 					<section>
 						<div class="border-b border-border-subtle pb-5">
-							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Runtime</h1>
-							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Environment variables and mounted spaces available inside the sandbox.</p>
+							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Environment</h1>
+							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">What the agent sees inside the sandbox: env vars and mounted spaces.</p>
 						</div>
 
 						<!-- Env vars -->
 						<div class="py-6">
-							<h2 class="text-[13px] font-medium text-text-primary">Environment variables <span class="font-normal text-text-tertiary">· {env.length}</span></h2>
-							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Injected into every sandbox process.</p>
+							<h2 class="text-[13px] font-medium text-text-primary">Variables <span class="font-normal text-text-tertiary">· {env.length}</span></h2>
+							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Injected as environment variables into every sandbox process.</p>
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
 								<div class="divide-y divide-border-subtle">
 									{#each env as item (item.name)}
@@ -1577,7 +1577,7 @@ $effect(() => {
 					<section>
 						<div class="border-b border-border-subtle pb-5">
 							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Channels</h1>
-							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Bind external channels so this space can talk on other platforms.</p>
+							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Let this space send and receive messages on external platforms.</p>
 						</div>
 
 						<div class="py-6">
@@ -1616,7 +1616,7 @@ $effect(() => {
 						<div class="flex items-start justify-between gap-3 border-b border-border-subtle pb-5">
 							<div class="min-w-0">
 								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Sandbox</h1>
-								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Compute, hibernation, and runtime health.</p>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Compute size, hibernation, and health.</p>
 							</div>
 							<button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if} Force recover</button>
 						</div>
