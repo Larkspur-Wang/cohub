@@ -163,6 +163,7 @@ export default defineConfig({
 					"_app/immutable/nodes/*.js",
 					"_app/version.json",
 				],
+				importScripts: ["notification-sw.js"],
 				navigateFallback: undefined,
 				runtimeCaching: [
 					{

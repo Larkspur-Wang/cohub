@@ -481,7 +481,7 @@ class TurnNotificationsStore {
 		];
 		if (!cachedSpace) void this.hydrateSpace(item.spaceId);
 		this.maybeShowDesktopPrompt();
-		this.maybeSendDesktopNotification(item);
+		void this.maybeSendDesktopNotification(item);
 		this.syncCountdowns();
 	}
 
@@ -517,24 +517,31 @@ class TurnNotificationsStore {
 		this.showDesktopPrompt = true;
 	}
 
-	private maybeSendDesktopNotification(item: TurnNotification) {
+	private async maybeSendDesktopNotification(item: TurnNotification) {
 		if (!canUseDesktopNotifications() || this.desktopPermission !== "granted")
 			return;
 		if (!document.hidden) return;
 		if (this.isSessionActiveInAnyVisibleTab(item.spaceId, item.sessionId))
 			return;
 		const title = spaceTitle(item.space, "Space");
-		const body = [item.userPreview, getTurnNotificationMeta(item)]
-			.filter(Boolean)
-			.join("\n");
-		const notification = new Notification(`${title} finished a turn`, {
-			body,
+		const targetUrl = notificationHref(item);
+		const options: NotificationOptions = {
+			body: [item.userPreview, getTurnNotificationMeta(item)]
+				.filter(Boolean)
+				.join("\n"),
 			icon: item.space?.publicProfile?.avatarUrl ?? undefined,
 			tag: `turn:${item.turnId}`,
-		});
+			data: { url: targetUrl },
+		};
+		const registration = await navigator.serviceWorker?.ready.catch(() => null);
+		if (registration?.showNotification) {
+			await registration.showNotification(`${title} finished a turn`, options);
+			return;
+		}
+		const notification = new Notification(`${title} finished a turn`, options);
 		notification.onclick = () => {
 			window.focus();
-			void goto(notificationHref(item));
+			void goto(targetUrl);
 			notification.close();
 		};
 	}
