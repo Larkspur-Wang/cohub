@@ -89,7 +89,13 @@ function sectionFollowValue(section: ToolInputSection) {
 	<div class="min-w-0 space-y-1.5 pt-px">
 		{#if view.primary}
 			<div class="relative min-w-0">
-				<pre class="whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] max-sm:text-[12px]">{view.primary.value}</pre>
+				<pre
+					use:autoFollowScroll={{
+						enabled: autoFollow === true,
+						value: view.primary.value,
+					}}
+					class="max-h-[min(38dvh,14rem)] overflow-auto overscroll-contain pr-1 whitespace-pre-wrap break-words font-mono text-[12px] leading-snug text-text-secondary [overflow-wrap:anywhere] [scrollbar-width:thin] max-sm:text-[12px]"
+				>{view.primary.value}</pre>
 			</div>
 		{/if}
 
