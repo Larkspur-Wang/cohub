@@ -55,7 +55,7 @@ function choose(spec: SandboxSpec) {
 			</span>
 			<div>
 				<div class="text-[15px] font-semibold text-text-primary">Compute spec</div>
-				<div class="mt-0.5 text-[12px] text-text-tertiary">Upgrades apply instantly. Downgrades apply after restart.</div>
+				<div class="mt-0.5 text-[12px] text-text-tertiary">Changes apply to the running sandbox.</div>
 			</div>
 		</div>
 

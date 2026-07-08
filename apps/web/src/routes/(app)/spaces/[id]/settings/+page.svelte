@@ -336,7 +336,7 @@ async function saveSandboxSpec(spec: SandboxSpecId) {
 		).sandbox;
 		setSandboxSpecMessage(
 			sandboxResult?.pendingRestart
-				? "Saved. Applies after restart."
+				? "Saved. Applies on next sandbox start."
 				: "Spec updated.",
 		);
 	} catch (err) {
@@ -1646,7 +1646,7 @@ $effect(() => {
 											{#if savingSandboxSpec}
 												<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
 											{:else if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec}
-												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart pending</span>
+												<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Applies on next start</span>
 											{/if}
 										</div>
 									</div>
