@@ -81,13 +81,13 @@ function loadCanvasPanelModule() {
 	{#if canvas.loading}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
 			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
-			<div class="flex h-10 items-center border-b border-border-subtle px-3 text-xs text-text-tertiary">Loading canvas…</div>
+			<div class="flex h-11 shrink-0 items-center border-b border-border-subtle bg-bg-surface px-3 text-xs text-text-tertiary">Loading canvas…</div>
 			<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
 		</div>
 	{:else if canvas.error}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
 			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
-			<div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
+			<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 				<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>
 				<button type="button" class="icon-btn" onclick={onClose} title="Close canvas"><X class="w-4 h-4" /></button>
 			</div>
@@ -114,7 +114,7 @@ function loadCanvasPanelModule() {
 			</div>
 		{:catch}
 			<div class="flex h-full min-w-0 flex-col bg-bg-content">
-				<div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
+				<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 					<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>
 					<button type="button" class="icon-btn" onclick={onClose} title="Close canvas"><X class="w-4 h-4" /></button>
 				</div>
@@ -124,7 +124,7 @@ function loadCanvasPanelModule() {
 	{:else}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
 			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
-			<div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
+			<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 				<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>
 				<button type="button" class="icon-btn" onclick={onClose} title="Close canvas"><X class="w-4 h-4" /></button>
 			</div>

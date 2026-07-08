@@ -1,4 +1,6 @@
 <script lang="ts">
+import { X } from "lucide-svelte";
+
 type PreviewTab = {
 	kind: "file" | "canvas" | "port";
 	key: string;
@@ -15,6 +17,12 @@ type Props = {
 };
 
 let { tabs, onActivate, onClose }: Props = $props();
+
+const kindColor: Record<PreviewTab["kind"], string> = {
+	file: "var(--color-text-tertiary)",
+	canvas: "var(--color-brand)",
+	port: "var(--color-success-soft)",
+};
 </script>
 
 {#if tabs.length > 1}
@@ -29,7 +37,7 @@ let { tabs, onActivate, onClose }: Props = $props();
 					title={tab.title}
 					onclick={() => onActivate(tab.kind, tab.key)}
 				>
-					<span class="preview-tab-kind">{tab.kind}</span>
+					<span class="preview-tab-kind" style:background={kindColor[tab.kind]}></span>
 					<span class="truncate">{tab.label}</span>
 					{#if tab.dirty}<span class="preview-tab-dot" aria-label="Unsaved changes"></span>{/if}
 				</button>
@@ -39,7 +47,7 @@ let { tabs, onActivate, onClose }: Props = $props();
 					aria-label={`Close ${tab.label}`}
 					onclick={() => onClose(tab.kind, tab.key)}
 				>
-					×
+					<X class="w-3 h-3" />
 				</button>
 			</div>
 		{/each}
@@ -49,29 +57,40 @@ let { tabs, onActivate, onClose }: Props = $props();
 <style>
 	.preview-tabs {
 		display: flex;
-		gap: 0.25rem;
+		gap: 1px;
 		overflow-x: auto;
 		border-bottom: 1px solid var(--color-border-subtle);
 		background: var(--color-bg-surface);
-		padding: 0.25rem 0.375rem 0;
+		padding: 0 0.25rem;
 		scrollbar-width: thin;
 	}
 
 	.preview-tab-shell {
 		display: inline-flex;
 		min-width: 0;
-		max-width: 11rem;
+		max-width: 12rem;
 		align-items: center;
-		border: 1px solid transparent;
-		border-bottom: 0;
-		border-radius: 0.5rem 0.5rem 0 0;
+		position: relative;
 		color: var(--color-text-tertiary);
 	}
 
+	.preview-tab-shell:hover {
+		color: var(--color-text-secondary);
+	}
+
 	.preview-tab-shell.active {
-		border-color: var(--color-border-subtle);
-		background: var(--color-bg-content);
 		color: var(--color-text-primary);
+	}
+
+	.preview-tab-shell.active::after {
+		content: "";
+		position: absolute;
+		left: 0.25rem;
+		right: 0.25rem;
+		bottom: 0;
+		height: 2px;
+		border-radius: 2px 2px 0 0;
+		background: var(--color-brand);
 	}
 
 	.preview-tab {
@@ -79,16 +98,22 @@ let { tabs, onActivate, onClose }: Props = $props();
 		min-width: 0;
 		align-items: center;
 		gap: 0.375rem;
-		padding: 0.375rem 0.25rem 0.375rem 0.5rem;
+		padding: 0.4375rem 0.375rem;
 		font-size: 0.75rem;
 		line-height: 1rem;
 		white-space: nowrap;
 	}
 
 	.preview-tab-kind {
-		font-size: 0.625rem;
-		text-transform: uppercase;
-		color: var(--color-text-tertiary);
+		width: 0.375rem;
+		height: 0.375rem;
+		flex: 0 0 auto;
+		border-radius: 9999px;
+		opacity: 0.7;
+	}
+
+	.preview-tab-shell.active .preview-tab-kind {
+		opacity: 1;
 	}
 
 	.preview-tab-dot {
@@ -104,13 +129,23 @@ let { tabs, onActivate, onClose }: Props = $props();
 		flex: 0 0 auto;
 		align-items: center;
 		justify-content: center;
-		border-radius: 9999px;
-		padding: 0.25rem 0.375rem;
-		opacity: 0.65;
+		width: 1.25rem;
+		height: 1.25rem;
+		margin-right: 0.125rem;
+		border-radius: 4px;
+		opacity: 0;
+		color: var(--color-text-tertiary);
+		transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+	}
+
+	.preview-tab-shell:hover .preview-tab-close,
+	.preview-tab-shell.active .preview-tab-close {
+		opacity: 0.55;
 	}
 
 	.preview-tab-close:hover {
-		background: var(--color-bg-input);
-		opacity: 1;
+		background: var(--color-bg-hover);
+		opacity: 1 !important;
+		color: var(--color-text-secondary);
 	}
 </style>

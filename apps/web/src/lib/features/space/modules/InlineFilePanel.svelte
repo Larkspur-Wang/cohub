@@ -243,7 +243,7 @@ function loadRenderedFilePreviewModule() {
         </div>
       {:else if inlineFile.response}
         {#if inlineFileIsText}
-          <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
+          <div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
             {#if inlineFileHasRenderedPreview}
               <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
                 <button type="button" class="segmented-btn" class:active={inlineFileEdit} onclick={() => inlineFileEdit = true} title="Edit source">Source</button>
@@ -334,7 +334,7 @@ function loadRenderedFilePreviewModule() {
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
         <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
         {#if inlineFile.loading}
-          <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
+          <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
             {@render PreviewFocusButton()}
@@ -344,7 +344,7 @@ function loadRenderedFilePreviewModule() {
           </div>
           <CenteredLoading label="Loading file…" size="panel" />
         {:else if inlineFile.error}
-          <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
+          <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
             {@render PreviewFocusButton()}
@@ -356,7 +356,7 @@ function loadRenderedFilePreviewModule() {
             {inlineFile.error}
           </div>
         {:else if inlineFile.tooLarge}
-          <div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3 shrink-0">
+          <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
             {@render PreviewFocusButton()}
@@ -377,7 +377,7 @@ function loadRenderedFilePreviewModule() {
           </div>
         {:else if inlineFile.response}
           {#if inlineFileIsText}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               {#if inlineFileCanGoBack}
                 <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
                   <ArrowLeft class="w-4 h-4" />
@@ -437,7 +437,7 @@ function loadRenderedFilePreviewModule() {
                 </button>
               {/if}
               {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -486,7 +486,7 @@ function loadRenderedFilePreviewModule() {
               {/if}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
@@ -500,7 +500,7 @@ function loadRenderedFilePreviewModule() {
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -516,14 +516,14 @@ function loadRenderedFilePreviewModule() {
               <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
               {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>
@@ -533,14 +533,14 @@ function loadRenderedFilePreviewModule() {
               </video>
             </div>
           {:else}
-            <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
               {@render PreviewFocusButton()}
-                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
             </div>

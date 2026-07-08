@@ -56,7 +56,7 @@ const {
 } = $props();
 </script>
 
-<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-content px-2.5">
+<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
   <div class="flex min-w-0 flex-1 items-center gap-2">
     <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-brand-border bg-brand-bg text-brand-muted-fg">
       <MousePointer2 class="h-3.5 w-3.5" />
@@ -89,7 +89,6 @@ const {
     <button type="button" class="canvas-icon" onclick={onZoomIn} title="Zoom in"><Plus class="h-3.5 w-3.5" /></button>
     <button type="button" class="canvas-icon" onclick={onFit} title="Reset view"><LocateFixed class="h-3.5 w-3.5" /></button>
     <div class="mx-1 h-5 w-px bg-border-subtle"></div>
-    <span class="canvas-sync-state">{saving ? "Syncing" : dirty ? "Pending" : "Synced"}</span>
     {#if onToggleFocus && onToggleImmersive}
       <PreviewExpandMenu
         {focused}
@@ -124,15 +123,5 @@ const {
   .canvas-tool:hover,
   .canvas-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
   .canvas-tool:disabled { cursor: not-allowed; opacity: 0.45; }
-  .canvas-sync-state {
-    display: inline-flex;
-    align-items: center;
-    height: 1.75rem;
-    padding: 0 0.4rem;
-    color: var(--text-tertiary);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
+
 </style>

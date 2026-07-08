@@ -168,7 +168,7 @@ function loadRenderedFilePreviewModule() {
   </div>
 {:else if openFileTooLarge}
   <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
-    <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+    <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
       <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
         {routeFilePath}
       </div>
@@ -199,7 +199,7 @@ function loadRenderedFilePreviewModule() {
 {:else if openFile}
   <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
     {#if openFileIsText}
-      <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+      <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
         <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
           {openFile.path}
         </div>
@@ -293,7 +293,7 @@ function loadRenderedFilePreviewModule() {
         {/if}
       </div>
     {:else if openFileIsImage && openFileDataUrl}
-      <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+      <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
         <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
           {openFile.path}
         </div>
@@ -322,7 +322,7 @@ function loadRenderedFilePreviewModule() {
         <img src={openFileDataUrl} alt={openFile.name} style={`transform: translate(${openFilePanX}px, ${openFilePanY}px) scale(${openFileZoom}); ${openFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
       </div>
     {:else if openFileIsVideo && openFileDataUrl}
-      <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+      <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
         <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
           {openFile.path}
         </div>
@@ -338,7 +338,7 @@ function loadRenderedFilePreviewModule() {
         </video>
       </div>
     {:else}
-      <div class="flex h-10 items-center gap-1.5 sm:gap-2 border-b border-border-subtle px-2 sm:px-3 shrink-0">
+      <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
         <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
           {openFile.path}
         </div>
