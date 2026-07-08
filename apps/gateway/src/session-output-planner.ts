@@ -6,6 +6,28 @@ import type {
 } from "@cohub/protocol/gateway";
 import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 
+const FENCE_LINE_RE = /^( {0,3})(`{3,}|~{3,})/;
+
+const updateOpenFence = (line: string, openFence: string | null) => {
+  const match = line.match(FENCE_LINE_RE);
+  if (!match) return openFence;
+  const marker = match[2];
+  if (!marker) return openFence;
+  if (openFence && marker[0] === openFence[0] && marker.length >= openFence.length) return null;
+  if (!openFence) return marker;
+  return openFence;
+};
+
+const findSplitIndex = (value: string, limit: number) => {
+  const candidate = value.slice(0, limit);
+  const breakIndex = Math.max(
+    candidate.lastIndexOf("\n\n"),
+    candidate.lastIndexOf("\n"),
+    candidate.lastIndexOf(" "),
+  );
+  return breakIndex > Math.floor(limit * 0.5) ? breakIndex : limit;
+};
+
 export const splitPlannedMessage = (value: string, limit = 1900) => {
   const text = value.trim();
   if (!text) return [] as string[];
@@ -13,14 +35,23 @@ export const splitPlannedMessage = (value: string, limit = 1900) => {
 
   const chunks: string[] = [];
   let remaining = text;
+  let openFence: string | null = null;
   while (remaining.length > limit) {
-    const candidate = remaining.slice(0, limit);
-    const breakIndex = Math.max(candidate.lastIndexOf("\n\n"), candidate.lastIndexOf("\n"), candidate.lastIndexOf(" "));
-    const cut = breakIndex > Math.floor(limit * 0.5) ? breakIndex : limit;
-    chunks.push(remaining.slice(0, cut).trim());
+    const reopenPrefix = openFence ? `${openFence}\n` : "";
+    const closeSuffix = openFence ? `\n${openFence}` : "";
+    const bodyLimit = limit - reopenPrefix.length - closeSuffix.length;
+    const cut = findSplitIndex(remaining, bodyLimit);
+    const rawChunk = remaining.slice(0, cut).trim();
+    const chunk = `${reopenPrefix}${rawChunk}${closeSuffix}`.trim();
+    for (const line of rawChunk.split("\n")) {
+      openFence = updateOpenFence(line, openFence);
+    }
+    chunks.push(chunk);
     remaining = remaining.slice(cut).trim();
   }
-  if (remaining) chunks.push(remaining);
+  if (remaining) {
+    chunks.push(`${openFence ? `${openFence}\n` : ""}${remaining}`.trim());
+  }
   return chunks.filter(Boolean);
 };
 

@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, type AnyThreadChannel, type CommandInteraction, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
+import { Client, GatewayIntentBits, Partials, type AllowedMentionsTypes, type AnyThreadChannel, type CommandInteraction, type Message, Events, type MessageCreateOptions, type TextBasedChannel } from "discord.js";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { DiscordChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
@@ -46,104 +46,7 @@ const buildDiscordSourceChannel = (input: {
   return `discord:${input.fallbackId}`;
 };
 
-const truncate = (value: string, limit = 120) =>
-  value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
-
-const _splitDiscordMessage = (value: string, limit = 1900) => {
-  const text = value.trim();
-  if (!text) return [] as string[];
-  if (text.length <= limit) return [text];
-
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > limit) {
-    const candidate = remaining.slice(0, limit);
-    const breakIndex = Math.max(
-      candidate.lastIndexOf("\n\n"),
-      candidate.lastIndexOf("\n"),
-      candidate.lastIndexOf(" "),
-    );
-    const cut = breakIndex > Math.floor(limit * 0.5) ? breakIndex : limit;
-    chunks.push(remaining.slice(0, cut).trim());
-    remaining = remaining.slice(cut).trim();
-  }
-
-  if (remaining) chunks.push(remaining);
-  return chunks.filter(Boolean);
-};
-
-const summarizeThinkingForMinimal = (thinking: string) => {
-  const trimmed = thinking.trim();
-  if (!trimmed) return "";
-  const firstLine = trimmed.split(/\n+/).map((line) => line.trim()).find(Boolean) ?? "";
-  return truncate(firstLine, 100);
-};
-
-const buildToolLine = (status: string | undefined, toolName: string | undefined, summary: string | undefined) => {
-  const safeStatus = status ?? "queued";
-  const safeToolName = toolName ?? "tool";
-  const suffix = summary?.trim() ? ` ${summary.trim()}` : "";
-  return `[${safeStatus}] ${safeToolName}${suffix}`;
-};
-
-const buildDiscordRenderText = (content: ContentBlock[], includeThinking = false, isFinalMessage = false) => {
-  const textParts: string[] = [];
-  const imageUris: string[] = [];
-
-  for (const block of content) {
-    if (block.type === "text") {
-      textParts.push(block.text);
-      continue;
-    }
-
-    if (block.type === "thinking") {
-      if (includeThinking && !isFinalMessage) {
-        const summary = summarizeThinkingForMinimal(block.thinking);
-        if (summary) textParts.push(`> ${summary}`);
-      }
-      continue;
-    }
-
-    if (block.type === "tool_use") {
-      if (isFinalMessage) continue;
-      const name = block.name;
-      const inputSummary = block.input && typeof block.input === "object"
-        ? Object.values(block.input as Record<string, unknown>).filter(v => typeof v === "string").join(" ").slice(0, 80)
-        : "";
-      textParts.push(`[done] ${name}${inputSummary ? ` ${inputSummary}` : ""}`);
-      continue;
-    }
-
-    if (block.type === "tool_result") {
-      // Tool results are typically not shown in final messages
-      continue;
-    }
-
-    if (block.type === "image" && block.source.type === "url") {
-      imageUris.push(block.source.url);
-      continue;
-    }
-
-    if (block.type === "system_note") {
-      textParts.push(`ℹ️ ${block.text}`);
-    }
-  }
-
-  const mergedText = textParts.join("\n").trim();
-  return {
-    text: mergedText,
-    imageUris,
-  };
-};
-
-const getDiscordOutboundConfig = (config: DiscordChannelConfig | null | undefined) => {
-  const outbound = config?.outbound ?? {};
-  return {
-    showThinking: outbound.showThinking === true,
-    showToolCalls: outbound.showToolCalls === true,
-  };
-};
+const DISCORD_ALLOWED_MENTIONS = { parse: [] as AllowedMentionsTypes[] };
 
 const getDiscordInboundConfig = (config: DiscordChannelConfig | null | undefined) => {
   const inbound = config?.inbound ?? {};
@@ -221,52 +124,6 @@ const shouldAcceptDiscordInboundMessage = async (channelId: string, message: Mes
   return message.mentions.users.has(botUserId);
 };
 
-const _buildDiscordOutboundPayload = async (channelId: string, cmd: PlannedGatewayOutboundCommand) => {
-  const renderMode = String(cmd.meta?.renderMode ?? "message");
-  const isFinalMessage = cmd.meta?.source === "session_persist";
-
-  if (renderMode !== "rich_status") {
-    return buildDiscordRenderText(cmd.content, !isFinalMessage, isFinalMessage);
-  }
-
-  const channelConfig = await getSpaceChannelConfig<DiscordChannelConfig>(channelId);
-  const outboundConfig = getDiscordOutboundConfig(channelConfig);
-  // Only show thinking for intermediate status updates, not final messages
-  const thinking = !isFinalMessage && outboundConfig.showThinking && typeof cmd.meta?.thinking === "string" ? cmd.meta.thinking : "";
-  const answer = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : buildDiscordRenderText(cmd.content, false).text;
-  const toolCalls = outboundConfig.showToolCalls && Array.isArray(cmd.meta?.toolCalls)
-    ? cmd.meta.toolCalls as Array<Record<string, unknown>>
-    : [];
-
-  const lines: string[] = [];
-  if (thinking.trim()) {
-    lines.push(`> ${thinking.trim()}`);
-  }
-  if (toolCalls.length > 0) {
-    lines.push(
-      `${toolCalls
-        .map((tool) => buildToolLine(
-          typeof tool.status === "string" ? tool.status : undefined,
-          typeof tool.toolName === "string" ? tool.toolName : undefined,
-          typeof tool.summary === "string" ? tool.summary : undefined,
-        ))
-        .join("\n")}`,
-    );
-  }
-  if (answer.trim()) {
-    lines.push(answer.trim());
-  }
-
-  if (!isFinalMessage) {
-    lines.push("🍳 cooking…");
-  }
-
-  return {
-    text: lines.join("\n\n").trim(),
-    imageUris: [],
-  };
-};
-
 const buildThreadConversationMeta = async (thread: AnyThreadChannel) => {
   const fetchableThread = thread as AnyThreadChannel & { fetchStarterMessage?: () => Promise<Message | null> };
   const starter = await fetchableThread.fetchStarterMessage?.().catch(() => null);
@@ -280,10 +137,6 @@ const buildThreadConversationMeta = async (thread: AnyThreadChannel) => {
     autoArchiveDuration: thread.autoArchiveDuration ?? null,
   };
 };
-
-function _resolveDiscordDisplayMode(_cmd: PlannedGatewayOutboundCommand) {
-  return "full";
-}
 
 export class DiscordProvider implements GatewayProvider {
   private client: Client;
@@ -476,6 +329,12 @@ export class DiscordProvider implements GatewayProvider {
         content: message.content.slice(0, 100) + (message.content.length > 100 ? "..." : ""),
         attachments: message.attachments.size,
       });
+
+      if ("sendTyping" in message.channel) {
+        await message.channel.sendTyping().catch((error) => {
+          logger.warn(`[Discord:${this.channelId}] Failed to send typing indicator:`, error);
+        });
+      }
 
       const cleanedContent = resolveMentions(message);
       const content: ContentBlock[] = [{ type: "text", text: cleanedContent }];
@@ -762,7 +621,7 @@ export class DiscordProvider implements GatewayProvider {
       if (editTargetMessageId && "messages" in textChannel && plan.primaryText) {
         const target = await textChannel.messages.fetch(editTargetMessageId).catch(() => null);
         if (target) {
-          await target.edit({ content: plan.primaryText });
+          await target.edit({ content: plan.primaryText, allowedMentions: DISCORD_ALLOWED_MENTIONS });
           if (turnAnchorMessageId) {
             await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, target.id).catch((error) => logger.error("[Discord] failed to persist edited turn message ref", { channelId: this.channelId, turnAnchorMessageId, externalMessageId: target.id, error }));
           }
@@ -773,6 +632,7 @@ export class DiscordProvider implements GatewayProvider {
               const continuationOptions: MessageCreateOptions = {
                 content: chunk,
                 files: [],
+                allowedMentions: DISCORD_ALLOWED_MENTIONS,
                 reply: { messageReference: previousMessageId },
               };
               const continuation = (await (textChannel as Extract<typeof textChannel, { send: (options: MessageCreateOptions) => Promise<unknown> }>).send(continuationOptions)) as { id: string };
@@ -790,7 +650,7 @@ export class DiscordProvider implements GatewayProvider {
         return { success: false as const, error: "Channel does not support sending messages" };
       }
 
-      const messageOptions: MessageCreateOptions = { content: plan.primaryText, files };
+      const messageOptions: MessageCreateOptions = { content: plan.primaryText, files, allowedMentions: DISCORD_ALLOWED_MENTIONS };
       if (plan.replyToExternalMessageId && !plan.replyToExternalMessageId.startsWith(DISCORD_NATIVE_COMMAND_MESSAGE_PREFIX)) {
         messageOptions.reply = { messageReference: plan.replyToExternalMessageId };
       }
@@ -806,6 +666,7 @@ export class DiscordProvider implements GatewayProvider {
         const continuationOptions: MessageCreateOptions = {
           content: chunk,
           files: [],
+          allowedMentions: DISCORD_ALLOWED_MENTIONS,
           reply: { messageReference: previousMessageId },
         };
         const continuation = (await sendableChannel.send(continuationOptions)) as { id: string };

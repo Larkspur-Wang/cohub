@@ -32,10 +32,20 @@ const inboundDedup = new Map<string, number>();
 const DEDUP_TTL_MS = 5 * 60 * 1000;
 const DEDUP_MAX_ENTRIES = 10000;
 
+const buildInboundDedupKey = (event: GatewayInboundEvent) => {
+  const provider = event.provider?.trim();
+  const chatId = event.externalChatId?.trim();
+  const messageId = event.externalMessageId?.trim();
+  if (provider && chatId && messageId) return `${provider}:${chatId}:${messageId}`;
+  return event.eventId;
+};
+
 export const publishInboundEvent = async (event: GatewayInboundEvent) => {
+  const dedupKey = buildInboundDedupKey(event);
+
   // Dedup: skip if already processed (handles WS reconnect duplicate delivery)
-  if (inboundDedup.has(event.eventId)) {
-    logger.info(`[Bus] Duplicate inbound event ${event.eventId.slice(0, 8)}, skipping`);
+  if (inboundDedup.has(dedupKey)) {
+    logger.info(`[Bus] Duplicate inbound event ${dedupKey}, skipping`);
     return;
   }
 
@@ -64,7 +74,7 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     const text = await response.text().catch(() => "");
     throw new Error(`Gateway inbound submit failed ${response.status}: ${text}`);
   }
-  inboundDedup.set(event.eventId, Date.now());
+  inboundDedup.set(dedupKey, Date.now());
 
   logger.info(`[Bus] Inbound submitted: ${event.eventId.slice(0, 8)}`);
 };
