@@ -1,5 +1,11 @@
 # @neta-art/cohub
 
+## 2.7.1
+
+### Patch Changes
+
+- 55eeac2: Remove the Guides table from the README top section; the Work runtime overview section at the bottom already links to the guide.
+
 ## 2.7.0
 
 ### Minor Changes
