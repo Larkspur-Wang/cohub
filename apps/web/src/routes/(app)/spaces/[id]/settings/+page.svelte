@@ -1201,6 +1201,17 @@ async function removeMod(mod: SpaceModListItem) {
 	}
 }
 
+type SettingsSection = "profile" | "access" | "runtime" | "channels" | "sandbox";
+
+const settingsSections: { id: SettingsSection; label: string; icon: typeof Globe }[] = [
+	{ id: "profile", label: "Profile", icon: Globe },
+	{ id: "access", label: "Access", icon: Users },
+	{ id: "runtime", label: "Runtime", icon: Terminal },
+	{ id: "channels", label: "Channels", icon: Network },
+	{ id: "sandbox", label: "Sandbox", icon: Settings },
+];
+let activeSection = $state<SettingsSection>("profile");
+
 $effect(() => {
 	void loadPage();
 });
@@ -1226,412 +1237,413 @@ $effect(() => {
 		<a href={`/spaces/${spaceId}/settings/commerce`} class="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle px-2.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"><PackagePlus class="h-3.5 w-3.5" /> Commerce</a>
 	</header>
 
-	<main class="min-h-0 flex-1 overflow-y-auto px-6 py-7">
-		<div class="mx-auto w-full max-w-2xl">
-			{#if loading}
-				<!-- Skeleton: Profile -->
-				<section class="border-b border-border-subtle pb-6" aria-hidden="true">
-					<div class="flex items-center gap-2.5">
-						<div class="h-4 w-4 rounded bg-bg-hover-strong"></div>
+	<div class="flex min-h-0 flex-1">
+		<!-- Section nav (desktop sidebar) -->
+		<nav class="hidden w-44 shrink-0 flex-col gap-0.5 border-r border-border-subtle px-2 py-4 lg:flex">
+			{#each settingsSections as section (section.id)}
+				<button
+					type="button"
+					class="flex items-center gap-2.5 rounded-[5px] px-2.5 py-2 text-left text-[13px] transition-colors {activeSection === section.id ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+					onclick={() => (activeSection = section.id)}
+				>
+					<section.icon class="h-[15px] w-[15px] shrink-0" />
+					<span class="truncate">{section.label}</span>
+				</button>
+			{/each}
+		</nav>
+
+		<!-- Mobile section tabs -->
+		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-2 py-1.5 lg:hidden">
+			{#each settingsSections as section (section.id)}
+				<button
+					type="button"
+					class="shrink-0 rounded-[5px] px-2.5 py-1.5 text-[12px] font-medium transition-colors {activeSection === section.id ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+					onclick={() => (activeSection = section.id)}
+				>
+					{section.label}
+				</button>
+			{/each}
+		</div>
+
+		<main class="min-h-0 flex-1 overflow-y-auto px-6 py-7">
+			<div class="mx-auto w-full max-w-2xl">
+				{#if loading}
+					<!-- Skeleton -->
+					<section aria-hidden="true">
 						<div class="space-y-1.5">
-							<div class="h-3.5 w-16 rounded bg-bg-hover-strong"></div>
-							<div class="h-2.5 w-32 rounded bg-bg-hover-strong"></div>
+							<div class="h-4 w-20 rounded bg-bg-hover-strong"></div>
+							<div class="h-3 w-40 rounded bg-bg-hover-strong"></div>
 						</div>
-					</div>
-					<div class="mt-5 flex gap-4">
-						<div class="h-14 w-14 shrink-0 rounded-full border border-border-subtle bg-bg-hover-strong"></div>
-						<div class="flex-1 space-y-3 pt-0.5">
-							<div class="h-4 w-40 rounded bg-bg-hover-strong"></div>
-							<div class="h-3 w-56 rounded bg-bg-hover-strong"></div>
+						<div class="mt-5 space-y-3">
+							<div class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
+							<div class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
 							<div class="h-16 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
 						</div>
-					</div>
-				</section>
-
-				<!-- Skeleton: Access + Runtime + Channels + Sandbox -->
-				{#each Array(4) as _}
-					<section class="border-b border-border-subtle py-6">
-						<div class="flex items-center gap-2.5">
-							<div class="h-4 w-4 rounded bg-bg-hover-strong"></div>
-							<div class="space-y-1.5">
-								<div class="h-3.5 w-20 rounded bg-bg-hover-strong"></div>
-								<div class="h-2.5 w-36 rounded bg-bg-hover-strong"></div>
-							</div>
-						</div>
-						<div class="mt-5 space-y-2">
-							<div class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
-							<div class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-hover-strong"></div>
-						</div>
 					</section>
-				{/each}
-			{:else if error}
-				<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
-			{:else}
-				<!-- ════════ Profile ════════ -->
-				<section class="border-b border-border-subtle pb-6">
-					<div class="flex items-center gap-2.5">
-						<Globe class="h-4 w-4 text-text-tertiary" />
-						<div>
-							<h2 class="text-[14px] font-medium text-text-primary">Profile</h2>
-							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Name, avatar, description, public URL.</p>
-						</div>
-					</div>
-
-					<div class="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start">
-						<div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
-							{#if canEditSpaceProfile}
-								<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title="Change space avatar" aria-label="Change space avatar">
-									<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-full w-full rounded-full border-0 shadow-none" />
-									<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-										{#if spaceAvatarUploading}<Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />{:else}<Upload class="h-4 w-4 text-overlay-control-text" />{/if}
-									</span>
-									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
-								</label>
-								<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-50' : ''}">
-									{#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
-									<span>{space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
-									<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
-								</label>
-							{:else}
-								<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
-							{/if}
-						</div>
-
-						<div class="min-w-0 flex-1 space-y-4">
-							<!-- Name (inline edit) -->
-							<div class="min-w-0">
-								<div class="flex min-w-0 items-center gap-1.5">
-									{#if renamingSpace && canEditSpaceProfile}
-										<input type="text" bind:value={renameInput} disabled={renameSaving} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2 py-1 text-[15px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60" onkeydown={(event) => { if (event.key === 'Enter' && !renameSaving && !isComposingKeyboardEvent(event)) { event.preventDefault(); const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } } if (event.key === 'Escape' && !renameSaving) { renamingSpace = false; renameError = ''; } }} />
-										<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save" disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } }}>{#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
-										<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel" disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ''; }}><X class="h-3.5 w-3.5" /></button>
-									{:else if canEditSpaceProfile}
-										<button type="button" onclick={() => { renameInput = space?.name ?? ''; renamingSpace = true; renameError = ''; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Rename space"><span class="min-w-0 truncate text-[15px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span><Pencil class="h-3 w-3 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" /></button>
-									{:else}
-										<h3 class="min-w-0 truncate text-[15px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h3>
-									{/if}
-								</div>
-								{#if renameError}<div class="mt-1 text-[11px] text-error-soft">{renameError}</div>{/if}
+				{:else if error}
+					<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
+				{:else}
+					<!-- ════════ Profile ════════ -->
+					{#if activeSection === "profile"}
+						<section>
+							<div class="border-b border-border-subtle pb-5">
+								<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Profile</h1>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Name, avatar, description, public URL.</p>
 							</div>
 
-							<!-- ID + URL -->
-							<div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-text-tertiary">
-								<div class="flex min-w-0 items-center gap-1.5">
-									<span class="shrink-0 uppercase tracking-wider text-text-placeholder">ID</span>
-									<button type="button" onclick={() => void copySpaceId()} class="inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 font-mono transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy space ID"><span class="min-w-0 truncate">{formatCompactId(spaceId)}</span>{#if copiedSpaceId}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
-								</div>
-								<div class="flex min-w-0 items-center gap-1.5">
-									<span class="shrink-0 uppercase tracking-wider text-text-placeholder">URL</span>
-									{#if editingSpaceSlug && canEditSpaceProfile}
-										<div class="flex min-w-0 items-center gap-1">
-											<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2 py-1"><span class="mr-0.5 shrink-0 font-mono text-[11px] {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span><input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:outline-none" /></div>
-											<button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">{#if spaceSlugSaving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}</button>
-											<button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel"><X class="h-3 w-3" /></button>
-										</div>
-										{#if spaceSlugError}<div class="w-full text-[11px] text-error-soft break-words">{spaceSlugError}</div>{/if}
-									{:else if getSpacePublicPath(space)}
-										<button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 font-mono transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy pretty URL"><span class="min-w-0 truncate">{getSpacePublicPath(space)}</span>{#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
-									{:else if getSpaceSlug(space)}
-										<code class="inline-flex min-w-0 items-center gap-0.5 font-mono"><span class="text-text-placeholder">/username/</span><span class="min-w-0 truncate">{getSpaceSlug(space)}</span></code>
-										{#if canEditSpaceProfile}<button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug"><Pencil class="h-3 w-3" /></button>{/if}
-									{:else}
-										<button type="button" onclick={beginSpaceSlugEdit} class="text-text-placeholder transition-colors hover:text-text-secondary" title="Add space slug">Add slug</button>
-									{/if}
-								</div>
-							</div>
-							{#if getSpacePrettyUrlHint(space) && !(editingSpaceSlug && canEditSpaceProfile)}<p class="text-[11px] leading-4 text-text-placeholder">{getSpacePrettyUrlHint(space)}</p>{/if}
-
-							<!-- Description -->
-							<label class="block">
-								<textarea aria-label="Space description" bind:value={spaceDescriptionDraft} rows="2" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="w-full resize-y rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder="Describe what this space is for…"></textarea>
-							</label>
-							{#if canEditSpaceProfile}
-								<div class="flex items-center gap-3">
-									<button type="button" onclick={() => void saveSpaceDescription()} disabled={spaceDescriptionSaving || spaceDescriptionDraft.trim() === (space?.description ?? '').trim()} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if spaceDescriptionSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Saving…{:else}Save profile{/if}</button>
-									<span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter</span>
-								</div>
-							{/if}
-							{#if spaceProfileError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{spaceProfileError}</div>{/if}
-						</div>
-					</div>
-				</section>
-
-				<!-- ════════ Access ════════ -->
-				<section class="border-b border-border-subtle py-6">
-					<div class="flex items-center justify-between gap-3">
-						<div class="flex items-center gap-2.5">
-							<Users class="h-4 w-4 text-text-tertiary" />
-							<div>
-								<h2 class="text-[14px] font-medium text-text-primary">Access</h2>
-								<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Members, permissions, invites.</p>
-							</div>
-						</div>
-						<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand/20 bg-brand-bg px-2.5 text-[12px] font-medium text-brand-muted-fg transition-colors hover:bg-brand-muted"><Link class="h-3.5 w-3.5" /> Invite</button>
-					</div>
-
-					<div class="mt-5 space-y-5">
-						<!-- Access policy -->
-						<div class="grid gap-4 sm:grid-cols-2">
-							<label class="block">
-								<span class="mb-1.5 block text-[12px] text-text-tertiary">Signed-in users</span>
-								<select value={access?.signed_in_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">None</option><option value="guest">Guest</option><option value="builder">Builder</option></select>
-							</label>
-							<label class="block">
-								<span class="mb-1.5 block text-[12px] text-text-tertiary">Anonymous</span>
-								<select value={access?.anonymous_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">None</option><option value="guest">Guest</option></select>
-							</label>
-						</div>
-						{#if accessError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{accessError}</div>{/if}
-
-						<!-- Members -->
-						<div class="space-y-3">
-							<div class="flex items-center justify-between gap-3">
-								<span class="text-[12px] font-medium text-text-secondary">Members · {members.length}</span>
-							</div>
-							<div class="flex flex-col gap-2 sm:flex-row">
-								<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" disabled={!canManageSpaceMembers} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" />
-								<div class="grid grid-cols-[1fr_auto] gap-2 sm:flex">
-									<div class="inline-grid h-9 grid-cols-3 overflow-hidden rounded-[5px] border border-border-subtle bg-bg-input" role="radiogroup" aria-label="New member role">
-										{#each memberRoleOptions as option (option.value)}
-											<button type="button" role="radio" aria-checked={addingMemberRole === option.value} disabled={!canManageSpaceMembers} onclick={() => selectAddingMemberRole(option.value)} class="px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60 {addingMemberRole === option.value ? 'bg-brand-bg text-brand-muted-fg' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}">{option.label}</button>
-										{/each}
+							<div class="py-6">
+								<div class="flex items-start gap-4">
+									<div class="flex w-16 shrink-0 flex-col items-center gap-1.5">
+										{#if canEditSpaceProfile}
+											<label class="group relative h-14 w-14 cursor-pointer overflow-hidden rounded-full border border-border-subtle bg-bg-hover-strong transition-colors hover:border-brand/50 focus-within:border-brand/50" title="Change space avatar" aria-label="Change space avatar">
+												<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-full w-full rounded-full border-0 shadow-none" />
+												<span class="absolute inset-0 flex items-center justify-center bg-overlay-scrim-strong opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+													{#if spaceAvatarUploading}<Loader2 class="h-4 w-4 animate-spin text-overlay-control-text" />{:else}<Upload class="h-4 w-4 text-overlay-control-text" />{/if}
+												</span>
+												<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+											</label>
+											<label class="inline-flex cursor-pointer items-center gap-1 rounded-[4px] px-1 py-0.5 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {spaceAvatarUploading ? 'pointer-events-none opacity-50' : ''}">
+												{#if spaceAvatarUploading}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Upload class="h-3 w-3" />{/if}
+												<span>{space?.publicProfile?.avatarUrl ? "Change" : "Upload"}</span>
+												<input type="file" accept="image/jpeg,image/png,image/webp" class="sr-only" disabled={spaceAvatarUploading} onchange={handleSpaceAvatarFileChange} />
+											</label>
+										{:else}
+											<SpaceAvatar name={space?.name || space?.title || spaceId} profile={space?.publicProfile} size="lg" class="h-14 w-14 rounded-full" />
+										{/if}
 									</div>
-									<button type="button" onclick={() => { void addMember(); }} disabled={!canManageSpaceMembers || savingMember || !addingMemberUuid.trim()} class="inline-flex h-9 min-w-20 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">{#if savingMember}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
+
+									<div class="min-w-0 flex-1 space-y-4 pt-0.5">
+										<!-- Name (inline edit) -->
+										<div class="min-w-0">
+											<div class="flex min-w-0 items-center gap-1.5">
+												{#if renamingSpace && canEditSpaceProfile}
+													<input type="text" bind:value={renameInput} disabled={renameSaving} class="min-w-0 flex-1 rounded-[5px] border border-brand/40 bg-bg-input px-2 py-1 text-[15px] font-medium text-text-primary transition-colors focus:outline-none disabled:opacity-60" onkeydown={(event) => { if (event.key === 'Enter' && !renameSaving && !isComposingKeyboardEvent(event)) { event.preventDefault(); const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } } if (event.key === 'Escape' && !renameSaving) { renamingSpace = false; renameError = ''; } }} />
+													<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save" disabled={renameSaving} onclick={() => { const trimmed = renameInput.trim(); if (trimmed && trimmed !== space?.name) void handleRenameSpace(trimmed); else { renamingSpace = false; renameError = ''; } }}>{#if renameSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Check class="h-3.5 w-3.5" />{/if}</button>
+													<button type="button" class="shrink-0 rounded-[5px] p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel" disabled={renameSaving} onclick={() => { renamingSpace = false; renameError = ''; }}><X class="h-3.5 w-3.5" /></button>
+												{:else if canEditSpaceProfile}
+													<button type="button" onclick={() => { renameInput = space?.name ?? ''; renamingSpace = true; renameError = ''; }} class="group/edit -ml-1 flex max-w-full items-center gap-1.5 rounded-[5px] px-1 py-0.5 text-left transition-colors hover:bg-bg-hover" title="Rename space"><span class="min-w-0 truncate text-[15px] font-medium text-text-primary group-hover/edit:text-brand">{space?.name || space?.title || spaceId}</span><Pencil class="h-3 w-3 shrink-0 text-text-placeholder opacity-0 transition-opacity group-hover/edit:opacity-100" /></button>
+												{:else}
+													<h3 class="min-w-0 truncate text-[15px] font-medium text-text-primary">{space?.name || space?.title || spaceId}</h3>
+												{/if}
+											</div>
+											{#if renameError}<div class="mt-1 text-[11px] text-error-soft">{renameError}</div>{/if}
+										</div>
+
+										<!-- ID + URL -->
+										<div class="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-text-tertiary">
+											<div class="flex min-w-0 items-center gap-1.5">
+												<span class="shrink-0 uppercase tracking-wider text-text-placeholder">ID</span>
+												<button type="button" onclick={() => void copySpaceId()} class="inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 font-mono transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy space ID"><span class="min-w-0 truncate">{formatCompactId(spaceId)}</span>{#if copiedSpaceId}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
+											</div>
+											<div class="flex min-w-0 items-center gap-1.5">
+												<span class="shrink-0 uppercase tracking-wider text-text-placeholder">URL</span>
+												{#if editingSpaceSlug && canEditSpaceProfile}
+													<div class="flex min-w-0 items-center gap-1">
+														<div class="flex min-w-0 flex-1 items-center rounded-[5px] border border-brand/40 bg-bg-input px-2 py-1"><span class="mr-0.5 shrink-0 font-mono text-[11px] {getSpaceOwnerUsername(space) ? 'text-text-tertiary' : 'text-text-placeholder'}">/{getSpaceOwnerUsername(space) || 'username'}/</span><input aria-label="Space slug" bind:value={spaceSlugDraft} placeholder="my-space" maxlength="80" onkeydown={handleSpaceSlugKeydown} disabled={spaceSlugSaving} class="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:outline-none" /></div>
+														<button type="button" onclick={() => void saveSpaceSlug()} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Save slug">{#if spaceSlugSaving}<Loader2 class="h-3 w-3 animate-spin" />{:else}<Check class="h-3 w-3" />{/if}</button>
+														<button type="button" onclick={cancelSpaceSlugEdit} disabled={spaceSlugSaving} class="shrink-0 rounded-[4px] p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-50" title="Cancel"><X class="h-3 w-3" /></button>
+													</div>
+													{#if spaceSlugError}<div class="w-full text-[11px] text-error-soft break-words">{spaceSlugError}</div>{/if}
+												{:else if getSpacePublicPath(space)}
+													<button type="button" onclick={() => void copySpacePublicLink()} class="group/copy inline-flex min-w-0 items-center gap-1 rounded px-1 py-0.5 font-mono transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Copy pretty URL"><span class="min-w-0 truncate">{getSpacePublicPath(space)}</span>{#if copiedSpaceSlugLink}<Check class="h-3 w-3 shrink-0 text-success-soft" />{:else}<Copy class="h-3 w-3 shrink-0" />{/if}</button>
+												{:else if getSpaceSlug(space)}
+													<code class="inline-flex min-w-0 items-center gap-0.5 font-mono"><span class="text-text-placeholder">/username/</span><span class="min-w-0 truncate">{getSpaceSlug(space)}</span></code>
+													{#if canEditSpaceProfile}<button type="button" onclick={beginSpaceSlugEdit} class="shrink-0 rounded-[4px] p-0.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" title="Edit slug"><Pencil class="h-3 w-3" /></button>{/if}
+												{:else}
+													<button type="button" onclick={beginSpaceSlugEdit} class="text-text-placeholder transition-colors hover:text-text-secondary" title="Add space slug">Add slug</button>
+												{/if}
+											</div>
+										</div>
+										{#if getSpacePrettyUrlHint(space) && !(editingSpaceSlug && canEditSpaceProfile)}<p class="text-[11px] leading-4 text-text-placeholder">{getSpacePrettyUrlHint(space)}</p>{/if}
+
+										<!-- Description -->
+										<label class="block">
+											<textarea aria-label="Space description" bind:value={spaceDescriptionDraft} rows="2" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="w-full resize-y rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder="Describe what this space is for…"></textarea>
+										</label>
+										{#if canEditSpaceProfile}
+											<div class="flex items-center gap-3">
+												<button type="button" onclick={() => void saveSpaceDescription()} disabled={spaceDescriptionSaving || spaceDescriptionDraft.trim() === (space?.description ?? '').trim()} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if spaceDescriptionSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Saving…{:else}Save profile{/if}</button>
+												<span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter</span>
+											</div>
+										{/if}
+										{#if spaceProfileError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{spaceProfileError}</div>{/if}
+									</div>
 								</div>
 							</div>
-							{#if addingMemberError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{addingMemberError}</div>{/if}
+						</section>
+					{/if}
 
-							<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
-								{#each members as member (member.userId)}
-									<div class="flex items-center gap-3 px-3 py-2.5">
-										<div class="flex shrink-0 items-center gap-2">
-											{#if getMemberRoleIcon(member.role)}<span class="w-3.5 text-center text-[12px]">{getMemberRoleIcon(member.role)}</span>{:else if member.role === 'builder'}<Pencil class="h-3.5 w-3.5 shrink-0 text-brand" />{:else}<Eye class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />{/if}
-											<UserAvatar name={getMemberDisplayName(member)} avatarUrl={member.profile?.avatarUrl} size="sm" />
-										</div>
-										<div class="min-w-0 flex-1">
-											<div class="truncate text-[12px] font-medium text-text-primary">{getMemberDisplayName(member)}</div>
-											<button type="button" onclick={() => { void copyMemberUuid(member); }} title="Copy user UUID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{getMemberUuid(member)}</span>{#if copiedMemberUserId === member.userId}<Check class="h-3 w-3 shrink-0 text-success-soft" />{/if}</button>
-										</div>
-										<div class="flex shrink-0 items-center gap-1">
-											<div class="inline-grid h-8 grid-cols-3 overflow-hidden rounded-[5px] bg-bg-hover/50" role="radiogroup" aria-label={`${getMemberDisplayName(member)} role`}>
+					<!-- ════════ Access ════════ -->
+					{#if activeSection === "access"}
+						<section>
+							<div class="flex items-center justify-between gap-3 border-b border-border-subtle pb-5">
+								<div>
+									<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Access</h1>
+									<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Members, permissions, invites.</p>
+								</div>
+								<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand/20 bg-brand-bg px-2.5 text-[12px] font-medium text-brand-muted-fg transition-colors hover:bg-brand-muted"><Link class="h-3.5 w-3.5" /> Invite</button>
+							</div>
+
+							<div class="py-6 space-y-6">
+								<!-- Access policy -->
+								<div class="grid gap-4 sm:grid-cols-2">
+									<label class="block">
+										<span class="mb-1.5 block text-[12px] text-text-tertiary">Signed-in users</span>
+										<select value={access?.signed_in_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">None</option><option value="guest">Guest</option><option value="builder">Builder</option></select>
+									</label>
+									<label class="block">
+										<span class="mb-1.5 block text-[12px] text-text-tertiary">Anonymous</span>
+										<select value={access?.anonymous_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">None</option><option value="guest">Guest</option></select>
+									</label>
+								</div>
+								{#if accessError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{accessError}</div>{/if}
+
+								<!-- Members -->
+								<div class="space-y-3">
+									<span class="text-[13px] font-medium text-text-primary">Members · {members.length}</span>
+									<div class="flex flex-col gap-2 sm:flex-row">
+										<input type="text" bind:value={addingMemberUuid} placeholder="Paste user UUID" disabled={!canManageSpaceMembers} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="h-9 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" />
+										<div class="grid grid-cols-[1fr_auto] gap-2 sm:flex">
+											<div class="inline-grid h-9 grid-cols-3 overflow-hidden rounded-[5px] border border-border-subtle bg-bg-input" role="radiogroup" aria-label="New member role">
 												{#each memberRoleOptions as option (option.value)}
-													<button type="button" role="radio" aria-checked={member.role === option.value} disabled={updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onclick={() => { void selectMemberRole(member.userId, member.role, option.value); }} class="px-2 text-[10px] font-medium uppercase tracking-wider transition-colors disabled:opacity-50 {member.role === option.value ? 'bg-brand-bg text-brand-muted-fg' : 'text-text-placeholder hover:bg-bg-hover hover:text-text-secondary'}">{option.label}</button>
+													<button type="button" role="radio" aria-checked={addingMemberRole === option.value} disabled={!canManageSpaceMembers} onclick={() => selectAddingMemberRole(option.value)} class="px-2.5 text-[12px] font-medium transition-colors disabled:opacity-60 {addingMemberRole === option.value ? 'bg-brand-bg text-brand-muted-fg' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}">{option.label}</button>
 												{/each}
 											</div>
-											<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={removingMemberUserId === member.userId} title="Remove" class="inline-flex h-8 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50">{#if removingMemberUserId === member.userId}<Loader2 class="h-3 w-3 animate-spin" />{:else}<X class="h-3.5 w-3.5" />{/if}</button>
+											<button type="button" onclick={() => { void addMember(); }} disabled={!canManageSpaceMembers || savingMember || !addingMemberUuid.trim()} class="inline-flex h-9 min-w-20 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">{#if savingMember}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button>
 										</div>
+									</div>
+									{#if addingMemberError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{addingMemberError}</div>{/if}
+
+									<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
+										{#each members as member (member.userId)}
+											<div class="flex items-center gap-3 px-3 py-2.5">
+												<div class="flex shrink-0 items-center gap-2">
+													{#if getMemberRoleIcon(member.role)}<span class="w-3.5 text-center text-[12px]">{getMemberRoleIcon(member.role)}</span>{:else if member.role === 'builder'}<Pencil class="h-3.5 w-3.5 shrink-0 text-brand" />{:else}<Eye class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />{/if}
+													<UserAvatar name={getMemberDisplayName(member)} avatarUrl={member.profile?.avatarUrl} size="sm" />
+												</div>
+												<div class="min-w-0 flex-1">
+													<div class="truncate text-[12px] font-medium text-text-primary">{getMemberDisplayName(member)}</div>
+													<button type="button" onclick={() => { void copyMemberUuid(member); }} title="Copy user UUID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{getMemberUuid(member)}</span>{#if copiedMemberUserId === member.userId}<Check class="h-3 w-3 shrink-0 text-success-soft" />{/if}</button>
+												</div>
+												<div class="flex shrink-0 items-center gap-1">
+													<div class="inline-grid h-8 grid-cols-3 overflow-hidden rounded-[5px] bg-bg-hover/50" role="radiogroup" aria-label={`${getMemberDisplayName(member)} role`}>
+														{#each memberRoleOptions as option (option.value)}
+															<button type="button" role="radio" aria-checked={member.role === option.value} disabled={updatingMemberUserId === member.userId || removingMemberUserId === member.userId} onclick={() => { void selectMemberRole(member.userId, member.role, option.value); }} class="px-2 text-[10px] font-medium uppercase tracking-wider transition-colors disabled:opacity-50 {member.role === option.value ? 'bg-brand-bg text-brand-muted-fg' : 'text-text-placeholder hover:bg-bg-hover hover:text-text-secondary'}">{option.label}</button>
+														{/each}
+													</div>
+													<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={removingMemberUserId === member.userId} title="Remove" class="inline-flex h-8 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft disabled:opacity-50">{#if removingMemberUserId === member.userId}<Loader2 class="h-3 w-3 animate-spin" />{:else}<X class="h-3.5 w-3.5" />{/if}</button>
+												</div>
+											</div>
+										{:else}
+											<div class="px-3 py-2.5 text-[12px] text-text-tertiary">No members.</div>
+										{/each}
+									</div>
+								</div>
+
+								<!-- Invite links -->
+								<div class="border-t border-border-subtle pt-6">
+									<div class="mb-3 flex items-center justify-between gap-2">
+										<span class="text-[13px] font-medium text-text-primary">Invite links</span>
+										<div class="flex items-center gap-2"><button type="button" onclick={() => { void loadInvitations(); }} disabled={loadingInvitations} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">Refresh</button><span class="text-[11px] text-text-tertiary">{invitations.filter((item) => item.status === 'active').length} active</span></div>
+									</div>
+									{#if inviteCreateNotice}<div class="mb-2 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{inviteCreateNotice}</div>{/if}
+									{#if invitationsError}<div class="mb-2 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{invitationsError}</div>{/if}
+									{#if loadingInvitations}
+										<div class="flex items-center gap-2 py-2 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading…</div>
+									{:else if invitations.length === 0}
+										<div class="py-2 text-[12px] text-text-tertiary">No invite links.</div>
+									{:else}
+										<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
+											{#each invitations as invitation (invitation.token)}
+												<div class="flex items-center justify-between gap-3 px-3 py-2.5">
+													<div class="min-w-0 flex-1">
+														<div class="flex flex-wrap items-center gap-2"><span class="inline-flex rounded bg-brand-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-muted-fg">{invitation.role}</span><span class="text-[11px] text-text-tertiary">{invitation.useCount} use{invitation.useCount !== 1 ? 's' : ''}{invitation.maxUses ? ` / ${invitation.maxUses}` : ''}</span></div>
+														<div class="mt-0.5 text-[10px] text-text-placeholder">{invitation.status === 'active' ? formatInviteExpiry(invitation.expiresInSeconds) : invitation.status === 'revoked' ? 'Revoked' : 'All uses exhausted'}</div>
+													</div>
+													{#if invitation.status === 'active'}
+														<div class="flex shrink-0 items-center gap-1">
+															<button type="button" title="Copy link" onclick={() => { void copyInviteLink(invitation.token); }} class="inline-flex h-8 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-brand">{#if copiedInviteToken === invitation.token}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}</button>
+															<button type="button" title="Revoke" onclick={() => { void revokeInvite(invitation.token); }} class="inline-flex h-8 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft"><Trash2 class="h-3.5 w-3.5" /></button>
+														</div>
+													{/if}
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							</div>
+						</section>
+					{/if}
+
+					<!-- ════════ Runtime inputs ════════ -->
+					{#if activeSection === "runtime"}
+						<section>
+							<div class="border-b border-border-subtle pb-5">
+								<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Runtime inputs</h1>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Env vars and mounted spaces.</p>
+							</div>
+
+							<div class="py-6 space-y-6">
+								<!-- Env vars -->
+								<div class="space-y-3">
+									<span class="text-[13px] font-medium text-text-primary">Environment</span>
+									<div class="grid gap-2 sm:grid-cols-[140px_1fr_auto]"><input bind:value={envName} disabled={!canEditSpaceProfile} placeholder="NAME" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={envValue} disabled={!canEditSpaceProfile} placeholder="value" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={addEnv} disabled={!canEditSpaceProfile} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> Add</button></div>
+									{#if envError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{envError}</div>{/if}
+									{#if env.length > 0}
+										<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
+											{#each env as item (item.name)}
+												<div class="grid items-center gap-2 px-3 py-2 sm:grid-cols-[140px_1fr_auto]"><code class="min-w-0 break-all text-[11px] text-text-primary">{item.name}</code><code class="min-w-0 break-all text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code><div class="flex gap-3 sm:justify-end"><button type="button" onclick={() => toggleEnvReveal(item.name)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{revealedEnvNames.has(item.name) ? 'Hide' : 'Reveal'}</button><button type="button" onclick={() => removeEnv(item.name)} disabled={!canEditSpaceProfile} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>
+											{/each}
+										</div>
+									{:else}
+										<div class="text-[12px] text-text-tertiary">No variables.</div>
+									{/if}
+								</div>
+
+								<!-- Mounted spaces -->
+								<div class="border-t border-border-subtle pt-6 space-y-3">
+									<span class="text-[13px] font-medium text-text-primary">Mounted spaces</span>
+									<p class="max-w-xl text-[11px] leading-relaxed text-text-tertiary">Read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Prompts and skills are available to the agent. Changes restart the sandbox.</p>
+									{#if shouldShowBaseModRecommendation && recommendedBaseMod}
+										<div class="flex flex-col gap-2 rounded-md border border-brand/20 bg-brand-bg px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+											<div class="min-w-0">
+												<div class="flex flex-wrap items-center gap-2">
+													<span class="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand">Recommended</span>
+													<span class="text-[12px] font-medium text-text-secondary">{recommendedBaseMod.name}</span>
+												</div>
+												<div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">/mods/{recommendedBaseMod.mountSlug}</div>
+											</div>
+											<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-8 shrink-0 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">Use</button>
+										</div>
+									{/if}
+									<div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]"><input bind:value={modSpaceId} disabled={!canManageSpaceMods} placeholder="Mod Space UUID" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={modName} disabled={!canManageSpaceMods} placeholder="Display name" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={modMountSlug} disabled={!canManageSpaceMods} placeholder="Mount slug" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={addMod} disabled={!canManageSpaceMods || modSaving || !modSpaceId.trim()} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
+									{#if modError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}
+									{#if modRestartMessage}<div class="rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
+									{#if mods.length > 0}
+										<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
+											{#each mods as mod (mod.id)}
+												<div class="grid gap-2 px-3 py-2.5 md:grid-cols-[1fr_auto] md:items-center">
+													<div class="min-w-0">
+														<div class="flex items-center gap-2">
+															<span class="truncate text-[12px] font-medium text-text-primary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</span>
+															<span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'on' : 'off'}</span>
+														</div>
+														<div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath}</div>
+														<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="slug" class="mt-1.5 w-full max-w-xs rounded-[4px] border border-border-subtle bg-bg-input px-2 py-1 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+													</div>
+													<div class="flex items-center gap-3 md:justify-end">
+														<button type="button" onclick={() => toggleMod(mod)} disabled={!canManageSpaceMods || modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button>
+														<button type="button" onclick={() => removeMod(mod)} disabled={!canManageSpaceMods || modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button>
+													</div>
+												</div>
+											{/each}
+										</div>
+									{:else}
+										<div class="text-[12px] text-text-tertiary">No mounted spaces.</div>
+									{/if}
+								</div>
+							</div>
+						</section>
+					{/if}
+
+					<!-- ════════ Channels ════════ -->
+					{#if activeSection === "channels"}
+						<section>
+							<div class="border-b border-border-subtle pb-5">
+								<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Channels</h1>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">External channel bindings.</p>
+							</div>
+							<div class="py-6 space-y-3">
+								<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><select bind:value={selectedChannelId} disabled={!canManageSpaceChannels} class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} disabled={!canManageSpaceChannels || !selectedChannelId} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">Bind</button></div>
+								{#if channelError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{channelError}</div>{/if}
+								{#if channels.length > 0}
+									<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
+										{#each channels as binding (binding.id)}
+											<div class="px-3 py-2.5">
+												<div class="flex items-center justify-between gap-3">
+													<span class="min-w-0 truncate text-[12px] font-medium text-text-primary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span>
+													<button type="button" onclick={() => unbindChannel(binding.channelId)} disabled={!canManageSpaceChannels} class="shrink-0 text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Unbind</button>
+												</div>
+												<div class="mt-2"><ChannelModelPicker model={binding.config?.model ?? null} disabled={!canManageSpaceChannels} saving={savingChannelConfigIds.has(binding.id)} onSelect={(model) => saveChannelModel(binding, model)} /></div>
+											</div>
+										{/each}
 									</div>
 								{:else}
-									<div class="px-3 py-2.5 text-[12px] text-text-tertiary">No members.</div>
-								{/each}
+									<div class="text-[12px] text-text-tertiary">No bound channels.</div>
+								{/if}
 							</div>
-						</div>
+						</section>
+					{/if}
 
-						<!-- Invite links -->
-						<div class="border-t border-border-subtle pt-4">
-							<div class="mb-2 flex items-center justify-between gap-2">
-								<span class="text-[12px] font-medium text-text-secondary">Invite links</span>
-								<div class="flex items-center gap-2"><button type="button" onclick={() => { void loadInvitations(); }} disabled={loadingInvitations} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">Refresh</button><span class="text-[11px] text-text-tertiary">{invitations.filter((item) => item.status === 'active').length} active</span></div>
-							</div>
-							{#if inviteCreateNotice}<div class="mb-2 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{inviteCreateNotice}</div>{/if}
-							{#if invitationsError}<div class="mb-2 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{invitationsError}</div>{/if}
-							{#if loadingInvitations}
-								<div class="flex items-center gap-2 py-2 text-[12px] text-text-tertiary"><Loader2 class="h-3.5 w-3.5 animate-spin" /> Loading…</div>
-							{:else if invitations.length === 0}
-								<div class="py-2 text-[12px] text-text-tertiary">No invite links.</div>
-							{:else}
-								<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
-									{#each invitations as invitation (invitation.token)}
-										<div class="flex items-center justify-between gap-3 px-3 py-2.5">
-											<div class="min-w-0 flex-1">
-												<div class="flex flex-wrap items-center gap-2"><span class="inline-flex rounded bg-brand-bg px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand-muted-fg">{invitation.role}</span><span class="text-[11px] text-text-tertiary">{invitation.useCount} use{invitation.useCount !== 1 ? 's' : ''}{invitation.maxUses ? ` / ${invitation.maxUses}` : ''}</span></div>
-												<div class="mt-0.5 text-[10px] text-text-placeholder">{invitation.status === 'active' ? formatInviteExpiry(invitation.expiresInSeconds) : invitation.status === 'revoked' ? 'Revoked' : 'All uses exhausted'}</div>
-											</div>
-											{#if invitation.status === 'active'}
-												<div class="flex shrink-0 items-center gap-1">
-													<button type="button" title="Copy link" onclick={() => { void copyInviteLink(invitation.token); }} class="inline-flex h-8 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-brand">{#if copiedInviteToken === invitation.token}<Check class="h-3.5 w-3.5 text-success-soft" />{:else}<Copy class="h-3.5 w-3.5" />{/if}</button>
-													<button type="button" title="Revoke" onclick={() => { void revokeInvite(invitation.token); }} class="inline-flex h-8 w-7 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-error-soft"><Trash2 class="h-3.5 w-3.5" /></button>
-												</div>
-											{/if}
-										</div>
-									{/each}
-								</div>
-							{/if}
-						</div>
-					</div>
-				</section>
-
-				<!-- ════════ Runtime inputs ════════ -->
-				<section class="border-b border-border-subtle py-6">
-					<div class="flex items-center gap-2.5">
-						<Terminal class="h-4 w-4 text-text-tertiary" />
-						<div>
-							<h2 class="text-[14px] font-medium text-text-primary">Runtime inputs</h2>
-							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Env vars and mounted spaces.</p>
-						</div>
-					</div>
-
-					<div class="mt-5 space-y-5">
-						<!-- Env vars -->
-						<div class="space-y-3">
-							<span class="text-[12px] font-medium text-text-secondary">Environment</span>
-							<div class="grid gap-2 sm:grid-cols-[140px_1fr_auto]"><input bind:value={envName} disabled={!canEditSpaceProfile} placeholder="NAME" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={envValue} disabled={!canEditSpaceProfile} placeholder="value" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={addEnv} disabled={!canEditSpaceProfile} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Plus class="h-3.5 w-3.5" /> Add</button></div>
-							{#if envError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{envError}</div>{/if}
-							{#if env.length > 0}
-								<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
-									{#each env as item (item.name)}
-										<div class="grid items-center gap-2 px-3 py-2 sm:grid-cols-[140px_1fr_auto]"><code class="min-w-0 break-all text-[11px] text-text-primary">{item.name}</code><code class="min-w-0 break-all text-[11px] text-text-tertiary">{revealedEnvNames.has(item.name) ? item.value : '••••••••'}</code><div class="flex gap-3 sm:justify-end"><button type="button" onclick={() => toggleEnvReveal(item.name)} class="text-[11px] text-text-placeholder hover:text-text-secondary">{revealedEnvNames.has(item.name) ? 'Hide' : 'Reveal'}</button><button type="button" onclick={() => removeEnv(item.name)} disabled={!canEditSpaceProfile} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button></div></div>
-									{/each}
-								</div>
-							{:else}
-								<div class="text-[12px] text-text-tertiary">No variables.</div>
-							{/if}
-						</div>
-
-						<!-- Mounted spaces -->
-						<div class="border-t border-border-subtle pt-5 space-y-3">
-							<div class="flex items-center gap-2 text-[12px] font-medium text-text-secondary"><PackagePlus class="h-3.5 w-3.5 text-text-tertiary" /> Mounted spaces</div>
-							<p class="max-w-xl text-[11px] leading-relaxed text-text-tertiary">Read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Prompts and skills are available to the agent. Changes restart the sandbox.</p>
-							{#if shouldShowBaseModRecommendation && recommendedBaseMod}
-								<div class="flex flex-col gap-2 rounded-md border border-brand/20 bg-brand-bg px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-									<div class="min-w-0">
-										<div class="flex flex-wrap items-center gap-2">
-											<span class="rounded bg-brand/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand">Recommended</span>
-											<span class="text-[12px] font-medium text-text-secondary">{recommendedBaseMod.name}</span>
-										</div>
-										<div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">/mods/{recommendedBaseMod.mountSlug}</div>
-									</div>
-									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-8 shrink-0 items-center justify-center rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[11px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">Use</button>
-								</div>
-							{/if}
-							<div class="grid gap-2 lg:grid-cols-[1fr_1fr_1fr_auto]"><input bind:value={modSpaceId} disabled={!canManageSpaceMods} placeholder="Mod Space UUID" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={modName} disabled={!canManageSpaceMods} placeholder="Display name" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><input bind:value={modMountSlug} disabled={!canManageSpaceMods} placeholder="Mount slug" class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none disabled:opacity-60" /><button type="button" onclick={addMod} disabled={!canManageSpaceMods || modSaving || !modSpaceId.trim()} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">{#if modSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Plus class="h-3.5 w-3.5" />{/if} Add</button></div>
-							{#if modError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{modError}</div>{/if}
-							{#if modRestartMessage}<div class="rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
-							{#if mods.length > 0}
-								<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
-									{#each mods as mod (mod.id)}
-										<div class="grid gap-2 px-3 py-2.5 md:grid-cols-[1fr_auto] md:items-center">
-											<div class="min-w-0">
-												<div class="flex items-center gap-2">
-													<span class="truncate text-[12px] font-medium text-text-primary">{mod.name ?? mod.modSpaceName ?? mod.modSpaceId}</span>
-													<span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'on' : 'off'}</span>
-												</div>
-												<div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath}</div>
-												<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="slug" class="mt-1.5 w-full max-w-xs rounded-[4px] border border-border-subtle bg-bg-input px-2 py-1 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
-											</div>
-											<div class="flex items-center gap-3 md:justify-end">
-												<button type="button" onclick={() => toggleMod(mod)} disabled={!canManageSpaceMods || modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-text-secondary disabled:opacity-50">{mod.enabled ? 'Disable' : 'Enable'}</button>
-												<button type="button" onclick={() => removeMod(mod)} disabled={!canManageSpaceMods || modUpdatingId === mod.id} class="text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Remove</button>
-											</div>
-										</div>
-									{/each}
-								</div>
-							{:else}
-								<div class="text-[12px] text-text-tertiary">No mounted spaces.</div>
-							{/if}
-						</div>
-					</div>
-				</section>
-
-				<!-- ════════ Channels ════════ -->
-				<section class="border-b border-border-subtle py-6">
-					<div class="flex items-center gap-2.5">
-						<Network class="h-4 w-4 text-text-tertiary" />
-						<div>
-							<h2 class="text-[14px] font-medium text-text-primary">Channels</h2>
-							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">External channel bindings.</p>
-						</div>
-					</div>
-					<div class="mt-5 space-y-3">
-						<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><select bind:value={selectedChannelId} disabled={!canManageSpaceChannels} class="h-9 min-w-0 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60"><option value="">Select channel</option>{#each allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)) as channel (channel.id)}<option value={channel.id}>{channel.provider} · {channel.name}</option>{/each}</select><button type="button" onclick={bindChannel} disabled={!canManageSpaceChannels || !selectedChannelId} class="inline-flex h-9 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50">Bind</button></div>
-						{#if channelError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-text-soft break-words">{channelError}</div>{/if}
-						{#if channels.length > 0}
-							<div class="divide-y divide-border-subtle rounded-md border border-border-subtle">
-								{#each channels as binding (binding.id)}
-									<div class="px-3 py-2.5">
-										<div class="flex items-center justify-between gap-3">
-											<span class="min-w-0 truncate text-[12px] font-medium text-text-primary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span>
-											<button type="button" onclick={() => unbindChannel(binding.channelId)} disabled={!canManageSpaceChannels} class="shrink-0 text-[11px] text-text-placeholder hover:text-error-soft disabled:opacity-50">Unbind</button>
-										</div>
-										<div class="mt-2"><ChannelModelPicker model={binding.config?.model ?? null} disabled={!canManageSpaceChannels} saving={savingChannelConfigIds.has(binding.id)} onSelect={(model) => saveChannelModel(binding, model)} /></div>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<div class="text-[12px] text-text-tertiary">No bound channels.</div>
-						{/if}
-					</div>
-				</section>
-
-				<!-- ════════ Sandbox ════════ -->
-				<section class="py-6">
-					<div class="flex items-center justify-between gap-3">
-						<div class="flex items-center gap-2.5">
-							<Settings class="h-4 w-4 text-text-tertiary" />
-							<div>
-								<h2 class="text-[14px] font-medium text-text-primary">Sandbox</h2>
-								<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Compute, hibernation, runtime health.</p>
-							</div>
-						</div>
-						<button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if} Force recover</button>
-					</div>
-
-					<div class="mt-5 space-y-5">
-						<!-- Compute spec -->
-						<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-							<div class="min-w-0">
-								<div class="text-[12px] text-text-tertiary">Compute spec</div>
-								<div class="mt-0.5 flex flex-wrap items-center gap-2">
-									<span class="text-[13px] font-medium text-text-primary">{getSandboxSpecLabel(sandboxSpec)}</span>
-									<span class="font-mono text-[11px] text-text-tertiary">{getSandboxSpecSummary(sandboxSpec)}</span>
-									{#if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec}<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart pending</span>{/if}
-								</div>
-							</div>
-							<button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox || savingSandboxSpec} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Zap class="h-3.5 w-3.5" />{savingSandboxSpec ? "Saving…" : "Choose spec"}</button>
-						</div>
-
-						<!-- Hibernate policy -->
-						<div class="border-t border-border-subtle pt-5">
-							<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+					<!-- ════════ Sandbox ════════ -->
+					{#if activeSection === "sandbox"}
+						<section>
+							<div class="flex items-center justify-between gap-3 border-b border-border-subtle pb-5">
 								<div>
-									<div class="text-[12px] text-text-tertiary">Hibernate policy</div>
-									<div class="mt-0.5 text-[12px] text-text-secondary">{sandboxAutoDestroyMode === "never" ? "Never" : formatTtl(sandboxIdleTtlSeconds)}</div>
+									<h1 class="text-[18px] font-semibold text-text-primary tracking-tight">Sandbox</h1>
+									<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Compute, hibernation, runtime health.</p>
 								</div>
-								<div class="flex flex-col gap-2 sm:items-end">
-									<div class="grid grid-cols-1 gap-2 sm:grid-cols-[160px_1fr]"><select bind:value={sandboxAutoDestroyMode} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="idle">Hibernate when idle</option><option value="never">Never hibernate</option></select>{#if sandboxAutoDestroyMode === "idle"}<div class="flex items-center gap-2"><input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" /><span class="shrink-0 text-[11px] text-text-tertiary">sec</span></div>{:else}<span class="text-[11px] text-text-tertiary">Stays online until hibernated or replaced.</span>{/if}</div>
-									<button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex h-8 items-center justify-center rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save policy"}</button>
-								</div>
+								<button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<RefreshCw class="h-3.5 w-3.5" />{/if} Force recover</button>
 							</div>
-							{#if sandboxConfigError}<div class="mt-2 text-[12px] text-error-soft">{sandboxConfigError}</div>{/if}
-							{#if sandboxConfigMessage}<div class="mt-2 text-[12px] text-success-soft">{sandboxConfigMessage}</div>{/if}
-						</div>
 
-						<!-- Health -->
-						<div class="border-t border-border-subtle pt-5">
-							<div class="mb-3 flex flex-wrap items-center gap-2">
-								<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.status)}`}>{getSandboxLifecycleLabel(sandbox?.status)}</span>
-								<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.runtimeStatus)}`}>{getSandboxRuntimeLabel(sandbox?.runtimeStatus)}</span>
-								{#if sandbox?.stopReason}<span class="inline-flex max-w-full items-center rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-tertiary ring-1 ring-border-subtle"><span class="truncate">{sandbox.stopReason}</span></span>{/if}
+							<div class="py-6 space-y-6">
+								<!-- Compute spec -->
+								<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+									<div class="min-w-0">
+										<div class="text-[12px] text-text-tertiary">Compute spec</div>
+										<div class="mt-0.5 flex flex-wrap items-center gap-2">
+											<span class="text-[13px] font-medium text-text-primary">{getSandboxSpecLabel(sandboxSpec)}</span>
+											<span class="font-mono text-[11px] text-text-tertiary">{getSandboxSpecSummary(sandboxSpec)}</span>
+											{#if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec}<span class="rounded-full bg-warning-bg px-2 py-0.5 text-[10px] font-medium text-warning-soft">Restart pending</span>{/if}
+										</div>
+									</div>
+									<button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox || savingSandboxSpec} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] font-medium text-text-primary transition-colors hover:bg-bg-hover disabled:opacity-50"><Zap class="h-3.5 w-3.5" />{savingSandboxSpec ? "Saving…" : "Choose spec"}</button>
+								</div>
+
+								<!-- Hibernate policy -->
+								<div class="border-t border-border-subtle pt-6">
+									<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+										<div>
+											<div class="text-[12px] text-text-tertiary">Hibernate policy</div>
+											<div class="mt-0.5 text-[12px] text-text-secondary">{sandboxAutoDestroyMode === "never" ? "Never" : formatTtl(sandboxIdleTtlSeconds)}</div>
+										</div>
+										<div class="flex flex-col gap-2 sm:items-end">
+											<div class="grid grid-cols-1 gap-2 sm:grid-cols-[160px_1fr]"><select bind:value={sandboxAutoDestroyMode} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="idle">Hibernate when idle</option><option value="never">Never hibernate</option></select>{#if sandboxAutoDestroyMode === "idle"}<div class="flex items-center gap-2"><input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} class="h-9 w-full rounded-[5px] border border-border-subtle bg-bg-input px-3 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" /><span class="shrink-0 text-[11px] text-text-tertiary">sec</span></div>{:else}<span class="text-[11px] text-text-tertiary">Stays online until hibernated or replaced.</span>{/if}</div>
+											<button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex h-8 items-center justify-center rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save policy"}</button>
+										</div>
+									</div>
+									{#if sandboxConfigError}<div class="mt-2 text-[12px] text-error-soft">{sandboxConfigError}</div>{/if}
+									{#if sandboxConfigMessage}<div class="mt-2 text-[12px] text-success-soft">{sandboxConfigMessage}</div>{/if}
+								</div>
+
+								<!-- Health -->
+								<div class="border-t border-border-subtle pt-6">
+									<div class="mb-3 flex flex-wrap items-center gap-2">
+										<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.status)}`}>{getSandboxLifecycleLabel(sandbox?.status)}</span>
+										<span class={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${getSandboxStatusClass(sandbox?.runtimeStatus)}`}>{getSandboxRuntimeLabel(sandbox?.runtimeStatus)}</span>
+										{#if sandbox?.stopReason}<span class="inline-flex max-w-full items-center rounded-full bg-bg-hover px-2 py-0.5 text-[11px] text-text-tertiary ring-1 ring-border-subtle"><span class="truncate">{sandbox.stopReason}</span></span>{/if}
+									</div>
+									<div class="grid grid-cols-2 gap-x-6 gap-y-3 text-[12px] sm:grid-cols-4">
+										<div title={getSandboxActivityTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Activity</div><div class="mt-0.5 text-text-primary">{getSandboxActivityText()}</div></div>
+										<div title={getSandboxHeartbeatTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Heartbeat</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.lastHeartbeatAt)}</div></div>
+										<div><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Stopped</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.stoppedAt)}</div></div>
+										<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Pod</div><div class="mt-0.5 min-w-0 truncate font-mono text-[11px] text-text-primary" title={sandbox?.podName ?? ''}>{sandbox?.podName ?? '—'}</div></div>
+									</div>
+									<div class="mt-3 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
+										<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Desired image</div><div class="mt-0.5 min-w-0 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{sandbox?.desiredImage ?? '—'}</div></div>
+										<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Reported image</div><div class="mt-0.5 min-w-0 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{(sandbox?.reportedImageVersion ?? getSandboxMetaValue('imageVersion')) || '—'}</div></div>
+										<div><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Refreshed</div><div class="mt-0.5 text-text-secondary">{formatRelativeTime(sandbox?.reportedAt)}</div></div>
+									</div>
+								</div>
+								{#if sandboxRecoveryMessage}<div class="rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
+								{#if sandboxRecoveryError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{sandboxRecoveryError}</div>{/if}
 							</div>
-							<div class="grid grid-cols-2 gap-x-6 gap-y-3 text-[12px] sm:grid-cols-4">
-								<div title={getSandboxActivityTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Activity</div><div class="mt-0.5 text-text-primary">{getSandboxActivityText()}</div></div>
-								<div title={getSandboxHeartbeatTitle()}><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Heartbeat</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.lastHeartbeatAt)}</div></div>
-								<div><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Stopped</div><div class="mt-0.5 text-text-primary">{formatRelativeTime(sandbox?.stoppedAt)}</div></div>
-								<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Pod</div><div class="mt-0.5 min-w-0 truncate font-mono text-[11px] text-text-primary" title={sandbox?.podName ?? ''}>{sandbox?.podName ?? '—'}</div></div>
-							</div>
-							<div class="mt-3 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
-								<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Desired image</div><div class="mt-0.5 min-w-0 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{sandbox?.desiredImage ?? '—'}</div></div>
-								<div class="min-w-0"><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Reported image</div><div class="mt-0.5 min-w-0 break-all font-mono text-[11px] leading-relaxed text-text-secondary">{(sandbox?.reportedImageVersion ?? getSandboxMetaValue('imageVersion')) || '—'}</div></div>
-								<div><div class="text-[10px] uppercase tracking-[0.14em] text-text-placeholder">Refreshed</div><div class="mt-0.5 text-text-secondary">{formatRelativeTime(sandbox?.reportedAt)}</div></div>
-							</div>
-						</div>
-						{#if sandboxRecoveryMessage}<div class="rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
-						{#if sandboxRecoveryError}<div class="rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{sandboxRecoveryError}</div>{/if}
-					</div>
-				</section>
-			{/if}
-		</div>
-	</main>
+						</section>
+					{/if}
+				{/if}
+			</div>
+		</main>
+	</div>
 </div>
 
 <Sheet open={showInvitePanel} onClose={() => { showInvitePanel = false; }} maxWidth="400px">
