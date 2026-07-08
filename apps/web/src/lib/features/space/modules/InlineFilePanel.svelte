@@ -133,6 +133,29 @@ let {
 	onRenameFilePath,
 	onDeleteFilePath,
 }: Props = $props();
+
+let codeEditorModulePromise: Promise<
+	typeof import("$lib/components/CodeEditor.svelte")
+> | null = null;
+let renderedFilePreviewModulePromise: Promise<
+	typeof import("$lib/components/RenderedFilePreview.svelte")
+> | null = null;
+
+function loadCodeEditorModule() {
+	if (!codeEditorModulePromise) {
+		codeEditorModulePromise = import("$lib/components/CodeEditor.svelte");
+	}
+	return codeEditorModulePromise;
+}
+
+function loadRenderedFilePreviewModule() {
+	if (!renderedFilePreviewModulePromise) {
+		renderedFilePreviewModulePromise = import(
+			"$lib/components/RenderedFilePreview.svelte"
+		);
+	}
+	return renderedFilePreviewModulePromise;
+}
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
@@ -224,14 +247,14 @@ let {
           </div>
           <div class="flex-1 min-h-0">
             {#if inlineFileEdit}
-              {#await import("$lib/components/CodeEditor.svelte") then editorModule}
+              {#await loadCodeEditorModule() then editorModule}
                 {@const LazyCodeEditor = editorModule.default}
                 <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles || activeFsReadonly} />
               {:catch}
                 <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
               {/await}
             {:else if inlineFileHasRenderedPreview}
-              {#await import("$lib/components/RenderedFilePreview.svelte") then previewModule}
+              {#await loadRenderedFilePreviewModule() then previewModule}
                 {@const LazyRenderedFilePreview = previewModule.default}
                 <LazyRenderedFilePreview
                   name={inlineFile.response.name}
@@ -247,7 +270,7 @@ let {
                 <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
               {/await}
             {:else}
-              {#await import("$lib/components/CodeEditor.svelte") then editorModule}
+              {#await loadCodeEditorModule() then editorModule}
                 {@const LazyCodeEditor = editorModule.default}
                 <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} readonly={true} />
               {:catch}
@@ -402,7 +425,7 @@ let {
             </div>
             <div class="flex-1 min-h-0">
               {#if inlineFileEdit}
-                {#await import("$lib/components/CodeEditor.svelte") then editorModule}
+                {#await loadCodeEditorModule() then editorModule}
                   {@const LazyCodeEditor = editorModule.default}
                   <LazyCodeEditor
                     value={inlineFile.draft}
@@ -415,7 +438,7 @@ let {
                   <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
                 {/await}
               {:else if inlineFileHasRenderedPreview}
-                {#await import("$lib/components/RenderedFilePreview.svelte") then previewModule}
+                {#await loadRenderedFilePreviewModule() then previewModule}
                   {@const LazyRenderedFilePreview = previewModule.default}
                   <LazyRenderedFilePreview
                     name={inlineFile.response.name}
@@ -431,7 +454,7 @@ let {
                   <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
                 {/await}
               {:else}
-                {#await import("$lib/components/CodeEditor.svelte") then editorModule}
+                {#await loadCodeEditorModule() then editorModule}
                   {@const LazyCodeEditor = editorModule.default}
                   <LazyCodeEditor
                     value={inlineFile.draft}

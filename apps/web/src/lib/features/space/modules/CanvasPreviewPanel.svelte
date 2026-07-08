@@ -41,6 +41,19 @@ let {
 	onCommit,
 	onClose,
 }: Props = $props();
+
+let canvasPanelModulePromise: Promise<
+	typeof import("$lib/components/canvas/CanvasPanel.svelte")
+> | null = null;
+
+function loadCanvasPanelModule() {
+	if (!canvasPanelModulePromise) {
+		canvasPanelModulePromise = import(
+			"$lib/components/canvas/CanvasPanel.svelte"
+		);
+	}
+	return canvasPanelModulePromise;
+}
 </script>
 
 <WorkspacePreviewPane
@@ -63,7 +76,7 @@ let {
 			<div class="m-4 rounded-lg border border-error-soft/30 bg-error-bg p-4 text-sm text-error-soft">{canvas.error}</div>
 		</div>
 	{:else if canvas.document}
-		{#await import("$lib/components/canvas/CanvasPanel.svelte") then canvasPanelModule}
+		{#await loadCanvasPanelModule() then canvasPanelModule}
 			{@const LazyCanvasPanel = canvasPanelModule.default}
 			<LazyCanvasPanel
 				path={canvas.path}
