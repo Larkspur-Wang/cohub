@@ -1,112 +1,106 @@
 /* --- Neta Studio Theme --- */
-/* Warm walnut-desk palette inspired by Neta Studio: dark warm-brown
-   "desk" backgrounds, cream / parchment foreground, and a gold accent.
-   Reference tokens (Neta Studio globals.css):
-     desk        #1a1410 / #0a0a0a
-     cream       #f4ecd9 / #ece1d2 / #c8b89c
-     gold        #c9a961 / #d9bb74 / #b09349
-   The scales below are expressed in oklch so they interoperate with the
-   rest of the design system (color-mix, semantic tokens) while staying
-   faithful to the warm hue (~65) and low chroma of the source palette. */
+/* Mirrors the live Neta Studio canvas chrome: a cool graphite board,
+   near-black glass panels, cream foreground, and a small teal accent from
+   the et-sun skin. The screenshot's textured board is an app background
+   asset, so this theme approximates it through the available color tokens. */
 [data-theme="neta-studio"] {
 	color-scheme: dark;
 
-	/* Neutral scale — warm walnut tint (hue ~65), cream at the top,
-	   deep espresso-brown desk at the bottom. */
-	--neutral-0: oklch(93% 0.02 80); /* #f4ecd9 cream primary */
-	--neutral-5: oklch(89% 0.022 80); /* #ece1d2 cream */
-	--neutral-10: oklch(78% 0.026 78); /* #c8b89c cream secondary */
-	--neutral-20: oklch(64% 0.028 72); /* #8a7e6a cream tertiary */
-	--neutral-30: oklch(52% 0.026 68); /* muted supporting */
-	--neutral-40: oklch(46% 0.026 66); /* #5a5247 cream disabled */
-	--neutral-50: oklch(40% 0.028 64);
-	--neutral-60: oklch(34% 0.03 60); /* #362a1d surface 3 */
-	--neutral-70: oklch(29% 0.03 58); /* #2d2218 surface 2 */
-	--neutral-80: oklch(25% 0.028 56); /* #241b14 surface 1 */
-	--neutral-90: oklch(20% 0.026 54); /* #1a1410 desk */
-	--neutral-95: oklch(16.5% 0.022 52); /* deeper desk */
-	--neutral-100: oklch(12% 0.016 50); /* #0a0a0a-ish deepest */
+	/* Graphite / cream scale. Top values match Studio ink; lower values
+	   follow the dark canvas and panel chrome seen in Studio canvas mode. */
+	--neutral-0: oklch(96% 0.018 82); /* #f6f1e7 */
+	--neutral-5: oklch(91% 0.02 82); /* #ece1d2 */
+	--neutral-10: oklch(84% 0.016 82);
+	--neutral-20: oklch(72% 0.012 82);
+	--neutral-30: oklch(61% 0.01 82);
+	--neutral-40: oklch(50% 0.008 250);
+	--neutral-50: oklch(42% 0.008 250);
+	--neutral-60: oklch(33% 0.007 250); /* lifted graphite */
+	--neutral-70: oklch(25% 0.006 250); /* canvas / card */
+	--neutral-80: oklch(20% 0.006 250); /* panel surface */
+	--neutral-90: oklch(15% 0.005 250); /* panel strong */
+	--neutral-95: oklch(11.5% 0.004 250); /* app shell */
+	--neutral-100: oklch(7.5% 0.003 250); /* near-black */
 
-	/* Brand scale — Neta gold (#c9a961), warm and restrained. */
-	--brand-50: oklch(95% 0.03 85);
-	--brand-100: oklch(90% 0.05 85);
-	--brand-200: oklch(84% 0.07 85);
-	--brand-300: oklch(80% 0.085 85);
-	--brand-400: oklch(76% 0.095 85); /* base — #c9a961 */
-	--brand-500: oklch(80% 0.1 86); /* hover — #d9bb74 */
-	--brand-600: oklch(70% 0.09 84); /* pressed — #b09349 */
-	--brand-700: oklch(55% 0.075 82);
-	--brand-800: oklch(42% 0.06 80);
-	--brand-900: oklch(32% 0.045 78);
-	--brand-bg: color-mix(in srgb, var(--brand) 16%, var(--bg-content));
+	/* Brand scale — et-sun cyan, used sparingly for focus and activity. */
+	--brand-50: oklch(95% 0.035 190);
+	--brand-100: oklch(89% 0.055 190);
+	--brand-200: oklch(84% 0.07 190);
+	--brand-300: oklch(79% 0.085 190);
+	--brand-400: oklch(82% 0.098 190); /* #6ee1d8-ish */
+	--brand-500: oklch(86% 0.1 190); /* hover */
+	--brand-600: oklch(70% 0.09 190);
+	--brand-700: oklch(48% 0.07 190);
+	--brand-800: oklch(34% 0.05 190);
+	--brand-900: oklch(23% 0.035 190);
+	--brand-bg: color-mix(in srgb, var(--brand) 14%, var(--bg-content));
 
-	/* Semantic colors — warm-leaning, tuned to the parchment palette. */
-	--success-400: oklch(76% 0.11 140);
-	--success-500: oklch(68% 0.12 140);
-	--success-700: oklch(48% 0.09 140);
-	--success-900: oklch(26% 0.05 140);
+	/* Semantic colors — kept legible on graphite surfaces. */
+	--success-400: oklch(76% 0.11 150);
+	--success-500: oklch(68% 0.12 150);
+	--success-700: oklch(48% 0.09 150);
+	--success-900: oklch(25% 0.045 150);
 
 	--warning-400: oklch(82% 0.12 82);
-	--warning-500: oklch(75% 0.13 82);
-	--warning-700: oklch(53% 0.1 82);
-	--warning-900: oklch(28% 0.05 82);
+	--warning-500: oklch(74% 0.13 82);
+	--warning-700: oklch(52% 0.1 82);
+	--warning-900: oklch(26% 0.05 82);
 
-	/* Error — warm red matching Neta's #e0726c sync-error accent. */
-	--error-400: oklch(70% 0.15 30);
+	--error-400: oklch(70% 0.15 30); /* Neta sync-error family */
 	--error-500: oklch(64% 0.17 30);
 	--error-700: oklch(45% 0.13 30);
 	--error-fg: var(--neutral-0);
-	--error-900: oklch(25% 0.06 30);
+	--error-900: oklch(24% 0.055 30);
 
-	--info-400: oklch(72% 0.1 230);
-	--info-500: oklch(64% 0.12 230);
-	--info-700: oklch(44% 0.1 230);
-	--info-900: oklch(24% 0.05 230);
+	--info-400: oklch(78% 0.09 205);
+	--info-500: oklch(68% 0.11 205);
+	--info-700: oklch(46% 0.09 205);
+	--info-900: oklch(24% 0.045 205);
 
-	/* Backgrounds — layered walnut desk. */
-	--bg-primary: var(--neutral-95); /* deepest desk */
-	--bg-content: var(--neutral-90); /* main desk #1a1410 */
-	--bg-surface: var(--neutral-80); /* cards #241b14 */
-	--bg-surface-hover: var(--neutral-70); /* #2d2218 */
-	--bg-elevated: var(--neutral-60); /* overlays #362a1d */
-	--bg-input: var(--neutral-95);
-	--bg-code: var(--neutral-100); /* deepest for code */
-	--bg-header-alt: var(--neutral-80);
+	/* Backgrounds — graphite board and near-black glass panels. */
+	--bg-primary: var(--neutral-95);
+	--bg-content: var(--neutral-90);
+	--bg-surface: var(--neutral-80);
+	--bg-surface-hover: var(--neutral-70);
+	--bg-elevated: var(--neutral-70);
+	--bg-input: oklch(18% 0.006 250); /* #252325-ish */
+	--bg-code: var(--neutral-100);
+	--bg-header-alt: var(--neutral-90);
 
-	/* Text — cream on walnut. */
-	--text-primary: var(--neutral-0); /* #f4ecd9 */
-	--text-reading: var(--neutral-5); /* #ece1d2 */
-	--text-secondary: var(--neutral-10); /* #c8b89c */
-	--text-tertiary: var(--neutral-20); /* #8a7e6a */
-	--text-placeholder: var(--neutral-30);
-	--text-disabled: var(--neutral-40); /* #5a5247 */
+	/* Text — Studio cream ink. */
+	--text-primary: var(--neutral-0);
+	--text-reading: var(--neutral-5);
+	--text-secondary: oklch(88% 0.018 82 / 0.8);
+	--text-tertiary: oklch(88% 0.018 82 / 0.62);
+	--text-placeholder: oklch(88% 0.018 82 / 0.46);
+	--text-disabled: oklch(88% 0.018 82 / 0.34);
 
-	/* Borders — cream hairlines over dark desk. */
-	--border-primary: var(--neutral-60);
-	--border-subtle: var(--neutral-70);
+	/* Cream hairlines over dark glass. */
+	--border-primary: oklch(91% 0.02 82 / 0.18);
+	--border-subtle: oklch(91% 0.02 82 / 0.1);
 
-	/* Interactive states — warm cream washes (echo --neta-hover-bg). */
-	--bg-hover: oklch(26% 0.028 56 / 1);
-	--bg-hover-strong: oklch(31% 0.03 58 / 1);
-	--bg-active: oklch(36% 0.032 60 / 1);
+	/* Interactive states — Neta Studio uses translucent cream washes. */
+	--bg-hover: oklch(91% 0.02 82 / 0.1);
+	--bg-hover-strong: oklch(91% 0.02 82 / 0.16);
+	--bg-active: oklch(91% 0.02 82 / 0.22);
 
 	/* Scrollbar */
 	--scrollbar-thumb: var(--neutral-50);
 	--scrollbar-thumb-hover: var(--neutral-30);
 
 	/* Selection */
-	--selection-bg: color-mix(in srgb, var(--brand) 30%, var(--bg-content));
-	--divider-muted: color-mix(in srgb, var(--border-subtle) 60%, transparent);
+	--selection-bg: color-mix(in srgb, var(--brand) 30%, transparent);
+	--divider-muted: color-mix(in srgb, var(--border-subtle) 65%, transparent);
 
 	/* Brand semantics */
 	--brand: var(--brand-400);
 	--brand-hover: var(--brand-500);
 	--brand-soft: var(--brand-700);
-	--brand-contrast-fg: var(--neutral-100); /* dark ink on gold */
+	--brand-contrast-fg: var(--neutral-100);
 	--brand-muted-fg: var(--brand);
-	--brand-muted: color-mix(in srgb, var(--brand) 11%, transparent);
-	--brand-muted-hover: color-mix(in srgb, var(--brand) 16%, transparent);
-	--brand-border: color-mix(in srgb, var(--brand) 24%, transparent);
+	--brand-muted: color-mix(in srgb, var(--brand) 12%, transparent);
+	--brand-muted-hover: color-mix(in srgb, var(--brand) 18%, transparent);
+	--brand-border: color-mix(in srgb, var(--brand) 28%, transparent);
 
 	/* Overlays */
 	--overlay-scrim: oklch(0% 0 0 / 0.62);
@@ -182,8 +176,8 @@
 
 	/* Effects */
 	--shadow-subtle: oklch(0% 0 0 / 0.12);
-	--shadow-medium: oklch(0% 0 0 / 0.22);
-	--shadow-strong: oklch(0% 0 0 / 0.34);
+	--shadow-medium: oklch(0% 0 0 / 0.24);
+	--shadow-strong: oklch(0% 0 0 / 0.38);
 	--brand-ring: color-mix(in srgb, var(--brand) 28%, transparent);
 	--mask-opaque: black;
 	--avatar-placeholder-bg: var(--bg-hover-strong);

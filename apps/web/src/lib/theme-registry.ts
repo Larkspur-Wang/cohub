@@ -95,16 +95,16 @@ export const THEME_REGISTRY = {
 	"neta-studio": {
 		value: "neta-studio",
 		label: "Neta Studio",
-		description: "A warm walnut-desk theme with cream ink and gold accents",
-		themeColor: "#1A1410",
+		description: "A graphite studio theme with cream ink and teal accents",
+		themeColor: "#131216",
 		isDark: true,
 		shikiTheme: "github-dark",
 		mermaidVariables: {
-			lineColor: "#5A5247",
-			primaryColor: "#241B14",
-			primaryTextColor: "#ECE1D2",
-			secondaryColor: "#2D2218",
-			tertiaryColor: "#362A1D",
+			lineColor: "#4F5156",
+			primaryColor: "#25262A",
+			primaryTextColor: "#F6F1E7",
+			secondaryColor: "#1B1B20",
+			tertiaryColor: "#303238",
 		},
 	},
 } satisfies Record<ResolvedTheme, ThemeMetadata>;
