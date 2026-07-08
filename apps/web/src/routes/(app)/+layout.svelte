@@ -432,6 +432,7 @@ $effect(() => {
 
 $effect(() => {
 	uiState.loadLayoutPrefs(currentLayoutSpaceId);
+	turnNotifications.syncActiveSessionPresence();
 });
 
 // Lock body scroll when drawer is open

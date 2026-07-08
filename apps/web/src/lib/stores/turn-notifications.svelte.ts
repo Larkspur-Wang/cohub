@@ -2,6 +2,7 @@ import type { ChannelEnvelope, SpaceRecord } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { sdk } from "$lib/sdk";
+import { buildSpaceSessionRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
 	cacheSpaceRecordSoon,
@@ -14,6 +15,10 @@ const AUTO_DISMISS_MS = 6000;
 const NOTIFICATION_PROMPT_COOLDOWN_MS = 7 * 86_400_000;
 const NOTIFICATION_PROMPT_MAX_DISMISSES = 2;
 const NOTIFICATION_PROMPT_VERSION = "v1";
+const ACTIVE_SESSION_CHANNEL = "cohub:active-session";
+const ACTIVE_SESSION_STORAGE_KEY = "cohub:active-session";
+const ACTIVE_SESSION_TTL_MS = 8_000;
+const ACTIVE_SESSION_PING_MS = 3_000;
 
 type TurnNotifyPayload = {
 	spaceId: string;
@@ -53,6 +58,16 @@ export type TurnNotification = {
 type DesktopPromptState = {
 	promptedAt?: number;
 	dismissCount?: number;
+};
+
+type ActiveSessionMessage = {
+	type: "active-session";
+	tabId: string;
+	spaceId: string;
+	sessionId: string;
+	focused: boolean;
+	visible: boolean;
+	updatedAt: number;
 };
 
 function isBrowser() {
@@ -105,8 +120,15 @@ function currentRouteTarget() {
 				? page.params.id
 				: null;
 	const querySessionId = page.url.searchParams.get("session");
+	const routeSessionId = page.url.pathname.match(
+		/\/spaces\/[^/]+\/sessions\/([^/?#]+)/,
+	)?.[1];
 	const sessionId =
-		typeof data.sessionId === "string" ? data.sessionId : querySessionId;
+		typeof data.sessionId === "string"
+			? data.sessionId
+			: routeSessionId
+				? decodeURIComponent(routeSessionId)
+				: querySessionId;
 	return { spaceId, sessionId };
 }
 
@@ -117,7 +139,7 @@ function spaceTitle(space: SpaceRecord | null, fallback: string) {
 function notificationHref(
 	notification: Pick<TurnNotification, "spaceId" | "sessionId">,
 ) {
-	return `/spaces/${notification.spaceId}?session=${notification.sessionId}`;
+	return buildSpaceSessionRoute(notification.spaceId, notification.sessionId);
 }
 
 function statusLabel(status: string) {
@@ -144,10 +166,7 @@ function formatDuration(durationMs: number | null) {
 }
 
 export function getTurnNotificationMeta(
-	notification: Pick<
-		TurnNotification,
-		"status" | "durationMs" | "stepCount" | "model"
-	>,
+	notification: Pick<TurnNotification, "status" | "durationMs" | "stepCount">,
 ) {
 	return [
 		statusLabel(notification.status),
@@ -155,7 +174,6 @@ export function getTurnNotificationMeta(
 		typeof notification.stepCount === "number" && notification.stepCount > 0
 			? `${notification.stepCount} ${notification.stepCount === 1 ? "step" : "steps"}`
 			: null,
-		notification.model,
 	]
 		.filter(Boolean)
 		.join(" · ");
@@ -165,6 +183,41 @@ function canUseDesktopNotifications() {
 	return isBrowser() && "Notification" in window;
 }
 
+function createTabId() {
+	return typeof crypto !== "undefined" && "randomUUID" in crypto
+		? crypto.randomUUID()
+		: `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function readActiveSessionRecord(): ActiveSessionMessage | null {
+	if (!isBrowser()) return null;
+	try {
+		const parsed = JSON.parse(
+			localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) ?? "null",
+		) as Partial<ActiveSessionMessage> | null;
+		if (
+			parsed?.type !== "active-session" ||
+			typeof parsed.spaceId !== "string" ||
+			typeof parsed.sessionId !== "string" ||
+			typeof parsed.updatedAt !== "number"
+		) {
+			return null;
+		}
+		return parsed as ActiveSessionMessage;
+	} catch {
+		return null;
+	}
+}
+
+function writeActiveSessionRecord(message: ActiveSessionMessage) {
+	if (!isBrowser()) return;
+	try {
+		localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, JSON.stringify(message));
+	} catch {
+		// Best-effort cross-tab presence.
+	}
+}
+
 class TurnNotificationsStore {
 	items = $state<TurnNotification[]>([]);
 	desktopPermission = $state<NotificationPermission>("default");
@@ -172,6 +225,12 @@ class TurnNotificationsStore {
 	private cleanup: (() => void) | null = null;
 	private seenTurnIds: string[] = [];
 	private tickTimer: number | null = null;
+	private activeSessionTimer: number | null = null;
+	private activeSessionChannel: BroadcastChannel | null = null;
+	private readonly tabId = createTabId();
+	private activeSessions = new Map<string, ActiveSessionMessage>();
+	private lastPublishedSession: { spaceId: string; sessionId: string } | null =
+		null;
 	private visible = true;
 	private focused = true;
 
@@ -191,16 +250,20 @@ class TurnNotificationsStore {
 		this.visible = !document.hidden;
 		this.focused = document.hasFocus();
 		const offEvent = sdk.onUserEvent((event) => this.handleEvent(event));
+		this.startActiveSessionPresence();
 		const onVisibility = () => {
 			this.visible = !document.hidden;
+			this.publishActiveSessionPresence();
 			this.syncCountdowns();
 		};
 		const onFocus = () => {
 			this.focused = true;
+			this.publishActiveSessionPresence();
 			this.syncCountdowns();
 		};
 		const onBlur = () => {
 			this.focused = false;
+			this.publishActiveSessionPresence();
 			this.syncCountdowns();
 		};
 		document.addEventListener("visibilitychange", onVisibility);
@@ -211,6 +274,7 @@ class TurnNotificationsStore {
 			document.removeEventListener("visibilitychange", onVisibility);
 			window.removeEventListener("focus", onFocus);
 			window.removeEventListener("blur", onBlur);
+			this.stopActiveSessionPresence();
 			this.stopTick();
 		};
 	}
@@ -260,6 +324,109 @@ class TurnNotificationsStore {
 			dismissCount: (state.dismissCount ?? 0) + 1,
 		});
 		this.showDesktopPrompt = false;
+	}
+
+	syncActiveSessionPresence() {
+		this.publishActiveSessionPresence();
+	}
+
+	private startActiveSessionPresence() {
+		if (typeof BroadcastChannel !== "undefined") {
+			this.activeSessionChannel = new BroadcastChannel(ACTIVE_SESSION_CHANNEL);
+			this.activeSessionChannel.onmessage = (event: MessageEvent) => {
+				this.receiveActiveSessionMessage(event.data);
+			};
+		}
+		const stored = readActiveSessionRecord();
+		if (stored) this.receiveActiveSessionMessage(stored);
+		window.addEventListener("storage", this.handleActiveSessionStorage);
+		this.publishActiveSessionPresence();
+		this.activeSessionTimer = window.setInterval(() => {
+			this.publishActiveSessionPresence();
+			this.pruneActiveSessions();
+		}, ACTIVE_SESSION_PING_MS);
+	}
+
+	private stopActiveSessionPresence() {
+		if (this.activeSessionTimer !== null) {
+			window.clearInterval(this.activeSessionTimer);
+			this.activeSessionTimer = null;
+		}
+		window.removeEventListener("storage", this.handleActiveSessionStorage);
+		this.activeSessionChannel?.close();
+		this.activeSessionChannel = null;
+		this.activeSessions.clear();
+	}
+
+	private handleActiveSessionStorage = (event: StorageEvent) => {
+		if (event.key !== ACTIVE_SESSION_STORAGE_KEY || !event.newValue) return;
+		try {
+			this.receiveActiveSessionMessage(JSON.parse(event.newValue));
+		} catch {
+			// Ignore malformed cross-tab presence.
+		}
+	};
+
+	private publishActiveSessionPresence() {
+		const current = currentRouteTarget();
+		const target =
+			current.spaceId && current.sessionId && current.sessionId !== "new"
+				? { spaceId: current.spaceId, sessionId: current.sessionId }
+				: this.lastPublishedSession;
+		if (!target) return;
+		const isCurrent =
+			current.spaceId === target.spaceId &&
+			current.sessionId === target.sessionId;
+		const message: ActiveSessionMessage = {
+			type: "active-session",
+			tabId: this.tabId,
+			spaceId: target.spaceId,
+			sessionId: target.sessionId,
+			focused: isCurrent && this.focused,
+			visible: isCurrent && this.visible,
+			updatedAt: Date.now(),
+		};
+		this.lastPublishedSession = isCurrent ? target : null;
+		this.receiveActiveSessionMessage(message);
+		writeActiveSessionRecord(message);
+		this.activeSessionChannel?.postMessage(message);
+	}
+
+	private receiveActiveSessionMessage(value: unknown) {
+		const message = value as Partial<ActiveSessionMessage> | null;
+		if (
+			message?.type !== "active-session" ||
+			typeof message.tabId !== "string" ||
+			typeof message.spaceId !== "string" ||
+			typeof message.sessionId !== "string" ||
+			typeof message.updatedAt !== "number"
+		) {
+			return;
+		}
+		this.activeSessions.set(message.tabId, message as ActiveSessionMessage);
+		this.pruneActiveSessions();
+	}
+
+	private pruneActiveSessions() {
+		const cutoff = Date.now() - ACTIVE_SESSION_TTL_MS;
+		for (const [tabId, message] of this.activeSessions) {
+			if (message.updatedAt < cutoff) this.activeSessions.delete(tabId);
+		}
+	}
+
+	private isSessionActiveInAnyVisibleTab(spaceId: string, sessionId: string) {
+		this.pruneActiveSessions();
+		for (const message of this.activeSessions.values()) {
+			if (
+				message.spaceId === spaceId &&
+				message.sessionId === sessionId &&
+				message.visible &&
+				message.focused
+			) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private handleEvent(event: ChannelEnvelope) {
@@ -354,6 +521,8 @@ class TurnNotificationsStore {
 		if (!canUseDesktopNotifications() || this.desktopPermission !== "granted")
 			return;
 		if (!document.hidden) return;
+		if (this.isSessionActiveInAnyVisibleTab(item.spaceId, item.sessionId))
+			return;
 		const title = spaceTitle(item.space, "Space");
 		const body = [item.userPreview, getTurnNotificationMeta(item)]
 			.filter(Boolean)
