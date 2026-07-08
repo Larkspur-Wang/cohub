@@ -1,37 +1,21 @@
 <script lang="ts">
+import type { WorkDetailResponse } from "@neta-art/cohub";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
+import { buildWorkPwaMeta } from "$lib/work-pwa";
 
 const props = $props<{
-	data: {
-		work: {
-			id: string;
-			spaceId: string;
-			slug: string;
-			visibility: "public" | "space";
-			targetType: "file" | "directory" | "port";
-			targetRef: string;
-			workScopes: string[];
-			allowedViewerScopes: string[];
-		};
-		space?: {
-			id: string;
-			slug: string | null;
-			name: string | null;
-			userUuid: string;
-			publicProfile?: { avatarUrl: string | null } | null;
-		};
-		owner: {
-			username: string | null;
-			displayName: string;
-			avatarUrl?: string | null;
-		} | null;
-		content:
-			| { url: string; targetType: "port"; port: string }
-			| { url: string; targetType: "file" | "directory" | "port"; path: string }
-			| null;
-	};
+	data: Pick<WorkDetailResponse, "work" | "space" | "owner" | "content">;
 }>();
+
+const pwaMeta = $derived(buildWorkPwaMeta(props.data));
 </script>
+
+<svelte:head>
+	<title>{pwaMeta.name}</title>
+	<meta name="application-name" content={pwaMeta.shortName} />
+	<meta name="apple-mobile-web-app-title" content={pwaMeta.shortName} />
+	<meta name="description" content={pwaMeta.description} />
+</svelte:head>
 
 <WorkSurface
 	work={props.data.work}

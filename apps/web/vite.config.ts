@@ -134,7 +134,7 @@ export default defineConfig({
 		VitePWA({
 			registerType: undefined,
 			injectRegister: null,
-			includeAssets: ["robots.txt", "pwa/*.png"],
+			includeAssets: ["robots.txt", "pwa/*.png", "pwa/*.svg"],
 			manifest: {
 				name: "Cohub",
 				short_name: "Cohub",
@@ -153,6 +153,18 @@ export default defineConfig({
 						src: "/pwa/icon-512x512.png",
 						sizes: "512x512",
 						type: "image/png",
+					},
+					{
+						src: "/pwa/icon-maskable-192x192.png",
+						sizes: "192x192",
+						type: "image/png",
+						purpose: "maskable",
+					},
+					{
+						src: "/pwa/icon-maskable-512x512.png",
+						sizes: "512x512",
+						type: "image/png",
+						purpose: "maskable",
 					},
 				],
 			},
