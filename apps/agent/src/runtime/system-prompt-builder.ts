@@ -70,7 +70,8 @@ function extractFrontmatter(markdown: string): { attributes: Record<string, stri
   const lines = raw.split(/\r?\n/);
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
+    const line = lines[i];
+    if (line === undefined) continue;
     const idx = line.indexOf(":");
     if (idx === -1) continue;
     const key = line.slice(0, idx).trim();
@@ -82,7 +83,8 @@ function extractFrontmatter(markdown: string): { attributes: Record<string, stri
       const blockType = value as ">" | "|";
       const parts: string[] = [];
       while (i + 1 < lines.length) {
-        const nextLine = lines[i + 1]!;
+        const nextLine = lines[i + 1];
+        if (nextLine === undefined) break;
         // Block scalar continuation lines must be indented (start with a space)
         if (nextLine.length === 0 || nextLine[0] !== " ") break;
         i++;

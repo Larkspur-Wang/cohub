@@ -3,7 +3,7 @@ import { context, trace, type Span } from "@opentelemetry/api";
 import { Redis } from "ioredis";
 import { z } from "zod";
 import type { ContentBlock } from "@cohub/protocol/core";
-import { AGENT_REALTIME_PATCH_CHANNEL, REALTIME_OUTBOUND_CHANNEL, type RealtimeEnvelope, type SessionStreamError, type SessionStreamEvent, type SessionTurnLifecycleOutput } from "@cohub/protocol/realtime";
+import { AGENT_REALTIME_PATCH_CHANNEL, REALTIME_OUTBOUND_CHANNEL, type RealtimeEnvelope, type RealtimeRoom, type SessionStreamError, type SessionStreamEvent, type SessionTurnLifecycleOutput } from "@cohub/protocol/realtime";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import type { SpacePortsChangedPayload } from "@cohub/protocol/ports";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
@@ -556,6 +556,7 @@ export async function publishRealtimeEnvelope(input: {
   sessionId?: string | null;
   payload: Record<string, unknown>;
   requestId?: string | null;
+  rooms?: RealtimeRoom[];
 }) {
   const traceCarrier = injectTrace();
   const message = JSON.stringify({
@@ -566,6 +567,7 @@ export async function publishRealtimeEnvelope(input: {
     requestId: input.requestId ?? null,
     spaceId: input.spaceId ?? null,
     sessionId: input.sessionId ?? null,
+    rooms: input.rooms,
     payload: input.payload,
     trace: traceCarrier,
   });

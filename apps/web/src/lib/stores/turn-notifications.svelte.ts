@@ -276,7 +276,9 @@ class TurnNotificationsStore {
 		if (canUseDesktopNotifications())
 			this.desktopPermission = Notification.permission;
 		const current = currentRouteTarget();
+		const activelyObserved = this.visible && this.focused;
 		if (
+			activelyObserved &&
 			current.spaceId === payload.spaceId &&
 			current.sessionId === payload.sessionId
 		) {

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { MessageRecord, MessageToolCallsFile, PersistMessageInput, SessionTurnRecord, SessionTurnStatus, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile } from "@cohub/protocol/model";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
+import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, tokenUsageStatsHourly, userChannels, userProfiles } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "@cohub/core/sessions";
@@ -196,9 +197,37 @@ async function publishTurnCreated(spaceId: string, turn: SessionTurnRecord) {
   await publishRealtimeEnvelope({ domain: "session", type: "session.turn.created", spaceId, sessionId: hydratedTurn.sessionId, payload: { turn: hydratedTurn } });
 }
 
+const truncateTurnPreview = (text: string | null | undefined) => {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
+};
+
 async function publishTurnFinalized(spaceId: string, turn: SessionTurnRecord) {
   await clearPersistedSessionStreamSnapshot(spaceId, turn.sessionId);
   await publishRealtimeEnvelope({ domain: "session", type: "session.turn.finalized", spaceId, sessionId: turn.sessionId, payload: { turn } });
+  if (!turn.userUuid) return;
+  await publishRealtimeEnvelope({
+    domain: "session",
+    type: "session.turn.notify",
+    spaceId,
+    sessionId: turn.sessionId,
+    rooms: [getRealtimeUserRoom(turn.userUuid)],
+    payload: {
+      spaceId,
+      sessionId: turn.sessionId,
+      turnId: turn.id,
+      status: turn.status,
+      finishReason: turn.summary?.finishReason ?? null,
+      userPreview: truncateTurnPreview(turn.userText),
+      durationMs: turn.durationMs,
+      stepCount: turn.intermediateSummary?.messageCount ?? null,
+      sequence: turn.sequence ?? null,
+      provider: turn.provider,
+      model: turn.model,
+      completedAt: turn.completedAt,
+    },
+  });
 }
 
 async function updateSessionAfterAppend(sessionId: string, message: typeof sessionMessages.$inferSelect) {
