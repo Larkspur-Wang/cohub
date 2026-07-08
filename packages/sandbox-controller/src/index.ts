@@ -30,6 +30,64 @@ export type SandboxStopReason = (typeof SANDBOX_STOP_REASONS)[number];
 export type SandboxActivityReason = "rpc" | "manual" | "resume";
 export type SandboxResumeReason = "rpc" | "new_message" | "manual" | "auto_recover";
 
+export const SANDBOX_SPECS = {
+  standard: {
+    id: "standard",
+    rank: 0,
+    label: "Standard",
+    description: "Everyday building",
+    requiredPlan: null,
+    resources: {
+      limits: { cpu: "2", memory: "4Gi", "ephemeral-storage": "10Gi" },
+      requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "1Gi" },
+    },
+  },
+  boost: {
+    id: "boost",
+    rank: 1,
+    label: "Boost",
+    description: "Faster builds and heavier dev servers",
+    requiredPlan: "Pro",
+    resources: {
+      limits: { cpu: "4", memory: "8Gi", "ephemeral-storage": "20Gi" },
+      requests: { cpu: "250m", memory: "768Mi", "ephemeral-storage": "2Gi" },
+    },
+  },
+  ultra: {
+    id: "ultra",
+    rank: 2,
+    label: "Ultra",
+    description: "Highest-priority compute for large work",
+    requiredPlan: "Max",
+    resources: {
+      limits: { cpu: "4", memory: "12Gi", "ephemeral-storage": "30Gi" },
+      requests: { cpu: "500m", memory: "1536Mi", "ephemeral-storage": "3Gi" },
+    },
+  },
+} as const;
+export type SandboxSpecId = keyof typeof SANDBOX_SPECS;
+export type SandboxSpec = (typeof SANDBOX_SPECS)[SandboxSpecId];
+export const DEFAULT_SANDBOX_SPEC_ID: SandboxSpecId = "standard";
+
+export function isSandboxSpecId(value: unknown): value is SandboxSpecId {
+  return typeof value === "string" && value in SANDBOX_SPECS;
+}
+
+export function normalizeSandboxSpecId(value: unknown): SandboxSpecId {
+  return isSandboxSpecId(value) ? value : DEFAULT_SANDBOX_SPEC_ID;
+}
+
+export function getSandboxSpecRank(specId: SandboxSpecId) {
+  return SANDBOX_SPECS[specId].rank;
+}
+
+export function getHighestAllowedSandboxSpecId(maxRank: number | null | undefined): SandboxSpecId {
+  const rank = typeof maxRank === "number" && Number.isFinite(maxRank) ? Math.floor(maxRank) : 0;
+  return Object.values(SANDBOX_SPECS)
+    .filter((spec) => spec.rank <= rank)
+    .sort((left, right) => right.rank - left.rank)[0]?.id ?? DEFAULT_SANDBOX_SPEC_ID;
+}
+
 const STALE_SANDBOX_CLEANUP_GRACE_MS = 30 * 60_000;
 
 export type RedisLike = {

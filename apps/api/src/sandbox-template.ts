@@ -1,3 +1,4 @@
+import { SANDBOX_SPECS } from "@cohub/sandbox-controller";
 import { SANDBOX_POD_TEMPLATE, validateSandboxPodTemplateVariables, type SandboxPodTemplateVariables } from "./templates/sandbox-pod.js";
 
 type TemplateVars = SandboxPodTemplateVariables;
@@ -30,5 +31,11 @@ const replaceInValue = (value: unknown, vars: TemplateVars): unknown => {
 };
 
 export const renderSandboxPodTemplate = (vars: TemplateVars) => {
-  return replaceInValue(SANDBOX_POD_TEMPLATE, validateSandboxPodTemplateVariables(vars));
+  const validated = validateSandboxPodTemplateVariables(vars);
+  const pod = replaceInValue(SANDBOX_POD_TEMPLATE, validated) as Record<string, unknown>;
+  const specId = validated.SANDBOX_SPEC_ID ?? "standard";
+  const resources = SANDBOX_SPECS[specId]?.resources ?? SANDBOX_SPECS.standard.resources;
+  const podSpec = pod.spec as { containers?: Array<{ resources?: unknown }> } | undefined;
+  if (podSpec?.containers?.[0]) podSpec.containers[0].resources = resources;
+  return pod;
 };

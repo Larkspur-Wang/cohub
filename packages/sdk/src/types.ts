@@ -591,10 +591,16 @@ export type SpaceSandboxAutoDestroyPolicy =
   | { mode: "never" };
 
 export type SpaceSandboxProvider = "cloud" | "local";
+export type SandboxSpecId = "standard" | "boost" | "ultra";
 
 export type SpaceSandboxConfig = {
   provider?: SpaceSandboxProvider;
   autoDestroy: SpaceSandboxAutoDestroyPolicy;
+  spec?: SandboxSpecId;
+  appliedSpec?: SandboxSpecId | null;
+  specPendingRestart?: boolean;
+  allowedSpec?: SandboxSpecId;
+  specs?: Record<string, unknown>;
 };
 
 export type SpaceConfig = {
@@ -647,6 +653,7 @@ export type SpaceConfigInput = {
   sandbox?: {
     provider?: SpaceSandboxProvider;
     autoDestroy?: SpaceSandboxAutoDestroyPolicy;
+    spec?: SandboxSpecId;
   };
 };
 
@@ -671,6 +678,18 @@ export type CreateSpaceInput = {
 
 export type SpaceConfigResponse = {
   config: Required<Pick<SpaceConfig, "sandbox">>;
+};
+
+export type SpaceConfigUpdateResponse = {
+  space: SpaceRecord;
+  sandbox?: {
+    resized?: boolean;
+    applying?: boolean;
+    pendingRestart?: boolean;
+    appliedSpec?: SandboxSpecId;
+    skipped?: boolean;
+    message?: string;
+  };
 };
 
 export type CanvasDocumentRecord = {

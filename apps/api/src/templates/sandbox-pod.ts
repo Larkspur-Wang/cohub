@@ -1,4 +1,5 @@
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
+import { SANDBOX_SPECS, type SandboxSpecId } from "@cohub/sandbox-controller";
 import { config } from "../config.js";
 
 type SandboxPodTemplateVariables = {
@@ -9,6 +10,7 @@ type SandboxPodTemplateVariables = {
   SPACE_STORAGE_PVC?: string;
   SPACE_STORAGE_SUBPATH?: string;
   CONFIGS_SUBPATH?: string;
+  SANDBOX_SPEC_ID?: SandboxSpecId;
 };
 
 function assertK8sSafeName(value: string, fieldName: string) {
@@ -64,16 +66,11 @@ export const SANDBOX_POD_TEMPLATE = {
             value: SANDBOX_PUBLIC_PORTS.join(","),
           },
         ],
-        resources: {
-          limits: {
-            cpu: "2",
-            memory: "2Gi",
-          },
-          requests: {
-            cpu: "0.1",
-            memory: "256Mi",
-          },
-        },
+        resizePolicy: [
+          { resourceName: "cpu", restartPolicy: "NotRequired" },
+          { resourceName: "memory", restartPolicy: "NotRequired" },
+        ],
+        resources: SANDBOX_SPECS.standard.resources,
         readinessProbe: {
           httpGet: { path: "/readyz", port: 8788 },
           initialDelaySeconds: 5,

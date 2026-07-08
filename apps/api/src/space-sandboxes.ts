@@ -1,4 +1,6 @@
 import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
+import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getHighestAllowedSandboxSpecId, getSandboxSpecRank, normalizeSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import { listEnabledSpaceMods, getSpaceModMountSignature } from "@cohub/core/space-mods";
 import { spaceSandboxes, spaces } from "@cohub/db";
@@ -37,6 +39,36 @@ const getK8sStatusCode = (error: unknown) => {
     ?? null;
 };
 
+const getSpaceSandboxSpec = async (spaceId: string): Promise<SandboxSpecId> => {
+  const [space] = await db.select({ meta: spaces.meta }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  const meta = asMetaObject(space?.meta);
+  const config = asMetaObject(meta.config);
+  const sandbox = asMetaObject(config.sandbox);
+  return normalizeSandboxSpecId(sandbox.spec);
+};
+
+const getAppliedSandboxSpec = (meta: unknown): SandboxSpecId | null => {
+  const value = asMetaObject(meta).appliedSpec;
+  return value ? normalizeSandboxSpecId(value) : null;
+};
+
+const getAllowedSandboxSpecId = async (userId: string): Promise<SandboxSpecId> => {
+  try {
+    const limit = await billingOperations.checkFeatureLimit({
+      userId,
+      featureKey: COHUB_BILLING_FEATURES.sandboxSpecMax,
+      quantity: 0,
+      metadataKey: "limit",
+      fallbackLimit: 0,
+      missingEntitlementPolicy: "allow",
+    });
+    return getHighestAllowedSandboxSpecId(limit.limit);
+  } catch (error) {
+    logger.warn("[SandboxSpec] failed to check entitlement during reconcile", { userId, error });
+    return DEFAULT_SANDBOX_SPEC_ID;
+  }
+};
+
 const getK8sErrorMessage = (error: unknown) => {
   const body = (error as { body?: unknown }).body;
   if (typeof body === "string" && body.trim()) return body;
@@ -64,6 +96,54 @@ export const waitForSandboxPodDeleted = async (podName: string, timeoutMs = 120_
     }
   }
   return false;
+};
+
+export const markSandboxSpecPendingRestart = async (input: { spaceId: string; specId: SandboxSpecId; reason: string }) => {
+  const spec = SANDBOX_SPECS[input.specId] ?? SANDBOX_SPECS[DEFAULT_SANDBOX_SPEC_ID];
+  await mergeSpaceSandboxMeta(input.spaceId, {
+    desiredSpec: input.specId,
+    desiredSpecResources: spec.resources,
+    specPendingRestart: true,
+    specPendingRestartReason: input.reason,
+    specPendingRestartAt: new Date().toISOString(),
+  });
+};
+
+export const resizeSpaceSandboxToSpec = async (input: { spaceId: string; specId: SandboxSpecId }) => {
+  const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+  if (!sandbox || sandbox.provider === "local") return { resized: false, pendingRestart: false, skipped: true };
+  if (sandbox.status !== "running" && sandbox.status !== "ready") {
+    await markSandboxSpecPendingRestart({ spaceId: input.spaceId, specId: input.specId, reason: "sandbox_not_running" });
+    return { resized: false, pendingRestart: true, skipped: true };
+  }
+  const podName = sandbox.podName ?? `sandbox-${input.spaceId}`;
+  const spec = SANDBOX_SPECS[input.specId] ?? SANDBOX_SPECS[DEFAULT_SANDBOX_SPEC_ID];
+  const k8sObjectApi = k8sCoreApi as typeof k8sCoreApi & {
+    patchNamespacedPodResize?: (input: { name: string; namespace: string; body: unknown }) => Promise<unknown>;
+  };
+  if (!k8sObjectApi.patchNamespacedPodResize) {
+    await markSandboxSpecPendingRestart({ spaceId: input.spaceId, specId: input.specId, reason: "pod_resize_api_unavailable" });
+    return { resized: false, pendingRestart: true, message: "pod resize API is unavailable; restart required" };
+  }
+
+  await k8sObjectApi.patchNamespacedPodResize({
+    name: podName,
+    namespace: sessionsNamespace,
+    body: {
+      spec: {
+        containers: [{ name: "sandbox", resources: spec.resources }],
+      },
+    },
+  });
+
+  await mergeSpaceSandboxMeta(input.spaceId, {
+    desiredSpec: input.specId,
+    desiredSpecResources: spec.resources,
+    specApplying: true,
+    specApplyingStartedAt: new Date().toISOString(),
+    specPendingRestart: false,
+  });
+  return { resized: true, applying: true, pendingRestart: false };
 };
 
 export const waitForSandboxPodReady = async (podName: string, timeoutMs = 120_000) => {
@@ -335,6 +415,11 @@ export const reconcileSpaceSandbox = async (input: {
     }
   }
 
+  const configuredSpec = await getSpaceSandboxSpec(input.spaceId);
+  const allowedSpec = await getAllowedSandboxSpecId(input.ownerUserUuid ?? input.userUuid);
+  const desiredSpec = getSandboxSpecRank(configuredSpec) > getSandboxSpecRank(allowedSpec) ? allowedSpec : configuredSpec;
+  const specEntitlementDowngraded = desiredSpec !== configuredSpec;
+  const desiredSpecConfig = SANDBOX_SPECS[desiredSpec] ?? SANDBOX_SPECS[DEFAULT_SANDBOX_SPEC_ID];
   const reportToken = createSandboxReportToken();
   const reportTokenHash = hashSandboxReportToken(reportToken);
   const reportTokenIssuedAt = new Date().toISOString();
@@ -357,7 +442,13 @@ export const reconcileSpaceSandbox = async (input: {
     runtimeStatus: "starting",
     podName,
     desiredImage: toSandboxImageVersion(config.sandboxImage),
-    meta: provisioningMeta,
+    meta: {
+      ...provisioningMeta,
+      desiredSpec,
+      configuredSpec,
+      ...(specEntitlementDowngraded ? { specEntitlementDowngraded: true, specEntitlementAllowedSpec: allowedSpec, specEntitlementCheckedAt: nowIso } : { specEntitlementDowngraded: false }),
+      desiredSpecResources: desiredSpecConfig.resources,
+    },
   });
 
   const pod = renderSandboxPodTemplate({
@@ -368,6 +459,7 @@ export const reconcileSpaceSandbox = async (input: {
     SPACE_STORAGE_PVC: config.spaceStoragePvc,
     SPACE_STORAGE_SUBPATH: config.spaceStorageSubpath,
     CONFIGS_SUBPATH: config.configsSubpath,
+    SANDBOX_SPEC_ID: desiredSpec,
   }) as V1Pod;
 
   const enabledMods = await listEnabledSpaceMods(db, input.spaceId);
@@ -437,6 +529,10 @@ export const reconcileSpaceSandbox = async (input: {
         mountPath: mod.mountPath,
         name: mod.name ?? mod.modSpaceName,
       })),
+      appliedSpec: desiredSpec,
+      appliedSpecResources: desiredSpecConfig.resources,
+      specApplying: false,
+      specPendingRestart: false,
       lastProvisionedAt: provisionedAt,
     },
   });

@@ -63,6 +63,7 @@ import type {
   CreateSpaceInput,
   SpaceConfigInput,
   SpaceConfigResponse,
+  SpaceConfigUpdateResponse,
   CanvasBootstrapResponse,
   CanvasCreateInput,
   ChannelConfig,
@@ -1622,7 +1623,7 @@ export class SpaceClient {
   }
 
   updateConfig(input: SpaceConfigInput) {
-    return this.transport.request<{ space: SpaceRecord }>(
+    return this.transport.request<SpaceConfigUpdateResponse>(
       `/api/spaces/${this.id}/config`,
       {
         method: "PATCH",

@@ -59,6 +59,7 @@ type UploadOptions = {
 const cliEnv = resolveCohubEnvironment();
 const defaultIdleTtlSeconds = cliEnv === "prod" ? 12 * 60 * 60 : 10 * 60;
 const SPACE_ROLES = ["host", "builder", "guest"] as const;
+const SANDBOX_SPEC_IDS = ["standard", "boost", "ultra"] as const;
 const LABEL_RESOURCE_TYPES = ["session", "checkpoint", "file"] as const;
 
 function parseInteger(value: string, name: string, options: { min?: number; max?: number } = {}): number {
@@ -105,6 +106,8 @@ const parseAutoDestroy = (opts: { autoDestroy?: string; idleTtl?: string }) => {
   const ttlSeconds = parseInteger(opts.idleTtl ?? String(defaultIdleTtlSeconds), "idle TTL", { min: 60, max: 30 * 24 * 60 * 60 });
   return { mode: "idle" as const, ttlSeconds };
 };
+
+const parseSandboxSpec = (value: string | undefined) => value ? parseChoice(value, "sandbox spec", SANDBOX_SPEC_IDS) : undefined;
 
 const formatAutoDestroy = (policy: { mode: "idle"; ttlSeconds: number } | { mode: "never" } | undefined) => {
   if (!policy) return `${cliEnv === "prod" ? "12h" : "10m"} (default)`;
@@ -364,15 +367,17 @@ export function registerSpaces(program: Command): void {
     .option("-d, --description <desc>", "Space description")
     .option("--auto-destroy <mode>", "Sandbox auto destroy mode: idle or never")
     .option("--idle-ttl <seconds>", "Idle auto destroy TTL in seconds, max 2592000 (30d)")
+    .option("--spec <spec>", "Sandbox spec: standard, boost, or ultra")
     .option("--json", "Output as JSON")
-    .action(async (opts: { name?: string; description?: string; autoDestroy?: string; idleTtl?: string; json?: boolean }) => {
+    .action(async (opts: { name?: string; description?: string; autoDestroy?: string; idleTtl?: string; spec?: string; json?: boolean }) => {
       const client = createClient();
       try {
         const autoDestroy = parseAutoDestroy(opts);
+        const spec = parseSandboxSpec(opts.spec);
         const result = await client.spaces.create({
           name: opts.name,
           description: opts.description,
-          ...(autoDestroy ? { config: { sandbox: { autoDestroy } } } : {}),
+          ...((autoDestroy || spec) ? { config: { sandbox: { ...(autoDestroy ? { autoDestroy } : {}), ...(spec ? { spec } : {}) } } } : {}),
         });
         if (jsonRequested(opts)) return outJson(result);
         ok(`Space created: ${result.space.id}`);
@@ -455,20 +460,27 @@ export function registerSpaces(program: Command): void {
     .description("Show or update space configuration")
     .option("--auto-destroy <mode>", "Sandbox auto destroy mode: idle or never")
     .option("--idle-ttl <seconds>", "Idle auto destroy TTL in seconds, max 2592000 (30d)")
+    .option("--spec <spec>", "Sandbox spec: standard, boost, or ultra")
     .option("--json", "Output as JSON")
-    .action(async (id: string, opts: { autoDestroy?: string; idleTtl?: string; json?: boolean }) => {
+    .action(async (id: string, opts: { autoDestroy?: string; idleTtl?: string; spec?: string; json?: boolean }) => {
       const client = createClient();
       try {
         const autoDestroy = parseAutoDestroy(opts);
-        if (autoDestroy) {
-          const result = await client.space(id).updateConfig({ sandbox: { autoDestroy } });
+        const spec = parseSandboxSpec(opts.spec);
+        if (autoDestroy || spec) {
+          const result = await client.space(id).updateConfig({ sandbox: { ...(autoDestroy ? { autoDestroy } : {}), ...(spec ? { spec } : {}) } });
           if (jsonRequested(opts)) return outJson(result);
-          ok(`Space config updated — sandbox auto destroy: ${formatAutoDestroy(autoDestroy)}`);
+          ok(`Space config updated${autoDestroy ? ` — sandbox auto destroy: ${formatAutoDestroy(autoDestroy)}` : ""}${spec ? ` — sandbox spec: ${spec}` : ""}`);
           return;
         }
         const result = await client.space(id).getConfig();
         if (jsonRequested(opts)) return outJson(result);
-        table([{ key: "sandbox.autoDestroy", value: formatAutoDestroy(result.config.sandbox.autoDestroy) }], [
+        table([
+          { key: "sandbox.autoDestroy", value: formatAutoDestroy(result.config.sandbox.autoDestroy) },
+          { key: "sandbox.spec", value: result.config.sandbox.spec ?? "standard" },
+          { key: "sandbox.appliedSpec", value: result.config.sandbox.appliedSpec ?? "—" },
+          { key: "sandbox.allowedSpec", value: result.config.sandbox.allowedSpec ?? "standard" },
+        ], [
           { key: "key", label: "Key" },
           { key: "value", label: "Value" },
         ]);

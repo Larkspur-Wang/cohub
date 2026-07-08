@@ -6,6 +6,7 @@ import {
 } from "@cohub/protocol";
 import type {
 	Channel,
+	SandboxSpecId,
 	SpaceAccessPolicy,
 	SpaceChannelBindingRecord,
 	SpaceEnvInput,
@@ -16,6 +17,7 @@ import type {
 	SpaceRole,
 	SpaceSandboxAutoDestroyPolicy,
 } from "@neta-art/cohub";
+import { HttpError } from "@neta-art/cohub";
 import {
 	ArrowLeft,
 	Check,
@@ -48,8 +50,22 @@ import { uploadSpaceAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validatePublicSlugInput } from "$lib/slug-rules";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
+import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { invalidateCachedSpaceMembers } from "$lib/stores/space-profile-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
+import SandboxSpecPicker from "./SandboxSpecPicker.svelte";
+
+type SandboxSpecOption = {
+	id: SandboxSpecId;
+	rank: number;
+	label: string;
+	description: string;
+	requiredPlan: string | null;
+	resources: {
+		limits: Record<string, string>;
+		requests: Record<string, string>;
+	};
+};
 
 type SandboxInfo = {
 	status: string | null;
@@ -127,6 +143,48 @@ let sandboxIdleTtlSeconds = $state(defaultIdleTtlSeconds);
 let savingSandboxConfig = $state(false);
 let sandboxConfigMessage = $state("");
 let sandboxConfigError = $state("");
+let sandboxSpec = $state<SandboxSpecId>("standard");
+let appliedSandboxSpec = $state<SandboxSpecId | null>(null);
+let allowedSandboxSpec = $state<SandboxSpecId>("standard");
+const defaultSandboxSpecs: Record<string, SandboxSpecOption> = {
+	standard: {
+		id: "standard",
+		rank: 0,
+		label: "Standard",
+		description: "Everyday building",
+		requiredPlan: null,
+		resources: {
+			limits: { cpu: "2", memory: "4Gi", "ephemeral-storage": "10Gi" },
+			requests: { cpu: "100m", memory: "256Mi", "ephemeral-storage": "1Gi" },
+		},
+	},
+	boost: {
+		id: "boost",
+		rank: 1,
+		label: "Boost",
+		description: "Faster builds and heavier dev servers",
+		requiredPlan: "Pro",
+		resources: {
+			limits: { cpu: "4", memory: "8Gi", "ephemeral-storage": "20Gi" },
+			requests: { cpu: "250m", memory: "768Mi", "ephemeral-storage": "2Gi" },
+		},
+	},
+	ultra: {
+		id: "ultra",
+		rank: 2,
+		label: "Ultra",
+		description: "Highest-priority compute for large work",
+		requiredPlan: "Max",
+		resources: {
+			limits: { cpu: "4", memory: "12Gi", "ephemeral-storage": "30Gi" },
+			requests: { cpu: "500m", memory: "1536Mi", "ephemeral-storage": "3Gi" },
+		},
+	},
+};
+let sandboxSpecs =
+	$state<Record<string, SandboxSpecOption>>(defaultSandboxSpecs);
+let specPickerOpen = $state(false);
+let savingSandboxSpec = $state(false);
 let renamingSpace = $state(false);
 let renameInput = $state("");
 let renameSaving = $state(false);
@@ -195,6 +253,90 @@ function applySandboxConfigFromSpace(record: SpaceRecord | null) {
 	sandboxAutoDestroyMode = policy.mode;
 	sandboxIdleTtlSeconds =
 		policy.mode === "idle" ? policy.ttlSeconds : defaultIdleTtlSeconds;
+	sandboxSpec = record?.meta?.config?.sandbox?.spec ?? sandboxSpec;
+}
+
+async function loadSandboxConfig() {
+	const result = await sdk
+		.space(spaceId)
+		.getConfig()
+		.catch(() => null);
+	if (!result?.config?.sandbox) return;
+	const config = result.config.sandbox;
+	sandboxSpec = config.spec ?? "standard";
+	appliedSandboxSpec = config.appliedSpec ?? null;
+	allowedSandboxSpec = config.allowedSpec ?? "standard";
+	sandboxSpecs =
+		(config.specs as Record<string, SandboxSpecOption> | undefined) ??
+		sandboxSpecs;
+}
+
+function getSandboxSpecLabel(specId: SandboxSpecId | null | undefined) {
+	return sandboxSpecs[specId ?? ""]?.label ?? (specId ? specId : "Standard");
+}
+
+function getSandboxSpecSummary(specId: SandboxSpecId | null | undefined) {
+	const spec = sandboxSpecs[specId ?? ""];
+	if (!spec) return "2 vCPU · 4 Gi";
+	return `${spec.resources?.limits?.cpu ?? "2"} vCPU · ${spec.resources?.limits?.memory ?? "4Gi"}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function openSandboxSpecUpgrade(specId: SandboxSpecId) {
+	const spec = sandboxSpecs[specId];
+	billingConversion.openFromIntent({
+		level: "hard",
+		reason: "feature_not_entitled",
+		audience: "unknown",
+		preferredOfferKind: "upgrade",
+		title: `Upgrade for ${spec?.label ?? "better"} sandboxes`,
+		message: `Choose a higher plan to use ${spec?.label ?? specId} with ${spec?.resources?.limits?.cpu ?? "more"} vCPU and ${spec?.resources?.limits?.memory ?? "more memory"}.`,
+		primaryAction: { label: "View plans", action: "open_billing_conversion" },
+		source: "sandbox_spec_picker",
+	});
+}
+
+async function saveSandboxSpec(spec: SandboxSpecId) {
+	if (!canManageSpaceSandbox || savingSandboxSpec) return;
+	savingSandboxSpec = true;
+	sandboxConfigMessage = "";
+	sandboxConfigError = "";
+	try {
+		const result = await sdk.space(spaceId).updateConfig({ sandbox: { spec } });
+		space = result.space;
+		cacheSpaceRecordSoon(result.space);
+		applySandboxConfigFromSpace(result.space);
+		sandboxSpec = spec;
+		await Promise.all([loadSandboxConfig(), loadSandbox()]);
+		specPickerOpen = false;
+		const sandboxResult = (
+			result as unknown as {
+				sandbox?: { pendingRestart?: boolean; resized?: boolean };
+			}
+		).sandbox;
+		sandboxConfigMessage = sandboxResult?.pendingRestart
+			? "Sandbox spec saved. Restart to apply it."
+			: sandboxResult?.resized
+				? "Sandbox spec updated instantly."
+				: "Sandbox spec saved.";
+	} catch (err) {
+		if (err instanceof HttpError && err.status === 402 && isRecord(err.body)) {
+			const billing = isRecord(err.body.billing) ? err.body.billing : null;
+			if (billing?.conversion)
+				billingConversion.openFromIntent(
+					billing.conversion as Parameters<
+						typeof billingConversion.openFromIntent
+					>[0],
+				);
+		}
+		sandboxConfigError =
+			err instanceof Error ? err.message : "Failed to save sandbox spec";
+	} finally {
+		savingSandboxSpec = false;
+	}
 }
 
 function formatTtl(seconds: number): string {
@@ -580,6 +722,7 @@ async function loadPage() {
 			modResult,
 			allChannelResult,
 			sandboxResult,
+			sandboxConfigResult,
 			invitationResult,
 		] = await Promise.all([
 			sdk.space(spaceId).get(),
@@ -610,6 +753,10 @@ async function loadPage() {
 				.catch(() => null),
 			sdk
 				.space(spaceId)
+				.getConfig()
+				.catch(() => null),
+			sdk
+				.space(spaceId)
 				.invitations.list()
 				.catch(() => ({ items: [] })),
 		]);
@@ -623,6 +770,16 @@ async function loadPage() {
 		mods = modResult.items;
 		allChannels = allChannelResult;
 		sandbox = sandboxResult?.sandbox ?? null;
+		if (sandboxConfigResult?.config?.sandbox) {
+			const sandboxConfig = sandboxConfigResult.config.sandbox;
+			sandboxSpec = sandboxConfig.spec ?? "standard";
+			appliedSandboxSpec = sandboxConfig.appliedSpec ?? null;
+			allowedSandboxSpec = sandboxConfig.allowedSpec ?? "standard";
+			sandboxSpecs =
+				(sandboxConfig.specs as
+					| Record<string, SandboxSpecOption>
+					| undefined) ?? sandboxSpecs;
+		}
 		invitations = invitationResult.items;
 		applySandboxConfigFromSpace(spaceResult);
 	} catch (err) {
@@ -1311,6 +1468,10 @@ $effect(() => {
 					<div class="flex flex-col gap-3 border-b border-border-subtle px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5"><div class="flex min-w-0 items-center gap-2.5"><Settings class="h-4 w-4 text-text-tertiary" /><div class="min-w-0"><div class="text-[15px] font-medium text-text-primary">Sandbox</div><div class="text-[12px] text-text-tertiary">Policy, health, runtime image.</div></div></div><button type="button" onclick={forceRecoverSandbox} disabled={!canManageSpaceSandbox || recoveringSandbox} class="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{#if recoveringSandbox}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Recovering{:else}<RefreshCw class="h-3.5 w-3.5" /> Force recover{/if}</button></div>
 					<div class="space-y-5 p-4 sm:p-5">
 						<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
+							<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><div class="text-[12px] font-medium text-text-secondary">Compute spec</div><div class="mt-0.5 text-[11px] text-text-tertiary">{getSandboxSpecLabel(sandboxSpec)} · {getSandboxSpecSummary(sandboxSpec)}{#if appliedSandboxSpec && appliedSandboxSpec !== sandboxSpec} · restart pending{/if}</div></div><button type="button" onclick={() => (specPickerOpen = true)} disabled={!canManageSpaceSandbox || savingSandboxSpec} class="inline-flex min-h-9 items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50">{savingSandboxSpec ? "Saving…" : "Choose spec"}</button></div>
+						</div>
+
+						<div class="rounded-[8px] border border-border-subtle bg-bg-primary p-3">
 							<div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div><div class="text-[12px] font-medium text-text-secondary">Hibernate policy</div><div class="mt-0.5 text-[11px] text-text-tertiary">Current: {sandboxAutoDestroyMode === "never" ? "Never" : formatTtl(sandboxIdleTtlSeconds)}</div></div><button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex min-h-9 items-center justify-center rounded-[6px] bg-brand px-3 py-2 text-[12px] font-medium text-brand-contrast-fg hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save policy"}</button></div>
 							<div class="grid grid-cols-1 gap-2 md:grid-cols-[180px_1fr]"><select bind:value={sandboxAutoDestroyMode} class="min-h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none"><option value="idle">Hibernate when idle</option><option value="never">Never hibernate</option></select>{#if sandboxAutoDestroyMode === "idle"}<div class="grid gap-2 sm:grid-cols-[1fr_auto]"><input type="number" min="60" max="2592000" step="60" bind:value={sandboxIdleTtlSeconds} class="min-h-9 w-full rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-primary focus:border-brand/40 focus:outline-none" /><span class="self-center text-[12px] text-text-tertiary">seconds · max 30d</span></div>{:else}<div class="rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2 text-[13px] text-text-tertiary">Sandbox stays online until hibernated or replaced.</div>{/if}</div>
 							{#if sandboxConfigError}<div class="mt-2 text-[12px] text-error-soft">{sandboxConfigError}</div>{/if}{#if sandboxConfigMessage}<div class="mt-2 text-[12px] text-success-soft">{sandboxConfigMessage}</div>{/if}
@@ -1327,3 +1488,15 @@ $effect(() => {
 		</div>
 	</main>
 </div>
+
+<SandboxSpecPicker
+	open={specPickerOpen}
+	currentSpec={sandboxSpec}
+	appliedSpec={appliedSandboxSpec}
+	allowedSpec={allowedSandboxSpec}
+	specs={sandboxSpecs}
+	saving={savingSandboxSpec}
+	onClose={() => (specPickerOpen = false)}
+	onSelect={saveSandboxSpec}
+	onUpgrade={openSandboxSpecUpgrade}
+/>
