@@ -646,7 +646,6 @@ export const sessionTurns = v2.table(
       table.sequence,
     ),
     userUuidIdx: index("v2_idx_session_turns_user_uuid").on(table.userUuid),
-    statusIdx: index("v2_idx_session_turns_status").on(table.status),
     createdAtIdx: index("v2_idx_session_turns_created_at").on(table.createdAt),
     userTextSearchIdx: index("v2_idx_session_turns_user_text_trgm").using("gin", table.userText.op("gin_trgm_ops")),
   }),

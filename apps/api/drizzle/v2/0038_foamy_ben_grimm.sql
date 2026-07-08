@@ -1,0 +1,1 @@
+DROP INDEX "v2"."v2_idx_session_turns_status";

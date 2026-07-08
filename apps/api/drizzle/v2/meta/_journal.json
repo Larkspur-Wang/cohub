@@ -267,6 +267,13 @@
       "when": 1783442945484,
       "tag": "0037_dark_ben_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783505712602,
+      "tag": "0038_foamy_ben_grimm",
+      "breakpoints": true
     }
   ]
 }
