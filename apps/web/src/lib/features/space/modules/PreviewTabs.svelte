@@ -1,5 +1,5 @@
 <script lang="ts">
-import { FileText, Globe, MousePointer2, X } from "lucide-svelte";
+import { File as FileIcon, Globe, MousePointer2, X } from "lucide-svelte";
 
 type PreviewTab = {
 	kind: "file" | "canvas" | "port";
@@ -19,7 +19,7 @@ type Props = {
 let { tabs, onActivate, onClose }: Props = $props();
 
 const kindIcon = {
-	file: FileText,
+	file: FileIcon,
 	canvas: MousePointer2,
 	port: Globe,
 } as const;
