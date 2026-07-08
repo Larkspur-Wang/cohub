@@ -34,7 +34,8 @@ export function createPortPreviewController(
 	options: PortPreviewControllerOptions,
 ) {
 	let endpoints = $state<SpacePublicEndpoints>({});
-	let preview = $state<InlinePortPreview | null>(null);
+	let previews = $state<InlinePortPreview[]>([]);
+	let activePort = $state<string | null>(null);
 	let readyToast = $state<PortReadyToast | null>(null);
 	let readyToastTimer: ReturnType<typeof setTimeout> | null = null;
 	const requests = createRequestDedupe();
@@ -58,7 +59,7 @@ export function createPortPreviewController(
 			const becameListening = previousStatus !== "listening";
 			if (!(cameFromPortsChangedEvent || becameListening) || !endpoint?.url)
 				continue;
-			if (preview?.port === port) continue;
+			if (activePort === port) continue;
 			showReadyToast(port, endpoint.url);
 			return;
 		}
@@ -127,12 +128,30 @@ export function createPortPreviewController(
 	) {
 		options.onBeforeOpenPort?.();
 		options.onOpenPanel?.();
-		preview = { port, url, autoOpened: optionsArg.autoOpened ?? false };
+		const preview = { port, url, autoOpened: optionsArg.autoOpened ?? false };
+		previews = previews.some((item) => item.port === port)
+			? previews.map((item) => (item.port === port ? preview : item))
+			: [...previews, preview];
+		activePort = port;
 	}
 
-	function closePort() {
-		preview = null;
-		options.onClosePanel?.();
+	function closePort(port = activePort) {
+		if (!port) return;
+		const index = previews.findIndex((item) => item.port === port);
+		const nextPreviews = previews.filter((item) => item.port !== port);
+		previews = nextPreviews;
+		if (activePort === port)
+			activePort =
+				nextPreviews[Math.max(0, index - 1)]?.port ??
+				nextPreviews[0]?.port ??
+				null;
+		if (nextPreviews.length === 0) options.onClosePanel?.();
+	}
+
+	function activatePort(port: string) {
+		if (!previews.some((item) => item.port === port)) return;
+		activePort = port;
+		options.onOpenPanel?.();
 	}
 
 	function dispose() {
@@ -146,7 +165,13 @@ export function createPortPreviewController(
 			return endpoints;
 		},
 		get preview() {
-			return preview;
+			return previews.find((item) => item.port === activePort) ?? null;
+		},
+		get previews() {
+			return previews;
+		},
+		get activePort() {
+			return activePort;
 		},
 		get readyToast() {
 			return readyToast;
@@ -156,6 +181,7 @@ export function createPortPreviewController(
 		applyPortsChanged,
 		openPort,
 		closePort,
+		activatePort,
 		previewFromToast,
 		closeReadyToast,
 		dispose,

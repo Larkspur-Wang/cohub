@@ -22,6 +22,7 @@ import type {
 	WorkspaceFilePosition,
 } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
+import PreviewTabs from "./PreviewTabs.svelte";
 
 type InlineFilePanelState = {
 	response: SpaceFsFileResponse | null;
@@ -38,8 +39,18 @@ type PanHandlers = {
 	start: (event: MouseEvent) => void;
 };
 
+type PreviewTab = {
+	kind: "file" | "canvas" | "port";
+	key: string;
+	label: string;
+	title: string;
+	dirty?: boolean;
+	active: boolean;
+};
+
 type Props = {
 	inlineFile: InlineFilePanelState;
+	previewTabs: PreviewTab[];
 	inlineFileCanGoBack: boolean;
 	inlineFileDownloadUrl: string;
 	inlineFileDownloadName: string;
@@ -69,6 +80,8 @@ type Props = {
 	inlineFileDragging: boolean;
 	inlineFilePanHandlers: PanHandlers;
 	onCloseInlineFile: () => void;
+	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
+	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onBackInlineFile: () => void | Promise<void>;
 	onOpenLinkedInlineFile: (
 		target: OpenWorkspaceFileTarget,
@@ -89,6 +102,7 @@ type Props = {
 
 let {
 	inlineFile,
+	previewTabs,
 	inlineFileCanGoBack,
 	inlineFileDownloadUrl,
 	inlineFileDownloadName,
@@ -118,6 +132,8 @@ let {
 	inlineFileDragging,
 	inlineFilePanHandlers,
 	onCloseInlineFile,
+	onActivatePreviewTab,
+	onClosePreviewTab,
 	onBackInlineFile,
 	onOpenLinkedInlineFile,
 	onDownloadInlineFile,
@@ -192,6 +208,7 @@ function loadRenderedFilePreviewModule() {
   {#if inlineFile}
     <!-- Mobile full-screen overlay -->
     <div class="lg:hidden fixed inset-0 z-50 flex flex-col bg-bg-content">
+      <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
       <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0 bg-bg-surface">
         <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
           <X class="w-5 h-5" />
@@ -315,6 +332,7 @@ function loadRenderedFilePreviewModule() {
       immersive={previewImmersiveMode}
     >
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
+        <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
         {#if inlineFile.loading}
           <div class="flex h-10 items-center border-b border-border-subtle px-3 shrink-0">
             <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>

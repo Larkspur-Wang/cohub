@@ -3,6 +3,7 @@ import type { CanvasSemanticOp } from "@neta-art/cohub";
 import { X } from "lucide-svelte";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import PreviewTabs from "./PreviewTabs.svelte";
 
 type InlineCanvasPanelState = {
 	path: string;
@@ -13,8 +14,18 @@ type InlineCanvasPanelState = {
 	error: string | null;
 };
 
+type PreviewTab = {
+	kind: "file" | "canvas" | "port";
+	key: string;
+	label: string;
+	title: string;
+	dirty?: boolean;
+	active: boolean;
+};
+
 type Props = {
 	canvas: InlineCanvasPanelState;
+	previewTabs: PreviewTab[];
 	width: number;
 	focused: boolean;
 	immersive: boolean;
@@ -26,11 +37,14 @@ type Props = {
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
+	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
+	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onClose: () => void;
 };
 
 let {
 	canvas,
+	previewTabs,
 	width,
 	focused,
 	immersive,
@@ -39,6 +53,8 @@ let {
 	onToggleFocus,
 	onToggleImmersive,
 	onCommit,
+	onActivatePreviewTab,
+	onClosePreviewTab,
 	onClose,
 }: Props = $props();
 
@@ -64,11 +80,13 @@ function loadCanvasPanelModule() {
 >
 	{#if canvas.loading}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
 			<div class="flex h-10 items-center border-b border-border-subtle px-3 text-xs text-text-tertiary">Loading canvas…</div>
 			<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
 		</div>
 	{:else if canvas.error}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
 			<div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
 				<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>
 				<button type="button" class="icon-btn" onclick={onClose} title="Close canvas"><X class="w-4 h-4" /></button>
@@ -78,17 +96,22 @@ function loadCanvasPanelModule() {
 	{:else if canvas.document}
 		{#await loadCanvasPanelModule() then canvasPanelModule}
 			{@const LazyCanvasPanel = canvasPanelModule.default}
-			<LazyCanvasPanel
-				path={canvas.path}
-				document={canvas.document}
-				saving={canvas.saving}
-				focused={focused}
-				{immersive}
-				onToggleFocus={isMobile ? undefined : onToggleFocus}
-				onToggleImmersive={isMobile ? undefined : onToggleImmersive}
-				onCommit={(document, ops) => onCommit(document, ops)}
-				onClose={onClose}
-			/>
+			<div class="flex h-full min-w-0 flex-col bg-bg-content">
+				<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+				<div class="min-h-0 flex-1">
+					<LazyCanvasPanel
+						path={canvas.path}
+						document={canvas.document}
+						saving={canvas.saving}
+						focused={focused}
+						{immersive}
+						onToggleFocus={isMobile ? undefined : onToggleFocus}
+						onToggleImmersive={isMobile ? undefined : onToggleImmersive}
+						onCommit={(document, ops) => onCommit(document, ops)}
+						onClose={onClose}
+					/>
+				</div>
+			</div>
 		{:catch}
 			<div class="flex h-full min-w-0 flex-col bg-bg-content">
 				<div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
@@ -100,6 +123,7 @@ function loadCanvasPanelModule() {
 		{/await}
 	{:else}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
 			<div class="flex h-10 items-center gap-2 border-b border-border-subtle px-3">
 				<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>
 				<button type="button" class="icon-btn" onclick={onClose} title="Close canvas"><X class="w-4 h-4" /></button>

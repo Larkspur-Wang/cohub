@@ -43,6 +43,14 @@ export type FileWorkspaceInlineFile = {
 	saving: boolean;
 	error: string | null;
 	tooLarge: boolean;
+	edit: boolean;
+	zoom: number;
+	panX: number;
+	panY: number;
+	dragging: boolean;
+	copied: boolean;
+	backStack: string[];
+	requestToken: number;
 };
 
 type FileWorkspaceControllerOptions = {
@@ -63,6 +71,7 @@ type FileWorkspaceControllerOptions = {
 		options?: { autoOpened?: boolean },
 	) => void;
 	onCloseInlinePort: () => void;
+	onActivateFilePreview?: () => void;
 	onClosePreviewFocusMode: () => void;
 	onEnsurePreviewPanelFits: () => void;
 };
@@ -83,21 +92,15 @@ export function createFileWorkspaceController(
 	let openFileSaving = $state(false);
 	let openFileError = $state<string | null>(null);
 	let openFileTooLarge = $state(false);
-	let inlineFile = $state<FileWorkspaceInlineFile | null>(null);
+	let inlineFileTabs = $state<FileWorkspaceInlineFile[]>([]);
+	let activeInlineFilePath = $state<string | null>(null);
 	let inlineFileRequestToken = $state(0);
-	let inlineFileBackStack = $state<string[]>([]);
 	let fileEdit = $state(true);
-	let inlineFileEdit = $state(true);
 	let fileActionMenuOpenPath = $state<string | null>(null);
 	let openFileZoom = $state(1);
 	let openFilePanX = $state(0);
 	let openFilePanY = $state(0);
 	let openFileDragging = $state(false);
-	let inlineFileZoom = $state(1);
-	let inlineFilePanX = $state(0);
-	let inlineFilePanY = $state(0);
-	let inlineFileDragging = $state(false);
-	let inlineFileCopied = $state(false);
 	let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 	let openFileCopied = $state(false);
 	let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -106,6 +109,44 @@ export function createFileWorkspaceController(
 	let pendingUploadFiles = $state<File[]>([]);
 	let pendingUploadEntries = $state<{ file: File; relativePath: string }[]>([]);
 	let pendingFileSavePaths = $state<Set<string>>(new Set());
+
+	const getActiveInlineFile = () =>
+		inlineFileTabs.find((tab) => tab.path === activeInlineFilePath) ?? null;
+
+	function setInlineFileTab(
+		path: string,
+		updater: (tab: FileWorkspaceInlineFile) => FileWorkspaceInlineFile,
+	) {
+		inlineFileTabs = inlineFileTabs.map((tab) =>
+			tab.path === path ? updater(tab) : tab,
+		);
+	}
+
+	function makeInlineFileTab(
+		path: string,
+		position: WorkspaceFilePosition | null,
+		requestToken: number,
+		backStack: string[] = [],
+	): FileWorkspaceInlineFile {
+		return {
+			response: null,
+			draft: "",
+			path,
+			position,
+			loading: true,
+			saving: false,
+			error: null,
+			tooLarge: false,
+			edit: true,
+			zoom: 1,
+			panX: 0,
+			panY: 0,
+			dragging: false,
+			copied: false,
+			backStack,
+			requestToken,
+		};
+	}
 
 	function isLocalUploadEntries(
 		value: File[] | { file: File; relativePath: string }[],
@@ -160,8 +201,8 @@ export function createFileWorkspaceController(
 		fileTreeLoading = false;
 		fileTreeRequestToken += 1;
 		inlineFileRequestToken += 1;
-		inlineFile = null;
-		inlineFileBackStack = [];
+		inlineFileTabs = [];
+		activeInlineFilePath = null;
 		void loadFileTree(false);
 	}
 
@@ -187,8 +228,8 @@ export function createFileWorkspaceController(
 		openFileError = null;
 		openFileTooLarge = false;
 		openFileSaving = false;
-		inlineFile = null;
-		inlineFileBackStack = [];
+		inlineFileTabs = [];
+		activeInlineFilePath = null;
 		uploadPaneVisible = false;
 		pendingUploadFiles = [];
 		pendingUploadEntries = [];
@@ -200,10 +241,14 @@ export function createFileWorkspaceController(
 			"File changed externally. Save carefully or reload before editing further.";
 	}
 
-	function markInlineFileExternalChange() {
-		if (!inlineFile) return;
-		inlineFile.error =
-			"File changed externally. Save carefully or reload before editing further.";
+	function markInlineFileExternalChange(path?: string) {
+		const targetPath = path ?? activeInlineFilePath;
+		if (!targetPath) return;
+		setInlineFileTab(targetPath, (tab) => ({
+			...tab,
+			error:
+				"File changed externally. Save carefully or reload before editing further.",
+		}));
 	}
 
 	async function patchFsDirectory(
@@ -492,12 +537,16 @@ export function createFileWorkspaceController(
 	}
 
 	async function downloadInlineFile() {
+		const inlineFile = getActiveInlineFile();
 		if (!inlineFile) return;
 		try {
 			await downloadActiveFsFile(inlineFile.path, inlineFile.response);
 		} catch (error) {
-			inlineFile.error =
-				error instanceof Error ? error.message : "Failed to download file";
+			setInlineFileTab(inlineFile.path, (tab) => ({
+				...tab,
+				error:
+					error instanceof Error ? error.message : "Failed to download file",
+			}));
 		}
 	}
 
@@ -507,109 +556,141 @@ export function createFileWorkspaceController(
 			preserveHistory?: boolean;
 			skipHistoryPush?: boolean;
 			position?: WorkspaceFilePosition | null;
+			activate?: boolean;
+			forceReload?: boolean;
 		} = {},
 	) {
-		if (
+		const existingTab = inlineFileTabs.find((tab) => tab.path === path);
+		const currentTab = getActiveInlineFile();
+		const nextBackStack =
 			optionsArg.preserveHistory &&
 			!optionsArg.skipHistoryPush &&
-			inlineFile?.path &&
-			inlineFile.path !== path
-		) {
-			inlineFileBackStack = [...inlineFileBackStack, inlineFile.path];
-		} else if (!optionsArg.preserveHistory) {
-			inlineFileBackStack = [];
-		}
+			currentTab?.path &&
+			currentTab.path !== path
+				? [...(existingTab?.backStack ?? []), currentTab.path]
+				: optionsArg.preserveHistory
+					? (existingTab?.backStack ?? [])
+					: [];
 		const sourceKey = options.getActiveFsSourceKey();
 		const requestToken = inlineFileRequestToken + 1;
 		inlineFileRequestToken = requestToken;
-		options.onClosePreviewFocusMode();
-		options.onEnsurePreviewPanelFits();
-		options.onCloseInlinePort();
-		options.onCloseInlineCanvas();
-		inlineFile = {
-			response: null,
-			draft: "",
-			path,
-			position: optionsArg.position ?? null,
-			loading: true,
-			saving: false,
-			error: null,
-			tooLarge: false,
-		};
+		const shouldActivate = optionsArg.activate ?? true;
+		if (shouldActivate) {
+			activeInlineFilePath = path;
+			options.onClosePreviewFocusMode();
+			options.onEnsurePreviewPanelFits();
+			options.onActivateFilePreview?.();
+		}
+		if (existingTab) {
+			setInlineFileTab(path, (tab) => ({
+				...tab,
+				position: optionsArg.position ?? tab.position,
+				loading: !tab.response,
+				error: null,
+				tooLarge: false,
+				requestToken,
+				backStack: nextBackStack,
+			}));
+			if (existingTab.response && !optionsArg.forceReload) return;
+		} else {
+			inlineFileTabs = [
+				...inlineFileTabs,
+				makeInlineFileTab(
+					path,
+					optionsArg.position ?? null,
+					requestToken,
+					nextBackStack,
+				),
+			];
+		}
 		try {
 			const file = await readActiveFsFile(path);
+			const targetTab = inlineFileTabs.find((tab) => tab.path === path);
 			if (
-				requestToken !== inlineFileRequestToken ||
+				!targetTab ||
+				targetTab.requestToken !== requestToken ||
 				sourceKey !== options.getActiveFsSourceKey()
 			)
 				return;
 			if (!("content" in file)) {
-				inlineFile = {
+				setInlineFileTab(path, (tab) => ({
+					...tab,
 					response: null,
 					draft: "",
-					path,
-					position: optionsArg.position ?? null,
 					loading: false,
-					saving: false,
 					error: "File is being prepared. Please retry shortly.",
 					tooLarge: false,
-				};
+				}));
 				return;
 			}
-			inlineFileEdit = !hasRenderedFilePreview(file);
-			inlineFile = {
+			setInlineFileTab(path, (tab) => ({
+				...tab,
 				response: file,
 				draft: file.kind === "text" ? file.content : "",
-				path,
-				position: optionsArg.position ?? null,
 				loading: false,
-				saving: false,
 				error: null,
 				tooLarge: false,
-			};
+				edit: !hasRenderedFilePreview(file),
+			}));
 		} catch (error) {
+			const targetTab = inlineFileTabs.find((tab) => tab.path === path);
 			if (
-				requestToken !== inlineFileRequestToken ||
+				!targetTab ||
+				targetTab.requestToken !== requestToken ||
 				sourceKey !== options.getActiveFsSourceKey()
 			)
 				return;
 			if (error instanceof HttpError && error.status === 413) {
-				inlineFile = {
+				setInlineFileTab(path, (tab) => ({
+					...tab,
 					response: null,
 					draft: "",
-					path,
-					position: optionsArg.position ?? null,
 					loading: false,
-					saving: false,
 					error: null,
 					tooLarge: true,
-				};
+				}));
 			} else {
-				inlineFile = {
+				setInlineFileTab(path, (tab) => ({
+					...tab,
 					response: null,
 					draft: "",
-					path,
-					position: optionsArg.position ?? null,
 					loading: false,
-					saving: false,
 					error: error instanceof Error ? error.message : "Failed to open file",
 					tooLarge: false,
-				};
+				}));
 			}
 		}
 	}
 
-	function closeInlineFile() {
+	function closeInlineFile(path = activeInlineFilePath, skipConfirm = false) {
+		if (!path) return;
+		const tab = inlineFileTabs.find((item) => item.path === path);
+		if (
+			tab?.response?.kind === "text" &&
+			tab.draft !== tab.response.content &&
+			!skipConfirm &&
+			!confirm(`Close ${path} with unsaved changes?`)
+		)
+			return;
 		inlineFileRequestToken += 1;
-		inlineFile = null;
-		inlineFileBackStack = [];
-		options.onClosePreviewFocusMode();
+		const closingActive = activeInlineFilePath === path;
+		const index = inlineFileTabs.findIndex((item) => item.path === path);
+		const nextTabs = inlineFileTabs.filter((item) => item.path !== path);
+		inlineFileTabs = nextTabs;
+		if (closingActive)
+			activeInlineFilePath =
+				nextTabs[Math.max(0, index - 1)]?.path ?? nextTabs[0]?.path ?? null;
+		if (nextTabs.length === 0) options.onClosePreviewFocusMode();
 	}
 
 	async function goBackInlineFile() {
-		const previousPath = inlineFileBackStack.at(-1);
-		if (!previousPath) return;
-		inlineFileBackStack = inlineFileBackStack.slice(0, -1);
+		const tab = getActiveInlineFile();
+		const previousPath = tab?.backStack.at(-1);
+		if (!tab || !previousPath) return;
+		setInlineFileTab(tab.path, (item) => ({
+			...item,
+			backStack: item.backStack.slice(0, -1),
+		}));
 		await openInlineFile(previousPath, {
 			preserveHistory: true,
 			skipHistoryPush: true,
@@ -618,6 +699,7 @@ export function createFileWorkspaceController(
 	}
 
 	async function saveInlineFile() {
+		const inlineFile = getActiveInlineFile();
 		if (
 			options.getActiveFsReadonly() ||
 			!options.getCanEditFiles() ||
@@ -627,23 +709,28 @@ export function createFileWorkspaceController(
 		const savingPath = inlineFile.path;
 		const nextContent = inlineFile.draft;
 		markFileSavePending(savingPath);
-		inlineFile.saving = true;
-		inlineFile.error = null;
+		setInlineFileTab(savingPath, (tab) => ({
+			...tab,
+			saving: true,
+			error: null,
+		}));
 		try {
 			await sdk.space(options.getSpaceId()).files.write({
 				path: savingPath,
 				content: nextContent,
 				encoding: "utf-8",
 			});
-			inlineFile = {
-				...inlineFile,
-				response: {
-					...inlineFile.response,
-					content: nextContent,
-					size: new Blob([nextContent]).size,
-				} as SpaceFsFileResponse,
+			setInlineFileTab(savingPath, (tab) => ({
+				...tab,
+				response: tab.response
+					? ({
+							...tab.response,
+							content: nextContent,
+							size: new Blob([nextContent]).size,
+						} as SpaceFsFileResponse)
+					: tab.response,
 				error: null,
-			};
+			}));
 			await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
 				entries.map((entry) =>
 					entry.path === savingPath
@@ -656,10 +743,12 @@ export function createFileWorkspaceController(
 				),
 			);
 		} catch (error) {
-			inlineFile.error =
-				error instanceof Error ? error.message : "Failed to save file";
+			setInlineFileTab(savingPath, (tab) => ({
+				...tab,
+				error: error instanceof Error ? error.message : "Failed to save file",
+			}));
 		} finally {
-			if (inlineFile) inlineFile.saving = false;
+			setInlineFileTab(savingPath, (tab) => ({ ...tab, saving: false }));
 			clearFileSavePendingSoon(savingPath);
 		}
 	}
@@ -675,12 +764,17 @@ export function createFileWorkspaceController(
 	}
 
 	async function copyInlineFileContent() {
+		const inlineFile = getActiveInlineFile();
 		if (inlineFile?.response?.kind !== "text") return;
 		await navigator.clipboard.writeText(inlineFile.draft);
-		inlineFileCopied = true;
+		setInlineFileTab(inlineFile.path, (tab) => ({ ...tab, copied: true }));
 		if (inlineFileCopiedTimer) clearTimeout(inlineFileCopiedTimer);
+		const copiedPath = inlineFile.path;
 		inlineFileCopiedTimer = setTimeout(() => {
-			inlineFileCopied = false;
+			setInlineFileTab(copiedPath, (tab) => ({
+				...tab,
+				copied: false,
+			}));
 		}, 1500);
 	}
 
@@ -808,7 +902,8 @@ export function createFileWorkspaceController(
 			if (node.type === "dir")
 				await clearCachedSpaceFsSubtree(options.getSpaceId(), node.path);
 			if (openFile?.path === node.path) closeFile();
-			if (inlineFile?.path === node.path) await openInlineFile(toPath);
+			if (inlineFileTabs.some((tab) => tab.path === node.path))
+				renamePath(node.path, toPath);
 			options.onRenameInlineCanvas?.(node.path, toPath);
 		} catch (error) {
 			fileTreeError =
@@ -839,7 +934,8 @@ export function createFileWorkspaceController(
 			if (node.type === "dir")
 				await clearCachedSpaceFsSubtree(options.getSpaceId(), node.path);
 			if (openFile?.path === node.path) closeFile();
-			if (inlineFile?.path === node.path) closeInlineFile();
+			if (inlineFileTabs.some((tab) => tab.path === node.path))
+				closeInlineFile(node.path);
 		} catch (error) {
 			fileTreeError =
 				error instanceof Error ? error.message : "Failed to delete";
@@ -883,8 +979,8 @@ export function createFileWorkspaceController(
 		const response =
 			openFile?.path === path
 				? openFile
-				: inlineFile?.response?.path === path
-					? inlineFile.response
+				: getActiveInlineFile()?.response?.path === path
+					? getActiveInlineFile()?.response
 					: null;
 		return {
 			...buildFsEntry(path, "file"),
@@ -902,14 +998,35 @@ export function createFileWorkspaceController(
 		if (openFileCopiedTimer) clearTimeout(openFileCopiedTimer);
 	}
 
+	function isInlineFileDirty(path: string) {
+		const tab = inlineFileTabs.find((item) => item.path === path);
+		return Boolean(
+			tab?.response?.kind === "text" && tab.draft !== tab.response.content,
+		);
+	}
+
 	function dispose() {
 		closeReadyCopies();
 	}
 
 	function renamePath(fromPath: string, toPath: string) {
 		if (openFile?.path === fromPath) openFile = { ...openFile, path: toPath };
-		if (inlineFile?.path === fromPath)
-			inlineFile = { ...inlineFile, path: toPath };
+		inlineFileTabs = inlineFileTabs.map((tab) =>
+			tab.path === fromPath
+				? {
+						...tab,
+						path: toPath,
+						response: tab.response
+							? {
+									...tab.response,
+									path: toPath,
+									name: toPath.split("/").pop() ?? toPath,
+								}
+							: tab.response,
+					}
+				: tab,
+		);
+		if (activeInlineFilePath === fromPath) activeInlineFilePath = toPath;
 	}
 
 	return {
@@ -1028,60 +1145,67 @@ export function createFileWorkspaceController(
 			return openFileCopied;
 		},
 		get inlineFile() {
-			return inlineFile;
+			return getActiveInlineFile();
+		},
+		get inlineFileTabs() {
+			return inlineFileTabs;
+		},
+		get activeInlineFilePath() {
+			return activeInlineFilePath;
 		},
 		get inlineFileCanGoBack() {
-			return inlineFileBackStack.length > 0;
+			return Boolean(getActiveInlineFile()?.backStack.length);
 		},
 		get inlineFileDirty() {
+			const tab = getActiveInlineFile();
 			return Boolean(
-				inlineFile &&
-					inlineFile.response?.kind === "text" &&
-					inlineFile.draft !== inlineFile.response.content,
+				tab?.response?.kind === "text" && tab.draft !== tab.response.content,
 			);
 		},
 		get inlineFileIsMarkdown() {
+			const response = getActiveInlineFile()?.response;
 			return Boolean(
-				inlineFile?.response?.kind === "text" &&
-					isMarkdownPath(inlineFile.response.path),
+				response?.kind === "text" && isMarkdownPath(response.path),
 			);
 		},
 		get inlineFileIsHtml() {
-			return Boolean(
-				inlineFile?.response?.kind === "text" &&
-					isHtmlPath(inlineFile.response.path),
-			);
+			const response = getActiveInlineFile()?.response;
+			return Boolean(response?.kind === "text" && isHtmlPath(response.path));
 		},
 		get inlineFileHasRenderedPreview() {
+			const response = getActiveInlineFile()?.response;
 			return Boolean(
-				inlineFile &&
-					inlineFile.response?.kind === "text" &&
-					hasRenderedFilePreview(inlineFile.response),
+				response?.kind === "text" && hasRenderedFilePreview(response),
 			);
 		},
 		get inlineFileIsText() {
-			return Boolean(inlineFile?.response?.kind === "text");
+			return Boolean(getActiveInlineFile()?.response?.kind === "text");
 		},
 		get inlineFileExt() {
-			return inlineFile?.response?.kind === "text"
-				? (inlineFile.response.name.split(".").pop()?.toLowerCase() ??
-						"plaintext")
+			const response = getActiveInlineFile()?.response;
+			return response?.kind === "text"
+				? (response.name.split(".").pop()?.toLowerCase() ?? "plaintext")
 				: "plaintext";
 		},
 		get inlineFileIsImage() {
-			return Boolean(inlineFile?.response?.mimeType?.startsWith("image/"));
+			return Boolean(
+				getActiveInlineFile()?.response?.mimeType?.startsWith("image/"),
+			);
 		},
 		get inlineFileIsVideo() {
-			return Boolean(inlineFile?.response?.mimeType?.startsWith("video/"));
+			return Boolean(
+				getActiveInlineFile()?.response?.mimeType?.startsWith("video/"),
+			);
 		},
 		get inlineFileDataUrl() {
-			return inlineFile?.response?.kind === "binary"
-				? inlineFile.response.delivery === "url"
-					? (inlineFile.response.url ?? null)
-					: `data:${inlineFile.response.mimeType ?? "application/octet-stream"};base64,${inlineFile.response.content}`
-				: null;
+			const response = getActiveInlineFile()?.response;
+			if (response?.kind !== "binary") return null;
+			return response.delivery === "url"
+				? (response.url ?? null)
+				: `data:${response.mimeType ?? "application/octet-stream"};base64,${response.content}`;
 		},
 		get inlineFileDownloadUrl() {
+			const inlineFile = getActiveInlineFile();
 			if (!inlineFile) return "";
 			return getActiveFsClient().getDownloadUrl(
 				inlineFile.path,
@@ -1089,40 +1213,61 @@ export function createFileWorkspaceController(
 			);
 		},
 		get inlineFileDownloadName() {
+			const inlineFile = getActiveInlineFile();
 			return inlineFile ? (inlineFile.path.split("/").pop() ?? "download") : "";
 		},
 		get inlineFileEdit() {
-			return inlineFileEdit;
+			return getActiveInlineFile()?.edit ?? true;
 		},
 		set inlineFileEdit(value: boolean) {
-			inlineFileEdit = value;
+			if (activeInlineFilePath)
+				setInlineFileTab(activeInlineFilePath, (tab) => ({
+					...tab,
+					edit: value,
+				}));
 		},
 		get inlineFileCopied() {
-			return inlineFileCopied;
+			return getActiveInlineFile()?.copied ?? false;
 		},
 		get inlineFileZoom() {
-			return inlineFileZoom;
+			return getActiveInlineFile()?.zoom ?? 1;
 		},
 		set inlineFileZoom(value: number) {
-			inlineFileZoom = value;
+			if (activeInlineFilePath)
+				setInlineFileTab(activeInlineFilePath, (tab) => ({
+					...tab,
+					zoom: value,
+				}));
 		},
 		get inlineFilePanX() {
-			return inlineFilePanX;
+			return getActiveInlineFile()?.panX ?? 0;
 		},
 		set inlineFilePanX(value: number) {
-			inlineFilePanX = value;
+			if (activeInlineFilePath)
+				setInlineFileTab(activeInlineFilePath, (tab) => ({
+					...tab,
+					panX: value,
+				}));
 		},
 		get inlineFilePanY() {
-			return inlineFilePanY;
+			return getActiveInlineFile()?.panY ?? 0;
 		},
 		set inlineFilePanY(value: number) {
-			inlineFilePanY = value;
+			if (activeInlineFilePath)
+				setInlineFileTab(activeInlineFilePath, (tab) => ({
+					...tab,
+					panY: value,
+				}));
 		},
 		get inlineFileDragging() {
-			return inlineFileDragging;
+			return getActiveInlineFile()?.dragging ?? false;
 		},
 		set inlineFileDragging(value: boolean) {
-			inlineFileDragging = value;
+			if (activeInlineFilePath)
+				setInlineFileTab(activeInlineFilePath, (tab) => ({
+					...tab,
+					dragging: value,
+				}));
 		},
 		get uploadPaneVisible() {
 			return uploadPaneVisible;
@@ -1161,6 +1306,7 @@ export function createFileWorkspaceController(
 		resetForSpace,
 		markOpenFileExternalChange,
 		markInlineFileExternalChange,
+		isInlineFileDirty,
 		loadFileTree,
 		expandDirectory,
 		refreshFileTree,
@@ -1170,6 +1316,11 @@ export function createFileWorkspaceController(
 		closeFile,
 		openInlineFile,
 		closeInlineFile,
+		activateInlineFile: (path: string) => {
+			activeInlineFilePath = path;
+			options.onActivateFilePreview?.();
+		},
+		closeInlineFileTab: closeInlineFile,
 		goBackInlineFile,
 		saveInlineFile,
 		copyFileContent,

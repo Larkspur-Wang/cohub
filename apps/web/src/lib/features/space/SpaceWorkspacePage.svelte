@@ -508,14 +508,18 @@ const portPreview = createPortPreviewController({
 	onClosePanel: () => {
 		closePreviewFocusMode();
 	},
-	onBeforeOpenPort: () => {
-		fileWorkspace.closeInlineFile();
-		canvasPreview.closeCanvas();
-	},
+	onBeforeOpenPort: () => {},
 });
 const previewEndpoints = $derived(portPreview.endpoints);
 const inlinePortPreview = $derived(portPreview.preview);
+const inlinePortTabs = $derived(portPreview.previews);
+const activeInlinePort = $derived(portPreview.activePort);
 const portReadyToast = $derived(portPreview.readyToast);
+let activePreviewKindState = $state<"file" | "canvas" | "port" | null>(null);
+let previewTabAccessedAt = $state<Record<string, number>>({});
+let previewTabCleanupNotice = $state<string | null>(null);
+let previewTabCleanupNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+const PREVIEW_TAB_WEIGHT_LIMIT = 16;
 const spaceStatus = createSpaceStatusController({
 	getSpaceId: () => spaceId,
 	getBootstrapStatus: () => bootstrapStatus,
@@ -587,6 +591,9 @@ const fileWorkspace = createFileWorkspaceController({
 	onOpenInlinePort: (port, url, optionsArg) =>
 		portPreview.openPort(port, url, optionsArg),
 	onCloseInlinePort: () => portPreview.closePort(),
+	onActivateFilePreview: () => {
+		activePreviewKindState = "file";
+	},
 	onClosePreviewFocusMode: closePreviewFocusMode,
 	onEnsurePreviewPanelFits: ensurePreviewPanelFits,
 });
@@ -602,10 +609,7 @@ const canvasPreview = createCanvasPreviewController({
 	onClosePanel: () => {
 		closePreviewFocusMode();
 	},
-	onBeforeOpenCanvas: () => {
-		fileWorkspace.closeInlineFile();
-		portPreview.closePort();
-	},
+	onBeforeOpenCanvas: () => {},
 	onMarkSavePending: fileWorkspace.markFileSavePending,
 	onClearSavePendingSoon: fileWorkspace.clearFileSavePendingSoon,
 });
@@ -618,8 +622,12 @@ const openFileSaving = $derived(fileWorkspace.openFileSaving);
 const openFileError = $derived(fileWorkspace.openFileError);
 const openFileTooLarge = $derived(fileWorkspace.openFileTooLarge);
 const inlineFile = $derived(fileWorkspace.inlineFile);
+const inlineFileTabs = $derived(fileWorkspace.inlineFileTabs);
+const activeInlineFilePath = $derived(fileWorkspace.activeInlineFilePath);
 const inlineFileCanGoBack = $derived(fileWorkspace.inlineFileCanGoBack);
 const inlineCanvas = $derived(canvasPreview.canvas);
+const inlineCanvasTabs = $derived(canvasPreview.canvases);
+const activeInlineCanvasPath = $derived(canvasPreview.activeCanvasPath);
 const selectedFilePath = $derived(
 	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
 );
@@ -697,15 +705,78 @@ const inlinePortEndpoint = $derived.by(() => {
 	if (!inlinePortPreview) return null;
 	return previewEndpoints[inlinePortPreview.port] ?? null;
 });
-const activePreviewKind = $derived(
-	inlinePortPreview
-		? "port"
-		: inlineCanvas
-			? "canvas"
-			: inlineFile
-				? "file"
-				: null,
-);
+function previewTabKey(kind: "file" | "canvas" | "port", key: string) {
+	return `${kind}:${key}`;
+}
+
+function touchPreviewTab(kind: "file" | "canvas" | "port", key: string) {
+	previewTabAccessedAt = {
+		...previewTabAccessedAt,
+		[previewTabKey(kind, key)]: Date.now(),
+	};
+}
+
+function showPreviewTabCleanupNotice() {
+	previewTabCleanupNotice = "Closed inactive previews to keep things fast.";
+	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
+	previewTabCleanupNoticeTimer = setTimeout(() => {
+		previewTabCleanupNotice = null;
+		previewTabCleanupNoticeTimer = null;
+	}, 3000);
+}
+
+function enforcePreviewTabBudget() {
+	const candidates = [
+		...inlineFileTabs.map((tab) => ({
+			kind: "file" as const,
+			key: tab.path,
+			weight: tab.response?.kind === "binary" ? 2 : 1,
+			protected:
+				tab.response?.kind === "text" && tab.draft !== tab.response.content,
+		})),
+		...inlineCanvasTabs.map((tab) => ({
+			kind: "canvas" as const,
+			key: tab.path,
+			weight: 2,
+			protected: tab.saving,
+		})),
+		...inlinePortTabs.map((tab) => ({
+			kind: "port" as const,
+			key: tab.port,
+			weight: 3,
+			protected: false,
+		})),
+	];
+	let totalWeight = candidates.reduce((sum, tab) => sum + tab.weight, 0);
+	if (totalWeight <= PREVIEW_TAB_WEIGHT_LIMIT) return;
+	const removable = candidates
+		.filter((tab) => !tab.protected)
+		.sort(
+			(a, b) =>
+				(previewTabAccessedAt[previewTabKey(a.kind, a.key)] ?? 0) -
+				(previewTabAccessedAt[previewTabKey(b.kind, b.key)] ?? 0),
+		);
+	let closed = 0;
+	for (const tab of removable) {
+		if (totalWeight <= PREVIEW_TAB_WEIGHT_LIMIT) break;
+		if (tab.kind === "file") fileWorkspace.closeInlineFileTab(tab.key, true);
+		else if (tab.kind === "canvas") canvasPreview.closeCanvas(tab.key);
+		else portPreview.closePort(tab.key);
+		totalWeight -= tab.weight;
+		closed += 1;
+	}
+	if (closed > 0) showPreviewTabCleanupNotice();
+}
+
+const activePreviewKind = $derived.by(() => {
+	if (activePreviewKindState === "port" && inlinePortPreview) return "port";
+	if (activePreviewKindState === "canvas" && inlineCanvas) return "canvas";
+	if (activePreviewKindState === "file" && inlineFile) return "file";
+	if (inlineFile) return "file";
+	if (inlineCanvas) return "canvas";
+	if (inlinePortPreview) return "port";
+	return null;
+});
 const openFileDraft = $derived(fileWorkspace.openFileDraft);
 const openFileCopied = $derived(fileWorkspace.openFileCopied);
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
@@ -2931,8 +3002,11 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 		if (routeView === "file" && routeFilePath && !fileDirty) {
 			await openFileFromUrl(routeFilePath).catch(() => undefined);
 		}
-		if (inlineFile?.path && !inlineFileDirty) {
-			await openInlineFile(inlineFile.path).catch(() => undefined);
+		for (const tab of inlineFileTabs) {
+			if (!fileWorkspace.isInlineFileDirty(tab.path))
+				await fileWorkspace
+					.openInlineFile(tab.path, { activate: false, forceReload: true })
+					.catch(() => undefined);
 		}
 		return;
 	}
@@ -2955,17 +3029,18 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 				await openFileFromUrl(change.path).catch(() => undefined);
 			else if (fileDirty) fileWorkspace.markOpenFileExternalChange();
 		}
-		if (
-			inlineFile?.path &&
-			(change.path === inlineFile.path || change.oldPath === inlineFile.path)
-		) {
+		for (const tab of inlineFileTabs) {
+			if (change.path !== tab.path && change.oldPath !== tab.path) continue;
 			if (isOwnPendingChange) {
 				// See open-file branch above: this is our own save echo, not an
 				// external modification.
-			} else if (change.kind === "delete") closeInlineFile();
-			else if (!inlineFileDirty && change.path)
-				await openInlineFile(change.path).catch(() => undefined);
-			else if (inlineFileDirty) fileWorkspace.markInlineFileExternalChange();
+			} else if (change.kind === "delete")
+				fileWorkspace.closeInlineFileTab(tab.path);
+			else if (!fileWorkspace.isInlineFileDirty(tab.path) && change.path)
+				await fileWorkspace
+					.openInlineFile(change.path, { activate: false, forceReload: true })
+					.catch(() => undefined);
+			else fileWorkspace.markInlineFileExternalChange(tab.path);
 		}
 	}
 	if (dirsToRefresh.has("")) await loadFileTree(true);
@@ -4028,6 +4103,7 @@ onDestroy(() => {
 	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 	flushActiveComposerDraft();
 	sessionComposer.dispose();
+	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
 	spaceBootstrap.resetLoaded();
 });
 
@@ -4177,7 +4253,10 @@ function closeFile() {
 	fileWorkspace.closeFile();
 }
 async function openInlineFile(path: string) {
+	activePreviewKindState = "file";
+	touchPreviewTab("file", path);
 	await fileWorkspace.openInlineFile(path);
+	enforcePreviewTabBudget();
 }
 async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 	const path = typeof target === "string" ? target : target.path;
@@ -4199,7 +4278,10 @@ async function openInlineCanvas(path: string) {
 		await openInlineFile(path);
 		return;
 	}
+	activePreviewKindState = "canvas";
+	touchPreviewTab("canvas", path);
 	await canvasPreview.openCanvas(path);
+	enforcePreviewTabBudget();
 }
 function closeInlineCanvas() {
 	canvasPreview.closeCanvas();
@@ -4218,7 +4300,25 @@ function openInlinePort(
 	url: string,
 	options: { autoOpened?: boolean } = {},
 ) {
+	activePreviewKindState = "port";
+	touchPreviewTab("port", port);
 	portPreview.openPort(port, url, options);
+	enforcePreviewTabBudget();
+}
+function activateInlineFileTab(path: string) {
+	activePreviewKindState = "file";
+	touchPreviewTab("file", path);
+	fileWorkspace.activateInlineFile(path);
+}
+function activateInlineCanvasTab(path: string) {
+	activePreviewKindState = "canvas";
+	touchPreviewTab("canvas", path);
+	canvasPreview.activateCanvas(path);
+}
+function activateInlinePortTab(port: string) {
+	activePreviewKindState = "port";
+	touchPreviewTab("port", port);
+	portPreview.activatePort(port);
 }
 function closeInlinePort() {
 	portPreview.closePort();
@@ -5108,9 +5208,16 @@ const spaceFileDomainProps = $derived.by<
 	fileTreeError,
 	selectedFilePath,
 	inlineFile,
+	inlineFileTabs,
+	activeInlineFilePath,
 	inlineFileCanGoBack,
 	inlineCanvas,
+	inlineCanvasTabs,
+	activeInlineCanvasPath,
 	inlinePortPreview,
+	inlinePortTabs,
+	activeInlinePort,
+	activePreviewKind,
 	inlinePortEndpoint,
 	previewEndpoints,
 	inlineFileDownloadUrl,
@@ -5155,6 +5262,12 @@ const spaceFileDomainProps = $derived.by<
 	onOpenLinkedInlineFile: openLinkedInlineFile,
 	onOpenInlineCanvas: openInlineCanvas,
 	onCloseInlineFile: closeInlineFile,
+	onActivateInlineCanvas: activateInlineCanvasTab,
+	onCloseInlineCanvasTab: canvasPreview.closeCanvas,
+	onActivateInlinePort: activateInlinePortTab,
+	onCloseInlinePortTab: portPreview.closePort,
+	onActivateInlineFile: activateInlineFileTab,
+	onCloseInlineFileTab: fileWorkspace.closeInlineFileTab,
 	onBackInlineFile: goBackInlineFile,
 	onDownloadInlineFile: downloadInlineFile,
 	onCopyInlineFileContent: copyInlineFileContent,
@@ -5475,6 +5588,11 @@ const sessionWorkspaceProps = $derived.by<
 		onPreview={previewPortFromToast}
 		onClose={closePortReadyToast}
 	/>
+{/if}
+{#if previewTabCleanupNotice}
+	<div class="preview-tab-cleanup-toast pointer-events-none">
+		{previewTabCleanupNotice}
+	</div>
 {/if}
 <div
 	bind:this={workspaceBodyEl}
@@ -5810,6 +5928,22 @@ const sessionWorkspaceProps = $derived.by<
   :global(body.sidebar-resizing .inline-panel-resize-handle::after) {
     background: var(--border-subtle);
   }
+  .preview-tab-cleanup-toast {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 70;
+    max-width: min(22rem, calc(100vw - 2rem));
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    background: var(--color-bg-elevated);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    padding: 0.625rem 0.75rem;
+  }
+
   :global(.port-ready-toast) {
     position: fixed;
     left: 50%;

@@ -38,16 +38,18 @@ type CanvasPreviewControllerOptions = {
 export function createCanvasPreviewController(
 	options: CanvasPreviewControllerOptions,
 ) {
-	let canvas = $state<InlineCanvasPanelState | null>(null);
-	let requestToken = $state(0);
-	let syncVersion = $state<number | null>(null);
+	let canvases = $state<InlineCanvasPanelState[]>([]);
+	let activeCanvasPath = $state<string | null>(null);
+	let requestTokenByPath = $state<Record<string, number>>({});
+	let syncVersionByDocumentId = $state<Record<string, number | null>>({});
 	let pendingFlush = false;
 	let pendingFlushRequested = false;
 
 	function isCurrent(token: number, path: string, sourceKey: string) {
+		const canvas = canvases.find((item) => item.path === path);
 		return (
-			token === requestToken &&
-			canvas?.path === path &&
+			token === requestTokenByPath[path] &&
+			Boolean(canvas) &&
 			sourceKey === options.getSourceKey()
 		);
 	}
@@ -56,9 +58,10 @@ export function createCanvasPreviewController(
 		const sourceKey = options.getSourceKey();
 		options.onOpenPanel?.();
 		options.onBeforeOpenCanvas?.();
-		const token = requestToken + 1;
-		requestToken = token;
-		canvas = {
+		const token = (requestTokenByPath[path] ?? 0) + 1;
+		requestTokenByPath = { ...requestTokenByPath, [path]: token };
+		activeCanvasPath = path;
+		const loadingCanvas: InlineCanvasPanelState = {
 			path,
 			documentId: null,
 			document: null,
@@ -66,6 +69,9 @@ export function createCanvasPreviewController(
 			saving: false,
 			error: null,
 		};
+		canvases = canvases.some((item) => item.path === path)
+			? canvases.map((item) => (item.path === path ? loadingCanvas : item))
+			: [...canvases, loadingCanvas];
 		try {
 			const file = await options.readFile(path);
 			if (!isCurrent(token, path, sourceKey)) return;
@@ -87,44 +93,73 @@ export function createCanvasPreviewController(
 				.space(options.getSpaceId())
 				.canvas.bootstrap(manifest.documentId);
 			if (!isCurrent(token, path, sourceKey)) return;
-			syncVersion = bootstrap.document.version;
-			canvas = {
-				path,
-				documentId: bootstrap.document.id,
-				document: canvasBootstrapToDocument(bootstrap),
-				loading: false,
-				saving: false,
-				error: null,
+			syncVersionByDocumentId = {
+				...syncVersionByDocumentId,
+				[bootstrap.document.id]: bootstrap.document.version,
 			};
+			canvases = canvases.map((item) =>
+				item.path === path
+					? {
+							path,
+							documentId: bootstrap.document.id,
+							document: canvasBootstrapToDocument(bootstrap),
+							loading: false,
+							saving: false,
+							error: null,
+						}
+					: item,
+			);
 			if (!options.getReadonly?.()) {
 				void flushPendingTransactions(bootstrap.document.id).catch((error) => {
-					if (canvas?.documentId !== bootstrap.document.id) return;
-					canvas = {
-						...canvas,
-						error:
-							error instanceof Error
-								? error.message
-								: "Canvas changes are saved locally and will retry.",
-					};
+					setCanvasError(
+						bootstrap.document.id,
+						error instanceof Error
+							? error.message
+							: "Canvas changes are saved locally and will retry.",
+					);
 				});
 			}
 		} catch (error) {
 			if (!isCurrent(token, path, sourceKey)) return;
-			canvas = {
-				path,
-				documentId: null,
-				document: null,
-				loading: false,
-				saving: false,
-				error: error instanceof Error ? error.message : "Failed to open canvas",
-			};
+			canvases = canvases.map((item) =>
+				item.path === path
+					? {
+							path,
+							documentId: null,
+							document: null,
+							loading: false,
+							saving: false,
+							error:
+								error instanceof Error
+									? error.message
+									: "Failed to open canvas",
+						}
+					: item,
+			);
 		}
 	}
 
-	function closeCanvas() {
-		requestToken += 1;
-		canvas = null;
-		options.onClosePanel?.();
+	function closeCanvas(path = activeCanvasPath) {
+		if (!path) return;
+		requestTokenByPath = {
+			...requestTokenByPath,
+			[path]: (requestTokenByPath[path] ?? 0) + 1,
+		};
+		const index = canvases.findIndex((item) => item.path === path);
+		const nextCanvases = canvases.filter((item) => item.path !== path);
+		canvases = nextCanvases;
+		if (activeCanvasPath === path)
+			activeCanvasPath =
+				nextCanvases[Math.max(0, index - 1)]?.path ??
+				nextCanvases[0]?.path ??
+				null;
+		if (nextCanvases.length === 0) options.onClosePanel?.();
+	}
+
+	function activateCanvas(path: string) {
+		if (!canvases.some((item) => item.path === path)) return;
+		activeCanvasPath = path;
+		options.onOpenPanel?.();
 	}
 
 	async function flushPendingTransactions(documentId: string) {
@@ -152,7 +187,10 @@ export function createCanvasPreviewController(
 							baseVersion: tx.baseVersion,
 							ops: tx.ops,
 						});
-					syncVersion = result.document.version;
+					syncVersionByDocumentId = {
+						...syncVersionByDocumentId,
+						[documentId]: result.document.version,
+					};
 					await deleteCanvasPendingTransaction({
 						spaceId: options.getSpaceId(),
 						documentId,
@@ -169,69 +207,102 @@ export function createCanvasPreviewController(
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) {
+		const canvas = canvases.find((item) => item.path === activeCanvasPath);
 		if (options.getReadonly?.() || !canvas?.documentId || ops.length === 0)
 			return;
 		const documentId = canvas.documentId;
 		const savingPath = canvas.path;
 		const txId = crypto.randomUUID();
 		options.onMarkSavePending?.(savingPath);
-		canvas.saving = true;
-		canvas.error = null;
+		canvases = canvases.map((item) =>
+			item.path === savingPath ? { ...item, saving: true, error: null } : item,
+		);
 		await writeCanvasPendingTransaction({
 			spaceId: options.getSpaceId(),
 			documentId,
 			txId,
-			baseVersion: syncVersion,
+			baseVersion: syncVersionByDocumentId[documentId] ?? null,
 			ops,
 		});
-		canvas = { ...canvas, document };
+		canvases = canvases.map((item) =>
+			item.path === savingPath ? { ...item, document } : item,
+		);
 		try {
 			await flushPendingTransactions(documentId);
-			if (canvas) canvas = { ...canvas, saving: false, error: null };
+			canvases = canvases.map((item) =>
+				item.path === savingPath
+					? { ...item, saving: false, error: null }
+					: item,
+			);
 		} catch (error) {
-			if (canvas) {
-				canvas = {
-					...canvas,
-					saving: false,
-					error:
-						error instanceof Error
-							? error.message
-							: "Canvas changes are saved locally and will retry.",
-				};
-			}
+			canvases = canvases.map((item) =>
+				item.path === savingPath
+					? {
+							...item,
+							saving: false,
+							error:
+								error instanceof Error
+									? error.message
+									: "Canvas changes are saved locally and will retry.",
+						}
+					: item,
+			);
 		} finally {
 			options.onClearSavePendingSoon?.(savingPath);
 		}
 	}
 
 	function renamePath(fromPath: string, toPath: string) {
-		if (canvas?.path === fromPath) canvas = { ...canvas, path: toPath };
+		canvases = canvases.map((canvas) =>
+			canvas.path === fromPath ? { ...canvas, path: toPath } : canvas,
+		);
+		if (activeCanvasPath === fromPath) activeCanvasPath = toPath;
+	}
+
+	function setCanvasError(documentId: string, error: string) {
+		canvases = canvases.map((canvas) =>
+			canvas.documentId === documentId ? { ...canvas, error } : canvas,
+		);
 	}
 
 	function setError(documentId: string, error: string) {
-		if (canvas?.documentId !== documentId) return;
-		canvas = { ...canvas, error };
+		setCanvasError(documentId, error);
 	}
 
 	function applyBootstrap(
 		documentId: string,
 		bootstrap: Parameters<typeof canvasBootstrapToDocument>[0],
 	) {
-		if (canvas?.documentId !== documentId || canvas.saving) return;
-		syncVersion = bootstrap.document.version;
-		canvas = {
-			...canvas,
-			document: canvasBootstrapToDocument(bootstrap),
-			error: null,
+		const canvas = canvases.find((item) => item.documentId === documentId);
+		if (!canvas || canvas.saving) return;
+		syncVersionByDocumentId = {
+			...syncVersionByDocumentId,
+			[documentId]: bootstrap.document.version,
 		};
+		canvases = canvases.map((item) =>
+			item.documentId === documentId
+				? {
+						...item,
+						document: canvasBootstrapToDocument(bootstrap),
+						error: null,
+					}
+				: item,
+		);
 	}
 
 	return {
 		get canvas() {
-			return canvas;
+			return canvases.find((item) => item.path === activeCanvasPath) ?? null;
+		},
+		get canvases() {
+			return canvases;
+		},
+		get activeCanvasPath() {
+			return activeCanvasPath;
 		},
 		openCanvas,
 		closeCanvas,
+		activateCanvas,
 		commitCanvas,
 		flushPendingTransactions,
 		renamePath,

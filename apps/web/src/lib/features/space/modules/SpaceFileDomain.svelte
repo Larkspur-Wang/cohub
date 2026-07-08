@@ -54,9 +54,16 @@ export type SpaceFileDomainProps = {
 	fileTreeError: string | null;
 	selectedFilePath: string;
 	inlineFile: FileWorkspaceInlineFile | null;
+	inlineFileTabs: FileWorkspaceInlineFile[];
+	activeInlineFilePath: string | null;
 	inlineFileCanGoBack: boolean;
 	inlineCanvas: InlineCanvasPanelState | null;
+	inlineCanvasTabs: InlineCanvasPanelState[];
+	activeInlineCanvasPath: string | null;
 	inlinePortPreview: { port: string; url: string } | null;
+	inlinePortTabs: { port: string; url: string }[];
+	activeInlinePort: string | null;
+	activePreviewKind: "file" | "canvas" | "port" | null;
 	inlinePortEndpoint: SpacePublicEndpoint | null;
 	previewEndpoints: SpacePublicEndpoints;
 	inlineFileDownloadUrl: string;
@@ -106,6 +113,12 @@ export type SpaceFileDomainProps = {
 	) => void | Promise<void>;
 	onOpenInlineCanvas: (path: string) => void | Promise<void>;
 	onCloseInlineFile: () => void;
+	onActivateInlineFile: (path: string) => void;
+	onCloseInlineFileTab: (path: string) => void;
+	onActivateInlineCanvas: (path: string) => void;
+	onCloseInlineCanvasTab: (path: string) => void;
+	onActivateInlinePort: (port: string) => void;
+	onCloseInlinePortTab: (port: string) => void;
 	onBackInlineFile: () => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
@@ -151,9 +164,16 @@ let {
 	fileTreeError,
 	selectedFilePath,
 	inlineFile,
+	inlineFileTabs,
+	activeInlineFilePath,
 	inlineFileCanGoBack,
 	inlineCanvas,
+	inlineCanvasTabs,
+	activeInlineCanvasPath,
 	inlinePortPreview,
+	inlinePortTabs,
+	activeInlinePort,
+	activePreviewKind,
 	inlinePortEndpoint,
 	previewEndpoints,
 	inlineFileDownloadUrl,
@@ -198,6 +218,12 @@ let {
 	onOpenLinkedInlineFile,
 	onOpenInlineCanvas,
 	onCloseInlineFile,
+	onActivateInlineFile,
+	onCloseInlineFileTab,
+	onActivateInlineCanvas,
+	onCloseInlineCanvasTab,
+	onActivateInlinePort,
+	onCloseInlinePortTab,
 	onBackInlineFile,
 	onDownloadInlineFile,
 	onCopyInlineFileContent,
@@ -233,11 +259,53 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 		items.map((item) => (item.id === spaceId ? nextSpace : item)),
 	);
 }
+const previewTabs = $derived([
+	...inlineFileTabs.map((tab) => ({
+		kind: "file" as const,
+		key: tab.path,
+		label: tab.response?.name ?? tab.path.split("/").pop() ?? tab.path,
+		title: tab.path,
+		dirty: tab.response?.kind === "text" && tab.draft !== tab.response.content,
+		active: activePreviewKind === "file" && tab.path === activeInlineFilePath,
+	})),
+	...inlineCanvasTabs.map((tab) => ({
+		kind: "canvas" as const,
+		key: tab.path,
+		label: tab.path.split("/").pop() ?? tab.path,
+		title: tab.path,
+		dirty: tab.saving,
+		active:
+			activePreviewKind === "canvas" && tab.path === activeInlineCanvasPath,
+	})),
+	...inlinePortTabs.map((tab) => ({
+		kind: "port" as const,
+		key: tab.port,
+		label: `:${tab.port}`,
+		title: tab.url,
+		dirty: false,
+		active: activePreviewKind === "port" && tab.port === activeInlinePort,
+	})),
+]);
+
+function activatePreviewTab(kind: "file" | "canvas" | "port", key: string) {
+	if (kind === "file") onActivateInlineFile(key);
+	else if (kind === "canvas") onActivateInlineCanvas(key);
+	else onActivateInlinePort(key);
+}
+
+function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
+	if (kind === "file") onCloseInlineFileTab(key);
+	else if (kind === "canvas") onCloseInlineCanvasTab(key);
+	else onCloseInlinePortTab(key);
+}
 </script>
 
-{#if inlineFile}
+{#if activePreviewKind === "file" && inlineFile}
 	<InlineFilePanel
 		{inlineFile}
+		{previewTabs}
+		onActivatePreviewTab={activatePreviewTab}
+		onClosePreviewTab={closePreviewTab}
 		{inlineFileCanGoBack}
 		{inlineFileDownloadUrl}
 		{inlineFileDownloadName}
@@ -284,9 +352,12 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 	/>
 {/if}
 
-{#if inlineCanvas}
+{#if activePreviewKind === "canvas" && inlineCanvas}
 	<CanvasPreviewPanel
 		canvas={inlineCanvas}
+		previewTabs={previewTabs}
+		onActivatePreviewTab={activatePreviewTab}
+		onClosePreviewTab={closePreviewTab}
 		width={previewPanelWidth}
 		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
@@ -299,8 +370,11 @@ function handleSpaceUpdated(nextSpace: SpaceRecord) {
 	/>
 {/if}
 
-{#if inlinePortPreview}
+{#if activePreviewKind === "port" && inlinePortPreview}
 	<PortPreviewPanel
+		previewTabs={previewTabs}
+		onActivatePreviewTab={activatePreviewTab}
+		onClosePreviewTab={closePreviewTab}
 		port={inlinePortPreview.port}
 		url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
 		status={inlinePortEndpoint?.status ?? "unknown"}
