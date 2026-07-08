@@ -12,7 +12,6 @@ import { onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
-import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 
@@ -101,7 +100,11 @@ async function handleDelete(channel: Channel) {
 
       <!-- Channel List -->
       {#if isLoading}
-        <CenteredLoading label="Loading channels…" size="compact" />
+        <div class="mt-5 space-y-2 sm:mt-6" aria-hidden="true">
+          <div class="h-14 rounded-md bg-bg-hover-strong"></div>
+          <div class="h-14 rounded-md bg-bg-hover-strong"></div>
+          <div class="h-14 rounded-md bg-bg-hover-strong"></div>
+        </div>
       {:else if loadError}
         <div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if channels.length === 0}

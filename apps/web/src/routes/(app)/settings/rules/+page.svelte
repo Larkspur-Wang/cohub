@@ -14,7 +14,6 @@ import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
-import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -188,7 +187,14 @@ onMount(() => {
       {#if loadError}
         <div class="mt-6 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{loadError}</div>
       {:else if isLoading}
-        <CenteredLoading label="Loading user rules…" size="compact" />
+        <div class="mt-6 space-y-3" aria-hidden="true">
+          <div class="grid gap-3 sm:grid-cols-3">
+            <div class="h-16 rounded-md bg-bg-hover-strong"></div>
+            <div class="h-16 rounded-md bg-bg-hover-strong"></div>
+            <div class="h-16 rounded-md bg-bg-hover-strong"></div>
+          </div>
+          <div class="h-40 rounded-md bg-bg-hover-strong"></div>
+        </div>
       {:else}
         <div class="mt-6 grid gap-3 sm:grid-cols-3">
           <div class="rounded-md border border-border-subtle bg-bg-surface p-3">
