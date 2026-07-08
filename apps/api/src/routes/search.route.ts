@@ -344,10 +344,7 @@ router.get("/", async (c) => {
       WHERE
         ${includeTurns}
         AND t.user_text IS NOT NULL
-        AND (
-          t.user_text ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
-          OR t.user_text % ${q}
-        )
+        AND t.user_text ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'
     ),
     label_matches AS (
       SELECT
