@@ -320,10 +320,10 @@ async function saveSandboxSpec(spec: SandboxSpecId) {
 			}
 		).sandbox;
 		sandboxConfigMessage = sandboxResult?.pendingRestart
-			? "Sandbox spec saved. Restart to apply it."
+			? "Saved. Applies after restart."
 			: sandboxResult?.resized
-				? "Sandbox spec updated instantly."
-				: "Sandbox spec saved.";
+				? "Spec updated."
+				: "Spec saved.";
 	} catch (err) {
 		if (err instanceof HttpError && err.status === 402 && isRecord(err.body)) {
 			const billing = isRecord(err.body.billing) ? err.body.billing : null;
@@ -364,7 +364,7 @@ async function saveSandboxConfig() {
 		space = result.space;
 		cacheSpaceRecordSoon(result.space);
 		applySandboxConfigFromSpace(result.space);
-		sandboxConfigMessage = "Sandbox hibernate policy saved.";
+		sandboxConfigMessage = "Hibernation policy saved.";
 	} catch (err) {
 		sandboxConfigError =
 			err instanceof Error ? err.message : "Failed to save sandbox config";
@@ -676,7 +676,7 @@ function confirmModRestart(): boolean {
 
 function noteModRestart() {
 	modRestartMessage =
-		"Sandbox restart queued. Mods will be mounted when it comes back online.";
+		"Restarting sandbox to apply mod changes.";
 	if (modRestartTimer) clearTimeout(modRestartTimer);
 	modRestartTimer = setTimeout(() => {
 		modRestartMessage = "";
@@ -700,8 +700,8 @@ async function forceRecoverSandbox() {
 	try {
 		const result = await sdk.space(spaceId).sandbox.recreate();
 		sandboxRecoveryMessage = result.verified
-			? "Sandbox recovered and verified."
-			: "Sandbox recovery completed.";
+			? "Sandbox recovered."
+			: "Recovery completed.";
 		await loadSandbox();
 	} catch (err) {
 		sandboxRecoveryError =
@@ -997,8 +997,8 @@ async function createInvite() {
 		});
 		const copied = await copyInviteLink(created.token);
 		inviteCreateNotice = copied
-			? "Invite link created and copied to clipboard."
-			: "Invite link created. Copying failed, please copy it manually.";
+			? "Invite link copied to clipboard."
+			: "Invite link created — copy it from the list below.";
 		if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 		inviteNoticeTimer = setTimeout(() => {
 			inviteCreateNotice = "";
@@ -1287,7 +1287,7 @@ $effect(() => {
 					<section>
 						<div class="border-b border-border-subtle pb-5">
 							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Profile</h1>
-							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">How this space appears to members and visitors.</p>
+							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Public identity of this space.</p>
 						</div>
 
 						<div class="flex items-start gap-4 py-6">
@@ -1363,15 +1363,11 @@ $effect(() => {
 
 						<!-- Description -->
 						<div class="border-t border-border-subtle py-6">
-							<label class="block" for="space-description">
-								<span class="text-[13px] font-medium text-text-primary">Description</span>
-								<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Shown on the public space page.</p>
-							</label>
-							<textarea id="space-description" bind:value={spaceDescriptionDraft} rows="3" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="mt-3 w-full resize-y rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder="Describe what this space is for…"></textarea>
+							<label class="block text-[13px] font-medium text-text-primary" for="space-description">Description</label>
+							<textarea id="space-description" bind:value={spaceDescriptionDraft} rows="3" maxlength="2000" disabled={!canEditSpaceProfile || spaceDescriptionSaving} onkeydown={handleDescriptionKeydown} class="mt-2 w-full resize-y rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-2 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder transition-colors focus:border-brand/40 focus:outline-none disabled:opacity-60" placeholder="What is this space for? Shown on the public page."></textarea>
 							{#if canEditSpaceProfile}
-								<div class="mt-3 flex items-center gap-3">
+								<div class="mt-3">
 									<button type="button" onclick={() => void saveSpaceDescription()} disabled={spaceDescriptionSaving || spaceDescriptionDraft.trim() === (space?.description ?? '').trim()} class="inline-flex h-8 items-center justify-center gap-1.5 rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{#if spaceDescriptionSaving}<Loader2 class="h-3.5 w-3.5 animate-spin" /> Saving…{:else}Save{/if}</button>
-									<span class="text-[11px] text-text-placeholder">⌘/Ctrl + Enter</span>
 								</div>
 							{/if}
 							{#if spaceProfileError}<p class="mt-2 text-[12px] text-error-soft break-words">{spaceProfileError}</p>{/if}
@@ -1383,7 +1379,7 @@ $effect(() => {
 						<div class="flex items-start justify-between gap-3 border-b border-border-subtle pb-5">
 							<div class="min-w-0">
 								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Access</h1>
-								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Who can view and build in this space.</p>
+								<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Who can view and build here.</p>
 							</div>
 							<button type="button" onclick={() => { showInvitePanel = true; inviteCreateError = ""; }} disabled={!canManageSpaceMembers} class="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[5px] border border-brand-border bg-brand-muted px-2.5 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover disabled:opacity-50"><Link class="h-3.5 w-3.5" /> Invite</button>
 						</div>
@@ -1393,14 +1389,14 @@ $effect(() => {
 							<div class="flex items-center justify-between gap-4 py-4">
 								<div class="min-w-0">
 									<div class="text-[13px] text-text-primary">Signed-in users</div>
-									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Default role for anyone with a Cohub account.</p>
+									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Anyone signed in to Cohub.</p>
 								</div>
 								<select value={access?.signed_in_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ signed_in_user: value || null }); }} class="h-8 w-28 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Default role for signed-in users"><option value="">No access</option><option value="guest">Guest</option><option value="builder">Builder</option></select>
 							</div>
 							<div class="flex items-center justify-between gap-4 py-4">
 								<div class="min-w-0">
 									<div class="text-[13px] text-text-primary">Anonymous visitors</div>
-									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Default role for visitors without an account.</p>
+									<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Visitors without an account.</p>
 								</div>
 								<select value={access?.anonymous_user ?? ""} disabled={!canManageSpaceMembers} onchange={(e) => { const value = (e.currentTarget as HTMLSelectElement).value as SpaceRole | ""; void setAccess({ anonymous_user: value || null }); }} class="h-8 w-28 shrink-0 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Default role for anonymous visitors"><option value="">No access</option><option value="guest">Guest</option></select>
 							</div>
@@ -1428,12 +1424,12 @@ $effect(() => {
 											<button type="button" onclick={() => { void removeMember(member.userId); }} disabled={!canManageSpaceMembers || removingMemberUserId === member.userId} title="Remove member" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft disabled:opacity-40">{#if removingMemberUserId === member.userId}<Loader2 class="h-3.5 w-3.5 animate-spin" />{:else}<Trash2 class="h-3.5 w-3.5" />{/if}</button>
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No members yet. Add one by UUID below, or share an invite link.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No members yet.</div>
 									{/each}
 								</div>
 								{#if canManageSpaceMembers}
 									<div class="flex flex-col gap-2 border-t border-border-subtle bg-bg-header-alt px-3 py-2.5 sm:flex-row sm:items-center">
-										<input type="text" bind:value={addingMemberUuid} placeholder="Add member by user UUID" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
+										<input type="text" bind:value={addingMemberUuid} placeholder="User UUID" onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); void addMember(); } }} class="h-8 min-w-0 flex-1 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 font-mono text-[12px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 										<div class="flex items-center gap-2">
 											<select bind:value={addingMemberRole} class="h-8 w-24 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none" aria-label="New member role">
 												{#each memberRoleOptions as option (option.value)}<option value={option.value}>{option.label}</option>{/each}
@@ -1455,7 +1451,7 @@ $effect(() => {
 							{#if inviteCreateNotice}<div class="mt-3 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{inviteCreateNotice}</div>{/if}
 							{#if invitationsError}<div class="mt-3 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{invitationsError}</div>{/if}
 							{#if invitations.length === 0 && !loadingInvitations}
-								<p class="mt-3 text-[12px] text-text-tertiary">No invite links yet. Create one with the Invite button above.</p>
+								<p class="mt-3 text-[12px] text-text-tertiary">No invite links.</p>
 							{:else if invitations.length > 0}
 								<div class="mt-3 divide-y divide-border-subtle rounded-md border border-border-subtle">
 									{#each invitations as invitation (invitation.token)}
@@ -1490,7 +1486,7 @@ $effect(() => {
 						<!-- Env vars -->
 						<div class="py-6">
 							<h2 class="text-[13px] font-medium text-text-primary">Variables <span class="font-normal text-text-tertiary">· {env.length}</span></h2>
-							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Injected as environment variables into every sandbox process.</p>
+							<p class="mt-0.5 text-[12px] leading-5 text-text-tertiary">Available to every sandbox process.</p>
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
 								<div class="divide-y divide-border-subtle">
 									{#each env as item (item.name)}
@@ -1503,7 +1499,7 @@ $effect(() => {
 											{/if}
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No variables yet.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No variables.</div>
 									{/each}
 								</div>
 								{#if canEditSpaceProfile}
@@ -1520,14 +1516,14 @@ $effect(() => {
 						<!-- Mounted spaces -->
 						<div class="border-t border-border-subtle py-6">
 							<h2 class="text-[13px] font-medium text-text-primary">Mounted spaces <span class="font-normal text-text-tertiary">· {mods.length}</span></h2>
-							<p class="mt-0.5 max-w-xl text-[12px] leading-5 text-text-tertiary">Read-only under <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>; prompts and skills become available to the agent. Changes restart the sandbox.</p>
+							<p class="mt-0.5 max-w-xl text-[12px] leading-5 text-text-tertiary">Mounted read-only at <code class="font-mono text-text-secondary">/mods/&lt;slug&gt;</code>. Changes restart the sandbox.</p>
 							{#if shouldShowBaseModRecommendation && recommendedBaseMod && canManageSpaceMods}
 								<div class="mt-3 flex flex-col gap-2 rounded-md border border-brand-border bg-brand-muted px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
 									<div class="min-w-0">
 										<div class="text-[12px] font-medium text-text-primary">{recommendedBaseMod.name} <span class="font-normal text-text-tertiary">— recommended</span></div>
 										<div class="mt-0.5 break-all font-mono text-[10px] text-text-tertiary">/mods/{recommendedBaseMod.mountSlug}</div>
 									</div>
-									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-7 shrink-0 items-center justify-center rounded-[5px] border border-brand-border px-2.5 text-[11px] font-medium text-brand transition-colors hover:bg-brand-muted-hover">Use it</button>
+									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-7 shrink-0 items-center justify-center rounded-[5px] border border-brand-border px-2.5 text-[11px] font-medium text-brand transition-colors hover:bg-brand-muted-hover">Use</button>
 								</div>
 							{/if}
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
@@ -1552,7 +1548,7 @@ $effect(() => {
 											{/if}
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No mounted spaces yet.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No mounted spaces.</div>
 									{/each}
 								</div>
 								{#if canManageSpaceMods}
@@ -1594,7 +1590,7 @@ $effect(() => {
 											<div class="mt-2"><ChannelModelPicker model={binding.config?.model ?? null} disabled={!canManageSpaceChannels} saving={savingChannelConfigIds.has(binding.id)} onSelect={(model) => saveChannelModel(binding, model)} /></div>
 										</div>
 									{:else}
-										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No channels bound yet. Create channels in <a href="/settings/channels" class="text-text-secondary underline underline-offset-2 hover:text-text-primary">user settings</a> first.</div>
+										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No channels bound. <a href="/settings/channels" class="text-text-secondary underline underline-offset-2 hover:text-text-primary">Manage channels</a></div>
 									{/each}
 								</div>
 								{#if canManageSpaceChannels && allChannels.filter((ch) => !channels.some((binding) => binding.channelId === ch.id)).length > 0}
@@ -1640,8 +1636,8 @@ $effect(() => {
 							<div class="py-4">
 								<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 									<div class="min-w-0">
-										<div class="text-[13px] text-text-primary">Hibernate when idle</div>
-										<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Free up compute after a period of inactivity.</p>
+										<div class="text-[13px] text-text-primary">Hibernation</div>
+										<p class="mt-0.5 text-[12px] leading-4 text-text-tertiary">Pause the sandbox when idle to free compute.</p>
 									</div>
 									<div class="flex shrink-0 items-center gap-2">
 										<select bind:value={sandboxAutoDestroyMode} disabled={!canManageSpaceSandbox} class="h-8 rounded-[5px] border border-border-subtle bg-bg-input px-2 text-[12px] text-text-primary focus:border-brand/40 focus:outline-none disabled:opacity-60" aria-label="Hibernate mode">
@@ -1655,7 +1651,7 @@ $effect(() => {
 										<button type="button" onclick={saveSandboxConfig} disabled={!canManageSpaceSandbox || savingSandboxConfig} class="inline-flex h-8 items-center justify-center rounded-[5px] bg-brand px-3 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50">{savingSandboxConfig ? "Saving…" : "Save"}</button>
 									</div>
 								</div>
-								{#if sandboxAutoDestroyMode === "idle"}<p class="mt-1.5 text-[11px] text-text-placeholder sm:text-right">Currently {formatTtl(sandboxIdleTtlSeconds)} · max 30d</p>{/if}
+								{#if sandboxAutoDestroyMode === "idle"}<p class="mt-1.5 text-[11px] text-text-placeholder sm:text-right">{formatTtl(sandboxIdleTtlSeconds)} · max 30d</p>{/if}
 								{#if sandboxConfigError}<p class="mt-1.5 text-[12px] text-error-soft">{sandboxConfigError}</p>{/if}
 								{#if sandboxConfigMessage}<p class="mt-1.5 text-[12px] text-success-soft">{sandboxConfigMessage}</p>{/if}
 							</div>
@@ -1692,7 +1688,7 @@ $effect(() => {
 		<div class="mb-4 flex items-start justify-between gap-3">
 			<div>
 				<h3 class="text-[15px] font-medium text-text-primary">Create invite link</h3>
-				<p class="mt-1 text-[12px] text-text-tertiary">Anyone with the link joins with the selected role.</p>
+				<p class="mt-1 text-[12px] text-text-tertiary">Share the link to grant access.</p>
 			</div>
 			<button type="button" onclick={() => { showInvitePanel = false; }} class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary" aria-label="Close"><X class="h-4 w-4" /></button>
 		</div>
