@@ -72,7 +72,8 @@
   "types": "./src/index.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "docs"
   ],
   "scripts": {
     "build": "tsdown",
