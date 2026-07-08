@@ -2789,12 +2789,12 @@ $effect(() => {
 		{@const canEditLabelItems = canAssignResourceToLabel(label)}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
-				<div class="flex items-center gap-2 py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-6' : 'pl-4'}"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
+				<div class="flex items-center gap-2 py-1 pr-1.5 pl-2 text-[12px] text-text-tertiary"><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
 			{:else}
-				<div class="py-1 pr-1.5 text-[12px] text-text-tertiary {depth > 0 ? 'pl-6' : 'pl-4'}">No items</div>
+				<div class="py-1 pr-1.5 pl-2 text-[12px] text-text-tertiary">No items</div>
 			{/if}
 		{:else if orderedItems.length > 0}
-			<div class="space-y-[1px] {depth > 0 ? 'pl-4' : 'pl-2'}">
+			<div class="space-y-[1px]">
 				{#each orderedItems as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
 					{@const itemDraggable = isDraggableLabelItem(item)}
@@ -2875,7 +2875,7 @@ $effect(() => {
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
 				<button
 					type="button"
-					class="mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary {depth > 0 ? 'ml-6' : 'ml-4'}"
+					class="mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
 					disabled={currentLoadingLabelIds.has(label.id)}
 					onclick={() => void loadLabelItems(label.id, { append: true })}
 				>
@@ -3112,7 +3112,7 @@ $effect(() => {
 		{@render syncSpinner(refreshingSessions, "ml-auto")}
 	</div>
 	{#if currentExpandedLabelIds.has(ALL_CHATS_LABEL_ID)}
-		<div class="mt-1 pl-2">
+		<div class="mt-1">
 			{@render allChatsList(false)}
 		</div>
 	{/if}
