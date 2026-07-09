@@ -9,7 +9,7 @@ import { publishInboundEvent } from "../../bus.js";
 import { getSpaceChannelConfig } from "../../redis.js";
 import { buildQQDeliveryPlan } from "../../session-output-planner.js";
 import { QQApiClient, QQApiError, QQMediaFileType } from "./api.js";
-import { buildQQInboundFileBlocks, buildQQInboundImageBlocks } from "./media.js";
+import { buildQQInboundMediaBlocks, collectQQAttachments } from "./media.js";
 import {
   clearQQStreamState,
   getQQRefIndex,
@@ -64,10 +64,6 @@ const sourceChannel = (kind: QQChatKind, id: string) => {
   if (kind === "group") return `qq:group:${id}`;
   return `qq:guild:${id}`;
 };
-
-const nonImageAttachmentBlocks = (attachments: QQMessageAttachment[] | undefined) => (attachments ?? [])
-  .filter((attachment) => !attachment.content_type?.startsWith("image/"))
-  .map((attachment) => ({ type: "text" as const, text: `[Attachment: ${attachment.filename ?? attachment.content_type ?? "file"}]` }));
 
 export class QQProvider implements GatewayProvider {
   private readonly api: QQApiClient;
@@ -210,9 +206,9 @@ export class QQProvider implements GatewayProvider {
     const openid = message.author?.user_openid || message.author?.union_openid || message.author?.id;
     if (!openid || !message.id || message.author?.bot) return;
     const text = await this.resolveReferencedContent(normalizeContent(message.content), message.message_scene?.ext, message.msg_elements);
+    const attachments = collectQQAttachments({ attachments: message.attachments, msgElements: message.msg_elements });
     const content: ContentBlock[] = text ? [{ type: "text", text }] : [];
-    content.push(...nonImageAttachmentBlocks(message.attachments));
-    if (content.length === 0) content.push({ type: "text", text: "[Message]" });
+    if (content.length === 0 && attachments.length === 0) content.push({ type: "text", text: "[Message]" });
     await this.publishMessage({
       kind: "c2c",
       externalChatId: `c2c:${openid}`,
@@ -222,7 +218,7 @@ export class QQProvider implements GatewayProvider {
       content,
       text,
       seq,
-      attachments: message.attachments,
+      attachments,
       meta: { rawEventType: "C2C_MESSAGE_CREATE", msgIdx: extractRefIdx(message.message_scene?.ext, "msg_idx"), sourceChannel: sourceChannel("c2c", openid) },
     });
   }
@@ -236,9 +232,9 @@ export class QQProvider implements GatewayProvider {
     const mentioned = rawEventType === "GROUP_AT_MESSAGE_CREATE" || (message.mentions ?? []).some((mention) => mention.is_you === true || mention.bot === true);
     if (requireMention && !mentioned) return;
     const text = await this.resolveReferencedContent(normalizeContent(message.content), message.message_scene?.ext, message.msg_elements);
+    const attachments = collectQQAttachments({ attachments: message.attachments, msgElements: message.msg_elements });
     const content: ContentBlock[] = text ? [{ type: "text", text }] : [];
-    content.push(...nonImageAttachmentBlocks(message.attachments));
-    if (content.length === 0) content.push({ type: "text", text: "[Message]" });
+    if (content.length === 0 && attachments.length === 0) content.push({ type: "text", text: "[Message]" });
     await this.publishMessage({
       kind: "group",
       externalChatId: `group:${groupOpenid}`,
@@ -249,7 +245,7 @@ export class QQProvider implements GatewayProvider {
       content,
       text,
       seq,
-      attachments: message.attachments,
+      attachments,
       meta: { rawEventType, groupId: message.group_id ?? null, msgIdx: extractRefIdx(message.message_scene?.ext, "msg_idx"), sourceChannel: sourceChannel("group", groupOpenid) },
     });
   }
@@ -257,9 +253,9 @@ export class QQProvider implements GatewayProvider {
   private async publishGuildMessage(message: QQGuildMessageEvent, seq?: number) {
     if (!message.channel_id || !message.id || message.author?.bot) return;
     const text = await this.resolveReferencedContent(normalizeContent(message.content), message.message_scene?.ext, message.msg_elements);
+    const attachments = collectQQAttachments({ attachments: message.attachments, msgElements: message.msg_elements });
     const content: ContentBlock[] = text ? [{ type: "text", text }] : [];
-    content.push(...nonImageAttachmentBlocks(message.attachments));
-    if (content.length === 0) content.push({ type: "text", text: "[Message]" });
+    if (content.length === 0 && attachments.length === 0) content.push({ type: "text", text: "[Message]" });
     await this.publishMessage({
       kind: "guild",
       externalChatId: `guild:${message.channel_id}`,
@@ -270,7 +266,7 @@ export class QQProvider implements GatewayProvider {
       content,
       text,
       seq,
-      attachments: message.attachments,
+      attachments,
       meta: { rawEventType: "AT_MESSAGE_CREATE", guildId: message.guild_id, msgIdx: extractRefIdx(message.message_scene?.ext, "msg_idx"), sourceChannel: sourceChannel("guild", message.channel_id) },
     });
   }
@@ -330,15 +326,15 @@ export class QQProvider implements GatewayProvider {
       meta: input.meta,
     } satisfies Omit<GatewayInboundEvent, "eventType" | "command">;
     const mediaEvent = { ...base, eventType: command ? "channel_command" : "message_create", ...(command ? { command } : {}) } as GatewayInboundEvent;
-    const imageBlocks = await buildQQInboundImageBlocks({ event: mediaEvent, attachments: input.attachments }).catch((error) => {
-      logger.warn(`[QQ:${this.channelId}] failed to process inbound images`, error);
+    const mediaBlocks = await buildQQInboundMediaBlocks({
+      event: mediaEvent,
+      attachments: input.attachments,
+      channelId: this.channelId,
+    }).catch((error) => {
+      logger.warn(`[QQ:${this.channelId}] failed to process inbound media`, error);
       return [] as ContentBlock[];
     });
-    const fileBlocks = await buildQQInboundFileBlocks({ event: mediaEvent, attachments: input.attachments }).catch((error) => {
-      logger.warn(`[QQ:${this.channelId}] failed to process inbound files`, error);
-      return [] as ContentBlock[];
-    });
-    const content = [...input.content, ...imageBlocks, ...fileBlocks];
+    const content = [...input.content, ...mediaBlocks];
     const event: GatewayInboundEvent = command
       ? { ...base, content, eventType: "channel_command", command }
       : { ...base, content, eventType: "message_create" };

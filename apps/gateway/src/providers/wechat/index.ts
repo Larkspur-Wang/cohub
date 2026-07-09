@@ -30,7 +30,8 @@ import { WECHAT_INBOUND_IMAGE_MAX_COUNT, downloadImageItem, uploadImageContentBl
 import { extractMediaLinks, normalizeMediaUrl } from "../../media-links.js";
 import { uploadWeChatMediaItem } from "./media/upload.js";
 import { renderWeChatText } from "./media/text.js";
-import { buildUploadedFileReferencesBlock, buildUploadedImageReferencesBlock, requestGatewayAttachmentPlan, uploadPlannedFileAttachments, uploadPlannedImageAttachment } from "./media/attachments.js";
+import { ingestInboundMedia } from "../../media/inbound-attachments.js";
+import { imageExtensionFromMimeType } from "../../media/mime.js";
 import { WECHAT_INBOUND_FILE_MAX_COUNT, downloadAttachmentItem } from "./media/file.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -408,49 +409,25 @@ export class WeChatProvider implements GatewayProvider {
     }
 
     if (downloadedImages.length > 0 || downloadedFiles.length > 0) {
-      try {
-        const plan = await requestGatewayAttachmentPlan({
-          event: { ...eventBase, eventType: "message_create", content } satisfies GatewayInboundEvent,
-          images: downloadedImages.map((image) => ({
-            id: image.id,
-            size: image.buffer.length,
-            mimeType: image.mediaType,
-            filename: `${image.id}.${image.mediaType.split("/")[1] ?? "image"}`,
-          })),
-          files: downloadedFiles.map((file) => ({
-            id: file.id,
-            name: file.filename,
-            relativePath: file.relativePath,
-            size: file.buffer.length,
-            mimeType: file.mediaType,
-          })),
-        });
-        const plansById = new Map(plan.images.map((image) => [image.id, image]));
-        const uploadedImageUrls: string[] = [];
-        for (const image of downloadedImages) {
-          const imagePlan = plansById.get(image.id);
-          if (!imagePlan) {
-            content.push({ type: "text", text: "[Image upload unavailable]" });
-            continue;
-          }
-          content.push(await uploadPlannedImageAttachment({ buffer: image.buffer, mediaType: image.mediaType, plan: imagePlan }));
-          uploadedImageUrls.push(imagePlan.publicUrl);
-        }
-        const imageReferences = buildUploadedImageReferencesBlock(uploadedImageUrls);
-        if (imageReferences) content.push(imageReferences);
-        const uploadedFilePaths = await uploadPlannedFileAttachments({
-          spaceId: plan.spaceId,
-          uploadId: plan.files.uploadId,
-          files: downloadedFiles.map((file) => ({ id: file.id, buffer: file.buffer, mediaType: file.mediaType })),
-          plans: plan.files.entries,
-        });
-        const fileReferences = buildUploadedFileReferencesBlock(uploadedFilePaths);
-        if (fileReferences) content.push(fileReferences);
-      } catch (error) {
-        logger.warn(`[WeChat:${this.channelId}] attachment upload failed`, error);
-        for (const _image of downloadedImages) content.push({ type: "text", text: "[Image upload failed]" });
-        for (const _file of downloadedFiles) content.push({ type: "text", text: "[File upload failed]" });
-      }
+      const ingested = await ingestInboundMedia({
+        event: { ...eventBase, eventType: "message_create", content } satisfies GatewayInboundEvent,
+        source: "wechat",
+        images: downloadedImages.map((image) => ({
+          id: image.id,
+          buffer: image.buffer,
+          mediaType: image.mediaType,
+          filename: `${image.id}.${imageExtensionFromMimeType(image.mediaType)}`,
+        })),
+        files: downloadedFiles.map((file) => ({
+          id: file.id,
+          buffer: file.buffer,
+          mediaType: file.mediaType,
+          name: file.filename,
+          relativePath: file.relativePath,
+        })),
+        label: `wechat:${this.channelId}`,
+      });
+      content.push(...ingested.blocks);
     }
 
     return content;

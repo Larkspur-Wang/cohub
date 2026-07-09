@@ -14,13 +14,19 @@ import {
   resolveReceiveIdType,
   buildFeishuBindingKey,
 } from "./utils.js";
-import { parseFeishuMessageContent, type FeishuInboundResource, type FeishuParsedMessageBlock } from "./parse.js";
+import { parseFeishuMessageContent, type FeishuParsedMessageBlock } from "./parse.js";
 import {
   FEISHU_INBOUND_IMAGE_MAX_BYTES,
   FEISHU_INBOUND_IMAGE_MAX_COUNT,
   readFeishuResourceBuffer,
 } from "./media.js";
-import { safeFetch } from "../wechat/media/url.js";
+import { safeFetch } from "../../media/safe-fetch.js";
+import {
+  ensureImageMediaType,
+  ingestInboundMedia,
+  type InboundDownloadedImage,
+} from "../../media/inbound-attachments.js";
+import { imageExtensionFromMimeType, sanitizeFilename } from "../../media/mime.js";
 
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -273,11 +279,8 @@ export class FeishuProvider implements GatewayProvider {
     await this.addTypingReaction(msg.message_id);
 
     const parsedContent = parseFeishuMessageContent(msg);
-    const contentBlocks = parsedContent.resources.length > 0
-      ? await this.resolveParsedBlocks(parsedContent.blocks, msg.message_id, FEISHU_INBOUND_IMAGE_MAX_COUNT)
-      : parsedContent.blocks.map((block) => ({ type: "text", text: block.type === "text" ? block.text : block.fallbackText }) satisfies ContentBlock);
-    const enrichedContentBlocks = await this.expandFeishuDocumentLinks(contentBlocks);
-    const channelCommand = resolveChannelCommand(getTextFromContentBlocks(contentBlocks), {
+    const textOnlyBlocks = parsedContent.blocks.map((block) => ({ type: "text", text: block.type === "text" ? block.text : block.fallbackText }) satisfies ContentBlock);
+    const channelCommand = resolveChannelCommand(getTextFromContentBlocks(textOnlyBlocks), {
       leadingPrefixes: msg.mentions?.flatMap((mention) => [
         mention.key,
         mention.name ? `@${mention.name}` : "",
@@ -329,7 +332,7 @@ export class FeishuProvider implements GatewayProvider {
         id: senderId,
         name: "", // Enriched later if needed
       },
-      content: enrichedContentBlocks,
+      content: [] as ContentBlock[],
       meta: {
         chatType: msg.chat_type,
         isDm,
@@ -338,9 +341,17 @@ export class FeishuProvider implements GatewayProvider {
         sourceChannel,
       },
     };
-    const inboundEvent: GatewayInboundEvent = channelCommand
-      ? { ...inboundEventBase, eventType: "channel_command", command: channelCommand }
-      : { ...inboundEventBase, eventType: "message_create" };
+    const draftEvent = channelCommand
+      ? { ...inboundEventBase, eventType: "channel_command" as const, command: channelCommand }
+      : { ...inboundEventBase, eventType: "message_create" as const };
+    const contentBlocks = parsedContent.resources.length > 0
+      ? await this.resolveParsedBlocks(parsedContent.blocks, msg.message_id, FEISHU_INBOUND_IMAGE_MAX_COUNT, draftEvent)
+      : textOnlyBlocks;
+    const enrichedContentBlocks = await this.expandFeishuDocumentLinks(contentBlocks);
+    const inboundEvent: GatewayInboundEvent = {
+      ...draftEvent,
+      content: enrichedContentBlocks,
+    };
 
     if (channelCommand) {
       logger.info(`[Feishu:${this.channelId}] → Inbound command: ${channelCommand.name} message=${msg.message_id}`);
@@ -489,9 +500,7 @@ export class FeishuProvider implements GatewayProvider {
     }
   }
 
-  // Download image from Feishu by image_key and return as base64 ContentBlock.
-  // Returns null on failure — caller decides whether to use a text fallback.
-  private async downloadImageBlock(imageKey: string, messageId: string): Promise<ContentBlock | null> {
+  private async downloadInboundImage(imageKey: string, messageId: string): Promise<{ buffer: Buffer; mediaType: string } | null> {
     try {
       const res = await this.client.im.messageResource.get({
         path: { message_id: messageId, file_key: imageKey },
@@ -502,16 +511,9 @@ export class FeishuProvider implements GatewayProvider {
         logger.warn(`[Feishu:${this.channelId}] Image download returned empty: ${imageKey}`);
         return null;
       }
-      const mimeType = detectMimeType(buffer) ?? "image/png";
-      const base64Data = buffer.toString("base64");
       return {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: mimeType,
-          data: base64Data,
-        },
-        _meta: { imageKey, source: "feishu" },
+        buffer,
+        mediaType: ensureImageMediaType(buffer, detectMimeType(buffer) ?? "image/png"),
       };
     } catch (err) {
       logger.warn(`[Feishu:${this.channelId}] Failed to download image ${imageKey}:`, err instanceof Error ? err.message : String(err));
@@ -519,13 +521,15 @@ export class FeishuProvider implements GatewayProvider {
     }
   }
 
-  private async resolveInboundResource(resource: FeishuInboundResource, messageId: string): Promise<ContentBlock | null> {
-    if (resource.type === "image") return this.downloadImageBlock(resource.fileKey, messageId);
-    return null;
-  }
-
-  private async resolveParsedBlocks(blocks: FeishuParsedMessageBlock[], messageId: string, maxResources: number): Promise<ContentBlock[]> {
-    const resolved: ContentBlock[] = [];
+  private async resolveParsedBlocks(
+    blocks: FeishuParsedMessageBlock[],
+    messageId: string,
+    maxResources: number,
+    eventBase: Omit<GatewayInboundEvent, "eventType" | "command" | "content"> & { eventType?: GatewayInboundEvent["eventType"]; command?: GatewayInboundEvent["command"] },
+  ): Promise<ContentBlock[]> {
+    type PendingImage = { slot: number; image: InboundDownloadedImage };
+    const resolved: Array<ContentBlock | null> = [];
+    const pendingImages: PendingImage[] = [];
     let resourceCount = 0;
 
     for (const block of blocks) {
@@ -540,10 +544,60 @@ export class FeishuProvider implements GatewayProvider {
         continue;
       }
 
-      const resourceBlock = await this.resolveInboundResource(block.resource, messageId);
-      resolved.push(resourceBlock ?? { type: "text", text: block.fallbackText });
+      if (block.resource.type !== "image") {
+        resolved.push({ type: "text", text: block.fallbackText });
+        continue;
+      }
+
+      const downloaded = await this.downloadInboundImage(block.resource.fileKey, messageId);
+      if (!downloaded) {
+        resolved.push({ type: "text", text: block.fallbackText, _meta: { source: "feishu", imageKey: block.resource.fileKey, reason: "download_failed" } });
+        continue;
+      }
+
+      const image: InboundDownloadedImage = {
+        id: `image-${pendingImages.length}`,
+        buffer: downloaded.buffer,
+        mediaType: downloaded.mediaType,
+        filename: sanitizeFilename(`feishu-image-${pendingImages.length + 1}.${imageExtensionFromMimeType(downloaded.mediaType)}`),
+        originalUrl: block.resource.fileKey,
+      };
+      pendingImages.push({ slot: resolved.length, image });
+      resolved.push(null); // placeholder preserves original order
     }
-    return resolved;
+
+    const trailing: ContentBlock[] = [];
+    if (pendingImages.length > 0) {
+      const event = {
+        ...eventBase,
+        eventType: eventBase.eventType ?? "message_create",
+        content: resolved.filter((block): block is ContentBlock => block !== null),
+      } as GatewayInboundEvent;
+      const ingested = await ingestInboundMedia({
+        event,
+        source: "feishu",
+        images: pendingImages.map((item) => item.image),
+        label: `feishu:${this.channelId}`,
+      });
+
+      for (const item of pendingImages) {
+        const imageBlock = ingested.imageBlocksById[item.image.id];
+        resolved[item.slot] = imageBlock ?? {
+          type: "text",
+          text: "[Image upload failed]",
+          _meta: { source: "feishu", originalUrl: item.image.originalUrl ?? null, reason: "upload_failed" },
+        };
+      }
+
+      // Keep image reference text after the ordered content; file refs unused for Feishu inbound today.
+      for (const block of ingested.blocks) {
+        if (block.type === "text" && typeof block.text === "string" && block.text.startsWith("Images:")) {
+          trailing.push(block);
+        }
+      }
+    }
+
+    return [...resolved.filter((block): block is ContentBlock => block !== null), ...trailing];
   }
 
   private findDocumentRefs(blocks: ContentBlock[]): FeishuDocumentRef[] {

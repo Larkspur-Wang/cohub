@@ -10,9 +10,27 @@ import { publishConversationCreateEvent, publishInboundEvent } from "../../bus.j
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
 import { buildDiscordDeliveryPlan } from "../../session-output-planner.js";
 import { createLogger } from "@cohub/infra/logging";
+import {
+  downloadInboundUrl,
+  ensureImageMediaType,
+  ingestInboundMedia,
+  type InboundDownloadedFile,
+  type InboundDownloadedImage,
+} from "../../media/inbound-attachments.js";
+import {
+  classifyAttachmentKind,
+  imageExtensionFromMimeType,
+  sanitizeFilename,
+} from "../../media/mime.js";
 
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
+const DISCORD_INBOUND_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const DISCORD_INBOUND_FILE_MAX_BYTES = 50 * 1024 * 1024;
+const DISCORD_INBOUND_IMAGE_MAX_COUNT = 8;
+const DISCORD_INBOUND_FILE_MAX_COUNT = 8;
+const DISCORD_DOWNLOAD_ALLOWED_HOST_SUFFIXES = ["discordapp.com", "discordapp.net", "discord.com", "discord.gg", "discordcdn.com"];
+const DISCORD_DOWNLOAD_TIMEOUT_MS = 15_000;
 const buildDiscordBindingKey = (message: Message) => {
   return `discord:conversation:${message.channelId}`;
 };
@@ -355,17 +373,6 @@ export class DiscordProvider implements GatewayProvider {
         fallbackId: message.channelId,
       });
 
-      for (const attachment of message.attachments.values()) {
-        if (attachment.contentType?.startsWith("image/")) {
-          content.push({ type: "image", source: { type: "url", url: attachment.url } });
-          logger.info(`[Discord:${this.channelId}] Attachment: ${attachment.name} (${attachment.contentType})`);
-        } else {
-          logger.info(
-            `[Discord:${this.channelId}] Non-image attachment ignored: ${attachment.name || "unnamed"} (${attachment.contentType || "unknown"})`,
-          );
-        }
-      }
-
       const bindingKey = buildDiscordBindingKey(message);
       const inboundEventBase = {
         eventId: randomUUID(),
@@ -432,9 +439,14 @@ export class DiscordProvider implements GatewayProvider {
           sourceChannel,
         },
       };
-      const inboundEvent: GatewayInboundEvent = channelCommand
-        ? { ...inboundEventBase, eventType: "channel_command", command: channelCommand }
-        : { ...inboundEventBase, eventType: "message_create" };
+      const inboundEventBaseWithType = channelCommand
+        ? { ...inboundEventBase, eventType: "channel_command" as const, command: channelCommand }
+        : { ...inboundEventBase, eventType: "message_create" as const };
+      const mediaBlocks = await this.buildInboundMediaBlocks(message, inboundEventBaseWithType as GatewayInboundEvent);
+      const inboundEvent: GatewayInboundEvent = {
+        ...inboundEventBaseWithType,
+        content: [...inboundEventBase.content, ...mediaBlocks],
+      };
 
       if (channelCommand) {
         logger.info(`[Discord:${this.channelId}] → Publishing command event ${inboundEvent.eventId.slice(0, 8)}`, {
@@ -455,6 +467,92 @@ export class DiscordProvider implements GatewayProvider {
       await publishInboundEvent(inboundEvent);
       logger.info(`[Discord:${this.channelId}] ✓ Inbound event published ${inboundEvent.eventId.slice(0, 8)}`);
     });
+  }
+
+
+  private async buildInboundMediaBlocks(message: Message, event: GatewayInboundEvent): Promise<ContentBlock[]> {
+    if (message.attachments.size === 0) return [];
+
+    const images: InboundDownloadedImage[] = [];
+    const files: InboundDownloadedFile[] = [];
+    const blocks: ContentBlock[] = [];
+    let imageSeen = 0;
+    let fileSeen = 0;
+
+    for (const attachment of message.attachments.values()) {
+      const sourceUrl = attachment.url || attachment.proxyURL;
+      if (!sourceUrl) continue;
+      const kind = classifyAttachmentKind({
+        contentType: attachment.contentType,
+        filename: attachment.name,
+        url: sourceUrl,
+        preferImageWhenUnknown: false,
+      });
+      const label = kind === "image" ? "image" : "file";
+      const maxBytes = kind === "image" ? DISCORD_INBOUND_IMAGE_MAX_BYTES : DISCORD_INBOUND_FILE_MAX_BYTES;
+
+      if (kind === "image") {
+        imageSeen += 1;
+        if (imageSeen > DISCORD_INBOUND_IMAGE_MAX_COUNT) {
+          blocks.push({ type: "text", text: "[Image skipped: too many images]", _meta: { source: "discord", originalUrl: sourceUrl } });
+          continue;
+        }
+      } else {
+        fileSeen += 1;
+        if (fileSeen > DISCORD_INBOUND_FILE_MAX_COUNT) {
+          blocks.push({ type: "text", text: "[File skipped: too many files]", _meta: { source: "discord", originalUrl: sourceUrl } });
+          continue;
+        }
+      }
+
+      try {
+        const downloaded = await downloadInboundUrl({
+          url: sourceUrl,
+          maxBytes,
+          label: `discord:${this.channelId}:${label}`,
+          allowedHosts: DISCORD_DOWNLOAD_ALLOWED_HOST_SUFFIXES,
+          timeoutMs: DISCORD_DOWNLOAD_TIMEOUT_MS,
+        });
+        if (kind === "image") {
+          const mediaType = ensureImageMediaType(downloaded.buffer, attachment.contentType ?? downloaded.mediaType);
+          images.push({
+            id: `image-${images.length}`,
+            buffer: downloaded.buffer,
+            mediaType,
+            filename: sanitizeFilename(attachment.name, `discord-image-${images.length + 1}.${imageExtensionFromMimeType(mediaType)}`),
+            originalUrl: sourceUrl,
+          });
+        } else {
+          const name = sanitizeFilename(attachment.name, `discord-file-${files.length + 1}`);
+          files.push({
+            id: `file-${files.length}`,
+            buffer: downloaded.buffer,
+            mediaType: attachment.contentType ?? downloaded.mediaType,
+            name,
+            relativePath: name,
+            originalUrl: sourceUrl,
+          });
+        }
+        logger.info(`[Discord:${this.channelId}] Attachment queued for ingest: ${attachment.name || "unnamed"} (${attachment.contentType || kind})`);
+      } catch (error) {
+        logger.warn(`[Discord:${this.channelId}] attachment download failed`, { name: attachment.name, url: sourceUrl, error });
+        blocks.push({
+          type: "text",
+          text: kind === "image" ? "[Image unavailable]" : `[Attachment unavailable: ${sanitizeFilename(attachment.name, "file")}]`,
+          _meta: { source: "discord", originalUrl: sourceUrl, reason: "download_failed" },
+        });
+      }
+    }
+
+    if (images.length === 0 && files.length === 0) return blocks;
+    const ingested = await ingestInboundMedia({
+      event,
+      source: "discord",
+      images,
+      files,
+      label: `discord:${this.channelId}`,
+    });
+    return [...blocks, ...ingested.blocks];
   }
 
   private async registerNativeCommands() {
