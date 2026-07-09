@@ -3050,7 +3050,7 @@ $effect(() => {
 			{#if currentLabelItemsPageInfoById[label.id]?.hasMore}
 				<button
 					type="button"
-					class="mt-0.5 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+					class="mt-0.5 flex w-full items-center rounded-[5px] px-2 py-1 text-left text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-60"
 					disabled={currentLoadingLabelIds.has(label.id)}
 					onclick={() => void loadLabelItems(label.id, { append: true })}
 				>
