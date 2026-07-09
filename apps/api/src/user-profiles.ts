@@ -27,6 +27,10 @@ export class UsernameClearError extends Error {
   override name = "UsernameClearError";
 }
 
+export class LogtoUserRequiredError extends Error {
+  override name = "LogtoUserRequiredError";
+}
+
 type UserProfileFields = {
   username: string | null;
   displayName: string;
@@ -255,7 +259,7 @@ export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProf
 
 export async function updateCurrentUserProfile(user: AuthUser, input: { displayName?: string; avatarUrl?: string | null; username?: string | null }) {
   const logtoUserId = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
-  if (!logtoUserId) throw new Error("current user is missing Logto user id");
+  if (!logtoUserId) throw new LogtoUserRequiredError("profile updates require user sign-in");
 
   const username = input.username === undefined ? undefined : normalizeUsername(input.username);
   if (input.username !== undefined && input.username !== null && !username) {
