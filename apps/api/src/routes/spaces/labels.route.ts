@@ -12,6 +12,7 @@ const SCOPE_TYPE = "space";
 const RESOURCE_TYPES = new Set(["session", "checkpoint", "file"]);
 const DEFAULT_ITEMS_LIMIT = 30;
 const MAX_ITEMS_LIMIT = 50;
+const MANUAL_ITEMS_CURSOR_RANK_FLOOR = -2147483648;
 
 function normalizeName(value: unknown) {
   try {
@@ -60,10 +61,33 @@ function decodeItemsCursor(value: string | undefined) {
     if (parsed.createdAt !== null && typeof parsed.createdAt !== "string") return { ok: false as const };
     const createdAt = parsed.createdAt ? new Date(parsed.createdAt) : null;
     if (createdAt && !Number.isFinite(createdAt.getTime())) return { ok: false as const };
-    return { ok: true as const, cursor: { type: "manual" as const, rank: parsed.rank ?? null, createdAt, id: parsed.id } };
+    const rank = typeof parsed.rank === "number" ? parsed.rank : null;
+    return { ok: true as const, cursor: { type: "manual" as const, rank, createdAt, id: parsed.id } };
   } catch {
     return { ok: false as const };
   }
+}
+
+function buildSessionActivityItemsCursorCondition(cursor: { lastMessageAt: Date | null; sessionId: string } | null) {
+  if (!cursor) return undefined;
+  if (!cursor.lastMessageAt) return and(isNull(spaceSessions.lastMessageAt), lt(spaceSessions.id, cursor.sessionId));
+  return or(
+    lt(spaceSessions.lastMessageAt, cursor.lastMessageAt),
+    isNull(spaceSessions.lastMessageAt),
+    and(eq(spaceSessions.lastMessageAt, cursor.lastMessageAt), lt(spaceSessions.id, cursor.sessionId)),
+  );
+}
+
+function buildManualItemsCursorCondition(cursor: { rank: number | null; createdAt: Date | null; id: string } | null) {
+  if (!cursor) return undefined;
+  const rankKey = sql<number>`coalesce(${labelAssignments.rank}, ${MANUAL_ITEMS_CURSOR_RANK_FLOOR})`;
+  const cursorRank = cursor.rank ?? MANUAL_ITEMS_CURSOR_RANK_FLOOR;
+  const cursorCreatedAt = cursor.createdAt ?? new Date(0);
+  return or(
+    lt(rankKey, cursorRank),
+    and(eq(rankKey, cursorRank), lt(labelAssignments.createdAt, cursorCreatedAt)),
+    and(eq(rankKey, cursorRank), eq(labelAssignments.createdAt, cursorCreatedAt), lt(labelAssignments.id, cursor.id)),
+  );
 }
 
 function buildHref(spaceId: string, resourceType: string, resourceRef: string) {
@@ -396,13 +420,7 @@ router.get("/items", async (c) => {
       ))
       .where(and(
         eq(spaceSessions.spaceId, access.spaceId),
-        ...(cursor ? [cursor.lastMessageAt
-          ? or(
-            lt(spaceSessions.lastMessageAt, cursor.lastMessageAt),
-            isNull(spaceSessions.lastMessageAt),
-            and(eq(spaceSessions.lastMessageAt, cursor.lastMessageAt), lt(spaceSessions.id, cursor.sessionId)),
-          )
-          : and(isNull(spaceSessions.lastMessageAt), lt(spaceSessions.id, cursor.sessionId))] : []),
+        buildSessionActivityItemsCursorCondition(cursor),
       ))
       .orderBy(sql`${spaceSessions.lastMessageAt} desc nulls last`, desc(spaceSessions.id))
       .limit(limit + 1);
@@ -419,7 +437,7 @@ router.get("/items", async (c) => {
       eq(labelAssignments.scopeType, SCOPE_TYPE),
       eq(labelAssignments.scopeId, access.spaceId),
       eq(labelAssignments.labelId, label.id),
-      ...(cursor ? [sql`(coalesce(${labelAssignments.rank}, -2147483648), ${labelAssignments.createdAt}, ${labelAssignments.id}) < (${cursor.rank ?? -2147483648}, ${cursor.createdAt ?? new Date(0)}, ${cursor.id})`] : []),
+      buildManualItemsCursorCondition(cursor),
     ))
     .orderBy(sql`${labelAssignments.rank} desc nulls last`, desc(labelAssignments.createdAt), desc(labelAssignments.id))
     .limit(limit + 1);

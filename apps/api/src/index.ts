@@ -127,12 +127,20 @@ app.use(async (c, next) => {
 
 app.route("/", router);
 
+const ERROR_LOG_FIELDS = ["code", "detail", "hint", "position", "constraint", "table", "column", "schema"] as const;
+
 const serializeErrorForLog = (error: unknown): unknown => {
   if (error instanceof Error) {
+    const record = error as Error & Record<string, unknown>;
+    const fields = Object.fromEntries(ERROR_LOG_FIELDS.flatMap((key) => {
+      const value = record[key];
+      return value === undefined ? [] : [[key, value]];
+    }));
     return {
       message: error.message,
       stack: error.stack,
       name: error.name,
+      ...fields,
       cause: serializeErrorForLog(error.cause),
     };
   }
