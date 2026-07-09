@@ -184,10 +184,12 @@
 	--avatar-placeholder-bg: var(--bg-hover-strong);
 	--avatar-placeholder-fg: var(--text-placeholder);
 
-	/* App background */
-	--app-bg-image: none;
+	/* App background — Neta Studio slate canvas texture. The chat surface
+	   below is intentionally semi-transparent so this shows through, while
+	   the sidebar stays opaque (matching Neta's canvas-vs-panel split). */
+	--app-bg-image: url("https://neta.art/studio/03834db7-ab27-40e6-8da8-1783002a4fcf.webp");
 	--app-bg-overlay: none;
-	--app-bg-size: auto;
+	--app-bg-size: 720px;
 	--app-bg-position: center;
 	--app-bg-repeat: repeat;
 
@@ -205,8 +207,8 @@
 	--sidebar-primary-action-border: transparent;
 	--sidebar-primary-action-radius: 9999px;
 
-	/* Chat */
-	--chat-bg: #131216;
+	/* Chat — surface is translucent so the slate texture reads through. */
+	--chat-bg: rgba(19, 18, 22, 0.72);
 	--chat-panel-bg: rgba(19, 18, 22, 0.95);
 	--chat-panel-border: rgba(236, 225, 210, 0.09);
 	--chat-user-message-bg: rgba(255, 255, 255, 0.08);
