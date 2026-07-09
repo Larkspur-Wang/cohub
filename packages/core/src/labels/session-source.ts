@@ -30,6 +30,8 @@ const SOURCE_LABELS: Record<string, string> = {
   wechat: "Source/WeChat",
   slack: "Source/Slack",
   discord: "Source/Discord",
+  qq: "Source/QQ",
+  telegram: "Source/Telegram",
 };
 
 const normalizeKey = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/[\s-]+/g, "_") || null;
