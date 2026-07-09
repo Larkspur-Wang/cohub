@@ -681,6 +681,45 @@ body.drawer-open {
 	font-size: 0.9em;
 }
 
+.markdown-content .markdown-mermaid.is-unavailable {
+	display: flex;
+	min-height: 5.5rem;
+	flex-direction: column;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 0.35rem;
+	overflow: hidden;
+	padding: 0.9rem 1rem;
+}
+
+.markdown-content .markdown-mermaid-error {
+	color: var(--text-secondary);
+	font-size: 0.9em;
+	font-weight: 500;
+	line-height: 1.35;
+}
+
+.markdown-content .markdown-mermaid-error-detail {
+	max-width: 100%;
+	color: var(--text-tertiary);
+	font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+	font-size: 0.78em;
+	line-height: 1.4;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.markdown-mermaid-render-host {
+	position: absolute;
+	width: 0;
+	height: 0;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	pointer-events: none;
+	visibility: hidden;
+}
+
 .markdown-content .markdown-mermaid-actions {
 	position: absolute;
 	top: 0.55rem;

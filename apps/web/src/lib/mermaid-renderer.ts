@@ -37,6 +37,9 @@ function initializeMermaid(mermaid: MermaidApi, theme: ResolvedTheme) {
 	mermaid.initialize({
 		fontFamily: FONT_FAMILY,
 		securityLevel: "strict",
+		// Mermaid's default error path draws a huge "Syntax error" SVG into the
+		// temporary host and can leave it on document.body when render rejects.
+		suppressErrorRendering: true,
 		startOnLoad: false,
 		theme: isDarkTheme(theme) ? "dark" : "default",
 		themeVariables: {
@@ -75,8 +78,48 @@ function warnMermaidFailure(message: string, details: Record<string, unknown>) {
 
 function markMermaidUnavailable(element: HTMLElement, error?: unknown) {
 	element.dataset.mermaidRendered = "true";
-	element.textContent = "Preview unavailable.";
-	if (error) element.title = getErrorMessage(error);
+	delete element.dataset.mermaidRenderToken;
+	delete element.dataset.mermaidScale;
+	element.replaceChildren();
+	element.classList.add("is-unavailable");
+
+	const message = document.createElement("div");
+	message.className = "markdown-mermaid-error";
+	message.textContent = "Diagram preview unavailable";
+	element.appendChild(message);
+
+	if (error) {
+		const detail = getErrorMessage(error);
+		element.title = detail;
+		const detailEl = document.createElement("div");
+		detailEl.className = "markdown-mermaid-error-detail";
+		detailEl.textContent = summarizeMermaidError(detail);
+		element.appendChild(detailEl);
+	}
+}
+
+function summarizeMermaidError(message: string) {
+	const compact = message
+		.replace(/\s+/g, " ")
+		.replace(/^Error:\s*/i, "")
+		.trim();
+	if (!compact) return "Invalid Mermaid syntax.";
+	return compact.length > 160 ? `${compact.slice(0, 157)}…` : compact;
+}
+
+function createMermaidRenderHost() {
+	const host = document.createElement("div");
+	host.className = "markdown-mermaid-render-host";
+	host.setAttribute("aria-hidden", "true");
+	document.body.appendChild(host);
+	return host;
+}
+
+function cleanupMermaidArtifacts(renderId: string, host?: HTMLElement | null) {
+	document.getElementById(renderId)?.remove();
+	document.getElementById(`d${renderId}`)?.remove();
+	document.getElementById(`i${renderId}`)?.remove();
+	host?.remove();
 }
 
 function clampScale(scale: number) {
@@ -426,13 +469,16 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 			}
 
 			const token = `${++renderSeq}`;
+			const renderId = `markdown-mermaid-${token}`;
 			element.dataset.mermaidRendered = "pending";
 			element.dataset.mermaidRenderToken = token;
 
+			const host = createMermaidRenderHost();
 			try {
 				const { svg, bindFunctions } = await mermaid.render(
-					`markdown-mermaid-${token}`,
+					renderId,
 					source,
+					host,
 				);
 				if (
 					!element.isConnected ||
@@ -440,6 +486,7 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 				) {
 					return;
 				}
+				element.classList.remove("is-unavailable");
 				element.innerHTML = svg;
 				bindFunctions?.(element);
 				enhanceMermaidDiagram(element);
@@ -457,6 +504,8 @@ export async function renderMermaidDiagrams(root: HTMLElement) {
 					source,
 				});
 				markMermaidUnavailable(element, error);
+			} finally {
+				cleanupMermaidArtifacts(renderId, host);
 			}
 		}),
 	);

@@ -53,8 +53,21 @@ function markMermaidLoadError(error: unknown) {
 	)) {
 		if (element.dataset.mermaidRendered === "true") continue;
 		element.dataset.mermaidRendered = "true";
-		element.textContent = "Preview unavailable.";
-		if (error instanceof Error && error.message) element.title = error.message;
+		element.classList.add("is-unavailable");
+		element.replaceChildren();
+
+		const message = document.createElement("div");
+		message.className = "markdown-mermaid-error";
+		message.textContent = "Diagram preview unavailable";
+		element.appendChild(message);
+
+		if (error instanceof Error && error.message) {
+			element.title = error.message;
+			const detail = document.createElement("div");
+			detail.className = "markdown-mermaid-error-detail";
+			detail.textContent = error.message;
+			element.appendChild(detail);
+		}
 	}
 }
 
@@ -74,6 +87,9 @@ function resetMermaidDiagrams() {
 	)) {
 		element.dataset.mermaidRendered = "false";
 		delete element.dataset.mermaidRenderToken;
+		delete element.dataset.mermaidScale;
+		element.classList.remove("is-unavailable");
+		element.removeAttribute("title");
 		element.innerHTML =
 			'<div class="markdown-mermaid-loading">Rendering diagram…</div>';
 	}
