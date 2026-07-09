@@ -107,7 +107,8 @@ router.get("/:id", async (c) => {
   const space = await getSpaceById(session.spaceId);
   if (!space) return c.json({ message: "session not found" }, 404);
 
-  return c.json({ space, session, user });
+  const [hydratedSession] = await hydrateSessionParticipantProfiles([session]);
+  return c.json({ space, session: hydratedSession ?? session, user });
 });
 
 // ── PATCH /api/sessions/:id (rename) ─────────────────────────────────────────
@@ -128,12 +129,16 @@ router.patch("/:id", async (c) => {
   const title = body?.title ?? null;
   const newTitle = title?.trim() || null;
 
-  if (newTitle === session.title) return c.json({ session });
+  if (newTitle === session.title) {
+    const [hydratedSession] = await hydrateSessionParticipantProfiles([session]);
+    return c.json({ session: hydratedSession ?? session });
+  }
 
   await updateSpaceSessionInfo({ spaceId: session.spaceId, sessionId: session.id, title: newTitle });
 
   const refreshed = await getSpaceSessionById(sessionId);
-  return c.json({ session: refreshed ?? session });
+  const [hydratedSession] = await hydrateSessionParticipantProfiles([refreshed ?? session]);
+  return c.json({ session: hydratedSession ?? refreshed ?? session });
 });
 
 router.get("/:id/turns", async (c) => {

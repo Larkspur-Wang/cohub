@@ -1158,6 +1158,21 @@ export type LabelAssignmentPageInfo = {
   nextCursor: string | null;
 };
 
+/** Optional hydrated session previews for label item pages (avoids N+1 session detail fetches). */
+export type LabelItemsSessionFork = SessionForkRecord & {
+  firstUserTextAfterFork?: string | null;
+  parentTitle?: string | null;
+};
+
+export type LabelItemsResponse = {
+  items: LabelAssignmentListItem[];
+  pageInfo: LabelAssignmentPageInfo;
+  /** Hydrated sessions for this page (optional for older servers). */
+  sessions?: SessionRecord[];
+  /** Fork edges for page sessions (optional for older servers). */
+  forks?: LabelItemsSessionFork[];
+};
+
 export type PatchResourceLabelsInput = {
   addLabelRefs?: string[];
   removeLabelRefs?: string[];

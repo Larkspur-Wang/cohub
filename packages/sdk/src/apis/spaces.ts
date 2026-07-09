@@ -47,8 +47,7 @@ import type {
   SpaceFsUploadResponse,
   SpaceUsageResponse,
   SpaceFsWriteFileInput,
-  LabelAssignmentListItem,
-  LabelAssignmentPageInfo,
+  LabelItemsResponse,
   LabelAssignmentRecord,
   LabelListItem,
   LabelResourceType,
@@ -1167,7 +1166,7 @@ export class SpaceLabelsApi {
     const params = new URLSearchParams({ ref: labelRef });
     if (input?.limit) params.set("limit", String(input.limit));
     if (input?.cursor) params.set("cursor", input.cursor);
-    return this.transport.request<{ items: LabelAssignmentListItem[]; pageInfo: LabelAssignmentPageInfo }>(
+    return this.transport.request<LabelItemsResponse>(
       `/api/spaces/${this.spaceId}/labels/items?${params.toString()}`,
     );
   }

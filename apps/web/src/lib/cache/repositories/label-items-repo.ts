@@ -1,11 +1,13 @@
 import type {
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
+	SessionRecord,
 } from "@neta-art/cohub";
 import {
 	publishCacheMessage,
 	subscribeCacheMessages,
 } from "$lib/cache/broadcast";
+import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	idbDelete,
 	idbGet,
@@ -26,6 +28,8 @@ let subscribedToBroadcast = false;
 export type LabelItemsSnapshot = {
 	items: LabelAssignmentListItem[];
 	pageInfo: LabelAssignmentPageInfo;
+	sessions: SessionRecord[];
+	forks: SessionListForkRecord[];
 	updatedAt: number;
 	stale: boolean;
 	source: CacheSource;
@@ -61,6 +65,8 @@ function toSnapshot(
 	return {
 		items: record.items,
 		pageInfo: record.pageInfo,
+		sessions: Array.isArray(record.sessions) ? record.sessions : [],
+		forks: Array.isArray(record.forks) ? record.forks : [],
 		updatedAt: record.updatedAt,
 		stale: Date.now() - record.updatedAt >= LABEL_ITEMS_TTL_MS,
 		source,
@@ -86,6 +92,8 @@ async function writeRecord(
 	input: {
 		items: LabelAssignmentListItem[];
 		pageInfo?: LabelAssignmentPageInfo | null;
+		sessions?: SessionRecord[] | null;
+		forks?: SessionListForkRecord[] | null;
 	},
 	options?: { broadcast?: boolean; source?: CacheSource; updatedAt?: number },
 ) {
@@ -100,6 +108,8 @@ async function writeRecord(
 		labelId,
 		items,
 		pageInfo: normalizePageInfo(input.pageInfo),
+		sessions: Array.isArray(input.sessions) ? input.sessions : [],
+		forks: Array.isArray(input.forks) ? input.forks : [],
 		updatedAt: options?.updatedAt ?? now,
 		lastAccessedAt: now,
 		watermark: getItemsWatermark(items),
@@ -138,6 +148,8 @@ function ensureBroadcastSubscription() {
 			emit(message.spaceId, message.labelId, {
 				items: [],
 				pageInfo: { hasMore: false, nextCursor: null },
+				sessions: [],
+				forks: [],
 				updatedAt: message.updatedAt,
 				stale: true,
 				source: "indexeddb",
@@ -169,6 +181,8 @@ export const labelItemsRepo = {
 		fetcher: () => Promise<{
 			items: LabelAssignmentListItem[];
 			pageInfo?: LabelAssignmentPageInfo | null;
+			sessions?: SessionRecord[] | null;
+			forks?: SessionListForkRecord[] | null;
 		}>,
 	) {
 		ensureBroadcastSubscription();
@@ -185,6 +199,8 @@ export const labelItemsRepo = {
 		input: {
 			items: LabelAssignmentListItem[];
 			pageInfo?: LabelAssignmentPageInfo | null;
+			sessions?: SessionRecord[] | null;
+			forks?: SessionListForkRecord[] | null;
 		},
 		options?: { broadcast?: boolean; source?: CacheSource },
 	) {
@@ -203,6 +219,8 @@ export const labelItemsRepo = {
 			{
 				items: current.record.items,
 				pageInfo: current.record.pageInfo,
+				sessions: current.record.sessions,
+				forks: current.record.forks,
 			},
 			{
 				source: "indexeddb",

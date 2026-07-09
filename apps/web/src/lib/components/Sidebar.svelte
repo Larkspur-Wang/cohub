@@ -79,7 +79,10 @@ import {
 } from "$lib/labels/resource-label-actions";
 import { formatSpaceMentionTextForDisplay } from "$lib/mentions/space";
 import { sdk } from "$lib/sdk";
-import { mergeSessionRecords } from "$lib/session-record-merge";
+import {
+	mergeSessionRecord,
+	mergeSessionRecords,
+} from "$lib/session-record-merge";
 import {
 	getSessionSortTime,
 	sortSessionsByRecentActivity,
@@ -239,6 +242,8 @@ let sessionsPageInfo = $state<{ hasMore: boolean; nextCursor: string | null }>({
 	hasMore: false,
 	nextCursor: null,
 });
+/** Network fetch for All chats is deferred until All is expanded (cache still hydrates first paint). */
+let sessionsNetworkEnabledBySpace = $state<Record<string, boolean>>({});
 let exhaustedFallbackSessionCursor = $state<string | null>(null);
 let loadingCheckpoints = $state(false);
 let loadingMoreCheckpoints = $state(false);
@@ -319,7 +324,13 @@ const currentPath = $derived(page.url.pathname);
 const activeSession = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
 	const activeSessionId = match?.[1] ?? null;
-	return sessions.find((s) => s.id === activeSessionId) ?? null;
+	if (!activeSessionId) return null;
+	return (
+		sessions.find((s) => s.id === activeSessionId) ??
+		(currentSpaceId
+			? (labelSessionDetailsBySpace[currentSpaceId]?.[activeSessionId] ?? null)
+			: null)
+	);
 });
 const activeWorkId = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/works\/([^/]+)/);
@@ -404,14 +415,23 @@ const currentLabelSessionDetails = $derived(
 const sessionsById = $derived.by(
 	() => new Map(sessions.map((session) => [session.id, session])),
 );
-const labelSessionsById = $derived.by(
-	() =>
-		new Map(
-			[...sessions, ...Object.values(currentLabelSessionDetails)].map(
-				(session) => [session.id, session],
-			),
-		),
-);
+const labelSessionsById = $derived.by(() => {
+	const byId = new Map<string, SessionRecord>();
+	const preferRicher = (
+		existing: SessionRecord | undefined,
+		incoming: SessionRecord,
+	) => {
+		if (!existing) return incoming;
+		if (sessionIsRicher(incoming, existing)) return incoming;
+		if (sessionIsRicher(existing, incoming)) return existing;
+		return mergeSessionRecord(existing, incoming);
+	};
+	for (const session of sessions) byId.set(session.id, session);
+	for (const session of Object.values(currentLabelSessionDetails)) {
+		byId.set(session.id, preferRicher(byId.get(session.id), session));
+	}
+	return byId;
+});
 const checkpointsById = $derived.by(
 	() => new Map(checkpoints.map((checkpoint) => [checkpoint.id, checkpoint])),
 );
@@ -820,7 +840,24 @@ async function loadSpaces(force = false) {
 	await loadCurrentSpaceFromUrl(requestedSpaceId);
 }
 
-async function loadSessionsForSpace(spaceId: string, force = false) {
+function isSessionsNetworkEnabled(spaceId: string) {
+	return Boolean(sessionsNetworkEnabledBySpace[spaceId]);
+}
+
+function enableSessionsNetwork(spaceId: string) {
+	if (sessionsNetworkEnabledBySpace[spaceId]) return;
+	sessionsNetworkEnabledBySpace = {
+		...sessionsNetworkEnabledBySpace,
+		[spaceId]: true,
+	};
+}
+
+async function loadSessionsForSpace(
+	spaceId: string,
+	options?: { force?: boolean; network?: boolean },
+) {
+	const force = options?.force ?? false;
+	const allowNetwork = options?.network ?? isSessionsNetworkEnabled(spaceId);
 	if (!force && loadingSessions && loadingSessionsSpaceId === spaceId) return;
 
 	if (!force) {
@@ -833,31 +870,26 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 		}
 	}
 
+	const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
+	if (spaceId !== currentSpaceId) return;
+
+	// All chats network load is deferred until All is expanded (or explicitly forced).
+	// Label rows get sessions/forks from labels/items; this keeps first paint lean.
+	const shouldFetch =
+		allowNetwork && (force || !cachedSnapshot || cachedSnapshot.stale);
+	if (!shouldFetch) {
+		loadingSessions = false;
+		loadingSessionsSpaceId = null;
+		refreshingSessions = false;
+		return;
+	}
+
 	const shouldShowLoading = sessions.length === 0;
 	if (shouldShowLoading) {
 		loadingSessions = true;
 		loadingSessionsSpaceId = spaceId;
 	} else {
 		refreshingSessions = true;
-	}
-
-	const cachedSnapshot = await getCachedSessionListSnapshot(spaceId);
-	if (spaceId !== currentSpaceId) {
-		if (loadingSessionsSpaceId === spaceId) {
-			loadingSessions = false;
-			loadingSessionsSpaceId = null;
-		}
-		refreshingSessions = false;
-		return;
-	}
-	const shouldFetch = force || !cachedSnapshot || cachedSnapshot.stale;
-	if (!shouldFetch) {
-		if (loadingSessionsSpaceId === spaceId) {
-			loadingSessions = false;
-			loadingSessionsSpaceId = null;
-		}
-		refreshingSessions = false;
-		return;
 	}
 
 	try {
@@ -872,6 +904,8 @@ async function loadSessionsForSpace(spaceId: string, force = false) {
 			nextCursor: null,
 		};
 		const nextForks = result.forks ?? [];
+		// Session list is the source of truth for All chats forks; replace rather
+		// than merge with label-page forks so cache stays consistent with list API.
 		sessionForks = nextForks;
 		sessions = nextSessions;
 		void setCachedSessionList(
@@ -1073,50 +1107,99 @@ function labelItemsEqual(
 	return true;
 }
 
+function sessionHasParticipantPayload(session: SessionRecord) {
+	// Distinguish "hydrated but empty" from "never hydrated". List/detail
+	// hydrate always materializes these fields (even as empty arrays / null).
+	return (
+		"userProfile" in session ||
+		"participantProfiles" in session ||
+		"participantUserUuids" in session
+	);
+}
+
+function sessionNeedsParticipantHydration(
+	session: SessionRecord | null | undefined,
+) {
+	if (!session) return true;
+	if (!sessionHasParticipantPayload(session)) return true;
+	if (session.userUuid && !session.userProfile) return true;
+	const participantIds = session.participantUserUuids ?? [];
+	if (participantIds.length > 0 && !session.participantProfiles?.length)
+		return true;
+	return false;
+}
+
+function sessionIsRicher(a: SessionRecord, b: SessionRecord) {
+	const aHydrated = !sessionNeedsParticipantHydration(a);
+	const bHydrated = !sessionNeedsParticipantHydration(b);
+	if (aHydrated !== bHydrated) return aHydrated;
+	return false;
+}
+
 async function warmLabelSessionDetails(spaceId: string, sessionIds: string[]) {
+	// Primary path is labels/items `sessions[]`. This only backfills rare gaps
+	// (legacy cache / older servers) without re-fetching already hydrated rows.
 	const uniqueIds = Array.from(new Set(sessionIds.filter(Boolean)));
 	if (uniqueIds.length === 0) return;
 
-	const localSessions = uniqueIds
-		.map((sessionId) => sessionsById.get(sessionId))
-		.filter((session): session is SessionRecord => Boolean(session));
-	if (localSessions.length > 0) {
-		void setCachedSessionDetails(spaceId, localSessions).catch(() => undefined);
-	}
-
-	const cached = (await getCachedSessionDetails(spaceId, uniqueIds).catch(
-		() => ({}),
-	)) as Awaited<ReturnType<typeof getCachedSessionDetails>>;
-	const isCurrentSpace = () => spaceId === currentSpaceId;
-	const cachedSessions = Object.values(cached)
-		.map((snapshot) => snapshot.session)
-		.filter((session): session is SessionRecord => Boolean(session));
-	if (cachedSessions.length > 0 && isCurrentSpace()) {
-		const currentDetails = labelSessionDetailsBySpace[spaceId] ?? {};
-		labelSessionDetailsBySpace = {
-			...labelSessionDetailsBySpace,
-			[spaceId]: {
-				...currentDetails,
-				...Object.fromEntries(
-					cachedSessions.map((session) => [session.id, session]),
-				),
-			},
-		};
+	const inMemoryDetails = labelSessionDetailsBySpace[spaceId] ?? {};
+	const localHydrated = uniqueIds
+		.map(
+			(sessionId) => sessionsById.get(sessionId) ?? inMemoryDetails[sessionId],
+		)
+		.filter(
+			(session): session is SessionRecord =>
+				Boolean(session) && !sessionNeedsParticipantHydration(session),
+		);
+	if (localHydrated.length > 0) {
+		void setCachedSessionDetails(spaceId, localHydrated).catch(() => undefined);
 	}
 
 	const loading =
 		labelSessionDetailsLoadingBySpace[spaceId] ?? new Set<string>();
-	const missingOrStale = uniqueIds.filter((sessionId) => {
-		if (sessionsById.has(sessionId)) return false;
+	const missing = uniqueIds.filter((sessionId) => {
 		if (loading.has(sessionId)) return false;
-		const snapshot = cached[sessionId];
-		return !snapshot || snapshot.stale;
+		const local =
+			sessionsById.get(sessionId) ?? inMemoryDetails[sessionId] ?? null;
+		return sessionNeedsParticipantHydration(local);
 	});
-	if (missingOrStale.length === 0) return;
+	if (missing.length === 0) return;
+
+	const cached = (await getCachedSessionDetails(spaceId, missing).catch(
+		() => ({}),
+	)) as Awaited<ReturnType<typeof getCachedSessionDetails>>;
+	const isCurrentSpace = () => spaceId === currentSpaceId;
+
+	const fromCache: SessionRecord[] = [];
+	const needNetwork: string[] = [];
+	for (const sessionId of missing) {
+		const snapshot = cached[sessionId];
+		if (snapshot && !sessionNeedsParticipantHydration(snapshot.session)) {
+			fromCache.push(snapshot.session);
+			continue;
+		}
+		needNetwork.push(sessionId);
+	}
+
+	if (fromCache.length > 0 && isCurrentSpace()) {
+		const currentDetails = labelSessionDetailsBySpace[spaceId] ?? {};
+		const nextDetails = { ...currentDetails };
+		for (const session of fromCache) {
+			nextDetails[session.id] = currentDetails[session.id]
+				? mergeSessionRecord(currentDetails[session.id], session)
+				: session;
+		}
+		labelSessionDetailsBySpace = {
+			...labelSessionDetailsBySpace,
+			[spaceId]: nextDetails,
+		};
+	}
+
+	if (needNetwork.length === 0) return;
 
 	labelSessionDetailsLoadingBySpace = {
 		...labelSessionDetailsLoadingBySpace,
-		[spaceId]: new Set([...loading, ...missingOrStale]),
+		[spaceId]: new Set([...loading, ...needNetwork]),
 	};
 
 	try {
@@ -1124,8 +1207,8 @@ async function warmLabelSessionDetails(spaceId: string, sessionIds: string[]) {
 		const concurrency = 4;
 		let cursor = 0;
 		async function worker() {
-			while (cursor < missingOrStale.length) {
-				const sessionId = missingOrStale[cursor++];
+			while (cursor < needNetwork.length) {
+				const sessionId = needNetwork[cursor++];
 				if (!sessionId) continue;
 				try {
 					const session = await fetchSessionDetailWithCache(
@@ -1133,9 +1216,14 @@ async function warmLabelSessionDetails(spaceId: string, sessionIds: string[]) {
 						sessionId,
 						async () =>
 							(await sdk.space(spaceId).session(sessionId).get()).session,
-						{ force: Boolean(cached[sessionId]?.stale) },
+						{
+							force: sessionNeedsParticipantHydration(
+								cached[sessionId]?.session,
+							),
+						},
 					);
-					refreshed.push(session);
+					if (!sessionNeedsParticipantHydration(session))
+						refreshed.push(session);
 				} catch (error) {
 					console.warn("[labels] Failed to warm session detail", {
 						spaceId,
@@ -1146,7 +1234,7 @@ async function warmLabelSessionDetails(spaceId: string, sessionIds: string[]) {
 			}
 		}
 		await Promise.all(
-			Array.from({ length: Math.min(concurrency, missingOrStale.length) }, () =>
+			Array.from({ length: Math.min(concurrency, needNetwork.length) }, () =>
 				worker(),
 			),
 		);
@@ -1168,7 +1256,7 @@ async function warmLabelSessionDetails(spaceId: string, sessionIds: string[]) {
 		labelSessionDetailsLoadingBySpace = {
 			...labelSessionDetailsLoadingBySpace,
 			[spaceId]: new Set(
-				[...latestLoading].filter((id) => !missingOrStale.includes(id)),
+				[...latestLoading].filter((id) => !needNetwork.includes(id)),
 			),
 		};
 	}
@@ -1210,6 +1298,73 @@ function patchLabelItems(
 	};
 }
 
+function sessionForkSignature(fork: SessionForkSidebarRecord) {
+	return [
+		fork.childSessionId,
+		fork.parentSessionId ?? "",
+		fork.depth ?? 0,
+		fork.anchorSequence ?? "",
+		fork.parentTitle ?? "",
+		fork.firstUserTextAfterFork ?? "",
+	].join("|");
+}
+
+function mergeSessionForks(
+	current: SessionForkSidebarRecord[],
+	incoming: SessionForkSidebarRecord[] | null | undefined,
+) {
+	if (!incoming?.length) return current;
+	const byChild = new Map(
+		current.map((fork) => [fork.childSessionId, fork] as const),
+	);
+	let changed = false;
+	for (const fork of incoming) {
+		if (!fork.childSessionId) continue;
+		const existing = byChild.get(fork.childSessionId);
+		const merged = existing ? { ...existing, ...fork } : fork;
+		if (
+			!existing ||
+			sessionForkSignature(existing) !== sessionForkSignature(merged)
+		) {
+			byChild.set(fork.childSessionId, merged);
+			changed = true;
+		}
+	}
+	return changed ? Array.from(byChild.values()) : current;
+}
+
+function absorbLabelItemForks(
+	forks: SessionForkSidebarRecord[] | null | undefined,
+) {
+	if (!forks?.length) return;
+	const next = mergeSessionForks(sessionForks, forks);
+	if (next === sessionForks) return;
+	sessionForks = next;
+}
+
+async function absorbLabelItemSessions(
+	spaceId: string,
+	sessions: SessionRecord[] | null | undefined,
+) {
+	if (!sessions?.length || spaceId !== currentSpaceId) return;
+	const currentDetails = labelSessionDetailsBySpace[spaceId] ?? {};
+	const nextDetails = { ...currentDetails };
+	const accepted: SessionRecord[] = [];
+	for (const session of sessions) {
+		const existing = nextDetails[session.id];
+		if (existing && sessionIsRicher(existing, session)) continue;
+		const merged = existing ? mergeSessionRecord(existing, session) : session;
+		nextDetails[session.id] = merged;
+		accepted.push(merged);
+	}
+	if (accepted.length === 0) return;
+	labelSessionDetailsBySpace = {
+		...labelSessionDetailsBySpace,
+		[spaceId]: nextDetails,
+	};
+	await setCachedSessionDetails(spaceId, accepted).catch(() => undefined);
+}
+
 async function loadLabelItems(
 	labelId: string,
 	options?: { force?: boolean; append?: boolean },
@@ -1224,6 +1379,8 @@ async function loadLabelItems(
 		const cached = await getCachedLabelItemsSnapshot(spaceId, labelId);
 		if (spaceId !== currentSpaceId) return;
 		if (cached) {
+			await absorbLabelItemSessions(spaceId, cached.sessions);
+			absorbLabelItemForks(cached.forks);
 			patchLabelItems(spaceId, labelId, cached.items, cached.pageInfo);
 			if (!cached.stale) return;
 		}
@@ -1245,6 +1402,8 @@ async function loadLabelItems(
 				cursor: spacePageInfo[labelId]?.nextCursor,
 			});
 			if (spaceId !== currentSpaceId) return;
+			await absorbLabelItemSessions(spaceId, result.sessions);
+			absorbLabelItemForks(result.forks);
 			const latestItems = labelItemsBySpace[spaceId]?.[labelId] ?? [];
 			const nextItems = [...latestItems, ...(result.items ?? [])];
 			patchLabelItems(spaceId, labelId, nextItems, result.pageInfo);
@@ -1257,6 +1416,8 @@ async function loadLabelItems(
 			labelRef,
 		);
 		if (spaceId !== currentSpaceId) return;
+		await absorbLabelItemSessions(spaceId, result.sessions);
+		absorbLabelItemForks(result.forks);
 		patchLabelItems(spaceId, labelId, result.items, result.pageInfo);
 	} catch (error) {
 		console.warn("[sidebar] Failed to load label items", { labelId, error });
@@ -1281,7 +1442,12 @@ function toggleLabelExpanded(labelId: string) {
 	if (next.has(labelId)) next.delete(labelId);
 	else {
 		next.add(labelId);
-		if (labelId !== ALL_CHATS_LABEL_ID) void loadLabelItems(labelId);
+		if (labelId === ALL_CHATS_LABEL_ID) {
+			enableSessionsNetwork(spaceId);
+			void loadSessionsForSpace(spaceId, { network: true });
+		} else {
+			void loadLabelItems(labelId);
+		}
 	}
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
@@ -1356,6 +1522,7 @@ function restoreExpandedLabelIds(spaceId: string) {
 		...expandedLabelIdsBySpace,
 		[spaceId]: expanded,
 	};
+	if (expanded.has(ALL_CHATS_LABEL_ID)) enableSessionsNetwork(spaceId);
 	for (const labelId of expanded) {
 		if (labelId !== ALL_CHATS_LABEL_ID) void loadLabelItems(labelId);
 	}
@@ -1374,7 +1541,12 @@ function applyDefaultExpandedLabelId(
 		[spaceId]: expanded,
 	};
 	setCachedExpandedLabelIds(spaceId, expanded);
-	if (labelId !== ALL_CHATS_LABEL_ID) void loadLabelItems(labelId);
+	if (labelId === ALL_CHATS_LABEL_ID) {
+		enableSessionsNetwork(spaceId);
+		void loadSessionsForSpace(spaceId, { network: true });
+	} else {
+		void loadLabelItems(labelId);
+	}
 }
 
 function pruneExpandedLabelIds(spaceId: string, nextLabels: LabelListItem[]) {
@@ -2710,7 +2882,10 @@ $effect(() => {
 		clearLabelAutoExpandTimer();
 		untrack(() => {
 			restoreExpandedLabelIds(id);
-			void loadSessionsForSpace(id);
+			// Cache-first only; network waits until All chats is expanded.
+			void loadSessionsForSpace(id, {
+				network: isSessionsNetworkEnabled(id),
+			});
 			void loadLabelsForSpace(id);
 			void loadCheckpointsForSpace(id, true);
 			void loadCronjobsForSpace(id, true);

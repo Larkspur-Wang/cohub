@@ -18,7 +18,7 @@ import type {
 import type { SessionListPageInfo } from "$lib/cache/types";
 
 export const DB_NAME = "cohub-web-cache";
-export const DB_VERSION = 9;
+export const DB_VERSION = 10;
 
 export type SessionListForkRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;
@@ -170,6 +170,9 @@ export type LabelItemsCacheRecord = {
 	labelId: string;
 	items: LabelAssignmentListItem[];
 	pageInfo: LabelAssignmentPageInfo;
+	/** Optional page sessions/forks (v10+). Older records omit these. */
+	sessions?: SessionRecord[];
+	forks?: SessionListForkRecord[];
 	updatedAt: number;
 	lastAccessedAt: number;
 	watermark: string | null;

@@ -4,14 +4,20 @@ import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db"
 import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../../lib/middleware.js";
-import { hasPermission } from "../../permissions.js";
+import { filterSessionsByPermission, getSpaceMemberRole, hasPermission } from "../../permissions.js";
 import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
+import { listSessionForksForSessions, redactSessionForksForViewer } from "../../session-forks.js";
+import { hydrateSessionParticipantProfiles } from "../../space-sessions.js";
 
 const router = new Hono();
 const SCOPE_TYPE = "space";
 const RESOURCE_TYPES = new Set(["session", "checkpoint", "file"]);
 const DEFAULT_ITEMS_LIMIT = 30;
 const MAX_ITEMS_LIMIT = 50;
+/** Extra raw rows to scan per fill attempt when post-filtering for session.view. */
+const VISIBILITY_FILL_BATCH = 50;
+/** Cap total raw rows scanned while filling one visible page for non-members. */
+const VISIBILITY_FILL_MAX_SCAN = 500;
 const MANUAL_ITEMS_CURSOR_RANK_FLOOR = -2147483648;
 
 function normalizeName(value: unknown) {
@@ -212,10 +218,13 @@ async function hydrateAssignments(spaceId: string, rows: Array<typeof labelAssig
   const checkpointRows = checkpointIds.length > 0
     ? await db.select().from(checkpoints).where(and(eq(checkpoints.spaceId, spaceId), inArray(checkpoints.id, checkpointIds)))
     : [];
-  const sessionsById = new Map(sessionRows.map((s) => [s.id, s]));
+  const hydratedSessions = sessionRows.length > 0
+    ? await hydrateSessionParticipantProfiles(sessionRows)
+    : [];
+  const sessionsById = new Map(hydratedSessions.map((s) => [s.id, s]));
   const checkpointsById = new Map(checkpointRows.map((cp) => [cp.id, cp]));
 
-  return rows.flatMap((assignment) => {
+  const items = rows.flatMap((assignment) => {
     if (assignment.resourceType === "session") {
       const session = sessionsById.get(assignment.resourceRef);
       if (!session) return [];
@@ -255,6 +264,262 @@ async function hydrateAssignments(spaceId: string, rows: Array<typeof labelAssig
     }
     return [];
   });
+
+  // Keep session/fork payloads aligned with this assignment page so clients can
+  // render label rows (avatars + fork tree) without N+1 session detail fetches.
+  const itemSessionIds = new Set(
+    items.filter((item) => item.resourceType === "session").map((item) => item.resourceRef),
+  );
+  const sessions = hydratedSessions.filter((session) => itemSessionIds.has(session.id));
+  return { items, sessions };
+}
+
+type HydratedLabelSession = Awaited<ReturnType<typeof hydrateSessionParticipantProfiles>>[number];
+
+async function resolveViewerVisibleSessions(
+  spaceId: string,
+  user: Parameters<typeof hasPermission>[0],
+  sessions: HydratedLabelSession[],
+) {
+  if (sessions.length === 0) {
+    return { isMember: true, sessions: [] as HydratedLabelSession[] };
+  }
+  const isMember = user?.uuid
+    ? (await getSpaceMemberRole(spaceId, user.uuid)) !== null
+    : false;
+  if (isMember) return { isMember, sessions };
+  // Hydrated sessions still include the underlying spaceSessions row fields the
+  // permission filter reads (id / spaceId / userUuid / accessPolicy / meta…).
+  const visibleRows = await filterSessionsByPermission(user, "session.view", spaceId, sessions);
+  const visibleIds = new Set(visibleRows.map((session) => session.id));
+  return {
+    isMember,
+    sessions: sessions.filter((session) => visibleIds.has(session.id)),
+  };
+}
+
+
+async function attachViewerVisibleForks(
+  isMember: boolean,
+  sessions: HydratedLabelSession[],
+) {
+  if (sessions.length === 0) return [];
+  const visibleSessionIds = sessions.map((session) => session.id);
+  return redactSessionForksForViewer(
+    await listSessionForksForSessions(visibleSessionIds),
+    { isMember, visibleSessionIds },
+  );
+}
+
+type SystemItemsCursor = { lastMessageAt: Date | null; sessionId: string } | null;
+type ManualItemsCursor = { rank: number | null; createdAt: Date | null; id: string } | null;
+
+/**
+ * Fill a full visible page after session.view filtering.
+ *
+ * Members: single query (limit+1) — same as before.
+ * Non-members: scan ahead in batches, filter visibility, stop when we have
+ * `limit` visible items or the source is exhausted. Cursor always advances over
+ * the last *scanned* assignment so hidden sessions are not re-fetched forever.
+ */
+async function listVisibleSystemLabelItems(input: {
+  spaceId: string;
+  user: Parameters<typeof hasPermission>[0];
+  labelId: string;
+  limit: number;
+  cursor: SystemItemsCursor;
+}) {
+  const isMember = input.user?.uuid
+    ? (await getSpaceMemberRole(input.spaceId, input.user.uuid)) !== null
+    : false;
+
+  if (isMember) {
+    const rows = await db
+      .select({ assignment: labelAssignments, lastMessageAt: spaceSessions.lastMessageAt, sessionId: spaceSessions.id })
+      .from(spaceSessions)
+      .innerJoin(labelAssignments, and(
+        eq(labelAssignments.scopeType, SCOPE_TYPE),
+        eq(labelAssignments.scopeId, input.spaceId),
+        eq(labelAssignments.labelId, input.labelId),
+        eq(labelAssignments.resourceType, "session"),
+        sql`${labelAssignments.resourceRef} = ${spaceSessions.id}::text`,
+      ))
+      .where(and(
+        eq(spaceSessions.spaceId, input.spaceId),
+        buildSessionActivityItemsCursorCondition(input.cursor),
+      ))
+      .orderBy(sql`${spaceSessions.lastMessageAt} desc nulls last`, desc(spaceSessions.id))
+      .limit(input.limit + 1);
+    const pageRows = rows.slice(0, input.limit);
+    const lastRow = pageRows.at(-1);
+    const nextCursor = rows.length > input.limit && lastRow
+      ? encodeSessionActivityItemsCursor({ lastMessageAt: lastRow.lastMessageAt, sessionId: lastRow.sessionId })
+      : null;
+    const hydrated = await hydrateAssignments(input.spaceId, pageRows.map((row) => row.assignment));
+    const forks = await attachViewerVisibleForks(true, hydrated.sessions);
+    return { items: hydrated.items, sessions: hydrated.sessions, forks, pageInfo: { hasMore: Boolean(nextCursor), nextCursor } };
+  }
+
+  let cursor = input.cursor;
+  const acceptedAssignments: Array<typeof labelAssignments.$inferSelect> = [];
+  let scanned = 0;
+  let sourceExhausted = false;
+  let lastScanned: { lastMessageAt: Date | null; sessionId: string } | null = null;
+
+  while (acceptedAssignments.length < input.limit && scanned < VISIBILITY_FILL_MAX_SCAN) {
+    const batchLimit = Math.min(VISIBILITY_FILL_BATCH, VISIBILITY_FILL_MAX_SCAN - scanned);
+    const rows = await db
+      .select({ assignment: labelAssignments, lastMessageAt: spaceSessions.lastMessageAt, sessionId: spaceSessions.id })
+      .from(spaceSessions)
+      .innerJoin(labelAssignments, and(
+        eq(labelAssignments.scopeType, SCOPE_TYPE),
+        eq(labelAssignments.scopeId, input.spaceId),
+        eq(labelAssignments.labelId, input.labelId),
+        eq(labelAssignments.resourceType, "session"),
+        sql`${labelAssignments.resourceRef} = ${spaceSessions.id}::text`,
+      ))
+      .where(and(
+        eq(spaceSessions.spaceId, input.spaceId),
+        buildSessionActivityItemsCursorCondition(cursor),
+      ))
+      .orderBy(sql`${spaceSessions.lastMessageAt} desc nulls last`, desc(spaceSessions.id))
+      .limit(batchLimit);
+    if (rows.length === 0) {
+      sourceExhausted = true;
+      break;
+    }
+    scanned += rows.length;
+    // System labels only assign sessions; filter the raw assignment rows by session.view.
+    const hydrated = await hydrateAssignments(input.spaceId, rows.map((row) => row.assignment));
+    const visible = await resolveViewerVisibleSessions(input.spaceId, input.user, hydrated.sessions);
+    const visibleIds = new Set(visible.sessions.map((session) => session.id));
+    let filled = false;
+    for (const row of rows) {
+      lastScanned = { lastMessageAt: row.lastMessageAt, sessionId: row.sessionId };
+      cursor = lastScanned;
+      if (!visibleIds.has(row.assignment.resourceRef)) continue;
+      acceptedAssignments.push(row.assignment);
+      if (acceptedAssignments.length >= input.limit) {
+        filled = true;
+        break;
+      }
+    }
+    if (filled) break;
+    if (rows.length < batchLimit) {
+      sourceExhausted = true;
+      break;
+    }
+  }
+
+  const pageAssignments = acceptedAssignments.slice(0, input.limit);
+  const hydrated = await hydrateAssignments(input.spaceId, pageAssignments);
+  const forks = await attachViewerVisibleForks(false, hydrated.sessions);
+  const nextCursor = !sourceExhausted && lastScanned
+    ? encodeSessionActivityItemsCursor(lastScanned)
+    : null;
+  return {
+    items: hydrated.items,
+    sessions: hydrated.sessions,
+    forks,
+    pageInfo: { hasMore: Boolean(nextCursor), nextCursor },
+  };
+}
+
+async function listVisibleManualLabelItems(input: {
+  spaceId: string;
+  user: Parameters<typeof hasPermission>[0];
+  labelId: string;
+  limit: number;
+  cursor: ManualItemsCursor;
+}) {
+  const isMember = input.user?.uuid
+    ? (await getSpaceMemberRole(input.spaceId, input.user.uuid)) !== null
+    : false;
+
+  if (isMember) {
+    const rows = await db
+      .select()
+      .from(labelAssignments)
+      .where(and(
+        eq(labelAssignments.scopeType, SCOPE_TYPE),
+        eq(labelAssignments.scopeId, input.spaceId),
+        eq(labelAssignments.labelId, input.labelId),
+        buildManualItemsCursorCondition(input.cursor),
+      ))
+      .orderBy(sql`${labelAssignments.rank} desc nulls last`, desc(labelAssignments.createdAt), desc(labelAssignments.id))
+      .limit(input.limit + 1);
+    const pageRows = rows.slice(0, input.limit);
+    const lastRow = pageRows.at(-1);
+    const nextCursor = rows.length > input.limit && lastRow ? encodeManualItemsCursor(lastRow) : null;
+    const hydrated = await hydrateAssignments(input.spaceId, pageRows);
+    const forks = await attachViewerVisibleForks(true, hydrated.sessions);
+    return { items: hydrated.items, sessions: hydrated.sessions, forks, pageInfo: { hasMore: Boolean(nextCursor), nextCursor } };
+  }
+
+  let cursor = input.cursor;
+  const accepted: Array<typeof labelAssignments.$inferSelect> = [];
+  let scanned = 0;
+  let sourceExhausted = false;
+  let lastScanned: typeof labelAssignments.$inferSelect | null = null;
+
+  while (accepted.length < input.limit && scanned < VISIBILITY_FILL_MAX_SCAN) {
+    const batchLimit = Math.min(VISIBILITY_FILL_BATCH, VISIBILITY_FILL_MAX_SCAN - scanned);
+    const rows = await db
+      .select()
+      .from(labelAssignments)
+      .where(and(
+        eq(labelAssignments.scopeType, SCOPE_TYPE),
+        eq(labelAssignments.scopeId, input.spaceId),
+        eq(labelAssignments.labelId, input.labelId),
+        buildManualItemsCursorCondition(cursor),
+      ))
+      .orderBy(sql`${labelAssignments.rank} desc nulls last`, desc(labelAssignments.createdAt), desc(labelAssignments.id))
+      .limit(batchLimit);
+    if (rows.length === 0) {
+      sourceExhausted = true;
+      break;
+    }
+    scanned += rows.length;
+    const hydrated = await hydrateAssignments(input.spaceId, rows);
+    const visible = await resolveViewerVisibleSessions(input.spaceId, input.user, hydrated.sessions);
+    const visibleIds = new Set(visible.sessions.map((session) => session.id));
+    let filled = false;
+    for (const row of rows) {
+      lastScanned = row;
+      cursor = {
+        rank: row.rank,
+        createdAt: row.createdAt,
+        id: row.id,
+      };
+      if (row.resourceType === "session" && !visibleIds.has(row.resourceRef)) continue;
+      // Non-session resources stay visible under space.label.view.
+      if (row.resourceType === "session" && !hydrated.sessions.some((s) => s.id === row.resourceRef)) continue;
+      accepted.push(row);
+      if (accepted.length >= input.limit) {
+        filled = true;
+        break;
+      }
+    }
+    if (filled) break;
+    if (rows.length < batchLimit) {
+      sourceExhausted = true;
+      break;
+    }
+  }
+
+  const pageRows = accepted.slice(0, input.limit);
+  const hydrated = await hydrateAssignments(input.spaceId, pageRows);
+  const forks = await attachViewerVisibleForks(false, hydrated.sessions);
+  // Advance past the last scanned raw row so hidden sessions are not re-fetched.
+  const nextCursor = !sourceExhausted && lastScanned
+    ? encodeManualItemsCursor(lastScanned)
+    : null;
+  return {
+    items: hydrated.items,
+    sessions: hydrated.sessions,
+    forks,
+    pageInfo: { hasMore: Boolean(nextCursor), nextCursor },
+  };
 }
 
 router.get("/", async (c) => {
@@ -408,43 +673,24 @@ router.get("/items", async (c) => {
   const cursor = decodedCursor.cursor;
   if (label.source === "system") {
     if (cursor?.type === "manual") return c.json({ message: "invalid cursor" }, 400);
-    const rows = await db
-      .select({ assignment: labelAssignments, lastMessageAt: spaceSessions.lastMessageAt, sessionId: spaceSessions.id })
-      .from(spaceSessions)
-      .innerJoin(labelAssignments, and(
-        eq(labelAssignments.scopeType, SCOPE_TYPE),
-        eq(labelAssignments.scopeId, access.spaceId),
-        eq(labelAssignments.labelId, label.id),
-        eq(labelAssignments.resourceType, "session"),
-        sql`${labelAssignments.resourceRef} = ${spaceSessions.id}::text`,
-      ))
-      .where(and(
-        eq(spaceSessions.spaceId, access.spaceId),
-        buildSessionActivityItemsCursorCondition(cursor),
-      ))
-      .orderBy(sql`${spaceSessions.lastMessageAt} desc nulls last`, desc(spaceSessions.id))
-      .limit(limit + 1);
-    const pageRows = rows.slice(0, limit);
-    const lastRow = pageRows.at(-1);
-    const nextCursor = rows.length > limit && lastRow ? encodeSessionActivityItemsCursor({ lastMessageAt: lastRow.lastMessageAt, sessionId: lastRow.sessionId }) : null;
-    return c.json({ items: await hydrateAssignments(access.spaceId, pageRows.map((row) => row.assignment)), pageInfo: { hasMore: Boolean(nextCursor), nextCursor } });
+    const page = await listVisibleSystemLabelItems({
+      spaceId: access.spaceId,
+      user: access.user,
+      labelId: label.id,
+      limit,
+      cursor: cursor?.type === "sessionActivity" ? cursor : null,
+    });
+    return c.json(page);
   }
   if (cursor?.type === "sessionActivity") return c.json({ message: "invalid cursor" }, 400);
-  const rows = await db
-    .select()
-    .from(labelAssignments)
-    .where(and(
-      eq(labelAssignments.scopeType, SCOPE_TYPE),
-      eq(labelAssignments.scopeId, access.spaceId),
-      eq(labelAssignments.labelId, label.id),
-      buildManualItemsCursorCondition(cursor),
-    ))
-    .orderBy(sql`${labelAssignments.rank} desc nulls last`, desc(labelAssignments.createdAt), desc(labelAssignments.id))
-    .limit(limit + 1);
-  const pageRows = rows.slice(0, limit);
-  const lastRow = pageRows.at(-1);
-  const nextCursor = rows.length > limit && lastRow ? encodeManualItemsCursor(lastRow) : null;
-  return c.json({ items: await hydrateAssignments(access.spaceId, pageRows), pageInfo: { hasMore: Boolean(nextCursor), nextCursor } });
+  const page = await listVisibleManualLabelItems({
+    spaceId: access.spaceId,
+    user: access.user,
+    labelId: label.id,
+    limit,
+    cursor: cursor?.type === "manual" ? cursor : null,
+  });
+  return c.json(page);
 });
 
 router.post("/attach", async (c) => {

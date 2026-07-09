@@ -55,7 +55,7 @@ import { dispatchTurnUpdated } from "../../session-output.js";
 import { enqueueAgentTurnJob } from "../../agent-turn-queue.js";
 import { requestAgentTurnAbort } from "../../agent-turn-abort.js";
 import { dispatchLabelAssignmentsUpdated } from "../../realtime-events.js";
-import { listSessionForksForSessions } from "../../session-forks.js";
+import { listSessionForksForSessions, redactSessionForksForViewer } from "../../session-forks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
 import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
 import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput } from "../../space-mods.js";
@@ -2072,22 +2072,10 @@ router.get("/:id/sessions", async (c) => {
 
   const includeForks = c.req.query("includeForks") === "1" || c.req.query("includeForks") === "true";
   const forks = includeForks
-    ? (await listSessionForksForSessions(visibleSessions.map((session) => session.id))).map((fork) => {
-      if (isMember) return fork;
-      const visibleSessionIds = new Set(visibleSessions.map((session) => session.id));
-      const parentVisible = visibleSessionIds.has(fork.parentSessionId);
-      return {
-        id: fork.id,
-        spaceId: fork.spaceId,
-        childSessionId: fork.childSessionId,
-        parentSessionId: parentVisible ? fork.parentSessionId : null,
-        depth: fork.depth,
-        anchorSequence: fork.anchorSequence,
-        createdAt: fork.createdAt,
-        firstUserTextAfterFork: fork.firstUserTextAfterFork,
-        parentTitle: parentVisible ? fork.parentTitle : null,
-      };
-    })
+    ? redactSessionForksForViewer(
+      await listSessionForksForSessions(visibleSessions.map((session) => session.id)),
+      { isMember, visibleSessionIds: visibleSessions.map((session) => session.id) },
+    )
     : undefined;
 
   return c.json({ sessions: hydratedSessions, ...(forks ? { forks } : {}), pageInfo });

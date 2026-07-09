@@ -2,8 +2,10 @@ import type {
 	LabelAssignmentListItem,
 	LabelAssignmentPageInfo,
 	LabelAssignmentRecord,
+	LabelItemsResponse,
 	LabelListItem,
 	LabelResourceType,
+	SessionRecord,
 } from "@neta-art/cohub";
 import { labelItemsRepo } from "$lib/cache/repositories/label-items-repo";
 import { labelTreeRepo } from "$lib/cache/repositories/label-tree-repo";
@@ -307,7 +309,12 @@ export async function fetchLabelItemsFirstPageFresh(
 ) {
 	const ref = labelRef ?? (await getLabelRefById(spaceId, labelId));
 	if (!ref)
-		return { items: [], pageInfo: { hasMore: false, nextCursor: null } };
+		return {
+			items: [] as LabelAssignmentListItem[],
+			pageInfo: { hasMore: false, nextCursor: null },
+			sessions: [] as SessionRecord[],
+			forks: [] as NonNullable<LabelItemsResponse["forks"]>,
+		};
 	const snapshot = await labelItemsRepo.refreshFirstPage(
 		spaceId,
 		labelId,
@@ -319,10 +326,17 @@ export async function fetchLabelItemsFirstPageFresh(
 			return {
 				items: result.items ?? [],
 				pageInfo: result.pageInfo,
+				sessions: result.sessions ?? [],
+				forks: result.forks ?? [],
 			};
 		},
 	);
-	return { items: snapshot.items, pageInfo: snapshot.pageInfo };
+	return {
+		items: snapshot.items,
+		pageInfo: snapshot.pageInfo,
+		sessions: snapshot.sessions,
+		forks: snapshot.forks,
+	};
 }
 
 export async function setCachedLabelItemsFirstPage(
@@ -331,6 +345,8 @@ export async function setCachedLabelItemsFirstPage(
 	input: {
 		items: LabelAssignmentListItem[];
 		pageInfo?: LabelAssignmentPageInfo | null;
+		sessions?: SessionRecord[] | null;
+		forks?: LabelItemsResponse["forks"] | null;
 	},
 ) {
 	return labelItemsRepo.setFirstPage(spaceId, labelId, input);
