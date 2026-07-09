@@ -6,6 +6,7 @@ import type {
   QQChannelConfig,
 } from "@cohub/protocol/gateway";
 import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
+import { extractMediaLinks, normalizeMediaUrl } from "./media-links.js";
 
 const FENCE_LINE_RE = /^( {0,3})(`{3,}|~{3,})/;
 
@@ -254,6 +255,7 @@ export const buildFeishuDeliveryPlan = async (
   }
 
   const { keys: imageKeys, imagesToUpload } = extractFeishuImages(cmd.content);
+  const mediaItems = isFinal ? extractMediaLinks(cmd.content, { maxItems: 6 }) : [];
 
   if (renderMode === "card") {
     return {
@@ -270,6 +272,7 @@ export const buildFeishuDeliveryPlan = async (
       }),
       imageKeys,
       imagesToUpload,
+      mediaItems,
       replyToExternalMessageId: cmd.replyToExternalMessageId,
       turnAnchorMessageId:
         output?.type === "session.turn.patch"
@@ -291,6 +294,7 @@ export const buildFeishuDeliveryPlan = async (
     }),
     imageKeys,
     imagesToUpload,
+    mediaItems,
     replyToExternalMessageId: cmd.replyToExternalMessageId,
     turnAnchorMessageId:
       output?.type === "session.turn.patch"
@@ -310,16 +314,19 @@ const inferQQMediaKind = (mediaType: string | undefined, fallback: "image" | "fi
 
 const extractQQTextAndMedia = (content: ContentBlock[]) => {
   const textParts: string[] = [];
-  const mediaItems: Extract<GatewayDeliveryPlan, { adapter: "qq" }>["mediaItems"] = [];
+  const mediaItems: Extract<GatewayDeliveryPlan, { adapter: "qq" }>["mediaItems"] = extractMediaLinks(content, { maxItems: 6 });
+  const mediaUrls = new Set(mediaItems.map((item) => item.source.type === "url" ? normalizeMediaUrl(item.source.url) : null).filter((url): url is string => Boolean(url)));
   for (const block of content) {
     if (block.type === "text") textParts.push(block.text);
     if (block.type === "system_note") textParts.push(`ℹ️ ${block.text}`);
     if (block.type === "image") {
+      if (block.source.type === "url" && mediaUrls.has(normalizeMediaUrl(block.source.url))) continue;
       const mediaType = block.source.type === "base64" ? block.source.media_type : undefined;
       mediaItems.push({
         kind: inferQQMediaKind(mediaType, "image"),
         source: block.source,
         filename: typeof block._meta?.filename === "string" ? block._meta.filename : undefined,
+        mediaType,
       });
     }
   }

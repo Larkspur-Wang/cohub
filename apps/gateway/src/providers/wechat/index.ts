@@ -27,6 +27,8 @@ import {
   type WeChatMessageItem,
 } from "./types.js";
 import { WECHAT_INBOUND_IMAGE_MAX_COUNT, downloadImageItem, uploadImageContentBlock } from "./media/image.js";
+import { extractMediaLinks, normalizeMediaUrl } from "../../media-links.js";
+import { uploadWeChatMediaItem } from "./media/upload.js";
 import { renderWeChatText } from "./media/text.js";
 import { buildUploadedFileReferencesBlock, buildUploadedImageReferencesBlock, requestGatewayAttachmentPlan, uploadPlannedFileAttachments, uploadPlannedImageAttachment } from "./media/attachments.js";
 import { WECHAT_INBOUND_FILE_MAX_COUNT, downloadAttachmentItem } from "./media/file.js";
@@ -160,9 +162,11 @@ export class WeChatProvider implements GatewayProvider {
       return { success: true };
     }
 
+    const isFinal = output?.type === "session.message.persisted";
     const text = output?.type === "session.turn.error" ? renderWeChatText(output.error) : renderOutboundText(cmd.content);
     const images = output?.type === "session.turn.error" ? [] : outboundImages(cmd.content);
-    if (!text && images.length === 0) return { success: true };
+    const mediaItems = output?.type === "session.turn.error" || !isFinal ? [] : extractMediaLinks(cmd.content, { maxItems: 6 });
+    if (!text && images.length === 0 && mediaItems.length === 0) return { success: true };
 
     const contextToken = await getWeChatContextToken(this.channelId, externalChatId);
     let lastExternalMessageId: string | undefined;
@@ -208,8 +212,41 @@ export class WeChatProvider implements GatewayProvider {
       }
     }
 
-    return imageFailures > 0
-      ? { success: Boolean(lastExternalMessageId), error: `${imageFailures} WeChat image(s) failed`, externalMessageId: lastExternalMessageId }
+    let mediaFailures = 0;
+    for (const item of mediaItems) {
+      const mediaUrl = item.source.type === "url" ? normalizeMediaUrl(item.source.url) : null;
+      if (item.kind === "image" && mediaUrl && images.some((image) => image.source.type === "url" && normalizeMediaUrl(image.source.url) === mediaUrl)) continue;
+      try {
+        const messageItem = await uploadWeChatMediaItem({
+          item,
+          baseUrl: this.credentials.baseUrl,
+          cdnBaseUrl: this.credentials.cdnBaseUrl,
+          token: this.credentials.token,
+          to: externalChatId,
+        });
+        const result = await sendWeChatMessageItems({
+          baseUrl: this.credentials.baseUrl,
+          token: this.credentials.token,
+          to: externalChatId,
+          items: [messageItem],
+          contextToken,
+          label: `wechat send${item.kind}`,
+        });
+        lastExternalMessageId = result.externalMessageId;
+        await updateWeChatStatus(this.channelId, { lastOutboundAt: Date.now() });
+      } catch (error) {
+        mediaFailures += 1;
+        logger.warn(`[WeChat:${this.channelId}] outbound media failed`, error);
+        await updateWeChatStatus(this.channelId, {
+          lastErrorAt: Date.now(),
+          lastError: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const failures = imageFailures + mediaFailures;
+    return failures > 0
+      ? { success: Boolean(lastExternalMessageId), error: `${failures} WeChat media item(s) failed`, externalMessageId: lastExternalMessageId }
       : { success: true, externalMessageId: lastExternalMessageId };
   }
 

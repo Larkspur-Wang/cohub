@@ -2,12 +2,13 @@ import { createLogger } from "@cohub/infra/logging";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import { randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
-import type { FeishuChannelConfig, GatewayInboundEvent } from "@cohub/protocol/gateway";
+import type { FeishuChannelConfig, GatewayInboundEvent, GatewayMediaItem } from "@cohub/protocol/gateway";
 import type { PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 import type { GatewayProvider } from "../base.js";
 import { resolveChannelCommand } from "../../channel-commands.js";
 import { publishInboundEvent, } from "../../bus.js";
 import { getSpaceChannelConfig, getTurnMessageExternalRef, setTurnMessageExternalRef } from "../../redis.js";
+import { readResponseBufferLimited } from "../../limited-response.js";
 import { buildFeishuDeliveryPlan } from "../../session-output-planner.js";
 import {
   resolveReceiveIdType,
@@ -19,9 +20,12 @@ import {
   FEISHU_INBOUND_IMAGE_MAX_COUNT,
   readFeishuResourceBuffer,
 } from "./media.js";
+import { safeFetch } from "../wechat/media/url.js";
 
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
+const FEISHU_OUTBOUND_FILE_MAX_BYTES = 100 * 1024 * 1024;
+const FEISHU_OUTBOUND_BASE64_MAX_CHARS = Math.ceil(FEISHU_OUTBOUND_FILE_MAX_BYTES / 3) * 4 + 4;
 // Detect image MIME type from magic bytes (first 4 bytes)
 function detectMimeType(buffer: Buffer): string | null {
   if (buffer.length < 4) return null;
@@ -439,6 +443,52 @@ export class FeishuProvider implements GatewayProvider {
     }
   }
 
+  private async uploadFile(item: GatewayMediaItem): Promise<{ fileKey: string; msgType: "file" | "audio" | "media" } | null> {
+    try {
+      let buffer: Buffer;
+      let fileName = item.filename || "cohub-file";
+      if (item.source.type === "base64") {
+        if (item.source.data.length > FEISHU_OUTBOUND_BASE64_MAX_CHARS) throw new Error(`Feishu outbound media exceeds ${FEISHU_OUTBOUND_FILE_MAX_BYTES} bytes`);
+        buffer = Buffer.from(item.source.data, "base64");
+        if (buffer.length > FEISHU_OUTBOUND_FILE_MAX_BYTES) throw new Error(`Feishu outbound media exceeds ${FEISHU_OUTBOUND_FILE_MAX_BYTES} bytes`);
+        const ext = item.source.media_type.split("/")[1] || "bin";
+        if (!item.filename) fileName = `cohub-file.${ext}`;
+      } else {
+        const response = await safeFetch({ url: item.source.url, label: "feishu outbound media" });
+        if (!response.ok) {
+          logger.warn(`[Feishu:${this.channelId}] Failed to fetch media URL: ${item.source.url} (${response.status})`);
+          return null;
+        }
+        buffer = await readResponseBufferLimited(response, FEISHU_OUTBOUND_FILE_MAX_BYTES, "Feishu outbound media");
+      }
+      if (buffer.length === 0) return null;
+
+      const fileType = item.kind === "video" ? "mp4" : item.kind === "voice" ? "opus" : "stream";
+      const msgType = item.kind === "video" ? "media" : item.kind === "voice" ? "audio" : "file";
+      // biome-ignore lint/suspicious/noExplicitAny: Lark SDK upload API is not fully typed
+      const uploadResult = await (this.client as any).request({
+        method: "POST",
+        url: "/open-apis/im/v1/files",
+        data: { file_type: fileType, file_name: fileName },
+        formData: {
+          file: {
+            value: buffer,
+            options: { filename: fileName, contentType: item.mediaType },
+          },
+        },
+      });
+
+      if (uploadResult.code === 0 && uploadResult.data?.file_key) {
+        return { fileKey: uploadResult.data.file_key as string, msgType };
+      }
+      logger.warn(`[Feishu:${this.channelId}] File upload failed:`, JSON.stringify(uploadResult).slice(0, 200));
+      return null;
+    } catch (err) {
+      logger.warn(`[Feishu:${this.channelId}] File upload error:`, err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }
+
   // Download image from Feishu by image_key and return as base64 ContentBlock.
   // Returns null on failure — caller decides whether to use a text fallback.
   private async downloadImageBlock(imageKey: string, messageId: string): Promise<ContentBlock | null> {
@@ -694,6 +744,7 @@ export class FeishuProvider implements GatewayProvider {
         }
       }
       const allImageKeys = [...imageKeys, ...uploadedImageKeys];
+      const extraMediaItems = (plan.mediaItems ?? []).filter((item) => item.kind !== "image");
 
       const editExternalMessageId = plan.preferredEditExternalMessageId?.trim();
       const turnAnchorMessageId = plan.turnAnchorMessageId?.trim();
@@ -755,9 +806,8 @@ export class FeishuProvider implements GatewayProvider {
         await setTurnMessageExternalRef(this.channelId, turnAnchorMessageId, messageId).catch(() => {});
       }
 
-      // Send images as separate messages after the card/text (Feishu doesn't support inline images)
-      const imageSendErrors: string[] = [];
-      if (allImageKeys.length > 0 && messageId) {
+      const mediaSendErrors: string[] = [];
+      if (messageId) {
         for (const imgKey of allImageKeys) {
           try {
             await this.client.im.message.create({
@@ -771,7 +821,29 @@ export class FeishuProvider implements GatewayProvider {
           } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
             logger.error(`[Feishu:${this.channelId}] ✗ Failed to send image ${imgKey}:`, errMsg);
-            imageSendErrors.push(imgKey);
+            mediaSendErrors.push(imgKey);
+          }
+        }
+
+        for (const item of extraMediaItems) {
+          const uploaded = await this.uploadFile(item);
+          if (!uploaded) {
+            mediaSendErrors.push(item.filename ?? item.kind);
+            continue;
+          }
+          try {
+            await this.client.im.message.create({
+              params: { receive_id_type: receiveIdType as "chat_id" | "open_id" | "user_id" },
+              data: {
+                receive_id: cmd.externalChatId,
+                msg_type: uploaded.msgType,
+                content: JSON.stringify({ file_key: uploaded.fileKey }),
+              },
+            });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            logger.error(`[Feishu:${this.channelId}] ✗ Failed to send media ${uploaded.fileKey}:`, errMsg);
+            mediaSendErrors.push(uploaded.fileKey);
           }
         }
       }

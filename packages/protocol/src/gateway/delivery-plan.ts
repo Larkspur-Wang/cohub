@@ -11,6 +11,15 @@ export interface DiscordDeliveryPlan {
   preferredEditExternalMessageId?: string | null;
 }
 
+export type GatewayMediaKind = "image" | "voice" | "video" | "file";
+
+export interface GatewayMediaItem {
+  kind: GatewayMediaKind;
+  source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string };
+  filename?: string;
+  mediaType?: string;
+}
+
 export interface FeishuImageToUpload {
   source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string };
 }
@@ -25,18 +34,14 @@ export interface FeishuDeliveryPlan {
   imageKeys: string[];
   /** Images that must be uploaded to Feishu first to obtain an image_key. */
   imagesToUpload: FeishuImageToUpload[];
+  mediaItems?: GatewayMediaItem[];
   replyToExternalMessageId?: string;
   turnAnchorMessageId?: string | null;
   preferredEditExternalMessageId?: string | null;
 }
 
-export type QQMediaKind = "image" | "voice" | "video" | "file";
-
-export interface QQMediaItem {
-  kind: QQMediaKind;
-  source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string };
-  filename?: string;
-}
+export type QQMediaKind = GatewayMediaKind;
+export type QQMediaItem = GatewayMediaItem;
 
 export interface QQDeliveryPlan {
   adapter: "qq";
