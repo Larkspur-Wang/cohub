@@ -26,6 +26,7 @@ const router = new Hono();
 
 router.post("/:id/turns/:turnId/fork", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const sessionId = c.req.param("id");
   const turnId = c.req.param("turnId");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
@@ -113,6 +114,7 @@ router.get("/:id", async (c) => {
 
 router.patch("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 
@@ -365,6 +367,7 @@ router.get("/:id/messages/:messageId", async (c) => {
 
 router.post("/:id/abort", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 

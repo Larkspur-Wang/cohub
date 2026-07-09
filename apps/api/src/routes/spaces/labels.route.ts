@@ -95,6 +95,7 @@ function buildLabelTree(rows: Array<typeof labels.$inferSelect>) {
 
 async function requireSpacePermission(c: Context, permission: Parameters<typeof hasPermission>[1]) {
   const user = permission === "space.label.view" ? getOptionalAuth(c) : useAuth(c);
+  if (user instanceof Response) return { error: user };
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return { error: c.json({ message: "space not found" }, 404) };
   if (!(await hasPermission(user, permission, { spaceId }))) return { error: authzDenied(c) };

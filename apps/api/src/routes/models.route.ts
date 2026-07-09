@@ -118,6 +118,7 @@ router.get("/", async (c) => {
   // Hono's onError handler (returns 401) instead of being mis-reported
   // as a catalog loading failure.
   const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   try {
     const modelType = c.req.query("modelType");

@@ -48,6 +48,7 @@ function generationBillingBlocked(c: Context, error: BillingAccessBlockedError) 
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const parsed = createGenerationTaskRequestSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     return generationError(c, 400, "invalid_generation_request", "Invalid generation request.", zodDetails(parsed.error));

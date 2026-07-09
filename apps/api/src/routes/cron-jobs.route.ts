@@ -63,7 +63,7 @@ async function authorizeCronJobView(user: ReturnType<typeof getOptionalAuth>, jo
   return !!user && job.userUuid === user.uuid;
 }
 
-async function authorizeCronJobManage(user: ReturnType<typeof useAuth>, job: CronJobAuthSubject) {
+async function authorizeCronJobManage(user: Exclude<ReturnType<typeof useAuth>, Response>, job: CronJobAuthSubject) {
   if (job.spaceId) return hasPermission(user, "cronjob.manage", { spaceId: job.spaceId, sessionId: job.sessionId ?? undefined });
   return job.userUuid === user.uuid;
 }
@@ -104,6 +104,7 @@ function buildTaskCursor(run: { createdAt: Date | string | null; id: string } | 
 router.get("/", async (c) => {
   const spaceId = c.req.query("spaceId") ?? null;
   const user = spaceId ? getOptionalAuth(c) : useAuth(c);
+  if (user instanceof Response) return user;
   const userId = user?.uuid;
 
   if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);
@@ -188,6 +189,7 @@ router.get("/:id/runs", async (c) => {
 
 router.delete("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   const cronJobId = c.req.param("id");
   if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);
@@ -212,6 +214,7 @@ router.delete("/:id", async (c) => {
 
 router.patch("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   const cronJobId = c.req.param("id");
   if (!requireValidId(cronJobId)) return c.json({ message: "not found" }, 404);

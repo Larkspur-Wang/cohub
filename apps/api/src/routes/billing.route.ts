@@ -75,6 +75,7 @@ function resolveBillingFeatureKey(value: string): CohubBillingFeatureKey | null 
 
 router.get("/credits", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const resolved = resolveTokenType(c.req.query("tokenType"));
   if ("error" in resolved) return c.json({ message: resolved.error }, 400);
   const credit = await billingOperations.getCreditStatus({
@@ -86,6 +87,7 @@ router.get("/credits", async (c) => {
 
 router.get("/balance-activities", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const resolved = resolveTokenType(c.req.query("tokenType"));
   if ("error" in resolved) return c.json({ message: resolved.error }, 400);
   const activities = await billingOperations.listBalanceActivities({
@@ -112,6 +114,7 @@ router.get("/catalog", async (c) => {
 
 router.get("/features/:featureKey", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const featureKey = resolveBillingFeatureKey(c.req.param("featureKey"));
   if (!featureKey) return c.json({ message: "unsupported billing feature" }, 400);
   try {
@@ -128,6 +131,7 @@ router.get("/features/:featureKey", async (c) => {
 
 router.get("/subscriptions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     const subscriptions = await billingOperations.listSubscriptions({
       userId: user.uuid,
@@ -143,6 +147,7 @@ router.get("/subscriptions", async (c) => {
 
 router.post("/orders", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     const body = await readCheckoutBody(c);
     const productKey =
@@ -164,6 +169,7 @@ router.post("/orders", async (c) => {
 
 router.post("/subscriptions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     const body = await readCheckoutBody(c);
     const productKey =
@@ -185,6 +191,7 @@ router.post("/subscriptions", async (c) => {
 
 router.delete("/subscriptions/:subscriptionId/checkout", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     const subscription = await billingOperations.cancelSubscriptionCheckout({
       userId: user.uuid,
@@ -199,6 +206,7 @@ router.delete("/subscriptions/:subscriptionId/checkout", async (c) => {
 
 router.patch("/subscriptions/:subscriptionId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     const body = await readCheckoutBody(c);
     if ((body as { cancelAtPeriodEnd?: unknown }).cancelAtPeriodEnd !== true) {
@@ -217,6 +225,7 @@ router.patch("/subscriptions/:subscriptionId", async (c) => {
 
 router.post("/redemptions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     const body = await readCheckoutBody(c);
     const code = parseRedemptionCode((body as { code?: unknown }).code);

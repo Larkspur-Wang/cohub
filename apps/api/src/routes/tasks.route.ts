@@ -113,6 +113,7 @@ router.get("/", async (c) => {
   const limitParam = Number(c.req.query("limit") ?? 50);
   const limit = Number.isFinite(limitParam) ? Math.min(Math.max(Math.floor(limitParam), 1), 100) : 50;
   const user = spaceId ? getOptionalAuth(c) : useAuth(c);
+  if (user instanceof Response) return user;
   const userId = user?.uuid;
 
   if (spaceId && !requireValidId(spaceId)) return c.json({ message: "invalid spaceId" }, 400);

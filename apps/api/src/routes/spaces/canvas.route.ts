@@ -37,6 +37,7 @@ async function loadDocumentForSpace(spaceId: string, documentId: string) {
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
@@ -141,6 +142,7 @@ router.get("/:documentId/bootstrap", async (c) => {
 
 router.post("/:documentId/ops", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const documentId = c.req.param("documentId");
   if (!spaceId || !documentId || !requireValidId(spaceId) || !requireValidId(documentId)) return c.json({ message: "canvas not found" }, 404);

@@ -25,6 +25,7 @@ const router = new Hono();
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -85,6 +86,7 @@ router.post("/", async (c) => {
 
 router.get("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -128,6 +130,7 @@ router.get("/", async (c) => {
 
 router.delete("/:token", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const token = c.req.param("token");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);

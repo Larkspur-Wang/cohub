@@ -89,6 +89,7 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
 
 router.get("/works/:id/commerce/entitlements", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const workId = c.req.param("id");
   if (!requireValidId(workId)) return c.json({ message: "work not found" }, 404);
   const resolved = await getPublishedWorkOrDeny(workId, user.uuid);
@@ -120,6 +121,7 @@ router.get("/works/:id/commerce/entitlements", async (c) => {
 
 router.post("/works/:id/commerce/credits/consume", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const workId = c.req.param("id");
   if (!requireValidId(workId)) return c.json({ message: "work not found" }, 404);
   const resolved = await getPublishedWorkOrDeny(workId, user.uuid);
@@ -172,6 +174,7 @@ router.post("/works/:id/commerce/credits/consume", async (c) => {
 
 router.post("/works/:id/commerce/purchase", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const workId = c.req.param("id");
   if (!requireValidId(workId)) return c.json({ message: "work not found" }, 404);
   const resolved = await getPublishedWorkOrDeny(workId, user.uuid);
@@ -226,6 +229,7 @@ router.post("/works/:id/commerce/purchase", async (c) => {
 
 router.get("/works/:id/commerce/orders/:orderId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const workId = c.req.param("id");
   const orderId = c.req.param("orderId");
   if (!requireValidId(workId)) return c.json({ message: "work not found" }, 404);

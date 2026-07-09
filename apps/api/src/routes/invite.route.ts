@@ -6,7 +6,6 @@ import { isRoleHigherThan } from "@cohub/core/permissions";
 import { and, eq } from "drizzle-orm";
 import { redisCommandClient } from "../redis.js";
 import { useAuth } from "../lib/middleware.js";
-import type { AuthUser } from "../lib/middleware.js";
 
 const INVITE_PREFIX = "invite";
 
@@ -63,9 +62,9 @@ router.get("/:token", async (c) => {
 // Accept an invitation (auth required)
 
 router.post("/:token/accept", async (c) => {
-  const authResult = useAuth(c) as AuthUser | Response;
-  if (authResult instanceof Response) return authResult;
-  const user = authResult as AuthUser;
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  if (user instanceof Response) return user;
 
   const token = c.req.param("token");
   const key = inviteKey(token);

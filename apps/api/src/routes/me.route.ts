@@ -64,12 +64,14 @@ async function readUserRules(userId: string) {
 
 router.get("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const profile = await ensureCurrentUserProfile(user);
   return c.json({ uuid: user.uuid, profile });
 });
 
 router.patch("/profile", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const body = await c.req.json<{ displayName?: unknown; avatarUrl?: unknown; username?: unknown }>().catch(() => ({} as { displayName?: unknown; avatarUrl?: unknown; username?: unknown }));
   const input: { displayName?: string; avatarUrl?: string | null; username?: string | null } = {};
 
@@ -130,6 +132,7 @@ router.patch("/profile", async (c) => {
 
 router.get("/rules", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   try {
     return c.json(await readUserRules(user.uuid));
   } catch {
@@ -139,6 +142,7 @@ router.get("/rules", async (c) => {
 
 router.get("/sessions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.session.list", { spaceId: "" }))) return authzDenied(c);
 
   const limitParam = Number(c.req.query("limit") ?? 20);
@@ -156,6 +160,7 @@ router.get("/sessions", async (c) => {
 
 router.get("/usage", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.usage.read", { spaceId: "" }))) return authzDenied(c);
 
   const days = resolveUsageDays(c.req.query("days"));

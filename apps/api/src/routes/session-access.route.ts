@@ -12,6 +12,7 @@ const ANONYMOUS_VALID_ROLES = new Set<AccessPolicyRole>(["guest", null]);
 
 router.get("/:id/access", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 
@@ -33,6 +34,7 @@ router.get("/:id/access", async (c) => {
 
 router.patch("/:id/access", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 
@@ -82,6 +84,7 @@ router.patch("/:id/access", async (c) => {
 
 router.delete("/:id/access", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const sessionId = c.req.param("id");
   if (!sessionId || !requireValidId(sessionId)) return c.json({ message: "session not found" }, 404);
 

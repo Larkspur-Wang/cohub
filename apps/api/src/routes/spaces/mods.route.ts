@@ -24,6 +24,7 @@ router.get("/", async (c) => {
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = getValidParam(c.req.param("id"));
   if (!spaceId) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
@@ -46,6 +47,7 @@ router.post("/", async (c) => {
 
 router.post("/reorder", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = getValidParam(c.req.param("id"));
   if (!spaceId) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "mod.manage", { spaceId }))) return authzDenied(c);
@@ -73,6 +75,7 @@ router.post("/reorder", async (c) => {
 
 router.patch("/:modId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = getValidParam(c.req.param("id"));
   const modId = getValidParam(c.req.param("modId"));
   if (!spaceId || !modId) return c.json({ message: "not found" }, 404);
@@ -105,6 +108,7 @@ router.patch("/:modId", async (c) => {
 
 router.delete("/:modId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = getValidParam(c.req.param("id"));
   const modId = getValidParam(c.req.param("modId"));
   if (!spaceId || !modId) return c.json({ message: "not found" }, 404);

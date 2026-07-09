@@ -17,7 +17,6 @@ import { verifyUserAccessToken } from "@cohub/identity";
 import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToken, type ExecutionAuthPrincipal } from "./auth.js";
 import { verifyPreviewSessionToken, type PreviewSessionPrincipal } from "./preview-sessions.js";
 import { verifyWorkSessionToken, type WorkSessionPrincipal } from "./work-sessions.js";
-import { UnauthorizedError } from "./lib/middleware.js";
 import { assertRequiredConfig, config } from "./config.js";
 
 import router from "./routes/index.js";
@@ -153,9 +152,6 @@ app.onError((error, c) => {
   setRequestContextAttributes(trace.getActiveSpan(), ids);
   applyTraceResponseHeaders(c.res.headers, ids);
 
-  if (error instanceof UnauthorizedError) {
-    return c.json({ message: error.message, requestId, traceId: ids.traceId }, 401);
-  }
   const path = c.req.path;
   const method = c.req.method;
   logger.error(`[API Error] ${method} ${path} requestId=${requestId} traceId=${ids.traceId ?? "none"}:`, serializeErrorForLog(error));

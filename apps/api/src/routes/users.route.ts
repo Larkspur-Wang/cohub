@@ -11,7 +11,8 @@ type BatchProfilesBody = {
 };
 
 router.post("/profiles/batch", async (c) => {
-  useAuth(c);
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   const body = await c.req.json<BatchProfilesBody>().catch(() => null);
   if (!body || !Array.isArray(body.userUuids)) {

@@ -150,6 +150,7 @@ function mapRow(row: SearchResultRow, profiles?: Awaited<ReturnType<typeof getPr
 
 router.get("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const q = normalizeQuery(c.req.query("q"));
   const escapedQ = escapeLikePattern(q);
   const limit = clampLimit(c.req.query("limit"));

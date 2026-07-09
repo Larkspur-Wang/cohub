@@ -549,6 +549,7 @@ function getSpaceProvisionParams(
 
 router.get("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
 
   const spaceIds = await listAccessibleSpaceIds(user);
@@ -567,6 +568,7 @@ router.get("/", async (c) => {
 
 router.get("/default", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
 
   const [[ownedHome], [memberHome]] = await Promise.all([
@@ -610,6 +612,7 @@ router.get("/default", async (c) => {
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   const body = (await c.req
     .json<{
@@ -1126,6 +1129,7 @@ router.get("/by-slug/:username/:slug", async (c) => {
 
 router.patch("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -1183,6 +1187,7 @@ router.patch("/:id", async (c) => {
 
 router.patch("/:id/profile", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -1240,6 +1245,7 @@ router.patch("/:id/profile", async (c) => {
 
 router.post("/:id/checkpoints", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -1438,6 +1444,7 @@ async function persistSpaceEnv(space: typeof spaces.$inferSelect, envs: Array<{ 
 
 router.get("/:id/env", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
@@ -1467,6 +1474,7 @@ const validateSpaceEnvForResponse = (envs: Array<{ name: string; value: string }
 
 router.post("/:id/env", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
@@ -1494,6 +1502,7 @@ router.post("/:id/env", async (c) => {
 
 router.put("/:id/env/:name", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const envName = c.req.param("name");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
@@ -1524,6 +1533,7 @@ router.put("/:id/env/:name", async (c) => {
 
 router.delete("/:id/env/:name", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const envName = c.req.param("name");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
@@ -1572,6 +1582,7 @@ router.get("/:id/config", async (c) => {
 
 router.patch("/:id/config", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId }))) return authzDenied(c);
@@ -1640,6 +1651,7 @@ router.get("/:id/sandbox/ports", async (c) => {
 
 router.post("/:id/sandbox/recreate", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "sandbox.manage", { spaceId }))) return authzDenied(c);
@@ -1661,6 +1673,7 @@ const MAX_COMMAND_LENGTH = 16 * 1024;
 
 router.post("/:id/commands", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "command.execute", { spaceId }))) return authzDenied(c);
@@ -1689,6 +1702,7 @@ router.post("/:id/commands", async (c) => {
 
 router.post("/:id/prompt", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
 
@@ -1898,6 +1912,7 @@ router.post("/:id/prompt", async (c) => {
 
 router.post("/:id/sessions/:sessionId/turns/:turnId/steer", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const sessionId = c.req.param("sessionId");
   const turnId = c.req.param("turnId");
@@ -1919,6 +1934,7 @@ router.post("/:id/sessions/:sessionId/turns/:turnId/steer", async (c) => {
 
 router.post("/:id/sessions/:sessionId/turns/:turnId/cancel", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const sessionId = c.req.param("sessionId");
   const turnId = c.req.param("turnId");
@@ -1939,6 +1955,7 @@ router.post("/:id/sessions/:sessionId/turns/:turnId/cancel", async (c) => {
 
 router.post("/:id/sessions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "session.prompt.fullaccess", { spaceId }))) return authzDenied(c);
@@ -2066,6 +2083,7 @@ router.get("/:id/channels", async (c) => {
 
 router.post("/:id/channels/:channelId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const channelId = c.req.param("channelId");
   if (!requireValidId(spaceId) || !requireValidId(channelId)) {
@@ -2110,6 +2128,7 @@ router.post("/:id/channels/:channelId", async (c) => {
 
 router.patch("/:id/channels/:channelId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const channelId = c.req.param("channelId");
   if (!requireValidId(spaceId) || !requireValidId(channelId)) {
@@ -2143,6 +2162,7 @@ router.patch("/:id/channels/:channelId", async (c) => {
 
 router.delete("/:id/channels/:channelId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const channelId = c.req.param("channelId");
   if (!requireValidId(spaceId) || !requireValidId(channelId)) {

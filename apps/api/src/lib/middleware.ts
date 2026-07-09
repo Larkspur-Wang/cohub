@@ -9,12 +9,6 @@ import type { WorkSessionPrincipal } from "../work-sessions.js";
 /** AuthUserProfile with guaranteed uuid (returned after auth checks pass). */
 export type AuthUser = AuthUserProfile & { uuid: string };
 
-export class UnauthorizedError extends Error {
-  override name = "UnauthorizedError";
-  constructor(message = "unauthorized") {
-    super(message);
-  }
-}
 export type RequestPrincipal =
   | { type: "user"; user: AuthUser }
   | { type: "execution"; execution: ExecutionAuthPrincipal }
@@ -77,25 +71,18 @@ export const requireValidId = (value: string | null | undefined) =>
 
 // ── Auth helpers ─────────────────────────────────────────────────────────────
 
-/**
- * Returns the authenticated user or a 401 JSON Response.
- * Callers should use `useAuth(c)` for a type-safe return.
- */
+/** Returns the authenticated user or a 401 JSON Response. */
 export const requireAuth = (c: Context): AuthUser | Response => {
   const user = getOptionalAuth(c);
   if (user) return user;
-  throw new UnauthorizedError();
+  return c.json({ message: "unauthorized" }, 401);
 };
 
 /**
- * Type-safe auth check: returns AuthUser directly.
- * If unauthenticated, the 401 Response is returned from the handler automatically.
- * Usage: `const user = useAuth(c);`
+ * Returns the authenticated user or a 401 JSON Response.
+ * Usage: `const user = useAuth(c); if (user instanceof Response) return user;`
  */
-export const useAuth = (c: Context): AuthUser => {
-  const result = requireAuth(c);
-  return result as AuthUser;
-};
+export const useAuth = (c: Context): AuthUser | Response => requireAuth(c);
 
 /**
  * Returns the authenticated user when present, otherwise null.

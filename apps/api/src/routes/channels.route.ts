@@ -144,6 +144,7 @@ async function pollWeChatQrStatus(qrcode: string, baseUrl = WECHAT_LOGIN_BASE_UR
 
 router.post("/wechat/login/start", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const body = (await c.req.json<{ name?: string }>().catch(() => ({}))) as { name?: string };
   const name = body.name?.trim() || "WeChat";
 
@@ -178,6 +179,7 @@ router.post("/wechat/login/start", async (c) => {
 
 router.post("/wechat/login/wait", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const body = (await c.req.json<{ sessionKey?: string; verifyCode?: string }>().catch(() => ({}))) as { sessionKey?: string; verifyCode?: string };
   const sessionKey = body.sessionKey?.trim();
   if (!sessionKey) return c.json({ message: "sessionKey is required" }, 400);
@@ -271,6 +273,7 @@ router.post("/wechat/login/wait", async (c) => {
 });
 router.get("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   const channels = await db
     .select()
@@ -306,6 +309,7 @@ router.get("/", async (c) => {
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
 
   const body = (await c.req
     .json<{ provider?: string; name?: string; credentials?: Record<string, unknown> }>()
@@ -339,6 +343,7 @@ router.post("/", async (c) => {
 
 router.delete("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const channelId = c.req.param("id");
   if (!requireValidId(channelId)) return c.json({ message: "channel not found" }, 404);
 

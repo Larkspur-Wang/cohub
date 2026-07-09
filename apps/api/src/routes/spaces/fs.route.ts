@@ -149,6 +149,7 @@ router.post("/files", async (c) => {
 
 router.put("/file", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
@@ -175,6 +176,7 @@ router.put("/file", async (c) => {
 
 router.post("/dir", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
@@ -196,6 +198,7 @@ router.post("/dir", async (c) => {
 
 router.delete("/node", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
@@ -217,6 +220,7 @@ router.delete("/node", async (c) => {
 
 router.post("/move", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
@@ -279,6 +283,7 @@ router.get("/download", async (c) => {
 
 router.post("/uploads", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
@@ -351,6 +356,7 @@ router.post("/uploads", async (c) => {
 
 router.post("/uploads/:uploadId/complete", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   const uploadId = c.req.param("uploadId");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
@@ -415,6 +421,7 @@ router.post("/uploads/:uploadId/complete", async (c) => {
 
 router.post("/upload", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("id");
   if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);

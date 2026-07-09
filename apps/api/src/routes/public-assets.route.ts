@@ -17,6 +17,7 @@ const router = new Hono();
 
 router.post("/uploads", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const body = await c.req.json<CreatePublicAssetUploadInput>().catch(() => null);
   if (!body || typeof body !== "object") return c.json({ message: "invalid body" }, 400);
   if (body.purpose !== "user_avatar" && body.purpose !== "space_avatar" && body.purpose !== "chat_attachment") {

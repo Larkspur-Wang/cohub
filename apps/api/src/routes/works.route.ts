@@ -264,6 +264,7 @@ router.get("/by-slug/:username/:spaceSlug/:workSlug", async (c) => {
 
 router.get("/space/:spaceId", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const spaceId = c.req.param("spaceId");
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
   if (!(await hasPermission(user, "space.view", { spaceId }))) return authzDenied(c);
@@ -302,6 +303,7 @@ router.get("/:id/public", async (c) => {
 
 router.get("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
@@ -330,6 +332,7 @@ router.get("/:id", async (c) => {
 
 router.post("/", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
   const spaceId = typeof body?.spaceId === "string" ? body.spaceId : "";
   if (!requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
@@ -543,6 +546,7 @@ async function publishWorkVersion(c: Context, current: typeof works.$inferSelect
 
 router.patch("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const current = await getWorkById(id);
@@ -555,6 +559,7 @@ router.patch("/:id", async (c) => {
 
 router.get("/:id/versions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
@@ -566,6 +571,7 @@ router.get("/:id/versions", async (c) => {
 
 router.post("/:id/versions", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
@@ -576,6 +582,7 @@ router.post("/:id/versions", async (c) => {
 
 router.delete("/:id", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
@@ -591,6 +598,7 @@ router.delete("/:id", async (c) => {
 
 router.post("/:id/session", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
@@ -607,6 +615,7 @@ router.post("/:id/session", async (c) => {
 
 router.post("/:id/authorize", async (c) => {
   const user = useAuth(c);
+  if (user instanceof Response) return user;
   const id = c.req.param("id");
   if (!requireValidId(id)) return c.json({ message: "work not found" }, 404);
   const work = await getWorkById(id);
