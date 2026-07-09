@@ -23,7 +23,20 @@ const MAX_DIR_ENTRIES = 1000;
 const GIT_TIMEOUT_MS = 3000;
 const GIT_TREE_MAX_BYTES = 2 * 1024 * 1024;
 const GIT_BLOB_MAX_BYTES = 20 * 1024 * 1024;
-const CACHE_TTL_SECONDS = 24 * 60 * 60;
+// Align with save-side externalization: fulltext git blobs are ≤4MB.
+const BLOB_CACHE_MAX_BYTES = 4 * 1024 * 1024;
+// Tree / asset pointer payloads are tiny; short fixed TTL is enough.
+const META_CACHE_TTL_SECONDS = 2 * 60 * 60;
+
+/** Size-tiered blob TTL. Returns null when the blob should not be cached. */
+function blobCacheTtlSeconds(bytes: number): number | null {
+  if (bytes > BLOB_CACHE_MAX_BYTES) return null;
+  if (bytes <= 16 * 1024) return 2 * 60 * 60; // ≤16KB → 2h
+  if (bytes <= 256 * 1024) return 60 * 60; // ≤256KB → 1h
+  if (bytes <= 1024 * 1024) return 30 * 60; // ≤1MB → 30m
+  return 15 * 60; // ≤4MB → 15m
+}
+
 export class CheckpointFsError extends Error {
   constructor(
     public status: number,
@@ -524,22 +537,31 @@ async function getCachedBlob(repoDir: string, checkpoint: CheckpointRecord, path
       (output) => ({ stdoutBytes: output.stdout.length, maxBytes: GIT_BLOB_MAX_BYTES }),
     )
     : await runGit(repoDir, ["show", gitObjectSpec(checkpoint.commitHash, path)], GIT_BLOB_MAX_BYTES);
+  const ttlSeconds = blobCacheTtlSeconds(result.stdout.length);
   if (observation) {
     await observeStage(
       observation,
       `${purpose}_cache_write`,
       "Redis blob cache is refreshed so later reads can avoid git show.",
       async () => {
+        if (ttlSeconds == null) return false;
         let written = true;
-        await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", CACHE_TTL_SECONDS).catch(() => {
+        await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", ttlSeconds).catch(() => {
           written = false;
         });
         return written;
       },
-      (written) => ({ cacheKind: "blob", cacheWritten: written, ttlSeconds: CACHE_TTL_SECONDS }),
+      (written) => ({
+        cacheKind: "blob",
+        cacheWritten: written,
+        cacheSkipped: ttlSeconds == null,
+        ttlSeconds,
+        blobBytes: result.stdout.length,
+        maxCacheBytes: BLOB_CACHE_MAX_BYTES,
+      }),
     );
-  } else {
-    await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
+  } else if (ttlSeconds != null) {
+    await redisCommandClient.set(key, encodeCachedBlob(result.stdout), "EX", ttlSeconds).catch(() => undefined);
   }
   return result.stdout;
 }
@@ -637,15 +659,15 @@ async function getAssetForPath(repoDir: string, checkpoint: CheckpointRecord, pa
       "Redis stores the asset pointer lookup result, including misses, for later reads.",
       async () => {
         let written = true;
-        await redisCommandClient.set(key, JSON.stringify(asset), "EX", CACHE_TTL_SECONDS).catch(() => {
+        await redisCommandClient.set(key, JSON.stringify(asset), "EX", META_CACHE_TTL_SECONDS).catch(() => {
           written = false;
         });
         return written;
       },
-      (written) => ({ cacheKind: "asset", cacheWritten: written, assetFound: Boolean(asset), ttlSeconds: CACHE_TTL_SECONDS }),
+      (written) => ({ cacheKind: "asset", cacheWritten: written, assetFound: Boolean(asset), ttlSeconds: META_CACHE_TTL_SECONDS }),
     );
   } else {
-    await redisCommandClient.set(key, JSON.stringify(asset), "EX", CACHE_TTL_SECONDS).catch(() => undefined);
+    await redisCommandClient.set(key, JSON.stringify(asset), "EX", META_CACHE_TTL_SECONDS).catch(() => undefined);
   }
   return asset;
 }
@@ -730,12 +752,12 @@ export async function listCheckpointDirectory(input: { spaceId: string; checkpoi
       "Redis tree cache stores the merged directory response for stable checkpoint browsing.",
       async () => {
         let written = true;
-        await redisCommandClient.set(key, JSON.stringify(response), "EX", CACHE_TTL_SECONDS).catch(() => {
+        await redisCommandClient.set(key, JSON.stringify(response), "EX", META_CACHE_TTL_SECONDS).catch(() => {
           written = false;
         });
         return written;
       },
-      (written) => ({ cacheKind: "tree", cacheWritten: written, ttlSeconds: CACHE_TTL_SECONDS, entryCount: response.entries.length }),
+      (written) => ({ cacheKind: "tree", cacheWritten: written, ttlSeconds: META_CACHE_TTL_SECONDS, entryCount: response.entries.length }),
     );
     observation.result = { delivery: "inline", entryCount: response.entries.length, cacheHit: false };
     return response;
