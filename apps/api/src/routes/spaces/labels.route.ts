@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { and, asc, count, desc, eq, inArray, isNull, max, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, lt, max, or, sql } from "drizzle-orm";
 import { checkpoints, labelAssignments, labels, spaceSessions } from "@cohub/db";
 import { listLabelsByRank, normalizeLabelName, parseLabelRef, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths, slugifyLabelName } from "@cohub/core/labels";
 import { db } from "../../db/index.js";
@@ -397,11 +397,11 @@ router.get("/items", async (c) => {
         eq(spaceSessions.spaceId, access.spaceId),
         ...(cursor ? [cursor.lastMessageAt
           ? or(
-            sql`${spaceSessions.lastMessageAt} < ${cursor.lastMessageAt}`,
+            lt(spaceSessions.lastMessageAt, cursor.lastMessageAt),
             isNull(spaceSessions.lastMessageAt),
-            and(eq(spaceSessions.lastMessageAt, cursor.lastMessageAt), sql`${spaceSessions.id} < ${cursor.sessionId}`),
+            and(eq(spaceSessions.lastMessageAt, cursor.lastMessageAt), lt(spaceSessions.id, cursor.sessionId)),
           )
-          : and(isNull(spaceSessions.lastMessageAt), sql`${spaceSessions.id} < ${cursor.sessionId}`)] : []),
+          : and(isNull(spaceSessions.lastMessageAt), lt(spaceSessions.id, cursor.sessionId))] : []),
       ))
       .orderBy(sql`${spaceSessions.lastMessageAt} desc nulls last`, desc(spaceSessions.id))
       .limit(limit + 1);
