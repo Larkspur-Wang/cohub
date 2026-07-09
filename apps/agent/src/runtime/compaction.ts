@@ -22,10 +22,34 @@ export type CompactionOutcome =
   | { compacted: true; summary: string; tokensBefore: number; firstKeptEntryId: string; archivePath: string | undefined; compactSequence: number }
   | { compacted: false; reason: string };
 
-const COMPACTION_SETTINGS = {
-  ...DEFAULT_COMPACTION_SETTINGS,
-  enabled: true,
-};
+/** Thrown when overflow recovery cannot free enough context (no empty LLM retry). */
+export class OverflowRecoveryError extends Error {
+  readonly reason: string;
+  constructor(reason: string) {
+    super(`Context overflow recovery failed: ${reason}`);
+    this.name = "OverflowRecoveryError";
+    this.reason = reason;
+  }
+}
+
+// Cap above pi default (16k). Scaled down for small windows so we never
+// reserve more than the whole context (which would compact on every turn).
+const RESERVE_TOKENS_CAP = 32_768;
+const RESERVE_TOKENS_RATIO = 0.25;
+
+/** Resolve reserveTokens for a model context window (exported for tests). */
+export function resolveReserveTokens(contextWindow: number): number {
+  if (contextWindow <= 0) return RESERVE_TOKENS_CAP;
+  return Math.min(RESERVE_TOKENS_CAP, Math.max(1, Math.floor(contextWindow * RESERVE_TOKENS_RATIO)));
+}
+
+function resolveCompactionSettings(contextWindow: number) {
+  return {
+    ...DEFAULT_COMPACTION_SETTINGS,
+    enabled: true,
+    reserveTokens: resolveReserveTokens(contextWindow),
+  };
+}
 
 function getAgentMessageTurnId(message: AgentMessage): string | null {
   const meta = (message as unknown as { meta?: unknown }).meta;
@@ -82,33 +106,35 @@ function getCompactableBranchEntries(handle: SessionHandle) {
  */
 export async function maybeAutoCompact(
   handle: SessionHandle,
-  input: { actorUserId: string | null; abortSignal?: AbortSignal },
+  input: { actorUserId: string | null; abortSignal?: AbortSignal; force?: boolean },
 ): Promise<CompactionOutcome> {
-  const settings = COMPACTION_SETTINGS;
-  if (!settings.enabled) return { compacted: false, reason: "disabled" };
-
   const model = handle.session.agent.state.model;
   const contextWindow = model.contextWindow ?? 0;
   if (!contextWindow) return { compacted: false, reason: "no_context_window" };
 
+  const settings = resolveCompactionSettings(contextWindow);
+  if (!settings.enabled) return { compacted: false, reason: "disabled" };
+
+  const force = input.force === true;
   const messages = handle.session.agent.state.messages;
   const tokenBudget = getContextTokenBudget(messages);
-  if (!tokenBudget) {
-    return { compacted: false, reason: "no_usage_data" };
+  if (!force) {
+    if (!tokenBudget) return { compacted: false, reason: "no_usage_data" };
+    if (!shouldCompact(tokenBudget.estimatedTokens, contextWindow, settings)) {
+      return { compacted: false, reason: "below_threshold" };
+    }
   }
 
-  if (!shouldCompact(tokenBudget.estimatedTokens, contextWindow, settings)) {
-    return { compacted: false, reason: "below_threshold" };
-  }
-
+  const tokensLabel = tokenBudget?.estimatedTokens ?? "unknown";
   logger.info(
-    `[Compaction] auto-compact triggered sessionId=${handle.sessionId} contextWindow=${contextWindow} tokens=${tokenBudget.estimatedTokens}`,
+    `[Compaction] ${force ? "overflow-compact" : "auto-compact"} triggered sessionId=${handle.sessionId} contextWindow=${contextWindow} reserve=${settings.reserveTokens} tokens=${tokensLabel}`,
   );
 
   const tracer = getAgentTracer();
   const outcome = await tracer.startActiveSpan("agent.compaction", async (span): Promise<CompactionOutcome> => {
     span.setAttribute("cohub.session_id", handle.sessionId);
     span.setAttribute("agent.context_window", contextWindow);
+    span.setAttribute("agent.compaction.force", force);
 
     try {
       // ── 1. Prepare & summarize ──
@@ -122,7 +148,10 @@ export async function maybeAutoCompact(
       if (!preparationValue) {
         return { compacted: false, reason: "nothing_to_compact" };
       }
-      const preparation = { ...preparationValue, tokensBefore: tokenBudget.accurateTokens };
+      const preparation = {
+        ...preparationValue,
+        tokensBefore: tokenBudget?.accurateTokens ?? preparationValue.tokensBefore,
+      };
       if (preparation.messagesToSummarize.length === 0) {
         // Nothing to summarize — the session is too small to benefit from compaction.
         return { compacted: false, reason: "nothing_to_summarize" };

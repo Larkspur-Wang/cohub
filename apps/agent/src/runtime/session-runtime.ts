@@ -2,7 +2,7 @@ import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn, ThinkingLeve
 import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { context, trace, type Span } from "@opentelemetry/api";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { logger } from "../logger.js";
 import { sendOutput } from "../redis.js";
 import type { SessionManager } from "./local-session-manager.js";
@@ -23,6 +23,8 @@ export type CohubAgentSession = {
   isStreaming: boolean;
   isRetrying: boolean;
   shouldDeferErrorPersistence(message: Record<string, unknown>): boolean;
+  /** Consume one-shot force-compact flag set after a context-overflow failure. */
+  consumePendingForcedCompaction(): boolean;
   prompt(text: string, options?: { images?: ImageContent[] }): Promise<void>;
   promptMessages(messages: AgentMessage[]): Promise<void>;
   steer(text: string, images?: ImageContent[]): Promise<void>;
@@ -80,8 +82,19 @@ function isEmptySuccessfulAssistantMessage(message: AssistantMessage | undefined
   return !hasAssistantContent(message);
 }
 
+/**
+ * Explicit context-window overflow (provider error). Silent / length-stop overflow
+ * is intentionally excluded so we never discard a successful-looking response.
+ */
+export function isContextOverflowFailure(message: AssistantMessage | undefined): boolean {
+  if (message?.stopReason !== "error" || !message.errorMessage) return false;
+  return isContextOverflow(message);
+}
+
 export function isRetryableAssistantFailure(message: AssistantMessage | undefined): boolean {
-  return isRetryableAssistantError(message) || isEmptySuccessfulAssistantMessage(message);
+  return isRetryableAssistantError(message)
+    || isEmptySuccessfulAssistantMessage(message)
+    || isContextOverflowFailure(message);
 }
 
 type AssistantRetryOutcome = {
@@ -89,6 +102,7 @@ type AssistantRetryOutcome = {
   retryAttempt: number;
   retryDelayMs?: number;
   retryReason?: string;
+  forceCompaction?: boolean;
 };
 
 function getAssistantRetryOutcome(message: AssistantMessage | undefined, retryAttempt: number): AssistantRetryOutcome {
@@ -96,13 +110,18 @@ function getAssistantRetryOutcome(message: AssistantMessage | undefined, retryAt
     return { shouldRetry: false, retryAttempt };
   }
 
+  const overflow = isContextOverflowFailure(message);
   return {
     shouldRetry: true,
     retryAttempt: retryAttempt + 1,
-    retryDelayMs: AGENT_RETRY_BASE_DELAY_MS * 2 ** retryAttempt,
-    retryReason: message?.stopReason === "error"
-      ? (message?.errorMessage ?? "assistant_error")
-      : "empty_assistant_message",
+    // Overflow recovery starts with force-compact; no backoff needed.
+    retryDelayMs: overflow ? 0 : AGENT_RETRY_BASE_DELAY_MS * 2 ** retryAttempt,
+    retryReason: overflow
+      ? "context_overflow"
+      : message?.stopReason === "error"
+        ? (message?.errorMessage ?? "assistant_error")
+        : "empty_assistant_message",
+    forceCompaction: overflow,
   };
 }
 
@@ -112,6 +131,7 @@ function recordAssistantRetrySpanAttributes(span: Span | undefined, outcome: Ass
   span.setAttribute("agent.retry.attempt", outcome.retryAttempt);
   if (outcome.retryDelayMs != null) span.setAttribute("agent.retry.delay_ms", outcome.retryDelayMs);
   if (outcome.retryReason) span.setAttribute("agent.retry.reason", outcome.retryReason);
+  if (outcome.forceCompaction) span.setAttribute("agent.retry.force_compaction", true);
 }
 
 function logAssistantRetry(sessionId: string, turnId: string | undefined, outcome: AssistantRetryOutcome) {
@@ -629,6 +649,8 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
   let retryInProgress = false;
   let retryRunPromise: Promise<void> | null = null;
   let retryContext: ToolExecutionContext | null = null;
+  let retryDelayMs = AGENT_RETRY_BASE_DELAY_MS;
+  let forcedCompactionPending = false;
 
   const clearRetryState = () => {
     retryAttempt = 0;
@@ -637,6 +659,8 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     retryRunPromise = null;
     retryCancelled = false;
     retryContext = null;
+    retryDelayMs = AGENT_RETRY_BASE_DELAY_MS;
+    forcedCompactionPending = false;
   };
 
   const getRecentMessageRoles = () => agent.state.messages.slice(-8).map((message) => message.role).join(",");
@@ -649,18 +673,18 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       while (retryPending) {
         const attempt = retryAttempt;
         const contextSnapshot = retryContext ?? getCurrentToolExecutionContext();
-        const delayMs = AGENT_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, attempt - 1);
+        const delayMs = retryDelayMs;
         retryPending = false;
         retryInProgress = true;
 
-        await sleep(delayMs);
+        if (delayMs > 0) await sleep(delayMs);
         if (retryCancelled) {
           clearRetryState();
           return;
         }
 
         const run = async () => {
-          logger.info(`[AgentRetry] continue:start sessionId=${getCurrentToolExecutionContext()?.sessionId ?? "unknown"} turnId=${getCurrentToolExecutionContext()?.turnId ?? "unknown"} attempt=${attempt} roles=${getRecentMessageRoles()}`);
+          logger.info(`[AgentRetry] continue:start sessionId=${getCurrentToolExecutionContext()?.sessionId ?? "unknown"} turnId=${getCurrentToolExecutionContext()?.turnId ?? "unknown"} attempt=${attempt} forceCompact=${forcedCompactionPending} roles=${getRecentMessageRoles()}`);
           await agent.continue();
           await agent.waitForIdle();
         };
@@ -727,8 +751,11 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     if (event.type === "agent_end" && lastAssistantMessage) {
       const assistantMessage = lastAssistantMessage;
       lastAssistantMessage = undefined;
-      if (AGENT_RETRY_ENABLED && isRetryableAssistantFailure(assistantMessage) && retryAttempt < AGENT_RETRY_MAX_RETRIES) {
-        retryAttempt += 1;
+      const retryOutcome = getAssistantRetryOutcome(assistantMessage, retryAttempt);
+      if (retryOutcome.shouldRetry) {
+        retryAttempt = retryOutcome.retryAttempt;
+        retryDelayMs = retryOutcome.retryDelayMs ?? AGENT_RETRY_BASE_DELAY_MS;
+        if (retryOutcome.forceCompaction) forcedCompactionPending = true;
         retryPending = true;
         const currentContext = getCurrentToolExecutionContext();
         retryContext = currentContext ? { ...currentContext } : retryContext;
@@ -761,6 +788,11 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       return AGENT_RETRY_ENABLED
         && isRetryableAssistantFailure(assistantMessage)
         && retryAttempt < AGENT_RETRY_MAX_RETRIES;
+    },
+    consumePendingForcedCompaction() {
+      if (!forcedCompactionPending) return false;
+      forcedCompactionPending = false;
+      return true;
     },
     async prompt(text, inputOptions) {
       await agent.prompt(text, inputOptions?.images);

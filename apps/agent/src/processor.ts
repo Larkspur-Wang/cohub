@@ -16,7 +16,7 @@ import { ensureSandboxConnection } from "./sandbox-pool.js";
 import { createSandboxCodingTools } from "./sandbox/tools.js";
 import { CohubModelRegistry } from "./runtime/model-registry.js";
 import { loadRuntimeModelsConfigs } from "./runtime/models-loader.js";
-import { maybeAutoCompact, type CompactionOutcome } from "./runtime/compaction.js";
+import { maybeAutoCompact, OverflowRecoveryError, type CompactionOutcome } from "./runtime/compaction.js";
 import { clearCurrentSessionExecutionAuth, setCurrentSessionExecutionAuth } from "./runtime/session-execution-auth.js";
 import { resolveSpaceFileVisibility } from "./runtime/cross-space-query-access.js";
 import { normalizeGenerationPolicy } from "@cohub/protocol/generation";
@@ -288,15 +288,24 @@ async function runWithRoundAutoCompaction<T>(
     if (!compacting) {
       compacting = true;
       try {
+        const force = handle.session.consumePendingForcedCompaction();
         const compactOutcome = await maybeAutoCompact(handle, {
           actorUserId: input.actorUserId,
           abortSignal: signal ?? input.abortSignal,
+          force,
         }).catch((error) => {
+          // Force path must surface failure so we don't empty-retry the same overflow.
+          if (force) throw error;
           logger.warn(`[Agent] auto-compact check failed sessionId=${handle.sessionId}:`, error);
           return { compacted: false, reason: "error" } as const;
         });
         if (compactOutcome.compacted) {
           input.onCompacted?.(compactOutcome);
+        } else if (force) {
+          logger.warn(
+            `[Agent] overflow-compact did not compact sessionId=${handle.sessionId} reason=${compactOutcome.reason}`,
+          );
+          throw new OverflowRecoveryError(compactOutcome.reason);
         }
       } finally {
         compacting = false;
