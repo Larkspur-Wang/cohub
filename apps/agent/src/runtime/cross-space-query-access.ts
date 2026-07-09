@@ -3,6 +3,7 @@ import { createDrizzlePermissionStore, hasPermission, scopeListHasPermission } f
 import { getPromptAuthScopes } from "@cohub/core/sessions";
 import { spaces } from "@cohub/db";
 import { db } from "../db.js";
+import { assertValidSpaceId } from "./ids.js";
 import type { AgentFileVisibility } from "./workspace-visibility.js";
 
 const permissionStore = createDrizzlePermissionStore(db);
@@ -20,14 +21,15 @@ export async function resolveSpaceFileVisibility(input: {
   spaceId: string;
   promptAuth?: unknown;
 }): Promise<AgentFileVisibility> {
-  const [space] = await db.select().from(spaces).where(eq(spaces.id, input.spaceId)).limit(1);
+  const spaceId = assertValidSpaceId(input.spaceId);
+  const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) throw new Error("Space not found.");
 
-  const promptAuthVisibility = visibilityFromPromptAuth(input.promptAuth, input.spaceId);
+  const promptAuthVisibility = visibilityFromPromptAuth(input.promptAuth, spaceId);
   if (promptAuthVisibility) return promptAuthVisibility;
 
   const user = { uuid: input.actorUserId };
-  const context = { spaceId: input.spaceId };
+  const context = { spaceId };
   const visibility = await hasPermission({ store: permissionStore, user, permission: "file.view", context })
     ? "full"
     : await hasPermission({ store: permissionStore, user, permission: "file.view.filtered", context })

@@ -1,10 +1,9 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { env } from "../env.js";
+import { assertValidSpaceId } from "./ids.js";
 import { getAgentWorkspacePath } from "./paths.js";
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SHORT_UUID_REGEX = /^[0-9a-f]{32}$/i;
 const WORKSPACE_PATH = "/workspace";
 
 export type WorkspaceScope = {
@@ -13,13 +12,7 @@ export type WorkspaceScope = {
   rootReal: string;
 };
 
-export function assertValidSpaceId(spaceId: string) {
-  const value = spaceId.trim();
-  if (!value || (!UUID_REGEX.test(value) && !SHORT_UUID_REGEX.test(value))) {
-    throw new Error(`Invalid space id: ${spaceId}`);
-  }
-  return value;
-}
+export { assertValidSpaceId };
 
 export function assertInsideRoot(target: string, root: string, message = "Path outside workspace is not allowed.") {
   const normalizedTarget = resolve(target);

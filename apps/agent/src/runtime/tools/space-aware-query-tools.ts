@@ -1,10 +1,11 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentTool, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext } from "../../tool-context.js";
+import { assertValidSpaceId, UUID_OR_SHORT_UUID_PATTERN } from "../ids.js";
 import type { AgentFileVisibility } from "../workspace-visibility.js";
 import { assertCrossSpaceQueryPathAllowed } from "./query-path-policy.js";
 
-const SPACE_ID_DESCRIPTION = "Only set when querying another space by id";
+const SPACE_ID_DESCRIPTION = "UUID of another space to query. Omit for the current space.";
 
 type AccessCheck = (spaceId: string) => Promise<AgentFileVisibility>;
 type SandboxProvider = "cloud" | "local";
@@ -20,8 +21,15 @@ type SpaceAwareToolOptions = {
 function getRequestedSpaceId(params: unknown) {
   if (!params || typeof params !== "object") return null;
   const value = (params as Record<string, unknown>).space_id;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? assertValidSpaceId(trimmed) : null;
 }
+
+const SPACE_ID_PARAMETER = Type.Optional(Type.String({
+  description: SPACE_ID_DESCRIPTION,
+  pattern: UUID_OR_SHORT_UUID_PATTERN,
+}));
 
 function getQueryPath(params: unknown) {
   if (!params || typeof params !== "object") return undefined;
@@ -76,7 +84,7 @@ export function createSpaceAwareReadTool(options: SpaceAwareToolOptions): AgentT
       path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
       offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
-      space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
+      space_id: SPACE_ID_PARAMETER,
     }),
     execute: routeExecute(options),
   };
@@ -88,7 +96,7 @@ export function createSpaceAwareLsTool(options: SpaceAwareToolOptions): AgentToo
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: "Directory to list (default: current directory)" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of entries to return (default: 500)" })),
-      space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
+      space_id: SPACE_ID_PARAMETER,
     }),
     execute: routeExecute(options),
   };
@@ -101,7 +109,7 @@ export function createSpaceAwareFindTool(options: SpaceAwareToolOptions): AgentT
       path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
       pattern: Type.String({ description: "Glob pattern to match files" }),
       limit: Type.Optional(Type.Number({ description: "Maximum number of results" })),
-      space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
+      space_id: SPACE_ID_PARAMETER,
     }),
     execute: routeExecute(options),
   };
@@ -118,7 +126,7 @@ export function createSpaceAwareGrepTool(options: SpaceAwareToolOptions): AgentT
       literal: Type.Optional(Type.Boolean({ description: "Treat pattern as literal string" })),
       context: Type.Optional(Type.Number({ description: "Context lines" })),
       limit: Type.Optional(Type.Number({ description: "Maximum number of matches" })),
-      space_id: Type.Optional(Type.String({ description: SPACE_ID_DESCRIPTION })),
+      space_id: SPACE_ID_PARAMETER,
     }),
     execute: routeExecute(options),
   };

@@ -19,9 +19,14 @@ function createStubTool(name: string): AgentTool {
   } as AgentTool;
 }
 
+const CURRENT_SPACE_ID = "11111111-1111-4111-8111-111111111111";
+const TARGET_SPACE_ID = "22222222-2222-4222-8222-222222222222";
+const SHORT_TARGET_SPACE_ID = "33333333333343338333333333333333";
+
 async function runReadTool(input: {
   targetProvider: "cloud" | "local";
   visibility?: AgentFileVisibility;
+  spaceId?: string;
 }) {
   const tool = createSpaceAwareReadTool({
     sandboxTool: createStubTool("sandbox"),
@@ -30,23 +35,33 @@ async function runReadTool(input: {
     resolveSandboxProvider: async () => input.targetProvider,
   });
 
-  return runWithToolExecutionContext({ spaceId: "space-a", sessionId: "session-a" }, () =>
-    tool.execute("tool-call-a", { path: "README.md", space_id: "space-b" }));
+  return runWithToolExecutionContext({ spaceId: CURRENT_SPACE_ID, sessionId: "session-a" }, () =>
+    tool.execute("tool-call-a", { path: "README.md", space_id: input.spaceId ?? TARGET_SPACE_ID }));
 }
 
 const cloudResult = await runReadTool({ targetProvider: "cloud" });
 assert.equal(cloudResult.content[0]?.type, "text");
 assert.equal(cloudResult.content[0]?.text, "pvc");
-assert.deepEqual(cloudResult.details, { params: { path: "README.md" }, spaceId: "space-b" });
+assert.deepEqual(cloudResult.details, { params: { path: "README.md" }, spaceId: TARGET_SPACE_ID });
 
 const localResult = await runReadTool({ targetProvider: "local" });
 assert.equal(localResult.content[0]?.type, "text");
 assert.equal(localResult.content[0]?.text, "sandbox");
-assert.deepEqual(localResult.details, { params: { path: "README.md" }, spaceId: "space-b" });
+assert.deepEqual(localResult.details, { params: { path: "README.md" }, spaceId: TARGET_SPACE_ID });
+
+const shortUuidResult = await runReadTool({ targetProvider: "cloud", spaceId: SHORT_TARGET_SPACE_ID });
+assert.equal(shortUuidResult.content[0]?.type, "text");
+assert.equal(shortUuidResult.content[0]?.text, "pvc");
+assert.deepEqual(shortUuidResult.details, { params: { path: "README.md" }, spaceId: SHORT_TARGET_SPACE_ID });
 
 await assert.rejects(
   runReadTool({ targetProvider: "local", visibility: "filtered" }),
   /Filtered file access is not available for local sandboxes\./,
+);
+
+await assert.rejects(
+  runReadTool({ targetProvider: "cloud", spaceId: "limit\u200b=30" }),
+  /Invalid space_id: expected a UUID/,
 );
 
 console.log("space-aware query tool routing checks passed");

@@ -1,23 +1,7 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { env } from "../env.js";
-
-// Standard UUID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-// Short UUID (no hyphens): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-const SHORT_UUID_REGEX = /^[0-9a-f]{32}$/i;
-
-function isValidId(value: string): boolean {
-  return UUID_REGEX.test(value) || SHORT_UUID_REGEX.test(value);
-}
-
-function assertValidUserId(userId: string) {
-  const value = userId.trim();
-  if (!isValidId(value)) {
-    throw new Error(`Invalid userId: ${userId}`);
-  }
-  return value;
-}
+import { assertValidUserId } from "./ids.js";
 
 export const SANDBOX_WORKSPACE_PATH = "/workspace";
 export const SANDBOX_PLATFORM_CONFIG_PATH = "/configs/platform";
