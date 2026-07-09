@@ -1,7 +1,7 @@
 /* --- Neta Studio Theme --- */
-/* Mirrors the live Neta Studio chat and gallery chrome: near-black glass
-   panels, cream active controls, soft cream hairlines, and only a small
-   teal accent from the et-sun skin. The screenshot's textured board is a
+/* Mirrors the live Neta Studio chat chrome: violet-black glass panels,
+   cream active controls, soft cream hairlines, and only a small teal status
+   accent from the et-sun skin. The screenshot's textured board is a
    background asset, so this theme approximates it through color tokens. */
 [data-theme="neta-studio"] {
 	color-scheme: dark;
@@ -34,7 +34,7 @@
 	--brand-700: rgba(236, 225, 210, 0.68);
 	--brand-800: rgba(236, 225, 210, 0.3);
 	--brand-900: rgba(236, 225, 210, 0.11);
-	--brand-bg: var(--studio-hover-bg, rgba(236, 225, 210, 0.11));
+	--brand-bg: rgba(246, 241, 231, 0.08);
 
 	/* Semantic colors — kept legible on graphite surfaces. */
 	--success-400: oklch(76% 0.11 150);
@@ -58,13 +58,13 @@
 	--info-700: color-mix(in srgb, #6ee1d8 72%, #050605);
 	--info-900: rgba(110, 225, 216, 0.16);
 
-	/* Backgrounds — et-sun shell + chat/detail glass. */
+	/* Backgrounds — chat/detail glass first, shell second. */
 	--bg-primary: #050605;
-	--bg-content: #0a0a0a;
-	--bg-surface: #131216;
+	--bg-content: #131216;
+	--bg-surface: #1f1d20;
 	--bg-surface-hover: #252325;
-	--bg-elevated: #252325;
-	--bg-input: #252325;
+	--bg-elevated: #2e2b34;
+	--bg-input: rgba(242, 237, 228, 0.065);
 	--bg-code: #050605;
 	--bg-header-alt: #0a0a0a;
 
@@ -99,8 +99,8 @@
 	--brand-soft: var(--brand-700);
 	--brand-contrast-fg: #050605;
 	--brand-muted-fg: var(--text-reading);
-	--brand-muted: rgba(236, 225, 210, 0.11);
-	--brand-muted-hover: rgba(236, 225, 210, 0.16);
+	--brand-muted: rgba(246, 241, 231, 0.08);
+	--brand-muted-hover: rgba(246, 241, 231, 0.11);
 	--brand-border: rgba(236, 225, 210, 0.26);
 
 	/* Overlays */
@@ -183,6 +183,7 @@
 	--mask-opaque: black;
 	--avatar-placeholder-bg: var(--bg-hover-strong);
 	--avatar-placeholder-fg: var(--text-placeholder);
+	--agent-user-message-bg: rgba(255, 255, 255, 0.08);
 
 	/* Data visualizations */
 	--heatmap-0: var(--bg-elevated);
@@ -190,4 +191,8 @@
 	--heatmap-2: color-mix(in srgb, var(--info-500) 55%, transparent);
 	--heatmap-3: color-mix(in srgb, var(--info-500) 75%, transparent);
 	--heatmap-4: color-mix(in srgb, var(--info-500) 95%, transparent);
+}
+
+[data-theme="neta-studio"] .bg-brand\/5 {
+	background-color: var(--agent-user-message-bg);
 }
