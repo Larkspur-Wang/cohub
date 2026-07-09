@@ -27,6 +27,7 @@ import type { MessageRecord } from "@cohub/protocol/model";
 export type {
   ChannelConfig,
   DiscordChannelConfig,
+  FeishuChannelConfig,
 } from "@cohub/protocol/gateway/types";
 
 export type ApiError = {

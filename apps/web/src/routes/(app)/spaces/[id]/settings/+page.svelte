@@ -6,6 +6,8 @@ import {
 } from "@cohub/protocol";
 import type {
 	Channel,
+	DiscordChannelConfig,
+	FeishuChannelConfig,
 	SandboxSpecId,
 	SpaceAccessPolicy,
 	SpaceChannelBindingRecord,
@@ -1073,31 +1075,74 @@ async function revokeInvite(token: string) {
 	}
 }
 
-async function saveChannelModel(
+async function saveChannelConfig(
 	binding: SpaceChannelBindingRecord,
-	model: { provider: string; id: string } | null,
+	config: NonNullable<SpaceChannelBindingRecord["config"]>,
+	errorMessage: string,
 ) {
 	if (!canManageSpaceChannels) return;
 	channelError = "";
 	savingChannelConfigIds = new Set(savingChannelConfigIds).add(binding.id);
 	try {
-		const nextConfig = { ...(binding.config ?? {}), model };
 		const updated = await sdk
 			.space(spaceId)
-			.channels.updateConfig(binding.channelId, nextConfig);
+			.channels.updateConfig(binding.channelId, config);
 		channels = channels.map((item) =>
 			item.id === binding.id
 				? { ...item, ...updated, channel: item.channel }
 				: item,
 		);
 	} catch (err) {
-		channelError =
-			err instanceof Error ? err.message : "Failed to save channel model";
+		channelError = err instanceof Error ? err.message : errorMessage;
 	} finally {
 		const next = new Set(savingChannelConfigIds);
 		next.delete(binding.id);
 		savingChannelConfigIds = next;
 	}
+}
+
+async function saveChannelModel(
+	binding: SpaceChannelBindingRecord,
+	model: { provider: string; id: string } | null,
+) {
+	const nextConfig = { ...(binding.config ?? {}), model };
+	await saveChannelConfig(binding, nextConfig, "Failed to save channel model");
+}
+
+async function saveDiscordRequireMention(
+	binding: SpaceChannelBindingRecord,
+	requireMentionInGuild: boolean,
+) {
+	const current = (binding.config ?? {}) as DiscordChannelConfig;
+	await saveChannelConfig(
+		binding,
+		{
+			...current,
+			inbound: {
+				...(current.inbound ?? {}),
+				requireMentionInGuild,
+			},
+		},
+		"Failed to save Discord mention setting",
+	);
+}
+
+async function saveFeishuRequireMention(
+	binding: SpaceChannelBindingRecord,
+	requireMentionInGroup: boolean,
+) {
+	const current = (binding.config ?? {}) as FeishuChannelConfig;
+	await saveChannelConfig(
+		binding,
+		{
+			...current,
+			inbound: {
+				...(current.inbound ?? {}),
+				requireMentionInGroup,
+			},
+		},
+		"Failed to save Feishu mention setting",
+	);
 }
 
 async function bindChannel() {
@@ -1615,6 +1660,31 @@ $effect(() => {
 												{/if}
 											</div>
 											<div class="mt-2"><ChannelModelPicker model={binding.config?.model ?? null} disabled={!canManageSpaceChannels} saving={savingChannelConfigIds.has(binding.id)} onSelect={(model) => saveChannelModel(binding, model)} /></div>
+											{#if binding.channel?.provider === "discord"}
+												{@const discordConfig = (binding.config ?? {}) as DiscordChannelConfig}
+												<label class="mt-2 flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-code px-2.5 py-2 text-[12px] text-text-secondary">
+													<input
+														type="checkbox"
+														checked={discordConfig.inbound?.requireMentionInGuild ?? true}
+														disabled={!canManageSpaceChannels || savingChannelConfigIds.has(binding.id)}
+														onchange={(event) => saveDiscordRequireMention(binding, event.currentTarget.checked)}
+														class="rounded-sm border-border-subtle bg-bg-input checked:bg-brand disabled:opacity-50"
+													/>
+													<span class="min-w-0">Require @mention in Discord server channels</span>
+												</label>
+											{:else if binding.channel?.provider === "feishu"}
+												{@const feishuConfig = (binding.config ?? {}) as FeishuChannelConfig}
+												<label class="mt-2 flex items-center gap-2 rounded-[5px] border border-border-subtle bg-bg-code px-2.5 py-2 text-[12px] text-text-secondary">
+													<input
+														type="checkbox"
+														checked={feishuConfig.inbound?.requireMentionInGroup ?? true}
+														disabled={!canManageSpaceChannels || savingChannelConfigIds.has(binding.id)}
+														onchange={(event) => saveFeishuRequireMention(binding, event.currentTarget.checked)}
+														class="rounded-sm border-border-subtle bg-bg-input checked:bg-brand disabled:opacity-50"
+													/>
+													<span class="min-w-0">Require @mention in Feishu groups</span>
+												</label>
+											{/if}
 										</div>
 									{:else}
 										<div class="px-3 py-4 text-center text-[12px] text-text-tertiary">No channels bound. <a href="/settings/channels" class="text-text-secondary underline underline-offset-2 hover:text-text-primary">Manage channels</a></div>
