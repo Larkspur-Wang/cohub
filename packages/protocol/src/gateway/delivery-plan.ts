@@ -30,7 +30,27 @@ export interface FeishuDeliveryPlan {
   preferredEditExternalMessageId?: string | null;
 }
 
-export type GatewayDeliveryPlan = DiscordDeliveryPlan | FeishuDeliveryPlan;
+export type QQMediaKind = "image" | "voice" | "video" | "file";
+
+export interface QQMediaItem {
+  kind: QQMediaKind;
+  source: { type: "url"; url: string } | { type: "base64"; media_type: string; data: string };
+  filename?: string;
+}
+
+export interface QQDeliveryPlan {
+  adapter: "qq";
+  mode: "send" | "stream" | "skip";
+  chunks: string[];
+  mediaItems: QQMediaItem[];
+  streamText?: string;
+  streamState?: "generating" | "done";
+  eventId?: string | null;
+  turnAnchorMessageId?: string | null;
+  replyToExternalMessageId?: string;
+}
+
+export type GatewayDeliveryPlan = DiscordDeliveryPlan | FeishuDeliveryPlan | QQDeliveryPlan;
 
 export type PlannedGatewayOutboundCommand = GatewayOutboundCommand & {
   deliveryPlan?: GatewayDeliveryPlan | null;

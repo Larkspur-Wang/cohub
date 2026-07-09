@@ -19,7 +19,7 @@ import { sdk } from "$lib/sdk";
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
-type Provider = "discord" | "feishu" | "wechat" | "web";
+type Provider = "discord" | "feishu" | "wechat" | "qq" | "web";
 type Step = "select" | "form";
 
 let selectedProvider = $state<Provider | null>(null);
@@ -222,13 +222,16 @@ async function handleSubmit(e: Event) {
 		return;
 	}
 
-	if (selectedProvider === "feishu") {
+	if (selectedProvider === "feishu" || selectedProvider === "qq") {
 		if (!formAppId.trim()) {
 			submitError = "App ID is required.";
 			return;
 		}
 		if (!formAppSecret.trim()) {
-			submitError = "App Secret is required.";
+			submitError =
+				selectedProvider === "qq"
+					? "Client Secret is required."
+					: "App Secret is required.";
 			return;
 		}
 	}
@@ -253,6 +256,11 @@ async function handleSubmit(e: Event) {
 				appId: formAppId.trim(),
 				appSecret: formAppSecret.trim(),
 				brand: formBrand,
+			};
+		} else if (selectedProvider === "qq") {
+			credentials = {
+				appId: formAppId.trim(),
+				clientSecret: formAppSecret.trim(),
 			};
 		} else {
 			credentials = {};
@@ -358,6 +366,26 @@ async function handleSubmit(e: Event) {
             <div class="flex-1 min-w-0">
               <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">WeChat</div>
               <p class="text-[12px] text-text-tertiary mt-0.5">Connect by scanning a QR code with WeChat. Supports direct text conversations.</p>
+            </div>
+            <div class="text-text-placeholder group-hover:text-text-secondary transition-colors mt-1">
+              <ChevronDown class="w-4 h-4 -rotate-90" />
+            </div>
+          </div>
+        </button>
+
+        <!-- QQ Card -->
+        <button
+          type="button"
+          onclick={() => selectProvider("qq")}
+          class="w-full text-left rounded-md border border-border-subtle bg-bg-surface p-4 hover:border-brand/30 hover:bg-bg-hover transition-all group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+        >
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-[7px] bg-brand-bg border border-brand-border flex items-center justify-center shrink-0">
+              <MessageCircle class="w-5 h-5 text-brand" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[14px] font-medium text-text-primary group-hover:text-text-primary">QQ Bot</div>
+              <p class="text-[12px] text-text-tertiary mt-0.5">Connect via QQ Open Platform Bot. Requires App ID and Client Secret.</p>
             </div>
             <div class="text-text-placeholder group-hover:text-text-secondary transition-colors mt-1">
               <ChevronDown class="w-4 h-4 -rotate-90" />
@@ -552,6 +580,97 @@ async function handleSubmit(e: Event) {
                   {/if}
                 </button>
               {/if}
+            </div>
+          </form>
+
+        {:else if selectedProvider === "qq"}
+          <div class="space-y-2">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">QQ Bot Binding</div>
+              <p class="text-[13px] text-text-tertiary mt-1">Create a QQ bot, copy its credentials, then save the channel.</p>
+            </div>
+            <ol class="grid gap-1.5 text-[12px] text-text-tertiary sm:grid-cols-3">
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">1</span>
+                Create a QQ bot
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">2</span>
+                Copy App ID and Client Secret
+              </li>
+              <li class="flex items-center gap-2">
+                <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border-subtle bg-bg-surface text-[10px] text-text-secondary">3</span>
+                Save the channel
+              </li>
+            </ol>
+            <div class="space-y-1.5 text-[12px] text-text-tertiary">
+              <p>Go to the <a href="https://q.qq.com/" target="_blank" rel="noopener" class="text-brand hover:underline">QQ Open Platform</a>, create or select a bot, then open Developer Settings.</p>
+              <p>Copy the App ID and Client Secret. Enable message events for C2C and group chats before connecting.</p>
+              <p class="text-warning">QQ WebSocket access depends on platform permissions. Use a bot that has gateway access enabled.</p>
+            </div>
+          </div>
+
+          <form onsubmit={handleSubmit} class="space-y-4">
+            <div>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-name">Channel Name</label>
+              <input
+                id="ch-name"
+                type="text"
+                bind:value={formName}
+                placeholder="e.g. QQ Bot"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
+                required
+              />
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-app-id">App ID</label>
+              <input
+                id="ch-app-id"
+                type="text"
+                bind:value={formAppId}
+                placeholder="1020xxxxxxxx"
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                required
+              />
+            </div>
+
+            <div>
+              <label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="ch-client-secret">Client Secret</label>
+              <input
+                id="ch-client-secret"
+                type="password"
+                bind:value={formAppSecret}
+                placeholder="Enter your Client Secret..."
+                class="w-full px-3 py-[6px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none font-mono transition-colors"
+                required
+              />
+            </div>
+
+            {#if submitError}
+              <div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{submitError}</div>
+            {/if}
+
+            <div class="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onclick={cancelToChannels}
+                class="px-4 py-[6px] rounded-[5px] bg-bg-hover hover:bg-bg-hover-strong border border-border-subtle text-[12px] text-text-tertiary hover:text-text-secondary transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                class="inline-flex min-h-8 items-center justify-center gap-1.5 px-4 py-[6px] rounded-[5px] bg-brand hover:bg-brand-hover active:bg-brand-hover text-[12px] text-brand-contrast-fg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50"
+              >
+                {#if isSubmitting}
+                  <Loader2 class="w-3.5 h-3.5 animate-spin" />
+                  Saving channel
+                {:else}
+                  Save Channel
+                {/if}
+              </button>
             </div>
           </form>
 

@@ -35,4 +35,13 @@ export type WeChatChannelConfig = BaseChannelConfig & {
   };
 };
 
-export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | WeChatChannelConfig | (BaseChannelConfig & Record<string, unknown>);
+export type QQChannelConfig = BaseChannelConfig & {
+  inbound?: {
+    requireMentionInGroup?: boolean;
+  };
+  outbound?: {
+    markdownSupport?: boolean;
+  };
+};
+
+export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | WeChatChannelConfig | QQChannelConfig | (BaseChannelConfig & Record<string, unknown>);

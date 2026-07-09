@@ -3,6 +3,7 @@ import { redisCommandClient } from "../redis.js";
 import { DiscordProvider } from "../providers/discord/index.js";
 import { FeishuProvider } from "../providers/feishu/index.js";
 import { WeChatProvider } from "../providers/wechat/index.js";
+import { QQProvider } from "../providers/qq/index.js";
 import type { GatewayProvider } from "../providers/base.js";
 import { createLogger } from "@cohub/infra/logging";
 
@@ -32,6 +33,12 @@ const providerFactories: Record<string, ProviderFactory> = {
     userId: credentials.userId as string | undefined,
     baseUrl: credentials.baseUrl as string | undefined,
     cdnBaseUrl: credentials.cdnBaseUrl as string | undefined,
+  }),
+  qq: (channelId, credentials) => new QQProvider(channelId, {
+    appId: credentials.appId as string,
+    clientSecret: credentials.clientSecret as string,
+    baseUrl: credentials.baseUrl as string | undefined,
+    tokenBaseUrl: credentials.tokenBaseUrl as string | undefined,
   }),
 };
 

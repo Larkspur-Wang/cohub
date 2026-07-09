@@ -3,6 +3,7 @@ import type {
   DiscordChannelConfig,
   FeishuChannelConfig,
   GatewaySessionOutput,
+  QQChannelConfig,
 } from "@cohub/protocol/gateway";
 import type { GatewayDeliveryPlan, PlannedGatewayOutboundCommand } from "@cohub/protocol/gateway";
 
@@ -296,5 +297,77 @@ export const buildFeishuDeliveryPlan = async (
         ? output.anchorUserMessageId
         : (typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null),
     preferredEditExternalMessageId: typeof cmd.meta?.editExternalMessageId === "string" ? cmd.meta.editExternalMessageId : null,
+  };
+};
+
+const inferQQMediaKind = (mediaType: string | undefined, fallback: "image" | "file" = "file") => {
+  if (!mediaType) return fallback;
+  if (mediaType.startsWith("image/")) return "image" as const;
+  if (mediaType.startsWith("audio/")) return "voice" as const;
+  if (mediaType.startsWith("video/")) return "video" as const;
+  return "file" as const;
+};
+
+const extractQQTextAndMedia = (content: ContentBlock[]) => {
+  const textParts: string[] = [];
+  const mediaItems: Extract<GatewayDeliveryPlan, { adapter: "qq" }>["mediaItems"] = [];
+  for (const block of content) {
+    if (block.type === "text") textParts.push(block.text);
+    if (block.type === "system_note") textParts.push(`ℹ️ ${block.text}`);
+    if (block.type === "image") {
+      const mediaType = block.source.type === "base64" ? block.source.media_type : undefined;
+      mediaItems.push({
+        kind: inferQQMediaKind(mediaType, "image"),
+        source: block.source,
+        filename: typeof block._meta?.filename === "string" ? block._meta.filename : undefined,
+      });
+    }
+  }
+  return { text: textParts.join("\n").trim(), mediaItems };
+};
+
+export const buildQQDeliveryPlan = (
+  cmd: PlannedGatewayOutboundCommand,
+  _config: QQChannelConfig | null | undefined,
+): Extract<GatewayDeliveryPlan, { adapter: "qq" }> => {
+  const output = getSessionOutput(cmd);
+  if (output?.type === "session.turn.patch") {
+    const { text } = extractQQTextAndMedia(cmd.content);
+    const streamText = typeof cmd.meta?.answer === "string" ? cmd.meta.answer : text;
+    return {
+      adapter: "qq",
+      mode: streamText ? "stream" : "skip",
+      chunks: [],
+      mediaItems: [],
+      streamText,
+      streamState: "generating",
+      eventId: output.anchorUserMessageId,
+      turnAnchorMessageId: output.anchorUserMessageId,
+      replyToExternalMessageId: cmd.replyToExternalMessageId,
+    };
+  }
+  if (output?.type === "session.turn.error") {
+    return {
+      adapter: "qq",
+      mode: "send",
+      chunks: splitPlannedMessage(output.error, 4500),
+      mediaItems: [],
+      replyToExternalMessageId: cmd.replyToExternalMessageId,
+    };
+  }
+
+  const { text, mediaItems } = extractQQTextAndMedia(cmd.content);
+  const turnAnchorMessageId = typeof cmd.meta?.turnAnchorMessageId === "string" ? cmd.meta.turnAnchorMessageId : null;
+  const canCompleteStream = output?.type === "session.message.persisted" && Boolean(turnAnchorMessageId && cmd.replyToExternalMessageId && text && mediaItems.length === 0);
+  return {
+    adapter: "qq",
+    mode: canCompleteStream ? "stream" : (text || mediaItems.length > 0 ? "send" : "skip"),
+    chunks: canCompleteStream ? [] : splitPlannedMessage(text, 4500),
+    mediaItems,
+    streamText: canCompleteStream ? text : undefined,
+    streamState: canCompleteStream ? "done" : undefined,
+    eventId: turnAnchorMessageId,
+    turnAnchorMessageId,
+    replyToExternalMessageId: cmd.replyToExternalMessageId,
   };
 };
