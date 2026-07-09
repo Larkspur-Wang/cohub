@@ -13,6 +13,7 @@ import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 import { config } from "../config.js";
+import { featureGateResponse } from "../lib/feature-gate.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -76,7 +77,13 @@ const isWorkSlugConflict = (error: unknown) => pgErrorCode(error) === "23505" &&
 const invalidWorkStatusResponse = (c: Context) => c.json({ message: "status must be one of: published, disabled" }, 400);
 const invalidWorkVisibilityResponse = (c: Context) => c.json({ message: "visibility must be one of: public, space" }, 400);
 const requiresSpaceWorkAccess = (work: Pick<typeof works.$inferSelect, "visibility">) => (work.visibility ?? "public") === "space";
-const workHideCohubBarRequiredResponse = (c: Context) => c.json({ message: "This option is available on Pro and Max.", code: "work_hide_cohub_bar_required" }, 402);
+const workHideCohubBarRequiredResponse = (c: Context) =>
+  featureGateResponse(c, {
+    source: "work_hide_cohub_bar",
+    message: "This option is available on Pro and Max.",
+    title: "Upgrade to hide the Cohub bar",
+    conversionMessage: "Hiding the Cohub bar is available on Pro and Max.",
+  });
 const getWorkPublicOrigin = () => (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
 
 const createWorkPublicUrl = (input: { ownerUsername: string; spaceSlug: string; workSlug: string; status: string }) => {

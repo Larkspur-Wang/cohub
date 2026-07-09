@@ -2,6 +2,7 @@ import type {
 	BillingAccessWarning,
 	BillingConversionIntent,
 } from "@neta-art/cohub";
+import { HttpError } from "@neta-art/cohub";
 
 type BillingConversionLevel = "soft" | "hard";
 
@@ -169,6 +170,18 @@ class BillingConversionStore {
 		}
 		const intent = extractIntentFromBody(body);
 		if (intent?.level === "hard") this.showHard(intent);
+	}
+
+	/**
+	 * Opens the upgrade UI when `error` is a 402 carrying a billing conversion
+	 * intent. Returns true when handled so callers can skip their own error UI.
+	 */
+	handleHttpError(error: unknown): boolean {
+		if (!(error instanceof HttpError) || error.status !== 402) return false;
+		const intent = extractIntentFromBody(error.body);
+		if (!intent) return false;
+		this.openFromIntent(intent);
+		return true;
 	}
 }
 

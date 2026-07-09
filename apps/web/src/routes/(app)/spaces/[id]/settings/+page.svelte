@@ -19,7 +19,6 @@ import type {
 	SpaceRole,
 	SpaceSandboxAutoDestroyPolicy,
 } from "@neta-art/cohub";
-import { HttpError } from "@neta-art/cohub";
 import {
 	ArrowLeft,
 	Check,
@@ -291,10 +290,6 @@ function getSandboxSpecSummary(specId: SandboxSpecId | null | undefined) {
 	return `${spec.resources?.limits?.cpu ?? "2"} vCPU · ${spec.resources?.limits?.memory ?? "4Gi"}`;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
 function openSandboxSpecUpgrade(specId: SandboxSpecId) {
 	const spec = sandboxSpecs[specId];
 	billingConversion.openFromIntent({
@@ -346,17 +341,10 @@ async function saveSandboxSpec(spec: SandboxSpecId) {
 		);
 	} catch (err) {
 		sandboxSpec = previousSpec;
-		if (err instanceof HttpError && err.status === 402 && isRecord(err.body)) {
-			const billing = isRecord(err.body.billing) ? err.body.billing : null;
-			if (billing?.conversion)
-				billingConversion.openFromIntent(
-					billing.conversion as Parameters<
-						typeof billingConversion.openFromIntent
-					>[0],
-				);
+		if (!billingConversion.handleHttpError(err)) {
+			sandboxSpecError =
+				err instanceof Error ? err.message : "Failed to save sandbox spec";
 		}
-		sandboxSpecError =
-			err instanceof Error ? err.message : "Failed to save sandbox spec";
 	} finally {
 		savingSandboxSpec = false;
 	}

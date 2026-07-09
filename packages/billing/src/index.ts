@@ -59,7 +59,11 @@ export {
   COHUB_BILLING_USAGE_TYPES,
 } from "./interfaces.js";
 export { COHUB_BILLING_POLICY } from "./constants.js";
-export { createBillingConversionIntent, createFeatureGateConversionIntent } from "./conversion.js";
+export {
+  createBillingConversionIntent,
+  createFeatureGateConversionIntent,
+  FEATURE_NOT_ENTITLED_ERROR_CODE,
+} from "./conversion.js";
 export type {
   BillingConversionAudience,
   BillingConversionIntent,

@@ -1,11 +1,12 @@
 import type { Context } from "hono";
 import { ApiError } from "@talesofai-billing/sdk/base";
-import { createFeatureGateConversionIntent } from "@cohub/billing";
+import { FEATURE_NOT_ENTITLED_ERROR_CODE } from "@cohub/billing";
+import { featureGateResponse } from "./feature-gate.js";
 import { jsonError } from "./json-error.js";
 import { SpaceCommerceNotInitializedError, resolveSpaceCommerceEntitlement } from "./space-commerce.js";
 
 export const SPACE_COMMERCE_NOT_INITIALIZED_CODE = "space_commerce_not_initialized";
-export const SPACE_COMMERCE_ENTITLEMENT_REQUIRED_CODE = "space_commerce_required";
+export const SPACE_COMMERCE_ENTITLEMENT_REQUIRED_CODE = FEATURE_NOT_ENTITLED_ERROR_CODE;
 export const SPACE_COMMERCE_ENTITLEMENT_UNAVAILABLE_CODE = "space_commerce_unavailable";
 
 function commerceApiErrorResponse(c: Context, error: ApiError, input: { conflictMessage: string }) {
@@ -68,18 +69,10 @@ export async function requireSpaceCommerceEntitlement(
     });
   }
   if (entitled) return null;
-  return jsonError(c, {
-    status: 402,
+  return featureGateResponse(c, {
+    source: "space_commerce",
     message: "Managing space commerce requires a Max plan.",
-    code: SPACE_COMMERCE_ENTITLEMENT_REQUIRED_CODE,
-    extra: {
-      billing: {
-        conversion: createFeatureGateConversionIntent({
-          source: "space_commerce",
-          title: "Upgrade to Max",
-          message: "Managing space commerce requires a Max plan.",
-        }),
-      },
-    },
+    title: "Upgrade to Max",
+    conversionMessage: "Managing space commerce requires a Max plan.",
   });
 }

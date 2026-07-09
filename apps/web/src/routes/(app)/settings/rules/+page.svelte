@@ -17,6 +17,7 @@ import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
+import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { setCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
@@ -104,6 +105,7 @@ async function createConfigSpace() {
 		) {
 			return;
 		}
+		if (billingConversion.handleHttpError(error)) return;
 		actionMessage =
 			error instanceof Error ? error.message : "Failed to create config Space";
 	} finally {

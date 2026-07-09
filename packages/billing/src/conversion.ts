@@ -9,6 +9,9 @@ export type BillingConversionAudience = "free" | "paid" | "unknown";
 
 export type BillingPreferredOfferKind = "plan" | "upgrade" | "addon" | "mixed";
 
+/** Shared HTTP error code for every plan entitlement gate (402). */
+export const FEATURE_NOT_ENTITLED_ERROR_CODE = "feature_not_entitled" as const;
+
 export type BillingConversionIntent = {
   level: BillingConversionLevel;
   reason: BillingConversionReason;

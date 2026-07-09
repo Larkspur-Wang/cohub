@@ -1,4 +1,4 @@
-import { BillingAccessBlockedError, COHUB_BILLING_FEATURES, billingOperations, createFeatureGateConversionIntent } from "@cohub/billing";
+import { BillingAccessBlockedError, COHUB_BILLING_FEATURES, billingOperations } from "@cohub/billing";
 import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, isSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
 import { createLogger } from "@cohub/infra/logging";
 import { Hono, type Context } from "hono";
@@ -18,7 +18,7 @@ import {
   userProfiles,
   sessionTurns,
 } from "@cohub/db";
-import { eq, and, inArray, desc, lt, or, sql } from "drizzle-orm";
+import { eq, and, inArray, desc, lt, or, sql, count } from "drizzle-orm";
 import { useAuth, getOptionalAuth, getWorkSessionPrincipal, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
@@ -61,6 +61,7 @@ import { SYSTEM_ENV_KEY_SET } from "@cohub/protocol/sandbox";
 import { prepareSpaceModInserts, spaceModErrorResponse, type CreateSpaceModInput } from "../../space-mods.js";
 import { parseChannelConfigPatch, mergeChannelConfig, validateChannelModelConfig } from "../../lib/channel-model-config.js";
 import { redisCommandClient } from "../../redis.js";
+import { featureGateResponse } from "../../lib/feature-gate.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -411,17 +412,45 @@ async function getAllowedSandboxSpecId(userId: string): Promise<SandboxSpecId> {
   }
 }
 
-const createSandboxSpecRequiredResponse = (c: Context, specId: SandboxSpecId) => c.json({
-  message: `${SANDBOX_SPECS[specId].label} sandboxes are available on ${SANDBOX_SPECS[specId].requiredPlan ?? "a higher plan"}.`,
-  code: "sandbox_spec_required",
-  billing: {
-    conversion: createFeatureGateConversionIntent({
-      source: "sandbox_spec",
-      title: `Upgrade for ${SANDBOX_SPECS[specId].label} sandboxes`,
-      message: `Choose a higher plan to use ${SANDBOX_SPECS[specId].label} with ${SANDBOX_SPECS[specId].resources.limits.cpu} vCPU and ${SANDBOX_SPECS[specId].resources.limits.memory} memory.`,
-    }),
-  },
-}, 402);
+/** Free plan owned-space cap when `space.owned.unlimited` is not entitled. */
+const FREE_OWNED_SPACE_LIMIT = 1;
+/** Namespace constant for pg_advisory_xact_lock(key1, key2) owned-space quota locks. */
+const OWNED_SPACE_QUOTA_LOCK_NS = 872_314_51;
+
+class SpaceOwnedLimitError extends Error {
+  override name = "SpaceOwnedLimitError";
+  constructor() {
+    super("space owned limit reached");
+  }
+}
+
+/**
+ * Resolves whether the user may own unlimited spaces.
+ * Returns `true` when entitled (or billing is disabled), `false` when
+ * explicitly not entitled, and `null` when billing could not be reached so
+ * callers can surface a temporary error instead of a false upgrade prompt.
+ */
+async function resolveSpaceOwnedUnlimited(userId: string): Promise<boolean | null> {
+  if (!billingOperations.status.configured) return true;
+  try {
+    const entitlement = await billingOperations.getFeatureEntitlement({
+      userId,
+      featureKey: COHUB_BILLING_FEATURES.spaceOwnedUnlimited,
+    });
+    return Boolean(entitlement?.enabled);
+  } catch (error) {
+    logger.warn("[SpaceLimit] failed to check owned-space entitlement", { userId, error });
+    return null;
+  }
+}
+
+const createSandboxSpecRequiredResponse = (c: Context, specId: SandboxSpecId) =>
+  featureGateResponse(c, {
+    source: "sandbox_spec",
+    message: `${SANDBOX_SPECS[specId].label} sandboxes are available on ${SANDBOX_SPECS[specId].requiredPlan ?? "a higher plan"}.`,
+    title: `Upgrade for ${SANDBOX_SPECS[specId].label} sandboxes`,
+    conversionMessage: `Choose a higher plan to use ${SANDBOX_SPECS[specId].label} with ${SANDBOX_SPECS[specId].resources.limits.cpu} vCPU and ${SANDBOX_SPECS[specId].resources.limits.memory} memory.`,
+  });
 
 const normalizeSpaceConfigInput = (input?: SpaceConfigInput | null): SpaceConfigInput => {
   const provider = normalizeSpaceSandboxProvider(input?.sandbox?.provider);
@@ -664,6 +693,14 @@ router.post("/", async (c) => {
     .limit(1);
   if (existingSpace.length > 0) return c.json({ message: "space already exists" }, 409);
 
+  const spaceOwnedUnlimited = await resolveSpaceOwnedUnlimited(user.uuid);
+  if (spaceOwnedUnlimited === null) {
+    return c.json({
+      message: "Could not verify plan eligibility. Please try again.",
+      code: "space_owned_limit_unavailable",
+    }, 503);
+  }
+
   const normalizedExtraEnv = normalizeSpaceEnv(body.extraEnv);
   const envValidationError = validateSpaceEnvForResponse(normalizedExtraEnv);
   if (envValidationError) return c.json(envValidationError, 400);
@@ -761,6 +798,19 @@ router.post("/", async (c) => {
   let insertedChannels: Array<typeof spaceChannels.$inferSelect> = [];
   try {
     const result = await db.transaction(async (tx) => {
+      // Serialize free-plan quota checks per owner so concurrent creates cannot
+      // both observe count < limit and both insert.
+      if (!spaceOwnedUnlimited) {
+        await tx.execute(sql`select pg_advisory_xact_lock(${OWNED_SPACE_QUOTA_LOCK_NS}, hashtext(${user.uuid}))`);
+        const [owned] = await tx
+          .select({ value: count() })
+          .from(spaces)
+          .where(eq(spaces.userUuid, user.uuid));
+        if ((owned?.value ?? 0) >= FREE_OWNED_SPACE_LIMIT) {
+          throw new SpaceOwnedLimitError();
+        }
+      }
+
       const [createdSpace] = await tx
         .insert(spaces)
         .values({
@@ -834,6 +884,14 @@ router.post("/", async (c) => {
     space = result.space;
     insertedChannels = result.insertedChannels;
   } catch (error) {
+    if (error instanceof SpaceOwnedLimitError) {
+      return featureGateResponse(c, {
+        source: "space_owned_limit",
+        message: "Free plan includes one space. Upgrade to create more.",
+        title: "Upgrade to create more spaces",
+        conversionMessage: "Your plan includes one space. Upgrade to create unlimited spaces.",
+      });
+    }
     const constraint = uniqueViolationConstraint(error);
     if (constraint?.includes("user_slug")) return c.json({ message: "space slug already exists" }, 409);
     const modResponse = spaceModErrorResponse(error);

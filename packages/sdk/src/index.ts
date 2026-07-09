@@ -19,7 +19,7 @@ export {
   createSessionGenerationStreamClient,
   parseAssistantMessageCommit,
 } from "./session-generation-stream.js";
-export { isHttpErrorCode } from "./http-error.js";
+export { FEATURE_NOT_ENTITLED_ERROR_CODE, isFeatureNotEntitledError, isHttpErrorCode } from "./http-error.js";
 export { HttpError } from "./transport.js";
 export {
   GenerationPolicyError,

@@ -23,6 +23,7 @@ import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
+import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 
 const currentPath = $derived(page.url.pathname);
@@ -248,6 +249,7 @@ async function handleSubmit(event: SubmitEvent) {
 
 		await goto(buildSpaceLandingRoute(result.space.id));
 	} catch (error) {
+		if (billingConversion.handleHttpError(error)) return;
 		if (error instanceof HttpError) {
 			submitError = error.message;
 		} else {
