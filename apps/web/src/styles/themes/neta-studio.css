@@ -1,39 +1,40 @@
 /* --- Neta Studio Theme --- */
-/* Mirrors the live Neta Studio canvas chrome: a cool graphite board,
-   near-black glass panels, cream foreground, and a small teal accent from
-   the et-sun skin. The screenshot's textured board is an app background
-   asset, so this theme approximates it through the available color tokens. */
+/* Mirrors the live Neta Studio chat and gallery chrome: near-black glass
+   panels, cream active controls, soft cream hairlines, and only a small
+   teal accent from the et-sun skin. The screenshot's textured board is a
+   background asset, so this theme approximates it through color tokens. */
 [data-theme="neta-studio"] {
 	color-scheme: dark;
 
-	/* Graphite / cream scale. Top values match Studio ink; lower values
-	   follow the dark canvas and panel chrome seen in Studio canvas mode. */
-	--neutral-0: oklch(96% 0.018 82); /* #f6f1e7 */
-	--neutral-5: oklch(91% 0.02 82); /* #ece1d2 */
-	--neutral-10: oklch(84% 0.016 82);
-	--neutral-20: oklch(72% 0.012 82);
-	--neutral-30: oklch(61% 0.01 82);
-	--neutral-40: oklch(50% 0.008 250);
-	--neutral-50: oklch(42% 0.008 250);
-	--neutral-60: oklch(33% 0.007 250); /* lifted graphite */
-	--neutral-70: oklch(25% 0.006 250); /* canvas / card */
-	--neutral-80: oklch(20% 0.006 250); /* panel surface */
-	--neutral-90: oklch(15% 0.005 250); /* panel strong */
-	--neutral-95: oklch(11.5% 0.004 250); /* app shell */
-	--neutral-100: oklch(7.5% 0.003 250); /* near-black */
+	/* Studio ink + panel scale. Top values match --studio-main; lower
+	   values mirror panel/detail surfaces from chat and gallery mode. */
+	--neutral-0: #f6f1e7;
+	--neutral-5: #ece1d2;
+	--neutral-10: rgba(236, 225, 210, 0.82);
+	--neutral-20: rgba(236, 225, 210, 0.68);
+	--neutral-30: rgba(236, 225, 210, 0.48);
+	--neutral-40: rgba(236, 225, 210, 0.3);
+	--neutral-50: #505050;
+	--neutral-60: #333333;
+	--neutral-70: #252325;
+	--neutral-80: #131216;
+	--neutral-90: #0a0a0a;
+	--neutral-95: #050605;
+	--neutral-100: #000000;
 
-	/* Brand scale — et-sun cyan, used sparingly for focus and activity. */
-	--brand-50: oklch(95% 0.035 190);
-	--brand-100: oklch(89% 0.055 190);
-	--brand-200: oklch(84% 0.07 190);
-	--brand-300: oklch(79% 0.085 190);
-	--brand-400: oklch(82% 0.098 190); /* #6ee1d8-ish */
-	--brand-500: oklch(86% 0.1 190); /* hover */
-	--brand-600: oklch(70% 0.09 190);
-	--brand-700: oklch(48% 0.07 190);
-	--brand-800: oklch(34% 0.05 190);
-	--brand-900: oklch(23% 0.035 190);
-	--brand-bg: color-mix(in srgb, var(--brand) 14%, var(--bg-content));
+	/* Brand scale — cream active controls, matching StudioModeTabs and
+	   Chat/Skills active pills. Teal is reserved for info/status accents. */
+	--brand-50: #fffaf0;
+	--brand-100: #f8f1e5;
+	--brand-200: #f4ecd9;
+	--brand-300: #ece1d2;
+	--brand-400: #ece1d2;
+	--brand-500: #f4ecd9;
+	--brand-600: #d8c5aa;
+	--brand-700: rgba(236, 225, 210, 0.68);
+	--brand-800: rgba(236, 225, 210, 0.3);
+	--brand-900: rgba(236, 225, 210, 0.11);
+	--brand-bg: var(--studio-hover-bg, rgba(236, 225, 210, 0.11));
 
 	/* Semantic colors — kept legible on graphite surfaces. */
 	--success-400: oklch(76% 0.11 150);
@@ -52,37 +53,37 @@
 	--error-fg: var(--neutral-0);
 	--error-900: oklch(24% 0.055 30);
 
-	--info-400: oklch(78% 0.09 205);
-	--info-500: oklch(68% 0.11 205);
-	--info-700: oklch(46% 0.09 205);
-	--info-900: oklch(24% 0.045 205);
+	--info-400: #8ceae2;
+	--info-500: #6ee1d8;
+	--info-700: color-mix(in srgb, #6ee1d8 72%, #050605);
+	--info-900: rgba(110, 225, 216, 0.16);
 
-	/* Backgrounds — graphite board and near-black glass panels. */
-	--bg-primary: var(--neutral-95);
-	--bg-content: var(--neutral-90);
-	--bg-surface: var(--neutral-80);
-	--bg-surface-hover: var(--neutral-70);
-	--bg-elevated: var(--neutral-70);
-	--bg-input: oklch(18% 0.006 250); /* #252325-ish */
-	--bg-code: var(--neutral-100);
-	--bg-header-alt: var(--neutral-90);
+	/* Backgrounds — et-sun shell + chat/detail glass. */
+	--bg-primary: #050605;
+	--bg-content: #0a0a0a;
+	--bg-surface: #131216;
+	--bg-surface-hover: #252325;
+	--bg-elevated: #252325;
+	--bg-input: #252325;
+	--bg-code: #050605;
+	--bg-header-alt: #0a0a0a;
 
-	/* Text — Studio cream ink. */
-	--text-primary: var(--neutral-0);
-	--text-reading: var(--neutral-5);
-	--text-secondary: oklch(88% 0.018 82 / 0.8);
-	--text-tertiary: oklch(88% 0.018 82 / 0.62);
-	--text-placeholder: oklch(88% 0.018 82 / 0.46);
-	--text-disabled: oklch(88% 0.018 82 / 0.34);
+	/* Text — Studio cream ink opacity ladder. */
+	--text-primary: #f6f1e7;
+	--text-reading: #ece1d2;
+	--text-secondary: rgba(246, 241, 231, 0.8);
+	--text-tertiary: rgba(246, 241, 231, 0.62);
+	--text-placeholder: rgba(246, 241, 231, 0.46);
+	--text-disabled: rgba(246, 241, 231, 0.34);
 
 	/* Cream hairlines over dark glass. */
-	--border-primary: oklch(91% 0.02 82 / 0.18);
-	--border-subtle: oklch(91% 0.02 82 / 0.1);
+	--border-primary: rgba(236, 225, 210, 0.18);
+	--border-subtle: rgba(236, 225, 210, 0.1);
 
 	/* Interactive states — Neta Studio uses translucent cream washes. */
-	--bg-hover: oklch(91% 0.02 82 / 0.1);
-	--bg-hover-strong: oklch(91% 0.02 82 / 0.16);
-	--bg-active: oklch(91% 0.02 82 / 0.22);
+	--bg-hover: rgba(236, 225, 210, 0.1);
+	--bg-hover-strong: rgba(236, 225, 210, 0.16);
+	--bg-active: rgba(236, 225, 210, 0.22);
 
 	/* Scrollbar */
 	--scrollbar-thumb: var(--neutral-50);
@@ -96,11 +97,11 @@
 	--brand: var(--brand-400);
 	--brand-hover: var(--brand-500);
 	--brand-soft: var(--brand-700);
-	--brand-contrast-fg: var(--neutral-100);
-	--brand-muted-fg: var(--brand);
-	--brand-muted: color-mix(in srgb, var(--brand) 12%, transparent);
-	--brand-muted-hover: color-mix(in srgb, var(--brand) 18%, transparent);
-	--brand-border: color-mix(in srgb, var(--brand) 28%, transparent);
+	--brand-contrast-fg: #050605;
+	--brand-muted-fg: var(--text-reading);
+	--brand-muted: rgba(236, 225, 210, 0.11);
+	--brand-muted-hover: rgba(236, 225, 210, 0.16);
+	--brand-border: rgba(236, 225, 210, 0.26);
 
 	/* Overlays */
 	--overlay-scrim: oklch(0% 0 0 / 0.62);
@@ -185,8 +186,8 @@
 
 	/* Data visualizations */
 	--heatmap-0: var(--bg-elevated);
-	--heatmap-1: color-mix(in srgb, var(--brand) 35%, transparent);
-	--heatmap-2: color-mix(in srgb, var(--brand) 55%, transparent);
-	--heatmap-3: color-mix(in srgb, var(--brand) 75%, transparent);
-	--heatmap-4: color-mix(in srgb, var(--brand) 95%, transparent);
+	--heatmap-1: color-mix(in srgb, var(--info-500) 35%, transparent);
+	--heatmap-2: color-mix(in srgb, var(--info-500) 55%, transparent);
+	--heatmap-3: color-mix(in srgb, var(--info-500) 75%, transparent);
+	--heatmap-4: color-mix(in srgb, var(--info-500) 95%, transparent);
 }
