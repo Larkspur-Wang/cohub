@@ -318,11 +318,17 @@ const setSpanAttributes = (span: Span, attributes: ObservationMeta) => {
   }
 };
 
-const errorTelemetry = (error: unknown): ObservationMeta => ({
-  errorName: error instanceof Error ? error.name : typeof error,
-  errorCode: error instanceof SpaceFsError ? error.code : null,
-  errorStatus: error instanceof SpaceFsError ? error.status : null,
-});
+const errorTelemetry = (error: unknown): ObservationMeta => {
+  const name = error instanceof Error ? error.name : typeof error;
+  const sysCode = typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : null;
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    errorName: name,
+    errorCode: error instanceof SpaceFsError ? error.code : sysCode,
+    errorStatus: error instanceof SpaceFsError ? error.status : null,
+    errorMessage: message.length <= 256 ? message : `${message.slice(0, 256)}…`,
+  };
+};
 
 const isExpectedError = (error: unknown) => error instanceof SpaceFsError && error.status < 500;
 
@@ -862,7 +868,13 @@ export async function readSpaceFile(
       observation,
       "inline_read",
       "Read file bytes from workspace storage; slow when the file is large, cold, or the backing volume is under IO pressure.",
-      () => readFile(target),
+      () =>
+        readFile(target).catch((error: NodeJS.ErrnoException) => {
+          if (error?.code === "ENOENT") {
+            throw new SpaceFsError(404, "file_read_failed", "File not found.");
+          }
+          throw new SpaceFsError(500, "file_read_failed", error?.message ?? "Failed to read file.");
+        }),
       (result) => ({
         fileSizeBytes: stats.size,
         bytesRead: result.byteLength,
@@ -1167,7 +1179,12 @@ export async function readSpaceFiles(
       "Read and encode inline files with bounded concurrency; slow when files are large or storage is cold.",
       () =>
         mapWithConcurrency(inlineItems, MAX_BATCH_READ_CONCURRENCY, async (item) => {
-          const buffer = await readFile(item.target);
+          const buffer = await readFile(item.target).catch((error: NodeJS.ErrnoException) => {
+            if (error?.code === "ENOENT") {
+              throw new SpaceFsError(404, "file_read_failed", "File not found.");
+            }
+            throw new SpaceFsError(500, "file_read_failed", error?.message ?? "Failed to read file.");
+          });
           return toInlineFileResponse(item.target, item.relativePath, item.stats, buffer, item.mimeType);
         }),
       (result) => ({ inlineFiles: result.length, inlineTotalBytes, concurrency: MAX_BATCH_READ_CONCURRENCY }),
@@ -1356,5 +1373,7 @@ export function spaceFsJsonError(error: unknown) {
   if (error instanceof Error && error.name === "SandboxOfflineError") {
     return { status: 503, body: { code: "sandbox_offline", message: "local sandbox is offline" } };
   }
-  return { status: 500, body: { code: "space_fs_error", message: "space file operation failed" } };
+  const detail = error instanceof Error ? error.message : String(error);
+  const truncated = detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+  return { status: 500, body: { code: "space_fs_error", message: `space file operation failed: ${truncated}` } };
 }
