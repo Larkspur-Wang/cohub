@@ -17,6 +17,7 @@ import {
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import { createLazyModuleLoader } from "$lib/lazy-module";
 import type {
 	OpenWorkspaceFileTarget,
 	WorkspaceFilePosition,
@@ -150,28 +151,12 @@ let {
 	onDeleteFilePath,
 }: Props = $props();
 
-let codeEditorModulePromise: Promise<
-	typeof import("$lib/components/CodeEditor.svelte")
-> | null = null;
-let renderedFilePreviewModulePromise: Promise<
-	typeof import("$lib/components/RenderedFilePreview.svelte")
-> | null = null;
-
-function loadCodeEditorModule() {
-	if (!codeEditorModulePromise) {
-		codeEditorModulePromise = import("$lib/components/CodeEditor.svelte");
-	}
-	return codeEditorModulePromise;
-}
-
-function loadRenderedFilePreviewModule() {
-	if (!renderedFilePreviewModulePromise) {
-		renderedFilePreviewModulePromise = import(
-			"$lib/components/RenderedFilePreview.svelte"
-		);
-	}
-	return renderedFilePreviewModulePromise;
-}
+const loadCodeEditorModule = createLazyModuleLoader(() =>
+	import("$lib/components/CodeEditor.svelte"),
+);
+const loadRenderedFilePreviewModule = createLazyModuleLoader(() =>
+	import("$lib/components/RenderedFilePreview.svelte"),
+);
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}

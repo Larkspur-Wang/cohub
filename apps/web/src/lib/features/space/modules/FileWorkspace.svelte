@@ -14,6 +14,7 @@ import {
 	X,
 } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import { createLazyModuleLoader } from "$lib/lazy-module";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
 
@@ -107,28 +108,12 @@ let {
 	onOpenLinkedInlineFile,
 }: Props = $props();
 
-let codeEditorModulePromise: Promise<
-	typeof import("$lib/components/CodeEditor.svelte")
-> | null = null;
-let renderedFilePreviewModulePromise: Promise<
-	typeof import("$lib/components/RenderedFilePreview.svelte")
-> | null = null;
-
-function loadCodeEditorModule() {
-	if (!codeEditorModulePromise) {
-		codeEditorModulePromise = import("$lib/components/CodeEditor.svelte");
-	}
-	return codeEditorModulePromise;
-}
-
-function loadRenderedFilePreviewModule() {
-	if (!renderedFilePreviewModulePromise) {
-		renderedFilePreviewModulePromise = import(
-			"$lib/components/RenderedFilePreview.svelte"
-		);
-	}
-	return renderedFilePreviewModulePromise;
-}
+const loadCodeEditorModule = createLazyModuleLoader(() =>
+	import("$lib/components/CodeEditor.svelte"),
+);
+const loadRenderedFilePreviewModule = createLazyModuleLoader(() =>
+	import("$lib/components/RenderedFilePreview.svelte"),
+);
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
