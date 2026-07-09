@@ -25,8 +25,30 @@ const QQ_INBOUND_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const QQ_INBOUND_FILE_MAX_BYTES = 50 * 1024 * 1024;
 const QQ_INBOUND_IMAGE_MAX_COUNT = 4;
 const QQ_INBOUND_FILE_MAX_COUNT = 4;
-const QQ_DOWNLOAD_ALLOWED_HOST_SUFFIXES = ["qq.com", "gtimg.cn", "qpic.cn", "myqcloud.com"];
-const QQ_DOWNLOAD_TIMEOUT_MS = 10_000;
+// QQ CDN hosts vary by scene; include qq.com.cn (not covered by qq.com suffix).
+const QQ_DOWNLOAD_ALLOWED_HOST_SUFFIXES = [
+  "qq.com",
+  "qq.com.cn",
+  "gtimg.cn",
+  "qpic.cn",
+  "qlogo.cn",
+  "myqcloud.com",
+  "tencent.com",
+  "tencentcos.cn",
+];
+const QQ_DOWNLOAD_TIMEOUT_MS = 15_000;
+
+/** QQ often ships protocol-relative CDN URLs like //gchat.qpic.cn/... */
+function normalizeQQAttachmentUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  if (trimmed.startsWith("//")) return `https:${trimmed}`;
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed;
+  // Rare bare host/path payloads — prefer HTTPS.
+  if (/^[a-z0-9.-]+\.[a-z]{2,}([/?#]|$)/i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
+
 
 export function collectQQAttachments(input: {
   attachments?: QQMessageAttachment[];
@@ -36,11 +58,13 @@ export function collectQQAttachments(input: {
   const seen = new Set<string>();
 
   const push = (attachment: QQMessageAttachment | undefined | null) => {
-    if (!attachment?.url) return;
-    const key = `${attachment.url}|${attachment.filename ?? ""}|${attachment.content_type ?? ""}`;
+    if (!attachment?.url?.trim()) return;
+    const url = normalizeQQAttachmentUrl(attachment.url);
+    const normalized = url === attachment.url ? attachment : { ...attachment, url };
+    const key = `${normalized.url}|${normalized.filename ?? ""}|${normalized.content_type ?? ""}`;
     if (seen.has(key)) return;
     seen.add(key);
-    collected.push(attachment);
+    collected.push(normalized);
   };
 
   for (const attachment of input.attachments ?? []) push(attachment);
@@ -58,12 +82,15 @@ export function collectQQAttachments(input: {
 
 async function downloadQQAttachment(url: string, maxBytes: number, label: string) {
   return downloadInboundUrl({
-    url,
+    url: normalizeQQAttachmentUrl(url),
     maxBytes,
     label,
     allowedHosts: QQ_DOWNLOAD_ALLOWED_HOST_SUFFIXES,
     timeoutMs: QQ_DOWNLOAD_TIMEOUT_MS,
-    headers: { "User-Agent": "CohubGateway/1.0 QQBotProvider" },
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; CohubGateway/1.0; QQBotProvider)",
+      Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    },
   });
 }
 
@@ -97,13 +124,18 @@ export async function buildQQInboundMediaBlocks(input: {
     try {
       downloaded = await downloadQQAttachment(sourceUrl, maxBytes, `qq:${input.channelId}:attachment`);
     } catch (error) {
-      logger.warn(`[QQ:${input.channelId}] attachment download failed`, { url: sourceUrl, error });
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn(`[QQ:${input.channelId}] attachment download failed`, {
+        url: sourceUrl,
+        normalizedUrl: normalizeQQAttachmentUrl(sourceUrl),
+        error: message,
+      });
       blocks.push({
         type: "text",
         text: declaredKind === "image"
           ? "[Image unavailable]"
           : `[Attachment unavailable: ${sanitizeFilename(attachment.filename, "file")}]`,
-        _meta: { source: "qq", originalUrl: sourceUrl, reason: "download_failed" },
+        _meta: { source: "qq", originalUrl: sourceUrl, reason: "download_failed", error: message },
       });
       continue;
     }
