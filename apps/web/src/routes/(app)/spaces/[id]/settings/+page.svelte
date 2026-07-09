@@ -42,6 +42,7 @@ import {
 	Zap,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
 import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
@@ -114,6 +115,8 @@ let modSaving = $state(false);
 let modUpdatingId = $state<string | null>(null);
 let modRestartMessage = $state("");
 let modRestartTimer: ReturnType<typeof setTimeout> | null = null;
+let copiedModSpaceId = $state<string | null>(null);
+let copiedModSpaceIdTimer: ReturnType<typeof setTimeout> | null = null;
 let revealedEnvNames = $state<Set<string>>(new Set());
 let copiedMemberUserId = $state<string | null>(null);
 let copiedMemberTimer: ReturnType<typeof setTimeout> | null = null;
@@ -238,10 +241,14 @@ onDestroy(() => {
 	if (inviteNoticeTimer) clearTimeout(inviteNoticeTimer);
 	if (copiedInviteTimer) clearTimeout(copiedInviteTimer);
 	if (modRestartTimer) clearTimeout(modRestartTimer);
+	if (copiedModSpaceIdTimer) clearTimeout(copiedModSpaceIdTimer);
 	if (copiedMemberTimer) clearTimeout(copiedMemberTimer);
 	if (copiedSpaceIdTimer) clearTimeout(copiedSpaceIdTimer);
 	if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 	if (sandboxSpecMessageTimer) clearTimeout(sandboxSpecMessageTimer);
+	if (programmaticScrollTimer) clearTimeout(programmaticScrollTimer);
+	if (scrollSpyRaf) cancelAnimationFrame(scrollSpyRaf);
+	scrollSpyObserver?.disconnect();
 });
 
 function getSpaceAutoDestroyPolicy(
@@ -927,6 +934,32 @@ async function copyMemberUuid(member: SpaceMember) {
 	}
 }
 
+async function copyModSpaceId(id: string) {
+	try {
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(id);
+		} else {
+			const textarea = document.createElement("textarea");
+			textarea.value = id;
+			textarea.setAttribute("readonly", "true");
+			textarea.style.position = "fixed";
+			textarea.style.opacity = "0";
+			document.body.appendChild(textarea);
+			textarea.select();
+			const copied = document.execCommand("copy");
+			document.body.removeChild(textarea);
+			if (!copied) return;
+		}
+		copiedModSpaceId = id;
+		if (copiedModSpaceIdTimer) clearTimeout(copiedModSpaceIdTimer);
+		copiedModSpaceIdTimer = setTimeout(() => {
+			copiedModSpaceId = null;
+		}, 2000);
+	} catch {
+		// ignore copy failure silently
+	}
+}
+
 function selectAddingMemberRole(role: SpaceRole) {
 	if (!canManageSpaceMembers) return;
 	addingMemberRole = role;
@@ -1271,10 +1304,119 @@ const settingsSections: {
 	{ id: "channels", label: "Channels", icon: Network },
 	{ id: "sandbox", label: "Sandbox", icon: Settings },
 ];
+
+function isSettingsSection(
+	value: string | null | undefined,
+): value is SettingsSection {
+	return settingsSections.some((section) => section.id === value);
+}
+
+function sectionElementId(sectionId: SettingsSection) {
+	return sectionId;
+}
+
 let activeSection = $state<SettingsSection>("profile");
+let settingsMainEl = $state<HTMLElement | null>(null);
+let scrollSpyObserver: IntersectionObserver | null = null;
+let scrollSpyRaf = 0;
+let programmaticScroll = false;
+let programmaticScrollTimer: ReturnType<typeof setTimeout> | null = null;
+
+function setActiveSection(
+	sectionId: SettingsSection,
+	{ syncHash = false } = {},
+) {
+	if (activeSection !== sectionId) activeSection = sectionId;
+	if (!syncHash || !browser) return;
+	const nextHash = `#${sectionId}`;
+	if (window.location.hash === nextHash) return;
+	history.replaceState(
+		null,
+		"",
+		`${window.location.pathname}${window.location.search}${nextHash}`,
+	);
+}
+
+function scrollToSection(sectionId: SettingsSection, { smooth = true } = {}) {
+	const el = document.getElementById(sectionElementId(sectionId));
+	if (!el) return;
+	setActiveSection(sectionId, { syncHash: true });
+	programmaticScroll = true;
+	if (programmaticScrollTimer) clearTimeout(programmaticScrollTimer);
+	el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "start" });
+	programmaticScrollTimer = setTimeout(
+		() => {
+			programmaticScroll = false;
+		},
+		smooth ? 700 : 50,
+	);
+}
+
+function handleSectionNavClick(event: MouseEvent, sectionId: SettingsSection) {
+	event.preventDefault();
+	scrollToSection(sectionId);
+}
+
+function updateActiveSectionFromScroll() {
+	if (!settingsMainEl || programmaticScroll) return;
+	const mainTop = settingsMainEl.getBoundingClientRect().top;
+	const marker = mainTop + 48;
+	let next: SettingsSection = settingsSections[0].id;
+	for (const section of settingsSections) {
+		const el = document.getElementById(sectionElementId(section.id));
+		if (!el) continue;
+		if (el.getBoundingClientRect().top <= marker) next = section.id;
+	}
+	setActiveSection(next, { syncHash: true });
+}
+
+function scheduleActiveSectionFromScroll() {
+	if (scrollSpyRaf) cancelAnimationFrame(scrollSpyRaf);
+	scrollSpyRaf = requestAnimationFrame(() => {
+		scrollSpyRaf = 0;
+		updateActiveSectionFromScroll();
+	});
+}
+
+function bindScrollSpy(main: HTMLElement | null) {
+	scrollSpyObserver?.disconnect();
+	scrollSpyObserver = null;
+	if (!main || typeof IntersectionObserver === "undefined") return;
+	scrollSpyObserver = new IntersectionObserver(
+		() => scheduleActiveSectionFromScroll(),
+		{
+			root: main,
+			rootMargin: "-12% 0px -72% 0px",
+			threshold: [0, 0.1, 0.25, 0.5, 1],
+		},
+	);
+	for (const section of settingsSections) {
+		const el = document.getElementById(sectionElementId(section.id));
+		if (el) scrollSpyObserver.observe(el);
+	}
+	updateActiveSectionFromScroll();
+}
 
 $effect(() => {
 	void loadPage();
+});
+
+$effect(() => {
+	if (!browser || loading || error || !settingsMainEl) return;
+	const main = settingsMainEl;
+	bindScrollSpy(main);
+	const hash = window.location.hash.replace(/^#/, "");
+	if (isSettingsSection(hash)) {
+		requestAnimationFrame(() => scrollToSection(hash, { smooth: false }));
+	} else {
+		updateActiveSectionFromScroll();
+	}
+	return () => {
+		scrollSpyObserver?.disconnect();
+		scrollSpyObserver = null;
+		if (scrollSpyRaf) cancelAnimationFrame(scrollSpyRaf);
+		scrollSpyRaf = 0;
+	};
 });
 </script>
 
@@ -1300,33 +1442,32 @@ $effect(() => {
 		<!-- Section nav — desktop sidebar -->
 		<nav class="hidden w-44 shrink-0 flex-col gap-[2px] border-r border-border-subtle px-2 py-3 lg:flex" aria-label="Settings sections">
 			{#each settingsSections as section (section.id)}
-				<button
-					type="button"
+				<a
+					href={`#${section.id}`}
 					class="flex items-center gap-2.5 rounded-[5px] px-2 py-2 text-left text-[13px] transition-colors duration-100 {activeSection === section.id ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-					onclick={() => (activeSection = section.id)}
+					onclick={(event) => handleSectionNavClick(event, section.id)}
 				>
 					<section.icon class="h-[15px] w-[15px] shrink-0" />
 					<span class="truncate">{section.label}</span>
-				</button>
+				</a>
 			{/each}
 		</nav>
 
 		<!-- Section nav — mobile tabs -->
-		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-3 py-1.5 lg:hidden" role="tablist" aria-label="Settings sections">
+		<div class="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border-subtle px-3 py-1.5 lg:hidden" role="navigation" aria-label="Settings sections">
 			{#each settingsSections as section (section.id)}
-				<button
-					type="button"
-					role="tab"
-					aria-selected={activeSection === section.id}
+				<a
+					href={`#${section.id}`}
+					aria-current={activeSection === section.id ? 'location' : undefined}
 					class="shrink-0 rounded-[5px] px-2.5 py-1.5 text-[12px] font-medium transition-colors duration-100 {activeSection === section.id ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
-					onclick={() => (activeSection = section.id)}
+					onclick={(event) => handleSectionNavClick(event, section.id)}
 				>
 					{section.label}
-				</button>
+				</a>
 			{/each}
 		</div>
 
-		<main class="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7">
+		<main bind:this={settingsMainEl} class="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-7">
 			<div class="mx-auto w-full max-w-2xl">
 				{#if loading}
 					<div aria-hidden="true">
@@ -1342,9 +1483,10 @@ $effect(() => {
 					</div>
 				{:else if error}
 					<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft">{error}</div>
-				{:else if activeSection === "profile"}
-					<!-- ════════ Profile ════════ -->
-					<section>
+				{:else}
+					<div class="pb-10">
+						<!-- ════════ Profile ════════ -->
+						<section id={sectionElementId("profile")} class="scroll-mt-6">
 						<div class="border-b border-border-subtle pb-5">
 							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Profile</h1>
 							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Public identity of this space.</p>
@@ -1432,10 +1574,10 @@ $effect(() => {
 							{/if}
 							{#if spaceProfileError}<p class="mt-2 text-[12px] text-error-soft break-words">{spaceProfileError}</p>{/if}
 						</div>
-					</section>
-				{:else if activeSection === "access"}
-					<!-- ════════ Access ════════ -->
-					<section>
+						</section>
+
+						<!-- ════════ Access ════════ -->
+						<section id={sectionElementId("access")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="flex items-start justify-between gap-3 border-b border-border-subtle pb-5">
 							<div class="min-w-0">
 								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Access</h1>
@@ -1534,10 +1676,10 @@ $effect(() => {
 								</div>
 							{/if}
 						</div>
-					</section>
-				{:else if activeSection === "environment"}
-					<!-- ════════ Environment ════════ -->
-					<section>
+						</section>
+
+						<!-- ════════ Environment ════════ -->
+						<section id={sectionElementId("environment")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="border-b border-border-subtle pb-5">
 							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Environment</h1>
 							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">What the agent sees inside the sandbox: env vars and mounted spaces.</p>
@@ -1582,6 +1724,7 @@ $effect(() => {
 									<div class="min-w-0">
 										<div class="text-[12px] font-medium text-text-primary">{recommendedBaseMod.name} <span class="font-normal text-text-tertiary">— recommended</span></div>
 										<div class="mt-0.5 break-all font-mono text-[10px] text-text-tertiary">/mods/{recommendedBaseMod.mountSlug}</div>
+										<button type="button" onclick={() => { void copyModSpaceId(recommendedBaseMod.modSpaceId); }} title="Copy mod space ID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{recommendedBaseMod.modSpaceId}</span>{#if copiedModSpaceId === recommendedBaseMod.modSpaceId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
 									</div>
 									<button type="button" onclick={() => fillRecommendedMod(recommendedBaseMod)} class="inline-flex h-7 shrink-0 items-center justify-center rounded-[5px] border border-brand-border px-2.5 text-[11px] font-medium text-brand transition-colors hover:bg-brand-muted-hover">Use</button>
 								</div>
@@ -1596,6 +1739,7 @@ $effect(() => {
 													<span class="shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider {mod.enabled ? 'bg-success-bg text-success-soft' : 'bg-bg-hover text-text-placeholder'}">{mod.enabled ? 'on' : 'off'}</span>
 												</div>
 												<div class="mt-0.5 break-all font-mono text-[10px] text-text-placeholder">{mod.mountPath}</div>
+												<button type="button" onclick={() => { void copyModSpaceId(mod.modSpaceId); }} title="Copy mod space ID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{mod.modSpaceId}</span>{#if copiedModSpaceId === mod.modSpaceId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>
 												{#if canManageSpaceMods}
 													<input value={mod.mountSlug} onblur={(event) => { const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } }} onkeydown={(event) => { if (event.key === 'Enter' && !isComposingKeyboardEvent(event)) { event.preventDefault(); const slug = (event.currentTarget as HTMLInputElement).value.trim(); if (slug !== mod.mountSlug) { void updateModMountSlug(mod, slug); } } }} placeholder="mount slug" aria-label="Mount slug" class="mt-1.5 w-full max-w-[200px] rounded-[4px] border border-border-subtle bg-bg-input px-2 py-1 font-mono text-[11px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none" />
 												{/if}
@@ -1627,10 +1771,10 @@ $effect(() => {
 							{#if modError}<p class="mt-2 text-[12px] text-error-soft break-words">{modError}</p>{/if}
 							{#if modRestartMessage}<div class="mt-3 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{modRestartMessage}</div>{/if}
 						</div>
-					</section>
-				{:else if activeSection === "channels"}
-					<!-- ════════ Channels ════════ -->
-					<section>
+						</section>
+
+						<!-- ════════ Channels ════════ -->
+						<section id={sectionElementId("channels")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="border-b border-border-subtle pb-5">
 							<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Channels</h1>
 							<p class="mt-1 text-[13px] leading-5 text-text-tertiary">Let this space send and receive messages on external platforms.</p>
@@ -1690,10 +1834,10 @@ $effect(() => {
 							</div>
 							{#if channelError}<p class="mt-2 text-[12px] text-error-soft break-words">{channelError}</p>{/if}
 						</div>
-					</section>
-				{:else if activeSection === "sandbox"}
-					<!-- ════════ Sandbox ════════ -->
-					<section>
+						</section>
+
+						<!-- ════════ Sandbox ════════ -->
+						<section id={sectionElementId("sandbox")} class="scroll-mt-6 border-t border-border-subtle pt-10">
 						<div class="flex items-start justify-between gap-3 border-b border-border-subtle pb-5">
 							<div class="min-w-0">
 								<h1 class="text-[18px] font-semibold tracking-tight text-text-primary">Sandbox</h1>
@@ -1772,7 +1916,8 @@ $effect(() => {
 							{#if sandboxRecoveryMessage}<div class="mt-4 rounded-md border border-success-soft/30 bg-success-bg px-3 py-2 text-[12px] text-success-soft">{sandboxRecoveryMessage}</div>{/if}
 							{#if sandboxRecoveryError}<div class="mt-4 rounded-md border border-error-soft/30 bg-error-bg px-3 py-2 text-[12px] text-error-soft break-words">{sandboxRecoveryError}</div>{/if}
 						</div>
-					</section>
+						</section>
+					</div>
 				{/if}
 			</div>
 		</main>
