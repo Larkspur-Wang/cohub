@@ -10,7 +10,7 @@ export type LabelSource = "user" | "system";
 const SCOPE_TYPE = "space";
 const MAX_LABEL_NAME_LENGTH = 80;
 const MAX_LABEL_REFS = 20;
-const RESERVED_SYSTEM_ROOT_LABELS = new Set(["source", "user"]);
+const RESERVED_SYSTEM_ROOT_LABELS = new Set(["source", "user", "channel"]);
 const pathKey = (path: LabelPath) => path.map((part) => part.toLowerCase()).join("/");
 const hasControlCharacter = (value: string) => [...value].some((char) => {
   const code = char.charCodeAt(0);
@@ -219,3 +219,4 @@ export async function listLabelsByRank(db: LabelsDb, spaceId: string) {
 
 export { assignSessionParticipantSystemLabels, getSessionUserLabelSystemKey, parseSessionUserLabelSystemKey, SESSION_USER_LABEL_SYSTEM_KEY_PREFIX, SESSION_USER_ROOT_LABEL_SYSTEM_KEY } from "./session-user.js";
 export { assignSessionSourceSystemLabel, getSessionSourceLabelSystemKey, resolveKnownSessionSourceLabelSystemKey, resolveSessionSourceLabelRef, resolveSessionSourceLabelSystemKey, SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX, SESSION_SOURCE_ROOT_LABEL_SYSTEM_KEY } from "./session-source.js";
+export { assignSessionChannelSystemLabel, getSessionChannelLabelSystemKey, parseSessionChannelLabelSystemKey, SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX, SESSION_CHANNEL_ROOT_LABEL_SYSTEM_KEY } from "./session-channel.js";

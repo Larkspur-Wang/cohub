@@ -127,6 +127,7 @@ import {
 	findWebAppSourceLabel,
 	getDisplayLabels,
 	getSourceLabels,
+	getSystemChannelLabels,
 	getSystemUserLabels,
 	isWebSessionSource,
 	SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX,
@@ -142,10 +143,13 @@ import {
 	getLabelDisplayTitle,
 	getLabelRefById,
 	getLabelUserProfile,
+	hydrateChannelLabelsForLabels,
 	hydrateUserProfilesForLabels,
+	isSessionChannelLabel,
 	isSessionUserLabel,
 	LABEL_ITEMS_PAGE_SIZE,
 	markLabelItemsStale,
+	onChannelLabelDisplayNamesUpdated,
 	onSpaceLabelsCacheUpdated,
 	onUserLabelProfilesUpdated,
 } from "$lib/stores/space-labels";
@@ -221,6 +225,7 @@ let labelItemsBySpace = $state<
 	Record<string, Record<string, LabelAssignmentListItem[]>>
 >({});
 let userLabelProfileVersion = $state(0);
+let channelLabelDisplayVersion = $state(0);
 let labelSessionDetailsBySpace = $state<
 	Record<string, Record<string, SessionRecord>>
 >({});
@@ -460,6 +465,7 @@ const currentLoadingLabelIds = $derived(
 		: new Set<string>(),
 );
 const sourceLabels = $derived(getSourceLabels(labels));
+const systemChannelLabels = $derived(getSystemChannelLabels(labels));
 const systemUserLabels = $derived(getSystemUserLabels(labels));
 const displayLabels = $derived(getDisplayLabels(labels));
 const userDisplayName = $derived(
@@ -1010,17 +1016,24 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 
 function getReactiveLabelDisplayName(label: LabelListItem) {
 	userLabelProfileVersion;
+	channelLabelDisplayVersion;
 	return getLabelDisplayName(label);
 }
 
 function getReactiveLabelDisplayTitle(label: LabelListItem) {
 	userLabelProfileVersion;
+	channelLabelDisplayVersion;
 	return getLabelDisplayTitle(label);
 }
 
 function getReactiveLabelUserProfile(label: LabelListItem) {
 	userLabelProfileVersion;
 	return getLabelUserProfile(label);
+}
+
+function hydrateSystemLabelDisplays(nextLabels: LabelListItem[]) {
+	void hydrateUserProfilesForLabels(nextLabels).catch(() => undefined);
+	void hydrateChannelLabelsForLabels(nextLabels).catch(() => undefined);
 }
 
 async function loadMoreCheckpointsForSpace(spaceId: string) {
@@ -1067,7 +1080,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 			labels = cached.labels;
 			pruneExpandedLabelIds(spaceId, cached.labels);
 			applyDefaultExpandedLabelId(spaceId, cached.labels);
-			void hydrateUserProfilesForLabels(cached.labels).catch(() => undefined);
+			hydrateSystemLabelDisplays(cached.labels);
 		}
 		if (cached && !cached.stale) return;
 	}
@@ -1080,7 +1093,7 @@ async function loadLabelsForSpace(spaceId: string, force = false) {
 			labels = next;
 			pruneExpandedLabelIds(spaceId, next);
 			applyDefaultExpandedLabelId(spaceId, next);
-			void hydrateUserProfilesForLabels(next).catch(() => undefined);
+			hydrateSystemLabelDisplays(next);
 		}
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
@@ -1459,6 +1472,7 @@ function toggleLabelExpanded(labelId: string) {
 function isSessionActivityLabel(label: LabelListItem) {
 	return (
 		isSessionUserLabel(label) ||
+		isSessionChannelLabel(label) ||
 		label.systemKey?.startsWith(SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX)
 	);
 }
@@ -2652,6 +2666,7 @@ onMount(() => {
 	let offSessionListCacheUpdated = () => {};
 	let offSpaceLabelsCacheUpdated = () => {};
 	let offUserLabelProfilesUpdated = () => {};
+	let offChannelLabelDisplayNamesUpdated = () => {};
 	let offTaskRunsCacheUpdated = () => {};
 	if (mode === "space") {
 		offSpaceListCacheUpdated = onSpaceListCacheUpdated(
@@ -2693,13 +2708,18 @@ onMount(() => {
 				if (spaceId !== currentSpaceId) return;
 				labels = nextLabels;
 				pruneExpandedLabelIds(spaceId, nextLabels);
-				void hydrateUserProfilesForLabels(nextLabels).catch(() => undefined);
+				hydrateSystemLabelDisplays(nextLabels);
 			},
 		);
 		offUserLabelProfilesUpdated = onUserLabelProfilesUpdated(() => {
 			userLabelProfileVersion += 1;
 		});
-		void hydrateUserProfilesForLabels(labels).catch(() => undefined);
+		offChannelLabelDisplayNamesUpdated = onChannelLabelDisplayNamesUpdated(
+			() => {
+				channelLabelDisplayVersion += 1;
+			},
+		);
+		hydrateSystemLabelDisplays(labels);
 		offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(({ spaceId, runs }) => {
 			if (spaceId !== currentSpaceId) return;
 			tasks = runs;
@@ -2711,7 +2731,7 @@ onMount(() => {
 		);
 		void (async () => {
 			await loadSpaces();
-			void hydrateUserProfilesForLabels(labels).catch(() => undefined);
+			hydrateSystemLabelDisplays(labels);
 
 			window.addEventListener(
 				"cohub:space-created",
@@ -2786,6 +2806,7 @@ onMount(() => {
 		offSessionListCacheUpdated();
 		offSpaceLabelsCacheUpdated();
 		offUserLabelProfilesUpdated();
+		offChannelLabelDisplayNamesUpdated();
 		offTaskRunsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
@@ -3266,6 +3287,7 @@ $effect(() => {
 					{@render sidebarEmptyState("Loading chats…", true)}
 				{:else}
 					{@render sourceLabelRows()}
+					{@render labelTreeRows(systemChannelLabels)}
 					{@render labelTreeRows(systemUserLabels)}
 					{@render allChatsLabelRow()}
 				{/if}

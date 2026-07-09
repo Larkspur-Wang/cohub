@@ -8,6 +8,7 @@ import { buildSpaceSessionRoute } from "$lib/space-routes";
 export const ALL_CHATS_LABEL_ID = "__all_chats__";
 export const SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX = "session-source:";
 export const SESSION_USER_ROOT_LABEL_SYSTEM_KEY = "session-user:root";
+export const SESSION_CHANNEL_ROOT_LABEL_SYSTEM_KEY = "session-channel:root";
 export const WEB_APP_SOURCE_LABEL_SYSTEM_KEY = `${SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX}web`;
 
 export function isWebAppSourceLabel(label: LabelListItem) {
@@ -56,6 +57,22 @@ export function findSessionUserRootLabel(labels: LabelListItem[]) {
 export function getSystemUserLabels(labels: LabelListItem[]) {
 	const userRootLabel = findSessionUserRootLabel(labels);
 	return userRootLabel ? [userRootLabel] : [];
+}
+
+export function findSessionChannelRootLabel(labels: LabelListItem[]) {
+	return (
+		labels.find(
+			(label) =>
+				label.source === "system" &&
+				label.parentId === null &&
+				label.systemKey === SESSION_CHANNEL_ROOT_LABEL_SYSTEM_KEY,
+		) ?? null
+	);
+}
+
+export function getSystemChannelLabels(labels: LabelListItem[]) {
+	const channelRootLabel = findSessionChannelRootLabel(labels);
+	return channelRootLabel ? [channelRootLabel] : [];
 }
 
 export function getDisplayLabels(labels: LabelListItem[]) {

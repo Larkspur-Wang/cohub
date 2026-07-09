@@ -52,6 +52,10 @@
       "types": "./dist/labels/session-user.d.ts",
       "default": "./dist/labels/session-user.js"
     },
+    "./labels/session-channel": {
+      "types": "./dist/labels/session-channel.d.ts",
+      "default": "./dist/labels/session-channel.js"
+    },
     "./labels/resource-events": {
       "types": "./src/labels/resource-events.ts",
       "default": "./dist/labels/resource-events.js"

@@ -18,6 +18,7 @@ import {
 import { hasPermission } from "./permissions.js";
 import { getRecord, normalizeChannelModelConfig } from "./lib/channel-model-config.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
+import { assignSessionChannelSystemLabel } from "@cohub/core/labels/session-channel";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 
@@ -65,6 +66,7 @@ async function withBindingLock<T>(lockKey: string, fn: () => Promise<T>): Promis
 type ResolvedChannelInbound = {
   spaceId: string;
   spaceChannelId: string;
+  channelId: string;
   userId: string;
   sessionId: string;
   binding: typeof spaceSessionBindings.$inferSelect;
@@ -563,11 +565,11 @@ export function buildDefaultBindingMeta(event: GatewayInboundEvent) {
   } as Record<string, unknown>;
 }
 
-async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+async function _resolveOrCreateSessionBindingForEvent(input: { spaceId: string; spaceChannelId: string; channelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
   return resolveOrCreateSessionBindingForEventImpl(input);
 }
 
-async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: string; spaceChannelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
+async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: string; spaceChannelId: string; channelId: string; userUuid: string; provider: string; externalChatId: string; bindingKey: string; event: GatewayInboundEvent }) {
   let binding = await getBindingBySpaceChannelAndKey({ spaceChannelId: input.spaceChannelId, bindingKey: input.bindingKey });
   if (binding?.spaceSessionId) {
     const lifecycleUpdate = {
@@ -600,15 +602,25 @@ async function resolveOrCreateSessionBindingForEventImpl(input: { spaceId: strin
         },
       });
 
-  await assignSessionSourceSystemLabel({
-    db,
-    spaceId: input.spaceId,
-    sessionId: session.id,
-    source: sessionSource,
-    provider: input.provider,
-  }).then(() =>
+  await Promise.all([
+    assignSessionSourceSystemLabel({
+      db,
+      spaceId: input.spaceId,
+      sessionId: session.id,
+      source: sessionSource,
+      provider: input.provider,
+    }).catch((error: unknown) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error)),
+    assignSessionChannelSystemLabel({
+      db,
+      spaceId: input.spaceId,
+      sessionId: session.id,
+      channelId: input.channelId,
+      spaceChannelId: input.spaceChannelId,
+      provider: input.provider,
+    }).catch((error: unknown) => logger.warn("[SessionChannelLabel] failed to assign channel label", error)),
+  ]).then(() =>
     dispatchLabelAssignmentsUpdated({ spaceId: input.spaceId, resourceType: "session", resourceRef: session.id, sessionId: session.id }),
-  ).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
+  ).catch((error: unknown) => logger.warn("[SessionLabels] failed to dispatch channel session label update", error));
 
   binding = await createSpaceSessionBinding({
     spaceId: input.spaceId,
@@ -650,6 +662,7 @@ export async function resolveChannelInboundForEvent(event: GatewayInboundEvent):
     spaceId: spaceChannel.spaceId,
     userUuid: userChannel.userUuid,
     spaceChannelId: spaceChannel.id,
+    channelId: spaceChannel.channelId,
     provider: event.provider,
     externalChatId: event.externalChatId,
     bindingKey,
@@ -659,6 +672,7 @@ export async function resolveChannelInboundForEvent(event: GatewayInboundEvent):
   return {
     spaceId: spaceChannel.spaceId,
     spaceChannelId: spaceChannel.id,
+    channelId: spaceChannel.channelId,
     userId: userChannel.userUuid,
     sessionId: binding.spaceSessionId,
     binding,

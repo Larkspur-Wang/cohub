@@ -12,9 +12,16 @@ import { labelTreeRepo } from "$lib/cache/repositories/label-tree-repo";
 import { resourceLabelsRepo } from "$lib/cache/repositories/resource-labels-repo";
 import { userProfilesRepo } from "$lib/cache/repositories/user-profiles-repo";
 import { sdk } from "$lib/sdk";
+import {
+	formatChannelLabelName,
+	getChannelLabelInfo,
+	hydrateChannelLabels,
+	onChannelLabelDisplayUpdated,
+} from "$lib/stores/channel-label-display";
 
 const LABEL_ITEMS_PAGE_SIZE = 30;
 const SESSION_USER_LABEL_SYSTEM_KEY_PREFIX = "session-user:";
+const SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX = "session-channel:";
 function fallbackUserName(userUuid: string) {
 	return userUuid.replaceAll("-", "").slice(0, 8) || "User";
 }
@@ -30,34 +37,66 @@ export function getSessionUserUuidFromLabel(label: LabelListItem) {
 	return null;
 }
 
+export function getSessionChannelIdFromLabel(label: LabelListItem) {
+	const systemKey = label.systemKey?.trim() ?? "";
+	if (systemKey.startsWith(SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX)) {
+		const channelId = systemKey
+			.slice(SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX.length)
+			.trim();
+		return channelId && channelId !== "root" ? channelId : null;
+	}
+	return null;
+}
+
 export function isSessionUserLabel(label: LabelListItem) {
 	return Boolean(getSessionUserUuidFromLabel(label));
+}
+
+export function isSessionChannelLabel(label: LabelListItem) {
+	return Boolean(getSessionChannelIdFromLabel(label));
 }
 
 export function getLabelDisplayName(label: LabelListItem) {
 	if (label.systemKey === `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`)
 		return "User";
+	if (label.systemKey === `${SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX}root`)
+		return "Channel";
 	const userUuid = getSessionUserUuidFromLabel(label);
-	if (!userUuid) return label.name;
-	return (
-		userProfilesRepo.getSync(userUuid)?.displayName?.trim() ||
-		fallbackUserName(userUuid)
-	);
+	if (userUuid) {
+		return (
+			userProfilesRepo.getSync(userUuid)?.displayName?.trim() ||
+			fallbackUserName(userUuid)
+		);
+	}
+	const channelId = getSessionChannelIdFromLabel(label);
+	if (channelId) {
+		return formatChannelLabelName(getChannelLabelInfo(channelId), channelId);
+	}
+	return label.name;
 }
 
 export function getLabelDisplayTitle(label: LabelListItem) {
 	if (label.systemKey === `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`)
 		return label.name === "User" ? "User" : `${label.name} · User`;
+	if (label.systemKey === `${SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX}root`)
+		return label.name === "Channel" ? "Channel" : `${label.name} · Channel`;
 	const userUuid = getSessionUserUuidFromLabel(label);
-	if (!userUuid) return label.name;
-	const profile = userProfilesRepo.getSync(userUuid);
-	return [
-		profile?.displayName?.trim() || fallbackUserName(userUuid),
-		profile?.username ? `@${profile.username}` : null,
-		userUuid,
-	]
-		.filter(Boolean)
-		.join(" · ");
+	if (userUuid) {
+		const profile = userProfilesRepo.getSync(userUuid);
+		return [
+			profile?.displayName?.trim() || fallbackUserName(userUuid),
+			profile?.username ? `@${profile.username}` : null,
+			userUuid,
+		]
+			.filter(Boolean)
+			.join(" · ");
+	}
+	const channelId = getSessionChannelIdFromLabel(label);
+	if (channelId) {
+		const info = getChannelLabelInfo(channelId);
+		return `${formatChannelLabelName(info, channelId)} · ${channelId}`;
+	}
+	return label.name;
 }
 
 export function getLabelUserProfile(label: LabelListItem) {
@@ -67,6 +106,10 @@ export function getLabelUserProfile(label: LabelListItem) {
 
 export function onUserLabelProfilesUpdated(handler: () => void) {
 	return userProfilesRepo.subscribe(() => handler());
+}
+
+export function onChannelLabelDisplayNamesUpdated(handler: () => void) {
+	return onChannelLabelDisplayUpdated(handler);
 }
 
 function collectSessionUserUuids(labels: LabelListItem[]) {
@@ -82,12 +125,30 @@ function collectSessionUserUuids(labels: LabelListItem[]) {
 	return [...userUuids];
 }
 
+function collectSessionChannelIds(labels: LabelListItem[]) {
+	const channelIds = new Set<string>();
+	const visit = (items: LabelListItem[]) => {
+		for (const label of items) {
+			const channelId = getSessionChannelIdFromLabel(label);
+			if (channelId) channelIds.add(channelId);
+			if (label.children?.length) visit(label.children);
+		}
+	};
+	visit(labels);
+	return [...channelIds];
+}
+
 export async function hydrateUserProfilesForLabels(labels: LabelListItem[]) {
 	await userProfilesRepo.hydrate(collectSessionUserUuids(labels));
 }
 
-function queueHydrateUserLabelProfiles(labels: LabelListItem[]) {
+export async function hydrateChannelLabelsForLabels(labels: LabelListItem[]) {
+	await hydrateChannelLabels(collectSessionChannelIds(labels));
+}
+
+function queueHydrateSystemLabelDisplays(labels: LabelListItem[]) {
 	void hydrateUserProfilesForLabels(labels).catch(() => undefined);
+	void hydrateChannelLabelsForLabels(labels).catch(() => undefined);
 }
 
 export async function getCachedSpaceLabelsSnapshot(spaceId: string) {
@@ -102,7 +163,7 @@ export async function getCachedSpaceLabelsSnapshot(spaceId: string) {
 
 export async function getCachedSpaceLabels(spaceId: string) {
 	const labels = (await getCachedSpaceLabelsSnapshot(spaceId))?.labels ?? null;
-	if (labels) queueHydrateUserLabelProfiles(labels);
+	if (labels) queueHydrateSystemLabelDisplays(labels);
 	return labels;
 }
 
@@ -110,7 +171,7 @@ export async function setCachedSpaceLabels(
 	spaceId: string,
 	labels: LabelListItem[],
 ) {
-	queueHydrateUserLabelProfiles(labels);
+	queueHydrateSystemLabelDisplays(labels);
 	return (await labelTreeRepo.set(spaceId, labels)).labels;
 }
 
@@ -133,7 +194,7 @@ export function onSpaceLabelsCacheUpdated(
 
 export async function fetchSpaceLabelsFresh(spaceId: string) {
 	const labels = (await sdk.space(spaceId).labels.list()).labels ?? [];
-	queueHydrateUserLabelProfiles(labels);
+	queueHydrateSystemLabelDisplays(labels);
 	try {
 		return (await labelTreeRepo.set(spaceId, labels, { source: "network" }))
 			.labels;
@@ -147,7 +208,7 @@ export async function fetchSpaceLabels(spaceId: string, force = false) {
 	if (!force) {
 		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
 		if (cached && !cached.stale) {
-			queueHydrateUserLabelProfiles(cached.labels);
+			queueHydrateSystemLabelDisplays(cached.labels);
 			return cached.labels;
 		}
 	}
@@ -257,7 +318,7 @@ export async function getResourceLabels(
 			source: "network",
 		}),
 	]);
-	queueHydrateUserLabelProfiles(result.labels);
+	queueHydrateSystemLabelDisplays(result.labels);
 	return result;
 }
 
@@ -282,7 +343,7 @@ export async function fetchResourceLabels(
 			resourceRef,
 		);
 		if (cached && !cached.stale) {
-			queueHydrateUserLabelProfiles(cached.labels);
+			queueHydrateSystemLabelDisplays(cached.labels);
 			return {
 				labels: cached.labels,
 				assignments: cached.assignments,
@@ -375,7 +436,7 @@ async function cacheResourceLabelMutation(input: {
 			{ source: "network" },
 		),
 	]);
-	queueHydrateUserLabelProfiles(input.result.labels);
+	queueHydrateSystemLabelDisplays(input.result.labels);
 
 	const affectedLabelIds = getLabelIdsByRefs(
 		input.result.labels,

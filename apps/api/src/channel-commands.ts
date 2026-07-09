@@ -7,6 +7,7 @@ import { config } from "./config.js";
 import { db } from "./db/index.js";
 import { sessionMessages, spaceSessionBindings, spaceChannels } from "@cohub/db";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
+import { assignSessionChannelSystemLabel } from "@cohub/core/labels/session-channel";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { dispatchLabelAssignmentsUpdated } from "./realtime-events.js";
 import { createLogger } from "@cohub/infra/logging";
@@ -19,6 +20,7 @@ type ResolvedGatewayInbound = {
   sessionId: string;
   userId: string;
   spaceChannelId: string;
+  channelId: string;
   conversationId: string;
   bindingKey: string;
 };
@@ -236,15 +238,25 @@ const createFreshSessionForBinding = async (
     },
   });
 
-  await assignSessionSourceSystemLabel({
-    db,
-    spaceId: resolved.spaceId,
-    sessionId: session.id,
-    source: sessionSource,
-    provider: event.provider,
-  }).then(() =>
+  await Promise.all([
+    assignSessionSourceSystemLabel({
+      db,
+      spaceId: resolved.spaceId,
+      sessionId: session.id,
+      source: sessionSource,
+      provider: event.provider,
+    }).catch((error: unknown) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error)),
+    assignSessionChannelSystemLabel({
+      db,
+      spaceId: resolved.spaceId,
+      sessionId: session.id,
+      channelId: resolved.channelId,
+      spaceChannelId: resolved.spaceChannelId,
+      provider: event.provider,
+    }).catch((error: unknown) => logger.warn("[SessionChannelLabel] failed to assign channel label", error)),
+  ]).then(() =>
     dispatchLabelAssignmentsUpdated({ spaceId: resolved.spaceId, resourceType: "session", resourceRef: session.id, sessionId: session.id }),
-  ).catch((error) => logger.warn("[SessionSourceLabel] failed to assign channel source label", error));
+  ).catch((error: unknown) => logger.warn("[SessionLabels] failed to dispatch channel session label update", error));
 
   const defaultBindingMeta = deps.buildDefaultBindingMeta(event);
   const currentModel = await getBindingModelConfig(resolved);
