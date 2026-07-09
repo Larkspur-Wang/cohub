@@ -66,6 +66,7 @@ import type {
   CanvasBootstrapResponse,
   CanvasCreateInput,
   ChannelConfig,
+  ChannelHealth,
   CanvasDocumentRecord,
   CanvasTransactionInput,
 } from "../types.js";
@@ -921,6 +922,7 @@ export type SpaceChannelBindingRecord = {
     createdAt: string;
     updatedAt: string;
   } | null;
+  health?: ChannelHealth | null;
 };
 
 export class SpaceChannelsApi {

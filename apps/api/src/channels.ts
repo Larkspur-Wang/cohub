@@ -9,6 +9,7 @@ import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
 import { providerMessageRefs, spaceChannels, spaceSessionBindings, userChannels } from "@cohub/db";
 import { REALTIME_OUTBOUND_CHANNEL, getGatewayNodeOutboundStreamKey, redisCommandClient, xaddWithMaxlen } from "./redis.js";
+import { clearChannelHealth } from "./channel-health.js";
 import { registerSpaceSession } from "./space-sessions.js";
 import {
   executeSessionInteraction,
@@ -288,7 +289,10 @@ async function bindSingleChannelToGateway(spaceChannel: typeof spaceChannels.$in
 
 export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {
   const nodeId = await redisCommandClient.hget("gateway:channel_routing", spaceChannelId);
-  if (!nodeId) return;
+  if (!nodeId) {
+    await clearChannelHealth(spaceChannelId).catch(() => undefined);
+    return;
+  }
 
   // Remove from gateway node's channel list
   await redisCommandClient.hdel(`gateway:node:${nodeId}:channels`, spaceChannelId);
@@ -296,6 +300,7 @@ export async function unbindSpaceChannelFromGateway(spaceChannelId: string) {
   await redisCommandClient.hdel("gateway:channel_routing", spaceChannelId);
   // Clear config cache
   await redisCommandClient.del(getSpaceChannelConfigKey(spaceChannelId));
+  await clearChannelHealth(spaceChannelId).catch(() => undefined);
 }
 
 async function resolveGatewayNodeForOutbound(input: { spaceChannelId: string; spaceId: string }) {

@@ -6,6 +6,11 @@ import { WeChatProvider } from "../providers/wechat/index.js";
 import { QQProvider } from "../providers/qq/index.js";
 import type { GatewayProvider } from "../providers/base.js";
 import { createLogger } from "@cohub/infra/logging";
+import {
+  markChannelConnecting,
+  markChannelError,
+  markChannelStopped,
+} from "../channel-health.js";
 
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -20,6 +25,8 @@ interface ChannelConfig {
 
 type ProviderFactory = (channelId: string, credentials: Record<string, unknown>) => GatewayProvider;
 
+// Register new providers here. Lifecycle health (connecting/start-error/stopped) is automatic.
+// Connection ready/error should be reported inside the provider when detectable via channel-health helpers.
 const providerFactories: Record<string, ProviderFactory> = {
   discord: (channelId, credentials) => new DiscordProvider(channelId, credentials.token as string),
   feishu: (channelId, credentials) => new FeishuProvider(channelId, {
@@ -187,10 +194,18 @@ export class GatewayManager {
 
   private startProvider(channelId: string, config: ChannelConfig) {
     logger.info(`[Manager] Starting provider for channel ${channelId} (${config.provider})`);
+    void markChannelConnecting(channelId, this.nodeId).catch((error) => {
+      logger.warn("[Manager] failed to mark channel connecting", { channelId, error });
+    });
     try {
       const factory = providerFactories[config.provider];
       if (!factory) {
         logger.warn(`[Manager] Unsupported provider: ${config.provider}`);
+        void markChannelError(channelId, `Unsupported provider: ${config.provider}`, {
+          nodeId: this.nodeId,
+          reasonCode: "provider_error",
+          message: "Unsupported provider",
+        }).catch(() => undefined);
         return;
       }
       const provider = factory(channelId, config.credentials);
@@ -198,6 +213,7 @@ export class GatewayManager {
       logger.info(`[Manager] Provider for ${channelId} created and added to active providers`);
     } catch (error) {
       logger.error(`[Manager] Error starting provider for ${channelId}:`, error);
+      void markChannelError(channelId, error, { nodeId: this.nodeId }).catch(() => undefined);
     }
   }
 
@@ -213,7 +229,9 @@ export class GatewayManager {
       }
       this.providers.delete(channelId);
     }
-
+    await markChannelStopped(channelId).catch((error) => {
+      logger.warn("[Manager] failed to mark channel stopped", { channelId, error });
+    });
   }
 
   // 供 index.ts 使用，当收到 API 的 outbound 消息时路由给具体的 provider

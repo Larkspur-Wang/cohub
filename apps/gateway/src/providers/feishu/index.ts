@@ -27,7 +27,11 @@ import {
   type InboundDownloadedImage,
 } from "../../media/inbound-attachments.js";
 import { imageExtensionFromMimeType, sanitizeFilename } from "../../media/mime.js";
-
+import {
+  markChannelDegraded,
+  markChannelError,
+  markChannelReady
+} from "../../channel-health.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const FEISHU_OUTBOUND_FILE_MAX_BYTES = 100 * 1024 * 1024;
@@ -182,6 +186,7 @@ export class FeishuProvider implements GatewayProvider {
     logger.info(`[Feishu:${channelId}] Starting WebSocket connection...`);
     this.wsClient.start({ eventDispatcher: this.dispatcher }).catch((err) => {
       logger.error(`[Feishu:${channelId}] WS start failed:`, err);
+      void markChannelError(channelId, err).catch(() => undefined);
     });
 
     // Probe bot identity
@@ -198,11 +203,19 @@ export class FeishuProvider implements GatewayProvider {
       if (res.code === 0 && res.data?.bot?.open_id) {
         this.botOpenId = res.data.bot.open_id;
         logger.info(`[Feishu:${this.channelId}] ✓ Bot open_id: ${this.botOpenId}`);
+        void markChannelReady(this.channelId, {
+          meta: {
+            botOpenId: this.botOpenId,
+          },
+        }).catch(() => undefined);
       } else {
-        logger.warn(`[Feishu:${this.channelId}] Probe bot returned no open_id:`, JSON.stringify(res).slice(0, 200));
+        const detail = JSON.stringify(res).slice(0, 200);
+        logger.warn(`[Feishu:${this.channelId}] Probe bot returned no open_id:`, detail);
+        void markChannelDegraded(this.channelId, detail || "Feishu bot probe failed").catch(() => undefined);
       }
     } catch (err) {
       logger.error(`[Feishu:${this.channelId}] Probe bot failed:`, err);
+      void markChannelDegraded(this.channelId, err).catch(() => undefined);
     }
   }
 

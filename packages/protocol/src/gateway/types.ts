@@ -44,4 +44,40 @@ export type QQChannelConfig = BaseChannelConfig & {
   };
 };
 
-export type ChannelConfig = DiscordChannelConfig | FeishuChannelConfig | WeChatChannelConfig | QQChannelConfig | (BaseChannelConfig & Record<string, unknown>);
+export type ChannelConfig =
+  | DiscordChannelConfig
+  | FeishuChannelConfig
+  | WeChatChannelConfig
+  | QQChannelConfig
+  | (BaseChannelConfig & Record<string, unknown>);
+
+/** Runtime connection health for a bound gateway channel (space_channel id). */
+export type ChannelRuntimeState =
+  | "unbound"
+  | "connecting"
+  | "ready"
+  | "degraded"
+  | "error"
+  | "stopped";
+
+export type ChannelHealthReasonCode =
+  | "invalid_credentials"
+  | "auth_failed"
+  | "network"
+  | "permission"
+  | "provider_error"
+  | "unknown";
+
+export type ChannelHealth = {
+  state: ChannelRuntimeState;
+  reasonCode?: ChannelHealthReasonCode | null;
+  message?: string | null;
+  detail?: string | null;
+  lastReadyAt?: string | null;
+  lastErrorAt?: string | null;
+  lastInboundAt?: string | null;
+  lastOutboundAt?: string | null;
+  nodeId?: string | null;
+  updatedAt: string;
+  meta?: Record<string, string> | null;
+};

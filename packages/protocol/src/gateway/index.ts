@@ -1,7 +1,16 @@
 import { z } from "zod";
 import type { ContentBlock } from "../core/content.js";
 import type { MessageRecord } from "../model/session.js";
-export type { ChannelConfig, DiscordChannelConfig, FeishuChannelConfig, WeChatChannelConfig, QQChannelConfig } from "./types.js";
+export type {
+  ChannelConfig,
+  DiscordChannelConfig,
+  FeishuChannelConfig,
+  WeChatChannelConfig,
+  QQChannelConfig,
+  ChannelRuntimeState,
+  ChannelHealthReasonCode,
+  ChannelHealth,
+} from "./types.js";
 
 export type ChannelProvider = "web" | "discord" | "feishu" | "wechat" | "qq" | "telegram" | "slack";
 export const GATEWAY_CHANNEL_COMMAND_SPECS = [

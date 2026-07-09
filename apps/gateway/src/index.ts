@@ -36,6 +36,7 @@ import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
 import { GatewayManager } from "./manager/index.js";
+import { markChannelDegraded, touchChannelOutbound } from "./channel-health.js";
 import { handleAsrWebSocketConnection } from "./asr/session.js";
 import { handleRelayControlConnection, handleRelayDataConnection, handleRelayPeerConnection } from "./relay/index.js";
 import {
@@ -644,13 +645,29 @@ async function main() {
     if (!provider) {
       logger.warn(`[Gateway] Command rejected: provider not found for channel ${cmd.channelId}`);
       logger.warn(`[Gateway] Active channels: ${manager.getActiveChannelIds().join(", ") || "none"}`);
+      // Routing flap — don't thrash channel health to degraded.
       return { success: false, error: `Provider not found for channel ${cmd.channelId}` };
     }
 
     logger.info(`[Gateway] Routing command ${cmd.commandId} to ${cmd.provider} provider`);
-    const result = await provider.handleOutbound(cmd);
-    logger.info(`[Gateway] Command ${cmd.commandId} result:`, result.success ? "success" : `failed: ${result.error}`);
-    return result;
+    try {
+      const result = await provider.handleOutbound(cmd);
+      if (result.success) {
+        // Only stamp outbound activity when a message was actually delivered.
+        if (result.externalMessageId) {
+          void touchChannelOutbound(cmd.channelId).catch(() => undefined);
+        }
+      } else {
+        void markChannelDegraded(cmd.channelId, result.error ?? "Outbound failed").catch(() => undefined);
+      }
+      logger.info(`[Gateway] Command ${cmd.commandId} result:`, result.success ? "success" : `failed: ${result.error}`);
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error(`[Gateway] Command ${cmd.commandId} threw:`, error);
+      void markChannelDegraded(cmd.channelId, message).catch(() => undefined);
+      return { success: false, error: message };
+    }
   }).catch((error) => {
     logger.error("[Gateway] Fatal error listening to outbound stream:", error);
   });

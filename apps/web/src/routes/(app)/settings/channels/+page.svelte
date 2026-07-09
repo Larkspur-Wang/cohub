@@ -8,10 +8,16 @@ import {
 	Trash2,
 	Webhook,
 } from "lucide-svelte";
-import { onMount } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { page } from "$app/state";
 import { ensureAuth } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
+import {
+	channelHealthClass,
+	channelHealthDetail,
+	channelHealthLabel,
+	channelHealthMessage,
+} from "$lib/channel-health";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 
@@ -21,6 +27,7 @@ const currentSearch = $derived(page.url.search);
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
 let loadError = $state("");
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 const providerIcons: Record<string, typeof MessageSquare> = {
 	discord: MessageSquare,
@@ -36,28 +43,37 @@ const providerDotColor: Record<string, string> = {
 	web: "bg-status-running",
 };
 
-async function loadChannels() {
+async function loadChannels(options?: { silent?: boolean }) {
 	if (!(await ensureAuth({ redirectPath: `${currentPath}${currentSearch}` })))
 		return;
-	isLoading = true;
-	loadError = "";
+	if (!options?.silent) {
+		isLoading = true;
+		loadError = "";
+	}
 	try {
 		channels = await sdk.channels.list();
+		if (!options?.silent) loadError = "";
 	} catch (error) {
-		if (
-			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
-		) {
+		if (await handleUnauthorizedError(error, `${currentPath}${currentSearch}`))
 			return;
+		if (!options?.silent) {
+			loadError =
+				error instanceof Error ? error.message : "Failed to load channels";
 		}
-		loadError =
-			error instanceof Error ? error.message : "Failed to load channels";
 	} finally {
-		isLoading = false;
+		if (!options?.silent) isLoading = false;
 	}
 }
 
 onMount(() => {
 	void loadChannels();
+	refreshTimer = setInterval(() => {
+		void loadChannels({ silent: true });
+	}, 15_000);
+});
+
+onDestroy(() => {
+	if (refreshTimer) clearInterval(refreshTimer);
 });
 
 async function handleDelete(channel: Channel) {
@@ -98,7 +114,6 @@ async function handleDelete(channel: Channel) {
         </a>
       </div>
 
-      <!-- Channel List -->
       {#if isLoading}
         <div class="mt-5 space-y-2 sm:mt-6" aria-hidden="true">
           <div class="h-14 rounded-md bg-bg-hover-strong"></div>
@@ -129,7 +144,6 @@ async function handleDelete(channel: Channel) {
             {@const Icon = providerIcons[channel.provider] || Webhook}
             {@const dotColor = providerDotColor[channel.provider] || providerDotColor.web}
             <div class="rounded-md border border-border-subtle bg-bg-surface transition-colors duration-100 hover:bg-bg-hover lg:rounded-none lg:border-0 lg:bg-transparent">
-              <!-- Desktop: table row -->
               <div class="hidden lg:grid lg:grid-cols-[auto_1fr_auto_1fr_auto] lg:gap-3 lg:px-3 lg:py-2.5">
                 <div class="w-7 h-7 rounded-[5px] bg-bg-surface border border-border-subtle flex items-center justify-center shrink-0 mt-0.5">
                   <div class="w-2 h-2 rounded-full {dotColor} mr-0.5"></div>
@@ -139,8 +153,15 @@ async function handleDelete(channel: Channel) {
                   <div class="text-[13px] font-medium text-text-primary truncate">{channel.name}</div>
                   <div class="text-[10px] uppercase tracking-wider text-text-tertiary">{channel.provider}</div>
                 </div>
-                <div class="flex items-center pt-0.5 shrink-0">
-                  <span class="px-1.5 py-0.5 rounded-sm text-[10px] bg-bg-hover text-text-tertiary border border-border-subtle">{channel.status}</span>
+                <div class="flex min-w-0 flex-col justify-center gap-1 pt-0.5">
+                  <span class={`inline-flex w-fit items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ${channelHealthClass(channel.health?.state ?? (channel.boundSpace ? "connecting" : null))}`}>
+                    {channelHealthLabel(channel.health, { bound: Boolean(channel.boundSpace) })}
+                  </span>
+                  {#if channelHealthMessage(channel.health)}
+                    <span class="truncate text-[11px] text-error-soft" title={channelHealthDetail(channel.health) ?? channelHealthMessage(channel.health) ?? undefined}>
+                      {channelHealthMessage(channel.health)}
+                    </span>
+                  {/if}
                 </div>
                 <div class="flex items-center gap-1.5 pt-0.5 min-w-0">
                   {#if channel.boundSpace}
@@ -163,7 +184,6 @@ async function handleDelete(channel: Channel) {
                 </div>
               </div>
 
-              <!-- Mobile: card layout -->
               <div class="lg:hidden p-3.5">
                 <div class="flex items-start gap-3">
                   <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] border border-border-subtle bg-bg-primary">
@@ -186,14 +206,23 @@ async function handleDelete(channel: Channel) {
                         <Trash2 class="h-4 w-4" />
                       </button>
                     </div>
-                    <div class="mt-3 flex flex-wrap items-center gap-2">
-                      <span class="rounded-sm border border-border-subtle bg-bg-hover px-1.5 py-0.5 text-[11px] text-text-tertiary">{channel.status}</span>
-                      {#if channel.boundSpace}
-                        <a href={buildSpaceLandingRoute(channel.boundSpace.id)} class="min-w-0 max-w-full truncate text-[12px] font-mono text-text-secondary transition-colors hover:text-text-primary">
-                          {channel.boundSpace.title || channel.boundSpace.id.slice(0, 8)}
-                        </a>
-                      {:else}
-                        <span class="text-[12px] text-text-placeholder">Not bound</span>
+                    <div class="mt-3 flex min-w-0 flex-col gap-1.5">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-medium ring-1 ${channelHealthClass(channel.health?.state ?? (channel.boundSpace ? "connecting" : null))}`}>
+                          {channelHealthLabel(channel.health, { bound: Boolean(channel.boundSpace) })}
+                        </span>
+                        {#if channel.boundSpace}
+                          <a href={buildSpaceLandingRoute(channel.boundSpace.id)} class="min-w-0 max-w-full truncate text-[12px] font-mono text-text-secondary transition-colors hover:text-text-primary">
+                            {channel.boundSpace.title || channel.boundSpace.id.slice(0, 8)}
+                          </a>
+                        {:else}
+                          <span class="text-[12px] text-text-placeholder">Not bound</span>
+                        {/if}
+                      </div>
+                      {#if channelHealthMessage(channel.health)}
+                        <p class="text-[12px] leading-4 text-error-soft break-words" title={channelHealthDetail(channel.health) ?? undefined}>
+                          {channelHealthMessage(channel.health)}
+                        </p>
                       {/if}
                     </div>
                   </div>

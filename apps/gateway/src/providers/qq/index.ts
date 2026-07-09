@@ -29,6 +29,9 @@ import type {
   QQMessageAttachment,
   QQMsgElement,
 } from "./types.js";
+import {
+  markChannelReady
+} from "../../channel-health.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const QQ_REPLY_LIMIT = 4;
@@ -75,7 +78,10 @@ export class QQProvider implements GatewayProvider {
       channelId,
       api: this.api,
       onEvent: (event) => this.handleEvent(event),
-      onReady: () => logger.info(`[QQ:${channelId}] ready`),
+      onReady: () => {
+        logger.info(`[QQ:${channelId}] ready`);
+        void markChannelReady(channelId).catch(() => undefined);
+      },
     });
     this.transport.start();
   }

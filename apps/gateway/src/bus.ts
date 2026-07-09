@@ -13,6 +13,7 @@ import {
   STREAM_MAXLEN,
 } from "./redis.js";
 import { gatewayConfig } from "./config.js";
+import { touchChannelInbound } from "./channel-health.js";
 
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -75,6 +76,9 @@ export const publishInboundEvent = async (event: GatewayInboundEvent) => {
     throw new Error(`Gateway inbound submit failed ${response.status}: ${text}`);
   }
   inboundDedup.set(dedupKey, Date.now());
+  if (event.channelId) {
+    void touchChannelInbound(event.channelId).catch(() => undefined);
+  }
 
   logger.info(`[Bus] Inbound submitted: ${event.eventId.slice(0, 8)}`);
 };

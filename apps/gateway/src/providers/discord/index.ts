@@ -22,7 +22,12 @@ import {
   imageExtensionFromMimeType,
   sanitizeFilename,
 } from "../../media/mime.js";
-
+import {
+  markChannelConnecting,
+  markChannelDegraded,
+  markChannelError,
+  markChannelReady
+} from "../../channel-health.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const DISCORD_INBOUND_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
@@ -179,6 +184,7 @@ export class DiscordProvider implements GatewayProvider {
     logger.info(`[Discord:${channelId}] Logging in with token...`);
     this.client.login(token).catch((err) => {
       logger.error(`[Discord:${channelId}] Login failed:`, err);
+      void markChannelError(channelId, err).catch(() => undefined);
     });
   }
 
@@ -196,6 +202,13 @@ export class DiscordProvider implements GatewayProvider {
       const partials = (this.client.options.partials ?? []).join(",") || "none";
       logger.info(`[Discord:${this.channelId}] Client options: intents=${intents}, partials=${partials}`);
       logger.info(`[Discord:${this.channelId}] DM debugging enabled. Waiting for MessageCreate events...`);
+      void markChannelReady(this.channelId, {
+        meta: {
+          botTag: readyClient.user.tag,
+          botId: readyClient.user.id,
+          guildCount: readyClient.guilds.cache.size,
+        },
+      }).catch(() => undefined);
       this.registerNativeCommands().catch((error) => {
         logger.warn(`[Discord:${this.channelId}] Failed to register native commands:`, error);
       });
@@ -213,28 +226,37 @@ export class DiscordProvider implements GatewayProvider {
 
     this.client.on(Events.Error, (error) => {
       logger.error(`[Discord:${this.channelId}] Error:`, error);
+      void markChannelDegraded(this.channelId, error).catch(() => undefined);
     });
 
     this.client.on("disconnect", () => {
       logger.warn(`[Discord:${this.channelId}] Disconnected from Discord`);
+      void markChannelDegraded(this.channelId, "Disconnected from Discord").catch(() => undefined);
     });
 
     this.client.on("reconnecting", () => {
       logger.info(`[Discord:${this.channelId}] Reconnecting to Discord...`);
+      void markChannelConnecting(this.channelId).catch(() => undefined);
     });
 
     this.client.on(Events.ShardReady, (shardId) => {
       logger.info(`[Discord:${this.channelId}] Shard ready: ${shardId}`);
+      void markChannelReady(this.channelId).catch(() => undefined);
     });
 
     this.client.on(Events.ShardResume, (shardId, replayedEvents) => {
       logger.info(`[Discord:${this.channelId}] Shard resumed: ${shardId}, replayedEvents=${replayedEvents}`);
+      void markChannelReady(this.channelId).catch(() => undefined);
     });
 
     this.client.on(Events.ShardDisconnect, (closeEvent, shardId) => {
       logger.warn(
         `[Discord:${this.channelId}] Shard disconnected: shard=${shardId}, code=${closeEvent.code}, reason=${closeEvent.reason || "unknown"}`,
       );
+      void markChannelDegraded(
+        this.channelId,
+        `Shard disconnected: code=${closeEvent.code}, reason=${closeEvent.reason || "unknown"}`,
+      ).catch(() => undefined);
     });
 
     this.client.on(Events.ThreadCreate, async (thread) => {
@@ -468,7 +490,6 @@ export class DiscordProvider implements GatewayProvider {
       logger.info(`[Discord:${this.channelId}] ✓ Inbound event published ${inboundEvent.eventId.slice(0, 8)}`);
     });
   }
-
 
   private async buildInboundMediaBlocks(message: Message, event: GatewayInboundEvent): Promise<ContentBlock[]> {
     if (message.attachments.size === 0) return [];

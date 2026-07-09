@@ -1,7 +1,16 @@
 import { createLogger } from "@cohub/infra/logging";
 import WebSocket from "ws";
 import type { QQApiClient } from "./api.js";
-import { clearQQSessionState, getQQSessionState, setQQSessionState, updateQQStatus } from "./state.js";
+import {
+  clearQQSessionState,
+  getQQSessionState,
+  setQQSessionState,
+  updateQQStatus,
+} from "./state.js";
+import {
+  markChannelDegraded,
+  markChannelError,
+} from "../../channel-health.js";
 import type { QQDispatchEvent, QQWSPayload } from "./types.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -77,16 +86,21 @@ export class QQWebSocketTransport {
 
       ws.on("close", (code, reason) => {
         logger.warn(`[QQ:${this.options.channelId}] WebSocket closed`, { code, reason: reason.toString() });
-        if (!this.destroyed) this.scheduleReconnect();
+        if (!this.destroyed) {
+          void markChannelDegraded(this.options.channelId, `WebSocket closed: code=${code}`).catch(() => undefined);
+          this.scheduleReconnect();
+        }
       });
 
       ws.on("error", (error) => {
         logger.error(`[QQ:${this.options.channelId}] WebSocket error`, error);
+        void markChannelDegraded(this.options.channelId, error).catch(() => undefined);
       });
 
       if (forceRefreshToken) await this.options.api.getAccessToken(true);
     } catch (error) {
       logger.error(`[QQ:${this.options.channelId}] failed to connect`, error);
+      void markChannelError(this.options.channelId, error).catch(() => undefined);
       this.scheduleReconnect();
     }
   }
@@ -112,6 +126,7 @@ export class QQWebSocketTransport {
         this.startHeartbeat(interval);
       } catch (error) {
         logger.error(`[QQ:${this.options.channelId}] identify/resume failed`, error);
+        void markChannelError(this.options.channelId, error).catch(() => undefined);
         this.ws?.close();
         this.scheduleReconnect();
       }
@@ -153,6 +168,7 @@ export class QQWebSocketTransport {
         await clearQQSessionState(this.options.channelId).catch(() => undefined);
       }
       logger.warn(`[QQ:${this.options.channelId}] invalid session`, { canResume });
+      void markChannelDegraded(this.options.channelId, "Invalid QQ session").catch(() => undefined);
       this.reconnectNow();
       return;
     }

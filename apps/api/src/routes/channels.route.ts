@@ -6,6 +6,7 @@ import { eq, and, desc, inArray } from "drizzle-orm";
 import { useAuth, requireValidId } from "../lib/middleware.js";
 import { redisCommandClient } from "../redis.js";
 import { deleteChannelResponse, type DeleteChannelResult } from "./channel-delete.js";
+import { fallbackBoundChannelHealth, getChannelHealthMap } from "../channel-health.js";
 
 const WECHAT_LOGIN_BASE_URL = "https://ilinkai.weixin.qq.com";
 const WECHAT_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
@@ -285,6 +286,7 @@ router.get("/", async (c) => {
   const boundRows = channelIds.length > 0
     ? await db
         .select({
+          spaceChannelId: spaceChannels.id,
           channelId: spaceChannels.channelId,
           spaceId: spaceChannels.spaceId,
           name: spaces.name,
@@ -295,13 +297,18 @@ router.get("/", async (c) => {
     : [];
 
   const boundByChannelId = new Map(boundRows.map((row) => [row.channelId, row]));
+  const healthBySpaceChannelId = await getChannelHealthMap(boundRows.map((row) => row.spaceChannelId));
 
   return c.json(
     channels.map((channel) => {
       const bound = boundByChannelId.get(channel.id);
+      const health = bound
+        ? (healthBySpaceChannelId.get(bound.spaceChannelId) ?? fallbackBoundChannelHealth())
+        : null;
       return {
         ...serializeChannel(channel),
         boundSpace: bound ? { id: bound.spaceId, title: bound.name ?? null, status: "active" } : null,
+        health,
       };
     }),
   );

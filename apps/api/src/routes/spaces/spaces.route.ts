@@ -37,6 +37,7 @@ import {
   SpaceEnvValidationError,
 } from "../../space-sessions.js";
 import { syncSpaceChannelConfigCache, getSpaceChannelsBySpaceId, bindSpaceChannelsToGateway, unbindSpaceChannelFromGateway, updateSpaceChannelConfig } from "../../channels.js";
+import { fallbackBoundChannelHealth, getChannelHealthMap } from "../../channel-health.js";
 import { createCronJob, enqueueTask } from "../../tasks.js";
 import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
@@ -2100,12 +2101,20 @@ router.get("/:id/channels", async (c) => {
       : [];
 
   const userChannelById = new Map(channelList.map((item) => [item.id, item]));
+  const healthBySpaceChannelId = await getChannelHealthMap(channels.map((channel) => channel.id));
 
   return c.json(
-    channels.map((channel) => ({
-      ...channel,
-      channel: userChannelById.get(channel.channelId) ?? null,
-    })),
+    channels.map((channel) => {
+      const userChannel = userChannelById.get(channel.channelId) ?? null;
+      const safeChannel = userChannel
+        ? (({ credentials: _credentials, ...rest }) => rest)(userChannel)
+        : null;
+      return {
+        ...channel,
+        channel: safeChannel,
+        health: healthBySpaceChannelId.get(channel.id) ?? fallbackBoundChannelHealth(),
+      };
+    }),
   );
 });
 
@@ -2211,4 +2220,3 @@ router.delete("/:id/channels/:channelId", async (c) => {
 });
 
 export default router;
-

@@ -45,6 +45,12 @@ import { onDestroy } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { PUBLIC_COHUB_ENV } from "$env/static/public";
+import {
+	channelHealthClass,
+	channelHealthDetail,
+	channelHealthLabel,
+	channelHealthMessage,
+} from "$lib/channel-health";
 import ChannelModelPicker from "$lib/components/ChannelModelPicker.svelte";
 import Sheet from "$lib/components/Sheet.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -126,6 +132,7 @@ let savingMember = $state(false);
 let accessError = $state("");
 let envError = $state("");
 let channelError = $state("");
+let channelHealthRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let addingMemberError = $state("");
 let updatingMemberUserId = $state<string | null>(null);
 let removingMemberUserId = $state<string | null>(null);
@@ -247,6 +254,7 @@ onDestroy(() => {
 	if (copiedSpaceSlugLinkTimer) clearTimeout(copiedSpaceSlugLinkTimer);
 	if (sandboxSpecMessageTimer) clearTimeout(sandboxSpecMessageTimer);
 	if (programmaticScrollTimer) clearTimeout(programmaticScrollTimer);
+	if (channelHealthRefreshTimer) clearInterval(channelHealthRefreshTimer);
 	if (scrollSpyRaf) cancelAnimationFrame(scrollSpyRaf);
 	scrollSpyObserver?.disconnect();
 });
@@ -799,10 +807,25 @@ async function loadPage() {
 		}
 		invitations = invitationResult.items;
 		applySandboxConfigFromSpace(spaceResult);
+		if (channelHealthRefreshTimer) clearInterval(channelHealthRefreshTimer);
+		channelHealthRefreshTimer = setInterval(() => {
+			void refreshChannelHealth();
+		}, 15_000);
 	} catch (err) {
 		error = err instanceof Error ? err.message : "Failed to load settings";
 	} finally {
 		loading = false;
+	}
+}
+
+async function refreshChannelHealth() {
+	if (loading) return;
+	try {
+		// Only refresh bound-channel health; keep allChannels from full load.
+		const channelResult = await sdk.space(spaceId).channels.list();
+		channels = channelResult;
+	} catch {
+		// Silent refresh — keep last known health.
 	}
 }
 
@@ -1785,8 +1808,23 @@ $effect(() => {
 								<div class="divide-y divide-border-subtle">
 									{#each channels as binding (binding.id)}
 										<div class="px-3 py-2.5">
-											<div class="flex items-center justify-between gap-3">
-												<span class="min-w-0 truncate text-[13px] font-medium text-text-primary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span>
+											<div class="flex items-start justify-between gap-3">
+												<div class="min-w-0 flex-1">
+													<div class="flex min-w-0 flex-wrap items-center gap-2">
+														<span class="min-w-0 truncate text-[13px] font-medium text-text-primary">{binding.channel?.provider ?? 'channel'} · {binding.channel?.name ?? binding.channelId}</span>
+														<span class={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ring-1 ${channelHealthClass(binding.health?.state ?? "connecting")}`}>
+															{channelHealthLabel(binding.health, { bound: true })}
+														</span>
+													</div>
+													{#if channelHealthMessage(binding.health)}
+														<p class="mt-1 text-[12px] leading-4 text-error-soft break-words" title={channelHealthDetail(binding.health) ?? undefined}>
+															{channelHealthMessage(binding.health)}
+															{#if channelHealthDetail(binding.health)}
+																<span class="text-text-tertiary"> · {channelHealthDetail(binding.health)}</span>
+															{/if}
+														</p>
+													{/if}
+												</div>
 												{#if canManageSpaceChannels}
 													<button type="button" onclick={() => unbindChannel(binding.channelId)} class="inline-flex h-7 shrink-0 items-center rounded-[5px] px-2 text-[11px] text-text-tertiary transition-colors hover:bg-error-bg hover:text-error-soft">Unbind</button>
 												{/if}

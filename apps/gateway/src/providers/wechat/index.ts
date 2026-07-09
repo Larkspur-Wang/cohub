@@ -33,6 +33,11 @@ import { renderWeChatText } from "./media/text.js";
 import { ingestInboundMedia } from "../../media/inbound-attachments.js";
 import { imageExtensionFromMimeType } from "../../media/mime.js";
 import { WECHAT_INBOUND_FILE_MAX_COUNT, downloadAttachmentItem } from "./media/file.js";
+import {
+  markChannelDegraded,
+  markChannelError,
+  markChannelReady
+} from "../../channel-health.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
@@ -139,6 +144,7 @@ const outboundImages = (content: ContentBlock[]) => content
 export class WeChatProvider implements GatewayProvider {
   private readonly abortController = new AbortController();
   private readonly credentials: ResolvedCredentials;
+  private healthReady = false;
 
   constructor(private readonly channelId: string, credentials: WeChatCredentials) {
     this.credentials = resolveCredentials(credentials);
@@ -210,6 +216,7 @@ export class WeChatProvider implements GatewayProvider {
           lastErrorAt: Date.now(),
           lastError: error instanceof Error ? error.message : String(error),
         });
+        void markChannelDegraded(this.channelId, error).catch(() => undefined);
       }
     }
 
@@ -313,11 +320,18 @@ export class WeChatProvider implements GatewayProvider {
           if (isSessionExpired) {
             consecutiveFailures = 0;
             logger.warn(`[WeChat:${this.channelId}] session expired, backing off ${SESSION_EXPIRED_BACKOFF_MS}ms`);
+            this.healthReady = false;
+            void markChannelError(this.channelId, errorMessage, {
+              reasonCode: "auth_failed",
+              message: "Authentication failed",
+            }).catch(() => undefined);
             await sleep(SESSION_EXPIRED_BACKOFF_MS, this.abortController.signal);
             continue;
           }
           consecutiveFailures += 1;
           logger.warn(`[WeChat:${this.channelId}] getUpdates failed ${errorMessage}`);
+          this.healthReady = false;
+          void markChannelDegraded(this.channelId, errorMessage).catch(() => undefined);
           const delay = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ? BACKOFF_DELAY_MS : RETRY_DELAY_MS;
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) consecutiveFailures = 0;
           await sleep(delay, this.abortController.signal);
@@ -326,6 +340,10 @@ export class WeChatProvider implements GatewayProvider {
 
         consecutiveFailures = 0;
         await updateWeChatStatus(this.channelId, { lastPollAt: Date.now() });
+        if (!this.healthReady) {
+          this.healthReady = true;
+          void markChannelReady(this.channelId).catch(() => undefined);
+        }
         for (const message of response.msgs ?? []) {
           await this.publishMessage(message);
         }
@@ -342,6 +360,8 @@ export class WeChatProvider implements GatewayProvider {
           lastErrorAt: Date.now(),
           lastError: error instanceof Error ? error.message : String(error),
         });
+        this.healthReady = false;
+        void markChannelDegraded(this.channelId, error).catch(() => undefined);
         const delay = consecutiveFailures >= MAX_CONSECUTIVE_FAILURES ? BACKOFF_DELAY_MS : RETRY_DELAY_MS;
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) consecutiveFailures = 0;
         await sleep(delay, this.abortController.signal).catch(() => undefined);

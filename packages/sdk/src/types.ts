@@ -8,6 +8,7 @@ import type {
 } from "@cohub/protocol/model";
 import type {
   ChannelConfig,
+  ChannelHealth,
 } from "@cohub/protocol/gateway/types";
 import type {
   ContentBlock,
@@ -26,6 +27,9 @@ import type { MessageRecord } from "@cohub/protocol/model";
 
 export type {
   ChannelConfig,
+  ChannelHealth,
+  ChannelHealthReasonCode,
+  ChannelRuntimeState,
   DiscordChannelConfig,
   FeishuChannelConfig,
 } from "@cohub/protocol/gateway/types";
@@ -895,6 +899,7 @@ export type Channel = {
     title: string | null;
     status: string;
   } | null;
+  health?: ChannelHealth | null;
 };
 
 export type SpaceEnvInput = {
