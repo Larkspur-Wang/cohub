@@ -2,71 +2,11 @@ import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { lstat, readFile, readlink, readdir } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, normalize, relative } from "node:path";
+import {
+  CHECKPOINT_HARD_EXCLUDES,
+  CHECKPOINT_PLATFORM_IGNORE,
+} from "@cohub/core/checkpoint/ignore";
 import ignore, { type Ignore } from "ignore";
-
-const HARD_EXCLUDES = [
-  ".git/",
-  "**/.git/",
-  ".cohub/system/",
-  "**/.cohub/system/",
-];
-
-const PLATFORM_IGNORE = `
-node_modules/
-**/node_modules/
-.pnpm-store/
-**/.pnpm-store/
-.yarn/cache/
-**/.yarn/cache/
-.yarn/unplugged/
-**/.yarn/unplugged/
-.yarn/build-state.yml
-**/.yarn/build-state.yml
-.yarn/install-state.gz
-**/.yarn/install-state.gz
-.npm/
-**/.npm/
-dist/
-**/dist/
-build/
-**/build/
-.next/
-**/.next/
-.nuxt/
-**/.nuxt/
-.svelte-kit/
-**/.svelte-kit/
-.turbo/
-**/.turbo/
-.vercel/output/
-**/.vercel/output/
-.cache/
-**/.cache/
-.parcel-cache/
-**/.parcel-cache/
-vite.config.*.timestamp-*
-**/vite.config.*.timestamp-*
-tsconfig.tsbuildinfo
-**/tsconfig.tsbuildinfo
-coverage/
-**/coverage/
-.playwright/
-**/.playwright/
-test-results/
-**/test-results/
-*.log
-**/*.log
-npm-debug.log*
-**/npm-debug.log*
-yarn-debug.log*
-**/yarn-debug.log*
-pnpm-debug.log*
-**/pnpm-debug.log*
-.DS_Store
-**/.DS_Store
-Thumbs.db
-**/Thumbs.db
-`;
 
 export type DiscoveredGitRepo = {
   path: string;
@@ -156,7 +96,7 @@ export async function scanWorkspace(root: string) {
   const warnings: ScanWarning[] = [];
   let ignoredCount = 0;
 
-  const systemMatcher = ignore().add(HARD_EXCLUDES).add(PLATFORM_IGNORE);
+  const systemMatcher = ignore().add([...CHECKPOINT_HARD_EXCLUDES]).add(CHECKPOINT_PLATFORM_IGNORE);
 
   const walk = async (dir: string, inheritedMatchers: IgnoreMatcher[]) => {
     const localMatcher = await readGitignore(dir);

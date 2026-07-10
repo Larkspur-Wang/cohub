@@ -873,6 +873,103 @@ function registerMods(spacesCmd: Command): void {
 
 // ── File operations ──
 
+type DiffFileLike = {
+  path: string;
+  oldPath?: string | null;
+  status?: string | null;
+  kind: string;
+  binary?: boolean;
+  asset?: boolean;
+  additions?: number | null;
+  deletions?: number | null;
+  oldSize?: number | null;
+  newSize?: number | null;
+  truncated?: boolean;
+  lines: Array<{ type: string; text: string }>;
+};
+
+type DiffSummaryLike = {
+  files: Array<{
+    status: string;
+    path: string;
+    oldPath?: string | null;
+    additions: number | null;
+    deletions: number | null;
+    binary: boolean;
+    asset: boolean;
+  }>;
+  truncated: boolean;
+  incomplete?: boolean;
+  stats?: {
+    changedFileCount: number;
+    additions: number;
+    deletions: number;
+  };
+};
+
+function formatDiffBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(value >= 10 * 1024 ? 0 : 1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function printDiffFile(file: DiffFileLike): void {
+  if (file.kind !== "text") {
+    const size =
+      file.oldSize !== undefined || file.newSize !== undefined
+        ? `  (${formatDiffBytes(file.oldSize)} → ${formatDiffBytes(file.newSize)})`
+        : "";
+    console.log(`${file.status ?? "?"}  ${file.path}  (${file.kind})${size}`);
+    return;
+  }
+  if (file.lines.length === 0) {
+    console.log(`${file.status ?? "?"}  ${file.path}  (no textual changes)`);
+    return;
+  }
+  for (const line of file.lines) {
+    if (line.type === "add") console.log(`+${line.text}`);
+    else if (line.type === "del") console.log(`-${line.text}`);
+    else if (line.type === "hunk") console.log(line.text);
+    else if (line.type === "meta") continue;
+    else console.log(` ${line.text}`);
+  }
+  if (file.truncated) console.log("  … truncated");
+}
+
+function printDiffSummary(
+  summary: DiffSummaryLike,
+  options?: { emptyLabel?: string; footer?: string | null },
+): void {
+  if (summary.files.length === 0) {
+    console.log(options?.emptyLabel ?? "  (no changes)");
+    return;
+  }
+  if (summary.stats) {
+    const parts = [`${summary.stats.changedFileCount} file(s)`];
+    if (summary.stats.additions > 0) parts.push(`+${summary.stats.additions}`);
+    if (summary.stats.deletions > 0) parts.push(`-${summary.stats.deletions}`);
+    console.log(`  ${parts.join(" · ")}`);
+  }
+  table(
+    summary.files.map((file) => ({
+      status: file.status,
+      path: file.oldPath ? `${file.oldPath} → ${file.path}` : file.path,
+      plus: file.additions ?? (file.binary || file.asset ? "-" : "0"),
+      minus: file.deletions ?? (file.binary || file.asset ? "-" : "0"),
+    })),
+    [
+      { key: "status", label: "St" },
+      { key: "path", label: "Path" },
+      { key: "plus", label: "+" },
+      { key: "minus", label: "-" },
+    ],
+  );
+  if (options?.footer) console.log(options.footer);
+  else if (summary.incomplete) console.log("  … partial scan");
+  else if (summary.truncated) console.log("  … truncated");
+}
+
 function registerFiles(spacesCmd: Command): void {
   const filesCmd = spacesCmd
     .command("files")
@@ -996,6 +1093,35 @@ function registerFiles(spacesCmd: Command): void {
       try {
         await client.space(spaceId).files.move({ fromPath: from, toPath: to });
         ok(`Moved: ${from} → ${to}`);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  filesCmd
+    .command("diff [path]")
+    .description("Show pending workspace changes vs last checkpoint")
+    .option("--json", "Output as JSON")
+    .action(async (path: string | undefined, opts: { json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        if (path) {
+          const file = await client.space(spaceId).files.diffFile(path);
+          if (jsonRequested(opts)) return outJson(file);
+          printDiffFile(file);
+          return;
+        }
+        const summary = await client.space(spaceId).files.diff();
+        if (jsonRequested(opts)) return outJson(summary);
+        printDiffSummary(summary, {
+          emptyLabel: "  (no pending changes)",
+          footer: summary.incomplete
+            ? "  … partial scan"
+            : summary.truncated
+              ? "  … truncated"
+              : null,
+        });
       } catch (e: unknown) {
         handleHttp(e);
       }
@@ -1609,6 +1735,32 @@ function registerCheckpoints(spacesCmd: Command): void {
           return;
         }
         console.log(file.content);
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  cpCmd
+    .command("diff <checkpointId> [path]")
+    .description("Show checkpoint diff vs parent (or --base)")
+    .option("--base <checkpointId>", "Compare against another checkpoint")
+    .option("--json", "Output as JSON")
+    .action(async (checkpointId: string, path: string | undefined, opts: { base?: string; json?: boolean }) => {
+      const spaceId = resolveSpace(spacesCmd);
+      const client = createClient();
+      try {
+        if (path) {
+          const file = await client.space(spaceId).checkpoints(checkpointId).diff.file(path, { base: opts.base ?? null });
+          if (jsonRequested(opts)) return outJson(file);
+          printDiffFile(file);
+          return;
+        }
+        const summary = await client.space(spaceId).checkpoints(checkpointId).diff.summary({ base: opts.base ?? null });
+        if (jsonRequested(opts)) return outJson(summary);
+        printDiffSummary(summary, {
+          emptyLabel: "  (no changes)",
+          footer: summary.truncated ? "  … truncated" : null,
+        });
       } catch (e: unknown) {
         handleHttp(e);
       }

@@ -7,6 +7,8 @@ import { ensureFsCdnManifest, shouldUseFsCdnForMeta } from "../../space-fs-cdn-c
 import { FS_CDN_DOWNLOAD_WAIT_TIMEOUT_MS } from "../../space-fs-cdn-constants.js";
 import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../../lib/middleware.js";
 import { hasPermission } from "../../permissions.js";
+import { getSpacePendingDiffFile, getSpacePendingDiffSummary } from "../../checkpoint-pending-diff.js";
+import { checkpointFsJsonError } from "../../checkpoint-fs.js";
 import {
   assertSafeRelativePath,
   createSpaceDirectory,
@@ -126,6 +128,39 @@ router.get("/file", async (c) => {
     return c.json(result);
   } catch (error) {
     const { status, body } = spaceFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+// Pending workspace changes vs head checkpoint (create-save preview).
+router.get("/diff", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  // Full file.view only — filtered guests must not enumerate ignored paths via pending diff.
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+
+  try {
+    return c.json(await getSpacePendingDiffSummary(spaceId));
+  } catch (error) {
+    const { status, body } = checkpointFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+router.get("/diff/file", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (!(await hasPermission(user, "file.view", { spaceId }))) return authzDenied(c);
+
+  const path = c.req.query("path") ?? "";
+  if (!path) return c.json({ code: "path_invalid", message: "path is required" }, 400);
+
+  try {
+    return c.json(await getSpacePendingDiffFile(spaceId, path));
+  } catch (error) {
+    const { status, body } = checkpointFsJsonError(error);
     return c.json(body, status as never);
   }
 });

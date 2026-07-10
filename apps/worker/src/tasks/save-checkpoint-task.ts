@@ -13,6 +13,12 @@ import { getGenerationsDir, publishGenerationsCacheFromDir } from "../generation
 import { publishModelsCacheFromFile } from "../models-cache.js";
 import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
 import { uploadAssetIfMissing } from "../checkpoint/assets.js";
+import {
+  buildStagedDiffSummary,
+  materializeDiffMeta,
+  materializeFilePatches,
+  type CheckpointDiffMeta,
+} from "../checkpoint/diff-precompute.js";
 import { ensureGitRepo, runGit, runGitWithOutput } from "../checkpoint/git.js";
 import { collectUserGitRepos } from "../checkpoint/git-bundles.js";
 import { saveCanvasCheckpointSnapshots } from "../checkpoint/canvas.js";
@@ -31,15 +37,6 @@ const buildCommitMessage = (description?: string | null) => {
 };
 
 type SaveCheckpointTimings = Record<string, number>;
-
-type CheckpointDiffStats = {
-  changedFileCount: number;
-  addedFileCount: number;
-  modifiedFileCount: number;
-  deletedFileCount: number;
-  renamedFileCount: number;
-  copiedFileCount: number;
-};
 
 type ConfigPublishWarning = {
   scope: "platform" | "user";
@@ -61,28 +58,6 @@ const timeIt = async <T>(timings: SaveCheckpointTimings, label: string, fn: () =
     console.info(`[save_checkpoint] ⏱ ${label}: ${duration}ms`);
   }
 };
-
-function parseCheckpointDiffStats(output: string): CheckpointDiffStats {
-  const stats: CheckpointDiffStats = {
-    changedFileCount: 0,
-    addedFileCount: 0,
-    modifiedFileCount: 0,
-    deletedFileCount: 0,
-    renamedFileCount: 0,
-    copiedFileCount: 0,
-  };
-  for (const line of output.split("\n")) {
-    const status = line.trim().charAt(0);
-    if (!status) continue;
-    stats.changedFileCount += 1;
-    if (status === "A") stats.addedFileCount += 1;
-    else if (status === "M") stats.modifiedFileCount += 1;
-    else if (status === "D") stats.deletedFileCount += 1;
-    else if (status === "R") stats.renamedFileCount += 1;
-    else if (status === "C") stats.copiedFileCount += 1;
-  }
-  return stats;
-}
 
 async function mirrorToGitea(repoDir: string, repoName: string, branch: string) {
   await createInternalRepository(repoName, true);
@@ -158,13 +133,60 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   await progress("commit_checkpoint", { gitRepoCount: userGitRepos.length });
   await timeIt(timings, "syncSystemRepo", () => syncSystemRepo({ repoDir: dirs.repoDir, smallFiles, assets, gitCheckpointMeta, userGitRepos: userGitReposManifest }));
   await timeIt(timings, "gitAdd", () => runGit(["add", "-A"], dirs.repoDir));
-  const diffStats = await timeIt(timings, "gitDiffNameStatus", async () => {
-    const diff = await runGitWithOutput(["diff", "--cached", "--name-status"], dirs.repoDir);
-    return parseCheckpointDiffStats(diff.stdout);
+
+  // Resolve parent commit once — used both for lineage and precomputed diff.
+  const parentCheckpointId = space.headCheckpointId ?? null;
+  const parentCommitHash = await timeIt(timings, "resolveParentCommit", async () => {
+    if (!parentCheckpointId) return null;
+    const [parent] = await db
+      .select({ commitHash: checkpoints.commitHash, rootCheckpointId: checkpoints.rootCheckpointId })
+      .from(checkpoints)
+      .where(eq(checkpoints.id, parentCheckpointId))
+      .limit(1);
+    return parent?.commitHash ?? null;
   });
+
+  // Staged diff summary is pure git metadata (name-status + numstat). No workspace walk.
+  const assetPaths = new Set(assets.map((asset) => asset.path));
+  const stagedDiff = await timeIt(timings, "buildStagedDiffSummary", () => buildStagedDiffSummary({
+    repoDir: dirs.repoDir,
+    spaceId,
+    checkpointId,
+    parentCheckpointId,
+    parentCommitHash,
+    assetPaths,
+  }));
+  const diffStats = stagedDiff.stats;
+
   await timeIt(timings, "gitCommit", () => runGit(["commit", "--allow-empty", "-m", commitMessage], dirs.repoDir));
   const head = await timeIt(timings, "gitRevParse", () => runGitWithOutput(["rev-parse", "HEAD"], dirs.repoDir));
   const commitHash = head.stdout.trim();
+
+  // Persist precomputed parent diff: inline in meta when small, OSS when large.
+  // Also precompute a capped set of text file patches (sequential, NFS-friendly).
+  let diffMeta: CheckpointDiffMeta | null = null;
+  try {
+    const filePatches = await timeIt(timings, "materializeFilePatches", () => materializeFilePatches({
+      repoDir: dirs.repoDir,
+      parentCommitHash,
+      commitHash,
+      files: stagedDiff.summary.files,
+      spaceId,
+      checkpointId,
+      tmpDir: dirs.tmpDir,
+    }));
+    diffMeta = await timeIt(timings, "materializeDiffMeta", () => materializeDiffMeta({
+      summary: stagedDiff.summary,
+      commitHash,
+      spaceId,
+      checkpointId,
+      tmpDir: dirs.tmpDir,
+      files: filePatches,
+    }));
+  } catch (error) {
+    // Diff precompute must never fail a save. API can still compute on demand.
+    console.warn(`[save_checkpoint] failed to materialize diff meta space=${spaceId} checkpoint=${checkpointId}:`, error);
+  }
 
   const latestMeta = { ...gitCheckpointMeta, commitHash, materializedAt: new Date().toISOString() };
   await progress("materialize_latest", { commitHash });
@@ -180,7 +202,14 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   const stats = {
     fileCount: smallFileCount + assetCount,
     fileBytes: smallFileBytes + assetBytes,
-    ...diffStats,
+    changedFileCount: diffStats.changedFileCount,
+    addedFileCount: diffStats.addedFileCount,
+    modifiedFileCount: diffStats.modifiedFileCount,
+    deletedFileCount: diffStats.deletedFileCount,
+    renamedFileCount: diffStats.renamedFileCount,
+    copiedFileCount: diffStats.copiedFileCount,
+    additions: diffStats.additions,
+    deletions: diffStats.deletions,
     smallFileCount,
     smallFileBytes,
     assetCount,
@@ -194,14 +223,14 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
 
   await progress("write_checkpoint_record");
   const rootCheckpointId = await timeIt(timings, "resolveRootCheckpoint", async () => (
-    space.headCheckpointId ? ((await db.select({ rootCheckpointId: checkpoints.rootCheckpointId, id: checkpoints.id }).from(checkpoints).where(eq(checkpoints.id, space.headCheckpointId)).limit(1))[0]?.rootCheckpointId ?? space.headCheckpointId) : checkpointId
+    parentCheckpointId ? ((await db.select({ rootCheckpointId: checkpoints.rootCheckpointId, id: checkpoints.id }).from(checkpoints).where(eq(checkpoints.id, parentCheckpointId)).limit(1))[0]?.rootCheckpointId ?? parentCheckpointId) : checkpointId
   ));
   const [checkpoint] = await timeIt(timings, "writeCheckpointRecord", () => db.insert(checkpoints).values({
     id: checkpointId,
     spaceId,
     commitHash,
     description: description?.trim() || "Checkpoint",
-    parentCheckpointId: space.headCheckpointId ?? null,
+    parentCheckpointId,
     rootCheckpointId,
     saveVersion: SAVE_VERSION,
     meta: {
@@ -216,6 +245,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
       },
       stats,
       timings,
+      ...(diffMeta ? { diffs: { parent: diffMeta } } : {}),
       warnings: [
         ...scan.warnings,
         ...userGitRepos.flatMap((repo) => repo.remotes.filter((remote) => remote.credentialSanitized).map((remote) => ({

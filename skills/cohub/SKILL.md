@@ -270,6 +270,13 @@ cohub spaces files rm <path>
 cohub spaces files rm -r <path>
 ```
 
+Show pending workspace changes vs the last Save:
+
+```bash
+cohub spaces files diff --json
+cohub spaces files diff <path> --json
+```
+
 Confirm before deleting files or directories.
 
 For more file commands:
@@ -296,6 +303,14 @@ Create a Save:
 
 ```bash
 cohub spaces checkpoints create "<description>" --json
+```
+
+Show a Save's diff vs its parent (or another Save):
+
+```bash
+cohub spaces checkpoints diff <checkpointId> --json
+cohub spaces checkpoints diff <checkpointId> <path> --json
+cohub spaces checkpoints diff <checkpointId> --base <otherCheckpointId> --json
 ```
 
 Create a Save after meaningful milestones or when the user asks to save progress.

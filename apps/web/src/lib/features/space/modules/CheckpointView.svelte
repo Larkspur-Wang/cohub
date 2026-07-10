@@ -1,7 +1,10 @@
 <script lang="ts">
 import {
+	type CheckpointDiffFileResponse,
+	type CheckpointDiffSummary,
 	type CheckpointRecord,
 	HttpError,
+	type SpacePendingDiffSummary,
 	type SpaceRecord,
 } from "@neta-art/cohub";
 import {
@@ -17,10 +20,12 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { goto } from "$app/navigation";
+import { page } from "$app/state";
 import type { AccessState } from "$lib/access/access-state";
 import { classifyAccessError } from "$lib/access/access-state";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import CheckpointDiffPanel from "$lib/components/CheckpointDiffPanel.svelte";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceNewSessionRoute,
@@ -59,6 +64,21 @@ let checkpointIdCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 let checkpointCreateDescription = $state("");
 let checkpointCreateSubmitting = $state(false);
 let checkpointCreateError = $state("");
+
+let detailDiff = $state<CheckpointDiffSummary | null>(null);
+let detailDiffLoading = $state(false);
+let detailDiffError = $state<string | null>(null);
+let detailDiffBase = $state<string | null>(null);
+
+let compareOpen = $state(false);
+let compareOptions = $state<CheckpointRecord[]>([]);
+let compareOptionsLoading = $state(false);
+let compareOptionsLoaded = $state(false);
+
+let pendingDiff = $state<SpacePendingDiffSummary | null>(null);
+let pendingDiffLoading = $state(false);
+let pendingDiffError = $state<string | null>(null);
+let headCheckpoint = $state<CheckpointRecord | null>(null);
 
 function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
@@ -110,26 +130,160 @@ function checkpointErrorMessage(error: unknown): AccessState {
 	return classifyAccessError(error);
 }
 
+function compareBaseFromUrl(): string | null {
+	const raw = page.url.searchParams.get("base")?.trim();
+	return raw ? raw : null;
+}
+
 async function loadCheckpointDetail(targetCheckpointId: string) {
+	const base = compareBaseFromUrl();
 	const guard = createKeyedRouteRequestGuard({
-		captureKey: () => `${spaceId}:${mode}:${checkpointId ?? ""}`,
+		captureKey: () => `${spaceId}:${mode}:${checkpointId ?? ""}:${base ?? ""}`,
 	});
 	checkpointDetailLoading = true;
 	checkpointDetailError = null;
+	detailDiff = null;
+	detailDiffError = null;
+	detailDiffBase = null;
+	detailDiffLoading = true;
 	try {
-		const { checkpoint } = await sdk
-			.space(spaceId)
-			.checkpoints.get(targetCheckpointId);
+		// Parallel: checkpoint record + precomputed/on-demand summary.
+		const [detailResult, diffResult] = await Promise.allSettled([
+			sdk.space(spaceId).checkpoints.get(targetCheckpointId),
+			sdk
+				.space(spaceId)
+				.checkpoints(targetCheckpointId)
+				.diff.summary(base ? { base } : undefined),
+		]);
 		if (!guard.isCurrent()) return;
-		checkpointDetail = checkpoint;
-		onDetailLoaded?.(checkpoint);
+
+		if (detailResult.status === "fulfilled") {
+			checkpointDetail = detailResult.value.checkpoint;
+			onDetailLoaded?.(detailResult.value.checkpoint);
+		} else {
+			checkpointDetail = null;
+			onDetailLoaded?.(null);
+			checkpointDetailError = checkpointErrorMessage(detailResult.reason);
+		}
+
+		if (diffResult.status === "fulfilled") {
+			detailDiff = diffResult.value;
+			detailDiffBase = base ?? diffResult.value.baseCheckpointId;
+			detailDiffError = null;
+		} else if (detailResult.status === "fulfilled") {
+			detailDiff = null;
+			detailDiffError =
+				diffResult.reason instanceof Error
+					? diffResult.reason.message
+					: "Failed to load changes";
+		}
+	} finally {
+		if (guard.isCurrent()) {
+			checkpointDetailLoading = false;
+			detailDiffLoading = false;
+		}
+	}
+}
+
+async function loadDetailFileDiff(
+	path: string,
+): Promise<CheckpointDiffFileResponse | null> {
+	if (!checkpointId) return null;
+	try {
+		return await sdk
+			.space(spaceId)
+			.checkpoints(checkpointId)
+			.diff.file(path, detailDiffBase ? { base: detailDiffBase } : undefined);
+	} catch {
+		return null;
+	}
+}
+
+async function loadCompareOptions() {
+	if (compareOptionsLoaded || compareOptionsLoading) return;
+	compareOptionsLoading = true;
+	try {
+		const result = await sdk.space(spaceId).checkpoints.list({ limit: 30 });
+		compareOptions = result.checkpoints.filter((cp) => cp.id !== checkpointId);
+		compareOptionsLoaded = true;
+	} catch {
+		compareOptions = [];
+	} finally {
+		compareOptionsLoading = false;
+	}
+}
+
+function openComparePicker() {
+	compareOpen = !compareOpen;
+	if (compareOpen) void loadCompareOptions();
+}
+
+function applyCompareBase(baseId: string | null) {
+	if (!checkpointId) return;
+	const url = new URL(page.url);
+	if (baseId) url.searchParams.set("base", baseId);
+	else url.searchParams.delete("base");
+	compareOpen = false;
+	void goto(`${url.pathname}${url.search}`, {
+		replaceState: true,
+		noScroll: true,
+		keepFocus: true,
+	});
+}
+
+function compareLabel(cp: CheckpointRecord): string {
+	const title = cp.description?.trim() || cp.commitHash.slice(0, 12);
+	return title.length > 48 ? `${title.slice(0, 48)}…` : title;
+}
+
+async function loadHeadCheckpointOnly() {
+	const guard = createKeyedRouteRequestGuard({
+		captureKey: () => `${spaceId}:${mode}:head`,
+	});
+	const headId = space?.headCheckpointId ?? null;
+	if (!headId) {
+		headCheckpoint = null;
+		return;
+	}
+	try {
+		const { checkpoint } = await sdk.space(spaceId).checkpoints.get(headId);
+		if (!guard.isCurrent()) return;
+		headCheckpoint = checkpoint;
+	} catch {
+		if (!guard.isCurrent()) return;
+		headCheckpoint = null;
+	}
+}
+
+/** Lazy: only runs when the user expands Review changes. */
+async function loadPendingDiff() {
+	if (pendingDiff || pendingDiffLoading) return;
+	const guard = createKeyedRouteRequestGuard({
+		captureKey: () => `${spaceId}:${mode}:pending`,
+	});
+	pendingDiffLoading = true;
+	pendingDiffError = null;
+	try {
+		const summary = await sdk.space(spaceId).files.diff();
+		if (!guard.isCurrent()) return;
+		pendingDiff = summary;
 	} catch (error) {
 		if (!guard.isCurrent()) return;
-		checkpointDetail = null;
-		onDetailLoaded?.(null);
-		checkpointDetailError = checkpointErrorMessage(error);
+		pendingDiff = null;
+		pendingDiffError =
+			error instanceof Error ? error.message : "Failed to load pending changes";
 	} finally {
-		if (guard.isCurrent()) checkpointDetailLoading = false;
+		if (guard.isCurrent()) pendingDiffLoading = false;
+	}
+}
+
+async function loadPendingFileDiff(
+	path: string,
+): Promise<CheckpointDiffFileResponse | null> {
+	try {
+		return await sdk.space(spaceId).files.diffFile(path);
+	} catch {
+		return null;
 	}
 }
 
@@ -183,12 +337,29 @@ async function handleCreateCheckpointSubmit(event: SubmitEvent) {
 }
 
 $effect(() => {
+	// Re-run when ?base= changes so arbitrary checkpoint compare stays in sync.
+	const base = page.url.searchParams.get("base");
 	if (mode === "detail" && checkpointId) {
 		void loadCheckpointDetail(checkpointId);
 		return;
 	}
+	void base;
 	checkpointDetail = null;
 	onDetailLoaded?.(null);
+	detailDiff = null;
+	detailDiffError = null;
+});
+
+$effect(() => {
+	if (mode === "create" && space && !spaceHasMinimalAccess && !spaceLoadError) {
+		// Head context only — pending scan waits for explicit expand (NFS-friendly).
+		void loadHeadCheckpointOnly();
+		return;
+	}
+	pendingDiff = null;
+	pendingDiffError = null;
+	pendingDiffLoading = false;
+	headCheckpoint = null;
 });
 
 onDestroy(() => {
@@ -198,61 +369,107 @@ onDestroy(() => {
 </script>
 
 {#if mode === "create"}
-	<div class="flex-1 p-4 overflow-y-auto max-w-2xl">
-		{#if spaceLoadError && !spaceHasMinimalAccess}
-			<div class="mb-3">
+	<div class="flex-1 overflow-y-auto">
+		<div class="mx-auto w-full max-w-xl px-4 py-6 sm:px-6 sm:py-8">
+			{#if spaceLoadError && !spaceHasMinimalAccess}
 				<AccessStateView
 					state={{ kind: "error", message: spaceLoadError }}
 					size="compact"
 				/>
-			</div>
-		{:else}
-			<form onsubmit={handleCreateCheckpointSubmit} class="space-y-3">
-				<div class="border border-border-subtle rounded-md bg-bg-surface p-4 space-y-3">
-					<div>
-						<div class="text-[10px] uppercase tracking-wider text-text-placeholder font-medium">Save</div>
-						<p class="text-[13px] text-text-tertiary mt-1">Save the current workspace state of <span class="text-text-primary font-medium">{space?.name ?? space?.title ?? spaceId}</span> as a reusable checkpoint.</p>
-					</div>
-					<div>
-						<label class="block text-[10px] font-medium uppercase tracking-wider text-text-tertiary mb-1.5" for="checkpoint-description">Description</label>
+			{:else}
+				<form onsubmit={handleCreateCheckpointSubmit} class="space-y-6">
+					<header class="space-y-1.5">
+						<div class="text-[10px] font-medium uppercase tracking-wider text-text-placeholder">New save</div>
+						<h1 class="text-[18px] font-semibold tracking-tight text-text-primary sm:text-[20px]">
+							Save checkpoint
+						</h1>
+						<p class="text-[13px] leading-5 text-text-tertiary">
+							Snapshot
+							<span class="font-medium text-text-secondary">{space?.name ?? space?.title ?? spaceId}</span>
+							as a reusable checkpoint.
+						</p>
+					</header>
+
+					{#if headCheckpoint}
+						{@const lastSave = headCheckpoint}
+						<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px]">
+							<span class="text-text-placeholder">Last save</span>
+							<a
+								href="/spaces/{spaceId}/checkpoints/{lastSave.id}"
+								class="min-w-0 truncate font-medium text-brand transition-colors hover:text-brand-hover"
+								data-sveltekit-preload-data="hover"
+								onclick={(e) => {
+									e.preventDefault();
+									goto(`/spaces/${spaceId}/checkpoints/${lastSave.id}`);
+								}}
+							>{lastSave.description?.trim() || lastSave.commitHash.slice(0, 12)}</a>
+							<span class="font-mono text-[11px] text-text-placeholder">{formatCheckpointTimestamp(lastSave.createdAt)}</span>
+						</div>
+					{/if}
+
+					<div class="space-y-2">
+						<label
+							class="block text-[11px] font-medium text-text-secondary"
+							for="checkpoint-description"
+						>Description <span class="font-normal text-text-placeholder">optional</span></label
+						>
 						<textarea
 							id="checkpoint-description"
 							bind:value={checkpointCreateDescription}
-							rows="4"
-							placeholder="What changed? What is this save for?"
-							class="w-full px-3 py-[8px] rounded-[5px] bg-bg-input border border-border-subtle text-[13px] text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors resize-y"
+							rows="3"
+							placeholder="What changed?"
+							class="w-full resize-y rounded-[6px] border border-border-subtle bg-bg-input px-3 py-2.5 text-[13px] leading-5 text-text-primary placeholder:text-text-placeholder focus:border-brand/40 focus:outline-none transition-colors"
 						></textarea>
+						<p class="text-[11px] leading-4 text-text-placeholder">
+							Empty descriptions fall back to the commit hash in lists.
+						</p>
 					</div>
-					<div class="rounded-[6px] border border-border-subtle bg-bg-elevated/50 p-3 text-[12px] text-text-secondary">
-						If left empty, the checkpoint will still be saved and shown using its commit hash.
+
+					<!-- Pending preview: collapsed by default; expand triggers NFS-light scan. -->
+					<div class="border-t border-border-subtle/60 pt-4">
+						<CheckpointDiffPanel
+							summary={pendingDiff}
+							loading={pendingDiffLoading}
+							error={pendingDiffError}
+							emptyLabel={headCheckpoint ? "No changes since last save" : "Workspace will be saved as-is"}
+							collapsible={true}
+							defaultExpanded={false}
+							title="Review changes"
+							onExpand={loadPendingDiff}
+							loadFile={loadPendingFileDiff}
+						/>
 					</div>
-				</div>
-				{#if checkpointCreateError}
-					<div class="rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] font-mono text-error-soft break-all">{checkpointCreateError}</div>
-				{/if}
-				<div class="flex items-center justify-end gap-2">
-					<button
-						type="button"
-						class="px-3 py-2 rounded-[5px] border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-						onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}
-					>
-						Cancel
-					</button>
-					<button
-						type="submit"
-						class="inline-flex items-center gap-2 px-3 py-2 rounded-[5px] bg-brand text-brand-contrast-fg text-[12px] font-medium hover:bg-brand-hover transition-colors disabled:opacity-50"
-						disabled={checkpointCreateSubmitting}
-					>
-						{#if checkpointCreateSubmitting}
-							<Loader2 class="w-3.5 h-3.5 animate-spin" />
-						{:else}
-							<Save class="w-3.5 h-3.5" />
-						{/if}
-						<span>Save Checkpoint</span>
-					</button>
-				</div>
-			</form>
-		{/if}
+
+					{#if checkpointCreateError}
+						<div class="rounded-[6px] border border-error-soft/30 bg-error-bg px-3 py-2.5 text-[12px] font-mono text-error-soft break-all">
+							{checkpointCreateError}
+						</div>
+					{/if}
+
+					<div class="flex items-center justify-end gap-2 pt-1">
+						<button
+							type="button"
+							class="min-h-9 rounded-[6px] px-3 py-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+							onclick={() => goto(buildSpaceNewSessionRoute(spaceId))}
+						>
+							Cancel
+						</button>
+						<button
+							type="submit"
+							class="inline-flex min-h-9 items-center gap-2 rounded-[6px] bg-brand px-3.5 py-2 text-[12px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover disabled:opacity-50"
+							disabled={checkpointCreateSubmitting}
+						>
+							{#if checkpointCreateSubmitting}
+								<Loader2 class="h-3.5 w-3.5 animate-spin" />
+							{:else}
+								<Save class="h-3.5 w-3.5" />
+							{/if}
+							<span>Save</span>
+						</button>
+					</div>
+				</form>
+			{/if}
+		</div>
 	</div>
 {:else}
 	<div class="flex-1 min-h-0 overflow-y-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
@@ -385,6 +602,90 @@ onDestroy(() => {
 										</div>
 									</div>
 								</div>
+							</div>
+
+							<div class="space-y-2">
+								<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+									{#if detailDiffBase && detailDiffBase !== checkpointDetail.parentCheckpointId}
+										<div class="text-[12px] text-text-tertiary">
+											Comparing against
+											<a
+												href="/spaces/{spaceId}/checkpoints/{detailDiffBase}"
+												class="font-mono text-[11px] text-brand transition-colors hover:text-brand-hover"
+												data-sveltekit-preload-data="hover"
+											>{detailDiffBase.slice(0, 8)}</a>
+											<button
+												type="button"
+												class="ml-1 text-[11px] text-text-placeholder transition-colors hover:text-text-secondary"
+												onclick={() => applyCompareBase(null)}
+											>Reset</button
+											>
+										</div>
+									{:else if checkpointDetail.parentCheckpointId}
+										<div class="text-[12px] text-text-placeholder">vs parent</div>
+									{/if}
+									<div class="relative ml-auto">
+										<button
+											type="button"
+											class="inline-flex min-h-7 items-center gap-1 rounded-[5px] px-2 py-1 text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+											onclick={openComparePicker}
+											aria-expanded={compareOpen}
+										>
+											Compare
+										</button>
+										{#if compareOpen}
+											<div
+												class="absolute right-0 z-20 mt-1 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-[6px] border border-border-subtle bg-bg-surface shadow-lg"
+												role="listbox"
+											>
+												<div class="border-b border-border-subtle/60 px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wider text-text-placeholder">
+													Compare against
+												</div>
+												{#if checkpointDetail.parentCheckpointId}
+													<button
+														type="button"
+														class="flex w-full items-center justify-between gap-2 px-2.5 py-2 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover"
+														onclick={() => applyCompareBase(null)}
+													>
+														<span>Parent (default)</span>
+														{#if !detailDiffBase || detailDiffBase === checkpointDetail.parentCheckpointId}
+															<span class="text-[10px] text-brand">Active</span>
+														{/if}
+													</button>
+												{/if}
+												<div class="max-h-56 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+													{#if compareOptionsLoading && compareOptions.length === 0}
+														<div class="flex items-center gap-2 px-2.5 py-3 text-[12px] text-text-tertiary">
+															<Loader2 class="h-3.5 w-3.5 animate-spin" />
+															Loading…
+														</div>
+													{:else if compareOptions.length === 0}
+														<div class="px-2.5 py-3 text-[12px] text-text-tertiary">No other saves</div>
+													{:else}
+														{#each compareOptions as cp (cp.id)}
+															<button
+																type="button"
+																class="flex w-full min-w-0 flex-col gap-0.5 px-2.5 py-2 text-left transition-colors hover:bg-bg-hover {detailDiffBase === cp.id ? 'bg-bg-active' : ''}"
+																onclick={() => applyCompareBase(cp.id)}
+															>
+																<span class="truncate text-[12px] text-text-secondary">{compareLabel(cp)}</span>
+																<span class="font-mono text-[10px] text-text-placeholder">{formatCheckpointTimestamp(cp.createdAt)}</span>
+															</button>
+														{/each}
+													{/if}
+												</div>
+											</div>
+										{/if}
+									</div>
+								</div>
+								<CheckpointDiffPanel
+									summary={detailDiff}
+									loading={detailDiffLoading}
+									error={detailDiffError}
+									emptyLabel={checkpointDetail.parentCheckpointId ? "No changes from parent" : "Initial save"}
+									cacheKey={`${checkpointDetail.id}:${detailDiffBase ?? "parent"}`}
+									loadFile={loadDetailFileDiff}
+								/>
 							</div>
 
 							<div class="space-y-2">

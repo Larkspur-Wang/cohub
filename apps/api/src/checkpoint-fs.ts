@@ -327,7 +327,7 @@ const normalizeCheckpointPath = (input = "", options: { allowEmpty?: boolean } =
   return parts.join("/");
 };
 
-const getCheckpointRepoDir = (spaceId: string) => {
+export const getCheckpointRepoDir = (spaceId: string) => {
   if (!config.spaceSystemRoot) throw new CheckpointFsError(503, "checkpoint_repo_unavailable", "Checkpoint storage is not configured.");
   const root = resolve(config.spaceSystemRoot);
   const target = resolve(root, spaceId, "repo");
@@ -338,7 +338,7 @@ const getCheckpointRepoDir = (spaceId: string) => {
 
 const truncate = (value: string, max = 2048) => value.length > max ? value.slice(0, max) : value;
 
-const runGit = async (repoDir: string, args: string[], maxBytes: number): Promise<GitOutput> => {
+export const runGit = async (repoDir: string, args: string[], maxBytes: number): Promise<GitOutput> => {
   await access(repoDir).catch(() => {
     throw new CheckpointFsError(503, "checkpoint_repo_unavailable", "Checkpoint repository is unavailable.");
   });
@@ -578,7 +578,7 @@ function presignCheckpointAsset(objectKey: string) {
   return signed;
 }
 
-async function readAssetManifestMap(repoDir: string, checkpoint: CheckpointRecord, observation?: CheckpointFsObservation) {
+export async function readAssetManifestMap(repoDir: string, checkpoint: CheckpointRecord, observation?: CheckpointFsObservation) {
   const manifestPath = ".cohub/system/checkpoint-assets.v1.json";
   const readManifest = async () => {
     try {

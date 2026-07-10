@@ -91,6 +91,10 @@
     "./references": {
       "types": "./dist/references/index.d.ts",
       "default": "./dist/references/index.js"
+    },
+    "./checkpoint/ignore": {
+      "types": "./dist/checkpoint/ignore.d.ts",
+      "default": "./dist/checkpoint/ignore.js"
     }
   },
   "types": "./dist/index.d.ts",

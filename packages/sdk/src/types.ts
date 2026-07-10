@@ -1096,6 +1096,86 @@ export type SpaceCheckpointDetailResponse = {
   checkpoint: CheckpointRecord;
 };
 
+export type CheckpointDiffStatus = "A" | "M" | "D" | "R" | "C" | "T";
+
+export type CheckpointDiffStats = {
+  changedFileCount: number;
+  addedFileCount: number;
+  modifiedFileCount: number;
+  deletedFileCount: number;
+  renamedFileCount: number;
+  copiedFileCount: number;
+  additions: number;
+  deletions: number;
+};
+
+export type CheckpointDiffFile = {
+  status: CheckpointDiffStatus;
+  path: string;
+  oldPath?: string | null;
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
+  asset: boolean;
+};
+
+export type CheckpointDiffDelivery = "inline" | "url";
+
+export type CheckpointDiffSummary = {
+  baseCheckpointId: string | null;
+  baseCommitHash: string | null;
+  headCheckpointId: string;
+  headCommitHash: string;
+  files: CheckpointDiffFile[];
+  truncated: boolean;
+  stats: CheckpointDiffStats;
+  delivery?: CheckpointDiffDelivery;
+  url?: string;
+  precomputed?: boolean;
+};
+
+export type CheckpointDiffPatchKind =
+  | "text"
+  | "binary"
+  | "asset"
+  | "too_large"
+  | "unavailable";
+
+export type CheckpointDiffPatchLine = {
+  type: "context" | "add" | "del" | "hunk" | "meta";
+  text: string;
+};
+
+export type CheckpointDiffFileResponse = {
+  path: string;
+  oldPath?: string | null;
+  status: CheckpointDiffStatus | null;
+  kind: CheckpointDiffPatchKind;
+  binary: boolean;
+  asset: boolean;
+  additions: number | null;
+  deletions: number | null;
+  oldSize?: number | null;
+  newSize?: number | null;
+  truncated: boolean;
+  lines: CheckpointDiffPatchLine[];
+  delivery?: CheckpointDiffDelivery;
+  url?: string;
+  precomputed?: boolean;
+};
+
+export type SpacePendingDiffSummary = {
+  baseCheckpointId: string | null;
+  files: CheckpointDiffFile[];
+  truncated: boolean;
+  incomplete: boolean;
+  stats: CheckpointDiffStats;
+};
+
+export type SpacePendingDiffFileResponse = CheckpointDiffFileResponse & {
+  baseCheckpointId: string | null;
+};
+
 // ─── RBAC types ───
 
 export type SpaceRole = "host" | "builder" | "guest";

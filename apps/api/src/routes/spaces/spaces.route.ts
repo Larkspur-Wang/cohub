@@ -45,6 +45,11 @@ import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCrea
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
 import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
+import {
+  CHECKPOINT_DIFF_CACHE_CONTROL,
+  getCheckpointDiffFile,
+  getCheckpointDiffSummary,
+} from "../../checkpoint-diff.js";
 import { checkpointFsJsonError, listCheckpointDirectory, readCheckpointFile } from "../../checkpoint-fs.js";
 import type { AuthUser } from "../../lib/middleware.js";
 import { submitSessionPrompt } from "../../session-prompts.js";
@@ -1459,6 +1464,69 @@ router.get("/:id/checkpoints/:checkpointId/fs/file", async (c) => {
 
   try {
     return c.json(await readCheckpointFile({ spaceId, checkpointId, path: c.req.query("path") ?? "" }));
+  } catch (error) {
+    const { status, body } = checkpointFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+router.get("/:id/checkpoints/:checkpointId/fs/diff", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  const checkpointId = c.req.param("checkpointId");
+  if (!requireValidId(spaceId) || (checkpointId !== "latest" && !requireValidId(checkpointId))) {
+    return c.json({ code: "checkpoint_not_found", message: "Checkpoint not found." }, 404);
+  }
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
+
+  const base = c.req.query("base") ?? null;
+  if (base && !requireValidId(base)) {
+    return c.json({ code: "checkpoint_not_found", message: "Base checkpoint not found." }, 404);
+  }
+
+  try {
+    const summary = await getCheckpointDiffSummary({ spaceId, checkpointId, baseCheckpointId: base });
+    // Immutable parent diffs: long private browser cache. Auth still gates origin.
+    // Large precomputed payloads use delivery=url (OSS object with public immutable Cache-Control).
+    if (summary.precomputed && !base) {
+      c.header("Cache-Control", CHECKPOINT_DIFF_CACHE_CONTROL);
+      c.header("Vary", "Authorization, Cookie");
+    } else {
+      c.header("Cache-Control", "private, max-age=60");
+    }
+    return c.json(summary);
+  } catch (error) {
+    const { status, body } = checkpointFsJsonError(error);
+    return c.json(body, status as never);
+  }
+});
+
+router.get("/:id/checkpoints/:checkpointId/fs/diff/file", async (c) => {
+  const user = getOptionalAuth(c);
+  const spaceId = c.req.param("id");
+  const checkpointId = c.req.param("checkpointId");
+  if (!requireValidId(spaceId) || (checkpointId !== "latest" && !requireValidId(checkpointId))) {
+    return c.json({ code: "checkpoint_not_found", message: "Checkpoint not found." }, 404);
+  }
+  if (!(await hasPermission(user, "checkpoint.view", { spaceId }))) return authzDenied(c);
+
+  const path = c.req.query("path") ?? "";
+  if (!path) return c.json({ code: "path_invalid", message: "path is required" }, 400);
+  const base = c.req.query("base") ?? null;
+  if (base && !requireValidId(base)) {
+    return c.json({ code: "checkpoint_not_found", message: "Base checkpoint not found." }, 404);
+  }
+
+  try {
+    const file = await getCheckpointDiffFile({ spaceId, checkpointId, path, baseCheckpointId: base });
+    // Align with summary: long immutable cache only for precomputed parent diffs.
+    if (!base && file.precomputed) {
+      c.header("Cache-Control", CHECKPOINT_DIFF_CACHE_CONTROL);
+    } else {
+      c.header("Cache-Control", "private, max-age=60");
+    }
+    c.header("Vary", "Authorization, Cookie");
+    return c.json(file);
   } catch (error) {
     const { status, body } = checkpointFsJsonError(error);
     return c.json(body, status as never);

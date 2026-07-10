@@ -14,6 +14,8 @@ import {
   type GenerationStreamSubscriptionHandlers,
 } from "../session-generation-stream.js";
 import type {
+  CheckpointDiffFileResponse,
+  CheckpointDiffSummary,
   CheckpointRecord,
   SessionForkRecord,
   SessionMessageResponse,
@@ -30,6 +32,8 @@ import type {
   SpaceAccessPolicy,
   SpaceCheckpointDetailResponse,
   SpaceCreateResponse,
+  SpacePendingDiffFileResponse,
+  SpacePendingDiffSummary,
   SpacePresenceSnapshot,
   SpaceDefaultResponse,
   CreateSpacePromptInput,
@@ -223,6 +227,23 @@ export class SpaceFilesApi {
     const params = new URLSearchParams({ path });
     return this.transport.request<SpaceFsFileResponse | SpaceFsPreparingFile>(
       `/api/spaces/${this.spaceId}/fs/file?${params.toString()}`,
+      { fetch: customFetch },
+    );
+  }
+
+  /** Pending workspace changes vs the space head checkpoint. */
+  diff(customFetch?: Fetch) {
+    return this.transport.request<SpacePendingDiffSummary>(
+      `/api/spaces/${this.spaceId}/fs/diff`,
+      { fetch: customFetch },
+    );
+  }
+
+  /** Per-file pending workspace diff vs the space head checkpoint. */
+  diffFile(path: string, customFetch?: Fetch) {
+    const params = new URLSearchParams({ path });
+    return this.transport.request<SpacePendingDiffFileResponse>(
+      `/api/spaces/${this.spaceId}/fs/diff/file?${params.toString()}`,
       { fetch: customFetch },
     );
   }
@@ -1427,8 +1448,93 @@ export class SpaceCheckpointFilesApi {
   }
 }
 
+async function hydrateCheckpointDiffSummary(
+  summary: CheckpointDiffSummary,
+  customFetch?: Fetch,
+): Promise<CheckpointDiffSummary> {
+  if (summary.delivery !== "url" || !summary.url) {
+    return { ...summary, delivery: summary.delivery ?? "inline" };
+  }
+  const fetchImpl = customFetch ?? fetch;
+  const response = await fetchImpl(summary.url);
+  if (!response.ok) {
+    throw new HttpError(`Failed to load checkpoint diff (${response.status})`, response.status, null);
+  }
+  const body = (await response.json()) as CheckpointDiffSummary;
+  return {
+    ...body,
+    // Preserve envelope metadata from the API response.
+    delivery: "inline",
+    url: summary.url,
+    precomputed: summary.precomputed ?? body.precomputed ?? true,
+    headCheckpointId: body.headCheckpointId || summary.headCheckpointId,
+    headCommitHash: body.headCommitHash || summary.headCommitHash,
+    baseCheckpointId: body.baseCheckpointId ?? summary.baseCheckpointId,
+    baseCommitHash: body.baseCommitHash ?? summary.baseCommitHash,
+  };
+}
+
+async function hydrateCheckpointDiffFile(
+  file: CheckpointDiffFileResponse,
+  customFetch?: Fetch,
+): Promise<CheckpointDiffFileResponse> {
+  if (file.delivery !== "url" || !file.url) {
+    return { ...file, delivery: file.delivery ?? "inline" };
+  }
+  // Precomputed non-text markers never put lines on OSS — keep the envelope as-is.
+  if (file.kind !== "text") {
+    return { ...file, delivery: file.delivery ?? "url" };
+  }
+  const fetchImpl = customFetch ?? fetch;
+  const response = await fetchImpl(file.url);
+  if (!response.ok) {
+    throw new HttpError(`Failed to load file diff (${response.status})`, response.status, null);
+  }
+  const body = (await response.json()) as CheckpointDiffFileResponse;
+  return {
+    ...body,
+    // Prefer hydrated patch body; keep envelope metadata as fallback.
+    path: body.path || file.path,
+    oldPath: body.oldPath ?? file.oldPath ?? null,
+    status: body.status ?? file.status,
+    kind: body.kind ?? file.kind,
+    delivery: "inline",
+    url: file.url,
+  };
+}
+
+export class SpaceCheckpointDiffApi {
+  constructor(
+    private readonly transport: HttpTransport,
+    private readonly spaceId: string,
+    private readonly checkpointId: string,
+  ) {}
+
+  async summary(options?: { base?: string | null }, customFetch?: Fetch) {
+    const params = new URLSearchParams();
+    if (options?.base) params.set("base", options.base);
+    const query = params.toString();
+    const summary = await this.transport.request<CheckpointDiffSummary>(
+      `/api/spaces/${this.spaceId}/checkpoints/${this.checkpointId}/fs/diff${query ? `?${query}` : ""}`,
+      { fetch: customFetch },
+    );
+    return hydrateCheckpointDiffSummary(summary, customFetch);
+  }
+
+  async file(path: string, options?: { base?: string | null }, customFetch?: Fetch) {
+    const params = new URLSearchParams({ path });
+    if (options?.base) params.set("base", options.base);
+    const file = await this.transport.request<CheckpointDiffFileResponse>(
+      `/api/spaces/${this.spaceId}/checkpoints/${this.checkpointId}/fs/diff/file?${params.toString()}`,
+      { fetch: customFetch },
+    );
+    return hydrateCheckpointDiffFile(file, customFetch);
+  }
+}
+
 export class SpaceCheckpointApi {
   readonly files: SpaceCheckpointFilesApi;
+  readonly diff: SpaceCheckpointDiffApi;
 
   constructor(
     private readonly transport: HttpTransport,
@@ -1436,6 +1542,7 @@ export class SpaceCheckpointApi {
     readonly id: string,
   ) {
     this.files = new SpaceCheckpointFilesApi(transport, spaceId, id);
+    this.diff = new SpaceCheckpointDiffApi(transport, spaceId, id);
   }
 
   get(customFetch?: Fetch) {
