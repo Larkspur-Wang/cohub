@@ -63,12 +63,44 @@ const taskRunDetailError = $derived(taskDetail.error);
 const taskRunProgress = $derived(taskDetail.progress);
 const taskCopiedField = $derived(taskDetail.copiedField);
 
+// Only auto-redirect when this page session watched the task complete.
+// Opening an already-finished historical task keeps the task detail page.
+let watchedActiveTaskId = $state<string | null>(null);
+let redirectedCheckpointTaskId = $state<string | null>(null);
+
 $effect(() => {
 	taskDetail.syncRoute();
 });
 
 $effect(() => {
 	taskDetail.applyRealtimeEvent(taskRealtimeEvent);
+});
+
+$effect(() => {
+	const run = taskRunDetail;
+	if (!run || run.id !== taskId) return;
+
+	if (taskIsStreaming(run)) {
+		watchedActiveTaskId = run.id;
+		return;
+	}
+
+	if (
+		run.taskType !== "save_checkpoint" ||
+		run.status !== "completed" ||
+		watchedActiveTaskId !== run.id ||
+		redirectedCheckpointTaskId === run.id
+	) {
+		return;
+	}
+
+	const checkpointId = checkpointIdFromTaskRun(run);
+	if (!checkpointId) return;
+
+	redirectedCheckpointTaskId = run.id;
+	void goto(buildSpaceCheckpointRoute(spaceId, checkpointId), {
+		replaceState: true,
+	});
 });
 
 onDestroy(() => {
