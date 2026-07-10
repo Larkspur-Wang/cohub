@@ -1,3 +1,4 @@
+import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
 import { authStore } from "$lib/stores/auth.svelte";
 
 const DEV = typeof import.meta !== "undefined" && Boolean(import.meta.env?.DEV);
@@ -38,7 +39,7 @@ export function createLocalListCache<T>({
 	}
 
 	function getUserKey() {
-		return authStore.userUuid ?? "guest";
+		return getCacheUserKey();
 	}
 
 	async function ensureUserKey() {
@@ -127,10 +128,12 @@ export function createLocalListCache<T>({
 	}
 
 	function getCached(scope: string): T[] | null {
+		if (!canUseUserScopedCache()) return null;
 		return readEntry(scope)?.data ?? null;
 	}
 
 	function getCachedMeta(scope: string) {
+		if (!canUseUserScopedCache()) return null;
 		const entry = readEntry(scope);
 		if (!entry) return null;
 		return {
@@ -140,6 +143,10 @@ export function createLocalListCache<T>({
 	}
 
 	function setCached(scope: string, items: T[]): T[] {
+		// Never persist private lists under a shared guest key for authenticated users.
+		if (!canUseUserScopedCache()) {
+			return normalize(items);
+		}
 		const entry = toEntry(scope, items);
 		memoryCache.set(getScopedKey(scope), entry);
 		if (isBrowser()) {

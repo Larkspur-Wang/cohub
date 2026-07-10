@@ -7,7 +7,11 @@ import {
 	type TaskRunDetailCacheRecord,
 	type TaskRunSummaryCacheRecord,
 } from "$lib/cache/db";
-import { getCacheUserKey, taskRunKey } from "$lib/cache/keys";
+import {
+	canUseUserScopedCache,
+	getCacheUserKeyAsync,
+	taskRunKey,
+} from "$lib/cache/keys";
 
 const SUMMARY_LIMIT_PER_SPACE = 500;
 const DETAIL_LIMIT_PER_SPACE = 100;
@@ -22,11 +26,16 @@ function sortRecords<T extends { updatedAt: number }>(records: T[]) {
 	return [...records].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+async function resolveUserKey() {
+	const userKey = await getCacheUserKeyAsync();
+	return canUseUserScopedCache(userKey) ? userKey : null;
+}
+
 function toSummaryRecord(
+	userKey: string,
 	spaceId: string,
 	run: TaskRunRecord,
 ): TaskRunSummaryCacheRecord {
-	const userKey = getCacheUserKey();
 	const timestamp = now();
 	return {
 		key: taskRunKey(userKey, spaceId, run.id),
@@ -44,11 +53,11 @@ function toSummaryRecord(
 }
 
 function toDetailRecord(
+	userKey: string,
 	spaceId: string,
 	run: TaskRunRecord,
 	progress: unknown = null,
 ): TaskRunDetailCacheRecord {
-	const userKey = getCacheUserKey();
 	const timestamp = now();
 	return {
 		key: taskRunKey(userKey, spaceId, run.id),
@@ -74,11 +83,11 @@ async function pruneStore<
 	},
 >(
 	store: "task_run_summaries" | "task_run_details",
+	userKey: string,
 	spaceId: string,
 	limit: number,
 	ttlMs: number,
 ) {
-	const userKey = getCacheUserKey();
 	const records = await idbGetAllByIndex<T>(
 		store,
 		"by_user_space",
@@ -103,7 +112,8 @@ export async function readTaskRunSummaries(
 	spaceId: string,
 	sessionId?: string | null,
 ) {
-	const userKey = getCacheUserKey();
+	const userKey = await resolveUserKey();
+	if (!userKey) return [];
 	const records = sessionId
 		? await idbGetAllByIndex<TaskRunSummaryCacheRecord>(
 				"task_run_summaries",
@@ -122,7 +132,8 @@ export async function readTaskRunSummaries(
 }
 
 export async function readTaskRunDetail(spaceId: string, taskRunId: string) {
-	const userKey = getCacheUserKey();
+	const userKey = await resolveUserKey();
+	if (!userKey) return null;
 	const record = await idbGet<TaskRunDetailCacheRecord>(
 		"task_run_details",
 		taskRunKey(userKey, spaceId, taskRunId),
@@ -132,9 +143,12 @@ export async function readTaskRunDetail(spaceId: string, taskRunId: string) {
 }
 
 export async function writeTaskRunSummary(spaceId: string, run: TaskRunRecord) {
-	await idbPut("task_run_summaries", toSummaryRecord(spaceId, run));
+	const userKey = await resolveUserKey();
+	if (!userKey) return;
+	await idbPut("task_run_summaries", toSummaryRecord(userKey, spaceId, run));
 	void pruneStore<TaskRunSummaryCacheRecord>(
 		"task_run_summaries",
+		userKey,
 		spaceId,
 		SUMMARY_LIMIT_PER_SPACE,
 		SUMMARY_TTL_MS,
@@ -145,13 +159,16 @@ export async function writeTaskRunSummaries(
 	spaceId: string,
 	runs: TaskRunRecord[],
 ) {
+	const userKey = await resolveUserKey();
+	if (!userKey) return;
 	await Promise.all(
 		runs.map((run) =>
-			idbPut("task_run_summaries", toSummaryRecord(spaceId, run)),
+			idbPut("task_run_summaries", toSummaryRecord(userKey, spaceId, run)),
 		),
 	);
 	void pruneStore<TaskRunSummaryCacheRecord>(
 		"task_run_summaries",
+		userKey,
 		spaceId,
 		SUMMARY_LIMIT_PER_SPACE,
 		SUMMARY_TTL_MS,
@@ -163,18 +180,22 @@ export async function writeTaskRunDetail(
 	run: TaskRunRecord,
 	progress: unknown = null,
 ) {
+	const userKey = await resolveUserKey();
+	if (!userKey) return;
 	await Promise.all([
-		idbPut("task_run_summaries", toSummaryRecord(spaceId, run)),
-		idbPut("task_run_details", toDetailRecord(spaceId, run, progress)),
+		idbPut("task_run_summaries", toSummaryRecord(userKey, spaceId, run)),
+		idbPut("task_run_details", toDetailRecord(userKey, spaceId, run, progress)),
 	]);
 	void pruneStore<TaskRunSummaryCacheRecord>(
 		"task_run_summaries",
+		userKey,
 		spaceId,
 		SUMMARY_LIMIT_PER_SPACE,
 		SUMMARY_TTL_MS,
 	).catch(() => undefined);
 	void pruneStore<TaskRunDetailCacheRecord>(
 		"task_run_details",
+		userKey,
 		spaceId,
 		DETAIL_LIMIT_PER_SPACE,
 		DETAIL_TTL_MS,

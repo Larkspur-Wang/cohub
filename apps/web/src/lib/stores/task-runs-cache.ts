@@ -1,5 +1,5 @@
 import type { TaskRunRecord } from "@neta-art/cohub";
-import { getCacheUserKeyAsync } from "$lib/cache/keys";
+import { getCacheUserKey, getCacheUserKeyAsync } from "$lib/cache/keys";
 import {
 	readTaskRunSummaries,
 	writeTaskRunSummaries,
@@ -18,11 +18,15 @@ type TaskRunsCacheEvent = {
 };
 
 const MAX_CACHED_RUNS = 500;
-const runsBySpace = new Map<string, TaskRunRecord[]>();
-const restoredSpaces = new Set<string>();
+const runsByUserSpace = new Map<string, TaskRunRecord[]>();
+const restoredUserSpaces = new Set<string>();
 
 const taskRunTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
 	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
+
+function memoryKey(userKey: string, spaceId: string) {
+	return `${userKey}:${spaceId}`;
+}
 
 function sortRuns(runs: TaskRunRecord[]) {
 	return [...runs].sort((a, b) => taskRunTime(b) - taskRunTime(a));
@@ -65,19 +69,23 @@ function emit(spaceId: string, runs: TaskRunRecord[]) {
 }
 
 export function getCachedTaskRuns(spaceId: string) {
-	return runsBySpace.get(spaceId) ?? [];
+	return runsByUserSpace.get(memoryKey(getCacheUserKey(), spaceId)) ?? [];
 }
 
 export async function restoreCachedTaskRuns(
 	spaceId: string,
 	sessionId?: string | null,
 ) {
-	if (!sessionId && restoredSpaces.has(spaceId))
-		return getCachedTaskRuns(spaceId);
+	const userKey = await getCacheUserKeyAsync();
+	const key = memoryKey(userKey, spaceId);
+	if (!sessionId && restoredUserSpaces.has(key)) {
+		return runsByUserSpace.get(key) ?? [];
+	}
+	// Repo waits for auth and refuses guest writes/reads for authenticated users.
 	const restored = await readTaskRunSummaries(spaceId, sessionId);
 	if (restored.length === 0) {
-		if (!sessionId) restoredSpaces.add(spaceId);
-		return getCachedTaskRuns(spaceId);
+		if (!sessionId) restoredUserSpaces.add(key);
+		return runsByUserSpace.get(key) ?? [];
 	}
 	const nextRuns = patchCachedTaskRuns(
 		spaceId,
@@ -89,17 +97,15 @@ export async function restoreCachedTaskRuns(
 		},
 		{ persist: false },
 	);
-	if (!sessionId) restoredSpaces.add(spaceId);
+	if (!sessionId) restoredUserSpaces.add(key);
 	return nextRuns;
 }
 
 export function setCachedTaskRuns(spaceId: string, runs: TaskRunRecord[]) {
 	const nextRuns = sortRuns(runs).slice(0, MAX_CACHED_RUNS);
-	runsBySpace.set(spaceId, nextRuns);
-	void (async () => {
-		await getCacheUserKeyAsync();
-		await writeTaskRunSummaries(spaceId, nextRuns);
-	})().catch(() => undefined);
+	runsByUserSpace.set(memoryKey(getCacheUserKey(), spaceId), nextRuns);
+	// Repo resolves identity before write; fire-and-forget is fine for persistence.
+	void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
 	emit(spaceId, nextRuns);
 	return nextRuns;
 }
@@ -109,16 +115,14 @@ export function patchCachedTaskRuns(
 	updater: (runs: TaskRunRecord[]) => TaskRunRecord[],
 	options?: { persist?: boolean },
 ) {
-	const nextRuns = sortRuns(updater(runsBySpace.get(spaceId) ?? [])).slice(
+	const key = memoryKey(getCacheUserKey(), spaceId);
+	const nextRuns = sortRuns(updater(runsByUserSpace.get(key) ?? [])).slice(
 		0,
 		MAX_CACHED_RUNS,
 	);
-	runsBySpace.set(spaceId, nextRuns);
+	runsByUserSpace.set(key, nextRuns);
 	if (options?.persist !== false)
-		void (async () => {
-			await getCacheUserKeyAsync();
-			await writeTaskRunSummaries(spaceId, nextRuns);
-		})().catch(() => undefined);
+		void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
 	emit(spaceId, nextRuns);
 	return nextRuns;
 }
@@ -134,10 +138,9 @@ export function mergeCachedTaskRun(spaceId: string, patch: TaskRunPatch) {
 		);
 	});
 	if (merged)
-		void (async () => {
-			await getCacheUserKeyAsync();
-			await writeTaskRunSummary(spaceId, merged as TaskRunRecord);
-		})().catch(() => undefined);
+		void writeTaskRunSummary(spaceId, merged as TaskRunRecord).catch(
+			() => undefined,
+		);
 	return runs;
 }
 

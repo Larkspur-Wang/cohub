@@ -1,9 +1,18 @@
 import type { SpaceRecord } from "@neta-art/cohub";
-import { getCacheUserKeyAsync } from "$lib/cache/keys";
+import { canUseUserScopedCache, getCacheUserKeyAsync } from "$lib/cache/keys";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
 
-async function ensureAuthReady() {
-	await getCacheUserKeyAsync();
+async function resolveCacheUserKey() {
+	const userKey = await getCacheUserKeyAsync();
+	return canUseUserScopedCache(userKey) ? userKey : null;
+}
+
+async function requireCacheUserKey() {
+	const userKey = await resolveCacheUserKey();
+	if (!userKey) {
+		throw new Error("user-scoped cache unavailable until identity is resolved");
+	}
+	return userKey;
 }
 
 function hasOwn<T extends object>(value: T, key: PropertyKey) {
@@ -54,12 +63,12 @@ function mergeSpaceRecord(
 }
 
 export async function getCachedSpaceRecord(spaceId: string) {
-	await ensureAuthReady();
+	if (!(await resolveCacheUserKey())) return null;
 	return spaceRecordRepo.getCached(spaceId);
 }
 
 export async function cacheSpaceRecord(space: SpaceRecord) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space && !isCacheableSpaceRecord(space)) return null;
 	const merged = cached?.space ? mergeSpaceRecord(cached.space, space) : space;
@@ -69,7 +78,7 @@ export async function cacheSpaceRecord(space: SpaceRecord) {
 export async function patchCachedSpaceRecord(
 	space: Partial<SpaceRecord> & { id: string },
 ) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space) return null;
 	const merged = mergeSpaceRecord(cached.space, space);

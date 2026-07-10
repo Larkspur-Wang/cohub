@@ -1,17 +1,26 @@
 import type { SpaceFsEntry } from "@neta-art/cohub";
 import { deleteCacheDatabase } from "$lib/cache/db";
-import { getCacheUserKeyAsync } from "$lib/cache/keys";
+import { canUseUserScopedCache, getCacheUserKeyAsync } from "$lib/cache/keys";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
 
-async function ensureAuthReady() {
-	await getCacheUserKeyAsync();
+async function resolveCacheUserKey() {
+	const userKey = await getCacheUserKeyAsync();
+	return canUseUserScopedCache(userKey) ? userKey : null;
+}
+
+async function requireCacheUserKey() {
+	const userKey = await resolveCacheUserKey();
+	if (!userKey) {
+		throw new Error("user-scoped cache unavailable until identity is resolved");
+	}
+	return userKey;
 }
 
 export async function getCachedSpaceFsDir(
 	spaceId: string,
 	dirPath: string,
 ): Promise<SpaceFsEntry[] | null> {
-	await ensureAuthReady();
+	if (!(await resolveCacheUserKey())) return null;
 	const snapshot = await spaceFsRepo.getDir(spaceId, dirPath);
 	return snapshot?.entries ?? null;
 }
@@ -20,7 +29,7 @@ export async function getCachedSpaceFsDirMeta(
 	spaceId: string,
 	dirPath: string,
 ) {
-	await ensureAuthReady();
+	if (!(await resolveCacheUserKey())) return null;
 	const snapshot = await spaceFsRepo.getDir(spaceId, dirPath);
 	if (!snapshot) return null;
 	return { updatedAt: snapshot.updatedAt, isStale: snapshot.stale };
@@ -31,7 +40,7 @@ export async function setCachedSpaceFsDir(
 	dirPath: string,
 	entries: SpaceFsEntry[],
 ): Promise<SpaceFsEntry[]> {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, entries);
 	return snapshot.entries;
 }
@@ -41,13 +50,13 @@ export async function patchCachedSpaceFsDir(
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
 ): Promise<SpaceFsEntry[]> {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const snapshot = await spaceFsRepo.patchDir(spaceId, dirPath, updater);
 	return snapshot.entries;
 }
 
 export async function clearCachedSpaceFsDir(spaceId: string, dirPath: string) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	await spaceFsRepo.clearDir(spaceId, dirPath);
 }
 
@@ -55,7 +64,7 @@ export async function clearCachedSpaceFsSubtree(
 	spaceId: string,
 	dirPath: string,
 ) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	await spaceFsRepo.clearSubtree(spaceId, dirPath);
 }
 
@@ -93,7 +102,7 @@ export async function fetchSpaceFsDirWithCache(
 	fetcher: () => Promise<SpaceFsEntry[]>,
 	options?: { force?: boolean },
 ): Promise<SpaceFsEntry[]> {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	if (!options?.force) {
 		const cached = await spaceFsRepo.getDir(spaceId, dirPath);
 		if (cached && !cached.stale) return cached.entries;

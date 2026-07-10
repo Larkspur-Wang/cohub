@@ -1,13 +1,37 @@
 import { authStore } from "$lib/stores/auth.svelte";
 
+/**
+ * User-scoped cache partition key.
+ *
+ * Priority:
+ * 1. Backend userUuid (stable product identity)
+ * 2. Auth subject (`claims.sub`) when authenticated but /api/me is unavailable
+ * 3. `guest` only for truly unauthenticated visitors
+ *
+ * Never share authenticated private data under a global `guest` key.
+ */
 export function getCacheUserKey() {
-	return authStore.userUuid ?? "guest";
+	if (authStore.userUuid) return authStore.userUuid;
+	const subject =
+		typeof authStore.claims?.sub === "string"
+			? authStore.claims.sub.trim()
+			: "";
+	if (subject) return `sub:${subject}`;
+	return "guest";
 }
 
 /**
- * Prefer this for IndexedDB / localStorage reads & writes that are user-scoped.
- * On cold start `getCacheUserKey()` can still be `guest` until auth hydrates,
- * which makes cache miss and may write under the wrong key.
+ * Whether user-scoped cache IO is safe under the current identity.
+ * Authenticated sessions without any isolatable key must not read/write `guest`.
+ */
+export function canUseUserScopedCache(userKey = getCacheUserKey()) {
+	if (userKey !== "guest") return true;
+	return !authStore.isAuthenticated;
+}
+
+/**
+ * Prefer this for IndexedDB / localStorage IO that is user-scoped.
+ * Waits for auth hydration so cold start does not briefly use the wrong key.
  */
 export async function getCacheUserKeyAsync() {
 	await authStore.ensureLoaded();

@@ -7,7 +7,7 @@ import type {
 	LabelResourceType,
 	SessionRecord,
 } from "@neta-art/cohub";
-import { getCacheUserKeyAsync } from "$lib/cache/keys";
+import { canUseUserScopedCache, getCacheUserKeyAsync } from "$lib/cache/keys";
 import { labelItemsRepo } from "$lib/cache/repositories/label-items-repo";
 import { labelTreeRepo } from "$lib/cache/repositories/label-tree-repo";
 import { resourceLabelsRepo } from "$lib/cache/repositories/resource-labels-repo";
@@ -168,13 +168,21 @@ function queueHydrateSystemLabelDisplays(
 	void hydrateChannelLabelsForLabels(spaceId, labels).catch(() => undefined);
 }
 
-async function ensureAuthReady() {
-	// Cache keys and authenticated requests depend on userUuid + token.
-	await getCacheUserKeyAsync();
+async function resolveCacheUserKey() {
+	const userKey = await getCacheUserKeyAsync();
+	return canUseUserScopedCache(userKey) ? userKey : null;
+}
+
+async function requireCacheUserKey() {
+	const userKey = await resolveCacheUserKey();
+	if (!userKey) {
+		throw new Error("user-scoped cache unavailable until identity is resolved");
+	}
+	return userKey;
 }
 
 export async function getCachedSpaceLabelsSnapshot(spaceId: string) {
-	await ensureAuthReady();
+	if (!(await resolveCacheUserKey())) return null;
 	return labelTreeRepo.get(spaceId).catch((error) => {
 		console.warn("[space-labels] Failed to read cached labels", {
 			spaceId,
@@ -194,7 +202,7 @@ export async function setCachedSpaceLabels(
 	spaceId: string,
 	labels: LabelListItem[],
 ) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	queueHydrateSystemLabelDisplays(spaceId, labels);
 	return (await labelTreeRepo.set(spaceId, labels)).labels;
 }
@@ -217,7 +225,7 @@ export function onSpaceLabelsCacheUpdated(
 }
 
 export async function fetchSpaceLabelsFresh(spaceId: string) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const labels = (await sdk.space(spaceId).labels.list()).labels ?? [];
 	queueHydrateSystemLabelDisplays(spaceId, labels);
 	try {
@@ -326,7 +334,7 @@ export async function getCachedResourceLabelsSnapshot(
 	resourceType: LabelResourceType,
 	resourceRef: string,
 ) {
-	await ensureAuthReady();
+	if (!(await resolveCacheUserKey())) return null;
 	return resourceLabelsRepo.get(spaceId, resourceType, resourceRef);
 }
 
@@ -335,7 +343,7 @@ export async function getResourceLabels(
 	resourceType: LabelResourceType,
 	resourceRef: string,
 ) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const result = await sdk
 		.space(spaceId)
 		.labels.getResourceLabels(resourceType, resourceRef);
@@ -437,12 +445,12 @@ export async function setCachedLabelItemsFirstPage(
 		forks?: LabelItemsResponse["forks"] | null;
 	},
 ) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	return labelItemsRepo.setFirstPage(spaceId, labelId, input);
 }
 
 export async function markLabelItemsStale(spaceId: string, labelId: string) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	return labelItemsRepo.markStale(spaceId, labelId);
 }
 
@@ -453,7 +461,7 @@ async function cacheResourceLabelMutation(input: {
 	result: { labels: LabelListItem[]; assignments: LabelAssignmentRecord[] };
 	affectedRefs: string[];
 }) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	await Promise.all([
 		labelTreeRepo.set(input.spaceId, input.result.labels, {
 			source: "network",

@@ -49,7 +49,7 @@ import { page } from "$app/state";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
-import { getCacheUserKey } from "$lib/cache/keys";
+import { canUseUserScopedCache, getCacheUserKey } from "$lib/cache/keys";
 import ChannelProviderIcon from "$lib/components/ChannelProviderIcon.svelte";
 import NewLabelPopover from "$lib/components/NewLabelPopover.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
@@ -196,8 +196,11 @@ let showUserMenu = $state(false);
 // Hydrate synchronously from the local cache so a freshly mounted sidebar
 // (e.g. the mobile drawer, which unmounts on close) can resolve the current
 // space on first paint instead of flashing the empty "Select a space" state
-// while loadSpaces() awaits auth + IndexedDB + network.
-let spaces = $state<SpaceRecord[]>(getCachedSpaceList() ?? []);
+// while loadSpaces() awaits auth + IndexedDB + network. Only use a non-guest
+// partition when identity is already known; otherwise start empty.
+let spaces = $state<SpaceRecord[]>(
+	canUseUserScopedCache() ? (getCachedSpaceList() ?? []) : [],
+);
 let sessions = $state<SessionRecord[]>([]);
 type SessionForkSidebarRecord = Partial<SessionForkRecord> & {
 	childSessionId: string;

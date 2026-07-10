@@ -1,15 +1,24 @@
 import type { SessionRecord } from "@neta-art/cohub";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import { deleteCacheDatabase } from "$lib/cache/db";
-import { getCacheUserKeyAsync } from "$lib/cache/keys";
+import { canUseUserScopedCache, getCacheUserKeyAsync } from "$lib/cache/keys";
 import { sessionListIndexRepo } from "$lib/cache/repositories/session-list-index-repo";
 import {
 	DEFAULT_SESSION_LIST_PAGE_INFO,
 	type SessionListPageInfo,
 } from "$lib/cache/types";
 
-async function ensureAuthReady() {
-	await getCacheUserKeyAsync();
+async function resolveCacheUserKey() {
+	const userKey = await getCacheUserKeyAsync();
+	return canUseUserScopedCache(userKey) ? userKey : null;
+}
+
+async function requireCacheUserKey() {
+	const userKey = await resolveCacheUserKey();
+	if (!userKey) {
+		throw new Error("user-scoped cache unavailable until identity is resolved");
+	}
+	return userKey;
 }
 
 export function getCachedSessionList(spaceId: string): SessionRecord[] | null {
@@ -30,7 +39,7 @@ export function getCachedSessionListMeta(spaceId: string) {
 }
 
 export async function getCachedSessionListSnapshot(spaceId: string) {
-	await ensureAuthReady();
+	if (!(await resolveCacheUserKey())) return null;
 	return sessionListIndexRepo.getRecent(spaceId).catch((error) => {
 		console.warn("[session-list-cache] Failed to read cached sessions", {
 			spaceId,
@@ -47,7 +56,7 @@ export async function setCachedSessionList(
 	forks?: SessionListForkRecord[] | null,
 	options?: { mode?: "replace" | "merge" },
 ): Promise<SessionRecord[]> {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const snapshot = await sessionListIndexRepo.setRecent(
 		spaceId,
 		sessions,
@@ -64,7 +73,7 @@ export async function patchCachedSessionList(
 	pageInfo?: SessionListPageInfo | null,
 	forks?: SessionListForkRecord[] | null,
 ): Promise<SessionRecord[]> {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const snapshot = await sessionListIndexRepo.patchRecent(
 		spaceId,
 		updater,
@@ -75,7 +84,7 @@ export async function patchCachedSessionList(
 }
 
 export async function clearCachedSessionList(spaceId: string) {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	await sessionListIndexRepo.deleteRecent(spaceId);
 }
 
@@ -143,7 +152,7 @@ function refreshSessionListCache(
 	if (inFlight) return inFlight;
 
 	const run = (async () => {
-		await ensureAuthReady();
+		await requireCacheUserKey();
 		const snapshot = await sessionListIndexRepo.refreshRecent(
 			spaceId,
 			async () => {
@@ -189,7 +198,7 @@ export async function fetchSessionListWithPageInfoCache(
 	}>,
 	_options?: { force?: boolean },
 ): Promise<{ sessions: SessionRecord[]; pageInfo: SessionListPageInfo }> {
-	await ensureAuthReady();
+	await requireCacheUserKey();
 	const result = await fetcher();
 	const snapshot = await sessionListIndexRepo.patchRecent(
 		spaceId,
