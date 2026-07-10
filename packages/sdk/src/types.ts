@@ -21,6 +21,7 @@ import type {
   GenerationPolicy,
   GenerationResult,
   GenerationTaskResult,
+  GenerationUsageBilling,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
 } from "@cohub/protocol/generation";
@@ -459,6 +460,7 @@ export type {
   GenerationPolicy,
   GenerationResult,
   GenerationTaskResult,
+  GenerationUsageBilling,
   ListGenerationModelsResponse,
   PublicGenerationDeclaration,
 };
@@ -1402,9 +1404,33 @@ export type SpaceUsageSummary = {
   errorCount: number;
 };
 
+export type GenerationUsageHourlyStat = {
+  bucketStartAt: Date | string;
+  costTotal: number;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  models: string[];
+  usageTypes: string[];
+};
+
+export type GenerationUsageSummary = {
+  costTotal: number;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+};
+
+export type GenerationUsageBlock = {
+  hourly: GenerationUsageHourlyStat[];
+  summary: GenerationUsageSummary;
+};
+
 export type SpaceUsageResponse = {
   hourly: SpaceUsageHourlyStat[];
   summary: SpaceUsageSummary;
+  /** Multimodal generation rollups (image / video / music). Optional for older servers. */
+  generation?: GenerationUsageBlock;
   days: number;
 };
 

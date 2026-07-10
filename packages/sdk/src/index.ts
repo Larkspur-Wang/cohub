@@ -44,6 +44,7 @@ export type {
   GenerationModelPolicy,
   GenerationParameterConstraint,
   GenerationPolicy,
+  GenerationUsageBilling,
 } from "@cohub/protocol/generation";
 export type { RawHttpResponse } from "./transport.js";
 export {

@@ -51,6 +51,45 @@ type GenerationTaskResult = {
 
 `requestId` and `cost` are observed provider fields captured via `generateResult()`. Older completed tasks may omit them.
 
+## Billing
+
+Generation requests share the platform credit balance with LLM turns.
+
+1. **Preflight gate** — `POST /api/generations` and the worker re-check the caller's balance before enqueue/execute. Hard debt returns the standard 402 `billing` conversion payload; soft debt may attach a warning on the 202 response.
+2. **Post-success charge** — after a successful provider call, the worker records usage from the official provider `cost` (USD):
+
+```ts
+operationId: `generation:${taskRunId}`  // idempotent
+usageType: "generation.image" | "generation.video" | "generation.music" | "generation"
+amountUsd: result.cost
+```
+
+Usage type is resolved from the model adapter (preferred) or output content types. Missing/non-positive `cost` skips charging and stores `billing.status = "skipped"` with reason `missing_cost` (task still succeeds — cost gaps are platform issues and must not break the user path; they are logged for ops follow-up). Transient billing write failures still complete the generation task, then enqueue an idempotent `generation.billing_retry` job (`operationId = generation:${taskRunId}`, up to 8 attempts with exponential backoff).
+
+Completed tasks may include:
+
+```ts
+billing?: {
+  amountUsd: number;
+  usageType: string;
+  status: "recorded" | "overage" | "skipped";
+  reason?: string | null;
+} | null
+```
+
+## Usage stats
+
+Successful provider calls upsert into `v2.generation_usage_stats_hourly` (space / user / session / usageType / adapter / model / hour). Idempotency peeks Redis before write and commits the key only after a successful DB upsert, so a failed write can retry. Dimension columns are NOT NULL with sentinels. The `provider` column stores the **adapter type** (e.g. `openai.images`). Stats are success-only (`errorCount` stays 0 by design).
+
+Gate resolves modality from request content; billing/stats re-resolve after success using output content (preferred) then request content.
+
+These rollups feed:
+
+- Generation trending (`/api/trending/generations/{spaces,users,models}`) — ranked by request count, then cost
+- Space / user usage endpoints as an optional `generation` block alongside token stats
+
+LLM trending (`/api/trending/{spaces,users,models}`) remains token-only and is still ranked by tokens.
+
 ## Declarations
 
 Generation declarations live in:

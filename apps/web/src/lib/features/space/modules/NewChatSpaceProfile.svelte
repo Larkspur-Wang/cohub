@@ -112,7 +112,7 @@ function userTitle(
 				</p>
 			{/if}
 			{#if usage}
-				<p>Over the last {usage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(usage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{usage.summary.requestCount}</span> requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(usage.summary.costTotal)}</span>.</p>
+				<p>Over the last {usage.days} days, this Space used <span class="font-mono text-text-secondary">{formatTokenCount(usage.summary.totalTokens)}</span> tokens across <span class="font-mono text-text-secondary">{usage.summary.requestCount}</span> LLM requests, totaling <span class="font-mono text-text-secondary">{formatUsageCost(usage.summary.costTotal)}</span>{#if usage.generation?.summary.requestCount} · generation <span class="font-mono text-text-secondary">{usage.generation.summary.requestCount}</span> requests, <span class="font-mono text-text-secondary">{formatUsageCost(usage.generation.summary.costTotal)}</span>{/if}.</p>
 			{/if}
 		</div>
 		{#if canExpand}

@@ -9,7 +9,16 @@ import { requireValidId, useAuth, authzDenied } from "../lib/middleware.js";
 import { ensureCurrentUserProfile, updateCurrentUserProfile, LogtoUserRequiredError, UsernameClearError, UsernameConflictError, validateUsername } from "../user-profiles.js";
 import { hasPermission } from "../permissions.js";
 import { hydrateSessionParticipantProfiles, listUserSessions } from "../space-sessions.js";
-import { aggregateUsageRows, buildUsageDateRange, resolveUsageDays, USAGE_SELECT_COLUMNS, type UsageRow } from "../usage-aggregation.js";
+import {
+  aggregateGenerationUsageRows,
+  aggregateUsageRows,
+  buildUsageDateRange,
+  GENERATION_USAGE_SELECT_COLUMNS,
+  resolveUsageDays,
+  USAGE_SELECT_COLUMNS,
+  type GenerationUsageRow,
+  type UsageRow,
+} from "../usage-aggregation.js";
 import { createLogger } from "@cohub/infra/logging";
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -170,25 +179,40 @@ router.get("/usage", async (c) => {
   const { startDate, now } = buildUsageDateRange(days);
 
   let rows: UsageRow[];
+  let generationRows: GenerationUsageRow[];
   try {
-    rows = await db
-      .select(USAGE_SELECT_COLUMNS)
-      .from(schema.tokenUsageStatsHourly)
-      .where(
-        and(
-          eq(schema.tokenUsageStatsHourly.userId, user.uuid),
-          gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
-          lte(schema.tokenUsageStatsHourly.bucketStartAt, now),
-        ),
-      )
-      .orderBy(desc(schema.tokenUsageStatsHourly.bucketStartAt));
+    [rows, generationRows] = await Promise.all([
+      db
+        .select(USAGE_SELECT_COLUMNS)
+        .from(schema.tokenUsageStatsHourly)
+        .where(
+          and(
+            eq(schema.tokenUsageStatsHourly.userId, user.uuid),
+            gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
+            lte(schema.tokenUsageStatsHourly.bucketStartAt, now),
+          ),
+        )
+        .orderBy(desc(schema.tokenUsageStatsHourly.bucketStartAt)),
+      db
+        .select(GENERATION_USAGE_SELECT_COLUMNS)
+        .from(schema.generationUsageStatsHourly)
+        .where(
+          and(
+            eq(schema.generationUsageStatsHourly.userId, user.uuid),
+            gte(schema.generationUsageStatsHourly.bucketStartAt, startDate),
+            lte(schema.generationUsageStatsHourly.bucketStartAt, now),
+          ),
+        )
+        .orderBy(desc(schema.generationUsageStatsHourly.bucketStartAt)),
+    ]);
   } catch (error) {
     logger.error("[me/usage] DB query failed", error);
     return c.json({ message: "failed to load usage data" }, 500);
   }
 
   const { hourly, summary } = aggregateUsageRows(rows);
-  return c.json({ hourly, summary, days });
+  const generation = aggregateGenerationUsageRows(generationRows);
+  return c.json({ hourly, summary, generation, days });
 });
 
 export default router;

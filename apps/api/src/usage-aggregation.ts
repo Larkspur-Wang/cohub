@@ -1,4 +1,4 @@
-import { tokenUsageStatsHourly } from "@cohub/db";
+import { generationUsageStatsHourly, tokenUsageStatsHourly } from "@cohub/db";
 
 const toFiniteNumber = (value: unknown): number => {
   const numberValue = Number(value);
@@ -185,3 +185,94 @@ export const buildUsageDateRange = (days: number) => {
   startDate.setUTCMinutes(0, 0, 0);
   return { startDate, now };
 };
+
+export type GenerationUsageRow = {
+  bucketStartAt: Date;
+  costTotal: string;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  model: string | null;
+  usageType: string;
+};
+
+type GenerationHourlyBucket = {
+  bucketStartAt: Date;
+  costTotal: number;
+  requestCount: number;
+  successCount: number;
+  errorCount: number;
+  models: Set<string>;
+  usageTypes: Set<string>;
+};
+
+export type GenerationUsageAggregationResult = {
+  hourly: Array<Omit<GenerationHourlyBucket, "models" | "usageTypes"> & { models: string[]; usageTypes: string[] }>;
+  summary: {
+    costTotal: number;
+    requestCount: number;
+    successCount: number;
+    errorCount: number;
+  };
+};
+
+export const GENERATION_USAGE_SELECT_COLUMNS = {
+  bucketStartAt: generationUsageStatsHourly.bucketStartAt,
+  costTotal: generationUsageStatsHourly.costTotal,
+  requestCount: generationUsageStatsHourly.requestCount,
+  successCount: generationUsageStatsHourly.successCount,
+  errorCount: generationUsageStatsHourly.errorCount,
+  model: generationUsageStatsHourly.model,
+  usageType: generationUsageStatsHourly.usageType,
+} as const;
+
+/** Aggregate multimodal generation usage rows into hourly buckets + summary. */
+export function aggregateGenerationUsageRows(
+  rows: readonly GenerationUsageRow[],
+): GenerationUsageAggregationResult {
+  const hourlyMap = new Map<string, GenerationHourlyBucket>();
+
+  for (const row of rows) {
+    const key = (row.bucketStartAt as Date).toISOString();
+    const existing = hourlyMap.get(key);
+    if (existing) {
+      existing.costTotal += toFiniteNumber(row.costTotal);
+      existing.requestCount += row.requestCount ?? 0;
+      existing.successCount += row.successCount ?? 0;
+      existing.errorCount += row.errorCount ?? 0;
+      if (row.model) existing.models.add(row.model);
+      if (row.usageType) existing.usageTypes.add(row.usageType);
+    } else {
+      hourlyMap.set(key, {
+        bucketStartAt: row.bucketStartAt as Date,
+        costTotal: toFiniteNumber(row.costTotal),
+        requestCount: row.requestCount ?? 0,
+        successCount: row.successCount ?? 0,
+        errorCount: row.errorCount ?? 0,
+        models: new Set(row.model ? [row.model] : []),
+        usageTypes: new Set(row.usageType ? [row.usageType] : []),
+      });
+    }
+  }
+
+  const hourly = [...hourlyMap.values()]
+    .sort((a, b) => a.bucketStartAt.getTime() - b.bucketStartAt.getTime())
+    .map(({ models, usageTypes, ...rest }) => ({
+      ...rest,
+      models: [...models].sort(),
+      usageTypes: [...usageTypes].sort(),
+      costTotal: Number(rest.costTotal.toFixed(8)),
+    }));
+
+  const summary = hourly.reduce(
+    (acc, row) => ({
+      costTotal: Number((acc.costTotal + row.costTotal).toFixed(8)),
+      requestCount: acc.requestCount + row.requestCount,
+      successCount: acc.successCount + row.successCount,
+      errorCount: acc.errorCount + row.errorCount,
+    }),
+    { costTotal: 0, requestCount: 0, successCount: 0, errorCount: 0 },
+  );
+
+  return { hourly, summary };
+}

@@ -40,10 +40,24 @@ function isGenerationTaskResult(value: unknown): value is GenerationTaskResult {
     output?: unknown;
     requestId?: unknown;
     cost?: unknown;
+    billing?: unknown;
   };
   if (typeof record.model !== "string" || !Array.isArray(record.output)) return false;
   if (record.requestId !== undefined && typeof record.requestId !== "string") return false;
   if (record.cost !== undefined && (typeof record.cost !== "number" || !Number.isFinite(record.cost))) return false;
+  if (record.billing !== undefined && record.billing !== null) {
+    if (!record.billing || typeof record.billing !== "object" || Array.isArray(record.billing)) return false;
+    const billing = record.billing as {
+      amountUsd?: unknown;
+      usageType?: unknown;
+      status?: unknown;
+      reason?: unknown;
+    };
+    if (typeof billing.amountUsd !== "number" || !Number.isFinite(billing.amountUsd)) return false;
+    if (typeof billing.usageType !== "string") return false;
+    if (billing.status !== "recorded" && billing.status !== "overage" && billing.status !== "skipped") return false;
+    if (billing.reason !== undefined && billing.reason !== null && typeof billing.reason !== "string") return false;
+  }
   return true;
 }
 

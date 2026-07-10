@@ -1,4 +1,12 @@
-import { BillingAccessBlockedError, billingOperations, createBillingUsageGate, serializeBillingWarning } from "@cohub/billing";
+import {
+  BillingAccessBlockedError,
+  billingOperations,
+  contentTypesFromBlocks,
+  createBillingUsageGate,
+  generationUsageKind,
+  resolveGenerationUsageType,
+  serializeBillingWarning,
+} from "@cohub/billing";
 import { Hono, type Context } from "hono";
 import { createGenerationClient, GenerationValidationError } from "@neta-art/generation";
 import { GENERATION_TASK_TYPE, type CreateGenerationTaskResponse } from "@cohub/protocol/generation";
@@ -90,9 +98,13 @@ router.post("/", async (c) => {
     throw error;
   }
 
+  const usageType = resolveGenerationUsageType({
+    adapterType: declaration.adapter?.type,
+    contentTypes: contentTypesFromBlocks(request.content),
+  });
   const billingDecision = await billingUsageGate.evaluate({
     userId: user.uuid,
-    usageKind: "generation",
+    usageKind: generationUsageKind(usageType),
     source: "generation_task",
     model: request.model,
     spaceId: request.spaceId,

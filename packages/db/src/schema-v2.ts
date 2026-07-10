@@ -727,6 +727,55 @@ export const tokenUsageStatsHourly = v2.table(
   }),
 );
 
+/**
+ * Hourly multimodal generation usage rollups.
+ * Mirrors token_usage_stats_hourly shape for trending / usage aggregation, but
+ * dimensions on usageType instead of token breakdowns.
+ *
+ * Dimension notes:
+ * - `sessionId` uses the zero UUID when a generation has no session context.
+ * - `userId` / `provider` / `model` are NOT NULL with sentinels so the unique
+ *   index and ON CONFLICT upserts stay reliable (Postgres NULLs are not equal).
+ * - `provider` stores the generation **adapter type** (e.g. `openai.images`),
+ *   not an LLM provider id — multimodal routing has no separate provider field.
+ */
+export const generationUsageStatsHourly = v2.table(
+  "generation_usage_stats_hourly",
+  {
+    bucketStartAt: timestamp("bucket_start_at", { withTimezone: true }).notNull(),
+    userId: varchar("user_id", { length: 255 }).notNull(),
+    spaceId: uuid("space_id").notNull(),
+    sessionId: uuid("session_id").notNull(),
+    usageType: varchar("usage_type", { length: 100 }).notNull(),
+    /** Generation adapter type, e.g. `openai.images` / `ark.videoGenerations`. */
+    provider: varchar("provider", { length: 100 }).notNull(),
+    model: varchar("model", { length: 255 }).notNull(),
+    requestCount: integer("request_count").notNull().default(0),
+    successCount: integer("success_count").notNull().default(0),
+    errorCount: integer("error_count").notNull().default(0),
+    costTotal: numeric("cost_total", { precision: 18, scale: 8 }).notNull().default("0"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    pk: uniqueIndex("v2_uq_generation_usage_stats_hourly_bucket_dims").on(
+      table.bucketStartAt,
+      table.userId,
+      table.spaceId,
+      table.sessionId,
+      table.usageType,
+      table.provider,
+      table.model,
+    ),
+    bucketIdx: index("v2_idx_generation_usage_stats_hourly_bucket").on(table.bucketStartAt),
+    userBucketIdx: index("v2_idx_generation_usage_stats_hourly_user_bucket").on(table.userId, table.bucketStartAt),
+    spaceBucketIdx: index("v2_idx_generation_usage_stats_hourly_space_bucket").on(table.spaceId, table.bucketStartAt),
+    sessionBucketIdx: index("v2_idx_generation_usage_stats_hourly_session_bucket").on(table.sessionId, table.bucketStartAt),
+    usageTypeBucketIdx: index("v2_idx_generation_usage_stats_hourly_usage_type_bucket").on(table.usageType, table.bucketStartAt),
+    providerModelBucketIdx: index("v2_idx_generation_usage_stats_hourly_provider_model_bucket").on(table.provider, table.model, table.bucketStartAt),
+  }),
+);
+
 export const gatewayLogs = v2.table(
   "gateway_logs",
   {

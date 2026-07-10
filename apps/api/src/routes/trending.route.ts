@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { sql, and, gte, lt } from "drizzle-orm";
+import { sql, and, gte, lt, isNotNull, ne } from "drizzle-orm";
 import { db } from "../db/index.js";
 import * as schema from "@cohub/db";
 import { getSpacePublicProfile } from "../lib/middleware.js";
@@ -35,7 +35,7 @@ function getCatalogModelName(item: ModelCatalogEntry | null | undefined): string
   return typeof name === "string" && name.trim() ? name.trim() : "";
 }
 
-function buildModelDisplayName(
+function buildLlmModelDisplayName(
   catalog: ModelCatalogEntry[],
   provider: string,
   model: string,
@@ -44,6 +44,12 @@ function buildModelDisplayName(
     ?? catalog.filter((entry) => entry.id === model).at(0)
     ?? null;
   return `${provider}/${getCatalogModelName(item) || model}`;
+}
+
+function buildGenerationModelDisplayName(provider: string, model: string): string {
+  // Adapter types look like `openai.images` — prefer the model id for multimodal.
+  if (provider.includes(".")) return model;
+  return `${provider}/${model}`;
 }
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
@@ -93,6 +99,8 @@ function getYesterdayWindow() {
   return { yesterdayStart, todayStart };
 }
 
+// ─── LLM (token) leaderboards ─────────────────────────────────────────
+
 async function loadTrendingSpaces() {
   const { yesterdayStart, todayStart } = getYesterdayWindow();
 
@@ -115,12 +123,9 @@ async function loadTrendingSpaces() {
     .orderBy(sql`total_tokens DESC`)
     .limit(10);
 
-  if (rows.length === 0) {
-    return [];
-  }
+  if (rows.length === 0) return [];
 
   const spaceIds = rows.map((r) => r.spaceId as string);
-
   const spaces = await db
     .select({
       id: schema.spaces.id,
@@ -228,7 +233,7 @@ async function loadTrendingModels() {
       rank: i + 1,
       provider,
       model,
-      modelDisplay: buildModelDisplayName(modelsCatalog, provider, model),
+      modelDisplay: buildLlmModelDisplayName(modelsCatalog, provider, model),
       totalTokens: toFiniteNumber(r.totalTokens),
       costTotal: toFiniteNumber(r.costTotal),
       sessionCount: toFiniteNumber(r.sessionCount),
@@ -237,25 +242,174 @@ async function loadTrendingModels() {
   });
 }
 
-// ─── Spaces ───────────────────────────────────────────────────────────
+// ─── Multimodal generation leaderboards ───────────────────────────────
+
+async function loadGenerationTrendingSpaces() {
+  const { yesterdayStart, todayStart } = getYesterdayWindow();
+
+  const rows = await db
+    .select({
+      spaceId: schema.generationUsageStatsHourly.spaceId,
+      costTotal: sql<string>`SUM(${schema.generationUsageStatsHourly.costTotal})`.as("cost_total"),
+      sessionCount: sql<number>`COUNT(DISTINCT ${schema.generationUsageStatsHourly.sessionId})`.as("session_count"),
+      requestCount: sql<number>`SUM(${schema.generationUsageStatsHourly.requestCount})`.as("request_count"),
+    })
+    .from(schema.generationUsageStatsHourly)
+    .where(
+      and(
+        gte(schema.generationUsageStatsHourly.bucketStartAt, yesterdayStart),
+        lt(schema.generationUsageStatsHourly.bucketStartAt, todayStart),
+      ),
+    )
+    .groupBy(schema.generationUsageStatsHourly.spaceId)
+    .orderBy(sql`request_count DESC`, sql`cost_total DESC`)
+    .limit(10);
+
+  if (rows.length === 0) return [];
+
+  const spaceIds = rows.map((r) => r.spaceId as string);
+  const spaces = await db
+    .select({
+      id: schema.spaces.id,
+      name: schema.spaces.name,
+      userUuid: schema.spaces.userUuid,
+      meta: schema.spaces.meta,
+    })
+    .from(schema.spaces)
+    .where(sql`${schema.spaces.id} IN (${sql.join(spaceIds, sql`, `)})`);
+
+  const nameMap = new Map(spaces.map((s) => [s.id, s.name]));
+  const userMap = new Map(spaces.map((s) => [s.id, s.userUuid]));
+  const spaceProfileMap = new Map(spaces.map((s) => [s.id, getSpacePublicProfile(s)]));
+  const profileMap = await getProfilesByUuids(spaces.map((s) => s.userUuid));
+
+  return rows.map((r, i) => {
+    const uid = userMap.get(r.spaceId as string) ?? "";
+    const userProfile = profileMap.get(uid) ?? fallbackPublicUserProfile(uid);
+    return {
+      rank: i + 1,
+      spaceId: r.spaceId,
+      spaceName: nameMap.get(r.spaceId) ?? r.spaceId.slice(0, 8),
+      userId: uid,
+      userDisplay: userProfile.displayName,
+      userProfile,
+      spaceProfile: spaceProfileMap.get(r.spaceId as string) ?? { avatarUrl: null },
+      costTotal: toFiniteNumber(r.costTotal),
+      sessionCount: toFiniteNumber(r.sessionCount),
+      requestCount: toFiniteNumber(r.requestCount),
+    };
+  });
+}
+
+async function loadGenerationTrendingUsers() {
+  const { yesterdayStart, todayStart } = getYesterdayWindow();
+
+  const rows = await db
+    .select({
+      userId: schema.generationUsageStatsHourly.userId,
+      costTotal: sql<string>`SUM(${schema.generationUsageStatsHourly.costTotal})`.as("cost_total"),
+      sessionCount: sql<number>`COUNT(DISTINCT ${schema.generationUsageStatsHourly.sessionId})`.as("session_count"),
+      requestCount: sql<number>`SUM(${schema.generationUsageStatsHourly.requestCount})`.as("request_count"),
+    })
+    .from(schema.generationUsageStatsHourly)
+    .where(
+      and(
+        gte(schema.generationUsageStatsHourly.bucketStartAt, yesterdayStart),
+        lt(schema.generationUsageStatsHourly.bucketStartAt, todayStart),
+        isNotNull(schema.generationUsageStatsHourly.userId),
+        ne(schema.generationUsageStatsHourly.userId, "unknown"),
+      ),
+    )
+    .groupBy(schema.generationUsageStatsHourly.userId)
+    .orderBy(sql`request_count DESC`, sql`cost_total DESC`)
+    .limit(10);
+
+  const profileMap = await getProfilesByUuids(
+    rows.map((r) => r.userId).filter((userId): userId is string => Boolean(userId)),
+  );
+
+  return rows.map((r, i) => {
+    const userId = r.userId ?? "";
+    const userProfile = profileMap.get(userId) ?? fallbackPublicUserProfile(userId);
+    return {
+      rank: i + 1,
+      userId,
+      userDisplay: userProfile.displayName,
+      userProfile,
+      costTotal: toFiniteNumber(r.costTotal),
+      sessionCount: toFiniteNumber(r.sessionCount),
+      requestCount: toFiniteNumber(r.requestCount),
+    };
+  });
+}
+
+async function loadGenerationTrendingModels() {
+  const { yesterdayStart, todayStart } = getYesterdayWindow();
+
+  const rows = await db
+    .select({
+      provider: schema.generationUsageStatsHourly.provider,
+      model: schema.generationUsageStatsHourly.model,
+      costTotal: sql<string>`SUM(${schema.generationUsageStatsHourly.costTotal})`.as("cost_total"),
+      sessionCount: sql<number>`COUNT(DISTINCT ${schema.generationUsageStatsHourly.sessionId})`.as("session_count"),
+      requestCount: sql<number>`SUM(${schema.generationUsageStatsHourly.requestCount})`.as("request_count"),
+    })
+    .from(schema.generationUsageStatsHourly)
+    .where(
+      and(
+        gte(schema.generationUsageStatsHourly.bucketStartAt, yesterdayStart),
+        lt(schema.generationUsageStatsHourly.bucketStartAt, todayStart),
+      ),
+    )
+    .groupBy(schema.generationUsageStatsHourly.provider, schema.generationUsageStatsHourly.model)
+    .orderBy(sql`request_count DESC`, sql`cost_total DESC`)
+    .limit(10);
+
+  return rows.map((r, i) => {
+    const provider = r.provider ?? "unknown";
+    const model = r.model ?? "unknown";
+    return {
+      rank: i + 1,
+      provider,
+      model,
+      modelDisplay: buildGenerationModelDisplayName(provider, model),
+      costTotal: toFiniteNumber(r.costTotal),
+      sessionCount: toFiniteNumber(r.sessionCount),
+      requestCount: toFiniteNumber(r.requestCount),
+    };
+  });
+}
+
+// ─── Routes ───────────────────────────────────────────────────────────
 
 router.get("/spaces", async (c) => {
   setTrendingCacheHeaders(c);
   return c.json(await getCachedTrending("spaces", loadTrendingSpaces));
 });
 
-// ─── Users ────────────────────────────────────────────────────────────
-
 router.get("/users", async (c) => {
   setTrendingCacheHeaders(c);
   return c.json(await getCachedTrending("users", loadTrendingUsers));
 });
 
-// ─── Models ───────────────────────────────────────────────────────────
-
 router.get("/models", async (c) => {
   setTrendingCacheHeaders(c);
   return c.json(await getCachedTrending("models", loadTrendingModels));
+});
+
+router.get("/generations/spaces", async (c) => {
+  setTrendingCacheHeaders(c);
+  return c.json(await getCachedTrending("generations-spaces", loadGenerationTrendingSpaces));
+});
+
+router.get("/generations/users", async (c) => {
+  setTrendingCacheHeaders(c);
+  return c.json(await getCachedTrending("generations-users", loadGenerationTrendingUsers));
+});
+
+router.get("/generations/models", async (c) => {
+  setTrendingCacheHeaders(c);
+  return c.json(await getCachedTrending("generations-models", loadGenerationTrendingModels));
 });
 
 export default router;

@@ -7,6 +7,7 @@ export type BillingUsageKind =
   | "generation"
   | "generation.image"
   | "generation.video"
+  | "generation.music"
   | "sandbox.compute"
   | (string & {});
 

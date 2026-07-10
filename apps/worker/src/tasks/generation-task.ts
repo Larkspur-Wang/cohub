@@ -1,4 +1,13 @@
-import { BillingAccessBlockedError, billingOperations, createBillingUsageGate } from "@cohub/billing";
+import {
+  BillingAccessBlockedError,
+  billingOperations,
+  COHUB_BILLING_TOKEN_TYPES,
+  contentTypesFromBlocks,
+  createBillingUsageGate,
+  generationUsageKind,
+  normalizePositiveUsd,
+  resolveGenerationUsageType,
+} from "@cohub/billing";
 import type { Job } from "bullmq";
 import {
   createGenerationClient,
@@ -8,10 +17,20 @@ import {
   GenerationValidationError,
 } from "@neta-art/generation";
 import { createGenerationDeclarationLoader } from "@cohub/infra/config-runtime/generation-declarations";
-import { GENERATION_TASK_TYPE, type GenerationTaskData, type GenerationTaskResult } from "@cohub/protocol/generation";
+import {
+  GENERATION_BILLING_RETRY_TASK_TYPE,
+  GENERATION_TASK_TYPE,
+  type GenerationBillingRetryTaskData,
+  type GenerationTaskData,
+  type GenerationTaskResult,
+  type GenerationUsageBilling,
+} from "@cohub/protocol/generation";
 import type { TaskPayload } from "@cohub/protocol/task";
+import { defaultJobRetention } from "@cohub/infra/bullmq";
 import { config } from "../config.js";
+import { recordGenerationUsageStatsHourly } from "../generation-usage-stats.js";
 import { redisCommandClient } from "../redis.js";
+import { enqueueTask } from "./enqueue.js";
 import { registerTask } from "./registry.js";
 
 const loader = createGenerationDeclarationLoader({
@@ -118,6 +137,161 @@ function normalizeGenerationError(error: unknown): Error {
   return new Error(String(error));
 }
 
+async function recordGenerationStatsSafe(input: {
+  taskRunId: string;
+  userId: string;
+  spaceId: string;
+  sessionId?: string | null;
+  usageType: string;
+  adapterType?: string | null;
+  model: string;
+  costTotal: number;
+}) {
+  try {
+    await recordGenerationUsageStatsHourly({
+      taskRunId: input.taskRunId,
+      userId: input.userId,
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+      usageType: input.usageType,
+      adapterType: input.adapterType ?? null,
+      model: input.model,
+      costTotal: input.costTotal,
+    });
+  } catch (error) {
+    console.warn("[UsageStats] failed to record generation usage stats", {
+      userId: input.userId,
+      spaceId: input.spaceId,
+      model: input.model,
+      usageType: input.usageType,
+      taskRunId: input.taskRunId,
+      error,
+    });
+  }
+}
+
+/**
+ * Record multimodal generation usage after a successful provider call.
+ * Failures are logged and never fail the task (matches LLM billing).
+ */
+async function enqueueGenerationBillingRetry(input: {
+  userId: string;
+  taskRunId: string;
+  amountUsd: number;
+  usageType: string;
+  model: string;
+  adapterType?: string | null;
+  spaceId: string;
+  sessionId?: string | null;
+}) {
+  const data: GenerationBillingRetryTaskData = {
+    taskRunId: input.taskRunId,
+    userId: input.userId,
+    amountUsd: input.amountUsd,
+    usageType: input.usageType,
+    model: input.model,
+    adapterType: input.adapterType ?? null,
+  };
+  // Stable jobId so concurrent failures for the same generation collapse into one retry chain.
+  await enqueueTask({
+    type: GENERATION_BILLING_RETRY_TASK_TYPE,
+    spaceId: input.spaceId,
+    sessionId: input.sessionId ?? undefined,
+    userId: input.userId,
+    data,
+  }, {
+    jobId: `generation-billing-retry:${input.taskRunId}`,
+    attempts: 8,
+    backoff: { type: "exponential", delay: 5_000 },
+    ...defaultJobRetention,
+  });
+}
+
+async function recordGenerationUsageBilling(input: {
+  userId: string;
+  taskRunId: string;
+  model: string;
+  adapterType: string | null | undefined;
+  amountUsd: number;
+  usageType: ReturnType<typeof resolveGenerationUsageType>;
+  spaceId: string;
+  sessionId?: string | null;
+}): Promise<GenerationUsageBilling> {
+  const amountUsd = normalizePositiveUsd(input.amountUsd);
+  if (!billingOperations.status.configured) {
+    return { amountUsd, usageType: input.usageType, status: "skipped", reason: "billing_not_configured" };
+  }
+  if (amountUsd <= 0) {
+    return { amountUsd: 0, usageType: input.usageType, status: "skipped", reason: "missing_cost" };
+  }
+  if (!input.taskRunId) {
+    return { amountUsd, usageType: input.usageType, status: "skipped", reason: "missing_task_run_id" };
+  }
+
+  try {
+    const result = await billingOperations.recordUsage({
+      userId: input.userId,
+      amountUsd,
+      tokenType: COHUB_BILLING_TOKEN_TYPES.usdMicroCent,
+      usageType: input.usageType,
+      sourceId: input.taskRunId,
+      operationId: `generation:${input.taskRunId}`,
+      reason: `Generation ${input.model}`,
+    });
+    if (result.status === "overage") {
+      console.warn("[Billing] generation usage recorded as overage", {
+        userId: input.userId,
+        taskRunId: input.taskRunId,
+        amountUsd,
+        model: input.model,
+        usageType: input.usageType,
+        adapterType: input.adapterType ?? null,
+      });
+    }
+    if (result.status === "disabled" || result.status === "skipped") {
+      return {
+        amountUsd,
+        usageType: input.usageType,
+        status: "skipped",
+        reason: result.status === "disabled" ? "billing_disabled" : "zero_amount",
+      };
+    }
+    return {
+      amountUsd,
+      usageType: input.usageType,
+      status: result.status === "overage" ? "overage" : "recorded",
+    };
+  } catch (error) {
+    console.warn("[Billing] failed to record generation usage; enqueueing retry", {
+      userId: input.userId,
+      taskRunId: input.taskRunId,
+      amountUsd,
+      model: input.model,
+      usageType: input.usageType,
+      adapterType: input.adapterType ?? null,
+      error,
+    });
+    await enqueueGenerationBillingRetry({
+      userId: input.userId,
+      taskRunId: input.taskRunId,
+      amountUsd,
+      usageType: input.usageType,
+      model: input.model,
+      adapterType: input.adapterType ?? null,
+      spaceId: input.spaceId,
+      sessionId: input.sessionId,
+    }).catch((enqueueError) => {
+      console.warn("[Billing] failed to enqueue generation billing retry", {
+        userId: input.userId,
+        taskRunId: input.taskRunId,
+        amountUsd,
+        error: enqueueError,
+      });
+    });
+    return { amountUsd, usageType: input.usageType, status: "skipped", reason: "record_failed" };
+  }
+}
+
 registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
@@ -139,9 +313,14 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
     const declaration = await loader.loadGenerationDeclaration(userId, data.model);
     if (!declaration) throw new Error(`Generation model is unavailable: ${data.model}`);
 
+    // Gate uses request-side modality; billing/stats re-resolve with output after success.
+    const gateUsageType = resolveGenerationUsageType({
+      adapterType: declaration.adapter?.type,
+      contentTypes: contentTypesFromBlocks(data.content),
+    });
     const billingDecision = await billingUsageGate.evaluate({
       userId,
-      usageKind: "generation",
+      usageKind: generationUsageKind(gateUsageType),
       source: "generation_task",
       model: data.model,
       spaceId,
@@ -161,11 +340,51 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
       meta,
     });
 
+    const usageType = resolveGenerationUsageType({
+      adapterType: declaration.adapter?.type,
+      contentTypes: [
+        ...contentTypesFromBlocks(result.content),
+        ...contentTypesFromBlocks(data.content),
+      ],
+    });
+    const billing = await recordGenerationUsageBilling({
+      userId,
+      taskRunId,
+      model: data.model,
+      adapterType: declaration.adapter?.type,
+      amountUsd: result.cost ?? 0,
+      usageType,
+      spaceId,
+      sessionId,
+    });
+    if (billing.status === "skipped" && billing.reason === "missing_cost") {
+      console.warn("[Billing] generation completed without provider cost", {
+        userId,
+        taskRunId,
+        model: data.model,
+        usageType,
+        adapterType: declaration.adapter?.type ?? null,
+      });
+    }
+
+    // Success-only rollup (idempotent via taskRunId). Failures stay out to avoid retry noise.
+    await recordGenerationStatsSafe({
+      taskRunId,
+      userId,
+      spaceId,
+      sessionId,
+      usageType,
+      adapterType: declaration.adapter?.type,
+      model: data.model,
+      costTotal: result.cost ?? 0,
+    });
+
     return {
       model: data.model,
       output: result.content,
       ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
       ...(result.cost !== undefined ? { cost: result.cost } : {}),
+      billing,
       meta,
     } satisfies GenerationTaskResult;
   } catch (error) {

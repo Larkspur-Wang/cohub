@@ -377,10 +377,13 @@ Examples:
         const savedPaths = opts.output ? await saveOutputs(result.output, opts.output) : [];
         if (jsonRequested(opts)) return outJson(savedPaths.length > 0 ? { ...result, taskRunId: created.taskRunId, savedPaths } : { ...result, taskRunId: created.taskRunId });
         printGeneration(result.output);
-        if (result.requestId || result.cost !== undefined) {
+        if (result.requestId || result.cost !== undefined || result.billing) {
           const details = [
             result.requestId ? `request ID: ${result.requestId}` : null,
             result.cost !== undefined ? `cost: ${result.cost}` : null,
+            result.billing
+              ? `billing: ${result.billing.status}${result.billing.amountUsd > 0 ? ` ${result.billing.amountUsd}` : ""}${result.billing.reason ? ` (${result.billing.reason})` : ""}`
+              : null,
           ].filter(Boolean).join(", ");
           if (details) process.stderr.write(`  ${details}\n`);
         }

@@ -1,5 +1,5 @@
 import { COHUB_TASKS_QUEUE, createBullmqQueue } from "@cohub/infra/bullmq";
-import { enqueueTaskRun } from "@cohub/core/tasks";
+import { enqueueTaskRun, type TaskEnqueueOptions } from "@cohub/core/tasks";
 import type { TaskPayload } from "@cohub/protocol/task";
 import { config } from "../config.js";
 import { db } from "../db.js";
@@ -9,8 +9,9 @@ const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
   telemetryServiceName: "cohub-worker",
 });
 
-export const enqueueTask = (payload: TaskPayload) => enqueueTaskRun({
+export const enqueueTask = (payload: TaskPayload, options?: TaskEnqueueOptions) => enqueueTaskRun({
   db,
   payload,
-  enqueue: (name, taskPayload, options) => taskQueue.add(name, taskPayload, options),
+  options,
+  enqueue: (name, taskPayload, jobOptions) => taskQueue.add(name, taskPayload, jobOptions),
 });
