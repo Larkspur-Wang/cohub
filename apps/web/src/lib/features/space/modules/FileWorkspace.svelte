@@ -1,5 +1,8 @@
 <script lang="ts">
-import type { SpaceFsFileResponse } from "@neta-art/cohub";
+import type {
+	SpaceFsFileResponse,
+	SpacePendingDiffFileResponse,
+} from "@neta-art/cohub";
 import {
 	Check,
 	Copy,
@@ -14,6 +17,7 @@ import {
 	X,
 } from "lucide-svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import type { FileViewMode } from "$lib/components/file-diff-view";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
@@ -39,7 +43,10 @@ type Props = {
 	openFileDataUrl: string | null;
 	openFileDraft: string;
 	openFileExt: string;
-	fileEdit: boolean;
+	fileViewMode: FileViewMode;
+	openFileDiff: SpacePendingDiffFileResponse | null;
+	openFileDiffLoading: boolean;
+	openFileDiffError: string | null;
 	openFileCopied: boolean;
 	openFileSaving: boolean;
 	fileDirty: boolean;
@@ -83,7 +90,10 @@ let {
 	openFileDataUrl,
 	openFileDraft = $bindable(),
 	openFileExt,
-	fileEdit = $bindable(),
+	fileViewMode = $bindable(),
+	openFileDiff,
+	openFileDiffLoading,
+	openFileDiffError,
 	openFileCopied,
 	openFileSaving,
 	fileDirty,
@@ -108,12 +118,17 @@ let {
 	onOpenLinkedInlineFile,
 }: Props = $props();
 
-const loadCodeEditorModule = createLazyModuleLoader(() =>
-	import("$lib/components/CodeEditor.svelte"),
+const loadCodeEditorModule = createLazyModuleLoader(
+	() => import("$lib/components/CodeEditor.svelte"),
 );
-const loadRenderedFilePreviewModule = createLazyModuleLoader(() =>
-	import("$lib/components/RenderedFilePreview.svelte"),
+const loadRenderedFilePreviewModule = createLazyModuleLoader(
+	() => import("$lib/components/RenderedFilePreview.svelte"),
 );
+const loadFileDiffViewModule = createLazyModuleLoader(
+	() => import("$lib/components/FileDiffView.svelte"),
+);
+
+const showDiffMode = $derived(!activeFsReadonly && openFileIsText);
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
@@ -188,30 +203,43 @@ const loadRenderedFilePreviewModule = createLazyModuleLoader(() =>
         <div class="min-w-0 flex-1 truncate text-[11px] sm:text-[12px] text-text-secondary">
           {openFile.path}
         </div>
-        {#if openFileHasRenderedPreview}
+        {#if openFileHasRenderedPreview || showDiffMode}
           <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
             <button
               type="button"
               class="segmented-btn"
-              class:active={fileEdit}
-              onclick={() => fileEdit = true}
+              class:active={fileViewMode === "source"}
+              onclick={() => fileViewMode = "source"}
               title="Edit source"
             >
               Source
             </button>
-            <button
-              type="button"
-              class="segmented-btn"
-              class:active={!fileEdit}
-              onclick={() => fileEdit = false}
-              title={openFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
-            >
-              Preview
-            </button>
+            {#if openFileHasRenderedPreview}
+              <button
+                type="button"
+                class="segmented-btn"
+                class:active={fileViewMode === "preview"}
+                onclick={() => fileViewMode = "preview"}
+                title={openFileIsMarkdown ? "Preview markdown" : "Preview HTML"}
+              >
+                Preview
+              </button>
+            {/if}
+            {#if showDiffMode}
+              <button
+                type="button"
+                class="segmented-btn"
+                class:active={fileViewMode === "diff"}
+                onclick={() => fileViewMode = "diff"}
+                title="Diff since last save"
+              >
+                Diff
+              </button>
+            {/if}
           </div>
         {/if}
         {@render FileHeaderCoreActions(openFile.path)}
-        {#if openFileIsHtml && !fileEdit}
+        {#if openFileIsHtml && fileViewMode === "preview"}
           <button type="button" class="action-btn" onclick={onPublishOpenFile} title="Publish work">
             <Rocket class="w-3.5 h-3.5 shrink-0" />
             <span class="hidden sm:inline">Publish</span>
@@ -239,19 +267,18 @@ const loadRenderedFilePreviewModule = createLazyModuleLoader(() =>
         </button>
       </div>
       <div class="flex-1 min-h-0">
-        {#if fileEdit}
-          {#await loadCodeEditorModule() then editorModule}
-            {@const LazyCodeEditor = editorModule.default}
-            <LazyCodeEditor
-              value={openFileDraft}
-              language={openFileExt}
-              onInput={(v) => openFileDraft = v}
-              readonly={!canEditFiles}
+        {#if fileViewMode === "diff" && showDiffMode}
+          {#await loadFileDiffViewModule() then diffModule}
+            {@const LazyFileDiffView = diffModule.default}
+            <LazyFileDiffView
+              patch={openFileDiff}
+              loading={openFileDiffLoading}
+              error={openFileDiffError}
             />
           {:catch}
-            <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
+            <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Diff failed to load.</div>
           {/await}
-        {:else if openFileHasRenderedPreview}
+        {:else if fileViewMode === "preview" && openFileHasRenderedPreview}
           {#await loadRenderedFilePreviewModule() then previewModule}
             {@const LazyRenderedFilePreview = previewModule.default}
             <LazyRenderedFilePreview
@@ -270,7 +297,8 @@ const loadRenderedFilePreviewModule = createLazyModuleLoader(() =>
             <LazyCodeEditor
               value={openFileDraft}
               language={openFileExt}
-              readonly={true}
+              onInput={(v) => openFileDraft = v}
+              readonly={!canEditFiles}
             />
           {:catch}
             <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>

@@ -5,11 +5,13 @@ import type {
 } from "@cohub/protocol/ports";
 import type {
 	CanvasSemanticOp,
+	SpacePendingDiffFileResponse,
 	SpaceRecord,
 	WorkRecord,
 } from "@neta-art/cohub";
 import { isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
+import type { FileViewMode } from "$lib/components/file-diff-view";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import { isTextFileResponse } from "$lib/space-file-text";
 import type { SpaceFsNode } from "$lib/space-fs";
@@ -71,7 +73,10 @@ export type SpaceFileDomainProps = {
 	inlineFileDownloadName: string;
 	inlineFileIsText: boolean;
 	inlineFileHasRenderedPreview: boolean;
-	inlineFileEdit: boolean;
+	inlineFileViewMode: FileViewMode;
+	inlineFileDiff: SpacePendingDiffFileResponse | null;
+	inlineFileDiffLoading: boolean;
+	inlineFileDiffError: string | null;
 	inlineFileIsMarkdown: boolean;
 	inlineFileIsHtml: boolean;
 	inlineFileDirty: boolean;
@@ -181,7 +186,10 @@ let {
 	inlineFileDownloadName,
 	inlineFileIsText,
 	inlineFileHasRenderedPreview,
-	inlineFileEdit = $bindable(),
+	inlineFileViewMode = $bindable(),
+	inlineFileDiff,
+	inlineFileDiffLoading,
+	inlineFileDiffError,
 	inlineFileIsMarkdown,
 	inlineFileIsHtml,
 	inlineFileDirty,
@@ -316,7 +324,10 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		{inlineFileDownloadName}
 		{inlineFileIsText}
 		{inlineFileHasRenderedPreview}
-		bind:inlineFileEdit
+		bind:inlineFileViewMode
+		{inlineFileDiff}
+		{inlineFileDiffLoading}
+		{inlineFileDiffError}
 		{inlineFileIsMarkdown}
 		{inlineFileIsHtml}
 		{inlineFileDirty}

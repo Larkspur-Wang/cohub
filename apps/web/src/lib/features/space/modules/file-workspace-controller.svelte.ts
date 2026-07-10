@@ -1,4 +1,8 @@
-import type { SpaceFsEntry, SpaceFsFileResponse } from "@neta-art/cohub";
+import type {
+	SpaceFsEntry,
+	SpaceFsFileResponse,
+	SpacePendingDiffFileResponse,
+} from "@neta-art/cohub";
 import { HttpError } from "@neta-art/cohub";
 import { goto } from "$app/navigation";
 import {
@@ -6,6 +10,10 @@ import {
 	createEmptyCovasDocument,
 } from "$lib/canvas/canvas-document";
 import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
+import {
+	defaultFileViewMode,
+	type FileViewMode,
+} from "$lib/components/file-diff-view";
 import { sdk } from "$lib/sdk";
 import {
 	buildSpaceFileDownloadUrl,
@@ -36,7 +44,15 @@ import {
 	updateNodeState,
 } from "./file-workspace-utils";
 
-export type { ActiveFsSource };
+export type { ActiveFsSource, FileViewMode };
+
+type FileDiffState = {
+	path: string | null;
+	patch: SpacePendingDiffFileResponse | null;
+	loading: boolean;
+	error: string | null;
+	requestToken: number;
+};
 
 export type FileWorkspaceInlineFile = {
 	response: SpaceFsFileResponse | null;
@@ -47,7 +63,7 @@ export type FileWorkspaceInlineFile = {
 	saving: boolean;
 	error: string | null;
 	tooLarge: boolean;
-	edit: boolean;
+	viewMode: FileViewMode;
 	zoom: number;
 	panX: number;
 	panY: number;
@@ -99,7 +115,21 @@ export function createFileWorkspaceController(
 	let inlineFileTabs = $state<FileWorkspaceInlineFile[]>([]);
 	let activeInlineFilePath = $state<string | null>(null);
 	let inlineFileRequestToken = $state(0);
-	let fileEdit = $state(true);
+	let fileViewMode = $state<FileViewMode>("source");
+	let openFileDiff = $state<FileDiffState>({
+		path: null,
+		patch: null,
+		loading: false,
+		error: null,
+		requestToken: 0,
+	});
+	let inlineFileDiff = $state<FileDiffState>({
+		path: null,
+		patch: null,
+		loading: false,
+		error: null,
+		requestToken: 0,
+	});
 	let fileActionMenuOpenPath = $state<string | null>(null);
 	let openFileZoom = $state(1);
 	let openFilePanX = $state(0);
@@ -141,7 +171,7 @@ export function createFileWorkspaceController(
 			saving: false,
 			error: null,
 			tooLarge: false,
-			edit: true,
+			viewMode: "source",
 			zoom: 1,
 			panX: 0,
 			panY: 0,
@@ -207,7 +237,34 @@ export function createFileWorkspaceController(
 		inlineFileRequestToken += 1;
 		inlineFileTabs = [];
 		activeInlineFilePath = null;
+		clearFileDiff("inline");
 		void loadFileTree(false);
+	}
+
+	function clearFileDiff(target: "open" | "inline" | "both" = "both") {
+		if (target === "open" || target === "both") {
+			openFileDiff = {
+				path: null,
+				patch: null,
+				loading: false,
+				error: null,
+				requestToken: openFileDiff.requestToken + 1,
+			};
+		}
+		if (target === "inline" || target === "both") {
+			inlineFileDiff = {
+				path: null,
+				patch: null,
+				loading: false,
+				error: null,
+				requestToken: inlineFileDiff.requestToken + 1,
+			};
+		}
+	}
+
+	function invalidateFileDiff(path?: string | null) {
+		if (!path || openFileDiff.path === path) clearFileDiff("open");
+		if (!path || inlineFileDiff.path === path) clearFileDiff("inline");
 	}
 
 	function clearRouteFile() {
@@ -215,7 +272,8 @@ export function createFileWorkspaceController(
 		openFileDraft = "";
 		openFileError = null;
 		openFileTooLarge = false;
-		fileEdit = true;
+		fileViewMode = "source";
+		clearFileDiff("open");
 	}
 
 	function resetForSpace() {
@@ -232,6 +290,8 @@ export function createFileWorkspaceController(
 		openFileError = null;
 		openFileTooLarge = false;
 		openFileSaving = false;
+		fileViewMode = "source";
+		clearFileDiff();
 		inlineFileTabs = [];
 		activeInlineFilePath = null;
 		uploadPaneVisible = false;
@@ -243,6 +303,8 @@ export function createFileWorkspaceController(
 	function markOpenFileExternalChange() {
 		openFileError =
 			"File changed externally. Save carefully or reload before editing further.";
+		invalidateFileDiff(openFile?.path ?? options.getRouteFilePath());
+		if (fileViewMode === "diff") void ensureOpenFileDiff(true);
 	}
 
 	function markInlineFileExternalChange(path?: string) {
@@ -253,6 +315,11 @@ export function createFileWorkspaceController(
 			error:
 				"File changed externally. Save carefully or reload before editing further.",
 		}));
+		invalidateFileDiff(targetPath);
+		const activeTab = getActiveInlineFile();
+		if (activeTab?.path === targetPath && activeTab.viewMode === "diff") {
+			void ensureInlineFileDiff(true);
+		}
 	}
 
 	async function patchFsDirectory(
@@ -468,7 +535,8 @@ export function createFileWorkspaceController(
 			}
 			const file = await resolveTextFileResponse(rawFile);
 			if (!isCurrentRequest()) return;
-			fileEdit = !hasRenderedFilePreview(file);
+			fileViewMode = defaultFileViewMode(hasRenderedFilePreview(file));
+			clearFileDiff("open");
 			openFile = file;
 			openFileDraft = isTextFileResponse(file) ? file.content : "";
 		} catch (error) {
@@ -509,6 +577,7 @@ export function createFileWorkspaceController(
 				size: new Blob([openFileDraft]).size,
 			};
 			openFile = nextFile;
+			invalidateFileDiff(savingPath);
 			await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
 				entries.map((entry) =>
 					entry.path === savingPath
@@ -520,6 +589,7 @@ export function createFileWorkspaceController(
 						: entry,
 				),
 			);
+			if (fileViewMode === "diff") void ensureOpenFileDiff(true);
 		} catch (error) {
 			openFileError =
 				error instanceof Error ? error.message : "Failed to save file";
@@ -602,7 +672,14 @@ export function createFileWorkspaceController(
 				requestToken,
 				backStack: nextBackStack,
 			}));
-			if (existingTab.response && !optionsArg.forceReload) return;
+			if (existingTab.response && !optionsArg.forceReload) {
+				if (shouldActivate && existingTab.viewMode === "diff") {
+					void ensureInlineFileDiff();
+				} else if (shouldActivate && inlineFileDiff.path !== path) {
+					clearFileDiff("inline");
+				}
+				return;
+			}
 		} else {
 			inlineFileTabs = [
 				...inlineFileTabs,
@@ -649,8 +726,9 @@ export function createFileWorkspaceController(
 				loading: false,
 				error: null,
 				tooLarge: false,
-				edit: !hasRenderedFilePreview(file),
+				viewMode: defaultFileViewMode(hasRenderedFilePreview(file)),
 			}));
+			if (activeInlineFilePath === path) clearFileDiff("inline");
 		} catch (error) {
 			const targetTab = inlineFileTabs.find((tab) => tab.path === path);
 			if (
@@ -718,6 +796,120 @@ export function createFileWorkspaceController(
 		});
 	}
 
+	async function loadPendingFileDiff(
+		path: string,
+	): Promise<SpacePendingDiffFileResponse> {
+		return sdk.space(options.getSpaceId()).files.diffFile(path);
+	}
+
+	async function ensureOpenFileDiff(force = false) {
+		const path = openFile?.path ?? options.getRouteFilePath();
+		if (!path || options.getActiveFsReadonly()) {
+			clearFileDiff("open");
+			return;
+		}
+		if (
+			!force &&
+			openFileDiff.path === path &&
+			(openFileDiff.patch || openFileDiff.loading)
+		) {
+			return;
+		}
+		const requestToken = openFileDiff.requestToken + 1;
+		openFileDiff = {
+			path,
+			patch: force
+				? null
+				: openFileDiff.path === path
+					? openFileDiff.patch
+					: null,
+			loading: true,
+			error: null,
+			requestToken,
+		};
+		try {
+			const patch = await loadPendingFileDiff(path);
+			if (openFileDiff.requestToken !== requestToken) return;
+			openFileDiff = {
+				path,
+				patch,
+				loading: false,
+				error: null,
+				requestToken,
+			};
+		} catch (error) {
+			if (openFileDiff.requestToken !== requestToken) return;
+			openFileDiff = {
+				path,
+				patch: null,
+				loading: false,
+				error: error instanceof Error ? error.message : "Failed to load diff",
+				requestToken,
+			};
+		}
+	}
+
+	async function ensureInlineFileDiff(force = false) {
+		const path = activeInlineFilePath;
+		if (!path || options.getActiveFsReadonly()) {
+			clearFileDiff("inline");
+			return;
+		}
+		if (
+			!force &&
+			inlineFileDiff.path === path &&
+			(inlineFileDiff.patch || inlineFileDiff.loading)
+		) {
+			return;
+		}
+		const requestToken = inlineFileDiff.requestToken + 1;
+		inlineFileDiff = {
+			path,
+			patch: force
+				? null
+				: inlineFileDiff.path === path
+					? inlineFileDiff.patch
+					: null,
+			loading: true,
+			error: null,
+			requestToken,
+		};
+		try {
+			const patch = await loadPendingFileDiff(path);
+			if (inlineFileDiff.requestToken !== requestToken) return;
+			inlineFileDiff = {
+				path,
+				patch,
+				loading: false,
+				error: null,
+				requestToken,
+			};
+		} catch (error) {
+			if (inlineFileDiff.requestToken !== requestToken) return;
+			inlineFileDiff = {
+				path,
+				patch: null,
+				loading: false,
+				error: error instanceof Error ? error.message : "Failed to load diff",
+				requestToken,
+			};
+		}
+	}
+
+	function setFileViewMode(mode: FileViewMode) {
+		fileViewMode = mode;
+		if (mode === "diff") void ensureOpenFileDiff();
+	}
+
+	function setInlineFileViewMode(mode: FileViewMode) {
+		if (!activeInlineFilePath) return;
+		setInlineFileTab(activeInlineFilePath, (tab) => ({
+			...tab,
+			viewMode: mode,
+		}));
+		if (mode === "diff") void ensureInlineFileDiff();
+	}
+
 	async function saveInlineFile() {
 		const inlineFile = getActiveInlineFile();
 		if (
@@ -752,6 +944,7 @@ export function createFileWorkspaceController(
 					: tab.response,
 				error: null,
 			}));
+			invalidateFileDiff(savingPath);
 			await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
 				entries.map((entry) =>
 					entry.path === savingPath
@@ -763,6 +956,10 @@ export function createFileWorkspaceController(
 						: entry,
 				),
 			);
+			const activeTab = getActiveInlineFile();
+			if (activeTab?.path === savingPath && activeTab.viewMode === "diff") {
+				void ensureInlineFileDiff(true);
+			}
 		} catch (error) {
 			setInlineFileTab(savingPath, (tab) => ({
 				...tab,
@@ -1132,11 +1329,26 @@ export function createFileWorkspaceController(
 					openFileDraft !== openFile.content,
 			);
 		},
-		get fileEdit() {
-			return fileEdit;
+		get fileViewMode() {
+			return fileViewMode;
 		},
-		set fileEdit(value: boolean) {
-			fileEdit = value;
+		set fileViewMode(value: FileViewMode) {
+			setFileViewMode(value);
+		},
+		get openFileDiff() {
+			return openFileDiff.path === (openFile?.path ?? null)
+				? openFileDiff.patch
+				: null;
+		},
+		get openFileDiffLoading() {
+			return (
+				openFileDiff.path === (openFile?.path ?? null) && openFileDiff.loading
+			);
+		},
+		get openFileDiffError() {
+			return openFileDiff.path === (openFile?.path ?? null)
+				? openFileDiff.error
+				: null;
 		},
 		get fileActionMenuOpenPath() {
 			return fileActionMenuOpenPath;
@@ -1247,15 +1459,25 @@ export function createFileWorkspaceController(
 			const inlineFile = getActiveInlineFile();
 			return inlineFile ? (inlineFile.path.split("/").pop() ?? "download") : "";
 		},
-		get inlineFileEdit() {
-			return getActiveInlineFile()?.edit ?? true;
+		get inlineFileViewMode() {
+			return getActiveInlineFile()?.viewMode ?? "source";
 		},
-		set inlineFileEdit(value: boolean) {
-			if (activeInlineFilePath)
-				setInlineFileTab(activeInlineFilePath, (tab) => ({
-					...tab,
-					edit: value,
-				}));
+		set inlineFileViewMode(value: FileViewMode) {
+			setInlineFileViewMode(value);
+		},
+		get inlineFileDiff() {
+			const path = activeInlineFilePath;
+			return path && inlineFileDiff.path === path ? inlineFileDiff.patch : null;
+		},
+		get inlineFileDiffLoading() {
+			const path = activeInlineFilePath;
+			return Boolean(
+				path && inlineFileDiff.path === path && inlineFileDiff.loading,
+			);
+		},
+		get inlineFileDiffError() {
+			const path = activeInlineFilePath;
+			return path && inlineFileDiff.path === path ? inlineFileDiff.error : null;
 		},
 		get inlineFileCopied() {
 			return getActiveInlineFile()?.copied ?? false;
@@ -1349,6 +1571,9 @@ export function createFileWorkspaceController(
 		closeInlineFile,
 		activateInlineFile: (path: string) => {
 			activeInlineFilePath = path;
+			const tab = inlineFileTabs.find((item) => item.path === path);
+			if (tab?.viewMode === "diff") void ensureInlineFileDiff();
+			else if (inlineFileDiff.path !== path) clearFileDiff("inline");
 			options.onActivateFilePreview?.();
 		},
 		closeInlineFileTab: closeInlineFile,

@@ -2,11 +2,16 @@
 import type {
 	CheckpointDiffFile,
 	CheckpointDiffFileResponse,
-	CheckpointDiffPatchLine,
 	CheckpointDiffStats,
 	CheckpointDiffStatus,
 } from "@neta-art/cohub";
 import { ChevronDown, ChevronRight, FileDiff, Loader2 } from "lucide-svelte";
+import {
+	formatDiffBytes,
+	formatDiffCounts,
+	patchLineClass,
+	patchLinePrefix,
+} from "./file-diff-view";
 
 type SummaryLike = {
 	files: CheckpointDiffFile[];
@@ -111,37 +116,7 @@ function statusClass(status: CheckpointDiffStatus): string {
 
 function formatCounts(file: CheckpointDiffFile): string {
 	if (file.asset || file.binary) return "bin";
-	const plus = file.additions;
-	const minus = file.deletions;
-	if (plus === null && minus === null) return "";
-	const parts: string[] = [];
-	if (typeof plus === "number") parts.push(`+${plus}`);
-	if (typeof minus === "number") parts.push(`−${minus}`);
-	return parts.join(" ");
-}
-
-function formatBytes(value: number | null | undefined): string {
-	if (value === null || value === undefined) return "—";
-	if (value < 1024) return `${value} B`;
-	if (value < 1024 * 1024)
-		return `${(value / 1024).toFixed(value >= 10 * 1024 ? 0 : 1)} KB`;
-	return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function patchLineClass(type: CheckpointDiffPatchLine["type"]): string {
-	if (type === "add") return "border-success/30 bg-success-bg/40 text-success";
-	if (type === "del") return "border-error/30 bg-error-bg/40 text-error";
-	if (type === "hunk")
-		return "border-border-subtle bg-bg-elevated/50 text-text-tertiary";
-	if (type === "meta") return "border-transparent text-text-placeholder";
-	return "border-transparent text-text-secondary";
-}
-
-function patchLinePrefix(type: CheckpointDiffPatchLine["type"]): string {
-	if (type === "add") return "+";
-	if (type === "del") return "−";
-	if (type === "hunk" || type === "meta") return "";
-	return " ";
+	return formatDiffCounts(file.additions, file.deletions);
 }
 
 async function toggleFile(file: CheckpointDiffFile) {
@@ -313,14 +288,14 @@ function statsLine(stats: CheckpointDiffStats): string {
 												<div class="px-3 py-2.5 text-[12px] text-text-tertiary">
 													Binary asset
 													<span class="font-mono text-text-secondary">
-														({formatBytes(patch.oldSize)} → {formatBytes(patch.newSize)})
+														({formatDiffBytes(patch.oldSize)} → {formatDiffBytes(patch.newSize)})
 													</span>
 												</div>
 											{:else if patch.kind === "binary"}
 												<div class="px-3 py-2.5 text-[12px] text-text-tertiary">
 													Binary file
 													<span class="font-mono text-text-secondary">
-														({formatBytes(patch.oldSize)} → {formatBytes(patch.newSize)})
+														({formatDiffBytes(patch.oldSize)} → {formatDiffBytes(patch.newSize)})
 													</span>
 												</div>
 											{:else if patch.kind === "too_large"}

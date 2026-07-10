@@ -5182,7 +5182,7 @@ $effect(() => {
 const spaceFileDomainProps = $derived.by<
 	Omit<
 		SpaceFileDomainProps,
-		| "inlineFileEdit"
+		| "inlineFileViewMode"
 		| "fileActionMenuOpenPath"
 		| "inlineFileZoom"
 		| "inlineFilePanX"
@@ -5227,6 +5227,9 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileDownloadName,
 	inlineFileIsText,
 	inlineFileHasRenderedPreview,
+	inlineFileDiff: fileWorkspace.inlineFileDiff,
+	inlineFileDiffLoading: fileWorkspace.inlineFileDiffLoading,
+	inlineFileDiffError: fileWorkspace.inlineFileDiffError,
 	inlineFileIsMarkdown,
 	inlineFileIsHtml,
 	inlineFileDirty,
@@ -5646,7 +5649,10 @@ const sessionWorkspaceProps = $derived.by<
         {openFileDataUrl}
         bind:openFileDraft={fileWorkspace.openFileDraft}
         {openFileExt}
-        bind:fileEdit={fileWorkspace.fileEdit}
+        bind:fileViewMode={fileWorkspace.fileViewMode}
+        openFileDiff={fileWorkspace.openFileDiff}
+        openFileDiffLoading={fileWorkspace.openFileDiffLoading}
+        openFileDiffError={fileWorkspace.openFileDiffError}
         {openFileCopied}
         {openFileSaving}
         {fileDirty}
@@ -5727,7 +5733,7 @@ const sessionWorkspaceProps = $derived.by<
   </div>
   <SpaceFileDomain
     {...spaceFileDomainProps}
-    bind:inlineFileEdit={fileWorkspace.inlineFileEdit}
+    bind:inlineFileViewMode={fileWorkspace.inlineFileViewMode}
     bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
     bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
     bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
