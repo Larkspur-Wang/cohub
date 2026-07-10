@@ -151,29 +151,29 @@ onDestroy(() => window.removeEventListener("message", onMessage));
 </script>
 
 <svelte:head>
-	<title>授权 — Cohub</title>
+	<title>Authorize — Cohub</title>
 </svelte:head>
 
 <div class="broker-page">
 	{#if phase === "loading"}
 		<div class="broker-center">
 			<Loader2 class="h-5 w-5 animate-spin text-text-tertiary" />
-			<p class="broker-status">正在准备授权…</p>
+			<p class="broker-status">Preparing authorization…</p>
 		</div>
 	{:else if phase === "need-login"}
 		<div class="broker-center">
 			<div class="broker-login-icon"><ShieldCheck class="h-5 w-5" /></div>
-			<p class="broker-login-title">需要登录 Cohub</p>
-			<p class="broker-login-copy">登录后即可继续授权流程。</p>
+			<p class="broker-login-title">Sign in to Cohub</p>
+			<p class="broker-login-copy">Sign in to continue the authorization flow.</p>
 			<button type="button" class="broker-login-btn" onclick={handleLogin}>
-				使用 Cohub 登录
+				Sign in with Cohub
 			</button>
 		</div>
 	{:else if phase === "error"}
 		<div class="broker-center">
 			<AlertTriangle class="h-5 w-5 text-error-soft" />
 			<p class="broker-error-msg">{errorMessage}</p>
-			<p class="broker-error-hint">你可以关闭此窗口。</p>
+			<p class="broker-error-hint">You can close this window.</p>
 		</div>
 	{/if}
 

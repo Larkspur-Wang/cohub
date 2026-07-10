@@ -34,18 +34,21 @@ type OperationGroup = {
 // in the requested set. Unmapped scopes fall back to a generic group.
 const OPERATION_GROUPS: OperationGroup[] = [
 	{
-		title: "发起 AI 生成",
-		description: "创建图片、视频等生成任务，每次消耗你的生成额度",
+		title: "Start AI generation",
+		description:
+			"Create image, video, and other generation tasks. Each run uses your generation quota.",
 		scopes: ["generation.create"],
 	},
 	{
-		title: "在会话中发送指令",
-		description: "以你的身份在当前空间中发送 prompt 并运行 agent 操作",
+		title: "Send instructions in sessions",
+		description:
+			"Send prompts and run agent actions in the current space as you.",
 		scopes: ["session.prompt.fullaccess"],
 	},
 	{
-		title: "读取数据",
-		description: "读取当前空间内的文件内容，读取你在当前空间内的会话列表",
+		title: "Read data",
+		description:
+			"Read files in the current space and list your sessions there.",
 		scopes: [
 			"session.prompt.readonly",
 			"user.session.list",
@@ -66,15 +69,15 @@ const operationGroups = $derived.by<OperationGroup[]>(() => {
 	const unmapped = pending.scopes.filter((s) => !mapped.has(s));
 	if (unmapped.length > 0) {
 		groups.push({
-			title: "其他操作",
-			description: `该作品请求以下额外权限：${unmapped.join("、")}`,
+			title: "Other actions",
+			description: `This work requests additional permissions: ${unmapped.join(", ")}`,
 			scopes: unmapped,
 		});
 	}
 	return groups;
 });
 
-const displayName = $derived(workName?.trim() || "该作品");
+const displayName = $derived(workName?.trim() || "This work");
 </script>
 
 <Dialog {open} onClose={onCancel} maxWidth="440px">
@@ -83,10 +86,10 @@ const displayName = $derived(workName?.trim() || "该作品");
 			<div class="auth-intro">
 				<div class="auth-icon"><ShieldCheck class="h-4 w-4" /></div>
 				<div class="min-w-0">
-					<div class="auth-title">授权请求</div>
-					<p class="auth-copy">「{displayName}」请求以你的身份使用 Cohub</p>
+					<div class="auth-title">Authorization request</div>
+					<p class="auth-copy">"{displayName}" is requesting to use Cohub as you</p>
 					{#if authorName}
-						<p class="auth-author">作者：{authorName}</p>
+						<p class="auth-author">Author: {authorName}</p>
 					{/if}
 				</div>
 			</div>
@@ -94,7 +97,7 @@ const displayName = $derived(workName?.trim() || "该作品");
 			<hr class="auth-divider" />
 
 			<section class="auth-section">
-				<div class="auth-section-label">授权后，该作品可以执行以下操作：</div>
+				<div class="auth-section-label">Once authorized, this work can:</div>
 				<div class="auth-scope-list">
 					{#each operationGroups as group (group.title)}
 						<div class="auth-scope-row">
@@ -109,25 +112,26 @@ const displayName = $derived(workName?.trim() || "该作品");
 			</section>
 
 			<section class="auth-usage">
-				<div class="auth-usage-label">关于用量</div>
+				<div class="auth-usage-label">About usage</div>
 				<p class="auth-usage-copy">
-					生成的次数和时机由作品自行决定，每次调用都会消耗你的额度。
+					How often and when generation runs is decided by the work. Each call uses your
+					quota.
 				</p>
 			</section>
 
 			<hr class="auth-divider" />
 
-			<div class="auth-validity">授权后 14 天内有效，期间无需再次确认</div>
+			<div class="auth-validity">Valid for 14 days. You won't be asked again during that time.</div>
 
 			{#if error}
 				<div class="auth-error"><AlertTriangle class="h-3.5 w-3.5" /> {error}</div>
 			{/if}
 
 			<div class="auth-actions">
-				<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>拒绝</button>
+				<button type="button" class="auth-cancel" disabled={saving} onclick={onCancel}>Deny</button>
 				<button type="button" class="auth-confirm" disabled={saving} onclick={onConfirm}>
 					{#if saving}<Loader2 class="h-3.5 w-3.5 animate-spin" />{/if}
-					授权并继续
+					Authorize and continue
 				</button>
 			</div>
 		</div>

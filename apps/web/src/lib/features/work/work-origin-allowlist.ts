@@ -2,12 +2,12 @@
  * Origin allowlist for the work auth broker (§8.1 of the plan).
  *
  * This is the real security boundary that prevents unrelated third-party sites
- * from冒用 an arbitrary workId to骗签 a visitor's restricted work session
- * token. The broker validates the opener's origin against this list before
- * processing any request.
+ * from impersonating an arbitrary workId to mint a visitor's restricted work
+ * session token. The broker validates the opener's origin against this list
+ * before processing any request.
  *
  * For now this is a hardcoded list (Cohub public domain + neta.art + localhost).
- * Author-configurable per-work origins are a future enhancement (§8.1 占位).
+ * Author-configurable per-work origins are a future enhancement (§8.1 placeholder).
  */
 
 const EXACT_ALLOWED_ORIGINS = new Set<string>([

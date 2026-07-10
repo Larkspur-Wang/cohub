@@ -27,7 +27,7 @@ export function installCohubDebuggerConsoleExports() {
 }
 
 export function downloadCohubDebugBundle() {
-	const confirmed = window.confirm("确认保存当前调试信息吗？");
+	const confirmed = window.confirm("Save the current debug info?");
 	if (!confirmed) {
 		return;
 	}
