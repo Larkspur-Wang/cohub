@@ -9,6 +9,7 @@ export type {
   GenerationContentSpec,
   GenerationModelDeclaration,
   GenerationParameterSpec,
+  GenerationResult,
   GenerationSource,
 } from "@neta-art/generation";
 
@@ -38,9 +39,19 @@ export type GenerationTaskData = {
   meta?: Record<string, unknown>;
 };
 
+/**
+ * Final generation task payload stored on the task run.
+ *
+ * - `output` is the generated content blocks (SDK `GenerationResult.content`)
+ * - `requestId` maps to the provider response body's top-level `request_id`
+ * - `cost` maps to the official request price in `usage.cost`
+ * - `meta` is the request meta (including Cohub context such as taskRunId/spaceId)
+ */
 export type GenerationTaskResult = {
   model: string;
   output: GenerationContentBlock[];
+  requestId?: string;
+  cost?: number;
   meta?: Record<string, unknown>;
 };
 

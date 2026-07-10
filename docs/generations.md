@@ -35,7 +35,21 @@ type GenerationContentBlock =
   | { type: "audio"; source: GenerationSource; meta?: Record<string, unknown> };
 ```
 
-The API queues a generation task and returns a task ID. Use task polling, or the SDK / CLI helpers, to wait for the final `GenerationTaskResult`.
+The API queues a generation task and returns a task ID. Use task polling, or the SDK / CLI helpers, to wait for the final `GenerationTaskResult`:
+
+```ts
+type GenerationTaskResult = {
+  model: string;
+  output: GenerationContentBlock[];
+  /** Provider response `request_id` from `@neta-art/generation` */
+  requestId?: string;
+  /** Official request price from provider `usage.cost` */
+  cost?: number;
+  meta?: Record<string, unknown>;
+};
+```
+
+`requestId` and `cost` are observed provider fields captured via `generateResult()`. Older completed tasks may omit them.
 
 ## Declarations
 

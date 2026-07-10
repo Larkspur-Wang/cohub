@@ -76,7 +76,7 @@
     "typecheck": "tsgo -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@neta-art/generation": "^0.1.10",
+    "@neta-art/generation": "^0.1.12",
     "zod": "^4.4.3"
   },
   "devDependencies": {

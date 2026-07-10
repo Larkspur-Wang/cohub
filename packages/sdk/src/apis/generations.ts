@@ -34,11 +34,17 @@ function sleep(ms: number, signal?: AbortSignal) {
 }
 
 function isGenerationTaskResult(value: unknown): value is GenerationTaskResult {
-  return !!value
-    && typeof value === "object"
-    && !Array.isArray(value)
-    && typeof (value as { model?: unknown }).model === "string"
-    && Array.isArray((value as { output?: unknown }).output);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as {
+    model?: unknown;
+    output?: unknown;
+    requestId?: unknown;
+    cost?: unknown;
+  };
+  if (typeof record.model !== "string" || !Array.isArray(record.output)) return false;
+  if (record.requestId !== undefined && typeof record.requestId !== "string") return false;
+  if (record.cost !== undefined && (typeof record.cost !== "number" || !Number.isFinite(record.cost))) return false;
+  return true;
 }
 
 export class GenerationsApi {

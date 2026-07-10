@@ -150,11 +150,11 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
     });
     if (billingDecision.status === "blocked") throw new BillingAccessBlockedError(billingDecision);
 
-    const output = await createGenerationClient({
+    const result = await createGenerationClient({
       models: [declaration],
       includeBuiltinModels: false,
       apiKey: getNetaRouterApiKey(),
-    }).generate({
+    }).generateResult({
       model: data.model,
       content: data.content,
       parameters: data.parameters,
@@ -163,7 +163,9 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
 
     return {
       model: data.model,
-      output,
+      output: result.content,
+      ...(result.requestId !== undefined ? { requestId: result.requestId } : {}),
+      ...(result.cost !== undefined ? { cost: result.cost } : {}),
       meta,
     } satisfies GenerationTaskResult;
   } catch (error) {
