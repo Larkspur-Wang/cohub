@@ -89,7 +89,7 @@ $effect(() => {
 			<div class="flex min-h-28 items-center justify-center text-[12px] text-text-placeholder">No turns found</div>
 		{:else}
 			<div class="space-y-0.5">
-				{#each filteredTurns as turn (turn.id)}
+				{#each filteredTurns as turn (`${turn.sequence}:${turn.id}`)}
 					<button
 						type="button"
 						data-turn-sequence={turn.sequence}

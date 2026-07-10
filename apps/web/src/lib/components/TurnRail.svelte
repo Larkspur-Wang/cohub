@@ -322,7 +322,7 @@ onDestroy(() => {
 				</span>
 			</button>
 		{/if}
-		{#each markers as marker (marker.turn.id)}
+		{#each markers as marker (`${marker.turn.sequence}:${marker.turn.id}`)}
 			<button
 				type="button"
 				class="group pointer-events-auto absolute right-[2px] z-20 flex h-6 w-6 items-start justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand/35"

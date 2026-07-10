@@ -406,37 +406,43 @@ export function buildTurnTimelineItems(input: {
 		}
 	}
 	const streamingBlocks = input.streaming?.contentBlocks ?? [];
-	const showPendingPlaceholder = false;
-	if (streamingBlocks.length > 0 || showPendingPlaceholder) {
+	// Only emit the live assistant preview while generation is actively
+	// pending/streaming. After completion the persisted assistant message is
+	// already rendered above; reusing the same render key here crashes Svelte
+	// keyed `{#each}` with `each_key_duplicate` and takes down the session UI
+	// (including the turn rail / navigator hover panel).
+	if (hasStreamingState && streamingBlocks.length > 0) {
 		const renderKey = getStreamingRenderKey(
 			input.streaming?.anchorUserMessageId ?? null,
 			input.streaming?.sessionId ?? "active",
 			input.streaming?.turnId ?? null,
 			input.streaming?.clientMessageId ?? null,
 		);
-		const blocks = buildStreamingPreviewBlocks(streamingBlocks, {
-			truncatedStart: input.streaming?.truncatedStart,
-		});
-		const effectiveBlocks =
-			blocks.length > 0
-				? blocks
-				: ([
-						{ type: "thinking", thinking: "Starting agent…" },
-					] as ContentBlock[]);
-		items.push({
-			id: renderKey,
-			kind: "message",
-			message: {
+		if (!items.some((item) => item.id === renderKey)) {
+			const blocks = buildStreamingPreviewBlocks(streamingBlocks, {
+				truncatedStart: input.streaming?.truncatedStart,
+			});
+			const effectiveBlocks =
+				blocks.length > 0
+					? blocks
+					: ([
+							{ type: "thinking", thinking: "Starting agent…" },
+						] as ContentBlock[]);
+			items.push({
 				id: renderKey,
-				role: "assistant",
-				content: effectiveBlocks,
-				text:
-					effectiveBlocks.find((block) => block.type === "text")?.text ?? "",
-				sequence: fallbackSequence + 1,
-				createdAt: renderCreatedAt,
-				meta: { messageKind: "assistant_streaming_preview" },
-			},
-		});
+				kind: "message",
+				message: {
+					id: renderKey,
+					role: "assistant",
+					content: effectiveBlocks,
+					text:
+						effectiveBlocks.find((block) => block.type === "text")?.text ?? "",
+					sequence: fallbackSequence + 1,
+					createdAt: renderCreatedAt,
+					meta: { messageKind: "assistant_streaming_preview" },
+				},
+			});
+		}
 	}
 	return items;
 }

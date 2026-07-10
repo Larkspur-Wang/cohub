@@ -42,9 +42,18 @@ export function createSessionTurnLoadingController(options: {
 					cursor = response.nextCursor;
 				}
 				if (options.getSpaceId() !== requestSpaceId) return;
+				// Dedupe by sequence first (authoritative rail order), then id.
+				// Duplicate keys crash Svelte keyed each in TurnRail/TurnNavigatorPanel.
+				const bySequence = new Map<number, (typeof collected)[number]>();
+				for (const turn of collected) {
+					bySequence.set(turn.sequence, turn);
+				}
+				const deduped = [...bySequence.values()].sort(
+					(a, b) => a.sequence - b.sequence,
+				);
 				turnIndexBySessionId = {
 					...turnIndexBySessionId,
-					[sessionId]: collected,
+					[sessionId]: deduped,
 				};
 				if (turnIndexRetryAfterBySessionId[sessionId]) {
 					const nextRetryAfterBySessionId = {

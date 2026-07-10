@@ -30,7 +30,7 @@ function statusTone(status: SessionTurnIndexItem["status"]) {
 		<div class="absolute inset-x-0 bottom-0 max-h-[72vh] rounded-t-2xl border-t border-border-subtle bg-bg-primary shadow-[0_-12px_36px_rgba(0,0,0,0.28)]">
 			<div class="mx-auto mt-2.5 h-1 w-9 rounded-full bg-border-subtle"></div>
 			<div class="max-h-[66vh] overflow-y-auto pb-2 pt-2">
-				{#each turns as turn (turn.id)}
+				{#each turns as turn (`${turn.sequence}:${turn.id}`)}
 					<button
 						type="button"
 						class={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${turn.sequence === currentSequence ? 'bg-brand/10' : 'active:bg-bg-hover'}`}
