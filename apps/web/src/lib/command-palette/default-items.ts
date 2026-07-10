@@ -12,7 +12,6 @@ import { getSpacePublicProfile } from "$lib/space-profile";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { getCachedSpaceList } from "$lib/stores/space-list-cache";
-import { getDefaultCommandItems } from "./commands";
 import { commandItemKey } from "./merge-results";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
 import { recencyScore } from "./score";
@@ -187,22 +186,6 @@ async function yieldToUi() {
 	await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 }
 
-function isSpaceOnlyDefault(plan: CommandPaletteSearchPlan) {
-	return plan.resourceTypes?.length === 1 && plan.resourceTypes[0] === "space";
-}
-
-function prioritizeNewSpace(
-	items: CommandPaletteItem[],
-	shouldPrioritize: boolean,
-) {
-	if (!shouldPrioritize) return items;
-	const index = items.findIndex(
-		(item) => item.type === "command" && item.id === "new-space",
-	);
-	if (index <= 0) return items;
-	return [items[index], ...items.slice(0, index), ...items.slice(index + 1)];
-}
-
 export async function getCommandPaletteDefaultItems(
 	plan: CommandPaletteSearchPlan & {
 		currentSpaceId?: string | null;
@@ -364,20 +347,14 @@ export async function getCommandPaletteDefaultItems(
 		}
 	}
 
-	const showNewSpaceFirst = isSpaceOnlyDefault(plan);
-	items.push(
-		...getDefaultCommandItems(
-			showNewSpaceFirst ? { ...plan, resourceTypes: ["command"] } : plan,
-		),
-	);
-
+	// Local commands are injected synchronously by the palette UI so they never
+	// wait on IndexedDB / network. Keep this path resource-only.
 	const byKey = new Map<string, CommandPaletteItem>();
 	for (const item of items) {
 		const key = commandItemKey(item);
 		if (!byKey.has(key)) byKey.set(key, item);
 	}
-	return prioritizeNewSpace(
-		[...byKey.values()].sort((a, b) => b.score - a.score),
-		showNewSpaceFirst,
-	).slice(0, DEFAULT_LIMIT);
+	return [...byKey.values()]
+		.sort((a, b) => b.score - a.score)
+		.slice(0, DEFAULT_LIMIT);
 }

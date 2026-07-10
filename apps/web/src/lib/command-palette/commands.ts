@@ -1,5 +1,6 @@
+import { commandItemKey } from "./merge-results";
 import { allowsResourceType, type CommandPaletteSearchPlan } from "./scope";
-import { textMatchScore } from "./score";
+import { sortCommandItems, textMatchScore } from "./score";
 import type { CommandPaletteItem } from "./types";
 
 const COMMANDS: CommandPaletteItem[] = [
@@ -53,15 +54,32 @@ function commandAliases(item: CommandPaletteItem) {
 	return [item.title];
 }
 
-export function getDefaultCommandItems(plan: CommandPaletteSearchPlan) {
-	if (!allowsResourceType(plan, "command")) return [];
-	return COMMANDS;
+function isSpaceOnlyDefault(plan: CommandPaletteSearchPlan) {
+	return (
+		!plan.query.trim() &&
+		plan.resourceTypes?.length === 1 &&
+		plan.resourceTypes[0] === "space"
+	);
+}
+
+/** Always synchronous — never waits on network or IndexedDB. */
+export function resolveLocalCommandItems(
+	plan: CommandPaletteSearchPlan,
+): CommandPaletteItem[] {
+	if (allowsResourceType(plan, "command")) return searchCommandItems(plan);
+
+	// Space lens still surfaces New Space as a local action.
+	if (!isSpaceOnlyDefault(plan)) return [];
+	const item = COMMANDS.find((command) => command.id === "new-space");
+	return item ? [{ ...item, score: 1, textScore: 1, source: "default" }] : [];
 }
 
 export function searchCommandItems(plan: CommandPaletteSearchPlan) {
 	if (!allowsResourceType(plan, "command")) return [];
 	const query = plan.query.trim();
-	if (!query) return getDefaultCommandItems(plan);
+	if (!query) {
+		return COMMANDS.map((item) => ({ ...item, source: "default" as const }));
+	}
 	const items: CommandPaletteItem[] = [];
 	for (const item of COMMANDS) {
 		const textScore = Math.max(
@@ -73,4 +91,36 @@ export function searchCommandItems(plan: CommandPaletteSearchPlan) {
 		items.push({ ...item, score, textScore, source: "local" });
 	}
 	return items;
+}
+
+/**
+ * Merge resource results with local commands.
+ * Commands always get reserved slots so they cannot be pushed out by limit
+ * or delayed by remote/IndexedDB work.
+ */
+export function withLocalCommands(
+	items: CommandPaletteItem[],
+	commands: CommandPaletteItem[],
+	limit = 30,
+): CommandPaletteItem[] {
+	if (commands.length === 0) return sortCommandItems(items).slice(0, limit);
+
+	const commandKeys = new Set(commands.map((item) => commandItemKey(item)));
+	const rest = items.filter((item) => !commandKeys.has(commandItemKey(item)));
+	const room = Math.max(0, limit - commands.length);
+	const topRest = sortCommandItems(rest).slice(0, room);
+
+	if (isNewSpaceFirst(commands)) {
+		return [...commands, ...topRest].slice(0, limit);
+	}
+	return sortCommandItems([...commands, ...topRest]).slice(0, limit);
+}
+
+function isNewSpaceFirst(commands: CommandPaletteItem[]) {
+	return (
+		commands.length === 1 &&
+		commands[0]?.type === "command" &&
+		commands[0]?.id === "new-space" &&
+		commands[0]?.score >= 1
+	);
 }

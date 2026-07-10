@@ -12,7 +12,10 @@ import {
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
 import { page } from "$app/state";
-import { searchCommandItems } from "$lib/command-palette/commands";
+import {
+	resolveLocalCommandItems,
+	withLocalCommands,
+} from "$lib/command-palette/commands";
 import { getCommandPaletteDefaultItems } from "$lib/command-palette/default-items";
 import { searchLocalCommandItems } from "$lib/command-palette/local-search";
 import { mergeCommandResults } from "$lib/command-palette/merge-results";
@@ -110,15 +113,22 @@ const recentItems = $derived.by(() => {
 	if (!searchPlan.resourceTypes) return items;
 	return items.filter((item) => searchPlan.resourceTypes?.includes(item.type));
 });
+// Local commands are always resolved synchronously — never blocked by network/IDB.
+const localCommands = $derived(resolveLocalCommandItems(searchPlan));
 const mergedItems = $derived.by(() => {
 	if (trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope) {
-		return defaultItems.length > 0 ? defaultItems : recentItems;
+		const base = defaultItems.length > 0 ? defaultItems : recentItems;
+		return withLocalCommands(base, localCommands, RESULT_LIMIT);
 	}
-	return mergeCommandResults({
-		local: [...localItems, ...searchCommandItems(searchPlan)],
-		remote: remoteItems,
-		limit: RESULT_LIMIT,
-	});
+	return withLocalCommands(
+		mergeCommandResults({
+			local: localItems,
+			remote: remoteItems,
+			limit: RESULT_LIMIT * 2,
+		}),
+		localCommands,
+		RESULT_LIMIT,
+	);
 });
 const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
 const renderedItems = $derived(
@@ -145,7 +155,7 @@ const statusText = $derived.by(() => {
 	if (showingSettledItems) return `${label} · searching…`;
 	if (remoteError) return `${label} · local results only · ${remoteError}`;
 	if (!remoteDone)
-		return `${label} · local ${localItems.length} · syncing server…`;
+		return `${label} · local ${localItems.length + localCommands.length} · syncing server…`;
 	if (!localDone) return `${label} · searching indexed cache…`;
 	return `${label} · ${renderedItems.length} result${renderedItems.length === 1 ? "" : "s"} · indexed cache + server`;
 });
@@ -278,13 +288,13 @@ function closePalette() {
 	resetRunState();
 }
 
-function resetSearch() {
+function resetSearch(options?: { clearDefaultItems?: boolean }) {
 	localController?.abort();
 	remoteController?.abort();
 	if (debounceTimer != null) window.clearTimeout(debounceTimer);
 	localItems = [];
 	remoteItems = [];
-	defaultItems = [];
+	if (options?.clearDefaultItems !== false) defaultItems = [];
 	localDone = true;
 	remoteDone = true;
 	defaultDone = true;
@@ -339,11 +349,13 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 	const isLabelScope = Boolean(
 		plan.labelRef && plan.resourceTypes?.includes("label"),
 	);
-	resetSearch();
 	const token = ++searchToken;
 	const forceSpaceRefresh = forceSpaceRefreshForNextSearch;
 	forceSpaceRefreshForNextSearch = false;
 	if (q.length < MIN_QUERY_LENGTH && !isLabelScope) {
+		// Keep previous default/resource items while reloading so the list does not
+		// flash empty. Local commands stay visible via withLocalCommands either way.
+		resetSearch({ clearDefaultItems: false });
 		defaultDone = false;
 		localController = new AbortController();
 		void refreshSpaceListForDefaultItems(token, { force: forceSpaceRefresh });
@@ -365,6 +377,7 @@ function scheduleSearch(plan: typeof searchPlan, spaceId: string | null) {
 		return;
 	}
 
+	resetSearch();
 	localDone = false;
 	remoteDone = false;
 	localController = new AbortController();
