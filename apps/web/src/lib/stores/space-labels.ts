@@ -57,7 +57,10 @@ export function isSessionChannelLabel(label: LabelListItem) {
 	return Boolean(getSessionChannelIdFromLabel(label));
 }
 
-export function getLabelDisplayName(label: LabelListItem) {
+export function getLabelDisplayName(
+	label: LabelListItem,
+	options?: { channelIncludeProvider?: boolean },
+) {
 	if (label.systemKey === `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`)
 		return "User";
 	if (label.systemKey === `${SESSION_CHANNEL_LABEL_SYSTEM_KEY_PREFIX}root`)
@@ -71,9 +74,16 @@ export function getLabelDisplayName(label: LabelListItem) {
 	}
 	const channelId = getSessionChannelIdFromLabel(label);
 	if (channelId) {
-		return formatChannelLabelName(getChannelLabelInfo(channelId), channelId);
+		return formatChannelLabelName(getChannelLabelInfo(channelId), channelId, {
+			includeProvider: options?.channelIncludeProvider,
+		});
 	}
 	return label.name;
+}
+
+export function getLabelChannelInfo(label: LabelListItem) {
+	const channelId = getSessionChannelIdFromLabel(label);
+	return channelId ? getChannelLabelInfo(channelId) : null;
 }
 
 export function getLabelDisplayTitle(label: LabelListItem) {
@@ -143,13 +153,19 @@ export async function hydrateUserProfilesForLabels(labels: LabelListItem[]) {
 	await userProfilesRepo.hydrate(collectSessionUserUuids(labels));
 }
 
-export async function hydrateChannelLabelsForLabels(labels: LabelListItem[]) {
-	await hydrateChannelLabels(collectSessionChannelIds(labels));
+export async function hydrateChannelLabelsForLabels(
+	spaceId: string,
+	labels: LabelListItem[],
+) {
+	await hydrateChannelLabels(spaceId, collectSessionChannelIds(labels));
 }
 
-function queueHydrateSystemLabelDisplays(labels: LabelListItem[]) {
+function queueHydrateSystemLabelDisplays(
+	spaceId: string,
+	labels: LabelListItem[],
+) {
 	void hydrateUserProfilesForLabels(labels).catch(() => undefined);
-	void hydrateChannelLabelsForLabels(labels).catch(() => undefined);
+	void hydrateChannelLabelsForLabels(spaceId, labels).catch(() => undefined);
 }
 
 async function ensureAuthReady() {
@@ -170,7 +186,7 @@ export async function getCachedSpaceLabelsSnapshot(spaceId: string) {
 
 export async function getCachedSpaceLabels(spaceId: string) {
 	const labels = (await getCachedSpaceLabelsSnapshot(spaceId))?.labels ?? null;
-	if (labels) queueHydrateSystemLabelDisplays(labels);
+	if (labels) queueHydrateSystemLabelDisplays(spaceId, labels);
 	return labels;
 }
 
@@ -179,7 +195,7 @@ export async function setCachedSpaceLabels(
 	labels: LabelListItem[],
 ) {
 	await ensureAuthReady();
-	queueHydrateSystemLabelDisplays(labels);
+	queueHydrateSystemLabelDisplays(spaceId, labels);
 	return (await labelTreeRepo.set(spaceId, labels)).labels;
 }
 
@@ -203,7 +219,7 @@ export function onSpaceLabelsCacheUpdated(
 export async function fetchSpaceLabelsFresh(spaceId: string) {
 	await ensureAuthReady();
 	const labels = (await sdk.space(spaceId).labels.list()).labels ?? [];
-	queueHydrateSystemLabelDisplays(labels);
+	queueHydrateSystemLabelDisplays(spaceId, labels);
 	try {
 		return (await labelTreeRepo.set(spaceId, labels, { source: "network" }))
 			.labels;
@@ -217,7 +233,7 @@ export async function fetchSpaceLabels(spaceId: string, force = false) {
 	if (!force) {
 		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
 		if (cached && !cached.stale) {
-			queueHydrateSystemLabelDisplays(cached.labels);
+			queueHydrateSystemLabelDisplays(spaceId, cached.labels);
 			return cached.labels;
 		}
 	}
@@ -329,7 +345,7 @@ export async function getResourceLabels(
 			source: "network",
 		}),
 	]);
-	queueHydrateSystemLabelDisplays(result.labels);
+	queueHydrateSystemLabelDisplays(spaceId, result.labels);
 	return result;
 }
 
@@ -354,7 +370,7 @@ export async function fetchResourceLabels(
 			resourceRef,
 		);
 		if (cached && !cached.stale) {
-			queueHydrateSystemLabelDisplays(cached.labels);
+			queueHydrateSystemLabelDisplays(spaceId, cached.labels);
 			return {
 				labels: cached.labels,
 				assignments: cached.assignments,
@@ -450,7 +466,7 @@ async function cacheResourceLabelMutation(input: {
 			{ source: "network" },
 		),
 	]);
-	queueHydrateSystemLabelDisplays(input.result.labels);
+	queueHydrateSystemLabelDisplays(input.spaceId, input.result.labels);
 
 	const affectedLabelIds = getLabelIdsByRefs(
 		input.result.labels,

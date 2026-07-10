@@ -50,6 +50,7 @@ import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
 import { getCacheUserKey } from "$lib/cache/keys";
+import ChannelProviderIcon from "$lib/components/ChannelProviderIcon.svelte";
 import NewLabelPopover from "$lib/components/NewLabelPopover.svelte";
 import SidebarFlyout from "$lib/components/SidebarFlyout.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
@@ -139,6 +140,7 @@ import {
 	flattenLabelsWithRefs,
 	getCachedLabelItemsSnapshot,
 	getCachedSpaceLabelsSnapshot,
+	getLabelChannelInfo,
 	getLabelDisplayName,
 	getLabelDisplayTitle,
 	getLabelRefById,
@@ -1025,7 +1027,10 @@ async function loadCheckpointsForSpace(spaceId: string, force = false) {
 function getReactiveLabelDisplayName(label: LabelListItem) {
 	userLabelProfileVersion;
 	channelLabelDisplayVersion;
-	return getLabelDisplayName(label);
+	return getLabelDisplayName(label, {
+		// Icon already conveys provider — keep the row text as the channel name.
+		channelIncludeProvider: false,
+	});
 }
 
 function getReactiveLabelDisplayTitle(label: LabelListItem) {
@@ -1039,9 +1044,17 @@ function getReactiveLabelUserProfile(label: LabelListItem) {
 	return getLabelUserProfile(label);
 }
 
+function getReactiveLabelChannelInfo(label: LabelListItem) {
+	channelLabelDisplayVersion;
+	return getLabelChannelInfo(label);
+}
+
 function hydrateSystemLabelDisplays(nextLabels: LabelListItem[]) {
 	void hydrateUserProfilesForLabels(nextLabels).catch(() => undefined);
-	void hydrateChannelLabelsForLabels(nextLabels).catch(() => undefined);
+	if (!currentSpaceId) return;
+	void hydrateChannelLabelsForLabels(currentSpaceId, nextLabels).catch(
+		() => undefined,
+	);
 }
 
 async function loadMoreCheckpointsForSpace(spaceId: string) {
@@ -3161,8 +3174,11 @@ $effect(() => {
 				</span>
 			{:else}
 				{@const labelProfile = getReactiveLabelUserProfile(label)}
+				{@const labelChannel = getReactiveLabelChannelInfo(label)}
 				{#if labelProfile || isSessionUserLabel(label)}
 					<UserAvatar name={getReactiveLabelDisplayName(label)} avatarUrl={labelProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+				{:else if labelChannel || isSessionChannelLabel(label)}
+					<ChannelProviderIcon provider={labelChannel?.provider} size="xxs" />
 				{/if}
 				<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(label)}>{getReactiveLabelDisplayName(label)}</span>
 				{#if canManageUserLabel(label)}
@@ -3215,8 +3231,11 @@ $effect(() => {
 						</span>
 					{:else}
 						{@const childProfile = getReactiveLabelUserProfile(child)}
+						{@const childChannel = getReactiveLabelChannelInfo(child)}
 						{#if childProfile || isSessionUserLabel(child)}
 							<UserAvatar name={getReactiveLabelDisplayName(child)} avatarUrl={childProfile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
+						{:else if childChannel || isSessionChannelLabel(child)}
+							<ChannelProviderIcon provider={childChannel?.provider} size="xxs" />
 						{/if}
 						<span class="min-w-0 flex-1 truncate" title={getReactiveLabelDisplayTitle(child)}>{getReactiveLabelDisplayName(child)}</span>
 						{#if canManageUserLabel(child)}
