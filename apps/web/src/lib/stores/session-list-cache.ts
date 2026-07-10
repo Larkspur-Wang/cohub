@@ -13,14 +13,6 @@ async function resolveCacheUserKey() {
 	return canUseUserScopedCache(userKey) ? userKey : null;
 }
 
-async function requireCacheUserKey() {
-	const userKey = await resolveCacheUserKey();
-	if (!userKey) {
-		throw new Error("user-scoped cache unavailable until identity is resolved");
-	}
-	return userKey;
-}
-
 export function getCachedSessionList(spaceId: string): SessionRecord[] | null {
 	void spaceId;
 	return null;
@@ -56,7 +48,7 @@ export async function setCachedSessionList(
 	forks?: SessionListForkRecord[] | null,
 	options?: { mode?: "replace" | "merge" },
 ): Promise<SessionRecord[]> {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return sessions;
 	const snapshot = await sessionListIndexRepo.setRecent(
 		spaceId,
 		sessions,
@@ -73,7 +65,11 @@ export async function patchCachedSessionList(
 	pageInfo?: SessionListPageInfo | null,
 	forks?: SessionListForkRecord[] | null,
 ): Promise<SessionRecord[]> {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) {
+		const current =
+			(await getCachedSessionListSnapshot(spaceId))?.sessions ?? [];
+		return updater(current);
+	}
 	const snapshot = await sessionListIndexRepo.patchRecent(
 		spaceId,
 		updater,
@@ -84,7 +80,7 @@ export async function patchCachedSessionList(
 }
 
 export async function clearCachedSessionList(spaceId: string) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return;
 	await sessionListIndexRepo.deleteRecent(spaceId);
 }
 
@@ -152,17 +148,15 @@ function refreshSessionListCache(
 	if (inFlight) return inFlight;
 
 	const run = (async () => {
-		await requireCacheUserKey();
-		const snapshot = await sessionListIndexRepo.refreshRecent(
+		await getCacheUserKeyAsync();
+		const result = normalizeSessionListFetchResult(await fetcher());
+		const sessions = result.sessions;
+		if (!(await resolveCacheUserKey())) return sessions;
+		const snapshot = await sessionListIndexRepo.setRecent(
 			spaceId,
-			async () => {
-				const result = normalizeSessionListFetchResult(await fetcher());
-				return {
-					sessions: result.sessions,
-					forks: result.forks,
-					pageInfo: result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
-				};
-			},
+			sessions,
+			result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
+			result.forks,
 		);
 		return snapshot.sessions;
 	})().finally(() => {
@@ -198,12 +192,16 @@ export async function fetchSessionListWithPageInfoCache(
 	}>,
 	_options?: { force?: boolean },
 ): Promise<{ sessions: SessionRecord[]; pageInfo: SessionListPageInfo }> {
-	await requireCacheUserKey();
+	await getCacheUserKeyAsync();
 	const result = await fetcher();
+	const pageInfo = result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO;
+	if (!(await resolveCacheUserKey())) {
+		return { sessions: result.sessions, pageInfo };
+	}
 	const snapshot = await sessionListIndexRepo.patchRecent(
 		spaceId,
 		() => result.sessions,
-		result.pageInfo ?? DEFAULT_SESSION_LIST_PAGE_INFO,
+		pageInfo,
 	);
 	return { sessions: snapshot.sessions, pageInfo: snapshot.pageInfo };
 }

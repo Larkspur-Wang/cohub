@@ -167,6 +167,7 @@ import {
 	getCachedSpaceRecord,
 } from "$lib/stores/space-record-cache";
 import {
+	clearTaskRunsMemoryCache,
 	getCachedTaskRuns,
 	onTaskRunsCacheUpdated,
 	restoreCachedTaskRuns,
@@ -2683,6 +2684,7 @@ async function handleLogout() {
 		// Ignore storage cleanup failures during logout.
 	}
 	clearAllCachedSpaceLists();
+	clearTaskRunsMemoryCache();
 	await clearAllIndexedDbCache().catch((error) => {
 		console.warn("[sidebar] Failed to clear IndexedDB cache", error);
 	});

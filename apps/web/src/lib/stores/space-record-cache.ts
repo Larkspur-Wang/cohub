@@ -7,14 +7,6 @@ async function resolveCacheUserKey() {
 	return canUseUserScopedCache(userKey) ? userKey : null;
 }
 
-async function requireCacheUserKey() {
-	const userKey = await resolveCacheUserKey();
-	if (!userKey) {
-		throw new Error("user-scoped cache unavailable until identity is resolved");
-	}
-	return userKey;
-}
-
 function hasOwn<T extends object>(value: T, key: PropertyKey) {
 	return Object.hasOwn(value, key);
 }
@@ -68,7 +60,7 @@ export async function getCachedSpaceRecord(spaceId: string) {
 }
 
 export async function cacheSpaceRecord(space: SpaceRecord) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return null;
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space && !isCacheableSpaceRecord(space)) return null;
 	const merged = cached?.space ? mergeSpaceRecord(cached.space, space) : space;
@@ -78,7 +70,7 @@ export async function cacheSpaceRecord(space: SpaceRecord) {
 export async function patchCachedSpaceRecord(
 	space: Partial<SpaceRecord> & { id: string },
 ) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return null;
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space) return null;
 	const merged = mergeSpaceRecord(cached.space, space);

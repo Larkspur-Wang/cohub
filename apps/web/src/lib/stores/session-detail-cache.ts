@@ -13,14 +13,6 @@ async function resolveCacheUserKey() {
 	return canUseUserScopedCache(userKey) ? userKey : null;
 }
 
-async function requireCacheUserKey() {
-	const userKey = await resolveCacheUserKey();
-	if (!userKey) {
-		throw new Error("user-scoped cache unavailable until identity is resolved");
-	}
-	return userKey;
-}
-
 export async function getCachedSessionDetailSnapshot(
 	spaceId: string,
 	sessionId: string,
@@ -41,7 +33,7 @@ export async function setCachedSessionDetail(
 	spaceId: string,
 	session: SessionRecord,
 ) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return null;
 	return sessionDetailRepo.set(spaceId, session);
 }
 
@@ -49,7 +41,7 @@ export async function setCachedSessionDetails(
 	spaceId: string,
 	sessions: SessionRecord[],
 ) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return [];
 	return sessionDetailRepo.setMany(spaceId, sessions);
 }
 
@@ -59,10 +51,12 @@ export async function fetchSessionDetailWithCache(
 	fetcher: () => Promise<SessionRecord>,
 	options?: { force?: boolean },
 ): Promise<SessionRecord> {
-	await requireCacheUserKey();
-	const cached = !options?.force
-		? await sessionDetailRepo.get(spaceId, sessionId).catch(() => null)
-		: null;
+	await getCacheUserKeyAsync();
+	const canCache = Boolean(await resolveCacheUserKey());
+	const cached =
+		canCache && !options?.force
+			? await sessionDetailRepo.get(spaceId, sessionId).catch(() => null)
+			: null;
 	if (cached) {
 		if (cached.stale) {
 			void sessionDetailRepo
@@ -71,6 +65,8 @@ export async function fetchSessionDetailWithCache(
 		}
 		return cached.session;
 	}
+
+	if (!canCache) return fetcher();
 
 	const key = cacheKey(spaceId, sessionId);
 	const pending = refreshInFlight.get(key);

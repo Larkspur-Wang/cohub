@@ -8,14 +8,6 @@ async function resolveCacheUserKey() {
 	return canUseUserScopedCache(userKey) ? userKey : null;
 }
 
-async function requireCacheUserKey() {
-	const userKey = await resolveCacheUserKey();
-	if (!userKey) {
-		throw new Error("user-scoped cache unavailable until identity is resolved");
-	}
-	return userKey;
-}
-
 export async function getCachedSpaceFsDir(
 	spaceId: string,
 	dirPath: string,
@@ -40,7 +32,7 @@ export async function setCachedSpaceFsDir(
 	dirPath: string,
 	entries: SpaceFsEntry[],
 ): Promise<SpaceFsEntry[]> {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return entries;
 	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, entries);
 	return snapshot.entries;
 }
@@ -50,13 +42,16 @@ export async function patchCachedSpaceFsDir(
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
 ): Promise<SpaceFsEntry[]> {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) {
+		const current = (await getCachedSpaceFsDir(spaceId, dirPath)) ?? [];
+		return updater(current);
+	}
 	const snapshot = await spaceFsRepo.patchDir(spaceId, dirPath, updater);
 	return snapshot.entries;
 }
 
 export async function clearCachedSpaceFsDir(spaceId: string, dirPath: string) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return;
 	await spaceFsRepo.clearDir(spaceId, dirPath);
 }
 
@@ -64,7 +59,7 @@ export async function clearCachedSpaceFsSubtree(
 	spaceId: string,
 	dirPath: string,
 ) {
-	await requireCacheUserKey();
+	if (!(await resolveCacheUserKey())) return;
 	await spaceFsRepo.clearSubtree(spaceId, dirPath);
 }
 
@@ -102,11 +97,14 @@ export async function fetchSpaceFsDirWithCache(
 	fetcher: () => Promise<SpaceFsEntry[]>,
 	options?: { force?: boolean },
 ): Promise<SpaceFsEntry[]> {
-	await requireCacheUserKey();
-	if (!options?.force) {
+	await getCacheUserKeyAsync();
+	const canCache = Boolean(await resolveCacheUserKey());
+	if (canCache && !options?.force) {
 		const cached = await spaceFsRepo.getDir(spaceId, dirPath);
 		if (cached && !cached.stale) return cached.entries;
 	}
-	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, await fetcher());
+	const entries = await fetcher();
+	if (!canCache) return entries;
+	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, entries);
 	return snapshot.entries;
 }

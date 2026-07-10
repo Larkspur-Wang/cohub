@@ -1,5 +1,9 @@
 import type { TaskRunRecord } from "@neta-art/cohub";
-import { getCacheUserKey, getCacheUserKeyAsync } from "$lib/cache/keys";
+import {
+	canUseUserScopedCache,
+	getCacheUserKey,
+	getCacheUserKeyAsync,
+} from "$lib/cache/keys";
 import {
 	readTaskRunSummaries,
 	writeTaskRunSummaries,
@@ -68,8 +72,20 @@ function emit(spaceId: string, runs: TaskRunRecord[]) {
 	);
 }
 
+function currentMemoryUserKey() {
+	const userKey = getCacheUserKey();
+	return canUseUserScopedCache(userKey) ? userKey : null;
+}
+
 export function getCachedTaskRuns(spaceId: string) {
-	return runsByUserSpace.get(memoryKey(getCacheUserKey(), spaceId)) ?? [];
+	const userKey = currentMemoryUserKey();
+	if (!userKey) return [];
+	return runsByUserSpace.get(memoryKey(userKey, spaceId)) ?? [];
+}
+
+export function clearTaskRunsMemoryCache() {
+	runsByUserSpace.clear();
+	restoredUserSpaces.clear();
 }
 
 export async function restoreCachedTaskRuns(
@@ -77,11 +93,11 @@ export async function restoreCachedTaskRuns(
 	sessionId?: string | null,
 ) {
 	const userKey = await getCacheUserKeyAsync();
+	if (!canUseUserScopedCache(userKey)) return [];
 	const key = memoryKey(userKey, spaceId);
 	if (!sessionId && restoredUserSpaces.has(key)) {
 		return runsByUserSpace.get(key) ?? [];
 	}
-	// Repo waits for auth and refuses guest writes/reads for authenticated users.
 	const restored = await readTaskRunSummaries(spaceId, sessionId);
 	if (restored.length === 0) {
 		if (!sessionId) restoredUserSpaces.add(key);
@@ -103,7 +119,8 @@ export async function restoreCachedTaskRuns(
 
 export function setCachedTaskRuns(spaceId: string, runs: TaskRunRecord[]) {
 	const nextRuns = sortRuns(runs).slice(0, MAX_CACHED_RUNS);
-	runsByUserSpace.set(memoryKey(getCacheUserKey(), spaceId), nextRuns);
+	const userKey = currentMemoryUserKey();
+	if (userKey) runsByUserSpace.set(memoryKey(userKey, spaceId), nextRuns);
 	// Repo resolves identity before write; fire-and-forget is fine for persistence.
 	void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
 	emit(spaceId, nextRuns);
@@ -115,12 +132,12 @@ export function patchCachedTaskRuns(
 	updater: (runs: TaskRunRecord[]) => TaskRunRecord[],
 	options?: { persist?: boolean },
 ) {
-	const key = memoryKey(getCacheUserKey(), spaceId);
-	const nextRuns = sortRuns(updater(runsByUserSpace.get(key) ?? [])).slice(
-		0,
-		MAX_CACHED_RUNS,
-	);
-	runsByUserSpace.set(key, nextRuns);
+	const userKey = currentMemoryUserKey();
+	const current = userKey
+		? (runsByUserSpace.get(memoryKey(userKey, spaceId)) ?? [])
+		: [];
+	const nextRuns = sortRuns(updater(current)).slice(0, MAX_CACHED_RUNS);
+	if (userKey) runsByUserSpace.set(memoryKey(userKey, spaceId), nextRuns);
 	if (options?.persist !== false)
 		void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
 	emit(spaceId, nextRuns);
