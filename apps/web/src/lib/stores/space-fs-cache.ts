@@ -1,11 +1,17 @@
 import type { SpaceFsEntry } from "@neta-art/cohub";
 import { deleteCacheDatabase } from "$lib/cache/db";
+import { getCacheUserKeyAsync } from "$lib/cache/keys";
 import { spaceFsRepo } from "$lib/cache/repositories/space-fs-repo";
+
+async function ensureAuthReady() {
+	await getCacheUserKeyAsync();
+}
 
 export async function getCachedSpaceFsDir(
 	spaceId: string,
 	dirPath: string,
 ): Promise<SpaceFsEntry[] | null> {
+	await ensureAuthReady();
 	const snapshot = await spaceFsRepo.getDir(spaceId, dirPath);
 	return snapshot?.entries ?? null;
 }
@@ -14,6 +20,7 @@ export async function getCachedSpaceFsDirMeta(
 	spaceId: string,
 	dirPath: string,
 ) {
+	await ensureAuthReady();
 	const snapshot = await spaceFsRepo.getDir(spaceId, dirPath);
 	if (!snapshot) return null;
 	return { updatedAt: snapshot.updatedAt, isStale: snapshot.stale };
@@ -24,6 +31,7 @@ export async function setCachedSpaceFsDir(
 	dirPath: string,
 	entries: SpaceFsEntry[],
 ): Promise<SpaceFsEntry[]> {
+	await ensureAuthReady();
 	const snapshot = await spaceFsRepo.setDir(spaceId, dirPath, entries);
 	return snapshot.entries;
 }
@@ -33,11 +41,13 @@ export async function patchCachedSpaceFsDir(
 	dirPath: string,
 	updater: (entries: SpaceFsEntry[]) => SpaceFsEntry[],
 ): Promise<SpaceFsEntry[]> {
+	await ensureAuthReady();
 	const snapshot = await spaceFsRepo.patchDir(spaceId, dirPath, updater);
 	return snapshot.entries;
 }
 
 export async function clearCachedSpaceFsDir(spaceId: string, dirPath: string) {
+	await ensureAuthReady();
 	await spaceFsRepo.clearDir(spaceId, dirPath);
 }
 
@@ -45,6 +55,7 @@ export async function clearCachedSpaceFsSubtree(
 	spaceId: string,
 	dirPath: string,
 ) {
+	await ensureAuthReady();
 	await spaceFsRepo.clearSubtree(spaceId, dirPath);
 }
 
@@ -82,6 +93,7 @@ export async function fetchSpaceFsDirWithCache(
 	fetcher: () => Promise<SpaceFsEntry[]>,
 	options?: { force?: boolean },
 ): Promise<SpaceFsEntry[]> {
+	await ensureAuthReady();
 	if (!options?.force) {
 		const cached = await spaceFsRepo.getDir(spaceId, dirPath);
 		if (cached && !cached.stale) return cached.entries;

@@ -1,4 +1,5 @@
 import type { TaskRunRecord } from "@neta-art/cohub";
+import { getCacheUserKeyAsync } from "$lib/cache/keys";
 import {
 	readTaskRunSummaries,
 	writeTaskRunSummaries,
@@ -95,7 +96,10 @@ export async function restoreCachedTaskRuns(
 export function setCachedTaskRuns(spaceId: string, runs: TaskRunRecord[]) {
 	const nextRuns = sortRuns(runs).slice(0, MAX_CACHED_RUNS);
 	runsBySpace.set(spaceId, nextRuns);
-	void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
+	void (async () => {
+		await getCacheUserKeyAsync();
+		await writeTaskRunSummaries(spaceId, nextRuns);
+	})().catch(() => undefined);
 	emit(spaceId, nextRuns);
 	return nextRuns;
 }
@@ -111,7 +115,10 @@ export function patchCachedTaskRuns(
 	);
 	runsBySpace.set(spaceId, nextRuns);
 	if (options?.persist !== false)
-		void writeTaskRunSummaries(spaceId, nextRuns).catch(() => undefined);
+		void (async () => {
+			await getCacheUserKeyAsync();
+			await writeTaskRunSummaries(spaceId, nextRuns);
+		})().catch(() => undefined);
 	emit(spaceId, nextRuns);
 	return nextRuns;
 }
@@ -126,7 +133,11 @@ export function mergeCachedTaskRun(spaceId: string, patch: TaskRunPatch) {
 			run.id === patch.id ? (merged as TaskRunRecord) : run,
 		);
 	});
-	if (merged) void writeTaskRunSummary(spaceId, merged).catch(() => undefined);
+	if (merged)
+		void (async () => {
+			await getCacheUserKeyAsync();
+			await writeTaskRunSummary(spaceId, merged as TaskRunRecord);
+		})().catch(() => undefined);
 	return runs;
 }
 

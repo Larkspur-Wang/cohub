@@ -1,5 +1,10 @@
 import type { SpaceRecord } from "@neta-art/cohub";
+import { getCacheUserKeyAsync } from "$lib/cache/keys";
 import { spaceRecordRepo } from "$lib/cache/repositories/space-record-repo";
+
+async function ensureAuthReady() {
+	await getCacheUserKeyAsync();
+}
 
 function hasOwn<T extends object>(value: T, key: PropertyKey) {
 	return Object.hasOwn(value, key);
@@ -49,10 +54,12 @@ function mergeSpaceRecord(
 }
 
 export async function getCachedSpaceRecord(spaceId: string) {
+	await ensureAuthReady();
 	return spaceRecordRepo.getCached(spaceId);
 }
 
 export async function cacheSpaceRecord(space: SpaceRecord) {
+	await ensureAuthReady();
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space && !isCacheableSpaceRecord(space)) return null;
 	const merged = cached?.space ? mergeSpaceRecord(cached.space, space) : space;
@@ -62,6 +69,7 @@ export async function cacheSpaceRecord(space: SpaceRecord) {
 export async function patchCachedSpaceRecord(
 	space: Partial<SpaceRecord> & { id: string },
 ) {
+	await ensureAuthReady();
 	const cached = await spaceRecordRepo.getCached(space.id).catch(() => null);
 	if (!cached?.space) return null;
 	const merged = mergeSpaceRecord(cached.space, space);

@@ -1,4 +1,5 @@
 import type { SessionRecord } from "@neta-art/cohub";
+import { getCacheUserKeyAsync } from "$lib/cache/keys";
 import { sessionDetailRepo } from "$lib/cache/repositories/session-detail-repo";
 
 const refreshInFlight = new Map<string, Promise<SessionRecord>>();
@@ -7,10 +8,15 @@ function cacheKey(spaceId: string, sessionId: string) {
 	return `${spaceId}:${sessionId}`;
 }
 
+async function ensureAuthReady() {
+	await getCacheUserKeyAsync();
+}
+
 export async function getCachedSessionDetailSnapshot(
 	spaceId: string,
 	sessionId: string,
 ) {
+	await ensureAuthReady();
 	return sessionDetailRepo.get(spaceId, sessionId);
 }
 
@@ -18,6 +24,7 @@ export async function getCachedSessionDetails(
 	spaceId: string,
 	sessionIds: string[],
 ) {
+	await ensureAuthReady();
 	return sessionDetailRepo.getMany(spaceId, sessionIds);
 }
 
@@ -25,6 +32,7 @@ export async function setCachedSessionDetail(
 	spaceId: string,
 	session: SessionRecord,
 ) {
+	await ensureAuthReady();
 	return sessionDetailRepo.set(spaceId, session);
 }
 
@@ -32,6 +40,7 @@ export async function setCachedSessionDetails(
 	spaceId: string,
 	sessions: SessionRecord[],
 ) {
+	await ensureAuthReady();
 	return sessionDetailRepo.setMany(spaceId, sessions);
 }
 
@@ -41,6 +50,7 @@ export async function fetchSessionDetailWithCache(
 	fetcher: () => Promise<SessionRecord>,
 	options?: { force?: boolean },
 ): Promise<SessionRecord> {
+	await ensureAuthReady();
 	const cached = !options?.force
 		? await sessionDetailRepo.get(spaceId, sessionId).catch(() => null)
 		: null;

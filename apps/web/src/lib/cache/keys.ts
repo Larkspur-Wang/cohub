@@ -4,6 +4,16 @@ export function getCacheUserKey() {
 	return authStore.userUuid ?? "guest";
 }
 
+/**
+ * Prefer this for IndexedDB / localStorage reads & writes that are user-scoped.
+ * On cold start `getCacheUserKey()` can still be `guest` until auth hydrates,
+ * which makes cache miss and may write under the wrong key.
+ */
+export async function getCacheUserKeyAsync() {
+	await authStore.ensureLoaded();
+	return getCacheUserKey();
+}
+
 export function encodeKeyPart(value: string) {
 	return encodeURIComponent(value);
 }

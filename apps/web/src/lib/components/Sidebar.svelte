@@ -254,6 +254,8 @@ let loadingCheckpoints = $state(false);
 let loadingMoreCheckpoints = $state(false);
 let loadingLabels = $state(false);
 let refreshingLabels = $state(false);
+/** Bumped when the active space changes so in-flight label loads cannot clobber UI. */
+let labelsLoadToken = 0;
 let loadingCheckpointsSpaceId = $state<string | null>(null);
 let checkpointsPageInfo = $state<{
 	hasMore: boolean;
@@ -750,6 +752,7 @@ async function loadCurrentSpaceFromUrl(
 	options?: { refresh?: boolean },
 ) {
 	if (!spaceId) return;
+	await authStore.ensureLoaded();
 	const alreadyLoaded = spaces.some((space) => space.id === spaceId);
 
 	if (!alreadyLoaded) {
@@ -862,6 +865,9 @@ async function loadSessionsForSpace(
 	spaceId: string,
 	options?: { force?: boolean; network?: boolean },
 ) {
+	// Cache keys are user-scoped; wait for auth on cold start.
+	await authStore.ensureLoaded();
+	if (spaceId !== currentSpaceId) return;
 	const force = options?.force ?? false;
 	const allowNetwork = options?.network ?? isSessionsNetworkEnabled(spaceId);
 	if (!force && loadingSessions && loadingSessionsSpaceId === spaceId) return;
@@ -983,6 +989,8 @@ async function loadMoreSessionsForSpace(spaceId: string) {
 }
 
 async function loadCheckpointsForSpace(spaceId: string, force = false) {
+	await authStore.ensureLoaded();
+	if (spaceId !== currentSpaceId) return;
 	if (!force && loadingCheckpoints && loadingCheckpointsSpaceId === spaceId)
 		return;
 	const shouldShowLoading = checkpoints.length === 0;
@@ -1073,32 +1081,54 @@ async function loadMoreCheckpointsForSpace(spaceId: string) {
 }
 
 async function loadLabelsForSpace(spaceId: string, force = false) {
-	if (!force) {
-		const cached = await getCachedSpaceLabelsSnapshot(spaceId);
-		if (spaceId !== currentSpaceId) return;
-		if (cached) {
-			labels = cached.labels;
-			pruneExpandedLabelIds(spaceId, cached.labels);
-			applyDefaultExpandedLabelId(spaceId, cached.labels);
-			hydrateSystemLabelDisplays(cached.labels);
-		}
-		if (cached && !cached.stale) return;
-	}
+	const loadToken = ++labelsLoadToken;
+	const isCurrentLoad = () =>
+		spaceId === currentSpaceId && loadToken === labelsLoadToken;
 
+	const applyLabels = (nextLabels: LabelListItem[]) => {
+		labels = nextLabels;
+		pruneExpandedLabelIds(spaceId, nextLabels);
+		applyDefaultExpandedLabelId(spaceId, nextLabels);
+		hydrateSystemLabelDisplays(nextLabels);
+	};
+
+	// Wait for auth before cache-key + network work. On cold start userUuid may
+	// still be null (cache key "guest") and the access token may not be ready.
+	// All chats defers its network fetch until expand, so it usually works;
+	// labels fetch immediately and previously failed silently as empty.
 	if (labels.length === 0) loadingLabels = true;
 	else refreshingLabels = true;
+
 	try {
-		const next = await fetchSpaceLabelsFresh(spaceId);
-		if (spaceId === currentSpaceId) {
-			labels = next;
-			pruneExpandedLabelIds(spaceId, next);
-			applyDefaultExpandedLabelId(spaceId, next);
-			hydrateSystemLabelDisplays(next);
+		await authStore.ensureLoaded();
+		if (!isCurrentLoad()) return;
+
+		if (!force) {
+			const cached = await getCachedSpaceLabelsSnapshot(spaceId);
+			if (!isCurrentLoad()) return;
+			if (cached) {
+				applyLabels(cached.labels);
+				if (!cached.stale) {
+					// Restored expanded rows may have raced before the tree existed.
+					refreshExpandedLabelItems(spaceId);
+					return;
+				}
+				// Stale cache is already applied; refresh in the background.
+				refreshingLabels = true;
+				loadingLabels = false;
+			}
 		}
+
+		const next = await fetchSpaceLabelsFresh(spaceId);
+		if (!isCurrentLoad()) return;
+		applyLabels(next);
+		// Expanded rows may have tried to load items before the tree was ready
+		// (cold start race). Refresh once labels are available.
+		refreshExpandedLabelItems(spaceId);
 	} catch (error) {
 		console.warn("[sidebar] Failed to load labels", { spaceId, error });
 	} finally {
-		if (spaceId === currentSpaceId) {
+		if (isCurrentLoad()) {
 			loadingLabels = false;
 			refreshingLabels = false;
 		}
@@ -1384,6 +1414,8 @@ async function loadLabelItems(
 ) {
 	const spaceId = currentSpaceId;
 	if (!spaceId) return;
+	await authStore.ensureLoaded();
+	if (spaceId !== currentSpaceId) return;
 	const append = options?.append ?? false;
 	const force = options?.force ?? false;
 	const spacePageInfo = labelItemsPageInfoBySpace[spaceId] ?? {};
@@ -1929,6 +1961,8 @@ function isLabelAssignmentActive(item: LabelAssignmentListItem) {
 }
 
 async function loadCronjobsForSpace(spaceId: string, force = false) {
+	await authStore.ensureLoaded();
+	if (spaceId !== currentSpaceId) return;
 	if (!force && loadingCronjobs && loadingCronjobsSpaceId === spaceId) return;
 	const shouldShowLoading = cronjobs.length === 0;
 	if (shouldShowLoading) {
@@ -1969,6 +2003,8 @@ async function restoreTasksForSpace(spaceId: string) {
 }
 
 async function loadTasksForSpace(spaceId: string, force = false) {
+	await authStore.ensureLoaded();
+	if (spaceId !== currentSpaceId) return;
 	if (!force && loadingTasks && loadingTasksSpaceId === spaceId) return;
 	const shouldShowLoading = tasks.length === 0;
 	if (shouldShowLoading) {
@@ -2025,6 +2061,8 @@ async function loadMoreTasksForSpace(spaceId: string) {
 }
 
 async function loadWorksForSpace(spaceId: string, force = false) {
+	await authStore.ensureLoaded();
+	if (spaceId !== currentSpaceId) return;
 	if (!force && loadingWorks && loadingWorksSpaceId === spaceId) return;
 	const shouldShowLoading = works.length === 0;
 	if (shouldShowLoading) {
@@ -2879,7 +2917,10 @@ $effect(() => {
 		loadingSessions = false;
 		loadingSessionsSpaceId = null;
 		refreshingSessions = false;
-		loadingLabels = false;
+		// Keep the labels section in a loading state until cache/network settles
+		// so cold entry does not flash "No labels yet".
+		labelsLoadToken += 1;
+		loadingLabels = true;
 		refreshingLabels = false;
 		loadingCheckpoints = false;
 		loadingCheckpointsSpaceId = null;
@@ -2925,6 +2966,7 @@ $effect(() => {
 		loadingSessions = false;
 		loadingSessionsSpaceId = null;
 		refreshingSessions = false;
+		labelsLoadToken += 1;
 		loadingLabels = false;
 		refreshingLabels = false;
 		loadingCheckpoints = false;

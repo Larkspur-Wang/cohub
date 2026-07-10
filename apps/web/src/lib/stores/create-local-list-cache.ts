@@ -41,6 +41,11 @@ export function createLocalListCache<T>({
 		return authStore.userUuid ?? "guest";
 	}
 
+	async function ensureUserKey() {
+		await authStore.ensureLoaded();
+		return getUserKey();
+	}
+
 	function warnDev(message: string, meta?: unknown) {
 		if (!DEV) return;
 		console.warn(`[local-list-cache] ${message}`, meta);
@@ -233,6 +238,7 @@ export function createLocalListCache<T>({
 		fetcher: () => Promise<T[]>,
 		_options?: { force?: boolean },
 	): Promise<T[]> {
+		await ensureUserKey();
 		const scopedKey = getScopedKey(scope);
 		const inflight = inflightByScope.get(scopedKey);
 		if (inflight) return inflight;
