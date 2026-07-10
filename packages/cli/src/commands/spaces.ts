@@ -42,6 +42,17 @@ type PromptOptions = {
   json?: boolean;
 };
 
+type CompletionOptions = {
+  model?: string;
+  provider?: string;
+  systemPrompt?: string;
+  stream?: boolean;
+  temperature?: string;
+  maxTokens?: string;
+  thinkingLevel?: string;
+  json?: boolean;
+};
+
 type UploadFile = {
   id: string;
   localPath: string;
@@ -289,6 +300,86 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
   }
 }
 
+
+async function runCompletionCommand(command: Command, words: string[], opts: CompletionOptions) {
+  const spaceId = resolveSpace(command);
+  const content = words.join(" ").trim();
+  if (!content && process.stdin.isTTY) {
+    return error("Message required", "Pass content args or pipe via stdin");
+  }
+  let text = content;
+  if (!text && !process.stdin.isTTY) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
+    text = Buffer.concat(chunks).toString().trim();
+  }
+  if (!text) return error("Message required", "Pass content args or pipe via stdin");
+
+  const temperature = opts.temperature !== undefined ? Number(opts.temperature) : undefined;
+  if (temperature !== undefined && !Number.isFinite(temperature)) {
+    return error("Invalid temperature", "--temperature must be a number");
+  }
+  const maxTokens = opts.maxTokens !== undefined ? Number(opts.maxTokens) : undefined;
+  if (maxTokens !== undefined && (!Number.isFinite(maxTokens) || maxTokens <= 0)) {
+    return error("Invalid max tokens", "--max-tokens must be a positive number");
+  }
+  const thinkingLevel = opts.thinkingLevel?.trim() || undefined;
+  if (
+    thinkingLevel
+    && !new Set(["off", "minimal", "low", "medium", "high", "xhigh"]).has(thinkingLevel)
+  ) {
+    return error("Invalid thinking level", "Use off|minimal|low|medium|high|xhigh");
+  }
+
+  const client = createClient();
+  const input = {
+    provider: opts.provider,
+    model: opts.model,
+    systemPromptPath: opts.systemPrompt,
+    messages: [{ role: "user" as const, content: [{ type: "text" as const, text }] }],
+    temperature,
+    maxTokens,
+    thinkingLevel: thinkingLevel as "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | undefined,
+  };
+
+  try {
+    if (opts.stream) {
+      const iterator = client.space(spaceId).streamCompletion(input);
+      let step = await iterator.next();
+      let finalResult: Awaited<ReturnType<ReturnType<typeof client.space>["completion"]>> | null = null;
+      while (!step.done) {
+        const event = step.value;
+        if (event.type === "delta") {
+          if (!jsonRequested(opts)) process.stdout.write(event.text);
+        } else if (event.type === "thinking_delta" && !jsonRequested(opts)) {
+          process.stderr.write(event.text);
+        }
+        step = await iterator.next();
+      }
+      finalResult = step.value;
+      if (jsonRequested(opts)) return outJson(finalResult);
+      process.stdout.write("\n");
+      if (finalResult.usage?.totalTokens != null) {
+        process.stderr.write(`  tokens: ${finalResult.usage.totalTokens}\n`);
+      }
+      return;
+    }
+
+    const result = await client.space(spaceId).completion(input);
+    if (jsonRequested(opts)) return outJson(result);
+    const textOut = result.message.content
+      .filter((block: ContentBlock): block is Extract<ContentBlock, { type: "text" }> => block.type === "text")
+      .map((block: Extract<ContentBlock, { type: "text" }>) => block.text)
+      .join("");
+    console.log(textOut);
+    if (result.usage?.totalTokens != null) {
+      process.stderr.write(`\n  tokens: ${result.usage.totalTokens}\n`);
+    }
+  } catch (e: unknown) {
+    handleHttp(e);
+  }
+}
+
 export function registerPrompt(program: Command): void {
   program
     .command("prompt [content...]")
@@ -309,6 +400,19 @@ export function registerPrompt(program: Command): void {
     .option("--image <path>", "Attach an image", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(program, words, opts));
+
+  program
+    .command("completion [content...]")
+    .description("Raw LLM completion with full message control")
+    .option("-m, --model <model>", "Model name")
+    .option("-p, --provider <provider>", "Provider name")
+    .option("--system-prompt <path>", "Space-relative system prompt markdown path")
+    .option("--stream", "Stream tokens via SSE")
+    .option("--temperature <n>", "Sampling temperature")
+    .option("--max-tokens <n>", "Maximum output tokens")
+    .option("--thinking-level <level>", "Thinking level: off|minimal|low|medium|high|xhigh")
+    .option("--json", "Output as JSON")
+    .action((words: string[], opts: CompletionOptions) => runCompletionCommand(program, words, opts));
 }
 
 export function registerSpaces(program: Command): void {
@@ -509,6 +613,20 @@ export function registerSpaces(program: Command): void {
     .option("--image <path>", "Attach an image", collectOption, [])
     .option("--json", "Output as JSON")
     .action((words: string[], opts: PromptOptions) => sendPrompt(spacesCmd, words, opts));
+
+  // ── spaces completion ──
+  spacesCmd
+    .command("completion [content...]")
+    .description("Raw LLM completion with full message control")
+    .option("-m, --model <model>", "Model name")
+    .option("-p, --provider <provider>", "Provider name")
+    .option("--system-prompt <path>", "Space-relative system prompt markdown path")
+    .option("--stream", "Stream tokens via SSE")
+    .option("--temperature <n>", "Sampling temperature")
+    .option("--max-tokens <n>", "Maximum output tokens")
+    .option("--thinking-level <level>", "Thinking level: off|minimal|low|medium|high|xhigh")
+    .option("--json", "Output as JSON")
+    .action((words: string[], opts: CompletionOptions) => runCompletionCommand(spacesCmd, words, opts));
 
   // ── spaces files ──
   registerFiles(spacesCmd);

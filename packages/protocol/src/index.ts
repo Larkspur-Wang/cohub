@@ -4,6 +4,7 @@ export * from "./core/content.js";
 export * from "./core/usage.js";
 export * from "./model/session.js";
 export * from "./model/turn.js";
+export * from "./model/completion.js";
 export * from "./realtime/stream.js";
 export * from "./realtime/types.js";
 export * from "./task/index.js";

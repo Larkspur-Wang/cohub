@@ -28,6 +28,7 @@ export const COHUB_BILLING_CREDIT_UNITS = {
 export const COHUB_BILLING_USAGE_TYPES = {
   generation: "generation",
   generationLlm: "generation.llm",
+  generationLlmRaw: "generation.llm.raw",
   generationImage: "generation.image",
   generationVideo: "generation.video",
   generationMusic: "generation.music",

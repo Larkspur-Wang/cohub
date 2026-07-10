@@ -43,6 +43,7 @@ Common commands:
   cohub profile avatar ./avatar.png
   cohub spaces ls
   cohub -s <space-id> prompt "Fix the failing tests"
+  cohub -s <space-id> completion "Summarize AGENTS.md" --system-prompt AGENTS.md --stream
   cohub -s <space-id> run -- git status
   cohub sandbox up ./my-project
   cohub search "release notes"

@@ -103,6 +103,8 @@ export function generationUsageKind(usageType: CohubBillingUsageType): BillingUs
       return "generation.music";
     case COHUB_BILLING_USAGE_TYPES.generationLlm:
       return "llm.turn";
+    case COHUB_BILLING_USAGE_TYPES.generationLlmRaw:
+      return "llm.raw_completion";
     default:
       return "generation";
   }

@@ -163,6 +163,9 @@ importers:
       '@cohub/sandbox-controller':
         specifier: workspace:*
         version: link:../../packages/sandbox-controller
+      '@earendil-works/pi-ai':
+        specifier: 0.79.8
+        version: 0.79.8(ws@8.21.0)(zod@4.4.3)
       '@hono/node-server':
         specifier: 2.0.4
         version: 2.0.4(hono@4.12.23)

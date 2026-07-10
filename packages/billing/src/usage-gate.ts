@@ -4,6 +4,7 @@ import { COHUB_BILLING_TOKEN_TYPES, type BillingOperations } from "./interfaces.
 
 export type BillingUsageKind =
   | "llm.turn"
+  | "llm.raw_completion"
   | "generation"
   | "generation.image"
   | "generation.video"
@@ -16,6 +17,7 @@ export type BillingUsageSource =
   | "scheduled_prompt"
   | "generation_task"
   | "agent_llm_call"
+  | "raw_completion"
   | (string & {});
 
 export type BillingUsageGateInput = {

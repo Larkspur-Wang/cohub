@@ -1,0 +1,81 @@
+import type { ContentBlock, Usage } from "../core/index.js";
+
+export type CompletionMessageRole = "user" | "assistant" | "system";
+
+/** Raw completion message. Reuses session ContentBlock content shape. */
+export type CompletionMessage = {
+  role: CompletionMessageRole;
+  content: ContentBlock[];
+};
+
+export type CompletionThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
+export type CreateSpaceCompletionInput = {
+  /** Optional provider. Defaults to the first available model provider. */
+  provider?: string | null;
+  /** Optional model id. Defaults to the first available model. */
+  model?: string | null;
+  /**
+   * Optional space-relative markdown/text path used as system prompt.
+   * Omitted/null/empty → empty system prompt.
+   */
+  systemPromptPath?: string | null;
+  /** Full conversation history controlled by the caller. */
+  messages: CompletionMessage[];
+  temperature?: number | null;
+  maxTokens?: number | null;
+  thinkingLevel?: CompletionThinkingLevel | null;
+  /** When true, respond with SSE. Default false (JSON). */
+  stream?: boolean | null;
+};
+
+export type CompletionUsage = Usage;
+
+export type CompletionAssistantMessage = {
+  role: "assistant";
+  content: ContentBlock[];
+  stopReason: "stop" | "length" | "error" | "aborted";
+  errorMessage?: string | null;
+};
+
+export type SpaceCompletionResult = {
+  completionId: string;
+  provider: string;
+  model: string;
+  systemPromptPath: string | null;
+  message: CompletionAssistantMessage;
+  usage: CompletionUsage | null;
+};
+
+export type SpaceCompletionStreamEvent =
+  | {
+      type: "meta";
+      completionId: string;
+      provider: string;
+      model: string;
+      systemPromptPath: string | null;
+    }
+  | {
+      type: "delta";
+      text: string;
+    }
+  | {
+      type: "thinking_delta";
+      text: string;
+    }
+  | {
+      type: "usage";
+      usage: CompletionUsage;
+    }
+  | {
+      type: "done";
+      completionId: string;
+      message: CompletionAssistantMessage;
+      usage: CompletionUsage | null;
+    }
+  | {
+      type: "error";
+      code: string;
+      message: string;
+      completionId?: string | null;
+    };

@@ -1009,6 +1009,17 @@ export type CreateSpacePromptResponse =
       sessionId: string | null;
     };
 
+export type {
+  CompletionAssistantMessage,
+  CompletionMessage,
+  CompletionMessageRole,
+  CompletionThinkingLevel,
+  CompletionUsage,
+  CreateSpaceCompletionInput,
+  SpaceCompletionResult,
+  SpaceCompletionStreamEvent,
+} from "@cohub/protocol";
+
 export type CronJobPayload = Record<string, unknown>;
 
 export type SendMessageCronJobPayload = CronJobPayload & {

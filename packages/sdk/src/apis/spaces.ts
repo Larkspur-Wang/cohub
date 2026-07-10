@@ -38,6 +38,9 @@ import type {
   SpaceDefaultResponse,
   CreateSpacePromptInput,
   CreateSpacePromptResponse,
+  CreateSpaceCompletionInput,
+  SpaceCompletionResult,
+  SpaceCompletionStreamEvent,
   SpaceEnvInput,
   SpaceFsCompleteUploadInput,
   SpaceFsCompleteUploadResponse,
@@ -1645,6 +1648,156 @@ export class SpaceClient {
         body: JSON.stringify(input),
       },
     );
+  }
+
+  /**
+   * Raw LLM completion. Caller fully controls messages and optional system prompt file.
+   * Non-streaming JSON response. Use `streamCompletion` for SSE.
+   */
+  completion(input: Omit<CreateSpaceCompletionInput, "stream"> & { stream?: false | null }) {
+    return this.transport.request<SpaceCompletionResult>(
+      `/api/spaces/${this.id}/completions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...input, stream: false }),
+      },
+    );
+  }
+
+  /** Raw LLM completion with SSE events. Yields deltas; returns the final aggregated result. */
+  async *streamCompletion(
+    input: Omit<CreateSpaceCompletionInput, "stream">,
+    options?: { signal?: AbortSignal },
+  ): AsyncGenerator<SpaceCompletionStreamEvent, SpaceCompletionResult> {
+    const signal = options?.signal;
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+    }
+
+    const raw = await this.transport.raw(`/api/spaces/${this.id}/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({ ...input, stream: true }),
+      signal,
+    });
+
+    const contentType = raw.response.headers.get("content-type") ?? "";
+    if (!contentType.includes("text/event-stream")) {
+      const body = await raw.json().catch(() => null);
+      if (body && typeof body === "object" && "completionId" in (body as object)) {
+        const result = body as SpaceCompletionResult;
+        yield {
+          type: "done",
+          completionId: result.completionId,
+          message: result.message,
+          usage: result.usage,
+        };
+        return result;
+      }
+      const message = body && typeof body === "object" && typeof (body as { message?: unknown }).message === "string"
+        ? (body as { message: string }).message
+        : "Unexpected completion response";
+      throw new HttpError(message, raw.response.status, body);
+    }
+
+    if (!raw.response.body) {
+      throw new HttpError("Empty completion stream", 502, null);
+    }
+
+    const reader = raw.response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let result: SpaceCompletionResult | null = null;
+    let meta: Extract<SpaceCompletionStreamEvent, { type: "meta" }> | null = null;
+    let lastUsage: SpaceCompletionResult["usage"] = null;
+    let readerReleased = false;
+
+    const releaseReader = async () => {
+      if (readerReleased) return;
+      readerReleased = true;
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore cancel races after normal completion/abort
+      }
+    };
+
+    const onAbort = () => {
+      void releaseReader();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    const consume = (event: SpaceCompletionStreamEvent) => {
+      if (event.type === "meta") meta = event;
+      if (event.type === "usage") lastUsage = event.usage;
+      if (event.type === "done") {
+        result = {
+          completionId: event.completionId,
+          provider: meta?.provider ?? "",
+          model: meta?.model ?? "",
+          systemPromptPath: meta?.systemPromptPath ?? null,
+          message: event.message,
+          usage: event.usage ?? lastUsage,
+        };
+      }
+      if (event.type === "error") {
+        throw new HttpError(event.message, 502, event);
+      }
+    };
+
+    const parseDataLine = (chunk: string): SpaceCompletionStreamEvent | null => {
+      const dataLine = chunk
+        .split("\n")
+        .map((line) => line.trimEnd())
+        .find((line) => line.startsWith("data:"));
+      if (!dataLine) return null;
+      const payload = dataLine.slice(5).trim();
+      if (!payload || payload === "[DONE]") return null;
+      try {
+        return JSON.parse(payload) as SpaceCompletionStreamEvent;
+      } catch {
+        return null;
+      }
+    };
+
+    try {
+      while (true) {
+        if (signal?.aborted) {
+          throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+        for (const chunk of chunks) {
+          const event = parseDataLine(chunk);
+          if (!event) continue;
+          consume(event);
+          yield event;
+        }
+      }
+
+      if (buffer.trim()) {
+        const event = parseDataLine(buffer);
+        if (event) {
+          consume(event);
+          yield event;
+        }
+      }
+
+      if (!result) {
+        throw new HttpError("Completion stream ended without a result", 502, null);
+      }
+      return result;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+      await releaseReader();
+    }
   }
 
   update(input: { name?: string; slug?: string | null }) {
