@@ -18,6 +18,13 @@ import {
 import type { CompletionModelRegistry, RuntimeLlmModel } from "./models.js";
 
 const THINKING_LEVELS = new Set<CompletionThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+/**
+ * Marker mime used to smuggle remote image URLs through pi-ai's base64-only
+ * ImageContent shape. Restored to real URLs in onPayload before the provider call.
+ * Cohub never downloads the image; the upstream model fetches it.
+ */
+const URL_IMAGE_MIME = "application/x-cohub-image-url";
+const URL_IMAGE_DATA_PREFIX = `data:${URL_IMAGE_MIME};base64,`;
 
 export function normalizeThinkingLevel(level: string | null | undefined): CompletionThinkingLevel | undefined {
   return level && THINKING_LEVELS.has(level as CompletionThinkingLevel)
@@ -30,6 +37,23 @@ function resolveThinkingLevelForModel(model: RuntimeLlmModel, requested?: string
   const level = normalizeThinkingLevel(requested) ?? fallback;
   if (!model.reasoning || level === "off") return undefined;
   return clampThinkingLevel(model, level) as ThinkingLevel;
+}
+
+function encodeImageUrl(url: string): ImageContent {
+  return {
+    type: "image",
+    mimeType: URL_IMAGE_MIME,
+    data: Buffer.from(url, "utf8").toString("base64"),
+  };
+}
+
+function decodeImageUrlData(data: string): string | null {
+  try {
+    const url = Buffer.from(data, "base64").toString("utf8").trim();
+    return url || null;
+  } catch {
+    return null;
+  }
 }
 
 function contentBlocksToPiContent(blocks: ContentBlock[]): string | Array<{ type: "text"; text: string } | ImageContent> {
@@ -48,8 +72,8 @@ function contentBlocksToPiContent(blocks: ContentBlock[]): string | Array<{ type
       continue;
     }
     if (block.type === "image" && block.source.type === "url") {
-      // pi-ai image content expects base64; keep a text fallback for URL images.
-      parts.push({ type: "text", text: `[image omitted: ${block.source.url}]` });
+      const url = block.source.url.trim();
+      if (url) parts.push(encodeImageUrl(url));
       continue;
     }
     if (block.type === "thinking") {
@@ -59,6 +83,56 @@ function contentBlocksToPiContent(blocks: ContentBlock[]): string | Array<{ type
   if (parts.length === 0) return "";
   if (parts.length === 1 && parts[0]?.type === "text") return parts[0].text;
   return parts;
+}
+
+/**
+ * Rewrite provider payloads so marker base64 images become real remote URLs.
+ * Supports OpenAI-compatible (`image_url`) and Anthropic (`source`) shapes.
+ */
+export function restoreRemoteImageUrls(payload: unknown): unknown {
+  if (Array.isArray(payload)) {
+    return payload.map((item) => restoreRemoteImageUrls(item));
+  }
+  if (!payload || typeof payload !== "object") return payload;
+
+  const record = payload as Record<string, unknown>;
+
+  // OpenAI-compatible: { type: "image_url", image_url: { url: "data:..." } | "data:..." }
+  if (record.type === "image_url") {
+    const imageUrl = record.image_url;
+    if (typeof imageUrl === "string" && imageUrl.startsWith(URL_IMAGE_DATA_PREFIX)) {
+      const url = decodeImageUrlData(imageUrl.slice(URL_IMAGE_DATA_PREFIX.length));
+      if (url) return { ...record, image_url: { url } };
+    }
+    if (imageUrl && typeof imageUrl === "object" && !Array.isArray(imageUrl)) {
+      const nested = imageUrl as Record<string, unknown>;
+      if (typeof nested.url === "string" && nested.url.startsWith(URL_IMAGE_DATA_PREFIX)) {
+        const url = decodeImageUrlData(nested.url.slice(URL_IMAGE_DATA_PREFIX.length));
+        if (url) return { ...record, image_url: { ...nested, url } };
+      }
+    }
+  }
+
+  // Anthropic-compatible: { type: "image", source: { type: "base64", media_type, data } }
+  if (record.type === "image" && record.source && typeof record.source === "object" && !Array.isArray(record.source)) {
+    const source = record.source as Record<string, unknown>;
+    if (source.type === "base64" && source.media_type === URL_IMAGE_MIME && typeof source.data === "string") {
+      const url = decodeImageUrlData(source.data);
+      if (url) return { ...record, source: { type: "url", url } };
+    }
+  }
+
+  // Mistral-style: { type: "image_url", imageUrl: "data:..." }
+  if (typeof record.imageUrl === "string" && record.imageUrl.startsWith(URL_IMAGE_DATA_PREFIX)) {
+    const url = decodeImageUrlData(record.imageUrl.slice(URL_IMAGE_DATA_PREFIX.length));
+    if (url) return { ...record, imageUrl: url };
+  }
+
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    next[key] = restoreRemoteImageUrls(value);
+  }
+  return next;
 }
 
 function toPiMessages(messages: CompletionMessage[]): Message[] {
@@ -247,6 +321,9 @@ export async function* streamCompletionEvents(input: RunCompletionInput): AsyncG
       maxTokens: typeof input.maxTokens === "number" && Number.isFinite(input.maxTokens) ? Math.floor(input.maxTokens) : undefined,
       reasoning,
       signal: input.signal,
+      // pi-ai only models images as base64; rewrite URL markers back to remote URLs
+      // so Cohub never downloads image bytes.
+      onPayload: (payload) => restoreRemoteImageUrls(payload),
     });
 
     for await (const event of stream) {
