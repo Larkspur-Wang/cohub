@@ -260,12 +260,93 @@ type StoreName =
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
+/** Guards against reload loops when an old client hits a newer IDB schema. */
+const IDB_VERSION_RELOAD_KEY = "cohub:cache:idb-version-reload";
+
+export class CacheVersionMismatchError extends Error {
+	constructor(message = "App is out of date. Refresh the page to continue.") {
+		super(message);
+		this.name = "CacheVersionMismatchError";
+	}
+}
+
 function isBrowser() {
 	return typeof indexedDB !== "undefined";
 }
 
 function isClosingConnectionError(error: unknown) {
 	return error instanceof DOMException && error.name === "InvalidStateError";
+}
+
+function isIdbVersionError(error: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const name = "name" in error ? String(error.name) : "";
+	if (name === "VersionError") return true;
+	// Some browsers surface the name only in the message.
+	const message = "message" in error ? String(error.message) : "";
+	return /version\s*error/i.test(message);
+}
+
+function hasAttemptedVersionReload(): boolean {
+	if (typeof sessionStorage === "undefined") return false;
+	try {
+		return sessionStorage.getItem(IDB_VERSION_RELOAD_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+
+function markVersionReloadAttempted() {
+	if (typeof sessionStorage === "undefined") return;
+	try {
+		sessionStorage.setItem(IDB_VERSION_RELOAD_KEY, "1");
+	} catch {
+		// ignore quota / private mode
+	}
+}
+
+function clearVersionReloadAttempt() {
+	if (typeof sessionStorage === "undefined") return;
+	try {
+		sessionStorage.removeItem(IDB_VERSION_RELOAD_KEY);
+	} catch {
+		// ignore
+	}
+}
+
+/**
+ * Recover from IDB VersionError (stale JS vs newer schema).
+ * Auto-reloads once; if still mismatched, rejects with a friendly error.
+ */
+function recoverFromVersionMismatch(error: unknown): Promise<never> {
+	const canReload =
+		typeof globalThis.location?.reload === "function" &&
+		!hasAttemptedVersionReload();
+	if (canReload) {
+		markVersionReloadAttempted();
+		console.warn(
+			"[cache] IndexedDB version mismatch; reloading for updated client",
+			error,
+		);
+		globalThis.location.reload();
+		// Leave the promise pending so callers do not flash a transient error.
+		return new Promise(() => undefined);
+	}
+	console.warn(
+		"[cache] IndexedDB version mismatch after reload; client is stale",
+		error,
+	);
+	const alertFn = globalThis.alert;
+	if (typeof alertFn === "function") {
+		try {
+			alertFn(
+				"App is out of date. Hard-refresh the page (Ctrl/Cmd+Shift+R) to continue.",
+			);
+		} catch {
+			// ignore headless / blocked alert
+		}
+	}
+	return Promise.reject(new CacheVersionMismatchError());
 }
 
 function resetDbConnection(db?: IDBDatabase | null) {
@@ -411,12 +492,20 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 		};
 		request.onsuccess = () => {
 			const db = request.result;
+			// Another tab upgraded the schema; drop this connection so the next
+			// open either upgrades or surfaces VersionError for recovery.
 			db.onversionchange = () => resetDbConnection(db);
+			clearVersionReloadAttempt();
 			resolve(db);
 		};
 		request.onerror = () => {
 			dbPromise = null;
-			reject(request.error);
+			const error = request.error;
+			if (isIdbVersionError(error)) {
+				void recoverFromVersionMismatch(error).then(resolve, reject);
+				return;
+			}
+			reject(error);
 		};
 	});
 	return dbPromise;
