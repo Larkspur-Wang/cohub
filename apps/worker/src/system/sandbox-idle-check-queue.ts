@@ -1,4 +1,4 @@
-import { COHUB_SYSTEM_FS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import {
   SANDBOX_IDLE_CHECK_JOB,
   buildSandboxIdleCheckJobId,
@@ -6,7 +6,7 @@ import {
 } from "@cohub/sandbox-controller";
 import { config } from "../config.js";
 
-const queue = createBullmqQueue<SandboxIdleCheckJobData>(COHUB_SYSTEM_FS_QUEUE, {
+const queue = createBullmqQueue<SandboxIdleCheckJobData>(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-worker-sandbox-idle",
 });

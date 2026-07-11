@@ -8,10 +8,10 @@ export * from "./job-diagnostics.js";
 const logger = createLogger({ serviceName: "cohub-infra" });
 export const COHUB_TASKS_QUEUE = "cohub-tasks";
 export const COHUB_AGENT_TURNS_QUEUE = "cohub-agent-turns";
-export const COHUB_SYSTEM_FS_QUEUE = "cohub-system-fs";
+export const COHUB_SYSTEM_QUEUE = "cohub-system";
 
 export const DEFAULT_TASK_WORKER_CONCURRENCY = 5;
-export const DEFAULT_FS_CDN_WORKER_CONCURRENCY = 4;
+export const DEFAULT_SYSTEM_WORKER_CONCURRENCY = 4;
 export const DEFAULT_AGENT_WORKER_CONCURRENCY = 8;
 
 export const queueDefinitions = [
@@ -32,12 +32,12 @@ export const queueDefinitions = [
     registeredJobs: ["agent_turns", "agent_session_fork", "sandbox_bash", "run_command"],
   },
   {
-    name: COHUB_SYSTEM_FS_QUEUE,
+    name: COHUB_SYSTEM_QUEUE,
     owner: "system-worker",
     criticality: "normal",
-    concurrencyEnv: "FS_CDN_WORKER_CONCURRENCY",
-    defaultConcurrencyPerWorker: DEFAULT_FS_CDN_WORKER_CONCURRENCY,
-    registeredJobs: ["cdn_cache.warm_file", "sandbox.idle_check", "sandbox.idle_reaper", "work.publish_asset", "references.index"],
+    concurrencyEnv: "SYSTEM_WORKER_CONCURRENCY",
+    defaultConcurrencyPerWorker: DEFAULT_SYSTEM_WORKER_CONCURRENCY,
+    registeredJobs: ["cdn_cache.warm_file", "sandbox.idle_check", "sandbox.idle_reaper", "work.publish_asset", "references.index", "session.message.postprocess"],
   },
 ] as const;
 

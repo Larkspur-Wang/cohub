@@ -1,4 +1,4 @@
-import { createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import {
   SANDBOX_IDLE_CHECK_JOB,
@@ -7,7 +7,7 @@ import {
   type SpaceSandboxAutoDestroyPolicy,
 } from "@cohub/sandbox-controller";
 
-const queue = createBullmqQueue<SandboxIdleCheckJobData>("cohub-system-fs", {
+const queue = createBullmqQueue<SandboxIdleCheckJobData>(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-api-sandbox-idle",
 });

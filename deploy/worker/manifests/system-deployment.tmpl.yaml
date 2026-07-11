@@ -42,8 +42,8 @@ __IMAGE_PULL_SECRETS_BLOCK__
             - secretRef:
                 name: __SECRET_NAME__
           env:
-            - name: FS_CDN_WORKER_CONCURRENCY
-              value: "__FS_CDN_WORKER_CONCURRENCY__"
+            - name: SYSTEM_WORKER_CONCURRENCY
+              value: "__SYSTEM_WORKER_CONCURRENCY__"
           volumeMounts:
             - name: space-storage
               mountPath: /space-storage

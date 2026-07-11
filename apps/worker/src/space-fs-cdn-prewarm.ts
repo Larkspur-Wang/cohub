@@ -1,4 +1,4 @@
-import { createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import type { SpaceFsChange } from "@cohub/protocol/fs";
 import {
   buildFsCdnFailKey,
@@ -9,9 +9,9 @@ import {
 } from "@cohub/core/fs-cdn";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
-import { FS_CDN_QUEUE_NAME, FS_CDN_WARM_FILE_JOB } from "./system/jobs/fs-cdn-cache/types.js";
+import { FS_CDN_WARM_FILE_JOB } from "./system/jobs/fs-cdn-cache/types.js";
 
-const fsCdnQueue = createBullmqQueue<FsCdnWarmFileJob>(FS_CDN_QUEUE_NAME, {
+const fsCdnQueue = createBullmqQueue<FsCdnWarmFileJob>(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-worker-fs-cdn",
 });

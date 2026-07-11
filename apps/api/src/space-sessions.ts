@@ -16,7 +16,6 @@ import {
   sessionTurns,
   spaceSessions,
   spaces,
-  tokenUsageStatsHourly,
 } from "@cohub/db";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "./space-sandboxes.js";
 import { buildSessionOutputsForPersistedMessage, dispatchSessionOutputs, dispatchTurnFinalized } from "./session-output.js";
@@ -26,8 +25,7 @@ import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
-import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "@cohub/billing";
-import { qualifyAndRewardReferral } from "./referrals.js";
+import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { touchSpaceActivity } from "./space-activity.js";
 
 
@@ -100,158 +98,6 @@ const durationBetweenMs = (startedAt: Date | null, completedAt: Date | null) => 
 
 const normalizeDurationMs = (value: unknown, fallback: number | null) =>
   typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
-
-const toUtcHourBucket = (date: Date) => new Date(Date.UTC(
-  date.getUTCFullYear(),
-  date.getUTCMonth(),
-  date.getUTCDate(),
-  date.getUTCHours(),
-  0,
-  0,
-  0,
-));
-
-const resolveActorUserId = async (input: {
-  sessionId: string;
-  anchorUserMessageId?: string | null;
-  userId?: string | null;
-}) => {
-  // Primary: direct userId from caller (agent passes it explicitly)
-  if (input.userId) return input.userId;
-
-  // Fallback: resolve from anchor user message's meta
-  const anchorUserMessageId = input.anchorUserMessageId?.trim();
-  if (!anchorUserMessageId) return null;
-  const [anchorMessage] = await db.select({ meta: sessionMessages.meta }).from(sessionMessages).where(
-    and(eq(sessionMessages.id, anchorUserMessageId), eq(sessionMessages.sessionId, input.sessionId)),
-  ).limit(1);
-  const userId = (anchorMessage?.meta as Record<string, unknown> | null | undefined)?.userId;
-  return typeof userId === "string" && userId.trim() ? userId.trim() : null;
-};
-
-const getUsageCostTotal = (usage: Usage | null | undefined) => {
-  const total = usage?.cost?.total;
-  return typeof total === "number" && Number.isFinite(total) && total > 0
-    ? Number(total.toFixed(8))
-    : 0;
-};
-
-const recordLlmUsageBilling = async (input: {
-  messageId: string;
-  userId: string | null;
-  provider: string | null;
-  model: string | null;
-  usage: Usage | null;
-  stopReason: string | null;
-  errorMessage: string | null;
-}) => {
-  if (!input.userId) return;
-  if (input.errorMessage || input.stopReason === "error" || input.stopReason === "aborted") return;
-  const amountUsd = getUsageCostTotal(input.usage);
-  if (amountUsd <= 0) return;
-
-  if (!billingOperations.status.configured) return;
-  try {
-    const result = await billingOperations.recordUsage({
-      userId: input.userId,
-      amountUsd,
-      tokenType: COHUB_BILLING_TOKEN_TYPES.usdMicroCent,
-      usageType: COHUB_BILLING_USAGE_TYPES.generationLlm,
-      sourceId: input.messageId,
-      operationId: `llm:${input.messageId}`,
-      reason: `LLM usage ${input.provider ?? "unknown"}/${input.model ?? "unknown"}`,
-    });
-    if (result.status === "overage") {
-      logger.warn("[Billing] LLM usage recorded as overage", {
-        userId: input.userId,
-        messageId: input.messageId,
-        amountUsd,
-        provider: input.provider,
-        model: input.model,
-      });
-    }
-  } catch (error) {
-    logger.warn("[Billing] failed to record LLM usage", {
-      userId: input.userId,
-      messageId: input.messageId,
-      amountUsd,
-      provider: input.provider,
-      model: input.model,
-      error,
-    });
-  }
-};
-
-const updateTokenUsageStatsHourly = async (input: {
-  bucketStartAt: Date;
-  userId: string | null;
-  spaceId: string;
-  sessionId: string;
-  provider: string | null;
-  model: string | null;
-  usage: Usage | null;
-  success: boolean;
-}) => {
-  const usage = input.usage;
-  const inputTokens = finiteNumberOrZero(usage?.input);
-  const outputTokens = finiteNumberOrZero(usage?.output);
-  const cacheReadTokens = finiteNumberOrZero(usage?.cacheRead);
-  const cacheWriteTokens = finiteNumberOrZero(usage?.cacheWrite);
-  const totalTokens = finiteNumberOrZero(usage?.totalTokens);
-  const costInput = finiteNumberOrZero(usage?.cost?.input);
-  const costOutput = finiteNumberOrZero(usage?.cost?.output);
-  const costCacheRead = finiteNumberOrZero(usage?.cost?.cacheRead);
-  const costCacheWrite = finiteNumberOrZero(usage?.cost?.cacheWrite);
-  const costTotal = finiteNumberOrZero(usage?.cost?.total);
-
-  await db.insert(tokenUsageStatsHourly).values({
-    bucketStartAt: input.bucketStartAt,
-    userId: input.userId,
-    spaceId: input.spaceId,
-    sessionId: input.sessionId,
-    provider: input.provider,
-    model: input.model,
-    requestCount: 1,
-    successCount: input.success ? 1 : 0,
-    errorCount: input.success ? 0 : 1,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
-    totalTokens,
-    costInput: String(costInput),
-    costOutput: String(costOutput),
-    costCacheRead: String(costCacheRead),
-    costCacheWrite: String(costCacheWrite),
-    costTotal: String(costTotal),
-    updatedAt: new Date(),
-  }).onConflictDoUpdate({
-    target: [
-      tokenUsageStatsHourly.bucketStartAt,
-      tokenUsageStatsHourly.userId,
-      tokenUsageStatsHourly.spaceId,
-      tokenUsageStatsHourly.sessionId,
-      tokenUsageStatsHourly.provider,
-      tokenUsageStatsHourly.model,
-    ],
-    set: {
-      requestCount: sql`${tokenUsageStatsHourly.requestCount} + 1`,
-      successCount: sql`${tokenUsageStatsHourly.successCount} + ${input.success ? 1 : 0}`,
-      errorCount: sql`${tokenUsageStatsHourly.errorCount} + ${input.success ? 0 : 1}`,
-      inputTokens: sql`${tokenUsageStatsHourly.inputTokens} + ${inputTokens}`,
-      outputTokens: sql`${tokenUsageStatsHourly.outputTokens} + ${outputTokens}`,
-      cacheReadTokens: sql`${tokenUsageStatsHourly.cacheReadTokens} + ${cacheReadTokens}`,
-      cacheWriteTokens: sql`${tokenUsageStatsHourly.cacheWriteTokens} + ${cacheWriteTokens}`,
-      totalTokens: sql`${tokenUsageStatsHourly.totalTokens} + ${totalTokens}`,
-      costInput: sql`${tokenUsageStatsHourly.costInput} + ${String(costInput)}::numeric`,
-      costOutput: sql`${tokenUsageStatsHourly.costOutput} + ${String(costOutput)}::numeric`,
-      costCacheRead: sql`${tokenUsageStatsHourly.costCacheRead} + ${String(costCacheRead)}::numeric`,
-      costCacheWrite: sql`${tokenUsageStatsHourly.costCacheWrite} + ${String(costCacheWrite)}::numeric`,
-      costTotal: sql`${tokenUsageStatsHourly.costTotal} + ${String(costTotal)}::numeric`,
-      updatedAt: new Date(),
-    },
-  });
-};
 
 export const normalizeSpaceEnv = (input: unknown): Array<{ name: string; value: string }> => {
   if (!Array.isArray(input)) return [];
@@ -561,25 +407,10 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
   if (existing) {
     if (existing.role === "assistant") {
-      const session = await getSpaceSessionById(input.sessionId);
-      if (session && session.spaceId === input.spaceId) {
-        const meta = normalizeRecord(existing.meta);
-        const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
-        const actorUserId = await resolveActorUserId({
-          sessionId: input.sessionId,
-          anchorUserMessageId,
-          userId: input.userId ?? null,
-        });
-        await recordLlmUsageBilling({
-          messageId: existing.id,
-          userId: actorUserId,
-          provider: existing.provider,
-          model: existing.model,
-          usage: existing.usage as Usage | null,
-          stopReason: existing.stopReason,
-          errorMessage: existing.errorMessage,
-        });
-      }
+      await enqueueSessionMessagePostprocess({
+        sessionId: input.sessionId,
+        messageId: existing.id,
+      });
     }
     return existing;
   }
@@ -617,7 +448,6 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   const completedAt = toDateOrNull(input.message.completedAt) ?? new Date();
   const startedAt = toDateOrNull(input.message.startedAt) ?? completedAt;
   const durationMs = normalizeDurationMs(input.message.durationMs, durationBetweenMs(startedAt, completedAt));
-  let assistantActorUserId: string | null = null;
 
   const [messageNode] = await db.insert(sessionMessages).values({
     id: input.message.id?.trim() || undefined,
@@ -629,6 +459,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
       ...((input.message.meta as Record<string, unknown> | null) ?? {}),
       messageKind,
       anchorUserMessageId,
+      actorUserId: userId,
       providerResponseId: ((input.message.meta as Record<string, unknown> | null)?.responseId as string | undefined) ?? null,
     }),
     idempotencyKey: input.idempotencyKey,
@@ -643,25 +474,6 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
     durationMs,
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
-
-  if (messageRole === "assistant") {
-    const actorUserId = await resolveActorUserId({
-      sessionId: input.sessionId,
-      anchorUserMessageId,
-      userId,
-    });
-    assistantActorUserId = actorUserId;
-    await updateTokenUsageStatsHourly({
-      bucketStartAt: toUtcHourBucket(messageNode.createdAt ?? new Date()),
-      userId: actorUserId,
-      spaceId: session.spaceId,
-      sessionId: input.sessionId,
-      provider: input.message.provider ?? null,
-      model: input.message.model ?? null,
-      usage: normalizedUsage,
-      success: !hasError,
-    });
-  }
 
   if (messageRole === "user" && !session.title?.trim()) {
     const titleText = (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
@@ -754,15 +566,6 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         await dispatchTurnFinalized({ spaceId: session.spaceId, sessionId: input.sessionId, turn: finalizedTurn }).catch((error) => {
           logger.warn("[SessionTurn] failed to dispatch finalized turn", error);
         });
-        if (finalizedTurn.status === "completed" && finalizedTurn.userUuid) {
-          await qualifyAndRewardReferral(finalizedTurn.userUuid).catch((error) => {
-            logger.warn("[Referrals] failed to qualify referral", {
-              userId: finalizedTurn.userUuid,
-              turnId: finalizedTurn.id,
-              error,
-            });
-          });
-        }
       }
     }
   }
@@ -784,54 +587,13 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
   await dispatchSessionOutputs(outputs).catch((error) => logger.error("[SpaceSessions] failed to dispatch session outputs", error));
 
   if (messageRole === "assistant") {
-    await recordLlmUsageBilling({
+    await enqueueSessionMessagePostprocess({
+      sessionId: input.sessionId,
       messageId: messageNode.id,
-      userId: assistantActorUserId,
-      provider: input.message.provider ?? null,
-      model: input.message.model ?? null,
-      usage: normalizedUsage,
-      stopReason: input.message.stopReason ?? null,
-      errorMessage: displayErrorMessage,
     });
   }
 
   return messageNode;
-};
-
-export const recordPersistedMessageSideEffects = async (input: { spaceId: string; sessionId: string; messageId: string }) => {
-  const [session] = await db.select({ id: spaceSessions.id, spaceId: spaceSessions.spaceId }).from(spaceSessions).where(eq(spaceSessions.id, input.sessionId)).limit(1);
-  if (!session || session.spaceId !== input.spaceId) throw new Error("Space session not found");
-
-  const [message] = await db.select({
-    id: sessionMessages.id,
-    sessionId: sessionMessages.sessionId,
-    role: sessionMessages.role,
-    meta: sessionMessages.meta,
-    provider: sessionMessages.provider,
-    model: sessionMessages.model,
-    usage: sessionMessages.usage,
-    stopReason: sessionMessages.stopReason,
-    errorMessage: sessionMessages.errorMessage,
-  }).from(sessionMessages).where(and(eq(sessionMessages.id, input.messageId), eq(sessionMessages.sessionId, input.sessionId))).limit(1);
-  if (!message) throw new Error("Message not found");
-  if (message.role !== "assistant") return { ok: true, skipped: "non_assistant" as const };
-
-  const meta = normalizeRecord(message.meta);
-  const anchorUserMessageId = typeof meta?.anchorUserMessageId === "string" ? meta.anchorUserMessageId : null;
-  const actorUserId = await resolveActorUserId({ sessionId: input.sessionId, anchorUserMessageId });
-  const usage = normalizeUsage(message.usage as Usage | null);
-
-  await recordLlmUsageBilling({
-    messageId: message.id,
-    userId: actorUserId,
-    provider: message.provider ?? null,
-    model: message.model ?? null,
-    usage,
-    stopReason: message.stopReason ?? null,
-    errorMessage: message.errorMessage ?? null,
-  });
-
-  return { ok: true };
 };
 
 export const updateSpaceSessionInfo = async (input: UpdateSessionInfoInput) => {

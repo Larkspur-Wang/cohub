@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."session_messages" ADD COLUMN "usage_aggregated_at" timestamp with time zone;

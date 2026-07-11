@@ -1,10 +1,10 @@
-import { COHUB_SYSTEM_FS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { enqueueReferenceIndex, type ReferenceInput } from "@cohub/core/references";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 
-const referenceIndexQueue = createBullmqQueue(COHUB_SYSTEM_FS_QUEUE, {
+const referenceIndexQueue = createBullmqQueue(COHUB_SYSTEM_QUEUE, {
   redisUrl: env.BULLMQ_REDIS_URL,
   telemetryServiceName: "cohub-agent-reference-index",
 });

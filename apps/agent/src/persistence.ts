@@ -4,10 +4,11 @@ import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { MessageRecord, MessageToolCallsFile, PersistMessageInput, SessionTurnRecord, SessionTurnStatus, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile } from "@cohub/protocol/model";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
-import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, tokenUsageStatsHourly, userChannels, userProfiles } from "@cohub/db";
+import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
 import { sanitizeContentBlocksForPostgresJson, sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "@cohub/core/sessions";
 import { buildTraceHeaders, getCurrentRequestId } from "@cohub/infra/tracing";
+import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { normalizeAssistantTurn } from "./assistant-message-normalizer.js";
 import { indexTurnReferences } from "./reference-index.js";
 import { db } from "./db.js";
@@ -234,87 +235,6 @@ async function updateSessionAfterAppend(sessionId: string, message: typeof sessi
   await db.update(spaceSessions).set({ lastMessageId: message.id, latestMessageText: message.text, lastMessageAt: message.createdAt ?? new Date(), updatedAt: new Date() }).where(eq(spaceSessions.id, sessionId));
 }
 
-const toUtcHourBucket = (date: Date) => new Date(Date.UTC(
-  date.getUTCFullYear(),
-  date.getUTCMonth(),
-  date.getUTCDate(),
-  date.getUTCHours(),
-  0,
-  0,
-  0,
-));
-
-const updateTokenUsageStatsHourly = async (input: {
-  bucketStartAt: Date;
-  userId: string | null;
-  spaceId: string;
-  sessionId: string;
-  provider: string | null;
-  model: string | null;
-  usage: Usage | null;
-  success: boolean;
-}) => {
-  const usage = input.usage;
-  const inputTokens = finiteNumberOrZero(usage?.input);
-  const outputTokens = finiteNumberOrZero(usage?.output);
-  const cacheReadTokens = finiteNumberOrZero(usage?.cacheRead);
-  const cacheWriteTokens = finiteNumberOrZero(usage?.cacheWrite);
-  const totalTokens = finiteNumberOrZero(usage?.totalTokens);
-  const costInput = finiteNumberOrZero(usage?.cost?.input);
-  const costOutput = finiteNumberOrZero(usage?.cost?.output);
-  const costCacheRead = finiteNumberOrZero(usage?.cost?.cacheRead);
-  const costCacheWrite = finiteNumberOrZero(usage?.cost?.cacheWrite);
-  const costTotal = finiteNumberOrZero(usage?.cost?.total);
-
-  await db.insert(tokenUsageStatsHourly).values({
-    bucketStartAt: input.bucketStartAt,
-    userId: input.userId,
-    spaceId: input.spaceId,
-    sessionId: input.sessionId,
-    provider: input.provider,
-    model: input.model,
-    requestCount: 1,
-    successCount: input.success ? 1 : 0,
-    errorCount: input.success ? 0 : 1,
-    inputTokens,
-    outputTokens,
-    cacheReadTokens,
-    cacheWriteTokens,
-    totalTokens,
-    costInput: String(costInput),
-    costOutput: String(costOutput),
-    costCacheRead: String(costCacheRead),
-    costCacheWrite: String(costCacheWrite),
-    costTotal: String(costTotal),
-    updatedAt: new Date(),
-  }).onConflictDoUpdate({
-    target: [
-      tokenUsageStatsHourly.bucketStartAt,
-      tokenUsageStatsHourly.userId,
-      tokenUsageStatsHourly.spaceId,
-      tokenUsageStatsHourly.sessionId,
-      tokenUsageStatsHourly.provider,
-      tokenUsageStatsHourly.model,
-    ],
-    set: {
-      requestCount: sql`${tokenUsageStatsHourly.requestCount} + 1`,
-      successCount: sql`${tokenUsageStatsHourly.successCount} + ${input.success ? 1 : 0}`,
-      errorCount: sql`${tokenUsageStatsHourly.errorCount} + ${input.success ? 0 : 1}`,
-      inputTokens: sql`${tokenUsageStatsHourly.inputTokens} + ${inputTokens}`,
-      outputTokens: sql`${tokenUsageStatsHourly.outputTokens} + ${outputTokens}`,
-      cacheReadTokens: sql`${tokenUsageStatsHourly.cacheReadTokens} + ${cacheReadTokens}`,
-      cacheWriteTokens: sql`${tokenUsageStatsHourly.cacheWriteTokens} + ${cacheWriteTokens}`,
-      totalTokens: sql`${tokenUsageStatsHourly.totalTokens} + ${totalTokens}`,
-      costInput: sql`${tokenUsageStatsHourly.costInput} + ${String(costInput)}::numeric`,
-      costOutput: sql`${tokenUsageStatsHourly.costOutput} + ${String(costOutput)}::numeric`,
-      costCacheRead: sql`${tokenUsageStatsHourly.costCacheRead} + ${String(costCacheRead)}::numeric`,
-      costCacheWrite: sql`${tokenUsageStatsHourly.costCacheWrite} + ${String(costCacheWrite)}::numeric`,
-      costTotal: sql`${tokenUsageStatsHourly.costTotal} + ${String(costTotal)}::numeric`,
-      updatedAt: new Date(),
-    },
-  });
-};
-
 async function persistMessageNode(input: PersistMessageInput & { message: PersistMessageInput["message"] & { id?: string } }): Promise<{ message: typeof sessionMessages.$inferSelect; created: boolean }> {
   const [existing] = await db.select().from(sessionMessages).where(and(eq(sessionMessages.sessionId, input.sessionId), eq(sessionMessages.idempotencyKey, input.idempotencyKey))).limit(1);
   if (existing) return { message: existing, created: false };
@@ -350,7 +270,7 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
     role: messageRole,
     content,
     text,
-    meta: sanitizePostgresJsonValue({ ...input.message.meta, messageKind, anchorUserMessageId, providerResponseId: input.message.meta?.responseId ?? null }),
+    meta: sanitizePostgresJsonValue({ ...input.message.meta, messageKind, anchorUserMessageId, actorUserId: input.userId ?? null, providerResponseId: input.message.meta?.responseId ?? null }),
     idempotencyKey: input.idempotencyKey,
     sequence,
     provider: input.message.provider ?? null,
@@ -363,19 +283,6 @@ async function persistMessageNode(input: PersistMessageInput & { message: Persis
     durationMs,
   }).returning();
   if (!messageNode) throw new Error("Failed to persist message");
-
-  if (messageRole === "assistant") {
-    await updateTokenUsageStatsHourly({
-      bucketStartAt: toUtcHourBucket(messageNode.createdAt ?? new Date()),
-      userId: input.userId ?? null,
-      spaceId: session.spaceId,
-      sessionId: input.sessionId,
-      provider: input.message.provider ?? null,
-      model: input.message.model ?? null,
-      usage: normalizedUsage,
-      success: !hasError,
-    });
-  }
 
   if (messageRole === "user" && !session.title?.trim()) {
     const titleText = (text ?? extractPlainText(content)).replace(/\s+/g, " ").replace(/^[:\-\s]+/, "").trim().slice(0, 60);
@@ -691,28 +598,6 @@ async function dispatchFinalAssistantToGateway(input: { spaceId: string; session
   }
 }
 
-async function notifyMessageSideEffects(input: { spaceId: string; sessionId: string; messageId: string }) {
-  let lastError: unknown = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const response = await fetch(`${INTERNAL_API_BASE_URL}/internal/spaces/${input.spaceId}/sessions/${input.sessionId}/messages/${input.messageId}/side-effects`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...(env.WORKER_SECRET ? { "x-worker-secret": env.WORKER_SECRET } : {}), ...buildTraceHeaders({ requestId: getCurrentRequestId() }) },
-        body: JSON.stringify({}),
-      });
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(`API side effects failed ${response.status}: ${text}`);
-      }
-      return;
-    } catch (error) {
-      lastError = error;
-      if (attempt < 3) await sleep(500 * attempt);
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
-
 export async function persistUserMessage(input: { spaceId: string; sessionId: string; userMessageId: string; turnId?: string | null; content: ContentBlock[]; meta?: Record<string, unknown> | null; startedAt?: string | null }) {
   const timing = completeMessageTiming({ startedAt: input.startedAt });
   const persisted = await persistMessageNode({
@@ -775,7 +660,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   const persisted = await persistMessageNode({ spaceId: input.spaceId, sessionId: input.spaceSessionId, previousMessageId: input.userMessageId, anchorUserMessageId: input.userMessageId, userId: input.userId ?? null, idempotencyKey: await buildAssistantIdempotencyKey({ previousMessageId: input.userMessageId, message }), message });
   const record = toMessageRecord(persisted.message);
   if (!persisted.created) {
-    await notifyMessageSideEffects({ spaceId: input.spaceId, sessionId: input.spaceSessionId, messageId: record.id });
+    await enqueueSessionMessagePostprocess({ sessionId: input.spaceSessionId, messageId: record.id });
     return { ok: true, message: record, created: false };
   }
   await publishMessagePersisted(input.spaceId, record);
@@ -790,12 +675,9 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     }
     await dispatchFinalAssistantToGateway({ spaceId: input.spaceId, sessionId: input.spaceSessionId, message: record }).catch((error) => logger.error("[GatewayOutbound] failed to dispatch assistant message", error));
   }
-  // Record billing for every persisted assistant message. Each LLM round incurs
-  // cost, so intermediate tool_use messages must be billed too — not just the
-  // final one — to match the cost shown on the page. The side-effects endpoint
-  // is idempotent per messageId, and error/aborted messages are skipped inside
-  // recordLlmUsageBilling (counted as our cost).
-  await notifyMessageSideEffects({ spaceId: input.spaceId, sessionId: input.spaceSessionId, messageId: record.id });
+  // Every assistant round is postprocessed, including intermediate tool-use messages.
+  // Billing uses a stable message operation ID; hourly aggregation intentionally runs last.
+  await enqueueSessionMessagePostprocess({ sessionId: input.spaceSessionId, messageId: record.id });
   return { ok: true, message: record };
 }
 

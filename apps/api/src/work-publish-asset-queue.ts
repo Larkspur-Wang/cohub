@@ -1,5 +1,5 @@
 import { QueueEvents } from "bullmq";
-import { COHUB_SYSTEM_FS_QUEUE, createBullmqConnectionOptions, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqConnectionOptions, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { getCurrentRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { config } from "./config.js";
@@ -27,12 +27,12 @@ export type WorkPublishAssetJobResult = {
   code?: string;
 };
 
-const workPublishAssetQueue = createBullmqQueue<WorkPublishAssetJobData, WorkPublishAssetJobResult>(COHUB_SYSTEM_FS_QUEUE, {
+const workPublishAssetQueue = createBullmqQueue<WorkPublishAssetJobData, WorkPublishAssetJobResult>(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-api-work-publish-asset",
 });
 
-const workPublishAssetQueueEvents = new QueueEvents(COHUB_SYSTEM_FS_QUEUE, {
+const workPublishAssetQueueEvents = new QueueEvents(COHUB_SYSTEM_QUEUE, {
   connection: createBullmqConnectionOptions(config.bullmqRedisUrl),
 });
 

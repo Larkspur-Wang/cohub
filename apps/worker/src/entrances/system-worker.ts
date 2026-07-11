@@ -1,5 +1,6 @@
 import "dotenv/config";
 import "../tracing.js";
+import { configureBillingRuntime } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 
 
@@ -17,12 +18,16 @@ import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
 import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry.js";
-import { FS_CDN_QUEUE_NAME } from "../system/jobs/fs-cdn-cache/types.js";
+import { COHUB_SYSTEM_QUEUE } from "@cohub/infra/bullmq";
 
 import "../system/jobs/index.js";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 assertRequiredConfig();
+configureBillingRuntime({
+  config,
+  redis: (await import("../redis.js")).redisCommandClient,
+});
 
 const connection = createBullmqRedisConnection(config.bullmqRedisUrl);
 
@@ -62,30 +67,30 @@ const processor: Processor = async (job) => {
   });
 };
 
-const systemWorker = new Worker(FS_CDN_QUEUE_NAME, processor, {
+const systemWorker = new Worker(COHUB_SYSTEM_QUEUE, processor, {
   connection,
-  concurrency: resolveQueueConcurrencyPerWorkerByName(FS_CDN_QUEUE_NAME),
+  concurrency: resolveQueueConcurrencyPerWorkerByName(COHUB_SYSTEM_QUEUE),
   telemetry: createQueueTelemetry("cohub-system-worker"),
 });
 
-const systemQueue = new Queue(FS_CDN_QUEUE_NAME, { connection });
+const systemQueue = new Queue(COHUB_SYSTEM_QUEUE, { connection });
 
 attachWorkerEventLogger(systemWorker, {
   serviceName: "SystemWorker",
-  queueName: FS_CDN_QUEUE_NAME,
+  queueName: COHUB_SYSTEM_QUEUE,
 });
 
 logger.info("[SystemWorker] Starting system worker...");
 logger.info("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl));
 logger.info("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
-logger.info("[SystemWorker] Queue:", FS_CDN_QUEUE_NAME);
+logger.info("[SystemWorker] Queue:", COHUB_SYSTEM_QUEUE);
 logger.info("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
 const shutdown = async (signal: string) => {
   logger.info(`[SystemWorker] Received ${signal}, shutting down...`);
   await closeWorkerGracefully(systemWorker, {
     serviceName: "SystemWorker",
-    timeoutMs: Number(process.env.FS_CDN_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),
+    timeoutMs: Number(process.env.SYSTEM_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),
     pauseBeforeClose: true,
   });
   await systemQueue.close().catch(() => undefined);
