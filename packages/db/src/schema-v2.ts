@@ -28,6 +28,8 @@ import type {
 export type SpaceRole = "host" | "builder" | "guest";
 export type AccessPolicyRole = "builder" | "guest" | null;
 export type AccessPolicyResourceType = "space" | "session";
+export type ReferralCodeStatus = "active" | "revoked";
+export type ReferralStatus = "pending" | "qualified" | "rewarded";
 
 /** Endpoints of a reference: the kinds of resources that can point or be pointed at. */
 export type ReferenceResourceType =
@@ -794,6 +796,58 @@ export const gatewayLogs = v2.table(
     channelIdx: index("v2_idx_gateway_logs_channel").on(table.channelId),
     directionIdx: index("v2_idx_gateway_logs_direction").on(table.direction),
     createdIdx: index("v2_idx_gateway_logs_created").on(table.createdAt),
+  }),
+);
+
+export const referralCodes = v2.table(
+  "referral_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: varchar("user_id", { length: 255 }).notNull(),
+    code: varchar("code", { length: 32 }).notNull(),
+    status: varchar("status", { length: 20 }).$type<ReferralCodeStatus>().notNull().default("active"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    codeUniqueIdx: uniqueIndex("v2_uq_referral_codes_code").on(table.code),
+    activeUserUniqueIdx: uniqueIndex("v2_uq_referral_codes_active_user")
+      .on(table.userId)
+      .where(sql`${table.status} = 'active'`),
+    userIdx: index("v2_idx_referral_codes_user").on(table.userId),
+  }),
+);
+
+export const referrals = v2.table(
+  "referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referralCodeId: uuid("referral_code_id").notNull(),
+    inviterUserId: varchar("inviter_user_id", { length: 255 }).notNull(),
+    inviteeUserId: varchar("invitee_user_id", { length: 255 }).notNull(),
+    status: varchar("status", { length: 20 }).$type<ReferralStatus>().notNull().default("pending"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+    qualifiedAt: timestamp("qualified_at", { withTimezone: true }),
+    rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    inviterRewardedAt: timestamp("inviter_rewarded_at", { withTimezone: true }),
+    inviteeRewardedAt: timestamp("invitee_rewarded_at", { withTimezone: true }),
+    inviterRewardAmountUsd: numeric("inviter_reward_amount_usd", { precision: 12, scale: 8 }).notNull(),
+    inviteeRewardAmountUsd: numeric("invitee_reward_amount_usd", { precision: 12, scale: 8 }).notNull(),
+    rewardError: text("reward_error"),
+    rewardAttemptedAt: timestamp("reward_attempted_at", { withTimezone: true }),
+    rewardLeaseToken: varchar("reward_lease_token", { length: 64 }),
+    rewardLeaseExpiresAt: timestamp("reward_lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    inviteeUniqueIdx: uniqueIndex("v2_uq_referrals_invitee").on(table.inviteeUserId),
+    inviterIdx: index("v2_idx_referrals_inviter").on(table.inviterUserId),
+    codeIdx: index("v2_idx_referrals_code").on(table.referralCodeId),
+    qualifiedRetryIdx: index("v2_idx_referrals_qualified_retry")
+      .on(table.rewardAttemptedAt)
+      .where(sql`${table.status} = 'qualified'`),
   }),
 );
 

@@ -38,6 +38,8 @@ export type {
   BillingProviderKind,
   BillingRedemptionInput,
   BillingRedemptionResult,
+  BillingReferralRewardInput,
+  BillingReferralRewardResult,
   BillingSubscriptionSummary,
   BillingUsagePreflight,
   BillingUsagePreflightInput,
@@ -53,6 +55,7 @@ export type {
   CohubBillingUsageType,
 } from "./interfaces.js";
 export {
+  COHUB_BILLING_BENEFITS,
   COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_FEATURES,
   COHUB_BILLING_TOKEN_TYPES,

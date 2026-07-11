@@ -27,6 +27,7 @@ import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
 import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "@cohub/billing";
+import { qualifyAndRewardReferral } from "./referrals.js";
 import { touchSpaceActivity } from "./space-activity.js";
 
 
@@ -144,12 +145,12 @@ const recordLlmUsageBilling = async (input: {
   stopReason: string | null;
   errorMessage: string | null;
 }) => {
-  if (!billingOperations.status.configured) return;
   if (!input.userId) return;
   if (input.errorMessage || input.stopReason === "error" || input.stopReason === "aborted") return;
   const amountUsd = getUsageCostTotal(input.usage);
   if (amountUsd <= 0) return;
 
+  if (!billingOperations.status.configured) return;
   try {
     const result = await billingOperations.recordUsage({
       userId: input.userId,
@@ -753,6 +754,15 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
         await dispatchTurnFinalized({ spaceId: session.spaceId, sessionId: input.sessionId, turn: finalizedTurn }).catch((error) => {
           logger.warn("[SessionTurn] failed to dispatch finalized turn", error);
         });
+        if (finalizedTurn.status === "completed" && finalizedTurn.userUuid) {
+          await qualifyAndRewardReferral(finalizedTurn.userUuid).catch((error) => {
+            logger.warn("[Referrals] failed to qualify referral", {
+              userId: finalizedTurn.userUuid,
+              turnId: finalizedTurn.id,
+              error,
+            });
+          });
+        }
       }
     }
   }

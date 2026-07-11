@@ -281,6 +281,13 @@
       "when": 1783662657622,
       "tag": "0039_generation_usage_stats_hourly",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783759480117,
+      "tag": "0040_referrals",
+      "breakpoints": true
     }
   ]
 }

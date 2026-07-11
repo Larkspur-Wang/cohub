@@ -20,6 +20,7 @@ import {
   type UsageRow,
 } from "../usage-aggregation.js";
 import { createLogger } from "@cohub/infra/logging";
+import { getReferralDashboard, rotateReferralCode } from "../referrals.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 
@@ -140,6 +141,19 @@ router.patch("/profile", async (c) => {
     }
     throw error;
   }
+});
+
+router.get("/referrals", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  return c.json(await getReferralDashboard(user.uuid));
+});
+
+router.post("/referrals/code/rotate", async (c) => {
+  const user = useAuth(c);
+  if (user instanceof Response) return user;
+  const code = await rotateReferralCode(user.uuid);
+  return c.json({ code: code.code });
 });
 
 router.get("/rules", async (c) => {

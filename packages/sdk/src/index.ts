@@ -7,6 +7,7 @@ export { UsersApi } from "./apis/users.js";
 export { WorksApi } from "./apis/works.js";
 export { WorkCommerceApi } from "./apis/work-commerce.js";
 export { ReferencesApi } from "./apis/references.js";
+export { ReferralsApi } from "./apis/referrals.js";
 export type { ReferenceResourceSelector } from "./apis/references.js";
 export { ParentBridgeTransport, PopupBrokerTransport, WorkRuntimeApi, createSlugWorkIdResolver, createWorkRuntime, resolveWorkTransport } from "./work-runtime.js";
 export type { WorkIdResolver, WorkRuntimeModeConfig, WorkRuntimeRequestOptions, WorkRuntimeTransport } from "./work-runtime.js";

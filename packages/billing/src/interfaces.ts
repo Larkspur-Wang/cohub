@@ -37,6 +37,11 @@ export const COHUB_BILLING_USAGE_TYPES = {
   workConsumption: "work.consumption",
 } as const;
 
+export const COHUB_BILLING_BENEFITS = {
+  referralInviterCredit: "referral_inviter_credit",
+  referralInviteeCredit: "referral_invitee_credit",
+} as const;
+
 export const COHUB_BILLING_FEATURES = {
   generationAccess: "generation.access",
   sandboxAccess: "sandbox.access",
@@ -63,6 +68,20 @@ export type CohubBillingFeatureKey =
 
 export type BillingUserRef = {
   userId: string;
+};
+
+export type BillingReferralRewardInput = BillingUserRef & {
+  referralId: string;
+  side: "inviter" | "invitee";
+  operationId: string;
+  expectedAmountUsd: number;
+};
+
+export type BillingReferralRewardResult = {
+  amountUsd: number;
+  benefitKey: string;
+  grantId: string;
+  transactionId: string;
 };
 
 export type BillingProviderKind = "disabled" | "talesofai";
@@ -453,6 +472,7 @@ export interface BillingOperations {
   cancelSubscriptionCheckout(input: BillingUserRef & { subscriptionId: string }): Promise<BillingSubscriptionHistoryStatus>;
   cancelSubscriptionAutoRenew(input: BillingUserRef & { subscriptionId: string }): Promise<BillingSubscriptionHistoryStatus>;
   redeemCode(input: BillingRedemptionInput): Promise<BillingRedemptionResult>;
+  grantReferralReward(input: BillingReferralRewardInput): Promise<BillingReferralRewardResult>;
   preflightUsage(input: BillingUsagePreflightInput): Promise<BillingUsagePreflight>;
   recordUsage(input: BillingUsageRecordInput): Promise<BillingUsageRecordResult>;
   listBalanceActivities(input: BillingBalanceActivityListInput): Promise<BillingBalanceActivityList>;

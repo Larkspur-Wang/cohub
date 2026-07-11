@@ -16,6 +16,7 @@ import { UsersApi } from "./apis/users.js";
 import { WorksApi } from "./apis/works.js";
 import { WorkCommerceApi } from "./apis/work-commerce.js";
 import { PublicInviteApi } from "./apis/invitations.js";
+import { ReferralsApi } from "./apis/referrals.js";
 import { HttpTransport, type CohubClientOptions } from "./transport.js";
 import { ensureRealtimeConnected } from "./realtime.js";
 import { createWebsocketClient, type WebsocketEventPayload } from "./websocket.js";
@@ -48,6 +49,7 @@ export class CohubClient {
   readonly cronJobs: CronJobsApi;
   readonly explore: ExploreApi;
   readonly invite: PublicInviteApi;
+  readonly referrals: ReferralsApi;
   readonly voice: VoiceApi;
   readonly works: WorksApi;
   readonly workCommerce: WorkCommerceApi;
@@ -117,6 +119,7 @@ export class CohubClient {
     this.cronJobs = new CronJobsApi(this.transport);
     this.explore = new ExploreApi(this.transport);
     this.invite = new PublicInviteApi(this.transport);
+    this.referrals = new ReferralsApi(this.transport);
     this.works = new WorksApi(this.transport);
     this.workCommerce = new WorkCommerceApi(this.transport);
   }

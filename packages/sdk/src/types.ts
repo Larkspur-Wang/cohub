@@ -1445,6 +1445,48 @@ export type SpaceUsageResponse = {
   days: number;
 };
 
+// ─── Referral types ───
+
+export type ReferralStatus = "pending" | "qualified" | "rewarded";
+
+export type ReferralReward = {
+  inviterUsd: number;
+  inviteeUsd: number;
+};
+
+export type PublicReferral = {
+  code: string;
+  inviter: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl">;
+  reward: ReferralReward;
+};
+
+export type ClaimReferralResponse = {
+  referralId: string;
+  status: ReferralStatus;
+};
+
+export type ReferralListItem = {
+  id: string;
+  status: ReferralStatus;
+  claimedAt: string;
+  qualifiedAt: string | null;
+  rewardedAt: string | null;
+  profile: Pick<UserProfile, "userUuid" | "username" | "displayName" | "avatarUrl"> | null;
+};
+
+export type ReferralDashboard = {
+  code: string;
+  reward: ReferralReward;
+  summary: {
+    total: number;
+    pending: number;
+    qualified: number;
+    rewarded: number;
+    earnedUsd: number;
+  };
+  items: ReferralListItem[];
+};
+
 // ─── Invitation types ───
 
 export type SpaceInvitation = {

@@ -18,6 +18,7 @@ import { getTokenFromRequest, type AuthUserProfile, consumeExecutionAuthFromToke
 import { verifyPreviewSessionToken, type PreviewSessionPrincipal } from "./preview-sessions.js";
 import { verifyWorkSessionToken, type WorkSessionPrincipal } from "./work-sessions.js";
 import { assertRequiredConfig, config } from "./config.js";
+import { startReferralRewardRetryLoop } from "./referrals.js";
 
 import router from "./routes/index.js";
 
@@ -174,6 +175,7 @@ configureBillingRuntime({
   config,
   redis: (await import("./redis.js")).redisCommandClient,
 });
+startReferralRewardRetryLoop();
 const server = serve({
   fetch: app.fetch,
   port,

@@ -23,6 +23,7 @@ import {
 	CreditCard,
 	Download,
 	FolderKanban,
+	Gift,
 	History,
 	Keyboard,
 	Loader2,
@@ -562,6 +563,12 @@ async function refreshBillingPlan() {
 
 const baseSettingsTabs = [
 	{ id: "profile", label: "Profile", icon: User, href: "/settings/profile" },
+	{
+		id: "referrals",
+		label: "Referrals",
+		icon: Gift,
+		href: "/settings/referrals",
+	},
 	{
 		id: "billing",
 		label: "Billing",
@@ -3698,6 +3705,7 @@ $effect(() => {
                 {/if}
               </div>
             {/if}
+            <a href="/settings/referrals" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings/referrals'); }}><Gift class="h-3.5 w-3.5" /><span>Referrals</span></a>
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
             {:else}
@@ -4163,6 +4171,14 @@ $effect(() => {
             {/if}
           </div>
         {/if}
+        <a
+          href="/settings/referrals"
+          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings/referrals'); }}
+        >
+          <Gift class="w-3.5 h-3.5" />
+          <span>Referrals</span>
+        </a>
         {#if mode === "space"}
           <a
             href="/settings"

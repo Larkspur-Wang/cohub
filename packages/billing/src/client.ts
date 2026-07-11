@@ -31,6 +31,7 @@ import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
 import { createHash, randomUUID } from "node:crypto";
 import type { Redis } from "ioredis";
 import {
+  COHUB_BILLING_BENEFITS,
   COHUB_BILLING_CREDIT_UNITS,
   COHUB_BILLING_TOKEN_TYPES,
   COHUB_BILLING_USAGE_TYPES,
@@ -59,6 +60,7 @@ import {
   type BillingPluginStatus,
   type BillingRedemptionInput,
   type BillingRedemptionResult,
+  type BillingReferralRewardResult,
   type BillingSubscriptionHistoryList,
   type BillingSubscriptionHistoryStatus,
   type BillingUsagePreflight,
@@ -1523,6 +1525,10 @@ export function createDisabledBillingOperations(
       });
     },
 
+    async grantReferralReward(): Promise<BillingReferralRewardResult> {
+      throw new BillingConfigurationError(status.reason);
+    },
+
     async preflightUsage(
       input: BillingUsagePreflightInput,
     ): Promise<BillingUsagePreflight> {
@@ -2504,6 +2510,54 @@ export function createTalesofaiBillingOperations(
 
     redeemCode,
 
+    async grantReferralReward(input) {
+      const benefitKey =
+        input.side === "inviter"
+          ? COHUB_BILLING_BENEFITS.referralInviterCredit
+          : COHUB_BILLING_BENEFITS.referralInviteeCredit;
+      const expectedAmount = usdToAmount(
+        input.expectedAmountUsd,
+        COHUB_BILLING_TOKEN_TYPES.usdMicroCent,
+      );
+      const benefit = await sdk.admin.benefits.get({
+        business_key: businessKey,
+        benefit_key: benefitKey,
+      });
+      if (
+        benefit.type !== "credits" ||
+        benefit.status !== "active" ||
+        benefit.config.token_type !== COHUB_BILLING_TOKEN_TYPES.usdMicroCent ||
+        benefit.config.amount !== expectedAmount
+      ) {
+        throw new BillingConfigurationError(
+          `Billing benefit ${benefitKey} must grant USD ${input.expectedAmountUsd.toFixed(2)} in active credits`,
+        );
+      }
+
+      await ensureCustomer({ userId: input.userId });
+      const result = await sdk.admin.credits.grant(
+        {
+          business_key: businessKey,
+          external_user_id: input.userId,
+          benefit_key: benefitKey,
+          source_id: input.referralId,
+          operation_id: input.operationId,
+          reason: "Cohub referral reward",
+        },
+        { idempotencyKey: input.operationId },
+      );
+      const amountUsd = amountToUsd(
+        result.grant.original_amount,
+        result.grant.token_type,
+      );
+      return {
+        amountUsd,
+        benefitKey,
+        grantId: result.grant.id,
+        transactionId: result.transaction.id,
+      };
+    },
+
     async preflightUsage(
       input: BillingUsagePreflightInput,
     ): Promise<BillingUsagePreflight> {
@@ -2630,7 +2684,7 @@ type BusinessSdk = ReturnType<typeof createBusinessSdk>;
 
 async function ensureBusinessCustomer(
   sdk: BusinessSdk,
-  businessKey: string,
+  _businessKey: string,
   userId: string,
 ): Promise<void> {
   try {
