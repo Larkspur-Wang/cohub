@@ -74,6 +74,7 @@ import {
 	type ComposerFileAttachment,
 	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
+import { formatGenerationPolicyLabel } from "$lib/generation-policy-label";
 // SettingsOverlay removed — settings merged inline into detail page
 import {
 	extractGenerationMediaItems,
@@ -477,6 +478,13 @@ const generationPolicy = createSessionGenerationPolicyController({
 const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
 const generationPolicyMode = $derived(generationPolicy.mode);
 const selectedGenerationModels = $derived(generationPolicy.selectedModels);
+const generationPolicyLabel = $derived(
+	formatGenerationPolicyLabel({
+		mode: generationPolicyMode,
+		selectedModels: selectedGenerationModels,
+		catalog: generationModelsCatalog,
+	}),
+);
 const generationEnumSelections = $derived(generationPolicy.enumSelections);
 const generationNumericConstraints = $derived(
 	generationPolicy.numericConstraints,
@@ -5441,6 +5449,7 @@ const sessionWorkspaceProps = $derived.by<
 	composerShowsBillingAction,
 	attachments,
 	activeSessionModel,
+	generationPolicyLabel,
 	promptTemplates,
 	promptTemplatesLoaded,
 	handlePickAttachments,

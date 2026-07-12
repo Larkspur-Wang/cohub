@@ -118,6 +118,7 @@ export type SessionWorkspaceProps = {
 	composerShowsBillingAction: boolean;
 	attachments: ComposerAttachment[];
 	activeSessionModel: SelectedModel | null;
+	generationPolicyLabel?: string | null;
 	promptTemplates: PromptTemplateCatalogEntry[];
 	promptTemplatesLoaded: boolean;
 	handlePickAttachments: (
@@ -204,6 +205,7 @@ let {
 	composerShowsBillingAction,
 	attachments,
 	activeSessionModel,
+	generationPolicyLabel = null,
 	promptTemplates,
 	promptTemplatesLoaded,
 	handlePickAttachments,
@@ -404,6 +406,7 @@ let {
         showBillingAction={composerShowsBillingAction}
         attachments={attachments}
         currentModel={activeSessionModel}
+        {generationPolicyLabel}
         currentSpaceId={spaceId}
         mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
         promptTemplates={promptTemplates}

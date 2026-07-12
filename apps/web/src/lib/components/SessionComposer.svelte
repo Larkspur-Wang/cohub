@@ -64,6 +64,8 @@ type Props = {
 	placeholder?: string;
 	attachments?: ComposerAttachment[];
 	currentModel?: SelectedModel | null;
+	/** Compact generation-policy suffix; null/empty hides (Auto). */
+	generationPolicyLabel?: string | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
 	promptTemplatesLoaded?: boolean;
 	currentSpaceId?: string | null;
@@ -88,6 +90,7 @@ let {
 	placeholder = "Send a message...",
 	attachments = [],
 	currentModel = null,
+	generationPolicyLabel = null,
 	promptTemplates = [],
 	promptTemplatesLoaded = true,
 	currentSpaceId = null,
@@ -151,6 +154,19 @@ const hasDraft = $derived(hasVisibleDraftText(value) || attachments.length > 0);
 const showAbort = $derived(Boolean(isRunning && !hasDraft));
 const submitDisabled = $derived(
 	disabled || sending || (!hasDraft && !showAbort),
+);
+const modelControlLabel = $derived(
+	currentModel?.name ?? currentModel?.id ?? "Model",
+);
+const modelControlTitle = $derived(
+	generationPolicyLabel
+		? `Select model · Generation: ${generationPolicyLabel}`
+		: "Select model",
+);
+const modelControlAriaLabel = $derived(
+	generationPolicyLabel
+		? `Model ${modelControlLabel}, generation ${generationPolicyLabel}`
+		: `Model ${modelControlLabel}`,
 );
 
 function hasVisibleDraftText(text: string) {
@@ -1127,15 +1143,27 @@ $effect(() => {
 							{#if onModelSelect}
 								<button
 									type="button"
-									class="flex items-center gap-1 h-7 px-2 rounded-full text-[11px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary border border-border-subtle disabled:cursor-not-allowed disabled:opacity-50"
+									class="group flex h-7 max-w-[min(100%,17rem)] items-center gap-1 overflow-hidden rounded-full border border-border-subtle px-2 text-[11px] leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40 disabled:cursor-not-allowed disabled:opacity-50"
 									onclick={() => onModelSelect?.()}
 									disabled={disabled || sending}
-									title="Select model"
+									title={modelControlTitle}
+									aria-label={modelControlAriaLabel}
 								>
-									<span class="max-w-[120px] truncate">
-										{currentModel?.name ?? currentModel?.id ?? 'Model'}
+									<span class="min-w-0 shrink truncate">
+										{modelControlLabel}
 									</span>
-									<ChevronDown class="h-3 w-3 opacity-50" />
+									{#if generationPolicyLabel}
+										<span
+											class="flex min-w-0 max-w-[6.5rem] shrink-[3] items-center gap-1 text-text-placeholder transition-colors group-hover:text-text-tertiary"
+											aria-hidden="true"
+										>
+											<span class="shrink-0 opacity-50">·</span>
+											<span class="min-w-0 truncate tracking-tight tabular-nums">
+												{generationPolicyLabel}
+											</span>
+										</span>
+									{/if}
+									<ChevronDown class="h-3 w-3 shrink-0 opacity-40 transition-opacity group-hover:opacity-65" />
 								</button>
 							{/if}
 						</div>
