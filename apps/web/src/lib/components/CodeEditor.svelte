@@ -43,16 +43,43 @@ const {
 	readonly = false,
 	initialPosition = null,
 	onInput,
+	onVisibleLinesChange,
 }: {
 	value: string;
 	language?: string;
 	readonly?: boolean;
 	initialPosition?: WorkspaceFilePosition | null;
 	onInput?: (v: string) => void;
+	onVisibleLinesChange?: (range: { start: number; end: number } | null) => void;
 } = $props();
 
 let container: HTMLDivElement | undefined = $state();
 let view: EditorView | undefined = $state();
+let lastVisibleLinesKey = "";
+
+function reportVisibleLines(nextView = view) {
+	if (!nextView) {
+		if (lastVisibleLinesKey !== "") {
+			lastVisibleLinesKey = "";
+			onVisibleLinesChange?.(null);
+		}
+		return;
+	}
+	const { from, to } = nextView.viewport;
+	if (nextView.state.doc.length === 0) {
+		const key = "1:1";
+		if (key === lastVisibleLinesKey) return;
+		lastVisibleLinesKey = key;
+		onVisibleLinesChange?.({ start: 1, end: 1 });
+		return;
+	}
+	const start = nextView.state.doc.lineAt(from).number;
+	const end = nextView.state.doc.lineAt(Math.max(from, to - 1)).number;
+	const key = `${start}:${end}`;
+	if (key === lastVisibleLinesKey) return;
+	lastVisibleLinesKey = key;
+	onVisibleLinesChange?.({ start, end });
+}
 
 // Compartments for dynamic reconfiguration
 const langConf = new Compartment();
@@ -434,11 +461,19 @@ onMount(() => {
 						lastExternal = update.state.doc.toString();
 						onInput?.(lastExternal);
 					}
+					if (
+						update.docChanged ||
+						update.geometryChanged ||
+						update.viewportChanged
+					) {
+						reportVisibleLines(update.view);
+					}
 				}),
 			],
 		}),
 		parent: container,
 	});
+	queueMicrotask(() => reportVisibleLines(view));
 	void reconfigureLanguage(language);
 
 	const themeObserver = new MutationObserver(() => reconfigureTheme());
@@ -456,6 +491,10 @@ onMount(() => {
 onDestroy(() => {
 	view?.destroy();
 	view = undefined;
+	if (lastVisibleLinesKey !== "") {
+		lastVisibleLinesKey = "";
+		onVisibleLinesChange?.(null);
+	}
 });
 </script>
 

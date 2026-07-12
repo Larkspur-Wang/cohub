@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { ViewportContext } from "@cohub/protocol";
 import type {
 	MessageToolCallsFile,
 	SessionTurnIndexItem,
@@ -117,6 +118,7 @@ export type SessionWorkspaceProps = {
 	composerNotice: string;
 	composerShowsBillingAction: boolean;
 	attachments: ComposerAttachment[];
+	viewportContexts?: ViewportContext[];
 	activeSessionModel: SelectedModel | null;
 	generationPolicyLabel?: string | null;
 	promptTemplates: PromptTemplateCatalogEntry[];
@@ -125,6 +127,7 @@ export type SessionWorkspaceProps = {
 		files: FileList | File[] | LocalUploadEntry[] | null,
 	) => void | Promise<void>;
 	handleRemoveAttachment: (id: string) => void;
+	handleRemoveViewportContext?: (id: string) => void;
 	handleSend: () => void | Promise<void>;
 	handleAbort: () => void | Promise<void>;
 	loadModelsCatalog: () => void | Promise<void>;
@@ -204,12 +207,14 @@ let {
 	composerNotice,
 	composerShowsBillingAction,
 	attachments,
+	viewportContexts = [],
 	activeSessionModel,
 	generationPolicyLabel = null,
 	promptTemplates,
 	promptTemplatesLoaded,
 	handlePickAttachments,
 	handleRemoveAttachment,
+	handleRemoveViewportContext,
 	handleSend,
 	handleAbort,
 	loadModelsCatalog,
@@ -405,6 +410,7 @@ let {
         streamError={composerNotice}
         showBillingAction={composerShowsBillingAction}
         attachments={attachments}
+        {viewportContexts}
         currentModel={activeSessionModel}
         {generationPolicyLabel}
         currentSpaceId={spaceId}
@@ -413,6 +419,7 @@ let {
         promptTemplatesLoaded={promptTemplatesLoaded}
         onpickattachment={handlePickAttachments}
         onremoveattachment={handleRemoveAttachment}
+        onremoveviewport={handleRemoveViewportContext}
         onsubmit={handleSend}
         onabort={handleAbort}
         onModelSelect={() => {

@@ -18,3 +18,20 @@ export function screenToWorld(
 		y: (clientY - rect.top - viewport.y) / viewport.zoom,
 	};
 }
+
+/** World-space rectangle currently visible in the canvas stage. */
+export function visibleWorldRect(
+	viewport: CanvasViewport,
+	surfaceWidth: number,
+	surfaceHeight: number,
+) {
+	const width = Math.max(0, surfaceWidth);
+	const height = Math.max(0, surfaceHeight);
+	const zoom = viewport.zoom || 1;
+	return {
+		x: -viewport.x / zoom,
+		y: -viewport.y / zoom,
+		width: width / zoom,
+		height: height / zoom,
+	};
+}

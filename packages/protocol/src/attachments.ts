@@ -15,3 +15,260 @@ export function buildImageReferencesText(urls: string[]) {
   if (safeUrls.length === 0) return "";
   return ["Images:", ...safeUrls.map((url) => `- ${escapeAttachmentUrl(url)}`)].join("\n");
 }
+
+export type ViewportVisibleLines = {
+  start: number;
+  end: number;
+};
+
+export type ViewportCamera = {
+  x: number;
+  y: number;
+  zoom: number;
+};
+
+export type ViewportVisibleRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type ViewportSelectedNode = {
+  id: string;
+  type: string;
+  title?: string;
+};
+
+export type ViewportFileContext = {
+  kind: "file";
+  path: string;
+  visibleLines?: ViewportVisibleLines;
+};
+
+export type ViewportCanvasContext = {
+  kind: "canvas";
+  path: string;
+  camera?: ViewportCamera;
+  visibleRect?: ViewportVisibleRect;
+  selectedNodes?: ViewportSelectedNode[];
+};
+
+export type ViewportPortContext = {
+  kind: "port";
+  port: string;
+  url?: string;
+};
+
+export type ViewportContext =
+  | ViewportFileContext
+  | ViewportCanvasContext
+  | ViewportPortContext;
+
+export function viewportContextId(context: ViewportContext): string {
+  if (context.kind === "port") return `port:${context.port}`;
+  return `${context.kind}:${context.path}`;
+}
+
+function formatVisibleLines(range: ViewportVisibleLines | undefined) {
+  if (!range) return "";
+  const start = Math.max(1, Math.floor(range.start));
+  const end = Math.max(start, Math.floor(range.end));
+  return start === end ? `L${start}` : `L${start}-${end}`;
+}
+
+function formatCamera(camera: ViewportCamera | undefined) {
+  if (!camera) return "";
+  const x = Math.round(camera.x);
+  const y = Math.round(camera.y);
+  const zoom = Math.round(camera.zoom * 100);
+  return `camera (${x}, ${y}) @ ${zoom}%`;
+}
+
+function formatVisibleRect(rect: ViewportVisibleRect | undefined) {
+  if (!rect) return "";
+  return `view ${Math.round(rect.width)}×${Math.round(rect.height)} at (${Math.round(rect.x)}, ${Math.round(rect.y)})`;
+}
+
+function escapeViewportLabel(value: string) {
+  return value.replace(/[\r\n`]/g, "_").trim();
+}
+
+function formatSelectedNodes(nodes: ViewportSelectedNode[] | undefined) {
+  if (!nodes || nodes.length === 0) return "";
+  const labels = nodes.map((node) => {
+    const title = node.title ? escapeViewportLabel(node.title) : "";
+    const id = escapeViewportLabel(node.id);
+    return title ? `${title} (${id})` : id;
+  });
+  return `selected: ${labels.join(", ")}`;
+}
+
+export function formatViewportContextLabel(context: ViewportContext): string {
+  if (context.kind === "file") {
+    const name = context.path.split("/").pop() || context.path;
+    const lines = formatVisibleLines(context.visibleLines);
+    return lines ? `${name} ${lines}` : name;
+  }
+  if (context.kind === "canvas") {
+    const name = context.path.split("/").pop() || context.path;
+    const selected = context.selectedNodes?.length
+      ? ` · ${context.selectedNodes.length} selected`
+      : "";
+    return `${name}${selected}`;
+  }
+  return `:${context.port}`;
+}
+
+export function formatViewportContextLine(context: ViewportContext): string {
+  if (context.kind === "file") {
+    const lines = formatVisibleLines(context.visibleLines);
+    const suffix = lines ? ` (${lines})` : "";
+    return `- file: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
+  }
+  if (context.kind === "canvas") {
+    const details = [
+      formatCamera(context.camera),
+      formatVisibleRect(context.visibleRect),
+      formatSelectedNodes(context.selectedNodes),
+    ].filter(Boolean);
+    const suffix = details.length > 0 ? ` (${details.join("; ")})` : "";
+    return `- canvas: \`${escapeAttachmentPath(context.path)}\`${suffix}`;
+  }
+  const url = context.url?.trim();
+  const suffix = url ? ` (${escapeAttachmentUrl(url)})` : "";
+  return `- port: \`${escapeAttachmentPath(context.port)}\`${suffix}`;
+}
+
+export function buildViewportReferencesText(contexts: ViewportContext[]) {
+  if (contexts.length === 0) return "";
+  return ["Viewport:", ...contexts.map(formatViewportContextLine)].join("\n");
+}
+
+export function buildViewportContentBlock(contexts: ViewportContext[]) {
+  const text = buildViewportReferencesText(contexts);
+  if (!text) return null;
+  return {
+    type: "text" as const,
+    text,
+    _meta: {
+      attachmentKind: "viewport" as const,
+      viewports: contexts,
+    },
+  };
+}
+
+export function isViewportContentBlock(block: {
+  type: string;
+  _meta?: Record<string, unknown>;
+}): boolean {
+  return (
+    block.type === "text" &&
+    block._meta?.attachmentKind === "viewport"
+  );
+}
+
+export function parseViewportContextsFromMeta(
+  meta: Record<string, unknown> | undefined | null,
+): ViewportContext[] {
+  const raw = meta?.viewports;
+  if (!Array.isArray(raw)) return [];
+  const result: ViewportContext[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    if (record.kind === "file" && typeof record.path === "string") {
+      const visibleLines =
+        record.visibleLines &&
+        typeof record.visibleLines === "object" &&
+        !Array.isArray(record.visibleLines)
+          ? (record.visibleLines as Record<string, unknown>)
+          : null;
+      result.push({
+        kind: "file",
+        path: record.path,
+        ...(visibleLines &&
+        typeof visibleLines.start === "number" &&
+        typeof visibleLines.end === "number"
+          ? {
+              visibleLines: {
+                start: visibleLines.start,
+                end: visibleLines.end,
+              },
+            }
+          : {}),
+      });
+      continue;
+    }
+    if (record.kind === "canvas" && typeof record.path === "string") {
+      const camera =
+        record.camera &&
+        typeof record.camera === "object" &&
+        !Array.isArray(record.camera)
+          ? (record.camera as Record<string, unknown>)
+          : null;
+      const visibleRect =
+        record.visibleRect &&
+        typeof record.visibleRect === "object" &&
+        !Array.isArray(record.visibleRect)
+          ? (record.visibleRect as Record<string, unknown>)
+          : null;
+      const selectedNodes = Array.isArray(record.selectedNodes)
+        ? record.selectedNodes.flatMap((node) => {
+            if (!node || typeof node !== "object" || Array.isArray(node)) return [];
+            const entry = node as Record<string, unknown>;
+            if (typeof entry.id !== "string" || typeof entry.type !== "string") {
+              return [];
+            }
+            return [
+              {
+                id: entry.id,
+                type: entry.type,
+                ...(typeof entry.title === "string" ? { title: entry.title } : {}),
+              } satisfies ViewportSelectedNode,
+            ];
+          })
+        : undefined;
+      result.push({
+        kind: "canvas",
+        path: record.path,
+        ...(camera &&
+        typeof camera.x === "number" &&
+        typeof camera.y === "number" &&
+        typeof camera.zoom === "number"
+          ? {
+              camera: {
+                x: camera.x,
+                y: camera.y,
+                zoom: camera.zoom,
+              },
+            }
+          : {}),
+        ...(visibleRect &&
+        typeof visibleRect.x === "number" &&
+        typeof visibleRect.y === "number" &&
+        typeof visibleRect.width === "number" &&
+        typeof visibleRect.height === "number"
+          ? {
+              visibleRect: {
+                x: visibleRect.x,
+                y: visibleRect.y,
+                width: visibleRect.width,
+                height: visibleRect.height,
+              },
+            }
+          : {}),
+        ...(selectedNodes && selectedNodes.length > 0 ? { selectedNodes } : {}),
+      });
+      continue;
+    }
+    if (record.kind === "port" && typeof record.port === "string") {
+      result.push({
+        kind: "port",
+        port: record.port,
+        ...(typeof record.url === "string" ? { url: record.url } : {}),
+      });
+    }
+  }
+  return result;
+}

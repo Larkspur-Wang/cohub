@@ -71,6 +71,10 @@ type Props = {
 	onOpenLinkedInlineFile?: (
 		target: string | WorkspaceFileLinkTarget,
 	) => void | Promise<void>;
+	onVisibleLinesChange?: (
+		path: string,
+		range: { start: number; end: number } | null,
+	) => void;
 };
 
 let {
@@ -116,6 +120,7 @@ let {
 	onRenameFilePath,
 	onDeleteFilePath,
 	onOpenLinkedInlineFile,
+	onVisibleLinesChange,
 }: Props = $props();
 
 const loadCodeEditorModule = createLazyModuleLoader(
@@ -294,10 +299,15 @@ const showDiffMode = $derived(!activeFsReadonly && openFileIsText);
         {:else}
           {#await loadCodeEditorModule() then editorModule}
             {@const LazyCodeEditor = editorModule.default}
+            {@const editorPath = openFile?.path ?? routeFilePath ?? ""}
             <LazyCodeEditor
               value={openFileDraft}
               language={openFileExt}
               onInput={(v) => openFileDraft = v}
+              onVisibleLinesChange={(range) => {
+                if (!editorPath) return;
+                onVisibleLinesChange?.(editorPath, range);
+              }}
               readonly={!canEditFiles}
             />
           {:catch}

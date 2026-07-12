@@ -107,6 +107,10 @@ type Props = {
 	onDownloadFilePath: (path: string) => void | Promise<void>;
 	onRenameFilePath: (path: string) => void | Promise<void>;
 	onDeleteFilePath: (path: string) => void | Promise<void>;
+	onVisibleLinesChange?: (
+		path: string,
+		range: { start: number; end: number } | null,
+	) => void;
 };
 
 let {
@@ -160,6 +164,7 @@ let {
 	onDownloadFilePath,
 	onRenameFilePath,
 	onDeleteFilePath,
+	onVisibleLinesChange,
 }: Props = $props();
 
 const loadCodeEditorModule = createLazyModuleLoader(
@@ -295,7 +300,8 @@ const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
             {:else}
               {#await loadCodeEditorModule() then editorModule}
                 {@const LazyCodeEditor = editorModule.default}
-                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} readonly={!canEditFiles || activeFsReadonly} />
+                {@const editorPath = inlineFile.path}
+                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} onVisibleLinesChange={(range) => onVisibleLinesChange?.(editorPath, range)} readonly={!canEditFiles || activeFsReadonly} />
               {:catch}
                 <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
               {/await}
@@ -491,11 +497,13 @@ const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
               {:else}
                 {#await loadCodeEditorModule() then editorModule}
                   {@const LazyCodeEditor = editorModule.default}
+                  {@const editorPath = inlineFile.path}
                   <LazyCodeEditor
                     value={inlineFile.draft}
                     language={inlineFileExt}
                     initialPosition={inlineFile.position}
                     onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
+                    onVisibleLinesChange={(range) => onVisibleLinesChange?.(editorPath, range)}
                     readonly={!canEditFiles || activeFsReadonly}
                   />
                 {:catch}

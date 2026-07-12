@@ -8,13 +8,14 @@ import {
 	invertCanvasOps,
 } from "$lib/canvas/canvas-document";
 import { getCanvasTitle } from "$lib/canvas/canvas-file";
-import { clampZoom } from "$lib/canvas/canvas-geometry";
+import { clampZoom, visibleWorldRect } from "$lib/canvas/canvas-geometry";
 import {
 	createRemoteUrlCanvasItem,
 	createSpaceFileCanvasItem,
 	createTextCanvasItem,
 } from "$lib/canvas/canvas-items";
 import type { CanvasItem, CovasDocument } from "$lib/canvas/canvas-schema";
+import { titleForCanvasItem } from "$lib/canvas/renderers/base-card-renderer";
 import CanvasCardInspector from "$lib/components/canvas/CanvasCardInspector.svelte";
 import CanvasEmptyState from "$lib/components/canvas/CanvasEmptyState.svelte";
 import CanvasStage from "$lib/components/canvas/CanvasStage.svelte";
@@ -30,6 +31,7 @@ const {
 	onToggleImmersive,
 	onCommit,
 	onClose,
+	onViewStateChange,
 }: {
 	path: string;
 	document: CovasDocument;
@@ -43,6 +45,17 @@ const {
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
 	onClose: () => void;
+	onViewStateChange?: (state: {
+		path: string;
+		camera: CovasDocument["viewport"];
+		visibleRect: {
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		} | null;
+		selectedNodes: Array<{ id: string; type: string; title?: string }>;
+	}) => void;
 } = $props();
 
 let documentState = $state<CovasDocument | null>(null);
@@ -52,12 +65,53 @@ let dirty = $state(false);
 let saveError = $state<string | null>(null);
 let undoStack = $state<CanvasSemanticOp[][]>([]);
 let redoStack = $state<CanvasSemanticOp[][]>([]);
+let surfaceSize = $state<{ width: number; height: number } | null>(null);
 
 const selectedItem = $derived.by<CanvasItem | null>(() => {
 	if (!documentState || selectedItemIds.length !== 1) return null;
 	return (
 		documentState.items.find((item) => item.id === selectedItemIds[0]) ?? null
 	);
+});
+
+const selectedNodes = $derived.by(() => {
+	if (!documentState || selectedItemIds.length === 0) return [];
+	const byId = new Map(documentState.items.map((item) => [item.id, item]));
+	return selectedItemIds.flatMap((id) => {
+		const item = byId.get(id);
+		if (!item) return [];
+		const title = titleForCanvasItem(item).trim();
+		return [
+			{
+				id: item.id,
+				type: item.type,
+				...(title ? { title } : {}),
+			},
+		];
+	});
+});
+
+function emitViewState() {
+	if (!documentState || !onViewStateChange) return;
+	const camera = documentState.viewport;
+	const visibleRect =
+		surfaceSize && surfaceSize.width > 0 && surfaceSize.height > 0
+			? visibleWorldRect(camera, surfaceSize.width, surfaceSize.height)
+			: null;
+	onViewStateChange({
+		path,
+		camera,
+		visibleRect,
+		selectedNodes,
+	});
+}
+
+$effect(() => {
+	documentState?.viewport;
+	surfaceSize;
+	selectedNodes;
+	path;
+	emitViewState();
 });
 
 function loadDocument(nextDocument: CovasDocument) {
@@ -265,7 +319,13 @@ $effect(() => {
       <div class="border-b border-error-soft/30 bg-error-bg px-3 py-2 text-xs text-error-soft">{saveError}</div>
     {/if}
     <div class="relative min-h-0 flex-1 bg-bg-content">
-      <CanvasStage document={documentState} {selectedItemIds} onChange={updateDocument} onSelect={(ids) => selectedItemIds = ids} />
+      <CanvasStage
+        document={documentState}
+        {selectedItemIds}
+        onChange={updateDocument}
+        onSelect={(ids) => selectedItemIds = ids}
+        onSurfaceChange={(size) => { surfaceSize = size; }}
+      />
       {#if documentState.items.length === 0}
         <CanvasEmptyState onAddFile={addFile} onAddUrl={addUrl} onAddText={addText} />
       {/if}

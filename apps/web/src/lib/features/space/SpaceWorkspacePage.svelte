@@ -2,6 +2,7 @@
 import {
 	buildFileReferencesText,
 	buildImageReferencesText,
+	buildViewportContentBlock,
 } from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type {
@@ -244,6 +245,7 @@ import { createSpacePresenceController } from "./modules/space-presence-controll
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { mergeTaskRunRecord } from "./modules/task-run-utils";
+import { createViewportContextController } from "./modules/viewport-context-controller.svelte";
 import {
 	asRecord,
 	displayUserName,
@@ -401,6 +403,8 @@ const spaceSessions = $derived(sessionWorkspace.spaceSessions);
 const sessionStateById = $derived(sessionWorkspace.sessionStateById);
 const activeSessionId = $derived(sessionWorkspace.activeSessionId);
 const sessionComposer = createSessionComposerController();
+const viewportContext = createViewportContextController();
+const viewportContexts = $derived(viewportContext.contexts);
 const input = $derived(sessionComposer.input);
 const attachments = $derived(sessionComposer.attachments);
 const sending = $derived(sessionComposer.sending);
@@ -795,6 +799,38 @@ const activePreviewKind = $derived.by(() => {
 	if (inlinePortPreview) return "port";
 	return null;
 });
+
+$effect(() => {
+	// Full-page file route takes priority over inline preview panels.
+	if (fileMode === "file" && openFile?.path) {
+		viewportContext.setActiveSource({ kind: "file", path: openFile.path });
+		return;
+	}
+	if (activePreviewKind === "file" && inlineFile?.path) {
+		viewportContext.setActiveSource({
+			kind: "file",
+			path: inlineFile.path,
+		});
+		return;
+	}
+	if (activePreviewKind === "canvas" && inlineCanvas?.path) {
+		viewportContext.setActiveSource({
+			kind: "canvas",
+			path: inlineCanvas.path,
+		});
+		return;
+	}
+	if (activePreviewKind === "port" && inlinePortPreview) {
+		viewportContext.setActiveSource({
+			kind: "port",
+			port: inlinePortPreview.port,
+			url: inlinePortEndpoint?.url ?? inlinePortPreview.url,
+		});
+		return;
+	}
+	viewportContext.setActiveSource(null);
+});
+
 const openFileDraft = $derived(fileWorkspace.openFileDraft);
 const openFileCopied = $derived(fileWorkspace.openFileCopied);
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
@@ -3642,6 +3678,7 @@ async function handleSend() {
 		uploadedImageUrls = imageUrls;
 		uploadCompleted = true;
 		const userText = input.trim();
+		const pendingViewportContexts = viewportContext.takeSendSnapshot();
 		const referenceText = [
 			buildFileReferencesText(filePaths),
 			buildImageReferencesText([...imageUrls.values()]),
@@ -3673,6 +3710,7 @@ async function handleSend() {
 				];
 			},
 		);
+		const viewportBlock = buildViewportContentBlock(pendingViewportContexts);
 		const mentions = extractSpaceMentionsFromText(text);
 		content = [
 			...(text
@@ -3684,6 +3722,7 @@ async function handleSend() {
 						} satisfies ContentBlock,
 					]
 				: []),
+			...(viewportBlock ? [viewportBlock] : []),
 			...attachmentBlocks,
 		];
 
@@ -3793,8 +3832,10 @@ async function handleSend() {
 		}
 		for (const attachment of pendingAttachments)
 			revokeComposerAttachmentPreview(attachment);
+		viewportContext.markSendSucceeded();
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
+		viewportContext.restoreAfterFailedSend();
 		if ((hadFileUpload || hadImageUpload) && uploadCompleted) {
 			sessionComposer.restoreDraft(
 				[pendingInput.trim(), uploadedReferenceText]
@@ -4110,10 +4151,38 @@ async function applyBackgroundComposerPayload(
 function handleRemoveAttachment(id: string) {
 	sessionComposer.handleRemoveAttachment(id);
 }
+function handleRemoveViewportContext(id: string) {
+	viewportContext.dismiss(id);
+}
+function handleVisibleLinesChange(
+	path: string,
+	range: { start: number; end: number } | null,
+) {
+	if (!path) return;
+	viewportContext.setFileVisibleLines(path, range);
+}
+function handleCanvasViewStateChange(state: {
+	path: string;
+	camera: { x: number; y: number; zoom: number };
+	visibleRect: {
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+	} | null;
+	selectedNodes: Array<{ id: string; type: string; title?: string }>;
+}) {
+	viewportContext.setCanvasViewState(state.path, {
+		camera: state.camera,
+		visibleRect: state.visibleRect,
+		selectedNodes: state.selectedNodes,
+	});
+}
 onDestroy(() => {
 	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 	flushActiveComposerDraft();
 	sessionComposer.dispose();
+	viewportContext.dispose();
 	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
 	spaceBootstrap.resetLoaded();
 });
@@ -5302,6 +5371,8 @@ const spaceFileDomainProps = $derived.by<
 	onCloseWorkPublish: () => {
 		workPublishTarget = null;
 	},
+	onVisibleLinesChange: handleVisibleLinesChange,
+	onCanvasViewStateChange: handleCanvasViewStateChange,
 }));
 
 const headerContext = $derived({
@@ -5448,12 +5519,14 @@ const sessionWorkspaceProps = $derived.by<
 	composerNotice,
 	composerShowsBillingAction,
 	attachments,
+	viewportContexts,
 	activeSessionModel,
 	generationPolicyLabel,
 	promptTemplates,
 	promptTemplatesLoaded,
 	handlePickAttachments,
 	handleRemoveAttachment,
+	handleRemoveViewportContext,
 	handleSend,
 	handleAbort,
 	loadModelsCatalog,
@@ -5688,6 +5761,7 @@ const sessionWorkspaceProps = $derived.by<
         onRenameFilePath={(path) => handleRenameNode(getFileActionNode(path))}
         onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
         onOpenLinkedInlineFile={openLinkedInlineFile}
+        onVisibleLinesChange={handleVisibleLinesChange}
       />
     {:else}
       <SessionWorkspace

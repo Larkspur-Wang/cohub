@@ -25,11 +25,13 @@ const {
 	selectedItemIds,
 	onChange,
 	onSelect,
+	onSurfaceChange,
 }: {
 	document: CovasDocument;
 	selectedItemIds: string[];
 	onChange: (document: CovasDocument, options?: { commit?: boolean }) => void;
 	onSelect: (ids: string[]) => void;
+	onSurfaceChange?: (size: { width: number; height: number }) => void;
 } = $props();
 
 type CardDisplayEntry = {
@@ -232,6 +234,17 @@ function syncStage() {
 	syncCards(palette);
 }
 
+function reportSurfaceSize() {
+	if (!app) {
+		onSurfaceChange?.({ width: 0, height: 0 });
+		return;
+	}
+	onSurfaceChange?.({
+		width: app.screen.width,
+		height: app.screen.height,
+	});
+}
+
 function resizeStage() {
 	if (!app) return;
 	cancelAnimationFrame(resizeFrame);
@@ -240,6 +253,7 @@ function resizeStage() {
 		app.resize();
 		app.stage.hitArea = app.screen;
 		syncStage();
+		reportSurfaceSize();
 	});
 }
 

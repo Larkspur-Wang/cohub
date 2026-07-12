@@ -146,6 +146,21 @@ export type SpaceFileDomainProps = {
 	onUploadComplete: () => void | Promise<void>;
 	onOpenWorkPublish: (type: "file" | "directory" | "port", ref: string) => void;
 	onCloseWorkPublish: () => void;
+	onVisibleLinesChange?: (
+		path: string,
+		range: { start: number; end: number } | null,
+	) => void;
+	onCanvasViewStateChange?: (state: {
+		path: string;
+		camera: CovasDocument["viewport"];
+		visibleRect: {
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		} | null;
+		selectedNodes: Array<{ id: string; type: string; title?: string }>;
+	}) => void;
 };
 
 let {
@@ -251,6 +266,8 @@ let {
 	onUploadComplete,
 	onOpenWorkPublish,
 	onCloseWorkPublish,
+	onVisibleLinesChange,
+	onCanvasViewStateChange,
 }: SpaceFileDomainProps = $props();
 
 function closeMobileDrawerIfNeeded(mobile: boolean) {
@@ -365,6 +382,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onDownloadFilePath={(path) => onDownloadNode(onGetFileActionNode(path))}
 		onRenameFilePath={(path) => onRenameNode(onGetFileActionNode(path))}
 		onDeleteFilePath={(path) => onDeleteNode(onGetFileActionNode(path))}
+		onVisibleLinesChange={onVisibleLinesChange}
 	/>
 {/if}
 
@@ -383,6 +401,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineCanvas}
 		onClose={onCloseInlineCanvas}
+		onViewStateChange={onCanvasViewStateChange}
 	/>
 {/if}
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+import type { ViewportContext } from "@cohub/protocol";
 import type {
 	PromptTemplateCatalogEntry,
 	VoiceInputClient,
@@ -17,6 +18,7 @@ import SlashCommandMenu, {
 	type SlashCommandMenuItem,
 } from "$lib/components/SlashCommandMenu.svelte";
 import SpaceMentionMenu from "$lib/components/SpaceMentionMenu.svelte";
+import ViewportContextBlocks from "$lib/components/ViewportContextBlocks.svelte";
 import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
@@ -63,6 +65,7 @@ type Props = {
 	showBillingAction?: boolean;
 	placeholder?: string;
 	attachments?: ComposerAttachment[];
+	viewportContexts?: ViewportContext[];
 	currentModel?: SelectedModel | null;
 	/** Compact generation-policy suffix; null/empty hides (Auto). */
 	generationPolicyLabel?: string | null;
@@ -76,6 +79,7 @@ type Props = {
 		files: FileList | File[] | LocalUploadEntry[] | null,
 	) => void;
 	onremoveattachment?: (id: string) => void;
+	onremoveviewport?: (id: string) => void;
 	onModelSelect?: () => void;
 };
 
@@ -89,6 +93,7 @@ let {
 	showBillingAction = false,
 	placeholder = "Send a message...",
 	attachments = [],
+	viewportContexts = [],
 	currentModel = null,
 	generationPolicyLabel = null,
 	promptTemplates = [],
@@ -99,6 +104,7 @@ let {
 	onabort,
 	onpickattachment,
 	onremoveattachment,
+	onremoveviewport,
 	onModelSelect,
 }: Props = $props();
 
@@ -874,6 +880,16 @@ $effect(() => {
 						<Upload class="h-4 w-4 text-brand" />
 						<span>Drop files to attach</span>
 					</div>
+				</div>
+			{/if}
+
+			{#if viewportContexts.length > 0}
+				<div class="mb-1.5 px-3 pt-1" data-drawer-swipe-ignore>
+					<ViewportContextBlocks
+						contexts={viewportContexts}
+						removable
+						onRemove={onremoveviewport}
+					/>
 				</div>
 			{/if}
 

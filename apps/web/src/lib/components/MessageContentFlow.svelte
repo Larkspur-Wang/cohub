@@ -1,4 +1,9 @@
 <script lang="ts">
+import {
+	isViewportContentBlock,
+	parseViewportContextsFromMeta,
+	type ViewportContext,
+} from "@cohub/protocol";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { MessageToolCallsFile } from "@cohub/protocol/model";
 import { page } from "$app/state";
@@ -6,6 +11,7 @@ import MarkdownView from "$lib/components/MarkdownView.svelte";
 import AttachmentBlocks from "$lib/components/TextAttachmentBlocks.svelte";
 import ThinkingBlocks from "$lib/components/ThinkingBlocks.svelte";
 import ToolCallList from "$lib/components/ToolCallList.svelte";
+import ViewportContextBlocks from "$lib/components/ViewportContextBlocks.svelte";
 import {
 	type SpaceMentionTextToken,
 	tokenizeSpaceMentionText,
@@ -56,12 +62,27 @@ function isTextAttachment(block: TextBlock) {
 	return block._meta?.attachmentKind === "text";
 }
 
+function isViewportAttachment(block: ContentBlock): block is TextBlock {
+	return isViewportContentBlock(block);
+}
+
 const userTextBlocks = $derived(
 	content.filter(
 		(block): block is TextBlock =>
-			block.type === "text" && !isTextAttachment(block),
+			block.type === "text" &&
+			!isTextAttachment(block) &&
+			!isViewportAttachment(block),
 	),
 );
+
+const userViewportContexts = $derived.by(() => {
+	const contexts: ViewportContext[] = [];
+	for (const block of content) {
+		if (!isViewportAttachment(block)) continue;
+		contexts.push(...parseViewportContextsFromMeta(block._meta));
+	}
+	return contexts;
+});
 
 const userAttachmentBlocks = $derived(
 	content.filter(
@@ -193,8 +214,13 @@ const segments = $derived.by(() => {
 			{/each}
 		</div>
 	{/if}
+	{#if userViewportContexts.length > 0}
+		<div class={userTextBlocks.length > 0 || userShellCommandBlocks.length > 0 ? "mt-2" : ""}>
+			<ViewportContextBlocks contexts={userViewportContexts} />
+		</div>
+	{/if}
 	{#if userAttachmentBlocks.length > 0}
-		<div class={userTextBlocks.length > 0 ? "mt-2" : ""}>
+		<div class={userTextBlocks.length > 0 || userViewportContexts.length > 0 ? "mt-2" : ""}>
 			<AttachmentBlocks blocks={userAttachmentBlocks} />
 		</div>
 	{/if}

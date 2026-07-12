@@ -40,6 +40,17 @@ type Props = {
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onClose: () => void;
+	onViewStateChange?: (state: {
+		path: string;
+		camera: CovasDocument["viewport"];
+		visibleRect: {
+			x: number;
+			y: number;
+			width: number;
+			height: number;
+		} | null;
+		selectedNodes: Array<{ id: string; type: string; title?: string }>;
+	}) => void;
 };
 
 let {
@@ -56,6 +67,7 @@ let {
 	onActivatePreviewTab,
 	onClosePreviewTab,
 	onClose,
+	onViewStateChange,
 }: Props = $props();
 
 let canvasPanelModulePromise: Promise<
@@ -109,6 +121,7 @@ function loadCanvasPanelModule() {
 						onToggleImmersive={isMobile ? undefined : onToggleImmersive}
 						onCommit={(document, ops) => onCommit(document, ops)}
 						onClose={onClose}
+						{onViewStateChange}
 					/>
 				</div>
 			</div>
