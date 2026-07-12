@@ -12,6 +12,7 @@ import {
   getSpaceMemberRole,
   hasPermission,
 } from "../permissions.js";
+import { pickSessionsPreservingOrder } from "../session-list.js";
 import {
   attachSessionSpaceSummaries,
   encodeSessionListCursor,
@@ -214,6 +215,8 @@ async function listVisibleUserSessions(
 
     if (batch.sessions.length === 0) break;
 
+    // Group by space only for permission checks. Re-emit in batch activity order
+    // so cross-space recency is not scrambled by Map iteration / space buckets.
     const bySpace = new Map<string, typeof batch.sessions>();
     for (const session of batch.sessions) {
       const list = bySpace.get(session.spaceId) ?? [];
@@ -221,9 +224,10 @@ async function listVisibleUserSessions(
       bySpace.set(session.spaceId, list);
     }
 
+    const visibleIds = new Set<string>();
     for (const [spaceId, sessions] of bySpace) {
       if (await canViewAllInSpace(spaceId)) {
-        visible.push(...sessions);
+        for (const session of sessions) visibleIds.add(session.id);
         continue;
       }
       const filtered = await filterSessionsByPermission(
@@ -232,8 +236,9 @@ async function listVisibleUserSessions(
         spaceId,
         sessions,
       );
-      visible.push(...filtered);
+      for (const session of filtered) visibleIds.add(session.id);
     }
+    visible.push(...pickSessionsPreservingOrder(batch.sessions, visibleIds));
 
     if (!hasMore) break;
   }

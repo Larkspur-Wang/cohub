@@ -5,6 +5,3 @@ export type SessionMessagePostprocessJobData = {
   messageId: string;
   trace?: Record<string, unknown>;
 };
-
-export const buildSessionMessagePostprocessJobId = (messageId: string) =>
-  `session-message-postprocess-${messageId}`;

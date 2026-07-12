@@ -5,6 +5,7 @@ import {
   encodeSessionListCursor,
   InvalidSessionListCursorError,
   mergeUserSessionListBranches,
+  pickSessionsPreservingOrder,
 } from "./session-list.js";
 
 const session = (id: string, lastMessageAt: string | null) => ({
@@ -69,6 +70,35 @@ describe("mergeUserSessionListBranches", () => {
     assert.deepEqual(
       page.sessions.map((row) => row.id),
       ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+    );
+  });
+});
+
+describe("pickSessionsPreservingOrder", () => {
+  it("keeps the original activity order across spaces", () => {
+    const ordered = [
+      { id: "s-new", spaceId: "space-b" },
+      { id: "s-mid", spaceId: "space-a" },
+      { id: "s-old", spaceId: "space-b" },
+    ];
+    // Visible set is built by space buckets (A then B) — must not reshuffle output.
+    const visibleIds = new Set(["s-old", "s-new", "s-mid"]);
+    assert.deepEqual(
+      pickSessionsPreservingOrder(ordered, visibleIds).map((row) => row.id),
+      ["s-new", "s-mid", "s-old"],
+    );
+  });
+
+  it("drops rows missing from the visibility set without reordering survivors", () => {
+    const ordered = [
+      { id: "a" },
+      { id: "hidden" },
+      { id: "b" },
+      { id: "c" },
+    ];
+    assert.deepEqual(
+      pickSessionsPreservingOrder(ordered, new Set(["c", "a", "b"])).map((row) => row.id),
+      ["a", "b", "c"],
     );
   });
 });

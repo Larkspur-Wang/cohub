@@ -124,3 +124,12 @@ export const mergeUserSessionListBranches = <T extends SessionListActivityRow>(
     .slice(0, limit + 1);
   return paginateSessionRows(rows, limit);
 };
+
+/**
+ * Keep the caller's activity order while applying a visibility set.
+ * Permission checks may group by space; results must not be re-bucketed.
+ */
+export const pickSessionsPreservingOrder = <T extends { id: string }>(
+  ordered: T[],
+  visibleIds: ReadonlySet<string>,
+): T[] => ordered.filter((row) => visibleIds.has(row.id));
