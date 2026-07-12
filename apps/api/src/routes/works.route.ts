@@ -12,8 +12,8 @@ import { getSandboxPublicEndpoints } from "../sandbox-public-network.js";
 import { SANDBOX_PUBLIC_PORTS } from "@cohub/protocol/ports";
 import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
-import { config } from "../config.js";
 import { featureGateResponse } from "../lib/feature-gate.js";
+import { createWorkPublicUrl } from "../lib/work-public-url.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -84,13 +84,6 @@ const workHideCohubBarRequiredResponse = (c: Context) =>
     title: "Upgrade to hide the Cohub bar",
     conversionMessage: "Hiding the Cohub bar is available on Pro and Max.",
   });
-const getWorkPublicOrigin = () => (config.webOrigin ?? (config.env === "prod" ? "https://cohub.run" : "https://dev.cohub.run")).replace(/\/+$/, "");
-
-const createWorkPublicUrl = (input: { ownerUsername: string; spaceSlug: string; workSlug: string; status: string }) => {
-  if (input.status !== "published") return null;
-  return `${getWorkPublicOrigin()}/${encodeURIComponent(input.ownerUsername)}/${encodeURIComponent(input.spaceSlug)}/w/${encodeURIComponent(input.workSlug)}`;
-};
-
 async function getMissingPublicWorkIdentity(spaceId: string) {
   const [row] = await db
     .select({ spaceSlug: spaces.slug, ownerUsername: userProfiles.username })

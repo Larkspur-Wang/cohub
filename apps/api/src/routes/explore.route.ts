@@ -35,6 +35,7 @@ type ExploreSpaceItem = {
   avatarAlt: string | null;
   ownerDisplayName: string | null;
   ownerAvatarUrl: string | null;
+  ownerUsername: string | null;
   category: string | null;
   tags: string[];
   saveCount: number;
@@ -297,13 +298,14 @@ router.get("/spaces", async (c) => {
         avatarAlt: publicProfile.avatarUrl ? `${title} avatar` : null,
         ownerDisplayName: ownerProfile?.displayName ?? null,
         ownerAvatarUrl: normalizeExploreImageUrl(ownerProfile?.avatarUrl ?? null),
+        ownerUsername: ownerProfile?.username ?? null,
         category: entry.label ?? entry.category ?? null,
         tags: [entry.category, entry.label].filter((v): v is string => Boolean(v)),
         saveCount: stats?.checkpointCount ?? 0,
         pinCount: pinCountBySpaceId.get(space.id) ?? 0,
         forkCount: stats?.forkCount ?? 0,
         updatedAt: space.updatedAt ? new Date(space.updatedAt).toISOString() : null,
-        accessLabel: policy.anonymousUserRole ? "public" : "sign-in-required",
+        accessLabel: policy.anonymousUserRole === "guest" ? "public" : "sign-in-required",
         latestSaveLabel: latestCheckpoint ? latestCheckpoint.description || latestCheckpoint.commitHash.slice(0, 12) : null,
       };
     };

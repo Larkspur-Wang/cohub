@@ -1,5 +1,5 @@
 import type { HttpTransport } from "../transport.js";
-import type { BatchUserProfilesResponse } from "../types.js";
+import type { BatchUserProfilesResponse, PublicUserPageResponse } from "../types.js";
 
 const MAX_BATCH_USER_PROFILES = 100;
 
@@ -17,5 +17,11 @@ export class UsersApi {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
+  }
+
+  getByUsername(username: string) {
+    return this.transport.request<PublicUserPageResponse>(
+      `/api/users/by-username/${encodeURIComponent(username)}`,
+    );
   }
 }

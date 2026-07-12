@@ -54,7 +54,10 @@ const RESERVED_USERNAMES = new Set([
   "logout",
   "new",
   "org",
+  "pricing",
+  "referrals",
   "settings",
+  "sessions",
   "spaces",
   "static",
   "trending",
@@ -62,6 +65,7 @@ const RESERVED_USERNAMES = new Set([
   "user",
   "users",
   "teams",
+  "work-auth",
 ]);
 
 const asRecord = (value: unknown): Record<string, unknown> =>

@@ -16,6 +16,7 @@ export type ChatMessage = {
 	authorUuid?: string | null;
 	authorProfile?: {
 		userUuid: string;
+		username?: string | null;
 		displayName: string;
 		avatarUrl: string | null;
 	} | null;

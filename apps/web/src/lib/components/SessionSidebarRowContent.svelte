@@ -4,6 +4,7 @@ import UserAvatar from "$lib/components/UserAvatar.svelte";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import { getSessionSidebarActivity } from "$lib/session-sidebar-activity";
 import { getSessionActivityAt } from "$lib/session-sort";
+import { buildUserProfileHref } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
@@ -71,6 +72,7 @@ type Participant = {
 	key: string;
 	name: string;
 	avatarUrl: string | null;
+	username: string | null;
 };
 
 function getInitials(name: string) {
@@ -91,6 +93,7 @@ function getSessionParticipants(session: SessionRecord): Participant[] {
 		profile:
 			| {
 					userUuid?: string | null;
+					username?: string | null;
 					displayName?: string | null;
 					avatarUrl?: string | null;
 			  }
@@ -102,7 +105,12 @@ function getSessionParticipants(session: SessionRecord): Participant[] {
 		const key = profile?.userUuid?.trim() || name.toLowerCase();
 		if (seen.has(key)) return;
 		seen.add(key);
-		participants.push({ key, name, avatarUrl: profile?.avatarUrl ?? null });
+		participants.push({
+			key,
+			name,
+			avatarUrl: profile?.avatarUrl ?? null,
+			username: profile?.username?.trim() || null,
+		});
 	};
 	addProfile(session.userProfile);
 	for (const profile of session.participantProfiles ?? []) addProfile(profile);
@@ -156,14 +164,31 @@ function getSessionParticipantLabel(participants: Participant[]) {
 	{#if shouldShowSecondLine}
 		<span class="flex min-w-0 items-center gap-2 text-[10px] font-normal text-text-placeholder">
 			{#if visibleParticipants.length > 0}
-				<span class="inline-flex min-w-0 max-w-[60%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
-					<span class="inline-flex shrink-0 -space-x-1.5 opacity-80">
-						{#each visibleParticipants.slice(0, 3) as participant (participant.key)}
-							<UserAvatar name={participant.name} avatarUrl={participant.avatarUrl} size="xxs" class="h-3.5 w-3.5 border-bg-primary text-[7px]" />
-						{/each}
+				{@const primaryParticipant = visibleParticipants[0]}
+				{@const primaryHref = buildUserProfileHref(primaryParticipant?.username)}
+				{#if primaryHref && visibleParticipants.length === 1}
+					<a
+						href={primaryHref}
+						class="inline-flex min-w-0 max-w-[60%] shrink-0 items-center gap-1.5 truncate transition-colors hover:text-text-secondary"
+						title={participantLabel}
+						data-sveltekit-preload-data="hover"
+						onclick={(event) => event.stopPropagation()}
+					>
+						<span class="inline-flex shrink-0 -space-x-1.5 opacity-80">
+							<UserAvatar name={primaryParticipant.name} avatarUrl={primaryParticipant.avatarUrl} size="xxs" class="h-3.5 w-3.5 border-bg-primary text-[7px]" />
+						</span>
+						<span class="min-w-0 truncate">{participantLabel}</span>
+					</a>
+				{:else}
+					<span class="inline-flex min-w-0 max-w-[60%] shrink-0 items-center gap-1.5 truncate" title={participantLabel}>
+						<span class="inline-flex shrink-0 -space-x-1.5 opacity-80">
+							{#each visibleParticipants.slice(0, 3) as participant (participant.key)}
+								<UserAvatar name={participant.name} avatarUrl={participant.avatarUrl} size="xxs" class="h-3.5 w-3.5 border-bg-primary text-[7px]" />
+							{/each}
+						</span>
+						<span class="min-w-0 truncate">{participantLabel}</span>
 					</span>
-					<span class="min-w-0 truncate">{participantLabel}</span>
-				</span>
+				{/if}
 			{/if}
 			{#if shouldShowActivity}
 				<span class="min-w-0 flex-1 truncate {activityClass}" title={activityText ? `${activityLabel} · ${activityText}` : activityLabel}>

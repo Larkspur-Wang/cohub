@@ -3,7 +3,7 @@ import type { WorkRecord, WorkTargetType } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
-import UserAvatar from "$lib/components/UserAvatar.svelte";
+import UserIdentity from "$lib/components/UserIdentity.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
 import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
 import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
@@ -178,8 +178,15 @@ onDestroy(() => window.removeEventListener("message", onFrameMessage));
 				<div class="flex shrink-0 items-center gap-2">
 					<div class="flex min-w-0 items-center gap-2 overflow-hidden">
 						<span class="hidden shrink-0 leading-none text-text-tertiary md:inline">Published by</span>
-						<UserAvatar name={publisherName} avatarUrl={publisherAvatarUrl} size="xs" class="h-5 w-5 rounded-full bg-bg-elevated text-[8px]" />
-						<span class="hidden max-w-32 truncate font-medium leading-none text-text-secondary sm:inline">{publisherName}</span>
+						<UserIdentity
+							name={publisherName}
+							avatarUrl={publisherAvatarUrl}
+							username={owner?.username}
+							size="xs"
+							class="min-w-0 text-text-secondary"
+							avatarClass="h-5 w-5 rounded-full bg-bg-elevated text-[8px]"
+							nameClass="hidden max-w-32 truncate font-medium leading-none sm:inline"
+						/>
 					</div>
 					<button type="button" class="inline-flex h-8 shrink-0 items-center justify-center rounded-md px-2.5 font-medium leading-none text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:pointer-events-none disabled:opacity-50">
 						Remix

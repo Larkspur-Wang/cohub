@@ -1,14 +1,45 @@
 import { Hono } from "hono";
-import { getProfilesByUuids } from "../user-profiles.js";
-import { requireValidId, useAuth } from "../lib/middleware.js";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { accessPolicies, spaces, userProfiles, works } from "@cohub/db";
+import { db } from "../db/index.js";
+import { getSpacePublicProfile, requireValidId, useAuth } from "../lib/middleware.js";
+import { createWorkPublicUrl } from "../lib/work-public-url.js";
+import {
+  getProfileByUsername,
+  getProfilesByUuids,
+  normalizeUsername,
+} from "../user-profiles.js";
 
 const router = new Hono();
 
 const MAX_BATCH_USER_PROFILES = 100;
+const MAX_PUBLIC_USER_SPACES = 50;
+const MAX_PUBLIC_USER_WORKS = 50;
+const PUBLIC_USER_HTTP_CACHE = "public, max-age=60, stale-while-revalidate=300";
 
 type BatchProfilesBody = {
   userUuids?: unknown;
 };
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === "object" && !Array.isArray(value));
+
+const cleanText = (value: unknown) => {
+  if (typeof value !== "string") return null;
+  const text = value.replace(/\s+/g, " ").trim();
+  return text || null;
+};
+
+const workTitleFromMeta = (meta: unknown, fallback: string) => {
+  if (!isRecord(meta)) return fallback;
+  return cleanText(meta.title) ?? cleanText(meta.name) ?? fallback;
+};
+
+const isDiscoverableSpacePolicy = or(
+  eq(accessPolicies.anonymousUserRole, "guest"),
+  eq(accessPolicies.signedInUserRole, "guest"),
+  eq(accessPolicies.signedInUserRole, "builder"),
+);
 
 router.post("/profiles/batch", async (c) => {
   const user = useAuth(c);
@@ -43,6 +74,120 @@ router.post("/profiles/batch", async (c) => {
 
   c.header("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
   return c.json({ profiles, missingUserUuids });
+});
+
+// Public guest profile page — anonymous readable, only discoverable resources.
+router.get("/by-username/:username", async (c) => {
+  const username = normalizeUsername(c.req.param("username"));
+  if (!username) return c.json({ message: "user not found" }, 404);
+
+  const profile = await getProfileByUsername(username);
+  if (!profile?.username) return c.json({ message: "user not found" }, 404);
+  const ownerUsername = profile.username;
+
+  // Discoverable spaces only: join access policy + limit in SQL.
+  const discoverableSpaces = await db
+    .select({
+      id: spaces.id,
+      slug: spaces.slug,
+      name: spaces.name,
+      description: spaces.description,
+      meta: spaces.meta,
+      updatedAt: spaces.updatedAt,
+      lastActivityAt: spaces.lastActivityAt,
+      createdAt: spaces.createdAt,
+      anonymousUserRole: accessPolicies.anonymousUserRole,
+    })
+    .from(spaces)
+    .innerJoin(
+      accessPolicies,
+      and(
+        eq(accessPolicies.resourceType, "space"),
+        eq(accessPolicies.resourceId, spaces.id),
+      ),
+    )
+    .where(and(
+      eq(spaces.userUuid, profile.userUuid),
+      isDiscoverableSpacePolicy,
+    ))
+    .orderBy(
+      desc(sql`coalesce(${spaces.lastActivityAt}, ${spaces.updatedAt}, ${spaces.createdAt})`),
+      desc(spaces.createdAt),
+    )
+    .limit(MAX_PUBLIC_USER_SPACES);
+
+  const publicSpaces = discoverableSpaces.map((space) => {
+    const publicProfile = getSpacePublicProfile(space);
+    const slug = space.slug ?? null;
+    return {
+      id: space.id,
+      slug,
+      name: space.name,
+      description: space.description ?? null,
+      publicProfile,
+      accessLabel: space.anonymousUserRole === "guest"
+        ? ("public" as const)
+        : ("sign-in-required" as const),
+      spaceUrl: slug
+        ? `/${encodeURIComponent(ownerUsername)}/${encodeURIComponent(slug)}`
+        : `/spaces/${space.id}`,
+      updatedAt: (space.lastActivityAt ?? space.updatedAt)?.toISOString() ?? null,
+    };
+  });
+
+  // Works this user published (own spaces + collaborator spaces).
+  // Public URL always uses the space owner's username.
+  const workRows = await db
+    .select({
+      id: works.id,
+      slug: works.slug,
+      meta: works.meta,
+      publishedAt: works.publishedAt,
+      updatedAt: works.updatedAt,
+      spaceSlug: spaces.slug,
+      spaceName: spaces.name,
+      spaceOwnerUsername: userProfiles.username,
+    })
+    .from(works)
+    .innerJoin(spaces, eq(spaces.id, works.spaceId))
+    .innerJoin(userProfiles, eq(userProfiles.userUuid, spaces.userUuid))
+    .where(and(
+      eq(works.userUuid, profile.userUuid),
+      eq(works.status, "published"),
+      eq(works.visibility, "public"),
+      sql`${spaces.slug} is not null`,
+      sql`${userProfiles.username} is not null`,
+    ))
+    .orderBy(
+      desc(sql`coalesce(${works.publishedAt}, ${works.updatedAt})`),
+      desc(works.createdAt),
+    )
+    .limit(MAX_PUBLIC_USER_WORKS);
+
+  const publicWorks = workRows
+    .filter((row): row is typeof row & { spaceSlug: string; spaceOwnerUsername: string } =>
+      Boolean(row.spaceSlug && row.spaceOwnerUsername))
+    .map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      title: workTitleFromMeta(row.meta, row.slug),
+      spaceSlug: row.spaceSlug,
+      spaceName: row.spaceName,
+      publicUrl: createWorkPublicUrl({
+        ownerUsername: row.spaceOwnerUsername,
+        spaceSlug: row.spaceSlug,
+        workSlug: row.slug,
+      }),
+      publishedAt: row.publishedAt?.toISOString() ?? null,
+      updatedAt: row.updatedAt?.toISOString() ?? null,
+    }));
+
+  c.header("Cache-Control", PUBLIC_USER_HTTP_CACHE);
+  return c.json({
+    profile,
+    spaces: publicSpaces,
+    works: publicWorks,
+  });
 });
 
 export default router;

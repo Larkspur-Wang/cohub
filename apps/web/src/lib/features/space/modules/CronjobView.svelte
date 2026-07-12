@@ -18,7 +18,7 @@ import { goto } from "$app/navigation";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
-import UserAvatar from "$lib/components/UserAvatar.svelte";
+import UserIdentity from "$lib/components/UserIdentity.svelte";
 import {
 	buildSpaceNewSessionRoute,
 	buildSpaceTaskRoute,
@@ -133,10 +133,14 @@ function payloadProviderLabel(payload: unknown) {
 
 {#snippet UserMetaItem(profile: UserProfile | null | undefined, userUuid: string | null | undefined)}
 	{#if userUuid}
-		<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 text-[11px] text-text-tertiary" title={userTitle(profile, userUuid)}>
-			<UserAvatar name={displayUserName(profile, userUuid)} avatarUrl={profile?.avatarUrl} size="xxs" class="border-0 bg-bg-elevated" />
-			<span class="min-w-0 truncate">{displayUserName(profile, userUuid)}</span>
-		</span>
+		<UserIdentity
+			name={displayUserName(profile, userUuid)}
+			avatarUrl={profile?.avatarUrl}
+			username={profile?.username}
+			title={userTitle(profile, userUuid)}
+			size="xxs"
+			class="text-[11px] text-text-tertiary"
+		/>
 	{/if}
 {/snippet}
 

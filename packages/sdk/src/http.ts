@@ -10,6 +10,7 @@ import { SessionAccessApi } from "./apis/session-access.js";
 import { SpaceClient, SpacesApi } from "./apis/spaces.js";
 import { TasksApi } from "./apis/tasks.js";
 import { UserApi } from "./apis/user.js";
+import { UsersApi } from "./apis/users.js";
 import { PublicInviteApi } from "./apis/invitations.js";
 import { ReferralsApi } from "./apis/referrals.js";
 import { WorksApi } from "./apis/works.js";
@@ -21,6 +22,7 @@ export class CohubHttpClient {
   readonly spaces: SpacesApi;
   readonly channels: ChannelsApi;
   readonly user: UserApi;
+  readonly users: UsersApi;
   readonly generations: GenerationsApi;
   readonly models: ModelsApi;
   readonly prompts: PromptsApi;
@@ -48,6 +50,7 @@ export class CohubHttpClient {
       options.setStoredAuthToken,
       options.clearStoredAuthToken,
     );
+    this.users = new UsersApi(this.transport);
     this.generations = new GenerationsApi(this.transport);
     this.models = new ModelsApi(this.transport);
     this.prompts = new PromptsApi(this.transport);

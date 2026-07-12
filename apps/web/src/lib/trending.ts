@@ -2,6 +2,7 @@ import { PUBLIC_API_ORIGIN } from "$env/static/public";
 
 export type UserProfile = {
 	userUuid: string;
+	username?: string | null;
 	displayName: string;
 	avatarUrl: string | null;
 };

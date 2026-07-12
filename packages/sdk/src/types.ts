@@ -61,6 +61,34 @@ export type BatchUserProfilesResponse = {
   missingUserUuids: string[];
 };
 
+export type PublicUserSpaceItem = {
+  id: string;
+  slug: string | null;
+  name: string;
+  description: string | null;
+  publicProfile: { avatarUrl: string | null };
+  accessLabel: "public" | "sign-in-required";
+  spaceUrl: string;
+  updatedAt: string | null;
+};
+
+export type PublicUserWorkItem = {
+  id: string;
+  slug: string;
+  title: string;
+  spaceSlug: string;
+  spaceName: string;
+  publicUrl: string;
+  publishedAt: string | null;
+  updatedAt: string | null;
+};
+
+export type PublicUserPageResponse = {
+  profile: PublicUserProfile;
+  spaces: PublicUserSpaceItem[];
+  works: PublicUserWorkItem[];
+};
+
 export type SpacePresenceUser = {
   userId: string;
   connectionCount: number;
@@ -1337,6 +1365,7 @@ export type ExploreSpaceItem = {
   avatarAlt: string | null;
   ownerDisplayName: string | null;
   ownerAvatarUrl: string | null;
+  ownerUsername: string | null;
   category: string | null;
   tags: string[];
   saveCount: number;

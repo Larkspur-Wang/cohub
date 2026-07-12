@@ -2,7 +2,7 @@
 import type { ContentBlock } from "@cohub/protocol/core";
 import { Check, Copy, GitFork, Loader2 } from "lucide-svelte";
 import MessageContentFlow from "$lib/components/MessageContentFlow.svelte";
-import UserAvatar from "$lib/components/UserAvatar.svelte";
+import UserIdentity from "$lib/components/UserIdentity.svelte";
 import {
 	formatDurationDetail,
 	formatDurationMs,
@@ -474,10 +474,15 @@ function handleCopy() {
             </span>
           {:else}
             <!-- User identity -->
-            <span class="inline-flex min-w-0 items-center gap-1.5 cursor-default" title={userDisplayName}>
-              <UserAvatar name={userDisplayName} avatarUrl={message.authorProfile?.avatarUrl} size="xxs" class="border-0 bg-brand/15 text-brand" />
-              <span class="min-w-0 truncate">{userDisplayName}</span>
-            </span>
+            <UserIdentity
+              name={userDisplayName}
+              avatarUrl={message.authorProfile?.avatarUrl}
+              username={message.authorProfile?.username}
+              title={userDisplayName}
+              size="xxs"
+              class="text-inherit"
+              avatarClass="border-0 bg-brand/15 text-brand"
+            />
           {/if}
           {#if isCancelledBeforeDispatch}
             <span class="shrink-0 text-[11px] font-medium text-text-placeholder/65" title={cancelledByDisplay ? `Cancelled by ${cancelledByDisplay}. Not sent to agent.` : 'Not sent to agent.'}>cancelled</span>

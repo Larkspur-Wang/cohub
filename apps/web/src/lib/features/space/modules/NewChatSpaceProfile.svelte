@@ -6,7 +6,7 @@ import type {
 	UserProfile,
 } from "@neta-art/cohub";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
-import UserAvatar from "$lib/components/UserAvatar.svelte";
+import UserIdentity from "$lib/components/UserIdentity.svelte";
 import {
 	displayUserName,
 	formatShortDateTime,
@@ -95,18 +95,30 @@ function userTitle(
 				<p class="mb-3">
 					{#if owner || space?.userUuid}
 						<span>Created by </span>
-						<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(owner, space?.userUuid)}>
-							<UserAvatar name={displayUserName(owner, space?.userUuid)} avatarUrl={owner?.avatarUrl} size="xs" class="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5" />
-							<span class="min-w-0 max-w-[9rem] truncate font-medium text-text-primary sm:max-w-none">{displayUserName(owner, space?.userUuid)}</span>
-						</span>
+						<UserIdentity
+							name={displayUserName(owner, space?.userUuid)}
+							avatarUrl={owner?.avatarUrl}
+							username={owner?.username}
+							title={userTitle(owner, space?.userUuid)}
+							size="xs"
+							class="align-middle text-text-secondary"
+							avatarClass="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5"
+							nameClass="min-w-0 max-w-[9rem] truncate font-medium text-text-primary sm:max-w-none"
+						/>
 					{/if}
 					{#if sortedMembers.length > 0}
 						<span>{owner || space?.userUuid ? " with " : "Members include "}</span>
 						{#each sortedMembers as member, index (member.userId)}
-							<span class="inline-flex min-w-0 max-w-full items-center gap-1.5 align-middle text-text-secondary" title={userTitle(member.profile, member.userId)}>
-								<UserAvatar name={displayUserName(member.profile, member.userId)} avatarUrl={member.profile.avatarUrl} size="xs" class="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5" />
-								<span class="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none">{displayUserName(member.profile, member.userId)}</span>
-							</span>{#if index < sortedMembers.length - 1}<span class="inline-block w-1.5 sm:w-2" aria-hidden="true"></span>{:else}<span>. </span>{/if}
+							<UserIdentity
+								name={displayUserName(member.profile, member.userId)}
+								avatarUrl={member.profile.avatarUrl}
+								username={member.profile.username}
+								title={userTitle(member.profile, member.userId)}
+								size="xs"
+								class="align-middle text-text-secondary"
+								avatarClass="h-[18px] w-[18px] border-0 bg-bg-elevated sm:h-5 sm:w-5"
+								nameClass="min-w-0 max-w-[9rem] truncate font-medium sm:max-w-none"
+							/>{#if index < sortedMembers.length - 1}<span class="inline-block w-1.5 sm:w-2" aria-hidden="true"></span>{:else}<span>. </span>{/if}
 						{/each}
 					{:else}<span>. </span>{/if}
 				</p>

@@ -107,6 +107,7 @@ export type SessionTurnIndexItem = {
 
 export type SessionTurnAuthorProfile = {
   userUuid: string;
+  username?: string | null;
   displayName: string;
   avatarUrl: string | null;
 };

@@ -13,6 +13,8 @@ const RESERVED_USERNAMES = new Set([
 	"logout",
 	"new",
 	"org",
+	"pricing",
+	"referrals",
 	"settings",
 	"sessions",
 	"spaces",
@@ -22,6 +24,7 @@ const RESERVED_USERNAMES = new Set([
 	"user",
 	"users",
 	"teams",
+	"work-auth",
 ]);
 
 export const USERNAME_RULE_HINT =

@@ -13,6 +13,38 @@ export function registerProfile(program: Command): void {
   const profileCmd = program.command("profile").description("Manage your profile");
 
   profileCmd
+    .command("get <username>")
+    .description("Show a public user profile")
+    .option("--json", "Output as JSON")
+    .action(async (username: string, opts: { json?: boolean }) => {
+      const client = createClient();
+      try {
+        const result = await client.users.getByUsername(username);
+        if (jsonRequested(opts)) return outJson(result);
+        const handle = result.profile.username ? `@${result.profile.username}` : result.profile.userUuid;
+        console.log(`\n  ${result.profile.displayName} (${handle})`);
+        console.log(`  Spaces: ${result.spaces.length}`);
+        console.log(`  Works:  ${result.works.length}\n`);
+        if (result.spaces.length > 0) {
+          console.log("  Spaces:");
+          for (const space of result.spaces) {
+            console.log(`    - ${space.name} [${space.accessLabel}] ${space.spaceUrl}`);
+          }
+          console.log("");
+        }
+        if (result.works.length > 0) {
+          console.log("  Works:");
+          for (const work of result.works) {
+            console.log(`    - ${work.title} ${work.publicUrl}`);
+          }
+          console.log("");
+        }
+      } catch (e: unknown) {
+        handleHttp(e);
+      }
+    });
+
+  profileCmd
     .command("update")
     .description("Update your profile")
     .option("--username <username>", "Public username")

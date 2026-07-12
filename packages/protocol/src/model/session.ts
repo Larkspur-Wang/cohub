@@ -143,6 +143,7 @@ export type SessionRecord = {
 
 export type MessageAuthorProfile = {
   userUuid: string;
+  username?: string | null;
   displayName: string;
   avatarUrl: string | null;
 };

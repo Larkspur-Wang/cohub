@@ -2,6 +2,7 @@
 import {
 	Check,
 	Copy,
+	ExternalLink,
 	Loader2,
 	Monitor,
 	Moon,
@@ -20,6 +21,7 @@ import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { uploadUserAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validateUsernameInput } from "$lib/slug-rules";
+import { buildUserProfileRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { getTheme } from "$lib/theme.svelte";
 import { THEME_OPTIONS, type ThemeMode } from "$lib/theme-registry";
@@ -48,6 +50,9 @@ let uuidCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 const profileTitle = $derived(displayName || username || "User");
 const usernameLabel = $derived(username ? `@${username}` : "Set username");
 const uuidLabel = $derived(formatUuid(userUuid));
+const publicProfileHref = $derived(
+	username ? buildUserProfileRoute(username) : null,
+);
 
 const themeIcon = {
 	dark: Moon,
@@ -330,6 +335,27 @@ onMount(() => {
 						<div class="mt-4 rounded-md border border-error-soft/30 bg-error-bg p-3 text-[12px] text-error-soft break-all">{inlineError}</div>
 					{/if}
 				</div>
+			{/if}
+
+			{#if publicProfileHref}
+				<section class="border-t border-border-subtle py-6">
+					<div class="flex flex-wrap items-start justify-between gap-3">
+						<div class="min-w-0">
+							<h2 class="text-[14px] font-medium text-text-primary">Public profile</h2>
+							<p class="mt-1 text-[12px] leading-5 text-text-tertiary">
+								How others see your public spaces and works.
+							</p>
+						</div>
+						<a
+							href={publicProfileHref}
+							class="inline-flex h-8 items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-surface px-3 text-[12px] font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
+						>
+							View public profile
+							<ExternalLink class="h-3.5 w-3.5" />
+						</a>
+					</div>
+					<p class="mt-3 font-mono text-[12px] text-text-tertiary">{publicProfileHref}</p>
+				</section>
 			{/if}
 
 			<section class="border-t border-border-subtle py-6">

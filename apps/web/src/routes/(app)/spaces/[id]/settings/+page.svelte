@@ -59,7 +59,10 @@ import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { uploadSpaceAvatarImage } from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { validatePublicSlugInput } from "$lib/slug-rules";
-import { buildSpaceLandingRoute } from "$lib/space-routes";
+import {
+	buildSpaceLandingRoute,
+	buildUserProfileHref,
+} from "$lib/space-routes";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import { invalidateCachedSpaceMembers } from "$lib/stores/space-profile-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
@@ -1634,11 +1637,22 @@ $effect(() => {
 							<div class="mt-3 overflow-hidden rounded-md border border-border-subtle">
 								<div class="divide-y divide-border-subtle">
 									{#each members as member (member.userId)}
+										{@const memberProfileHref = buildUserProfileHref(member.profile)}
 										<div class="flex items-center gap-3 px-3 py-2.5">
-											<UserAvatar name={getMemberDisplayName(member)} avatarUrl={member.profile?.avatarUrl} size="sm" />
+											{#if memberProfileHref}
+												<a href={memberProfileHref} class="shrink-0 rounded-full transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70" data-sveltekit-preload-data="hover" title={`View @${member.profile?.username}`}>
+													<UserAvatar name={getMemberDisplayName(member)} avatarUrl={member.profile?.avatarUrl} size="sm" />
+												</a>
+											{:else}
+												<UserAvatar name={getMemberDisplayName(member)} avatarUrl={member.profile?.avatarUrl} size="sm" />
+											{/if}
 											<div class="min-w-0 flex-1">
 												<div class="flex items-center gap-1.5">
-													<span class="truncate text-[13px] font-medium text-text-primary">{getMemberDisplayName(member)}</span>
+													{#if memberProfileHref}
+														<a href={memberProfileHref} class="min-w-0 truncate text-[13px] font-medium text-text-primary transition-colors hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70" data-sveltekit-preload-data="hover">{getMemberDisplayName(member)}</a>
+													{:else}
+														<span class="truncate text-[13px] font-medium text-text-primary">{getMemberDisplayName(member)}</span>
+													{/if}
 													{#if getMemberRoleIcon(member.role)}<span class="shrink-0 text-[11px]" title="Host">{getMemberRoleIcon(member.role)}</span>{/if}
 												</div>
 												<button type="button" onclick={() => { void copyMemberUuid(member); }} title="Copy user UUID" class="mt-0.5 inline-flex max-w-full items-center gap-1 font-mono text-[10px] text-text-placeholder transition-colors hover:text-text-secondary"><span class="min-w-0 truncate">{getMemberUuid(member)}</span>{#if copiedMemberUserId === member.userId}<Check class="h-3 w-3 shrink-0 text-status-running" />{/if}</button>

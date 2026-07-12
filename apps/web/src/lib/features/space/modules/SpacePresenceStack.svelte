@@ -2,6 +2,7 @@
 import type { SpacePresenceUser } from "@neta-art/cohub";
 import { onMount } from "svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { buildUserProfileHref } from "$lib/space-routes";
 import { displayUserName } from "../space-utils";
 import {
 	isDanmakuEnabled,
@@ -171,21 +172,36 @@ $effect(() => {
 						{@const primaryPanel = [...panels].sort((a, b) => itemPriority(a) - itemPriority(b))[0]}
 						{@const label = typeof primaryPanel?.label === "string" ? primaryPanel.label.trim() : ""}
 						{@const kind = typeof primaryPanel?.kind === "string" ? primaryPanel.kind.trim() : ""}
+						{@const profileHref = buildUserProfileHref(user.profile)}
+						{@const userName = displayUserName(user.profile, user.userId)}
 						<div class="presence-row" role="listitem">
-							<UserAvatar
-								name={displayUserName(user.profile, user.userId)}
-								avatarUrl={user.profile.avatarUrl}
-								size="sm"
-								/>
-							<div class="presence-row-body">
-								<div class="presence-row-name">{displayUserName(user.profile, user.userId)}</div>
-								<div class="presence-row-subtitle">
-									<span>{label || (kind === "session" ? "in a chat" : kind === "file" ? "in a file" : kind === "checkpoint" ? "reviewing a save" : kind === "task" ? "on a task" : kind === "work" ? "in a work" : kind === "cronjob" ? "checking a cronjob" : "in this space")}</span>
-									{#if panels.length > 1}
-										<span>· {panels.length} panels</span>
-									{/if}
+							{#if profileHref}
+								<a href={profileHref} class="presence-row-link" data-sveltekit-preload-data="hover">
+									<UserAvatar name={userName} avatarUrl={user.profile.avatarUrl} size="sm" />
+									<div class="presence-row-body">
+										<div class="presence-row-name">{userName}</div>
+										<div class="presence-row-subtitle">
+											<span>{label || (kind === "session" ? "in a chat" : kind === "file" ? "in a file" : kind === "checkpoint" ? "reviewing a save" : kind === "task" ? "on a task" : kind === "work" ? "in a work" : kind === "cronjob" ? "checking a cronjob" : "in this space")}</span>
+											{#if panels.length > 1}
+												<span>· {panels.length} panels</span>
+											{/if}
+										</div>
+									</div>
+								</a>
+							{:else}
+								<div class="presence-row-static">
+									<UserAvatar name={userName} avatarUrl={user.profile.avatarUrl} size="sm" />
+									<div class="presence-row-body">
+										<div class="presence-row-name">{userName}</div>
+										<div class="presence-row-subtitle">
+											<span>{label || (kind === "session" ? "in a chat" : kind === "file" ? "in a file" : kind === "checkpoint" ? "reviewing a save" : kind === "task" ? "on a task" : kind === "work" ? "in a work" : kind === "cronjob" ? "checking a cronjob" : "in this space")}</span>
+											{#if panels.length > 1}
+												<span>· {panels.length} panels</span>
+											{/if}
+										</div>
+									</div>
 								</div>
-							</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -340,6 +356,11 @@ $effect(() => {
 	}
 
 	.presence-row {
+		border-radius: 10px;
+	}
+
+	.presence-row-link,
+	.presence-row-static {
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr);
 		align-items: center;
@@ -348,8 +369,25 @@ $effect(() => {
 		padding: 7px 8px;
 	}
 
-	.presence-row:hover {
+	.presence-row-link {
+		color: inherit;
+		text-decoration: none;
+		cursor: pointer;
+	}
+
+	.presence-row-link:focus-visible {
+		outline: 2px solid color-mix(in srgb, var(--brand) 38%, transparent);
+		outline-offset: 1px;
+	}
+
+	.presence-row:hover .presence-row-link,
+	.presence-row:hover .presence-row-static,
+	.presence-row-link:hover {
 		background: var(--bg-hover);
+	}
+
+	.presence-row-link:hover .presence-row-name {
+		color: var(--brand);
 	}
 
 	.presence-row-body {
@@ -494,7 +532,8 @@ $effect(() => {
 			padding: 6px;
 		}
 
-		.presence-row {
+		.presence-row-link,
+		.presence-row-static {
 			gap: 10px;
 			padding: 9px 10px;
 		}
