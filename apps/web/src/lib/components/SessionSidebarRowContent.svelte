@@ -15,13 +15,11 @@ const {
 	title,
 	isMobile = false,
 	modelsCatalog,
-	showSourceBadge = true,
 }: {
 	session: SessionRecord;
 	title: string;
 	isMobile?: boolean;
 	modelsCatalog?: ModelCatalogItem[] | null;
-	showSourceBadge?: boolean;
 } = $props();
 
 const activity = $derived(
@@ -29,9 +27,6 @@ const activity = $derived(
 		sessionGenerationStore.get(session.id),
 		modelsCatalog,
 	),
-);
-const badge = $derived(
-	showSourceBadge && !activity.active ? sourceBadge(session.source) : "",
 );
 const participants = $derived(getSessionParticipants(session));
 const visibleParticipants = $derived(
@@ -61,12 +56,6 @@ const activityClass = $derived.by(() => {
 	if (activity.active) return "text-text-tertiary";
 	return "text-text-placeholder";
 });
-
-function sourceBadge(source: string | null): string {
-	if (!source || source === "web") return "";
-	const idx = source.indexOf(":");
-	return idx > 0 ? source.slice(0, idx) : source;
-}
 
 type Participant = {
 	key: string;
@@ -153,11 +142,6 @@ function getSessionParticipantLabel(participants: Participant[]) {
 			{/if}
 		</span>
 		<span class="inline-flex min-w-0 shrink-0 items-center gap-1.5 group-hover/session:hidden group-focus-within/session:hidden">
-			{#if badge}
-				<span class="max-w-16 truncate rounded-[3px] bg-bg-hover-strong px-1.5 py-px text-[10px] font-medium leading-none text-text-tertiary" title={badge}>
-					{badge}
-				</span>
-			{/if}
 			<span class="shrink-0 tabular-nums text-[9.5px] font-normal leading-4 text-text-placeholder/70">{activityTime}</span>
 		</span>
 	</span>

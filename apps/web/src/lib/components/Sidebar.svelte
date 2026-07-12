@@ -616,16 +616,6 @@ const activeSettingsTab = $derived.by(() => {
 	return tab?.id ?? null;
 });
 
-function sourceBadge(source: string | null): string {
-	if (!source || source === "web") return "";
-	const idx = source.indexOf(":");
-	return idx > 0 ? source.slice(0, idx) : source;
-}
-
-function sourceTooltip(source: string | null): string {
-	return source ?? "";
-}
-
 function getTaskRunBadge(status: TaskRunRecord["status"]) {
 	if (status === "completed") {
 		return { color: "text-status-running", dot: "bg-status-running" };
@@ -3086,10 +3076,10 @@ $effect(() => {
 										isFork: sessionItem.isFork,
 										isLastVisibleChild: sessionItem.isLastVisibleChild,
 										style: getSessionRowStyle(sessionItem),
-										titleText: sessionItem.titleText || sourceTooltip(session.source) || undefined,
+										titleText: sessionItem.titleText || undefined,
 										ariaLabel: sessionItem.ariaLabel,
 									}
-								: { titleText: sourceTooltip(session.source) || undefined }}
+								: undefined}
 							draggable={itemDraggable}
 							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
@@ -3420,7 +3410,7 @@ $effect(() => {
 						isFork: item.isFork,
 						isLastVisibleChild: item.isLastVisibleChild,
 						style: getSessionRowStyle(item),
-						titleText: item.titleText || sourceTooltip(session.source) || undefined,
+						titleText: item.titleText || undefined,
 						ariaLabel: item.ariaLabel,
 					}}
 					draggable={!isMobile}
@@ -3543,6 +3533,15 @@ $effect(() => {
       >
         <PanelLeftOpen class="h-4 w-4" />
       </button>
+      <button
+        type="button"
+        class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={openCommandPalette}
+        aria-label="Search everywhere"
+        title="Search everywhere (⌘K / Ctrl K)"
+      >
+        <Search class="h-4 w-4" />
+      </button>
       <a
         href={buildSessionsRoute()}
         class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {isSessionsRoute ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
@@ -3555,15 +3554,6 @@ $effect(() => {
       >
         <MessageSquare class="h-4 w-4" />
       </a>
-      <button
-        type="button"
-        class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-        onclick={openCommandPalette}
-        aria-label="Search everywhere"
-        title="Search everywhere (⌘K / Ctrl K)"
-      >
-        <Search class="h-4 w-4" />
-      </button>
 
       <div class="mt-2 h-px w-6 bg-border-subtle/70"></div>
 
@@ -3758,6 +3748,16 @@ $effect(() => {
       <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
     </a>
     <div class="flex shrink-0 items-center gap-1">
+      <button
+        type="button"
+        class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+        onclick={openCommandPalette}
+        title="Search everywhere (⌘K / Ctrl K)"
+        aria-label="Search everywhere"
+      >
+        <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
+        <span class="hidden font-mono tracking-[0.02em] sm:inline">⌘K</span>
+      </button>
       <a
         href={buildSessionsRoute()}
         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] transition-colors duration-100 {isSessionsRoute ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
@@ -3770,16 +3770,6 @@ $effect(() => {
       >
         <MessageSquare class="h-3.5 w-3.5" />
       </a>
-      <button
-        type="button"
-        class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
-        onclick={openCommandPalette}
-        title="Search everywhere (⌘K / Ctrl K)"
-        aria-label="Search everywhere"
-      >
-        <Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
-        <span class="hidden font-mono tracking-[0.02em] sm:inline">⌘K</span>
-      </button>
       {#if !isMobile}
         <button
           type="button"
