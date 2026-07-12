@@ -1,5 +1,5 @@
 import { HttpError, type HttpTransport, type Fetch } from "../transport.js";
-import type { MeResponse, UserProfile, UserRulesResponse, SpaceSessionsResponse, SpaceUsageResponse } from "../types.js";
+import type { MeResponse, SessionRecord, SpaceRecord, UserProfile, UserRulesResponse, UserSessionsResponse, SpaceUsageResponse } from "../types.js";
 
 export class UserApi {
   constructor(
@@ -35,9 +35,16 @@ export class UserApi {
     if (options?.limit !== undefined) params.set("limit", String(options.limit));
     if (options?.cursor) params.set("cursor", options.cursor);
     const query = params.toString();
-    return this.transport.request<SpaceSessionsResponse>(
+    return this.transport.request<UserSessionsResponse>(
       `/api/me/sessions${query ? `?${query}` : ""}`,
       { fetch },
+    );
+  }
+
+  getSession(sessionId: string, customFetch?: Fetch) {
+    return this.transport.request<{ space: SpaceRecord; session: SessionRecord }>(
+      `/api/sessions/${sessionId}`,
+      { fetch: customFetch },
     );
   }
 

@@ -90,6 +90,7 @@ import {
 	sortSessionsByRecentActivity,
 } from "$lib/session-sort";
 import {
+	buildSessionsRoute,
 	buildSpaceCheckpointNewRoute,
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobNewRoute,
@@ -335,6 +336,9 @@ let loadingWorksSpaceId = $state<string | null>(null);
 let refreshingWorks = $state(false);
 
 const currentPath = $derived(page.url.pathname);
+const isSessionsRoute = $derived(
+	currentPath === "/sessions" || currentPath.startsWith("/sessions/"),
+);
 const activeSession = $derived.by(() => {
 	const match = currentPath.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)/);
 	const activeSessionId = match?.[1] ?? null;
@@ -3539,6 +3543,18 @@ $effect(() => {
       >
         <PanelLeftOpen class="h-4 w-4" />
       </button>
+      <a
+        href={buildSessionsRoute()}
+        class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] transition-colors duration-100 {isSessionsRoute ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+        aria-label="Chats"
+        title="Chats"
+        onclick={(event) => {
+          event.preventDefault();
+          void handleNavigate(buildSessionsRoute());
+        }}
+      >
+        <MessageSquare class="h-4 w-4" />
+      </a>
       <button
         type="button"
         class="mt-1 flex h-8 w-8 items-center justify-center rounded-[6px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
@@ -3742,6 +3758,18 @@ $effect(() => {
       <span class="font-semibold text-[13px] text-text-primary tracking-tight truncate">Cohub</span>
     </a>
     <div class="flex shrink-0 items-center gap-1">
+      <a
+        href={buildSessionsRoute()}
+        class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[5px] transition-colors duration-100 {isSessionsRoute ? 'bg-bg-active text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+        title="Chats"
+        aria-label="Chats"
+        onclick={(event) => {
+          event.preventDefault();
+          void handleNavigate(buildSessionsRoute());
+        }}
+      >
+        <MessageSquare class="h-3.5 w-3.5" />
+      </a>
       <button
         type="button"
         class="group/search flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] bg-bg-surface px-2 text-[11px] text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"

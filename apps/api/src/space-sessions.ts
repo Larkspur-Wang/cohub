@@ -1,5 +1,5 @@
 import { createLogger } from "@cohub/infra/logging";
-import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
@@ -25,6 +25,7 @@ import { enqueueAgentSessionForkJob } from "./agent-turn-queue.js";
 import { requestAgentTurnAbort } from "./agent-turn-abort.js";
 import { countToolCallsInContent, deriveMessagePreviewText, extractPlainText } from "./session-content.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.js";
+// space public profile is inlined in attachSessionSpaceSummaries to avoid route-layer coupling
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { touchSpaceActivity } from "./space-activity.js";
 
@@ -251,21 +252,29 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
 const DEFAULT_SESSION_LIST_LIMIT = 20;
 const MAX_SESSION_LIST_LIMIT = 100;
 
-const encodeSessionListCursor = (
-  session: typeof spaceSessions.$inferSelect | null | undefined,
+type SessionListCursor = {
+  /** ISO timestamp, or null when paging into NULL lastMessageAt rows. */
+  date: Date | null;
+  id: string | null;
+};
+
+export const encodeSessionListCursor = (
+  session: Pick<typeof spaceSessions.$inferSelect, "id" | "lastMessageAt"> | null | undefined,
 ) => {
-  if (!session?.lastMessageAt) return null;
+  if (!session?.id) return null;
+  if (!session.lastMessageAt) return `null|${session.id}`;
   const lastMessageAt = session.lastMessageAt instanceof Date
     ? session.lastMessageAt.toISOString()
     : new Date(session.lastMessageAt).toISOString();
   return `${lastMessageAt}|${session.id}`;
 };
 
-const decodeSessionListCursor = (cursor: string | null | undefined) => {
+const decodeSessionListCursor = (cursor: string | null | undefined): SessionListCursor | null => {
   if (!cursor) return null;
   const separatorIndex = cursor.lastIndexOf("|");
   const rawDate = separatorIndex > 0 ? cursor.slice(0, separatorIndex) : cursor;
   const id = separatorIndex > 0 ? cursor.slice(separatorIndex + 1) : null;
+  if (rawDate === "null") return { date: null, id };
   const date = new Date(rawDate);
   if (Number.isNaN(date.getTime())) return null;
   return { date, id };
@@ -321,21 +330,11 @@ export const listSpaceSessions = async (
 ) => {
   const limit = resolveSessionListLimit(options?.limit);
   const cursor = decodeSessionListCursor(options?.cursor);
+  const activityCursor = sessionListActivityCursorCondition(cursor);
 
   const rows = await db.select().from(spaceSessions).where(
-    cursor
-      ? and(
-        eq(spaceSessions.spaceId, spaceId),
-        or(
-          lt(spaceSessions.lastMessageAt, cursor.date),
-          cursor.id
-            ? and(
-              eq(spaceSessions.lastMessageAt, cursor.date),
-              lt(spaceSessions.id, cursor.id),
-            )
-            : undefined,
-        ),
-      )
+    activityCursor
+      ? and(eq(spaceSessions.spaceId, spaceId), activityCursor)
       : eq(spaceSessions.spaceId, spaceId),
   ).orderBy(
     sql`${spaceSessions.lastMessageAt} desc nulls last`,
@@ -345,29 +344,103 @@ export const listSpaceSessions = async (
   return paginateSessionRows(rows, limit);
 };
 
-/** List sessions created by a user across all spaces they own or are a member of. */
+/** Sessions the user created or participates in, across spaces. */
+const userSessionMembershipCondition = (userUuid: string) => or(
+  eq(spaceSessions.userUuid, userUuid),
+  sql`coalesce(${spaceSessions.meta}->'participants'->'userUuids', '[]'::jsonb) ? ${userUuid}`,
+);
+
+/** Matches `ORDER BY lastMessageAt DESC NULLS LAST, id DESC`. */
+const sessionListActivityCursorCondition = (
+  cursor: SessionListCursor | null,
+) => {
+  if (!cursor) return undefined;
+  // NULLS LAST: after any non-null activity, continue with remaining null rows.
+  if (cursor.date === null) {
+    return and(
+      isNull(spaceSessions.lastMessageAt),
+      cursor.id ? lt(spaceSessions.id, cursor.id) : undefined,
+    );
+  }
+  return or(
+    lt(spaceSessions.lastMessageAt, cursor.date),
+    isNull(spaceSessions.lastMessageAt),
+    cursor.id
+      ? and(
+        eq(spaceSessions.lastMessageAt, cursor.date),
+        lt(spaceSessions.id, cursor.id),
+      )
+      : undefined,
+  );
+};
+
+export type UserSessionSpaceSummary = {
+  id: string;
+  name: string;
+  slug: string | null;
+  publicProfile: { avatarUrl: string | null };
+};
+
+export const attachSessionSpaceSummaries = async <T extends { spaceId: string }>(
+  sessions: T[],
+): Promise<Array<T & { space: UserSessionSpaceSummary | null }>> => {
+  if (sessions.length === 0) return [];
+  const spaceIds = [...new Set(sessions.map((session) => session.spaceId).filter(Boolean))];
+  if (spaceIds.length === 0) {
+    return sessions.map((session) => ({ ...session, space: null }));
+  }
+
+  const spaceRows = await db
+    .select({
+      id: spaces.id,
+      name: spaces.name,
+      slug: spaces.slug,
+      meta: spaces.meta,
+    })
+    .from(spaces)
+    .where(inArray(spaces.id, spaceIds));
+
+  const spaceById = new Map(
+    spaceRows.map((space) => {
+      const meta = space.meta && typeof space.meta === "object" && !Array.isArray(space.meta)
+        ? space.meta as Record<string, unknown>
+        : {};
+      const profile = meta.publicProfile && typeof meta.publicProfile === "object" && !Array.isArray(meta.publicProfile)
+        ? meta.publicProfile as Record<string, unknown>
+        : {};
+      const avatarUrl = typeof profile.avatarUrl === "string" && profile.avatarUrl.trim()
+        ? profile.avatarUrl.trim()
+        : null;
+      return [
+        space.id,
+        {
+          id: space.id,
+          name: space.name,
+          slug: space.slug ?? null,
+          publicProfile: { avatarUrl },
+        } satisfies UserSessionSpaceSummary,
+      ] as const;
+    }),
+  );
+
+  return sessions.map((session) => ({
+    ...session,
+    space: spaceById.get(session.spaceId) ?? null,
+  }));
+};
+
+/** List sessions created by or participated in by a user, across spaces. */
 export const listUserSessions = async (
   userUuid: string,
   options?: { limit?: number; cursor?: string | null },
 ) => {
   const limit = resolveSessionListLimit(options?.limit);
   const cursor = decodeSessionListCursor(options?.cursor);
+  const membership = userSessionMembershipCondition(userUuid);
+  const activityCursor = sessionListActivityCursorCondition(cursor);
 
   const rows = await db.select().from(spaceSessions).where(
-    cursor
-      ? and(
-        eq(spaceSessions.userUuid, userUuid),
-        or(
-          lt(spaceSessions.lastMessageAt, cursor.date),
-          cursor.id
-            ? and(
-              eq(spaceSessions.lastMessageAt, cursor.date),
-              lt(spaceSessions.id, cursor.id),
-            )
-            : undefined,
-        ),
-      )
-      : eq(spaceSessions.userUuid, userUuid),
+    activityCursor ? and(membership, activityCursor) : membership,
   ).orderBy(
     sql`${spaceSessions.lastMessageAt} desc nulls last`,
     desc(spaceSessions.id),

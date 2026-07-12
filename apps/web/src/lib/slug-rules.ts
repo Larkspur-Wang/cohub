@@ -14,6 +14,7 @@ const RESERVED_USERNAMES = new Set([
 	"new",
 	"org",
 	"settings",
+	"sessions",
 	"spaces",
 	"static",
 	"trending",

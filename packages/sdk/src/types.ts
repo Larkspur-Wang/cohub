@@ -971,6 +971,26 @@ export type SpaceSessionsResponse = {
   };
 };
 
+export type UserSessionSpaceSummary = {
+  id: string;
+  name: string;
+  slug: string | null;
+  publicProfile?: SpacePublicProfile | null;
+};
+
+/** Cross-space session list item returned by `GET /api/me/sessions`. */
+export type UserSessionListItem = SessionRecord & {
+  space?: UserSessionSpaceSummary | null;
+};
+
+export type UserSessionsResponse = {
+  sessions: UserSessionListItem[];
+  pageInfo?: {
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
+};
+
 export type PromptAccessMode = "read_only" | "full_access";
 
 export type CreateSpacePromptInput = {

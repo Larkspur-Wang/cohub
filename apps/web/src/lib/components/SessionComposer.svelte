@@ -586,20 +586,20 @@ function hasAttachmentFiles(dataTransfer: DataTransfer | null) {
 }
 
 function handleDragEnter(event: DragEvent) {
-	if (!hasAttachmentFiles(event.dataTransfer)) return;
+	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter += 1;
 	isDragOver = true;
 }
 
 function handleDragOver(event: DragEvent) {
-	if (!hasAttachmentFiles(event.dataTransfer)) return;
+	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	isDragOver = true;
 }
 
 function handleDragLeave(event: DragEvent) {
-	if (!hasAttachmentFiles(event.dataTransfer)) return;
+	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	dragCounter = Math.max(0, dragCounter - 1);
 	if (dragCounter === 0) {
@@ -608,12 +608,12 @@ function handleDragLeave(event: DragEvent) {
 }
 
 async function handleDrop(event: DragEvent) {
-	if (!hasAttachmentFiles(event.dataTransfer)) return;
+	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
 	event.preventDefault();
 	isDragOver = false;
 	dragCounter = 0;
 	if (!event.dataTransfer) return;
-	onpickattachment?.(await entriesFromDataTransfer(event.dataTransfer));
+	onpickattachment(await entriesFromDataTransfer(event.dataTransfer));
 }
 
 function handlePathDragOver(event: DragEvent) {
@@ -1112,15 +1112,17 @@ $effect(() => {
 
 					<div class="mt-1.5 flex items-center justify-between gap-2">
 						<div class="flex items-center gap-1">
-							<button
-								type="button"
-								class="-ml-2 flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-								onclick={() => fileInputEl?.click()}
-								disabled={disabled || sending}
-								title="Add files"
-							>
-								<Plus class="h-[17px] w-[17px]" />
-							</button>
+							{#if onpickattachment}
+								<button
+									type="button"
+									class="-ml-2 flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+									onclick={() => fileInputEl?.click()}
+									disabled={disabled || sending}
+									title="Add files"
+								>
+									<Plus class="h-[17px] w-[17px]" />
+								</button>
+							{/if}
 
 							{#if onModelSelect}
 								<button

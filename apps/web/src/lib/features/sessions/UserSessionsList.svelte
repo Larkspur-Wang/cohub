@@ -1,0 +1,143 @@
+<script lang="ts">
+import type { UserSessionListItem } from "@neta-art/cohub";
+import { Loader2 } from "lucide-svelte";
+import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
+import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import { getSessionTitle } from "$lib/features/space/modules/session-utils";
+import type { ModelCatalogItem } from "$lib/model-catalog";
+import {
+	buildSpaceSessionRoute,
+	buildUserSessionRoute,
+} from "$lib/space-routes";
+
+const {
+	sessions,
+	activeSessionId = null,
+	loading = false,
+	loadingMore = false,
+	refreshing = false,
+	error = null,
+	hasMore = false,
+	isDesktop = true,
+	modelsCatalog = null,
+	onSelect,
+	onLoadMore,
+	onNewChat,
+}: {
+	sessions: UserSessionListItem[];
+	activeSessionId?: string | null;
+	loading?: boolean;
+	loadingMore?: boolean;
+	refreshing?: boolean;
+	error?: string | null;
+	hasMore?: boolean;
+	isDesktop?: boolean;
+	modelsCatalog?: ModelCatalogItem[] | null;
+	onSelect: (session: UserSessionListItem) => void;
+	onLoadMore: () => void;
+	onNewChat: () => void;
+} = $props();
+
+function hrefFor(session: UserSessionListItem) {
+	return isDesktop
+		? buildUserSessionRoute(session.id)
+		: buildSpaceSessionRoute(session.spaceId, session.id);
+}
+
+function spaceName(session: UserSessionListItem) {
+	return session.space?.name?.trim() || "Space";
+}
+</script>
+
+<section class="flex h-full min-h-0 flex-col bg-[var(--sidebar-bg)]">
+	<header class="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2.5">
+		<div class="min-w-0 flex-1">
+			<div class="flex items-center gap-2">
+				<h1 class="text-[13px] font-semibold tracking-tight text-text-primary">Chats</h1>
+				{#if refreshing}
+					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" />
+				{/if}
+			</div>
+			<p class="mt-0.5 text-[11px] text-text-placeholder">Across all spaces</p>
+		</div>
+		<button
+			type="button"
+			class="inline-flex h-7 items-center rounded-[6px] border border-[color:var(--sidebar-primary-action-border)] bg-[var(--sidebar-primary-action-bg)] px-2.5 text-[12px] font-medium text-[var(--sidebar-primary-action-fg)] transition-colors hover:bg-[var(--sidebar-primary-action-bg-hover)]"
+			onclick={onNewChat}
+		>
+			New
+		</button>
+	</header>
+
+	<div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
+		{#if loading && sessions.length === 0}
+			<div class="flex items-center gap-2 px-2 py-3 text-[12px] text-text-tertiary">
+				<Loader2 class="h-3.5 w-3.5 animate-spin" />
+				Loading chats…
+			</div>
+		{:else if error && sessions.length === 0}
+			<div class="px-2 py-3 text-[12px] text-error-soft">{error}</div>
+		{:else if sessions.length === 0}
+			<div class="px-2 py-8 text-center">
+				<p class="text-[13px] text-text-secondary">No chats yet</p>
+				<p class="mt-1 text-[12px] text-text-placeholder">Start a chat in any space to see it here.</p>
+				<button
+					type="button"
+					class="mt-4 inline-flex items-center rounded-[6px] bg-bg-hover px-3 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover-strong hover:text-text-primary"
+					onclick={onNewChat}
+				>
+					New chat
+				</button>
+			</div>
+		{:else}
+			<div class="space-y-[2px]">
+				{#each sessions as session (session.id)}
+					{@const active = activeSessionId === session.id}
+					<a
+						href={hrefFor(session)}
+						class="group/session relative flex items-start gap-2 overflow-hidden rounded-[var(--sidebar-item-radius)] px-2 py-1.5 pr-3 text-[13px] transition-colors duration-100 {active ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}"
+						onclick={(event) => {
+							event.preventDefault();
+							onSelect(session);
+						}}
+					>
+						<div class="mt-0.5 shrink-0">
+							<SpaceAvatar
+								name={spaceName(session)}
+								profile={session.space?.publicProfile ?? null}
+								size="sm"
+							/>
+						</div>
+						<div class="min-w-0 flex-1">
+							<div class="mb-0.5 truncate text-[10px] font-normal text-text-placeholder">
+								{spaceName(session)}
+							</div>
+							<SessionSidebarRowContent
+								{session}
+								title={getSessionTitle(session)}
+								isMobile={!isDesktop}
+								modelsCatalog={modelsCatalog ?? undefined}
+								showSourceBadge={true}
+							/>
+						</div>
+					</a>
+				{/each}
+			</div>
+			{#if hasMore}
+				<button
+					type="button"
+					class="mt-2 flex w-full items-center justify-center gap-2 rounded-[6px] px-2 py-1.5 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary disabled:opacity-60"
+					disabled={loadingMore}
+					onclick={onLoadMore}
+				>
+					{#if loadingMore}
+						<Loader2 class="h-3 w-3 animate-spin" />
+						Loading…
+					{:else}
+						Load more
+					{/if}
+				</button>
+			{/if}
+		{/if}
+	</div>
+</section>

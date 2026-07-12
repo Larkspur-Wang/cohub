@@ -50,6 +50,11 @@ export function sessionListKey(userKey: string, spaceId: string) {
 	return [userKey, spaceId, "recent"].map(encodeKeyPart).join(":");
 }
 
+/** User-level cross-space session list cache key. */
+export function userSessionListKey(userKey: string) {
+	return [userKey, "user", "sessions", "recent"].map(encodeKeyPart).join(":");
+}
+
 export function sessionListIndexKey(userKey: string, spaceId: string) {
 	return [userKey, spaceId, "recent", "index"].map(encodeKeyPart).join(":");
 }

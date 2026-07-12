@@ -7,8 +7,17 @@ import { db } from "../db/index.js";
 import { config } from "../config.js";
 import { requireValidId, useAuth, authzDenied } from "../lib/middleware.js";
 import { ensureCurrentUserProfile, updateCurrentUserProfile, LogtoUserRequiredError, UsernameClearError, UsernameConflictError, validateUsername } from "../user-profiles.js";
-import { hasPermission } from "../permissions.js";
-import { hydrateSessionParticipantProfiles, listUserSessions } from "../space-sessions.js";
+import {
+  filterSessionsByPermission,
+  getSpaceMemberRole,
+  hasPermission,
+} from "../permissions.js";
+import {
+  attachSessionSpaceSummaries,
+  encodeSessionListCursor,
+  hydrateSessionParticipantProfiles,
+  listUserSessions,
+} from "../space-sessions.js";
 import {
   aggregateGenerationUsageRows,
   aggregateUsageRows,
@@ -166,6 +175,87 @@ router.get("/rules", async (c) => {
   }
 });
 
+/**
+ * Filter creator/participant sessions by current session.view access.
+ * Members with space-level session.view keep all rows; others use per-session policy.
+ * Over-fetches in batches so pagination still fills after filtering.
+ */
+async function listVisibleUserSessions(
+  user: { uuid: string },
+  options: { limit: number; cursor: string | null },
+) {
+  const limit = options.limit;
+  const visible: Awaited<ReturnType<typeof listUserSessions>>["sessions"] = [];
+  let cursor = options.cursor;
+  let hasMore = true;
+  let guard = 0;
+
+  // Cache space membership + space-level view for this request.
+  const memberViewBySpace = new Map<string, boolean>();
+
+  const canViewAllInSpace = async (spaceId: string) => {
+    const cached = memberViewBySpace.get(spaceId);
+    if (cached !== undefined) return cached;
+    const isMember = (await getSpaceMemberRole(spaceId, user.uuid)) !== null;
+    const allowed = isMember
+      ? await hasPermission(user, "session.view", { spaceId })
+      : false;
+    memberViewBySpace.set(spaceId, allowed);
+    return allowed;
+  };
+
+  while (visible.length < limit && hasMore && guard < 8) {
+    guard += 1;
+    const batchLimit = Math.min(100, Math.max(limit * 2, limit - visible.length + 4));
+    const batch = await listUserSessions(user.uuid, { limit: batchLimit, cursor });
+    hasMore = Boolean(batch.pageInfo.hasMore);
+    cursor = batch.pageInfo.nextCursor;
+
+    if (batch.sessions.length === 0) break;
+
+    const bySpace = new Map<string, typeof batch.sessions>();
+    for (const session of batch.sessions) {
+      const list = bySpace.get(session.spaceId) ?? [];
+      list.push(session);
+      bySpace.set(session.spaceId, list);
+    }
+
+    for (const [spaceId, sessions] of bySpace) {
+      if (await canViewAllInSpace(spaceId)) {
+        visible.push(...sessions);
+        continue;
+      }
+      const filtered = await filterSessionsByPermission(
+        user,
+        "session.view",
+        spaceId,
+        sessions,
+      );
+      visible.push(...filtered);
+    }
+
+    if (!hasMore) break;
+  }
+
+  const sessions = visible.slice(0, limit);
+  // Prefer the last returned visible row so the client continues past filtered gaps.
+  // If we still have more raw pages but returned nothing visible, advance with the raw cursor.
+  const lastVisible = sessions.at(-1);
+  const nextCursor = sessions.length === 0
+    ? (hasMore ? cursor : null)
+    : (visible.length > limit || hasMore
+      ? encodeSessionListCursor(lastVisible)
+      : null);
+
+  return {
+    sessions,
+    pageInfo: {
+      hasMore: Boolean(nextCursor),
+      nextCursor,
+    },
+  };
+}
+
 router.get("/sessions", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
@@ -175,9 +265,10 @@ router.get("/sessions", async (c) => {
   const limit = Number.isFinite(limitParam) ? limitParam : 20;
   const cursor = c.req.query("cursor") ?? null;
   try {
-    const { sessions, pageInfo } = await listUserSessions(user.uuid, { limit, cursor });
+    const { sessions, pageInfo } = await listVisibleUserSessions(user, { limit, cursor });
     const hydratedSessions = await hydrateSessionParticipantProfiles(sessions);
-    return c.json({ sessions: hydratedSessions, pageInfo });
+    const withSpaces = await attachSessionSpaceSummaries(hydratedSessions);
+    return c.json({ sessions: withSpaces, pageInfo });
   } catch (error) {
     logger.error("[me/sessions] query failed", error);
     return c.json({ message: "failed to load sessions" }, 500);
