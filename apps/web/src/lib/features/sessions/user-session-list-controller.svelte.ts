@@ -1,4 +1,4 @@
-import type { UserSessionListItem } from "@neta-art/cohub";
+import type { ChannelEnvelope, UserSessionListItem } from "@neta-art/cohub";
 import { getCacheUserKeyAsync } from "$lib/cache/keys";
 import { sdk } from "$lib/sdk";
 import { mergeSessionRecord } from "$lib/session-record-merge";
@@ -11,6 +11,25 @@ import {
 } from "$lib/stores/user-session-list-cache";
 
 const PAGE_SIZE = 30;
+/** Coalesce bursty turn.notify events into one list refresh. */
+const REALTIME_REFRESH_DEBOUNCE_MS = 400;
+
+type TurnNotifyPayload = {
+	spaceId?: unknown;
+	sessionId?: unknown;
+	userPreview?: unknown;
+	completedAt?: unknown;
+};
+
+function isTurnNotifyEvent(
+	event: ChannelEnvelope,
+): event is ChannelEnvelope & { payload: TurnNotifyPayload } {
+	if (event.type !== "session.turn.notify") return false;
+	const payload = event.payload as TurnNotifyPayload;
+	return (
+		typeof payload.sessionId === "string" && typeof payload.spaceId === "string"
+	);
+}
 
 export function createUserSessionListController() {
 	let sessions = $state<UserSessionListItem[]>([]);
@@ -22,6 +41,8 @@ export function createUserSessionListController() {
 	let hydrated = $state(false);
 	let refreshSeq = 0;
 	let loadMoreSeq = 0;
+	let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+	let stopRealtime: (() => void) | null = null;
 
 	function applySnapshot(next: {
 		sessions: UserSessionListItem[];
@@ -144,10 +165,62 @@ export function createUserSessionListController() {
 		return sessions.find((session) => session.id === sessionId) ?? null;
 	}
 
+	function scheduleRealtimeRefresh() {
+		if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer);
+		realtimeRefreshTimer = setTimeout(() => {
+			realtimeRefreshTimer = null;
+			void refresh({ force: true });
+		}, REALTIME_REFRESH_DEBOUNCE_MS);
+	}
+
+	/**
+	 * User-room `session.turn.notify` already powers turn toasts.
+	 * Reuse it to keep the cross-space chats list warm without extra channels.
+	 */
+	function handleRealtimeEvent(event: ChannelEnvelope) {
+		if (!isTurnNotifyEvent(event)) return;
+		const sessionId = event.payload.sessionId as string;
+		const spaceId = event.payload.spaceId as string;
+		const preview =
+			typeof event.payload.userPreview === "string"
+				? event.payload.userPreview
+				: null;
+		const completedAt =
+			typeof event.payload.completedAt === "string"
+				? event.payload.completedAt
+				: new Date().toISOString();
+
+		const existing = findById(sessionId);
+		if (existing) {
+			upsertSession({
+				...existing,
+				spaceId: existing.spaceId || spaceId,
+				latestMessageText: preview ?? existing.latestMessageText,
+				lastMessageAt: completedAt,
+				updatedAt: completedAt,
+			});
+		}
+		// Always reconcile with server so unknown / participant sessions appear.
+		scheduleRealtimeRefresh();
+	}
+
 	function subscribeCache() {
 		return onUserSessionListCacheUpdated((snapshot) => {
 			applySnapshot(snapshot);
 		});
+	}
+
+	function subscribeRealtime() {
+		stopRealtime?.();
+		stopRealtime = sdk.onUserEvent((event) => handleRealtimeEvent(event));
+		return () => {
+			stopRealtime?.();
+			stopRealtime = null;
+			if (realtimeRefreshTimer) {
+				clearTimeout(realtimeRefreshTimer);
+				realtimeRefreshTimer = null;
+			}
+		};
 	}
 
 	return {
@@ -178,5 +251,6 @@ export function createUserSessionListController() {
 		upsertSession,
 		findById,
 		subscribeCache,
+		subscribeRealtime,
 	};
 }

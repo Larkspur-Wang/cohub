@@ -1,5 +1,6 @@
 import { billingOperations, COHUB_BILLING_TOKEN_TYPES, COHUB_BILLING_USAGE_TYPES } from "@cohub/billing";
-import { referrals, sessionMessages, sessionTurns, spaceSessions, tokenUsageStatsHourly } from "@cohub/db";
+import { qualifyAndRewardReferral } from "@cohub/core/referrals";
+import { sessionMessages, sessionTurns, spaceSessions, tokenUsageStatsHourly } from "@cohub/db";
 import {
   SESSION_MESSAGE_POSTPROCESS_JOB,
   type SessionMessagePostprocessJobData,
@@ -7,8 +8,11 @@ import {
 } from "@cohub/protocol";
 import type { Job } from "bullmq";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { createLogger } from "@cohub/infra/logging";
 import { db } from "../../../db.js";
 import { registerSystemJob } from "../../registry.js";
+
+const logger = createLogger({ serviceName: "cohub-worker" });
 
 const finiteNumberOrZero = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
@@ -48,99 +52,31 @@ const recordBilling = async (message: typeof sessionMessages.$inferSelect, userI
   });
 };
 
-const grantReferralSide = async (input: {
-  referralId: string;
-  userId: string;
-  side: "inviter" | "invitee";
-  expectedAmountUsd: number;
-}) => billingOperations.grantReferralReward({
-  userId: input.userId,
-  referralId: input.referralId,
-  side: input.side,
-  expectedAmountUsd: input.expectedAmountUsd,
-  operationId: `referral:${input.referralId}:${input.side}`,
-});
-
-const qualifyAndRewardReferral = async (message: typeof sessionMessages.$inferSelect) => {
+const maybeQualifyReferral = async (message: typeof sessionMessages.$inferSelect) => {
   const meta = message.meta as Record<string, unknown> | null;
   const turnId = typeof meta?.turnId === "string" ? meta.turnId : null;
   if (!turnId || meta?.messageKind !== "assistant_final") return;
+
+  // Prefer turn owner; fall back to actor stamped on the assistant message.
+  const actorUserId = await resolveActorUserId(message);
   const [turn] = await db
     .select({ userUuid: sessionTurns.userUuid, status: sessionTurns.status })
     .from(sessionTurns)
     .where(and(eq(sessionTurns.id, turnId), eq(sessionTurns.sessionId, message.sessionId)))
     .limit(1);
-  if (!turn?.userUuid || turn.status !== "completed") return;
+  if (turn?.status !== "completed") return;
+  const inviteeUserId = turn.userUuid?.trim() || actorUserId;
+  if (!inviteeUserId) return;
 
-  const now = new Date();
-  await db
-    .update(referrals)
-    .set({ status: "qualified", qualifiedAt: now, updatedAt: now })
-    .where(and(eq(referrals.inviteeUserId, turn.userUuid), eq(referrals.status, "pending")));
-
-  const [referral] = await db
-    .select()
-    .from(referrals)
-    .where(eq(referrals.inviteeUserId, turn.userUuid))
-    .limit(1);
-  if (!referral || referral.status === "rewarded") return;
-
-  const errors: string[] = [];
-  if (!referral.inviteeRewardedAt) {
-    try {
-      const result = await grantReferralSide({
-        referralId: referral.id,
-        userId: referral.inviteeUserId,
-        side: "invitee",
-        expectedAmountUsd: Number(referral.inviteeRewardAmountUsd),
-      });
-      await db.update(referrals).set({
-        inviteeRewardedAt: now,
-        inviteeRewardAmountUsd: String(result.amountUsd),
-        rewardAttemptedAt: now,
-        updatedAt: now,
-      }).where(and(eq(referrals.id, referral.id), isNull(referrals.inviteeRewardedAt)));
-    } catch (error) {
-      errors.push(`invitee: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  const [afterInvitee] = await db.select().from(referrals).where(eq(referrals.id, referral.id)).limit(1);
-  if (afterInvitee && !afterInvitee.inviterRewardedAt) {
-    try {
-      const result = await grantReferralSide({
-        referralId: afterInvitee.id,
-        userId: afterInvitee.inviterUserId,
-        side: "inviter",
-        expectedAmountUsd: Number(afterInvitee.inviterRewardAmountUsd),
-      });
-      await db.update(referrals).set({
-        inviterRewardedAt: now,
-        inviterRewardAmountUsd: String(result.amountUsd),
-        rewardAttemptedAt: now,
-        updatedAt: now,
-      }).where(and(eq(referrals.id, afterInvitee.id), isNull(referrals.inviterRewardedAt)));
-    } catch (error) {
-      errors.push(`inviter: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-
-  const [latest] = await db.select().from(referrals).where(eq(referrals.id, referral.id)).limit(1);
-  if (latest?.inviteeRewardedAt && latest.inviterRewardedAt) {
-    await db.update(referrals).set({
-      status: "rewarded",
-      rewardedAt: latest.rewardedAt ?? now,
-      rewardError: null,
-      rewardAttemptedAt: now,
-      updatedAt: now,
-    }).where(and(eq(referrals.id, latest.id), eq(referrals.status, "qualified")));
-  } else {
-    await db.update(referrals).set({
-      rewardError: errors.length > 0 ? errors.join(" | ").slice(0, 2_000) : null,
-      rewardAttemptedAt: now,
-      updatedAt: now,
-    }).where(and(eq(referrals.id, referral.id), eq(referrals.status, "qualified")));
-  }
+  await qualifyAndRewardReferral({
+    db,
+    billing: billingOperations,
+    inviteeUserId,
+    logger: {
+      warn: (messageText, metaFields) => logger.warn(messageText, metaFields),
+      info: (messageText, metaFields) => logger.info(messageText, metaFields),
+    },
+  });
 };
 
 const aggregateUsage = async (
@@ -239,7 +175,7 @@ registerSystemJob(SESSION_MESSAGE_POSTPROCESS_JOB, async (job: Job) => {
 
   // Idempotent external effects first; non-idempotent hourly aggregation must remain last.
   await recordBilling(message, userId, usage);
-  await qualifyAndRewardReferral(message);
+  await maybeQualifyReferral(message);
   await aggregateUsage(message, spaceId, userId, usage);
 
   return { ok: true };

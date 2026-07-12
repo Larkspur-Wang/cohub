@@ -19,6 +19,7 @@ import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
 import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry.js";
 import { COHUB_SYSTEM_QUEUE } from "@cohub/infra/bullmq";
+import { startSystemReferralRewardRetryLoop } from "../system/referral-reward-retry.js";
 
 import "../system/jobs/index.js";
 
@@ -86,8 +87,11 @@ logger.info("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
 logger.info("[SystemWorker] Queue:", COHUB_SYSTEM_QUEUE);
 logger.info("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
 
+const stopReferralRewardRetry = startSystemReferralRewardRetryLoop();
+
 const shutdown = async (signal: string) => {
   logger.info(`[SystemWorker] Received ${signal}, shutting down...`);
+  stopReferralRewardRetry();
   await closeWorkerGracefully(systemWorker, {
     serviceName: "SystemWorker",
     timeoutMs: Number(process.env.SYSTEM_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),

@@ -41,6 +41,7 @@ const host = createSessionConversationHostController({
 let isDesktop = $state(true);
 let creating = $state(false);
 let unsubscribeCache: (() => void) | null = null;
+let unsubscribeRealtime: (() => void) | null = null;
 let openSeq = 0;
 
 const routeSessionId = $derived(data.sessionId ?? null);
@@ -167,11 +168,12 @@ onMount(() => {
 	updateViewport();
 	window.addEventListener("resize", updateViewport);
 	unsubscribeCache = list.subscribeCache();
+	unsubscribeRealtime = list.subscribeRealtime();
 	void list.hydrateFromCache().then(() => list.refresh());
 	void modelsCatalogStore.load().catch(() => undefined);
 	const onVisible = () => {
 		if (document.visibilityState === "visible") {
-			void list.refresh();
+			void list.refresh({ force: true });
 		}
 	};
 	document.addEventListener("visibilitychange", onVisible);
@@ -183,6 +185,7 @@ onMount(() => {
 
 onDestroy(() => {
 	unsubscribeCache?.();
+	unsubscribeRealtime?.();
 	host.dispose();
 });
 </script>

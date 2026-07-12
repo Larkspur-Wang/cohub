@@ -95,6 +95,10 @@
     "./checkpoint/ignore": {
       "types": "./dist/checkpoint/ignore.d.ts",
       "default": "./dist/checkpoint/ignore.js"
+    },
+    "./referrals": {
+      "types": "./dist/referrals/index.d.ts",
+      "default": "./dist/referrals/index.js"
     }
   },
   "types": "./dist/index.d.ts",
