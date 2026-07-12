@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { UserSessionListItem } from "@neta-art/cohub";
-import { onDestroy, onMount } from "svelte";
+import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import SessionConversationPanel from "$lib/features/sessions/SessionConversationPanel.svelte";
 import { createSessionConversationHostController } from "$lib/features/sessions/session-conversation-host-controller.svelte";
@@ -161,7 +161,12 @@ async function handleNewChat() {
 
 $effect(() => {
 	const sessionId = routeSessionId;
-	void openRouteSession(sessionId);
+	// openRouteSession reads list/session workspace state in its sync path and
+	// also writes that state (prepareRouteSession / upsertSession). Tracking those
+	// reads would re-enter this effect and throw effect_update_depth_exceeded.
+	untrack(() => {
+		void openRouteSession(sessionId);
+	});
 });
 
 onMount(() => {

@@ -185,101 +185,109 @@ export function createSessionConversationHostController(options: {
 		sessionId: string,
 		seed?: SessionRecord | null,
 	) {
-		workspace.prepareRouteSession(sessionId);
-		if (seed) workspace.upsertSessionRecord(seed);
+		// Dedupe concurrent opens of the same session (route effect + list refresh).
+		return workspace.runSessionLoad(sessionId, async () => {
+			workspace.prepareRouteSession(sessionId);
+			if (seed) workspace.upsertSessionRecord(seed);
 
-		const existing = workspace.sessionStateById[sessionId];
-		if (existing?.loaded && existing.turns.length > 0) {
-			attachGeneration(spaceId, sessionId);
-			unreadTracker.markViewed(sessionId, existing.session?.lastMessageId);
-			return;
-		}
-
-		workspace.patchSessionState(sessionId, (current) => ({
-			...(current ?? emptySessionState(seed)),
-			loading: true,
-			error: null,
-		}));
-
-		try {
-			const cached = await sessionTurnsRepo
-				.getCached(spaceId, sessionId)
-				.catch(() => null);
-			if (
-				workspace.activeSessionId !== sessionId ||
-				activeSpaceId !== spaceId
-			) {
-				return;
-			}
-			if (cached && (cached.turns.length > 0 || cached.session)) {
-				workspace.setSessionState(sessionId, {
-					session: cached.session ?? seed ?? existing?.session,
-					turns: cached.turns,
-					loading: true,
-					loaded: true,
-					error: null,
-					hasMore: cached.hasMoreOlder,
-					hasMoreNewer: cached.hasMoreNewer,
-					loadingOlder: false,
-					loadingNewer: false,
-					oldestCursor: cached.oldestSequence ?? undefined,
-				});
-			}
-
-			const response = await sdk
-				.space(spaceId)
-				.session(sessionId)
-				.turns.listPaginated({ limit: 30 });
-
-			if (
-				workspace.activeSessionId !== sessionId ||
-				activeSpaceId !== spaceId
-			) {
+			const existing = workspace.sessionStateById[sessionId];
+			// Empty sessions are valid; do not re-fetch solely because turns.length === 0.
+			if (existing?.loaded) {
+				attachGeneration(spaceId, sessionId);
+				unreadTracker.markViewed(sessionId, existing.session?.lastMessageId);
 				return;
 			}
 
-			const snapshot = await sessionTurnsRepo.replaceTail(spaceId, sessionId, {
-				session: response.session,
-				turns: response.turns,
-				hasMore: response.hasMore,
-			});
-
-			workspace.upsertSessionRecord(response.session);
-			workspace.setSessionState(sessionId, {
-				session: snapshot.session ?? response.session,
-				turns: snapshot.turns,
-				loading: false,
-				loaded: true,
-				error: null,
-				hasMore: snapshot.hasMoreOlder,
-				hasMoreNewer: snapshot.hasMoreNewer,
-				loadingOlder: false,
-				loadingNewer: false,
-				oldestCursor: snapshot.oldestSequence ?? undefined,
-			});
-			options.onSessionUpdated?.(response.session as UserSessionListItem);
-			unreadTracker.markViewed(sessionId, response.session.lastMessageId);
-			attachGeneration(spaceId, sessionId);
-			requestAnimationFrame(() => {
-				if (listEl) listEl.scrollTop = listEl.scrollHeight;
-			});
-		} catch (error) {
-			if (
-				workspace.activeSessionId !== sessionId ||
-				activeSpaceId !== spaceId
-			) {
-				return;
-			}
 			workspace.patchSessionState(sessionId, (current) => ({
 				...(current ?? emptySessionState(seed)),
-				loading: false,
-				loaded: Boolean(current?.loaded),
-				error: classifyAccessError(error, {
-					isAuthenticated: authStore.isAuthenticated,
-					resource: "session",
-				}),
+				loading: true,
+				error: null,
 			}));
-		}
+
+			try {
+				const cached = await sessionTurnsRepo
+					.getCached(spaceId, sessionId)
+					.catch(() => null);
+				if (
+					workspace.activeSessionId !== sessionId ||
+					activeSpaceId !== spaceId
+				) {
+					return;
+				}
+				if (cached && (cached.turns.length > 0 || cached.session)) {
+					workspace.setSessionState(sessionId, {
+						session: cached.session ?? seed ?? existing?.session,
+						turns: cached.turns,
+						loading: true,
+						loaded: true,
+						error: null,
+						hasMore: cached.hasMoreOlder,
+						hasMoreNewer: cached.hasMoreNewer,
+						loadingOlder: false,
+						loadingNewer: false,
+						oldestCursor: cached.oldestSequence ?? undefined,
+					});
+				}
+
+				const response = await sdk
+					.space(spaceId)
+					.session(sessionId)
+					.turns.listPaginated({ limit: 30 });
+
+				if (
+					workspace.activeSessionId !== sessionId ||
+					activeSpaceId !== spaceId
+				) {
+					return;
+				}
+
+				const snapshot = await sessionTurnsRepo.replaceTail(
+					spaceId,
+					sessionId,
+					{
+						session: response.session,
+						turns: response.turns,
+						hasMore: response.hasMore,
+					},
+				);
+
+				workspace.upsertSessionRecord(response.session);
+				workspace.setSessionState(sessionId, {
+					session: snapshot.session ?? response.session,
+					turns: snapshot.turns,
+					loading: false,
+					loaded: true,
+					error: null,
+					hasMore: snapshot.hasMoreOlder,
+					hasMoreNewer: snapshot.hasMoreNewer,
+					loadingOlder: false,
+					loadingNewer: false,
+					oldestCursor: snapshot.oldestSequence ?? undefined,
+				});
+				options.onSessionUpdated?.(response.session as UserSessionListItem);
+				unreadTracker.markViewed(sessionId, response.session.lastMessageId);
+				attachGeneration(spaceId, sessionId);
+				requestAnimationFrame(() => {
+					if (listEl) listEl.scrollTop = listEl.scrollHeight;
+				});
+			} catch (error) {
+				if (
+					workspace.activeSessionId !== sessionId ||
+					activeSpaceId !== spaceId
+				) {
+					return;
+				}
+				workspace.patchSessionState(sessionId, (current) => ({
+					...(current ?? emptySessionState(seed)),
+					loading: false,
+					loaded: Boolean(current?.loaded),
+					error: classifyAccessError(error, {
+						isAuthenticated: authStore.isAuthenticated,
+						resource: "session",
+					}),
+				}));
+			}
+		});
 	}
 
 	async function openSession(inputSession: {
@@ -290,11 +298,12 @@ export function createSessionConversationHostController(options: {
 		const { spaceId, sessionId, session } = inputSession;
 		if (!spaceId || !sessionId) return;
 
-		if (
-			activeSpaceId === spaceId &&
-			workspace.activeSessionId === sessionId &&
-			workspace.sessionStateById[sessionId]?.loaded
-		) {
+		const existingState = workspace.sessionStateById[sessionId];
+		const alreadyActive =
+			activeSpaceId === spaceId && workspace.activeSessionId === sessionId;
+
+		// Already showing this session — skip reload unless we never finished loading.
+		if (alreadyActive && (existingState?.loaded || existingState?.loading)) {
 			setDraftForSession(spaceId, sessionId);
 			return;
 		}

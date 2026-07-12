@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { UserSessionListItem } from "@neta-art/cohub";
 import { ArrowUpRight, Loader2 } from "lucide-svelte";
+import { untrack } from "svelte";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ChatTimeline from "$lib/components/ChatTimeline.svelte";
@@ -18,8 +19,8 @@ const {
 	seed?: UserSessionListItem | null;
 } = $props();
 
-const state = $derived(host.activeState);
-const session = $derived(state?.session ?? seed);
+const viewState = $derived(host.activeState);
+const session = $derived(viewState?.session ?? seed);
 const title = $derived(session ? getSessionTitle(session) : "Chat");
 const spaceName = $derived(
 	seed?.space?.name?.trim() || (session ? "Space" : ""),
@@ -37,7 +38,10 @@ let draft = $state("");
 let draftSessionKey = $state(null as string | null);
 
 $effect(() => {
-	host.listEl = listEl;
+	const el = listEl;
+	untrack(() => {
+		host.listEl = el;
+	});
 });
 
 $effect(() => {
@@ -46,14 +50,18 @@ $effect(() => {
 		: null;
 	if (key !== draftSessionKey) {
 		draftSessionKey = key;
-		draft = host.input;
+		// Reading host.input only when the session key changes; avoid tracking it
+		// as a continuous dependency that fights the draft write-back effect.
+		draft = untrack(() => host.input);
 	}
 });
 
 $effect(() => {
 	// Persist local composer text into host (draft storage + send payload).
 	const value = draft;
-	if (value !== host.input) host.input = value;
+	untrack(() => {
+		if (value !== host.input) host.input = value;
+	});
 });
 </script>
 
@@ -91,11 +99,11 @@ $effect(() => {
 		</header>
 
 		<div class="relative min-h-0 flex-1">
-			{#if state?.error && !state.loaded}
+			{#if viewState?.error && !viewState.loaded}
 				<div class="p-4">
-					<AccessStateView state={state.error} size="compact" />
+					<AccessStateView state={viewState.error} size="compact" />
 				</div>
-			{:else if state?.loading && !state.loaded && (state.turns?.length ?? 0) === 0}
+			{:else if viewState?.loading && !viewState.loaded && (viewState.turns?.length ?? 0) === 0}
 				<CenteredLoading label="Loading chat…" />
 			{:else}
 				<div class="absolute inset-0 flex min-h-0 flex-col">
@@ -103,18 +111,18 @@ $effect(() => {
 						<ChatTimeline
 							timeline={host.timeline}
 							bind:bindListEl={listEl}
-							loading={Boolean(state?.loading && !state?.loaded)}
-							loadingOlder={Boolean(state?.loadingOlder)}
+							loading={Boolean(viewState?.loading && !viewState?.loaded)}
+							loadingOlder={Boolean(viewState?.loadingOlder)}
 							onFirstVisible={() => {
-								if (state?.hasMore && !state.loadingOlder) {
+								if (viewState?.hasMore && !viewState.loadingOlder) {
 									void host.loadOlderTurns();
 								}
 							}}
 						/>
 					</div>
-					{#if state?.error && state.loaded}
+					{#if viewState?.error && viewState.loaded}
 						<div class="px-4 pb-2">
-							<AccessStateView state={state.error} size="compact" />
+							<AccessStateView state={viewState.error} size="compact" />
 						</div>
 					{/if}
 					<div class="shrink-0 border-t border-border-subtle px-3 py-2">
@@ -139,7 +147,7 @@ $effect(() => {
 					</div>
 				</div>
 			{/if}
-			{#if state?.loading && state.loaded}
+			{#if viewState?.loading && viewState.loaded}
 				<div class="pointer-events-none absolute right-3 top-3">
 					<Loader2 class="h-3.5 w-3.5 animate-spin text-text-placeholder" />
 				</div>
