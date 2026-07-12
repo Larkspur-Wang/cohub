@@ -28,6 +28,19 @@ import { fallbackPublicUserProfile, getProfilesByUuids } from "./user-profiles.j
 // space public profile is inlined in attachSessionSpaceSummaries to avoid route-layer coupling
 import { enqueueSessionMessagePostprocess } from "./session-message-postprocess-queue.js";
 import { touchSpaceActivity } from "./space-activity.js";
+import {
+  decodeSessionListCursor,
+  mergeUserSessionListBranches,
+  resolveSessionListLimit,
+  paginateSessionRows,
+  type SessionListCursor,
+} from "./session-list.js";
+
+export {
+  encodeSessionListCursor,
+  InvalidSessionListCursorError,
+  mergeUserSessionListBranches,
+} from "./session-list.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -249,37 +262,6 @@ export const registerSpaceSession = async (input: RegisterSessionInput) => {
   }
 };
 
-const DEFAULT_SESSION_LIST_LIMIT = 20;
-const MAX_SESSION_LIST_LIMIT = 100;
-
-type SessionListCursor = {
-  /** ISO timestamp, or null when paging into NULL lastMessageAt rows. */
-  date: Date | null;
-  id: string | null;
-};
-
-export const encodeSessionListCursor = (
-  session: Pick<typeof spaceSessions.$inferSelect, "id" | "lastMessageAt"> | null | undefined,
-) => {
-  if (!session?.id) return null;
-  if (!session.lastMessageAt) return `null|${session.id}`;
-  const lastMessageAt = session.lastMessageAt instanceof Date
-    ? session.lastMessageAt.toISOString()
-    : new Date(session.lastMessageAt).toISOString();
-  return `${lastMessageAt}|${session.id}`;
-};
-
-const decodeSessionListCursor = (cursor: string | null | undefined): SessionListCursor | null => {
-  if (!cursor) return null;
-  const separatorIndex = cursor.lastIndexOf("|");
-  const rawDate = separatorIndex > 0 ? cursor.slice(0, separatorIndex) : cursor;
-  const id = separatorIndex > 0 ? cursor.slice(separatorIndex + 1) : null;
-  if (rawDate === "null") return { date: null, id };
-  const date = new Date(rawDate);
-  if (Number.isNaN(date.getTime())) return null;
-  return { date, id };
-};
-
 export const hydrateSessionParticipantProfiles = async <T extends typeof spaceSessions.$inferSelect>(sessions: T[]) => {
   const allUserUuids = new Set<string>();
   for (const session of sessions) {
@@ -301,28 +283,40 @@ export const hydrateSessionParticipantProfiles = async <T extends typeof spaceSe
   });
 };
 
-const resolveSessionListLimit = (limit?: number) => {
-  const rawLimit = Math.trunc(limit ?? DEFAULT_SESSION_LIST_LIMIT);
-  return Number.isFinite(rawLimit)
-    ? Math.min(Math.max(rawLimit, 1), MAX_SESSION_LIST_LIMIT)
-    : DEFAULT_SESSION_LIST_LIMIT;
+/**
+ * JSONB membership for meta.participants.userUuids.
+ * Keep the expression free of coalesce() so it can use the GIN index on
+ * (meta -> 'participants' -> 'userUuids'). Null path => no match.
+ */
+const userSessionParticipantCondition = (userUuid: string) =>
+  sql`(${spaceSessions.meta} -> 'participants' -> 'userUuids') ? ${userUuid}`;
+
+/** Matches `ORDER BY lastMessageAt DESC NULLS LAST, id DESC`. */
+const sessionListActivityCursorCondition = (
+  cursor: SessionListCursor | null,
+) => {
+  if (!cursor) return undefined;
+  // NULLS LAST: after any non-null activity, continue with remaining null rows.
+  if (cursor.date === null) {
+    return and(
+      isNull(spaceSessions.lastMessageAt),
+      lt(spaceSessions.id, cursor.id),
+    );
+  }
+  return or(
+    lt(spaceSessions.lastMessageAt, cursor.date),
+    isNull(spaceSessions.lastMessageAt),
+    and(
+      eq(spaceSessions.lastMessageAt, cursor.date),
+      lt(spaceSessions.id, cursor.id),
+    ),
+  );
 };
 
-const paginateSessionRows = (
-  rows: (typeof spaceSessions.$inferSelect)[],
-  limit: number,
-) => {
-  const hasMore = rows.length > limit;
-  const sessions = hasMore ? rows.slice(0, limit) : rows;
-  const lastSession = sessions.at(-1);
-  return {
-    sessions,
-    pageInfo: {
-      hasMore,
-      nextCursor: hasMore ? encodeSessionListCursor(lastSession) : null,
-    },
-  };
-};
+const sessionListOrderBy = [
+  sql`${spaceSessions.lastMessageAt} desc nulls last`,
+  desc(spaceSessions.id),
+] as const;
 
 export const listSpaceSessions = async (
   spaceId: string,
@@ -336,42 +330,9 @@ export const listSpaceSessions = async (
     activityCursor
       ? and(eq(spaceSessions.spaceId, spaceId), activityCursor)
       : eq(spaceSessions.spaceId, spaceId),
-  ).orderBy(
-    sql`${spaceSessions.lastMessageAt} desc nulls last`,
-    desc(spaceSessions.id),
-  ).limit(limit + 1);
+  ).orderBy(...sessionListOrderBy).limit(limit + 1);
 
   return paginateSessionRows(rows, limit);
-};
-
-/** Sessions the user created or participates in, across spaces. */
-const userSessionMembershipCondition = (userUuid: string) => or(
-  eq(spaceSessions.userUuid, userUuid),
-  sql`coalesce(${spaceSessions.meta}->'participants'->'userUuids', '[]'::jsonb) ? ${userUuid}`,
-);
-
-/** Matches `ORDER BY lastMessageAt DESC NULLS LAST, id DESC`. */
-const sessionListActivityCursorCondition = (
-  cursor: SessionListCursor | null,
-) => {
-  if (!cursor) return undefined;
-  // NULLS LAST: after any non-null activity, continue with remaining null rows.
-  if (cursor.date === null) {
-    return and(
-      isNull(spaceSessions.lastMessageAt),
-      cursor.id ? lt(spaceSessions.id, cursor.id) : undefined,
-    );
-  }
-  return or(
-    lt(spaceSessions.lastMessageAt, cursor.date),
-    isNull(spaceSessions.lastMessageAt),
-    cursor.id
-      ? and(
-        eq(spaceSessions.lastMessageAt, cursor.date),
-        lt(spaceSessions.id, cursor.id),
-      )
-      : undefined,
-  );
 };
 
 export type UserSessionSpaceSummary = {
@@ -429,24 +390,41 @@ export const attachSessionSpaceSummaries = async <T extends { spaceId: string }>
   }));
 };
 
-/** List sessions created by or participated in by a user, across spaces. */
+/**
+ * List sessions created by or participated in by a user, across spaces.
+ *
+ * Split into two index-friendly branches (creator / participant-only) so the
+ * planner can use user_uuid and the participants GIN index independently,
+ * then merge in activity order. Participant branch excludes creator rows to
+ * avoid duplicates before merge.
+ */
 export const listUserSessions = async (
   userUuid: string,
   options?: { limit?: number; cursor?: string | null },
 ) => {
   const limit = resolveSessionListLimit(options?.limit);
   const cursor = decodeSessionListCursor(options?.cursor);
-  const membership = userSessionMembershipCondition(userUuid);
   const activityCursor = sessionListActivityCursorCondition(cursor);
+  const branchLimit = limit + 1;
 
-  const rows = await db.select().from(spaceSessions).where(
-    activityCursor ? and(membership, activityCursor) : membership,
-  ).orderBy(
-    sql`${spaceSessions.lastMessageAt} desc nulls last`,
-    desc(spaceSessions.id),
-  ).limit(limit + 1);
+  const creatorWhere = activityCursor
+    ? and(eq(spaceSessions.userUuid, userUuid), activityCursor)
+    : eq(spaceSessions.userUuid, userUuid);
 
-  return paginateSessionRows(rows, limit);
+  const participantOnly = and(
+    userSessionParticipantCondition(userUuid),
+    sql`${spaceSessions.userUuid} is distinct from ${userUuid}`,
+  );
+  const participantWhere = activityCursor
+    ? and(participantOnly, activityCursor)
+    : participantOnly;
+
+  const [creatorRows, participantRows] = await Promise.all([
+    db.select().from(spaceSessions).where(creatorWhere).orderBy(...sessionListOrderBy).limit(branchLimit),
+    db.select().from(spaceSessions).where(participantWhere).orderBy(...sessionListOrderBy).limit(branchLimit),
+  ]);
+
+  return mergeUserSessionListBranches([creatorRows, participantRows], limit);
 };
 
 const getNextSessionSequence = async (sessionId: string) => {

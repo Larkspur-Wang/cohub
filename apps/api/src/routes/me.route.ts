@@ -16,6 +16,7 @@ import {
   attachSessionSpaceSummaries,
   encodeSessionListCursor,
   hydrateSessionParticipantProfiles,
+  InvalidSessionListCursorError,
   listUserSessions,
 } from "../space-sessions.js";
 import {
@@ -270,6 +271,9 @@ router.get("/sessions", async (c) => {
     const withSpaces = await attachSessionSpaceSummaries(hydratedSessions);
     return c.json({ sessions: withSpaces, pageInfo });
   } catch (error) {
+    if (error instanceof InvalidSessionListCursorError) {
+      return c.json({ message: "invalid cursor" }, 400);
+    }
     logger.error("[me/sessions] query failed", error);
     return c.json({ message: "failed to load sessions" }, 500);
   }

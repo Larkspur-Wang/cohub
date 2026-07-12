@@ -29,6 +29,7 @@ import {
   getSpaceById,
   getSpaceSessionById,
   hydrateSessionParticipantProfiles,
+  InvalidSessionListCursorError,
   listSpaceSessions,
   normalizeSpaceEnv,
   validateSpaceEnv,
@@ -2126,7 +2127,16 @@ router.get("/:id/sessions", async (c) => {
   const limitParam = Number(c.req.query("limit") ?? 20);
   const limit = Number.isFinite(limitParam) ? limitParam : 20;
   const cursor = c.req.query("cursor") ?? null;
-  const { sessions, pageInfo } = await listSpaceSessions(spaceId, { limit, cursor });
+  let sessions: Awaited<ReturnType<typeof listSpaceSessions>>["sessions"];
+  let pageInfo: Awaited<ReturnType<typeof listSpaceSessions>>["pageInfo"];
+  try {
+    ({ sessions, pageInfo } = await listSpaceSessions(spaceId, { limit, cursor }));
+  } catch (error) {
+    if (error instanceof InvalidSessionListCursorError) {
+      return c.json({ message: "invalid cursor" }, 400);
+    }
+    throw error;
+  }
 
   // Member users have space-level permission that covers all sessions.
   // Only non-members need per-session accessPolicy checks.

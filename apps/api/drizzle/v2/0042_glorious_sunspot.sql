@@ -1,0 +1,2 @@
+CREATE INDEX "v2_idx_space_sessions_user_last_message" ON "v2"."space_sessions" USING btree ("user_uuid","last_message_at" DESC NULLS LAST,"id" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "v2_idx_space_sessions_participant_user_uuids" ON "v2"."space_sessions" USING gin (("meta" -> 'participants' -> 'userUuids'));

@@ -1,0 +1,127 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  decodeSessionListCursor,
+  encodeSessionListCursor,
+  InvalidSessionListCursorError,
+  mergeUserSessionListBranches,
+} from "./session-list.js";
+
+const session = (id: string, lastMessageAt: string | null) => ({
+  id,
+  lastMessageAt: lastMessageAt ? new Date(lastMessageAt) : null,
+});
+
+describe("mergeUserSessionListBranches", () => {
+  it("merges creator and participant branches by recent activity", () => {
+    const creator = [
+      session("c1", "2026-07-12T10:00:00.000Z"),
+      session("c2", "2026-07-12T08:00:00.000Z"),
+    ];
+    const participant = [
+      session("p1", "2026-07-12T11:00:00.000Z"),
+      session("p2", "2026-07-12T09:00:00.000Z"),
+    ];
+
+    const page = mergeUserSessionListBranches([creator, participant], 3);
+    assert.deepEqual(
+      page.sessions.map((row) => row.id),
+      ["p1", "c1", "p2"],
+    );
+    assert.equal(page.pageInfo.hasMore, true);
+    assert.equal(page.pageInfo.nextCursor, encodeSessionListCursor(page.sessions.at(-1)));
+  });
+
+  it("dedupes by session id across branches", () => {
+    const shared = session("s1", "2026-07-12T12:00:00.000Z");
+    const page = mergeUserSessionListBranches([[shared], [shared, session("p1", "2026-07-12T11:00:00.000Z")]], 10);
+    assert.deepEqual(
+      page.sessions.map((row) => row.id),
+      ["s1", "p1"],
+    );
+    assert.equal(page.pageInfo.hasMore, false);
+    assert.equal(page.pageInfo.nextCursor, null);
+  });
+
+  it("keeps null lastMessageAt after timed rows (NULLS LAST)", () => {
+    const page = mergeUserSessionListBranches(
+      [
+        [session("null-a", null), session("timed", "2026-07-12T01:00:00.000Z")],
+        [session("null-b", null)],
+      ],
+      10,
+    );
+    assert.deepEqual(
+      page.sessions.map((row) => row.id),
+      ["timed", "null-b", "null-a"],
+    );
+  });
+
+  it("breaks ties by id DESC when activity timestamps match", () => {
+    const stamp = "2026-07-12T05:00:00.000Z";
+    const page = mergeUserSessionListBranches(
+      [
+        [session("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", stamp)],
+        [session("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", stamp)],
+      ],
+      10,
+    );
+    assert.deepEqual(
+      page.sessions.map((row) => row.id),
+      ["bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"],
+    );
+  });
+});
+
+describe("decodeSessionListCursor", () => {
+  const id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+  it("returns null for missing or blank cursors", () => {
+    assert.equal(decodeSessionListCursor(null), null);
+    assert.equal(decodeSessionListCursor(undefined), null);
+    assert.equal(decodeSessionListCursor(""), null);
+    assert.equal(decodeSessionListCursor("   "), null);
+  });
+
+  it("parses timed and null-activity cursors", () => {
+    assert.deepEqual(decodeSessionListCursor(`2026-07-12T10:00:00.000Z|${id}`), {
+      date: new Date("2026-07-12T10:00:00.000Z"),
+      id,
+    });
+    assert.deepEqual(decodeSessionListCursor(`null|${id}`), {
+      date: null,
+      id,
+    });
+  });
+
+  it("round-trips encode → decode", () => {
+    const timed = encodeSessionListCursor(session(id, "2026-07-12T10:00:00.000Z"));
+    const idle = encodeSessionListCursor(session(id, null));
+    assert.deepEqual(decodeSessionListCursor(timed), {
+      date: new Date("2026-07-12T10:00:00.000Z"),
+      id,
+    });
+    assert.deepEqual(decodeSessionListCursor(idle), {
+      date: null,
+      id,
+    });
+  });
+
+  it("rejects malformed cursors instead of soft-falling back", () => {
+    const invalid = [
+      "not-a-cursor",
+      `not-a-date|${id}`,
+      "2026-07-12T10:00:00.000Z|not-a-uuid",
+      "2026-07-12T10:00:00.000Z|",
+      `|${id}`,
+      "null|",
+      "null|abc",
+    ];
+    for (const cursor of invalid) {
+      assert.throws(
+        () => decodeSessionListCursor(cursor),
+        (error: unknown) => error instanceof InvalidSessionListCursorError,
+      );
+    }
+  });
+});

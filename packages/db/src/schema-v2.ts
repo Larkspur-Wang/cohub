@@ -493,6 +493,17 @@ export const spaceSessions = v2.table(
       table.lastMessageAt.desc().nullsLast(),
       table.id.desc(),
     ),
+    // Speeds up /me/sessions creator branch: user_uuid + activity order.
+    userLastMessageIdx: index("v2_idx_space_sessions_user_last_message").on(
+      table.userUuid,
+      table.lastMessageAt.desc().nullsLast(),
+      table.id.desc(),
+    ),
+    // Speeds up participant membership: meta.participants.userUuids ? userUuid.
+    participantUserUuidsIdx: index("v2_idx_space_sessions_participant_user_uuids").using(
+      "gin",
+      sql`(${table.meta} -> 'participants' -> 'userUuids')`,
+    ),
   }),
 );
 
