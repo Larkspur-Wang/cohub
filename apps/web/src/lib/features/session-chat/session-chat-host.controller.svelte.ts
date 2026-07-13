@@ -133,6 +133,10 @@ import {
 	createSessionWorkspaceController,
 	type SessionViewState,
 } from "./session-workspace-controller.svelte";
+import {
+	acquireSpaceGeneration,
+	releaseSpaceGeneration,
+} from "./space-generation-lease";
 import type {
 	SelectedModel,
 	SessionChatAccess,
@@ -2443,29 +2447,36 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	async function handleForkTurn(turn: SessionTurnRecord) {
 		if (!activeSessionId || forkingTurnId) return;
+		const opSpaceId = spaceId;
+		const opSessionId = activeSessionId;
+		const parentSession = activeSessionState?.session ?? null;
 		forkingTurnId = turn.id;
 		clearComposerError();
 		try {
 			const response = await sdk
-				.space(spaceId)
-				.session(activeSessionId)
+				.space(opSpaceId)
+				.session(opSessionId)
 				.turn(turn.sourceTurnId ?? turn.id)
 				.fork();
+			if (disposed || spaceId !== opSpaceId) return;
 			await sessionTurnsRepo
-				.clearSession(spaceId, response.session.id)
+				.clearSession(opSpaceId, response.session.id)
 				.catch(() => undefined);
+			if (disposed || spaceId !== opSpaceId) return;
 			await syncForkResponseToSessionListCache(
 				response.session,
 				response.fork as SessionListForkRecord,
-				activeSessionState?.session ?? null,
+				parentSession,
 			).catch(() => undefined);
+			if (disposed || spaceId !== opSpaceId) return;
 			await options.router.toSession(response.session.id);
 		} catch (error) {
+			if (disposed || spaceId !== opSpaceId) return;
 			setComposerError(
 				error instanceof Error ? error.message : "Failed to fork session",
 			);
 		} finally {
-			forkingTurnId = null;
+			if (spaceId === opSpaceId) forkingTurnId = null;
 		}
 	}
 
@@ -2477,22 +2488,24 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			aborting
 		)
 			return;
+		const opSpaceId = spaceId;
+		const opSessionId = activeSessionId;
+		const opTurnId = activeGenerationState?.turnId ?? null;
 		composer.aborting = true;
 		clearComposerError();
 		try {
-			await sdk
-				.space(spaceId)
-				.session(activeSessionId)
-				.abort({
-					turnId: activeGenerationState?.turnId ?? null,
-				});
-			interruptGeneration(activeSessionId);
+			await sdk.space(opSpaceId).session(opSessionId).abort({
+				turnId: opTurnId,
+			});
+			if (disposed || spaceId !== opSpaceId) return;
+			interruptGeneration(opSessionId);
 		} catch (error) {
+			if (disposed || spaceId !== opSpaceId) return;
 			setComposerError(
 				error instanceof Error ? error.message : "Failed to stop generation",
 			);
 		} finally {
-			composer.aborting = false;
+			if (spaceId === opSpaceId) composer.aborting = false;
 		}
 	}
 
@@ -2521,6 +2534,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	async function materializeDurableUrlsToSandbox(
+		opSpaceId: string,
 		sessionId: string | null,
 		entries: Array<{
 			name: string;
@@ -2546,7 +2560,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			downloadUrl: entries[index].downloadUrl,
 		}));
 		const uploaded = await materializeSpaceEntries({
-			spaceId,
+			spaceId: opSpaceId,
 			destination: {
 				kind: "sandbox_tmp",
 				...(sessionId ? { sessionId } : {}),
@@ -2557,6 +2571,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	async function uploadComposerFileDurables(
+		opSpaceId: string,
 		sessionId: string | null,
 		fileAttachments: ComposerFileAttachment[],
 	) {
@@ -2566,7 +2581,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		await Promise.all(
 			fileAttachments.map(async (attachment) => {
 				const asset = await uploadChatAttachmentFile({
-					spaceId,
+					spaceId: opSpaceId,
 					sessionId: sessionId ?? undefined,
 					file: attachment.file,
 					filename: attachment.name,
@@ -2578,6 +2593,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	async function uploadComposerImageDurables(
+		opSpaceId: string,
 		sessionId: string | null,
 		imageAttachments: ComposerImageAttachment[],
 	) {
@@ -2600,7 +2616,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				}
 				try {
 					const asset = await uploadChatAttachmentImage({
-						spaceId,
+						spaceId: opSpaceId,
 						sessionId: sessionId ?? undefined,
 						file: attachment.file,
 						mediaType: attachment.mediaType,
@@ -2620,7 +2636,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 					);
 					try {
 						const asset = await uploadChatAttachmentFile({
-							spaceId,
+							spaceId: opSpaceId,
 							sessionId: sessionId ?? undefined,
 							file: attachment.file,
 							filename: attachment.name,
@@ -2708,7 +2724,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		composer.sending = true;
 		const model = activeSessionModel;
 		clearComposerError();
-		clearGenerationError(activeSessionId);
+		// Snapshot identity for the whole send pipeline (multi-space host safe).
+		const opSpaceId = spaceId;
+		const opSessionIdAtStart = activeSessionId;
+		clearGenerationError(opSessionIdAtStart);
 		// Existing session only — new chat lets prompt create the session server-side.
 		let sessionId = activeSessionState?.session?.id ?? null;
 		let targetSessionState = activeSessionState;
@@ -2747,8 +2766,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			// Client uploads once to durable public storage.
 			// With space, server materializes from those URLs into sandbox (no second client upload).
 			const [fileDurableUrls, imageUpload] = await Promise.all([
-				uploadComposerFileDurables(sessionId, fileAttachments),
-				uploadComposerImageDurables(sessionId, imageAttachments),
+				uploadComposerFileDurables(opSpaceId, sessionId, fileAttachments),
+				uploadComposerImageDurables(opSpaceId, sessionId, imageAttachments),
 			]);
 			const imageUrls = imageUpload.urls;
 			const demotedImageIds = imageUpload.demotedIds;
@@ -2791,6 +2810,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			const sandboxPaths =
 				materializeSource.length > 0
 					? await materializeDurableUrlsToSandbox(
+							opSpaceId,
 							sessionId,
 							materializeSource,
 						).catch((error) => {
@@ -2826,6 +2846,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			uploadedImageUrls = imageUrls;
 			uploadCompleted = true;
 			const userText = input.trim();
+			if (disposed || spaceId !== opSpaceId) {
+				// Host left this space while upload was in flight — drop results.
+				composer.sending = false;
+				return;
+			}
 			const pendingViewportContexts = viewport.takeSendSnapshot();
 			// Prefer sandbox paths when available; otherwise durable public URLs.
 			const referenceText = sandboxPaths.length
@@ -2940,12 +2965,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				requestBottomFollow({ immediate: true });
 				if (!hasActiveTurn)
 					startGenerationRequest(sessionId, {
-						spaceId,
+						spaceId: opSpaceId,
 						turnId: optimisticTurnId,
 					});
 			}
 
-			const sendResult = await sdk.space(spaceId).prompt({
+			const sendResult = await sdk.space(opSpaceId).prompt({
 				// Omit sessionId for new chat — server creates it.
 				...(sessionId ? { sessionId } : {}),
 				content,
@@ -2961,6 +2986,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (sendResult.mode !== "immediate") {
 				throw new Error("Expected immediate prompt response");
 			}
+			if (disposed || spaceId !== opSpaceId) {
+				composer.sending = false;
+				return;
+			}
 			const acceptedTurn = sendResult.turn;
 			const acceptedSession = sendResult.session;
 			if (!acceptedSession) throw new Error("Prompt response missing session");
@@ -2972,7 +3001,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				});
 				sessionId = acceptedSession.id;
 				startGenerationRequest(sessionId, {
-					spaceId,
+					spaceId: opSpaceId,
 					turnId: acceptedTurn.id,
 				});
 				scroll.shouldAutoFollow = true;
@@ -3018,6 +3047,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				requestBottomFollow({ immediate: true });
 			}
 		} catch (error) {
+			// Restore only if we still own the originating space/session context.
+			if (disposed || spaceId !== opSpaceId) {
+				composer.sending = false;
+				return;
+			}
 			// Restore input and attachments on failure so user doesn't lose their message
 			viewport.restoreAfterFailedSend();
 			if ((hadFileUpload || hadImageUpload) && uploadCompleted) {
@@ -3361,6 +3395,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	async function ingestRealtimeEnvelope(payload: ChannelEnvelope) {
+		if (disposed) return;
 		try {
 			// Shell owns FS / ports / labels; chat only consumes session/task events.
 			if (
@@ -3578,11 +3613,46 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	function enterSpace(nextSpaceId: string) {
 		if (disposed) return;
-		if (spaceId === nextSpaceId && spaceId !== "") return;
+		// Soft clear: no space selected (e.g. Sessions empty state).
+		if (!nextSpaceId) {
+			if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
+			if (spaceId) flushActiveComposerDraft();
+			const previous = spaceId;
+			spaceId = "";
+			resolvedNewSessionId = null;
+			createSessionError = "";
+			forkingTurnId = null;
+			workspace.reset();
+			turnLoading.reset();
+			turnHydrationInFlight.clear();
+			clearAllPostSendRecovery();
+			generationPolicy.apply(null);
+			generationRealtime.clearStreamSnapshotRecoveryCooldowns();
+			generationRealtime.syncActiveSubscription(false);
+			currentTurnSequence = null;
+			highlightedTurnSequence = null;
+			scroll.turnMarkerPositions = {};
+			scroll.turnMarkerHeights = {};
+			lastTurnIndexRefreshKey = "";
+			showTurnBottomSheet = false;
+			appliedRouteTurnKey = null;
+			share.reset();
+			tasks.reset();
+			sessionModelById = {};
+			draftSessionModel = null;
+			draftSessionModelManuallySelected = false;
+			route = { kind: "none" };
+			if (previous) releaseSpaceGeneration(previous);
+			return;
+		}
+		if (spaceId === nextSpaceId) return;
 		const previous = spaceId;
 		if (previous && activeSessionId)
 			captureCurrentScrollAnchor(activeSessionId);
 		if (previous) flushActiveComposerDraft();
+		// Multi-host safe: lease generation store per space; only last leaver resets.
+		if (previous) releaseSpaceGeneration(previous);
+		acquireSpaceGeneration(nextSpaceId);
 		spaceId = nextSpaceId;
 		resolvedNewSessionId = null;
 		createSessionError = "";
@@ -3605,8 +3675,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		sessionModelById = {};
 		draftSessionModel = null;
 		draftSessionModelManuallySelected = false;
-		if (previous) sessionGenerationStore.resetSpace(previous);
-		sessionGenerationStore.resetSpace(nextSpaceId);
 		promptTemplatesCtrl.restore(nextSpaceId);
 		void loadPromptTemplates();
 		loadSessionScrollAnchors();
@@ -3758,11 +3826,21 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		disposed = true;
 		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 		flushActiveComposerDraft();
+		generationRealtime.dispose();
+		share.dispose();
 		composer.dispose();
 		viewport.dispose();
+		scroll.stopVimScroll();
+		scroll.clearPendingVimG();
+		if (turnMarkerMeasureFrame != null) {
+			cancelAnimationFrame(turnMarkerMeasureFrame);
+			turnMarkerMeasureFrame = null;
+		}
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
 		clearAllPostSendRecovery();
+		// Release generation lease for the space this host owned.
+		if (spaceId) releaseSpaceGeneration(spaceId);
 	}
 
 	function onLoadToolCalls(input: {

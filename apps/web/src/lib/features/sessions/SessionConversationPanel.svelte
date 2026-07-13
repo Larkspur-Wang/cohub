@@ -8,7 +8,9 @@ import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
 import type { SessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
 import { getSessionTitle } from "$lib/features/session-chat/session-utils";
+import SessionModelSelectorDialog from "$lib/features/space/modules/SessionModelSelectorDialog.svelte";
 import { buildSpaceSessionRoute } from "$lib/space-routes";
+import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 
 const {
 	host,
@@ -31,6 +33,27 @@ const spaceHref = $derived(
 			: null,
 );
 const hasSession = $derived(Boolean(host.activeSessionId));
+
+// Model selector is host-owned state; dialog lives with each shell that mounts the panel.
+let showModelSelector = $state(false);
+$effect(() => {
+	showModelSelector = host.showModelSelector;
+});
+$effect(() => {
+	host.showModelSelector = showModelSelector;
+});
+const modelsCatalog = $derived(modelsCatalogStore.items);
+const generationModelsCatalog = $derived(host.generationModelsCatalog);
+const generationPolicyMode = $derived(host.generationPolicyMode);
+const selectedGenerationModels = $derived(host.selectedGenerationModels);
+const generationEnumSelections = $derived(host.generationEnumSelections);
+const generationNumericConstraints = $derived(
+	host.generationNumericConstraints,
+);
+const generationBooleanConstraints = $derived(
+	host.generationBooleanConstraints,
+);
+const activeSessionModel = $derived(host.activeSessionModel);
 </script>
 
 <section class="flex h-full min-h-0 flex-col bg-bg-content">
@@ -76,5 +99,28 @@ const hasSession = $derived(Boolean(host.activeSessionId));
 		<div class="min-h-0 flex-1 overflow-hidden">
 			<SessionChatPanel host={host} />
 		</div>
+		<SessionModelSelectorDialog
+			open={showModelSelector}
+			onClose={() => {
+				showModelSelector = false;
+			}}
+			onSelect={host.handleModelSelect}
+			models={modelsCatalog ?? []}
+			currentModel={activeSessionModel}
+			generationModels={generationModelsCatalog ?? []}
+			{generationPolicyMode}
+			{selectedGenerationModels}
+			{generationEnumSelections}
+			{generationNumericConstraints}
+			{generationBooleanConstraints}
+			onGenerationTabOpen={() => {
+				void host.loadGenerationModelsCatalog();
+			}}
+			onGenerationPolicyModeChange={host.setGenerationPolicyMode}
+			onGenerationModelToggle={host.setGenerationModelSelected}
+			onGenerationEnumValueToggle={host.setGenerationEnumValueSelected}
+			onGenerationNumericConstraintChange={host.setGenerationNumericConstraint}
+			onGenerationBooleanConstraintChange={host.setGenerationBooleanConstraint}
+		/>
 	{/if}
 </section>

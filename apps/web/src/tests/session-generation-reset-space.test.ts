@@ -4,6 +4,7 @@ import { test } from "node:test";
 /**
  * Mirrors SessionGenerationStore.resetSpace: only drop entries owned by spaceId.
  * Keeps other hosts/spaces intact (multi-host safety invariant).
+ * See also space-generation-lease.test.ts for host refcount ownership.
  */
 function resetSpaceEntries<T extends { spaceId?: string | null }>(
 	bySessionId: Record<string, T>,

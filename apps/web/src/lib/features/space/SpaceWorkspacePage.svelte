@@ -80,11 +80,6 @@ import {
 } from "$lib/stores/session-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
-	getCachedTaskRuns,
-	onTaskRunsCacheUpdated,
-	restoreCachedTaskRuns,
-} from "$lib/stores/task-runs-cache";
-import {
 	IMMERSIVE_CHAT_MAX,
 	IMMERSIVE_CHAT_MIN,
 	RIGHT_SIDEBAR_MAX,
@@ -1711,19 +1706,6 @@ onMount(() => {
 			sessionChat.applySessionsSnapshot(sessions);
 		},
 	);
-	// Seed task tray cache for this space; host hydrates the active session.
-	for (const run of getCachedTaskRuns(spaceId)) {
-		sessionChat.tasks.upsertGenerationTaskRun(run);
-		sessionChat.tasks.upsertBackgroundBashTaskRun(run);
-	}
-	void restoreCachedTaskRuns(spaceId)
-		.then((runs) => {
-			for (const run of runs) {
-				sessionChat.tasks.upsertGenerationTaskRun(run);
-				sessionChat.tasks.upsertBackgroundBashTaskRun(run);
-			}
-		})
-		.catch(() => undefined);
 	const offCanvasTxApplied = sdk
 		.space(spaceId)
 		.on("canvas.tx.applied", (event) => {
@@ -1751,15 +1733,6 @@ onMount(() => {
 					);
 				});
 		});
-	const offTaskRunsCacheUpdated = onTaskRunsCacheUpdated(
-		({ spaceId: updatedSpaceId, runs }) => {
-			if (updatedSpaceId !== spaceId) return;
-			for (const run of runs) {
-				sessionChat.tasks.upsertGenerationTaskRun(run);
-				sessionChat.tasks.upsertBackgroundBashTaskRun(run);
-			}
-		},
-	);
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
 		spaceConfig = config;
 	});
@@ -1806,7 +1779,6 @@ onMount(() => {
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
 		offCanvasTxApplied();
-		offTaskRunsCacheUpdated();
 		offSpaceConfigUpdated();
 		offSpaceConfigBackgroundAction();
 		offDanmakuPrefs();

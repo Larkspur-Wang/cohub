@@ -38,9 +38,16 @@ const list = createUserSessionListController();
 
 /** Mutable space identity for host environment ports (set before syncContext). */
 const spaceBox = { current: "" as string };
-const connectionBox: {
-	current: "idle" | "connecting" | "reconnecting" | "open" | "closed" | "error";
-} = { current: "open" };
+type ConnectionState =
+	| "idle"
+	| "connecting"
+	| "reconnecting"
+	| "open"
+	| "closed"
+	| "error";
+
+const connectionBox: { current: ConnectionState } = { current: "idle" };
+let hasOpenedOnce = false;
 
 function resolveOpenPathTarget(
 	target: string | WorkspaceFileLinkTarget,
@@ -149,17 +156,11 @@ async function openChatSession(input: {
 }
 
 function clearChatSession() {
+	// Soft clear: keep space lease if any, only drop active session route.
+	// Host enterSpace("") is used when leaving the page entirely (dispose).
 	const spaceId = spaceBox.current;
-	if (!spaceId) {
-		sessionChat.syncContext({
-			spaceId: "",
-			route: { kind: "none" },
-			access: accessForSessions(),
-		});
-		return;
-	}
 	sessionChat.syncContext({
-		spaceId,
+		spaceId: spaceId || "",
 		route: { kind: "none" },
 		access: accessForSessions(),
 	});
@@ -268,14 +269,26 @@ async function handleNewChat() {
 }
 
 // Keep the left list in sync when host mutates the active session record.
+// Untrack list reads/writes so upsertSession cannot re-enter this effect.
 $effect(() => {
 	const session = sessionChat.activeSession;
 	if (!session) return;
-	const existing = list.findById(session.id);
-	list.upsertSession({
-		...session,
-		space: existing?.space ?? null,
-	} as UserSessionListItem);
+	untrack(() => {
+		const existing = list.findById(session.id);
+		// Skip no-op writes (same title/updatedAt) to avoid churn.
+		if (
+			existing &&
+			existing.title === session.title &&
+			existing.updatedAt === session.updatedAt &&
+			existing.lastMessageId === session.lastMessageId
+		) {
+			return;
+		}
+		list.upsertSession({
+			...session,
+			space: existing?.space ?? null,
+		} as UserSessionListItem);
+	});
 });
 
 $effect(() => {
@@ -305,6 +318,24 @@ onMount(() => {
 	unsubscribeRealtime = list.subscribeRealtime();
 	void list.hydrateFromCache().then(() => list.refresh());
 	void modelsCatalogStore.load().catch(() => undefined);
+
+	// Real transport lifecycle (same signals Space uses via spaceRealtime).
+	const disposeConnection = sdk.onConnection((snapshot) => {
+		const state = (snapshot as { state?: ConnectionState }).state ?? "idle";
+		const previous = connectionBox.current;
+		connectionBox.current = state;
+		if (state === "open") {
+			sessionChat.onTransportOpen();
+			const recovered =
+				hasOpenedOnce &&
+				(previous === "reconnecting" ||
+					previous === "closed" ||
+					previous === "error");
+			hasOpenedOnce = true;
+			if (recovered) sessionChat.onConnectionRecovered();
+		}
+	});
+
 	const onVisible = () => {
 		if (document.visibilityState === "visible") {
 			void list.refresh({ force: true });
@@ -317,6 +348,7 @@ onMount(() => {
 	return () => {
 		window.removeEventListener("resize", updateViewport);
 		document.removeEventListener("visibilitychange", onVisible);
+		disposeConnection?.();
 	};
 });
 

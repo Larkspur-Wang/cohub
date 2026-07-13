@@ -9,6 +9,7 @@ import {
 	applyGenerationStreamSnapshot,
 } from "$lib/stores/session-generation-realtime";
 import { SessionRecoveryCoordinator } from "$lib/stores/session-recovery-coordinator";
+import { subscribeGenerationChannel } from "./generation-channel";
 import { areSessionTurnsEqual, preserveSessionTurnRefs } from "./session-utils";
 import type { SessionViewState } from "./session-workspace-controller.svelte";
 
@@ -487,18 +488,17 @@ export function createSessionGenerationRealtimeController(options: {
 		clearActiveGenerationSubscription();
 		activeGenerationSubscriptionKey = key;
 		try {
-			activeGenerationSubscriptionCleanup = sdk
-				.space(spaceId)
-				.session(sessionId)
-				.subscribeGeneration(
-					{
-						event: (event) => {
-							if (activeGenerationSubscriptionKey !== key) return;
-							void handleGenerationStreamEvent(sessionId, event);
-						},
+			// Shared across hosts watching the same session (Space + Sessions).
+			activeGenerationSubscriptionCleanup = subscribeGenerationChannel(
+				spaceId,
+				sessionId,
+				{
+					event: (event) => {
+						if (activeGenerationSubscriptionKey !== key) return;
+						void handleGenerationStreamEvent(sessionId, event);
 					},
-					{ recover: true },
-				);
+				},
+			);
 		} catch (error) {
 			clearActiveGenerationSubscription();
 			console.warn("[GenerationRealtime] subscribeGeneration failed:", error);

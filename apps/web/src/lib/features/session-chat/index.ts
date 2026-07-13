@@ -1,4 +1,8 @@
 export {
+	getActiveGenerationChannelCount,
+	subscribeGenerationChannel,
+} from "./generation-channel";
+export {
 	createSessionChatHost,
 	type SessionChatHost,
 	type SessionChatHostOptions,
@@ -20,6 +24,11 @@ export {
 	getActiveSpaceChannelCount,
 	subscribeSpaceChannel,
 } from "./space-channel";
+export {
+	acquireSpaceGeneration,
+	getSpaceGenerationLeaseCount,
+	releaseSpaceGeneration,
+} from "./space-generation-lease";
 export type {
 	SelectedModel,
 	SessionChatAccess,
