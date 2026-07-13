@@ -92,7 +92,10 @@ import {
 	DESKTOP_SHELL_MIN_WIDTH_PX,
 } from "$lib/layout/breakpoints";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
-import { uploadChatAttachmentImage } from "$lib/public-asset-images";
+import {
+	uploadChatAttachmentFile,
+	uploadChatAttachmentImage,
+} from "$lib/public-asset-images";
 import { sdk } from "$lib/sdk";
 import { sortSessionsByRecentActivity } from "$lib/session-sort";
 import type { TimelineItem } from "$lib/session-tree";
@@ -120,7 +123,7 @@ import {
 	isSpaceStylePath,
 	refreshSpaceStyle,
 } from "$lib/space-style";
-import { uploadSpaceEntries } from "$lib/space-upload";
+import { materializeSpaceEntries } from "$lib/space-upload";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
 	billingConversion,
@@ -3557,25 +3560,68 @@ function uniqueComposerRelativePaths(
 	});
 }
 
-async function materializeComposerFilesToSandbox(
+/** Server-side pull from durable public URLs into sandbox (no client re-upload). */
+async function materializeDurableUrlsToSandbox(
 	sessionId: string | null,
-	entries: Array<{ file: File; relativePath: string }>,
+	entries: Array<{
+		name: string;
+		relativePath: string;
+		size: number;
+		mimeType?: string | null;
+		downloadUrl: string;
+	}>,
 ) {
 	if (entries.length === 0) return [] as string[];
-	const uploaded = await uploadSpaceEntries({
+	// Deduplicate relative paths while keeping each entry's durable metadata.
+	const uniquePaths = uniqueComposerRelativePaths(
+		entries.map((entry) => ({
+			file: new File([], entry.name),
+			relativePath: entry.relativePath,
+		})),
+	);
+	const payload = uniquePaths.map((pathEntry, index) => ({
+		name: entries[index].name,
+		relativePath: pathEntry.relativePath,
+		size: entries[index].size,
+		mimeType: entries[index].mimeType ?? null,
+		downloadUrl: entries[index].downloadUrl,
+	}));
+	const uploaded = await materializeSpaceEntries({
 		spaceId,
 		destination: {
 			kind: "sandbox_tmp",
 			...(sessionId ? { sessionId } : {}),
 		},
-		entries: uniqueComposerRelativePaths(entries),
+		entries: payload,
 	});
 	return uploaded.map((file) => file.path);
 }
 
+/** Durable public URL for any chat binary. No space required. */
+async function uploadComposerFileDurables(
+	sessionId: string | null,
+	fileAttachments: ComposerFileAttachment[],
+) {
+	if (fileAttachments.length === 0) return new Map<string, string>();
+	sessionComposer.setUploading("file");
+	const urls = new Map<string, string>();
+	await Promise.all(
+		fileAttachments.map(async (attachment) => {
+			const asset = await uploadChatAttachmentFile({
+				spaceId,
+				sessionId: sessionId ?? undefined,
+				file: attachment.file,
+				filename: attachment.name,
+			});
+			urls.set(attachment.id, asset.publicUrl);
+		}),
+	);
+	return urls;
+}
+
 /**
- * Image specialization: durable public URL for vision/UI.
- * Failures demote to normal file semantics (sandbox path only) — never block send.
+ * Image specialization: durable public URL for vision/UI content blocks.
+ * Failures demote to normal file durable (no image content block).
  */
 async function uploadComposerImageDurables(
 	sessionId: string | null,
@@ -3584,11 +3630,13 @@ async function uploadComposerImageDurables(
 	if (imageAttachments.length === 0) {
 		return {
 			urls: new Map<string, string>(),
+			fileUrls: new Map<string, string>(),
 			demotedIds: new Set<string>(),
 		};
 	}
 	sessionComposer.setUploading("image");
 	const urls = new Map<string, string>();
+	const fileUrls = new Map<string, string>();
 	const demotedIds = new Set<string>();
 	await Promise.all(
 		imageAttachments.map(async (attachment) => {
@@ -3606,18 +3654,35 @@ async function uploadComposerImageDurables(
 				});
 				urls.set(attachment.id, asset.publicUrl);
 			} catch (error) {
-				// Specialization failed (size/format/network). Still send as file via sandbox.
+				// Image specialization failed — still upload as a normal durable file.
 				demotedIds.add(attachment.id);
-				console.warn("[composer] image durable upload demoted to file", {
-					name: attachment.name,
-					size: attachment.size,
-					error,
-				});
+				console.warn(
+					"[composer] image specialization demoted to file durable",
+					{
+						name: attachment.name,
+						size: attachment.size,
+						error,
+					},
+				);
+				try {
+					const asset = await uploadChatAttachmentFile({
+						spaceId,
+						sessionId: sessionId ?? undefined,
+						file: attachment.file,
+						filename: attachment.name,
+					});
+					fileUrls.set(attachment.id, asset.publicUrl);
+				} catch (fileError) {
+					console.warn("[composer] demoted image file durable failed", {
+						name: attachment.name,
+						error: fileError,
+					});
+				}
 			}
 		}),
 	);
 	if (urls.size > 0) sessionComposer.setUploadedImageUrls(urls);
-	return { urls, demotedIds };
+	return { urls, fileUrls, demotedIds };
 }
 
 function adoptPromptSession(input: {
@@ -3725,65 +3790,98 @@ async function handleSend() {
 		if (fileAttachments.length > 0) sessionComposer.setUploading("file");
 		if (imageAttachments.length > 0) sessionComposer.setUploading("image");
 
-		// Attachments do not require a session. New chat omits sessionId on prompt.
-		// Explicit files require sandbox materialize (file.edit).
-		// Image sandbox materialize is best-effort — durable URL is enough for vision/UI.
-		const fileSandboxEntries = fileAttachments.map((attachment) => ({
-			file: attachment.file,
-			relativePath: attachment.relativePath,
-		}));
-		const imageSandboxEntries = imageAttachments.map((attachment) => ({
-			file: attachment.file,
-			relativePath: attachment.name,
-		}));
-		const imageUploadPromise = uploadComposerImageDurables(
-			sessionId,
-			imageAttachments,
-		);
-		const filePathsPromise =
-			fileSandboxEntries.length > 0
-				? materializeComposerFilesToSandbox(sessionId, fileSandboxEntries)
-				: Promise.resolve([] as string[]);
-		const imagePathsPromise =
-			imageSandboxEntries.length > 0
-				? materializeComposerFilesToSandbox(
-						sessionId,
-						imageSandboxEntries,
-					).catch((error) => {
-						// Best-effort: prompt-only users can still send images via durable URL.
-						console.warn("[composer] image sandbox materialize skipped", error);
-						return [] as string[];
-					})
-				: Promise.resolve([] as string[]);
-		const [imageUpload, filePaths, imagePaths] = await Promise.all([
-			imageUploadPromise,
-			filePathsPromise,
-			imagePathsPromise,
+		// Client uploads once to durable public storage.
+		// With space, server materializes from those URLs into sandbox (no second client upload).
+		const [fileDurableUrls, imageUpload] = await Promise.all([
+			uploadComposerFileDurables(sessionId, fileAttachments),
+			uploadComposerImageDurables(sessionId, imageAttachments),
 		]);
 		const imageUrls = imageUpload.urls;
 		const demotedImageIds = imageUpload.demotedIds;
-		const sandboxPaths = [...filePaths, ...imagePaths];
-		// Pure-image send with no durable URL and no sandbox path cannot be delivered.
-		if (
-			imageAttachments.length > 0 &&
-			fileAttachments.length === 0 &&
-			imageUrls.size === 0 &&
-			sandboxPaths.length === 0 &&
-			!input.trim() &&
-			attachments.every((attachment) => attachment.kind === "image")
-		) {
-			throw new Error("Failed to upload attachments.");
+		const demotedImageFileUrls = imageUpload.fileUrls;
+		const durableFileUrls = [
+			...fileDurableUrls.values(),
+			...demotedImageFileUrls.values(),
+		];
+
+		const materializeSource = [
+			...fileAttachments.flatMap((attachment) => {
+				const url = fileDurableUrls.get(attachment.id);
+				if (!url) return [];
+				return [
+					{
+						name: attachment.name,
+						relativePath: attachment.relativePath,
+						size: attachment.size,
+						mimeType: attachment.mediaType,
+						downloadUrl: url,
+					},
+				];
+			}),
+			...imageAttachments.flatMap((attachment) => {
+				const url =
+					imageUrls.get(attachment.id) ??
+					demotedImageFileUrls.get(attachment.id);
+				if (!url) return [];
+				return [
+					{
+						name: attachment.name,
+						relativePath: attachment.name,
+						size: attachment.size,
+						mimeType: attachment.mediaType,
+						downloadUrl: url,
+					},
+				];
+			}),
+		];
+		const sandboxPaths =
+			materializeSource.length > 0
+				? await materializeDurableUrlsToSandbox(
+						sessionId,
+						materializeSource,
+					).catch((error) => {
+						// Durable URL is enough without sandbox.
+						console.warn("[composer] sandbox materialize skipped", error);
+						return [] as string[];
+					})
+				: [];
+
+		// Per-attachment delivery: each binary must have durable URL (image or file).
+		// Sandbox is additive; durable is the always-on channel without space.
+		const undelivered = [
+			...fileAttachments.filter(
+				(attachment) => !fileDurableUrls.has(attachment.id),
+			),
+			...imageAttachments.filter(
+				(attachment) =>
+					!imageUrls.has(attachment.id) &&
+					!demotedImageFileUrls.has(attachment.id),
+			),
+		];
+		if (undelivered.length > 0) {
+			const names = undelivered
+				.map((attachment) => attachment.name)
+				.slice(0, 3)
+				.join(", ");
+			const more =
+				undelivered.length > 3 ? ` +${undelivered.length - 3} more` : "";
+			throw new Error(
+				`Failed to upload ${undelivered.length} attachment${undelivered.length === 1 ? "" : "s"}: ${names}${more}`,
+			);
 		}
 		uploadedImageUrls = imageUrls;
 		uploadCompleted = true;
 		const userText = input.trim();
 		const pendingViewportContexts = viewportContext.takeSendSnapshot();
-		// Prefer sandbox paths when available.
-		// Demoted images (no durable URL) still ride sandbox paths as normal files.
-		// Without space materialize, only successful durable URLs remain as text refs.
+		// Prefer sandbox paths when available; otherwise durable public URLs.
 		const referenceText = sandboxPaths.length
 			? buildFileReferencesText(sandboxPaths)
-			: buildImageReferencesText([...imageUrls.values()]);
+			: [
+					buildFileReferencesText(durableFileUrls),
+					buildImageReferencesText([...imageUrls.values()]),
+				]
+					.filter(Boolean)
+					.join("\n\n");
 		uploadedReferenceText = referenceText;
 		text = [userText, referenceText].filter(Boolean).join("\n\n");
 		const attachmentBlocks: ContentBlock[] = attachments.flatMap(
@@ -3792,7 +3890,7 @@ async function handleSend() {
 				if (attachment.kind === "text")
 					return [buildComposerTextContentBlock(attachment)];
 				// Image specialization only: durable URL → image content block.
-				// Demoted / failed durable upload → file semantics only (sandbox path).
+				// Demoted images keep durable file URL in text refs, no image block.
 				if (demotedImageIds.has(attachment.id)) return [];
 				const url = imageUrls.get(attachment.id);
 				if (!url) return [];

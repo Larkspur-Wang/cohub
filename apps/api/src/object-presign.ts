@@ -130,8 +130,9 @@ export const createPresignedPostObject = (input: {
   contentType: string;
   maxBytes: number;
   cacheControl?: string | null;
+  contentDisposition?: string | null;
 }): PresignedPostObject => {
-  const { storage, objectKey, contentType, maxBytes, cacheControl } = input;
+  const { storage, objectKey, contentType, maxBytes, cacheControl, contentDisposition } = input;
   if (!storage.bucket) throw new Error("bucket is required");
   if (!storage.endpoint) throw new Error("endpoint is required");
   if (!storage.accessKeyId || !storage.secretAccessKey) {
@@ -150,6 +151,7 @@ export const createPresignedPostObject = (input: {
       { key: objectKey },
       { "Content-Type": contentType },
       ...(cacheControl ? [{ "Cache-Control": cacheControl }] : []),
+      ...(contentDisposition ? [{ "Content-Disposition": contentDisposition }] : []),
       { "x-amz-algorithm": "AWS4-HMAC-SHA256" },
       { "x-amz-credential": credential },
       { "x-amz-date": amzDate },
@@ -166,6 +168,7 @@ export const createPresignedPostObject = (input: {
       key: objectKey,
       "Content-Type": contentType,
       ...(cacheControl ? { "Cache-Control": cacheControl } : {}),
+      ...(contentDisposition ? { "Content-Disposition": contentDisposition } : {}),
       "x-amz-algorithm": "AWS4-HMAC-SHA256",
       "x-amz-credential": credential,
       "x-amz-date": amzDate,

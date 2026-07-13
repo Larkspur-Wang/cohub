@@ -200,6 +200,8 @@ async function uploadFiles(command: Command, paths: string[], opts: UploadOption
     for (const entry of plan.entries) {
       const file = byId.get(entry.id);
       if (!file) throw new Error(`Missing upload entry: ${entry.id}`);
+      // Remote downloadUrl entries have no uploadUrl; complete pulls them server-side.
+      if (!entry.uploadUrl) continue;
       await putUploadEntry(file, entry.uploadUrl, entry.headers);
     }
     const result = await client.space(spaceId).files.completeUpload(plan.uploadId, {

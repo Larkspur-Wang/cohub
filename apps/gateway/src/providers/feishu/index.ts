@@ -602,9 +602,14 @@ export class FeishuProvider implements GatewayProvider {
         };
       }
 
-      // Keep image reference text after the ordered content; file refs unused for Feishu inbound today.
+      // Keep attachment reference text after ordered content (Images: and Files:).
+      // Files: matters when durable image specialization demotes to sandbox path.
       for (const block of ingested.blocks) {
-        if (block.type === "text" && typeof block.text === "string" && block.text.startsWith("Images:")) {
+        if (
+          block.type === "text" &&
+          typeof block.text === "string" &&
+          (block.text.startsWith("Images:") || block.text.startsWith("Files:"))
+        ) {
           trailing.push(block);
         }
       }

@@ -21,7 +21,10 @@ export type SpaceUploadManifestEntry = {
   relativePath: string;
   size: number;
   mimeType: string | null;
-  objectKey: string;
+  /** Private OSS object when client PUTs. Absent when entry is remote (downloadUrl). */
+  objectKey?: string;
+  /** Durable public URL already uploaded elsewhere; complete pulls from this. */
+  downloadUrl?: string;
 };
 
 export type SpaceUploadDestination =

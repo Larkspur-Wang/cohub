@@ -12,20 +12,28 @@ import { ensureInternalRequest, getOptionalAuth, requireValidId } from "../../li
 import { getSpaceById } from "../../space-sessions.js";
 import { getSpaceSandboxBySpaceId, updateSpaceSandbox } from "../../space-sandboxes.js";
 import { normalizeSandboxLifecycleStatus, normalizeSandboxRuntimeStatus } from "@cohub/sandbox-controller";
-import { PublicAssetConfigError, PublicAssetValidationError, createInternalPublicAssetUploadPlan } from "../../public-asset-storage.js";
+import {
+  PublicAssetConfigError,
+  PublicAssetValidationError,
+  consumePublicAssetUploadQuota,
+  createInternalPublicAssetUploadPlan,
+} from "../../public-asset-storage.js";
 import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
   cancelSpaceUploadComplete,
+  consumeSpaceUploadQuota,
   createInternalPresignedPutUrl,
   createPresignedGetUrl,
   createSpaceUploadId,
   deleteSpaceUploadManifest,
   getSpaceUploadManifest,
   saveSpaceUploadManifest,
+  SpaceUploadRateLimitError,
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
+import { config } from "../../config.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const tracer = getTracer("cohub-api");
@@ -231,6 +239,43 @@ router.post("/local-sandbox/status", async (c) => {
   return c.json({ ok: true });
 });
 
+
+const isAllowedMaterializeDownloadUrl = (value: string) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  if (url.username || url.password) return false;
+  const allowedOrigins = new Set<string>();
+  const pushBase = (base: string | undefined) => {
+    if (!base) return;
+    try {
+      allowedOrigins.add(new URL(base).origin);
+    } catch {
+      // ignore invalid config
+    }
+  };
+  pushBase(config.publicAssetCdnBaseUrl);
+  if (config.publicAssetOssBucket) {
+    const endpoint = config.publicAssetOssPublicEndpoint ?? config.publicAssetOssEndpoint?.replace("-internal.", ".");
+    if (endpoint) {
+      try {
+        const parsed = new URL(endpoint.replace(/\/+$/, ""));
+        if (!parsed.hostname.startsWith(`${config.publicAssetOssBucket}.`)) {
+          parsed.hostname = `${config.publicAssetOssBucket}.${parsed.hostname}`;
+        }
+        allowedOrigins.add(parsed.origin);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return allowedOrigins.size > 0 && allowedOrigins.has(url.origin);
+};
+
 router.post("/attachments/plan", async (c) => {
   const forbidden = ensureInternalRequest(c);
   if (forbidden) return forbidden;
@@ -249,13 +294,13 @@ router.post("/attachments/plan", async (c) => {
   const requestedImages = Array.isArray(body?.images) ? body.images : [];
   const requestedFiles = Array.isArray(body?.files) ? body.files : [];
   if (requestedImages.length > MAX_GATEWAY_ATTACHMENT_IMAGES) return c.json({ message: "too many images" }, 413);
-  // Image materialize copies use ids prefixed with `imgfile-` and do not count against file quota.
+  // Image demote slots use ids prefixed with `imgfile-` and share image quota, not ordinary file quota.
   const ordinaryFileCount = requestedFiles.filter((file) => !String(file?.id ?? "").startsWith("imgfile-")).length;
-  const imageMaterializeCount = requestedFiles.length - ordinaryFileCount;
+  const imageFileSlotCount = requestedFiles.length - ordinaryFileCount;
   if (ordinaryFileCount > MAX_GATEWAY_ATTACHMENT_FILES) return c.json({ message: "too many files" }, 413);
-  if (imageMaterializeCount > MAX_GATEWAY_ATTACHMENT_IMAGES) return c.json({ message: "too many images" }, 413);
-  if (imageMaterializeCount > 0 && imageMaterializeCount !== requestedImages.length) {
-    return c.json({ message: "image materialize file count must match images" }, 400);
+  if (imageFileSlotCount > MAX_GATEWAY_ATTACHMENT_IMAGES) return c.json({ message: "too many images" }, 413);
+  if (imageFileSlotCount > 0 && imageFileSlotCount !== requestedImages.length) {
+    return c.json({ message: "image file slot count must match images" }, 400);
   }
 
   const seenImageIds = new Set<string>();
@@ -269,7 +314,11 @@ router.post("/attachments/plan", async (c) => {
         userUuid: resolved.userId,
         spaceId: resolved.spaceId,
         sessionId: resolved.sessionId,
-        file: { size: image.size, mimeType: image.mimeType },
+        file: {
+          size: image.size,
+          mimeType: image.mimeType,
+          filename: image.filename ?? undefined,
+        },
       });
       imagePlans.push({
         id: image.id,
@@ -282,6 +331,15 @@ router.post("/attachments/plan", async (c) => {
       if (response) return c.json(response.body, response.status as never);
       throw error;
     }
+  }
+  // Rate-limit durable image plans after validation (same quota as web chat_attachment).
+  try {
+    await consumePublicAssetUploadQuota(resolved.userId, "chat_attachment", imagePlans.length);
+  } catch (error) {
+    if (error instanceof PublicAssetValidationError) {
+      return c.json({ message: error.message }, error.message.startsWith("too many") ? 429 : 400);
+    }
+    throw error;
   }
 
   const files = requestedFiles;
@@ -309,6 +367,17 @@ router.post("/attachments/plan", async (c) => {
       });
     }
   }
+  // Space materialize quota after file entry validation.
+  if (fileEntries.length > 0) {
+    try {
+      await consumeSpaceUploadQuota(resolved.userId, fileEntries.length);
+    } catch (error) {
+      if (error instanceof SpaceUploadRateLimitError) {
+        return c.json({ message: error.message }, 429);
+      }
+      throw error;
+    }
+  }
   if (uploadId && fileEntries.length > 0) {
     await saveSpaceUploadManifest({
       uploadId,
@@ -321,6 +390,7 @@ router.post("/attachments/plan", async (c) => {
     });
   }
   const filePlans = fileEntries.map((file) => {
+    if (!file.objectKey) throw new Error("upload objectKey is required");
     const signed = createInternalPresignedPutUrl(file.objectKey, file.mimeType);
     return { id: file.id, name: file.name, relativePath: file.relativePath, objectKey: file.objectKey, uploadUrl: signed.uploadUrl, uploadHeaders: signed.headers, expiresAt: signed.expiresAt };
   });
@@ -334,6 +404,118 @@ router.post("/attachments/plan", async (c) => {
     images: imagePlans,
     files: { uploadId, entries: filePlans },
   });
+});
+
+
+/** Materialize durable public URLs into sandbox without a second gateway upload. */
+router.post("/attachments/materialize", async (c) => {
+  const forbidden = ensureInternalRequest(c);
+  if (forbidden) return forbidden;
+
+  const body = await c.req.json<{
+    spaceId?: string;
+    sessionId?: string | null;
+    userId?: string;
+    files?: Array<{
+      id?: string;
+      name: string;
+      relativePath: string;
+      size: number;
+      mimeType?: string | null;
+      downloadUrl: string;
+    }>;
+  }>().catch(() => null);
+
+  const spaceId = body?.spaceId?.trim();
+  const sessionIdHint = body?.sessionId?.trim() || null;
+  const userId = body?.userId?.trim() || null;
+  const files = Array.isArray(body?.files) ? body.files : [];
+  if (!spaceId || !requireValidId(spaceId)) return c.json({ message: "space not found" }, 404);
+  if (files.length === 0) return c.json({ message: "files are required" }, 400);
+  if (files.length > MAX_GATEWAY_ATTACHMENT_FILES + MAX_GATEWAY_ATTACHMENT_IMAGES) {
+    return c.json({ message: "too many files" }, 413);
+  }
+
+  try {
+    const seenPaths = new Set<string>();
+    let totalBytes = 0;
+    const prepared: Array<{
+      id: string | null;
+      relativePath: string;
+      name: string;
+      size: number;
+      mimeType: string | null;
+      downloadUrl: string;
+    }> = [];
+
+    for (const file of files) {
+      if (typeof file.name !== "string" || !file.name || file.name.length > 255) {
+        return c.json({ message: "invalid file name" }, 400);
+      }
+      const relativePath = safeUploadPath(file.relativePath?.trim() || file.name);
+      if (!relativePath) return c.json({ message: "invalid upload path" }, 400);
+      if (seenPaths.has(relativePath)) return c.json({ message: "duplicate upload path" }, 400);
+      seenPaths.add(relativePath);
+      if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > 100 * 1024 * 1024) {
+        return c.json({ message: "file too large" }, 413);
+      }
+      if (typeof file.downloadUrl !== "string" || !isAllowedMaterializeDownloadUrl(file.downloadUrl)) {
+        return c.json({ message: "invalid download url" }, 400);
+      }
+      totalBytes += file.size;
+      if (totalBytes > 2 * 1024 * 1024 * 1024) return c.json({ message: "upload too large" }, 413);
+      prepared.push({
+        id: typeof file.id === "string" ? file.id : null,
+        relativePath,
+        name: relativePath.split("/").at(-1) ?? file.name,
+        size: file.size,
+        mimeType: file.mimeType ?? null,
+        downloadUrl: file.downloadUrl,
+      });
+    }
+
+    if (userId) {
+      await consumeSpaceUploadQuota(userId, prepared.length);
+    }
+
+    const uploadId = createSpaceUploadId();
+    const destinationRoot = `/tmp/uploads/${uploadId}`;
+    const sessionId = sessionIdHint && requireValidId(sessionIdHint) ? sessionIdHint : `upload:${uploadId}`;
+    const result = await enqueueSandboxUploadFilesJob({
+      spaceId,
+      sessionId,
+      uploadId,
+      destinationRoot,
+      files: prepared.map((file) => ({
+        relativePath: file.relativePath,
+        name: file.name,
+        size: file.size,
+        mimeType: file.mimeType,
+        downloadUrl: file.downloadUrl,
+      })),
+    });
+
+    // Best-effort id → path mapping by relativePath.
+    const pathById: Record<string, string> = {};
+    for (const file of prepared) {
+      if (!file.id) continue;
+      const match = result.uploaded.find(
+        (uploaded) =>
+          uploaded.path.endsWith(`/${file.relativePath}`) ||
+          uploaded.path.endsWith(file.relativePath) ||
+          uploaded.name === file.name,
+      );
+      if (match?.path) pathById[file.id] = match.path;
+    }
+
+    return c.json({ ok: true, uploaded: result.uploaded, pathById });
+  } catch (error) {
+    if (error instanceof SpaceUploadRateLimitError) {
+      return c.json({ message: error.message }, 429);
+    }
+    logger.error("[GatewayAttachment] failed to materialize remote files", error, { spaceId });
+    return c.json({ message: "failed to materialize" }, 500);
+  }
 });
 
 router.post("/attachments/complete", async (c) => {
@@ -373,13 +555,18 @@ router.post("/attachments/complete", async (c) => {
       sessionId,
       uploadId,
       destinationRoot,
-      files: entries.map((entry) => ({
-        relativePath: entry.relativePath,
-        name: entry.name,
-        size: entry.size,
-        mimeType: entry.mimeType,
-        downloadUrl: createPresignedGetUrl(entry.objectKey).downloadUrl,
-      })),
+      files: entries.map((entry) => {
+        const downloadUrl = entry.downloadUrl
+          ? entry.downloadUrl
+          : createPresignedGetUrl(entry.objectKey as string).downloadUrl;
+        return {
+          relativePath: entry.relativePath,
+          name: entry.name,
+          size: entry.size,
+          mimeType: entry.mimeType,
+          downloadUrl,
+        };
+      }),
     });
     await deleteSpaceUploadManifest(spaceId, uploadId);
     return c.json({ ok: true, uploaded: result.uploaded });

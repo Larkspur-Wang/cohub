@@ -107,6 +107,11 @@ export type SpaceFsUploadPlanEntryInput = {
   size: number;
   mimeType?: string | null;
   lastModified?: number;
+  /**
+   * Optional durable public URL. When set, client skips PUT and complete pulls from this URL.
+   * Must be an allowed public-asset origin.
+   */
+  downloadUrl?: string;
 };
 
 export type SpaceFsUploadDestination =
@@ -127,9 +132,13 @@ export type SpaceFsCreateUploadInput = {
 
 export type SpaceFsUploadPlanEntry = {
   id: string;
-  objectKey: string;
-  uploadUrl: string;
+  /** Present for client-PUT entries; omitted for remote downloadUrl entries. */
+  objectKey?: string;
+  /** Present for client-PUT entries; omitted for remote downloadUrl entries. */
+  uploadUrl?: string;
   headers?: Record<string, string>;
+  /** Echo of remote source when entry uses downloadUrl. */
+  downloadUrl?: string;
 };
 
 export type SpaceFsCreateUploadResponse = {

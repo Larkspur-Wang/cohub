@@ -84,6 +84,63 @@ function normalizeDestination(input: {
 	};
 }
 
+export type MaterializeSpaceEntry = {
+	name: string;
+	relativePath: string;
+	size: number;
+	mimeType?: string | null;
+	downloadUrl: string;
+};
+
+export type MaterializeSpaceEntriesOptions = {
+	spaceId: string;
+	destination?: SpaceFsUploadDestination;
+	targetDir?: string;
+	entries: MaterializeSpaceEntry[];
+};
+
+/**
+ * Materialize already-uploaded durable public URLs into sandbox/workspace.
+ * Uses the same createUpload/complete pipeline with entry.downloadUrl (no client PUT).
+ */
+export async function materializeSpaceEntries({
+	spaceId,
+	destination,
+	targetDir = "",
+	entries,
+}: MaterializeSpaceEntriesOptions): Promise<SpaceUploadedFile[]> {
+	if (entries.length === 0) return [];
+	const uploadDestination = normalizeDestination({ destination, targetDir });
+	const safeEntries = entries.map((entry) => ({
+		...entry,
+		relativePath: sanitizeRelativePath(entry.relativePath),
+	}));
+	const ids = safeEntries.map(() => crypto.randomUUID());
+	const plan = await sdk.space(spaceId).files.createUpload({
+		destination: uploadDestination,
+		entries: safeEntries.map((entry, index) => ({
+			id: ids[index],
+			name: entry.name,
+			relativePath: entry.relativePath,
+			size: entry.size,
+			mimeType: entry.mimeType ?? null,
+			downloadUrl: entry.downloadUrl,
+		})),
+	});
+	// Remote entries have no uploadUrl; complete immediately.
+	const complete = await sdk
+		.space(spaceId)
+		.files.completeUpload(plan.uploadId, {
+			entries: ids.map((id) => ({ id })),
+		});
+	return complete.uploaded.map((file) => ({
+		path: file.path,
+		name: file.name,
+		size: file.size,
+		mimeType: file.mimeType,
+	}));
+}
+
 export async function uploadSpaceEntries({
 	spaceId,
 	destination,
@@ -130,6 +187,18 @@ export async function uploadSpaceEntries({
 		const id = ids[index];
 		const planned = planById.get(id);
 		if (!planned) throw new Error("Upload plan missing file");
+		if (!planned.uploadUrl) {
+			// Remote downloadUrl entry — nothing to PUT.
+			completedBytes += entry.file.size;
+			onProgress?.({
+				stage: "uploading",
+				uploadedBytes: completedBytes,
+				totalBytes,
+				importedFiles: 0,
+				totalFiles,
+			});
+			continue;
+		}
 		await putWithProgress(
 			entry.file,
 			planned.uploadUrl,

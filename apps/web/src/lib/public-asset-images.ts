@@ -145,3 +145,19 @@ export function uploadChatAttachmentImage(input: {
 		filename: input.filename,
 	});
 }
+
+/** Durable public upload for any chat file (no space required). */
+export function uploadChatAttachmentFile(input: {
+	spaceId?: string;
+	sessionId?: string;
+	file: File;
+	filename?: string;
+}) {
+	return sdk.publicAssets.uploadChatAttachment({
+		spaceId: input.spaceId,
+		sessionId: input.sessionId,
+		file: input.file,
+		mimeType: input.file.type || "application/octet-stream",
+		filename: input.filename ?? input.file.name,
+	});
+}

@@ -1950,10 +1950,31 @@ router.post("/:id/prompt", async (c) => {
       if (!response) return c.json({ message: "turn not found" }, 500);
       return c.json(response);
     } catch (error) {
-      if (error instanceof BillingAccessBlockedError) return billingBlockedResponse(c, error);
-      if (error instanceof SandboxNotReadyError) return c.json({ message: "sandbox is not ready" }, 503);
+      // If we created the session for this request, surface its id so clients can retry
+      // without spawning another empty session.
+      const createdSessionId = createdPromptSession?.id ?? null;
+      if (error instanceof BillingAccessBlockedError) {
+        const res = billingBlockedResponse(c, error);
+        if (createdSessionId) {
+          // Preserve body shape; append sessionId for retry reuse.
+          const body = await res.json().catch(() => ({ message: error.message }));
+          return c.json({ ...body, sessionId: createdSessionId }, res.status as never);
+        }
+        return res;
+      }
+      if (error instanceof SandboxNotReadyError) {
+        return c.json(
+          { message: "sandbox is not ready", ...(createdSessionId ? { sessionId: createdSessionId } : {}) },
+          503,
+        );
+      }
       const inputError = promptInputError(error);
-      if (inputError) return c.json({ message: inputError }, 400);
+      if (inputError) {
+        return c.json(
+          { message: inputError, ...(createdSessionId ? { sessionId: createdSessionId } : {}) },
+          400,
+        );
+      }
       throw error;
     }
   }

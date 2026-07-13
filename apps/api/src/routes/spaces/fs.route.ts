@@ -41,7 +41,11 @@ import {
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
-import type { SpaceFsCreateUploadInput, SpaceFsCompleteUploadInput } from "@cohub/protocol/fs";
+import { config } from "../../config.js";
+import type {
+  SpaceFsCreateUploadInput,
+  SpaceFsCompleteUploadInput,
+} from "@cohub/protocol/fs";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -320,6 +324,44 @@ router.get("/download", async (c) => {
   }
 });
 
+const isAllowedMaterializeDownloadUrl = (value: string) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  if (url.username || url.password) return false;
+
+  const allowedOrigins = new Set<string>();
+  const pushBase = (base: string | undefined) => {
+    if (!base) return;
+    try {
+      allowedOrigins.add(new URL(base).origin);
+    } catch {
+      // ignore invalid config
+    }
+  };
+  pushBase(config.publicAssetCdnBaseUrl);
+  if (config.publicAssetOssBucket) {
+    const endpoint = config.publicAssetOssPublicEndpoint ?? config.publicAssetOssEndpoint?.replace("-internal.", ".");
+    if (endpoint) {
+      try {
+        const parsed = new URL(endpoint.replace(/\/+$/, ""));
+        if (!parsed.hostname.startsWith(`${config.publicAssetOssBucket}.`)) {
+          parsed.hostname = `${config.publicAssetOssBucket}.${parsed.hostname}`;
+        }
+        allowedOrigins.add(parsed.origin);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  if (allowedOrigins.size === 0) return false;
+  return allowedOrigins.has(url.origin);
+};
+
 router.post("/uploads", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
@@ -330,15 +372,6 @@ router.post("/uploads", async (c) => {
   const body = await c.req.json<SpaceFsCreateUploadInput>().catch(() => null);
   if (!body?.entries?.length) return c.json({ message: "entries are required" }, 400);
   if (body.entries.length > MAX_UPLOAD_FILES) return c.json({ message: "too many files" }, 413);
-
-  try {
-    await consumeSpaceUploadQuota(user.uuid, body.entries.length);
-  } catch (error) {
-    if (error instanceof SpaceUploadRateLimitError) {
-      return c.json({ message: error.message }, 429);
-    }
-    throw error;
-  }
 
   const uploadId = createSpaceUploadId();
   const seenIds = new Set<string>();
@@ -365,6 +398,13 @@ router.post("/uploads", async (c) => {
       if (entry.mimeType != null && (typeof entry.mimeType !== "string" || entry.mimeType.length > 255)) {
         return c.json({ message: "invalid mime type" }, 400);
       }
+      const downloadUrl =
+        typeof entry.downloadUrl === "string" && entry.downloadUrl.trim()
+          ? entry.downloadUrl.trim()
+          : null;
+      if (downloadUrl && !isAllowedMaterializeDownloadUrl(downloadUrl)) {
+        return c.json({ message: "invalid download url" }, 400);
+      }
       totalBytes += entry.size;
       if (totalBytes > MAX_UPLOAD_TOTAL_BYTES) return c.json({ message: "upload too large" }, 413);
       const relativePath = normalizeUploadRelativePath(entry.relativePath || entry.name);
@@ -377,12 +417,20 @@ router.post("/uploads", async (c) => {
         relativePath,
         size: entry.size,
         mimeType: entry.mimeType ?? null,
-        objectKey: buildSpaceUploadObjectKey({ spaceId, uploadId, entryId: entry.id }),
+        ...(downloadUrl
+          ? { downloadUrl }
+          : { objectKey: buildSpaceUploadObjectKey({ spaceId, uploadId, entryId: entry.id }) }),
       });
     }
 
+    // Charge quota only after full validation so bad requests cannot burn the window.
+    await consumeSpaceUploadQuota(user.uuid, entries.length);
+
     const planned = entries.map((entry) => {
-      const signed = createPresignedPutUrl(entry.objectKey, entry.mimeType);
+      if (entry.downloadUrl) {
+        return { id: entry.id, downloadUrl: entry.downloadUrl };
+      }
+      const signed = createPresignedPutUrl(entry.objectKey as string, entry.mimeType);
       return { id: entry.id, objectKey: entry.objectKey, uploadUrl: signed.uploadUrl, headers: signed.headers };
     });
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -397,6 +445,9 @@ router.post("/uploads", async (c) => {
     });
     return c.json({ uploadId, expiresAt, entries: planned });
   } catch (error) {
+    if (error instanceof SpaceUploadRateLimitError) {
+      return c.json({ message: error.message }, 429);
+    }
     const message = error instanceof Error ? error.message.toLowerCase().replace(/\.$/, "") : "failed to create upload";
     return c.json({ message }, 400);
   }
@@ -443,13 +494,15 @@ router.post("/uploads/:uploadId/complete", async (c) => {
       uploadId,
       destinationRoot,
       files: entries.map((entry) => {
-        const signed = createPresignedGetUrl(entry.objectKey);
+        const downloadUrl = entry.downloadUrl
+          ? entry.downloadUrl
+          : createPresignedGetUrl(entry.objectKey as string).downloadUrl;
         return {
           relativePath: entry.relativePath,
           name: entry.name,
           size: entry.size,
           mimeType: entry.mimeType,
-          downloadUrl: signed.downloadUrl,
+          downloadUrl,
         };
       }),
     });

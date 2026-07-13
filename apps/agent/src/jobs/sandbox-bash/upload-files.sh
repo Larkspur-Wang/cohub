@@ -40,9 +40,12 @@ while IFS=$'\t' read -r rel_b64 expected_size url_b64; do
 
   tmp="$(mktemp "$parent_real/.cohub-upload.XXXXXX")"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 3 --retry-delay 1 --connect-timeout 10 -o "$tmp" "$url"
+    # No redirects: materialize URLs must already be allowed public-asset origins.
+    # Cap download size to declared size (+1) so forged small sizes cannot stream unbounded.
+    curl -fsS --max-redirs 0 --max-filesize "$((expected_size + 1))" --retry 3 --retry-delay 1 --connect-timeout 10 -o "$tmp" "$url"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$tmp" "$url"
+    # wget has no portable max-filesize; size is still verified after download.
+    wget -q --max-redirect=0 -O "$tmp" "$url"
   else
     echo "curl or wget is required" >&2
     rm -f "$tmp"

@@ -20,6 +20,8 @@ export type CreatePublicAssetUploadInput = {
   file: {
     size: number;
     mimeType: string;
+    /** Optional original name — used only for chat_attachment object key extension. */
+    filename?: string;
   };
 };
 
@@ -52,13 +54,40 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
   "image/jpeg": "jpg",
 };
+
+/** Common mime → extension for chat attachments (fallback when filename has no ext). */
+const CHAT_MIME_EXTENSIONS: Record<string, string> = {
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/svg+xml": "svg",
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+  "text/markdown": "md",
+  "text/csv": "csv",
+  "text/html": "html",
+  "text/css": "css",
+  "text/javascript": "js",
+  "application/javascript": "js",
+  "application/json": "json",
+  "application/xml": "xml",
+  "application/zip": "zip",
+  "application/gzip": "gz",
+  "application/octet-stream": "bin",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+};
+
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-/** Vision/CDN specialization limit for preprocessed chat images (webp/jpeg). Not a general file-upload cap. */
-export const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+/** General chat attachment durable object (any file). Public URL; UUID-unguessable. */
+export const MAX_CHAT_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 /** Avatar-only abuse guard. */
 const AVATAR_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const AVATAR_RATE_LIMIT_MAX = 60;
-/** Chat image specialization (durable CDN) — looser than avatar; failures demote to file upload. */
+/** Chat attachment durable uploads — looser than avatar. */
 const CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const CHAT_ATTACHMENT_RATE_LIMIT_MAX = 300;
 
@@ -96,21 +125,74 @@ const requirePublicAssetConfig = () => {
 
 const envPrefix = () => (config.env === "prod" ? "" : `${config.env}/`);
 
+const safeExtensionFromFilename = (filename: string | undefined) => {
+  if (!filename) return null;
+  const base = filename.split(/[/\\]/).pop()?.trim() ?? "";
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0 || dot === base.length - 1) return null;
+  const ext = base.slice(dot + 1).toLowerCase();
+  if (!/^[a-z0-9]{1,16}$/.test(ext)) return null;
+  return ext;
+};
+
+const extensionForChatAttachment = (input: { mimeType: string; filename?: string }) => {
+  const fromName = safeExtensionFromFilename(input.filename);
+  if (fromName) return fromName;
+  const fromMime = CHAT_MIME_EXTENSIONS[input.mimeType.toLowerCase()];
+  if (fromMime) return fromMime;
+  return "bin";
+};
+
+/** Active web content must not be served as navigable public assets. */
+const ACTIVE_PUBLIC_MIME_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "text/javascript",
+  "application/javascript",
+  "application/x-javascript",
+  "text/css",
+]);
+
+const normalizeChatMimeType = (mimeType: unknown) => {
+  if (typeof mimeType !== "string") throw new PublicAssetValidationError("invalid mime type");
+  const value = mimeType.trim().toLowerCase();
+  if (!value || value.length > 255) throw new PublicAssetValidationError("invalid mime type");
+  // Basic type/subtype check; allow +suffix (e.g. application/ld+json).
+  if (!/^[a-z0-9!#$&\-^_.+]{1,127}\/[a-z0-9!#$&\-^_.+]{1,127}$/i.test(value)) {
+    throw new PublicAssetValidationError("invalid mime type");
+  }
+  // Force non-executable content-type for active formats (still stored; not rendered inline).
+  if (ACTIVE_PUBLIC_MIME_TYPES.has(value)) return "application/octet-stream";
+  return value;
+};
+
+const chatAttachmentContentDisposition = (filename?: string) => {
+  const raw = (filename ?? "attachment").split(/[/\\]/).pop()?.trim() || "attachment";
+  const safe = raw.replace(/[\r\n"]/g, "_").slice(0, 180) || "attachment";
+  return `attachment; filename="${safe}"`;
+};
+
 export const buildPublicAssetObjectKey = (input: {
   purpose: PublicAssetPurpose;
   userUuid: string;
   mimeType: string;
   spaceId?: string;
   sessionId?: string;
+  filename?: string;
 }) => {
-  const extension = IMAGE_EXTENSIONS[input.mimeType];
-  if (!extension) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
-  if (input.purpose === "user_avatar") return `${envPrefix()}users/${input.userUuid}/avatar.${extension}`;
-  if (input.purpose === "space_avatar") {
+  if (input.purpose === "user_avatar" || input.purpose === "space_avatar") {
+    const extension = IMAGE_EXTENSIONS[input.mimeType];
+    if (!extension) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
+    if (input.purpose === "user_avatar") return `${envPrefix()}users/${input.userUuid}/avatar.${extension}`;
     if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for space avatar uploads");
     return `${envPrefix()}spaces/${input.spaceId}/avatar.${extension}`;
   }
   // Chat attachments are user-scoped. spaceId/sessionId are optional association only.
+  const extension = extensionForChatAttachment({
+    mimeType: input.mimeType,
+    filename: input.filename,
+  });
   return `${envPrefix()}chat-attachments/${input.userUuid}/${randomUUID()}.${extension}`;
 };
 
@@ -122,32 +204,51 @@ export const buildPublicAssetUrl = (objectKey: string) => {
 
 export const buildVersionedPublicAssetUrl = (objectKey: string) => `${buildPublicAssetUrl(objectKey)}?v=${cacheBuster()}`;
 
-export const assertPublicAssetUploadFile = (input: { purpose: PublicAssetPurpose; file: CreatePublicAssetUploadInput["file"] }) => {
+export const assertPublicAssetUploadFile = (input: {
+  purpose: PublicAssetPurpose;
+  file: CreatePublicAssetUploadInput["file"];
+}) => {
   const { file } = input;
   if (!file || typeof file !== "object") throw new PublicAssetValidationError("file is required");
-  if (!IMAGE_MIME_TYPES.has(file.mimeType)) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
   if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new PublicAssetValidationError("invalid file size");
-  const maxBytes = input.purpose === "chat_attachment" ? MAX_CHAT_ATTACHMENT_BYTES : MAX_AVATAR_BYTES;
-  if (file.size > maxBytes) throw new PublicAssetValidationError(input.purpose === "chat_attachment" ? "chat image is too large" : "avatar image is too large");
+
+  if (input.purpose === "chat_attachment") {
+    normalizeChatMimeType(file.mimeType);
+    if (file.filename != null && (typeof file.filename !== "string" || file.filename.length > 255)) {
+      throw new PublicAssetValidationError("invalid filename");
+    }
+    if (file.size > MAX_CHAT_ATTACHMENT_BYTES) {
+      throw new PublicAssetValidationError("chat attachment is too large");
+    }
+    return;
+  }
+
+  if (!IMAGE_MIME_TYPES.has(file.mimeType)) throw new PublicAssetValidationError("image uploads must be WebP or JPEG images");
+  if (file.size > MAX_AVATAR_BYTES) throw new PublicAssetValidationError("avatar image is too large");
 };
 
 export const consumePublicAssetUploadQuota = async (
   userUuid: string,
   purpose: PublicAssetPurpose = "user_avatar",
+  entryCount = 1,
 ) => {
+  const n = Math.max(0, Math.floor(entryCount));
+  if (n <= 0) return;
   if (purpose === "chat_attachment") {
     const key = `chat_attachment_upload:${userUuid}`;
-    const count = await redisCommandClient.incr(key);
-    if (count === 1) await redisCommandClient.expire(key, CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS);
-    if (count > CHAT_ATTACHMENT_RATE_LIMIT_MAX) {
-      throw new PublicAssetValidationError("too many image uploads, please try again later");
+    const next = await redisCommandClient.incrby(key, n);
+    if (next === n) await redisCommandClient.expire(key, CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS);
+    if (next > CHAT_ATTACHMENT_RATE_LIMIT_MAX) {
+      await redisCommandClient.decrby(key, n).catch(() => undefined);
+      throw new PublicAssetValidationError("too many uploads, please try again later");
     }
     return;
   }
   const key = `public_asset_upload:${userUuid}`;
-  const count = await redisCommandClient.incr(key);
-  if (count === 1) await redisCommandClient.expire(key, AVATAR_RATE_LIMIT_WINDOW_SECONDS);
-  if (count > AVATAR_RATE_LIMIT_MAX) {
+  const next = await redisCommandClient.incrby(key, n);
+  if (next === n) await redisCommandClient.expire(key, AVATAR_RATE_LIMIT_WINDOW_SECONDS);
+  if (next > AVATAR_RATE_LIMIT_MAX) {
+    await redisCommandClient.decrby(key, n).catch(() => undefined);
     throw new PublicAssetValidationError("too many image uploads, please try again later");
   }
 };
@@ -161,19 +262,29 @@ export const createPublicAssetUploadPlan = (input: {
 }): CreatePublicAssetUploadResponse => {
   assertPublicAssetUploadFile({ purpose: input.purpose, file: input.file });
   const storage = requirePublicAssetConfig();
+  const mimeType =
+    input.purpose === "chat_attachment"
+      ? normalizeChatMimeType(input.file.mimeType)
+      : input.file.mimeType;
   const objectKey = buildPublicAssetObjectKey({
     purpose: input.purpose,
     userUuid: input.userUuid,
     spaceId: input.spaceId,
     sessionId: input.sessionId,
-    mimeType: input.file.mimeType,
+    mimeType,
+    filename: input.file.filename,
   });
+  const maxBytes = input.purpose === "chat_attachment" ? MAX_CHAT_ATTACHMENT_BYTES : MAX_AVATAR_BYTES;
   const signed = createPresignedPostObject({
     storage,
     objectKey,
-    contentType: input.file.mimeType,
-    maxBytes: input.purpose === "chat_attachment" ? MAX_CHAT_ATTACHMENT_BYTES : MAX_AVATAR_BYTES,
+    contentType: mimeType,
+    maxBytes,
     cacheControl: input.purpose === "chat_attachment" ? IMMUTABLE_PUBLIC_CACHE_CONTROL : undefined,
+    contentDisposition:
+      input.purpose === "chat_attachment"
+        ? chatAttachmentContentDisposition(input.file.filename)
+        : undefined,
   });
   return {
     expiresAt: signed.expiresAt,
@@ -197,17 +308,22 @@ export const createInternalPublicAssetUploadPlan = (input: {
 }): CreateInternalPublicAssetUploadResponse => {
   assertPublicAssetUploadFile({ purpose: input.purpose, file: input.file });
   requirePublicAssetConfig();
+  const mimeType =
+    input.purpose === "chat_attachment"
+      ? normalizeChatMimeType(input.file.mimeType)
+      : input.file.mimeType;
   const objectKey = buildPublicAssetObjectKey({
     purpose: input.purpose,
     userUuid: input.userUuid,
     spaceId: input.spaceId,
     sessionId: input.sessionId,
-    mimeType: input.file.mimeType,
+    mimeType,
+    filename: input.file.filename,
   });
   const signed = createPresignedPutObjectUrl(
     getInternalStorageConfig(),
     objectKey,
-    input.file.mimeType,
+    mimeType,
     input.purpose === "chat_attachment" ? IMMUTABLE_PUBLIC_CACHE_CONTROL : undefined,
   );
   return {

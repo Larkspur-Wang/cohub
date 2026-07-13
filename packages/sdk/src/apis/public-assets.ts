@@ -1,6 +1,7 @@
 import type { HttpTransport } from "../transport.js";
 
 export type PublicAssetPurpose = "user_avatar" | "space_avatar" | "chat_attachment";
+/** Avatar + preprocessed chat images. General chat files may use any mime string. */
 export type PublicAssetMimeType = "image/webp" | "image/jpeg";
 
 export type CreatePublicAssetUploadInput = {
@@ -9,7 +10,8 @@ export type CreatePublicAssetUploadInput = {
   sessionId?: string;
   file: {
     size: number;
-    mimeType: PublicAssetMimeType;
+    mimeType: string;
+    filename?: string;
   };
 };
 
@@ -30,18 +32,23 @@ export type UploadPublicAssetInput = {
   spaceId?: string;
   sessionId?: string;
   file: Blob;
-  mimeType: PublicAssetMimeType;
+  mimeType: string;
   filename?: string;
 };
 
-export type UploadChatImageAttachmentInput = {
+export type UploadChatAttachmentInput = {
   /** Optional association only; upload is user-scoped. */
   spaceId?: string;
   /** Optional association only; upload is user-scoped. */
   sessionId?: string;
   file: Blob;
-  mimeType: PublicAssetMimeType;
+  mimeType: string;
   filename?: string;
+};
+
+/** @deprecated Prefer UploadChatAttachmentInput — images are a special case of chat attachments. */
+export type UploadChatImageAttachmentInput = UploadChatAttachmentInput & {
+  mimeType: PublicAssetMimeType;
 };
 
 export class PublicAssetsApi {
@@ -63,6 +70,7 @@ export class PublicAssetsApi {
       file: {
         size: input.file.size,
         mimeType: input.mimeType,
+        filename: input.filename,
       },
     });
     const formData = new FormData();
@@ -82,7 +90,8 @@ export class PublicAssetsApi {
     return plan.asset;
   }
 
-  uploadChatImageAttachment(input: UploadChatImageAttachmentInput) {
+  /** Durable public upload for any chat attachment (image or file). No space required. */
+  uploadChatAttachment(input: UploadChatAttachmentInput) {
     return this.upload({
       purpose: "chat_attachment",
       spaceId: input.spaceId,
@@ -91,5 +100,10 @@ export class PublicAssetsApi {
       mimeType: input.mimeType,
       filename: input.filename,
     });
+  }
+
+  /** Preprocessed chat image (webp/jpeg). Same durable path as uploadChatAttachment. */
+  uploadChatImageAttachment(input: UploadChatImageAttachmentInput) {
+    return this.uploadChatAttachment(input);
   }
 }
