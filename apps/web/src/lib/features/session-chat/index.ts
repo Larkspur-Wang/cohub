@@ -16,6 +16,10 @@ export {
 } from "./session-utils";
 export type { SessionViewState } from "./session-workspace-controller.svelte";
 export { createSessionWorkspaceController } from "./session-workspace-controller.svelte";
+export {
+	getActiveSpaceChannelCount,
+	subscribeSpaceChannel,
+} from "./space-channel";
 export type {
 	SelectedModel,
 	SessionChatAccess,

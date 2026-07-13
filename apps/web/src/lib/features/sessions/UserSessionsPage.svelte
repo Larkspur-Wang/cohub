@@ -3,6 +3,7 @@ import type { SessionRecord, UserSessionListItem } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { createSessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
+import { subscribeSpaceChannel } from "$lib/features/session-chat/space-channel";
 import SessionConversationPanel from "$lib/features/sessions/SessionConversationPanel.svelte";
 import UserSessionsList from "$lib/features/sessions/UserSessionsList.svelte";
 import { createUserSessionListController } from "$lib/features/sessions/user-session-list-controller.svelte";
@@ -283,6 +284,17 @@ $effect(() => {
 	// Untrack to avoid effect_update_depth_exceeded.
 	untrack(() => {
 		void openRouteSession(sessionId);
+	});
+});
+
+// One shared space room per active space (refcount with Space page if both open).
+// Switching sessions inside the same space does not open a second subscription.
+$effect(() => {
+	const spaceId = sessionChat.spaceId;
+	const sessionId = sessionChat.activeSessionId;
+	if (!spaceId || !sessionId) return;
+	return subscribeSpaceChannel(spaceId, (event) => {
+		void sessionChat.ingestRealtimeEnvelope(event);
 	});
 });
 

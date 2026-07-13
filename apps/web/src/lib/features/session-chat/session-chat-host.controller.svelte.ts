@@ -91,7 +91,10 @@ import {
 	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
 import { unreadTracker } from "$lib/stores/session-state.svelte";
-import { mergeCachedTaskRun } from "$lib/stores/task-runs-cache";
+import {
+	mergeCachedTaskRun,
+	restoreCachedTaskRuns,
+} from "$lib/stores/task-runs-cache";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 import {
 	loadMessageToolCalls,
@@ -347,7 +350,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	const generationTaskRunById = $derived(tasks.generationTaskRunById);
 	const backgroundBashTaskRunById = $derived(tasks.backgroundBashTaskRunById);
-	const _backgroundBashHydrateKey = $derived(tasks.backgroundBashHydrateKey);
+	const backgroundBashHydrateKey = $derived(tasks.backgroundBashHydrateKey);
 	const sessionTaskRecentHydrateKey = $derived(tasks.recentHydrateKey);
 	const sessionTaskRecentLoading = $derived(tasks.recentLoading);
 	const sessionTaskRecentCursors = $derived(tasks.recentCursors);
@@ -910,6 +913,27 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		generationRealtime.syncActiveSubscription(Boolean(spaceId && sessionId));
 	});
 
+	// Session task tray: restore cache + hydrate active runs for the open session only.
+	$effect(() => {
+		const sessionId = activeSessionId;
+		if (!sessionId) {
+			tasks.backgroundBashHydrateKey = "";
+			resetRecentSessionTaskPagination();
+			return;
+		}
+		const hydrateKey = `${spaceId}:${sessionId}`;
+		if (backgroundBashHydrateKey !== hydrateKey) {
+			tasks.backgroundBashHydrateKey = hydrateKey;
+			resetRecentSessionTaskPagination();
+			void restoreCachedTaskRuns(spaceId, sessionId)
+				.then((runs) => {
+					for (const run of runs) ingestSessionTaskRun(run);
+				})
+				.catch(() => undefined);
+			void hydrateActiveSessionTasks(sessionId);
+		}
+	});
+
 	// ── Chat methods (extracted from SpaceWorkspacePage) ──
 	function clearComposerError() {
 		composer.clearError();
@@ -1120,7 +1144,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		};
 	}
 
-	async function _hydrateActiveSessionTasks(sessionId: string) {
+	async function hydrateActiveSessionTasks(sessionId: string) {
 		const requestSpaceId = spaceId;
 		try {
 			const results = await Promise.all(
@@ -1137,7 +1161,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 	}
 
-	function _resetRecentSessionTaskPagination() {
+	function resetRecentSessionTaskPagination() {
 		tasks.resetRecentPagination();
 	}
 
