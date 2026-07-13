@@ -61,7 +61,6 @@ import {
 	billingConversion,
 	isBillingAccessBlockedCode,
 } from "$lib/stores/billing-conversion.svelte";
-import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {
 	readDraftSessionModel,
 	saveDraftSessionModel,
@@ -199,17 +198,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let disposed = false;
 
 	const isNewSessionRoute = $derived(route.kind === "new");
-	const routeSessionId = $derived(
-		route.kind === "session"
-			? route.sessionId
-			: route.kind === "new"
-				? "new"
-				: null,
-	);
-	const _routeTurnSequence = $derived(
-		route.kind === "session" ? route.turnSequence : null,
-	);
-
 	const workspace = createSessionWorkspaceController();
 	const composer = createSessionComposerController();
 	const viewport = createViewportContextController();
@@ -982,21 +970,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		return typeof code === "string" ? code : null;
 	}
 
-	function _modelFromPayload(payload: unknown): SelectedModel | null {
-		const record = asRecord(payload);
-		const provider = record?.provider;
-		const model = record?.model;
-		if (typeof provider !== "string" || !provider.trim()) return null;
-		if (typeof model !== "string" || !model.trim()) return null;
-		const catalogItem = modelsCatalog?.find(
-			(item) => item.provider === provider && item.id === model,
-		);
-		return {
-			provider,
-			id: model,
-			name: catalogItem?.model.name as string | undefined,
-		};
-	}
 	// ─── Task detail ───
 
 	function getTaskPayloadData(run: Pick<TaskRunRecord, "payload">) {
@@ -1507,11 +1480,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			turnMarkerMeasureFrame = null;
 			measureTurnMarkerPositions();
 		});
-	}
-
-	function _isGenerationInProgress(sessionId: string) {
-		const status = sessionGenerationStore.get(sessionId)?.status;
-		return Boolean(status && !TERMINAL_GENERATION_STATUSES.has(status));
 	}
 
 	function markVisibleLatestTurnViewed(
@@ -3784,9 +3752,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			selectedNodes: state.selectedNodes,
 		});
 	}
-	function insertComposerText(snippet: string) {
-		insertComposerSnippet(snippet);
-	}
 
 	async function renameActiveSession(title: string) {
 		if (!activeSessionId) return null;
@@ -3812,13 +3777,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			};
 		}
 		return result.session;
-	}
-
-	function getSessionById(sessionId: string) {
-		return (
-			sessionStateById[sessionId]?.session ??
-			spaceSessions.find((s) => s.id === sessionId)
-		);
 	}
 
 	function dispose() {
@@ -3870,29 +3828,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get spaceId() {
 			return spaceId;
 		},
-		get route() {
-			return route;
-		},
 		get access() {
 			return access;
 		},
 		get isNewSessionRoute() {
 			return isNewSessionRoute;
-		},
-		get routeSessionId() {
-			return routeSessionId;
-		},
-		get isDraftNewSessionRoute() {
-			return isDraftNewSessionRoute;
-		},
-		get sessions() {
-			return spaceSessions as readonly SessionRecord[];
-		},
-		get spaceSessions() {
-			return spaceSessions;
-		},
-		get sessionStateById() {
-			return sessionStateById;
 		},
 		get activeSessionId() {
 			return activeSessionId;
@@ -4071,16 +4011,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get pendingFollowupActionIds() {
 			return pendingFollowupActionIds;
 		},
+		// Shell still needs share dialog + vim scroll controllers.
 		share,
-		workspace,
 		scroll,
-		composer,
-		viewport,
-		turnLoading,
-		tasks,
-		generationPolicy,
-		promptTemplatesCtrl,
-		generationRealtime,
 		enterSpace,
 		syncContext,
 		ingestRealtimeEnvelope,
@@ -4090,11 +4023,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		reportActiveSource,
 		reportFileVisibleLines,
 		reportCanvasView,
-		insertComposerText,
 		flushComposerDraft: flushActiveComposerDraft,
 		refreshSessions: refreshSessionsList,
 		renameActiveSession,
-		getSessionById,
 		dispose,
 		handleSend,
 		handleAbort,
@@ -4113,9 +4044,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		updateCurrentTurnSequence,
 		loadSessionScrollAnchors,
 		persistSessionScrollAnchorsNow,
-		writeBottomScrollAnchor,
-		handleScrollKeydown,
-		updateAutoFollow,
 		jumpToTurnAndUpdateUrl,
 		setProgrammaticScrollTop,
 		snapScrollToNearestTurn,
@@ -4123,7 +4051,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		loadOlderTurns,
 		syncSessionNewer,
 		loadTurnIndex,
-		loadSessionState,
 		prepareRouteSession,
 		seedSessions,
 		applySessionsSnapshot,
@@ -4150,8 +4077,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		openPath: (target: string | WorkspaceFileLinkTarget) =>
 			options.openPath(target),
 		captureCurrentScrollAnchor,
-		requestBottomFollow,
-		getActiveGenerationState: () => activeGenerationState,
 	};
 }
 
