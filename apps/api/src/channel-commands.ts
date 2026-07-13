@@ -310,8 +310,6 @@ const handleNewCommand: ChannelCommandHandler = async (input) => {
   return true;
 };
 
-const canSenderManageChannelModel = (event: GatewayInboundEvent, resolved: ResolvedGatewayInbound) => event.sender.id === resolved.userId;
-
 const handleModelCommand: ChannelCommandHandler = async (input) => {
   const { event, resolved, command, deps } = input;
   const args = command.args?.trim() ?? "";
@@ -328,11 +326,6 @@ const handleModelCommand: ChannelCommandHandler = async (input) => {
         ? `Model: ${formatModelSelection(current.model)}\nSource: ${current.source}`
         : "Model: default",
     });
-    return true;
-  }
-
-  if (!canSenderManageChannelModel(event, resolved)) {
-    await dispatchCommandReply({ deps, event, resolved, sessionId: resolved.sessionId, text: "Only the channel owner can change the model." });
     return true;
   }
 
