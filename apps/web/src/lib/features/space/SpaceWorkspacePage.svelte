@@ -1709,12 +1709,8 @@ onMount(() => {
 		spaceStatus.dispose();
 		fileWorkspace.dispose();
 		portPreview.dispose();
-		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
-		taskHydrateRetryTimers.clear();
-		taskHydrateRetryCounts.clear();
 		sessionChat.scroll.stopVimScroll();
 		sessionChat.scroll.clearPendingVimG();
-		/* generationRealtime disposed via sessionChat.dispose() */
 		sessionChat.persistSessionScrollAnchorsNow();
 		pageMounted = false;
 		spacePresence.dispose();

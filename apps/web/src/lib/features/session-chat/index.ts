@@ -34,7 +34,6 @@ export type {
 	SessionChatAccess,
 	SessionChatContext,
 	SessionChatEnvironment,
-	SessionChatHandle,
 	SessionChatRoute,
 } from "./types";
 export {
