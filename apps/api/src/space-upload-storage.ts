@@ -4,6 +4,16 @@ import { redisCommandClient } from "./redis.js";
 
 const UPLOAD_TTL_SECONDS = 24 * 60 * 60;
 const PRESIGN_TTL_SECONDS = 60 * 60;
+/** General space upload abuse guard — looser than avatar public-asset quota. */
+const SPACE_UPLOAD_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const SPACE_UPLOAD_RATE_LIMIT_MAX_ENTRIES = 300;
+
+export class SpaceUploadRateLimitError extends Error {
+  override name = "SpaceUploadRateLimitError";
+  constructor(message = "too many uploads, please try again later") {
+    super(message);
+  }
+}
 
 export type SpaceUploadManifestEntry = {
   id: string;
@@ -16,7 +26,7 @@ export type SpaceUploadManifestEntry = {
 
 export type SpaceUploadDestination =
   | { kind: "workspace"; targetDir?: string }
-  | { kind: "sandbox_tmp"; sessionId: string };
+  | { kind: "sandbox_tmp"; sessionId?: string };
 
 export type SpaceUploadManifest = {
   uploadId: string;
@@ -37,6 +47,23 @@ const requireObjectConfig = () => {
 };
 
 export const createSpaceUploadId = () => randomUUID();
+
+/**
+ * Per-user rate limit for space file uploads (workspace + sandbox_tmp).
+ * Counts planned file entries, not request batches — more accurate against bulk abuse.
+ */
+export const consumeSpaceUploadQuota = async (userId: string, entryCount: number) => {
+  const count = Math.max(0, Math.floor(entryCount));
+  if (count <= 0) return;
+  const key = `space_upload:${userId}`;
+  const next = await redisCommandClient.incrby(key, count);
+  if (next === count) await redisCommandClient.expire(key, SPACE_UPLOAD_RATE_LIMIT_WINDOW_SECONDS);
+  if (next > SPACE_UPLOAD_RATE_LIMIT_MAX_ENTRIES) {
+    // Best-effort rollback so a rejected burst does not permanently burn the window.
+    await redisCommandClient.decrby(key, count).catch(() => undefined);
+    throw new SpaceUploadRateLimitError();
+  }
+};
 
 export const buildSpaceUploadObjectKey = (input: { spaceId: string; uploadId: string; entryId: string }) => {
   const envPrefix = config.env === "prod" ? "" : `${config.env}/`;

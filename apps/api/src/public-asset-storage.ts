@@ -53,9 +53,14 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
 };
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+/** Vision/CDN specialization limit for preprocessed chat images (webp/jpeg). Not a general file-upload cap. */
 export const MAX_CHAT_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
-const RATE_LIMIT_MAX = 60;
+/** Avatar-only abuse guard. */
+const AVATAR_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const AVATAR_RATE_LIMIT_MAX = 60;
+/** Chat image specialization (durable CDN) — looser than avatar; failures demote to file upload. */
+const CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+const CHAT_ATTACHMENT_RATE_LIMIT_MAX = 300;
 
 export class PublicAssetConfigError extends Error {
   override name = "PublicAssetConfigError";
@@ -105,9 +110,8 @@ export const buildPublicAssetObjectKey = (input: {
     if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for space avatar uploads");
     return `${envPrefix()}spaces/${input.spaceId}/avatar.${extension}`;
   }
-  if (!input.spaceId) throw new PublicAssetValidationError("spaceId is required for chat attachment uploads");
-  if (!input.sessionId) throw new PublicAssetValidationError("sessionId is required for chat attachment uploads");
-  return `${envPrefix()}chat-attachments/${input.spaceId}/${input.sessionId}/${randomUUID()}.${extension}`;
+  // Chat attachments are user-scoped. spaceId/sessionId are optional association only.
+  return `${envPrefix()}chat-attachments/${input.userUuid}/${randomUUID()}.${extension}`;
 };
 
 export const buildPublicAssetUrl = (objectKey: string) => {
@@ -127,11 +131,25 @@ export const assertPublicAssetUploadFile = (input: { purpose: PublicAssetPurpose
   if (file.size > maxBytes) throw new PublicAssetValidationError(input.purpose === "chat_attachment" ? "chat image is too large" : "avatar image is too large");
 };
 
-export const consumePublicAssetUploadQuota = async (userUuid: string) => {
+export const consumePublicAssetUploadQuota = async (
+  userUuid: string,
+  purpose: PublicAssetPurpose = "user_avatar",
+) => {
+  if (purpose === "chat_attachment") {
+    const key = `chat_attachment_upload:${userUuid}`;
+    const count = await redisCommandClient.incr(key);
+    if (count === 1) await redisCommandClient.expire(key, CHAT_ATTACHMENT_RATE_LIMIT_WINDOW_SECONDS);
+    if (count > CHAT_ATTACHMENT_RATE_LIMIT_MAX) {
+      throw new PublicAssetValidationError("too many image uploads, please try again later");
+    }
+    return;
+  }
   const key = `public_asset_upload:${userUuid}`;
   const count = await redisCommandClient.incr(key);
-  if (count === 1) await redisCommandClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-  if (count > RATE_LIMIT_MAX) throw new PublicAssetValidationError("too many image uploads, please try again later");
+  if (count === 1) await redisCommandClient.expire(key, AVATAR_RATE_LIMIT_WINDOW_SECONDS);
+  if (count > AVATAR_RATE_LIMIT_MAX) {
+    throw new PublicAssetValidationError("too many image uploads, please try again later");
+  }
 };
 
 export const createPublicAssetUploadPlan = (input: {

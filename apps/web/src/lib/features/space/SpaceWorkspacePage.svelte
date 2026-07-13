@@ -3533,46 +3533,149 @@ async function handleAbort() {
 	}
 }
 
-async function uploadComposerFileAttachments(
-	sessionId: string,
-	fileAttachments: ComposerFileAttachment[],
+function uniqueComposerRelativePaths(
+	entries: Array<{ file: File; relativePath: string }>,
 ) {
-	if (fileAttachments.length === 0) return [];
-	sessionComposer.setUploading("file");
+	const used = new Set<string>();
+	return entries.map((entry) => {
+		const base = entry.relativePath.trim() || entry.file.name || "file";
+		if (!used.has(base)) {
+			used.add(base);
+			return { ...entry, relativePath: base };
+		}
+		const dot = base.lastIndexOf(".");
+		const stem = dot > 0 ? base.slice(0, dot) : base;
+		const ext = dot > 0 ? base.slice(dot) : "";
+		let index = 2;
+		let candidate = `${stem}-${index}${ext}`;
+		while (used.has(candidate)) {
+			index += 1;
+			candidate = `${stem}-${index}${ext}`;
+		}
+		used.add(candidate);
+		return { ...entry, relativePath: candidate };
+	});
+}
+
+async function materializeComposerFilesToSandbox(
+	sessionId: string | null,
+	entries: Array<{ file: File; relativePath: string }>,
+) {
+	if (entries.length === 0) return [] as string[];
 	const uploaded = await uploadSpaceEntries({
 		spaceId,
-		destination: { kind: "sandbox_tmp", sessionId },
-		entries: fileAttachments.map((attachment) => ({
-			file: attachment.file,
-			relativePath: attachment.relativePath,
-		})),
+		destination: {
+			kind: "sandbox_tmp",
+			...(sessionId ? { sessionId } : {}),
+		},
+		entries: uniqueComposerRelativePaths(entries),
 	});
 	return uploaded.map((file) => file.path);
 }
 
-async function uploadComposerImageAttachments(
-	sessionId: string,
+/**
+ * Image specialization: durable public URL for vision/UI.
+ * Failures demote to normal file semantics (sandbox path only) — never block send.
+ */
+async function uploadComposerImageDurables(
+	sessionId: string | null,
 	imageAttachments: ComposerImageAttachment[],
 ) {
-	if (imageAttachments.length === 0) return new Map<string, string>();
+	if (imageAttachments.length === 0) {
+		return {
+			urls: new Map<string, string>(),
+			demotedIds: new Set<string>(),
+		};
+	}
 	sessionComposer.setUploading("image");
-	const uploaded = await Promise.all(
+	const urls = new Map<string, string>();
+	const demotedIds = new Set<string>();
+	await Promise.all(
 		imageAttachments.map(async (attachment) => {
-			if (attachment.uploadedUrl)
-				return [attachment.id, attachment.uploadedUrl] as const;
-			const asset = await uploadChatAttachmentImage({
-				spaceId,
-				sessionId,
-				file: attachment.file,
-				mediaType: attachment.mediaType,
-				filename: attachment.name,
-			});
-			return [attachment.id, asset.publicUrl] as const;
+			if (attachment.uploadedUrl) {
+				urls.set(attachment.id, attachment.uploadedUrl);
+				return;
+			}
+			try {
+				const asset = await uploadChatAttachmentImage({
+					spaceId,
+					sessionId: sessionId ?? undefined,
+					file: attachment.file,
+					mediaType: attachment.mediaType,
+					filename: attachment.name,
+				});
+				urls.set(attachment.id, asset.publicUrl);
+			} catch (error) {
+				// Specialization failed (size/format/network). Still send as file via sandbox.
+				demotedIds.add(attachment.id);
+				console.warn("[composer] image durable upload demoted to file", {
+					name: attachment.name,
+					size: attachment.size,
+					error,
+				});
+			}
 		}),
 	);
-	const imageUrls = new Map(uploaded);
-	sessionComposer.setUploadedImageUrls(imageUrls);
-	return imageUrls;
+	if (urls.size > 0) sessionComposer.setUploadedImageUrls(urls);
+	return { urls, demotedIds };
+}
+
+function adoptPromptSession(input: {
+	session: SessionRecord;
+	model: SelectedModel | null;
+}) {
+	const { session, model } = input;
+	const nextSessions = sortSessionsByRecentActivity([
+		session,
+		...spaceSessions.filter((item) => item.id !== session.id),
+	]);
+	void patchCachedSessionList(spaceId, (current) => [
+		session,
+		...current.filter((item) => item.id !== session.id),
+	]).catch(() => undefined);
+	seedSessions(nextSessions);
+	// Merge with any state already populated by realtime while prompt was in flight.
+	// Never clobber turns with [] if WS already delivered session.turn.* events.
+	const existing = sessionStateById[session.id];
+	const targetSessionState: SessionViewState = existing
+		? {
+				...existing,
+				session,
+				error: null,
+			}
+		: {
+				session,
+				turns: [],
+				loading: false,
+				loaded: true,
+				error: null,
+				hasMore: false,
+				hasMoreNewer: false,
+				loadingOlder: false,
+				loadingNewer: false,
+				oldestCursor: undefined,
+			};
+	sessionWorkspace.sessionStateById = {
+		...sessionStateById,
+		[session.id]: targetSessionState,
+	};
+	resolvedNewSessionId = session.id;
+	if (model) {
+		sessionModelById = {
+			...sessionModelById,
+			[session.id]: model,
+		};
+		if (draftSessionModelManuallySelected) {
+			saveDraftSessionModel(model);
+		}
+	}
+	sessionWorkspace.activeSessionId = session.id;
+	ensureSessionModelLoaded(session.id);
+	applySessionGenerationPolicy(session.id);
+	void updateUrlSession(session.id).catch((error) => {
+		console.warn("[NewChat] failed to update URL after prompt", error);
+	});
+	return targetSessionState;
 }
 
 async function handleSend() {
@@ -3587,8 +3690,10 @@ async function handleSend() {
 	const model = activeSessionModel;
 	clearComposerError();
 	clearGenerationError(activeSessionId);
+	// Existing session only — new chat lets prompt create the session server-side.
 	let sessionId = activeSessionState?.session?.id ?? null;
 	let targetSessionState = activeSessionState;
+	const isNewChat = !sessionId;
 	const pendingInput = input;
 	const pendingAttachments = attachments;
 	const optimisticTurnId = crypto.randomUUID();
@@ -3607,60 +3712,6 @@ async function handleSend() {
 	let optimisticTurn: SessionTurnRecord | null = null;
 	let hasActiveTurn = false;
 	try {
-		if (!sessionId) {
-			const result = await sdk
-				.space(spaceId)
-				.sessions.create({ source: "web" });
-			const newSession = result.session;
-			const nextSessions = sortSessionsByRecentActivity([
-				newSession,
-				...spaceSessions.filter((session) => session.id !== newSession.id),
-			]);
-			void patchCachedSessionList(spaceId, (current) => [
-				newSession,
-				...current.filter((session) => session.id !== newSession.id),
-			]).catch(() => undefined);
-			seedSessions(nextSessions);
-			targetSessionState = {
-				session: newSession,
-				turns: [],
-				loading: false,
-				loaded: true,
-				error: null,
-				hasMore: false,
-				hasMoreNewer: false,
-				loadingOlder: false,
-				loadingNewer: false,
-				oldestCursor: undefined,
-			};
-			sessionWorkspace.sessionStateById = {
-				...sessionStateById,
-				[newSession.id]: targetSessionState,
-			};
-			resolvedNewSessionId = newSession.id;
-			if (model) {
-				sessionModelById = {
-					...sessionModelById,
-					[newSession.id]: model,
-				};
-				if (draftSessionModelManuallySelected) {
-					saveDraftSessionModel(model);
-				}
-			}
-			sessionWorkspace.activeSessionId = newSession.id;
-			sessionId = newSession.id;
-			ensureSessionModelLoaded(newSession.id);
-			applySessionGenerationPolicy(newSession.id);
-			void updateUrlSession(newSession.id).catch((error) => {
-				console.warn(
-					"[NewChat] failed to update URL after session creation",
-					error,
-				);
-			});
-		}
-		if (!sessionId || !targetSessionState?.session) {
-			throw new Error("Failed to create session");
-		}
 		const fileAttachments = attachments.filter(
 			(attachment): attachment is ComposerFileAttachment =>
 				attachment.kind === "file",
@@ -3671,20 +3722,68 @@ async function handleSend() {
 		);
 		hadFileUpload = fileAttachments.length > 0;
 		hadImageUpload = imageAttachments.length > 0;
-		const [filePaths, imageUrls] = await Promise.all([
-			uploadComposerFileAttachments(sessionId, fileAttachments),
-			uploadComposerImageAttachments(sessionId, imageAttachments),
+		if (fileAttachments.length > 0) sessionComposer.setUploading("file");
+		if (imageAttachments.length > 0) sessionComposer.setUploading("image");
+
+		// Attachments do not require a session. New chat omits sessionId on prompt.
+		// Explicit files require sandbox materialize (file.edit).
+		// Image sandbox materialize is best-effort — durable URL is enough for vision/UI.
+		const fileSandboxEntries = fileAttachments.map((attachment) => ({
+			file: attachment.file,
+			relativePath: attachment.relativePath,
+		}));
+		const imageSandboxEntries = imageAttachments.map((attachment) => ({
+			file: attachment.file,
+			relativePath: attachment.name,
+		}));
+		const imageUploadPromise = uploadComposerImageDurables(
+			sessionId,
+			imageAttachments,
+		);
+		const filePathsPromise =
+			fileSandboxEntries.length > 0
+				? materializeComposerFilesToSandbox(sessionId, fileSandboxEntries)
+				: Promise.resolve([] as string[]);
+		const imagePathsPromise =
+			imageSandboxEntries.length > 0
+				? materializeComposerFilesToSandbox(
+						sessionId,
+						imageSandboxEntries,
+					).catch((error) => {
+						// Best-effort: prompt-only users can still send images via durable URL.
+						console.warn("[composer] image sandbox materialize skipped", error);
+						return [] as string[];
+					})
+				: Promise.resolve([] as string[]);
+		const [imageUpload, filePaths, imagePaths] = await Promise.all([
+			imageUploadPromise,
+			filePathsPromise,
+			imagePathsPromise,
 		]);
+		const imageUrls = imageUpload.urls;
+		const demotedImageIds = imageUpload.demotedIds;
+		const sandboxPaths = [...filePaths, ...imagePaths];
+		// Pure-image send with no durable URL and no sandbox path cannot be delivered.
+		if (
+			imageAttachments.length > 0 &&
+			fileAttachments.length === 0 &&
+			imageUrls.size === 0 &&
+			sandboxPaths.length === 0 &&
+			!input.trim() &&
+			attachments.every((attachment) => attachment.kind === "image")
+		) {
+			throw new Error("Failed to upload attachments.");
+		}
 		uploadedImageUrls = imageUrls;
 		uploadCompleted = true;
 		const userText = input.trim();
 		const pendingViewportContexts = viewportContext.takeSendSnapshot();
-		const referenceText = [
-			buildFileReferencesText(filePaths),
-			buildImageReferencesText([...imageUrls.values()]),
-		]
-			.filter(Boolean)
-			.join("\n\n");
+		// Prefer sandbox paths when available.
+		// Demoted images (no durable URL) still ride sandbox paths as normal files.
+		// Without space materialize, only successful durable URLs remain as text refs.
+		const referenceText = sandboxPaths.length
+			? buildFileReferencesText(sandboxPaths)
+			: buildImageReferencesText([...imageUrls.values()]);
 		uploadedReferenceText = referenceText;
 		text = [userText, referenceText].filter(Boolean).join("\n\n");
 		const attachmentBlocks: ContentBlock[] = attachments.flatMap(
@@ -3692,8 +3791,11 @@ async function handleSend() {
 				if (attachment.kind === "file") return [];
 				if (attachment.kind === "text")
 					return [buildComposerTextContentBlock(attachment)];
+				// Image specialization only: durable URL → image content block.
+				// Demoted / failed durable upload → file semantics only (sandbox path).
+				if (demotedImageIds.has(attachment.id)) return [];
 				const url = imageUrls.get(attachment.id);
-				if (!url) throw new Error("Failed to upload image.");
+				if (!url) return [];
 				return [
 					{
 						type: "image",
@@ -3731,60 +3833,68 @@ async function handleSend() {
 		// feeling where the message shows in the list but lingers in the input.
 		sessionComposer.clearDraft();
 		clearActiveComposerDraft();
-		const now = new Date().toISOString();
-		const sequenceHint = (targetSessionState.turns.at(-1)?.sequence ?? 0) + 1;
-		hasActiveTurn = activeSessionIsRunning;
-		optimisticTurn = {
-			id: optimisticTurnId,
-			sessionId,
-			userUuid: currentUser.uuid,
-			sequence: sequenceHint,
-			status: hasActiveTurn ? "queued" : "running",
-			intent: "followup",
-			userContent: content,
-			userText: text,
-			assistantContent: null,
-			assistantText: null,
-			provider: model?.provider ?? null,
-			model: model?.id ?? null,
-			stopReason: null,
-			errorMessage: null,
-			finalUsage: null,
-			totalUsage: null,
-			summary: null,
-			intermediateIndex: null,
-			intermediateSummary: null,
-			meta: {
-				optimistic: true,
-				userId: currentUser.uuid,
-				clientMessageId,
-			},
-			authorProfile: currentUser.profile,
-			startedAt: now,
-			completedAt: null,
-			durationMs: null,
-			createdAt: now,
-			updatedAt: now,
-		} as SessionTurnRecord;
-		sessionWorkspace.sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				...targetSessionState,
-				turns: mergeTurnsById(targetSessionState.turns, [optimisticTurn], {
-					preferIncoming: true,
-				}),
-			},
-		};
-		// Sending a message is an explicit intent to jump back to the live edge.
-		// This keeps the optimistic user turn and the following streaming reply in view,
-		// even if the user was previously reading older context.
-		sessionScroll.shouldAutoFollow = true;
-		await tick();
-		requestBottomFollow({ immediate: true });
-		if (!hasActiveTurn)
-			startGenerationRequest(sessionId, { spaceId, turnId: optimisticTurnId });
+
+		// Existing chat: optimistic turn before prompt.
+		// New chat: wait for prompt (server creates session); keep sending state.
+		if (!isNewChat && sessionId && targetSessionState?.session) {
+			const now = new Date().toISOString();
+			const sequenceHint = (targetSessionState.turns.at(-1)?.sequence ?? 0) + 1;
+			hasActiveTurn = activeSessionIsRunning;
+			optimisticTurn = {
+				id: optimisticTurnId,
+				sessionId,
+				userUuid: currentUser.uuid,
+				sequence: sequenceHint,
+				status: hasActiveTurn ? "queued" : "running",
+				intent: "followup",
+				userContent: content,
+				userText: text,
+				assistantContent: null,
+				assistantText: null,
+				provider: model?.provider ?? null,
+				model: model?.id ?? null,
+				stopReason: null,
+				errorMessage: null,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: {
+					optimistic: true,
+					userId: currentUser.uuid,
+					clientMessageId,
+				},
+				authorProfile: currentUser.profile,
+				startedAt: now,
+				completedAt: null,
+				durationMs: null,
+				createdAt: now,
+				updatedAt: now,
+			} as SessionTurnRecord;
+			sessionWorkspace.sessionStateById = {
+				...sessionStateById,
+				[sessionId]: {
+					...targetSessionState,
+					turns: mergeTurnsById(targetSessionState.turns, [optimisticTurn], {
+						preferIncoming: true,
+					}),
+				},
+			};
+			// Sending a message is an explicit intent to jump back to the live edge.
+			sessionScroll.shouldAutoFollow = true;
+			await tick();
+			requestBottomFollow({ immediate: true });
+			if (!hasActiveTurn)
+				startGenerationRequest(sessionId, {
+					spaceId,
+					turnId: optimisticTurnId,
+				});
+		}
+
 		const sendResult = await sdk.space(spaceId).prompt({
-			sessionId,
+			// Omit sessionId for new chat — server creates it.
+			...(sessionId ? { sessionId } : {}),
 			content,
 			model: model?.id,
 			provider: model?.provider,
@@ -3799,15 +3909,32 @@ async function handleSend() {
 			throw new Error("Expected immediate prompt response");
 		}
 		const acceptedTurn = sendResult.turn;
-		applyAcceptedTurnId({
-			sessionId,
-			previousTurnId: optimisticTurnId,
-			nextTurnId: acceptedTurn.id,
-			confirmedTurn: acceptedTurn,
-		});
-		if (sendResult.session) upsertSessionRecord(sendResult.session);
-		const current = sessionStateById[sessionId];
-		if (current) {
+		const acceptedSession = sendResult.session;
+		if (!acceptedSession) throw new Error("Prompt response missing session");
+
+		if (isNewChat) {
+			targetSessionState = adoptPromptSession({
+				session: acceptedSession,
+				model,
+			});
+			sessionId = acceptedSession.id;
+			startGenerationRequest(sessionId, {
+				spaceId,
+				turnId: acceptedTurn.id,
+			});
+			sessionScroll.shouldAutoFollow = true;
+		} else if (sessionId) {
+			applyAcceptedTurnId({
+				sessionId,
+				previousTurnId: optimisticTurnId,
+				nextTurnId: acceptedTurn.id,
+				confirmedTurn: acceptedTurn,
+			});
+			upsertSessionRecord(acceptedSession);
+		}
+
+		const current = sessionId ? sessionStateById[sessionId] : null;
+		if (sessionId && current) {
 			const acceptedTurnWithProfile = {
 				...acceptedTurn,
 				userUuid: acceptedTurn.userUuid ?? currentUser.uuid,
@@ -3818,7 +3945,7 @@ async function handleSend() {
 				...sessionStateById,
 				[sessionId]: {
 					...current,
-					session: sendResult.session ?? current.session,
+					session: acceptedSession,
 					turns: normalizeTurnDuplicates(
 						mergeTurnsById(current.turns, [acceptedTurnWithProfile], {
 							preferIncoming: true,
@@ -3827,12 +3954,16 @@ async function handleSend() {
 				},
 			};
 		}
-		if (wsConnectionState !== "open") {
+		if (sessionId && wsConnectionState !== "open") {
 			schedulePostSendRecoveryCheck(sessionId);
 		}
 		for (const attachment of pendingAttachments)
 			revokeComposerAttachmentPreview(attachment);
 		viewportContext.markSendSucceeded();
+		if (isNewChat) {
+			await tick();
+			requestBottomFollow({ immediate: true });
+		}
 	} catch (error) {
 		// Restore input and attachments on failure so user doesn't lose their message
 		viewportContext.restoreAfterFailedSend();

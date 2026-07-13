@@ -576,7 +576,8 @@ export type SpaceFsUploadDestination =
     }
   | {
       kind: "sandbox_tmp";
-      sessionId: string;
+      /** Optional association only; materialize path is /tmp/uploads/{uploadId}. */
+      sessionId?: string;
     };
 export type SpaceFsCreateUploadInput = {
   destination: SpaceFsUploadDestination;

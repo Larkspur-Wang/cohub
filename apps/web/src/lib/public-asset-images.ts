@@ -131,8 +131,8 @@ export async function uploadSpaceAvatarImage(input: {
 }
 
 export function uploadChatAttachmentImage(input: {
-	spaceId: string;
-	sessionId: string;
+	spaceId?: string;
+	sessionId?: string;
 	file: File;
 	mediaType: PublicAssetMimeType;
 	filename: string;

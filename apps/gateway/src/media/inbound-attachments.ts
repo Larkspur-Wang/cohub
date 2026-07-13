@@ -239,6 +239,52 @@ export async function ingestInboundMedia(input: {
   if (images.length === 0 && files.length === 0) return empty;
 
   try {
+    // Deduplicate relative paths across ordinary files + image materialize copies.
+    const usedRelativePaths = new Set<string>();
+    const uniqueRelativePath = (raw: string, fallback: string) => {
+      const base = sanitizeFilename(raw || fallback, fallback);
+      if (!usedRelativePaths.has(base)) {
+        usedRelativePaths.add(base);
+        return base;
+      }
+      const dot = base.lastIndexOf(".");
+      const stem = dot > 0 ? base.slice(0, dot) : base;
+      const ext = dot > 0 ? base.slice(dot) : "";
+      let index = 2;
+      let candidate = `${stem}-${index}${ext}`;
+      while (usedRelativePaths.has(candidate)) {
+        index += 1;
+        candidate = `${stem}-${index}${ext}`;
+      }
+      usedRelativePaths.add(candidate);
+      return candidate;
+    };
+
+    // Images also enter the sandbox_tmp file plan so they materialize like other files.
+    const plannedFiles = files.map((file) => {
+      const name = sanitizeFilename(file.name, file.id);
+      const relativePath = uniqueRelativePath(file.relativePath ?? name, name);
+      return {
+        id: file.id,
+        name: relativePath.split("/").at(-1) ?? name,
+        relativePath,
+        size: file.buffer.length,
+        mimeType: file.mediaType ?? null,
+        buffer: file.buffer,
+      };
+    });
+    const imageAsFiles = images.map((image) => {
+      const fallback = `${image.id}.${imageExtensionFromMimeType(image.mediaType)}`;
+      const name = uniqueRelativePath(image.filename ?? fallback, fallback);
+      return {
+        id: `imgfile-${image.id}`,
+        name,
+        relativePath: name,
+        size: image.buffer.length,
+        mimeType: image.mediaType,
+        buffer: image.buffer,
+      };
+    });
     const plan = await requestGatewayAttachmentPlan({
       event: input.event,
       images: images.map((image) => ({
@@ -247,13 +293,22 @@ export async function ingestInboundMedia(input: {
         mimeType: image.mediaType,
         filename: image.filename ?? `${image.id}.${imageExtensionFromMimeType(image.mediaType)}`,
       })),
-      files: files.map((file) => ({
-        id: file.id,
-        name: sanitizeFilename(file.name, file.id),
-        relativePath: file.relativePath ?? file.name,
-        size: file.buffer.length,
-        mimeType: file.mediaType ?? null,
-      })),
+      files: [
+        ...plannedFiles.map((file) => ({
+          id: file.id,
+          name: file.name,
+          relativePath: file.relativePath,
+          size: file.size,
+          mimeType: file.mimeType,
+        })),
+        ...imageAsFiles.map((file) => ({
+          id: file.id,
+          name: file.name,
+          relativePath: file.relativePath,
+          size: file.size,
+          mimeType: file.mimeType,
+        })),
+      ],
     });
 
     const blocks: ContentBlock[] = [];
@@ -265,14 +320,9 @@ export async function ingestInboundMedia(input: {
     for (const image of images) {
       const imagePlan = plansById.get(image.id);
       if (!imagePlan) {
+        // Plan missing for durable image: demote to file semantics, do not fail the message.
         imageFailures += 1;
-        const failureBlock: ContentBlock = {
-          type: "text",
-          text: "[Image upload unavailable]",
-          _meta: { source: input.source, originalUrl: image.originalUrl ?? null, reason: "plan_missing" },
-        };
-        imageBlocksById[image.id] = failureBlock;
-        blocks.push(failureBlock);
+        logger.warn(`[InboundMedia:${label}] image durable plan missing; demoted to file`, { id: image.id });
         continue;
       }
       try {
@@ -287,35 +337,36 @@ export async function ingestInboundMedia(input: {
         blocks.push(imageBlock);
         uploadedImageUrls.push(imagePlan.publicUrl);
       } catch (error) {
+        // Specialization failed — still send via sandbox path as a normal file.
         imageFailures += 1;
-        logger.warn(`[InboundMedia:${label}] image upload failed`, { id: image.id, error });
-        const failureBlock: ContentBlock = {
-          type: "text",
-          text: "[Image upload failed]",
-          _meta: { source: input.source, originalUrl: image.originalUrl ?? null, reason: "upload_failed" },
-        };
-        imageBlocksById[image.id] = failureBlock;
-        blocks.push(failureBlock);
+        logger.warn(`[InboundMedia:${label}] image durable upload demoted to file`, { id: image.id, error });
       }
     }
 
-    const imageReferences = buildUploadedImageReferencesBlock(uploadedImageUrls);
-    if (imageReferences) blocks.push(imageReferences);
-
     let uploadedFilePaths: string[] = [];
     let fileFailures = 0;
-    if (files.length > 0) {
+    const allSandboxFiles = [
+      ...plannedFiles.map((file) => ({ id: file.id, buffer: file.buffer, mediaType: file.mimeType })),
+      ...imageAsFiles.map((file) => ({ id: file.id, buffer: file.buffer, mediaType: file.mimeType })),
+    ];
+    if (allSandboxFiles.length > 0) {
       try {
         uploadedFilePaths = await uploadPlannedFileAttachments({
           spaceId: plan.spaceId,
           uploadId: plan.files.uploadId,
-          files: files.map((file) => ({ id: file.id, buffer: file.buffer, mediaType: file.mediaType ?? null })),
+          files: allSandboxFiles,
           plans: plan.files.entries,
         });
+        // Prefer sandbox paths in text refs when available; durable image URLs stay on image blocks.
         const fileReferences = buildUploadedFileReferencesBlock(uploadedFilePaths);
         if (fileReferences) blocks.push(fileReferences);
-        if (uploadedFilePaths.length < files.length) {
-          fileFailures = files.length - uploadedFilePaths.length;
+        else {
+          const imageReferences = buildUploadedImageReferencesBlock(uploadedImageUrls);
+          if (imageReferences) blocks.push(imageReferences);
+        }
+        const expectedCount = files.length + images.length;
+        if (uploadedFilePaths.length < expectedCount) {
+          fileFailures = Math.max(0, files.length - Math.max(0, uploadedFilePaths.length - images.length));
           for (let i = 0; i < fileFailures; i += 1) {
             blocks.push({ type: "text", text: "[File upload unavailable]", _meta: { source: input.source, reason: "plan_or_complete_partial" } });
           }
@@ -323,6 +374,9 @@ export async function ingestInboundMedia(input: {
       } catch (error) {
         fileFailures = files.length;
         logger.warn(`[InboundMedia:${label}] file upload failed`, error);
+        // Sandbox materialize failed: still expose durable image URLs for agent awareness.
+        const imageReferences = buildUploadedImageReferencesBlock(uploadedImageUrls);
+        if (imageReferences) blocks.push(imageReferences);
         for (const file of files) {
           blocks.push({
             type: "text",
@@ -331,6 +385,9 @@ export async function ingestInboundMedia(input: {
           });
         }
       }
+    } else if (uploadedImageUrls.length > 0) {
+      const imageReferences = buildUploadedImageReferencesBlock(uploadedImageUrls);
+      if (imageReferences) blocks.push(imageReferences);
     }
 
     logger.info(`[InboundMedia:${label}] ingested`, {

@@ -35,8 +35,10 @@ export type UploadPublicAssetInput = {
 };
 
 export type UploadChatImageAttachmentInput = {
-  spaceId: string;
-  sessionId: string;
+  /** Optional association only; upload is user-scoped. */
+  spaceId?: string;
+  /** Optional association only; upload is user-scoped. */
+  sessionId?: string;
   file: Blob;
   mimeType: PublicAssetMimeType;
   filename?: string;

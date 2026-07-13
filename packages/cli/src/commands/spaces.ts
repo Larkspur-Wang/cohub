@@ -254,13 +254,15 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
           : undefined;
     const sessionId = opts.session;
     const imagePaths = opts.image ?? [];
-    const imageSessionId = imagePaths.length
-      ? sessionId ?? error("Missing session", "Pass --session when attaching images.")
-      : "";
     const imageBlocks = imagePaths.length
       ? await Promise.all(
           imagePaths.map(async (path): Promise<ContentBlock> => {
-            const asset = await uploadChatImageAsset({ client, spaceId, sessionId: imageSessionId, path });
+            const asset = await uploadChatImageAsset({
+              client,
+              spaceId,
+              sessionId,
+              path,
+            });
             return {
               type: "image",
               source: { type: "url", url: asset.publicUrl },

@@ -1,7 +1,6 @@
 import { createLogger } from "@cohub/infra/logging";
 import { Hono } from "hono";
 import { hasPermission } from "../permissions.js";
-import { getSpaceSessionById } from "../space-sessions.js";
 import { authzDenied, requireValidId, useAuth } from "../lib/middleware.js";
 import {
   consumePublicAssetUploadQuota,
@@ -29,15 +28,9 @@ router.post("/uploads", async (c) => {
     if (!(await hasPermission(user, "space.edit", { spaceId: body.spaceId }))) return authzDenied(c);
   }
 
-  if (body.purpose === "chat_attachment") {
-    if (!body.spaceId || !requireValidId(body.spaceId)) return c.json({ message: "space not found" }, 404);
-    if (!body.sessionId || !requireValidId(body.sessionId)) return c.json({ message: "session not found" }, 404);
-    const session = await getSpaceSessionById(body.sessionId);
-    if (!session || session.spaceId !== body.spaceId) return c.json({ message: "session not found" }, 404);
-    const canPromptReadonly = await hasPermission(user, "session.prompt.readonly", { spaceId: body.spaceId, sessionId: body.sessionId });
-    const canPrompt = canPromptReadonly || await hasPermission(user, "session.prompt.fullaccess", { spaceId: body.spaceId, sessionId: body.sessionId });
-    if (!canPrompt) return authzDenied(c);
-  }
+  // chat_attachment is user-scoped: authenticated is enough.
+  // Optional spaceId/sessionId are association hints only and do not gate upload.
+  // Rate limits: avatar 60/h; chat image specialization 300/h (demotes to file on failure).
 
   try {
     const plan = createPublicAssetUploadPlan({
@@ -47,7 +40,7 @@ router.post("/uploads", async (c) => {
       sessionId: body.sessionId,
       file: body.file,
     });
-    await consumePublicAssetUploadQuota(user.uuid);
+    await consumePublicAssetUploadQuota(user.uuid, body.purpose);
     return c.json(plan);
   } catch (error) {
     if (error instanceof PublicAssetValidationError) {
@@ -58,7 +51,7 @@ router.post("/uploads", async (c) => {
       logger.error("[public-assets] upload storage is not configured", error.message);
       return c.json({ message: "public asset storage is not configured" }, 500);
     }
-    logger.error("[public-assets] failed to create upload", error);
+    logger.error("[public-assets] failed to create public asset upload", error);
     return c.json({ message: "failed to create public asset upload" }, 500);
   }
 });

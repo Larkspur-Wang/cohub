@@ -29,12 +29,14 @@ import {
   beginSpaceUploadComplete,
   buildSpaceUploadObjectKey,
   cancelSpaceUploadComplete,
+  consumeSpaceUploadQuota,
   createPresignedGetUrl,
   createPresignedPutUrl,
   createSpaceUploadId,
   deleteSpaceUploadManifest,
   getSpaceUploadManifest,
   saveSpaceUploadManifest,
+  SpaceUploadRateLimitError,
   type SpaceUploadDestination,
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
@@ -81,14 +83,16 @@ const normalizeUploadDestination = (input: SpaceFsCreateUploadInput["destination
     };
   }
   if (input.kind === "sandbox_tmp") {
-    if (!input.sessionId || !requireValidId(input.sessionId)) throw new Error("Invalid upload session.");
-    return { kind: "sandbox_tmp", sessionId: input.sessionId };
+    if (input.sessionId != null && input.sessionId !== "" && !requireValidId(input.sessionId)) {
+      throw new Error("Invalid upload session.");
+    }
+    return { kind: "sandbox_tmp", sessionId: input.sessionId || undefined };
   }
   throw new Error("Invalid upload destination.");
 };
 
 const buildUploadDestinationRoot = (destination: SpaceUploadDestination, uploadId: string) => {
-  if (destination.kind === "sandbox_tmp") return `/tmp/uploads/${destination.sessionId}/${uploadId}`;
+  if (destination.kind === "sandbox_tmp") return `/tmp/uploads/${uploadId}`;
   return destination.targetDir ? `/workspace/${destination.targetDir}` : "/workspace";
 };
 
@@ -327,6 +331,15 @@ router.post("/uploads", async (c) => {
   if (!body?.entries?.length) return c.json({ message: "entries are required" }, 400);
   if (body.entries.length > MAX_UPLOAD_FILES) return c.json({ message: "too many files" }, 413);
 
+  try {
+    await consumeSpaceUploadQuota(user.uuid, body.entries.length);
+  } catch (error) {
+    if (error instanceof SpaceUploadRateLimitError) {
+      return c.json({ message: error.message }, 429);
+    }
+    throw error;
+  }
+
   const uploadId = createSpaceUploadId();
   const seenIds = new Set<string>();
   const seenPaths = new Set<string>();
@@ -420,7 +433,10 @@ router.post("/uploads/:uploadId/complete", async (c) => {
     }
 
     const destinationRoot = buildUploadDestinationRoot(manifest.destination, manifest.uploadId);
-    const sessionId = manifest.destination.kind === "sandbox_tmp" ? manifest.destination.sessionId : `upload:${uploadId}`;
+    const sessionId =
+      manifest.destination.kind === "sandbox_tmp"
+        ? (manifest.destination.sessionId || `upload:${uploadId}`)
+        : `upload:${uploadId}`;
     const result = await enqueueSandboxUploadFilesJob({
       spaceId,
       sessionId,

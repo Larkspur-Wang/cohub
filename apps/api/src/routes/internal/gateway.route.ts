@@ -249,7 +249,14 @@ router.post("/attachments/plan", async (c) => {
   const requestedImages = Array.isArray(body?.images) ? body.images : [];
   const requestedFiles = Array.isArray(body?.files) ? body.files : [];
   if (requestedImages.length > MAX_GATEWAY_ATTACHMENT_IMAGES) return c.json({ message: "too many images" }, 413);
-  if (requestedFiles.length > MAX_GATEWAY_ATTACHMENT_FILES) return c.json({ message: "too many files" }, 413);
+  // Image materialize copies use ids prefixed with `imgfile-` and do not count against file quota.
+  const ordinaryFileCount = requestedFiles.filter((file) => !String(file?.id ?? "").startsWith("imgfile-")).length;
+  const imageMaterializeCount = requestedFiles.length - ordinaryFileCount;
+  if (ordinaryFileCount > MAX_GATEWAY_ATTACHMENT_FILES) return c.json({ message: "too many files" }, 413);
+  if (imageMaterializeCount > MAX_GATEWAY_ATTACHMENT_IMAGES) return c.json({ message: "too many images" }, 413);
+  if (imageMaterializeCount > 0 && imageMaterializeCount !== requestedImages.length) {
+    return c.json({ message: "image materialize file count must match images" }, 400);
+  }
 
   const seenImageIds = new Set<string>();
   const imagePlans = [];
@@ -282,12 +289,15 @@ router.post("/attachments/plan", async (c) => {
   const fileEntries: SpaceUploadManifestEntry[] = [];
   if (uploadId) {
     const seenFileIds = new Set<string>();
+    const seenRelativePaths = new Set<string>();
     for (const file of files) {
       if (!/^[a-zA-Z0-9_-]{1,80}$/.test(file.id) || seenFileIds.has(file.id)) return c.json({ message: "file ids must be unique safe strings" }, 400);
       seenFileIds.add(file.id);
       if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > 100 * 1024 * 1024) return c.json({ message: "file too large" }, 413);
       const relativePath = safeUploadPath(file.relativePath?.trim() || file.name);
       if (!relativePath) return c.json({ message: "invalid upload path" }, 400);
+      if (seenRelativePaths.has(relativePath)) return c.json({ message: "duplicate upload path" }, 400);
+      seenRelativePaths.add(relativePath);
       const name = relativePath.split("/").at(-1) ?? file.name;
       fileEntries.push({
         id: file.id,
@@ -304,7 +314,7 @@ router.post("/attachments/plan", async (c) => {
       uploadId,
       spaceId: resolved.spaceId,
       userId: resolved.userId,
-      destination: { kind: "sandbox_tmp", sessionId: resolved.sessionId },
+      destination: { kind: "sandbox_tmp", sessionId: resolved.sessionId || undefined },
       entries: fileEntries,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
@@ -352,8 +362,12 @@ router.post("/attachments/complete", async (c) => {
       return c.json({ message: "no completed entries" }, 400);
     }
 
-    const destinationRoot = manifest.destination.kind === "sandbox_tmp" ? `/tmp/uploads/${manifest.destination.sessionId}/${manifest.uploadId}` : "/workspace";
-    const sessionId = manifest.destination.kind === "sandbox_tmp" ? manifest.destination.sessionId : `upload:${uploadId}`;
+    const destinationRoot = manifest.destination.kind === "sandbox_tmp"
+      ? `/tmp/uploads/${manifest.uploadId}`
+      : "/workspace";
+    const sessionId = manifest.destination.kind === "sandbox_tmp"
+      ? (manifest.destination.sessionId || `upload:${uploadId}`)
+      : `upload:${uploadId}`;
     const result = await enqueueSandboxUploadFilesJob({
       spaceId,
       sessionId,

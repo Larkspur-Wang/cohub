@@ -41,8 +41,8 @@ export async function normalizeChatImageFile(path: string): Promise<Buffer> {
 
 export async function uploadChatImageAsset(input: {
   client: CohubHttpClient;
-  spaceId: string;
-  sessionId: string;
+  spaceId?: string;
+  sessionId?: string;
   path: string;
 }) {
   const body = await normalizeChatImageFile(input.path);
