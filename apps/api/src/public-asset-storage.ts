@@ -5,6 +5,7 @@ import {
   cacheBuster,
   createPresignedPostObject,
   createPresignedPutObjectUrl,
+  getBucketPublicEndpoint,
   type PresignStorageConfig,
 } from "./object-presign.js";
 import { redisCommandClient } from "./redis.js";
@@ -82,8 +83,11 @@ const CHAT_MIME_EXTENSIONS: Record<string, string> = {
 };
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-/** General chat attachment durable object (any file). Public URL; UUID-unguessable. */
-export const MAX_CHAT_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+/**
+ * Chat durable object (any file). Public URL; UUID-unguessable.
+ * Body goes client → OSS via presign (not through API). Align with space upload single-file cap.
+ */
+export const MAX_CHAT_ATTACHMENT_BYTES = 1024 * 1024 * 1024;
 /** Avatar-only abuse guard. */
 const AVATAR_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const AVATAR_RATE_LIMIT_MAX = 60;
@@ -203,6 +207,111 @@ export const buildPublicAssetUrl = (objectKey: string) => {
 };
 
 export const buildVersionedPublicAssetUrl = (objectKey: string) => `${buildPublicAssetUrl(objectKey)}?v=${cacheBuster()}`;
+
+const encodeObjectKeyPath = (objectKey: string) =>
+  objectKey.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+
+const tryParseOrigin = (value: string | undefined) => {
+  if (!value) return null;
+  try {
+    return new URL(value.replace(/\/+$/, "")).origin;
+  } catch {
+    return null;
+  }
+};
+
+/** Origins clients may pass as chat durable downloadUrl (CDN / public OSS). */
+export const listPublicAssetClientOrigins = () => {
+  const origins = new Set<string>();
+  const cdn = tryParseOrigin(config.publicAssetCdnBaseUrl);
+  if (cdn) origins.add(cdn);
+  if (config.publicAssetOssBucket) {
+    const publicEndpoint =
+      config.publicAssetOssPublicEndpoint ??
+      config.publicAssetOssEndpoint?.replace("-internal.", ".");
+    if (publicEndpoint) {
+      try {
+        const parsed = new URL(publicEndpoint.replace(/\/+$/, ""));
+        if (!parsed.hostname.startsWith(`${config.publicAssetOssBucket}.`)) {
+          parsed.hostname = `${config.publicAssetOssBucket}.${parsed.hostname}`;
+        }
+        origins.add(parsed.origin);
+      } catch {
+        // ignore invalid config
+      }
+    }
+  }
+  return origins;
+};
+
+export const isAllowedPublicAssetDownloadUrl = (value: string) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  if (url.username || url.password) return false;
+  const origins = listPublicAssetClientOrigins();
+  return origins.size > 0 && origins.has(url.origin);
+};
+
+/** Extract object key from a known public CDN / public OSS URL. */
+export const publicAssetObjectKeyFromUrl = (value: string): string | null => {
+  if (!isAllowedPublicAssetDownloadUrl(value)) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  let path = decodeURIComponent(url.pathname.replace(/^\/+/, ""));
+  // Strip CDN base path prefix when CDN is mounted under a subpath.
+  if (config.publicAssetCdnBaseUrl) {
+    try {
+      const cdn = new URL(config.publicAssetCdnBaseUrl.replace(/\/+$/, ""));
+      if (url.origin === cdn.origin) {
+        const prefix = cdn.pathname.replace(/^\/+/, "").replace(/\/+$/, "");
+        if (prefix && (path === prefix || path.startsWith(`${prefix}/`))) {
+          path = path === prefix ? "" : path.slice(prefix.length + 1);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (!path || path.includes("..")) return null;
+  return path;
+};
+
+/**
+ * Rewrite a public durable URL to the internal OSS endpoint for sandbox materialize.
+ * Falls back to the original URL when internal endpoint is unavailable or URL is not ours.
+ */
+export const resolvePublicAssetDownloadUrlForInternal = (value: string): string | null => {
+  if (!isAllowedPublicAssetDownloadUrl(value)) return null;
+  const objectKey = publicAssetObjectKeyFromUrl(value);
+  if (!objectKey) return null;
+
+  // Prefer internal OSS endpoint when configured (in-cluster / VPC pull).
+  const internalEndpoint = config.publicAssetOssEndpoint;
+  const bucket = config.publicAssetOssBucket;
+  if (internalEndpoint && bucket) {
+    try {
+      const base = getBucketPublicEndpoint({
+        endpoint: internalEndpoint,
+        publicEndpoint: internalEndpoint,
+        region: config.publicAssetOssRegion,
+        bucket,
+      });
+      return `${base.replace(/\/+$/, "")}/${encodeObjectKeyPath(objectKey)}`;
+    } catch {
+      // fall through to original public URL
+    }
+  }
+  return value;
+};
 
 export const assertPublicAssetUploadFile = (input: {
   purpose: PublicAssetPurpose;

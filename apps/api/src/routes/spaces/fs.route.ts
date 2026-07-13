@@ -42,6 +42,10 @@ import {
 } from "../../space-upload-storage.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
 import { config } from "../../config.js";
+import {
+  isAllowedPublicAssetDownloadUrl,
+  resolvePublicAssetDownloadUrlForInternal,
+} from "../../public-asset-storage.js";
 import type {
   SpaceFsCreateUploadInput,
   SpaceFsCompleteUploadInput,
@@ -324,43 +328,6 @@ router.get("/download", async (c) => {
   }
 });
 
-const isAllowedMaterializeDownloadUrl = (value: string) => {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== "https:") return false;
-  if (url.username || url.password) return false;
-
-  const allowedOrigins = new Set<string>();
-  const pushBase = (base: string | undefined) => {
-    if (!base) return;
-    try {
-      allowedOrigins.add(new URL(base).origin);
-    } catch {
-      // ignore invalid config
-    }
-  };
-  pushBase(config.publicAssetCdnBaseUrl);
-  if (config.publicAssetOssBucket) {
-    const endpoint = config.publicAssetOssPublicEndpoint ?? config.publicAssetOssEndpoint?.replace("-internal.", ".");
-    if (endpoint) {
-      try {
-        const parsed = new URL(endpoint.replace(/\/+$/, ""));
-        if (!parsed.hostname.startsWith(`${config.publicAssetOssBucket}.`)) {
-          parsed.hostname = `${config.publicAssetOssBucket}.${parsed.hostname}`;
-        }
-        allowedOrigins.add(parsed.origin);
-      } catch {
-        // ignore
-      }
-    }
-  }
-  if (allowedOrigins.size === 0) return false;
-  return allowedOrigins.has(url.origin);
-};
 
 router.post("/uploads", async (c) => {
   const user = useAuth(c);
@@ -402,7 +369,7 @@ router.post("/uploads", async (c) => {
         typeof entry.downloadUrl === "string" && entry.downloadUrl.trim()
           ? entry.downloadUrl.trim()
           : null;
-      if (downloadUrl && !isAllowedMaterializeDownloadUrl(downloadUrl)) {
+      if (downloadUrl && !isAllowedPublicAssetDownloadUrl(downloadUrl)) {
         return c.json({ message: "invalid download url" }, 400);
       }
       totalBytes += entry.size;
@@ -494,9 +461,13 @@ router.post("/uploads/:uploadId/complete", async (c) => {
       uploadId,
       destinationRoot,
       files: entries.map((entry) => {
-        const downloadUrl = entry.downloadUrl
+        const rawUrl = entry.downloadUrl
           ? entry.downloadUrl
           : createPresignedGetUrl(entry.objectKey as string).downloadUrl;
+        // Public durable URLs → internal OSS when possible (sandbox VPC pull).
+        const downloadUrl = entry.downloadUrl
+          ? (resolvePublicAssetDownloadUrlForInternal(rawUrl) ?? rawUrl)
+          : rawUrl;
         return {
           relativePath: entry.relativePath,
           name: entry.name,

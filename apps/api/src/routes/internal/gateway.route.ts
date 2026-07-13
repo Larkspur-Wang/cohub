@@ -17,6 +17,8 @@ import {
   PublicAssetValidationError,
   consumePublicAssetUploadQuota,
   createInternalPublicAssetUploadPlan,
+  isAllowedPublicAssetDownloadUrl,
+  resolvePublicAssetDownloadUrlForInternal,
 } from "../../public-asset-storage.js";
 import {
   beginSpaceUploadComplete,
@@ -240,41 +242,6 @@ router.post("/local-sandbox/status", async (c) => {
 });
 
 
-const isAllowedMaterializeDownloadUrl = (value: string) => {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== "https:") return false;
-  if (url.username || url.password) return false;
-  const allowedOrigins = new Set<string>();
-  const pushBase = (base: string | undefined) => {
-    if (!base) return;
-    try {
-      allowedOrigins.add(new URL(base).origin);
-    } catch {
-      // ignore invalid config
-    }
-  };
-  pushBase(config.publicAssetCdnBaseUrl);
-  if (config.publicAssetOssBucket) {
-    const endpoint = config.publicAssetOssPublicEndpoint ?? config.publicAssetOssEndpoint?.replace("-internal.", ".");
-    if (endpoint) {
-      try {
-        const parsed = new URL(endpoint.replace(/\/+$/, ""));
-        if (!parsed.hostname.startsWith(`${config.publicAssetOssBucket}.`)) {
-          parsed.hostname = `${config.publicAssetOssBucket}.${parsed.hostname}`;
-        }
-        allowedOrigins.add(parsed.origin);
-      } catch {
-        // ignore
-      }
-    }
-  }
-  return allowedOrigins.size > 0 && allowedOrigins.has(url.origin);
-};
 
 router.post("/attachments/plan", async (c) => {
   const forbidden = ensureInternalRequest(c);
@@ -459,7 +426,7 @@ router.post("/attachments/materialize", async (c) => {
       if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > 100 * 1024 * 1024) {
         return c.json({ message: "file too large" }, 413);
       }
-      if (typeof file.downloadUrl !== "string" || !isAllowedMaterializeDownloadUrl(file.downloadUrl)) {
+      if (typeof file.downloadUrl !== "string" || !isAllowedPublicAssetDownloadUrl(file.downloadUrl)) {
         return c.json({ message: "invalid download url" }, 400);
       }
       totalBytes += file.size;
@@ -470,7 +437,7 @@ router.post("/attachments/materialize", async (c) => {
         name: relativePath.split("/").at(-1) ?? file.name,
         size: file.size,
         mimeType: file.mimeType ?? null,
-        downloadUrl: file.downloadUrl,
+        downloadUrl: resolvePublicAssetDownloadUrlForInternal(file.downloadUrl) ?? file.downloadUrl,
       });
     }
 
@@ -556,9 +523,12 @@ router.post("/attachments/complete", async (c) => {
       uploadId,
       destinationRoot,
       files: entries.map((entry) => {
-        const downloadUrl = entry.downloadUrl
+        const rawUrl = entry.downloadUrl
           ? entry.downloadUrl
           : createPresignedGetUrl(entry.objectKey as string).downloadUrl;
+        const downloadUrl = entry.downloadUrl
+          ? (resolvePublicAssetDownloadUrlForInternal(rawUrl) ?? rawUrl)
+          : rawUrl;
         return {
           relativePath: entry.relativePath,
           name: entry.name,
