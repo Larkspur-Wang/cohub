@@ -4,7 +4,7 @@ import { configureBillingRuntime } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
 
 
-import { Queue, Worker, type Processor } from "bullmq";
+import { DelayedError, Queue, Worker, type Processor } from "bullmq";
 import {
   resolveQueueConcurrencyPerWorkerByName,
   attachWorkerEventLogger,
@@ -58,6 +58,11 @@ const processor: Processor = async (job) => {
     try {
       return await handler(job);
     } catch (err) {
+      // Idle check reschedules via moveToDelayed + DelayedError; not a failure.
+      if (err instanceof DelayedError || (err instanceof Error && err.name === "DelayedError")) {
+        span.setStatus({ code: SpanStatusCode.OK });
+        throw err;
+      }
       span.recordException(err instanceof Error ? err : new Error(String(err)));
       span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
       await recordJobFailure(job, err, {

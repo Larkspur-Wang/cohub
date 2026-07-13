@@ -8,6 +8,7 @@ import {
   isSandboxAwaitingEndpointReport,
   isSandboxDialable,
   normalizeSandboxSpecId,
+  resolveSpaceSandboxAutoDestroyPolicy,
   type SandboxSpecId,
 } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
@@ -20,6 +21,7 @@ import { deleteSandboxPublicNetwork, getSandboxPublicEndpoints, reconcileSandbox
 import { createSandboxReportToken, hashSandboxReportToken } from "./crypto.js";
 import { redisCommandClient } from "./redis.js";
 import { publishSandboxLifecycleEvent } from "./sandbox-events.js";
+import { scheduleSandboxAutoDestroy } from "./sandbox-idle-scheduler.js";
 import type { SpaceSandboxRuntimeStatus, SpaceSandboxStatus, SpaceSandboxStopReason } from "./lib/sandbox/types.js";
 import { smokeVerifySandboxPod } from "./lib/sandbox/recovery.js";
 import type { V1Pod } from "@kubernetes/client-node";
@@ -716,19 +718,45 @@ export const recoverSpaceSandbox = async (input: {
       ? null
       : await smokeVerifySandboxPod(podName, sessionsNamespace);
     const latest = await getSpaceSandboxBySpaceId(input.spaceId);
+    // Product choice: recover/resume resets the idle clock (full TTL from now),
+    // rather than continuing prior idle progress. Keeps just-recovered sandboxes
+    // from being immediately reaped off a stale lastActivityAt.
+    const recoveredAt = new Date();
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "running",
       runtimeStatus: "healthy",
+      lastActivityAt: recoveredAt,
       meta: {
         ...asMetaObject(latest?.meta),
         recoveryStatus: "ready",
-        lastRecoveredAt: new Date().toISOString(),
+        lastRecoveredAt: recoveredAt.toISOString(),
         lastRecoveryReason: input.reason ?? "recover",
         lastRecoveryChecks: checks,
         lastRecoveryError: null,
       },
     });
+
+    // Resume/recover is the common path that used to drop idle_check jobs.
+    // Re-arm from now so a recovered sandbox always has a next check.
+    const [space] = await db.select({ meta: spaces.meta }).from(spaces).where(eq(spaces.id, input.spaceId)).limit(1);
+    void scheduleSandboxAutoDestroy({
+      spaceId: input.spaceId,
+      policy: resolveSpaceSandboxAutoDestroyPolicy(space?.meta),
+      baseAt: recoveredAt,
+    }).then((result) => {
+      logger.info("[SandboxAutoDestroy] scheduled after recover", {
+        spaceId: input.spaceId,
+        ...result,
+        dueAt: "dueAt" in result && result.dueAt instanceof Date ? result.dueAt.toISOString() : null,
+      });
+    }).catch((error) => {
+      logger.error("[SandboxAutoDestroy] failed to schedule policy after recover", {
+        spaceId: input.spaceId,
+        error,
+      });
+    });
+
     return { ok: true as const, status: "running" as const, verified: input.verify !== false, checks };
   } catch (error) {
     const latest = await getSpaceSandboxBySpaceId(input.spaceId);

@@ -156,6 +156,38 @@ export function buildSandboxIdleCheckJobId(spaceId: string) {
   return `sandbox-idle-check-${spaceId}`;
 }
 
+/** Delay options shared by API schedule and worker reschedule. */
+export const SANDBOX_IDLE_CHECK_JOB_ATTEMPTS = 3;
+export const SANDBOX_IDLE_CHECK_JOB_BACKOFF_MS = 60_000;
+
+export function computeSandboxIdleCheckDelayMs(dueAt: Date, now = Date.now()) {
+  return Math.max(0, dueAt.getTime() - now);
+}
+
+/**
+ * Decide how an idle_check result should leave the next delayed job.
+ * - not_due: keep the same job and delay until dueAt (worker uses moveToDelayed)
+ * - terminal: no next job (stopped / never / local / not usable / missing)
+ */
+export function resolveSandboxIdleCheckReschedule(result: {
+  ok?: boolean;
+  skipped?: boolean;
+  reason?: string;
+  dueAt?: string | null;
+}): { action: "delay"; dueAt: Date } | { action: "none"; reason: string } {
+  if (result.ok && result.skipped && result.reason === "not_due" && result.dueAt) {
+    const dueAt = new Date(result.dueAt);
+    if (!Number.isNaN(dueAt.getTime())) return { action: "delay", dueAt };
+  }
+  const reason =
+    typeof result.reason === "string" && result.reason
+      ? result.reason
+      : result.ok
+        ? "completed"
+        : "failed";
+  return { action: "none", reason };
+}
+
 export function isLocalSandboxProvider(provider: string | null | undefined) {
   return provider === "local";
 }
@@ -549,16 +581,48 @@ export function createSandboxLifecycleController(input: {
     const policy = resolveSpaceSandboxAutoDestroyPolicy(space.meta);
     if (policy.mode === "never") return { ok: true as const, skipped: true, reason: "never" };
 
-    const baseAt = getIdleBaseAt(sandbox);
-    if (!baseAt) return { ok: true as const, skipped: true, reason: "no_base_time" };
+    const evaluateDue = (row: NonNullable<typeof sandbox>) => {
+      const baseAt = getIdleBaseAt(row);
+      if (!baseAt) return { due: false as const, reason: "no_base_time" as const, dueAt: null as Date | null };
+      const dueAt = getSpaceSandboxAutoDestroyDeadline(baseAt, policy);
+      if (!dueAt || now.getTime() < dueAt.getTime()) {
+        return { due: false as const, reason: "not_due" as const, dueAt };
+      }
+      return { due: true as const, reason: "due" as const, dueAt };
+    };
 
-    const dueAt = getSpaceSandboxAutoDestroyDeadline(baseAt, policy);
-    if (!dueAt || now.getTime() < dueAt.getTime()) {
-      return { ok: true as const, skipped: true, reason: "not_due", dueAt: dueAt?.toISOString() ?? null };
+    const first = evaluateDue(sandbox);
+    if (!first.due) {
+      return {
+        ok: true as const,
+        skipped: true,
+        reason: first.reason,
+        dueAt: first.dueAt?.toISOString() ?? null,
+      };
     }
 
-    const stopped = await stopSandbox({ spaceId: input.spaceId, reason: "idle", podName: sandbox.podName ?? null, at: now });
-    return { ...stopped, dueAt: dueAt.toISOString() };
+    // Re-read before stop so concurrent recover/activity that refreshed
+    // lastActivityAt is not wiped by a stale first-pass due decision.
+    const latest = await getSandbox(input.spaceId);
+    if (!latest) return { ok: true as const, skipped: true, reason: "sandbox_not_found" };
+    if (!isSandboxUsableStatus(latest.status)) return { ok: true as const, skipped: true, reason: "not_usable" };
+    const second = evaluateDue(latest);
+    if (!second.due) {
+      return {
+        ok: true as const,
+        skipped: true,
+        reason: second.reason,
+        dueAt: second.dueAt?.toISOString() ?? null,
+      };
+    }
+
+    const stopped = await stopSandbox({
+      spaceId: input.spaceId,
+      reason: "idle",
+      podName: latest.podName ?? null,
+      at: now,
+    });
+    return { ...stopped, dueAt: second.dueAt.toISOString() };
   }
 
   async function cleanupStaleSandbox(input: { spaceId: string; podName: string | null; status: string }) {
