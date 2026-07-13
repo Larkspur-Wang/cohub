@@ -4051,6 +4051,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		loadOlderTurns,
 		syncSessionNewer,
 		loadTurnIndex,
+		loadSessionState,
 		prepareRouteSession,
 		seedSessions,
 		applySessionsSnapshot,

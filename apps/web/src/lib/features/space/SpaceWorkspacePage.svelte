@@ -1747,10 +1747,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	newChatProfileContentEl = null;
 	newChatProfileBodyEl = null;
 	spaceRealtime.resetRecoveredConnection();
-	// Local shell UI only (not chat-owned).
-	lastTurnIndexRefreshKey = "";
-	showTurnBottomSheet = false;
-	appliedRouteTurnKey = null;
+	// Chat-owned UI (turn rail / route turn) is reset by sessionChat.enterSpace.
 	fileWorkspace.resetForSpace({ force: true });
 	canvasPreview.closeCanvas();
 	portPreview.setEndpoints({});
@@ -2036,7 +2033,7 @@ const resourceActionState = $derived({
 	available: hasResourceActions(),
 });
 const headerActions = {
-	openShareModal: (id) => sessionChat.openShareModal(id),
+	openShareModal: (id: string) => sessionChat.openShareModal(id),
 	startSessionRename,
 	cancelSessionRename,
 	submitSessionRename,
@@ -2734,6 +2731,4 @@ const headerActions = {
     flex-shrink: 0;
   }
   :global(.zoom-btn:hover) { background: var(--bg-hover); color: var(--text-secondary); }
-</style>
--text-secondary); }
 </style>
