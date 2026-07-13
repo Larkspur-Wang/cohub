@@ -48,8 +48,3 @@ export function subscribeSpaceChannel(
 		rooms.delete(spaceId);
 	};
 }
-
-/** Test/debug helper — active shared room count. */
-export function getActiveSpaceChannelCount() {
-	return rooms.size;
-}

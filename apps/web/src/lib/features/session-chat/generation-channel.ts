@@ -73,7 +73,3 @@ export function subscribeGenerationChannel(
 		rooms.delete(key);
 	};
 }
-
-export function getActiveGenerationChannelCount() {
-	return rooms.size;
-}

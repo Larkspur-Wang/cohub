@@ -26,8 +26,3 @@ export function releaseSpaceGeneration(spaceId: string) {
 	leases.delete(spaceId);
 	sessionGenerationStore.resetSpace(spaceId);
 }
-
-/** Test/debug helper. */
-export function getSpaceGenerationLeaseCount(spaceId: string) {
-	return leases.get(spaceId) ?? 0;
-}
