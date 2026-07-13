@@ -1,6 +1,15 @@
 import { asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
-import { DEFAULT_SANDBOX_SPEC_ID, SANDBOX_SPECS, getSandboxSpecRank, normalizeSandboxSpecId, type SandboxSpecId } from "@cohub/sandbox-controller";
+import {
+  DEFAULT_SANDBOX_SPEC_ID,
+  SANDBOX_SPECS,
+  buildInvalidatedSandboxEndpointMeta,
+  getSandboxSpecRank,
+  isSandboxAwaitingEndpointReport,
+  isSandboxDialable,
+  normalizeSandboxSpecId,
+  type SandboxSpecId,
+} from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import { listEnabledSpaceMods, getSpaceModMountSignature } from "@cohub/core/space-mods";
 import { spaceSandboxes, spaces } from "@cohub/db";
@@ -435,6 +444,17 @@ export const reconcileSpaceSandbox = async (input: {
       logger.warn(`[SandboxEvents] failed to publish replacing event spaceId=${input.spaceId}:`, error);
     });
 
+    // Invalidate endpoint + report token immediately so agents stop dialing the
+    // dying pod and it cannot re-publish the dead coordinates.
+    await updateSpaceSandbox({
+      spaceId: input.spaceId,
+      status: "provisioning",
+      runtimeStatus: "starting",
+      meta: buildInvalidatedSandboxEndpointMeta(existingMeta, input.reason, generation),
+    }).catch((error) => {
+      logger.warn(`[SandboxRecover] failed to invalidate endpoint before replace spaceId=${input.spaceId}:`, error);
+    });
+
     const podToReplace = existingSandbox?.podName ?? podName;
     try {
       await k8sCoreApi.deleteNamespacedPod({
@@ -461,8 +481,11 @@ export const reconcileSpaceSandbox = async (input: {
   const reportTokenHash = hashSandboxReportToken(reportToken);
   const reportTokenIssuedAt = new Date().toISOString();
   const nowIso = new Date().toISOString();
+  const baseMeta = input.mode === "replace"
+    ? buildInvalidatedSandboxEndpointMeta(existingMeta, input.reason, nowIso)
+    : existingMeta;
   const provisioningMeta = {
-    ...existingMeta,
+    ...baseMeta,
     ...(input.mode === "replace" ? { recreatedAt: nowIso } : {}),
     reconcileReason: input.reason,
     provisioningStartedAt: nowIso,
@@ -630,8 +653,9 @@ export const recoverSpaceSandbox = async (input: {
   const locked = await redisCommandClient.set(lockKey, `${process.pid}:${Date.now()}`, "PX", RECOVERY_LOCK_TTL_MS, "NX");
   if (locked !== "OK") {
     const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+    // Another recover is in flight — ok only if already dialable.
     return {
-      ok: sandbox?.status === "ready" || sandbox?.status === "running",
+      ok: isSandboxDialable(sandbox),
       status: sandbox?.status ?? "provisioning",
       verified: false,
       recovering: true,
@@ -642,11 +666,17 @@ export const recoverSpaceSandbox = async (input: {
     const cooldown = await redisCommandClient.get(cooldownKey).catch(() => null);
     if (cooldown && input.source !== "manual") {
       const sandbox = await getSpaceSandboxBySpaceId(input.spaceId);
+      const dialable = isSandboxDialable(sandbox);
+      const awaitingReport = sandbox?.status === "provisioning"
+        || isSandboxAwaitingEndpointReport(sandbox?.meta);
+      // Dialable → ok. Still provisioning/report-pending → recovering (wait).
+      // Otherwise hard throttle without a usable endpoint.
       return {
-        ok: sandbox?.status === "ready" || sandbox?.status === "running",
+        ok: dialable,
         status: sandbox?.status ?? "provisioning",
         verified: false,
         throttled: true,
+        recovering: !dialable && awaitingReport,
       };
     }
     await redisCommandClient.set(cooldownKey, "1", "PX", RECOVERY_COOLDOWN_MS).catch(() => undefined);
@@ -654,16 +684,17 @@ export const recoverSpaceSandbox = async (input: {
     const startedAt = new Date().toISOString();
     const existingSandbox = await getSpaceSandboxBySpaceId(input.spaceId);
     const existingMeta = asMetaObject(existingSandbox?.meta);
+    const recoveryReason = input.reason ?? "recover";
     await updateSpaceSandbox({
       spaceId: input.spaceId,
       status: "provisioning",
       runtimeStatus: "starting",
       meta: {
-        ...existingMeta,
+        ...buildInvalidatedSandboxEndpointMeta(existingMeta, recoveryReason, startedAt),
         recoveryStatus: "recreating",
         recoveryLevel: "L2",
         recoverySource: input.source ?? "auto",
-        lastRecoveryReason: input.reason ?? "recover",
+        lastRecoveryReason: recoveryReason,
         lastRecoveryStartedAt: startedAt,
         lastRecoveryError: null,
       },

@@ -168,6 +168,114 @@ export function isSandboxPromptAcceptingStatus(status: string | null | undefined
   return isSandboxUsableStatus(status) || status === "stopped" || status === "stopping";
 }
 
+/** True when meta has a dialable coordinate (wsEndpoint or legacy podIp). */
+export function hasSandboxEndpoint(meta: unknown): boolean {
+  if (!isRecord(meta)) return false;
+  const wsEndpoint = typeof meta.wsEndpoint === "string" ? meta.wsEndpoint.trim() : "";
+  if (wsEndpoint) return true;
+  const podIp = typeof meta.podIp === "string" ? meta.podIp.trim() : "";
+  return Boolean(podIp);
+}
+
+/** Status usable and meta has coordinates an agent can dial. */
+export function isSandboxDialable(sandbox: {
+  status?: string | null;
+  meta?: unknown;
+} | null | undefined): boolean {
+  return Boolean(sandbox && isSandboxUsableStatus(sandbox.status) && hasSandboxEndpoint(sandbox.meta));
+}
+
+/**
+ * Clear connection coordinates (+ report token) so concurrent agents stop dialing
+ * a dying pod and the old pod cannot report the dead endpoint back.
+ */
+export function buildInvalidatedSandboxEndpointMeta(
+  meta: Record<string, unknown>,
+  reason: string,
+  at = new Date().toISOString(),
+): Record<string, unknown> {
+  return {
+    ...meta,
+    ...sandboxEndpointInvalidationPatch(reason, at),
+  };
+}
+
+/** JSONB merge patch for stop/cleanup/recover paths. */
+export function sandboxEndpointInvalidationPatch(reason: string, at = new Date().toISOString()) {
+  return {
+    podIp: null,
+    wsEndpoint: null,
+    endpointInvalidatedAt: at,
+    endpointInvalidatedReason: reason,
+    // Drop report credentials so a dying pod cannot re-publish stale coordinates.
+    reportTokenHash: null,
+    reportTokenIssuedAt: null,
+  };
+}
+
+/** Grace window after invalidate/recover while the new pod reports coordinates. */
+export const SANDBOX_ENDPOINT_REPORT_GRACE_MS = 2 * 60_000;
+
+function readMetaTimeMs(meta: unknown, key: string): number | null {
+  if (!isRecord(meta)) return null;
+  const raw = meta[key];
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** True while recover just cleared endpoint and report has not landed yet. */
+export function isSandboxAwaitingEndpointReport(
+  meta: unknown,
+  input: { now?: Date; graceMs?: number } = {},
+): boolean {
+  if (!isRecord(meta)) return false;
+  if (meta.recoveryStatus === "recreating") return true;
+  const nowMs = (input.now ?? nowDate()).getTime();
+  const graceMs = input.graceMs ?? SANDBOX_ENDPOINT_REPORT_GRACE_MS;
+  const markers = ["endpointInvalidatedAt", "lastRecoveryStartedAt", "lastRecoveredAt"] as const;
+  return markers.some((key) => {
+    const ms = readMetaTimeMs(meta, key);
+    return ms != null && nowMs - ms >= 0 && nowMs - ms < graceMs;
+  });
+}
+
+export type SandboxPromptRecoveryReason =
+  | "missing"
+  | "auto_resume"
+  | "auto_recover"
+  | "missing_endpoint";
+
+/**
+ * Prompt-path liveness gate. Decides whether to fire-and-forget recover before
+ * the agent even dials the sandbox.
+ *
+ * Intentionally does NOT use heartbeat age: idle sandboxes stop heartbeating
+ * while the pod is still healthy. Dead coordinates with a present podIp are
+ * handled by agent-side endpoint-unreachable recover instead.
+ */
+export function getSandboxPromptRecoveryReason(
+  sandbox: {
+    status?: string | null;
+    provider?: string | null;
+    meta?: unknown;
+  } | null | undefined,
+  input: { now?: Date } = {},
+): SandboxPromptRecoveryReason | null {
+  if (!sandbox) return "missing";
+  if (isLocalSandboxProvider(sandbox.provider)) return null;
+  if (sandbox.status === "provisioning" || sandbox.status === "pending") return null;
+  if (sandbox.status === "terminated") return null;
+  if (sandbox.status === "error") return "auto_recover";
+  if (!isSandboxUsableStatus(sandbox.status)) return "auto_resume";
+  if (!hasSandboxEndpoint(sandbox.meta)) {
+    // Recover success marks running before report fills podIp; do not thrash.
+    if (isSandboxAwaitingEndpointReport(sandbox.meta, input)) return null;
+    return "missing_endpoint";
+  }
+  return null;
+}
+
 export function normalizeSandboxRuntimeStatus(status: SandboxStatus | string | null | undefined): SandboxRuntimeStatus {
   if (status === "ready" || status === "busy") return "healthy";
   if (status === "connecting" || status === "preparing") return "starting";
@@ -391,10 +499,15 @@ export function createSandboxLifecycleController(input: {
     const podName = input.podName ?? sandbox.podName ?? `sandbox-${input.spaceId}`;
 
     const result = await withLock(`sandbox:stop:${input.spaceId}`, async () => {
+      const stoppingAt = at.toISOString();
       await db.update(spaceSandboxes).set({
         status: "stopping",
         runtimeStatus: "unknown",
-        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ stopReason: input.reason, stoppingStartedAt: at.toISOString() })}::jsonb`,
+        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({
+          stopReason: input.reason,
+          stoppingStartedAt: stoppingAt,
+          ...sandboxEndpointInvalidationPatch(input.reason, stoppingAt),
+        })}::jsonb`,
         updatedAt: at,
       }).where(eq(spaceSandboxes.spaceId, input.spaceId));
 
@@ -405,13 +518,19 @@ export function createSandboxLifecycleController(input: {
       const publicNetworkMeta = await deletePublicNetworkBestEffort(input.spaceId, input.reason);
 
       const stoppedAt = nowDate();
+      const stoppedAtIso = stoppedAt.toISOString();
       const [updated] = await db.update(spaceSandboxes).set({
         status: "stopped",
         runtimeStatus: "unknown",
         podName: null,
         stoppedAt,
         stopReason: input.reason,
-        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ stoppedAt: stoppedAt.toISOString(), stopReason: input.reason, ...publicNetworkMeta })}::jsonb`,
+        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({
+          stoppedAt: stoppedAtIso,
+          stopReason: input.reason,
+          ...sandboxEndpointInvalidationPatch(input.reason, stoppedAtIso),
+          ...publicNetworkMeta,
+        })}::jsonb`,
         updatedAt: stoppedAt,
       }).where(eq(spaceSandboxes.spaceId, input.spaceId)).returning();
       return { ok: true as const, status: updated?.status ?? "stopped", stoppedAt };
@@ -453,13 +572,20 @@ export function createSandboxLifecycleController(input: {
       const publicNetworkMeta = await deletePublicNetworkBestEffort(input.spaceId, "stale");
 
       const stoppedAt = nowDate();
+      const stoppedAtIso = stoppedAt.toISOString();
       const [updated] = await db.update(spaceSandboxes).set({
         status: "stopped",
         runtimeStatus: "unknown",
         podName: null,
         stoppedAt,
         stopReason: "cleanup",
-        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({ stoppedAt: stoppedAt.toISOString(), stopReason: "cleanup", cleanupFromStatus: input.status, ...publicNetworkMeta })}::jsonb`,
+        meta: sql`coalesce(${spaceSandboxes.meta}, '{}'::jsonb) || ${JSON.stringify({
+          stoppedAt: stoppedAtIso,
+          stopReason: "cleanup",
+          cleanupFromStatus: input.status,
+          ...sandboxEndpointInvalidationPatch("cleanup", stoppedAtIso),
+          ...publicNetworkMeta,
+        })}::jsonb`,
         updatedAt: stoppedAt,
       }).where(eq(spaceSandboxes.spaceId, input.spaceId)).returning();
       return { ok: true as const, status: updated?.status ?? "stopped", stoppedAt };

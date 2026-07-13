@@ -4,7 +4,7 @@ import { getCurrentRequestId, getOrCreateRequestId } from "@cohub/infra/tracing"
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { createSessionServices } from "@cohub/core/sessions";
 import { assignSessionParticipantSystemLabels } from "@cohub/core/labels/session-user";
-import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
+import { createSandboxLifecycleController, getSandboxPromptRecoveryReason } from "@cohub/sandbox-controller";
 import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
@@ -63,21 +63,24 @@ export function getSessionDomainServices(input?: {
     sandboxRecovery: {
       maybeRecoverForPrompt: async ({ spaceId, userId, source }) => {
         const sandbox = await sandboxLifecycle.getSandbox(spaceId);
-        if (sandbox && (sandbox.status === "running" || sandbox.status === "ready" || sandbox.status === "provisioning")) return;
+        const reason = getSandboxPromptRecoveryReason(sandbox);
+        if (!reason) return;
+
         const space = await getSpaceById(spaceId);
         if (!space) return;
-        if (!sandbox) {
+        if (reason === "missing") {
           await ensureSpaceSandbox({ spaceId, status: "pending", runtimeStatus: "unknown" });
         }
+
         void recoverSpaceSandbox({
           spaceId,
           userUuid: userId,
           ownerUserUuid: space.userUuid,
-          reason: sandbox?.status === "error" ? "auto_recover" : "auto_resume",
+          reason,
           source,
           verify: false,
         }).catch((error) => {
-          logger.warn(`[SandboxResume] failed to resume sandbox for prompt spaceId=${spaceId}:`, error);
+          logger.warn(`[SandboxResume] failed to resume sandbox for prompt spaceId=${spaceId} reason=${reason}:`, error);
         });
       },
     },

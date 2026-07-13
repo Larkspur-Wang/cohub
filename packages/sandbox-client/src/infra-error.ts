@@ -20,6 +20,32 @@ const DEFINITIVE_CRITICAL_IO_PATTERNS = [
   "transport endpoint is not connected",
 ];
 
+/**
+ * Hard dial failures against a resolved sandbox endpoint. Prefer explicit TCP /
+ * host errors over broad transport noise (econnreset, socket hang up) so a
+ * transient blip does not recreate the pod.
+ *
+ * Intentionally excludes "missing endpoint" so legitimate provisioning does
+ * not thrash recover.
+ */
+const ENDPOINT_UNREACHABLE_PATTERNS = [
+  "ehostunreach",
+  "econnrefused",
+  "enetunreach",
+  // Node dial failures usually look like "connect ETIMEDOUT <ip>:<port>".
+  "connect etimedout",
+  "etimedout",
+  // Agent attach wait after dial — common when meta still points at a dead pod.
+  "timed out waiting for sandbox connection",
+] as const;
+
+/** Transient connect failures worth polling after a recover, but not always worth recreate. */
+const ENDPOINT_CONNECT_RETRYABLE_PATTERNS = [
+  ...ENDPOINT_UNREACHABLE_PATTERNS,
+  "missing endpoint",
+  "not ready for requests yet",
+] as const;
+
 export class SandboxInfrastructureError extends Error {
   constructor(
     readonly code: SandboxInfraErrorCode,
@@ -29,6 +55,21 @@ export class SandboxInfrastructureError extends Error {
     super(message);
     this.name = "SandboxInfrastructureError";
   }
+}
+
+function errorText(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).toLowerCase();
+}
+
+export function isSandboxEndpointUnreachable(error: unknown): boolean {
+  const text = errorText(error);
+  return ENDPOINT_UNREACHABLE_PATTERNS.some((pattern) => text.includes(pattern));
+}
+
+/** After recover, keep polling only for endpoint/readiness races — not auth/logic errors. */
+export function isSandboxConnectRetryable(error: unknown): boolean {
+  const text = errorText(error);
+  return ENDPOINT_CONNECT_RETRYABLE_PATTERNS.some((pattern) => text.includes(pattern));
 }
 
 export function classifySandboxInfrastructureError(message: string) {

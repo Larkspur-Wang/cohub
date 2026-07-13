@@ -5,6 +5,8 @@ import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
 import {
   disconnectSandboxWsClient,
   hasPendingSandboxRequests,
+  isSandboxConnectRetryable,
+  isSandboxEndpointUnreachable,
   startSandboxWsClient,
   type SandboxConnection,
   waitForSandboxConnection,
@@ -36,9 +38,15 @@ type PoolEntry = {
   idleTimer: ReturnType<typeof setTimeout> | null;
 };
 
+type SandboxRecoverOutcome = {
+  ok: boolean;
+  recovering: boolean;
+  throttled: boolean;
+};
+
 const entries = new Map<string, PoolEntry>();
 const wsUrlResolutions = new Map<string, Promise<string>>();
-const sandboxRecoveries = new Map<string, Promise<void>>();
+const sandboxRecoveries = new Map<string, Promise<SandboxRecoverOutcome>>();
 
 function normalizeSandboxStatus(status: string): NormalizedSandboxStatus {
   return status === "ready" || status === "busy"
@@ -85,15 +93,24 @@ async function syncSandboxConnectionState(input: { spaceId: string; status: Norm
   }).catch(() => undefined);
 }
 
-async function recoverSandboxOnce(spaceId: string, reason: string) {
+async function recoverSandboxOnce(spaceId: string, reason: string): Promise<SandboxRecoverOutcome> {
   const existing = sandboxRecoveries.get(spaceId);
   if (existing) return existing;
 
   const promise = recoverSpaceSandbox({ spaceId, reason, source: "agent" })
-    .then((result) => {
+    .then((result): SandboxRecoverOutcome => {
+      if (result?.recovering) {
+        // Lock held or report still pending — wait for dialable endpoint.
+        return { ok: Boolean(result.ok), recovering: true, throttled: Boolean(result.throttled) };
+      }
+      if (result?.throttled) {
+        if (result.ok) return { ok: true, recovering: false, throttled: true };
+        throw new Error(`sandbox recovery throttled without dialable endpoint: ${reason}`);
+      }
       if (!result?.ok) {
         throw new Error(`sandbox recovery failed: ${result?.message ?? reason}`);
       }
+      return { ok: true, recovering: false, throttled: false };
     })
     .finally(() => {
       sandboxRecoveries.delete(spaceId);
@@ -229,7 +246,7 @@ function relayAuthHeaders(wsUrl: string): Record<string, string> | undefined {
   return undefined;
 }
 
-export async function ensureSandboxConnection(spaceId: string, options?: { timeoutMs?: number }): Promise<SandboxConnection> {
+async function connectSandboxOnce(spaceId: string, options?: { timeoutMs?: number }): Promise<SandboxConnection> {
   touchSandboxConnection(spaceId);
   const wsUrl = await resolveSandboxWsUrlOnce(spaceId);
   await startSandboxWsClient({
@@ -273,6 +290,52 @@ export async function ensureSandboxConnection(spaceId: string, options?: { timeo
   touchSandboxConnection(spaceId);
   pruneSandboxConnections({ preserveSpaceId: spaceId });
   return connection;
+}
+
+async function waitForSandboxConnectionAfterRecover(spaceId: string, timeoutMs = 60_000): Promise<SandboxConnection> {
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  let lastError: unknown = null;
+
+  while (Date.now() < deadline) {
+    try {
+      return await connectSandboxOnce(spaceId, {
+        timeoutMs: Math.min(15_000, Math.max(1_000, deadline - Date.now())),
+      });
+    } catch (error) {
+      lastError = error;
+      // Only keep polling endpoint/readiness races; surface auth/logic errors immediately.
+      if (!isSandboxConnectRetryable(error)) throw error;
+      attempt += 1;
+      if (Date.now() >= deadline) break;
+      const delayMs = Math.min(1_000 * 2 ** Math.min(attempt, 4), 5_000);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Timed out waiting for recovered sandbox connection for ${spaceId}`);
+}
+
+/**
+ * Ensure a live sandbox WS connection. If the resolved endpoint is unreachable
+ * (stale podIp / dead pod while DB still says running), recover once and retry.
+ * Missing-endpoint-during-provisioning is left alone so we do not thrash.
+ */
+export async function ensureSandboxConnection(spaceId: string, options?: { timeoutMs?: number }): Promise<SandboxConnection> {
+  try {
+    return await connectSandboxOnce(spaceId, options);
+  } catch (error) {
+    if (!isSandboxEndpointUnreachable(error)) throw error;
+
+    const reason = error instanceof Error ? error.message : String(error);
+    logger.warn(`[SandboxPool] endpoint unreachable spaceId=${spaceId}; recovering once reason=${reason}`);
+    invalidateSandboxConnection(spaceId, "endpoint_unreachable");
+    // Throws when throttled without a dialable endpoint. recovering/ok paths wait.
+    await recoverSandboxOnce(spaceId, "endpoint_unreachable");
+    return waitForSandboxConnectionAfterRecover(spaceId, options?.timeoutMs ?? 60_000);
+  }
 }
 
 export function pruneSandboxConnections(options?: { preserveSpaceId?: string }) {

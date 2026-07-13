@@ -82,6 +82,9 @@ export async function recoverSpaceSandbox(input: { spaceId: string; reason?: str
     status?: string;
     verified?: boolean;
     message?: string;
+    recovering?: boolean;
+    throttled?: boolean;
+    local?: boolean;
   } | null>;
 }
 
