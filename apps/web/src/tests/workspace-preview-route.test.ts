@@ -6,6 +6,7 @@ import {
 	isValidPortKey,
 	parsePreviewParam,
 	readPreviewFromSearch,
+	withCurrentPreview,
 	withPreviewParam,
 } from "../lib/features/space/modules/workspace-preview-route.ts";
 
@@ -81,4 +82,19 @@ test("closing last preview only drops preview param", () => {
 		null,
 	);
 	assert.equal(closed, `${main}?turn=2`);
+});
+
+test("withCurrentPreview preserves active preview across main route changes", () => {
+	const next = withCurrentPreview(
+		"/spaces/s1/sessions/new",
+		"preview=file%3Adocs%2Fa.md&turn=2",
+	);
+	assert.equal(
+		next,
+		`/spaces/s1/sessions/new?preview=${encodeURIComponent("file:docs/a.md")}`,
+	);
+	assert.equal(
+		withCurrentPreview("/spaces/s1/sessions/abc", ""),
+		"/spaces/s1/sessions/abc",
+	);
 });

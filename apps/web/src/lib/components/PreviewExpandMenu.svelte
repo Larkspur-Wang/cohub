@@ -53,8 +53,15 @@ function choose(action: () => void | Promise<void>) {
 
 function handleDocumentPointerDown(event: PointerEvent) {
 	if (!open) return;
-	const target = event.target as Node | null;
-	if (target && rootEl?.contains(target)) return;
+	const target = event.target;
+	// Popover is portaled to body; treat it as inside the menu.
+	if (
+		target instanceof Node &&
+		(rootEl?.contains(target) ||
+			(target instanceof Element && target.closest(".preview-expand-popover")))
+	) {
+		return;
+	}
 	open = false;
 }
 
@@ -103,6 +110,7 @@ onDestroy(() => {
 		<div
 			class="preview-expand-popover"
 			role="menu"
+			tabindex="-1"
 			use:floatNear={{
 				getAnchor: () => rootEl,
 				placement: "bottom-end",
@@ -110,6 +118,7 @@ onDestroy(() => {
 				width: 132,
 				zIndex: 120,
 			}}
+			onpointerdown={(event) => event.stopPropagation()}
 		>
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleFocus)} role="menuitem">
 				<Maximize2 class="h-3.5 w-3.5" />

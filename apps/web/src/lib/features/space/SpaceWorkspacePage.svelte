@@ -253,6 +253,7 @@ import { createViewportContextController } from "./modules/viewport-context-cont
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import {
 	type WorkspacePreviewRef,
+	withCurrentPreview,
 	withPreviewParam,
 } from "./modules/workspace-preview-route";
 import {
@@ -4646,7 +4647,7 @@ function insertHeaderReference() {
 function handleCreateNewSession() {
 	if (!canCreateSession || !space) return;
 	createSessionError = "";
-	void goto(buildSpaceNewSessionRoute(space.id), {
+	void goto(withCurrentPreview(buildSpaceNewSessionRoute(space.id)), {
 		keepFocus: true,
 		noScroll: true,
 	})

@@ -71,6 +71,7 @@ import {
 	type LabelAssignableCohubResource,
 	setCohubResourceDragData,
 } from "$lib/drag/cohub-resource-drag";
+import { withCurrentPreview } from "$lib/features/space/modules/workspace-preview-route";
 import { extractGenerationPromptPreview } from "$lib/generation-task-media";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
@@ -2184,7 +2185,8 @@ function openSpacePalette() {
 }
 
 function buildPreferredSessionRoute(spaceId: string, sessionId: string) {
-	return buildSpaceSessionRoute(spaceId, sessionId);
+	// Keep open file/canvas/port preview when switching chats.
+	return withCurrentPreview(buildSpaceSessionRoute(spaceId, sessionId));
 }
 
 async function handleNavigateToSession(sessionId: string) {
@@ -2202,31 +2204,35 @@ async function handleNavigateToSession(sessionId: string) {
 async function handleNavigateToCheckpoint(checkpointId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(buildSpaceCheckpointRoute(currentSpaceId, checkpointId));
+	await goto(
+		withCurrentPreview(buildSpaceCheckpointRoute(currentSpaceId, checkpointId)),
+	);
 }
 
 async function handleNavigateToNewCheckpoint() {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(buildSpaceCheckpointNewRoute(currentSpaceId));
+	await goto(withCurrentPreview(buildSpaceCheckpointNewRoute(currentSpaceId)));
 }
 
 async function handleNavigateToCronjob(cronjobId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(buildSpaceCronjobRoute(currentSpaceId, cronjobId));
+	await goto(
+		withCurrentPreview(buildSpaceCronjobRoute(currentSpaceId, cronjobId)),
+	);
 }
 
 async function handleNavigateToNewCronjob() {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(buildSpaceCronjobNewRoute(currentSpaceId));
+	await goto(withCurrentPreview(buildSpaceCronjobNewRoute(currentSpaceId)));
 }
 
 async function handleNavigateToTask(taskId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(buildSpaceTaskRoute(currentSpaceId, taskId));
+	await goto(withCurrentPreview(buildSpaceTaskRoute(currentSpaceId, taskId)));
 }
 
 function getCurrentSpaceOwnerUsername() {
@@ -2241,7 +2247,7 @@ function getCurrentSpaceOwnerUsername() {
 async function handleNavigateToWork(workId: string) {
 	onClose?.();
 	if (!currentSpaceId) return;
-	await goto(buildSpaceWorkRoute(currentSpaceId, workId));
+	await goto(withCurrentPreview(buildSpaceWorkRoute(currentSpaceId, workId)));
 }
 
 function handleWorksChanged(event: Event) {
@@ -2254,7 +2260,7 @@ async function handleCreateNewSession() {
 	if (!currentSpaceId || creatingSession) return;
 	createSessionError = "";
 	try {
-		await goto(buildSpaceNewSessionRoute(currentSpaceId), {
+		await goto(withCurrentPreview(buildSpaceNewSessionRoute(currentSpaceId)), {
 			keepFocus: true,
 			noScroll: true,
 		});

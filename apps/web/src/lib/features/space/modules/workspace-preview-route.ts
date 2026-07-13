@@ -58,6 +58,23 @@ export function withPreviewParam(
 	return query ? `${pathname}?${query}` : pathname;
 }
 
+/**
+ * Preserve the current `?preview=` when switching Main routes inside a space.
+ * Chat/session navigation should only change the main panel, not collapse Files.
+ */
+export function withCurrentPreview(
+	pathname: string,
+	currentSearch?: string | URLSearchParams | null,
+): string {
+	if (typeof window === "undefined" && currentSearch == null) return pathname;
+	const search =
+		currentSearch ??
+		(typeof window !== "undefined" ? window.location.search : null);
+	const preview = readPreviewFromSearch(search);
+	if (!preview) return pathname;
+	return withPreviewParam(pathname, null, preview);
+}
+
 /** Deterministic ingress for legacy `/spaces/:id/files/...` routes. */
 export function buildFileIngressMainRoute(
 	spaceId: string,
