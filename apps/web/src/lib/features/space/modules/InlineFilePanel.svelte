@@ -179,15 +179,28 @@ const loadFileDiffViewModule = createLazyModuleLoader(
 );
 
 const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
-let fileActionMenuAnchorEl: HTMLDivElement | null = $state(null);
+// Always the button that opened the menu (avoids dual mobile/desktop bind:this races).
+let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
-	<div class="relative shrink-0" data-resource-actions bind:this={fileActionMenuAnchorEl}>
-		<button type="button" class="icon-btn" onclick={(event) => { event.stopPropagation(); fileActionMenuOpenPath = fileActionMenuOpenPath === path ? null : path; }} title="More actions" aria-haspopup="menu" aria-expanded={fileActionMenuOpenPath === path}>
+	<div class="relative shrink-0" data-resource-actions>
+		<button
+			type="button"
+			class="icon-btn"
+			onclick={(event) => {
+				event.stopPropagation();
+				const nextOpen = fileActionMenuOpenPath !== path;
+				fileActionMenuAnchorEl = nextOpen ? event.currentTarget : null;
+				fileActionMenuOpenPath = nextOpen ? path : null;
+			}}
+			title="More actions"
+			aria-haspopup="menu"
+			aria-expanded={fileActionMenuOpenPath === path}
+		>
 			<MoreHorizontal class="w-4 h-4" />
 		</button>
-		{#if fileActionMenuOpenPath === path}
+		{#if fileActionMenuOpenPath === path && fileActionMenuAnchorEl}
 			<div
 				class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
 				role="menu"
@@ -197,15 +210,15 @@ let fileActionMenuAnchorEl: HTMLDivElement | null = $state(null);
 					placement: "bottom-end",
 					gap: 4,
 					width: 176,
-					zIndex: 90,
+					zIndex: 120,
 				}}
 			>
-				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path); fileActionMenuOpenPath = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>Label as…</span></button>
-				<button type="button" class="menu-item" onclick={() => { onInsertFilePathReference(path); fileActionMenuOpenPath = null; }} role="menuitem"><TextCursorInput class="w-3.5 h-3.5" /><span>Insert reference</span></button>
-				<button type="button" class="menu-item" onclick={() => { void onDownloadFilePath(path); fileActionMenuOpenPath = null; }} role="menuitem"><Download class="w-3.5 h-3.5" /><span>Download</span></button>
+				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>Label as…</span></button>
+				<button type="button" class="menu-item" onclick={() => { onInsertFilePathReference(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><TextCursorInput class="w-3.5 h-3.5" /><span>Insert reference</span></button>
+				<button type="button" class="menu-item" onclick={() => { void onDownloadFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Download class="w-3.5 h-3.5" /><span>Download</span></button>
 				{#if canEditFiles && !activeFsReadonly}
-					<button type="button" class="menu-item" onclick={() => { void onRenameFilePath(path); fileActionMenuOpenPath = null; }} role="menuitem"><Pencil class="w-3.5 h-3.5" /><span>Rename</span></button>
-					<button type="button" class="menu-item danger" onclick={() => { void onDeleteFilePath(path); fileActionMenuOpenPath = null; }} role="menuitem"><Trash2 class="w-3.5 h-3.5" /><span>Delete</span></button>
+					<button type="button" class="menu-item" onclick={() => { void onRenameFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Pencil class="w-3.5 h-3.5" /><span>Rename</span></button>
+					<button type="button" class="menu-item danger" onclick={() => { void onDeleteFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Trash2 class="w-3.5 h-3.5" /><span>Delete</span></button>
 				{/if}
 			</div>
 		{/if}
@@ -227,19 +240,25 @@ let fileActionMenuAnchorEl: HTMLDivElement | null = $state(null);
   {#if inlineFile}
     <!-- Mobile full-screen overlay -->
     <div class="lg:hidden fixed inset-0 z-50 flex flex-col bg-bg-content">
-      <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
-      <div class="flex h-11 items-center gap-2 border-b border-border-subtle px-3 shrink-0 bg-bg-surface">
-        <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+      <!-- Single mobile chrome row: close + tabs/title + more -->
+      <div class="flex h-11 shrink-0 items-center gap-1 border-b border-border-subtle bg-bg-surface px-2">
+        <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file" aria-label="Close file">
           <X class="w-5 h-5" />
         </button>
         {#if inlineFileCanGoBack}
-          <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
+          <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back" aria-label="Back">
             <ArrowLeft class="w-5 h-5" />
           </button>
         {/if}
-        <div class="min-w-0 flex-1 truncate text-sm text-text-secondary">
-          {#if inlineFile.response}{inlineFile.response.path}{:else}{inlineFile.path}{/if}
-        </div>
+        {#if previewTabs.length > 1}
+          <div class="min-w-0 flex-1 overflow-hidden">
+            <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} embedded />
+          </div>
+        {:else}
+          <div class="min-w-0 flex-1 truncate px-1 text-[13px] text-text-secondary" title={inlineFile.response?.path ?? inlineFile.path}>
+            {inlineFile.response?.name ?? inlineFile.path.split("/").pop() ?? inlineFile.path}
+          </div>
+        {/if}
         {@render FileHeaderCoreActions(inlineFile.path)}
       </div>
       {#if inlineFile.loading}

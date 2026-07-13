@@ -108,7 +108,7 @@ onDestroy(() => {
 				placement: "bottom-end",
 				gap: 6,
 				width: 132,
-				zIndex: 90,
+				zIndex: 120,
 			}}
 		>
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleFocus)} role="menuitem">

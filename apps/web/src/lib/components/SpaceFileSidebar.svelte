@@ -79,8 +79,8 @@ let rootDragOver = $state(false);
 // Dropdown state
 let newMenuOpen = $state(false);
 let uploadMenuOpen = $state(false);
-let newMenuAnchorEl: HTMLDivElement | null = $state(null);
-let uploadMenuAnchorEl: HTMLDivElement | null = $state(null);
+let newMenuAnchorEl: HTMLElement | null = $state(null);
+let uploadMenuAnchorEl: HTMLElement | null = $state(null);
 let newMenuEl: HTMLDivElement | null = $state(null);
 let uploadMenuEl: HTMLDivElement | null = $state(null);
 
@@ -192,11 +192,19 @@ $effect(() => {
       <div class="flex items-center gap-0.5 [&_button]:cursor-pointer">
         {#if canWrite}
           <div class="relative" bind:this={newMenuAnchorEl}>
-            <button class="icon-btn" type="button" onclick={toggleNewMenu} aria-expanded={newMenuOpen}>
+            <button
+              class="icon-btn"
+              type="button"
+              onclick={(e) => {
+                newMenuAnchorEl = e.currentTarget;
+                toggleNewMenu();
+              }}
+              aria-expanded={newMenuOpen}
+            >
               <Plus class="w-4 h-4" />
               <span class="sr-only">New</span>
             </button>
-            {#if newMenuOpen}
+            {#if newMenuOpen && newMenuAnchorEl}
               <div
                 class="dropdown"
                 bind:this={newMenuEl}
@@ -205,7 +213,7 @@ $effect(() => {
                   placement: "bottom-end",
                   gap: 6,
                   width: 160,
-                  zIndex: 90,
+                  zIndex: 120,
                 }}
               >
                 <button type="button" class="dropdown-item" onclick={handleCreateFileAtRoot}>
@@ -227,11 +235,19 @@ $effect(() => {
           </div>
           {#if onUpload}
             <div class="relative" bind:this={uploadMenuAnchorEl}>
-              <button class="icon-btn" type="button" onclick={toggleUploadMenu} aria-expanded={uploadMenuOpen}>
+              <button
+                class="icon-btn"
+                type="button"
+                onclick={(e) => {
+                  uploadMenuAnchorEl = e.currentTarget;
+                  toggleUploadMenu();
+                }}
+                aria-expanded={uploadMenuOpen}
+              >
                 <Upload class="w-4 h-4" />
                 <span class="sr-only">Upload</span>
               </button>
-              {#if uploadMenuOpen}
+              {#if uploadMenuOpen && uploadMenuAnchorEl}
                 <div
                   class="dropdown"
                   bind:this={uploadMenuEl}
@@ -240,7 +256,7 @@ $effect(() => {
                     placement: "bottom-end",
                     gap: 6,
                     width: 160,
-                    zIndex: 90,
+                    zIndex: 120,
                   }}
                 >
                   <button type="button" class="dropdown-item" onclick={handleUploadClick}>

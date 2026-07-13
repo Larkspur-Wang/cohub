@@ -543,7 +543,7 @@ const inlinePortTabs = $derived(portPreview.previews);
 const activeInlinePort = $derived(portPreview.activePort);
 const portReadyToast = $derived(portPreview.readyToast);
 let previewTabCleanupNotice = $state<string | null>(null);
-let fileActionMenuAnchorEl: HTMLDivElement | null = $state(null);
+let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 let previewTabCleanupNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 const spaceStatus = createSpaceStatusController({
 	getSpaceId: () => spaceId,
@@ -5715,13 +5715,15 @@ const sessionWorkspaceProps = $derived.by<
 </svelte:head>
 
 {#snippet FileHeaderCoreActions(path: string)}
-	<div class="relative shrink-0" data-resource-actions bind:this={fileActionMenuAnchorEl}>
+	<div class="relative shrink-0" data-resource-actions>
 		<button
 			type="button"
 			class="icon-btn"
 			onclick={(event) => {
 				event.stopPropagation();
-				fileWorkspace.fileActionMenuOpenPath = fileWorkspace.fileActionMenuOpenPath === path ? null : path;
+				const nextOpen = fileWorkspace.fileActionMenuOpenPath !== path;
+				fileActionMenuAnchorEl = nextOpen ? event.currentTarget : null;
+				fileWorkspace.fileActionMenuOpenPath = nextOpen ? path : null;
 			}}
 			title="More actions"
 			aria-haspopup="menu"
@@ -5729,7 +5731,7 @@ const sessionWorkspaceProps = $derived.by<
 		>
 			<MoreHorizontal class="w-4 h-4" />
 		</button>
-		{#if fileWorkspace.fileActionMenuOpenPath === path}
+		{#if fileWorkspace.fileActionMenuOpenPath === path && fileActionMenuAnchorEl}
 			<div
 				class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
 				role="menu"
@@ -5739,7 +5741,7 @@ const sessionWorkspaceProps = $derived.by<
 					placement: "bottom-end",
 					gap: 4,
 					width: 176,
-					zIndex: 90,
+					zIndex: 120,
 				}}
 			>
 				<button

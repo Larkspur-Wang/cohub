@@ -106,7 +106,7 @@ let {
 
 const immersive = $derived(presentation === "immersive");
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
-let resourceActionsRootEl: HTMLDivElement | null = $state(null);
+let resourceActionsRootEl: HTMLElement | null = $state(null);
 let sessionRenameFocused = $state(false);
 
 const spaceTitle = $derived(
@@ -199,12 +199,13 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 	{/if}
 
 	{#if resourceActions.available}
-		<div class="relative" data-resource-actions bind:this={resourceActionsRootEl}>
+		<div class="relative" data-resource-actions>
 			<button
 				type="button"
 				class="header-action-btn is-square"
 				onclick={(event) => {
 					event.stopPropagation();
+					resourceActionsRootEl = event.currentTarget;
 					actions.toggleResourceActionMenu();
 				}}
 				title="More actions"
@@ -213,7 +214,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 			>
 				<MoreHorizontal class="h-4 w-4 shrink-0" />
 			</button>
-			{#if resourceActions.open}
+			{#if resourceActions.open && resourceActionsRootEl}
 				<div
 					class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
 					role="menu"
@@ -223,7 +224,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 						placement: "bottom-end",
 						gap: 4,
 						width: 176,
-						zIndex: 90,
+						zIndex: 120,
 					}}
 				>
 					<button

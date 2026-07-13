@@ -14,9 +14,11 @@ type Props = {
 	tabs: PreviewTab[];
 	onActivate: (kind: PreviewTab["kind"], key: string) => void;
 	onClose: (kind: PreviewTab["kind"], key: string) => void;
+	/** Compact strip for embedding inside a parent toolbar row. */
+	embedded?: boolean;
 };
 
-let { tabs, onActivate, onClose }: Props = $props();
+let { tabs, onActivate, onClose, embedded = false }: Props = $props();
 
 const kindIcon = {
 	file: FileIcon,
@@ -26,7 +28,12 @@ const kindIcon = {
 </script>
 
 {#if tabs.length > 0}
-	<div class="preview-tabs" role="tablist" aria-label="Open previews">
+	<div
+		class="preview-tabs"
+		class:preview-tabs--embedded={embedded}
+		role="tablist"
+		aria-label="Open previews"
+	>
 		{#each tabs as tab (`${tab.kind}:${tab.key}`)}
 			{@const Icon = kindIcon[tab.kind]}
 			<div class="preview-tab-shell" class:active={tab.active}>
@@ -72,6 +79,14 @@ const kindIcon = {
 		scrollbar-width: thin;
 	}
 
+	.preview-tabs--embedded {
+		height: 100%;
+		flex: 1 1 auto;
+		border-bottom: 0;
+		background: transparent;
+		padding: 0;
+	}
+
 	.preview-tab-shell {
 		display: inline-flex;
 		min-width: 0;
@@ -99,6 +114,10 @@ const kindIcon = {
 		height: 2px;
 		border-radius: 2px 2px 0 0;
 		background: var(--brand);
+	}
+
+	.preview-tabs--embedded .preview-tab-shell.active::after {
+		bottom: 0.125rem;
 	}
 
 	.preview-tab {
@@ -147,6 +166,11 @@ const kindIcon = {
 
 	.preview-tab-shell:hover .preview-tab-close,
 	.preview-tab-shell.active .preview-tab-close {
+		opacity: 0.55;
+	}
+
+	/* Touch targets: always show close on compact mobile toolbars */
+	.preview-tabs--embedded .preview-tab-close {
 		opacity: 0.55;
 	}
 

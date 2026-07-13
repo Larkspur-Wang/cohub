@@ -11,7 +11,7 @@ export function portal(node: HTMLElement) {
 
 type FloatOptions = {
 	/** Anchor element used for fixed positioning. */
-	getAnchor: () => HTMLElement | null;
+	getAnchor: () => HTMLElement | null | undefined;
 	/** Preferred placement. */
 	placement?: "right-start" | "bottom-end" | "bottom-start" | "top-start";
 	/** Gap between anchor and panel in px. */
@@ -21,6 +21,13 @@ type FloatOptions = {
 	/** z-index for the floated panel. */
 	zIndex?: number;
 };
+
+function isUsableAnchor(el: HTMLElement | null | undefined): el is HTMLElement {
+	if (!el || typeof window === "undefined") return false;
+	// Hidden / display:none nodes report empty client rects.
+	const rect = el.getBoundingClientRect();
+	return rect.width > 0 || rect.height > 0;
+}
 
 /**
  * Portals node to body and keeps it fixed next to an anchor.
@@ -32,13 +39,23 @@ export function floatNear(
 ): { update: (next: FloatOptions) => void; destroy: () => void } {
 	let opts = options;
 	let raf = 0;
+	let tries = 0;
 
 	function place() {
 		const anchor = opts.getAnchor();
-		if (!anchor || typeof window === "undefined") return;
+		if (!isUsableAnchor(anchor)) {
+			// Anchor may not be measured yet (first paint / dual mobile+desktop mounts).
+			if (tries < 8) {
+				tries += 1;
+				raf = requestAnimationFrame(place);
+			}
+			return;
+		}
+		tries = 0;
+
 		const rect = anchor.getBoundingClientRect();
 		const gap = opts.gap ?? 8;
-		const zIndex = opts.zIndex ?? 80;
+		const zIndex = opts.zIndex ?? 120;
 		const width = opts.width;
 		const placement = opts.placement ?? "right-start";
 		const pad = 8;
@@ -113,6 +130,7 @@ export function floatNear(
 	return {
 		update(next: FloatOptions) {
 			opts = next;
+			tries = 0;
 			schedule();
 		},
 		destroy() {
