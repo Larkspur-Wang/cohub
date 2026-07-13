@@ -4,12 +4,17 @@ import {
   contentTypesFromBlocks,
   createBillingUsageGate,
   generationUsageKind,
+  isGenerationModelDiscountFree,
   resolveGenerationUsageType,
   serializeBillingWarning,
 } from "@cohub/billing";
 import { Hono, type Context } from "hono";
 import { createGenerationClient, GenerationValidationError } from "@neta-art/generation";
-import { GENERATION_TASK_TYPE, type CreateGenerationTaskResponse } from "@cohub/protocol/generation";
+import {
+  GENERATION_TASK_TYPE,
+  type CreateGenerationTaskResponse,
+  type GenerationModelDiscountSnapshot,
+} from "@cohub/protocol/generation";
 import { useAuth, authzDenied } from "../lib/middleware.js";
 import { billingBlockedResponse } from "../lib/billing-blocked.js";
 import { hasPermission } from "../permissions.js";
@@ -102,15 +107,51 @@ router.post("/", async (c) => {
     adapterType: declaration.adapter?.type,
     contentTypes: contentTypesFromBlocks(request.content),
   });
-  const billingDecision = await billingUsageGate.evaluate({
-    userId: user.uuid,
-    usageKind: generationUsageKind(usageType),
-    source: "generation_task",
-    model: request.model,
-    spaceId: request.spaceId,
-    sessionId,
-    turnId,
-  });
+  let resolvedDiscount: Awaited<ReturnType<typeof billingOperations.getGenerationModelDiscount>>;
+  try {
+    resolvedDiscount = await billingOperations.getGenerationModelDiscount({
+      userId: user.uuid,
+      model: request.model,
+    });
+  } catch (error) {
+    logger.error("[Billing] failed to resolve generation model discount before enqueue", {
+      userId: user.uuid,
+      spaceId: request.spaceId,
+      model: request.model,
+      error,
+    });
+    return generationError(
+      c,
+      503,
+      "generation_pricing_unavailable",
+      "Generation pricing is temporarily unavailable. Please try again later.",
+    );
+  }
+  const modelDiscount: GenerationModelDiscountSnapshot = {
+    multiplier: resolvedDiscount.multiplier,
+    resolvedAt: resolvedDiscount.resolvedAt,
+  };
+  if (resolvedDiscount.benefitKey) {
+    logger.info("[Billing] generation model discount resolved", {
+      userId: user.uuid,
+      spaceId: request.spaceId,
+      model: request.model,
+      multiplier: resolvedDiscount.multiplier,
+      benefitKey: resolvedDiscount.benefitKey,
+      resolvedAt: resolvedDiscount.resolvedAt,
+    });
+  }
+  const billingDecision = isGenerationModelDiscountFree(resolvedDiscount)
+    ? { status: "allowed" as const, balanceState: "zero" as const, netUsd: 0 }
+    : await billingUsageGate.evaluate({
+        userId: user.uuid,
+        usageKind: generationUsageKind(usageType),
+        source: "generation_task",
+        model: request.model,
+        spaceId: request.spaceId,
+        sessionId,
+        turnId,
+      });
   if (billingDecision.status === "blocked") {
     return billingBlockedResponse(c, new BillingAccessBlockedError(billingDecision));
   }
@@ -128,6 +169,7 @@ router.post("/", async (c) => {
         content: request.content,
         parameters,
         meta: request.meta,
+        modelDiscount,
       },
     }, {
       attempts: 1,
