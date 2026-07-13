@@ -6,7 +6,6 @@ import {
 	contentTypesFromBlocks,
 	GenerationModelDiscountConfigError,
 	generationUsageKind,
-	isGenerationModelDiscountEligible,
 	isGenerationModelDiscountFree,
 	normalizePositiveUsd,
 	reconcileGenerationModelDiscountSnapshot,
@@ -109,19 +108,6 @@ const entitlement = (
 	metadata: Record<string, string | number | boolean>,
 ) => ({ benefitKey, enabled: true, metadata, grantId: `grant:${benefitKey}` });
 
-test("generation model discount eligibility is exact and excludes Gemini Lite", () => {
-	for (const model of [
-		"gpt-image-2",
-		"gpt-image-2-auto",
-		"gemini-3.1-flash-image-preview",
-		"gemini-3.1-flash-image-preview-auto",
-	]) {
-		assert.equal(isGenerationModelDiscountEligible(model), true);
-	}
-	assert.equal(isGenerationModelDiscountEligible("gemini-3.1-flash-lite-image"), false);
-	assert.equal(isGenerationModelDiscountEligible("gpt-image-2-extra"), false);
-});
-
 test("generation model discount defaults to full price without a matching entitlement", () => {
 	assert.deepEqual(
 		resolveGenerationModelDiscount({ model: "gpt-image-2", entitlements: [], resolvedAt }),
@@ -135,6 +121,29 @@ test("generation model discount defaults to full price without a matching entitl
 		}),
 		{ multiplier: 1, benefitKey: null, grantId: null, resolvedAt },
 	);
+	// Benefit present but model key absent in metadata → no discount (not a config error).
+	assert.deepEqual(
+		resolveGenerationModelDiscount({
+			model: "gemini-3.1-flash-lite-image",
+			entitlements: [entitlement("pro_model_discount_v1", { "gpt-image-2": 0.6 })],
+			resolvedAt,
+		}),
+		{ multiplier: 1, benefitKey: null, grantId: null, resolvedAt },
+	);
+});
+
+test("generation model discount is driven by metadata keys, not a code allowlist", () => {
+	const discount = resolveGenerationModelDiscount({
+		model: "any-new-model",
+		entitlements: [entitlement("pro_model_discount_v1", { "any-new-model": 0.5 })],
+		resolvedAt,
+	});
+	assert.deepEqual(discount, {
+		multiplier: 0.5,
+		benefitKey: "pro_model_discount_v1",
+		grantId: "grant:pro_model_discount_v1",
+		resolvedAt,
+	});
 });
 
 test("Pro generation model discount charges sixty percent of official cost", () => {
@@ -211,14 +220,7 @@ test("generation model discount rejects invalid active configuration", () => {
 			GenerationModelDiscountConfigError,
 		);
 	}
-	assert.throws(
-		() => resolveGenerationModelDiscount({
-			model: "gpt-image-2",
-			entitlements: [entitlement("pro_model_discount_v1", { "gpt-image-2-auto": 0.6 })],
-			resolvedAt,
-		}),
-		GenerationModelDiscountConfigError,
-	);
+	// Disabled benefit with a matching model key is a config error.
 	assert.throws(
 		() => resolveGenerationModelDiscount({
 			model: "gpt-image-2",
@@ -229,6 +231,18 @@ test("generation model discount rejects invalid active configuration", () => {
 			resolvedAt,
 		}),
 		GenerationModelDiscountConfigError,
+	);
+	// Disabled benefit without the requested model key is ignored.
+	assert.deepEqual(
+		resolveGenerationModelDiscount({
+			model: "gpt-image-2",
+			entitlements: [{
+				...entitlement("pro_model_discount_v1", { "gpt-image-2-auto": 0.6 }),
+				enabled: false,
+			}],
+			resolvedAt,
+		}),
+		{ multiplier: 1, benefitKey: null, grantId: null, resolvedAt },
 	);
 });
 

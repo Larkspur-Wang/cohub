@@ -77,10 +77,30 @@ test("billing operations resolves the best active model discount with one entitl
 	}
 });
 
-test("billing operations avoids entitlement I/O for an ineligible model", async () => {
+test("billing operations treats missing metadata model keys as full price", async () => {
 	const originalFetch = globalThis.fetch;
-	globalThis.fetch = async (input) => {
-		throw new Error(`Unexpected request: ${String(input)}`);
+	const requests: Array<{ method: string; url: URL }> = [];
+	globalThis.fetch = async (input, init) => {
+		const url = new URL(String(input));
+		const method = init?.method ?? "GET";
+		requests.push({ method, url });
+		if (url.pathname === "/v1/customers" && method === "POST") {
+			return jsonResponse({ customer: { external_user_id: "user_1" } });
+		}
+		if (url.pathname === "/v1/customers/user_1/entitlements" && method === "GET") {
+			return jsonResponse({
+				customer: { id: "customer_1", external_user_id: "user_1", status: "active", meta: {} },
+				business_key: "cohub",
+				active_benefits: [
+					activeBenefit({
+						grantId: "grant_pro",
+						benefitKey: "pro_model_discount_v1",
+						metadata: { "gpt-image-2": 0.6 },
+					}),
+				],
+			});
+		}
+		throw new Error(`Unexpected request: ${method} ${url}`);
 	};
 
 	try {
@@ -95,6 +115,7 @@ test("billing operations avoids entitlement I/O for an ineligible model", async 
 		});
 		assert.equal(discount.multiplier, 1);
 		assert.equal(discount.benefitKey, null);
+		assert.equal(requests.filter(({ url }) => url.pathname.endsWith("/entitlements")).length, 1);
 	} finally {
 		globalThis.fetch = originalFetch;
 	}

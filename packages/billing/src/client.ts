@@ -69,10 +69,7 @@ import {
   type BillingUsageRecordResult,
   type BillingUserRef,
 } from "./interfaces.js";
-import {
-  isGenerationModelDiscountEligible,
-  resolveGenerationModelDiscount,
-} from "./generation-usage.js";
+import { resolveGenerationModelDiscount } from "./generation-usage.js";
 
 export type BillingClientConfig = {
   baseUrl: string;
@@ -2478,13 +2475,6 @@ export function createTalesofaiBillingOperations(
     },
 
     async getGenerationModelDiscount(input) {
-      if (!isGenerationModelDiscountEligible(input.model)) {
-        return resolveGenerationModelDiscount({
-          model: input.model,
-          entitlements: [],
-        });
-      }
-
       await ensureCustomer({ userId: input.userId });
       const response = await sdk.admin.customers.getEntitlements({
         external_user_id: input.userId,

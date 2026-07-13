@@ -65,16 +65,9 @@ officialCostUsd: result.cost
 amountUsd: officialCostUsd * discountMultiplier
 ```
 
-The server resolves `pro_model_discount_v1` and `max_model_discount_v1` entitlements only for these exact models:
+The server resolves `pro_model_discount_v1` and `max_model_discount_v1` entitlements from billing benefit metadata. Eligible models are the metadata keys themselves (for example `metadata["gpt-image-2"] = 0.6`); there is no code allowlist. A benefit without the requested model key is ignored for that request. If both supported benefits apply to the same model, the lower multiplier wins. The resolved multiplier is snapshotted before enqueue, verified against authoritative entitlements by the worker, and reused by any billing retry. If the applicable multiplier changes while a task is queued, the worker fails before provider execution and the caller can retry at the new price. Benefit and grant identifiers are retained only in internal logs. Pricing snapshots and billing amounts are visible only to the task creator; collaborator task views redact them because the multiplier can reveal subscription tier.
 
-- `gpt-image-2`
-- `gpt-image-2-auto`
-- `gemini-3.1-flash-image-preview`
-- `gemini-3.1-flash-image-preview-auto`
-
-`gemini-3.1-flash-lite-image` is intentionally excluded. If both supported benefits are active, the lower multiplier wins. The resolved multiplier is snapshotted before enqueue, verified against authoritative entitlements by the worker, and reused by any billing retry. If the applicable multiplier changes while a task is queued, the worker fails before provider execution and the caller can retry at the new price. Benefit and grant identifiers are retained only in internal logs. Pricing snapshots and billing amounts are visible only to the task creator; collaborator task views redact them because the multiplier can reveal subscription tier.
-
-A zero multiplier is a valid free generation: both balance gates are bypassed, no zero-value ledger transaction is created, and the task records `billing.reason = "discounted_free"`. Missing or invalid pricing configuration fails before provider execution instead of silently charging full price.
+A zero multiplier is a valid free generation: both balance gates are bypassed, no zero-value ledger transaction is created, and the task records `billing.reason = "discounted_free"`. Present but invalid pricing configuration fails before provider execution instead of silently charging full price.
 
 Usage type is resolved from the model adapter (preferred) or output content types. Missing/non-positive provider `cost` skips charging and stores `billing.status = "skipped"` with reason `missing_cost` (task still succeeds — cost gaps are platform issues and must not break the user path; they are logged for ops follow-up). Transient billing write failures still complete the generation task, then enqueue an idempotent `generation.billing_retry` job (`operationId = generation:${taskRunId}`, up to 8 attempts with exponential backoff). Retries preserve the original official cost, multiplier, and effective amount.
 

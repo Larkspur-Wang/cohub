@@ -7,14 +7,6 @@ import {
 } from "./interfaces.js";
 import type { BillingUsageKind } from "./usage-gate.js";
 
-export const GENERATION_MODEL_DISCOUNT_MODELS = [
-  "gpt-image-2",
-  "gpt-image-2-auto",
-  "gemini-3.1-flash-image-preview",
-  "gemini-3.1-flash-image-preview-auto",
-] as const;
-
-const GENERATION_MODEL_DISCOUNT_MODEL_SET = new Set<string>(GENERATION_MODEL_DISCOUNT_MODELS);
 const GENERATION_MODEL_DISCOUNT_BENEFIT_KEYS = new Set<string>([
   COHUB_BILLING_BENEFITS.proModelDiscount,
   COHUB_BILLING_BENEFITS.maxModelDiscount,
@@ -41,10 +33,11 @@ export class GenerationModelDiscountSnapshotMismatchError extends Error {
   }
 }
 
-export function isGenerationModelDiscountEligible(model: string): boolean {
-  return GENERATION_MODEL_DISCOUNT_MODEL_SET.has(model);
-}
-
+/**
+ * Resolve the best (lowest) model discount from active entitlements.
+ * Eligible models are defined entirely by benefit metadata keys — no code allowlist.
+ * Missing model keys are skipped; present keys must be valid 0..1 numbers.
+ */
 export function resolveGenerationModelDiscount(input: {
   model: string;
   entitlements: Iterable<GenerationModelDiscountEntitlement>;
@@ -57,15 +50,12 @@ export function resolveGenerationModelDiscount(input: {
     grantId: null,
     resolvedAt,
   };
-  if (!isGenerationModelDiscountEligible(input.model)) return resolved;
 
   for (const entitlement of input.entitlements) {
     if (!GENERATION_MODEL_DISCOUNT_BENEFIT_KEYS.has(entitlement.benefitKey)) continue;
+    if (!Object.hasOwn(entitlement.metadata, input.model)) continue;
     if (!entitlement.enabled) {
       throw new GenerationModelDiscountConfigError(entitlement.benefitKey, "enabled", false);
-    }
-    if (!Object.hasOwn(entitlement.metadata, input.model)) {
-      throw new GenerationModelDiscountConfigError(entitlement.benefitKey, input.model, undefined);
     }
     const value = entitlement.metadata[input.model];
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
