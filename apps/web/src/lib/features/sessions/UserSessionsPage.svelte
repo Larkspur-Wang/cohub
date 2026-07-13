@@ -1,23 +1,29 @@
 <script lang="ts">
-import type { UserSessionListItem } from "@neta-art/cohub";
+import type { SessionRecord, UserSessionListItem } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
+import { createSessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
 import SessionConversationPanel from "$lib/features/sessions/SessionConversationPanel.svelte";
-import { createSessionConversationHostController } from "$lib/features/sessions/session-conversation-host-controller.svelte";
 import UserSessionsList from "$lib/features/sessions/UserSessionsList.svelte";
 import { createUserSessionListController } from "$lib/features/sessions/user-session-list-controller.svelte";
+import {
+	type WorkspacePreviewRef,
+	withPreviewParam,
+} from "$lib/features/space/modules/workspace-preview-route";
 import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import { sdk } from "$lib/sdk";
 import {
 	buildSessionsRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
+	buildSpaceSessionTurnRoute,
 	buildUserSessionRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { fetchSpaceListWithCache } from "$lib/stores/space-list-cache";
+import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 
 const {
 	data,
@@ -28,14 +34,71 @@ const {
 } = $props();
 
 const list = createUserSessionListController();
-const host = createSessionConversationHostController({
-	onSessionUpdated: (session) => {
-		const existing = list.findById(session.id);
-		list.upsertSession({
-			...session,
-			space: existing?.space ?? (session as UserSessionListItem).space ?? null,
-		});
+
+/** Mutable space identity for host environment ports (set before syncContext). */
+const spaceBox = { current: "" as string };
+const connectionBox: {
+	current: "idle" | "connecting" | "reconnecting" | "open" | "closed" | "error";
+} = { current: "open" };
+
+function resolveOpenPathTarget(
+	target: string | WorkspaceFileLinkTarget,
+): string | null {
+	if (typeof target === "string") {
+		const trimmed = target.trim();
+		return trimmed || null;
+	}
+	if (target && typeof target === "object" && "path" in target) {
+		const path = String((target as { path?: unknown }).path ?? "").trim();
+		return path || null;
+	}
+	return null;
+}
+
+const sessionChat = createSessionChatHost({
+	openPath: async (target) => {
+		const spaceId = spaceBox.current;
+		const path = resolveOpenPathTarget(target);
+		const sessionId = sessionChat.activeSessionId;
+		if (!spaceId || !path || !sessionId) return;
+		const preview: WorkspacePreviewRef = { kind: "file", key: path };
+		const href = withPreviewParam(
+			buildSpaceSessionRoute(spaceId, sessionId),
+			null,
+			preview,
+		);
+		await goto(href);
 	},
+	router: {
+		toSession: async (sessionId, opts) => {
+			await goto(buildUserSessionRoute(sessionId), {
+				replaceState: opts?.replace ?? true,
+				keepFocus: true,
+				noScroll: true,
+			});
+		},
+		toTurn: async (sessionId, sequence) => {
+			const spaceId = spaceBox.current;
+			if (!spaceId) {
+				await goto(buildUserSessionRoute(sessionId), {
+					replaceState: true,
+					keepFocus: true,
+					noScroll: true,
+				});
+				return;
+			}
+			await goto(buildSpaceSessionTurnRoute(spaceId, sessionId, sequence), {
+				replaceState: true,
+				keepFocus: true,
+				noScroll: true,
+			});
+		},
+		toNewSession: async () => {
+			await handleNewChat();
+		},
+	},
+	getConnectionState: () => connectionBox.current,
+	hasSpace: () => Boolean(spaceBox.current),
 });
 
 let isDesktop = $state(true);
@@ -57,6 +120,50 @@ function isCurrentOpen(seq: number, sessionId: string | null) {
 	return seq === openSeq && (data.sessionId ?? null) === sessionId;
 }
 
+function accessForSessions() {
+	return {
+		spaceLoadError: "",
+		spaceHasMinimalAccess: false,
+		canCreateSession: true,
+		bootstrapping: false,
+	};
+}
+
+async function openChatSession(input: {
+	spaceId: string;
+	sessionId: string;
+	session?: SessionRecord | null;
+}) {
+	const { spaceId, sessionId, session } = input;
+	spaceBox.current = spaceId;
+	sessionChat.enterSpace(spaceId);
+	if (session) {
+		sessionChat.upsertSessionRecord(session);
+	}
+	sessionChat.syncContext({
+		spaceId,
+		route: { kind: "session", sessionId, turnSequence: null },
+		access: accessForSessions(),
+	});
+}
+
+function clearChatSession() {
+	const spaceId = spaceBox.current;
+	if (!spaceId) {
+		sessionChat.syncContext({
+			spaceId: "",
+			route: { kind: "none" },
+			access: accessForSessions(),
+		});
+		return;
+	}
+	sessionChat.syncContext({
+		spaceId,
+		route: { kind: "none" },
+		access: accessForSessions(),
+	});
+}
+
 async function selectSession(session: UserSessionListItem) {
 	if (!isDesktop) {
 		await goto(buildSpaceSessionRoute(session.spaceId, session.id));
@@ -71,7 +178,7 @@ async function selectSession(session: UserSessionListItem) {
 async function openRouteSession(sessionId: string | null) {
 	const seq = ++openSeq;
 	if (!sessionId) {
-		if (isCurrentOpen(seq, null)) host.clearSession();
+		if (isCurrentOpen(seq, null)) clearChatSession();
 		return;
 	}
 
@@ -101,7 +208,7 @@ async function openRouteSession(sessionId: string | null) {
 	const known = list.findById(sessionId);
 	if (known) {
 		if (!isCurrentOpen(seq, sessionId)) return;
-		await host.openSession({
+		await openChatSession({
 			spaceId: known.spaceId,
 			sessionId: known.id,
 			session: known,
@@ -122,7 +229,7 @@ async function openRouteSession(sessionId: string | null) {
 			},
 		});
 		if (!isCurrentOpen(seq, sessionId)) return;
-		await host.openSession({
+		await openChatSession({
 			spaceId: detail.session.spaceId,
 			sessionId: detail.session.id,
 			session: detail.session,
@@ -159,11 +266,21 @@ async function handleNewChat() {
 	}
 }
 
+// Keep the left list in sync when host mutates the active session record.
+$effect(() => {
+	const session = sessionChat.activeSession;
+	if (!session) return;
+	const existing = list.findById(session.id);
+	list.upsertSession({
+		...session,
+		space: existing?.space ?? null,
+	} as UserSessionListItem);
+});
+
 $effect(() => {
 	const sessionId = routeSessionId;
-	// openRouteSession reads list/session workspace state in its sync path and
-	// also writes that state (prepareRouteSession / upsertSession). Tracking those
-	// reads would re-enter this effect and throw effect_update_depth_exceeded.
+	// openRouteSession reads list state and writes chat host state.
+	// Untrack to avoid effect_update_depth_exceeded.
 	untrack(() => {
 		void openRouteSession(sessionId);
 	});
@@ -179,6 +296,9 @@ onMount(() => {
 	const onVisible = () => {
 		if (document.visibilityState === "visible") {
 			void list.refresh({ force: true });
+			sessionChat.onVisibilityChanged(true);
+		} else {
+			sessionChat.onVisibilityChanged(false);
 		}
 	};
 	document.addEventListener("visibilitychange", onVisible);
@@ -191,7 +311,7 @@ onMount(() => {
 onDestroy(() => {
 	unsubscribeCache?.();
 	unsubscribeRealtime?.();
-	host.dispose();
+	sessionChat.dispose();
 });
 </script>
 
@@ -230,7 +350,7 @@ onDestroy(() => {
 
 	{#if isDesktop}
 		<div class="min-h-0 min-w-0 flex-1 overflow-hidden">
-			<SessionConversationPanel host={host} seed={activeSeed} />
+			<SessionConversationPanel host={sessionChat} seed={activeSeed} />
 		</div>
 	{/if}
 </div>

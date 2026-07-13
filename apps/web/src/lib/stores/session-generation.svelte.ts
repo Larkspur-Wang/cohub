@@ -637,6 +637,20 @@ class SessionGenerationStore {
 		this.persistTimers.clear();
 		this.bySessionId = {};
 	}
+
+	/** Clear only sessions belonging to one space (multi-host safe). */
+	resetSpace(spaceId: string | null | undefined) {
+		if (!spaceId) return;
+		const next: Record<string, SessionGenerationState> = {};
+		for (const [sessionId, state] of Object.entries(this.bySessionId)) {
+			if (state.spaceId === spaceId) {
+				this.clearPersisted(sessionId, spaceId);
+				continue;
+			}
+			next[sessionId] = state;
+		}
+		this.bySessionId = next;
+	}
 }
 
 export const sessionGenerationStore = new SessionGenerationStore();

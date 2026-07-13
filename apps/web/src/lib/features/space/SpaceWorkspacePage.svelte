@@ -76,7 +76,8 @@ import {
 	type ComposerFileAttachment,
 	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
-import { formatGenerationPolicyLabel } from "$lib/generation-policy-label";
+import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
+import { createSessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
 // SettingsOverlay removed — settings merged inline into detail page
 import {
 	extractGenerationMediaItems,
@@ -190,13 +191,9 @@ import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import { createPreviewWorkspaceController } from "./modules/preview-workspace-controller.svelte";
-import { createPromptTemplateController } from "./modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "./modules/route-request-guard";
 import SessionModelSelectorDialog from "./modules/SessionModelSelectorDialog.svelte";
 import SessionShareDialog from "./modules/SessionShareDialog.svelte";
-import SessionWorkspace, {
-	type SessionWorkspaceProps,
-} from "./modules/SessionWorkspace.svelte";
 import SpaceDanmakuLayer from "./modules/SpaceDanmakuLayer.svelte";
 import SpaceFileDomain, {
 	type SpaceFileDomainProps,
@@ -205,22 +202,13 @@ import SpaceRouteDetailHost, {
 	type RouteDetailView,
 } from "./modules/SpaceRouteDetailHost.svelte";
 import SpaceWorkspaceHeader from "./modules/SpaceWorkspaceHeader.svelte";
+import { revokeComposerAttachmentPreview } from "./modules/session-composer-controller.svelte";
 import {
-	createSessionComposerController,
-	revokeComposerAttachmentPreview,
-} from "./modules/session-composer-controller.svelte";
-import { createSessionGenerationPolicyController } from "./modules/session-generation-policy-controller.svelte";
-import { createSessionGenerationRealtimeController } from "./modules/session-generation-realtime-controller.svelte";
-import { createSessionScrollController } from "./modules/session-scroll-controller.svelte";
-import { createSessionShareController } from "./modules/session-share-controller.svelte";
-import {
-	createSessionTaskController,
 	isBackgroundBashTaskRun,
 	isGenerationTaskRun,
 	SESSION_TASK_TYPES,
 	type SessionTaskType,
 } from "./modules/session-task-controller.svelte";
-import { createSessionTurnLoadingController } from "./modules/session-turn-loading-controller.svelte";
 import {
 	extractBackgroundBashResultPreview,
 	formatBackgroundBashSubtitle,
@@ -232,7 +220,6 @@ import {
 	preserveSessionTurnRefs,
 	reconcileOptimisticTurn,
 } from "./modules/session-utils";
-import { createSessionWorkspaceController } from "./modules/session-workspace-controller.svelte";
 import {
 	createSpaceBootstrapController,
 	withBootstrapCacheTimeout,
@@ -249,7 +236,6 @@ import { createSpacePresenceController } from "./modules/space-presence-controll
 import { createSpaceRealtimeController } from "./modules/space-realtime-controller.svelte";
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { mergeTaskRunRecord } from "./modules/task-run-utils";
-import { createViewportContextController } from "./modules/viewport-context-controller.svelte";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import {
 	type WorkspacePreviewRef,
@@ -412,17 +398,53 @@ const spaceOwnerUsername = $derived(
 			: null),
 );
 const spaceSlug = $derived(space?.slug ?? null);
-const sessionWorkspace = createSessionWorkspaceController();
-const spaceSessions = $derived(sessionWorkspace.spaceSessions);
-const sessionStateById = $derived(sessionWorkspace.sessionStateById);
-const activeSessionId = $derived(sessionWorkspace.activeSessionId);
-const sessionComposer = createSessionComposerController();
-const viewportContext = createViewportContextController();
-const viewportContexts = $derived(viewportContext.contexts);
-const input = $derived(sessionComposer.input);
-const attachments = $derived(sessionComposer.attachments);
-const sending = $derived(sessionComposer.sending);
-const aborting = $derived(sessionComposer.aborting);
+// Connection box filled when spaceRealtime is ready.
+let connectionStateBox: {
+	current: "idle" | "connecting" | "reconnecting" | "open" | "closed" | "error";
+} = { current: "idle" };
+
+const sessionChat = createSessionChatHost({
+	openPath: (target) => openLinkedInlineFile(target),
+	router: {
+		toSession: async (sessionId, opts) => {
+			await goto(buildSpaceSessionRoute(spaceId, sessionId), {
+				replaceState: opts?.replace ?? true,
+				keepFocus: true,
+				noScroll: true,
+			});
+		},
+		toTurn: async (sessionId, sequence) => {
+			await goto(buildSpaceSessionTurnRoute(spaceId, sessionId, sequence), {
+				replaceState: true,
+				keepFocus: true,
+				noScroll: true,
+			});
+		},
+		toNewSession: async (opts) => {
+			await goto(withCurrentPreview(buildSpaceNewSessionRoute(spaceId)), {
+				replaceState: opts?.replace ?? false,
+				keepFocus: true,
+				noScroll: true,
+			});
+		},
+	},
+	getConnectionState: () => connectionStateBox.current,
+	canManageSessionAccess: () => canManageSessionAccess,
+	hasSpace: () => Boolean(space),
+});
+
+// Host is the unique owner of chat controllers and session records.
+const sessionWorkspace = sessionChat.workspace;
+const sessionComposer = sessionChat.composer;
+const viewportContext = sessionChat.viewport;
+const viewportContexts = $derived(sessionChat.viewportContexts);
+const spaceSessions = $derived(sessionChat.spaceSessions);
+const sessionStateById = $derived(sessionChat.sessionStateById);
+const activeSessionId = $derived(sessionChat.activeSessionId);
+const input = $derived(sessionChat.input);
+const attachments = $derived(sessionChat.attachments);
+const sending = $derived(sessionChat.sending);
+const aborting = $derived(sessionChat.aborting);
 let activeComposerDraftKey = $state<string | null>(null);
 let composerDraftSaveTimer: ReturnType<typeof setTimeout> | null = null;
 let preserveComposerInputOnNextDraftKeyChange = false;
@@ -461,14 +483,11 @@ function clearComposerDraftSaveTimer() {
 }
 
 function flushActiveComposerDraft() {
-	clearComposerDraftSaveTimer();
-	if (!activeComposerDraftKey) return;
-	writeSessionComposerDraftText(activeComposerDraftKey, sessionComposer.input);
+	sessionChat.flushComposerDraft();
 }
 
 function clearActiveComposerDraft() {
-	clearComposerDraftSaveTimer();
-	removeSessionComposerDraftText(activeComposerDraftKey);
+	sessionChat.flushComposerDraft();
 }
 
 function getHttpErrorCode(error: unknown): string | null {
@@ -490,32 +509,28 @@ function getHttpErrorCode(error: unknown): string | null {
 }
 const modelsCatalog = $derived(modelsCatalogStore.items);
 const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
-const generationPolicy = createSessionGenerationPolicyController({
-	getActiveSessionId: () => activeSessionId,
-});
-const generationModelsCatalog = $derived(generationPolicy.modelsCatalog);
-const generationPolicyMode = $derived(generationPolicy.mode);
-const selectedGenerationModels = $derived(generationPolicy.selectedModels);
-const generationPolicyLabel = $derived(
-	formatGenerationPolicyLabel({
-		mode: generationPolicyMode,
-		selectedModels: selectedGenerationModels,
-		catalog: generationModelsCatalog,
-	}),
-);
-const generationEnumSelections = $derived(generationPolicy.enumSelections);
+const generationPolicy = sessionChat.generationPolicy;
+const generationModelsCatalog = $derived(sessionChat.generationModelsCatalog);
+const generationPolicyMode = $derived(sessionChat.generationPolicyMode);
+const selectedGenerationModels = $derived(sessionChat.selectedGenerationModels);
+const generationPolicyLabel = $derived(sessionChat.generationPolicyLabel);
+const generationEnumSelections = $derived(sessionChat.generationEnumSelections);
 const generationNumericConstraints = $derived(
-	generationPolicy.numericConstraints,
+	sessionChat.generationNumericConstraints,
 );
 const generationBooleanConstraints = $derived(
-	generationPolicy.booleanConstraints,
+	sessionChat.generationBooleanConstraints,
 );
-const promptTemplateController = createPromptTemplateController({
-	getSpaceId: () => spaceId,
-});
-const promptTemplates = $derived(promptTemplateController.items);
-const promptTemplatesLoaded = $derived(promptTemplateController.loaded);
+const promptTemplateController = sessionChat.promptTemplatesCtrl;
+const promptTemplates = $derived(sessionChat.promptTemplates);
+const promptTemplatesLoaded = $derived(sessionChat.promptTemplatesLoaded);
 let showModelSelector = $state(false);
+$effect(() => {
+	showModelSelector = sessionChat.showModelSelector;
+});
+$effect(() => {
+	sessionChat.showModelSelector = showModelSelector;
+});
 let resourceActionMenuOpen = $state(false);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
@@ -760,28 +775,28 @@ const activePreviewKind = $derived(previewWorkspace.activeKind);
 
 $effect(() => {
 	if (activePreviewKind === "file" && inlineFile?.path) {
-		viewportContext.setActiveSource({
+		sessionChat.reportActiveSource({
 			kind: "file",
 			path: inlineFile.path,
 		});
 		return;
 	}
 	if (activePreviewKind === "canvas" && inlineCanvas?.path) {
-		viewportContext.setActiveSource({
+		sessionChat.reportActiveSource({
 			kind: "canvas",
 			path: inlineCanvas.path,
 		});
 		return;
 	}
 	if (activePreviewKind === "port" && inlinePortPreview) {
-		viewportContext.setActiveSource({
+		sessionChat.reportActiveSource({
 			kind: "port",
 			port: inlinePortPreview.port,
 			url: inlinePortEndpoint?.url ?? inlinePortPreview.url,
 		});
 		return;
 	}
-	viewportContext.setActiveSource(null);
+	sessionChat.reportActiveSource(null);
 });
 
 const inlineFilePanHandlers = makeImagePanHandlers(
@@ -815,41 +830,13 @@ const spaceBootstrap = createSpaceBootstrapController({
 	onBootstrap: bootstrapSpace,
 });
 const bootstrapping = $derived(spaceBootstrap.bootstrapping);
-$effect(() => {
-	const key = nextComposerDraftKey;
-	if (key === activeComposerDraftKey) return;
-	untrack(() => {
-		const previousKey = activeComposerDraftKey;
-		const preserveInput = preserveComposerInputOnNextDraftKeyChange;
-		preserveComposerInputOnNextDraftKeyChange = false;
-		flushActiveComposerDraft();
-		activeComposerDraftKey = key;
-		if (preserveInput) {
-			if (key) writeSessionComposerDraftText(key, sessionComposer.input);
-			if (previousKey !== key) removeSessionComposerDraftText(previousKey);
-			return;
-		}
-		sessionComposer.input = key ? readSessionComposerDraftText(key) : "";
-	});
-});
-$effect(() => {
-	const key = activeComposerDraftKey;
-	const text = input;
-	if (!key) return;
-	clearComposerDraftSaveTimer();
-	composerDraftSaveTimer = setTimeout(() => {
-		writeSessionComposerDraftText(key, text);
-		composerDraftSaveTimer = null;
-	}, 400);
-	return clearComposerDraftSaveTimer;
-});
 let creatingSession = $state(false);
 let createSessionError = $state("");
 const loadingSessionIds = $derived(sessionWorkspace.loadingSessionIds);
 const visibleInitialLoadingSessionIds = $derived(
 	sessionWorkspace.visibleInitialLoadingSessionIds,
 );
-const sessionScroll = createSessionScrollController();
+const sessionScroll = sessionChat.scroll;
 let composerHostEl = $state<HTMLDivElement | null>(null);
 const shouldAutoFollow = $derived(sessionScroll.shouldAutoFollow);
 const composerHeight = $derived(sessionScroll.composerHeight);
@@ -888,9 +875,7 @@ $effect(() => {
 
 const listEl = $derived(sessionScroll.listEl);
 const chatTimelineRef = $derived(sessionScroll.chatTimelineRef);
-const sessionTurnLoading = createSessionTurnLoadingController({
-	getSpaceId: () => spaceId,
-});
+const sessionTurnLoading = sessionChat.turnLoading;
 const turnIndexBySessionId = $derived(sessionTurnLoading.turnIndexBySessionId);
 const turnIndexLoadingBySessionId = $derived(
 	sessionTurnLoading.turnIndexLoadingBySessionId,
@@ -947,13 +932,11 @@ const spaceRealtime = createSpaceRealtimeController({
 		void reconnectSync();
 	},
 	onHidden: () => {
-		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
+		sessionChat.onVisibilityChanged(false);
 	},
 	onVisible: () => {
+		sessionChat.onVisibilityChanged(true);
 		void refreshSessionsList(false);
-		if (activeSessionId && sessionStateById[activeSessionId]?.loaded) {
-			void reconcileSessionTail(activeSessionId);
-		}
 	},
 	onOnline: () => {
 		if (wsConnectionState === "open") {
@@ -975,46 +958,35 @@ const onlineUsers = $derived(
 	spacePresence.users.filter((user) => user.userId !== authStore.userUuid),
 );
 const wsCanRecover = $derived(spaceRealtime.canRecover);
-const generationRealtime = createSessionGenerationRealtimeController({
-	getSpaceId: () => spaceId,
-	getConnectionState: () => wsConnectionState,
-	getActiveSessionId: () => activeSessionId,
-	getSessionState: (id) => sessionStateById[id],
-	updateSessionState: (id, state) => {
-		sessionWorkspace.sessionStateById = {
-			...sessionStateById,
-			[id]: state,
-		};
-	},
-	refreshSessionsList: (force) => refreshSessionsList(force ?? true),
-	requestBottomFollow: (options) => requestBottomFollow(options),
-	shouldAutoFollow: () => shouldAutoFollow,
-	getListEl: () => listEl,
-	captureCurrentScrollAnchor: (sessionId) =>
-		captureCurrentScrollAnchor(sessionId),
-	getSessionScrollAnchor: (sessionId) => getSessionScrollAnchor(sessionId),
-	areSessionScrollAnchorsEqual: (current, snapshot) =>
-		areSessionScrollAnchorsEqual(current, snapshot),
-	restoreSessionScrollAnchorSoon: (sessionId) =>
-		restoreSessionScrollAnchorSoon(sessionId),
-	isUserScrollActive: () => userScrollActive,
-	syncGenerationStateFromTail: (sessionId, turns, requestStartedAt) =>
-		syncGenerationStateFromTail(sessionId, turns, requestStartedAt),
-	onRecovered: () => {
-		spaceRealtime.markRecovered();
-	},
-	onExhausted: (sessionId) => {
-		console.warn("[SessionRecoveryCoordinator] Fallback sync exhausted", {
-			sessionId,
-			spaceId,
-		});
-	},
+const generationRealtime = sessionChat.generationRealtime;
+$effect(() => {
+	connectionStateBox.current = wsConnectionState;
+});
+// Keep host access/route context in sync with shell route.
+$effect(() => {
+	const route =
+		routeView === "session" && routeSessionId === "new"
+			? ({ kind: "new" } as const)
+			: routeView === "session" && routeSessionId
+				? ({
+						kind: "session",
+						sessionId: routeSessionId,
+						turnSequence: routeTurnSequence,
+					} as const)
+				: ({ kind: "none" } as const);
+	sessionChat.syncContext({
+		spaceId,
+		route,
+		access: {
+			spaceLoadError,
+			spaceHasMinimalAccess,
+			canCreateSession,
+			bootstrapping,
+		},
+	});
 });
 // ─── Share ───
-const sessionShare = createSessionShareController({
-	getSpaceId: () => spaceId,
-	canManageAccess: () => canManageSessionAccess,
-});
+const sessionShare = sessionChat.share;
 let forkingTurnId = $state<string | null>(null);
 type RouteDetailHeaderMeta = {
 	view: "checkpoint" | "cronjob" | "work" | "task";
@@ -1029,7 +1001,7 @@ let taskRealtimeEvent = $state<{
 	seq: number;
 } | null>(null);
 let taskRealtimeSeq = 0;
-const sessionTasks = createSessionTaskController();
+const sessionTasks = sessionChat.tasks;
 const generationTaskRunById = $derived(sessionTasks.generationTaskRunById);
 const backgroundBashTaskRunById = $derived(
 	sessionTasks.backgroundBashTaskRunById,
@@ -4286,8 +4258,7 @@ function handleVisibleLinesChange(
 	path: string,
 	range: { start: number; end: number } | null,
 ) {
-	if (!path) return;
-	viewportContext.setFileVisibleLines(path, range);
+	sessionChat.reportFileVisibleLines(path, range);
 }
 function handleCanvasViewStateChange(state: {
 	path: string;
@@ -4300,17 +4271,12 @@ function handleCanvasViewStateChange(state: {
 	} | null;
 	selectedNodes: Array<{ id: string; type: string; title?: string }>;
 }) {
-	viewportContext.setCanvasViewState(state.path, {
-		camera: state.camera,
-		visibleRect: state.visibleRect,
-		selectedNodes: state.selectedNodes,
-	});
+	sessionChat.reportCanvasView(state);
 }
 onDestroy(() => {
 	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 	flushActiveComposerDraft();
-	sessionComposer.dispose();
-	viewportContext.dispose();
+	sessionChat.dispose();
 	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
 	spaceBootstrap.resetLoaded();
 });
@@ -4958,6 +4924,7 @@ onMount(() => {
 function resetSpaceScopedState(currentSpaceId: string) {
 	activateSpaceStyle(currentSpaceId);
 	activateSpaceConfig(currentSpaceId);
+	sessionChat.enterSpace(currentSpaceId);
 	space = null;
 	spaceConfig = null;
 	spaceStatus.reset();
@@ -5000,7 +4967,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	creatingSession = false;
 	createSessionError = "";
 	sessionTasks.reset();
-	sessionGenerationStore.resetAll();
+	sessionGenerationStore.resetSpace(currentSpaceId);
 }
 
 async function bootstrapSpace(currentSpaceId: string) {
@@ -5069,294 +5036,7 @@ $effect(() => {
 	return wsEventCleanup;
 });
 $effect(() => {
-	const currentSpaceId = spaceId;
-	const sessionId = activeSessionId;
-	generationRealtime.syncActiveSubscription(
-		pageMounted && Boolean(currentSpaceId && sessionId),
-	);
-});
-$effect(() => {
-	const currentSpaceId = spaceId;
-	const sessionId = activeSessionId;
-	if (!pageMounted || !currentSpaceId || !sessionId) return;
-	return sessionTurnsRepo.subscribe(currentSpaceId, sessionId, (snapshot) => {
-		const current = sessionStateById[sessionId];
-		if (!current) return;
-		const nextTurns = preserveSessionTurnRefs(
-			current.turns,
-			normalizeTurnDuplicates(
-				mergeTurnsById(current.turns, snapshot.turns, {
-					preferIncoming: true,
-				}),
-			),
-		);
-		sessionWorkspace.sessionStateById = {
-			...sessionStateById,
-			[sessionId]: {
-				...current,
-				session: snapshot.session ?? current.session,
-				turns: nextTurns,
-				hasMore: snapshot.hasMoreOlder,
-				hasMoreNewer: snapshot.hasMoreNewer,
-				oldestCursor: snapshot.oldestSequence ?? undefined,
-			},
-		};
-	});
-});
-$effect(() => {
-	const sessionId = routeSessionId;
-	const sequence = routeTurnSequence;
-	if (
-		!pageMounted ||
-		routeView !== "session" ||
-		!sessionId ||
-		sessionId === "new" ||
-		activeSessionId !== sessionId ||
-		!sequence
-	)
-		return;
-	const key = `${sessionId}:${sequence}`;
-	if (appliedRouteTurnKey === key) return;
-	appliedRouteTurnKey = key;
-	void jumpToTurn(sequence);
-});
-$effect(() => {
-	if (routeView === "session" && routeSessionId && routeSessionId !== "new")
-		return;
-	appliedRouteTurnKey = null;
-});
-$effect(() => {
 	if (!isNewSessionRoute) resolvedNewSessionId = null;
-});
-$effect(() => {
-	if (routeView === "session" && activeSessionId) return;
-	showTurnBottomSheet = false;
-});
-$effect(() => {
-	const sessionId = activeSessionId;
-	if (!sessionId) return;
-	untrack(() => {
-		void sessionGenerationStore
-			.restore(spaceId, sessionId)
-			.catch(() => undefined);
-		void loadTurnIndex(sessionId);
-	});
-});
-$effect(() => {
-	if (!listEl || timeline.length === 0) {
-		sessionScroll.turnMarkerPositions = {};
-		sessionScroll.turnMarkerHeights = {};
-		return;
-	}
-	void tick().then(() => {
-		updateCurrentTurnSequence();
-		scheduleTurnMarkerMeasure();
-	});
-});
-$effect(() => {
-	const el = listEl;
-	if (!el) return;
-	const observer = new ResizeObserver(() => scheduleTurnMarkerMeasure());
-	observer.observe(el);
-	for (const child of Array.from(el.children)) observer.observe(child);
-	scheduleTurnMarkerMeasure();
-	return () => observer.disconnect();
-});
-$effect(() => {
-	const sessionId = activeSessionId;
-	const loadedCount = activeSessionState?.turns.length ?? 0;
-	const indexedCount = activeTurnIndex.length;
-	if (!sessionId || loadedCount < 2 || indexedCount >= loadedCount) return;
-	const key = `${sessionId}:${loadedCount}:${indexedCount}`;
-	if (lastTurnIndexRefreshKey === key) return;
-	lastTurnIndexRefreshKey = key;
-	untrack(() => {
-		void loadTurnIndex(sessionId, true);
-	});
-});
-$effect(() => {
-	if (
-		routeView === "session" &&
-		routeSessionId &&
-		routeSessionId !== "new" &&
-		routeSessionId !== activeSessionId
-	) {
-		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
-		prepareRouteSession(routeSessionId);
-		const state = sessionStateById[routeSessionId];
-		unreadTracker.markViewed(
-			routeSessionId,
-			state?.session?.lastMessageId ?? null,
-		);
-		untrack(() => {
-			void loadSessionState(routeSessionId);
-			void loadTurnIndex(routeSessionId);
-		});
-		return;
-	}
-	if (
-		(routeView !== "session" || (isDraftNewSessionRoute && activeSessionId)) &&
-		activeSessionId
-	) {
-		captureCurrentScrollAnchor(activeSessionId);
-		sessionWorkspace.activeSessionId = null;
-		sessionScroll.pendingRestoreSessionId = null;
-		sessionScroll.activeAnchorRestore = null;
-		sessionScroll.anchorRestoreWaitingForMarkdown = false;
-		userScrollActive = false;
-		programmaticScrollActive = false;
-		programmaticScrollTarget = null;
-		currentTurnSequence = null;
-		showTurnBottomSheet = false;
-	}
-});
-$effect(() => {
-	const el = listEl;
-	if (!el) return;
-	const container = el as HTMLDivElement;
-	function handleScrollTrack() {
-		const isProgrammatic =
-			programmaticScrollActive ||
-			(programmaticScrollTarget != null &&
-				Math.abs(container.scrollTop - programmaticScrollTarget) <= 1);
-		if (isProgrammatic) {
-			programmaticScrollActive = false;
-			programmaticScrollTarget = null;
-			updateTimelineScrollMetrics();
-			updateAutoFollow();
-			updateCurrentTurnSequence();
-			scheduleTurnMarkerMeasure();
-			return;
-		}
-		updateTimelineScrollMetrics();
-		if (activeSessionId && userScrollActive) {
-			captureCurrentScrollAnchor(activeSessionId);
-		}
-		updateAutoFollow();
-		updateCurrentTurnSequence();
-		scheduleTurnMarkerMeasure();
-	}
-	container.addEventListener("wheel", beginUserScroll, { passive: true });
-	container.addEventListener("touchstart", beginUserScroll, { passive: true });
-	container.addEventListener("touchmove", beginUserScroll, { passive: true });
-	container.addEventListener("pointerdown", beginUserScroll, { passive: true });
-	container.addEventListener("keydown", handleScrollKeydown);
-	container.addEventListener("scroll", handleScrollTrack, { passive: true });
-	return () => {
-		container.removeEventListener("wheel", beginUserScroll);
-		container.removeEventListener("touchstart", beginUserScroll);
-		container.removeEventListener("touchmove", beginUserScroll);
-		container.removeEventListener("pointerdown", beginUserScroll);
-		container.removeEventListener("keydown", handleScrollKeydown);
-		container.removeEventListener("scroll", handleScrollTrack);
-	};
-});
-$effect(() => {
-	if (!listEl) return;
-	const targetId = pendingRestoreSessionId;
-	if (!targetId || targetId !== activeSessionId) return;
-	const state = sessionStateById[targetId];
-	if (!state?.loaded) return;
-	const anchor = getSessionScrollAnchor(targetId);
-	const hasCachedAnchor =
-		anchor &&
-		state.turns.some(
-			(turn) =>
-				turn.sequence === anchor.sequence ||
-				turn.sequence * 10 === anchor.sequence,
-		);
-	const finishRestore = () => {
-		sessionScroll.pendingRestoreSessionId = null;
-		if (restoringBottomSessionId === targetId) {
-			restoringBottomSessionId = null;
-		}
-		updateAutoFollow();
-	};
-	const finishAnchorRestore = () => {
-		sessionScroll.pendingRestoreSessionId = null;
-		if (restoringBottomSessionId === targetId) {
-			restoringBottomSessionId = null;
-		}
-		updateAutoFollow();
-		sessionScroll.anchorRestoreWaitingForMarkdown = true;
-		requestAnimationFrame(() => {
-			maybeCompleteAnchorRestore();
-		});
-	};
-	const restoreToBottom = () => {
-		sessionScroll.activeAnchorRestore = null;
-		sessionScroll.anchorRestoreWaitingForMarkdown = false;
-		restoringBottomSessionId = targetId;
-		sessionScroll.shouldAutoFollow = true;
-		requestAnimationFrame(() => {
-			if (!listEl || activeSessionId !== targetId) {
-				finishRestore();
-				return;
-			}
-			scrollToBottomNow();
-			finishRestore();
-		});
-	};
-	if (!anchor || !hasCachedAnchor) {
-		clearSessionScrollAnchor(targetId);
-		void tick().then(restoreToBottom);
-		return;
-	}
-	const restoreByAnchor = (retries = 2) => {
-		requestAnimationFrame(() => {
-			if (!listEl) {
-				finishRestore();
-				return;
-			}
-			const node = listEl.querySelector<HTMLElement>(
-				`[data-sequence="${anchor.sequence}"]`,
-			);
-			if (!node) {
-				if (retries > 0) {
-					restoreByAnchor(retries - 1);
-					return;
-				}
-				clearSessionScrollAnchor(targetId);
-				restoreToBottom();
-				return;
-			}
-			sessionScroll.activeAnchorRestore = {
-				sessionId: targetId,
-				sequence: anchor.sequence,
-				offset: anchor.offset,
-				updatedAt: anchor.updatedAt,
-			};
-			sessionScroll.anchorRestoreWaitingForMarkdown =
-				pendingTimelineMarkdownRenders > 0;
-			if (pendingTimelineMarkdownRenders > 0) {
-				finishRestore();
-				return;
-			}
-			requestAnimationFrame(() => {
-				if (!listEl || activeSessionId !== targetId) {
-					finishAnchorRestore();
-					return;
-				}
-				if (!applyActiveAnchorRestore(activeAnchorRestore)) {
-					clearSessionScrollAnchor(targetId);
-					restoreToBottom();
-					return;
-				}
-				finishAnchorRestore();
-			});
-		});
-	};
-	void tick().then(() => restoreByAnchor());
-});
-$effect(() => {
-	const sessionId = activeSessionId;
-	if (!sessionId) return;
-	const state = sessionStateById[sessionId];
-	if (!state?.loaded && !state?.loading) {
-		untrack(() => {
-			void loadSessionState(sessionId);
-		});
-	}
 });
 $effect(() => {
 	// Ordered: source first, then route preview hydration (bi-directional).
@@ -5406,47 +5086,6 @@ $effect(() => {
 		}
 		appliedRouteFileKey = previewKey;
 	});
-});
-$effect(() => {
-	const el = composerHostEl;
-	if (!el) {
-		sessionScroll.composerHeight = 0;
-		return;
-	}
-	const updateComposerHeight = () => {
-		sessionScroll.composerHeight = el.offsetHeight;
-	};
-	updateComposerHeight();
-	const ro = new ResizeObserver(() => updateComposerHeight());
-	ro.observe(el);
-	return () => ro.disconnect();
-});
-$effect(() => {
-	if (!listEl || !activeSessionId) return;
-	updateTimelineScrollMetrics();
-	updateAutoFollow();
-});
-// ResizeObserver: when the scroll container's content grows and the user
-// is already near the bottom (shouldAutoFollow), keep them pinned before
-// the next paint. This naturally catches async markdown rendering, image
-// loading, etc.
-$effect(() => {
-	const el = listEl;
-	if (!el) return;
-	let prevHeight = el.scrollHeight;
-	const ro = new ResizeObserver(() => {
-		if (!listEl) return;
-		const currentHeight = listEl.scrollHeight;
-		const restoringBottom = restoringBottomSessionId === activeSessionId;
-		if (currentHeight > prevHeight && (shouldAutoFollow || restoringBottom)) {
-			requestBottomFollow({ immediate: restoringBottom });
-		}
-		prevHeight = currentHeight;
-		updateTimelineScrollMetrics();
-		updateAutoFollow();
-	});
-	ro.observe(el);
-	return () => ro.disconnect();
 });
 
 const spaceFileDomainProps = $derived.by<
@@ -5621,113 +5260,6 @@ const headerActions = {
 	insertHeaderReference,
 	toggleRightSidebar,
 };
-
-const sessionWorkspaceProps = $derived.by<
-	Omit<
-		SessionWorkspaceProps,
-		| "newChatProfileViewportEl"
-		| "newChatProfile"
-		| "chatTimelineRef"
-		| "listEl"
-		| "shouldAutoFollow"
-		| "showTurnBottomSheet"
-		| "composerHostEl"
-		| "input"
-		| "showModelSelector"
-	>
->(() => ({
-	spaceId,
-	spaceLoadError,
-	spaceHasMinimalAccess,
-	createSessionError,
-	bootstrapping,
-	activeSessionState,
-	activeSessionInitialLoadingVisible,
-	isNewSessionRoute,
-	canCreateSession,
-	handleCreateNewSession,
-	shouldShowNewChatBackground,
-	newChatBackground,
-	shouldShowNewChatProfile,
-	newChatProfileExpanded,
-	timeline,
-	handleFirstVisible,
-	handleTimelineMarkdownRenderStart,
-	handleTimelineMarkdownRendered,
-	onLoadToolCalls: (input: {
-		turn: SessionTurnRecord;
-		message: StoredIntermediateMessage;
-	}) =>
-		loadMessageToolCalls({
-			spaceId,
-			sessionId: input.turn.sessionId,
-			turnId: input.turn.sourceTurnId ?? input.turn.id,
-			message: input.message,
-		}),
-	onLoadIntermediate: (turn: SessionTurnRecord) =>
-		loadTurnIntermediate({
-			spaceId,
-			sessionId: turn.sessionId,
-			turnId: turn.sourceTurnId ?? turn.id,
-			messagesObjectKey: turn.intermediateIndex?.messagesObjectKey ?? null,
-		}),
-	onRequestIntermediateSync: (turn: SessionTurnRecord) =>
-		requestIntermediateSyncForTurn(turn.sessionId, turn.id),
-	handleForkTurn,
-	forkingTurnId,
-	openInlineFile: openLinkedInlineFile,
-	modelsCatalog,
-	sessionTaskNotices,
-	sessionTaskHasMore,
-	sessionTaskRecentLoading,
-	handleSessionTaskTrayExpand,
-	handleSessionTaskTrayLoadMore,
-	handleOpenGenerationTaskMedia,
-	followupQueue,
-	turnPreviewText,
-	pendingFollowupActionIds,
-	handleSteerFollowup,
-	handleCancelFollowup,
-	activeTurnRailItems,
-	turnMarkerPositions,
-	turnMarkerHeights,
-	timelineScrollTop,
-	timelineScrollHeight,
-	timelineClientHeight,
-	composerHeight,
-	unloadedOlderTurnCount,
-	unloadedNewerTurnCount,
-	currentTurnSequence,
-	loadingTurnSequence,
-	jumpToTurnAndUpdateUrl,
-	setProgrammaticScrollTop,
-	snapScrollToNearestTurn,
-	activeSessionId,
-	loadOlderTurns,
-	syncSessionNewer,
-	highlightedTurnSequence,
-	hasUnread,
-	forceScrollToBottom,
-	loadTurnIndex,
-	sending,
-	activeSessionIsRunning,
-	aborting,
-	composerNotice,
-	composerShowsBillingAction,
-	attachments,
-	viewportContexts,
-	activeSessionModel,
-	generationPolicyLabel,
-	promptTemplates,
-	promptTemplatesLoaded,
-	handlePickAttachments,
-	handleRemoveAttachment,
-	handleRemoveViewportContext,
-	handleSend,
-	handleAbort,
-	loadModelsCatalog,
-	loadGenerationModelsCatalog,
-}));
 </script>
 
 <svelte:head>
@@ -5929,16 +5461,13 @@ const sessionWorkspaceProps = $derived.by<
         }}
       />
     {:else}
-      <SessionWorkspace
-        {...sessionWorkspaceProps}
+      <SessionChatPanel
+        host={sessionChat}
+        {shouldShowNewChatBackground}
+        {newChatBackground}
+        {shouldShowNewChatProfile}
+        {newChatProfileExpanded}
         bind:newChatProfileViewportEl
-        bind:chatTimelineRef={sessionScroll.chatTimelineRef}
-        bind:listEl={sessionScroll.listEl}
-        bind:shouldAutoFollow={sessionScroll.shouldAutoFollow}
-        bind:showTurnBottomSheet
-        bind:composerHostEl
-        bind:input={sessionComposer.input}
-        bind:showModelSelector
       >
         {#snippet newChatProfile()}
           <NewChatSpaceProfile
@@ -5958,7 +5487,7 @@ const sessionWorkspaceProps = $derived.by<
             }}
           />
         {/snippet}
-      </SessionWorkspace>
+      </SessionChatPanel>
     {/if}
     </div>
     {#if previewImmersiveMode}
