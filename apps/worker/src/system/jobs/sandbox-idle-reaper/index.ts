@@ -8,7 +8,11 @@ import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-worker" });
-const getLimit = () => Number(process.env.SANDBOX_IDLE_REAPER_LIMIT ?? 50);
+const getLimit = () => {
+  const parsed = Number(process.env.SANDBOX_IDLE_REAPER_LIMIT ?? 50);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 50;
+  return Math.floor(parsed);
+};
 
 const sandboxLifecycle = createSandboxLifecycleController({
   db,

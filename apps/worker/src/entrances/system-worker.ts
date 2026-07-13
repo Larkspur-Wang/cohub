@@ -12,16 +12,22 @@ import {
   recordJobFailure,
   createBullmqRedisConnection,
   createQueueTelemetry,
+  defaultJobRetention,
   getRedisHost,
+  COHUB_SYSTEM_QUEUE,
 } from "@cohub/infra/bullmq";
 import { context, SpanStatusCode, trace } from "@opentelemetry/api";
 import { getTracer, extractTrace } from "@cohub/infra/tracing/propagator";
 import { assertRequiredConfig, config } from "../config.js";
 import { getRegisteredSystemJobs, getSystemJobHandler } from "../system/registry.js";
-import { COHUB_SYSTEM_QUEUE } from "@cohub/infra/bullmq";
+import { SANDBOX_IDLE_REAPER_JOB } from "../system/jobs/sandbox-idle-reaper/types.js";
 import { startSystemReferralRewardRetryLoop } from "../system/referral-reward-retry.js";
 
 import "../system/jobs/index.js";
+
+const SANDBOX_IDLE_REAPER_SCHEDULER_ID = "sandbox-idle-reaper-daily";
+/** UTC 00:24 — offset from top-of-hour to reduce collisions with other daily jobs. */
+const SANDBOX_IDLE_REAPER_CRON = "24 0 * * *";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 assertRequiredConfig();
@@ -86,6 +92,32 @@ logger.info("[SystemWorker] BullMQ Redis:", getRedisHost(config.bullmqRedisUrl))
 logger.info("[SystemWorker] App Redis:", getRedisHost(config.redisUrl));
 logger.info("[SystemWorker] Queue:", COHUB_SYSTEM_QUEUE);
 logger.info("[SystemWorker] Registered jobs:", getRegisteredSystemJobs());
+
+try {
+  await systemQueue.upsertJobScheduler(
+    SANDBOX_IDLE_REAPER_SCHEDULER_ID,
+    { pattern: SANDBOX_IDLE_REAPER_CRON, tz: "UTC" },
+    {
+      name: SANDBOX_IDLE_REAPER_JOB,
+      data: {},
+      opts: {
+        attempts: 1,
+        ...defaultJobRetention,
+        removeOnComplete: { age: 7 * 24 * 3600, count: 30 },
+        removeOnFail: { age: 14 * 24 * 3600, count: 50 },
+      },
+    },
+  );
+  logger.info("[SystemWorker] Ensured sandbox idle reaper schedule", {
+    schedulerId: SANDBOX_IDLE_REAPER_SCHEDULER_ID,
+    pattern: SANDBOX_IDLE_REAPER_CRON,
+    tz: "UTC",
+  });
+} catch (error) {
+  logger.error("[SystemWorker] Failed to ensure sandbox idle reaper schedule", {
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
 
 const stopReferralRewardRetry = startSystemReferralRewardRetryLoop();
 

@@ -44,6 +44,8 @@ __IMAGE_PULL_SECRETS_BLOCK__
           env:
             - name: SYSTEM_WORKER_CONCURRENCY
               value: "__SYSTEM_WORKER_CONCURRENCY__"
+            - name: SANDBOX_IDLE_REAPER_LIMIT
+              value: "__SANDBOX_IDLE_REAPER_LIMIT__"
           volumeMounts:
             - name: space-storage
               mountPath: /space-storage
