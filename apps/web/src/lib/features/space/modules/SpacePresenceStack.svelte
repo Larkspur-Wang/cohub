@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { SpacePresenceUser } from "@neta-art/cohub";
 import { onMount } from "svelte";
+import { floatNear, portal } from "$lib/actions/portal";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { buildUserProfileHref } from "$lib/space-routes";
 import { displayUserName } from "../space-utils";
@@ -17,8 +18,8 @@ type Props = {
 
 let { users, limit = 4 }: Props = $props();
 
-let rootEl = $state<HTMLDivElement | null>(null);
 let open = $state(false);
+let presenceRootEl: HTMLDivElement | null = $state(null);
 let danmakuEnabled = $state(isDanmakuEnabled());
 
 const visibleUsers = $derived(users.slice(0, limit));
@@ -96,9 +97,15 @@ onMount(() => {
 		danmakuEnabled = value;
 	});
 	const handlePointerDown = (event: PointerEvent) => {
-		if (!open || !rootEl) return;
+		if (!open || !presenceRootEl) return;
 		const target = event.target as Node | null;
-		if (target && rootEl.contains(target)) return;
+		// Portaled popover is outside root; keep open when clicking it.
+		if (
+			target &&
+			(presenceRootEl.contains(target) ||
+				(target instanceof Element && target.closest(".presence-popover")))
+		)
+			return;
 		open = false;
 	};
 	const handleKeyDown = (event: KeyboardEvent) => {
@@ -119,7 +126,7 @@ $effect(() => {
 </script>
 
 {#if users.length > 0}
-	<div bind:this={rootEl} class="presence-root">
+	<div class="presence-root" bind:this={presenceRootEl}>
 		<button
 			type="button"
 			class="presence-stack"
@@ -160,8 +167,19 @@ $effect(() => {
 		</button>
 
 		{#if open}
-			<div class="presence-backdrop" aria-hidden="true" onclick={() => (open = false)}></div>
-			<div class="presence-popover" role="dialog" aria-label={popoverTitle}>
+			<div class="presence-backdrop" aria-hidden="true" use:portal onclick={() => (open = false)}></div>
+			<div
+				class="presence-popover"
+				role="dialog"
+				aria-label={popoverTitle}
+				use:floatNear={{
+					getAnchor: () => presenceRootEl,
+					placement: "bottom-end",
+					gap: 8,
+					width: 280,
+					zIndex: 90,
+				}}
+			>
 				<div class="presence-popover-header">
 					<span class="presence-popover-title">Online</span>
 					<span class="presence-popover-meta">{users.length} {peopleLabel}</span>
@@ -310,14 +328,13 @@ $effect(() => {
 	}
 
 	.presence-backdrop {
-		display: none;
+		position: fixed;
+		inset: 0;
+		z-index: 85;
+		background: transparent;
 	}
 
 	.presence-popover {
-		position: absolute;
-		right: 0;
-		top: calc(100% + 8px);
-		z-index: 80;
 		width: min(280px, calc(100vw - 24px));
 		overflow: hidden;
 		border: 1px solid var(--border-subtle);

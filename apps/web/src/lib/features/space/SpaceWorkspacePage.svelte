@@ -44,6 +44,7 @@ import {
 	classifyAccessError,
 	isBlockingAccessState,
 } from "$lib/access/access-state";
+import { floatNear } from "$lib/actions/portal";
 import type { SessionListForkRecord } from "$lib/cache/db";
 import {
 	deleteCanvasPendingTransaction,
@@ -542,6 +543,7 @@ const inlinePortTabs = $derived(portPreview.previews);
 const activeInlinePort = $derived(portPreview.activePort);
 const portReadyToast = $derived(portPreview.readyToast);
 let previewTabCleanupNotice = $state<string | null>(null);
+let fileActionMenuAnchorEl: HTMLDivElement | null = $state(null);
 let previewTabCleanupNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 const spaceStatus = createSpaceStatusController({
 	getSpaceId: () => spaceId,
@@ -5713,7 +5715,7 @@ const sessionWorkspaceProps = $derived.by<
 </svelte:head>
 
 {#snippet FileHeaderCoreActions(path: string)}
-	<div class="relative shrink-0" data-resource-actions>
+	<div class="relative shrink-0" data-resource-actions bind:this={fileActionMenuAnchorEl}>
 		<button
 			type="button"
 			class="icon-btn"
@@ -5729,8 +5731,16 @@ const sessionWorkspaceProps = $derived.by<
 		</button>
 		{#if fileWorkspace.fileActionMenuOpenPath === path}
 			<div
-				class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
+				class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
 				role="menu"
+				data-resource-actions
+				use:floatNear={{
+					getAnchor: () => fileActionMenuAnchorEl,
+					placement: "bottom-end",
+					gap: 4,
+					width: 176,
+					zIndex: 90,
+				}}
 			>
 				<button
 					type="button"
@@ -5870,21 +5880,24 @@ const sessionWorkspaceProps = $derived.by<
     />
   {/if}
   <div
-    class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden bg-bg-content"
+    class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
   >
     {#if !previewImmersiveMode}
-      <SpaceWorkspaceHeader
-        context={headerContext}
-        sessionRename={sessionRenameState}
-        resourceActions={resourceActionState}
-        actions={{
-          ...headerActions,
-          exitImmersivePreview: togglePreviewImmersiveMode,
-        }}
-        presentation="default"
-      />
+      <div class="workspace-main-header relative z-20 shrink-0 overflow-visible">
+        <SpaceWorkspaceHeader
+          context={headerContext}
+          sessionRename={sessionRenameState}
+          resourceActions={resourceActionState}
+          actions={{
+            ...headerActions,
+            exitImmersivePreview: togglePreviewImmersiveMode,
+          }}
+          presentation="default"
+        />
+      </div>
     {/if}
+    <div class="workspace-main-body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     {#if isRouteDetailView}
       <SpaceRouteDetailHost
         route={{
@@ -5937,6 +5950,7 @@ const sessionWorkspaceProps = $derived.by<
         {/snippet}
       </SessionWorkspace>
     {/if}
+    </div>
     {#if previewImmersiveMode}
       <div class="immersive-chat-controls">
         <button

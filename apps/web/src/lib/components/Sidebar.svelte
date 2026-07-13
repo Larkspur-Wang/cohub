@@ -47,6 +47,7 @@ import {
 import { onMount, tick, untrack } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
+import { floatNear } from "$lib/actions/portal";
 import { logtoClient } from "$lib/auth";
 import { handleUnauthorizedError } from "$lib/auth-redirect";
 import { clearAllIndexedDbCache } from "$lib/cache/clear";
@@ -195,6 +196,8 @@ const SESSION_PAGE_SIZE = 20;
 const CHECKPOINT_PAGE_SIZE = 20;
 const TASK_PAGE_SIZE = 10;
 
+let userMenuAnchorEl: HTMLDivElement | null = $state(null);
+let expandedUserMenuAnchorEl: HTMLDivElement | null = $state(null);
 let showUserMenu = $state(false);
 // Hydrate synchronously from the local cache so a freshly mounted sidebar
 // (e.g. the mobile drawer, which unmounts on close) can resolve the current
@@ -3522,8 +3525,8 @@ $effect(() => {
 {/snippet}
 
 {#if collapsed && !isMobile}
-  <aside class="h-screen w-[52px] shrink-0 bg-[var(--sidebar-bg)]">
-    <div class="flex h-full flex-col items-center border-r border-border-subtle/70 px-2 py-2">
+  <aside class="h-screen w-[52px] shrink-0 overflow-visible bg-[var(--sidebar-bg)]">
+    <div class="flex h-full flex-col items-center overflow-visible border-r border-border-subtle/70 px-2 py-2">
       <a
         href="/"
         class="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors duration-100 hover:bg-brand-hover"
@@ -3692,9 +3695,19 @@ $effect(() => {
         </nav>
       {/if}
 
-      <div class="relative mt-auto w-full pt-2">
+      <div class="relative mt-auto w-full pt-2" bind:this={userMenuAnchorEl}>
         {#if showUserMenu}
-          <div data-user-menu class="absolute bottom-full left-0 z-50 mb-1 w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg">
+          <div
+            data-user-menu
+            class="w-56 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
+            use:floatNear={{
+              getAnchor: () => userMenuAnchorEl,
+              placement: "top-start",
+              gap: 4,
+              width: 224,
+              zIndex: 90,
+            }}
+          >
             {#if billingConfigured !== false}
               <div class="border-b border-border-subtle">
                 <a href={currentSubscriptionName ? "/settings/billing" : "/pricing"} class="rail-menu-item" title={currentSubscriptionName ? "Open billing details" : "View plans"} onclick={(e) => { e.preventDefault(); if (currentSubscriptionName) openBillingSettings(); else { showUserMenu = false; handleNavigate('/pricing'); } }}>
@@ -4162,11 +4175,18 @@ $effect(() => {
   {/if}
 
   <!-- User Menu -->
-  <div class="border-t border-border-subtle p-1.5 shrink-0 relative">
+  <div class="border-t border-border-subtle p-1.5 shrink-0 relative" bind:this={expandedUserMenuAnchorEl}>
     {#if showUserMenu}
       <div
         data-user-menu
-        class="absolute bottom-full left-1.5 right-1.5 mb-1 bg-bg-primary border border-border-subtle rounded-md shadow-lg overflow-hidden z-50"
+        class="w-[calc(100%-0px)] overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-0 shadow-lg"
+        use:floatNear={{
+          getAnchor: () => expandedUserMenuAnchorEl,
+          placement: "top-start",
+          gap: 4,
+          width: Math.max(200, (expandedUserMenuAnchorEl?.clientWidth ?? 220) - 0),
+          zIndex: 90,
+        }}
       >
         {#if billingConfigured !== false}
           <div class="border-b border-border-subtle">

@@ -18,6 +18,7 @@ import {
 	TextCursorInput,
 	X,
 } from "lucide-svelte";
+import { floatNear } from "$lib/actions/portal";
 import ColumnHeader from "$lib/components/ColumnHeader.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
@@ -105,6 +106,7 @@ let {
 
 const immersive = $derived(presentation === "immersive");
 let sessionRenameInputEl: HTMLInputElement | null = $state(null);
+let resourceActionsRootEl: HTMLDivElement | null = $state(null);
 let sessionRenameFocused = $state(false);
 
 const spaceTitle = $derived(
@@ -197,7 +199,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 	{/if}
 
 	{#if resourceActions.available}
-		<div class="relative" data-resource-actions>
+		<div class="relative" data-resource-actions bind:this={resourceActionsRootEl}>
 			<button
 				type="button"
 				class="header-action-btn is-square"
@@ -212,7 +214,18 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 				<MoreHorizontal class="h-4 w-4 shrink-0" />
 			</button>
 			{#if resourceActions.open}
-				<div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
+				<div
+					class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
+					role="menu"
+					data-resource-actions
+					use:floatNear={{
+						getAnchor: () => resourceActionsRootEl,
+						placement: "bottom-end",
+						gap: 4,
+						width: 176,
+						zIndex: 90,
+					}}
+				>
 					<button
 						type="button"
 						class="menu-item"

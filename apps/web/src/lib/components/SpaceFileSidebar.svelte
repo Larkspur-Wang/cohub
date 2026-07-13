@@ -9,6 +9,7 @@ import {
 	Upload,
 } from "lucide-svelte";
 import { tick } from "svelte";
+import { floatNear } from "$lib/actions/portal";
 import ColumnHeader from "$lib/components/ColumnHeader.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
@@ -78,6 +79,8 @@ let rootDragOver = $state(false);
 // Dropdown state
 let newMenuOpen = $state(false);
 let uploadMenuOpen = $state(false);
+let newMenuAnchorEl: HTMLDivElement | null = $state(null);
+let uploadMenuAnchorEl: HTMLDivElement | null = $state(null);
 let newMenuEl: HTMLDivElement | null = $state(null);
 let uploadMenuEl: HTMLDivElement | null = $state(null);
 
@@ -188,13 +191,23 @@ $effect(() => {
     {#snippet right()}
       <div class="flex items-center gap-0.5 [&_button]:cursor-pointer">
         {#if canWrite}
-          <div class="relative">
+          <div class="relative" bind:this={newMenuAnchorEl}>
             <button class="icon-btn" type="button" onclick={toggleNewMenu} aria-expanded={newMenuOpen}>
               <Plus class="w-4 h-4" />
               <span class="sr-only">New</span>
             </button>
             {#if newMenuOpen}
-              <div class="dropdown" bind:this={newMenuEl}>
+              <div
+                class="dropdown"
+                bind:this={newMenuEl}
+                use:floatNear={{
+                  getAnchor: () => newMenuAnchorEl,
+                  placement: "bottom-end",
+                  gap: 6,
+                  width: 160,
+                  zIndex: 90,
+                }}
+              >
                 <button type="button" class="dropdown-item" onclick={handleCreateFileAtRoot}>
                   <Plus class="w-3.5 h-3.5" />
                   New file
@@ -213,13 +226,23 @@ $effect(() => {
             {/if}
           </div>
           {#if onUpload}
-            <div class="relative">
+            <div class="relative" bind:this={uploadMenuAnchorEl}>
               <button class="icon-btn" type="button" onclick={toggleUploadMenu} aria-expanded={uploadMenuOpen}>
                 <Upload class="w-4 h-4" />
                 <span class="sr-only">Upload</span>
               </button>
               {#if uploadMenuOpen}
-                <div class="dropdown" bind:this={uploadMenuEl}>
+                <div
+                  class="dropdown"
+                  bind:this={uploadMenuEl}
+                  use:floatNear={{
+                    getAnchor: () => uploadMenuAnchorEl,
+                    placement: "bottom-end",
+                    gap: 6,
+                    width: 160,
+                    zIndex: 90,
+                  }}
+                >
                   <button type="button" class="dropdown-item" onclick={handleUploadClick}>
                     <Upload class="w-3.5 h-3.5" />
                     Upload files
@@ -314,10 +337,6 @@ $effect(() => {
   .icon-btn:hover { background: var(--bg-hover); color: var(--text-secondary); }
 
   .dropdown {
-    position: absolute;
-    right: 0;
-    top: calc(100% + 6px);
-    z-index: 100;
     min-width: 150px;
     padding: 4px;
     background: var(--bg-elevated);

@@ -497,8 +497,9 @@ onMount(() => {
 {:else}
   <div class="app-shell h-[100dvh] min-h-0 overflow-hidden flex flex-col lg:flex-row text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
-    <div class="hidden lg:flex shrink-0 min-h-0 relative" style={`width: ${uiState.leftSidebarCollapsed ? 52 : uiState.leftSidebarWidth}px`}>
-      <div class="min-w-0 flex-1 {uiState.leftSidebarCollapsed ? '' : 'border-r border-[color:var(--sidebar-border)]'}">
+    <!-- z-30 keeps collapsed rail flyouts above main workspace stacking contexts -->
+    <div class="hidden lg:flex shrink-0 min-h-0 relative z-30 overflow-visible" style={`width: ${uiState.leftSidebarCollapsed ? 52 : uiState.leftSidebarWidth}px`}>
+      <div class="min-w-0 flex-1 overflow-visible {uiState.leftSidebarCollapsed ? '' : 'border-r border-[color:var(--sidebar-border)]'}">
         <Sidebar mode={sidebarMode} collapsed={uiState.leftSidebarCollapsed} />
       </div>
       {#if !uiState.leftSidebarCollapsed}

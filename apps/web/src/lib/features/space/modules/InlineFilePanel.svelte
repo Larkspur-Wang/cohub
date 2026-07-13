@@ -18,6 +18,7 @@ import {
 	Trash2,
 	X,
 } from "lucide-svelte";
+import { floatNear } from "$lib/actions/portal";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
@@ -178,15 +179,27 @@ const loadFileDiffViewModule = createLazyModuleLoader(
 );
 
 const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
+let fileActionMenuAnchorEl: HTMLDivElement | null = $state(null);
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
-	<div class="relative shrink-0" data-resource-actions>
+	<div class="relative shrink-0" data-resource-actions bind:this={fileActionMenuAnchorEl}>
 		<button type="button" class="icon-btn" onclick={(event) => { event.stopPropagation(); fileActionMenuOpenPath = fileActionMenuOpenPath === path ? null : path; }} title="More actions" aria-haspopup="menu" aria-expanded={fileActionMenuOpenPath === path}>
 			<MoreHorizontal class="w-4 h-4" />
 		</button>
 		{#if fileActionMenuOpenPath === path}
-			<div class="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg" role="menu">
+			<div
+				class="w-44 overflow-hidden rounded-md border border-border-subtle bg-bg-primary py-1 shadow-lg"
+				role="menu"
+				data-resource-actions
+				use:floatNear={{
+					getAnchor: () => fileActionMenuAnchorEl,
+					placement: "bottom-end",
+					gap: 4,
+					width: 176,
+					zIndex: 90,
+				}}
+			>
 				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path); fileActionMenuOpenPath = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>Label as…</span></button>
 				<button type="button" class="menu-item" onclick={() => { onInsertFilePathReference(path); fileActionMenuOpenPath = null; }} role="menuitem"><TextCursorInput class="w-3.5 h-3.5" /><span>Insert reference</span></button>
 				<button type="button" class="menu-item" onclick={() => { void onDownloadFilePath(path); fileActionMenuOpenPath = null; }} role="menuitem"><Download class="w-3.5 h-3.5" /><span>Download</span></button>

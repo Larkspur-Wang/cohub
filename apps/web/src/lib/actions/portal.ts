@@ -1,0 +1,125 @@
+/** Mount a node under document.body so it escapes local stacking/overflow. */
+export function portal(node: HTMLElement) {
+	if (typeof document === "undefined") return {};
+	document.body.appendChild(node);
+	return {
+		destroy() {
+			node.remove();
+		},
+	};
+}
+
+type FloatOptions = {
+	/** Anchor element used for fixed positioning. */
+	getAnchor: () => HTMLElement | null;
+	/** Preferred placement. */
+	placement?: "right-start" | "bottom-end" | "bottom-start" | "top-start";
+	/** Gap between anchor and panel in px. */
+	gap?: number;
+	/** Fixed panel width in px (optional). */
+	width?: number;
+	/** z-index for the floated panel. */
+	zIndex?: number;
+};
+
+/**
+ * Portals node to body and keeps it fixed next to an anchor.
+ * Escapes overflow:hidden and local stacking contexts.
+ */
+export function floatNear(
+	node: HTMLElement,
+	options: FloatOptions,
+): { update: (next: FloatOptions) => void; destroy: () => void } {
+	let opts = options;
+	let raf = 0;
+
+	function place() {
+		const anchor = opts.getAnchor();
+		if (!anchor || typeof window === "undefined") return;
+		const rect = anchor.getBoundingClientRect();
+		const gap = opts.gap ?? 8;
+		const zIndex = opts.zIndex ?? 80;
+		const width = opts.width;
+		const placement = opts.placement ?? "right-start";
+		const pad = 8;
+
+		node.style.position = "fixed";
+		node.style.zIndex = String(zIndex);
+		node.style.margin = "0";
+		node.style.transform = "";
+		node.style.right = "auto";
+		node.style.bottom = "auto";
+		if (width) node.style.width = `${width}px`;
+
+		// Measure after width is applied.
+		const panelRect = node.getBoundingClientRect();
+		const panelW = width ?? (panelRect.width || 280);
+		const panelH = panelRect.height || 200;
+
+		let top = rect.top;
+		let left = rect.right + gap;
+
+		if (placement === "bottom-end") {
+			top = rect.bottom + gap;
+			left = rect.right - panelW;
+		} else if (placement === "bottom-start") {
+			top = rect.bottom + gap;
+			left = rect.left;
+		} else if (placement === "top-start") {
+			top = rect.top - gap - panelH;
+			left = rect.left;
+		} else {
+			// right-start: prefer right of anchor; flip left if needed
+			top = rect.top;
+			left = rect.right + gap;
+			if (left + panelW > window.innerWidth - pad) {
+				left = rect.left - gap - panelW;
+			}
+		}
+
+		// Vertical flip for bottom placements near viewport bottom.
+		if (
+			placement.startsWith("bottom") &&
+			top + panelH > window.innerHeight - pad
+		) {
+			top = rect.top - gap - panelH;
+		}
+
+		top = Math.min(
+			Math.max(pad, top),
+			Math.max(pad, window.innerHeight - panelH - pad),
+		);
+		left = Math.min(
+			Math.max(pad, left),
+			Math.max(pad, window.innerWidth - panelW - pad),
+		);
+
+		node.style.top = `${Math.round(top)}px`;
+		node.style.left = `${Math.round(left)}px`;
+	}
+
+	function schedule() {
+		cancelAnimationFrame(raf);
+		raf = requestAnimationFrame(place);
+	}
+
+	const portalLifecycle = portal(node);
+	place();
+	schedule();
+
+	window.addEventListener("resize", schedule);
+	window.addEventListener("scroll", schedule, true);
+
+	return {
+		update(next: FloatOptions) {
+			opts = next;
+			schedule();
+		},
+		destroy() {
+			cancelAnimationFrame(raf);
+			window.removeEventListener("resize", schedule);
+			window.removeEventListener("scroll", schedule, true);
+			portalLifecycle.destroy?.();
+		},
+	};
+}

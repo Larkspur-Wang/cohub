@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Layers2, Maximize2, Minimize2 } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import { floatNear } from "$lib/actions/portal";
 
 const {
 	focused = false,
@@ -99,7 +100,17 @@ onDestroy(() => {
 		{/if}
 	</button>
 	{#if open}
-		<div class="preview-expand-popover" role="menu">
+		<div
+			class="preview-expand-popover"
+			role="menu"
+			use:floatNear={{
+				getAnchor: () => rootEl,
+				placement: "bottom-end",
+				gap: 6,
+				width: 132,
+				zIndex: 90,
+			}}
+		>
 			<button type="button" class="preview-expand-item" onclick={() => choose(onToggleFocus)} role="menuitem">
 				<Maximize2 class="h-3.5 w-3.5" />
 				<span>Focus</span>
@@ -114,10 +125,6 @@ onDestroy(() => {
 
 <style>
 	.preview-expand-popover {
-		position: absolute;
-		right: 0;
-		top: calc(100% + 6px);
-		z-index: 80;
 		width: 132px;
 		overflow: hidden;
 		border-radius: 8px;

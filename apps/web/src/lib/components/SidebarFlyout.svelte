@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { Snippet } from "svelte";
 import { onDestroy } from "svelte";
+import { floatNear } from "$lib/actions/portal";
 
 const {
 	label,
@@ -102,11 +103,22 @@ onDestroy(clearCloseTimer);
 	</button>
 
 	{#if open && !disabled}
+		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 		<div
 			id={flyoutId}
 			role="dialog"
+			tabindex="-1"
 			aria-label={label}
-			class="sidebar-flyout-panel absolute left-full top-0 z-50 ml-2 flex w-[304px] max-w-[calc(100vw-72px)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl shadow-bg-primary/20"
+			class="sidebar-flyout-panel flex w-[304px] max-w-[calc(100vw-72px)] flex-col overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl shadow-bg-primary/20"
+			use:floatNear={{
+				getAnchor: () => anchorElement,
+				placement: "right-start",
+				gap: 8,
+				width: 304,
+				zIndex: 80,
+			}}
+			onmouseenter={openFlyout}
+			onmouseleave={scheduleClose}
 		>
 			<div class="flex h-9 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface/40 px-3">
 				<div class="min-w-0 flex-1 truncate text-[12px] font-medium tracking-[-0.01em] text-text-secondary">{label}</div>
