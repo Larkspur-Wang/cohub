@@ -69,6 +69,10 @@ import {
   type BillingUsageRecordResult,
   type BillingUserRef,
 } from "./interfaces.js";
+import {
+  isGenerationModelDiscountEligible,
+  resolveGenerationModelDiscount,
+} from "./generation-usage.js";
 
 export type BillingClientConfig = {
   baseUrl: string;
@@ -1454,6 +1458,13 @@ export function createDisabledBillingOperations(
       return { userId: input.userId, credits: [], entitlements: [] };
     },
 
+    async getGenerationModelDiscount(input) {
+      return resolveGenerationModelDiscount({
+        model: input.model,
+        entitlements: [],
+      });
+    },
+
     async getCreditStatus(): Promise<BillingCreditStatus> {
       return emptyCreditStatus();
     },
@@ -2464,6 +2475,30 @@ export function createTalesofaiBillingOperations(
 
     async getState(input: BillingUserRef): Promise<BillingAccountState> {
       return getStateAfterEnsure(input.userId);
+    },
+
+    async getGenerationModelDiscount(input) {
+      if (!isGenerationModelDiscountEligible(input.model)) {
+        return resolveGenerationModelDiscount({
+          model: input.model,
+          entitlements: [],
+        });
+      }
+
+      await ensureCustomer({ userId: input.userId });
+      const response = await sdk.admin.customers.getEntitlements({
+        external_user_id: input.userId,
+        business_key: businessKey,
+      });
+      return resolveGenerationModelDiscount({
+        model: input.model,
+        entitlements: response.active_benefits.map((benefit) => ({
+          benefitKey: benefit.benefit_key,
+          enabled: benefit.config.metadata.enabled !== false,
+          metadata: benefit.config.metadata,
+          grantId: benefit.grant_id,
+        })),
+      });
     },
 
     async getCreditStatus(

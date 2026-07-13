@@ -56,26 +56,52 @@ type GenerationTaskResult = {
 Generation requests share the platform credit balance with LLM turns.
 
 1. **Preflight gate** — `POST /api/generations` and the worker re-check the caller's balance before enqueue/execute. Hard debt returns the standard 402 `billing` conversion payload; soft debt may attach a warning on the 202 response.
-2. **Post-success charge** — after a successful provider call, the worker records usage from the official provider `cost` (USD):
+2. **Post-success charge** — after a successful provider call, the worker applies the request-time model discount snapshot to the official provider `cost` (USD), then attempts to record the effective charge amount:
 
 ```ts
 operationId: `generation:${taskRunId}`  // idempotent
 usageType: "generation.image" | "generation.video" | "generation.music" | "generation"
-amountUsd: result.cost
+officialCostUsd: result.cost
+amountUsd: officialCostUsd * discountMultiplier
 ```
 
-Usage type is resolved from the model adapter (preferred) or output content types. Missing/non-positive `cost` skips charging and stores `billing.status = "skipped"` with reason `missing_cost` (task still succeeds — cost gaps are platform issues and must not break the user path; they are logged for ops follow-up). Transient billing write failures still complete the generation task, then enqueue an idempotent `generation.billing_retry` job (`operationId = generation:${taskRunId}`, up to 8 attempts with exponential backoff).
+The server resolves `pro_model_discount_v1` and `max_model_discount_v1` entitlements only for these exact models:
+
+- `gpt-image-2`
+- `gpt-image-2-auto`
+- `gemini-3.1-flash-image-preview`
+- `gemini-3.1-flash-image-preview-auto`
+
+`gemini-3.1-flash-lite-image` is intentionally excluded. If both supported benefits are active, the lower multiplier wins. The resolved multiplier is snapshotted before enqueue, verified against authoritative entitlements by the worker, and reused by any billing retry. If the applicable multiplier changes while a task is queued, the worker fails before provider execution and the caller can retry at the new price. Benefit and grant identifiers are retained only in internal logs. Pricing snapshots and billing amounts are visible only to the task creator; collaborator task views redact them because the multiplier can reveal subscription tier.
+
+A zero multiplier is a valid free generation: both balance gates are bypassed, no zero-value ledger transaction is created, and the task records `billing.reason = "discounted_free"`. Missing or invalid pricing configuration fails before provider execution instead of silently charging full price.
+
+Usage type is resolved from the model adapter (preferred) or output content types. Missing/non-positive provider `cost` skips charging and stores `billing.status = "skipped"` with reason `missing_cost` (task still succeeds — cost gaps are platform issues and must not break the user path; they are logged for ops follow-up). Transient billing write failures still complete the generation task, then enqueue an idempotent `generation.billing_retry` job (`operationId = generation:${taskRunId}`, up to 8 attempts with exponential backoff). Retries preserve the original official cost, multiplier, and effective amount.
 
 Completed tasks may include:
 
 ```ts
 billing?: {
+  officialCostUsd?: number;
   amountUsd: number;
+  discountMultiplier?: number;
   usageType: string;
   status: "recorded" | "overage" | "skipped";
   reason?: string | null;
 } | null
 ```
+
+`GenerationTaskResult.cost` and usage statistics continue to report the official provider cost. `billing.amountUsd` is the effective charge amount after the plan discount; `billing.status` indicates whether that amount was recorded, treated as overage, or skipped.
+
+### Discount rollout safety
+
+API and worker deployments roll independently. Release discount support in three phases:
+
+1. Deploy the task-response privacy filters first and wait for the API rollout to complete. This prevents collaborator-visible task endpoints from exposing pricing when the worker starts applying discounts.
+2. Deploy the backward-compatible worker and shared billing/protocol changes. It resolves discounts for legacy API payloads that do not contain a snapshot. Wait for both user and system worker rollouts to complete.
+3. Deploy the generation API route that snapshots pricing and bypasses the balance gate for free models.
+
+Do not deploy the API activation before all workers understand discount snapshots: an older worker would ignore the new field and charge official cost. To roll back, revert the API activation first and let accepted generation jobs drain; keeping the privacy filters and backward-compatible worker is safe.
 
 ## Usage stats
 

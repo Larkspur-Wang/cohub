@@ -380,10 +380,13 @@ Examples:
         if (result.requestId || result.cost !== undefined || result.billing) {
           const details = [
             result.requestId ? `request ID: ${result.requestId}` : null,
-            result.cost !== undefined ? `cost: ${result.cost}` : null,
-            result.billing
-              ? `billing: ${result.billing.status}${result.billing.amountUsd > 0 ? ` ${result.billing.amountUsd}` : ""}${result.billing.reason ? ` (${result.billing.reason})` : ""}`
+            result.cost !== undefined ? `official cost: ${result.cost}` : null,
+            result.billing ? `billing: ${result.billing.status}` : null,
+            result.billing ? `effective amount: ${result.billing.amountUsd}` : null,
+            result.billing?.discountMultiplier !== undefined
+              ? `multiplier: ${result.billing.discountMultiplier}`
               : null,
+            result.billing?.reason ? `billing reason: ${result.billing.reason}` : null,
           ].filter(Boolean).join(", ");
           if (details) process.stderr.write(`  ${details}\n`);
         }

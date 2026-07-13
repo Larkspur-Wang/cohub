@@ -38,10 +38,16 @@ export type GenerationTaskData = {
   content: GenerationContentBlock[];
   parameters?: Record<string, unknown>;
   meta?: Record<string, unknown>;
+  /** Server-resolved pricing snapshot. This field is never accepted from the public request. */
+  modelDiscount?: GenerationModelDiscountSnapshot;
 };
 
-/** Payload for async billing retry after a successful generation charge failure. */
-export type GenerationBillingRetryTaskData = {
+export type GenerationModelDiscountSnapshot = {
+  multiplier: number;
+  resolvedAt: string;
+};
+
+type GenerationBillingRetryTaskDataBase = {
   taskRunId: string;
   userId: string;
   amountUsd: number;
@@ -49,6 +55,22 @@ export type GenerationBillingRetryTaskData = {
   model: string;
   adapterType?: string | null;
 };
+
+/** Legacy payloads already queued before model-discount snapshots were introduced. */
+export type GenerationBillingRetryTaskDataV1 = GenerationBillingRetryTaskDataBase & {
+  schemaVersion?: 1;
+};
+
+/** Payload for async billing retry after a successful generation charge failure. */
+export type GenerationBillingRetryTaskDataV2 = GenerationBillingRetryTaskDataBase & {
+  schemaVersion: 2;
+  officialCostUsd: number;
+  modelDiscount: GenerationModelDiscountSnapshot;
+};
+
+export type GenerationBillingRetryTaskData =
+  | GenerationBillingRetryTaskDataV1
+  | GenerationBillingRetryTaskDataV2;
 
 /**
  * Final generation task payload stored on the task run.
@@ -60,7 +82,12 @@ export type GenerationBillingRetryTaskData = {
  * - `meta` is the request meta (including Cohub context such as taskRunId/spaceId)
  */
 export type GenerationUsageBilling = {
+  /** Official provider cost before plan discount. */
+  officialCostUsd?: number;
+  /** Effective charge amount after plan discount; inspect status to confirm recording. */
   amountUsd: number;
+  /** Server-resolved multiplier applied to officialCostUsd. */
+  discountMultiplier?: number;
   usageType: string;
   status: "recorded" | "overage" | "skipped";
   reason?: string | null;

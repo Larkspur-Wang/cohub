@@ -27,6 +27,8 @@ export type {
   BillingFeatureEntitlementInput,
   BillingFeatureLimitCheck,
   BillingFeatureLimitInput,
+  GenerationModelDiscount,
+  GenerationModelDiscountInput,
   BillingOperations,
   BillingPaymentStatus,
   BillingPluginStatus,
@@ -86,8 +88,18 @@ export type {
   BillingUsageSource,
 } from "./usage-gate.js";
 export {
+  applyGenerationModelDiscount,
+  calculateGenerationUsageCharge,
   contentTypesFromBlocks,
+  GENERATION_MODEL_DISCOUNT_MODELS,
   generationUsageKind,
+  GenerationModelDiscountConfigError,
+  GenerationModelDiscountSnapshotMismatchError,
+  isGenerationModelDiscountEligible,
+  isGenerationModelDiscountFree,
   normalizePositiveUsd,
+  reconcileGenerationModelDiscountSnapshot,
+  resolveGenerationModelDiscount,
   resolveGenerationUsageType,
 } from "./generation-usage.js";
+export type { GenerationModelDiscountEntitlement } from "./generation-usage.js";

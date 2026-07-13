@@ -48,12 +48,27 @@ function isGenerationTaskResult(value: unknown): value is GenerationTaskResult {
   if (record.billing !== undefined && record.billing !== null) {
     if (!record.billing || typeof record.billing !== "object" || Array.isArray(record.billing)) return false;
     const billing = record.billing as {
+      officialCostUsd?: unknown;
       amountUsd?: unknown;
+      discountMultiplier?: unknown;
       usageType?: unknown;
       status?: unknown;
       reason?: unknown;
     };
+    if (
+      billing.officialCostUsd !== undefined &&
+      (typeof billing.officialCostUsd !== "number" || !Number.isFinite(billing.officialCostUsd))
+    ) return false;
     if (typeof billing.amountUsd !== "number" || !Number.isFinite(billing.amountUsd)) return false;
+    if (
+      billing.discountMultiplier !== undefined &&
+      (
+        typeof billing.discountMultiplier !== "number" ||
+        !Number.isFinite(billing.discountMultiplier) ||
+        billing.discountMultiplier < 0 ||
+        billing.discountMultiplier > 1
+      )
+    ) return false;
     if (typeof billing.usageType !== "string") return false;
     if (billing.status !== "recorded" && billing.status !== "overage" && billing.status !== "skipped") return false;
     if (billing.reason !== undefined && billing.reason !== null && typeof billing.reason !== "string") return false;

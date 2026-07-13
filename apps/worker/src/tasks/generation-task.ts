@@ -1,11 +1,13 @@
 import {
   BillingAccessBlockedError,
   billingOperations,
+  calculateGenerationUsageCharge,
   COHUB_BILLING_TOKEN_TYPES,
   contentTypesFromBlocks,
   createBillingUsageGate,
   generationUsageKind,
-  normalizePositiveUsd,
+  isGenerationModelDiscountFree,
+  reconcileGenerationModelDiscountSnapshot,
   resolveGenerationUsageType,
 } from "@cohub/billing";
 import type { Job } from "bullmq";
@@ -21,6 +23,7 @@ import {
   GENERATION_BILLING_RETRY_TASK_TYPE,
   GENERATION_TASK_TYPE,
   type GenerationBillingRetryTaskData,
+  type GenerationModelDiscountSnapshot,
   type GenerationTaskData,
   type GenerationTaskResult,
   type GenerationUsageBilling,
@@ -48,6 +51,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function parseModelDiscountSnapshot(value: unknown): GenerationModelDiscountSnapshot {
+  if (!isRecord(value)) throw new Error("Invalid generation task payload: modelDiscount is required");
+  if (
+    typeof value.multiplier !== "number" ||
+    !Number.isFinite(value.multiplier) ||
+    value.multiplier < 0 ||
+    value.multiplier > 1
+  ) {
+    throw new Error("Invalid generation task payload: modelDiscount.multiplier must be between 0 and 1");
+  }
+  if (
+    typeof value.resolvedAt !== "string" ||
+    !value.resolvedAt.trim() ||
+    !Number.isFinite(Date.parse(value.resolvedAt))
+  ) {
+    throw new Error("Invalid generation task payload: modelDiscount.resolvedAt must be an ISO date-time");
+  }
+  return {
+    multiplier: value.multiplier,
+    resolvedAt: value.resolvedAt,
+  };
+}
+
 function parseGenerationTaskData(data: unknown): GenerationTaskData {
   if (!isRecord(data)) throw new Error("Invalid generation task payload: data is required");
   if (typeof data.model !== "string" || !data.model.trim()) {
@@ -67,6 +93,9 @@ function parseGenerationTaskData(data: unknown): GenerationTaskData {
     content: data.content as GenerationTaskData["content"],
     parameters: data.parameters,
     meta: data.meta,
+    ...(data.modelDiscount === undefined
+      ? {}
+      : { modelDiscount: parseModelDiscountSnapshot(data.modelDiscount) }),
   };
 }
 
@@ -178,6 +207,8 @@ async function enqueueGenerationBillingRetry(input: {
   userId: string;
   taskRunId: string;
   amountUsd: number;
+  officialCostUsd: number;
+  modelDiscount: GenerationModelDiscountSnapshot;
   usageType: string;
   model: string;
   adapterType?: string | null;
@@ -185,14 +216,17 @@ async function enqueueGenerationBillingRetry(input: {
   sessionId?: string | null;
 }) {
   const data: GenerationBillingRetryTaskData = {
+    schemaVersion: 2,
     taskRunId: input.taskRunId,
     userId: input.userId,
     amountUsd: input.amountUsd,
+    officialCostUsd: input.officialCostUsd,
+    modelDiscount: input.modelDiscount,
     usageType: input.usageType,
     model: input.model,
     adapterType: input.adapterType ?? null,
   };
-  // Stable jobId so concurrent failures for the same generation collapse into one retry chain.
+  // Credit consumption remains idempotent via operationId `generation:${taskRunId}`.
   await enqueueTask({
     type: GENERATION_BILLING_RETRY_TASK_TYPE,
     spaceId: input.spaceId,
@@ -200,7 +234,6 @@ async function enqueueGenerationBillingRetry(input: {
     userId: input.userId,
     data,
   }, {
-    jobId: `generation-billing-retry:${input.taskRunId}`,
     attempts: 8,
     backoff: { type: "exponential", delay: 5_000 },
     ...defaultJobRetention,
@@ -212,20 +245,32 @@ async function recordGenerationUsageBilling(input: {
   taskRunId: string;
   model: string;
   adapterType: string | null | undefined;
-  amountUsd: number;
+  officialCostUsd: number;
+  modelDiscount: GenerationModelDiscountSnapshot;
   usageType: ReturnType<typeof resolveGenerationUsageType>;
   spaceId: string;
   sessionId?: string | null;
 }): Promise<GenerationUsageBilling> {
-  const amountUsd = normalizePositiveUsd(input.amountUsd);
-  if (!billingOperations.status.configured) {
-    return { amountUsd, usageType: input.usageType, status: "skipped", reason: "billing_not_configured" };
+  const pricing = calculateGenerationUsageCharge(input.officialCostUsd, input.modelDiscount);
+  const { officialCostUsd, amountUsd } = pricing;
+  const billingPricing = {
+    officialCostUsd,
+    amountUsd,
+    discountMultiplier: pricing.discountMultiplier,
+    usageType: input.usageType,
+  };
+  if (pricing.skipReason) {
+    return {
+      ...billingPricing,
+      status: "skipped",
+      reason: pricing.skipReason,
+    };
   }
-  if (amountUsd <= 0) {
-    return { amountUsd: 0, usageType: input.usageType, status: "skipped", reason: "missing_cost" };
+  if (!billingOperations.status.configured) {
+    return { ...billingPricing, status: "skipped", reason: "billing_not_configured" };
   }
   if (!input.taskRunId) {
-    return { amountUsd, usageType: input.usageType, status: "skipped", reason: "missing_task_run_id" };
+    return { ...billingPricing, status: "skipped", reason: "missing_task_run_id" };
   }
 
   try {
@@ -242,7 +287,9 @@ async function recordGenerationUsageBilling(input: {
       console.warn("[Billing] generation usage recorded as overage", {
         userId: input.userId,
         taskRunId: input.taskRunId,
+        officialCostUsd,
         amountUsd,
+        discountMultiplier: input.modelDiscount.multiplier,
         model: input.model,
         usageType: input.usageType,
         adapterType: input.adapterType ?? null,
@@ -250,22 +297,22 @@ async function recordGenerationUsageBilling(input: {
     }
     if (result.status === "disabled" || result.status === "skipped") {
       return {
-        amountUsd,
-        usageType: input.usageType,
+        ...billingPricing,
         status: "skipped",
         reason: result.status === "disabled" ? "billing_disabled" : "zero_amount",
       };
     }
     return {
-      amountUsd,
-      usageType: input.usageType,
+      ...billingPricing,
       status: result.status === "overage" ? "overage" : "recorded",
     };
   } catch (error) {
     console.warn("[Billing] failed to record generation usage; enqueueing retry", {
       userId: input.userId,
       taskRunId: input.taskRunId,
+      officialCostUsd,
       amountUsd,
+      discountMultiplier: input.modelDiscount.multiplier,
       model: input.model,
       usageType: input.usageType,
       adapterType: input.adapterType ?? null,
@@ -275,6 +322,8 @@ async function recordGenerationUsageBilling(input: {
       userId: input.userId,
       taskRunId: input.taskRunId,
       amountUsd,
+      officialCostUsd,
+      modelDiscount: input.modelDiscount,
       usageType: input.usageType,
       model: input.model,
       adapterType: input.adapterType ?? null,
@@ -284,11 +333,12 @@ async function recordGenerationUsageBilling(input: {
       console.warn("[Billing] failed to enqueue generation billing retry", {
         userId: input.userId,
         taskRunId: input.taskRunId,
+        officialCostUsd,
         amountUsd,
         error: enqueueError,
       });
     });
-    return { amountUsd, usageType: input.usageType, status: "skipped", reason: "record_failed" };
+    return { ...billingPricing, status: "skipped", reason: "record_failed" };
   }
 }
 
@@ -313,20 +363,45 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
     const declaration = await loader.loadGenerationDeclaration(userId, data.model);
     if (!declaration) throw new Error(`Generation model is unavailable: ${data.model}`);
 
+    // Re-read authoritative entitlements before trusting a queued snapshot. This
+    // binds discounts to the task user/model and keeps old API payloads safe.
+    const resolvedDiscount = await billingOperations.getGenerationModelDiscount({
+      userId,
+      model: data.model,
+    });
+    const modelDiscount = reconcileGenerationModelDiscountSnapshot({
+      model: data.model,
+      snapshot: data.modelDiscount,
+      resolved: resolvedDiscount,
+    });
+    if (resolvedDiscount.benefitKey) {
+      console.info("[Billing] worker verified generation model discount", {
+        userId,
+        spaceId,
+        model: data.model,
+        multiplier: resolvedDiscount.multiplier,
+        benefitKey: resolvedDiscount.benefitKey,
+        resolvedAt: resolvedDiscount.resolvedAt,
+        acceptedAt: modelDiscount.resolvedAt,
+      });
+    }
+
     // Gate uses request-side modality; billing/stats re-resolve with output after success.
     const gateUsageType = resolveGenerationUsageType({
       adapterType: declaration.adapter?.type,
       contentTypes: contentTypesFromBlocks(data.content),
     });
-    const billingDecision = await billingUsageGate.evaluate({
-      userId,
-      usageKind: generationUsageKind(gateUsageType),
-      source: "generation_task",
-      model: data.model,
-      spaceId,
-      sessionId: sessionId ?? null,
-      turnId: turnId ?? null,
-    });
+    const billingDecision = isGenerationModelDiscountFree(modelDiscount)
+      ? { status: "allowed" as const, balanceState: "zero" as const, netUsd: 0 }
+      : await billingUsageGate.evaluate({
+          userId,
+          usageKind: generationUsageKind(gateUsageType),
+          source: "generation_task",
+          model: data.model,
+          spaceId,
+          sessionId: sessionId ?? null,
+          turnId: turnId ?? null,
+        });
     if (billingDecision.status === "blocked") throw new BillingAccessBlockedError(billingDecision);
 
     const result = await createGenerationClient({
@@ -352,7 +427,8 @@ registerTask(GENERATION_TASK_TYPE, async (job: Job, context) => {
       taskRunId,
       model: data.model,
       adapterType: declaration.adapter?.type,
-      amountUsd: result.cost ?? 0,
+      officialCostUsd: result.cost ?? 0,
+      modelDiscount,
       usageType,
       spaceId,
       sessionId,

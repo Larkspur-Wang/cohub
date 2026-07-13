@@ -40,6 +40,8 @@ export const COHUB_BILLING_USAGE_TYPES = {
 export const COHUB_BILLING_BENEFITS = {
   referralInviterCredit: "referral_inviter_credit",
   referralInviteeCredit: "referral_invitee_credit",
+  proModelDiscount: "pro_model_discount_v1",
+  maxModelDiscount: "max_model_discount_v1",
 } as const;
 
 export const COHUB_BILLING_FEATURES = {
@@ -68,6 +70,17 @@ export type CohubBillingFeatureKey =
 
 export type BillingUserRef = {
   userId: string;
+};
+
+export type GenerationModelDiscount = {
+  multiplier: number;
+  benefitKey: string | null;
+  grantId: string | null;
+  resolvedAt: string;
+};
+
+export type GenerationModelDiscountInput = BillingUserRef & {
+  model: string;
 };
 
 export type BillingReferralRewardInput = BillingUserRef & {
@@ -464,6 +477,7 @@ export interface BillingOperations {
   readonly status: BillingPluginStatus;
   ensureCustomer(input: BillingUserRef): Promise<BillingUserRef>;
   getState(input: BillingUserRef): Promise<BillingAccountState>;
+  getGenerationModelDiscount(input: GenerationModelDiscountInput): Promise<GenerationModelDiscount>;
   getCreditStatus(input: BillingUserRef & { tokenType?: CohubBillingTokenType }): Promise<BillingCreditStatus>;
   getCatalog(input?: BillingUserRef): Promise<BillingCatalog>;
   listSubscriptions(input: BillingHistoryListInput): Promise<BillingSubscriptionHistoryList>;
