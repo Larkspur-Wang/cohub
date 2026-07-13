@@ -6,6 +6,7 @@ import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/mi
 import { hasPermission } from "../permissions.js";
 import { taskQueue } from "../tasks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
+import { sanitizeTaskRunPricingForViewer } from "../task-run-privacy.js";
 
 const router = new Hono();
 
@@ -90,11 +91,20 @@ function sanitizeTaskRunForList<T extends { taskType: string; result: unknown }>
   return result === run.result ? run : { ...run, result };
 }
 
-function hydrateTaskRunUserProfiles<T extends { userUuid: string | null; taskType: string; result: unknown }>(runs: T[], options?: { sanitizeForList?: boolean }) {
+function hydrateTaskRunUserProfiles<T extends {
+  userUuid: string | null;
+  taskType: string;
+  payload: unknown;
+  result: unknown;
+}>(
+  runs: T[],
+  options?: { sanitizeForList?: boolean; viewerUserId?: string | null },
+) {
   const userUuids = runs.map((run) => run.userUuid).filter((value): value is string => Boolean(value));
   return getProfilesByUuids(userUuids).then((profiles) =>
     runs.map((run) => {
-      const sanitized = options?.sanitizeForList ? sanitizeTaskRunForList(run) : run;
+      const privateRun = sanitizeTaskRunPricingForViewer(run, options?.viewerUserId);
+      const sanitized = options?.sanitizeForList ? sanitizeTaskRunForList(privateRun) : privateRun;
       return {
         ...sanitized,
         userProfile: sanitized.userUuid ? profiles.get(sanitized.userUuid) ?? fallbackPublicUserProfile(sanitized.userUuid) : undefined,
@@ -135,7 +145,10 @@ router.get("/", async (c) => {
       .where(and(...conditions))
       .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
       .limit(limit + 1);
-    const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit), { sanitizeForList: true });
+    const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit), {
+      sanitizeForList: true,
+      viewerUserId: userId,
+    });
     return c.json({ runs, pageInfo: { hasMore: rows.length > limit, nextCursor: rows.length > limit ? buildTaskCursor(runs.at(-1)) : null } });
   }
 
@@ -149,7 +162,10 @@ router.get("/", async (c) => {
     .where(and(...conditions))
     .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
     .limit(limit + 1);
-  const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit), { sanitizeForList: true });
+  const runs = await hydrateTaskRunUserProfiles(rows.slice(0, limit), {
+    sanitizeForList: true,
+    viewerUserId: userId,
+  });
 
   return c.json({ runs, pageInfo: { hasMore: rows.length > limit, nextCursor: rows.length > limit ? buildTaskCursor(runs.at(-1)) : null } });
 });
@@ -172,7 +188,7 @@ router.get("/:taskId", async (c) => {
   }
 
   const job = await taskQueue.getJob(run.jobId).catch(() => null);
-  const [hydratedRun] = await hydrateTaskRunUserProfiles([run]);
+  const [hydratedRun] = await hydrateTaskRunUserProfiles([run], { viewerUserId: user?.uuid });
   return c.json({ run: hydratedRun, progress: job?.progress ?? null });
 });
 

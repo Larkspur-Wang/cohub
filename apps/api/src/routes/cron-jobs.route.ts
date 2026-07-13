@@ -8,6 +8,7 @@ import { getOptionalAuth, useAuth, requireValidId, authzDenied } from "../lib/mi
 import { hasPermission } from "../permissions.js";
 import { disableCronJob, enableCronJob, removeCronJob, updateCronJob } from "../tasks.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../user-profiles.js";
+import { sanitizeTaskRunPricingForViewer } from "../task-run-privacy.js";
 
 const router = new Hono();
 const { CronExpressionParser } = cronParser;
@@ -176,7 +177,9 @@ router.get("/:id/runs", async (c) => {
     .where(and(...conditions))
     .orderBy(desc(taskRuns.createdAt), desc(taskRuns.id))
     .limit(limit + 1);
-  const runs = rows.slice(0, limit);
+  const runs = rows
+    .slice(0, limit)
+    .map((run) => sanitizeTaskRunPricingForViewer(run, user?.uuid));
 
   return c.json({
     runs,
