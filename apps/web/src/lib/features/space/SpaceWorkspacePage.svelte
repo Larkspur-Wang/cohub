@@ -1,10 +1,8 @@
 <script lang="ts">
-import type { SessionTurnRecord } from "@cohub/protocol/model";
 import type { ChannelEnvelope } from "@cohub/protocol/realtime";
 import type {
 	CanvasSemanticOp,
 	Permission,
-	SessionRecord,
 	SpaceRecord,
 	TaskRunRecord,
 	UserProfile,
@@ -54,7 +52,6 @@ import {
 	activateSpaceConfig,
 	deactivateSpaceConfig,
 	isSpaceConfigPath,
-	type NewChatComposerApplyPayload,
 	refreshSpaceConfig,
 	type SpaceConfig,
 	subscribeSpaceConfig,
@@ -77,13 +74,10 @@ import { isBillingAccessBlockedCode } from "$lib/stores/billing-conversion.svelt
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {} from "$lib/stores/draft-session-model";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
-import { sessionGenerationStore } from "$lib/stores/session-generation.svelte";
 import {
 	getCachedSessionListSnapshot,
 	onSessionListCacheUpdated,
-	patchCachedSessionList,
 } from "$lib/stores/session-list-cache";
-import { unreadTracker } from "$lib/stores/session-state.svelte";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
 import {
 	getCachedTaskRuns,
@@ -166,20 +160,7 @@ type Props = {
 type ActiveFsSource =
 	| { kind: "live" }
 	| { kind: "checkpoint"; checkpointId: string };
-type SessionViewState = {
-	session: SessionRecord | undefined;
-	turns: SessionTurnRecord[];
-	loading: boolean;
-	loaded: boolean;
-	error: AccessState | null;
-	hasMore: boolean;
-	hasMoreNewer: boolean;
-	loadingOlder: boolean;
-	loadingNewer: boolean;
-	oldestCursor: number | undefined;
-};
 const PRELOAD_THRESHOLD = 10;
-const TURN_SCROLL_ANCHOR_OFFSET = 16;
 const SESSION_INITIAL_LOADING_DELAY_MS = 160;
 const props = $props();
 const data = $derived((props as Props).data);
@@ -312,30 +293,15 @@ const sessionChat = createSessionChatHost({
 });
 
 // Host is the unique owner of chat controllers and session records.
-const sessionWorkspace = sessionChat.workspace;
 const isDraftNewSessionRoute = $derived(sessionChat.isDraftNewSessionRoute);
 
-const sessionComposer = sessionChat.composer;
-const viewportContext = sessionChat.viewport;
-const viewportContexts = $derived(sessionChat.viewportContexts);
-const spaceSessions = $derived(sessionChat.spaceSessions);
-const sessionStateById = $derived(sessionChat.sessionStateById);
 const activeSessionId = $derived(sessionChat.activeSessionId);
-const input = $derived(sessionChat.input);
-const attachments = $derived(sessionChat.attachments);
-const sending = $derived(sessionChat.sending);
-const aborting = $derived(sessionChat.aborting);
 // Session rename (header inline edit)
 let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 
-function flushActiveComposerDraft() {
-	sessionChat.flushComposerDraft();
-}
-
 const modelsCatalog = $derived(modelsCatalogStore.items);
-const visibleModelsCatalog = $derived(modelsCatalogStore.visibleItems);
 const generationModelsCatalog = $derived(sessionChat.generationModelsCatalog);
 const generationPolicyMode = $derived(sessionChat.generationPolicyMode);
 const selectedGenerationModels = $derived(sessionChat.selectedGenerationModels);
@@ -653,22 +619,7 @@ const spaceBootstrap = createSpaceBootstrapController({
 });
 const bootstrapping = $derived(spaceBootstrap.bootstrapping);
 let creatingSession = $state(false);
-let createSessionError = $state("");
-const loadingSessionIds = $derived(sessionWorkspace.loadingSessionIds);
-const visibleInitialLoadingSessionIds = $derived(
-	sessionWorkspace.visibleInitialLoadingSessionIds,
-);
 const sessionScroll = sessionChat.scroll;
-let hasUnread = $derived.by(() => {
-	const session = activeSessionState?.session;
-	if (
-		!session ||
-		!activeSessionState.loaded ||
-		activeSessionState.turns.length === 0
-	)
-		return false;
-	return unreadTracker.isUnread(session, session.lastMessageId);
-});
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let immersiveChatResizeCleanup: (() => void) | null = null;
 let lastImmersiveChatSessionId = $state<string | null | undefined>(undefined);
@@ -688,25 +639,17 @@ $effect(() => {
 	previewLayout.handleCompactChange(isMobile);
 });
 
-const chatTimelineRef = $derived(sessionScroll.chatTimelineRef);
-const turnMarkerPositions = $derived(sessionScroll.turnMarkerPositions);
-const turnMarkerHeights = $derived(sessionScroll.turnMarkerHeights);
-const timelineScrollTop = $derived(sessionScroll.timelineScrollTop);
-const timelineScrollHeight = $derived(sessionScroll.timelineScrollHeight);
-const timelineClientHeight = $derived(sessionScroll.timelineClientHeight);
 let appliedRouteFileKey = "";
 let appliedFsSourceKey: string | null = null;
 let turnMarkerMeasureFrame: number | null = null;
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
-let reconnectSyncInFlight: Promise<void> | null = null;
 type SessionScrollAnchor = {
 	sequence: number;
 	offset: number;
 	updatedAt: number;
 };
-const SESSION_SCROLL_ANCHOR_STORAGE_KEY = "cohub:session_scroll_anchor";
 const spacePresence = createSpacePresenceController(() => spaceId);
 const danmakuController = createSpaceDanmakuController();
 const spaceRealtime = createSpaceRealtimeController({
@@ -719,18 +662,18 @@ const spaceRealtime = createSpaceRealtimeController({
 		}
 	},
 	onConnectionRecovered: () => {
-		void reconnectSync();
+		void sessionChat.onConnectionRecovered();
 	},
 	onHidden: () => {
 		sessionChat.onVisibilityChanged(false);
 	},
 	onVisible: () => {
 		sessionChat.onVisibilityChanged(true);
-		void refreshSessionsList(false);
+		void sessionChat.refreshSessions(false);
 	},
 	onOnline: () => {
 		if (wsConnectionState === "open") {
-			void refreshSessionsList(false);
+			void sessionChat.refreshSessions(false);
 		}
 		if (inlineCanvas?.documentId) {
 			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
@@ -776,7 +719,6 @@ $effect(() => {
 });
 // ─── Share ───
 const sessionShare = sessionChat.share;
-let forkingTurnId = $state<string | null>(null);
 type RouteDetailHeaderMeta = {
 	view: "checkpoint" | "cronjob" | "work" | "task";
 	id: string;
@@ -803,37 +745,7 @@ function normalizeTabTitleSegment(
 function hasSessionPermission(sessionId: string): boolean {
 	return sessionShare.hasPermission(sessionId);
 }
-const taskRunSortTime = (run: Pick<TaskRunRecord, "updatedAt" | "createdAt">) =>
-	Date.parse(run.updatedAt ?? run.createdAt ?? "") || 0;
-function openShareModal(sessionId: string) {
-	sessionShare.openFor(sessionId);
-}
-const draftSessionState = $derived<SessionViewState | null>(
-	isDraftNewSessionRoute
-		? {
-				session: undefined,
-				turns: [],
-				loading: false,
-				loaded: true,
-				error: null,
-				hasMore: false,
-				hasMoreNewer: false,
-				loadingOlder: false,
-				loadingNewer: false,
-				oldestCursor: undefined,
-			}
-		: null,
-);
-const activeSessionState = $derived(
-	isDraftNewSessionRoute
-		? draftSessionState
-		: activeSessionId
-			? (sessionStateById[activeSessionId] ?? null)
-			: null,
-);
-const activeSessionInitialLoadingVisible = $derived.by(() =>
-	Boolean(activeSessionId && visibleInitialLoadingSessionIds[activeSessionId]),
-);
+const activeSessionState = $derived(sessionChat.activeSessionState);
 const newChatBackground = $derived(
 	spaceConfig?.ui?.newChat?.background ?? null,
 );
@@ -1017,113 +929,6 @@ const bootstrapNeedsBillingAction = $derived(
 );
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 const activeSessionModel = $derived(sessionChat.activeSessionModel);
-async function loadModelsCatalog() {
-	return sessionChat.loadModelsCatalog();
-}
-async function loadGenerationModelsCatalog() {
-	return sessionChat.loadGenerationModelsCatalog();
-}
-function setGenerationPolicyMode(mode: "auto" | "limited") {
-	sessionChat.setGenerationPolicyMode(mode);
-}
-function setGenerationModelSelected(modelId: string, selected: boolean) {
-	sessionChat.setGenerationModelSelected(modelId, selected);
-}
-function setGenerationEnumValueSelected(
-	modelId: string,
-	parameter: string,
-	value: string,
-	selected: boolean,
-) {
-	sessionChat.setGenerationEnumValueSelected(
-		modelId,
-		parameter,
-		value,
-		selected,
-	);
-}
-function setGenerationNumericConstraint(
-	modelId: string,
-	parameter: string,
-	constraint: { min?: number; max?: number },
-) {
-	sessionChat.setGenerationNumericConstraint(modelId, parameter, constraint);
-}
-function setGenerationBooleanConstraint(
-	modelId: string,
-	parameter: string,
-	constraint: { value?: boolean },
-) {
-	sessionChat.setGenerationBooleanConstraint(modelId, parameter, constraint);
-}
-async function loadPromptTemplates() {
-	return sessionChat.loadPromptTemplates();
-}
-function handleModelSelect(model: { provider: string; id: string }) {
-	sessionChat.handleModelSelect(model);
-}
-function loadSessionScrollAnchors() {
-	sessionScroll.loadSessionScrollAnchors(SESSION_SCROLL_ANCHOR_STORAGE_KEY);
-}
-function persistSessionScrollAnchorsNow() {
-	sessionScroll.persistSessionScrollAnchorsNow(
-		SESSION_SCROLL_ANCHOR_STORAGE_KEY,
-	);
-}
-function setSessionScrollAnchor(
-	sessionId: string,
-	anchor: SessionScrollAnchor,
-) {
-	sessionScroll.setSessionScrollAnchor(
-		SESSION_SCROLL_ANCHOR_STORAGE_KEY,
-		sessionId,
-		anchor,
-	);
-}
-function getSessionScrollAnchor(sessionId: string) {
-	return sessionScroll.getSessionScrollAnchor(sessionId);
-}
-function clearSessionScrollAnchor(sessionId: string) {
-	sessionScroll.clearSessionScrollAnchor(
-		SESSION_SCROLL_ANCHOR_STORAGE_KEY,
-		sessionId,
-	);
-}
-function getMessageElementAbsoluteTop(node: HTMLElement) {
-	return sessionScroll.getMessageElementAbsoluteTop(node);
-}
-function updateTimelineScrollMetrics() {
-	sessionScroll.updateTimelineScrollMetrics();
-}
-function measureTurnMarkerPositions() {
-	sessionScroll.measureTurnMarkerPositions(TURN_SCROLL_ANCHOR_OFFSET);
-}
-function captureCurrentScrollAnchor(sessionId: string) {
-	sessionChat.captureCurrentScrollAnchor(sessionId);
-}
-function upsertSessionRecord(
-	session: SessionRecord,
-	options?: { cache?: boolean },
-) {
-	const nextSessions = sessionWorkspace.upsertSessionRecord(session);
-	if (options?.cache !== false) {
-		void patchCachedSessionList(spaceId, () => nextSessions).catch(
-			() => undefined,
-		);
-	}
-}
-function applySessionsSnapshot(sessions: SessionRecord[]) {
-	sessionWorkspace.applySessionsSnapshot(sessions);
-}
-function seedSessions(sessions: SessionRecord[]) {
-	sessionWorkspace.seedSessions(sessions);
-}
-async function refreshSessionsList(force = true) {
-	return sessionChat.refreshSessions(force);
-}
-function prepareRouteSession(sessionId: string) {
-	sessionChat.prepareRouteSession(sessionId);
-}
 async function loadPreviewEndpoints() {
 	await portPreview.loadEndpoints();
 }
@@ -1236,49 +1041,13 @@ async function submitSessionRename() {
 	}
 	sessionRenameSaving = true;
 	try {
-		const result = await sdk
-			.space(spaceId)
-			.session(activeSessionId)
-			.rename(trimmed);
-		sessionWorkspace.spaceSessions = spaceSessions.map((session) =>
-			session.id === activeSessionId ? result.session : session,
-		);
-		void patchCachedSessionList(spaceId, (current) =>
-			current.map((s) => (s.id === activeSessionId ? result.session : s)),
-		).catch(() => undefined);
-		if (sessionStateById[activeSessionId]) {
-			sessionWorkspace.sessionStateById = {
-				...sessionStateById,
-				[activeSessionId]: {
-					...sessionStateById[activeSessionId],
-					session: result.session,
-				},
-			};
-		}
+		await sessionChat.renameActiveSession(trimmed);
 	} catch {
 		// Silently fail
 	} finally {
 		sessionRenameSaving = false;
 		cancelSessionRename();
 	}
-}
-async function loadSessionState(sessionId: string, force = false) {
-	return sessionChat.loadSessionState(sessionId, force);
-}
-async function loadTurnIndex(sessionId: string, force = false) {
-	return sessionChat.loadTurnIndex(sessionId, force);
-}
-async function jumpToTurn(sequence: number) {
-	return sessionChat.jumpToTurn(sequence);
-}
-async function jumpToTurnAndUpdateUrl(sequence: number) {
-	return sessionChat.jumpToTurnAndUpdateUrl(sequence);
-}
-async function syncSessionNewer(sessionId: string, cached: unknown) {
-	return sessionChat.syncSessionNewer(sessionId, cached);
-}
-async function reconnectSync() {
-	return sessionChat.onConnectionRecovered();
 }
 function spaceStyleChanged(
 	changes: Array<{ path?: string; oldPath?: string }> | undefined,
@@ -1459,68 +1228,17 @@ async function handleWsEvent(payload: ChannelEnvelope) {
 		console.error("[WS] handleWsEvent error:", error);
 	}
 }
-function scrollToBottomNow() {
-	sessionChat.scrollToBottomNow();
-}
-async function forceScrollToBottom() {
-	return sessionChat.forceScrollToBottom();
-}
-function updateAutoFollow() {
-	sessionScroll.updateAutoFollow();
-}
-function updateCurrentTurnSequence() {
-	sessionChat.updateCurrentTurnSequence();
-}
-function setProgrammaticScrollTop(scrollTop: number) {
-	sessionChat.setProgrammaticScrollTop(scrollTop);
-}
-function beginUserScroll() {
-	sessionChat.beginUserScroll();
-}
-async function handlePickAttachments(
-	files: FileList | File[] | LocalUploadEntry[] | null,
-) {
-	await sessionComposer.handlePickAttachments(files);
-}
-
-async function applyBackgroundComposerPayload(
-	payload: NewChatComposerApplyPayload,
-) {
-	return sessionChat.applyBackgroundComposerPayload(payload);
-}
-function handleRemoveAttachment(id: string) {
-	sessionComposer.handleRemoveAttachment(id);
-}
-function handleVisibleLinesChange(
-	path: string,
-	range: { start: number; end: number } | null,
-) {
-	sessionChat.reportFileVisibleLines(path, range);
-}
-function handleCanvasViewStateChange(state: {
-	path: string;
-	camera: { x: number; y: number; zoom: number };
-	visibleRect: {
-		x: number;
-		y: number;
-		width: number;
-		height: number;
-	} | null;
-	selectedNodes: Array<{ id: string; type: string; title?: string }>;
-}) {
-	sessionChat.reportCanvasView(state);
-}
 onDestroy(() => {
-	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
-	flushActiveComposerDraft();
+	if (activeSessionId) sessionChat.captureCurrentScrollAnchor(activeSessionId);
+	sessionChat.flushComposerDraft();
 	sessionChat.dispose();
 	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
 	spaceBootstrap.resetLoaded();
 });
 
 beforeNavigate((navigation) => {
-	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
-	flushActiveComposerDraft();
+	if (activeSessionId) sessionChat.captureCurrentScrollAnchor(activeSessionId);
+	sessionChat.flushComposerDraft();
 	if (!fileWorkspace.hasDirtyInlineFiles()) return;
 	const fromUrl = navigation.from?.url;
 	const toUrl = navigation.to?.url;
@@ -1848,9 +1566,6 @@ function insertHeaderReference() {
 	closeResourceActionMenu();
 }
 
-function handleCreateNewSession() {
-	sessionChat.handleCreateNewSession();
-}
 function focusComposerSoon() {
 	requestAnimationFrame(() => {
 		window.dispatchEvent(new CustomEvent("cohub:composer-focus"));
@@ -1871,7 +1586,9 @@ function stopVimScroll() {
 }
 
 function scrollTimelineByLines(direction: 1 | -1) {
-	sessionScroll.scrollTimelineByLines(direction, beginUserScroll);
+	sessionScroll.scrollTimelineByLines(direction, () =>
+		sessionChat.beginUserScroll(),
+	);
 }
 
 function clearPendingVimG() {
@@ -1880,14 +1597,14 @@ function clearPendingVimG() {
 
 function scrollTimelineToTop() {
 	sessionScroll.scrollTimelineToTop(
-		beginUserScroll,
-		setProgrammaticScrollTop,
-		updateCurrentTurnSequence,
+		() => sessionChat.beginUserScroll(),
+		(top) => sessionChat.setProgrammaticScrollTop(top),
+		() => sessionChat.updateCurrentTurnSequence(),
 	);
 }
 
 function scrollTimelineToBottom() {
-	sessionScroll.scrollTimelineToBottom(scrollToBottomNow);
+	sessionScroll.scrollTimelineToBottom(() => sessionChat.scrollToBottomNow());
 }
 
 async function jumpRelativeTurn(direction: 1 | -1) {
@@ -1905,7 +1622,7 @@ async function jumpRelativeTurn(direction: 1 | -1) {
 		target = sorted.findLast((sequence) => sequence < current) ?? sorted[0];
 	}
 	if (target == null || target === current) return;
-	await jumpToTurn(target);
+	await sessionChat.jumpToTurn(target);
 }
 
 function handleSessionVimKeydown(event: KeyboardEvent) {
@@ -1920,8 +1637,8 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	) {
 		event.preventDefault();
 		showModelSelector = true;
-		void loadModelsCatalog();
-		void loadGenerationModelsCatalog();
+		void sessionChat.loadModelsCatalog();
+		void sessionChat.loadGenerationModelsCatalog();
 		return;
 	}
 	if (isEditableShortcutTarget(event.target)) return;
@@ -1986,12 +1703,12 @@ onMount(() => {
 	pageMounted = true;
 	spaceRealtime.start();
 	spacePresence.start();
-	loadSessionScrollAnchors();
+	sessionChat.loadSessionScrollAnchors();
 	window.addEventListener("keydown", handleSessionVimKeydown);
 	const offSessionListCacheUpdated = onSessionListCacheUpdated(
 		({ spaceId: updatedSpaceId, sessions }) => {
 			if (updatedSpaceId !== spaceId) return;
-			applySessionsSnapshot(sessions);
+			sessionChat.applySessionsSnapshot(sessions);
 		},
 	);
 	// Seed task tray cache for this space; host hydrates the active session.
@@ -2049,16 +1766,16 @@ onMount(() => {
 	const offSpaceConfigBackgroundAction = subscribeSpaceConfigBackgroundAction(
 		(payload) => {
 			if (!shouldShowNewChatBackground) return;
-			void applyBackgroundComposerPayload(payload);
+			void sessionChat.applyBackgroundComposerPayload(payload);
 		},
 	);
 	const offDanmakuPrefs = subscribeDanmakuPrefs((enabled) => {
 		if (!enabled) danmakuController.clear();
 	});
 	// Preload model catalogs so the selector is ready immediately
-	void loadModelsCatalog();
-	void loadGenerationModelsCatalog();
-	void loadPromptTemplates();
+	void sessionChat.loadModelsCatalog();
+	void sessionChat.loadGenerationModelsCatalog();
+	void sessionChat.loadPromptTemplates();
 	const handleOpenInlineFileEvent = (e: Event) => {
 		const custom = e as CustomEvent<{ spaceId?: string; path?: string }>;
 		if (custom.detail?.spaceId !== spaceId || !custom.detail?.path) return;
@@ -2084,7 +1801,8 @@ onMount(() => {
 	document.addEventListener("click", handleResourceActionMenuClickOutside);
 	scheduleStatusRefresh();
 	return () => {
-		if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
+		if (activeSessionId)
+			sessionChat.captureCurrentScrollAnchor(activeSessionId);
 		window.removeEventListener("keydown", handleSessionVimKeydown);
 		offSessionListCacheUpdated();
 		offCanvasTxApplied();
@@ -2105,7 +1823,7 @@ onMount(() => {
 		stopVimScroll();
 		clearPendingVimG();
 		/* generationRealtime disposed via sessionChat.dispose() */
-		persistSessionScrollAnchorsNow();
+		sessionChat.persistSessionScrollAnchorsNow();
 		pageMounted = false;
 		spacePresence.dispose();
 		spaceRealtime.dispose();
@@ -2153,7 +1871,6 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	resourceActionMenuOpen = false;
 	routeDetailHeaderMeta = null;
 	creatingSession = false;
-	createSessionError = "";
 }
 
 async function bootstrapSpace(currentSpaceId: string) {
@@ -2161,8 +1878,10 @@ async function bootstrapSpace(currentSpaceId: string) {
 	const spaceLoad = loadSpace();
 	try {
 		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
-			prepareRouteSession(routeSessionId);
-			sessionLoad = loadSessionState(routeSessionId).catch(() => undefined);
+			sessionChat.prepareRouteSession(routeSessionId);
+			sessionLoad = sessionChat
+				.loadSessionState(routeSessionId)
+				.catch(() => undefined);
 		}
 		const [cachedSpace, cachedSnapshot] = await Promise.all([
 			withBootstrapCacheTimeout(spaceRecordRepo.getCached(currentSpaceId)),
@@ -2171,9 +1890,9 @@ async function bootstrapSpace(currentSpaceId: string) {
 		if (spaceId !== currentSpaceId) return;
 		const cachedSessions = cachedSnapshot?.sessions;
 		if (cachedSessions && cachedSessions.length > 0)
-			seedSessions(cachedSessions);
+			sessionChat.seedSessions(cachedSessions);
 		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
-			prepareRouteSession(routeSessionId);
+			sessionChat.prepareRouteSession(routeSessionId);
 		}
 		const cachedSessionLoad = sessionLoad;
 		if (cachedSpace?.space && !space) {
@@ -2183,13 +1902,13 @@ async function bootstrapSpace(currentSpaceId: string) {
 			await spaceLoad;
 		}
 		if (spaceId !== currentSpaceId) return;
-		void refreshSessionsList(false);
+		void sessionChat.refreshSessions(false);
 		void loadPreviewEndpoints();
 		void loadFileTree();
 		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
-			prepareRouteSession(routeSessionId);
+			sessionChat.prepareRouteSession(routeSessionId);
 			await cachedSessionLoad;
-			void loadTurnIndex(routeSessionId);
+			void sessionChat.loadTurnIndex(routeSessionId);
 		}
 	} catch {
 		// Non-blocking; bootstrapping released by controller
@@ -2391,8 +2110,9 @@ const spaceFileDomainProps = $derived.by<
 	onCloseWorkPublish: () => {
 		workPublishTarget = null;
 	},
-	onVisibleLinesChange: handleVisibleLinesChange,
-	onCanvasViewStateChange: handleCanvasViewStateChange,
+	onVisibleLinesChange: (path, range) =>
+		sessionChat.reportFileVisibleLines(path, range),
+	onCanvasViewStateChange: (state) => sessionChat.reportCanvasView(state),
 }));
 
 const headerContext = $derived({
@@ -2426,7 +2146,7 @@ const resourceActionState = $derived({
 	available: hasResourceActions(),
 });
 const headerActions = {
-	openShareModal,
+	openShareModal: (id) => sessionChat.openShareModal(id),
 	startSessionRename,
 	cancelSessionRename,
 	submitSessionRename,
@@ -2721,7 +2441,7 @@ const headerActions = {
   <SessionModelSelectorDialog
     open={showModelSelector}
     onClose={() => { showModelSelector = false; }}
-    onSelect={handleModelSelect}
+    onSelect={sessionChat.handleModelSelect}
     models={modelsCatalog ?? []}
     currentModel={activeSessionModel}
     generationModels={generationModelsCatalog ?? []}
@@ -2730,12 +2450,12 @@ const headerActions = {
     {generationEnumSelections}
     {generationNumericConstraints}
     {generationBooleanConstraints}
-    onGenerationTabOpen={loadGenerationModelsCatalog}
-    onGenerationPolicyModeChange={setGenerationPolicyMode}
-    onGenerationModelToggle={setGenerationModelSelected}
-    onGenerationEnumValueToggle={setGenerationEnumValueSelected}
-    onGenerationNumericConstraintChange={setGenerationNumericConstraint}
-    onGenerationBooleanConstraintChange={setGenerationBooleanConstraint}
+    onGenerationTabOpen={() => { void sessionChat.loadGenerationModelsCatalog(); }}
+    onGenerationPolicyModeChange={sessionChat.setGenerationPolicyMode}
+    onGenerationModelToggle={sessionChat.setGenerationModelSelected}
+    onGenerationEnumValueToggle={sessionChat.setGenerationEnumValueSelected}
+    onGenerationNumericConstraintChange={sessionChat.setGenerationNumericConstraint}
+    onGenerationBooleanConstraintChange={sessionChat.setGenerationBooleanConstraint}
   />
 </div>
 {/if}
