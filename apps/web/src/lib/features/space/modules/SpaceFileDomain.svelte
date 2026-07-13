@@ -140,6 +140,8 @@ export type SpaceFileDomainProps = {
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
 	onBeginRightSidebarResize: (event: PointerEvent) => void;
+	onCollapseTree?: () => void;
+	onExpandTree?: () => void;
 	onEditResourceLabels: (type: "file", path: string) => void | Promise<void>;
 	onInsertFilePathReference: (path: string) => void;
 	onGetFileActionNode: (path: string) => SpaceFsNode;
@@ -260,6 +262,8 @@ let {
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
 	onBeginRightSidebarResize,
+	onCollapseTree,
+	onExpandTree,
 	onEditResourceLabels,
 	onInsertFilePathReference,
 	onGetFileActionNode,
@@ -477,6 +481,11 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	onUploadPaneClose={() => onSetUploadPaneVisible(false)}
 	onUploadComplete={onUploadComplete}
 	onResizeStart={onBeginRightSidebarResize}
+	onCollapseTree={onCollapseTree}
+	onExpandTree={onExpandTree}
+	showTreeExpandRail={Boolean(
+		rightSidebarCollapsed && !previewImmersiveMode && !isMobile,
+	)}
 />
 
 <WorkPublishDialog

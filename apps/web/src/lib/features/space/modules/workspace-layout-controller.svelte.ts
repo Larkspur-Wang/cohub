@@ -25,6 +25,8 @@ export function createWorkspaceLayoutController(options: {
 	let presentation = $state<WorkspacePresentation>("default");
 	let mobileSurface = $state<MobileSurface>("main");
 	let immersiveMainVisible = $state(true);
+	/** Hide the whole Files column (preview stage + tree) without destroying tabs. */
+	let filesColumnHidden = $state(false);
 	let snapshot: LayoutSnapshot | null = $state(null);
 	let resizeCleanup: (() => void) | null = null;
 
@@ -104,6 +106,7 @@ export function createWorkspaceLayoutController(options: {
 		captureSnapshot();
 		presentation = "focus";
 		immersiveMainVisible = true;
+		filesColumnHidden = false;
 		uiState.setLeftSidebarCollapsed(true);
 		uiState.setRightSidebarCollapsed(true);
 		await tick();
@@ -119,6 +122,7 @@ export function createWorkspaceLayoutController(options: {
 		captureSnapshot();
 		presentation = "immersive";
 		immersiveMainVisible = true;
+		filesColumnHidden = false;
 		uiState.setLeftSidebarCollapsed(true);
 		uiState.setRightSidebarCollapsed(true);
 		await tick();
@@ -204,6 +208,37 @@ export function createWorkspaceLayoutController(options: {
 		window.addEventListener("pointercancel", stop);
 	}
 
+	/**
+	 * Main-header control: show/hide the entire Files column
+	 * (preview stage + file tree). Does not discard open tabs.
+	 */
+	function toggleFilesColumn() {
+		if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
+			// Mobile: drawer for tree; preview is full-screen overlay.
+			if (!options.getFilesAvailable()) return;
+			const nextOpen = !uiState.mobileRightDrawerOpen;
+			uiState.mobileRightDrawerOpen = nextOpen;
+			mobileSurface = nextOpen
+				? "files"
+				: options.getHasPreview()
+					? "preview"
+					: "main";
+			return;
+		}
+		if (!options.getFilesAvailable()) return;
+		filesColumnHidden = !filesColumnHidden;
+		if (filesColumnHidden) {
+			// Also collapse tree preference so restoring shows a clean default.
+			// Keep tree collapsed state as-is; only hide column.
+			return;
+		}
+		// Revealing column: ensure tree fits with preview if present.
+		if (options.getHasPreview() && presentation === "default") {
+			void tick().then(() => ensurePreviewFits());
+		}
+	}
+
+	/** Files-column internal: collapse/expand file tree only. */
 	async function toggleTree() {
 		if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
 			if (!options.getFilesAvailable()) return;
@@ -269,6 +304,9 @@ export function createWorkspaceLayoutController(options: {
 		get treeVisible() {
 			return treeVisible;
 		},
+		get filesColumnHidden() {
+			return filesColumnHidden;
+		},
 		setPreviewWidth,
 		ensurePreviewFits,
 		toggleFocus,
@@ -278,6 +316,10 @@ export function createWorkspaceLayoutController(options: {
 		handleCompactChange,
 		beginPreviewResize,
 		toggleTree,
+		toggleFilesColumn,
+		setFilesColumnHidden: (hidden: boolean) => {
+			filesColumnHidden = hidden;
+		},
 		setMobileSurface,
 		showFilesMobile,
 		showPreviewMobile,

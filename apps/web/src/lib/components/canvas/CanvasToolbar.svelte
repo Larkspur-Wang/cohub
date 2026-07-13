@@ -56,8 +56,8 @@ const {
 } = $props();
 </script>
 
-<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
-  <div class="flex min-w-0 flex-1 items-center gap-2">
+<div class="preview-chrome flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3" class:preview-chrome--immersive={immersive}>
+  <div class="preview-chrome-title flex min-w-0 flex-1 items-center gap-2">
     <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-brand-border bg-brand-bg text-brand-muted-fg">
       <MousePointer2 class="h-3.5 w-3.5" />
     </div>
@@ -104,6 +104,31 @@ const {
 </div>
 
 <style>
+  .preview-chrome--immersive {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    left: auto;
+    z-index: 25;
+    width: auto;
+    max-width: min(640px, calc(100% - 24px));
+    height: auto;
+    min-height: 40px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    padding: 6px 8px;
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .preview-chrome--immersive .preview-chrome-title {
+    display: none;
+  }
+
   .canvas-tool,
   .canvas-icon {
     display: inline-flex;
@@ -123,5 +148,4 @@ const {
   .canvas-tool:hover,
   .canvas-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
   .canvas-tool:disabled { cursor: not-allowed; opacity: 0.45; }
-
 </style>

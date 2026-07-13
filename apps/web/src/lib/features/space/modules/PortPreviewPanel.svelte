@@ -58,8 +58,10 @@ let {
 	onResizeStart={onResizeStart}
 	{immersive}
 >
-	<div class="flex h-full min-w-0 flex-col bg-bg-content">
-		<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+	<div class="flex h-full min-w-0 flex-col bg-bg-content" class:preview-stage--immersive={immersive}>
+		{#if !immersive}
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+		{/if}
 		<div class="min-h-0 flex-1">
 			<PortPreview
 				{port}

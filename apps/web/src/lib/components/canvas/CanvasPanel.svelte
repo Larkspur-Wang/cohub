@@ -335,7 +335,7 @@ $effect(() => {
 </div>
 
 <style>
-  .canvas-panel--immersive > :global(:first-child) {
-    display: none;
+  .canvas-panel--immersive {
+    position: relative;
   }
 </style>

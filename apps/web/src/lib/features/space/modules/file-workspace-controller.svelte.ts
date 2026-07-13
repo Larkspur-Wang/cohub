@@ -531,7 +531,7 @@ export function createFileWorkspaceController(
 		const shouldActivate = optionsArg.activate ?? true;
 		if (shouldActivate) {
 			activeInlineFilePath = path;
-			options.onClosePreviewFocusMode();
+			// Keep focus/immersive layout when switching tabs; only re-fit width.
 			options.onEnsurePreviewPanelFits();
 			options.onActivateFilePreview?.();
 		}

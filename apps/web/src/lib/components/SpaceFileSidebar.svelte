@@ -4,6 +4,7 @@ import {
 	AlertCircle,
 	ChevronDown,
 	Lock,
+	PanelRightClose,
 	Plus,
 	RefreshCw,
 	Upload,
@@ -46,6 +47,7 @@ const {
 	previewEndpoints = {},
 	title = "Files",
 	subtitle = "Space files",
+	onCollapseTree,
 }: {
 	nodes: SpaceFsNode[];
 	selectedPath: string;
@@ -71,6 +73,8 @@ const {
 	previewEndpoints?: SpacePublicEndpoints;
 	title?: string;
 	subtitle?: string;
+	/** Collapse file tree only; keep preview stage open. */
+	onCollapseTree?: () => void;
 } = $props();
 
 let treeScrollContainer: HTMLDivElement | null = $state(null);
@@ -279,6 +283,17 @@ $effect(() => {
         <button class="icon-btn" type="button" title="Refresh" onclick={onRefresh}>
           <RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
         </button>
+        {#if onCollapseTree}
+          <button
+            class="icon-btn"
+            type="button"
+            title="Collapse file tree"
+            aria-label="Collapse file tree"
+            onclick={onCollapseTree}
+          >
+            <PanelRightClose class="w-4 h-4" />
+          </button>
+        {/if}
       </div>
     {/snippet}
   </ColumnHeader>

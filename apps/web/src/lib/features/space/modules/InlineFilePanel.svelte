@@ -378,8 +378,8 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
         <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
         {#if inlineFile.loading}
-          <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+          <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
             {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
@@ -388,8 +388,8 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
           </div>
           <CenteredLoading label="Loading file…" size="panel" />
         {:else if inlineFile.error}
-          <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+          <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
             {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
@@ -400,8 +400,8 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
             {inlineFile.error}
           </div>
         {:else if inlineFile.tooLarge}
-          <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+          <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
             {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
@@ -421,13 +421,13 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
           </div>
         {:else if inlineFile.response}
           {#if inlineFileIsText}
-            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               {#if inlineFileCanGoBack}
                 <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
                   <ArrowLeft class="w-4 h-4" />
                 </button>
               {/if}
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
@@ -544,8 +544,8 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
               {/if}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
-            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
@@ -574,8 +574,8 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
               <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
-            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
@@ -591,8 +591,8 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
               </video>
             </div>
           {:else}
-            <div class="flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
@@ -617,7 +617,46 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
   {/if}
 
 <style>
+  /* Float mode: content fills stage; chrome becomes a compact floating pill. */
+  .inline-file-preview--immersive {
+    position: relative;
+  }
+
+  /* Hide tab strip — tabs are not useful full-bleed in float mode. */
   .inline-file-preview--immersive > :global(:first-child) {
     display: none;
+  }
+
+  .inline-file-preview--immersive :global(.preview-chrome) {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    left: auto;
+    z-index: 25;
+    width: auto;
+    max-width: min(520px, calc(100% - 24px));
+    height: auto;
+    min-height: 40px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    padding: 6px 8px;
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  /* Long path wastes space in the pill — keep actions only. */
+  .inline-file-preview--immersive :global(.preview-chrome-path) {
+    display: none;
+  }
+
+  /* Body fills the stage under the floating chrome. */
+  .inline-file-preview--immersive > :global(.preview-chrome + *) {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 </style>

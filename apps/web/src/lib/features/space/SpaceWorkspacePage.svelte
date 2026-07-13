@@ -530,11 +530,13 @@ const portPreview = createPortPreviewController({
 	getPageMounted: () => pageMounted,
 	getHasMinimalAccess: () => spaceHasMinimalAccess,
 	onOpenPanel: () => {
-		closePreviewFocusMode();
+		// Keep focus/immersive when switching port tabs.
 		ensurePreviewPanelFits();
 	},
 	onClosePanel: () => {
-		closePreviewFocusMode();
+		queueMicrotask(() => {
+			if (!activePreviewKind) closePreviewFocusMode();
+		});
 	},
 	onBeforeOpenPort: () => {},
 });
@@ -612,7 +614,12 @@ const fileWorkspace = createFileWorkspaceController({
 	onActivateFilePreview: () => {
 		previewWorkspace.setActiveKind("file");
 	},
-	onClosePreviewFocusMode: closePreviewFocusMode,
+	onClosePreviewFocusMode: () => {
+		// Only leave focus/immersive when nothing is open in Files.
+		queueMicrotask(() => {
+			if (!activePreviewKind) closePreviewFocusMode();
+		});
+	},
 	onEnsurePreviewPanelFits: ensurePreviewPanelFits,
 });
 const canvasPreview = createCanvasPreviewController({
@@ -621,11 +628,13 @@ const canvasPreview = createCanvasPreviewController({
 	getReadonly: () => activeFsReadonly,
 	readFile: fileWorkspace.readActiveFsFile,
 	onOpenPanel: () => {
-		closePreviewFocusMode();
+		// Keep focus/immersive when switching canvas tabs.
 		ensurePreviewPanelFits();
 	},
 	onClosePanel: () => {
-		closePreviewFocusMode();
+		queueMicrotask(() => {
+			if (!activePreviewKind) closePreviewFocusMode();
+		});
 	},
 	onBeforeOpenCanvas: () => {},
 	onMarkSavePending: fileWorkspace.markFileSavePending,
@@ -793,6 +802,7 @@ const previewLayout = createWorkspaceLayoutController({
 const previewPanelWidth = $derived(previewLayout.previewWidth);
 const previewFocusMode = $derived(previewLayout.focusMode);
 const previewImmersiveMode = $derived(previewLayout.immersiveMode);
+const filesColumnHidden = $derived(previewLayout.filesColumnHidden);
 const immersiveChatVisible = $derived(
 	!previewImmersiveMode || previewLayout.immersiveMainVisible,
 );
@@ -4424,6 +4434,17 @@ function beginPreviewPanelResize(event: PointerEvent) {
 	previewLayout.beginPreviewResize(event);
 }
 async function toggleRightSidebar() {
+	// Main header: hide/show the entire Files column (preview + tree).
+	if (filesColumnHidden) {
+		previewLayout.setFilesColumnHidden(false);
+		// If tree was collapsed, open it so the column is actually useful.
+		if (uiState.rightSidebarCollapsed) await previewLayout.toggleTree();
+		return;
+	}
+	previewLayout.toggleFilesColumn();
+}
+async function toggleFilesTree() {
+	// Files column internal tree collapse.
 	await previewLayout.toggleTree();
 }
 
@@ -4491,6 +4512,7 @@ async function openInlineFile(
 	path: string,
 	options: { syncUrl?: boolean } = {},
 ) {
+	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
 	await previewWorkspace.openFile(path, options);
 }
 async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
@@ -4516,6 +4538,7 @@ async function openInlineCanvas(
 		await openInlineFile(path, options);
 		return;
 	}
+	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
 	await previewWorkspace.openCanvas(path, options);
 }
 function closeInlineCanvas() {
@@ -4537,6 +4560,7 @@ function openInlinePort(
 	url: string,
 	options: { autoOpened?: boolean; syncUrl?: boolean } = {},
 ) {
+	if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
 	previewWorkspace.openPort(port, url, options);
 }
 function activateInlineFileTab(path: string) {
@@ -4564,6 +4588,7 @@ function closeInlinePortTab(port?: string) {
 }
 function closeAllPreviews(options: { syncUrl?: boolean } = {}) {
 	previewWorkspace.closeAll(options);
+	closePreviewFocusMode();
 }
 async function downloadInlineFile() {
 	await fileWorkspace.downloadInlineFile();
@@ -5540,6 +5565,19 @@ const spaceFileDomainProps = $derived.by<
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
 	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,
 	onBeginRightSidebarResize: beginRightSidebarResize,
+	onCollapseTree: () => {
+		// No preview open: collapse whole Files column instead of leaving an empty rail.
+		if (!activePreviewKind) {
+			previewLayout.toggleFilesColumn();
+			return;
+		}
+		void toggleFilesTree();
+	},
+	onExpandTree: () => {
+		// Rail is visible only when column is shown and tree collapsed.
+		if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
+		if (uiState.rightSidebarCollapsed) void toggleFilesTree();
+	},
 	onEditResourceLabels: editResourceLabels,
 	onInsertFilePathReference: insertFilePathReference,
 	onGetFileActionNode: getFileActionNode,
@@ -5570,7 +5608,8 @@ const headerContext = $derived({
 		: false,
 	spaceHasMinimalAccess,
 	rightSidebarAvailable,
-	rightSidebarCollapsed: effectiveRightSidebarCollapsed,
+	// Icon tracks whole-column hide only; tree collapse is Files-header / rail.
+	rightSidebarCollapsed: filesColumnHidden,
 });
 const sessionRenameState = $derived({
 	renaming: sessionRenaming,
@@ -5870,23 +5909,22 @@ const sessionWorkspaceProps = $derived.by<
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
-  {#if previewImmersiveMode}
-    <SpaceWorkspaceHeader
-      context={headerContext}
-      sessionRename={sessionRenameState}
-      resourceActions={resourceActionState}
-      actions={{
-        ...headerActions,
-        exitImmersivePreview: togglePreviewImmersiveMode,
-      }}
-      presentation="immersive"
-    />
-  {/if}
   <div
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
   >
-    {#if !previewImmersiveMode}
+    {#if previewImmersiveMode}
+      <SpaceWorkspaceHeader
+        context={headerContext}
+        sessionRename={sessionRenameState}
+        resourceActions={resourceActionState}
+        actions={{
+          ...headerActions,
+          exitImmersivePreview: togglePreviewImmersiveMode,
+        }}
+        presentation="immersive"
+      />
+    {:else}
       <div class="workspace-main-header relative z-20 shrink-0 overflow-visible">
         <SpaceWorkspaceHeader
           context={headerContext}
@@ -5977,6 +6015,7 @@ const sessionWorkspaceProps = $derived.by<
       ></button>
     {/if}
   </div>
+  {#if !filesColumnHidden || isMobile || previewImmersiveMode}
   <SpaceFileDomain
     {...spaceFileDomainProps}
     bind:inlineFileViewMode={fileWorkspace.inlineFileViewMode}
@@ -5986,6 +6025,7 @@ const sessionWorkspaceProps = $derived.by<
     bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
     bind:workPublishTarget
   />
+  {/if}
   <SessionShareDialog
     open={sessionShare.open && !!sessionShare.sessionId}
     isPublic={sessionShare.isCurrentPublic}
@@ -6072,7 +6112,8 @@ const sessionWorkspaceProps = $derived.by<
   .immersive-chat-controls {
     position: absolute;
     top: 7px;
-    right: 7px;
+    left: 7px;
+    right: auto;
     z-index: 20;
     display: flex;
     align-items: center;

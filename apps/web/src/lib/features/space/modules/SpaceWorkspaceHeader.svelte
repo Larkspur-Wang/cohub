@@ -248,12 +248,13 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		</div>
 	{/if}
 
-	{#if context.rightSidebarAvailable}
+	{#if context.rightSidebarAvailable && !immersive}
 		<button
 			type="button"
 			class="header-action-btn"
 			onclick={() => runAction(actions.toggleRightSidebar)}
 			title={context.rightSidebarCollapsed ? "Show files" : "Hide files"}
+			aria-label={context.rightSidebarCollapsed ? "Show files" : "Hide files"}
 		>
 			{#if context.rightSidebarCollapsed}
 				<PanelRightOpen class="h-4 w-4 shrink-0" />
@@ -350,17 +351,20 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 
 <style>
 	.immersive-header-controls {
-		position: fixed;
+		/* Anchored to the floating chat card (parent is workspace-main). */
+		position: absolute;
 		top: 8px;
-		right: 10px;
-		z-index: 90;
+		right: 8px;
+		left: auto;
+		z-index: 30;
 		display: flex;
 		align-items: center;
 		gap: 2px;
 		border: 1px solid var(--border-subtle);
 		border-radius: 10px;
-		background: var(--bg-elevated);
+		background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
 		padding: 3px;
+		backdrop-filter: blur(12px);
 		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 	}
 

@@ -101,7 +101,7 @@ onDestroy(() => {
 </script>
 
 <div class="port-preview flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive}>
-	<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
+	<div class="preview-chrome flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 		<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-primary text-text-secondary">
 			<Globe class="h-3.5 w-3.5" />
 		</div>
@@ -191,7 +191,32 @@ onDestroy(() => {
 </div>
 
 <style>
-	.port-preview--immersive > :global(:first-child) {
+	.port-preview--immersive {
+		position: relative;
+	}
+
+	.port-preview--immersive > :global(.preview-chrome) {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		left: auto;
+		z-index: 25;
+		width: auto;
+		max-width: min(560px, calc(100% - 24px));
+		height: auto;
+		min-height: 40px;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 6px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 12px;
+		background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+		padding: 6px 8px;
+		box-shadow: 0 12px 28px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
+		backdrop-filter: blur(14px);
+	}
+
+	.port-preview--immersive > :global(.preview-chrome .min-w-0.flex-1) {
 		display: none;
 	}
 
