@@ -9,6 +9,7 @@ import {
 	Upload,
 } from "lucide-svelte";
 import { tick } from "svelte";
+import ColumnHeader from "$lib/components/ColumnHeader.svelte";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import SpacePreviewPorts from "$lib/components/SpacePreviewPorts.svelte";
@@ -175,65 +176,73 @@ $effect(() => {
 </script>
 
 <div class="flex h-full flex-col bg-bg-primary min-w-0 relative">
-  <div class="flex items-center gap-2 border-b border-border-subtle px-3 py-2 shrink-0 [&_button]:cursor-pointer">
-    <div class="min-w-0 flex-1">
-      <div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">{title}</div>
-      <div class="truncate text-[12px] text-text-secondary">{subtitle}</div>
-    </div>
-    {#if canWrite}
-      <div class="relative">
-        <button class="icon-btn" type="button" onclick={toggleNewMenu} aria-expanded={newMenuOpen}>
-          <Plus class="w-4 h-4" />
-          <span class="sr-only">New</span>
-        </button>
-        {#if newMenuOpen}
-          <div class="dropdown" bind:this={newMenuEl}>
-            <button type="button" class="dropdown-item" onclick={handleCreateFileAtRoot}>
-              <Plus class="w-3.5 h-3.5" />
-              New file
-            </button>
-            {#if onCreateCanvas}
-              <button type="button" class="dropdown-item" onclick={handleCreateCanvasAtRoot}>
-                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>
-                New canvas
-              </button>
-            {/if}
-            <button type="button" class="dropdown-item" onclick={handleCreateDirAtRoot}>
-              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
-              New folder
-            </button>
-          </div>
+  <ColumnHeader class="files-column-header">
+    {#snippet left()}
+      <div class="min-w-0">
+        <div class="truncate text-[13px] font-medium text-text-secondary">{title}</div>
+        {#if subtitle}
+          <div class="truncate text-[11px] text-text-tertiary">{subtitle}</div>
         {/if}
       </div>
-      {#if onUpload}
-        <div class="relative">
-          <button class="icon-btn" type="button" onclick={toggleUploadMenu} aria-expanded={uploadMenuOpen}>
-            <Upload class="w-4 h-4" />
-            <span class="sr-only">Upload</span>
-          </button>
-          {#if uploadMenuOpen}
-            <div class="dropdown" bind:this={uploadMenuEl}>
-              <button type="button" class="dropdown-item" onclick={handleUploadClick}>
-                <Upload class="w-3.5 h-3.5" />
-                Upload files
+    {/snippet}
+    {#snippet right()}
+      <div class="flex items-center gap-0.5 [&_button]:cursor-pointer">
+        {#if canWrite}
+          <div class="relative">
+            <button class="icon-btn" type="button" onclick={toggleNewMenu} aria-expanded={newMenuOpen}>
+              <Plus class="w-4 h-4" />
+              <span class="sr-only">New</span>
+            </button>
+            {#if newMenuOpen}
+              <div class="dropdown" bind:this={newMenuEl}>
+                <button type="button" class="dropdown-item" onclick={handleCreateFileAtRoot}>
+                  <Plus class="w-3.5 h-3.5" />
+                  New file
+                </button>
+                {#if onCreateCanvas}
+                  <button type="button" class="dropdown-item" onclick={handleCreateCanvasAtRoot}>
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9h8"/><path d="M8 13h5"/></svg>
+                    New canvas
+                  </button>
+                {/if}
+                <button type="button" class="dropdown-item" onclick={handleCreateDirAtRoot}>
+                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
+                  New folder
+                </button>
+              </div>
+            {/if}
+          </div>
+          {#if onUpload}
+            <div class="relative">
+              <button class="icon-btn" type="button" onclick={toggleUploadMenu} aria-expanded={uploadMenuOpen}>
+                <Upload class="w-4 h-4" />
+                <span class="sr-only">Upload</span>
               </button>
-              <button type="button" class="dropdown-item" onclick={handleFolderUploadClick}>
-                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg>
-                Upload folder
-              </button>
+              {#if uploadMenuOpen}
+                <div class="dropdown" bind:this={uploadMenuEl}>
+                  <button type="button" class="dropdown-item" onclick={handleUploadClick}>
+                    <Upload class="w-3.5 h-3.5" />
+                    Upload files
+                  </button>
+                  <button type="button" class="dropdown-item" onclick={handleFolderUploadClick}>
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 10V16"/><path d="m15 13-3-3-3 3"/></svg>
+                    Upload folder
+                  </button>
+                </div>
+              {/if}
             </div>
           {/if}
-        </div>
-      {/if}
-    {:else}
-      <div class="w-8 h-8 flex items-center justify-center text-text-tertiary" title="Read-only">
-        <Lock class="w-4 h-4" />
+        {:else}
+          <div class="w-8 h-8 flex items-center justify-center text-text-tertiary" title="Read-only">
+            <Lock class="w-4 h-4" />
+          </div>
+        {/if}
+        <button class="icon-btn" type="button" title="Refresh" onclick={onRefresh}>
+          <RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
+        </button>
       </div>
-    {/if}
-    <button class="icon-btn" type="button" title="Refresh" onclick={onRefresh}>
-      <RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
-    </button>
-  </div>
+    {/snippet}
+  </ColumnHeader>
 
   <SpacePreviewPorts endpoints={previewEndpoints} {activePort} onOpen={onOpenPort} />
 

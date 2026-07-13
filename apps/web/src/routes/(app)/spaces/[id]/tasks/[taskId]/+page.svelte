@@ -10,6 +10,8 @@ const props = $props<{
 		checkpointId?: string | null;
 		cronjobId?: string | null;
 		taskId?: string | null;
+		previewKind?: "file" | "canvas" | "port" | null;
+		previewKey?: string | null;
 	};
 }>();
 </script>

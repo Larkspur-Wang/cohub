@@ -47,6 +47,7 @@ export const buildSpaceCheckpointRoute = (
 export const buildSpaceCheckpointNewRoute = (spaceId: string) =>
 	`/spaces/${spaceId}/checkpoints/new`;
 
+/** Legacy deep-link helper. /files/* redirects to Main + ?preview=file:... */
 export const buildSpaceFileRoute = (spaceId: string, path: string) =>
 	`/spaces/${spaceId}/files/${path
 		.split("/")

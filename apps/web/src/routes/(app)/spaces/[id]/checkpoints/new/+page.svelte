@@ -4,7 +4,7 @@ import SpaceWorkspacePage from "$lib/features/space/SpaceWorkspacePage.svelte";
 const props = $props<{
 	data: {
 		spaceId: string;
-		view: "space" | "session" | "file" | "checkpoint" | "checkpoint-new";
+		view: "checkpoint-new";
 		sessionId?: string | null;
 		filePath?: string | null;
 		checkpointId?: string | null;
@@ -13,4 +13,3 @@ const props = $props<{
 </script>
 
 <SpaceWorkspacePage data={props.data} />
-

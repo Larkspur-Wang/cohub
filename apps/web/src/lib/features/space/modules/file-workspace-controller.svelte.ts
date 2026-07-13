@@ -4,7 +4,6 @@ import type {
 	SpacePendingDiffFileResponse,
 } from "@neta-art/cohub";
 import { HttpError } from "@neta-art/cohub";
-import { goto } from "$app/navigation";
 import {
 	canvasItemToNode,
 	createEmptyCovasDocument,
@@ -16,15 +15,11 @@ import {
 } from "$lib/components/file-diff-view";
 import { sdk } from "$lib/sdk";
 import {
-	buildSpaceFileDownloadUrl,
-	downloadSpaceFile,
-} from "$lib/space-file-download";
-import {
 	isTextFileResponse,
 	resolveTextFileResponse,
 } from "$lib/space-file-text";
 import type { SpaceFsNode } from "$lib/space-fs";
-import { buildSpaceFileRoute } from "$lib/space-routes";
+
 import {
 	clearCachedSpaceFsSubtree,
 	fetchSpaceFsDirWithCache,
@@ -77,11 +72,9 @@ type FileWorkspaceControllerOptions = {
 	getSpaceId: () => string;
 	getActiveFsSource: () => ActiveFsSource;
 	getActiveFsSourceKey: () => string;
-	getRouteFilePath: () => string | null;
 	getCanEditFiles: () => boolean;
 	getActiveFsReadonly: () => boolean;
 	getSpaceHasMinimalAccess: () => boolean;
-	onCloseRouteFile: () => void;
 	onOpenInlineCanvas: (path: string) => Promise<void>;
 	onCloseInlineCanvas: () => void;
 	onRenameInlineCanvas?: (fromPath: string, toPath: string) => void;
@@ -106,23 +99,9 @@ export function createFileWorkspaceController(
 	let fileTreeError = $state<string | null>(null);
 	let fileTreeRequestToken = $state(0);
 	let directoryLoadTokenByPath = $state<Record<string, number>>({});
-	let openFile = $state<SpaceFsFileResponse | null>(null);
-	let openFileDraft = $state("");
-	let openFileLoading = $state(false);
-	let openFileSaving = $state(false);
-	let openFileError = $state<string | null>(null);
-	let openFileTooLarge = $state(false);
 	let inlineFileTabs = $state<FileWorkspaceInlineFile[]>([]);
 	let activeInlineFilePath = $state<string | null>(null);
 	let inlineFileRequestToken = $state(0);
-	let fileViewMode = $state<FileViewMode>("source");
-	let openFileDiff = $state<FileDiffState>({
-		path: null,
-		patch: null,
-		loading: false,
-		error: null,
-		requestToken: 0,
-	});
 	let inlineFileDiff = $state<FileDiffState>({
 		path: null,
 		patch: null,
@@ -131,13 +110,7 @@ export function createFileWorkspaceController(
 		requestToken: 0,
 	});
 	let fileActionMenuOpenPath = $state<string | null>(null);
-	let openFileZoom = $state(1);
-	let openFilePanX = $state(0);
-	let openFilePanY = $state(0);
-	let openFileDragging = $state(false);
 	let inlineFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
-	let openFileCopied = $state(false);
-	let openFileCopiedTimer: ReturnType<typeof setTimeout> | null = null;
 	let uploadPaneVisible = $state(false);
 	let uploadPaneTargetDir = $state("");
 	let pendingUploadFiles = $state<File[]>([]);
@@ -225,8 +198,37 @@ export function createFileWorkspaceController(
 		setActiveFileTree(makeFsNodes(entries, fileTree));
 	}
 
-	function switchSource(sourceKey: string) {
-		if (fileTreeSourceKey === sourceKey) return;
+	function hasDirtyInlineFiles() {
+		return inlineFileTabs.some(
+			(tab) =>
+				tab.response &&
+				isTextFileResponse(tab.response) &&
+				tab.draft !== tab.response.content,
+		);
+	}
+
+	function clearInlinePreviews() {
+		inlineFileRequestToken += 1;
+		inlineFileTabs = [];
+		activeInlineFilePath = null;
+		clearFileDiff();
+	}
+
+	/**
+	 * Switch FS source. Returns false if blocked by dirty drafts.
+	 * When force=true, discards drafts without confirm.
+	 */
+	function switchSource(
+		sourceKey: string,
+		optionsArg: { force?: boolean } = {},
+	): boolean {
+		if (fileTreeSourceKey === sourceKey) return true;
+		if (!optionsArg.force && hasDirtyInlineFiles()) {
+			const ok = confirm(
+				"Discard unsaved file changes before switching files source?",
+			);
+			if (!ok) return false;
+		}
 		fileTreeBySource = { ...fileTreeBySource, [fileTreeSourceKey]: fileTree };
 		fileTreeSourceKey = sourceKey;
 		fileTree = fileTreeBySource[sourceKey] ?? [];
@@ -234,49 +236,33 @@ export function createFileWorkspaceController(
 		fileTreeError = null;
 		fileTreeLoading = false;
 		fileTreeRequestToken += 1;
-		inlineFileRequestToken += 1;
-		inlineFileTabs = [];
-		activeInlineFilePath = null;
-		clearFileDiff("inline");
+		clearInlinePreviews();
 		void loadFileTree(false);
+		return true;
 	}
 
-	function clearFileDiff(target: "open" | "inline" | "both" = "both") {
-		if (target === "open" || target === "both") {
-			openFileDiff = {
-				path: null,
-				patch: null,
-				loading: false,
-				error: null,
-				requestToken: openFileDiff.requestToken + 1,
-			};
-		}
-		if (target === "inline" || target === "both") {
-			inlineFileDiff = {
-				path: null,
-				patch: null,
-				loading: false,
-				error: null,
-				requestToken: inlineFileDiff.requestToken + 1,
-			};
-		}
+	function clearFileDiff() {
+		inlineFileDiff = {
+			path: null,
+			patch: null,
+			loading: false,
+			error: null,
+			requestToken: inlineFileDiff.requestToken + 1,
+		};
 	}
 
 	function invalidateFileDiff(path?: string | null) {
-		if (!path || openFileDiff.path === path) clearFileDiff("open");
-		if (!path || inlineFileDiff.path === path) clearFileDiff("inline");
+		if (!path || inlineFileDiff.path === path) clearFileDiff();
 	}
 
-	function clearRouteFile() {
-		openFile = null;
-		openFileDraft = "";
-		openFileError = null;
-		openFileTooLarge = false;
-		fileViewMode = "source";
-		clearFileDiff("open");
-	}
-
-	function resetForSpace() {
+	/** Reset space-scoped FS state. Returns false if blocked by dirty drafts. */
+	function resetForSpace(optionsArg: { force?: boolean } = {}): boolean {
+		if (!optionsArg.force && hasDirtyInlineFiles()) {
+			const ok = confirm(
+				"Discard unsaved file changes before leaving this space?",
+			);
+			if (!ok) return false;
+		}
 		fileTree = [];
 		fileTreeBySource = {};
 		fileTreeSourceKey = "live";
@@ -284,27 +270,12 @@ export function createFileWorkspaceController(
 		fileTreeError = null;
 		directoryLoadTokenByPath = {};
 		fileTreeRequestToken += 1;
-		inlineFileRequestToken += 1;
-		openFile = null;
-		openFileDraft = "";
-		openFileError = null;
-		openFileTooLarge = false;
-		openFileSaving = false;
-		fileViewMode = "source";
-		clearFileDiff();
-		inlineFileTabs = [];
-		activeInlineFilePath = null;
+		clearInlinePreviews();
 		uploadPaneVisible = false;
 		pendingUploadFiles = [];
 		pendingUploadEntries = [];
 		pendingFileSavePaths = new Set();
-	}
-
-	function markOpenFileExternalChange() {
-		openFileError =
-			"File changed externally. Save carefully or reload before editing further.";
-		invalidateFileDiff(openFile?.path ?? options.getRouteFilePath());
-		if (fileViewMode === "diff") void ensureOpenFileDiff(true);
+		return true;
 	}
 
 	function markInlineFileExternalChange(path?: string) {
@@ -503,100 +474,13 @@ export function createFileWorkspaceController(
 		return loadFileTree(true);
 	}
 
-	function openSpaceFile(path: string) {
-		void goto(buildSpaceFileRoute(options.getSpaceId(), path), {
-			replaceState: true,
-			noScroll: true,
-			keepFocus: true,
-		});
-	}
-
-	function closeFile() {
-		options.onCloseRouteFile();
-	}
-
-	async function openFileFromUrl(path: string) {
-		const requestSpaceId = options.getSpaceId();
-		const isCurrentRequest = () =>
-			options.getSpaceId() === requestSpaceId &&
-			options.getRouteFilePath() === path;
-		options.onCloseInlinePort();
-		openFileLoading = true;
-		openFileError = null;
-		openFileTooLarge = false;
-		try {
-			const rawFile = await readActiveFsFile(path);
-			if (!isCurrentRequest()) return;
-			if (!("content" in rawFile)) {
-				openFile = null;
-				openFileDraft = "";
-				openFileError = "File is being prepared. Please retry shortly.";
-				return;
-			}
-			const file = await resolveTextFileResponse(rawFile);
-			if (!isCurrentRequest()) return;
-			fileViewMode = defaultFileViewMode(hasRenderedFilePreview(file));
-			clearFileDiff("open");
-			openFile = file;
-			openFileDraft = isTextFileResponse(file) ? file.content : "";
-		} catch (error) {
-			if (!isCurrentRequest()) return;
-			if (error instanceof HttpError && error.status === 413) {
-				openFileTooLarge = true;
-				openFile = null;
-				openFileDraft = "";
-				openFileError = null;
-			} else {
-				openFileError =
-					error instanceof Error ? error.message : "Failed to open file";
-			}
-		} finally {
-			if (isCurrentRequest()) openFileLoading = false;
-		}
-	}
-
-	async function saveOpenFile() {
-		const current = openFile;
-		if (!current || !options.getCanEditFiles() || !isTextFileResponse(current))
+	/** Open a file in the unified preview surface (Files column). */
+	async function openSpaceFile(path: string) {
+		if (isCovasFile(path) && !options.getActiveFsReadonly()) {
+			await options.onOpenInlineCanvas(path);
 			return;
-		const savingPath = current.path;
-		markFileSavePending(savingPath);
-		openFileSaving = true;
-		openFileError = null;
-		try {
-			await sdk.space(options.getSpaceId()).files.write({
-				path: savingPath,
-				content: openFileDraft,
-				encoding: "utf-8",
-			});
-			const nextFile: SpaceFsFileResponse = {
-				...current,
-				kind: "text",
-				encoding: "utf-8",
-				content: openFileDraft,
-				size: new Blob([openFileDraft]).size,
-			};
-			openFile = nextFile;
-			invalidateFileDiff(savingPath);
-			await patchFsDirectory(getParentDirPath(savingPath), (entries) =>
-				entries.map((entry) =>
-					entry.path === savingPath
-						? {
-								...entry,
-								size: new Blob([openFileDraft]).size,
-								mtimeMs: Date.now(),
-							}
-						: entry,
-				),
-			);
-			if (fileViewMode === "diff") void ensureOpenFileDiff(true);
-		} catch (error) {
-			openFileError =
-				error instanceof Error ? error.message : "Failed to save file";
-		} finally {
-			openFileSaving = false;
-			clearFileSavePendingSoon(savingPath);
 		}
+		await openInlineFile(path);
 	}
 
 	async function downloadActiveFsFile(
@@ -604,17 +488,6 @@ export function createFileWorkspaceController(
 		knownFile: SpaceFsFileResponse | null | undefined,
 	) {
 		await getActiveFsClient().download(path, knownFile);
-	}
-
-	async function downloadOpenFile() {
-		const routeFilePath = options.getRouteFilePath();
-		if (!routeFilePath) return;
-		await downloadSpaceFile(
-			options.getSpaceId(),
-			routeFilePath,
-			routeFilePath.split("/").pop() ?? "download",
-			openFile,
-		);
 	}
 
 	async function downloadInlineFile() {
@@ -676,7 +549,7 @@ export function createFileWorkspaceController(
 				if (shouldActivate && existingTab.viewMode === "diff") {
 					void ensureInlineFileDiff();
 				} else if (shouldActivate && inlineFileDiff.path !== path) {
-					clearFileDiff("inline");
+					clearFileDiff();
 				}
 				return;
 			}
@@ -728,7 +601,7 @@ export function createFileWorkspaceController(
 				tooLarge: false,
 				viewMode: defaultFileViewMode(hasRenderedFilePreview(file)),
 			}));
-			if (activeInlineFilePath === path) clearFileDiff("inline");
+			if (activeInlineFilePath === path) clearFileDiff();
 		} catch (error) {
 			const targetTab = inlineFileTabs.find((tab) => tab.path === path);
 			if (
@@ -781,10 +654,10 @@ export function createFileWorkspaceController(
 		if (nextTabs.length === 0) options.onClosePreviewFocusMode();
 	}
 
-	async function goBackInlineFile() {
+	async function goBackInlineFile(): Promise<string | null> {
 		const tab = getActiveInlineFile();
 		const previousPath = tab?.backStack.at(-1);
-		if (!tab || !previousPath) return;
+		if (!tab || !previousPath) return null;
 		setInlineFileTab(tab.path, (item) => ({
 			...item,
 			backStack: item.backStack.slice(0, -1),
@@ -794,6 +667,7 @@ export function createFileWorkspaceController(
 			skipHistoryPush: true,
 			position: null,
 		});
+		return previousPath;
 	}
 
 	async function loadPendingFileDiff(
@@ -802,57 +676,10 @@ export function createFileWorkspaceController(
 		return sdk.space(options.getSpaceId()).files.diffFile(path);
 	}
 
-	async function ensureOpenFileDiff(force = false) {
-		const path = openFile?.path ?? options.getRouteFilePath();
-		if (!path || options.getActiveFsReadonly()) {
-			clearFileDiff("open");
-			return;
-		}
-		if (
-			!force &&
-			openFileDiff.path === path &&
-			(openFileDiff.patch || openFileDiff.loading)
-		) {
-			return;
-		}
-		const requestToken = openFileDiff.requestToken + 1;
-		openFileDiff = {
-			path,
-			patch: force
-				? null
-				: openFileDiff.path === path
-					? openFileDiff.patch
-					: null,
-			loading: true,
-			error: null,
-			requestToken,
-		};
-		try {
-			const patch = await loadPendingFileDiff(path);
-			if (openFileDiff.requestToken !== requestToken) return;
-			openFileDiff = {
-				path,
-				patch,
-				loading: false,
-				error: null,
-				requestToken,
-			};
-		} catch (error) {
-			if (openFileDiff.requestToken !== requestToken) return;
-			openFileDiff = {
-				path,
-				patch: null,
-				loading: false,
-				error: error instanceof Error ? error.message : "Failed to load diff",
-				requestToken,
-			};
-		}
-	}
-
 	async function ensureInlineFileDiff(force = false) {
 		const path = activeInlineFilePath;
 		if (!path || options.getActiveFsReadonly()) {
-			clearFileDiff("inline");
+			clearFileDiff();
 			return;
 		}
 		if (
@@ -894,11 +721,6 @@ export function createFileWorkspaceController(
 				requestToken,
 			};
 		}
-	}
-
-	function setFileViewMode(mode: FileViewMode) {
-		fileViewMode = mode;
-		if (mode === "diff") void ensureOpenFileDiff();
 	}
 
 	function setInlineFileViewMode(mode: FileViewMode) {
@@ -969,16 +791,6 @@ export function createFileWorkspaceController(
 			setInlineFileTab(savingPath, (tab) => ({ ...tab, saving: false }));
 			clearFileSavePendingSoon(savingPath);
 		}
-	}
-
-	async function copyFileContent() {
-		if (!isTextFileResponse(openFile)) return;
-		await navigator.clipboard.writeText(openFileDraft);
-		openFileCopied = true;
-		if (openFileCopiedTimer) clearTimeout(openFileCopiedTimer);
-		openFileCopiedTimer = setTimeout(() => {
-			openFileCopied = false;
-		}, 1500);
 	}
 
 	async function copyInlineFileContent() {
@@ -1119,7 +931,6 @@ export function createFileWorkspaceController(
 			}
 			if (node.type === "dir")
 				await clearCachedSpaceFsSubtree(options.getSpaceId(), node.path);
-			if (openFile?.path === node.path) closeFile();
 			if (inlineFileTabs.some((tab) => tab.path === node.path))
 				renamePath(node.path, toPath);
 			options.onRenameInlineCanvas?.(node.path, toPath);
@@ -1151,7 +962,6 @@ export function createFileWorkspaceController(
 			);
 			if (node.type === "dir")
 				await clearCachedSpaceFsSubtree(options.getSpaceId(), node.path);
-			if (openFile?.path === node.path) closeFile();
 			if (inlineFileTabs.some((tab) => tab.path === node.path))
 				closeInlineFile(node.path);
 		} catch (error) {
@@ -1195,11 +1005,9 @@ export function createFileWorkspaceController(
 		const existingNode = findFsNode(path);
 		if (existingNode) return existingNode;
 		const response =
-			openFile?.path === path
-				? openFile
-				: getActiveInlineFile()?.response?.path === path
-					? getActiveInlineFile()?.response
-					: null;
+			getActiveInlineFile()?.response?.path === path
+				? getActiveInlineFile()?.response
+				: null;
 		return {
 			...buildFsEntry(path, "file"),
 			size: response?.size ?? 0,
@@ -1213,7 +1021,6 @@ export function createFileWorkspaceController(
 
 	function closeReadyCopies() {
 		if (inlineFileCopiedTimer) clearTimeout(inlineFileCopiedTimer);
-		if (openFileCopiedTimer) clearTimeout(openFileCopiedTimer);
 	}
 
 	function isInlineFileDirty(path: string) {
@@ -1230,7 +1037,6 @@ export function createFileWorkspaceController(
 	}
 
 	function renamePath(fromPath: string, toPath: string) {
-		if (openFile?.path === fromPath) openFile = { ...openFile, path: toPath };
 		inlineFileTabs = inlineFileTabs.map((tab) =>
 			tab.path === fromPath
 				? {
@@ -1259,135 +1065,17 @@ export function createFileWorkspaceController(
 		get fileTreeError() {
 			return fileTreeError;
 		},
-		get openFile() {
-			return openFile;
+		get inlineFile() {
+			return getActiveInlineFile();
 		},
-		get openFileDraft() {
-			return openFileDraft;
-		},
-		set openFileDraft(value: string) {
-			openFileDraft = value;
-		},
-		get openFileLoading() {
-			return openFileLoading;
-		},
-		get openFileSaving() {
-			return openFileSaving;
-		},
-		get openFileError() {
-			return openFileError;
-		},
-		get openFileTooLarge() {
-			return openFileTooLarge;
-		},
-		get openFileDownloadUrl() {
-			return routeDownloadUrl(options.getSpaceId(), options.getRouteFilePath());
-		},
-		get openFileDownloadName() {
-			return routeDownloadName(options.getRouteFilePath());
-		},
-		get openFileIsText() {
-			return isTextFileResponse(openFile);
-		},
-		get openFileHasRenderedPreview() {
-			return Boolean(openFile && hasRenderedFilePreview(openFile));
-		},
-		get openFileExt() {
-			return isTextFileResponse(openFile)
-				? (openFile?.name.split(".").pop()?.toLowerCase() ?? "plaintext")
-				: "plaintext";
-		},
-		get openFileIsMarkdown() {
-			return Boolean(
-				openFile &&
-					isTextFileResponse(openFile) &&
-					isMarkdownPath(openFile.path),
-			);
-		},
-		get openFileIsHtml() {
-			return Boolean(
-				openFile && isTextFileResponse(openFile) && isHtmlPath(openFile.path),
-			);
-		},
-		get openFileIsImage() {
-			return Boolean(openFile?.mimeType?.startsWith("image/"));
-		},
-		get openFileIsVideo() {
-			return Boolean(openFile?.mimeType?.startsWith("video/"));
-		},
-		get openFileDataUrl() {
-			const file = openFile;
-			if (!file || isTextFileResponse(file)) return null;
-			return file.delivery === "url"
-				? (file.url ?? null)
-				: `data:${file.mimeType ?? "application/octet-stream"};base64,${file.content}`;
-		},
-		get fileDirty() {
-			return Boolean(
-				openFile &&
-					isTextFileResponse(openFile) &&
-					openFileDraft !== openFile.content,
-			);
-		},
-		get fileViewMode() {
-			return fileViewMode;
-		},
-		set fileViewMode(value: FileViewMode) {
-			setFileViewMode(value);
-		},
-		get openFileDiff() {
-			return openFileDiff.path === (openFile?.path ?? null)
-				? openFileDiff.patch
-				: null;
-		},
-		get openFileDiffLoading() {
-			return (
-				openFileDiff.path === (openFile?.path ?? null) && openFileDiff.loading
-			);
-		},
-		get openFileDiffError() {
-			return openFileDiff.path === (openFile?.path ?? null)
-				? openFileDiff.error
-				: null;
+		get inlineFileTabs() {
+			return inlineFileTabs;
 		},
 		get fileActionMenuOpenPath() {
 			return fileActionMenuOpenPath;
 		},
 		set fileActionMenuOpenPath(value: string | null) {
 			fileActionMenuOpenPath = value;
-		},
-		get openFileZoom() {
-			return openFileZoom;
-		},
-		set openFileZoom(value: number) {
-			openFileZoom = value;
-		},
-		get openFilePanX() {
-			return openFilePanX;
-		},
-		set openFilePanX(value: number) {
-			openFilePanX = value;
-		},
-		get openFilePanY() {
-			return openFilePanY;
-		},
-		set openFilePanY(value: number) {
-			openFilePanY = value;
-		},
-		get openFileDragging() {
-			return openFileDragging;
-		},
-		set openFileDragging(value: boolean) {
-			openFileDragging = value;
-		},
-		get openFileCopied() {
-			return openFileCopied;
-		},
-		get inlineFile() {
-			return getActiveInlineFile();
-		},
-		get inlineFileTabs() {
-			return inlineFileTabs;
 		},
 		get activeInlineFilePath() {
 			return activeInlineFilePath;
@@ -1546,42 +1234,33 @@ export function createFileWorkspaceController(
 		get directoryLoadTokenByPath() {
 			return directoryLoadTokenByPath;
 		},
-		get openFileRequestToken() {
-			return fileTreeRequestToken;
-		},
 		get inlineFileRequestToken() {
 			return inlineFileRequestToken;
 		},
 		setActiveFileTree,
 		updateRootFsEntries,
 		switchSource,
-		clearRouteFile,
 		resetForSpace,
-		markOpenFileExternalChange,
 		markInlineFileExternalChange,
 		isInlineFileDirty,
+		hasDirtyInlineFiles,
 		loadFileTree,
 		expandDirectory,
 		refreshFileTree,
 		openSpaceFile,
-		openFileFromUrl,
-		saveOpenFile,
-		closeFile,
 		openInlineFile,
 		closeInlineFile,
 		activateInlineFile: (path: string) => {
 			activeInlineFilePath = path;
 			const tab = inlineFileTabs.find((item) => item.path === path);
 			if (tab?.viewMode === "diff") void ensureInlineFileDiff();
-			else if (inlineFileDiff.path !== path) clearFileDiff("inline");
+			else if (inlineFileDiff.path !== path) clearFileDiff();
 			options.onActivateFilePreview?.();
 		},
 		closeInlineFileTab: closeInlineFile,
 		goBackInlineFile,
 		saveInlineFile,
-		copyFileContent,
 		copyInlineFileContent,
-		downloadOpenFile,
 		downloadInlineFile,
 		downloadActiveFsFile,
 		handleCreateFile,
@@ -1605,14 +1284,4 @@ export function createFileWorkspaceController(
 		renamePath,
 		dispose,
 	};
-}
-
-function routeDownloadUrl(spaceId: string, routeFilePath: string | null) {
-	if (!routeFilePath) return "";
-	return buildSpaceFileDownloadUrl(spaceId, routeFilePath);
-}
-
-function routeDownloadName(routeFilePath: string | null) {
-	if (!routeFilePath) return "";
-	return routeFilePath.split("/").pop() ?? "download";
 }

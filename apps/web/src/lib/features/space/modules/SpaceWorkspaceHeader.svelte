@@ -9,6 +9,7 @@ import {
 	Globe,
 	ListTree,
 	Loader2,
+	Menu,
 	Minimize2,
 	MoreHorizontal,
 	PanelRightClose,
@@ -17,16 +18,16 @@ import {
 	TextCursorInput,
 	X,
 } from "lucide-svelte";
-import PageHeader from "$lib/components/PageHeader.svelte";
+import ColumnHeader from "$lib/components/ColumnHeader.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import { uiState } from "$lib/stores/ui.svelte";
 import SpacePresenceStack from "./SpacePresenceStack.svelte";
 import { getSessionTitle } from "./session-utils";
 
 type HeaderRouteView =
 	| "space"
 	| "session"
-	| "file"
 	| "checkpoint"
 	| "checkpoint-new"
 	| "cronjob"
@@ -254,9 +255,17 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		{@render HeaderActions()}
 	</div>
 {:else}
-	<PageHeader>
+	<ColumnHeader>
 		{#snippet left()}
 			<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
+				<button
+					type="button"
+					class="lg:hidden flex items-center justify-center w-9 h-9 -ml-0.5 rounded-[5px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors shrink-0"
+					onclick={() => (uiState.mobileDrawerOpen = !uiState.mobileDrawerOpen)}
+					aria-label="Toggle navigation"
+				>
+					<Menu class="w-5 h-5" />
+				</button>
 				{#if showSessionTitle}
 					<button
 						type="button"
@@ -322,7 +331,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 			<SpacePresenceStack users={context.onlineUsers} />
 			{@render HeaderActions()}
 		{/snippet}
-	</PageHeader>
+	</ColumnHeader>
 {/if}
 
 <style>

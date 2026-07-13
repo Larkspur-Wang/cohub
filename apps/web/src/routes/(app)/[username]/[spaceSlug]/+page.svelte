@@ -4,9 +4,11 @@ import SpaceWorkspacePage from "$lib/features/space/SpaceWorkspacePage.svelte";
 const props = $props<{
 	data: {
 		spaceId: string;
-		view: "space" | "session" | "file";
+		view: "session";
 		sessionId?: string | null;
 		filePath?: string | null;
+		previewKind?: "file" | "canvas" | "port" | null;
+		previewKey?: string | null;
 	};
 }>();
 </script>

@@ -25,7 +25,7 @@ const kindIcon = {
 } as const;
 </script>
 
-{#if tabs.length > 1}
+{#if tabs.length > 0}
 	<div class="preview-tabs" role="tablist" aria-label="Open previews">
 		{#each tabs as tab (`${tab.kind}:${tab.key}`)}
 			{@const Icon = kindIcon[tab.kind]}
@@ -60,10 +60,12 @@ const kindIcon = {
 <style>
 	.preview-tabs {
 		display: flex;
+		min-width: 0;
+		flex: 1;
 		gap: 1px;
 		overflow-x: auto;
-		border-bottom: 1px solid var(--color-border-subtle);
-		background: var(--color-bg-surface);
+		border-bottom: 1px solid var(--border-subtle);
+		background: var(--bg-surface);
 		padding: 0 0.25rem;
 		scrollbar-width: thin;
 	}

@@ -59,7 +59,7 @@ import {
 	canvasItemToNode,
 	createEmptyCovasDocument,
 } from "$lib/canvas/canvas-document";
-import { ensureCovasExtension } from "$lib/canvas/canvas-file";
+import { ensureCovasExtension, isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
@@ -182,13 +182,12 @@ import {
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
-import FileWorkspace from "./modules/FileWorkspace.svelte";
 import { createFileWorkspaceController } from "./modules/file-workspace-controller.svelte";
 import NewChatSpaceProfile from "./modules/NewChatSpaceProfile.svelte";
 import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
-import { createPreviewLayoutController } from "./modules/preview-layout-controller.svelte";
+import { createPreviewWorkspaceController } from "./modules/preview-workspace-controller.svelte";
 import { createPromptTemplateController } from "./modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "./modules/route-request-guard";
 import SessionModelSelectorDialog from "./modules/SessionModelSelectorDialog.svelte";
@@ -249,6 +248,11 @@ import { createSpaceRealtimeController } from "./modules/space-realtime-controll
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { mergeTaskRunRecord } from "./modules/task-run-utils";
 import { createViewportContextController } from "./modules/viewport-context-controller.svelte";
+import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
+import {
+	type WorkspacePreviewRef,
+	withPreviewParam,
+} from "./modules/workspace-preview-route";
 import {
 	asRecord,
 	displayUserName,
@@ -266,7 +270,6 @@ type Props = {
 		view:
 			| "space"
 			| "session"
-			| "file"
 			| "checkpoint"
 			| "checkpoint-new"
 			| "cronjob"
@@ -275,6 +278,8 @@ type Props = {
 			| "task";
 		sessionId?: string | null;
 		filePath?: string | null;
+		previewKind?: "file" | "canvas" | "port" | null;
+		previewKey?: string | null;
 		checkpointId?: string | null;
 		cronjobId?: string | null;
 		workId?: string | null;
@@ -317,7 +322,13 @@ let resolvedNewSessionId = $state<string | null>(null);
 const isDraftNewSessionRoute = $derived(
 	isNewSessionRoute && !resolvedNewSessionId,
 );
-const routeFilePath = $derived(data.filePath ?? null);
+const routePreviewRef = $derived.by((): WorkspacePreviewRef | null => {
+	if (data.previewKind && data.previewKey)
+		return { kind: data.previewKind, key: data.previewKey };
+	// Legacy residual: /files redirects; public slug ?file= still maps to preview.
+	if (data.filePath) return { kind: "file", key: data.filePath };
+	return null;
+});
 const routeCheckpointId = $derived(data.checkpointId ?? null);
 const activeFsSource = $derived.by(
 	(): ActiveFsSource =>
@@ -334,7 +345,7 @@ const activeFsReadonly = $derived(activeFsSource.kind === "checkpoint");
 const activeFsSidebarSubtitle = $derived(
 	activeFsSource.kind === "checkpoint"
 		? `Saved snapshot · ${activeFsSource.checkpointId.slice(0, 8)}`
-		: "Space files",
+		: "",
 );
 const routeCronjobId = $derived(data.cronjobId ?? null);
 const routeWorkId = $derived(data.workId ?? null);
@@ -361,9 +372,6 @@ $effect(() => {
 	mql.addEventListener("change", handler);
 	return () => mql.removeEventListener("change", handler);
 });
-const fileMode = $derived<"chat" | "file">(
-	routeView === "file" ? "file" : "chat",
-);
 const isRouteDetailView = $derived(
 	routeView === "checkpoint-new" ||
 		routeView === "checkpoint" ||
@@ -532,11 +540,8 @@ const inlinePortPreview = $derived(portPreview.preview);
 const inlinePortTabs = $derived(portPreview.previews);
 const activeInlinePort = $derived(portPreview.activePort);
 const portReadyToast = $derived(portPreview.readyToast);
-let activePreviewKindState = $state<"file" | "canvas" | "port" | null>(null);
-let previewTabAccessedAt = $state<Record<string, number>>({});
 let previewTabCleanupNotice = $state<string | null>(null);
 let previewTabCleanupNoticeTimer: ReturnType<typeof setTimeout> | null = null;
-const PREVIEW_TAB_WEIGHT_LIMIT = 16;
 const spaceStatus = createSpaceStatusController({
 	getSpaceId: () => spaceId,
 	getBootstrapStatus: () => bootstrapStatus,
@@ -590,26 +595,18 @@ const fileWorkspace = createFileWorkspaceController({
 	getSpaceId: () => spaceId,
 	getActiveFsSource: () => activeFsSource,
 	getActiveFsSourceKey: () => activeFsSourceKey,
-	getRouteFilePath: () => routeFilePath,
 	getCanEditFiles: () => canEditFiles,
 	getActiveFsReadonly: () => activeFsReadonly,
 	getSpaceHasMinimalAccess: () => spaceHasMinimalAccess,
-	onCloseRouteFile: () => {
-		void goto(buildSpaceNewSessionRoute(spaceId), {
-			replaceState: true,
-			noScroll: true,
-			keepFocus: true,
-		});
-	},
-	onOpenInlineCanvas: (path) => canvasPreview.openCanvas(path),
-	onCloseInlineCanvas: () => canvasPreview.closeCanvas(),
+	onOpenInlineCanvas: (path) => openInlineCanvas(path),
+	onCloseInlineCanvas: () => closeInlineCanvas(),
 	onRenameInlineCanvas: (fromPath, toPath) =>
 		canvasPreview.renamePath(fromPath, toPath),
 	onOpenInlinePort: (port, url, optionsArg) =>
-		portPreview.openPort(port, url, optionsArg),
-	onCloseInlinePort: () => portPreview.closePort(),
+		openInlinePort(port, url, optionsArg),
+	onCloseInlinePort: () => closeInlinePort(),
 	onActivateFilePreview: () => {
-		activePreviewKindState = "file";
+		previewWorkspace.setActiveKind("file");
 	},
 	onClosePreviewFocusMode: closePreviewFocusMode,
 	onEnsurePreviewPanelFits: ensurePreviewPanelFits,
@@ -633,11 +630,6 @@ const canvasPreview = createCanvasPreviewController({
 const fileTree = $derived(fileWorkspace.fileTree);
 const fileTreeLoading = $derived(fileWorkspace.fileTreeLoading);
 const fileTreeError = $derived(fileWorkspace.fileTreeError);
-const openFile = $derived(fileWorkspace.openFile);
-const openFileLoading = $derived(fileWorkspace.openFileLoading);
-const openFileSaving = $derived(fileWorkspace.openFileSaving);
-const openFileError = $derived(fileWorkspace.openFileError);
-const openFileTooLarge = $derived(fileWorkspace.openFileTooLarge);
 const inlineFile = $derived(fileWorkspace.inlineFile);
 const inlineFileTabs = $derived(fileWorkspace.inlineFileTabs);
 const activeInlineFilePath = $derived(fileWorkspace.activeInlineFilePath);
@@ -645,18 +637,47 @@ const inlineFileCanGoBack = $derived(fileWorkspace.inlineFileCanGoBack);
 const inlineCanvas = $derived(canvasPreview.canvas);
 const inlineCanvasTabs = $derived(canvasPreview.canvases);
 const activeInlineCanvasPath = $derived(canvasPreview.activeCanvasPath);
-const selectedFilePath = $derived(
-	inlineCanvas?.path ?? inlineFile?.path ?? routeFilePath ?? "",
-);
+const selectedFilePath = $derived(inlineCanvas?.path ?? inlineFile?.path ?? "");
+
+const previewWorkspace = createPreviewWorkspaceController({
+	getFileTabs: () => fileWorkspace.inlineFileTabs,
+	getActiveFilePath: () => fileWorkspace.activeInlineFilePath,
+	getCanvasTabs: () => canvasPreview.canvases,
+	getActiveCanvasPath: () => canvasPreview.activeCanvasPath,
+	getPortTabs: () => portPreview.previews,
+	getActivePort: () => portPreview.activePort,
+	openFile: (path, optionsArg) =>
+		fileWorkspace.openInlineFile(path, optionsArg as never),
+	activateFile: (path) => fileWorkspace.activateInlineFile(path),
+	closeFile: (path, skipConfirm) =>
+		fileWorkspace.closeInlineFileTab(path, skipConfirm),
+	goBackFile: () => fileWorkspace.goBackInlineFile(),
+	openCanvas: (path) => canvasPreview.openCanvas(path),
+	activateCanvas: (path) => canvasPreview.activateCanvas(path),
+	closeCanvas: (path) => canvasPreview.closeCanvas(path ?? undefined),
+	openPort: (port, url, optionsArg) =>
+		portPreview.openPort(port, url, optionsArg),
+	activatePort: (port) => portPreview.activatePort(port),
+	closePort: (port) => portPreview.closePort(port ?? undefined),
+	getPortEndpointUrl: (port) => previewEndpoints[port]?.url,
+	syncUrl: (ref, replace = true) => syncPreviewQuery(ref, replace),
+	onBudgetCleanup: () => {
+		previewTabCleanupNotice = "Closed inactive previews to keep things fast.";
+		if (previewTabCleanupNoticeTimer)
+			clearTimeout(previewTabCleanupNoticeTimer);
+		previewTabCleanupNoticeTimer = setTimeout(() => {
+			previewTabCleanupNotice = null;
+			previewTabCleanupNoticeTimer = null;
+		}, 3000);
+	},
+});
 const inlineFileDirty = $derived(fileWorkspace.inlineFileDirty);
+const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
 const openWorkPublish = (
 	targetType: "file" | "directory" | "port",
 	targetRef: string,
 ) => {
 	workPublishTarget = { targetType, targetRef };
-};
-const publishOpenFile = () => {
-	if (openFile) openWorkPublish("file", openFile.path);
 };
 const inlineFileIsMarkdown = $derived(fileWorkspace.inlineFileIsMarkdown);
 const inlineFileIsHtml = $derived(fileWorkspace.inlineFileIsHtml);
@@ -722,93 +743,9 @@ const inlinePortEndpoint = $derived.by(() => {
 	if (!inlinePortPreview) return null;
 	return previewEndpoints[inlinePortPreview.port] ?? null;
 });
-function previewTabKey(kind: "file" | "canvas" | "port", key: string) {
-	return `${kind}:${key}`;
-}
-
-function touchPreviewTab(kind: "file" | "canvas" | "port", key: string) {
-	previewTabAccessedAt = {
-		...previewTabAccessedAt,
-		[previewTabKey(kind, key)]: Date.now(),
-	};
-}
-
-function showPreviewTabCleanupNotice() {
-	previewTabCleanupNotice = "Closed inactive previews to keep things fast.";
-	if (previewTabCleanupNoticeTimer) clearTimeout(previewTabCleanupNoticeTimer);
-	previewTabCleanupNoticeTimer = setTimeout(() => {
-		previewTabCleanupNotice = null;
-		previewTabCleanupNoticeTimer = null;
-	}, 3000);
-}
-
-function enforcePreviewTabBudget() {
-	const candidates = [
-		...inlineFileTabs.map((tab) => ({
-			kind: "file" as const,
-			key: tab.path,
-			weight:
-				tab.response &&
-				!isTextFileResponse(tab.response) &&
-				tab.response.kind === "binary"
-					? 2
-					: 1,
-			protected: Boolean(
-				tab.response &&
-					isTextFileResponse(tab.response) &&
-					tab.draft !== tab.response.content,
-			),
-		})),
-		...inlineCanvasTabs.map((tab) => ({
-			kind: "canvas" as const,
-			key: tab.path,
-			weight: 2,
-			protected: tab.saving,
-		})),
-		...inlinePortTabs.map((tab) => ({
-			kind: "port" as const,
-			key: tab.port,
-			weight: 3,
-			protected: false,
-		})),
-	];
-	let totalWeight = candidates.reduce((sum, tab) => sum + tab.weight, 0);
-	if (totalWeight <= PREVIEW_TAB_WEIGHT_LIMIT) return;
-	const removable = candidates
-		.filter((tab) => !tab.protected)
-		.sort(
-			(a, b) =>
-				(previewTabAccessedAt[previewTabKey(a.kind, a.key)] ?? 0) -
-				(previewTabAccessedAt[previewTabKey(b.kind, b.key)] ?? 0),
-		);
-	let closed = 0;
-	for (const tab of removable) {
-		if (totalWeight <= PREVIEW_TAB_WEIGHT_LIMIT) break;
-		if (tab.kind === "file") fileWorkspace.closeInlineFileTab(tab.key, true);
-		else if (tab.kind === "canvas") canvasPreview.closeCanvas(tab.key);
-		else portPreview.closePort(tab.key);
-		totalWeight -= tab.weight;
-		closed += 1;
-	}
-	if (closed > 0) showPreviewTabCleanupNotice();
-}
-
-const activePreviewKind = $derived.by(() => {
-	if (activePreviewKindState === "port" && inlinePortPreview) return "port";
-	if (activePreviewKindState === "canvas" && inlineCanvas) return "canvas";
-	if (activePreviewKindState === "file" && inlineFile) return "file";
-	if (inlineFile) return "file";
-	if (inlineCanvas) return "canvas";
-	if (inlinePortPreview) return "port";
-	return null;
-});
+const activePreviewKind = $derived(previewWorkspace.activeKind);
 
 $effect(() => {
-	// Full-page file route takes priority over inline preview panels.
-	if (fileMode === "file" && openFile?.path) {
-		viewportContext.setActiveSource({ kind: "file", path: openFile.path });
-		return;
-	}
 	if (activePreviewKind === "file" && inlineFile?.path) {
 		viewportContext.setActiveSource({
 			kind: "file",
@@ -834,30 +771,6 @@ $effect(() => {
 	viewportContext.setActiveSource(null);
 });
 
-const openFileDraft = $derived(fileWorkspace.openFileDraft);
-const openFileCopied = $derived(fileWorkspace.openFileCopied);
-const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
-const fileDirty = $derived(fileWorkspace.fileDirty);
-const openFileIsMarkdown = $derived(fileWorkspace.openFileIsMarkdown);
-const openFileIsHtml = $derived(fileWorkspace.openFileIsHtml);
-const openFileHasRenderedPreview = $derived(
-	fileWorkspace.openFileHasRenderedPreview,
-);
-const openFileExt = $derived(fileWorkspace.openFileExt);
-const openFileIsImage = $derived(fileWorkspace.openFileIsImage);
-const openFileIsVideo = $derived(fileWorkspace.openFileIsVideo);
-const openFileIsText = $derived(fileWorkspace.openFileIsText);
-const openFileDataUrl = $derived(fileWorkspace.openFileDataUrl);
-const openFileDownloadUrl = $derived(fileWorkspace.openFileDownloadUrl);
-const openFileDownloadName = $derived(fileWorkspace.openFileDownloadName);
-const openFilePanHandlers = makeImagePanHandlers(
-	() => fileWorkspace.openFileZoom,
-	() => fileWorkspace.openFilePanX,
-	() => fileWorkspace.openFilePanY,
-	(v) => (fileWorkspace.openFilePanX = v),
-	(v) => (fileWorkspace.openFilePanY = v),
-	(v) => (fileWorkspace.openFileDragging = v),
-);
 const inlineFilePanHandlers = makeImagePanHandlers(
 	() => fileWorkspace.inlineFileZoom,
 	() => fileWorkspace.inlineFilePanX,
@@ -867,15 +780,18 @@ const inlineFilePanHandlers = makeImagePanHandlers(
 	(v) => (fileWorkspace.inlineFileDragging = v),
 );
 let workspaceBodyEl = $state<HTMLDivElement | null>(null);
-const previewLayout = createPreviewLayoutController({
-	getIsMobile: () => isMobile,
+const previewLayout = createWorkspaceLayoutController({
+	getIsCompact: () => isMobile,
 	getWorkspaceBodyEl: () => workspaceBodyEl,
-	getRightSidebarAvailable: () => rightSidebarAvailable,
-	getActivePreviewKind: () => activePreviewKind,
+	getFilesAvailable: () => rightSidebarAvailable,
+	getHasPreview: () => Boolean(activePreviewKind),
 });
-const previewPanelWidth = $derived(previewLayout.width);
+const previewPanelWidth = $derived(previewLayout.previewWidth);
 const previewFocusMode = $derived(previewLayout.focusMode);
 const previewImmersiveMode = $derived(previewLayout.immersiveMode);
+const immersiveChatVisible = $derived(
+	!previewImmersiveMode || previewLayout.immersiveMainVisible,
+);
 
 let pageMounted = $state(false);
 const spaceBootstrap = createSpaceBootstrapController({
@@ -939,11 +855,7 @@ let programmaticScrollTarget: number | null = null;
 let userScrollActive = false;
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let immersiveChatResizeCleanup: (() => void) | null = null;
-let immersiveChatHidden = $state(false);
 let lastImmersiveChatSessionId = $state<string | null | undefined>(undefined);
-const immersiveChatVisible = $derived(
-	!previewImmersiveMode || !immersiveChatHidden,
-);
 
 $effect(() => {
 	const sessionId = activeSessionId;
@@ -953,7 +865,11 @@ $effect(() => {
 	}
 	if (lastImmersiveChatSessionId === sessionId) return;
 	lastImmersiveChatSessionId = sessionId;
-	immersiveChatHidden = false;
+	previewLayout.setImmersiveMainVisible(true);
+});
+
+$effect(() => {
+	previewLayout.handleCompactChange(isMobile);
 });
 
 const listEl = $derived(sessionScroll.listEl);
@@ -1549,7 +1465,8 @@ const activeRouteDetailHeader = $derived.by(() => {
 const presenceMeta = $derived.by(() => {
 	const panels: Record<string, unknown>[] = [];
 	if (activeSessionId ?? routeSessionId) panels.push({ kind: "session" });
-	if (routeFilePath) panels.push({ kind: "file" });
+	if (inlineFile?.path || routePreviewRef?.kind === "file")
+		panels.push({ kind: "file" });
 	if (activeRouteDetailHeader)
 		panels.push({ kind: activeRouteDetailHeader.view });
 	return { panels };
@@ -1575,9 +1492,9 @@ const browserTabTitle = $derived.by(() => {
 					)
 				: "Chat";
 		}
-		if (routeView === "file") {
+		if (routePreviewRef?.kind === "file") {
 			return normalizeTabTitleSegment(
-				routeFilePath?.split("/").pop(),
+				routePreviewRef.key.split("/").pop(),
 				"File",
 				44,
 			);
@@ -3056,9 +2973,6 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 	if (!shouldPatchVisibleTree()) return;
 	if (eventPayload.resync) {
 		await loadFileTree(true);
-		if (routeView === "file" && routeFilePath && !fileDirty) {
-			await openFileFromUrl(routeFilePath).catch(() => undefined);
-		}
 		for (const tab of inlineFileTabs) {
 			if (!fileWorkspace.isInlineFileDirty(tab.path))
 				await fileWorkspace
@@ -3073,19 +2987,6 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			eventPayload.source,
 			change.kind,
 		);
-		if (
-			openFile?.path &&
-			(change.path === openFile.path || change.oldPath === openFile.path)
-		) {
-			if (isOwnPendingChange) {
-				// The API save we just initiated broadcasts a file-change event before
-				// the save response updates local content. Do not treat it as an
-				// external edit conflict.
-			} else if (change.kind === "delete") closeFile();
-			else if (!fileDirty && change.path)
-				await openFileFromUrl(change.path).catch(() => undefined);
-			else if (fileDirty) fileWorkspace.markOpenFileExternalChange();
-		}
 		for (const tab of inlineFileTabs) {
 			if (change.path !== tab.path && change.oldPath !== tab.path) continue;
 			if (isOwnPendingChange) {
@@ -4416,9 +4317,25 @@ onDestroy(() => {
 	spaceBootstrap.resetLoaded();
 });
 
-beforeNavigate(() => {
+beforeNavigate((navigation) => {
 	if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 	flushActiveComposerDraft();
+	if (!fileWorkspace.hasDirtyInlineFiles()) return;
+	const fromUrl = navigation.from?.url;
+	const toUrl = navigation.to?.url;
+	if (!fromUrl || !toUrl) return;
+	// Query-only changes (preview open/close) keep drafts.
+	if (fromUrl.pathname === toUrl.pathname) return;
+	const fromPath = fromUrl.pathname;
+	const toPath = toUrl.pathname;
+	const fromCheckpoint = fromPath.includes("/checkpoints/");
+	const toCheckpoint = toPath.includes("/checkpoints/");
+	const fsSourceChanging = fromCheckpoint !== toCheckpoint;
+	const sameSpace = Boolean(spaceId) && toPath.startsWith(`/spaces/${spaceId}`);
+	// Only prompt when drafts cannot survive the transition.
+	if (!fsSourceChanging && sameSpace) return;
+	const ok = confirm("Discard unsaved file changes?");
+	if (!ok) navigation.cancel();
 });
 
 function beginRightSidebarResize(event: PointerEvent) {
@@ -4498,28 +4415,48 @@ function beginImmersiveChatResize(event: PointerEvent) {
 }
 
 function setPreviewPanelWidth(width: number) {
-	previewLayout.setWidth(width);
+	previewLayout.setPreviewWidth(width);
 }
 function ensurePreviewPanelFits() {
-	previewLayout.ensureFits();
+	previewLayout.ensurePreviewFits();
 }
 async function togglePreviewFocusMode() {
-	await previewLayout.toggleFocusMode();
+	await previewLayout.toggleFocus();
 }
 async function togglePreviewImmersiveMode() {
-	await previewLayout.toggleImmersiveMode();
+	await previewLayout.toggleImmersive();
 }
 function closePreviewFocusMode() {
-	previewLayout.closeFocusMode();
+	previewLayout.exitPresentation();
 }
 function handlePreviewWindowResize() {
 	previewLayout.handleWindowResize();
 }
 function beginPreviewPanelResize(event: PointerEvent) {
-	previewLayout.beginPanelResize(event);
+	previewLayout.beginPreviewResize(event);
 }
 async function toggleRightSidebar() {
-	await previewLayout.toggleRightSidebar();
+	await previewLayout.toggleTree();
+}
+
+function syncPreviewQuery(ref: WorkspacePreviewRef | null, replace = true) {
+	if (typeof window === "undefined") return;
+	const next = withPreviewParam(
+		window.location.pathname,
+		window.location.search,
+		ref,
+	);
+	const current = `${window.location.pathname}${window.location.search}`;
+	if (next === current) return;
+	void goto(next, {
+		replaceState: replace,
+		noScroll: true,
+		keepFocus: true,
+	});
+}
+
+function currentPreviewRef(): WorkspacePreviewRef | null {
+	return previewWorkspace.currentRef();
 }
 async function loadFileTree(force = false) {
 	await fileWorkspace.loadFileTree(force);
@@ -4528,16 +4465,15 @@ async function expandDirectory(node: SpaceFsNode) {
 	await fileWorkspace.expandDirectory(node);
 }
 async function openSpaceFile(path: string) {
-	fileWorkspace.openSpaceFile(path);
+	// Route through page openers so preview query stays in sync.
+	if (isCovasFile(path) && !activeFsReadonly) {
+		await openInlineCanvas(path);
+		return;
+	}
+	await openInlineFile(path);
 }
 async function refreshFileTree() {
 	await fileWorkspace.refreshFileTree();
-}
-async function openFileFromUrl(path: string) {
-	await fileWorkspace.openFileFromUrl(path);
-}
-async function saveOpenFile() {
-	await fileWorkspace.saveOpenFile();
 }
 async function handleCreateFile(parentPath: string) {
 	await fileWorkspace.handleCreateFile(parentPath);
@@ -4549,7 +4485,12 @@ async function handleCreateDir(parentPath: string) {
 	await fileWorkspace.handleCreateDir(parentPath);
 }
 async function handleRenameNode(node: SpaceFsNode) {
+	const prevPath = node.path;
 	await fileWorkspace.handleRenameNode(node);
+	// If active preview path changed via rename, keep query in sync.
+	const next = currentPreviewRef();
+	if (next) syncPreviewQuery(next, true);
+	else if (routePreviewRef?.key === prevPath) syncPreviewQuery(null, true);
 }
 async function handleDownloadNode(node: SpaceFsNode) {
 	await fileWorkspace.handleDownloadNode(node);
@@ -4558,42 +4499,41 @@ async function handleDeleteNode(node: SpaceFsNode) {
 	await fileWorkspace.handleDeleteNode(node);
 	if (inlineCanvas?.path === node.path) closeInlineCanvas();
 }
-function closeFile() {
-	fileWorkspace.closeFile();
-}
-async function openInlineFile(path: string) {
-	activePreviewKindState = "file";
-	touchPreviewTab("file", path);
-	await fileWorkspace.openInlineFile(path);
-	enforcePreviewTabBudget();
+async function openInlineFile(
+	path: string,
+	options: { syncUrl?: boolean } = {},
+) {
+	await previewWorkspace.openFile(path, options);
 }
 async function openLinkedInlineFile(target: string | WorkspaceFileLinkTarget) {
 	const path = typeof target === "string" ? target : target.path;
 	const position =
 		typeof target === "string" ? null : (target.position ?? null);
-	await fileWorkspace.openInlineFile(path, {
+	await previewWorkspace.openFile(path, {
 		preserveHistory: true,
 		position,
 	});
 }
 async function goBackInlineFile() {
-	await fileWorkspace.goBackInlineFile();
+	await previewWorkspace.goBackFile();
 }
 function closeInlineFile() {
-	fileWorkspace.closeInlineFile();
+	previewWorkspace.closeActive();
 }
-async function openInlineCanvas(path: string) {
+async function openInlineCanvas(
+	path: string,
+	options: { syncUrl?: boolean } = {},
+) {
 	if (activeFsReadonly) {
-		await openInlineFile(path);
+		await openInlineFile(path, options);
 		return;
 	}
-	activePreviewKindState = "canvas";
-	touchPreviewTab("canvas", path);
-	await canvasPreview.openCanvas(path);
-	enforcePreviewTabBudget();
+	await previewWorkspace.openCanvas(path, options);
 }
 function closeInlineCanvas() {
-	canvasPreview.closeCanvas();
+	const path = activeInlineCanvasPath;
+	if (path) previewWorkspace.close("canvas", path);
+	else previewWorkspace.closeActive();
 }
 async function flushInlineCanvasPendingTransactions(documentId: string) {
 	await canvasPreview.flushPendingTransactions(documentId);
@@ -4607,33 +4547,35 @@ async function commitInlineCanvas(
 function openInlinePort(
 	port: string,
 	url: string,
-	options: { autoOpened?: boolean } = {},
+	options: { autoOpened?: boolean; syncUrl?: boolean } = {},
 ) {
-	activePreviewKindState = "port";
-	touchPreviewTab("port", port);
-	portPreview.openPort(port, url, options);
-	enforcePreviewTabBudget();
+	previewWorkspace.openPort(port, url, options);
 }
 function activateInlineFileTab(path: string) {
-	activePreviewKindState = "file";
-	touchPreviewTab("file", path);
-	fileWorkspace.activateInlineFile(path);
+	previewWorkspace.activate("file", path);
 }
 function activateInlineCanvasTab(path: string) {
-	activePreviewKindState = "canvas";
-	touchPreviewTab("canvas", path);
-	canvasPreview.activateCanvas(path);
+	previewWorkspace.activate("canvas", path);
 }
 function activateInlinePortTab(port: string) {
-	activePreviewKindState = "port";
-	touchPreviewTab("port", port);
-	portPreview.activatePort(port);
+	previewWorkspace.activate("port", port);
 }
 function closeInlinePort() {
-	portPreview.closePort();
+	const port = activeInlinePort;
+	if (port) previewWorkspace.close("port", port);
+	else previewWorkspace.closeActive();
 }
-async function downloadOpenFile() {
-	await fileWorkspace.downloadOpenFile();
+function closeInlineFileTab(path: string, skipConfirm = false) {
+	previewWorkspace.close("file", path, skipConfirm);
+}
+function closeInlineCanvasTab(path?: string) {
+	previewWorkspace.close("canvas", path ?? activeInlineCanvasPath);
+}
+function closeInlinePortTab(port?: string) {
+	previewWorkspace.close("port", port ?? activeInlinePort);
+}
+function closeAllPreviews(options: { syncUrl?: boolean } = {}) {
+	previewWorkspace.closeAll(options);
 }
 async function downloadInlineFile() {
 	await fileWorkspace.downloadInlineFile();
@@ -4651,20 +4593,16 @@ async function handleFileKeyboardSave(event: KeyboardEvent) {
 	if (
 		(event.metaKey || event.ctrlKey) &&
 		event.key.toLowerCase() === "s" &&
-		(fileMode === "file" || inlineFile)
+		inlineFile
 	) {
 		event.preventDefault();
-		if (inlineFile) await saveInlineFile();
-		else await saveOpenFile();
+		await saveInlineFile();
 	}
 	if (event.key === "Escape" && (inlineFile || inlinePortPreview)) {
 		event.preventDefault();
 		if (inlinePortPreview) closeInlinePort();
 		else closeInlineFile();
 	}
-}
-async function copyFileContent() {
-	await fileWorkspace.copyFileContent();
 }
 async function copyInlineFileContent() {
 	await fileWorkspace.copyInlineFileContent();
@@ -4695,7 +4633,6 @@ function editResourceLabels(
 }
 
 function getHeaderFileActionPath() {
-	if (routeView === "file" && openFile?.path) return openFile.path;
 	return inlineFile?.path ?? null;
 }
 
@@ -5046,7 +4983,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	lastTurnIndexRefreshKey = "";
 	showTurnBottomSheet = false;
 	appliedRouteTurnKey = null;
-	fileWorkspace.resetForSpace();
+	fileWorkspace.resetForSpace({ force: true });
 	canvasPreview.closeCanvas();
 	portPreview.setEndpoints({});
 	portPreview.closePort();
@@ -5418,29 +5355,52 @@ $effect(() => {
 	}
 });
 $effect(() => {
-	const filePath = routeView === "file" ? routeFilePath : null;
-	const key = filePath ? `${spaceId}:${activeFsSourceKey}:${filePath}` : "";
-	if (!key) {
-		if (!appliedRouteFileKey) return;
-		appliedRouteFileKey = "";
-		untrack(() => fileWorkspace.clearRouteFile());
-		return;
-	}
-	if (appliedRouteFileKey === key) return;
-	appliedRouteFileKey = key;
-	if (!filePath) return;
-	const targetFilePath = filePath;
-	untrack(() => {
-		void openFileFromUrl(targetFilePath);
-	});
-});
-$effect(() => {
+	// Ordered: source first, then route preview hydration (bi-directional).
 	const sourceKey = activeFsSourceKey;
-	if (sourceKey === appliedFsSourceKey) return;
-	appliedFsSourceKey = sourceKey;
+	const preview = routePreviewRef;
+	// Track endpoints so pending port deep-links retry when sandbox ports arrive.
+	const portEndpointReady =
+		preview?.kind === "port"
+			? Boolean(previewEndpoints[preview.key]?.url)
+			: true;
+	const previewKey = preview
+		? `${spaceId}:${sourceKey}:${preview.kind}:${preview.key}:${portEndpointReady ? "1" : "0"}`
+		: `${spaceId}:${sourceKey}:`;
 	untrack(() => {
-		fileWorkspace.switchSource(sourceKey);
-		canvasPreview.closeCanvas();
+		// 1) FS source transition (checkpoint <-> live)
+		if (sourceKey !== appliedFsSourceKey) {
+			// beforeNavigate already confirmed discard when FS source changes.
+			fileWorkspace.switchSource(sourceKey, { force: true });
+			// Source change invalidates non-file previews; file tabs already cleared by switchSource.
+			for (const tab of [...canvasPreview.canvases])
+				canvasPreview.closeCanvas(tab.path);
+			for (const tab of [...portPreview.previews])
+				portPreview.closePort(tab.port);
+			previewWorkspace.setActiveKind(null);
+			appliedFsSourceKey = sourceKey;
+			// Force re-hydrate preview against new source.
+			appliedRouteFileKey = "";
+		}
+
+		// 2) Preview route hydration / teardown
+		if (!preview) {
+			if (!appliedRouteFileKey) return;
+			appliedRouteFileKey = "";
+			// URL lost preview (Back / cleared query): close all previews, keep Main.
+			previewWorkspace.closeAll({ syncUrl: false });
+			return;
+		}
+		if (appliedRouteFileKey === previewKey) return;
+		const target =
+			preview.kind === "canvas" && activeFsReadonly
+				? { kind: "file" as const, key: preview.key }
+				: preview;
+		const result = previewWorkspace.hydrateFromRoute(target);
+		if (!result.ok) {
+			// Wait for trusted port endpoint; effect re-runs when endpoints update.
+			return;
+		}
+		appliedRouteFileKey = previewKey;
 	});
 });
 $effect(() => {
@@ -5575,11 +5535,11 @@ const spaceFileDomainProps = $derived.by<
 	onOpenInlineCanvas: openInlineCanvas,
 	onCloseInlineFile: closeInlineFile,
 	onActivateInlineCanvas: activateInlineCanvasTab,
-	onCloseInlineCanvasTab: canvasPreview.closeCanvas,
+	onCloseInlineCanvasTab: closeInlineCanvasTab,
 	onActivateInlinePort: activateInlinePortTab,
-	onCloseInlinePortTab: portPreview.closePort,
+	onCloseInlinePortTab: closeInlinePortTab,
 	onActivateInlineFile: activateInlineFileTab,
-	onCloseInlineFileTab: fileWorkspace.closeInlineFileTab,
+	onCloseInlineFileTab: closeInlineFileTab,
 	onBackInlineFile: goBackInlineFile,
 	onDownloadInlineFile: downloadInlineFile,
 	onCopyInlineFileContent: copyInlineFileContent,
@@ -5892,16 +5852,6 @@ const sessionWorkspaceProps = $derived.by<
 {#if isBlockingAccess}
 	<AccessStateView state={spaceAccessState} retry={retryLoadSpace} />
 {:else}
-<SpaceWorkspaceHeader
-	context={headerContext}
-	sessionRename={sessionRenameState}
-	resourceActions={resourceActionState}
-	actions={{
-		...headerActions,
-		exitImmersivePreview: togglePreviewImmersiveMode,
-	}}
-	presentation={previewImmersiveMode ? "immersive" : "default"}
-/>
 {#if portReadyToast}
 	<PortReadyToastView
 		port={portReadyToast.port}
@@ -5922,10 +5872,34 @@ const sessionWorkspaceProps = $derived.by<
 	style={`--immersive-chat-width: ${uiState.immersiveChatWidth}px`}
 >
   <SpaceDanmakuLayer controller={danmakuController} {spaceId} hidden={previewImmersiveMode} />
+  {#if previewImmersiveMode}
+    <SpaceWorkspaceHeader
+      context={headerContext}
+      sessionRename={sessionRenameState}
+      resourceActions={resourceActionState}
+      actions={{
+        ...headerActions,
+        exitImmersivePreview: togglePreviewImmersiveMode,
+      }}
+      presentation="immersive"
+    />
+  {/if}
   <div
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
   >
+    {#if !previewImmersiveMode}
+      <SpaceWorkspaceHeader
+        context={headerContext}
+        sessionRename={sessionRenameState}
+        resourceActions={resourceActionState}
+        actions={{
+          ...headerActions,
+          exitImmersivePreview: togglePreviewImmersiveMode,
+        }}
+        presentation="default"
+      />
+    {/if}
     {#if isRouteDetailView}
       <SpaceRouteDetailHost
         route={{
@@ -5945,52 +5919,6 @@ const sessionWorkspaceProps = $derived.by<
         onHeaderMeta={(meta) => {
           routeDetailHeaderMeta = meta;
         }}
-      />
-    {:else if fileMode === 'file'}
-      <FileWorkspace
-        {routeFilePath}
-        {openFileLoading}
-        {openFileError}
-        {openFileTooLarge}
-        {openFile}
-        {openFileDownloadUrl}
-        {openFileDownloadName}
-        {openFileIsText}
-        {openFileHasRenderedPreview}
-        {openFileIsMarkdown}
-        {openFileIsHtml}
-        {openFileIsImage}
-        {openFileIsVideo}
-        {openFileDataUrl}
-        bind:openFileDraft={fileWorkspace.openFileDraft}
-        {openFileExt}
-        bind:fileViewMode={fileWorkspace.fileViewMode}
-        openFileDiff={fileWorkspace.openFileDiff}
-        openFileDiffLoading={fileWorkspace.openFileDiffLoading}
-        openFileDiffError={fileWorkspace.openFileDiffError}
-        {openFileCopied}
-        {openFileSaving}
-        {fileDirty}
-        {canEditFiles}
-        {activeFsReadonly}
-        bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
-        bind:openFileZoom={fileWorkspace.openFileZoom}
-        bind:openFilePanX={fileWorkspace.openFilePanX}
-        bind:openFilePanY={fileWorkspace.openFilePanY}
-        openFileDragging={fileWorkspace.openFileDragging}
-        {openFilePanHandlers}
-        onCloseFile={closeFile}
-        onDownloadOpenFile={downloadOpenFile}
-        onPublishOpenFile={publishOpenFile}
-        onCopyFileContent={copyFileContent}
-        onSaveOpenFile={saveOpenFile}
-        onLabelFile={(path) => editResourceLabels('file', path)}
-        onInsertFilePathReference={insertFilePathReference}
-        onDownloadFilePath={(path) => handleDownloadNode(getFileActionNode(path))}
-        onRenameFilePath={(path) => handleRenameNode(getFileActionNode(path))}
-        onDeleteFilePath={(path) => handleDeleteNode(getFileActionNode(path))}
-        onOpenLinkedInlineFile={openLinkedInlineFile}
-        onVisibleLinesChange={handleVisibleLinesChange}
       />
     {:else}
       <SessionWorkspace
@@ -6032,7 +5960,7 @@ const sessionWorkspaceProps = $derived.by<
           aria-label="Hide chat panel"
           title="Hide chat panel"
           onclick={() => {
-            immersiveChatHidden = true;
+            previewLayout.setImmersiveMainVisible(false);
           }}
         >
           <X class="h-3.5 w-3.5" />
