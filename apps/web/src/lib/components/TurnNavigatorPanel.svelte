@@ -7,6 +7,7 @@ import {
 } from "$lib/time-format";
 import {
 	formatTurnNavPreview,
+	getTurnNavAttachmentLabel,
 	getTurnNavAuthorName,
 	shouldShowTurnNavAuthors,
 } from "$lib/turn-nav-preview";
@@ -48,6 +49,8 @@ const filteredTurns = $derived.by(() => {
 		if (`#${turn.sequence}`.includes(value)) return true;
 		if (String(turn.sequence).includes(value)) return true;
 		if (formatTurnNavPreview(turn).toLowerCase().includes(value)) return true;
+		const attachment = getTurnNavAttachmentLabel(turn);
+		if (attachment?.toLowerCase().includes(value)) return true;
 		if (showAuthors) {
 			const author = getTurnNavAuthorName(turn);
 			if (author?.toLowerCase().includes(value)) return true;
@@ -103,9 +106,11 @@ $effect(() => {
 			<div class="space-y-0.5">
 				{#each filteredTurns as turn (`${turn.sequence}:${turn.id}`)}
 					{@const preview = formatTurnNavPreview(turn)}
+					{@const attachmentLabel = getTurnNavAttachmentLabel(turn)}
 					{@const timeLabel = formatCompactAbsoluteTime(turn.createdAt)}
 					{@const fullTime = formatFullAbsoluteTime(turn.createdAt, { seconds: true })}
 					{@const authorName = showAuthors ? getTurnNavAuthorName(turn) : null}
+					{@const hasMeta = Boolean(timeLabel || attachmentLabel || authorName)}
 					<button
 						type="button"
 						data-turn-sequence={turn.sequence}
@@ -114,17 +119,29 @@ $effect(() => {
 					>
 						<span class={`w-[1.65rem] shrink-0 font-mono text-[11px] leading-relaxed ${currentSequence === turn.sequence ? 'text-brand' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}>#{turn.sequence}</span>
 						<span class="min-w-0 flex-1">
-							<span class="line-clamp-3 block text-[12px] leading-relaxed tracking-[-0.01em]">
-								{preview}
-							</span>
-							{#if timeLabel || authorName}
+							{#if preview}
+								<span class="line-clamp-3 block text-[12px] leading-relaxed tracking-[-0.01em]">
+									{preview}
+								</span>
+							{:else if !hasMeta}
+								<span class="line-clamp-3 block text-[12px] leading-relaxed tracking-[-0.01em] text-text-placeholder">
+									Empty message
+								</span>
+							{/if}
+							{#if hasMeta}
 								<span
-									class={`mt-0.5 flex min-w-0 items-center gap-1 text-[10px] leading-none ${currentSequence === turn.sequence ? 'text-text-tertiary' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}
+									class={`${preview ? 'mt-0.5' : ''} flex min-w-0 items-center gap-1 text-[10px] leading-none ${currentSequence === turn.sequence ? 'text-text-tertiary' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}
 								>
 									{#if timeLabel}
 										<span class="shrink-0 tabular-nums" title={fullTime || undefined}>{timeLabel}</span>
 									{/if}
-									{#if timeLabel && authorName}
+									{#if timeLabel && (attachmentLabel || authorName)}
+										<span class="shrink-0 opacity-70">·</span>
+									{/if}
+									{#if attachmentLabel}
+										<span class="shrink-0">{attachmentLabel}</span>
+									{/if}
+									{#if attachmentLabel && authorName}
 										<span class="shrink-0 opacity-70">·</span>
 									{/if}
 									{#if authorName}

@@ -6,6 +6,7 @@ import {
 } from "$lib/time-format";
 import {
 	formatTurnNavPreview,
+	getTurnNavAttachmentLabel,
 	getTurnNavAuthorName,
 	shouldShowTurnNavAuthors,
 } from "$lib/turn-nav-preview";
@@ -43,6 +44,7 @@ function statusTone(status: SessionTurnIndexItem["status"]) {
 			<div class="max-h-[66vh] overflow-y-auto pb-2 pt-2">
 				{#each turns as turn (`${turn.sequence}:${turn.id}`)}
 					{@const preview = formatTurnNavPreview(turn)}
+					{@const attachmentLabel = getTurnNavAttachmentLabel(turn)}
 					{@const timeLabel = formatCompactAbsoluteTime(turn.createdAt)}
 					{@const fullTime = formatFullAbsoluteTime(turn.createdAt, { seconds: true })}
 					{@const authorName = showAuthors ? getTurnNavAuthorName(turn) : null}
@@ -53,12 +55,22 @@ function statusTone(status: SessionTurnIndexItem["status"]) {
 					>
 						<div class={`mt-0.5 w-10 shrink-0 text-[11px] font-medium tabular-nums ${turn.sequence === currentSequence ? 'text-brand' : 'text-text-tertiary'}`}>#{turn.sequence}</div>
 						<div class="min-w-0 flex-1">
-							<div class="line-clamp-2 text-[13px] leading-relaxed text-text-primary">
-								{preview}
-							</div>
-							<div class={`mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] ${statusTone(turn.status)}`}>
+							{#if preview}
+								<div class="line-clamp-2 text-[13px] leading-relaxed text-text-primary">
+									{preview}
+								</div>
+							{:else if !attachmentLabel}
+								<div class="line-clamp-2 text-[13px] leading-relaxed text-text-placeholder">
+									Empty message
+								</div>
+							{/if}
+							<div class={`${preview || !attachmentLabel ? 'mt-1' : ''} flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] ${statusTone(turn.status)}`}>
 								{#if timeLabel}
 									<span class="tabular-nums text-text-placeholder" title={fullTime || undefined}>{timeLabel}</span>
+									<span class="text-text-placeholder">·</span>
+								{/if}
+								{#if attachmentLabel}
+									<span class="text-text-placeholder">{attachmentLabel}</span>
 									<span class="text-text-placeholder">·</span>
 								{/if}
 								{#if authorName}

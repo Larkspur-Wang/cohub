@@ -8,12 +8,18 @@ import type {
 
 const IMAGE_ONLY_URL_RE =
 	/^(?:https?:\/\/\S+|data:image\/[a-z0-9.+-]+;base64,\S+)$/i;
+const IMAGE_LABEL_RE = /^(\d+)\s+images$/i;
+const TRAILING_IMAGE_LABEL_RE = /(?:\s*[·•]\s*)?(?:(\d+)\s+images|image)\s*$/i;
 
 function imageLabel(count: number) {
 	return count === 1 ? "Image" : `${count} images`;
 }
 
-function countImages(content: ContentBlock[] | null | undefined) {
+function normalizeWhitespace(value: string) {
+	return value.replace(/\s+/g, " ").trim();
+}
+
+function countImagesInContent(content: ContentBlock[] | null | undefined) {
 	if (!content?.length) return 0;
 	return content.reduce(
 		(count, block) => count + (block.type === "image" ? 1 : 0),
@@ -21,37 +27,9 @@ function countImages(content: ContentBlock[] | null | undefined) {
 	);
 }
 
-function normalizeWhitespace(value: string) {
-	return value.replace(/\s+/g, " ").trim();
-}
-
-function stripLegacyImageUrls(preview: string) {
-	const parts = preview
-		.split(/\n+/)
-		.map((part) => part.trim())
-		.filter(Boolean);
-	if (parts.length === 0) return "";
-
-	const textParts: string[] = [];
-	let imageCount = 0;
-	for (const part of parts) {
-		if (IMAGE_ONLY_URL_RE.test(part)) {
-			imageCount += 1;
-			continue;
-		}
-		textParts.push(part);
-	}
-
-	const text = normalizeWhitespace(textParts.join(" "));
-	if (imageCount === 0) return text;
-	if (!text) return imageLabel(imageCount);
-	return `${text} · ${imageLabel(imageCount)}`;
-}
-
-function previewFromContent(content: ContentBlock[] | null | undefined) {
+function textFromContent(content: ContentBlock[] | null | undefined) {
 	if (!content?.length) return null;
 	const parts: string[] = [];
-	let imageCount = 0;
 	for (const block of content) {
 		switch (block.type) {
 			case "text": {
@@ -59,9 +37,6 @@ function previewFromContent(content: ContentBlock[] | null | undefined) {
 				if (text) parts.push(text);
 				break;
 			}
-			case "image":
-				imageCount += 1;
-				break;
 			case "shell_command":
 				parts.push(`$${block.command}`);
 				break;
@@ -74,9 +49,80 @@ function previewFromContent(content: ContentBlock[] | null | undefined) {
 				break;
 		}
 	}
-	if (imageCount > 0) parts.push(imageLabel(imageCount));
-	const preview = normalizeWhitespace(parts.join(" · "));
-	return preview || null;
+	const text = normalizeWhitespace(parts.join(" "));
+	return text || null;
+}
+
+/** Split stored/legacy previews into body text + image count. */
+function parseStoredPreview(preview: string): {
+	text: string | null;
+	imageCount: number;
+} {
+	const parts = preview
+		.split(/\n+/)
+		.map((part) => part.trim())
+		.filter(Boolean);
+	if (parts.length === 0) return { text: null, imageCount: 0 };
+
+	const textParts: string[] = [];
+	let imageCount = 0;
+
+	for (const part of parts) {
+		if (IMAGE_ONLY_URL_RE.test(part)) {
+			imageCount += 1;
+			continue;
+		}
+		if (/^image$/i.test(part)) {
+			imageCount += 1;
+			continue;
+		}
+		const multi = part.match(IMAGE_LABEL_RE);
+		if (multi) {
+			imageCount += Number(multi[1]) || 0;
+			continue;
+		}
+
+		// "look · Image" / "look · 2 images" from write-path previews
+		const trailing = part.match(TRAILING_IMAGE_LABEL_RE);
+		if (trailing && trailing.index != null && trailing.index > 0) {
+			const head = part.slice(0, trailing.index).trim();
+			if (head) textParts.push(head);
+			if (trailing[1]) imageCount += Number(trailing[1]) || 0;
+			else imageCount += 1;
+			continue;
+		}
+
+		textParts.push(part);
+	}
+
+	const text = normalizeWhitespace(textParts.join(" "));
+	return { text: text || null, imageCount };
+}
+
+function parseTurnNavPreview(turn: {
+	userPreview?: string | null;
+	intent?: SessionTurnIntent | null;
+	userContent?: ContentBlock[] | null;
+}): { text: string | null; imageCount: number; compact: boolean } {
+	if (turn.intent === "compact") {
+		return { text: "Context compacted", imageCount: 0, compact: true };
+	}
+
+	const contentImageCount = countImagesInContent(turn.userContent);
+	const contentText = textFromContent(turn.userContent);
+	if (contentText || contentImageCount > 0) {
+		return {
+			text: contentText,
+			imageCount: contentImageCount,
+			compact: false,
+		};
+	}
+
+	const raw = turn.userPreview?.trim() ?? "";
+	if (!raw) return { text: null, imageCount: 0, compact: false };
+
+	const parsed = parseStoredPreview(raw);
+	return { text: parsed.text, imageCount: parsed.imageCount, compact: false };
 }
 
 export function formatTurnNavPreview(turn: {
@@ -84,18 +130,22 @@ export function formatTurnNavPreview(turn: {
 	intent?: SessionTurnIntent | null;
 	userContent?: ContentBlock[] | null;
 }): string {
-	if (turn.intent === "compact") return "Context compacted";
+	const parsed = parseTurnNavPreview(turn);
+	if (parsed.compact) return "Context compacted";
+	if (parsed.text) return parsed.text;
+	// Pure attachments leave the body empty; meta line carries the label.
+	if (parsed.imageCount > 0) return "";
+	return "Empty message";
+}
 
-	const fromContent = previewFromContent(turn.userContent);
-	if (fromContent) return fromContent;
-
-	const raw = turn.userPreview?.trim() ?? "";
-	if (!raw) {
-		const imageCount = countImages(turn.userContent);
-		return imageCount > 0 ? imageLabel(imageCount) : "Empty message";
-	}
-
-	return stripLegacyImageUrls(raw) || "Empty message";
+export function getTurnNavAttachmentLabel(turn: {
+	userPreview?: string | null;
+	intent?: SessionTurnIntent | null;
+	userContent?: ContentBlock[] | null;
+}): string | null {
+	const parsed = parseTurnNavPreview(turn);
+	if (parsed.compact || parsed.imageCount <= 0) return null;
+	return imageLabel(parsed.imageCount);
 }
 
 export function getTurnNavAuthorName(turn: {
@@ -124,6 +174,18 @@ export function shouldShowTurnNavAuthors(
 export function turnRecordToIndexItem(
 	turn: SessionTurnRecord,
 ): SessionTurnIndexItem {
+	const contentText = textFromContent(turn.userContent);
+	const contentImageCount = countImagesInContent(turn.userContent);
+	// Keep a compact stored preview for index merge / search without forcing
+	// attachment labels into the body line (UI renders them on the meta row).
+	const userPreview =
+		contentText ??
+		(contentImageCount > 0
+			? imageLabel(contentImageCount)
+			: turn.userText
+				? normalizeWhitespace(turn.userText)
+				: null);
+
 	return {
 		id: turn.id,
 		sessionId: turn.sessionId,
@@ -139,9 +201,7 @@ export function turnRecordToIndexItem(
 		durationMs: turn.durationMs,
 		createdAt: turn.createdAt,
 		updatedAt: turn.updatedAt,
-		userPreview:
-			previewFromContent(turn.userContent) ??
-			(turn.userText ? normalizeWhitespace(turn.userText) : null),
+		userPreview,
 		assistantPreview: turn.assistantText
 			? normalizeWhitespace(turn.assistantText)
 			: null,

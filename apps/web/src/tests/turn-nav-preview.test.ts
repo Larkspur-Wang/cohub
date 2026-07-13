@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { SessionTurnRecord } from "@cohub/protocol/model";
 import {
 	formatTurnNavPreview,
+	getTurnNavAttachmentLabel,
 	getTurnNavAuthorName,
 	shouldShowTurnNavAuthors,
 	turnRecordToIndexItem,
@@ -16,6 +17,13 @@ test("formatTurnNavPreview labels compact turns", () => {
 		}),
 		"Context compacted",
 	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "compact",
+			userPreview: null,
+		}),
+		null,
+	);
 });
 
 test("formatTurnNavPreview keeps normal text", () => {
@@ -26,48 +34,93 @@ test("formatTurnNavPreview keeps normal text", () => {
 		}),
 		"Help me debug login",
 	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "followup",
+			userPreview: "  Help me debug login  ",
+		}),
+		null,
+	);
 });
 
-test("formatTurnNavPreview rewrites legacy image urls", () => {
+test("attachments stay out of body and live on meta label", () => {
 	assert.equal(
 		formatTurnNavPreview({
 			intent: "steer",
 			userPreview: "https://cdn.example.com/a.png",
 		}),
+		"",
+	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "steer",
+			userPreview: "https://cdn.example.com/a.png",
+		}),
 		"Image",
 	);
+
 	assert.equal(
 		formatTurnNavPreview({
 			intent: "steer",
 			userPreview: "check this\nhttps://cdn.example.com/a.png",
 		}),
-		"check this · Image",
+		"check this",
 	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "steer",
+			userPreview: "check this\nhttps://cdn.example.com/a.png",
+		}),
+		"Image",
+	);
+
 	assert.equal(
 		formatTurnNavPreview({
 			intent: "steer",
 			userPreview:
 				"https://cdn.example.com/a.png\nhttps://cdn.example.com/b.png",
 		}),
+		"",
+	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "steer",
+			userPreview:
+				"https://cdn.example.com/a.png\nhttps://cdn.example.com/b.png",
+		}),
 		"2 images",
 	);
-});
 
-test("formatTurnNavPreview prefers content blocks when available", () => {
 	assert.equal(
 		formatTurnNavPreview({
 			intent: "steer",
-			userPreview: "https://cdn.example.com/a.png",
-			userContent: [
-				{ type: "text", text: "look" },
-				{
-					type: "image",
-					source: { type: "url", url: "https://cdn.example.com/a.png" },
-				},
-			],
+			userPreview: "look · Image",
 		}),
-		"look · Image",
+		"look",
 	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "steer",
+			userPreview: "look · Image",
+		}),
+		"Image",
+	);
+});
+
+test("content blocks prefer body text and image count separately", () => {
+	const turn = {
+		intent: "steer" as const,
+		userPreview: "https://cdn.example.com/a.png",
+		userContent: [
+			{ type: "text" as const, text: "look" },
+			{
+				type: "image" as const,
+				source: { type: "url" as const, url: "https://cdn.example.com/a.png" },
+			},
+		],
+	};
+	assert.equal(formatTurnNavPreview(turn), "look");
+	assert.equal(getTurnNavAttachmentLabel(turn), "Image");
 });
 
 test("formatTurnNavPreview falls back for empty messages", () => {
@@ -77,6 +130,13 @@ test("formatTurnNavPreview falls back for empty messages", () => {
 			userPreview: null,
 		}),
 		"Empty message",
+	);
+	assert.equal(
+		getTurnNavAttachmentLabel({
+			intent: "followup",
+			userPreview: null,
+		}),
+		null,
 	);
 });
 
