@@ -60,8 +60,10 @@ const kindIcon = {
 <style>
 	.preview-tabs {
 		display: flex;
+		height: 2.5rem;
 		min-width: 0;
-		flex: 1;
+		flex: 0 0 auto;
+		align-items: stretch;
 		gap: 1px;
 		overflow-x: auto;
 		border-bottom: 1px solid var(--border-subtle);
@@ -74,17 +76,18 @@ const kindIcon = {
 		display: inline-flex;
 		min-width: 0;
 		max-width: 12rem;
+		height: 100%;
 		align-items: center;
 		position: relative;
-		color: var(--color-text-tertiary);
+		color: var(--text-tertiary);
 	}
 
 	.preview-tab-shell:hover {
-		color: var(--color-text-secondary);
+		color: var(--text-secondary);
 	}
 
 	.preview-tab-shell.active {
-		color: var(--color-text-primary);
+		color: var(--text-primary);
 	}
 
 	.preview-tab-shell.active::after {
@@ -95,15 +98,16 @@ const kindIcon = {
 		bottom: 0;
 		height: 2px;
 		border-radius: 2px 2px 0 0;
-		background: var(--color-brand);
+		background: var(--brand);
 	}
 
 	.preview-tab {
 		display: inline-flex;
 		min-width: 0;
+		height: 100%;
 		align-items: center;
 		gap: 0.375rem;
-		padding: 0.4375rem 0.375rem;
+		padding: 0 0.375rem;
 		font-size: 0.75rem;
 		line-height: 1rem;
 		white-space: nowrap;
@@ -124,7 +128,7 @@ const kindIcon = {
 		width: 0.375rem;
 		flex: 0 0 auto;
 		border-radius: 9999px;
-		background: var(--color-warning-soft);
+		background: var(--warning-soft);
 	}
 
 	.preview-tab-close {
@@ -137,7 +141,7 @@ const kindIcon = {
 		margin-right: 0.125rem;
 		border-radius: 4px;
 		opacity: 0;
-		color: var(--color-text-tertiary);
+		color: var(--text-tertiary);
 		transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
 	}
 
@@ -147,8 +151,8 @@ const kindIcon = {
 	}
 
 	.preview-tab-close:hover {
-		background: var(--color-bg-hover);
+		background: var(--bg-hover);
 		opacity: 1 !important;
-		color: var(--color-text-secondary);
+		color: var(--text-secondary);
 	}
 </style>

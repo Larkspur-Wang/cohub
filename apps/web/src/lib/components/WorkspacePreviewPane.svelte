@@ -22,7 +22,7 @@ const {
 	style={`--workspace-preview-width: ${width}px`}
 	aria-label={ariaLabel}
 >
-	<div class="min-h-0 flex-1">
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 		{@render children()}
 	</div>
 	{#if onResizeStart && !immersive}
