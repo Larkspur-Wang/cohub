@@ -71,7 +71,6 @@ import {
 	refreshSpaceStyle,
 } from "$lib/space-style";
 import { authStore } from "$lib/stores/auth.svelte";
-import { isBillingAccessBlockedCode } from "$lib/stores/billing-conversion.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {} from "$lib/stores/draft-session-model";
 import {
@@ -153,8 +152,6 @@ type Props = {
 type ActiveFsSource =
 	| { kind: "live" }
 	| { kind: "checkpoint"; checkpointId: string };
-const PRELOAD_THRESHOLD = 10;
-const SESSION_INITIAL_LOADING_DELAY_MS = 160;
 const props = $props();
 const data = $derived((props as Props).data);
 const spaceId = $derived(data.spaceId);
@@ -241,7 +238,6 @@ const spaceHasMinimalAccess = $derived(space?.accessLevel === "minimal");
 const rightSidebarAvailable = $derived(
 	Boolean(space) && !spaceHasMinimalAccess,
 );
-const canEditSpaceProfile = $derived(hasAccessPermission("space.edit"));
 const canEditFiles = $derived(hasAccessPermission("file.edit"));
 const spaceOwnerUsername = $derived(
 	space?.ownerProfile?.username ??
@@ -366,7 +362,6 @@ const spaceUsage = $derived(spaceStatus.usage);
 const spaceUsageLoadedFor = $derived(spaceStatus.usageLoadedFor);
 const spaceSandbox = $derived(spaceStatus.sandbox);
 const spaceSandboxLoadedFor = $derived(spaceStatus.sandboxLoadedFor);
-const spaceStatusNotice = $derived(spaceStatus.notice);
 let workPublishTarget = $state<{
 	targetType: "file" | "directory" | "port";
 	targetRef: string;
@@ -590,7 +585,6 @@ const spaceBootstrap = createSpaceBootstrapController({
 });
 const bootstrapping = $derived(spaceBootstrap.bootstrapping);
 let creatingSession = $state(false);
-const sessionScroll = sessionChat.scroll;
 let rightSidebarResizeCleanup: (() => void) | null = null;
 let immersiveChatResizeCleanup: (() => void) | null = null;
 let lastImmersiveChatSessionId = $state<string | null | undefined>(undefined);
@@ -612,10 +606,6 @@ $effect(() => {
 
 let appliedRouteFileKey = "";
 let appliedFsSourceKey: string | null = null;
-let turnMarkerMeasureFrame: number | null = null;
-let refreshSessionsListInFlight: Promise<void> | null = null;
-let refreshSessionsListQueued = false;
-let refreshSessionsListQueuedForce = false;
 const spacePresence = createSpacePresenceController(() => spaceId);
 const danmakuController = createSpaceDanmakuController();
 const spaceRealtime = createSpaceRealtimeController({
@@ -656,7 +646,6 @@ const wsConnectionState = $derived(spaceRealtime.connectionState);
 const onlineUsers = $derived(
 	spacePresence.users.filter((user) => user.userId !== authStore.userUuid),
 );
-const wsCanRecover = $derived(spaceRealtime.canRecover);
 $effect(() => {
 	connectionStateBox.current = wsConnectionState;
 });
@@ -683,8 +672,6 @@ $effect(() => {
 		},
 	});
 });
-// ─── Share ───
-const sessionShare = sessionChat.share;
 type RouteDetailHeaderMeta = {
 	view: "checkpoint" | "cronjob" | "work" | "task";
 	id: string;
@@ -707,9 +694,6 @@ function normalizeTabTitleSegment(
 	return normalized.length > maxLength
 		? `${normalized.slice(0, maxLength - 1)}…`
 		: normalized;
-}
-function hasSessionPermission(sessionId: string): boolean {
-	return sessionShare.hasPermission(sessionId);
 }
 const activeSessionState = $derived(sessionChat.activeSessionState);
 const newChatBackground = $derived(
@@ -878,21 +862,6 @@ const bootstrapStatus = $derived.by<
 		? value
 		: null;
 });
-const bootstrapStage = $derived.by<string | null>(() => {
-	const value = bootstrapMeta?.stage;
-	return typeof value === "string" && value.trim().length > 0 ? value : null;
-});
-const bootstrapErrorMessage = $derived.by<string | null>(() => {
-	const value = bootstrapMeta?.errorMessage;
-	return typeof value === "string" && value.trim().length > 0 ? value : null;
-});
-const bootstrapErrorCode = $derived.by<string | null>(() => {
-	const value = bootstrapMeta?.errorCode;
-	return typeof value === "string" && value.trim().length > 0 ? value : null;
-});
-const bootstrapNeedsBillingAction = $derived(
-	isBillingAccessBlockedCode(bootstrapErrorCode),
-);
 const canCreateSession = $derived(Boolean(space && !creatingSession));
 async function loadPreviewEndpoints() {
 	await portPreview.loadEndpoints();
@@ -1546,32 +1515,6 @@ function isEditableShortcutTarget(target: EventTarget | null) {
 	);
 }
 
-function stopVimScroll() {
-	sessionScroll.stopVimScroll();
-}
-
-function scrollTimelineByLines(direction: 1 | -1) {
-	sessionScroll.scrollTimelineByLines(direction, () =>
-		sessionChat.beginUserScroll(),
-	);
-}
-
-function clearPendingVimG() {
-	sessionScroll.clearPendingVimG();
-}
-
-function scrollTimelineToTop() {
-	sessionScroll.scrollTimelineToTop(
-		() => sessionChat.beginUserScroll(),
-		(top) => sessionChat.setProgrammaticScrollTop(top),
-		() => sessionChat.updateCurrentTurnSequence(),
-	);
-}
-
-function scrollTimelineToBottom() {
-	sessionScroll.scrollTimelineToBottom(() => sessionChat.scrollToBottomNow());
-}
-
 async function jumpRelativeTurn(direction: 1 | -1) {
 	const railItems = sessionChat.activeTurnRailItems;
 	if (!activeSessionId || railItems.length === 0) return;
@@ -1607,7 +1550,7 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		return;
 	}
 	if (isEditableShortcutTarget(event.target)) return;
-	if (key !== "g") clearPendingVimG();
+	if (key !== "g") sessionChat.scroll.clearPendingVimG();
 	if (
 		event.shiftKey &&
 		!event.altKey &&
@@ -1616,8 +1559,10 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		key === "g"
 	) {
 		event.preventDefault();
-		clearPendingVimG();
-		scrollTimelineToBottom();
+		sessionChat.scroll.clearPendingVimG();
+		sessionChat.scroll.scrollTimelineToBottom(() =>
+			sessionChat.scrollToBottomNow(),
+		);
 		return;
 	}
 	if (
@@ -1639,12 +1584,16 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		key === "g"
 	) {
 		event.preventDefault();
-		if (sessionScroll.vimPendingGActive) {
-			clearPendingVimG();
-			scrollTimelineToTop();
+		if (sessionChat.scroll.vimPendingGActive) {
+			sessionChat.scroll.clearPendingVimG();
+			sessionChat.scroll.scrollTimelineToTop(
+				() => sessionChat.beginUserScroll(),
+				(top) => sessionChat.setProgrammaticScrollTop(top),
+				() => sessionChat.updateCurrentTurnSequence(),
+			);
 			return;
 		}
-		sessionScroll.armPendingVimG();
+		sessionChat.scroll.armPendingVimG();
 		return;
 	}
 	if (event.altKey || event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -1655,12 +1604,16 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 	}
 	if (key === "j") {
 		event.preventDefault();
-		scrollTimelineByLines(1);
+		sessionChat.scroll.scrollTimelineByLines(1, () =>
+			sessionChat.beginUserScroll(),
+		);
 		return;
 	}
 	if (key === "k") {
 		event.preventDefault();
-		scrollTimelineByLines(-1);
+		sessionChat.scroll.scrollTimelineByLines(-1, () =>
+			sessionChat.beginUserScroll(),
+		);
 	}
 }
 
@@ -1759,10 +1712,8 @@ onMount(() => {
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
 		taskHydrateRetryCounts.clear();
-		if (turnMarkerMeasureFrame != null)
-			cancelAnimationFrame(turnMarkerMeasureFrame);
-		stopVimScroll();
-		clearPendingVimG();
+		sessionChat.scroll.stopVimScroll();
+		sessionChat.scroll.clearPendingVimG();
 		/* generationRealtime disposed via sessionChat.dispose() */
 		sessionChat.persistSessionScrollAnchorsNow();
 		pageMounted = false;
@@ -2070,7 +2021,7 @@ const headerContext = $derived({
 	activeSessionId,
 	canManageSessionAccess,
 	isActiveSessionPublic: activeSessionId
-		? hasSessionPermission(activeSessionId)
+		? sessionChat.share.hasPermission(activeSessionId)
 		: false,
 	spaceHasMinimalAccess,
 	rightSidebarAvailable,
@@ -2368,16 +2319,16 @@ const headerActions = {
   />
   {/if}
   <SessionShareDialog
-    open={sessionShare.open && !!sessionShare.sessionId}
-    isPublic={sessionShare.isCurrentPublic}
-    saving={sessionShare.saving}
-    copied={sessionShare.copied}
-    error={sessionShare.error}
-    onClose={sessionShare.close}
-    onRemovePermission={sessionShare.removeCurrentPermission}
-    onMakePrivate={sessionShare.makePrivate}
-    onCopyLink={sessionShare.copyLink}
-    onShare={sessionShare.shareAndCopyLink}
+    open={sessionChat.share.open && !!sessionChat.share.sessionId}
+    isPublic={sessionChat.share.isCurrentPublic}
+    saving={sessionChat.share.saving}
+    copied={sessionChat.share.copied}
+    error={sessionChat.share.error}
+    onClose={sessionChat.share.close}
+    onRemovePermission={sessionChat.share.removeCurrentPermission}
+    onMakePrivate={sessionChat.share.makePrivate}
+    onCopyLink={sessionChat.share.copyLink}
+    onShare={sessionChat.share.shareAndCopyLink}
   />
 </div>
 {/if}
