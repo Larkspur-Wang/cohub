@@ -14,7 +14,9 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SessionTaskTray from "$lib/components/SessionTaskTray.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
+import SessionModelSelectorDialog from "$lib/features/space/modules/SessionModelSelectorDialog.svelte";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
+import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import type { SessionChatHost } from "./session-chat-host.controller.svelte";
 
 let {
@@ -51,6 +53,18 @@ let composerInput = $state("");
 let shouldAutoFollow = $state(true);
 let showTurnBottomSheet = $state(false);
 let showModelSelector = $state(false);
+const modelsCatalog = $derived(modelsCatalogStore.items);
+const generationModelsCatalog = $derived(host.generationModelsCatalog);
+const generationPolicyMode = $derived(host.generationPolicyMode);
+const selectedGenerationModels = $derived(host.selectedGenerationModels);
+const generationEnumSelections = $derived(host.generationEnumSelections);
+const generationNumericConstraints = $derived(
+	host.generationNumericConstraints,
+);
+const generationBooleanConstraints = $derived(
+	host.generationBooleanConstraints,
+);
+const activeSessionModel = $derived(host.activeSessionModel);
 
 $effect(() => {
 	const el = listEl;
@@ -381,5 +395,28 @@ $effect(() => {
 				}}
 			/>
 		</div>
+		<SessionModelSelectorDialog
+			open={showModelSelector}
+			onClose={() => {
+				showModelSelector = false;
+			}}
+			onSelect={host.handleModelSelect}
+			models={modelsCatalog ?? []}
+			currentModel={activeSessionModel}
+			generationModels={generationModelsCatalog ?? []}
+			{generationPolicyMode}
+			{selectedGenerationModels}
+			{generationEnumSelections}
+			{generationNumericConstraints}
+			{generationBooleanConstraints}
+			onGenerationTabOpen={() => {
+				void host.loadGenerationModelsCatalog();
+			}}
+			onGenerationPolicyModeChange={host.setGenerationPolicyMode}
+			onGenerationModelToggle={host.setGenerationModelSelected}
+			onGenerationEnumValueToggle={host.setGenerationEnumValueSelected}
+			onGenerationNumericConstraintChange={host.setGenerationNumericConstraint}
+			onGenerationBooleanConstraintChange={host.setGenerationBooleanConstraint}
+		/>
 	</div>
 {/if}

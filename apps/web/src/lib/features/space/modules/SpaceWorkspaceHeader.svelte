@@ -20,10 +20,10 @@ import {
 import { floatNear } from "$lib/actions/portal";
 import ColumnHeader from "$lib/components/ColumnHeader.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import { getSessionTitle } from "$lib/features/session-chat/session-utils";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { uiState } from "$lib/stores/ui.svelte";
 import SpacePresenceStack from "./SpacePresenceStack.svelte";
-import { getSessionTitle } from "./session-utils";
 
 type HeaderRouteView =
 	| "space"

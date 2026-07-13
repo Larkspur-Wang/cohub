@@ -36,6 +36,7 @@ import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
 import { createSessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
+import { getSessionTitle } from "$lib/features/session-chat/session-utils";
 import { subscribeSpaceChannel } from "$lib/features/session-chat/space-channel";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
@@ -73,7 +74,6 @@ import { authStore } from "$lib/stores/auth.svelte";
 import { isBillingAccessBlockedCode } from "$lib/stores/billing-conversion.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import {} from "$lib/stores/draft-session-model";
-import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import {
 	getCachedSessionListSnapshot,
 	onSessionListCacheUpdated,
@@ -95,7 +95,6 @@ import PortReadyToastView from "./modules/PortReadyToast.svelte";
 import { createPortPreviewController } from "./modules/port-preview-controller.svelte";
 import { extractPublicEndpoints } from "./modules/port-preview-utils";
 import { createPreviewWorkspaceController } from "./modules/preview-workspace-controller.svelte";
-import SessionModelSelectorDialog from "./modules/SessionModelSelectorDialog.svelte";
 import SessionShareDialog from "./modules/SessionShareDialog.svelte";
 import SpaceDanmakuLayer from "./modules/SpaceDanmakuLayer.svelte";
 import SpaceFileDomain, {
@@ -105,7 +104,6 @@ import SpaceRouteDetailHost, {
 	type RouteDetailView,
 } from "./modules/SpaceRouteDetailHost.svelte";
 import SpaceWorkspaceHeader from "./modules/SpaceWorkspaceHeader.svelte";
-import { getSessionTitle } from "./modules/session-utils";
 import {
 	createSpaceBootstrapController,
 	withBootstrapCacheTimeout,
@@ -288,7 +286,6 @@ const sessionChat = createSessionChatHost({
 });
 
 // Host is the unique owner of chat controllers and session records.
-const isDraftNewSessionRoute = $derived(sessionChat.isDraftNewSessionRoute);
 
 const activeSessionId = $derived(sessionChat.activeSessionId);
 // Session rename (header inline edit)
@@ -296,27 +293,6 @@ let sessionRenaming = $state(false);
 let sessionRenameValue = $state("");
 let sessionRenameSaving = $state(false);
 
-const modelsCatalog = $derived(modelsCatalogStore.items);
-const generationModelsCatalog = $derived(sessionChat.generationModelsCatalog);
-const generationPolicyMode = $derived(sessionChat.generationPolicyMode);
-const selectedGenerationModels = $derived(sessionChat.selectedGenerationModels);
-const generationPolicyLabel = $derived(sessionChat.generationPolicyLabel);
-const generationEnumSelections = $derived(sessionChat.generationEnumSelections);
-const generationNumericConstraints = $derived(
-	sessionChat.generationNumericConstraints,
-);
-const generationBooleanConstraints = $derived(
-	sessionChat.generationBooleanConstraints,
-);
-const promptTemplates = $derived(sessionChat.promptTemplates);
-const promptTemplatesLoaded = $derived(sessionChat.promptTemplatesLoaded);
-let showModelSelector = $state(false);
-$effect(() => {
-	showModelSelector = sessionChat.showModelSelector;
-});
-$effect(() => {
-	sessionChat.showModelSelector = showModelSelector;
-});
 let resourceActionMenuOpen = $state(false);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
@@ -640,11 +616,6 @@ let turnMarkerMeasureFrame: number | null = null;
 let refreshSessionsListInFlight: Promise<void> | null = null;
 let refreshSessionsListQueued = false;
 let refreshSessionsListQueuedForce = false;
-type SessionScrollAnchor = {
-	sequence: number;
-	offset: number;
-	updatedAt: number;
-};
 const spacePresence = createSpacePresenceController(() => spaceId);
 const danmakuController = createSpaceDanmakuController();
 const spaceRealtime = createSpaceRealtimeController({
@@ -923,7 +894,6 @@ const bootstrapNeedsBillingAction = $derived(
 	isBillingAccessBlockedCode(bootstrapErrorCode),
 );
 const canCreateSession = $derived(Boolean(space && !creatingSession));
-const activeSessionModel = $derived(sessionChat.activeSessionModel);
 async function loadPreviewEndpoints() {
 	await portPreview.loadEndpoints();
 }
@@ -1631,7 +1601,7 @@ function handleSessionVimKeydown(event: KeyboardEvent) {
 		key === "m"
 	) {
 		event.preventDefault();
-		showModelSelector = true;
+		sessionChat.showModelSelector = true;
 		void sessionChat.loadModelsCatalog();
 		void sessionChat.loadGenerationModelsCatalog();
 		return;
@@ -1783,7 +1753,6 @@ onMount(() => {
 		offSpaceConfigBackgroundAction();
 		offDanmakuPrefs();
 		danmakuController.dispose();
-		sessionShare.dispose();
 		spaceStatus.dispose();
 		fileWorkspace.dispose();
 		portPreview.dispose();
@@ -2409,25 +2378,6 @@ const headerActions = {
     onMakePrivate={sessionShare.makePrivate}
     onCopyLink={sessionShare.copyLink}
     onShare={sessionShare.shareAndCopyLink}
-  />
-  <SessionModelSelectorDialog
-    open={showModelSelector}
-    onClose={() => { showModelSelector = false; }}
-    onSelect={sessionChat.handleModelSelect}
-    models={modelsCatalog ?? []}
-    currentModel={activeSessionModel}
-    generationModels={generationModelsCatalog ?? []}
-    {generationPolicyMode}
-    {selectedGenerationModels}
-    {generationEnumSelections}
-    {generationNumericConstraints}
-    {generationBooleanConstraints}
-    onGenerationTabOpen={() => { void sessionChat.loadGenerationModelsCatalog(); }}
-    onGenerationPolicyModeChange={sessionChat.setGenerationPolicyMode}
-    onGenerationModelToggle={sessionChat.setGenerationModelSelected}
-    onGenerationEnumValueToggle={sessionChat.setGenerationEnumValueSelected}
-    onGenerationNumericConstraintChange={sessionChat.setGenerationNumericConstraint}
-    onGenerationBooleanConstraintChange={sessionChat.setGenerationBooleanConstraint}
   />
 </div>
 {/if}
