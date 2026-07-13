@@ -1581,7 +1581,8 @@ function optimisticPrependWebAppLabelSession(
 
 function restoreExpandedLabelIds(spaceId: string) {
 	const expanded = getCachedExpandedLabelIdsSnapshot(spaceId);
-	if (!expanded) return;
+	// Empty cache means "no remembered preference" — leave room for the default.
+	if (!expanded?.size) return;
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
 		[spaceId]: expanded,
@@ -1596,7 +1597,11 @@ function applyDefaultExpandedLabelId(
 	spaceId: string,
 	nextLabels: LabelListItem[],
 ) {
-	if (getCachedExpandedLabelIdsSnapshot(spaceId)) return;
+	// Only honor a non-empty remembered preference. An empty cached set is a bad
+	// state for first paint (collapsed-all / pruned-away labels) and should not
+	// permanently block Web App / All from opening.
+	const cached = getCachedExpandedLabelIdsSnapshot(spaceId);
+	if (cached && cached.size > 0) return;
 	if (expandedLabelIdsBySpace[spaceId]?.size) return;
 	const labelId = findDefaultExpandedLabelId(nextLabels);
 	const expanded = new Set([labelId]);
@@ -1629,6 +1634,9 @@ function pruneExpandedLabelIds(spaceId: string, nextLabels: LabelListItem[]) {
 		[spaceId]: next,
 	};
 	setCachedExpandedLabelIds(spaceId, next);
+	// If every remembered id is gone, re-apply the default so the chats section
+	// does not stay fully collapsed after labels change.
+	if (next.size === 0) applyDefaultExpandedLabelId(spaceId, nextLabels);
 }
 
 function refreshExpandedLabelItems(spaceId: string) {
