@@ -1,5 +1,14 @@
 <script lang="ts">
 import type { SessionTurnIndexItem } from "@cohub/protocol/model";
+import {
+	formatCompactAbsoluteTime,
+	formatFullAbsoluteTime,
+} from "$lib/time-format";
+import {
+	formatTurnNavPreview,
+	getTurnNavAuthorName,
+	shouldShowTurnNavAuthors,
+} from "$lib/turn-nav-preview";
 
 type Props = {
 	open: boolean;
@@ -10,6 +19,8 @@ type Props = {
 };
 
 let { open, turns, currentSequence = null, onClose, onJump }: Props = $props();
+
+const showAuthors = $derived(shouldShowTurnNavAuthors(turns));
 
 function jump(sequence: number) {
 	onJump?.(sequence);
@@ -31,6 +42,10 @@ function statusTone(status: SessionTurnIndexItem["status"]) {
 			<div class="mx-auto mt-2.5 h-1 w-9 rounded-full bg-border-subtle"></div>
 			<div class="max-h-[66vh] overflow-y-auto pb-2 pt-2">
 				{#each turns as turn (`${turn.sequence}:${turn.id}`)}
+					{@const preview = formatTurnNavPreview(turn)}
+					{@const timeLabel = formatCompactAbsoluteTime(turn.createdAt)}
+					{@const fullTime = formatFullAbsoluteTime(turn.createdAt, { seconds: true })}
+					{@const authorName = showAuthors ? getTurnNavAuthorName(turn) : null}
 					<button
 						type="button"
 						class={`flex w-full items-start gap-3 px-4 py-3 text-left transition-colors ${turn.sequence === currentSequence ? 'bg-brand/10' : 'active:bg-bg-hover'}`}
@@ -39,9 +54,19 @@ function statusTone(status: SessionTurnIndexItem["status"]) {
 						<div class={`mt-0.5 w-10 shrink-0 text-[11px] font-medium tabular-nums ${turn.sequence === currentSequence ? 'text-brand' : 'text-text-tertiary'}`}>#{turn.sequence}</div>
 						<div class="min-w-0 flex-1">
 							<div class="line-clamp-2 text-[13px] leading-relaxed text-text-primary">
-								{turn.userPreview ?? "Empty user message"}
+								{preview}
 							</div>
-							<div class={`mt-1 text-[11px] ${statusTone(turn.status)}`}>{turn.status}{turn.model ? ` · ${turn.model}` : ''}</div>
+							<div class={`mt-1 flex min-w-0 flex-wrap items-center gap-x-1 text-[11px] ${statusTone(turn.status)}`}>
+								{#if timeLabel}
+									<span class="tabular-nums text-text-placeholder" title={fullTime || undefined}>{timeLabel}</span>
+									<span class="text-text-placeholder">·</span>
+								{/if}
+								{#if authorName}
+									<span class="min-w-0 max-w-[9rem] truncate text-text-placeholder" title={authorName}>{authorName}</span>
+									<span class="text-text-placeholder">·</span>
+								{/if}
+								<span>{turn.status}{turn.model ? ` · ${turn.model}` : ''}</span>
+							</div>
 						</div>
 					</button>
 				{/each}

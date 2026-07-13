@@ -29,6 +29,7 @@ export type SessionTurnSegmentRecord = {
 
 export type {
   MessageToolCallsFile,
+  SessionTurnAuthorProfile,
   SessionTurnIntent,
   SessionTurnIntermediateIndex,
   SessionTurnIntermediateSummary,

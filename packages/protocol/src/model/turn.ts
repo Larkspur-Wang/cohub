@@ -84,6 +84,13 @@ export type TurnIntermediateMessagesFile = {
   messages: StoredIntermediateMessage[];
 };
 
+export type SessionTurnAuthorProfile = {
+  userUuid: string;
+  username?: string | null;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export type SessionTurnIndexItem = {
   id: string;
   sessionId: string;
@@ -91,6 +98,10 @@ export type SessionTurnIndexItem = {
   sourceTurnId?: string;
   sequence: number;
   status: SessionTurnStatus;
+  /** Present on current turn index payloads; older caches may omit it. */
+  intent?: SessionTurnIntent;
+  userUuid?: string | null;
+  authorProfile?: SessionTurnAuthorProfile | null;
   startedAt: string | null;
   completedAt: string | null;
   durationMs: number | null;
@@ -103,13 +114,6 @@ export type SessionTurnIndexItem = {
   finalUsage: Usage | null;
   totalUsage: Usage | null;
   errorMessage: string | null;
-};
-
-export type SessionTurnAuthorProfile = {
-  userUuid: string;
-  username?: string | null;
-  displayName: string;
-  avatarUrl: string | null;
 };
 
 export type SessionTurnRecord = {

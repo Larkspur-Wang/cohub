@@ -207,6 +207,8 @@ type SessionTurnIndexRow = {
   sessionId: string;
   sequence: number;
   status: SessionTurnStatus;
+  intent: SessionTurnIntent;
+  userUuid: string | null;
   startedAt: Date | string | null;
   completedAt: Date | string | null;
   durationMs: number | null;
@@ -226,6 +228,8 @@ const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
   sessionId: row.sessionId,
   sequence: row.sequence,
   status: row.status,
+  intent: row.intent,
+  userUuid: row.userUuid ?? null,
   startedAt: row.startedAt ? toIso(row.startedAt) : null,
   completedAt: row.completedAt ? toIso(row.completedAt) : null,
   durationMs: row.durationMs ?? null,
@@ -239,6 +243,23 @@ const toTurnIndexItem = (row: SessionTurnIndexRow): SessionTurnIndexItem => ({
   totalUsage: row.totalUsage ?? row.finalUsage ?? null,
   errorMessage: previewText(row.errorMessage, 220),
 });
+
+const hydrateTurnIndexAuthorProfiles = async (turns: SessionTurnIndexItem[]) => {
+  const userUuids = turns
+    .map((turn) => turn.userUuid)
+    .filter((value): value is string => Boolean(value));
+  if (userUuids.length === 0) {
+    return turns.map((turn) => ({ ...turn, authorProfile: turn.authorProfile ?? null }));
+  }
+  const profiles = await getProfilesByUuids(userUuids);
+  return turns.map((turn) => {
+    if (!turn.userUuid) return { ...turn, authorProfile: null };
+    return {
+      ...turn,
+      authorProfile: profiles.get(turn.userUuid) ?? fallbackPublicUserProfile(turn.userUuid),
+    };
+  });
+};
 
 const withTimelineSource = <T extends SessionTurnRecord | SessionTurnIndexItem>(turn: T, currentSessionId: string): T => ({
   ...turn,
@@ -341,6 +362,8 @@ export const listSessionTurnIndex = async (sessionId: string, options?: { cursor
       sessionId: sessionTurns.sessionId,
       sequence: sessionTurns.sequence,
       status: sessionTurns.status,
+      intent: sessionTurns.intent,
+      userUuid: sessionTurns.userUuid,
       startedAt: sessionTurns.startedAt,
       completedAt: sessionTurns.completedAt,
       durationMs: sessionTurns.durationMs,
@@ -359,7 +382,7 @@ export const listSessionTurnIndex = async (sessionId: string, options?: { cursor
   const hasMore = collected.length > limit;
   const pageRows = hasMore ? collected.slice(0, limit) : collected;
   return {
-    turns: pageRows,
+    turns: await hydrateTurnIndexAuthorProfiles(pageRows),
     hasMore,
     nextCursor: pageRows.at(-1)?.sequence,
   };

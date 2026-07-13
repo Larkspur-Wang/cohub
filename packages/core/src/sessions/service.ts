@@ -44,23 +44,38 @@ export type SessionServices = ReturnType<typeof createSessionServices>;
 const AGENT_TURN_ABORT_CHANNEL = "pubsub:agent:turn_abort";
 const getAgentTurnAbortKey = (turnId: string) => `agent:turn:${turnId}:abort`;
 
-const deriveMessagePreviewText = (input: { content: ContentBlock[] }) => input.content
-  .flatMap((block) => {
+const imagePreviewLabel = (count: number) => (count === 1 ? "Image" : `${count} images`);
+
+const deriveMessagePreviewText = (input: { content: ContentBlock[] }) => {
+  const parts: string[] = [];
+  let imageCount = 0;
+
+  for (const block of input.content) {
     switch (block.type) {
-      case "text":
-        return [block.text];
+      case "text": {
+        const text = block.text.trim();
+        if (text) parts.push(text);
+        break;
+      }
       case "image":
-        return block.source.type === "url" ? [block.source.url] : [];
+        imageCount += 1;
+        break;
       case "shell_command":
-        return [["$", block.command].join("")];
-      case "system_note":
-        return [block.text];
+        parts.push(["$", block.command].join(""));
+        break;
+      case "system_note": {
+        const text = block.text.trim();
+        if (text) parts.push(text);
+        break;
+      }
       default:
-        return [];
+        break;
     }
-  })
-  .join("\n")
-  .trim();
+  }
+
+  if (imageCount > 0) parts.push(imagePreviewLabel(imageCount));
+  return parts.join(" · ").replace(/\s+/g, " ").trim();
+};
 
 export function createSessionServices(input: {
   db: DrizzleDb;

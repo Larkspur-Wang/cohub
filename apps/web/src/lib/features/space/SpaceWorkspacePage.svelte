@@ -179,6 +179,7 @@ import {
 	RIGHT_SIDEBAR_MIN,
 	uiState,
 } from "$lib/stores/ui.svelte";
+import { turnRecordToIndexItem } from "$lib/turn-nav-preview";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import { createCanvasPreviewController } from "./modules/canvas-preview-controller.svelte";
@@ -1639,10 +1640,14 @@ const activeTurnRailItems = $derived.by<SessionTurnIndexItem[]>(() => {
 	const bySequence = new Map<number, SessionTurnIndexItem>();
 	for (const item of activeTurnIndex) bySequence.set(item.sequence, item);
 	for (const turn of activeSessionState?.turns ?? []) {
-		const item = turnToIndexItem(turn);
+		const item = turnRecordToIndexItem(turn);
+		const existing = bySequence.get(turn.sequence);
 		bySequence.set(turn.sequence, {
-			...bySequence.get(turn.sequence),
+			...existing,
 			...item,
+			// Prefer any available author profile when merging index + loaded turns.
+			authorProfile: item.authorProfile ?? existing?.authorProfile ?? null,
+			userUuid: item.userUuid ?? existing?.userUuid ?? null,
 		});
 	}
 	return [...bySequence.values()].sort((a, b) => a.sequence - b.sequence);
@@ -1871,26 +1876,6 @@ async function handleCancelFollowup(turnId: string) {
 	}
 }
 
-function turnToIndexItem(turn: SessionTurnRecord): SessionTurnIndexItem {
-	return {
-		id: turn.id,
-		sessionId: turn.sessionId,
-		sequence: turn.sequence,
-		status: turn.status,
-		startedAt: turn.startedAt,
-		completedAt: turn.completedAt,
-		durationMs: turn.durationMs,
-		createdAt: turn.createdAt,
-		updatedAt: turn.updatedAt,
-		userPreview: turn.userText,
-		assistantPreview: turn.assistantText,
-		provider: turn.provider,
-		model: turn.model,
-		finalUsage: turn.finalUsage,
-		totalUsage: turn.totalUsage,
-		errorMessage: turn.errorMessage,
-	};
-}
 function applySessionGenerationPolicy(sessionId: string) {
 	generationPolicy.apply(generationPolicy.load(sessionId));
 }
