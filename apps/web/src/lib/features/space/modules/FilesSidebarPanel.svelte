@@ -44,11 +44,6 @@ type Props = {
 	onUploadPaneClose: () => void;
 	onUploadComplete: () => void | Promise<void>;
 	onResizeStart: (event: PointerEvent) => void;
-	/** Collapse tree only (keep preview). Desktop. */
-	onCollapseTree?: () => void;
-	/** Expand tree when it is collapsed but preview is open. Desktop. */
-	onExpandTree?: () => void;
-	showTreeExpandRail?: boolean;
 };
 
 let {
@@ -89,26 +84,8 @@ let {
 	onUploadPaneClose,
 	onUploadComplete,
 	onResizeStart,
-	onCollapseTree,
-	onExpandTree,
-	showTreeExpandRail = false,
 }: Props = $props();
 </script>
-
-{#if desktopCollapsed && showTreeExpandRail && onExpandTree}
-	<div class="tree-expand-rail hidden shrink-0 lg:flex">
-		<button
-			type="button"
-			class="tree-expand-btn"
-			title="Show file tree"
-			aria-label="Show file tree"
-			onclick={onExpandTree}
-		>
-			<span class="tree-expand-btn__icon" aria-hidden="true">‹</span>
-			<span class="tree-expand-btn__label">Files</span>
-		</button>
-	</div>
-{/if}
 
 {#if !desktopCollapsed}
 	<div
@@ -141,7 +118,6 @@ let {
 				{showItemActions}
 				{canWrite}
 				{previewEndpoints}
-				onCollapseTree={onCollapseTree}
 			/>
 			<FileUploadPane
 				{spaceId}
@@ -205,44 +181,6 @@ let {
 </MobileRightDrawer>
 
 <style>
-	.tree-expand-rail {
-		width: 28px;
-		border-left: 1px solid var(--border-subtle);
-		background: var(--bg-primary);
-	}
-
-	.tree-expand-btn {
-		display: flex;
-		height: 100%;
-		width: 100%;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 8px;
-		border: 0;
-		background: transparent;
-		color: var(--text-tertiary);
-		cursor: pointer;
-		transition: background-color 120ms ease, color 120ms ease;
-	}
-
-	.tree-expand-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-secondary);
-	}
-
-	.tree-expand-btn__icon {
-		font-size: 14px;
-		line-height: 1;
-	}
-
-	.tree-expand-btn__label {
-		writing-mode: vertical-rl;
-		transform: rotate(180deg);
-		font-size: 11px;
-		font-weight: 500;
-		letter-spacing: 0.04em;
-	}
 
 	@media (min-width: 960px) {
 		.files-sidebar-shell--floating {

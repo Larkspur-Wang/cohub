@@ -30,6 +30,8 @@ type Props = {
 	focused: boolean;
 	immersive: boolean;
 	isMobile: boolean;
+	treeVisible?: boolean;
+	onToggleTree?: () => void;
 	onResizeStart: (event: PointerEvent) => void;
 	onToggleFocus: () => void | Promise<void>;
 	onToggleImmersive: () => void | Promise<void>;
@@ -60,6 +62,8 @@ let {
 	focused,
 	immersive,
 	isMobile,
+	treeVisible = true,
+	onToggleTree,
 	onResizeStart,
 	onToggleFocus,
 	onToggleImmersive,
@@ -93,7 +97,7 @@ function loadCanvasPanelModule() {
 	{#if canvas.loading}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
 			{#if !immersive}
-			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={immersive ? undefined : onToggleTree} />
 			{/if}
 			<div class="flex h-11 shrink-0 items-center border-b border-border-subtle bg-bg-surface px-3 text-xs text-text-tertiary">Loading canvas…</div>
 			<div class="flex flex-1 items-center justify-center text-xs text-text-tertiary">Loading…</div>
@@ -101,7 +105,7 @@ function loadCanvasPanelModule() {
 	{:else if canvas.error}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
 			{#if !immersive}
-			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={immersive ? undefined : onToggleTree} />
 			{/if}
 			<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 				<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>
@@ -114,7 +118,7 @@ function loadCanvasPanelModule() {
 			{@const LazyCanvasPanel = canvasPanelModule.default}
 			<div class="flex h-full min-w-0 flex-col bg-bg-content">
 				{#if !immersive}
-					<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+					<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={immersive ? undefined : onToggleTree} />
 				{/if}
 				<div class="min-h-0 flex-1">
 					<LazyCanvasPanel
@@ -143,7 +147,7 @@ function loadCanvasPanelModule() {
 	{:else}
 		<div class="flex h-full min-w-0 flex-col bg-bg-content">
 			{#if !immersive}
-			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={immersive ? undefined : onToggleTree} />
 			{/if}
 			<div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 				<span class="min-w-0 flex-1 truncate text-xs text-text-secondary">{canvas.path}</span>

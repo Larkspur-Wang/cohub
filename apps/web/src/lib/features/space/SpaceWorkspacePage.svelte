@@ -4645,26 +4645,17 @@ function editResourceLabels(
 	labelPickerResource = { type: resourceType, ref: resourceRef };
 }
 
-function getHeaderFileActionPath() {
-	return inlineFile?.path ?? null;
-}
-
 function hasResourceActions() {
-	return Boolean(activeSessionState?.session || getHeaderFileActionPath());
+	// Session header actions are always session-scoped.
+	return Boolean(activeSessionState?.session);
 }
 
 function closeResourceActionMenu() {
 	resourceActionMenuOpen = false;
-	fileWorkspace.fileActionMenuOpenPath = null;
 }
 
 function insertHeaderReference() {
-	const filePath = getHeaderFileActionPath();
-	if (filePath) {
-		insertFilePathReference(filePath);
-		closeResourceActionMenu();
-		return;
-	}
+	// Always insert the active session reference from the session header.
 	insertActiveSessionReference();
 	closeResourceActionMenu();
 }
@@ -5565,18 +5556,9 @@ const spaceFileDomainProps = $derived.by<
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
 	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,
 	onBeginRightSidebarResize: beginRightSidebarResize,
-	onCollapseTree: () => {
-		// No preview open: collapse whole Files column instead of leaving an empty rail.
-		if (!activePreviewKind) {
-			previewLayout.toggleFilesColumn();
-			return;
-		}
+	treeVisible: !effectiveRightSidebarCollapsed,
+	onToggleTree: () => {
 		void toggleFilesTree();
-	},
-	onExpandTree: () => {
-		// Rail is visible only when column is shown and tree collapsed.
-		if (filesColumnHidden) previewLayout.setFilesColumnHidden(false);
-		if (uiState.rightSidebarCollapsed) void toggleFilesTree();
 	},
 	onEditResourceLabels: editResourceLabels,
 	onInsertFilePathReference: insertFilePathReference,
@@ -5633,9 +5615,7 @@ const headerActions = {
 	},
 	closeResourceActionMenu,
 	labelHeaderResource: () => {
-		const filePath = getHeaderFileActionPath();
-		if (filePath) void editResourceLabels("file", filePath);
-		else if (activeSessionState?.session)
+		if (activeSessionState?.session)
 			void editResourceLabels("session", activeSessionState.session.id);
 	},
 	insertHeaderReference,
@@ -5913,18 +5893,7 @@ const sessionWorkspaceProps = $derived.by<
     class="workspace-main flex-1 min-h-0 flex flex-col min-w-0 bg-bg-content"
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
   >
-    {#if previewImmersiveMode}
-      <SpaceWorkspaceHeader
-        context={headerContext}
-        sessionRename={sessionRenameState}
-        resourceActions={resourceActionState}
-        actions={{
-          ...headerActions,
-          exitImmersivePreview: togglePreviewImmersiveMode,
-        }}
-        presentation="immersive"
-      />
-    {:else}
+    {#if !previewImmersiveMode}
       <div class="workspace-main-header relative z-20 shrink-0 overflow-visible">
         <SpaceWorkspaceHeader
           context={headerContext}
@@ -6112,8 +6081,8 @@ const sessionWorkspaceProps = $derived.by<
   .immersive-chat-controls {
     position: absolute;
     top: 7px;
-    left: 7px;
-    right: auto;
+    right: 7px;
+    left: auto;
     z-index: 20;
     display: flex;
     align-items: center;
@@ -6463,4 +6432,6 @@ const sessionWorkspaceProps = $derived.by<
     flex-shrink: 0;
   }
   :global(.zoom-btn:hover) { background: var(--bg-hover); color: var(--text-secondary); }
+</style>
+-text-secondary); }
 </style>

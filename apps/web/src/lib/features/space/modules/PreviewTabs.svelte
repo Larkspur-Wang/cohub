@@ -1,5 +1,12 @@
 <script lang="ts">
-import { File as FileIcon, Globe, MousePointer2, X } from "lucide-svelte";
+import {
+	File as FileIcon,
+	Globe,
+	MousePointer2,
+	PanelRightClose,
+	PanelRightOpen,
+	X,
+} from "lucide-svelte";
 
 type PreviewTab = {
 	kind: "file" | "canvas" | "port";
@@ -16,9 +23,20 @@ type Props = {
 	onClose: (kind: PreviewTab["kind"], key: string) => void;
 	/** Compact strip for embedding inside a parent toolbar row. */
 	embedded?: boolean;
+	/** File tree currently visible. */
+	treeVisible?: boolean;
+	/** Collapse/expand file tree without closing preview. */
+	onToggleTree?: () => void;
 };
 
-let { tabs, onActivate, onClose, embedded = false }: Props = $props();
+let {
+	tabs,
+	onActivate,
+	onClose,
+	embedded = false,
+	treeVisible = true,
+	onToggleTree,
+}: Props = $props();
 
 const kindIcon = {
 	file: FileIcon,
@@ -27,40 +45,58 @@ const kindIcon = {
 } as const;
 </script>
 
-{#if tabs.length > 0}
+{#if tabs.length > 0 || onToggleTree}
 	<div
 		class="preview-tabs"
 		class:preview-tabs--embedded={embedded}
 		role="tablist"
 		aria-label="Open previews"
 	>
-		{#each tabs as tab (`${tab.kind}:${tab.key}`)}
-			{@const Icon = kindIcon[tab.kind]}
-			<div class="preview-tab-shell" class:active={tab.active}>
-				<button
-					type="button"
-					class="preview-tab"
-					role="tab"
-					aria-selected={tab.active}
-					title={tab.title}
-					onclick={() => onActivate(tab.kind, tab.key)}
-				>
-					<span class="preview-tab-icon">
-						<Icon class="h-3 w-3" />
-					</span>
-					<span class="truncate">{tab.label}</span>
-					{#if tab.dirty}<span class="preview-tab-dot" aria-label="Unsaved changes"></span>{/if}
-				</button>
-				<button
-					type="button"
-					class="preview-tab-close"
-					aria-label={`Close ${tab.label}`}
-					onclick={() => onClose(tab.kind, tab.key)}
-				>
-					<X class="w-3 h-3" />
-				</button>
-			</div>
-		{/each}
+		<div class="preview-tabs-scroll">
+			{#each tabs as tab (`${tab.kind}:${tab.key}`)}
+				{@const Icon = kindIcon[tab.kind]}
+				<div class="preview-tab-shell" class:active={tab.active}>
+					<button
+						type="button"
+						class="preview-tab"
+						role="tab"
+						aria-selected={tab.active}
+						title={tab.title}
+						onclick={() => onActivate(tab.kind, tab.key)}
+					>
+						<span class="preview-tab-icon">
+							<Icon class="h-3 w-3" />
+						</span>
+						<span class="truncate">{tab.label}</span>
+						{#if tab.dirty}<span class="preview-tab-dot" aria-label="Unsaved changes"></span>{/if}
+					</button>
+					<button
+						type="button"
+						class="preview-tab-close"
+						aria-label={`Close ${tab.label}`}
+						onclick={() => onClose(tab.kind, tab.key)}
+					>
+						<X class="w-3 h-3" />
+					</button>
+				</div>
+			{/each}
+		</div>
+		{#if onToggleTree}
+			<button
+				type="button"
+				class="preview-tree-toggle"
+				title={treeVisible ? "Collapse file tree" : "Show file tree"}
+				aria-label={treeVisible ? "Collapse file tree" : "Show file tree"}
+				aria-pressed={treeVisible}
+				onclick={onToggleTree}
+			>
+				{#if treeVisible}
+					<PanelRightClose class="h-3.5 w-3.5" />
+				{:else}
+					<PanelRightOpen class="h-3.5 w-3.5" />
+				{/if}
+			</button>
+		{/if}
 	</div>
 {/if}
 
@@ -71,12 +107,11 @@ const kindIcon = {
 		min-width: 0;
 		flex: 0 0 auto;
 		align-items: stretch;
-		gap: 1px;
-		overflow-x: auto;
+		gap: 2px;
+		overflow: hidden;
 		border-bottom: 1px solid var(--border-subtle);
 		background: var(--bg-surface);
-		padding: 0 0.25rem;
-		scrollbar-width: thin;
+		padding: 0 0.25rem 0 0.25rem;
 	}
 
 	.preview-tabs--embedded {
@@ -85,6 +120,16 @@ const kindIcon = {
 		border-bottom: 0;
 		background: transparent;
 		padding: 0;
+	}
+
+	.preview-tabs-scroll {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 auto;
+		align-items: stretch;
+		gap: 1px;
+		overflow-x: auto;
+		scrollbar-width: thin;
 	}
 
 	.preview-tab-shell {
@@ -169,7 +214,6 @@ const kindIcon = {
 		opacity: 0.55;
 	}
 
-	/* Touch targets: always show close on compact mobile toolbars */
 	.preview-tabs--embedded .preview-tab-close {
 		opacity: 0.55;
 	}
@@ -177,6 +221,28 @@ const kindIcon = {
 	.preview-tab-close:hover {
 		background: var(--bg-hover);
 		opacity: 1 !important;
+		color: var(--text-secondary);
+	}
+
+	.preview-tree-toggle {
+		display: inline-flex;
+		height: 1.75rem;
+		width: 1.75rem;
+		flex: 0 0 auto;
+		align-self: center;
+		align-items: center;
+		justify-content: center;
+		margin-left: 2px;
+		border: 0;
+		border-radius: 6px;
+		background: transparent;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		transition: background-color 120ms ease, color 120ms ease;
+	}
+
+	.preview-tree-toggle:hover {
+		background: var(--bg-hover);
 		color: var(--text-secondary);
 	}
 </style>

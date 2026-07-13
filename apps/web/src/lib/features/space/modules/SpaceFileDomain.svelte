@@ -140,8 +140,8 @@ export type SpaceFileDomainProps = {
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
 	onBeginRightSidebarResize: (event: PointerEvent) => void;
-	onCollapseTree?: () => void;
-	onExpandTree?: () => void;
+	treeVisible?: boolean;
+	onToggleTree?: () => void;
 	onEditResourceLabels: (type: "file", path: string) => void | Promise<void>;
 	onInsertFilePathReference: (path: string) => void;
 	onGetFileActionNode: (path: string) => SpaceFsNode;
@@ -262,8 +262,8 @@ let {
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
 	onBeginRightSidebarResize,
-	onCollapseTree,
-	onExpandTree,
+	treeVisible = true,
+	onToggleTree,
 	onEditResourceLabels,
 	onInsertFilePathReference,
 	onGetFileActionNode,
@@ -338,6 +338,8 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	<InlineFilePanel
 		{inlineFile}
 		{previewTabs}
+		{treeVisible}
+		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}
 		onClosePreviewTab={closePreviewTab}
 		{inlineFileCanGoBack}
@@ -394,6 +396,8 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	<CanvasPreviewPanel
 		canvas={inlineCanvas}
 		previewTabs={previewTabs}
+		{treeVisible}
+		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}
 		onClosePreviewTab={closePreviewTab}
 		width={previewPanelWidth}
@@ -412,6 +416,8 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 {#if activePreviewKind === "port" && inlinePortPreview}
 	<PortPreviewPanel
 		previewTabs={previewTabs}
+		{treeVisible}
+		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}
 		onClosePreviewTab={closePreviewTab}
 		port={inlinePortPreview.port}
@@ -481,11 +487,6 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	onUploadPaneClose={() => onSetUploadPaneVisible(false)}
 	onUploadComplete={onUploadComplete}
 	onResizeStart={onBeginRightSidebarResize}
-	onCollapseTree={onCollapseTree}
-	onExpandTree={onExpandTree}
-	showTreeExpandRail={Boolean(
-		rightSidebarCollapsed && !previewImmersiveMode && !isMobile,
-	)}
 />
 
 <WorkPublishDialog

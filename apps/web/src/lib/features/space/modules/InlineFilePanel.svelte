@@ -82,6 +82,8 @@ type Props = {
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
+	treeVisible?: boolean;
+	onToggleTree?: () => void;
 	isMobile: boolean;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
@@ -141,6 +143,8 @@ let {
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
+	treeVisible = true,
+	onToggleTree,
 	isMobile,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
@@ -252,7 +256,7 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
         {/if}
         {#if previewTabs.length > 1}
           <div class="min-w-0 flex-1 overflow-hidden">
-            <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} embedded />
+            <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} embedded treeVisible={treeVisible} onToggleTree={onToggleTree} />
           </div>
         {:else}
           <div class="min-w-0 flex-1 truncate px-1 text-[13px] text-text-secondary" title={inlineFile.response?.path ?? inlineFile.path}>
@@ -376,7 +380,7 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
       immersive={previewImmersiveMode}
     >
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
-        <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+        <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={onToggleTree} />
         {#if inlineFile.loading}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>

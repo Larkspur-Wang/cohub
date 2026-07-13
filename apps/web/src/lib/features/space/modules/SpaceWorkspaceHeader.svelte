@@ -10,7 +10,6 @@ import {
 	ListTree,
 	Loader2,
 	Menu,
-	Minimize2,
 	MoreHorizontal,
 	PanelRightClose,
 	PanelRightOpen,
@@ -169,18 +168,6 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 </script>
 
 {#snippet HeaderActions()}
-	{#if immersive}
-		<button
-			type="button"
-			class="header-action-btn"
-			onclick={() => runAction(actions.exitImmersivePreview)}
-			title="Exit immersive"
-			aria-label="Exit immersive"
-		>
-			<Minimize2 class="h-4 w-4 shrink-0" />
-		</button>
-	{/if}
-
 	{#if context.activeSessionId && context.canManageSessionAccess}
 		<button
 			type="button"
@@ -190,10 +177,10 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		>
 			{#if context.isActiveSessionPublic}
 				<Globe class="h-4 w-4 shrink-0" />
-				{#if !immersive}<span class="hidden text-[13px] font-medium lg:inline">Shared</span>{/if}
+				<span class="hidden text-[13px] font-medium lg:inline">Shared</span>
 			{:else}
 				<Share2 class="h-4 w-4 shrink-0" />
-				{#if !immersive}<span class="hidden text-[13px] font-medium lg:inline">Share</span>{/if}
+				<span class="hidden text-[13px] font-medium lg:inline">Share</span>
 			{/if}
 		</button>
 	{/if}
@@ -248,7 +235,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		</div>
 	{/if}
 
-	{#if context.rightSidebarAvailable && !immersive}
+	{#if context.rightSidebarAvailable}
 		<button
 			type="button"
 			class="header-action-btn"
@@ -265,11 +252,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 	{/if}
 {/snippet}
 
-{#if immersive}
-	<div class="immersive-header-controls" aria-label="Workspace controls">
-		{@render HeaderActions()}
-	</div>
-{:else}
+{#if !immersive}
 	<ColumnHeader>
 		{#snippet left()}
 			<div class="flex min-w-0 items-center gap-1.5 overflow-hidden">
@@ -350,23 +333,6 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 {/if}
 
 <style>
-	.immersive-header-controls {
-		/* Anchored to the floating chat card (parent is workspace-main). */
-		position: absolute;
-		top: 8px;
-		right: 8px;
-		left: auto;
-		z-index: 30;
-		display: flex;
-		align-items: center;
-		gap: 2px;
-		border: 1px solid var(--border-subtle);
-		border-radius: 10px;
-		background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-		padding: 3px;
-		backdrop-filter: blur(12px);
-		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
-	}
 
 	.header-action-btn {
 		display: inline-flex;
@@ -384,8 +350,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 		transition: background-color 120ms ease, color 120ms ease;
 	}
 
-	.header-action-btn.is-square,
-	.immersive-header-controls .header-action-btn {
+	.header-action-btn.is-square {
 		width: 32px;
 		padding: 0;
 	}

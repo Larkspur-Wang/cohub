@@ -23,6 +23,8 @@ type Props = {
 	focused: boolean;
 	immersive: boolean;
 	isMobile: boolean;
+	treeVisible?: boolean;
+	onToggleTree?: () => void;
 	onResizeStart: (event: PointerEvent) => void;
 	onToggleFocus: () => void | Promise<void>;
 	onToggleImmersive: () => void | Promise<void>;
@@ -42,6 +44,8 @@ let {
 	focused,
 	immersive,
 	isMobile,
+	treeVisible = true,
+	onToggleTree,
 	onResizeStart,
 	onToggleFocus,
 	onToggleImmersive,
@@ -60,7 +64,7 @@ let {
 >
 	<div class="flex h-full min-w-0 flex-col bg-bg-content" class:preview-stage--immersive={immersive}>
 		{#if !immersive}
-			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} />
+			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={immersive ? undefined : onToggleTree} />
 		{/if}
 		<div class="min-h-0 flex-1">
 			<PortPreview

@@ -307,7 +307,7 @@ let {
         onOpenGenerationMedia={handleOpenGenerationTaskMedia}
       />
       {#if followupQueue.length > 0}
-        <div class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6">
+        <div class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-2 py-2 sm:px-4">
           <div class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder">
             <span class="font-medium text-text-secondary">Follow-up</span>
             <span>{followupQueue.length} queued</span>
