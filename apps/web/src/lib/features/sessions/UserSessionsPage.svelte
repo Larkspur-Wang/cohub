@@ -2,8 +2,10 @@
 import type { SessionRecord, UserSessionListItem } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
 import { goto } from "$app/navigation";
-import { createSessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
-import { subscribeSpaceChannel } from "$lib/features/session-chat/space-channel";
+import {
+	createSessionChatHost,
+	subscribeSpaceChannel,
+} from "$lib/features/session-chat";
 import SessionConversationPanel from "$lib/features/sessions/SessionConversationPanel.svelte";
 import UserSessionsList from "$lib/features/sessions/UserSessionsList.svelte";
 import { createUserSessionListController } from "$lib/features/sessions/user-session-list-controller.svelte";

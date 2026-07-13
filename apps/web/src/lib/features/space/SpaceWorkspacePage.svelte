@@ -34,10 +34,12 @@ import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
+import {
+	createSessionChatHost,
+	getSessionTitle,
+	subscribeSpaceChannel,
+} from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
-import { createSessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
-import { getSessionTitle } from "$lib/features/session-chat/session-utils";
-import { subscribeSpaceChannel } from "$lib/features/session-chat/space-channel";
 // SettingsOverlay removed — settings merged inline into detail page
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import {

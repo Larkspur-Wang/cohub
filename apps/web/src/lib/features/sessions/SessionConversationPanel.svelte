@@ -5,9 +5,11 @@
 import type { UserSessionListItem } from "@neta-art/cohub";
 import { ArrowUpRight } from "lucide-svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
+import {
+	getSessionTitle,
+	type SessionChatHost,
+} from "$lib/features/session-chat";
 import SessionChatPanel from "$lib/features/session-chat/SessionChatPanel.svelte";
-import type { SessionChatHost } from "$lib/features/session-chat/session-chat-host.controller.svelte";
-import { getSessionTitle } from "$lib/features/session-chat/session-utils";
 import { buildSpaceSessionRoute } from "$lib/space-routes";
 
 const {

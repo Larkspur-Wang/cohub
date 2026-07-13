@@ -3,7 +3,7 @@ import type { UserSessionListItem } from "@neta-art/cohub";
 import { Loader2 } from "lucide-svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
-import { getSessionTitle } from "$lib/features/session-chat/session-utils";
+import { getSessionTitle } from "$lib/features/session-chat";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import {
 	buildSpaceSessionRoute,
