@@ -7,7 +7,9 @@ import type {
 import {
 	ArrowUp,
 	ChevronDown,
+	Maximize2,
 	Mic,
+	Minimize2,
 	Plus,
 	Square,
 	Upload,
@@ -136,6 +138,7 @@ let spaceMentionTrigger = $state<{
 	query: string;
 } | null>(null);
 let isComposerExpanded = $state(false);
+let hasTextareaOverflow = $state(false);
 let voiceClient: VoiceInputClient | null = null;
 let voicePrefix = "";
 let voiceSuffix = "";
@@ -289,7 +292,7 @@ function getTextareaLimits(expanded = isComposerExpanded) {
 	const viewportHeight = getViewportHeight();
 	const min = expanded ? (mobile ? 144 : 168) : 44;
 	const max = expanded
-		? Math.min(viewportHeight * (mobile ? 0.58 : 0.7), mobile ? 520 : 720)
+		? Math.min(viewportHeight * (mobile ? 0.46 : 0.52), mobile ? 420 : 560)
 		: Math.min(viewportHeight * (mobile ? 0.34 : 0.38), mobile ? 220 : 220);
 
 	return {
@@ -298,65 +301,18 @@ function getTextareaLimits(expanded = isComposerExpanded) {
 	};
 }
 
-function getDraftLineCount(text: string, stopAt: number): number {
-	if (text.length === 0) return 1;
-	let lineCount = 1;
-	for (let index = 0; index < text.length; index += 1) {
-		const char = text.charCodeAt(index);
-		if (char !== 10 && char !== 13) continue;
-		lineCount += 1;
-		if (lineCount >= stopAt) return lineCount;
-		if (char === 13 && text.charCodeAt(index + 1) === 10) index += 1;
-	}
-	return lineCount;
-}
-
-function shouldAutoExpandComposer(scrollHeight: number): boolean {
-	if (!hasVisibleDraftText(value)) return false;
-
-	const mobile = isMobile();
-	const lengthThreshold = mobile ? 360 : 560;
-	if (value.length >= lengthThreshold) return true;
-
-	const lineThreshold = mobile ? 5 : 7;
-	const lineCount = getDraftLineCount(value, lineThreshold);
-	const compactMax = getTextareaLimits(false).max;
-
-	return lineCount >= lineThreshold || scrollHeight > compactMax + 1;
-}
-
-function shouldAutoCollapseComposer(scrollHeight: number): boolean {
-	if (!hasVisibleDraftText(value)) return true;
-
-	const mobile = isMobile();
-	const lengthThreshold = mobile ? 220 : 360;
-	if (value.length >= lengthThreshold) return false;
-
-	const lineThreshold = mobile ? 2 : 3;
-	const lineCount = getDraftLineCount(value, lineThreshold + 1);
-	const compactMax = getTextareaLimits(false).max;
-
-	return lineCount <= lineThreshold && scrollHeight <= compactMax * 0.78;
-}
-
-function syncAutoComposerExpansion(scrollHeight: number) {
-	if (isComposerExpanded) {
-		if (shouldAutoCollapseComposer(scrollHeight)) isComposerExpanded = false;
-		return;
-	}
-
-	if (shouldAutoExpandComposer(scrollHeight)) isComposerExpanded = true;
-}
-
 function resizeTextarea() {
 	resizeFrame = null;
 	if (!textareaEl) return;
+	if (!hasVisibleDraftText(value) && isComposerExpanded) {
+		isComposerExpanded = false;
+	}
 	textareaEl.style.height = "0px";
 	const scrollHeight = textareaEl.scrollHeight;
-	syncAutoComposerExpansion(scrollHeight);
 	const { min, max } = getTextareaLimits();
 	const nextHeight = Math.min(scrollHeight, max);
 	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
+	hasTextareaOverflow = scrollHeight > textareaEl.clientHeight + 1;
 	syncMentionMirrorScroll();
 }
 
@@ -381,10 +337,32 @@ function syncMentionMirrorScroll() {
 	mentionMirrorEl.scrollLeft = textareaEl.scrollLeft;
 }
 
-function collapseComposer() {
-	if (!isComposerExpanded) return;
-	isComposerExpanded = false;
+function setComposerExpanded(expanded: boolean) {
+	if (expanded === isComposerExpanded || !textareaEl) return;
+	const selectionStart = textareaEl.selectionStart;
+	const selectionEnd = textareaEl.selectionEnd;
+	const scrollTop = textareaEl.scrollTop;
+	const shouldRestoreFocus = document.activeElement === textareaEl;
+	isComposerExpanded = expanded;
 	scheduleResizeTextarea();
+	requestAnimationFrame(() => {
+		if (!textareaEl) return;
+		textareaEl.setSelectionRange(selectionStart, selectionEnd);
+		textareaEl.scrollTop = Math.min(
+			scrollTop,
+			Math.max(0, textareaEl.scrollHeight - textareaEl.clientHeight),
+		);
+		if (shouldRestoreFocus) textareaEl.focus({ preventScroll: true });
+		syncMentionMirrorScroll();
+	});
+}
+
+function collapseComposer() {
+	setComposerExpanded(false);
+}
+
+function toggleComposerExpansion() {
+	setComposerExpanded(!isComposerExpanded);
 }
 
 function submitDraft() {
@@ -965,7 +943,7 @@ $effect(() => {
 							bind:value
 							rows="1"
 							placeholder={placeholder}
-							class={`relative z-[1] block min-h-[44px] w-full resize-none overflow-y-auto bg-transparent px-0 py-0 text-[14px] leading-6 outline-none placeholder:text-text-placeholder ${shouldRenderComposerMentionMirror ? 'text-transparent caret-text-primary selection:bg-brand/22' : 'text-text-primary'}`}
+							class={`relative z-[1] block min-h-[44px] w-full resize-none overflow-y-auto overscroll-contain bg-transparent px-0 py-0 text-[14px] leading-6 outline-none placeholder:text-text-placeholder ${shouldRenderComposerMentionMirror ? 'text-transparent caret-text-primary selection:bg-brand/22' : 'text-text-primary'}`}
 							onpointerdown={() => {
 								isTextareaFocused = true;
 							}}
@@ -1189,6 +1167,23 @@ $effect(() => {
 								<span class={`max-w-[160px] truncate text-[11px] leading-none ${voiceError ? 'text-error-soft' : 'text-text-placeholder'}`}>
 									{voiceError ?? (isVoiceStarting ? 'Starting…' : 'Listening')}
 								</span>
+							{/if}
+							{#if hasTextareaOverflow || isComposerExpanded}
+								<button
+									type="button"
+									class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand/40"
+									title={isComposerExpanded ? "Collapse editor" : "Expand editor"}
+									aria-label={isComposerExpanded ? "Collapse editor" : "Expand editor"}
+									aria-expanded={isComposerExpanded}
+									onpointerdown={(event) => event.preventDefault()}
+									onclick={toggleComposerExpansion}
+								>
+									{#if isComposerExpanded}
+										<Minimize2 class="h-4 w-4" />
+									{:else}
+										<Maximize2 class="h-4 w-4" />
+									{/if}
+								</button>
 							{/if}
 							<button
 								type="button"
