@@ -672,6 +672,141 @@ test("buildTurnTimelineItems hides waiting footer when live content already exis
 	);
 });
 
+test("buildTurnTimelineItems shows waiting footer between intermediate rounds", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "running",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: null,
+				assistantText: null,
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: null,
+				startedAt: null,
+				durationMs: null,
+				completedAt: null,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			},
+		],
+		streaming: {
+			sessionId: "s1",
+			turnId: "t1",
+			contentBlocks: [],
+			intermediateMessages: [
+				{
+					id: "m1",
+					sessionId: "s1",
+					role: "assistant",
+					content: [
+						{
+							type: "tool_use",
+							id: "tool-1",
+							name: "bash",
+							input: { command: "pwd" },
+						},
+					],
+					text: "",
+					provider: null,
+					model: null,
+					stopReason: null,
+					errorMessage: null,
+					usage: null,
+					durationMs: null,
+					toolCallsObjectKey: null,
+					meta: null,
+					createdAt: "2026-01-01T00:00:00.000Z",
+				},
+			],
+			status: "streaming",
+			runtimePhase: null,
+		},
+	});
+
+	const processIndex = items.findIndex((item) => item.kind === "process");
+	const footerIndex = items.findIndex((item) => item.kind === "turn_footer");
+	assert.ok(processIndex >= 0);
+	assert.ok(footerIndex > processIndex);
+	assert.equal(
+		items[footerIndex]?.kind === "turn_footer"
+			? items[footerIndex].phase
+			: null,
+		"waiting_model",
+	);
+});
+
+test("buildTurnTimelineItems keeps waiting footer when only residual tool blocks remain", () => {
+	const items = buildTurnTimelineItems({
+		sessionId: "s1",
+		turns: [
+			{
+				id: "t1",
+				sessionId: "s1",
+				userUuid: null,
+				sequence: 1,
+				status: "running",
+				intent: "steer",
+				userContent: [{ type: "text", text: "hi" }],
+				userText: "hi",
+				assistantContent: null,
+				assistantText: null,
+				provider: null,
+				model: null,
+				stopReason: null,
+				errorMessage: null,
+				finalUsage: null,
+				totalUsage: null,
+				summary: null,
+				intermediateIndex: null,
+				intermediateSummary: null,
+				meta: null,
+				startedAt: null,
+				durationMs: null,
+				completedAt: null,
+				createdAt: "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			},
+		],
+		streaming: {
+			sessionId: "s1",
+			turnId: "t1",
+			contentBlocks: [
+				{
+					type: "tool_use",
+					id: "tool-1",
+					name: "bash",
+					input: { command: "pwd" },
+				},
+			],
+			status: "streaming",
+			runtimePhase: "llm_call_started",
+			runtimeModel: "gpt-5",
+		},
+	});
+
+	const footer = items.find((item) => item.kind === "turn_footer");
+	assert.equal(footer?.kind, "turn_footer");
+	assert.equal(
+		footer?.kind === "turn_footer" ? footer.phase : null,
+		"waiting_model",
+	);
+});
+
 test("buildTurnTimelineItems exposes persisted assistant duration metadata", () => {
 	const items = buildTurnTimelineItems({
 		sessionId: "s1",

@@ -188,15 +188,28 @@ function countToolUses(messages: StoredIntermediateMessage[]) {
 	);
 }
 
+function hasLiveAssistantPreview(blocks: ContentBlock[]) {
+	return blocks.some((block) => {
+		if (block.type === "text") return block.text.trim().length > 0;
+		if (block.type === "thinking") return block.thinking.trim().length > 0;
+		return false;
+	});
+}
+
 function resolveTurnFooterPhase(streaming: {
 	status?: string;
 	contentBlocks: ContentBlock[];
 	intermediateMessages?: StoredIntermediateMessage[];
 	runtimePhase?: "llm_call_started" | null;
 }): TurnFooterPhase | null {
-	// Live content is the status itself — never show waiting/starting over it.
-	if (streaming.contentBlocks.length > 0) return null;
+	// Fresh thinking/text is the status itself.
+	if (hasLiveAssistantPreview(streaming.contentBlocks)) return null;
+
+	// Authoritative signal from the agent: next LLM call is in flight.
+	// Allow residual tool-only blocks — those are previous-round leftovers,
+	// not the next assistant answer.
 	if (streaming.runtimePhase === "llm_call_started") return "waiting_model";
+
 	// Only show starting while the active turn has nothing to render yet.
 	if (
 		streaming.status === "pending" &&
@@ -204,6 +217,19 @@ function resolveTurnFooterPhase(streaming: {
 	) {
 		return "starting";
 	}
+
+	// Between tool rounds after intermediate archive: process history exists,
+	// live preview is empty, generation still active. Show waiting even before
+	// the next llm_call_started lifecycle event. Require empty contentBlocks so
+	// actively streaming tools in the current round don't look like waiting.
+	if (
+		(streaming.status === "streaming" || streaming.status === "pending") &&
+		streaming.contentBlocks.length === 0 &&
+		(streaming.intermediateMessages?.length ?? 0) > 0
+	) {
+		return "waiting_model";
+	}
+
 	return null;
 }
 

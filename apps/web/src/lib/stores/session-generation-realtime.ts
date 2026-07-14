@@ -361,8 +361,13 @@ export function applyGenerationStreamSnapshot(
 	const hasSnapshotContent =
 		input.current.content.length > 0 ||
 		(input.intermediateMessages?.length ?? 0) > 0;
+	const shouldArmWaiting =
+		input.lifecycle?.phase === "llm_call_started" &&
+		// Don't re-arm waiting over an already-streaming assistant message.
+		// Between rounds, current content is empty after intermediate archive.
+		input.current.content.length === 0;
 	if (!hasSnapshotContent) {
-		if (input.lifecycle?.phase === "llm_call_started") {
+		if (shouldArmWaiting && input.lifecycle) {
 			sessionGenerationStore.markRuntimePhase(sessionId, {
 				phase: "llm_call_started",
 				at: input.lifecycle.at,
@@ -415,7 +420,7 @@ export function applyGenerationStreamSnapshot(
 		patchSeq: input.seq,
 		turnId: resolvedTurnId,
 	});
-	if (input.lifecycle?.phase === "llm_call_started") {
+	if (shouldArmWaiting && input.lifecycle) {
 		sessionGenerationStore.markRuntimePhase(sessionId, {
 			phase: "llm_call_started",
 			at: input.lifecycle.at,
