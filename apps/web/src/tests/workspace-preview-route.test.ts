@@ -98,3 +98,28 @@ test("withCurrentPreview preserves active preview across main route changes", ()
 		"/spaces/s1/sessions/abc",
 	);
 });
+
+test("new chat -> session keeps preview (send must not collapse Files)", () => {
+	// Repro: open file preview on /sessions/new, send first message, router.toSession
+	// must preserve ?preview= so layout does not drop the preview pane.
+	const afterSend = withCurrentPreview(
+		"/spaces/s1/sessions/sess-created",
+		`preview=${encodeURIComponent("file:docs/a.md")}`,
+	);
+	assert.equal(
+		afterSend,
+		`/spaces/s1/sessions/sess-created?preview=${encodeURIComponent("file:docs/a.md")}`,
+	);
+});
+
+test("turn navigation can keep preview alongside turn param", () => {
+	const withTurn = withPreviewParam(
+		"/spaces/s1/sessions/sess-1",
+		new URLSearchParams({ turn: "3" }),
+		{ kind: "file", key: "docs/a.md" },
+	);
+	assert.equal(
+		withTurn,
+		`/spaces/s1/sessions/sess-1?turn=3&preview=${encodeURIComponent("file:docs/a.md")}`,
+	);
+});
