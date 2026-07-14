@@ -30,6 +30,7 @@ type Props = {
 	focused: boolean;
 	immersive: boolean;
 	isMobile: boolean;
+	animateShell?: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
 	onResizeStart: (event: PointerEvent) => void;
@@ -62,6 +63,7 @@ let {
 	focused,
 	immersive,
 	isMobile,
+	animateShell = true,
 	treeVisible = true,
 	onToggleTree,
 	onResizeStart,
@@ -92,6 +94,7 @@ function loadCanvasPanelModule() {
 	{width}
 	ariaLabel={`Canvas ${canvas.path}`}
 	{immersive}
+	animate={animateShell}
 	onResizeStart={onResizeStart}
 >
 	{#if canvas.loading}

@@ -1,10 +1,14 @@
 <script lang="ts">
+import { previewPanelClip } from "$lib/transitions/preview-panel-clip";
+
 const {
 	width = 480,
 	ariaLabel = "Workspace preview",
 	onResizeStart,
 	desktopOnly = false,
 	immersive = false,
+	/** When false, skip mount/unmount clip (e.g. file↔canvas tab switch). */
+	animate = true,
 	children,
 }: {
 	width?: number;
@@ -12,6 +16,7 @@ const {
 	onResizeStart?: (event: PointerEvent) => void;
 	desktopOnly?: boolean;
 	immersive?: boolean;
+	animate?: boolean;
 	children: import("svelte").Snippet;
 } = $props();
 
@@ -23,7 +28,14 @@ $effect(() => {
 	const el = paneEl;
 	if (!el) return;
 	el.style.setProperty("--workspace-preview-width", `${width}px`);
+	el.style.setProperty("--workspace-preview-inner-width", `${width}px`);
 });
+
+// Svelte transition params: duration 0 disables animation.
+// Pass targetWidth so intro does not race CSS-var $effect.
+const clipParams = $derived(
+	animate ? { targetWidth: width } : { duration: 0, targetWidth: width },
+);
 </script>
 
 <section
@@ -33,6 +45,8 @@ $effect(() => {
 		: 'flex'}"
 	class:workspace-preview-pane--immersive={immersive}
 	aria-label={ariaLabel}
+	in:previewPanelClip={clipParams}
+	out:previewPanelClip={clipParams}
 >
 	<div
 		class="workspace-preview-pane-inner flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -67,9 +81,15 @@ $effect(() => {
 			flex-shrink: 0;
 			border-left-width: 1px;
 			overflow: hidden;
-			/* Soft width tween when tree toggle / focus mode adjusts the pane.
-			   Drag sets body.sidebar-resizing which kills transitions globally. */
+			/* Live width changes (tree toggle / focus). Mount/unmount uses
+			   previewPanelClip (inline width + transition:none). */
 			transition: width var(--motion-panel-duration) var(--motion-panel-ease);
+		}
+
+		.workspace-preview-pane-inner {
+			width: var(--workspace-preview-inner-width, 480px);
+			max-width: 100%;
+			flex-shrink: 0;
 		}
 
 		.workspace-preview-pane--immersive {
@@ -80,6 +100,11 @@ $effect(() => {
 			height: 100%;
 			border-left-width: 0;
 			transition: none;
+		}
+
+		.workspace-preview-pane--immersive .workspace-preview-pane-inner {
+			width: 100%;
+			max-width: none;
 		}
 	}
 

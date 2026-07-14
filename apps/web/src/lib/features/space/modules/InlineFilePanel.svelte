@@ -85,6 +85,7 @@ type Props = {
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
 	isMobile: boolean;
+	animateShell?: boolean;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
 	inlineFilePanX: number;
@@ -146,6 +147,7 @@ let {
 	treeVisible = true,
 	onToggleTree,
 	isMobile,
+	animateShell = true,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
 	inlineFilePanX = $bindable(),
@@ -378,6 +380,7 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
       ariaLabel="File preview"
       onResizeStart={onPreviewResizeStart}
       immersive={previewImmersiveMode}
+      animate={animateShell}
     >
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
         <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={onToggleTree} />

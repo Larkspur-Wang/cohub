@@ -23,6 +23,7 @@ type Props = {
 	focused: boolean;
 	immersive: boolean;
 	isMobile: boolean;
+	animateShell?: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
 	onResizeStart: (event: PointerEvent) => void;
@@ -44,6 +45,7 @@ let {
 	focused,
 	immersive,
 	isMobile,
+	animateShell = true,
 	treeVisible = true,
 	onToggleTree,
 	onResizeStart,
@@ -61,6 +63,7 @@ let {
 	ariaLabel={`Port ${port} preview`}
 	onResizeStart={onResizeStart}
 	{immersive}
+	animate={animateShell}
 >
 	<div class="flex h-full min-w-0 flex-col bg-bg-content" class:preview-stage--immersive={immersive}>
 		{#if !immersive}

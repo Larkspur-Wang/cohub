@@ -334,6 +334,18 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	else if (kind === "canvas") onCloseInlineCanvasTab(key);
 	else onCloseInlinePortTab(key);
 }
+
+/**
+ * Open/close clip only when the preview column appears or disappears.
+ * Tab switches (file ↔ canvas ↔ port) keep the shell still.
+ */
+let previewShellWasOpen = false;
+let animatePreviewShell = $state(true);
+$effect.pre(() => {
+	const open = Boolean(activePreviewKind);
+	animatePreviewShell = open ? !previewShellWasOpen : true;
+	previewShellWasOpen = open;
+});
 </script>
 
 {#if activePreviewKind === "file" && inlineFile}
@@ -366,6 +378,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		inlineFileSpaceId={spaceId}
 		{inlineFileDebugWork}
 		previewPanelWidth={previewPanelWidth}
+		animateShell={animatePreviewShell}
 		previewFocusMode={previewFocusMode}
 		previewImmersiveMode={previewImmersiveMode}
 		{isMobile}
@@ -406,6 +419,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
 		{isMobile}
+		animateShell={animatePreviewShell}
 		onResizeStart={onBeginPreviewPanelResize}
 		onToggleFocus={onTogglePreviewFocusMode}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
@@ -430,6 +444,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
 		{isMobile}
+		animateShell={animatePreviewShell}
 		onResizeStart={onBeginPreviewPanelResize}
 		onToggleFocus={onTogglePreviewFocusMode}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
