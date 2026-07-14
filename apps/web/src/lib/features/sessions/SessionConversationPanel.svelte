@@ -77,7 +77,7 @@ const hasSession = $derived(Boolean(host.activeSessionId));
 				</a>
 			{/if}
 		</header>
-		<div class="min-h-0 flex-1 overflow-hidden">
+		<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
 			<SessionChatPanel {host} />
 		</div>
 	{/if}
