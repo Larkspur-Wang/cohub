@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { WorkRecord } from "@neta-art/cohub";
+import { untrack } from "svelte";
 import * as publicEnv from "$env/static/public";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
@@ -75,9 +76,13 @@ async function loadPreview(options: { force?: boolean } = {}) {
 	const current = ++loadToken;
 	clearRefreshTimer();
 	previewError = null;
+	// Read existing src outside reactive tracking. If loadPreview runs inside
+	// $effect and tracks previewSrc, writing it later re-enters the effect and
+	// spams createPreviewSession forever.
+	const existingSrc = untrack(() => previewSrc);
 	// Keep the existing iframe mounted while refreshing the session token so
 	// layout resizes / timer renewals do not flash a full reload.
-	const keepExistingFrame = Boolean(previewSrc) && !options.force;
+	const keepExistingFrame = Boolean(existingSrc) && !options.force;
 	if (!keepExistingFrame) previewSrc = null;
 	if (!canUsePreviewOrigin || !spaceId || !path) return;
 	try {
@@ -88,7 +93,8 @@ async function loadPreview(options: { force?: boolean } = {}) {
 		const next = `/s/${encodeURIComponent(spaceId)}/${path.split("/").map(encodeURIComponent).join("/")}`;
 		const nextSrc = `${previewOrigin}/__session?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`;
 		// Token rotation still needs a navigation, but avoid null→src thrash.
-		if (previewSrc !== nextSrc) previewSrc = nextSrc;
+		const currentSrc = untrack(() => previewSrc);
+		if (currentSrc !== nextSrc) previewSrc = nextSrc;
 		refreshTimer = setTimeout(
 			() => void loadPreview(),
 			Math.max(30_000, (expiresIn - 60) * 1000),
@@ -113,9 +119,11 @@ function handleFrameMessage(event: MessageEvent) {
 }
 
 $effect(() => {
+	// Track only the preview identity. loadPreview mutates previewSrc; if that
+	// state is tracked here it re-enters forever and spams preview-session.
 	previewKey;
 	if (type !== "html") return;
-	void loadPreview({ force: true });
+	void untrack(() => loadPreview({ force: true }));
 	return () => {
 		loadToken += 1;
 		clearRefreshTimer();
