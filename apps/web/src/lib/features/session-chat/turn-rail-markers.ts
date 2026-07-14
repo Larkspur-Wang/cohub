@@ -5,9 +5,11 @@ export type TurnRailMarkerAnchor = {
 };
 
 /**
- * Map loaded user-turn anchors onto the custom scroll rail.
- * Positions use the same thumb travel range as TurnRail (`100 - thumbHeight%`),
- * so markers line up with the scrollbar thumb track — not the full panel chrome.
+ * Map loaded user-turn anchors onto the custom scroll rail as a content minimap.
+ *
+ * Marker tops are proportional to document offset (`absoluteTop / scrollHeight`),
+ * so the first user message sits near the top of the rail and later turns fall
+ * further down — independent of the scrollbar thumb travel range.
  */
 export function measureTurnRailMarkers(input: {
 	scrollHeight: number;
@@ -15,20 +17,7 @@ export function measureTurnRailMarkers(input: {
 	anchors: TurnRailMarkerAnchor[];
 	turnScrollAnchorOffset: number;
 }): { positions: Record<number, number>; heights: Record<number, number> } {
-	const scrollHeight = Math.max(0, input.scrollHeight);
-	const clientHeight = Math.max(0, input.clientHeight);
-	const maxScroll = Math.max(1, scrollHeight - clientHeight);
-	const railThumbHeightPercent = Math.min(
-		64,
-		Math.max(6, scrollHeight > 0 ? (clientHeight / scrollHeight) * 100 : 100),
-	);
-	const railUsablePercent = 100 - railThumbHeightPercent;
-	const toRailTopPercent = (scrollTop: number) =>
-		Math.min(
-			railUsablePercent,
-			Math.max(0, (scrollTop / maxScroll) * railUsablePercent),
-		);
-
+	const scrollHeight = Math.max(1, input.scrollHeight);
 	const ranges = input.anchors.map((anchor, index) => {
 		const start = Math.max(
 			0,
@@ -51,9 +40,13 @@ export function measureTurnRailMarkers(input: {
 	for (const range of ranges) {
 		if (!Number.isFinite(range.sequence)) continue;
 		const turnHeight = Math.max(range.offsetHeight, range.end - range.start);
-		positions[range.sequence] = toRailTopPercent(range.start);
-		const scrollRatio = Math.max(0.015, turnHeight / maxScroll);
-		heights[range.sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
+		// Content fraction of the full timeline, not thumb-travel coordinates.
+		positions[range.sequence] = Math.min(
+			100,
+			Math.max(0, (range.start / scrollHeight) * 100),
+		);
+		const heightPercent = (turnHeight / scrollHeight) * 100;
+		heights[range.sequence] = Math.min(22, Math.max(8, heightPercent));
 	}
 	return { positions, heights };
 }

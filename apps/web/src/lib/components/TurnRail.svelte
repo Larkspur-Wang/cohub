@@ -85,25 +85,25 @@ const effectiveCurrent = $derived.by(() => {
 	if (currentSequence != null) return currentSequence;
 	return loadedTurns.at(-1)?.sequence ?? null;
 });
+// Content-minimap markers use full rail height (0..100). The scrollbar thumb
+// still travels in a shorter usable range so it can represent viewport size.
+const markers = $derived.by<Marker[]>(() =>
+	turns.map((turn) => ({
+		turn,
+		top:
+			markerPositions[turn.sequence] ??
+			((turn.sequence - minSequence) / span) * 100,
+		height: markerHeights[turn.sequence] ?? 8,
+		loaded: loadedSequences.has(turn.sequence),
+		current: effectiveCurrent === turn.sequence,
+	})),
+);
 const maxScroll = $derived(Math.max(0, scrollHeight - clientHeight));
 const canScroll = $derived(maxScroll > 1 && clientHeight > 0);
 const thumbHeightPercent = $derived.by(() => {
 	if (!canScroll || scrollHeight <= 0) return 100;
 	return Math.min(64, Math.max(6, (clientHeight / scrollHeight) * 100));
 });
-// Keep sequence fallback on the same usable track as measured markers / thumb.
-const markerUsablePercent = $derived(Math.max(0, 100 - thumbHeightPercent));
-const markers = $derived.by<Marker[]>(() =>
-	turns.map((turn) => ({
-		turn,
-		top:
-			markerPositions[turn.sequence] ??
-			((turn.sequence - minSequence) / span) * markerUsablePercent,
-		height: markerHeights[turn.sequence] ?? 8,
-		loaded: loadedSequences.has(turn.sequence),
-		current: effectiveCurrent === turn.sequence,
-	})),
-);
 const thumbTopPercent = $derived.by(() => {
 	if (!canScroll) return 0;
 	const range = 100 - thumbHeightPercent;

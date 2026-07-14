@@ -2,42 +2,40 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { measureTurnRailMarkers } from "../lib/features/session-chat/turn-rail-markers.ts";
 
-test("turn rail markers share the scrollbar thumb travel range", () => {
+test("first user turn marker sits at the top of the content minimap", () => {
 	const scrollHeight = 2000;
-	const clientHeight = 500;
-	const maxScroll = scrollHeight - clientHeight;
-	const thumbHeightPercent = Math.min(
-		64,
-		Math.max(6, (clientHeight / scrollHeight) * 100),
-	);
-	const usable = 100 - thumbHeightPercent;
 	const offset = 16;
-
-	const { positions, heights } = measureTurnRailMarkers({
+	const { positions } = measureTurnRailMarkers({
 		scrollHeight,
-		clientHeight,
+		clientHeight: 500,
 		turnScrollAnchorOffset: offset,
 		anchors: [
 			{ sequence: 1, absoluteTop: 0 + offset, offsetHeight: 40 },
-			{ sequence: 2, absoluteTop: 750 + offset, offsetHeight: 40 },
-			{ sequence: 3, absoluteTop: maxScroll + offset, offsetHeight: 40 },
+			{ sequence: 2, absoluteTop: 1000 + offset, offsetHeight: 40 },
+			{ sequence: 3, absoluteTop: 1800 + offset, offsetHeight: 40 },
 		],
 	});
 
 	assert.equal(positions[1], 0);
-	const mid = positions[2];
-	assert.equal(typeof mid, "number");
-	assert.ok(Math.abs((mid as number) - (750 / maxScroll) * usable) < 1e-9);
-	assert.equal(positions[3], usable);
-	const h1 = heights[1];
-	const h2 = heights[2];
-	assert.equal(typeof h1, "number");
-	assert.equal(typeof h2, "number");
-	assert.ok((h1 as number) >= 8 && (h1 as number) <= 22);
-	assert.ok((h2 as number) >= 8 && (h2 as number) <= 22);
+	assert.ok(Math.abs((positions[2] as number) - 50) < 1e-9);
+	assert.ok(Math.abs((positions[3] as number) - 90) < 1e-9);
 });
 
-test("turn rail markers clamp tops into the usable range", () => {
+test("turn rail markers follow document offset, not thumb travel range", () => {
+	// With a tall viewport, thumb travel usable range is small. Content minimap
+	// must still place a mid-document turn near 50%, not clamp into the thumb band.
+	const scrollHeight = 2000;
+	const clientHeight = 1500; // thumb ~75% capped to 64%, usable 36%
+	const { positions } = measureTurnRailMarkers({
+		scrollHeight,
+		clientHeight,
+		turnScrollAnchorOffset: 0,
+		anchors: [{ sequence: 5, absoluteTop: 1000, offsetHeight: 80 }],
+	});
+	assert.ok(Math.abs((positions[5] as number) - 50) < 1e-9);
+});
+
+test("turn rail markers clamp tops into 0..100", () => {
 	const { positions } = measureTurnRailMarkers({
 		scrollHeight: 1000,
 		clientHeight: 400,
@@ -47,11 +45,8 @@ test("turn rail markers clamp tops into the usable range", () => {
 			{ sequence: 2, absoluteTop: 5000, offsetHeight: 20 },
 		],
 	});
-
-	const thumbHeightPercent = Math.min(64, Math.max(6, (400 / 1000) * 100));
-	const usable = 100 - thumbHeightPercent;
 	assert.equal(positions[1], 0);
-	assert.equal(positions[2], usable);
+	assert.equal(positions[2], 100);
 });
 
 test("turn rail markers ignore non-finite sequences", () => {
