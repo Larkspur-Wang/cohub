@@ -7,6 +7,7 @@ import {
 } from "$lib/time-format";
 import {
 	formatTurnNavPreview,
+	formatTurnNavPreviewDisplay,
 	getTurnNavAttachmentLabel,
 	getTurnNavAuthorName,
 	shouldShowTurnNavAuthors,
@@ -105,7 +106,8 @@ $effect(() => {
 		{:else}
 			<div class="space-y-0.5">
 				{#each filteredTurns as turn (`${turn.sequence}:${turn.id}`)}
-					{@const preview = formatTurnNavPreview(turn)}
+					{@const fullPreview = formatTurnNavPreview(turn)}
+					{@const preview = formatTurnNavPreviewDisplay(turn)}
 					{@const attachmentLabel = getTurnNavAttachmentLabel(turn)}
 					{@const timeLabel = formatCompactAbsoluteTime(turn.createdAt)}
 					{@const fullTime = formatFullAbsoluteTime(turn.createdAt, { seconds: true })}
@@ -120,7 +122,10 @@ $effect(() => {
 						<span class={`w-[1.65rem] shrink-0 font-mono text-[11px] leading-relaxed ${currentSequence === turn.sequence ? 'text-brand' : 'text-text-placeholder group-hover/sidebar-flyout-item:text-text-tertiary'}`}>#{turn.sequence}</span>
 						<span class="min-w-0 flex-1">
 							{#if preview}
-								<span class="line-clamp-3 block text-[12px] leading-relaxed tracking-[-0.01em]">
+								<span
+									class="line-clamp-3 block text-[12px] leading-relaxed tracking-[-0.01em]"
+									title={fullPreview !== preview ? fullPreview : undefined}
+								>
 									{preview}
 								</span>
 							{:else if !hasMeta}

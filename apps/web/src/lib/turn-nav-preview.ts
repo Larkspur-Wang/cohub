@@ -125,6 +125,17 @@ function parseTurnNavPreview(turn: {
 	return { text: parsed.text, imageCount: parsed.imageCount, compact: false };
 }
 
+/** Compact preview length for turn navigator / rail jump lists (~3 lines). */
+export const TURN_NAV_PREVIEW_MAX_LENGTH = 180;
+
+export function truncateTurnNavPreview(
+	value: string,
+	maxLength = TURN_NAV_PREVIEW_MAX_LENGTH,
+): string {
+	if (value.length <= maxLength) return value;
+	return `${value.slice(0, Math.max(1, maxLength - 1)).trimEnd()}…`;
+}
+
 export function formatTurnNavPreview(turn: {
 	userPreview?: string | null;
 	intent?: SessionTurnIntent | null;
@@ -136,6 +147,15 @@ export function formatTurnNavPreview(turn: {
 	// Pure attachments leave the body empty; meta line carries the label.
 	if (parsed.imageCount > 0) return "";
 	return "Empty message";
+}
+
+/** Display-ready body for navigator lists: full text for short, truncated for long. */
+export function formatTurnNavPreviewDisplay(turn: {
+	userPreview?: string | null;
+	intent?: SessionTurnIntent | null;
+	userContent?: ContentBlock[] | null;
+}): string {
+	return truncateTurnNavPreview(formatTurnNavPreview(turn));
 }
 
 export function getTurnNavAttachmentLabel(turn: {

@@ -3,9 +3,12 @@ import { test } from "node:test";
 import type { SessionTurnRecord } from "@cohub/protocol/model";
 import {
 	formatTurnNavPreview,
+	formatTurnNavPreviewDisplay,
 	getTurnNavAttachmentLabel,
 	getTurnNavAuthorName,
 	shouldShowTurnNavAuthors,
+	TURN_NAV_PREVIEW_MAX_LENGTH,
+	truncateTurnNavPreview,
 	turnRecordToIndexItem,
 } from "../lib/turn-nav-preview";
 
@@ -41,6 +44,25 @@ test("formatTurnNavPreview keeps normal text", () => {
 		}),
 		null,
 	);
+});
+
+test("display preview truncates long turn text", () => {
+	const long = `Please help me carefully review this long message ${"x".repeat(200)}`;
+	assert.equal(
+		formatTurnNavPreview({
+			intent: "followup",
+			userPreview: long,
+		}),
+		long,
+	);
+	const display = formatTurnNavPreviewDisplay({
+		intent: "followup",
+		userPreview: long,
+	});
+	assert.ok(display.endsWith("…"));
+	assert.equal(display.length, TURN_NAV_PREVIEW_MAX_LENGTH);
+	assert.equal(truncateTurnNavPreview("short"), "short");
+	assert.equal(truncateTurnNavPreview("abcdefghij", 6), "abcde…");
 });
 
 test("attachments stay out of body and live on meta label", () => {
