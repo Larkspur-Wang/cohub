@@ -5,8 +5,17 @@ import type {
 	LabelResourceType,
 } from "@neta-art/cohub";
 import { Check, Loader2, Plus, X } from "lucide-svelte";
+import { fade, scale, slide } from "svelte/transition";
+import { floatNear, portal } from "$lib/actions/portal";
 import LabelCreateForm from "$lib/components/LabelCreateForm.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
+import { COMPACT_SHELL_MAX_WIDTH_PX } from "$lib/layout/breakpoints";
+import {
+	DURATION_MODAL_IN,
+	DURATION_MODAL_OUT,
+	svelteEaseIn,
+	svelteEaseOut,
+} from "$lib/motion.svelte";
 import {
 	createSpaceLabel,
 	fetchResourceLabelsFresh,
@@ -29,11 +38,14 @@ const {
 	spaceId,
 	resourceType,
 	resourceRef,
+	anchorEl = null,
 	onClose,
 }: {
 	spaceId: string;
 	resourceType: LabelResourceType;
 	resourceRef: string;
+	/** Optional trigger element; desktop popover anchors near it when present. */
+	anchorEl?: HTMLElement | null;
 	onClose: () => void;
 } = $props();
 
@@ -47,9 +59,20 @@ let initialLoadSettled = $state(false);
 let loading = $state(false);
 let loadVersion = 0;
 let userLabelProfileVersion = $state(0);
+let isCompact = $state(
+	typeof window !== "undefined"
+		? window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`).matches
+		: false,
+);
 
 const flatLabels = $derived(flattenLabels(labels));
 const labelOptions = $derived(flattenLabelsWithRefs(labels));
+const useAnchoredPopover = $derived(Boolean(anchorEl) && !isCompact);
+
+const FADE_IN = { duration: DURATION_MODAL_IN, easing: svelteEaseOut };
+const FADE_OUT = { duration: DURATION_MODAL_OUT, easing: svelteEaseIn };
+const SCALE_IN = { ...FADE_IN, start: 0.97 };
+const SCALE_OUT = { ...FADE_OUT, start: 0.97 };
 
 function getReactiveLabelDisplayName(label: LabelListItem) {
 	userLabelProfileVersion;
@@ -216,6 +239,13 @@ async function createLabel(input: { name: string; parentRef: string | null }) {
 	showCreate = false;
 }
 
+function onKeydown(event: KeyboardEvent) {
+	if (event.key === "Escape" && !event.defaultPrevented) {
+		event.preventDefault();
+		onClose();
+	}
+}
+
 $effect(() => {
 	spaceId;
 	resourceType;
@@ -241,32 +271,22 @@ $effect(() => {
 	hydrateLabelUserProfiles();
 	return unsubscribe;
 });
+
+$effect(() => {
+	if (typeof window === "undefined") return;
+	const mql = window.matchMedia(`(max-width: ${COMPACT_SHELL_MAX_WIDTH_PX}px)`);
+	const onChange = (event: MediaQueryListEvent) => {
+		isCompact = event.matches;
+	};
+	isCompact = mql.matches;
+	mql.addEventListener("change", onChange);
+	return () => mql.removeEventListener("change", onChange);
+});
 </script>
 
-<svelte:window onkeydown={(event) => { if (event.key === "Escape") onClose(); }} />
+<svelte:window onkeydown={onKeydown} />
 
-<div class="fixed inset-0 z-[80] bg-overlay-scrim/20" role="presentation" onclick={onClose}></div>
-<div
-	class="label-picker fixed right-4 top-16 z-[81] w-[min(380px,calc(100vw-24px))] overflow-hidden rounded-lg border border-border-subtle bg-bg-primary shadow-xl"
-	role="dialog"
-	aria-label="Label as"
->
-	<div class="sheet-handle" aria-hidden="true"></div>
-	<div class="flex items-start justify-between border-b border-border-subtle px-3 py-2.5">
-		<div class="min-w-0">
-			<div class="flex min-w-0 items-center gap-1.5">
-				<div class="text-[13px] font-medium text-text-primary">Label as</div>
-				{#if loading}
-					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" aria-label="Loading labels" />
-				{/if}
-			</div>
-			<div class="mt-0.5 text-[11px] text-text-tertiary">Choose labels for this item.</div>
-		</div>
-		<button type="button" class="close-button" onclick={onClose} aria-label="Close">
-			<X class="h-3.5 w-3.5" />
-		</button>
-	</div>
-
+{#snippet pickerBody()}
 	<div class="label-picker-body">
 		{#if initialLoadSettled && flatLabels.length === 0 && !showCreate}
 			<div class="px-2 py-5 text-[12px] text-text-tertiary">
@@ -317,19 +337,171 @@ $effect(() => {
 			Apply
 		</button>
 	</div>
+{/snippet}
+
+{#snippet pickerHeader(closeAriaLabel = "Close")}
+	<div class="flex items-start justify-between border-b border-border-subtle px-3 py-2.5">
+		<div class="min-w-0">
+			<div class="flex min-w-0 items-center gap-1.5">
+				<div class="text-[13px] font-medium text-text-primary">Label as</div>
+				{#if loading}
+					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" aria-label="Loading labels" />
+				{/if}
+			</div>
+			<div class="mt-0.5 text-[11px] text-text-tertiary">Choose labels for this item.</div>
+		</div>
+		<button type="button" class="close-button" onclick={onClose} aria-label={closeAriaLabel}>
+			<X class="h-3.5 w-3.5" />
+		</button>
+	</div>
+{/snippet}
+
+<div
+	use:portal
+	class="label-picker-root"
+	class:is-anchored={useAnchoredPopover}
+	class:is-compact={isCompact}
+	role="presentation"
+>
+	<button
+		type="button"
+		class="label-picker-backdrop"
+		class:is-soft={useAnchoredPopover}
+		aria-label="Dismiss label picker"
+		onclick={onClose}
+		in:fade={FADE_IN}
+		out:fade={FADE_OUT}
+	></button>
+
+	{#if useAnchoredPopover}
+		<div
+			class="label-picker label-picker--popover"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Label as"
+			tabindex="-1"
+			use:floatNear={{
+				getAnchor: () => anchorEl,
+				placement: "bottom-end",
+				gap: 8,
+				width: 360,
+				zIndex: 121,
+			}}
+			in:fade|local={FADE_IN}
+			out:fade|local={FADE_OUT}
+		>
+			{@render pickerHeader()}
+			{@render pickerBody()}
+		</div>
+	{:else if isCompact}
+		<div
+			class="label-picker label-picker--sheet"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Label as"
+			tabindex="-1"
+			in:slide|local={{ axis: "y", ...FADE_IN }}
+			out:slide|local={{ axis: "y", ...FADE_OUT }}
+		>
+			<div class="sheet-handle" aria-hidden="true"></div>
+			{@render pickerHeader()}
+			{@render pickerBody()}
+		</div>
+	{:else}
+		<div
+			class="label-picker label-picker--modal"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Label as"
+			tabindex="-1"
+			in:scale|local={SCALE_IN}
+			out:scale|local={SCALE_OUT}
+		>
+			{@render pickerHeader()}
+			{@render pickerBody()}
+		</div>
+	{/if}
 </div>
 
 <style>
+	.label-picker-root {
+		position: fixed;
+		inset: 0;
+		z-index: 120;
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		pointer-events: none;
+	}
+
+	.label-picker-root.is-anchored {
+		align-items: stretch;
+		justify-content: stretch;
+	}
+
+	.label-picker-root:not(.is-anchored):not(.is-compact) {
+		align-items: center;
+		padding: 16px;
+	}
+
+	.label-picker-backdrop {
+		position: absolute;
+		inset: 0;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		background: var(--overlay-scrim);
+		pointer-events: auto;
+		cursor: default;
+	}
+
+	.label-picker-backdrop.is-soft {
+		background: color-mix(in srgb, var(--overlay-scrim) 35%, transparent);
+	}
+
 	.label-picker {
-		max-height: min(74vh, 580px);
+		position: relative;
+		z-index: 1;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden;
+		border: 1px solid var(--border-subtle);
+		background: var(--bg-primary);
+		pointer-events: auto;
+		box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+	}
+
+	.label-picker--popover {
+		width: 360px;
+		max-height: min(74vh, 580px);
+		border-radius: 10px;
+	}
+
+	.label-picker--modal {
+		width: min(380px, calc(100vw - 32px));
+		max-height: min(74vh, 580px);
+		border-radius: 12px;
+		box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32);
+	}
+
+	.label-picker--sheet {
+		width: 100%;
+		max-width: 480px;
+		max-height: min(86dvh, 720px);
+		border-radius: 16px 16px 0 0;
+		border-bottom: 0;
+		border-left: 0;
+		border-right: 0;
+		box-shadow: 0 -12px 36px rgba(0, 0, 0, 0.28);
 	}
 
 	.label-picker-body {
 		min-height: 0;
+		flex: 1 1 auto;
 		overflow-y: auto;
+		overscroll-behavior: contain;
 		padding: 8px;
+		-webkit-overflow-scrolling: touch;
 	}
 
 	.label-row {
@@ -387,6 +559,7 @@ $effect(() => {
 		gap: 8px;
 		border-top: 1px solid var(--border-subtle);
 		padding: 8px 12px;
+		flex-shrink: 0;
 	}
 
 	.label-action {
@@ -410,54 +583,47 @@ $effect(() => {
 	}
 
 	.sheet-handle {
+		display: block;
+		margin: 8px auto 2px;
+		height: 4px;
+		width: 36px;
+		border-radius: 999px;
+		background: var(--border-strong);
+		opacity: 0.75;
+		flex-shrink: 0;
+	}
+
+	.label-picker-root.is-compact .label-row {
+		min-height: 44px;
+		font-size: 14px;
+	}
+
+	.label-picker-root.is-compact .label-row.child {
+		padding-left: 34px;
+	}
+
+	.label-picker-root.is-compact .close-button,
+	.label-picker-root.is-compact .label-action {
+		min-height: 44px;
+	}
+
+	.label-picker-root.is-compact .close-button {
+		min-width: 44px;
+	}
+
+	.label-picker-root.is-compact .label-picker-footer {
+		grid-template-columns: 1fr 1fr;
+		padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+	}
+
+	.label-picker-root.is-compact .selected-count {
 		display: none;
 	}
 
-	@media (max-width: 640px) {
-		.label-picker {
-			top: auto;
-			right: 8px;
-			bottom: 8px;
-			left: 8px;
-			width: auto;
-			max-height: min(82dvh, 640px);
-			border-radius: 14px;
-			padding-bottom: env(safe-area-inset-bottom);
-		}
-
-		.sheet-handle {
-			display: block;
-			margin: 8px auto 2px;
-			height: 3px;
-			width: 36px;
-			border-radius: 999px;
-			background: var(--border-strong);
-			opacity: 0.75;
-		}
-
-		.label-row {
-			min-height: 44px;
-			font-size: 14px;
-		}
-
-		.label-row.child { padding-left: 34px; }
-
-		.close-button,
-		.label-action {
-			min-height: 44px;
-		}
-
-		.close-button {
-			min-width: 44px;
-		}
-
-		.label-picker-footer {
-			grid-template-columns: 1fr 1fr;
-			padding: 10px 12px;
-		}
-
-		.selected-count {
-			display: none;
+	@media (prefers-reduced-motion: reduce) {
+		.label-picker,
+		.label-picker-backdrop {
+			transition: none !important;
 		}
 	}
 </style>

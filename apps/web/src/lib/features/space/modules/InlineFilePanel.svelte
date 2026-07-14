@@ -106,7 +106,10 @@ type Props = {
 	onPreviewResizeStart: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
-	onLabelFile: (path: string) => void | Promise<void>;
+	onLabelFile: (
+		path: string,
+		anchorEl?: HTMLElement | null,
+	) => void | Promise<void>;
 	onInsertFilePathReference: (path: string) => void;
 	onDownloadFilePath: (path: string) => void | Promise<void>;
 	onRenameFilePath: (path: string) => void | Promise<void>;
@@ -219,7 +222,7 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 					zIndex: 120,
 				}}
 			>
-				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>Label as…</span></button>
+				<button type="button" class="menu-item" onclick={() => { void onLabelFile(path, fileActionMenuAnchorEl); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><ListTree class="w-3.5 h-3.5" /><span>Label as…</span></button>
 				<button type="button" class="menu-item" onclick={() => { onInsertFilePathReference(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><TextCursorInput class="w-3.5 h-3.5" /><span>Insert reference</span></button>
 				<button type="button" class="menu-item" onclick={() => { void onDownloadFilePath(path); fileActionMenuOpenPath = null; fileActionMenuAnchorEl = null; }} role="menuitem"><Download class="w-3.5 h-3.5" /><span>Download</span></button>
 				{#if canEditFiles && !activeFsReadonly}

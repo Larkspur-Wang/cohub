@@ -143,7 +143,11 @@ export type SpaceFileDomainProps = {
 	onBeginRightSidebarResize: (event: PointerEvent) => void;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
-	onEditResourceLabels: (type: "file", path: string) => void | Promise<void>;
+	onEditResourceLabels: (
+		type: "file",
+		path: string,
+		anchorEl?: HTMLElement | null,
+	) => void | Promise<void>;
 	onInsertFilePathReference: (path: string) => void;
 	onGetFileActionNode: (path: string) => SpaceFsNode;
 	onUploadComplete: () => void | Promise<void>;
@@ -398,7 +402,7 @@ $effect.pre(() => {
 		onPreviewResizeStart={onBeginPreviewPanelResize}
 		onTogglePreviewFocusMode={onTogglePreviewFocusMode}
 		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
-		onLabelFile={(path) => onEditResourceLabels("file", path)}
+		onLabelFile={(path, anchorEl) => onEditResourceLabels("file", path, anchorEl)}
 		onInsertFilePathReference={onInsertFilePathReference}
 		onDownloadFilePath={(path) => onDownloadNode(onGetFileActionNode(path))}
 		onRenameFilePath={(path) => onRenameNode(onGetFileActionNode(path))}

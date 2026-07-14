@@ -79,7 +79,7 @@ export type SpaceWorkspaceHeaderActions = {
 	setSessionRenameValue: (value: string) => void;
 	toggleResourceActionMenu: () => void;
 	closeResourceActionMenu: () => void;
-	labelHeaderResource: () => void | Promise<void>;
+	labelHeaderResource: (anchorEl?: HTMLElement | null) => void | Promise<void>;
 	insertHeaderReference: () => void;
 	toggleRightSidebar: () => void | Promise<void>;
 	exitImmersivePreview?: () => void | Promise<void>;
@@ -218,7 +218,7 @@ function handleSessionRenameKeydown(event: KeyboardEvent) {
 						type="button"
 						class="menu-item"
 						onclick={() => {
-							void actions.labelHeaderResource();
+							void actions.labelHeaderResource(resourceActionsRootEl);
 							actions.closeResourceActionMenu();
 						}}
 						role="menuitem"

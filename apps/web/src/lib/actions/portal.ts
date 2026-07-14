@@ -124,6 +124,12 @@ export function floatNear(
 	place();
 	schedule();
 
+	const resizeObserver =
+		typeof ResizeObserver !== "undefined"
+			? new ResizeObserver(() => schedule())
+			: null;
+	resizeObserver?.observe(node);
+
 	window.addEventListener("resize", schedule);
 	window.addEventListener("scroll", schedule, true);
 
@@ -135,6 +141,7 @@ export function floatNear(
 		},
 		destroy() {
 			cancelAnimationFrame(raf);
+			resizeObserver?.disconnect();
 			window.removeEventListener("resize", schedule);
 			window.removeEventListener("scroll", schedule, true);
 			portalLifecycle.destroy?.();

@@ -66,7 +66,6 @@ import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
-	buildSpaceSessionTurnRoute,
 } from "$lib/space-routes";
 import {
 	activateSpaceStyle,
@@ -123,6 +122,7 @@ import { createSpaceRealtimeController } from "./modules/space-realtime-controll
 import { createSpaceStatusController } from "./modules/space-status-controller.svelte";
 import { createWorkspaceLayoutController } from "./modules/workspace-layout-controller.svelte";
 import {
+	readPreviewFromSearch,
 	type WorkspacePreviewRef,
 	withCurrentPreview,
 	withPreviewParam,
@@ -258,18 +258,32 @@ const sessionChat = createSessionChatHost({
 	openPath: (target) => openLinkedInlineFile(target),
 	router: {
 		toSession: async (sessionId, opts) => {
-			await goto(buildSpaceSessionRoute(spaceId, sessionId), {
-				replaceState: opts?.replace ?? true,
-				keepFocus: true,
-				noScroll: true,
-			});
+			// Keep open file/canvas/port preview when new chat becomes a real session.
+			await goto(
+				withCurrentPreview(buildSpaceSessionRoute(spaceId, sessionId)),
+				{
+					replaceState: opts?.replace ?? true,
+					keepFocus: true,
+					noScroll: true,
+				},
+			);
 		},
 		toTurn: async (sessionId, sequence) => {
-			await goto(buildSpaceSessionTurnRoute(spaceId, sessionId, sequence), {
-				replaceState: true,
-				keepFocus: true,
-				noScroll: true,
-			});
+			// Merge turn + current preview; buildSpaceSessionTurnRoute alone drops preview.
+			await goto(
+				withPreviewParam(
+					buildSpaceSessionRoute(spaceId, sessionId),
+					new URLSearchParams({ turn: String(sequence) }),
+					readPreviewFromSearch(
+						typeof window !== "undefined" ? window.location.search : null,
+					),
+				),
+				{
+					replaceState: true,
+					keepFocus: true,
+					noScroll: true,
+				},
+			);
 		},
 		toNewSession: async (opts) => {
 			await goto(withCurrentPreview(buildSpaceNewSessionRoute(spaceId)), {
@@ -296,6 +310,7 @@ let resourceActionMenuOpen = $state(false);
 let labelPickerResource = $state<{
 	type: "session" | "checkpoint" | "file";
 	ref: string;
+	anchorEl: HTMLElement | null;
 } | null>(null);
 const portPreview = createPortPreviewController({
 	getSpaceId: () => spaceId,
@@ -1507,8 +1522,9 @@ function insertFilePathReference(path: string) {
 function editResourceLabels(
 	resourceType: "session" | "checkpoint" | "file",
 	resourceRef: string,
+	anchorEl: HTMLElement | null = null,
 ) {
-	labelPickerResource = { type: resourceType, ref: resourceRef };
+	labelPickerResource = { type: resourceType, ref: resourceRef, anchorEl };
 }
 
 function hasResourceActions() {
@@ -2069,9 +2085,13 @@ const headerActions = {
 		resourceActionMenuOpen = !resourceActionMenuOpen;
 	},
 	closeResourceActionMenu,
-	labelHeaderResource: () => {
+	labelHeaderResource: (anchorEl?: HTMLElement | null) => {
 		if (activeSessionState?.session)
-			void editResourceLabels("session", activeSessionState.session.id);
+			void editResourceLabels(
+				"session",
+				activeSessionState.session.id,
+				anchorEl ?? null,
+			);
 	},
 	insertHeaderReference,
 	toggleRightSidebar,
@@ -2116,7 +2136,7 @@ const headerActions = {
 					type="button"
 					class="menu-item"
 					onclick={() => {
-						void editResourceLabels("file", path);
+						void editResourceLabels("file", path, fileActionMenuAnchorEl);
 						fileWorkspace.fileActionMenuOpenPath = null;
 					}}
 					role="menuitem"
@@ -2369,7 +2389,10 @@ const headerActions = {
 		{spaceId}
 		resourceType={labelPickerResource.type}
 		resourceRef={labelPickerResource.ref}
-		onClose={() => { labelPickerResource = null; }}
+		anchorEl={labelPickerResource.anchorEl}
+		onClose={() => {
+			labelPickerResource = null;
+		}}
 	/>
 {/if}
 
