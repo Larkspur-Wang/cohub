@@ -50,6 +50,7 @@ import {
 	COMPACT_SHELL_MAX_WIDTH_PX,
 	DESKTOP_SHELL_MIN_WIDTH_PX,
 } from "$lib/layout/breakpoints";
+import { DURATION_PANEL } from "$lib/motion.svelte";
 import { sdk } from "$lib/sdk";
 import {
 	activateSpaceConfig,
@@ -573,6 +574,29 @@ const previewPanelWidth = $derived(previewLayout.previewWidth);
 const previewFocusMode = $derived(previewLayout.focusMode);
 const previewImmersiveMode = $derived(previewLayout.immersiveMode);
 const filesColumnHidden = $derived(previewLayout.filesColumnHidden);
+/**
+ * Keep Files domain mounted through the column hide width tween so open
+ * preview tabs and tree state survive. Unmount after the shell finishes.
+ */
+let filesColumnMounted = $state(true);
+$effect(() => {
+	if (!filesColumnHidden || isMobile || previewImmersiveMode) {
+		filesColumnMounted = true;
+		return;
+	}
+	if (typeof window === "undefined") {
+		filesColumnMounted = false;
+		return;
+	}
+	if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+		filesColumnMounted = false;
+		return;
+	}
+	const timer = window.setTimeout(() => {
+		filesColumnMounted = false;
+	}, DURATION_PANEL);
+	return () => window.clearTimeout(timer);
+});
 const immersiveChatVisible = $derived(
 	!previewImmersiveMode || previewLayout.immersiveMainVisible,
 );
@@ -2301,16 +2325,26 @@ const headerActions = {
       ></button>
     {/if}
   </div>
-  {#if !filesColumnHidden || isMobile || previewImmersiveMode}
-  <SpaceFileDomain
-    {...spaceFileDomainProps}
-    bind:inlineFileViewMode={fileWorkspace.inlineFileViewMode}
-    bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
-    bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
-    bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
-    bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
-    bind:workPublishTarget
-  />
+  {#if filesColumnMounted || isMobile || previewImmersiveMode}
+  <div
+    class="files-column-shell min-h-0"
+    class:files-column-shell--mobile={isMobile}
+    class:files-column-shell--hidden={!isMobile && filesColumnHidden && !previewImmersiveMode}
+    class:files-column-shell--immersive={!isMobile && previewImmersiveMode}
+    aria-hidden={!isMobile && filesColumnHidden && !previewImmersiveMode}
+  >
+    <div class="files-column-shell-inner min-h-0 flex">
+      <SpaceFileDomain
+        {...spaceFileDomainProps}
+        bind:inlineFileViewMode={fileWorkspace.inlineFileViewMode}
+        bind:fileActionMenuOpenPath={fileWorkspace.fileActionMenuOpenPath}
+        bind:inlineFileZoom={fileWorkspace.inlineFileZoom}
+        bind:inlineFilePanX={fileWorkspace.inlineFilePanX}
+        bind:inlineFilePanY={fileWorkspace.inlineFilePanY}
+        bind:workPublishTarget
+      />
+    </div>
+  </div>
   {/if}
   <SessionShareDialog
     open={sessionChat.share.open && !!sessionChat.share.sessionId}
@@ -2352,6 +2386,67 @@ const headerActions = {
       animation: none !important;
     }
   }
+
+  /*
+   * Files column shell: clip the whole (preview + tree) unit when the header
+   * hides files. 0fr / 1fr grid is width-accurate without measuring the
+   * variable preview+tree size, and only paints the shell (cheap).
+   */
+  .files-column-shell {
+    display: grid;
+    flex-shrink: 0;
+    min-height: 0;
+    grid-template-columns: 1fr;
+    transition:
+      grid-template-columns var(--motion-panel-duration) var(--motion-panel-ease),
+      opacity var(--motion-panel-fade-duration) var(--motion-panel-ease);
+  }
+
+  .files-column-shell--hidden {
+    grid-template-columns: 0fr;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .files-column-shell--immersive {
+    /* Immersive preview fills remaining space; shell must not clip. */
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    transition: none;
+  }
+
+  /* Mobile: drawer/overlay lives inside domain — shell is a transparent host. */
+  .files-column-shell--mobile {
+    display: contents;
+  }
+
+  .files-column-shell--mobile .files-column-shell-inner {
+    display: contents;
+  }
+
+  .files-column-shell-inner {
+    display: flex;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .files-column-shell--immersive .files-column-shell-inner {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: visible;
+  }
+
+  :global(body.sidebar-resizing) .files-column-shell {
+    transition: none !important;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .files-column-shell {
+      transition: none !important;
+    }
+  }
+
   @media (min-width: 960px) {
     .workspace-body--preview-immersive {
       isolation: isolate;

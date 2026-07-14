@@ -1,6 +1,7 @@
 <script lang="ts">
 import "../../app.css";
 import { onMount } from "svelte";
+import { onNavigate } from "$app/navigation";
 import { page } from "$app/state";
 import { scheduleCacheCleanup } from "$lib/cache/cleanup";
 import BillingConversionCenter from "$lib/components/BillingConversionCenter.svelte";
@@ -27,16 +28,30 @@ import {
 } from "$lib/gestures/drawer-swipe";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
-import { DURATION_DRAWER_OUT } from "$lib/motion.svelte";
+import { DURATION_DRAWER_OUT, DURATION_PANEL } from "$lib/motion.svelte";
+import {
+	beginMobileSessionViewTransition,
+	resolveMobileSessionNavTransition,
+} from "$lib/navigation-transition";
 import { authStore } from "$lib/stores/auth.svelte";
 import { turnNotifications } from "$lib/stores/turn-notifications.svelte";
 import {
 	LEFT_SIDEBAR_MAX,
 	LEFT_SIDEBAR_MIN,
+	LEFT_SIDEBAR_RAIL,
 	uiState,
 } from "$lib/stores/ui.svelte";
 
 const { children } = $props();
+
+// Mobile IM-style push: Chats list ↔ session detail.
+onNavigate((navigation) => {
+	const fromPath = navigation.from?.url.pathname ?? "";
+	const toPath = navigation.to?.url.pathname ?? "";
+	const kind = resolveMobileSessionNavTransition(fromPath, toPath);
+	if (!kind) return;
+	return beginMobileSessionViewTransition(kind, navigation);
+});
 
 const currentPath = $derived(page.url.pathname);
 const sidebarMode = $derived(
@@ -67,6 +82,43 @@ let velocityX = $state(0);
 let isDragging = $state(false);
 let leftSidebarResizeCleanup: (() => void) | null = null;
 let vConsole: InstanceType<typeof import("vconsole").default> | null = null;
+/**
+ * Sidebar content mode lags collapse so the expanded tree can clip away
+ * with the width tween instead of hard-swapping to the icon rail first.
+ * Expand swaps content immediately so the reveal has real chrome to show.
+ */
+let leftSidebarContentCollapsed = $state(uiState.leftSidebarCollapsed);
+/** True while shell is collapsing and still showing expanded content under clip. */
+const leftSidebarCollapsing = $derived(
+	uiState.leftSidebarCollapsed && !leftSidebarContentCollapsed,
+);
+const leftSidebarShellWidth = $derived(
+	uiState.leftSidebarCollapsed ? LEFT_SIDEBAR_RAIL : uiState.leftSidebarWidth,
+);
+const leftSidebarInnerWidth = $derived(
+	leftSidebarContentCollapsed ? LEFT_SIDEBAR_RAIL : uiState.leftSidebarWidth,
+);
+
+function prefersReducedMotionNow() {
+	if (typeof window === "undefined") return false;
+	return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+$effect(() => {
+	const collapsed = uiState.leftSidebarCollapsed;
+	if (!collapsed) {
+		leftSidebarContentCollapsed = false;
+		return;
+	}
+	if (prefersReducedMotionNow() || leftSidebarContentCollapsed) {
+		leftSidebarContentCollapsed = true;
+		return;
+	}
+	const timer = window.setTimeout(() => {
+		leftSidebarContentCollapsed = true;
+	}, DURATION_PANEL);
+	return () => window.clearTimeout(timer);
+});
 
 function isEditableShortcutTarget(target: EventTarget | null) {
 	if (!(target instanceof HTMLElement)) return false;
@@ -497,20 +549,27 @@ onMount(() => {
 {:else}
   <div class="app-shell h-[100dvh] min-h-0 overflow-hidden flex flex-col lg:flex-row text-text-primary font-sans text-[13px] leading-[1.6]">
     <!-- Desktop sidebar — hidden on mobile -->
-    <!-- z-30 keeps collapsed rail flyouts above main workspace stacking contexts -->
-    <div class="hidden lg:flex shrink-0 min-h-0 relative z-30 overflow-visible" style={`width: ${uiState.leftSidebarCollapsed ? 52 : uiState.leftSidebarWidth}px`}>
-      <div class="min-w-0 flex-1 overflow-visible {uiState.leftSidebarCollapsed ? '' : 'border-r border-[color:var(--sidebar-border)]'}">
-        <Sidebar mode={sidebarMode} collapsed={uiState.leftSidebarCollapsed} />
+    <!-- z-30 keeps collapsed rail flyouts above main workspace stacking contexts.
+         Width-only panel-shell: the icon rail stays interactive (no --collapsed). -->
+    <div
+      class="panel-shell hidden lg:flex relative z-30 {leftSidebarContentCollapsed ? 'panel-shell--overflow-visible' : ''} {leftSidebarCollapsing ? 'panel-shell--inert' : ''}"
+      style={`width: ${leftSidebarShellWidth}px`}
+    >
+      <div
+        class="panel-shell-inner relative {leftSidebarContentCollapsed ? 'overflow-visible' : 'overflow-hidden border-r border-[color:var(--sidebar-border)]'}"
+        style={`width: ${leftSidebarInnerWidth}px`}
+      >
+        <Sidebar mode={sidebarMode} collapsed={leftSidebarContentCollapsed} />
+        {#if !leftSidebarContentCollapsed}
+          <button
+            type="button"
+            class="sidebar-resize-handle"
+            aria-label="Resize navigation sidebar"
+            title="Resize navigation sidebar"
+            onpointerdown={beginLeftSidebarResize}
+          ></button>
+        {/if}
       </div>
-      {#if !uiState.leftSidebarCollapsed}
-        <button
-          type="button"
-          class="sidebar-resize-handle"
-          aria-label="Resize navigation sidebar"
-          title="Resize navigation sidebar"
-          onpointerdown={beginLeftSidebarResize}
-        ></button>
-      {/if}
     </div>
 
     <!-- Main content area -->

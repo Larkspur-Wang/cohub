@@ -3,6 +3,7 @@ import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
+import { DURATION_PANEL } from "$lib/motion.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 
@@ -85,59 +86,94 @@ let {
 	onUploadComplete,
 	onResizeStart,
 }: Props = $props();
+
+/**
+ * Keep the desktop tree mounted through the collapse width tween so the
+ * clip animation has real content. Unmount only after the shell reaches 0
+ * (or immediately when reduced-motion is preferred).
+ */
+let desktopMounted = $state(true);
+
+$effect(() => {
+	if (!desktopCollapsed) {
+		desktopMounted = true;
+		return;
+	}
+	if (typeof window === "undefined") {
+		desktopMounted = false;
+		return;
+	}
+	if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+		desktopMounted = false;
+		return;
+	}
+	const timer = window.setTimeout(() => {
+		desktopMounted = false;
+	}, DURATION_PANEL);
+	return () => window.clearTimeout(timer);
+});
+
+const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 </script>
 
-{#if !desktopCollapsed}
-	<div
-		class="files-sidebar-shell hidden shrink-0 lg:flex border-l border-border-subtle"
-		class:files-sidebar-shell--floating={desktopFloating}
-		style={`width: ${desktopWidth}px; --files-sidebar-width: ${desktopWidth}px`}
-	>
-		<div class="w-full relative">
-			<SpaceFileSidebar
-				{nodes}
-				{selectedPath}
-				{loading}
-				{error}
-				{subtitle}
-				onToggle={onToggle}
-				onSelect={(node) => onSelect(node, { mobile: false })}
-				onRefresh={onRefresh}
-				onCreateFile={onCreateFile}
-				onCreateCanvas={onCreateCanvas}
-				onCreateDir={onCreateDir}
-				onRename={onRename}
-				onDelete={onDelete}
-				onDownload={onDownload}
-				onUpload={onUpload}
-				onInsertReference={onInsertReference}
-				onPublishDirectory={(path) => onPublishDirectory(path, { mobile: false })}
-				onOpenPort={(port, url) => onOpenPort(port, url, { mobile: false })}
-				{activePort}
-				{draggable}
-				{showItemActions}
-				{canWrite}
-				{previewEndpoints}
-			/>
-			<FileUploadPane
-				{spaceId}
-				targetDir={uploadPaneTargetDir}
-				files={pendingUploadFiles}
-				entries={pendingUploadEntries}
-				open={uploadPaneVisible}
-				onClose={onUploadPaneClose}
-				onComplete={onUploadComplete}
-			/>
-			<button
-				type="button"
-				class="right-sidebar-resize-handle"
-				aria-label="Resize files sidebar"
-				title="Resize files sidebar"
-				onpointerdown={onResizeStart}
-			></button>
+<div
+	class="panel-shell files-sidebar-shell hidden lg:flex border-l border-border-subtle"
+	class:panel-shell--collapsed={desktopCollapsed}
+	class:files-sidebar-shell--floating={desktopFloating}
+	style={`width: ${desktopShellWidth}px; --files-sidebar-width: ${desktopWidth}px`}
+	aria-hidden={desktopCollapsed}
+>
+	{#if desktopMounted}
+		<div class="panel-shell-inner relative" style={`width: ${desktopWidth}px`}>
+			<div class="panel-shell-fade">
+				<SpaceFileSidebar
+					{nodes}
+					{selectedPath}
+					{loading}
+					{error}
+					{subtitle}
+					onToggle={onToggle}
+					onSelect={(node) => onSelect(node, { mobile: false })}
+					onRefresh={onRefresh}
+					onCreateFile={onCreateFile}
+					onCreateCanvas={onCreateCanvas}
+					onCreateDir={onCreateDir}
+					onRename={onRename}
+					onDelete={onDelete}
+					onDownload={onDownload}
+					onUpload={onUpload}
+					onInsertReference={onInsertReference}
+					onPublishDirectory={(path) =>
+						onPublishDirectory(path, { mobile: false })}
+					onOpenPort={(port, url) => onOpenPort(port, url, { mobile: false })}
+					{activePort}
+					{draggable}
+					{showItemActions}
+					{canWrite}
+					{previewEndpoints}
+				/>
+				<FileUploadPane
+					{spaceId}
+					targetDir={uploadPaneTargetDir}
+					files={pendingUploadFiles}
+					entries={pendingUploadEntries}
+					open={uploadPaneVisible}
+					onClose={onUploadPaneClose}
+					onComplete={onUploadComplete}
+				/>
+			</div>
+			{#if !desktopCollapsed}
+				<button
+					type="button"
+					class="right-sidebar-resize-handle"
+					aria-label="Resize files sidebar"
+					title="Resize files sidebar"
+					onpointerdown={onResizeStart}
+				></button>
+			{/if}
 		</div>
-	</div>
-{/if}
+	{/if}
+</div>
 
 <MobileRightDrawer
 	dragOffsetPx={rightDragOffsetPx}
@@ -181,7 +217,6 @@ let {
 </MobileRightDrawer>
 
 <style>
-
 	@media (min-width: 960px) {
 		.files-sidebar-shell--floating {
 			position: absolute;
@@ -194,7 +229,19 @@ let {
 			border: 1px solid var(--border-subtle);
 			border-radius: 10px;
 			background: var(--bg-elevated);
-			box-shadow: 0 10px 26px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
+			box-shadow: 0 10px 26px
+				color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
+			/* Floating mode is a free card, not a flex clip target. */
+			transition: none;
+			pointer-events: auto;
+			opacity: 1;
+		}
+
+		.files-sidebar-shell--floating.panel-shell--collapsed {
+			/* When immersive + tree collapsed, hide the floating card. */
+			width: 0;
+			pointer-events: none;
+			opacity: 0;
 		}
 	}
 </style>

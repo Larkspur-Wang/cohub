@@ -3879,7 +3879,7 @@ $effect(() => {
 {:else}
 <aside
   bind:this={sidebarRootEl}
-  class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-[var(--sidebar-bg)]"
+  class="{isMobile ? 'h-full w-full' : 'h-screen w-full'} flex flex-col bg-[var(--sidebar-bg)]"
 >
   <!-- Brand Header -->
   <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">

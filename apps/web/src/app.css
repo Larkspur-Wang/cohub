@@ -28,6 +28,14 @@ body {
 		color 0.2s ease;
 }
 
+/* Motion tokens — keep numeric values aligned with $lib/motion.svelte.ts */
+:root {
+	--motion-panel-duration: 280ms;
+	--motion-panel-fade-duration: 160ms;
+	--motion-panel-ease: cubic-bezier(0.16, 1, 0.3, 1);
+	--motion-panel-collapse-ease: cubic-bezier(0.4, 0, 0.6, 1);
+}
+
 /* App shell background — themes can layer an image / texture / overlay
    via the --app-bg-* tokens without any JS involvement. */
 .app-shell {
@@ -45,6 +53,81 @@ body.sidebar-resizing {
 
 body.sidebar-resizing iframe {
 	pointer-events: none;
+}
+
+/* ============================================================
+   Panel shell — desktop expand/collapse (clip width, fixed inner)
+   Keep transitions GPU-friendly (width on a simple shell only).
+   Drag resize and reduced-motion kill transitions via body class /
+   media query so intermediate pointer frames stay 1:1.
+   ============================================================ */
+.panel-shell {
+	flex-shrink: 0;
+	min-height: 0;
+	overflow: hidden;
+	/* Expand: expo-out. Collapse uses the same curve — still snappy
+	   enough and avoids dual-easing complexity on a shared class. */
+	transition: width var(--motion-panel-duration) var(--motion-panel-ease);
+}
+
+/* Icon rail / flyout hosts need overflow so portaled menus are not clipped. */
+.panel-shell--overflow-visible {
+	overflow: visible;
+}
+
+/* Collapse in progress — block stray hits while expanded chrome is clipped. */
+.panel-shell--inert {
+	pointer-events: none;
+}
+
+.panel-shell--collapsed {
+	pointer-events: none;
+	border-color: transparent !important;
+}
+
+/* Fixed content width so text/layout never reflow mid-animation. */
+.panel-shell-inner {
+	height: 100%;
+	min-height: 0;
+	flex-shrink: 0;
+}
+
+/* Content fade staggers against width (neta-style, CSS-only). */
+.panel-shell-fade {
+	height: 100%;
+	min-height: 0;
+	min-width: 0;
+	transition: opacity var(--motion-panel-fade-duration) var(--motion-panel-ease);
+}
+
+.panel-shell--collapsed > .panel-shell-inner > .panel-shell-fade,
+.panel-shell--collapsed > .panel-shell-fade {
+	opacity: 0;
+	/* Fade first on collapse so the empty rail then shrinks. */
+	transition-duration: 120ms;
+	transition-timing-function: var(--motion-panel-collapse-ease);
+	transition-delay: 0ms;
+}
+
+.panel-shell:not(.panel-shell--collapsed) > .panel-shell-inner > .panel-shell-fade,
+.panel-shell:not(.panel-shell--collapsed) > .panel-shell-fade {
+	opacity: 1;
+	/* Width expands first; content fades in slightly delayed. */
+	transition-delay: 100ms;
+}
+
+body.sidebar-resizing .panel-shell,
+body.sidebar-resizing .panel-shell-fade,
+body.sidebar-resizing .workspace-preview-pane {
+	transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.panel-shell,
+	.panel-shell-fade,
+	.workspace-preview-pane {
+		transition: none !important;
+	}
 }
 
 *::-webkit-scrollbar {

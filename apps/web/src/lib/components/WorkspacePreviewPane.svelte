@@ -28,11 +28,15 @@ $effect(() => {
 
 <section
 	bind:this={paneEl}
-	class="workspace-preview-pane min-w-0 flex-col border-border-subtle bg-bg-content {desktopOnly ? 'hidden lg:flex' : 'flex'}"
+	class="workspace-preview-pane min-w-0 flex-col border-border-subtle bg-bg-content {desktopOnly
+		? 'hidden lg:flex'
+		: 'flex'}"
 	class:workspace-preview-pane--immersive={immersive}
 	aria-label={ariaLabel}
 >
-	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+	<div
+		class="workspace-preview-pane-inner flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+	>
 		{@render children()}
 	</div>
 	{#if onResizeStart && !immersive}
@@ -62,6 +66,10 @@ $effect(() => {
 			width: var(--workspace-preview-width, 480px);
 			flex-shrink: 0;
 			border-left-width: 1px;
+			overflow: hidden;
+			/* Soft width tween when tree toggle / focus mode adjusts the pane.
+			   Drag sets body.sidebar-resizing which kills transitions globally. */
+			transition: width var(--motion-panel-duration) var(--motion-panel-ease);
 		}
 
 		.workspace-preview-pane--immersive {
@@ -71,6 +79,7 @@ $effect(() => {
 			width: 100%;
 			height: 100%;
 			border-left-width: 0;
+			transition: none;
 		}
 	}
 

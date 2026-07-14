@@ -173,3 +173,89 @@ html[data-theme-transition="circle"]::view-transition-new(root) {
 		animation-duration: 1ms;
 	}
 }
+
+/* ============================================================
+   Mobile session push (IM-style) — Chats list ↔ session detail
+   Uses View Transitions API; only active when data-nav-transition
+   is set by navigation-transition.ts for compact viewports.
+   ============================================================ */
+html[data-nav-transition="session-forward"]::view-transition-group(root),
+html[data-nav-transition="session-back"]::view-transition-group(root) {
+	animation: none;
+}
+
+html[data-nav-transition="session-forward"]::view-transition-old(root),
+html[data-nav-transition="session-forward"]::view-transition-new(root),
+html[data-nav-transition="session-back"]::view-transition-old(root),
+html[data-nav-transition="session-back"]::view-transition-new(root) {
+	animation-duration: var(--motion-panel-duration, 280ms);
+	animation-timing-function: var(--motion-panel-ease, cubic-bezier(0.16, 1, 0.3, 1));
+	animation-fill-mode: both;
+}
+
+/* Forward: session covers the list from the right (IM push). */
+html[data-nav-transition="session-forward"]::view-transition-old(root) {
+	animation-name: cohub-session-nav-exit-left;
+	z-index: 0;
+}
+
+html[data-nav-transition="session-forward"]::view-transition-new(root) {
+	animation-name: cohub-session-nav-enter-right;
+	z-index: 1;
+}
+
+/* Back: session slides off to the right; list reappears underneath. */
+html[data-nav-transition="session-back"]::view-transition-old(root) {
+	animation-name: cohub-session-nav-exit-right;
+	z-index: 1;
+}
+
+html[data-nav-transition="session-back"]::view-transition-new(root) {
+	animation-name: cohub-session-nav-enter-left;
+	z-index: 0;
+}
+
+@keyframes cohub-session-nav-enter-right {
+	from {
+		transform: translate3d(100%, 0, 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+
+@keyframes cohub-session-nav-exit-left {
+	from {
+		transform: translate3d(0, 0, 0);
+	}
+	to {
+		transform: translate3d(-28%, 0, 0);
+	}
+}
+
+@keyframes cohub-session-nav-enter-left {
+	from {
+		transform: translate3d(-28%, 0, 0);
+	}
+	to {
+		transform: translate3d(0, 0, 0);
+	}
+}
+
+@keyframes cohub-session-nav-exit-right {
+	from {
+		transform: translate3d(0, 0, 0);
+	}
+	to {
+		transform: translate3d(100%, 0, 0);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html[data-nav-transition="session-forward"]::view-transition-old(root),
+	html[data-nav-transition="session-forward"]::view-transition-new(root),
+	html[data-nav-transition="session-back"]::view-transition-old(root),
+	html[data-nav-transition="session-back"]::view-transition-new(root) {
+		animation-duration: 1ms;
+	}
+}

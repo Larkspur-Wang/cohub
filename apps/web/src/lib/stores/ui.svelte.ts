@@ -25,6 +25,8 @@ function layoutScopeKey(spaceId?: string | null) {
 const LEFT_SIDEBAR_MIN = 220;
 const LEFT_SIDEBAR_MAX = 420;
 const LEFT_SIDEBAR_DEFAULT = 240;
+/** Collapsed desktop rail width (icon column). */
+const LEFT_SIDEBAR_RAIL = 52;
 const RIGHT_SIDEBAR_MIN = 260;
 const RIGHT_SIDEBAR_MAX = 520;
 const RIGHT_SIDEBAR_DEFAULT = 320;
@@ -196,6 +198,7 @@ export {
 	LEFT_SIDEBAR_DEFAULT,
 	LEFT_SIDEBAR_MAX,
 	LEFT_SIDEBAR_MIN,
+	LEFT_SIDEBAR_RAIL,
 	RIGHT_SIDEBAR_DEFAULT,
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
