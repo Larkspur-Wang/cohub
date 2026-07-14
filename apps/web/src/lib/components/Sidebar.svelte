@@ -3420,6 +3420,7 @@ $effect(() => {
 					active={isActive}
 					{isMobile}
 					modelsCatalog={modelsCatalog ?? undefined}
+					showSourceBadge={true}
 					renaming={renamingSessionId === session.id}
 					renameValue={renameTitleValue}
 					renameSaving={renameSaving}

@@ -20,6 +20,7 @@ const {
 	active = false,
 	isMobile = false,
 	modelsCatalog,
+	showSourceBadge = false,
 	rowState,
 	draggable = false,
 	showInsert = true,
@@ -46,6 +47,7 @@ const {
 	active?: boolean;
 	isMobile?: boolean;
 	modelsCatalog?: ModelCatalogItem[] | null;
+	showSourceBadge?: boolean;
 	rowState?: SidebarSessionRowState | null;
 	draggable?: boolean;
 	showInsert?: boolean;
@@ -149,7 +151,7 @@ const hoverPaddingClass = $derived.by(() => {
 	title={rowState?.titleText}
 	aria-label={rowState?.ariaLabel ?? title}
 >
-	<SessionSidebarRowContent {session} {title} {isMobile} modelsCatalog={modelsCatalog ?? undefined} />
+	<SessionSidebarRowContent {session} {title} {isMobile} {showSourceBadge} modelsCatalog={modelsCatalog ?? undefined} />
 	{#if !isMobile && actionCount > 0}
 		<span class="absolute right-1 top-1/2 inline-flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/session:opacity-100 group-hover/session:pointer-events-auto group-focus-within/session:opacity-100 group-focus-within/session:pointer-events-auto">
 			{#if showInsert && onInsert}

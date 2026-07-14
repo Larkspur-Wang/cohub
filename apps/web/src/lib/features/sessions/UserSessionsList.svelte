@@ -117,6 +117,7 @@ function spaceName(session: UserSessionListItem) {
 								title={getSessionTitle(session)}
 								isMobile={!isDesktop}
 								modelsCatalog={modelsCatalog ?? undefined}
+								showSourceBadge={true}
 							/>
 						</div>
 					</a>
