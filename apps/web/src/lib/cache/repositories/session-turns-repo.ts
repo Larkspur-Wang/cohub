@@ -17,6 +17,7 @@ import {
 	readSessionTurnsCacheSafely,
 } from "$lib/cache/repositories/session-turns-cache-safety";
 import type { CacheSource } from "$lib/cache/types";
+import { areSessionTurnRecordsEqual } from "$lib/session-turn-equality";
 import { mergeTurnsById } from "$lib/stores/turn-cache";
 
 const SESSION_TURNS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -100,16 +101,10 @@ function isIncomingTailOlder(input: {
 }
 
 function areJsonEqual(a: unknown, b: unknown) {
+	if (a === b) return true;
+	if (a == null || b == null) return a === b;
+	if (typeof a !== "object" || typeof b !== "object") return false;
 	return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function areSessionTurnRecordsEqual(
-	current: SessionTurnRecord | null | undefined,
-	next: SessionTurnRecord | null | undefined,
-) {
-	if (current === next) return true;
-	if (!current || !next) return false;
-	return areJsonEqual(current, next);
 }
 
 function areTurnListsEqual(

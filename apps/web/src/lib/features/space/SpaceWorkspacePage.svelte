@@ -668,8 +668,8 @@ const spaceRealtime = createSpaceRealtimeController({
 		sessionChat.onVisibilityChanged(false);
 	},
 	onVisible: () => {
+		// Host owns list + active-session tail refresh (single path).
 		sessionChat.onVisibilityChanged(true);
-		void sessionChat.refreshSessions(false);
 	},
 	onOnline: () => {
 		if (wsConnectionState === "open") {
@@ -1808,11 +1808,16 @@ function resetSpaceScopedState(currentSpaceId: string) {
 async function bootstrapSpace(currentSpaceId: string) {
 	let sessionLoad: Promise<void> | null = null;
 	const spaceLoad = loadSpace();
+	const routeSession =
+		routeView === "session" && routeSessionId && routeSessionId !== "new"
+			? routeSessionId
+			: null;
 	try {
-		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
-			sessionChat.prepareRouteSession(routeSessionId);
+		// Prepare once. Repeat calls used to re-trigger tail reconcile and look like auto-refresh.
+		if (routeSession) {
+			sessionChat.prepareRouteSession(routeSession);
 			sessionLoad = sessionChat
-				.loadSessionState(routeSessionId)
+				.loadSessionState(routeSession)
 				.catch(() => undefined);
 		}
 		const [cachedSpace, cachedSnapshot] = await Promise.all([
@@ -1823,10 +1828,6 @@ async function bootstrapSpace(currentSpaceId: string) {
 		const cachedSessions = cachedSnapshot?.sessions;
 		if (cachedSessions && cachedSessions.length > 0)
 			sessionChat.seedSessions(cachedSessions);
-		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
-			sessionChat.prepareRouteSession(routeSessionId);
-		}
-		const cachedSessionLoad = sessionLoad;
 		if (cachedSpace?.space && !space) {
 			space = cachedSpace.space;
 			portPreview.setEndpoints(extractPublicEndpoints(cachedSpace.space));
@@ -1837,10 +1838,9 @@ async function bootstrapSpace(currentSpaceId: string) {
 		void sessionChat.refreshSessions(false);
 		void loadPreviewEndpoints();
 		void loadFileTree();
-		if (routeView === "session" && routeSessionId && routeSessionId !== "new") {
-			sessionChat.prepareRouteSession(routeSessionId);
-			await cachedSessionLoad;
-			void sessionChat.loadTurnIndex(routeSessionId);
+		if (routeSession) {
+			await sessionLoad;
+			void sessionChat.loadTurnIndex(routeSession);
 		}
 	} catch {
 		// Non-blocking; bootstrapping released by controller

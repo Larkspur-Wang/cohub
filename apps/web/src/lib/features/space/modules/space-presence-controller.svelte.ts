@@ -1,5 +1,6 @@
 import type { SpacePresenceSnapshot, SpacePresenceUser } from "@neta-art/cohub";
 import { sdk } from "$lib/sdk";
+import { arePresenceUsersEqual } from "./space-presence-equality";
 
 const sortPresenceUsers = (users: SpacePresenceUser[]) =>
 	[...users].sort(
@@ -33,7 +34,11 @@ export function createSpacePresenceController(getSpaceId: () => string) {
 
 	function applySnapshot(snapshot: SpacePresenceSnapshot) {
 		if (snapshot.spaceId !== activeSpaceId) return;
-		users = sortPresenceUsers(snapshot.users);
+		const nextUsers = sortPresenceUsers(snapshot.users);
+		// Busy spaces push full presence tables often; skip no-op UI writes.
+		if (!arePresenceUsersEqual(users, nextUsers)) {
+			users = nextUsers;
+		}
 		loaded = true;
 	}
 

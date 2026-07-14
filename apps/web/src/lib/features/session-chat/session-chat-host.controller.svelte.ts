@@ -1706,6 +1706,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	function prepareRouteSession(sessionId: string) {
+		const previousSessionId = activeSessionId;
+		// `loaded` means bootstrap finished (cache paint and/or network). While
+		// loading, loadSessionState owns the fetch — do not double-hit /turns.
+		const alreadyLoaded = Boolean(sessionStateById[sessionId]?.loaded);
+		const sessionChanged = previousSessionId !== sessionId;
 		workspace.prepareRouteSession(sessionId);
 		scroll.pendingRestoreSessionId = sessionId;
 		scroll.activeAnchorRestore = null;
@@ -1718,13 +1723,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		applySessionGenerationPolicy(sessionId);
 		// Keep mid-session position: only default to bottom when no cached anchor.
 		scroll.shouldAutoFollow = !getSessionScrollAnchor(sessionId);
-		// Re-entering a session after mid-send leave: recover stream/tail without
-		// clobbering a pending position restore (guarded in requestBottomFollow).
+		// Always restore local generation UI. Re-fetch tail only when switching
+		// back into a fully loaded session (mid-send leave / dual-host return).
 		void sessionGenerationStore
 			.restore(spaceId, sessionId)
 			.catch(() => undefined)
 			.then(() => {
 				if (disposed || activeSessionId !== sessionId) return;
+				if (!alreadyLoaded || !sessionChanged) return;
 				return reconcileSessionTail(sessionId);
 			})
 			.catch(() => undefined);
