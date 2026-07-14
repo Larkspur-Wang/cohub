@@ -7,7 +7,8 @@ import { buildSpaceSessionRoute } from "$lib/space-routes";
 
 export const ALL_CHATS_LABEL_ID = "__all_chats__";
 export const SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX = "session-source:";
-export const SESSION_USER_ROOT_LABEL_SYSTEM_KEY = "session-user:root";
+export const SESSION_USER_LABEL_SYSTEM_KEY_PREFIX = "session-user:";
+export const SESSION_USER_ROOT_LABEL_SYSTEM_KEY = `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}root`;
 export const SESSION_CHANNEL_ROOT_LABEL_SYSTEM_KEY = "session-channel:root";
 export const WEB_APP_SOURCE_LABEL_SYSTEM_KEY = `${SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX}web`;
 
@@ -50,6 +51,25 @@ export function findSessionUserRootLabel(labels: LabelListItem[]) {
 				label.source === "system" &&
 				label.parentId === null &&
 				label.systemKey === SESSION_USER_ROOT_LABEL_SYSTEM_KEY,
+		) ?? null
+	);
+}
+
+export function getSessionUserLabelSystemKey(userUuid: string) {
+	return `${SESSION_USER_LABEL_SYSTEM_KEY_PREFIX}${userUuid}`;
+}
+
+export function findSessionUserLabel(
+	labels: LabelListItem[],
+	userUuid: string | null | undefined,
+) {
+	const normalized = userUuid?.trim();
+	if (!normalized) return null;
+	const systemKey = getSessionUserLabelSystemKey(normalized);
+	const root = findSessionUserRootLabel(labels);
+	return (
+		(root?.children ?? []).find(
+			(label) => label.source === "system" && label.systemKey === systemKey,
 		) ?? null
 	);
 }

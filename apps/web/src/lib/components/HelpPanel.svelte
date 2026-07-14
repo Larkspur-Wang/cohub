@@ -40,6 +40,13 @@ const sections: ShortcutSection[] = [
 					["Ctrl", "O"],
 				],
 			},
+			{
+				label: "Focus my chats",
+				keys: [
+					["⌘", "⇧", "U"],
+					["Ctrl", "Shift", "U"],
+				],
+			},
 			{ label: "Open help", keys: [["?"]] },
 		],
 	},

@@ -73,7 +73,10 @@ import {
 } from "$lib/drag/cohub-resource-drag";
 import { withCurrentPreview } from "$lib/features/space/modules/workspace-preview-route";
 import { extractGenerationPromptPreview } from "$lib/generation-task-media";
-import { isComposingKeyboardEvent } from "$lib/keyboard";
+import {
+	isComposingKeyboardEvent,
+	isEditableShortcutTarget,
+} from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
 import {
 	addResourceToLabel,
@@ -129,6 +132,8 @@ import {
 	ALL_CHATS_LABEL_ID,
 	buildOptimisticWebAppLabelSessionItem,
 	findDefaultExpandedLabelId,
+	findSessionUserLabel,
+	findSessionUserRootLabel,
 	findWebAppSourceLabel,
 	getDisplayLabels,
 	getSourceLabels,
@@ -197,6 +202,7 @@ const SESSION_PAGE_SIZE = 20;
 const CHECKPOINT_PAGE_SIZE = 20;
 const TASK_PAGE_SIZE = 10;
 
+let sidebarRootEl: HTMLElement | null = $state(null);
 let userMenuAnchorEl: HTMLDivElement | null = $state(null);
 let expandedUserMenuAnchorEl: HTMLDivElement | null = $state(null);
 let showUserMenu = $state(false);
@@ -1653,16 +1659,101 @@ function refreshExpandedLabelItems(spaceId: string) {
 }
 
 function ensureLabelExpanded(labelId: string) {
-	if (!currentSpaceId) return;
+	if (!currentSpaceId) return false;
 	const spaceId = currentSpaceId;
 	const next = new Set(expandedLabelIdsBySpace[spaceId] ?? new Set<string>());
-	if (next.has(labelId)) return;
+	if (next.has(labelId)) return false;
 	next.add(labelId);
 	expandedLabelIdsBySpace = {
 		...expandedLabelIdsBySpace,
 		[spaceId]: next,
 	};
 	setCachedExpandedLabelIds(spaceId, next);
+	return true;
+}
+
+function expandLabelAndLoadItems(labelId: string) {
+	const wasExpanded = currentExpandedLabelIds.has(labelId);
+	ensureLabelExpanded(labelId);
+	if (wasExpanded) {
+		// Already open — refresh silently so sessions stay current.
+		void loadLabelItems(labelId, { force: true });
+		return;
+	}
+	void loadLabelItems(labelId);
+}
+
+function findOwnSessionUserLabel() {
+	return findSessionUserLabel(labels, authStore.userUuid);
+}
+
+function ensureChatsSectionVisible() {
+	chatsCollapsed = false;
+}
+
+function ensureSidebarVisibleForLabelFocus() {
+	if (collapsed) uiState.setLeftSidebarCollapsed(false);
+}
+
+function scrollSidebarLabelIntoView(labelId: string, attempt = 0) {
+	const selector = `[data-sidebar-label-id="${CSS.escape(labelId)}"]`;
+	const scoped =
+		(sidebarRootEl?.querySelector(selector) as HTMLElement | null) ??
+		(document.querySelector(selector) as HTMLElement | null);
+	if (!scoped) {
+		// Collapsed rail → full sidebar remounts the tree; retry a few frames.
+		if (attempt < 8) {
+			requestAnimationFrame(() =>
+				scrollSidebarLabelIntoView(labelId, attempt + 1),
+			);
+		}
+		return;
+	}
+	scoped.scrollIntoView({ block: "nearest", behavior: "smooth" });
+	try {
+		scoped.focus({ preventScroll: true });
+	} catch {
+		scoped.focus();
+	}
+}
+
+function focusOwnSessionUserLabel() {
+	if (mode !== "space" || !currentSpaceId) return false;
+	const ownLabel = findOwnSessionUserLabel();
+	if (!ownLabel) return false;
+	const userRoot = findSessionUserRootLabel(labels);
+	ensureSidebarVisibleForLabelFocus();
+	ensureChatsSectionVisible();
+	if (userRoot) ensureLabelExpanded(userRoot.id);
+	expandLabelAndLoadItems(ownLabel.id);
+	void tick().then(() => {
+		requestAnimationFrame(() => {
+			scrollSidebarLabelIntoView(ownLabel.id);
+		});
+	});
+	return true;
+}
+
+function focusOwnSessionUserLabelOrFallback() {
+	if (focusOwnSessionUserLabel()) return;
+	ensureSidebarVisibleForLabelFocus();
+	ensureChatsSectionVisible();
+	void authStore.ensureLoaded().then(async () => {
+		if (!currentSpaceId) return;
+		if (labels.length === 0) {
+			await loadLabelsForSpace(currentSpaceId, true);
+		}
+		if (focusOwnSessionUserLabel()) return;
+		// No participant label yet — expand User root so the section is reachable.
+		const userRoot = findSessionUserRootLabel(labels);
+		if (!userRoot) return;
+		ensureLabelExpanded(userRoot.id);
+		void tick().then(() => {
+			requestAnimationFrame(() => {
+				scrollSidebarLabelIntoView(userRoot.id);
+			});
+		});
+	});
 }
 
 function clearLabelAutoExpandTimer() {
@@ -2722,14 +2813,25 @@ function saveDebugLog() {
 	downloadCohubDebugBundle();
 }
 
-function handleGlobalNewChatKeydown(event: KeyboardEvent) {
+function handleGlobalSidebarKeydown(event: KeyboardEvent) {
 	if (isComposingKeyboardEvent(event)) return;
 	const key = event.key.toLowerCase();
 	const isNewChatShortcut = (event.metaKey || event.ctrlKey) && key === "o";
 	if (isNewChatShortcut) {
 		event.preventDefault();
 		void handleCreateNewSession();
+		return;
 	}
+	const isOwnChatsShortcut =
+		(event.metaKey || event.ctrlKey) &&
+		event.shiftKey &&
+		!event.altKey &&
+		key === "u";
+	if (!isOwnChatsShortcut) return;
+	if (isEditableShortcutTarget(event.target)) return;
+	if (mode !== "space" || !currentSpaceId) return;
+	event.preventDefault();
+	focusOwnSessionUserLabelOrFallback();
 }
 
 onMount(() => {
@@ -2798,7 +2900,10 @@ onMount(() => {
 			if (spaceId !== currentSpaceId) return;
 			tasks = runs;
 		});
-		window.addEventListener("keydown", handleGlobalNewChatKeydown);
+		// Desktop sidebar owns space shortcuts (⌘O / ⌘⇧U). Mobile has no keyboard surface.
+		if (!isMobile) {
+			window.addEventListener("keydown", handleGlobalSidebarKeydown);
+		}
 		window.addEventListener(
 			"cohub:works-changed",
 			handleWorksChanged as EventListener,
@@ -2884,7 +2989,9 @@ onMount(() => {
 		offTaskRunsCacheUpdated();
 		document.removeEventListener("click", handleClickOutside);
 		if (mode === "space") {
-			window.removeEventListener("keydown", handleGlobalNewChatKeydown);
+			if (!isMobile) {
+				window.removeEventListener("keydown", handleGlobalSidebarKeydown);
+			}
 			window.removeEventListener(
 				"cohub:works-changed",
 				handleWorksChanged as EventListener,
@@ -3168,6 +3275,7 @@ $effect(() => {
 		<div
 			role="button"
 			tabindex="0"
+			data-sidebar-label-id={label.id}
 			class="label-tree-row group/label"
 			class:drop-target={labelDropTargetId === label.id}
 			class:drop-busy={labelDropBusyId === label.id}
@@ -3225,6 +3333,7 @@ $effect(() => {
 				<div
 					role="button"
 					tabindex="0"
+					data-sidebar-label-id={child.id}
 					class="label-tree-row child group/label"
 					class:drop-target={labelDropTargetId === child.id}
 					class:drop-busy={labelDropBusyId === child.id}
@@ -3766,7 +3875,10 @@ $effect(() => {
     </div>
   </aside>
 {:else}
-<aside class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-[var(--sidebar-bg)]">
+<aside
+  bind:this={sidebarRootEl}
+  class="{isMobile ? 'h-full' : 'shrink-0 h-screen'} flex flex-col bg-[var(--sidebar-bg)]"
+>
   <!-- Brand Header -->
   <div class="flex h-[48px] shrink-0 items-center justify-between gap-2 border-b border-border-subtle px-3">
     <a href="/" class="flex min-w-0 items-center gap-2 group" aria-label="Cohub">
