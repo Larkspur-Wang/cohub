@@ -576,6 +576,17 @@ const previewFocusMode = $derived(previewLayout.focusMode);
 const previewImmersiveMode = $derived(previewLayout.immersiveMode);
 const filesColumnHidden = $derived(previewLayout.filesColumnHidden);
 /**
+ * Header icon / show-hide semantics: treat empty rail (tree collapsed, no
+ * preview) the same as a folded column so the first click always paints.
+ * Reads reactive deps directly so the header stays in lockstep with layout.
+ */
+const filesChromeEffectivelyHidden = $derived(
+	isMobile
+		? !uiState.mobileRightDrawerOpen
+		: filesColumnHidden ||
+				(uiState.rightSidebarCollapsed && !activePreviewKind),
+);
+/**
  * Keep Files domain mounted through the column hide width tween so open
  * preview tabs and tree state survive. Unmount after the shell finishes.
  * Initial mount follows hidden state so cold start never mounts-then-tears-down.
@@ -1299,14 +1310,9 @@ function beginPreviewPanelResize(event: PointerEvent) {
 	previewLayout.beginPreviewResize(event);
 }
 async function toggleRightSidebar() {
-	// Main header: hide/show the entire Files column (preview + tree).
-	if (filesColumnHidden) {
-		previewLayout.setFilesColumnHidden(false);
-		// If tree was collapsed, open it so the column is actually useful.
-		if (uiState.rightSidebarCollapsed) await previewLayout.toggleTree();
-		return;
-	}
-	previewLayout.toggleFilesColumn();
+	// Main header: hide/show Files chrome with consistent show/hide semantics.
+	// Handles empty-rail (tree collapsed, no preview) so the first click always paints.
+	await previewLayout.toggleFilesChrome();
 }
 async function toggleFilesTree() {
 	// Files column internal tree collapse.
@@ -2039,8 +2045,8 @@ const headerContext = $derived({
 		: false,
 	spaceHasMinimalAccess,
 	rightSidebarAvailable,
-	// Icon tracks whole-column hide only; tree collapse is Files-header / rail.
-	rightSidebarCollapsed: filesColumnHidden,
+	// Icon tracks effective hide (column folded or empty rail with no preview).
+	rightSidebarCollapsed: filesChromeEffectivelyHidden,
 });
 const sessionRenameState = $derived({
 	renaming: sessionRenaming,

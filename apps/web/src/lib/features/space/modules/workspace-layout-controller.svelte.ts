@@ -247,14 +247,38 @@ export function createWorkspaceLayoutController(options: {
 		window.addEventListener("pointercancel", stop);
 	}
 
+	function isCompactViewport() {
+		// Prefer the page's reactive compact signal so header/toggle stay in
+		// lockstep with layout; fall back to width when called outside the page.
+		if (typeof options.getIsCompact === "function")
+			return options.getIsCompact();
+		if (typeof window === "undefined") return false;
+		return window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX;
+	}
+
+	/**
+	 * Whether the Files chrome is effectively visible to the user.
+	 * A collapsed tree with no preview paints as empty (0 width) even when
+	 * `filesColumnHidden` is still false — treat that as hidden for header UI.
+	 */
+	function isFilesChromeEffectivelyHidden() {
+		if (isCompactViewport()) return !uiState.mobileRightDrawerOpen;
+		if (filesColumnHidden) return true;
+		// Empty rail: column mounted, tree collapsed, nothing in preview stage.
+		return uiState.rightSidebarCollapsed && !options.getHasPreview();
+	}
+
 	/**
 	 * Main-header control: show/hide the entire Files column
 	 * (preview stage + file tree). Does not discard open tabs.
+	 *
+	 * Intentionally does not gate on `getFilesAvailable()` — the header button
+	 * is only rendered when files are available, and blocking on that signal
+	 * caused first-click no-ops while space was still bootstrapping.
 	 */
 	function toggleFilesColumn() {
-		if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
+		if (isCompactViewport()) {
 			// Mobile: drawer for tree; preview is full-screen overlay.
-			if (!options.getFilesAvailable()) return;
 			const nextOpen = !uiState.mobileRightDrawerOpen;
 			uiState.mobileRightDrawerOpen = nextOpen;
 			mobileSurface = nextOpen
@@ -264,10 +288,8 @@ export function createWorkspaceLayoutController(options: {
 					: "main";
 			return;
 		}
-		if (!options.getFilesAvailable()) return;
 		filesColumnHidden = !filesColumnHidden;
 		if (filesColumnHidden) {
-			// Also collapse tree preference so restoring shows a clean default.
 			// Keep tree collapsed state as-is; only hide column.
 			return;
 		}
@@ -277,10 +299,32 @@ export function createWorkspaceLayoutController(options: {
 		}
 	}
 
+	/**
+	 * Main-header control with consistent show/hide semantics.
+	 * If chrome is already effectively hidden (empty rail / drawer closed),
+	 * the first click always reveals something visible (column + tree).
+	 */
+	async function toggleFilesChrome() {
+		if (isCompactViewport()) {
+			toggleFilesColumn();
+			return;
+		}
+		if (isFilesChromeEffectivelyHidden()) {
+			if (filesColumnHidden) filesColumnHidden = false;
+			// Empty rail or fully hidden: always open the tree so the click paints.
+			if (uiState.rightSidebarCollapsed) {
+				await toggleTree();
+			} else if (options.getHasPreview() && presentation === "default") {
+				void tick().then(() => ensurePreviewFits());
+			}
+			return;
+		}
+		toggleFilesColumn();
+	}
+
 	/** Files-column internal: collapse/expand file tree only. */
 	async function toggleTree() {
-		if (window.innerWidth < DESKTOP_SHELL_MIN_WIDTH_PX) {
-			if (!options.getFilesAvailable()) return;
+		if (isCompactViewport()) {
 			const nextOpen = !uiState.mobileRightDrawerOpen;
 			uiState.mobileRightDrawerOpen = nextOpen;
 			mobileSurface = nextOpen
@@ -290,7 +334,6 @@ export function createWorkspaceLayoutController(options: {
 					: "main";
 			return;
 		}
-		if (!options.getFilesAvailable()) return;
 		const nextCollapsed = !uiState.rightSidebarCollapsed;
 		const treeWidth = uiState.rightSidebarWidth;
 		uiState.setRightSidebarCollapsed(nextCollapsed);
@@ -300,6 +343,16 @@ export function createWorkspaceLayoutController(options: {
 				rightSidebarCollapsed: nextCollapsed,
 				treeVisible: !nextCollapsed,
 			};
+		}
+		// Collapsing the tree with no preview leaves a 0-width empty rail —
+		// fold the whole Files column so header state stays consistent.
+		if (nextCollapsed && !options.getHasPreview()) {
+			filesColumnHidden = true;
+			return;
+		}
+		// Expanding tree while column was folded: reveal it.
+		if (!nextCollapsed && filesColumnHidden) {
+			filesColumnHidden = false;
 		}
 		if (!options.getHasPreview()) return;
 		if (presentation === "immersive") return;
@@ -346,6 +399,9 @@ export function createWorkspaceLayoutController(options: {
 		get filesColumnHidden() {
 			return filesColumnHidden;
 		},
+		get filesChromeEffectivelyHidden() {
+			return isFilesChromeEffectivelyHidden();
+		},
 		setPreviewWidth,
 		ensurePreviewFits,
 		toggleFocus,
@@ -356,6 +412,7 @@ export function createWorkspaceLayoutController(options: {
 		beginPreviewResize,
 		toggleTree,
 		toggleFilesColumn,
+		toggleFilesChrome,
 		setFilesColumnHidden: (hidden: boolean) => {
 			filesColumnHidden = hidden;
 		},
