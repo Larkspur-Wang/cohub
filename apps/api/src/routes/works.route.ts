@@ -165,6 +165,7 @@ const serializeWorkVersion = (version: typeof workVersions.$inferSelect) => ({
   targetType: version.targetType,
   targetRef: version.targetRef,
   assetKey: version.assetKey,
+  meta: version.meta ?? null,
   createdAt: version.createdAt?.toISOString() ?? null,
 });
 
@@ -362,6 +363,7 @@ router.post("/", async (c) => {
   const identityError = await ensureWorkPublicIdentity(c, spaceId);
   if (identityError) return identityError;
   const meta = getWorkMeta(body?.meta);
+  const versionMeta = getWorkMeta(body?.versionMeta);
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: user.uuid, meta });
   if (presentationError) return presentationError;
   const now = new Date();
@@ -401,6 +403,7 @@ router.post("/", async (c) => {
         targetType,
         targetRef,
         assetKey,
+        meta: versionMeta,
         createdAt: now,
       }).returning();
       if (!version) throw new Error("failed to create work version");
@@ -489,7 +492,11 @@ async function updateWork(
   return c.json({ work: serializeWork(work) });
 }
 
-async function publishWorkVersion(c: Context, current: typeof works.$inferSelect) {
+async function publishWorkVersion(
+  c: Context,
+  current: typeof works.$inferSelect,
+  options?: { meta?: WorkMeta | null },
+) {
   const identityError = await ensureWorkPublicIdentity(c, current.spaceId);
   if (identityError) return identityError;
   let assetKey: string | null = null;
@@ -519,6 +526,7 @@ async function publishWorkVersion(c: Context, current: typeof works.$inferSelect
         targetType: current.targetType,
         targetRef: current.targetRef,
         assetKey,
+        meta: options?.meta ?? null,
         createdAt: now,
       }).returning();
       if (!version) throw new Error("failed to create work version");
@@ -577,7 +585,9 @@ router.post("/:id/versions", async (c) => {
   const work = await getWorkById(id);
   if (!work) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
-  return publishWorkVersion(c, work);
+  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
+  const meta = body && "meta" in body ? getWorkMeta(body.meta) : null;
+  return publishWorkVersion(c, work, { meta });
 });
 
 router.delete("/:id", async (c) => {

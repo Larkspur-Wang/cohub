@@ -294,6 +294,8 @@ export const workVersions = v2.table(
     targetType: varchar("target_type", { length: 20 }).notNull(),
     targetRef: text("target_ref").notNull(),
     assetKey: text("asset_key"),
+    /** Optional provenance / notes for this version (e.g. source session/turn). */
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({

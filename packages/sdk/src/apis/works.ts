@@ -44,6 +44,8 @@ export type WorkCreateInput = {
   workScopes?: Permission[];
   allowedViewerScopes?: Permission[];
   meta?: WorkMeta | null;
+  /** Optional provenance/notes stored on the initial published version. */
+  versionMeta?: WorkMeta | null;
 };
 
 export type WorkUpdateInput = Partial<{
@@ -64,6 +66,8 @@ export type WorkVersionRecord = {
   targetType: WorkTargetType;
   targetRef: string;
   assetKey: string | null;
+  /** Optional provenance/notes for this version (e.g. source session/turn). */
+  meta: WorkMeta | null;
   createdAt: string | null;
 };
 
@@ -165,9 +169,11 @@ export class WorksApi {
     return this.transport.request<{ versions: WorkVersionRecord[] }>(`/api/works/${workId}/versions`);
   }
 
-  publishVersion(workId: string) {
+  publishVersion(workId: string, input?: { meta?: WorkMeta | null }) {
     return this.transport.request<{ work: WorkRecord; version: WorkVersionRecord }>(`/api/works/${workId}/versions`, {
       method: "POST",
+      headers: input ? { "Content-Type": "application/json" } : undefined,
+      body: input ? JSON.stringify(input) : undefined,
     });
   }
 

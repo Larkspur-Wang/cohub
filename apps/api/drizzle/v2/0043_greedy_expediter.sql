@@ -1,0 +1,1 @@
+ALTER TABLE "v2"."work_versions" ADD COLUMN "meta" jsonb;
