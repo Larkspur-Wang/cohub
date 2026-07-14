@@ -73,10 +73,7 @@ import {
 } from "$lib/drag/cohub-resource-drag";
 import { withCurrentPreview } from "$lib/features/space/modules/workspace-preview-route";
 import { extractGenerationPromptPreview } from "$lib/generation-task-media";
-import {
-	isComposingKeyboardEvent,
-	isEditableShortcutTarget,
-} from "$lib/keyboard";
+import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { hydrateLabelItemsById } from "$lib/labels/label-resource-hydrator";
 import {
 	addResourceToLabel,
@@ -2816,7 +2813,13 @@ function saveDebugLog() {
 function handleGlobalSidebarKeydown(event: KeyboardEvent) {
 	if (isComposingKeyboardEvent(event)) return;
 	const key = event.key.toLowerCase();
-	const isNewChatShortcut = (event.metaKey || event.ctrlKey) && key === "o";
+	// Chord shortcuts (⌘O / ⌘⇧U) should work while the composer is focused —
+	// same as New Chat. They don't insert characters, so no typing conflict.
+	const isNewChatShortcut =
+		(event.metaKey || event.ctrlKey) &&
+		!event.shiftKey &&
+		!event.altKey &&
+		key === "o";
 	if (isNewChatShortcut) {
 		event.preventDefault();
 		void handleCreateNewSession();
@@ -2828,7 +2831,6 @@ function handleGlobalSidebarKeydown(event: KeyboardEvent) {
 		!event.altKey &&
 		key === "u";
 	if (!isOwnChatsShortcut) return;
-	if (isEditableShortcutTarget(event.target)) return;
 	if (mode !== "space" || !currentSpaceId) return;
 	event.preventDefault();
 	focusOwnSessionUserLabelOrFallback();
