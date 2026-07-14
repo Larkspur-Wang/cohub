@@ -23,6 +23,11 @@ import {
 	buildUserSessionRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
+import {
+	clearLastUserSessionId,
+	getLastUserSessionId,
+	setLastUserSessionId,
+} from "$lib/stores/last-user-session";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
 import { getRecentSpaces } from "$lib/stores/recent-space";
 import { fetchSpaceListWithCache } from "$lib/stores/space-list-cache";
@@ -112,10 +117,13 @@ const sessionChat = createSessionChatHost({
 });
 
 let isDesktop = $state(true);
+let viewportReady = $state(false);
 let creating = $state(false);
 let unsubscribeCache: (() => void) | null = null;
 let unsubscribeRealtime: (() => void) | null = null;
 let openSeq = 0;
+/** Session ids that failed to open this page visit — skip on auto-select. */
+const failedOpenIds = new Set<string>();
 
 const routeSessionId = $derived(data.sessionId ?? null);
 const activeSeed = $derived(
@@ -241,6 +249,23 @@ async function openRouteSession(sessionId: string | null) {
 	} catch (error) {
 		if (!isCurrentOpen(seq, sessionId)) return;
 		console.warn("[sessions] failed to open session", error);
+		failedOpenIds.add(sessionId);
+		// Drop a stale remembered id so the next auto-select can fall back.
+		const userUuid = authStore.userUuid;
+		if (userUuid) clearLastUserSessionId(userUuid);
+		const fallback =
+			list.sessions.find(
+				(session) => session.id !== sessionId && !failedOpenIds.has(session.id),
+			) ?? null;
+		if (fallback) {
+			await goto(buildUserSessionRoute(fallback.id), {
+				replaceState: true,
+				keepFocus: true,
+				noScroll: true,
+			});
+			return;
+		}
+		await goto(buildSessionsRoute(), { replaceState: true });
 	}
 }
 
@@ -302,6 +327,37 @@ $effect(() => {
 	});
 });
 
+// Persist the last desktop selection so /sessions can restore it next visit.
+$effect(() => {
+	const sessionId = routeSessionId;
+	const userUuid = authStore.userUuid;
+	if (!sessionId || !userUuid) return;
+	setLastUserSessionId(userUuid, sessionId);
+});
+
+// Desktop /sessions with no sessionId shows an empty right pane — auto-open the
+// last selected chat (fallback: most recent in list) so users skip a wasted click.
+// Mobile keeps the list route; never redirect away from the inbox there.
+$effect(() => {
+	if (!viewportReady || !isDesktop) return;
+	if (routeSessionId) return;
+	const userUuid = authStore.userUuid;
+	const remembered = userUuid ? getLastUserSessionId(userUuid) : null;
+	const rememberedOk =
+		remembered && !failedOpenIds.has(remembered) ? remembered : null;
+	const first =
+		list.sessions.find((session) => !failedOpenIds.has(session.id)) ?? null;
+	const targetId = rememberedOk ?? first?.id ?? null;
+	if (!targetId) return;
+	untrack(() => {
+		void goto(buildUserSessionRoute(targetId), {
+			replaceState: true,
+			keepFocus: true,
+			noScroll: true,
+		});
+	});
+});
+
 // One shared space room per active space (refcount with Space page if both open).
 // Switching sessions inside the same space does not open a second subscription.
 $effect(() => {
@@ -315,6 +371,7 @@ $effect(() => {
 
 onMount(() => {
 	updateViewport();
+	viewportReady = true;
 	window.addEventListener("resize", updateViewport);
 	unsubscribeCache = list.subscribeCache();
 	unsubscribeRealtime = list.subscribeRealtime();
