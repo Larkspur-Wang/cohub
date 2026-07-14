@@ -19,6 +19,12 @@ export const buildSessionsRoute = () => "/sessions";
 export const buildUserSessionRoute = (sessionId: string) =>
 	`/sessions/${sessionId}`;
 
+/** Cross-space new chat draft on the sessions inbox (not space workspace). */
+export const buildUserNewSessionRoute = (spaceId: string) => {
+	const params = new URLSearchParams({ space: spaceId });
+	return `${buildSessionsRoute()}/new?${params.toString()}`;
+};
+
 export const buildUserSessionTurnRoute = (
 	sessionId: string,
 	sequence: number,

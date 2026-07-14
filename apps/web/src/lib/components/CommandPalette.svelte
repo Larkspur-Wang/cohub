@@ -11,6 +11,7 @@ import {
 	TerminalSquare,
 } from "lucide-svelte";
 import { onMount, tick } from "svelte";
+import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import {
 	resolveLocalCommandItems,
@@ -23,6 +24,7 @@ import { parseCommandPaletteQuery } from "$lib/command-palette/query";
 import {
 	getRecentCommandItems,
 	openCommandItem,
+	rememberCommandItem,
 } from "$lib/command-palette/recent";
 import { searchRemoteCommandItems } from "$lib/command-palette/remote-search";
 import {
@@ -35,6 +37,7 @@ import ToolCallList from "$lib/components/ToolCallList.svelte";
 import UserAvatar from "$lib/components/UserAvatar.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import { sdk } from "$lib/sdk";
+import { buildUserNewSessionRoute } from "$lib/space-routes";
 import {
 	fetchSpaceListWithCache,
 	getCachedSpaceListMeta,
@@ -48,17 +51,22 @@ const SPACE_LIST_REFRESH_MIN_INTERVAL_MS = 15_000;
 const DEFAULT_PLACEHOLDER =
 	"Search turns, sessions, spaces, labels… Try label:bug";
 
+type CommandPaletteIntent = "navigate" | "new-chat";
+
 type OpenCommandPaletteDetail = {
 	query?: string;
 	placeholder?: string;
 	title?: string;
 	refreshSpaces?: boolean;
+	/** Controls where space items navigate. Default: open space landing. */
+	intent?: CommandPaletteIntent;
 };
 
 let open = $state(false);
 let query = $state("");
 let title = $state("Command search");
 let placeholder = $state(DEFAULT_PLACEHOLDER);
+let openIntent = $state<CommandPaletteIntent>("navigate");
 let inputEl = $state<HTMLInputElement | null>(null);
 let resultsEl = $state<HTMLDivElement | null>(null);
 let activeIndex = $state(0);
@@ -116,18 +124,28 @@ const recentItems = $derived.by(() => {
 // Local commands are always resolved synchronously — never blocked by network/IDB.
 const localCommands = $derived(resolveLocalCommandItems(searchPlan));
 const mergedItems = $derived.by(() => {
-	if (trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope) {
-		const base = defaultItems.length > 0 ? defaultItems : recentItems;
-		return withLocalCommands(base, localCommands, RESULT_LIMIT);
-	}
-	return withLocalCommands(
-		mergeCommandResults({
-			local: localItems,
-			remote: remoteItems,
-			limit: RESULT_LIMIT * 2,
-		}),
-		localCommands,
-		RESULT_LIMIT,
+	const raw =
+		trimmedQuery.length < MIN_QUERY_LENGTH && !hasLabelScope
+			? withLocalCommands(
+					defaultItems.length > 0 ? defaultItems : recentItems,
+					localCommands,
+					RESULT_LIMIT,
+				)
+			: withLocalCommands(
+					mergeCommandResults({
+						local: localItems,
+						remote: remoteItems,
+						limit: RESULT_LIMIT * 2,
+					}),
+					localCommands,
+					RESULT_LIMIT,
+				);
+	// New-chat intent is space-only: keep spaces + New Space, drop the rest.
+	if (openIntent !== "new-chat") return raw;
+	return raw.filter(
+		(item) =>
+			item.type === "space" ||
+			(item.type === "command" && item.id === "new-space"),
 	);
 });
 const isSearching = $derived(!localDone || !remoteDone || !defaultDone);
@@ -266,6 +284,7 @@ function openPalette(detail?: OpenCommandPaletteDetail) {
 	title = detail?.title ?? "Command search";
 	placeholder = detail?.placeholder ?? DEFAULT_PLACEHOLDER;
 	query = detail?.query ?? "";
+	openIntent = detail?.intent ?? "navigate";
 	forceSpaceRefreshForNextSearch = Boolean(detail?.refreshSpaces);
 	activeIndex = 0;
 	armPointerHover();
@@ -279,6 +298,7 @@ function closePalette() {
 	query = "";
 	title = "Command search";
 	placeholder = DEFAULT_PLACEHOLDER;
+	openIntent = "navigate";
 	activeIndex = 0;
 	settledItems = [];
 	refreshingSpaces = false;
@@ -499,7 +519,28 @@ async function submitRunCommand() {
 async function activate(item: CommandPaletteItem | undefined) {
 	if (!item) return;
 	if (item.id === "run-command") {
+		// Not meaningful while picking a space for new chat.
+		if (openIntent === "new-chat") return;
 		openRunCommandMode();
+		return;
+	}
+	// New-chat intent: only space (or create-space) actions are valid.
+	if (openIntent === "new-chat") {
+		if (item.type === "space" && item.spaceId) {
+			rememberCommandItem(item);
+			closePalette();
+			await goto(buildUserNewSessionRoute(item.spaceId), {
+				keepFocus: true,
+				noScroll: true,
+			});
+			return;
+		}
+		if (item.type === "command" && item.id === "new-space") {
+			await openCommandItem(item);
+			closePalette();
+			return;
+		}
+		// Ignore sessions/labels/turns — keep palette open for a real space pick.
 		return;
 	}
 	await openCommandItem(item);

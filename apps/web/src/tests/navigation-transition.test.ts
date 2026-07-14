@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	isSessionsListPath,
 	isSpaceSessionDetailPath,
+	isUserNewSessionPath,
 	matchMobileSessionNavTransition,
 } from "../lib/navigation-transition.ts";
 
@@ -10,7 +11,15 @@ test("isSessionsListPath matches /sessions only", () => {
 	assert.equal(isSessionsListPath("/sessions"), true);
 	assert.equal(isSessionsListPath("/sessions/"), true);
 	assert.equal(isSessionsListPath("/sessions/abc"), false);
+	assert.equal(isSessionsListPath("/sessions/new"), false);
 	assert.equal(isSessionsListPath("/spaces/x/sessions/y"), false);
+});
+
+test("isUserNewSessionPath matches draft route", () => {
+	assert.equal(isUserNewSessionPath("/sessions/new"), true);
+	assert.equal(isUserNewSessionPath("/sessions/new/"), true);
+	assert.equal(isUserNewSessionPath("/sessions"), false);
+	assert.equal(isUserNewSessionPath("/sessions/abc"), false);
 });
 
 test("isSpaceSessionDetailPath ignores new landing", () => {
@@ -26,6 +35,14 @@ test("matchMobileSessionNavTransition forward and back", () => {
 	);
 	assert.equal(
 		matchMobileSessionNavTransition("/spaces/s1/sessions/abc", "/sessions"),
+		"session-back",
+	);
+	assert.equal(
+		matchMobileSessionNavTransition("/sessions", "/sessions/new"),
+		"session-forward",
+	);
+	assert.equal(
+		matchMobileSessionNavTransition("/sessions/new", "/sessions"),
 		"session-back",
 	);
 	assert.equal(

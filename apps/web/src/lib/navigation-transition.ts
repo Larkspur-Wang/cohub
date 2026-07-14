@@ -20,6 +20,11 @@ export function isSessionsListPath(pathname: string): boolean {
 	return pathname === "/sessions" || pathname === "/sessions/";
 }
 
+/** Cross-space new-chat draft on the sessions inbox. */
+export function isUserNewSessionPath(pathname: string): boolean {
+	return pathname === "/sessions/new" || pathname === "/sessions/new/";
+}
+
 /** Space-scoped chat detail (not the "new" landing). */
 export function isSpaceSessionDetailPath(pathname: string): boolean {
 	const match = pathname.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)\/?$/);
@@ -45,10 +50,16 @@ export function matchMobileSessionNavTransition(
 	fromPath: string,
 	toPath: string,
 ): MobileSessionNavTransition | null {
-	if (isSessionsListPath(fromPath) && isSpaceSessionDetailPath(toPath)) {
+	if (
+		isSessionsListPath(fromPath) &&
+		(isSpaceSessionDetailPath(toPath) || isUserNewSessionPath(toPath))
+	) {
 		return "session-forward";
 	}
-	if (isSpaceSessionDetailPath(fromPath) && isSessionsListPath(toPath)) {
+	if (
+		(isSpaceSessionDetailPath(fromPath) || isUserNewSessionPath(fromPath)) &&
+		isSessionsListPath(toPath)
+	) {
 		return "session-back";
 	}
 	return null;
