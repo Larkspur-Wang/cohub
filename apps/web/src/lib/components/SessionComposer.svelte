@@ -44,6 +44,13 @@ import {
 	searchLocalSpaceMentions,
 	searchRemoteSpaceMentions,
 } from "$lib/mentions/space-search";
+import {
+	detectSpaceMentionTriggerFromText,
+	SPACE_MENTION_TRIGGER_SCAN_LIMIT,
+	type SpaceMentionTrigger,
+	spaceMentionTriggerKey,
+	type TextCaret,
+} from "$lib/mentions/space-trigger";
 import { sdk } from "$lib/sdk";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 import {
@@ -137,11 +144,14 @@ let spaceMentionLocalController: AbortController | null = null;
 let spaceMentionRemoteController: AbortController | null = null;
 let spaceMentionDebounceTimer: number | null = null;
 let pastedSpaceResolveController: AbortController | null = null;
-let spaceMentionTrigger = $state<{
-	start: number;
-	end: number;
-	query: string;
-} | null>(null);
+let spaceMentionTrigger = $state<SpaceMentionTrigger | null>(null);
+/** Dismissed trigger key; stays closed until the active @token changes. */
+let dismissedSpaceMentionKey: string | null = null;
+/** Reactive caret — never read DOM selection inside effects. */
+let caret = $state<TextCaret>({ start: 0, end: 0 });
+let caretSyncFrame: number | null = null;
+let blurCloseTimer: number | null = null;
+let selectionChangeBound = false;
 let isComposerExpanded = $state(false);
 let hasTextareaOverflow = $state(false);
 let voiceClient: VoiceInputClient | null = null;
@@ -158,8 +168,9 @@ const composerInsertRanges = new Map<
 >();
 const SLASH_COMMAND_SCAN_LIMIT = 160;
 const SLASH_COMMAND_QUERY_LIMIT = 80;
-const SPACE_MENTION_TRIGGER_SCAN_LIMIT = 96;
 const COMPOSER_MENTION_MIRROR_TEXT_LIMIT = 50_000;
+const BLUR_MENU_CLOSE_MS = 120;
+const LOCAL_MENTION_SEARCH_RETRY_MS = 80;
 
 let isTextareaFocused = $state(false);
 let resizeFrame: number | null = null;
@@ -339,18 +350,87 @@ function getTextareaLimits(expanded = isComposerExpanded) {
 	};
 }
 
+function readTextareaCaret(): TextCaret | null {
+	if (!textareaEl) return null;
+	return {
+		start: textareaEl.selectionStart ?? 0,
+		end: textareaEl.selectionEnd ?? 0,
+	};
+}
+
+function setCaretState(next: TextCaret) {
+	if (caret.start === next.start && caret.end === next.end) return;
+	caret = next;
+}
+
+/** Sync reactive caret from the DOM. Safe to call often. */
+function syncCaretFromDom() {
+	const next = readTextareaCaret();
+	if (!next) return;
+	setCaretState(next);
+}
+
+function setTextareaSelection(start: number, end = start) {
+	if (!textareaEl) return;
+	textareaEl.setSelectionRange(start, end);
+	setCaretState({ start, end });
+}
+
+function cancelScheduledCaretSync() {
+	if (caretSyncFrame === null || typeof window === "undefined") return;
+	window.cancelAnimationFrame(caretSyncFrame);
+	caretSyncFrame = null;
+}
+
+/**
+ * Safari often updates selectionStart one frame after input/value bind.
+ * Coalesce to rAF so detection always sees the settled caret.
+ */
+function scheduleCaretSyncAndRefresh(options?: { forceOpen?: boolean }) {
+	if (typeof window === "undefined") {
+		syncCaretFromDom();
+		refreshMentionState(options);
+		return;
+	}
+	if (caretSyncFrame !== null) return;
+	caretSyncFrame = window.requestAnimationFrame(() => {
+		caretSyncFrame = null;
+		syncCaretFromDom();
+		refreshMentionState(options);
+	});
+}
+
 function resizeTextarea() {
 	resizeFrame = null;
 	if (!textareaEl) return;
 	if (!hasVisibleDraftText(value) && isComposerExpanded) {
 		isComposerExpanded = false;
 	}
-	textareaEl.style.height = "0px";
+	const selection = readTextareaCaret();
+	const scrollTop = textareaEl.scrollTop;
+	// 1px (not 0): still allows shrink measurement, less likely to clobber Safari selection.
+	textareaEl.style.height = "1px";
 	const scrollHeight = textareaEl.scrollHeight;
 	const { min, max } = getTextareaLimits();
 	const nextHeight = Math.min(scrollHeight, max);
 	textareaEl.style.height = `${Math.max(nextHeight, min)}px`;
 	hasTextareaOverflow = scrollHeight > textareaEl.clientHeight + 1;
+	if (selection) {
+		const maxPos = textareaEl.value.length;
+		const start = Math.min(selection.start, maxPos);
+		const end = Math.min(selection.end, maxPos);
+		if (
+			textareaEl.selectionStart !== start ||
+			textareaEl.selectionEnd !== end
+		) {
+			textareaEl.setSelectionRange(start, end);
+		}
+		setCaretState({ start, end });
+	}
+	textareaEl.scrollTop = Math.min(
+		scrollTop,
+		Math.max(0, textareaEl.scrollHeight - textareaEl.clientHeight),
+	);
 	syncMentionMirrorScroll();
 }
 
@@ -377,21 +457,21 @@ function syncMentionMirrorScroll() {
 
 function setComposerExpanded(expanded: boolean) {
 	if (expanded === isComposerExpanded || !textareaEl) return;
-	const selectionStart = textareaEl.selectionStart;
-	const selectionEnd = textareaEl.selectionEnd;
+	const selection = readTextareaCaret() ?? caret;
 	const scrollTop = textareaEl.scrollTop;
 	const shouldRestoreFocus = document.activeElement === textareaEl;
 	isComposerExpanded = expanded;
 	scheduleResizeTextarea();
 	requestAnimationFrame(() => {
 		if (!textareaEl) return;
-		textareaEl.setSelectionRange(selectionStart, selectionEnd);
+		setTextareaSelection(selection.start, selection.end);
 		textareaEl.scrollTop = Math.min(
 			scrollTop,
 			Math.max(0, textareaEl.scrollHeight - textareaEl.clientHeight),
 		);
 		if (shouldRestoreFocus) textareaEl.focus({ preventScroll: true });
 		syncMentionMirrorScroll();
+		refreshMentionState();
 	});
 }
 
@@ -413,10 +493,11 @@ function submitDraft() {
 function applyVoiceText(partialText = "") {
 	value = voicePrefix + voiceCommittedText + partialText + voiceSuffix;
 	requestAnimationFrame(() => {
-		resizeTextarea();
 		const cursor =
 			voicePrefix.length + voiceCommittedText.length + partialText.length;
-		textareaEl?.setSelectionRange(cursor, cursor);
+		setTextareaSelection(cursor);
+		resizeTextarea();
+		refreshMentionState();
 	});
 }
 
@@ -424,8 +505,9 @@ async function startVoiceInput() {
 	if (disabled || sending || isVoiceRecording || isVoiceStarting) return;
 	voiceError = null;
 	isVoiceStarting = true;
-	const start = textareaEl?.selectionStart ?? value.length;
-	const end = textareaEl?.selectionEnd ?? start;
+	syncCaretFromDom();
+	const start = caret.start;
+	const end = caret.end;
 	voicePrefix = value.slice(0, start);
 	voiceSuffix = value.slice(end);
 	voiceCommittedText = "";
@@ -487,25 +569,153 @@ function applyPromptTemplate(item: SlashCommandMenuItem) {
 	value = `${leadingWhitespace}${command}${suffix || " "}`;
 	showPromptSuggestions = false;
 	selectedPromptIndex = 0;
+	dismissedSpaceMentionKey = null;
 	requestAnimationFrame(() => {
 		textareaEl?.focus();
-		const pos = value.length;
-		textareaEl?.setSelectionRange(pos, pos);
+		setTextareaSelection(value.length);
+		resizeTextarea();
+		refreshMentionState();
 	});
 }
 
 function detectSpaceMentionTrigger() {
-	if (!textareaEl) return null;
-	const cursor = textareaEl.selectionStart;
-	if (cursor !== textareaEl.selectionEnd) return null;
-	const scanStart = Math.max(0, cursor - SPACE_MENTION_TRIGGER_SCAN_LIMIT);
-	const prefix = value.slice(scanStart, cursor);
-	const match = /(^|\s)@([^@\s[\]()]{0,80})$/.exec(prefix);
-	if (!match) return null;
-	const token = match[2] ?? "";
-	const atIndex = cursor - token.length - 1;
-	if (atIndex > 0 && !/\s/.test(value[atIndex - 1] ?? "")) return null;
-	return { start: atIndex, end: cursor, query: token };
+	return detectSpaceMentionTriggerFromText(value, caret, {
+		scanLimit: SPACE_MENTION_TRIGGER_SCAN_LIMIT,
+	});
+}
+
+/**
+ * Single entry for mention open/search state.
+ * - `trigger` is derived from reactive caret + value
+ * - `open` can be dismissed without losing trigger identity
+ * - never force-open a dismissed key until the @token changes
+ */
+function sameSpaceMentionTrigger(
+	a: SpaceMentionTrigger | null,
+	b: SpaceMentionTrigger | null,
+) {
+	if (a === b) return true;
+	if (!a || !b) return false;
+	return a.start === b.start && a.end === b.end && a.query === b.query;
+}
+
+function refreshMentionState(options?: { forceOpen?: boolean }) {
+	const trigger = detectSpaceMentionTrigger();
+	if (!sameSpaceMentionTrigger(spaceMentionTrigger, trigger)) {
+		spaceMentionTrigger = trigger;
+	}
+	const activeTrigger = trigger && !slashCommandActive ? trigger : null;
+
+	if (!activeTrigger) {
+		dismissedSpaceMentionKey = null;
+		if (showSpaceMentions) showSpaceMentions = false;
+		scheduleSpaceMentionSearch(null);
+		return;
+	}
+
+	const key = spaceMentionTriggerKey(activeTrigger);
+	if (options?.forceOpen) dismissedSpaceMentionKey = null;
+
+	const shouldOpen = isTextareaFocused && dismissedSpaceMentionKey !== key;
+	if (showSpaceMentions !== shouldOpen) showSpaceMentions = shouldOpen;
+	scheduleSpaceMentionSearch(activeTrigger);
+}
+
+function dismissSpaceMentions() {
+	if (spaceMentionTrigger) {
+		dismissedSpaceMentionKey = spaceMentionTriggerKey(spaceMentionTrigger);
+	}
+	showSpaceMentions = false;
+}
+
+function handleComposerInput() {
+	scheduleResizeTextarea();
+	// Input path: wait a frame so Safari caret is settled before detect.
+	scheduleCaretSyncAndRefresh();
+}
+
+function handleComposerSelect() {
+	// Coalesce with input/selectionchange in the same frame.
+	scheduleCaretSyncAndRefresh();
+}
+
+function handleComposerClick() {
+	scheduleCaretSyncAndRefresh();
+}
+
+function handleComposerKeyup(event: KeyboardEvent) {
+	// Navigation keys move caret without changing value; rAF-merge held-key repeats.
+	if (
+		event.key === "ArrowLeft" ||
+		event.key === "ArrowRight" ||
+		event.key === "ArrowUp" ||
+		event.key === "ArrowDown" ||
+		event.key === "Home" ||
+		event.key === "End" ||
+		event.key === "PageUp" ||
+		event.key === "PageDown"
+	) {
+		scheduleCaretSyncAndRefresh();
+		return;
+	}
+	// IME composition end / process keys can leave caret lagging on Safari.
+	if (event.key === "Process" || event.isComposing) return;
+	scheduleCaretSyncAndRefresh();
+}
+
+function handleComposerCompositionEnd() {
+	scheduleCaretSyncAndRefresh();
+}
+
+function bindSelectionChangeListener() {
+	if (selectionChangeBound || typeof document === "undefined") return;
+	document.addEventListener("selectionchange", handleDocumentSelectionChange);
+	selectionChangeBound = true;
+}
+
+function unbindSelectionChangeListener() {
+	if (!selectionChangeBound || typeof document === "undefined") return;
+	document.removeEventListener(
+		"selectionchange",
+		handleDocumentSelectionChange,
+	);
+	selectionChangeBound = false;
+}
+
+function handleComposerFocus() {
+	if (blurCloseTimer != null) {
+		window.clearTimeout(blurCloseTimer);
+		blurCloseTimer = null;
+	}
+	isTextareaFocused = true;
+	bindSelectionChangeListener();
+	syncCaretFromDom();
+	refreshMentionState();
+	if (
+		slashCommandActive &&
+		(filteredPromptTemplates.length > 0 || slashCommandLoading)
+	) {
+		showPromptSuggestions = true;
+	}
+}
+
+function handleComposerBlur() {
+	isTextareaFocused = false;
+	unbindSelectionChangeListener();
+	if (blurCloseTimer != null) window.clearTimeout(blurCloseTimer);
+	blurCloseTimer = window.setTimeout(() => {
+		blurCloseTimer = null;
+		if (isTextareaFocused) return;
+		// Close menus only — keep trigger/search so a false Safari blur can recover on refocus.
+		showPromptSuggestions = false;
+		showSpaceMentions = false;
+	}, BLUR_MENU_CLOSE_MS);
+}
+
+function handleDocumentSelectionChange() {
+	if (!isTextareaFocused || document.activeElement !== textareaEl) return;
+	// selectionchange can fire in bursts; fold into the same rAF as input/caret paths.
+	scheduleCaretSyncAndRefresh();
 }
 
 function abortSpaceMentionSearch() {
@@ -544,7 +754,7 @@ function scheduleSpaceMentionSearch(
 	} | null,
 ) {
 	if (!trigger) {
-		resetSpaceMentionSearch();
+		if (activeSpaceMentionSearchKey != null) resetSpaceMentionSearch();
 		return;
 	}
 
@@ -567,9 +777,31 @@ function scheduleSpaceMentionSearch(
 			if (token !== spaceMentionSearchToken) return;
 			localSpaceMentionItems = items;
 		})
-		.catch((error) => {
-			if (error?.name !== "AbortError")
-				console.warn("[space-mentions] local search failed", error);
+		.catch(async (error) => {
+			if (error?.name === "AbortError") return;
+			console.warn("[space-mentions] local search failed", error);
+			// Safari may drop IDB after backgrounding; one delayed soft retry is enough.
+			const signal = spaceMentionLocalController?.signal;
+			if (signal?.aborted) return;
+			await new Promise<void>((resolve) => {
+				window.setTimeout(resolve, LOCAL_MENTION_SEARCH_RETRY_MS);
+			});
+			if (token !== spaceMentionSearchToken || signal?.aborted) return;
+			try {
+				const items = await searchLocalSpaceMentions(q, {
+					signal,
+					currentSpaceId,
+				});
+				if (token !== spaceMentionSearchToken) return;
+				localSpaceMentionItems = items;
+			} catch (retryError) {
+				if ((retryError as { name?: string })?.name !== "AbortError") {
+					console.warn(
+						"[space-mentions] local search retry failed",
+						retryError,
+					);
+				}
+			}
 		})
 		.finally(() => {
 			if (token === spaceMentionSearchToken) spaceMentionLocalDone = true;
@@ -608,13 +840,15 @@ function applySpaceMention(item: SpaceMentionSuggestion) {
 	value = value.slice(0, trigger.start) + snippet + value.slice(trigger.end);
 	showSpaceMentions = false;
 	spaceMentionTrigger = null;
+	dismissedSpaceMentionKey = null;
 	selectedSpaceMentionIndex = 0;
 	selectedSpaceMentionId = null;
 	requestAnimationFrame(() => {
 		const pos = trigger.start + snippet.length;
 		textareaEl?.focus();
-		textareaEl?.setSelectionRange(pos, pos);
+		setTextareaSelection(pos);
 		resizeTextarea();
+		refreshMentionState();
 	});
 }
 
@@ -678,12 +912,9 @@ function insertSnippet(
 		replacement &&
 			value.slice(replacement.start, replacement.end) === replacement.text,
 	);
-	const start = canReplace
-		? (replacement?.start ?? value.length)
-		: (textareaEl?.selectionStart ?? value.length);
-	const end = canReplace
-		? (replacement?.end ?? start)
-		: (textareaEl?.selectionEnd ?? start);
+	if (!canReplace) syncCaretFromDom();
+	const start = canReplace ? (replacement?.start ?? value.length) : caret.start;
+	const end = canReplace ? (replacement?.end ?? start) : caret.end;
 
 	value = value.slice(0, start) + snippet + value.slice(end);
 	const range = { start, end: start + snippet.length, text: snippet };
@@ -694,9 +925,10 @@ function insertSnippet(
 
 	requestAnimationFrame(() => {
 		const pos = start + snippet.length;
-		textareaEl?.setSelectionRange(pos, pos);
+		setTextareaSelection(pos);
 		if (options.focus !== false) textareaEl?.focus();
 		resizeTextarea();
+		refreshMentionState();
 	});
 	return range;
 }
@@ -755,6 +987,7 @@ function handlePaste(event: ClipboardEvent) {
 						value.slice(inserted.end);
 					inserted.end = inserted.start + resolvedSegment.length;
 					scheduleResizeTextarea();
+					scheduleCaretSyncAndRefresh();
 				})
 				.catch((error) => {
 					if (error?.name !== "AbortError")
@@ -800,13 +1033,16 @@ onMount(() => {
 		window.removeEventListener("cohub:composer-insert", handleComposerInsert);
 		window.removeEventListener("resize", handleViewportResize);
 		window.visualViewport?.removeEventListener("resize", handleViewportResize);
+		unbindSelectionChangeListener();
 		spaceMentionLocalController?.abort();
 		spaceMentionRemoteController?.abort();
 		pastedSpaceResolveController?.abort();
 		voiceClient?.close();
 		cancelScheduledResize();
+		cancelScheduledCaretSync();
 		if (spaceMentionDebounceTimer != null)
 			window.clearTimeout(spaceMentionDebounceTimer);
+		if (blurCloseTimer != null) window.clearTimeout(blurCloseTimer);
 	};
 });
 
@@ -833,12 +1069,12 @@ $effect(() => {
 	);
 });
 
+// Fallback for external value changes (draft restore, parent bind, etc.).
+// Input/caret paths also refresh; rAF coalescing keeps this cheap.
 $effect(() => {
-	const trigger = detectSpaceMentionTrigger();
-	spaceMentionTrigger = trigger;
-	const activeTrigger = trigger && !slashCommandActive ? trigger : null;
-	showSpaceMentions = Boolean(activeTrigger);
-	scheduleSpaceMentionSearch(activeTrigger);
+	value;
+	slashCommandActive;
+	scheduleCaretSyncAndRefresh();
 });
 
 $effect(() => {
@@ -987,30 +1223,22 @@ $effect(() => {
 							onpointerdown={() => {
 								isTextareaFocused = true;
 							}}
-							oninput={scheduleResizeTextarea}
+							oninput={handleComposerInput}
 							onscroll={syncMentionMirrorScroll}
+							onselect={handleComposerSelect}
+							onclick={handleComposerClick}
+							onkeyup={handleComposerKeyup}
+							oncompositionend={handleComposerCompositionEnd}
 							ondragover={handlePathDragOver}
 						ondragleave={handlePathDragLeave}
 						ondrop={handlePathDrop}
 						onpaste={handlePaste}
-							onblur={() => {
-							isTextareaFocused = false;
-							setTimeout(() => {
-								showPromptSuggestions = false;
-								showSpaceMentions = false;
-							}, 120);
-						}}
-						onfocus={() => {
-							isTextareaFocused = true;
-							if (spaceMentionTrigger && !slashCommandActive) showSpaceMentions = true;
-							if (slashCommandActive && (filteredPromptTemplates.length > 0 || slashCommandLoading)) {
-								showPromptSuggestions = true;
-							}
-						}}
+							onblur={handleComposerBlur}
+						onfocus={handleComposerFocus}
 						onkeydown={(event) => {
 							if (event.key === 'Escape' && showSpaceMentions) {
 								event.preventDefault();
-								showSpaceMentions = false;
+								dismissSpaceMentions();
 								return;
 							}
 
