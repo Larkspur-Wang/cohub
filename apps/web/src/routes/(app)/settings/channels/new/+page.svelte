@@ -19,6 +19,13 @@ import { sdk } from "$lib/sdk";
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
 
+function channelsListHref() {
+	const target = new URL("/settings/channels", page.url);
+	const from = page.url.searchParams.get("from");
+	if (from) target.searchParams.set("from", from);
+	return target.pathname + target.search;
+}
+
 type Provider = "discord" | "feishu" | "wechat" | "qq" | "web";
 type Step = "select" | "form";
 
@@ -91,7 +98,12 @@ function stopWeChatPolling() {
 
 function cancelToChannels() {
 	stopWeChatPolling();
-	void goto("/settings/channels");
+	// Prefer history back so Back from settings still exits in one step.
+	if (typeof window !== "undefined" && window.history.length > 1) {
+		window.history.back();
+		return;
+	}
+	void goto(channelsListHref());
 }
 
 function selectProvider(provider: Provider) {
@@ -134,7 +146,7 @@ async function pollWeChatLogin(sessionKey: string, verifyCode?: string) {
 			wechatStatus = result.message;
 			if (result.connected) {
 				stopWeChatPolling();
-				await goto("/settings/channels");
+				await goto(channelsListHref(), { replaceState: true });
 				return;
 			}
 			if (result.needVerifyCode) {
@@ -272,7 +284,7 @@ async function handleSubmit(e: Event) {
 			credentials,
 		});
 
-		await goto("/settings/channels");
+		await goto(channelsListHref(), { replaceState: true });
 	} catch (error) {
 		if (
 			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
@@ -295,7 +307,7 @@ async function handleSubmit(e: Event) {
   <!-- Header -->
   <div class="h-[40px] flex items-center px-4 border-b border-border-subtle shrink-0 bg-bg-primary">
     <div class="flex items-center gap-3 min-w-0">
-      <a href="/settings/channels" class="text-text-tertiary hover:text-text-primary transition-colors shrink-0"
+      <a href={channelsListHref()} class="text-text-tertiary hover:text-text-primary transition-colors shrink-0"
         onclick={(e) => { e.preventDefault(); cancelToChannels(); }}>
         <ArrowLeft class="w-4 h-4" />
       </a>

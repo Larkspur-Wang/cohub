@@ -23,6 +23,12 @@ import { buildSpaceLandingRoute } from "$lib/space-routes";
 
 const currentPath = $derived(page.url.pathname);
 const currentSearch = $derived(page.url.search);
+const newChannelHref = $derived.by(() => {
+	const target = new URL("/settings/channels/new", page.url);
+	const from = page.url.searchParams.get("from");
+	if (from) target.searchParams.set("from", from);
+	return target.pathname + target.search;
+});
 
 let channels = $state<Channel[]>([]);
 let isLoading = $state(true);
@@ -106,7 +112,7 @@ async function handleDelete(channel: Channel) {
           </p>
         </div>
         <a
-          href="/settings/channels/new"
+          href={newChannelHref}
           class="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-[5px] border border-brand-border bg-brand-muted px-3 py-2 text-[12px] font-medium text-brand transition-colors hover:bg-brand-muted-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand/50 sm:min-h-8 sm:px-2.5 sm:py-1.5"
         >
           <Plus class="w-3.5 h-3.5" />

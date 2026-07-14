@@ -1455,7 +1455,13 @@ $effect(() => {
 				type="button"
 				class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/35"
 				aria-label="Back to space"
-				onclick={() => goto(buildSpaceLandingRoute(spaceId))}
+				onclick={() => {
+					if (typeof window !== "undefined" && window.history.length > 1) {
+						window.history.back();
+						return;
+					}
+					void goto(buildSpaceLandingRoute(spaceId));
+				}}
 			>
 				<ArrowLeft class="h-4 w-4" />
 			</button>

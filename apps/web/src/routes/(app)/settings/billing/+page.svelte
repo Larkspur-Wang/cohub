@@ -125,6 +125,7 @@ function setBillingTab(tab: BillingTab) {
 		target.searchParams.set("tab", tab);
 	}
 	void goto(`${target.pathname}${target.search}${target.hash}`, {
+		replaceState: true,
 		keepFocus: true,
 		noScroll: true,
 	});

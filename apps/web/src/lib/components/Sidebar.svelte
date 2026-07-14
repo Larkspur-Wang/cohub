@@ -97,6 +97,7 @@ import {
 	buildSpaceCheckpointRoute,
 	buildSpaceCronjobNewRoute,
 	buildSpaceCronjobRoute,
+	buildSpaceLandingRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
 	buildSpaceSettingsRoute,
@@ -107,7 +108,11 @@ import { authStore } from "$lib/stores/auth.svelte";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
-import { clearRecentSpace, setRecentSpace } from "$lib/stores/recent-space";
+import {
+	clearRecentSpace,
+	getRecentSpace,
+	setRecentSpace,
+} from "$lib/stores/recent-space";
 import {
 	fetchSessionDetailWithCache,
 	getCachedSessionDetails,
@@ -605,16 +610,31 @@ const settingsTabs = $derived(
 	),
 );
 
+function fallbackSettingsReturnTo() {
+	// Prefer last visited space over `/` — public home remounts and reloads.
+	const userUuid = authStore.userUuid;
+	if (userUuid) {
+		const recent = getRecentSpace(userUuid);
+		if (recent?.spaceId) {
+			return recent.sessionId
+				? buildSpaceSessionRoute(recent.spaceId, recent.sessionId)
+				: buildSpaceLandingRoute(recent.spaceId);
+		}
+	}
+	return "/";
+}
+
 const settingsReturnTo = $derived.by(() => {
 	const returnTo = page.url.searchParams.get("from");
-	if (!returnTo) return "/";
+	if (!returnTo) return fallbackSettingsReturnTo();
 	try {
 		const decoded = decodeURIComponent(returnTo);
-		if (!decoded.startsWith("/") || decoded.startsWith("//")) return "/";
-		if (decoded.startsWith("/settings")) return "/";
+		if (!decoded.startsWith("/") || decoded.startsWith("//"))
+			return fallbackSettingsReturnTo();
+		if (decoded.startsWith("/settings")) return fallbackSettingsReturnTo();
 		return decoded;
 	} catch {
-		return "/";
+		return fallbackSettingsReturnTo();
 	}
 });
 
@@ -2203,48 +2223,71 @@ async function loadWorksForSpace(spaceId: string, force = false) {
 	}
 }
 
+function currentAppLocation() {
+	return `${page.url.pathname}${page.url.search}${page.url.hash}`;
+}
+
+function withSettingsReturn(href: string) {
+	const target = new URL(href, page.url);
+	if (target.pathname.startsWith("/settings")) {
+		const current = currentAppLocation();
+		if (!current.startsWith("/settings")) {
+			target.searchParams.set("from", current);
+		} else {
+			const from = page.url.searchParams.get("from");
+			if (from && !target.searchParams.has("from")) {
+				target.searchParams.set("from", from);
+			}
+		}
+	}
+	return target.pathname + target.search + target.hash;
+}
+
 async function handleNavigate(
 	href: string,
-	options?: { keepSettingsReturn?: boolean },
+	options?: { keepSettingsReturn?: boolean; replaceState?: boolean },
 ) {
 	onClose?.();
-	if (options?.keepSettingsReturn && mode === "settings") {
-		const target = new URL(href, page.url);
-		const from = page.url.searchParams.get("from");
-		if (from && !target.searchParams.has("from")) {
-			target.searchParams.set("from", from);
-		}
-		await goto(target.pathname + target.search + target.hash);
-		return;
-	}
-	await goto(href);
+	const targetHref =
+		options?.keepSettingsReturn && mode === "settings"
+			? withSettingsReturn(href)
+			: href;
+	await goto(targetHref, {
+		replaceState: options?.replaceState,
+	});
 }
 
 function openSettings() {
-	const current = `${page.url.pathname}${page.url.search}${page.url.hash}`;
-	const target = new URL("/settings/profile", page.url);
-	if (!current.startsWith("/settings")) {
-		target.searchParams.set("from", current);
-	}
 	showUserMenu = false;
-	void handleNavigate(target.pathname + target.search + target.hash);
+	// Entering settings always pushes once; subsequent tab moves replace.
+	void handleNavigate(withSettingsReturn("/settings/profile"));
 }
 
 function openBillingSettings() {
-	const current = `${page.url.pathname}${page.url.search}${page.url.hash}`;
-	const target = new URL("/settings/billing", page.url);
-	if (!current.startsWith("/settings")) {
-		target.searchParams.set("from", current);
-	} else {
-		const from = page.url.searchParams.get("from");
-		if (from) target.searchParams.set("from", from);
-	}
 	showUserMenu = false;
-	void handleNavigate(target.pathname + target.search + target.hash);
+	void handleNavigate(withSettingsReturn("/settings/billing"), {
+		replaceState: mode === "settings",
+	});
+}
+
+function openReferralsSettings() {
+	showUserMenu = false;
+	void handleNavigate(withSettingsReturn("/settings/referrals"), {
+		replaceState: mode === "settings",
+	});
 }
 
 function returnFromSettings() {
-	void handleNavigate(settingsReturnTo);
+	onClose?.();
+	// When we opened settings in-app, `from` is set and tab switches use
+	// replaceState — so one history.back() restores the previous page.
+	// Avoid bare history.back() without `from` (bookmark / hard entry).
+	const hasReturn = Boolean(page.url.searchParams.get("from"));
+	if (hasReturn && typeof window !== "undefined" && window.history.length > 1) {
+		window.history.back();
+		return;
+	}
+	void goto(settingsReturnTo);
 }
 
 function openHelpPanel() {
@@ -3805,7 +3848,7 @@ $effect(() => {
               class="rail-button {isActive ? 'bg-bg-active text-text-primary' : 'text-text-tertiary'}"
               title={tab.label}
               aria-label={tab.label}
-              onclick={(e) => { e.preventDefault(); handleNavigate(tab.href, { keepSettingsReturn: true }); }}
+              onclick={(e) => { e.preventDefault(); void handleNavigate(tab.href, { keepSettingsReturn: true, replaceState: true }); }}
             >
               <tab.icon class="h-4 w-4" />
             </a>
@@ -3850,11 +3893,11 @@ $effect(() => {
                 {/if}
               </div>
             {/if}
-            <a href="/settings/referrals" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings/referrals'); }}><Gift class="h-3.5 w-3.5" /><span>Referrals</span></a>
+            <a href="/settings/referrals" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openReferralsSettings(); }}><Gift class="h-3.5 w-3.5" /><span>Referrals</span></a>
             {#if mode === "space"}
               <a href="/settings" class="rail-menu-item" onclick={(e) => { e.preventDefault(); openSettings(); }}><Settings class="h-3.5 w-3.5" /><span>Settings</span></a>
             {:else}
-              <a href="/" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
+              <a href={settingsReturnTo} class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; returnFromSettings(); }}><FolderKanban class="h-3.5 w-3.5" /><span>Spaces</span></a>
             {/if}
             <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore</span></a>
             <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
@@ -4286,7 +4329,7 @@ $effect(() => {
               ? 'bg-bg-active text-text-primary font-medium'
               : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'
           }"
-          onclick={(e) => { e.preventDefault(); handleNavigate(tab.href, { keepSettingsReturn: true }); }}
+          onclick={(e) => { e.preventDefault(); void handleNavigate(tab.href, { keepSettingsReturn: true, replaceState: true }); }}
         >
           <tab.icon class="w-[15px] h-[15px] shrink-0" />
           <span>{tab.label}</span>
@@ -4341,7 +4384,7 @@ $effect(() => {
         <a
           href="/settings/referrals"
           class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/settings/referrals'); }}
+          onclick={(e) => { e.preventDefault(); openReferralsSettings(); }}
         >
           <Gift class="w-3.5 h-3.5" />
           <span>Referrals</span>
@@ -4357,9 +4400,9 @@ $effect(() => {
           </a>
         {:else}
           <a
-            href="/"
+            href={settingsReturnTo}
             class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
-            onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/'); }}
+            onclick={(e) => { e.preventDefault(); showUserMenu = false; returnFromSettings(); }}
           >
             <FolderKanban class="w-3.5 h-3.5" />
             <span>Spaces</span>
