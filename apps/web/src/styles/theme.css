@@ -178,39 +178,59 @@ html[data-theme-transition="circle"]::view-transition-new(root) {
    Mobile session push (IM-style) — Chats list ↔ session detail
    Uses View Transitions API; only active when data-nav-transition
    is set by navigation-transition.ts for compact viewports.
+
+   Scope the morph to the main content surface (not the whole root)
+   so chrome / drawers do not slide with the page. Theme circle
+   transitions still use root and are gated on a different attr.
    ============================================================ */
-html[data-nav-transition="session-forward"]::view-transition-group(root),
-html[data-nav-transition="session-back"]::view-transition-group(root) {
-	animation: none;
+
+/* Promote the main surface into its own VT group only while active. */
+html[data-nav-transition] .mobile-session-vt-surface {
+	view-transition-name: cohub-session-surface;
 }
 
+/* Root: keep a static snapshot so shell chrome does not slide. */
+html[data-nav-transition="session-forward"]::view-transition-group(root),
+html[data-nav-transition="session-back"]::view-transition-group(root),
 html[data-nav-transition="session-forward"]::view-transition-old(root),
 html[data-nav-transition="session-forward"]::view-transition-new(root),
 html[data-nav-transition="session-back"]::view-transition-old(root),
 html[data-nav-transition="session-back"]::view-transition-new(root) {
+	animation: none;
+}
+
+html[data-nav-transition="session-forward"]::view-transition-group(cohub-session-surface),
+html[data-nav-transition="session-back"]::view-transition-group(cohub-session-surface) {
+	animation: none;
+}
+
+html[data-nav-transition="session-forward"]::view-transition-old(cohub-session-surface),
+html[data-nav-transition="session-forward"]::view-transition-new(cohub-session-surface),
+html[data-nav-transition="session-back"]::view-transition-old(cohub-session-surface),
+html[data-nav-transition="session-back"]::view-transition-new(cohub-session-surface) {
 	animation-duration: var(--motion-panel-duration, 280ms);
 	animation-timing-function: var(--motion-panel-ease, cubic-bezier(0.16, 1, 0.3, 1));
 	animation-fill-mode: both;
 }
 
 /* Forward: session covers the list from the right (IM push). */
-html[data-nav-transition="session-forward"]::view-transition-old(root) {
+html[data-nav-transition="session-forward"]::view-transition-old(cohub-session-surface) {
 	animation-name: cohub-session-nav-exit-left;
 	z-index: 0;
 }
 
-html[data-nav-transition="session-forward"]::view-transition-new(root) {
+html[data-nav-transition="session-forward"]::view-transition-new(cohub-session-surface) {
 	animation-name: cohub-session-nav-enter-right;
 	z-index: 1;
 }
 
 /* Back: session slides off to the right; list reappears underneath. */
-html[data-nav-transition="session-back"]::view-transition-old(root) {
+html[data-nav-transition="session-back"]::view-transition-old(cohub-session-surface) {
 	animation-name: cohub-session-nav-exit-right;
 	z-index: 1;
 }
 
-html[data-nav-transition="session-back"]::view-transition-new(root) {
+html[data-nav-transition="session-back"]::view-transition-new(cohub-session-surface) {
 	animation-name: cohub-session-nav-enter-left;
 	z-index: 0;
 }
@@ -252,10 +272,10 @@ html[data-nav-transition="session-back"]::view-transition-new(root) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	html[data-nav-transition="session-forward"]::view-transition-old(root),
-	html[data-nav-transition="session-forward"]::view-transition-new(root),
-	html[data-nav-transition="session-back"]::view-transition-old(root),
-	html[data-nav-transition="session-back"]::view-transition-new(root) {
+	html[data-nav-transition="session-forward"]::view-transition-old(cohub-session-surface),
+	html[data-nav-transition="session-forward"]::view-transition-new(cohub-session-surface),
+	html[data-nav-transition="session-back"]::view-transition-old(cohub-session-surface),
+	html[data-nav-transition="session-back"]::view-transition-new(cohub-session-surface) {
 		animation-duration: 1ms;
 	}
 }

@@ -36,10 +36,79 @@ export function buildFsEntry(
 	};
 }
 
+export function normalizeFsPath(path: string): string {
+	return path.trim().replace(/^\/+|\/+$/g, "");
+}
+
 export function getParentDirPath(path: string): string {
-	const normalizedPath = path.trim().replace(/^\/+|\/+$/g, "");
+	const normalizedPath = normalizeFsPath(path);
 	if (!normalizedPath.includes("/")) return "";
 	return normalizedPath.slice(0, normalizedPath.lastIndexOf("/"));
+}
+
+export function joinFsPath(parentPath: string, name: string): string {
+	const parent = normalizeFsPath(parentPath);
+	const baseName = normalizeFsPath(name).split("/").pop() ?? "";
+	if (!baseName) return parent;
+	return parent ? `${parent}/${baseName}` : baseName;
+}
+
+/** True when `path` is `ancestor` or nested under it. Empty ancestor never matches. */
+export function isSameOrDescendantPath(
+	path: string,
+	ancestor: string,
+): boolean {
+	const normalizedPath = normalizeFsPath(path);
+	const normalizedAncestor = normalizeFsPath(ancestor);
+	if (!normalizedPath || !normalizedAncestor) return false;
+	return (
+		normalizedPath === normalizedAncestor ||
+		normalizedPath.startsWith(`${normalizedAncestor}/`)
+	);
+}
+
+export function rewriteFsPathPrefix(
+	path: string,
+	fromPath: string,
+	toPath: string,
+): string | null {
+	const normalizedPath = normalizeFsPath(path);
+	const from = normalizeFsPath(fromPath);
+	const to = normalizeFsPath(toPath);
+	if (!normalizedPath || !from) return null;
+	if (normalizedPath === from) return to;
+	if (normalizedPath.startsWith(`${from}/`)) {
+		return `${to}${normalizedPath.slice(from.length)}`;
+	}
+	return null;
+}
+
+/** Resolve a tree drag-move destination, or null when the move is a no-op / invalid. */
+export function resolveFsMoveDestination(
+	fromPath: string,
+	targetDir: string,
+): {
+	fromPath: string;
+	toPath: string;
+	fromParent: string;
+	toParent: string;
+	name: string;
+} | null {
+	const from = normalizeFsPath(fromPath);
+	if (!from) return null;
+	const name = from.split("/").pop() ?? from;
+	const fromParent = getParentDirPath(from);
+	const toParent = normalizeFsPath(targetDir);
+	if (fromParent === toParent) return null;
+	// Cannot move a directory into itself or a descendant.
+	if (isSameOrDescendantPath(toParent, from)) return null;
+	return {
+		fromPath: from,
+		toPath: joinFsPath(toParent, name),
+		fromParent,
+		toParent,
+		name,
+	};
 }
 
 export function mergeFsNodeLists(

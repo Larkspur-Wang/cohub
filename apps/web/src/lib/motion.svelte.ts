@@ -12,6 +12,8 @@ export const DURATION_DRAWER_OUT = 100;
 export const DURATION_PANEL = 280;
 /** Content fade that staggers against panel width. */
 export const DURATION_PANEL_FADE = 160;
+/** Faster fade on collapse so the empty rail then shrinks. */
+export const DURATION_PANEL_FADE_COLLAPSE = 120;
 
 // ─── Easing curves (CSS cubic-bezier) ────────────────────────────────
 // Expo out — snappy entrance, natural deceleration

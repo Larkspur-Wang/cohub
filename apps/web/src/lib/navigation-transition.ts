@@ -1,4 +1,4 @@
-import { COMPACT_SHELL_MAX_WIDTH_PX } from "$lib/layout/breakpoints";
+import { COMPACT_SHELL_MAX_WIDTH_PX } from "./layout/breakpoints.ts";
 
 /**
  * Mobile IM-style navigation transitions (View Transitions API).

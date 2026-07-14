@@ -106,6 +106,7 @@ export type SpaceFileDomainProps = {
 	onCreateCanvas: (parentPath: string) => void | Promise<void>;
 	onCreateDir: (parentPath: string) => void | Promise<void>;
 	onRenameNode: (node: SpaceFsNode) => void | Promise<void>;
+	onMoveNode: (node: SpaceFsNode, targetDir: string) => void | Promise<void>;
 	onDeleteNode: (node: SpaceFsNode) => void | Promise<void>;
 	onDownloadNode: (node: SpaceFsNode) => void | Promise<void>;
 	onUploadFiles: (
@@ -236,6 +237,7 @@ let {
 	onCreateCanvas,
 	onCreateDir,
 	onRenameNode,
+	onMoveNode,
 	onDeleteNode,
 	onDownloadNode,
 	onUploadFiles,
@@ -472,6 +474,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	onCreateCanvas={onCreateCanvas}
 	onCreateDir={onCreateDir}
 	onRename={onRenameNode}
+	onMove={onMoveNode}
 	onDelete={onDeleteNode}
 	onDownload={onDownloadNode}
 	onUpload={onUploadFiles}

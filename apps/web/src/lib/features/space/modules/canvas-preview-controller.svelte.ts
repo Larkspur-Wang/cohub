@@ -253,10 +253,20 @@ export function createCanvasPreviewController(
 	}
 
 	function renamePath(fromPath: string, toPath: string) {
-		canvases = canvases.map((canvas) =>
-			canvas.path === fromPath ? { ...canvas, path: toPath } : canvas,
-		);
+		canvases = canvases.map((canvas) => {
+			if (canvas.path === fromPath) return { ...canvas, path: toPath };
+			if (canvas.path.startsWith(`${fromPath}/`)) {
+				return {
+					...canvas,
+					path: `${toPath}${canvas.path.slice(fromPath.length)}`,
+				};
+			}
+			return canvas;
+		});
 		if (activeCanvasPath === fromPath) activeCanvasPath = toPath;
+		else if (activeCanvasPath?.startsWith(`${fromPath}/`)) {
+			activeCanvasPath = `${toPath}${activeCanvasPath.slice(fromPath.length)}`;
+		}
 	}
 
 	function setCanvasError(documentId: string, error: string) {

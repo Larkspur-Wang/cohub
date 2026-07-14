@@ -11,7 +11,13 @@ import {
 	Upload,
 } from "lucide-svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
-import { setCohubResourceDragData } from "$lib/drag/cohub-resource-drag";
+import {
+	COHUB_PATH_MIME,
+	getCohubResourceDragData,
+	hasCohubResourceDragData,
+	setCohubResourceDragData,
+} from "$lib/drag/cohub-resource-drag";
+import { resolveFsMoveDestination } from "$lib/features/space/modules/file-workspace-utils";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	entriesFromDataTransfer,
@@ -29,6 +35,7 @@ const {
 	onCreateCanvas,
 	onCreateDir,
 	onRename,
+	onMove,
 	onDelete,
 	onDownload,
 	onUpload,
@@ -47,6 +54,7 @@ const {
 	onCreateCanvas?: (parentPath: string) => void;
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
+	onMove?: (node: SpaceFsNode, targetDir: string) => void;
 	onDelete: (node: SpaceFsNode) => void;
 	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
@@ -61,6 +69,7 @@ const indent = $derived(10 + depth * 14);
 const isActive = $derived(selectedPath === node.path);
 const isDir = $derived(node.type === "dir");
 let isDragOver = $state(false);
+let isMoveTarget = $state(false);
 
 // Inline dropdown state
 let menuOpen = $state(false);
@@ -104,31 +113,112 @@ function handleKeydown(e: KeyboardEvent) {
 	}
 }
 
+function hasInternalTreeDrag(dataTransfer: DataTransfer | null) {
+	// File-tree items always set the path MIME; other Cohub resources (sessions, labels)
+	// must not light up folder move targets.
+	return Boolean(dataTransfer?.types.includes(COHUB_PATH_MIME));
+}
+
+function resolveDraggedTreeNodeMeta(
+	dataTransfer: DataTransfer | null,
+): { path: string; type: SpaceFsNode["type"] } | null {
+	if (!dataTransfer) return null;
+	const rawPath = dataTransfer.getData(COHUB_PATH_MIME);
+	if (rawPath) {
+		const isDir = rawPath.endsWith("/");
+		return {
+			path: rawPath.replace(/\/$/, ""),
+			type: isDir ? "dir" : "file",
+		};
+	}
+	const payload = getCohubResourceDragData(dataTransfer);
+	const resource = payload?.resources[0];
+	if (
+		payload?.origin?.kind === "space-file-tree" &&
+		resource?.type === "file" &&
+		resource.path
+	) {
+		return { path: resource.path, type: "file" };
+	}
+	return null;
+}
+
+function canAcceptExternalUpload(dataTransfer: DataTransfer | null) {
+	return Boolean(isDir && onUpload && canWrite && dataTransfer);
+}
+
+function canAcceptInternalMove(dataTransfer: DataTransfer | null) {
+	return Boolean(
+		isDir && onMove && canWrite && hasInternalTreeDrag(dataTransfer),
+	);
+}
+
 function handleDragOver(e: DragEvent) {
-	if (!isDir || !onUpload) return;
+	if (!isDir) return;
+	const internal = canAcceptInternalMove(e.dataTransfer);
+	const external =
+		canAcceptExternalUpload(e.dataTransfer) &&
+		!hasInternalTreeDrag(e.dataTransfer);
+	if (!internal && !external) return;
 	e.preventDefault();
 	e.stopPropagation();
-	if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+	if (e.dataTransfer) e.dataTransfer.dropEffect = internal ? "move" : "copy";
 	isDragOver = true;
+	isMoveTarget = internal;
 }
 
 function handleDragLeave(e: DragEvent) {
 	if (!isDir) return;
+	const related = e.relatedTarget as Node | null;
+	if (
+		related &&
+		e.currentTarget instanceof Node &&
+		e.currentTarget.contains(related)
+	) {
+		return;
+	}
 	const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
 	const x = e.clientX;
 	const y = e.clientY;
 	if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
 		isDragOver = false;
+		isMoveTarget = false;
 	}
 }
 
 async function handleDrop(e: DragEvent) {
-	if (!isDir || !onUpload) return;
+	if (!isDir) return;
 	e.preventDefault();
 	e.stopPropagation();
 	isDragOver = false;
+	isMoveTarget = false;
 	if (!e.dataTransfer) return;
-	if (e.dataTransfer.types.includes("text/cohub-path")) return;
+
+	if (hasInternalTreeDrag(e.dataTransfer)) {
+		if (!canWrite || !onMove) return;
+		const dragged = resolveDraggedTreeNodeMeta(e.dataTransfer);
+		if (!dragged) return;
+		const destination = resolveFsMoveDestination(dragged.path, node.path);
+		if (!destination) return;
+		onMove(
+			{
+				name: destination.name,
+				path: destination.fromPath,
+				type: dragged.type,
+				size: 0,
+				mimeType: null,
+				mtimeMs: Date.now(),
+				children: [],
+				isOpen: false,
+				isLoaded: false,
+				isLoading: false,
+			},
+			node.path,
+		);
+		return;
+	}
+
+	if (!onUpload || !canWrite) return;
 	const entries = await entriesFromDataTransfer(e.dataTransfer);
 	if (entries.length > 0) onUpload(entries, node.path);
 }
@@ -173,6 +263,7 @@ $effect(() => {
   class="tree-item"
   class:menu-open={menuOpen}
   class:drop-target={isDragOver}
+  class:move-target={isMoveTarget}
   role="button"
   tabindex="0"
   draggable={draggable}
@@ -203,9 +294,10 @@ $effect(() => {
       );
       return;
     }
-    e.dataTransfer?.setData("text/cohub-path", path);
+    // Directories: path only (resource payload is file-scoped today).
+    e.dataTransfer?.setData(COHUB_PATH_MIME, path);
     e.dataTransfer?.setData("text/plain", path);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "copyMove";
   }}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
@@ -295,6 +387,7 @@ $effect(() => {
       {onCreateCanvas}
       {onCreateDir}
       {onRename}
+      {onMove}
       {onDelete}
       {onDownload}
       {onUpload}
@@ -345,6 +438,10 @@ $effect(() => {
     background: var(--bg-hover-strong);
     outline: 1px dashed var(--brand);
     outline-offset: -1px;
+  }
+
+  .tree-item.move-target {
+    background: color-mix(in srgb, var(--brand) 12%, var(--bg-hover-strong));
   }
 
   .icon {

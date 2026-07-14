@@ -1,19 +1,17 @@
 <script lang="ts">
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
-import {
-	AlertCircle,
-	ChevronDown,
-	Lock,
-	Plus,
-	RefreshCw,
-	Upload,
-} from "lucide-svelte";
+import { AlertCircle, Lock, Plus, RefreshCw, Upload } from "lucide-svelte";
 import { tick } from "svelte";
 import { floatNear } from "$lib/actions/portal";
 import ColumnHeader from "$lib/components/ColumnHeader.svelte";
-import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import FsTreeItem from "$lib/components/FsTreeItem.svelte";
 import SpacePreviewPorts from "$lib/components/SpacePreviewPorts.svelte";
+import {
+	COHUB_PATH_MIME,
+	getCohubResourceDragData,
+	hasCohubResourceDragData,
+} from "$lib/drag/cohub-resource-drag";
+import { resolveFsMoveDestination } from "$lib/features/space/modules/file-workspace-utils";
 import type { SpaceFsNode } from "$lib/space-fs";
 import {
 	entriesFromDataTransfer,
@@ -33,6 +31,7 @@ const {
 	onCreateCanvas,
 	onCreateDir,
 	onRename,
+	onMove,
 	onDelete,
 	onDownload,
 	onUpload,
@@ -58,6 +57,7 @@ const {
 	onCreateCanvas?: (parentPath: string) => void;
 	onCreateDir: (parentPath: string) => void;
 	onRename: (node: SpaceFsNode) => void;
+	onMove?: (node: SpaceFsNode, targetDir: string) => void;
 	onDelete: (node: SpaceFsNode) => void;
 	onDownload?: (node: SpaceFsNode) => void;
 	onUpload?: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
@@ -75,6 +75,7 @@ const {
 
 let treeScrollContainer: HTMLDivElement | null = $state(null);
 let rootDragOver = $state(false);
+let rootMoveDragOver = $state(false);
 
 // Dropdown state
 let newMenuOpen = $state(false);
@@ -136,13 +137,119 @@ function handleFolderUploadClick() {
 	openUploadPicker(true);
 }
 
+function hasInternalTreeDrag(dataTransfer: DataTransfer | null) {
+	// File-tree items always set the path MIME; other Cohub resources (sessions, labels)
+	// must not light up folder move targets.
+	return Boolean(dataTransfer?.types.includes(COHUB_PATH_MIME));
+}
+
+function findNodeByPath(
+	path: string,
+	list: SpaceFsNode[] = nodes,
+): SpaceFsNode | null {
+	for (const node of list) {
+		if (node.path === path) return node;
+		const child = findNodeByPath(path, node.children);
+		if (child) return child;
+	}
+	return null;
+}
+
+function resolveDraggedTreeNodeMeta(
+	dataTransfer: DataTransfer | null,
+): { path: string; type: SpaceFsNode["type"] } | null {
+	if (!dataTransfer) return null;
+	const rawPath = dataTransfer.getData(COHUB_PATH_MIME);
+	if (rawPath) {
+		const isDir = rawPath.endsWith("/");
+		return {
+			path: rawPath.replace(/\/$/, ""),
+			type: isDir ? "dir" : "file",
+		};
+	}
+	const payload = getCohubResourceDragData(dataTransfer);
+	const resource = payload?.resources[0];
+	if (
+		payload?.origin?.kind === "space-file-tree" &&
+		resource?.type === "file" &&
+		resource.path
+	) {
+		return { path: resource.path, type: "file" };
+	}
+	return null;
+}
+
+function canAcceptRootDrop(dataTransfer: DataTransfer | null) {
+	if (!dataTransfer) return false;
+	if (hasInternalTreeDrag(dataTransfer)) {
+		return Boolean(canWrite && onMove);
+	}
+	return Boolean(onUpload && canWrite);
+}
+
+function handleRootDragOver(e: DragEvent) {
+	if (!canAcceptRootDrop(e.dataTransfer)) return;
+	e.preventDefault();
+	e.stopPropagation();
+	const internal = hasInternalTreeDrag(e.dataTransfer);
+	if (e.dataTransfer) {
+		e.dataTransfer.dropEffect = internal ? "move" : "copy";
+	}
+	if (internal) {
+		rootMoveDragOver = true;
+		rootDragOver = false;
+	} else {
+		rootDragOver = true;
+		rootMoveDragOver = false;
+	}
+}
+
+function handleRootDragLeave(e: DragEvent) {
+	const related = e.relatedTarget as Node | null;
+	if (
+		related &&
+		e.currentTarget instanceof Node &&
+		e.currentTarget.contains(related)
+	) {
+		return;
+	}
+	rootDragOver = false;
+	rootMoveDragOver = false;
+}
+
 async function handleRootDrop(e: DragEvent) {
-	if (!onUpload) return;
 	e.preventDefault();
 	e.stopPropagation();
 	rootDragOver = false;
-	if (!e.dataTransfer || e.dataTransfer.types.includes("text/cohub-path"))
+	rootMoveDragOver = false;
+	if (!e.dataTransfer) return;
+
+	if (hasInternalTreeDrag(e.dataTransfer)) {
+		if (!canWrite || !onMove) return;
+		const dragged = resolveDraggedTreeNodeMeta(e.dataTransfer);
+		if (!dragged) return;
+		const destination = resolveFsMoveDestination(dragged.path, "");
+		if (!destination) return;
+		const node = findNodeByPath(dragged.path);
+		onMove(
+			node ?? {
+				name: destination.name,
+				path: destination.fromPath,
+				type: dragged.type,
+				size: 0,
+				mimeType: null,
+				mtimeMs: Date.now(),
+				children: [],
+				isOpen: false,
+				isLoaded: false,
+				isLoading: false,
+			},
+			"",
+		);
 		return;
+	}
+
+	if (!onUpload || !canWrite) return;
 	const entries = await entriesFromDataTransfer(e.dataTransfer);
 	if (entries.length > 0) onUpload(entries, "");
 }
@@ -293,12 +400,14 @@ $effect(() => {
   {/if}
 
   <div
-    class="min-h-0 flex-1 overflow-auto px-2 py-2 {rootDragOver ? 'outline outline-1 outline-brand/60 outline-offset-[-2px]' : ''}"
+    class="min-h-0 flex-1 overflow-auto px-2 py-2"
+    class:root-drop-target={rootDragOver}
+    class:root-move-target={rootMoveDragOver}
     bind:this={treeScrollContainer}
     role="tree"
     tabindex="0"
-    ondragover={(e) => { if (!onUpload || e.dataTransfer?.types.includes("text/cohub-path")) return; e.preventDefault(); rootDragOver = true; }}
-    ondragleave={() => { rootDragOver = false; }}
+    ondragover={handleRootDragOver}
+    ondragleave={handleRootDragLeave}
     ondrop={handleRootDrop}
   >
     {#if nodes.length === 0 && loading}
@@ -320,6 +429,7 @@ $effect(() => {
           {onCreateCanvas}
           {onCreateDir}
           {onRename}
+          {onMove}
           {onDelete}
           {onDownload}
           {onUpload}
@@ -379,5 +489,16 @@ $effect(() => {
   .dropdown-item:hover {
     background: var(--bg-hover);
     color: var(--text-primary);
+  }
+
+  .root-drop-target {
+    outline: 1px solid color-mix(in srgb, var(--brand) 60%, transparent);
+    outline-offset: -2px;
+  }
+
+  .root-move-target {
+    outline: 1px dashed var(--brand);
+    outline-offset: -2px;
+    background: color-mix(in srgb, var(--bg-hover-strong) 70%, transparent);
   }
 </style>

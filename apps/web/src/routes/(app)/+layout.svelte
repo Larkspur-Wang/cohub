@@ -12,6 +12,7 @@ import MediaLightbox from "$lib/components/MediaLightbox.svelte";
 import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
 import TurnNotificationStack from "$lib/components/TurnNotificationStack.svelte";
+import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import {
 	type DrawerGestureDirection,
 	type DrawerGesturePhase,
@@ -87,7 +88,11 @@ let vConsole: InstanceType<typeof import("vconsole").default> | null = null;
  * with the width tween instead of hard-swapping to the icon rail first.
  * Expand swaps content immediately so the reveal has real chrome to show.
  */
-let leftSidebarContentCollapsed = $state(uiState.leftSidebarCollapsed);
+const leftSidebarExpandedMount = createDeferredMount(
+	() => !uiState.leftSidebarCollapsed,
+	() => DURATION_PANEL,
+);
+const leftSidebarContentCollapsed = $derived(!leftSidebarExpandedMount.mounted);
 /** True while shell is collapsing and still showing expanded content under clip. */
 const leftSidebarCollapsing = $derived(
 	uiState.leftSidebarCollapsed && !leftSidebarContentCollapsed,
@@ -98,27 +103,6 @@ const leftSidebarShellWidth = $derived(
 const leftSidebarInnerWidth = $derived(
 	leftSidebarContentCollapsed ? LEFT_SIDEBAR_RAIL : uiState.leftSidebarWidth,
 );
-
-function prefersReducedMotionNow() {
-	if (typeof window === "undefined") return false;
-	return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-$effect(() => {
-	const collapsed = uiState.leftSidebarCollapsed;
-	if (!collapsed) {
-		leftSidebarContentCollapsed = false;
-		return;
-	}
-	if (prefersReducedMotionNow() || leftSidebarContentCollapsed) {
-		leftSidebarContentCollapsed = true;
-		return;
-	}
-	const timer = window.setTimeout(() => {
-		leftSidebarContentCollapsed = true;
-	}, DURATION_PANEL);
-	return () => window.clearTimeout(timer);
-});
 
 function isEditableShortcutTarget(target: EventTarget | null) {
 	if (!(target instanceof HTMLElement)) return false;
@@ -554,6 +538,7 @@ onMount(() => {
     <div
       class="panel-shell hidden lg:flex relative z-30 {leftSidebarContentCollapsed ? 'panel-shell--overflow-visible' : ''} {leftSidebarCollapsing ? 'panel-shell--inert' : ''}"
       style={`width: ${leftSidebarShellWidth}px`}
+      inert={leftSidebarCollapsing ? true : undefined}
     >
       <div
         class="panel-shell-inner relative {leftSidebarContentCollapsed ? 'overflow-visible' : 'overflow-hidden border-r border-[color:var(--sidebar-border)]'}"
@@ -572,8 +557,8 @@ onMount(() => {
       </div>
     </div>
 
-    <!-- Main content area -->
-    <main class="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden mobile-drawer-gesture-surface">
+    <!-- Main content area — named VT surface only while session nav is active -->
+    <main class="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden mobile-drawer-gesture-surface mobile-session-vt-surface">
 
       <!-- Page content -->
       <div class="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">

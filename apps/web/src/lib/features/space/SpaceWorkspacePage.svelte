@@ -34,6 +34,7 @@ import AccessStateView from "$lib/components/AccessStateView.svelte";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import ResourceLabelPicker from "$lib/components/ResourceLabelPicker.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
+import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import {
 	createSessionChatHost,
 	getSessionTitle,
@@ -577,26 +578,13 @@ const filesColumnHidden = $derived(previewLayout.filesColumnHidden);
 /**
  * Keep Files domain mounted through the column hide width tween so open
  * preview tabs and tree state survive. Unmount after the shell finishes.
+ * Initial mount follows hidden state so cold start never mounts-then-tears-down.
  */
-let filesColumnMounted = $state(true);
-$effect(() => {
-	if (!filesColumnHidden || isMobile || previewImmersiveMode) {
-		filesColumnMounted = true;
-		return;
-	}
-	if (typeof window === "undefined") {
-		filesColumnMounted = false;
-		return;
-	}
-	if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-		filesColumnMounted = false;
-		return;
-	}
-	const timer = window.setTimeout(() => {
-		filesColumnMounted = false;
-	}, DURATION_PANEL);
-	return () => window.clearTimeout(timer);
-});
+const filesColumnMount = createDeferredMount(
+	() => !filesColumnHidden || isMobile || previewImmersiveMode,
+	() => DURATION_PANEL,
+);
+const filesColumnMounted = $derived(filesColumnMount.mounted);
 const immersiveChatVisible = $derived(
 	!previewImmersiveMode || previewLayout.immersiveMainVisible,
 );
@@ -1370,6 +1358,13 @@ async function handleRenameNode(node: SpaceFsNode) {
 	if (next) syncPreviewQuery(next, true);
 	else if (routePreviewRef?.key === prevPath) syncPreviewQuery(null, true);
 }
+async function handleMoveNode(node: SpaceFsNode, targetDir: string) {
+	const prevPath = node.path;
+	await fileWorkspace.handleMoveNode(node, targetDir);
+	const next = currentPreviewRef();
+	if (next) syncPreviewQuery(next, true);
+	else if (routePreviewRef?.key === prevPath) syncPreviewQuery(null, true);
+}
 async function handleDownloadNode(node: SpaceFsNode) {
 	await fileWorkspace.handleDownloadNode(node);
 }
@@ -1982,6 +1977,7 @@ const spaceFileDomainProps = $derived.by<
 	onCreateCanvas: handleCreateCanvas,
 	onCreateDir: handleCreateDir,
 	onRenameNode: handleRenameNode,
+	onMoveNode: handleMoveNode,
 	onDeleteNode: handleDeleteNode,
 	onDownloadNode: handleDownloadNode,
 	onUploadFiles: handleUploadFiles,
@@ -2332,6 +2328,7 @@ const headerActions = {
     class:files-column-shell--hidden={!isMobile && filesColumnHidden && !previewImmersiveMode}
     class:files-column-shell--immersive={!isMobile && previewImmersiveMode}
     aria-hidden={!isMobile && filesColumnHidden && !previewImmersiveMode}
+    inert={!isMobile && filesColumnHidden && !previewImmersiveMode ? true : undefined}
   >
     <div class="files-column-shell-inner min-h-0 flex">
       <SpaceFileDomain

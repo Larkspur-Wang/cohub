@@ -3,6 +3,7 @@ import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
 import FileUploadPane from "$lib/components/FileUploadPane.svelte";
 import MobileRightDrawer from "$lib/components/MobileRightDrawer.svelte";
 import SpaceFileSidebar from "$lib/components/SpaceFileSidebar.svelte";
+import { createDeferredMount } from "$lib/deferred-mount.svelte";
 import { DURATION_PANEL } from "$lib/motion.svelte";
 import type { SpaceFsNode } from "$lib/space-fs";
 import type { LocalUploadEntry } from "$lib/upload-entries";
@@ -36,6 +37,7 @@ type Props = {
 	onCreateCanvas: (parentPath: string) => void | Promise<void>;
 	onCreateDir: (parentPath: string) => void | Promise<void>;
 	onRename: (node: SpaceFsNode) => void | Promise<void>;
+	onMove?: (node: SpaceFsNode, targetDir: string) => void | Promise<void>;
 	onDelete: (node: SpaceFsNode) => void | Promise<void>;
 	onDownload: (node: SpaceFsNode) => void | Promise<void>;
 	onUpload: (files: File[] | LocalUploadEntry[], targetDir: string) => void;
@@ -76,6 +78,7 @@ let {
 	onCreateCanvas,
 	onCreateDir,
 	onRename,
+	onMove = undefined,
 	onDelete,
 	onDownload,
 	onUpload,
@@ -89,29 +92,13 @@ let {
 
 /**
  * Keep the desktop tree mounted through the collapse width tween so the
- * clip animation has real content. Unmount only after the shell reaches 0
- * (or immediately when reduced-motion is preferred).
+ * clip animation has real content. Floating mode has no width tween — unmount ASAP.
  */
-let desktopMounted = $state(true);
-
-$effect(() => {
-	if (!desktopCollapsed) {
-		desktopMounted = true;
-		return;
-	}
-	if (typeof window === "undefined") {
-		desktopMounted = false;
-		return;
-	}
-	if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-		desktopMounted = false;
-		return;
-	}
-	const timer = window.setTimeout(() => {
-		desktopMounted = false;
-	}, DURATION_PANEL);
-	return () => window.clearTimeout(timer);
-});
+const treeMount = createDeferredMount(
+	() => !desktopCollapsed,
+	() => (desktopFloating ? 0 : DURATION_PANEL),
+);
+const desktopMounted = $derived(treeMount.mounted);
 
 const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 </script>
@@ -122,6 +109,7 @@ const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 	class:files-sidebar-shell--floating={desktopFloating}
 	style={`width: ${desktopShellWidth}px; --files-sidebar-width: ${desktopWidth}px`}
 	aria-hidden={desktopCollapsed}
+	inert={desktopCollapsed ? true : undefined}
 >
 	{#if desktopMounted}
 		<div class="panel-shell-inner relative" style={`width: ${desktopWidth}px`}>
@@ -139,6 +127,7 @@ const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 					onCreateCanvas={onCreateCanvas}
 					onCreateDir={onCreateDir}
 					onRename={onRename}
+					onMove={onMove}
 					onDelete={onDelete}
 					onDownload={onDownload}
 					onUpload={onUpload}
@@ -193,6 +182,7 @@ const desktopShellWidth = $derived(desktopCollapsed ? 0 : desktopWidth);
 		onCreateCanvas={onCreateCanvas}
 		onCreateDir={onCreateDir}
 		onRename={onRename}
+		onMove={onMove}
 		onDelete={onDelete}
 		onDownload={onDownload}
 		onUpload={onUpload}

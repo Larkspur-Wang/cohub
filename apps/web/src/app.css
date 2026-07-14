@@ -32,6 +32,7 @@ body {
 :root {
 	--motion-panel-duration: 280ms;
 	--motion-panel-fade-duration: 160ms;
+	--motion-panel-fade-collapse-duration: 120ms;
 	--motion-panel-ease: cubic-bezier(0.16, 1, 0.3, 1);
 	--motion-panel-collapse-ease: cubic-bezier(0.4, 0, 0.6, 1);
 }
@@ -104,7 +105,7 @@ body.sidebar-resizing iframe {
 .panel-shell--collapsed > .panel-shell-fade {
 	opacity: 0;
 	/* Fade first on collapse so the empty rail then shrinks. */
-	transition-duration: 120ms;
+	transition-duration: var(--motion-panel-fade-collapse-duration);
 	transition-timing-function: var(--motion-panel-collapse-ease);
 	transition-delay: 0ms;
 }

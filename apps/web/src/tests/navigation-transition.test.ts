@@ -1,34 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
-/**
- * Pure path matchers for mobile session nav transitions.
- * Inlined here so node:test does not need SvelteKit $lib resolution.
- * Keep in sync with `$lib/navigation-transition`.
- */
-
-function isSessionsListPath(pathname: string): boolean {
-	return pathname === "/sessions" || pathname === "/sessions/";
-}
-
-function isSpaceSessionDetailPath(pathname: string): boolean {
-	const match = pathname.match(/^\/spaces\/[^/]+\/sessions\/([^/]+)\/?$/);
-	if (!match) return false;
-	return match[1] !== "new";
-}
-
-function matchMobileSessionNavTransition(
-	fromPath: string,
-	toPath: string,
-): "session-forward" | "session-back" | null {
-	if (isSessionsListPath(fromPath) && isSpaceSessionDetailPath(toPath)) {
-		return "session-forward";
-	}
-	if (isSpaceSessionDetailPath(fromPath) && isSessionsListPath(toPath)) {
-		return "session-back";
-	}
-	return null;
-}
+import {
+	isSessionsListPath,
+	isSpaceSessionDetailPath,
+	matchMobileSessionNavTransition,
+} from "../lib/navigation-transition.ts";
 
 test("isSessionsListPath matches /sessions only", () => {
 	assert.equal(isSessionsListPath("/sessions"), true);

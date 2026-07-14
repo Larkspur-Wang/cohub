@@ -36,6 +36,8 @@ import {
 	isMarkdownPath,
 	makeFsNodes,
 	replaceNodeChildren,
+	resolveFsMoveDestination,
+	rewriteFsPathPrefix,
 	updateNodeState,
 } from "./file-workspace-utils";
 
@@ -892,6 +894,62 @@ export function createFileWorkspaceController(
 		}
 	}
 
+	async function applyMovedNode(
+		node: SpaceFsNode,
+		fromPath: string,
+		toPath: string,
+	) {
+		const fromParent = getParentDirPath(fromPath);
+		const toParent = getParentDirPath(toPath);
+		const nextName = toPath.split("/").pop() ?? toPath;
+
+		if (fromParent === toParent) {
+			await patchFsDirectory(fromParent, (entries) =>
+				entries.map((entry) =>
+					entry.path === fromPath
+						? {
+								...entry,
+								name: nextName,
+								path: toPath,
+								mtimeMs: Date.now(),
+							}
+						: entry,
+				),
+			);
+		} else {
+			await patchFsDirectory(fromParent, (entries) =>
+				entries.filter((entry) => entry.path !== fromPath),
+			);
+			await patchFsDirectory(toParent, (entries) => {
+				const withoutClash = entries.filter((entry) => entry.path !== toPath);
+				return [
+					...withoutClash,
+					{
+						...buildFsEntry(toPath, node.type),
+						size: node.size,
+						mimeType: node.mimeType,
+						mtimeMs: Date.now(),
+					},
+				];
+			});
+		}
+
+		if (node.type === "dir") {
+			await clearCachedSpaceFsSubtree(options.getSpaceId(), fromPath);
+		}
+
+		renameOpenPaths(fromPath, toPath);
+		options.onRenameInlineCanvas?.(fromPath, toPath);
+	}
+
+	async function moveNodeToPath(node: SpaceFsNode, toPath: string) {
+		const fromPath = node.path;
+		if (fromPath === toPath) return false;
+		await sdk.space(options.getSpaceId()).files.move({ fromPath, toPath });
+		await applyMovedNode(node, fromPath, toPath);
+		return true;
+	}
+
 	async function handleRenameNode(node: SpaceFsNode) {
 		if (options.getActiveFsReadonly() || !options.getCanEditFiles()) return;
 		const nextName = prompt("Rename", node.name);
@@ -899,44 +957,28 @@ export function createFileWorkspaceController(
 		const parent = getParentDirPath(node.path);
 		const toPath = parent ? `${parent}/${nextName.trim()}` : nextName.trim();
 		try {
-			await sdk
-				.space(options.getSpaceId())
-				.files.move({ fromPath: node.path, toPath });
-			if (parent === getParentDirPath(toPath)) {
-				await patchFsDirectory(parent, (entries) =>
-					entries.map((entry) =>
-						entry.path === node.path
-							? {
-									...entry,
-									name: nextName.trim(),
-									path: toPath,
-									mtimeMs: Date.now(),
-								}
-							: entry,
-					),
-				);
-			} else {
-				await patchFsDirectory(parent, (entries) =>
-					entries.filter((entry) => entry.path !== node.path),
-				);
-				await patchFsDirectory(getParentDirPath(toPath), (entries) => [
-					...entries,
-					{
-						...buildFsEntry(toPath, node.type),
-						size: node.size,
-						mimeType: node.mimeType,
-						mtimeMs: Date.now(),
-					},
-				]);
-			}
-			if (node.type === "dir")
-				await clearCachedSpaceFsSubtree(options.getSpaceId(), node.path);
-			if (inlineFileTabs.some((tab) => tab.path === node.path))
-				renamePath(node.path, toPath);
-			options.onRenameInlineCanvas?.(node.path, toPath);
+			await moveNodeToPath(node, toPath);
 		} catch (error) {
 			fileTreeError =
 				error instanceof Error ? error.message : "Failed to rename";
+		}
+	}
+
+	async function handleMoveNode(node: SpaceFsNode, targetDir: string) {
+		if (options.getActiveFsReadonly() || !options.getCanEditFiles()) return;
+		const destination = resolveFsMoveDestination(node.path, targetDir);
+		if (!destination) return;
+		const source =
+			findFsNode(destination.fromPath) ??
+			({
+				...node,
+				path: destination.fromPath,
+				name: destination.name,
+			} satisfies SpaceFsNode);
+		try {
+			await moveNodeToPath(source, destination.toPath);
+		} catch (error) {
+			fileTreeError = error instanceof Error ? error.message : "Failed to move";
 		}
 	}
 
@@ -1036,23 +1078,38 @@ export function createFileWorkspaceController(
 		closeReadyCopies();
 	}
 
+	function renameOpenPaths(fromPath: string, toPath: string) {
+		inlineFileTabs = inlineFileTabs.map((tab) => {
+			const nextPath = rewriteFsPathPrefix(tab.path, fromPath, toPath);
+			if (!nextPath) return tab;
+			return {
+				...tab,
+				path: nextPath,
+				response: tab.response
+					? {
+							...tab.response,
+							path: nextPath,
+							name: nextPath.split("/").pop() ?? nextPath,
+						}
+					: tab.response,
+				backStack: tab.backStack.map(
+					(item) => rewriteFsPathPrefix(item, fromPath, toPath) ?? item,
+				),
+			};
+		});
+		if (activeInlineFilePath) {
+			const nextActive = rewriteFsPathPrefix(
+				activeInlineFilePath,
+				fromPath,
+				toPath,
+			);
+			if (nextActive) activeInlineFilePath = nextActive;
+		}
+	}
+
+	/** @deprecated Prefer renameOpenPaths; kept for external callers. */
 	function renamePath(fromPath: string, toPath: string) {
-		inlineFileTabs = inlineFileTabs.map((tab) =>
-			tab.path === fromPath
-				? {
-						...tab,
-						path: toPath,
-						response: tab.response
-							? {
-									...tab.response,
-									path: toPath,
-									name: toPath.split("/").pop() ?? toPath,
-								}
-							: tab.response,
-					}
-				: tab,
-		);
-		if (activeInlineFilePath === fromPath) activeInlineFilePath = toPath;
+		renameOpenPaths(fromPath, toPath);
 	}
 
 	return {
@@ -1267,6 +1324,7 @@ export function createFileWorkspaceController(
 		handleCreateCanvas,
 		handleCreateDir,
 		handleRenameNode,
+		handleMoveNode,
 		handleDownloadNode,
 		handleDeleteNode,
 		handleUploadFiles,
