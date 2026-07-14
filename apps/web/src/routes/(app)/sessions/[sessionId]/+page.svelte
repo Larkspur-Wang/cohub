@@ -1,7 +1,1 @@
-<script lang="ts">
-import UserSessionsPage from "$lib/features/sessions/UserSessionsPage.svelte";
-
-const { data } = $props();
-</script>
-
-<UserSessionsPage {data} />
+<!-- UI lives in sessions/+layout.svelte so the shell survives child-route navigations. -->
