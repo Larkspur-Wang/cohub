@@ -7,6 +7,7 @@ const LEGACY_STORAGE_KEYS = {
 	immersiveChatWidth: "cohub:layout:immersive-chat-width",
 	rightSidebarCollapsed: "cohub:layout:right-sidebar-collapsed",
 	leftSidebarCollapsed: "cohub:layout:left-sidebar-collapsed",
+	filesColumnHidden: "cohub:layout:files-column-hidden",
 } as const;
 
 const STORAGE_PREFIX = "cohub:layout:v2";
@@ -71,6 +72,8 @@ class UIState {
 	immersiveChatWidth = $state(IMMERSIVE_CHAT_DEFAULT);
 	leftSidebarCollapsed = $state(false);
 	rightSidebarCollapsed = $state(false);
+	/** Hide the whole Files column (preview stage + tree). Space-scoped. */
+	filesColumnHidden = $state(false);
 	private layoutScope: string | null = null;
 
 	private readLayoutPref(key: LayoutPrefKey) {
@@ -115,6 +118,7 @@ class UIState {
 			"rightSidebarCollapsed",
 			String(this.rightSidebarCollapsed),
 		);
+		this.writeLayoutPref("filesColumnHidden", String(this.filesColumnHidden));
 	}
 
 	loadLayoutPrefs(spaceId?: string | null) {
@@ -129,6 +133,7 @@ class UIState {
 		const rawImmersiveChatWidth = this.readLayoutPref("immersiveChatWidth");
 		const rawLeftCollapsed = this.readLayoutPref("leftSidebarCollapsed");
 		const rawRightCollapsed = this.readLayoutPref("rightSidebarCollapsed");
+		const rawFilesColumnHidden = this.readLayoutPref("filesColumnHidden");
 
 		this.leftSidebarWidth = this.parseWidth(
 			rawLeftWidth,
@@ -150,6 +155,7 @@ class UIState {
 		);
 		this.leftSidebarCollapsed = this.parseCollapsed(rawLeftCollapsed, false);
 		this.rightSidebarCollapsed = this.parseCollapsed(rawRightCollapsed, false);
+		this.filesColumnHidden = this.parseCollapsed(rawFilesColumnHidden, false);
 		this.persistLayoutPrefs();
 	}
 
@@ -179,6 +185,11 @@ class UIState {
 	setRightSidebarCollapsed(collapsed: boolean) {
 		this.rightSidebarCollapsed = collapsed;
 		this.writeLayoutPref("rightSidebarCollapsed", String(collapsed));
+	}
+
+	setFilesColumnHidden(hidden: boolean) {
+		this.filesColumnHidden = hidden;
+		this.writeLayoutPref("filesColumnHidden", String(hidden));
 	}
 
 	toggleLeftSidebarCollapsed() {

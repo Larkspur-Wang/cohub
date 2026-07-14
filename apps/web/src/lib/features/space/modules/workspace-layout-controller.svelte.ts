@@ -11,6 +11,7 @@ export type MobileSurface = "main" | "files" | "preview";
 type LayoutSnapshot = {
 	leftSidebarCollapsed: boolean;
 	rightSidebarCollapsed: boolean;
+	filesColumnHidden: boolean;
 	previewWidth: number;
 	treeVisible: boolean;
 };
@@ -25,8 +26,6 @@ export function createWorkspaceLayoutController(options: {
 	let presentation = $state<WorkspacePresentation>("default");
 	let mobileSurface = $state<MobileSurface>("main");
 	let immersiveMainVisible = $state(true);
-	/** Hide the whole Files column (preview stage + tree) without destroying tabs. */
-	let filesColumnHidden = $state(false);
 	let snapshot: LayoutSnapshot | null = $state(null);
 	let resizeCleanup: (() => void) | null = null;
 
@@ -106,6 +105,7 @@ export function createWorkspaceLayoutController(options: {
 		snapshot = {
 			leftSidebarCollapsed: uiState.leftSidebarCollapsed,
 			rightSidebarCollapsed: uiState.rightSidebarCollapsed,
+			filesColumnHidden: uiState.filesColumnHidden,
 			previewWidth,
 			treeVisible: !uiState.rightSidebarCollapsed,
 		};
@@ -117,6 +117,7 @@ export function createWorkspaceLayoutController(options: {
 		if (!current) return;
 		uiState.setLeftSidebarCollapsed(current.leftSidebarCollapsed);
 		uiState.setRightSidebarCollapsed(current.rightSidebarCollapsed);
+		uiState.setFilesColumnHidden(current.filesColumnHidden);
 		previewWidth = current.previewWidth;
 		ensurePreviewFits();
 	}
@@ -140,7 +141,7 @@ export function createWorkspaceLayoutController(options: {
 		captureSnapshot();
 		presentation = "focus";
 		immersiveMainVisible = true;
-		filesColumnHidden = false;
+		uiState.setFilesColumnHidden(false);
 		uiState.setLeftSidebarCollapsed(true);
 		uiState.setRightSidebarCollapsed(true);
 		await tick();
@@ -156,7 +157,7 @@ export function createWorkspaceLayoutController(options: {
 		captureSnapshot();
 		presentation = "immersive";
 		immersiveMainVisible = true;
-		filesColumnHidden = false;
+		uiState.setFilesColumnHidden(false);
 		uiState.setLeftSidebarCollapsed(true);
 		uiState.setRightSidebarCollapsed(true);
 		await tick();
@@ -263,7 +264,7 @@ export function createWorkspaceLayoutController(options: {
 	 */
 	function isFilesChromeEffectivelyHidden() {
 		if (isCompactViewport()) return !uiState.mobileRightDrawerOpen;
-		if (filesColumnHidden) return true;
+		if (uiState.filesColumnHidden) return true;
 		// Empty rail: column mounted, tree collapsed, nothing in preview stage.
 		return uiState.rightSidebarCollapsed && !options.getHasPreview();
 	}
@@ -288,8 +289,9 @@ export function createWorkspaceLayoutController(options: {
 					: "main";
 			return;
 		}
-		filesColumnHidden = !filesColumnHidden;
-		if (filesColumnHidden) {
+		const nextHidden = !uiState.filesColumnHidden;
+		uiState.setFilesColumnHidden(nextHidden);
+		if (nextHidden) {
 			// Keep tree collapsed state as-is; only hide column.
 			return;
 		}
@@ -310,7 +312,7 @@ export function createWorkspaceLayoutController(options: {
 			return;
 		}
 		if (isFilesChromeEffectivelyHidden()) {
-			if (filesColumnHidden) filesColumnHidden = false;
+			if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 			// Empty rail or fully hidden: always open the tree so the click paints.
 			if (uiState.rightSidebarCollapsed) {
 				await toggleTree();
@@ -347,12 +349,12 @@ export function createWorkspaceLayoutController(options: {
 		// Collapsing the tree with no preview leaves a 0-width empty rail —
 		// fold the whole Files column so header state stays consistent.
 		if (nextCollapsed && !options.getHasPreview()) {
-			filesColumnHidden = true;
+			uiState.setFilesColumnHidden(true);
 			return;
 		}
 		// Expanding tree while column was folded: reveal it.
-		if (!nextCollapsed && filesColumnHidden) {
-			filesColumnHidden = false;
+		if (!nextCollapsed && uiState.filesColumnHidden) {
+			uiState.setFilesColumnHidden(false);
 		}
 		if (!options.getHasPreview()) return;
 		if (presentation === "immersive") return;
@@ -397,7 +399,7 @@ export function createWorkspaceLayoutController(options: {
 			return treeVisible;
 		},
 		get filesColumnHidden() {
-			return filesColumnHidden;
+			return uiState.filesColumnHidden;
 		},
 		get filesChromeEffectivelyHidden() {
 			return isFilesChromeEffectivelyHidden();
@@ -414,7 +416,7 @@ export function createWorkspaceLayoutController(options: {
 		toggleFilesColumn,
 		toggleFilesChrome,
 		setFilesColumnHidden: (hidden: boolean) => {
-			filesColumnHidden = hidden;
+			uiState.setFilesColumnHidden(hidden);
 		},
 		setMobileSurface,
 		showFilesMobile,
