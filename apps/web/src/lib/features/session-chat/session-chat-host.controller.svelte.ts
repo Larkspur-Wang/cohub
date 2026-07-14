@@ -904,7 +904,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (!listEl) return;
 			const currentHeight = listEl.scrollHeight;
 			const restoringBottom = restoringBottomSessionId === activeSessionId;
-			if (currentHeight > prevHeight && (shouldAutoFollow || restoringBottom)) {
+			const restoringPosition = isRestoringSessionScroll(activeSessionId);
+			if (
+				currentHeight > prevHeight &&
+				!restoringPosition &&
+				(shouldAutoFollow || restoringBottom)
+			) {
 				requestBottomFollow({ immediate: restoringBottom });
 			}
 			prevHeight = currentHeight;
@@ -1555,6 +1560,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	function captureCurrentScrollAnchor(sessionId: string) {
 		if (!listEl) return;
+		// Re-entry restore owns the saved leave position until it finishes.
+		if (isRestoringSessionScroll(sessionId)) return;
 		const nodes = Array.from(
 			listEl.querySelectorAll<HTMLElement>("[data-sequence]"),
 		);
@@ -1702,8 +1709,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		showTurnBottomSheet = false;
 		ensureSessionModelLoaded(sessionId);
 		applySessionGenerationPolicy(sessionId);
-		scroll.shouldAutoFollow = true;
-		// Re-entering a session after mid-send leave: force tail + stream recovery.
+		// Keep mid-session position: only default to bottom when no cached anchor.
+		scroll.shouldAutoFollow = !getSessionScrollAnchor(sessionId);
+		// Re-entering a session after mid-send leave: recover stream/tail without
+		// clobbering a pending position restore (guarded in requestBottomFollow).
 		void sessionGenerationStore
 			.restore(spaceId, sessionId)
 			.catch(() => undefined)
@@ -3191,6 +3200,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 	}
 
+	function isRestoringSessionScroll(sessionId = activeSessionId) {
+		if (!sessionId) return false;
+		return (
+			scroll.pendingRestoreSessionId === sessionId ||
+			scroll.activeAnchorRestore?.sessionId === sessionId
+		);
+	}
+
 	function scrollToBottomNow() {
 		if (!listEl) return;
 		setProgrammaticScrollTop(scroll.getTimelineBottomScrollTop());
@@ -3200,6 +3217,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	}
 
 	function requestBottomFollow(options?: { immediate?: boolean }) {
+		// Never overwrite a mid-session restore with bottom follow / bottom anchor.
+		if (isRestoringSessionScroll()) return;
 		if (!scroll.shouldPinToBottom(options)) return;
 		scrollToBottomNow();
 	}
@@ -3362,6 +3381,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 		if (
 			activeSessionId &&
+			!isRestoringSessionScroll(activeSessionId) &&
 			(restoringBottomSessionId === activeSessionId || shouldAutoFollow)
 		) {
 			requestBottomFollow();
