@@ -1,97 +1,449 @@
 <script lang="ts">
-import { Check, Copy, Globe, Loader2, Lock, Share2 } from "lucide-svelte";
+import { Check, Copy, Globe, Loader2, Lock, QrCode } from "lucide-svelte";
+import { renderSVG } from "uqr";
 import Dialog from "$lib/components/Dialog.svelte";
 
 type Props = {
 	open: boolean;
+	shareUrl: string;
 	isPublic: boolean;
+	loadingAccess: boolean;
 	saving: boolean;
 	copied: boolean;
 	error: string;
 	onClose: () => void;
-	onRemovePermission: () => void | Promise<void>;
-	onMakePrivate: () => void | Promise<void>;
 	onCopyLink: () => void | Promise<void>;
-	onShare: () => void | Promise<void>;
+	onSetPublic: (next: boolean) => void | Promise<void>;
 };
 
 let {
 	open,
+	shareUrl,
 	isPublic,
+	loadingAccess,
 	saving,
 	copied,
 	error,
 	onClose,
-	onRemovePermission,
-	onMakePrivate,
 	onCopyLink,
-	onShare,
+	onSetPublic,
 }: Props = $props();
+
+const accessBusy = $derived(loadingAccess || saving);
+
+let showQr = $state(false);
+let lastQrUrl = $state("");
+
+// Collapse QR when dialog closes or the share URL changes.
+$effect(() => {
+	if (!open) {
+		showQr = false;
+		lastQrUrl = "";
+		return;
+	}
+	if (showQr && shareUrl && shareUrl !== lastQrUrl) {
+		lastQrUrl = shareUrl;
+	}
+	if (showQr && !shareUrl) {
+		showQr = false;
+	}
+});
+
+const qrSvg = $derived.by(() => {
+	if (!showQr || !shareUrl) return "";
+	try {
+		return renderSVG(shareUrl, {
+			ecc: "M",
+			border: 2,
+			pixelSize: 6,
+			// Always black modules on white — phones scan more reliably than theme colors.
+			blackColor: "#111111",
+			whiteColor: "#ffffff",
+		});
+	} catch {
+		return "";
+	}
+});
+
+function toggleQr() {
+	if (!shareUrl) return;
+	showQr = !showQr;
+	if (showQr) lastQrUrl = shareUrl;
+}
 </script>
 
-<Dialog {open} {onClose} title={isPublic ? "Session is public" : "Share session"} maxWidth="380px">
-	<div class="space-y-4 p-4">
-		{#if isPublic}
-			<p class="text-[13px] leading-relaxed text-text-secondary">Anyone with the link can view this session. Choose how to manage access:</p>
-			<div class="space-y-2">
-				<button
-					type="button"
-					class="flex w-full items-start gap-3 rounded-[6px] border border-border-subtle bg-bg-surface px-3 py-2.5 text-left transition-colors hover:bg-bg-hover disabled:opacity-50"
-					onclick={() => void onRemovePermission()}
-					disabled={saving}
-				>
-					<Globe class="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary" />
-					<div class="min-w-0">
-						<div class="text-[13px] font-medium text-text-primary">Remove permission</div>
-						<div class="mt-0.5 text-[11px] leading-relaxed text-text-placeholder">Delete this session's access rule.</div>
-					</div>
-				</button>
-				<button
-					type="button"
-					class="flex w-full items-start gap-3 rounded-[6px] border border-border-subtle bg-bg-surface px-3 py-2.5 text-left transition-colors hover:bg-bg-hover disabled:opacity-50"
-					onclick={() => void onMakePrivate()}
-					disabled={saving}
-				>
-					<Lock class="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary" />
-					<div class="min-w-0">
-						<div class="text-[13px] font-medium text-text-primary">Make private</div>
-						<div class="mt-0.5 text-[11px] leading-relaxed text-text-placeholder">Block all external access.</div>
-					</div>
-				</button>
+<Dialog {open} {onClose} title="Share session" maxWidth="400px">
+	<div class="share-panel">
+		<section class="section">
+			<div class="section-label">Link</div>
+			<div class="link-row">
+				<div class="link-url" title={shareUrl}>{shareUrl || "—"}</div>
+				<div class="link-actions">
+					<button
+						type="button"
+						class="icon-btn"
+						class:is-active={showQr}
+						onclick={toggleQr}
+						disabled={!shareUrl}
+						aria-pressed={showQr}
+						aria-label={showQr ? "Hide QR code" : "Show QR code"}
+						title={showQr ? "Hide QR code" : "Show QR code"}
+					>
+						<QrCode class="h-3.5 w-3.5" />
+					</button>
+					<button
+						type="button"
+						class="copy-btn"
+						class:is-copied={copied}
+						onclick={() => void onCopyLink()}
+						disabled={!shareUrl}
+						aria-label={copied ? "Copied" : "Copy link"}
+					>
+						{#if copied}
+							<Check class="h-3.5 w-3.5" />
+							<span>Copied</span>
+						{:else}
+							<Copy class="h-3.5 w-3.5" />
+							<span>Copy</span>
+						{/if}
+					</button>
+				</div>
 			</div>
+
+			{#if showQr}
+				<div class="qr-panel" aria-live="polite">
+					{#if qrSvg}
+						<div class="qr-frame">
+							{@html qrSvg}
+						</div>
+					{:else}
+						<p class="qr-error">Failed to generate QR</p>
+					{/if}
+				</div>
+			{/if}
+		</section>
+
+		<section class="section">
+			<div class="section-label">Access</div>
 			<button
 				type="button"
-				class="flex w-full items-center justify-center gap-2 rounded-[5px] border border-border-subtle px-3 py-2 text-[13px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
-				onclick={() => void onCopyLink()}
-				disabled={saving}
+				class="access-row"
+				class:is-public={isPublic}
+				class:is-busy={accessBusy}
+				role="switch"
+				aria-checked={isPublic}
+				aria-label="Anyone with the link"
+				disabled={accessBusy || !shareUrl}
+				onclick={() => void onSetPublic(!isPublic)}
 			>
-				{#if copied}
-					<Check class="h-3.5 w-3.5 text-status-success" />
-					Copied
-				{:else}
-					<Copy class="h-3.5 w-3.5" />
-					Copy link
-				{/if}
+				<div class="access-icon" aria-hidden="true">
+					{#if loadingAccess}
+						<Loader2 class="h-4 w-4 animate-spin" />
+					{:else if isPublic}
+						<Globe class="h-4 w-4" />
+					{:else}
+						<Lock class="h-4 w-4" />
+					{/if}
+				</div>
+				<div class="access-copy">
+					<div class="access-title">Anyone with the link</div>
+					<div class="access-desc">
+						{#if isPublic}
+							Public · view only
+						{:else}
+							Private
+						{/if}
+					</div>
+				</div>
+				<span class="switch" class:on={isPublic} aria-hidden="true">
+					<span class="switch-thumb"></span>
+				</span>
 			</button>
-		{:else}
-			<p class="text-[13px] leading-relaxed text-text-secondary">This session will become publicly accessible. Anyone with the link can view the conversation.</p>
-			<button
-				type="button"
-				class="flex w-full items-center justify-center gap-2 rounded-[5px] border border-border-subtle bg-bg-primary px-3 py-2.5 text-[13px] font-medium text-text-primary transition-colors hover:bg-bg-hover-strong disabled:opacity-50"
-				onclick={() => void onShare()}
-				disabled={saving}
-			>
-				{#if saving}
-					<Loader2 class="h-3.5 w-3.5 animate-spin" />
-					Sharing…
-				{:else}
-					<Share2 class="h-3.5 w-3.5" />
-					Share &amp; copy link
-				{/if}
-			</button>
-		{/if}
+		</section>
+
 		{#if error}
-			<div class="break-all text-[12px] text-error-soft">{error}</div>
+			<div class="error-box" role="alert">{error}</div>
 		{/if}
 	</div>
 </Dialog>
+
+<style>
+	.share-panel {
+		display: grid;
+		gap: 16px;
+		padding: 14px;
+	}
+
+	.section {
+		display: grid;
+		gap: 8px;
+		min-width: 0;
+	}
+
+	.section-label {
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.link-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 0;
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-surface);
+		padding: 6px 6px 6px 10px;
+	}
+
+	.link-url {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-family: var(--font-mono);
+		font-size: 12px;
+		line-height: 1.4;
+		color: var(--text-secondary);
+		user-select: all;
+	}
+
+	.link-actions {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		flex-shrink: 0;
+	}
+
+	.icon-btn,
+	.copy-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		height: 30px;
+		border-radius: 6px;
+		border: 1px solid var(--border-subtle);
+		background: var(--bg-primary);
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 500;
+		transition:
+			background-color 120ms ease,
+			border-color 120ms ease,
+			color 120ms ease;
+	}
+
+	.icon-btn {
+		width: 30px;
+		padding: 0;
+	}
+
+	.copy-btn {
+		gap: 5px;
+		padding: 0 10px;
+	}
+
+	.icon-btn:hover:not(:disabled),
+	.copy-btn:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+		border-color: var(--border-primary);
+	}
+
+	.icon-btn:disabled,
+	.copy-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.icon-btn.is-active {
+		color: var(--brand);
+		border-color: color-mix(in srgb, var(--brand) 40%, var(--border-subtle));
+		background: color-mix(in srgb, var(--brand) 8%, var(--bg-primary));
+	}
+
+	.copy-btn.is-copied {
+		color: var(--success-500);
+		border-color: color-mix(in srgb, var(--success-500) 35%, var(--border-subtle));
+	}
+
+	.qr-panel {
+		display: grid;
+		justify-items: center;
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-surface);
+		padding: 12px;
+	}
+
+	.qr-frame {
+		display: grid;
+		place-items: center;
+		width: 168px;
+		height: 168px;
+		border-radius: 8px;
+		background: #ffffff;
+		padding: 8px;
+		box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-subtle) 60%, transparent);
+	}
+
+	.qr-frame :global(svg) {
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
+
+	.qr-error {
+		margin: 0;
+		font-size: 12px;
+		line-height: 1.4;
+		color: var(--error-400);
+	}
+
+	.access-row {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		width: 100%;
+		min-width: 0;
+		min-height: 52px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-surface);
+		padding: 10px 12px;
+		text-align: left;
+		color: inherit;
+		cursor: pointer;
+		transition:
+			border-color 120ms ease,
+			background-color 120ms ease;
+	}
+
+	.access-row:hover:not(:disabled) {
+		background: var(--bg-hover);
+	}
+
+	.access-row:disabled {
+		cursor: not-allowed;
+	}
+
+	.access-row.is-public {
+		border-color: color-mix(in srgb, var(--brand) 28%, var(--border-subtle));
+		background: color-mix(in srgb, var(--brand) 6%, var(--bg-surface));
+	}
+
+	.access-row.is-public:hover:not(:disabled) {
+		background: color-mix(in srgb, var(--brand) 10%, var(--bg-surface));
+	}
+
+	.access-row.is-busy {
+		opacity: 0.85;
+	}
+
+	.access-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+		background: var(--bg-elevated);
+		color: var(--text-tertiary);
+	}
+
+	.access-row.is-public .access-icon {
+		color: var(--brand);
+	}
+
+	.access-copy {
+		min-width: 0;
+		flex: 1;
+	}
+
+	.access-title {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text-primary);
+		line-height: 1.3;
+	}
+
+	.access-desc {
+		margin-top: 2px;
+		font-size: 11px;
+		line-height: 1.4;
+		color: var(--text-tertiary);
+	}
+
+	.switch {
+		position: relative;
+		flex-shrink: 0;
+		width: 36px;
+		height: 20px;
+		border-radius: 999px;
+		border: 1px solid var(--border-subtle);
+		background: var(--bg-input);
+		transition:
+			background-color 140ms ease,
+			border-color 140ms ease;
+	}
+
+	.switch.on {
+		background: var(--brand);
+		border-color: color-mix(in srgb, var(--brand) 70%, transparent);
+	}
+
+	.switch-thumb {
+		position: absolute;
+		top: 1px;
+		left: 1px;
+		width: 16px;
+		height: 16px;
+		border-radius: 999px;
+		background: var(--text-primary);
+		box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
+		transition: transform 140ms ease;
+	}
+
+	.switch.on .switch-thumb {
+		transform: translateX(16px);
+		background: var(--brand-contrast-fg);
+	}
+
+	@media (max-width: 639px) {
+		.icon-btn {
+			width: 36px;
+			min-height: 36px;
+		}
+
+		.copy-btn {
+			min-height: 36px;
+			padding: 0 12px;
+		}
+
+		.access-row {
+			min-height: 56px;
+		}
+
+		.qr-frame {
+			width: 188px;
+			height: 188px;
+		}
+	}
+
+	.error-box {
+		border-radius: 6px;
+		border: 1px solid color-mix(in srgb, var(--error-500) 30%, transparent);
+		background: var(--error-900);
+		padding: 8px 10px;
+		font-size: 12px;
+		line-height: 1.4;
+		color: var(--error-400);
+		word-break: break-word;
+	}
+</style>

@@ -2384,15 +2384,15 @@ const headerActions = {
   {/if}
   <SessionShareDialog
     open={sessionChat.share.open && !!sessionChat.share.sessionId}
+    shareUrl={sessionChat.share.shareUrl}
     isPublic={sessionChat.share.isCurrentPublic}
+    loadingAccess={sessionChat.share.loadingAccess}
     saving={sessionChat.share.saving}
     copied={sessionChat.share.copied}
     error={sessionChat.share.error}
     onClose={sessionChat.share.close}
-    onRemovePermission={sessionChat.share.removeCurrentPermission}
-    onMakePrivate={sessionChat.share.makePrivate}
     onCopyLink={sessionChat.share.copyLink}
-    onShare={sessionChat.share.shareAndCopyLink}
+    onSetPublic={sessionChat.share.setPublic}
   />
 </div>
 {/if}
