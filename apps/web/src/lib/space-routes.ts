@@ -19,6 +19,14 @@ export const buildSessionsRoute = () => "/sessions";
 export const buildUserSessionRoute = (sessionId: string) =>
 	`/sessions/${sessionId}`;
 
+export const buildUserSessionTurnRoute = (
+	sessionId: string,
+	sequence: number,
+) => {
+	const params = new URLSearchParams({ turn: String(sequence) });
+	return `${buildUserSessionRoute(sessionId)}?${params.toString()}`;
+};
+
 export const buildSpaceSessionRoute = (spaceId: string, sessionId: string) =>
 	`/spaces/${spaceId}/sessions/${sessionId}`;
 export const buildSpaceNewSessionRoute = (spaceId: string) =>

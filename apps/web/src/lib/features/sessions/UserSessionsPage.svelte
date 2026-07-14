@@ -19,8 +19,8 @@ import {
 	buildSessionsRoute,
 	buildSpaceNewSessionRoute,
 	buildSpaceSessionRoute,
-	buildSpaceSessionTurnRoute,
 	buildUserSessionRoute,
+	buildUserSessionTurnRoute,
 } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
 import {
@@ -38,6 +38,7 @@ const {
 }: {
 	data: {
 		sessionId?: string | null;
+		turnSequence?: string | null;
 	};
 } = $props();
 
@@ -93,16 +94,8 @@ const sessionChat = createSessionChatHost({
 			});
 		},
 		toTurn: async (sessionId, sequence) => {
-			const spaceId = spaceBox.current;
-			if (!spaceId) {
-				await goto(buildUserSessionRoute(sessionId), {
-					replaceState: true,
-					keepFocus: true,
-					noScroll: true,
-				});
-				return;
-			}
-			await goto(buildSpaceSessionTurnRoute(spaceId, sessionId, sequence), {
+			// Stay on /sessions/* — do not navigate into the space workspace.
+			await goto(buildUserSessionTurnRoute(sessionId, sequence), {
 				replaceState: true,
 				keepFocus: true,
 				noScroll: true,
@@ -126,6 +119,14 @@ let openSeq = 0;
 const failedOpenIds = new Set<string>();
 
 const routeSessionId = $derived(data.sessionId ?? null);
+const routeTurnSequence = $derived.by(() => {
+	const value = data.turnSequence;
+	if (!value) return null;
+	const sequence = Number(value);
+	return Number.isFinite(sequence) && sequence > 0
+		? Math.floor(sequence)
+		: null;
+});
 const activeSeed = $derived(
 	routeSessionId ? list.findById(routeSessionId) : null,
 );
@@ -151,8 +152,9 @@ async function openChatSession(input: {
 	spaceId: string;
 	sessionId: string;
 	session?: SessionRecord | null;
+	turnSequence?: number | null;
 }) {
-	const { spaceId, sessionId, session } = input;
+	const { spaceId, sessionId, session, turnSequence = null } = input;
 	spaceBox.current = spaceId;
 	sessionChat.enterSpace(spaceId);
 	if (session) {
@@ -160,7 +162,7 @@ async function openChatSession(input: {
 	}
 	sessionChat.syncContext({
 		spaceId,
-		route: { kind: "session", sessionId, turnSequence: null },
+		route: { kind: "session", sessionId, turnSequence },
 		access: accessForSessions(),
 	});
 }
@@ -217,6 +219,7 @@ async function openRouteSession(sessionId: string | null) {
 		return;
 	}
 
+	const turnSequence = routeTurnSequence;
 	const known = list.findById(sessionId);
 	if (known) {
 		if (!isCurrentOpen(seq, sessionId)) return;
@@ -224,6 +227,7 @@ async function openRouteSession(sessionId: string | null) {
 			spaceId: known.spaceId,
 			sessionId: known.id,
 			session: known,
+			turnSequence,
 		});
 		return;
 	}
@@ -245,6 +249,7 @@ async function openRouteSession(sessionId: string | null) {
 			spaceId: detail.session.spaceId,
 			sessionId: detail.session.id,
 			session: detail.session,
+			turnSequence,
 		});
 	} catch (error) {
 		if (!isCurrentOpen(seq, sessionId)) return;
@@ -320,9 +325,23 @@ $effect(() => {
 
 $effect(() => {
 	const sessionId = routeSessionId;
-	// openRouteSession reads list state and writes chat host state.
+	const turnSequence = routeTurnSequence;
+	// openRouteSession / syncContext read list state and write chat host state.
 	// Untrack to avoid effect_update_depth_exceeded.
 	untrack(() => {
+		// Same session + turn-only URL change: re-sync turn without reopening.
+		if (
+			sessionId &&
+			sessionChat.activeSessionId === sessionId &&
+			spaceBox.current
+		) {
+			sessionChat.syncContext({
+				spaceId: spaceBox.current,
+				route: { kind: "session", sessionId, turnSequence },
+				access: accessForSessions(),
+			});
+			return;
+		}
 		void openRouteSession(sessionId);
 	});
 });
