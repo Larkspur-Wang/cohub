@@ -135,6 +135,7 @@ import {
 import {
 	acquireSpaceGeneration,
 	releaseSpaceGeneration,
+	setSpaceGenerationLastReleaseHandler,
 } from "./space-generation-lease";
 import type {
 	SelectedModel,
@@ -186,6 +187,11 @@ function taskRunSortTime(notice: SessionTaskNotice) {
 	return Number.isFinite(t) ? t : 0;
 }
 
+// Wire generation store reset once for process-wide leases.
+setSpaceGenerationLastReleaseHandler((spaceId) => {
+	sessionGenerationStore.resetSpace(spaceId);
+});
+
 export function createSessionChatHost(options: SessionChatHostOptions) {
 	let spaceId = $state("");
 	let route = $state<SessionChatRoute>({ kind: "none" });
@@ -196,6 +202,21 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		bootstrapping: false,
 	});
 	let disposed = false;
+	/** Space id this host currently holds a generation lease for (null if none). */
+	let leasedSpaceId: string | null = null;
+
+	function acquireGenerationLease(nextSpaceId: string) {
+		if (!nextSpaceId || leasedSpaceId === nextSpaceId) return;
+		if (leasedSpaceId) releaseSpaceGeneration(leasedSpaceId);
+		acquireSpaceGeneration(nextSpaceId);
+		leasedSpaceId = nextSpaceId;
+	}
+
+	function releaseGenerationLease() {
+		if (!leasedSpaceId) return;
+		releaseSpaceGeneration(leasedSpaceId);
+		leasedSpaceId = null;
+	}
 
 	const isNewSessionRoute = $derived(route.kind === "new");
 	const workspace = createSessionWorkspaceController();
@@ -2967,6 +2988,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if (sendResult.mode !== "immediate") {
 				throw new Error("Expected immediate prompt response");
 			}
+			// Prompt already accepted server-side. If we left the space, skip local
+			// adopt; other hosts / re-enter will load via WS or session fetch.
 			if (disposed || spaceId !== opSpaceId) {
 				composer.sending = false;
 				return;
@@ -3604,7 +3627,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (!nextSpaceId) {
 			if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 			if (spaceId) flushActiveComposerDraft();
-			const previous = spaceId;
 			spaceId = "";
 			resolvedNewSessionId = null;
 			createSessionError = "";
@@ -3628,7 +3650,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			draftSessionModel = null;
 			draftSessionModelManuallySelected = false;
 			route = { kind: "none" };
-			if (previous) releaseSpaceGeneration(previous);
+			composer.sending = false;
+			composer.aborting = false;
+			releaseGenerationLease();
 			return;
 		}
 		if (spaceId === nextSpaceId) return;
@@ -3636,13 +3660,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (previous && activeSessionId)
 			captureCurrentScrollAnchor(activeSessionId);
 		if (previous) flushActiveComposerDraft();
-		// Multi-host safe: lease generation store per space; only last leaver resets.
-		if (previous) releaseSpaceGeneration(previous);
-		acquireSpaceGeneration(nextSpaceId);
+		// Multi-host safe: host-local lease tracking; only last leaver resets store.
+		acquireGenerationLease(nextSpaceId);
 		spaceId = nextSpaceId;
 		resolvedNewSessionId = null;
 		createSessionError = "";
 		forkingTurnId = null;
+		composer.sending = false;
+		composer.aborting = false;
 		workspace.reset();
 		turnLoading.reset();
 		turnHydrationInFlight.clear();
@@ -3838,8 +3863,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		for (const timer of taskHydrateRetryTimers.values()) clearTimeout(timer);
 		taskHydrateRetryTimers.clear();
 		clearAllPostSendRecovery();
-		// Release generation lease for the space this host owned.
-		if (spaceId) releaseSpaceGeneration(spaceId);
+		composer.sending = false;
+		composer.aborting = false;
+		// Release generation lease only if this host still holds it.
+		releaseGenerationLease();
 	}
 
 	function onLoadToolCalls(input: {

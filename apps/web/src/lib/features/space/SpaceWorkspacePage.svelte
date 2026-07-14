@@ -74,7 +74,6 @@ import {
 } from "$lib/space-style";
 import { authStore } from "$lib/stores/auth.svelte";
 import { insertComposerSnippet } from "$lib/stores/composer-insert";
-import {} from "$lib/stores/draft-session-model";
 import {
 	getCachedSessionListSnapshot,
 	onSessionListCacheUpdated,

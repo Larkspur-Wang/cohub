@@ -214,6 +214,22 @@ function applyGenerationState(
 	sessionId: string,
 	event: GenerationStreamStateEvent,
 ) {
+	const current = sessionGenerationStore.get(sessionId);
+	const sameTurn = Boolean(
+		current?.turnId &&
+			event.state.turnId &&
+			current.turnId === event.state.turnId,
+	);
+	// Drop out-of-order state patches (same turn, lower/equal patchSeq).
+	// Matches snapshot stale_snapshot guard; prevents flashback under reordering.
+	if (
+		sameTurn &&
+		typeof event.state.patchSeq === "number" &&
+		event.state.patchSeq > 0 &&
+		(current?.patchSeq ?? 0) >= event.state.patchSeq
+	) {
+		return;
+	}
 	sessionGenerationStore.applyProgress(sessionId, {
 		spaceId: event.state.spaceId,
 		contentBlocks: event.state.contentBlocks,

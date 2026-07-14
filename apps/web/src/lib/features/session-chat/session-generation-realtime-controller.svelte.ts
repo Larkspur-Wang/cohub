@@ -39,6 +39,10 @@ const TERMINAL_TURN_STATUSES = new Set([
 	"cancelled",
 ]);
 
+/** Process-wide: only one host schedules list refresh / tail reconcile side-effects per session. */
+const sharedRefreshSessionsInFlight = new Map<string, Promise<void>>();
+const sharedReconcileSideEffectInFlight = new Map<string, Promise<void>>();
+
 export function createSessionGenerationRealtimeController(options: {
 	getSpaceId: () => string;
 	getConnectionState: () => ConnectionState;
@@ -452,10 +456,25 @@ export function createSessionGenerationRealtimeController(options: {
 				generationEffect.shouldReconcile &&
 				sessionId === options.getActiveSessionId()
 			) {
-				void reconcileSessionTail(sessionId);
+				// Single-flight across hosts watching the same session.
+				if (!sharedReconcileSideEffectInFlight.has(sessionId)) {
+					const run = reconcileSessionTail(sessionId).finally(() => {
+						if (sharedReconcileSideEffectInFlight.get(sessionId) === run) {
+							sharedReconcileSideEffectInFlight.delete(sessionId);
+						}
+					});
+					sharedReconcileSideEffectInFlight.set(sessionId, run);
+				}
 			}
 			if (generationEffect.shouldRefreshSessions) {
-				void options.refreshSessionsList(true);
+				if (!sharedRefreshSessionsInFlight.has(sessionId)) {
+					const run = options.refreshSessionsList(true).finally(() => {
+						if (sharedRefreshSessionsInFlight.get(sessionId) === run) {
+							sharedRefreshSessionsInFlight.delete(sessionId);
+						}
+					});
+					sharedRefreshSessionsInFlight.set(sessionId, run);
+				}
 			}
 			if (
 				generationEffect.shouldScroll &&
