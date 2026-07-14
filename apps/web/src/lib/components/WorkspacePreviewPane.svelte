@@ -14,12 +14,22 @@ const {
 	immersive?: boolean;
 	children: import("svelte").Snippet;
 } = $props();
+
+let paneEl: HTMLElement | null = $state(null);
+
+// Imperative CSS var (not a full style= binding) so layout drag can paint
+// intermediate widths without Svelte wiping them on unrelated re-renders.
+$effect(() => {
+	const el = paneEl;
+	if (!el) return;
+	el.style.setProperty("--workspace-preview-width", `${width}px`);
+});
 </script>
 
 <section
+	bind:this={paneEl}
 	class="workspace-preview-pane min-w-0 flex-col border-border-subtle bg-bg-content {desktopOnly ? 'hidden lg:flex' : 'flex'}"
 	class:workspace-preview-pane--immersive={immersive}
-	style={`--workspace-preview-width: ${width}px`}
 	aria-label={ariaLabel}
 >
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -49,7 +59,7 @@ const {
 		.workspace-preview-pane {
 			position: relative;
 			z-index: auto;
-			width: var(--workspace-preview-width);
+			width: var(--workspace-preview-width, 480px);
 			flex-shrink: 0;
 			border-left-width: 1px;
 		}

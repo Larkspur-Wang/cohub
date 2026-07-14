@@ -49,16 +49,50 @@ export function createWorkspaceLayoutController(options: {
 		);
 	}
 
-	function setPreviewWidth(
-		nextWidth: number,
-		options: { persistSnapshot?: boolean } = {},
-	) {
-		previewWidth = Math.min(
+	function clampPreviewWidth(nextWidth: number) {
+		return Math.min(
 			Math.max(PREVIEW_PANEL_MIN_WIDTH, nextWidth),
 			getMaxPreviewWidth(),
 		);
+	}
+
+	function getPreviewPaneEls(): HTMLElement[] {
+		const body = options.getWorkspaceBodyEl();
+		if (!body) return [];
+		return Array.from(
+			body.querySelectorAll<HTMLElement>(".workspace-preview-pane"),
+		);
+	}
+
+	/** Live paint without touching Svelte state (avoids iframe remounts). */
+	function paintPreviewWidth(nextWidth: number) {
+		const px = `${nextWidth}px`;
+		for (const pane of getPreviewPaneEls()) {
+			// Prefer the same CSS variable the pane already uses so layout stays
+			// consistent with focus/immersive modes.
+			pane.style.setProperty("--workspace-preview-width", px);
+		}
+	}
+
+	function setPreviewWidth(
+		nextWidth: number,
+		setOptions: { persistSnapshot?: boolean } = {},
+	) {
+		const clamped = clampPreviewWidth(nextWidth);
+		if (previewWidth === clamped) {
+			// Drag may have painted a temporary width; snap CSS back to state.
+			paintPreviewWidth(clamped);
+			if (setOptions.persistSnapshot && snapshot) {
+				snapshot = { ...snapshot, previewWidth: clamped };
+			}
+			return;
+		}
+		// Paint first so the next Svelte style binding update lands on the same
+		// value without a one-frame flash back to the previous width.
+		paintPreviewWidth(clamped);
+		previewWidth = clamped;
 		// Only user-driven resizes should rewrite the restore snapshot.
-		if (options.persistSnapshot && snapshot) {
+		if (setOptions.persistSnapshot && snapshot) {
 			snapshot = { ...snapshot, previewWidth };
 		}
 	}
@@ -184,15 +218,18 @@ export function createWorkspaceLayoutController(options: {
 	function beginPreviewResize(event: PointerEvent) {
 		event.preventDefault();
 		if (options.getIsCompact()) return;
-		// Keep snapshot; only update live + snapshot widths.
+		// Keep snapshot; paint live width on the pane element during drag so
+		// preview iframes are not torn down by Svelte prop thrashing.
 		const target = event.currentTarget as HTMLElement | null;
 		target?.setPointerCapture?.(event.pointerId);
 		resizeCleanup?.();
 		const startX = event.clientX;
 		const startWidth = previewWidth;
+		let liveWidth = startWidth;
 		const onPointerMove = (moveEvent: PointerEvent) => {
 			const delta = startX - moveEvent.clientX;
-			setPreviewWidth(startWidth + delta, { persistSnapshot: true });
+			liveWidth = clampPreviewWidth(startWidth + delta);
+			paintPreviewWidth(liveWidth);
 		};
 		const stop = () => {
 			document.body.classList.remove("sidebar-resizing");
@@ -200,6 +237,8 @@ export function createWorkspaceLayoutController(options: {
 			window.removeEventListener("pointerup", stop);
 			window.removeEventListener("pointercancel", stop);
 			if (resizeCleanup === stop) resizeCleanup = null;
+			// Commit once on release so dependent layout state stays in sync.
+			setPreviewWidth(liveWidth, { persistSnapshot: true });
 		};
 		resizeCleanup = stop;
 		document.body.classList.add("sidebar-resizing");

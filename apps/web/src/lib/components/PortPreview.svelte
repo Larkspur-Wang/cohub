@@ -42,11 +42,28 @@ let copied = $state(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 let loadTimer: ReturnType<typeof setTimeout> | null = null;
 let slowLoad = $state(false);
+// Keep the last successfully embedded URL so status/observedAt-only updates
+// (or parent re-renders during panel resize) do not remount the iframe.
+let committedUrl = $state("");
 
-const iframeSrc = $derived(
-	`${url}${url.includes("?") ? "&" : "?"}__cohub_preview=${frameVersion}`,
-);
 const canEmbed = $derived(status !== "closed" && Boolean(url));
+const iframeSrc = $derived.by(() => {
+	const base = committedUrl || url;
+	if (!base) return "";
+	return `${base}${base.includes("?") ? "&" : "?"}__cohub_preview=${frameVersion}`;
+});
+
+$effect(() => {
+	if (!url) {
+		if (committedUrl) committedUrl = "";
+		return;
+	}
+	// Only adopt a new base URL when the public endpoint actually changes.
+	if (committedUrl === url) return;
+	committedUrl = url;
+	loading = true;
+	slowLoad = false;
+});
 const statusLabel = $derived.by(() => {
 	if (status === "listening") return "Listening";
 	if (status === "closed") return "Closed";
@@ -77,8 +94,10 @@ async function copyUrl() {
 }
 
 $effect(() => {
+	// Only restart the loading indicator when the embeddable src identity changes.
 	const src = iframeSrc;
-	if (!canEmbed || !src) {
+	const embeddable = canEmbed;
+	if (!embeddable || !src) {
 		loading = false;
 		slowLoad = false;
 		return;
@@ -165,7 +184,7 @@ onDestroy(() => {
 				</div>
 			</div>
 		</div>
-	{:else if url}
+	{:else if url && iframeSrc}
 		<div class="relative min-h-0 flex-1 bg-bg-primary">
 			{#if loading}
 				<div class="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-2 border-b border-border-subtle bg-bg-content/95 px-3 py-2 text-[11px] text-text-tertiary">

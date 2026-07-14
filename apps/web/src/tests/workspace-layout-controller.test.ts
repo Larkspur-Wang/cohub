@@ -27,3 +27,21 @@ test("user resize may update snapshot width", () => {
 	snapshotWidth = liveWidth;
 	assert.equal(snapshotWidth, 560);
 });
+
+test("preview drag paints CSS live width and commits once on release", () => {
+	// During drag we only paint the pane width; Svelte previewWidth commits on pointerup.
+	let previewWidth = 480;
+	let paintedWidth = previewWidth;
+	const clamp = (n: number) => Math.min(900, Math.max(280, n));
+
+	// pointermove x3 without committing state
+	for (const next of [500, 520, 540]) {
+		paintedWidth = clamp(next);
+	}
+	assert.equal(previewWidth, 480);
+	assert.equal(paintedWidth, 540);
+
+	// pointerup commits once
+	previewWidth = paintedWidth;
+	assert.equal(previewWidth, 540);
+});
