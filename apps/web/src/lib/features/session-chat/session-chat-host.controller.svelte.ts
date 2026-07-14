@@ -1691,6 +1691,15 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		ensureSessionModelLoaded(sessionId);
 		applySessionGenerationPolicy(sessionId);
 		scroll.shouldAutoFollow = true;
+		// Re-entering a session after mid-send leave: force tail + stream recovery.
+		void sessionGenerationStore
+			.restore(spaceId, sessionId)
+			.catch(() => undefined)
+			.then(() => {
+				if (disposed || activeSessionId !== sessionId) return;
+				return reconcileSessionTail(sessionId);
+			})
+			.catch(() => undefined);
 	}
 
 	async function syncGenerationStateFromTail(
@@ -2850,7 +2859,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			const userText = input.trim();
 			if (disposed || spaceId !== opSpaceId) {
 				// Host left this space while upload was in flight — drop results.
-				composer.sending = false;
 				return;
 			}
 			const pendingViewportContexts = viewport.takeSendSnapshot();
@@ -2991,7 +2999,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			// Prompt already accepted server-side. If we left the space, skip local
 			// adopt; other hosts / re-enter will load via WS or session fetch.
 			if (disposed || spaceId !== opSpaceId) {
-				composer.sending = false;
 				return;
 			}
 			const acceptedTurn = sendResult.turn;
@@ -3051,9 +3058,27 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				requestBottomFollow({ immediate: true });
 			}
 		} catch (error) {
-			// Restore only if we still own the originating space/session context.
+			// Always persist failed draft against the originating space/session key so
+			// a mid-send space switch cannot permanently lose the message.
+			const failedDraftText =
+				(hadFileUpload || hadImageUpload) && uploadCompleted
+					? [pendingInput.trim(), uploadedReferenceText]
+							.filter(Boolean)
+							.join("\n\n")
+					: pendingInput;
+			const failedDraftScope =
+				sessionId != null
+					? { kind: "session" as const, sessionId }
+					: { kind: "new" as const };
+			const failedDraftKey = sessionComposerDraftKey(
+				opSpaceId,
+				failedDraftScope,
+			);
+			if (failedDraftText.trim()) {
+				writeSessionComposerDraftText(failedDraftKey, failedDraftText);
+			}
+			// Restore UI only if we still own the originating space/session context.
 			if (disposed || spaceId !== opSpaceId) {
-				composer.sending = false;
 				return;
 			}
 			// Restore input and attachments on failure so user doesn't lose their message
@@ -3636,8 +3661,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			turnHydrationInFlight.clear();
 			clearAllPostSendRecovery();
 			generationPolicy.apply(null);
-			generationRealtime.clearStreamSnapshotRecoveryCooldowns();
-			generationRealtime.syncActiveSubscription(false);
+			generationRealtime.resetForSpaceChange();
 			currentTurnSequence = null;
 			highlightedTurnSequence = null;
 			scroll.clearTurnMarkers();
@@ -3673,7 +3697,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		turnHydrationInFlight.clear();
 		clearAllPostSendRecovery();
 		generationPolicy.apply(null);
-		generationRealtime.clearStreamSnapshotRecoveryCooldowns();
+		generationRealtime.resetForSpaceChange();
 		currentTurnSequence = null;
 		highlightedTurnSequence = null;
 		scroll.clearTurnMarkers();

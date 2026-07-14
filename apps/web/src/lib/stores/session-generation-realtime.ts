@@ -283,7 +283,7 @@ export function applyGenerationStreamSnapshot(
 		current?.turnId &&
 		resolvedTurnId &&
 		current.turnId === resolvedTurnId &&
-		current.patchSeq > input.seq
+		current.patchSeq >= input.seq
 	) {
 		return { applied: false, reason: "stale_snapshot" as const };
 	}

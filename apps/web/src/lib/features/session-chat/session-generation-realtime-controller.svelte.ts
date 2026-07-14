@@ -42,6 +42,16 @@ const TERMINAL_TURN_STATUSES = new Set([
 /** Process-wide: only one host schedules list refresh / tail reconcile side-effects per session. */
 const sharedRefreshSessionsInFlight = new Map<string, Promise<void>>();
 const sharedReconcileSideEffectInFlight = new Map<string, Promise<void>>();
+/** Process-wide finalized fallback + snapshot recovery (dual-host safe). */
+const sharedFinalizedFallbackTimers = new Map<
+	string,
+	ReturnType<typeof setTimeout>
+>();
+const sharedFinalCommitSeenAtByKey = new Map<string, number>();
+const sharedStreamSnapshotRecoveryInFlight = new Map<
+	string,
+	Promise<boolean>
+>();
 
 export function createSessionGenerationRealtimeController(options: {
 	getSpaceId: () => string;
@@ -73,12 +83,10 @@ export function createSessionGenerationRealtimeController(options: {
 }) {
 	let activeGenerationSubscriptionKey = "";
 	let activeGenerationSubscriptionCleanup: (() => void) | null = null;
-	const finalizedFallbackTimers = new Map<
-		string,
-		ReturnType<typeof setTimeout>
-	>();
-	const finalCommitSeenAtByKey = new Map<string, number>();
-	const streamSnapshotRecoveryInFlight = new Map<string, Promise<boolean>>();
+	// Process-wide: dual-host Space+Sessions share fallback/recovery work.
+	const finalizedFallbackTimers = sharedFinalizedFallbackTimers;
+	const finalCommitSeenAtByKey = sharedFinalCommitSeenAtByKey;
+	const streamSnapshotRecoveryInFlight = sharedStreamSnapshotRecoveryInFlight;
 	const reconcileSessionTailInFlight = new Map<string, Promise<void>>();
 	const postSendRecoveryTimers = new Map<
 		string,
@@ -88,7 +96,11 @@ export function createSessionGenerationRealtimeController(options: {
 
 	async function restoreSessionStreamSnapshot(
 		sessionId: string,
-		input?: { turnId?: string | null; force?: boolean },
+		input?: {
+			turnId?: string | null;
+			force?: boolean;
+			spaceId?: string | null;
+		},
 	) {
 		const turnId = input?.turnId ?? null;
 		const cooldownKey = turnId ? `${sessionId}:${turnId}` : sessionId;
@@ -106,8 +118,10 @@ export function createSessionGenerationRealtimeController(options: {
 		lastStreamSnapshotRecoveryByTurn.set(cooldownKey, now);
 		const run = (async () => {
 			try {
+				const opSpaceId = input?.spaceId || options.getSpaceId();
+				if (!opSpaceId) return false;
 				const { snapshot } = await sdk
-					.space(options.getSpaceId())
+					.space(opSpaceId)
 					.session(sessionId)
 					.turns.streamSnapshot();
 				if (!snapshot) return false;
@@ -305,12 +319,6 @@ export function createSessionGenerationRealtimeController(options: {
 		finalizedFallbackTimers.delete(key);
 	}
 
-	function clearAllFinalizedFallbacks() {
-		for (const timer of finalizedFallbackTimers.values()) clearTimeout(timer);
-		finalizedFallbackTimers.clear();
-		finalCommitSeenAtByKey.clear();
-	}
-
 	function rememberFinalCommit(sessionId: string, turnId: string | null) {
 		const now = Date.now();
 		finalCommitSeenAtByKey.set(getFinalizedFallbackKey(sessionId, null), now);
@@ -390,13 +398,15 @@ export function createSessionGenerationRealtimeController(options: {
 		sessionId: string,
 		turnId: string | null,
 		attempt = 0,
+		spaceId = options.getSpaceId(),
 	) {
 		if (hasRecentFinalCommit(sessionId, turnId)) return;
 		const key = getFinalizedFallbackKey(sessionId, turnId);
 		clearFinalizedFallback(sessionId, turnId);
+		const opSpaceId = spaceId;
 		const timer = setTimeout(() => {
 			finalizedFallbackTimers.delete(key);
-			void finalizeAfterMissingCommit(sessionId, turnId, attempt);
+			void finalizeAfterMissingCommit(sessionId, turnId, attempt, opSpaceId);
 		}, FINALIZED_COMMIT_FALLBACK_MS);
 		finalizedFallbackTimers.set(key, timer);
 	}
@@ -405,18 +415,23 @@ export function createSessionGenerationRealtimeController(options: {
 		sessionId: string,
 		turnId: string | null,
 		attempt: number,
+		spaceId = options.getSpaceId(),
 	) {
 		const current = sessionGenerationStore.get(sessionId);
 		if (!sessionGenerationStore.isGenerating(sessionId)) return;
 		if (turnId && current?.turnId && current.turnId !== turnId) return;
-		await restoreSessionStreamSnapshot(sessionId, { turnId, force: true });
+		await restoreSessionStreamSnapshot(sessionId, {
+			turnId,
+			force: true,
+			spaceId,
+		});
 		await reconcileSessionTail(sessionId);
 		const latest = sessionGenerationStore.get(sessionId);
 		if (!sessionGenerationStore.isGenerating(sessionId)) return;
 		if (turnId && latest?.turnId && latest.turnId !== turnId) return;
 		if (!hasConfirmedFinalTurn(sessionId, turnId)) {
 			if (attempt + 1 < FINALIZED_COMMIT_FALLBACK_MAX_ATTEMPTS) {
-				scheduleFinalizedFallback(sessionId, turnId, attempt + 1);
+				scheduleFinalizedFallback(sessionId, turnId, attempt + 1, spaceId);
 			}
 			return;
 		}
@@ -447,7 +462,7 @@ export function createSessionGenerationRealtimeController(options: {
 			if (!generationEffect.handled) return;
 			clearPostSendRecovery(sessionId);
 			if (event.type === "finalized") {
-				scheduleFinalizedFallback(sessionId, turnId);
+				scheduleFinalizedFallback(sessionId, turnId, 0, options.getSpaceId());
 			}
 			if (generationEffect.shouldRestoreSnapshot) {
 				void restoreSessionStreamSnapshot(sessionId, { turnId });
@@ -457,23 +472,25 @@ export function createSessionGenerationRealtimeController(options: {
 				sessionId === options.getActiveSessionId()
 			) {
 				// Single-flight across hosts watching the same session.
-				if (!sharedReconcileSideEffectInFlight.has(sessionId)) {
+				const reconcileKey = `${options.getSpaceId()}:${sessionId}`;
+				if (!sharedReconcileSideEffectInFlight.has(reconcileKey)) {
 					const run = reconcileSessionTail(sessionId).finally(() => {
-						if (sharedReconcileSideEffectInFlight.get(sessionId) === run) {
-							sharedReconcileSideEffectInFlight.delete(sessionId);
+						if (sharedReconcileSideEffectInFlight.get(reconcileKey) === run) {
+							sharedReconcileSideEffectInFlight.delete(reconcileKey);
 						}
 					});
-					sharedReconcileSideEffectInFlight.set(sessionId, run);
+					sharedReconcileSideEffectInFlight.set(reconcileKey, run);
 				}
 			}
 			if (generationEffect.shouldRefreshSessions) {
-				if (!sharedRefreshSessionsInFlight.has(sessionId)) {
+				const refreshKey = `${options.getSpaceId()}:${sessionId}`;
+				if (!sharedRefreshSessionsInFlight.has(refreshKey)) {
 					const run = options.refreshSessionsList(true).finally(() => {
-						if (sharedRefreshSessionsInFlight.get(sessionId) === run) {
-							sharedRefreshSessionsInFlight.delete(sessionId);
+						if (sharedRefreshSessionsInFlight.get(refreshKey) === run) {
+							sharedRefreshSessionsInFlight.delete(refreshKey);
 						}
 					});
-					sharedRefreshSessionsInFlight.set(sessionId, run);
+					sharedRefreshSessionsInFlight.set(refreshKey, run);
 				}
 			}
 			if (
@@ -528,9 +545,18 @@ export function createSessionGenerationRealtimeController(options: {
 		lastStreamSnapshotRecoveryByTurn.clear();
 	}
 
-	function dispose() {
+	function resetForSpaceChange() {
+		// Keep process-wide shared maps intact for other hosts; only drop this
+		// controller's subscription + local cooldowns. Shared finalized/post-send
+		// timers are session-keyed and safe across space switches.
 		clearActiveGenerationSubscription();
-		clearAllFinalizedFallbacks();
+		clearAllPostSendRecovery();
+		lastStreamSnapshotRecoveryByTurn.clear();
+	}
+
+	function dispose() {
+		// Do not clear process-wide finalized/snapshot maps: another host may still own them.
+		clearActiveGenerationSubscription();
 		clearAllPostSendRecovery();
 		recoveryCoordinator.dispose();
 		lastStreamSnapshotRecoveryByTurn.clear();
@@ -544,6 +570,7 @@ export function createSessionGenerationRealtimeController(options: {
 		schedulePostSendRecoveryCheck,
 		syncActiveSubscription,
 		clearStreamSnapshotRecoveryCooldowns,
+		resetForSpaceChange,
 		reconcileAfterReconnect: (sessionId: string | null) =>
 			recoveryCoordinator.reconcileAfterReconnect(sessionId),
 		onTransportOpen: () => recoveryCoordinator.onTransportOpen(),
