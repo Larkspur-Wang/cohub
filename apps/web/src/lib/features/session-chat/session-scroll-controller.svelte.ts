@@ -145,7 +145,7 @@ export function createSessionScrollController() {
 		if (Object.keys(turnMarkerHeights).length > 0) turnMarkerHeights = {};
 	}
 
-	function measureTurnMarkerPositions(turnScrollAnchorOffset: number) {
+	function measureTurnMarkerPositions(_turnScrollAnchorOffset?: number) {
 		if (!listEl) {
 			clearTurnMarkers();
 			updateTimelineScrollMetrics();
@@ -162,11 +162,11 @@ export function createSessionScrollController() {
 			absoluteTop: getMessageElementAbsoluteTop(anchor),
 			offsetHeight: anchor.offsetHeight,
 		}));
+		// Jump comfort offset is only for scroll-into-view, not minimap placement.
 		const { positions, heights } = measureTurnRailMarkers({
 			scrollHeight: scrollContainer.scrollHeight,
 			clientHeight: scrollContainer.clientHeight,
 			anchors,
-			turnScrollAnchorOffset,
 		});
 		if (!areNumberRecordsEqual(turnMarkerPositions, positions)) {
 			turnMarkerPositions = positions;
