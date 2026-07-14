@@ -11,6 +11,21 @@ export type SessionScrollAnchor = {
 
 const AUTO_FOLLOW_THRESHOLD_PX = 60;
 
+function areNumberRecordsEqual(
+	current: Record<number, number>,
+	next: Record<number, number>,
+) {
+	if (current === next) return true;
+	const currentKeys = Object.keys(current);
+	const nextKeys = Object.keys(next);
+	if (currentKeys.length !== nextKeys.length) return false;
+	for (const key of currentKeys) {
+		const numKey = Number(key);
+		if (current[numKey] !== next[numKey]) return false;
+	}
+	return true;
+}
+
 export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
 	let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
@@ -92,14 +107,17 @@ export function createSessionScrollController() {
 
 	function updateTimelineScrollMetrics() {
 		if (!listEl) {
-			timelineScrollTop = 0;
-			timelineScrollHeight = 0;
-			timelineClientHeight = 0;
+			if (timelineScrollTop !== 0) timelineScrollTop = 0;
+			if (timelineScrollHeight !== 0) timelineScrollHeight = 0;
+			if (timelineClientHeight !== 0) timelineClientHeight = 0;
 			return;
 		}
-		timelineScrollTop = listEl.scrollTop;
-		timelineScrollHeight = listEl.scrollHeight;
-		timelineClientHeight = listEl.clientHeight;
+		const nextTop = listEl.scrollTop;
+		const nextHeight = listEl.scrollHeight;
+		const nextClient = listEl.clientHeight;
+		if (timelineScrollTop !== nextTop) timelineScrollTop = nextTop;
+		if (timelineScrollHeight !== nextHeight) timelineScrollHeight = nextHeight;
+		if (timelineClientHeight !== nextClient) timelineClientHeight = nextClient;
 	}
 
 	function getTimelineBottomScrollTop() {
@@ -111,17 +129,22 @@ export function createSessionScrollController() {
 		if (!listEl) return;
 		const distanceFromBottom =
 			listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight;
-		shouldAutoFollow = distanceFromBottom <= threshold;
+		const next = distanceFromBottom <= threshold;
+		if (shouldAutoFollow !== next) shouldAutoFollow = next;
 	}
 
 	function shouldPinToBottom(options?: { immediate?: boolean }) {
 		return Boolean(listEl && (options?.immediate || shouldAutoFollow));
 	}
 
+	function clearTurnMarkers() {
+		if (Object.keys(turnMarkerPositions).length > 0) turnMarkerPositions = {};
+		if (Object.keys(turnMarkerHeights).length > 0) turnMarkerHeights = {};
+	}
+
 	function measureTurnMarkerPositions(turnScrollAnchorOffset: number) {
 		if (!listEl) {
-			turnMarkerPositions = {};
-			turnMarkerHeights = {};
+			clearTurnMarkers();
 			updateTimelineScrollMetrics();
 			return;
 		}
@@ -174,8 +197,12 @@ export function createSessionScrollController() {
 			const scrollRatio = Math.max(0.015, turnHeight / maxScroll);
 			heights[range.sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
 		}
-		turnMarkerPositions = positions;
-		turnMarkerHeights = heights;
+		if (!areNumberRecordsEqual(turnMarkerPositions, positions)) {
+			turnMarkerPositions = positions;
+		}
+		if (!areNumberRecordsEqual(turnMarkerHeights, heights)) {
+			turnMarkerHeights = heights;
+		}
 	}
 
 	function stopVimScroll() {
@@ -248,11 +275,10 @@ export function createSessionScrollController() {
 	}
 
 	function resetSessionScrollUi() {
-		turnMarkerPositions = {};
-		turnMarkerHeights = {};
-		timelineScrollTop = 0;
-		timelineScrollHeight = 0;
-		timelineClientHeight = 0;
+		clearTurnMarkers();
+		if (timelineScrollTop !== 0) timelineScrollTop = 0;
+		if (timelineScrollHeight !== 0) timelineScrollHeight = 0;
+		if (timelineClientHeight !== 0) timelineClientHeight = 0;
 		pendingRestoreSessionId = null;
 		activeAnchorRestore = null;
 		pendingTimelineMarkdownRenders = 0;
@@ -289,14 +315,19 @@ export function createSessionScrollController() {
 			return turnMarkerPositions;
 		},
 		set turnMarkerPositions(value: Record<number, number>) {
-			turnMarkerPositions = value;
+			if (!areNumberRecordsEqual(turnMarkerPositions, value)) {
+				turnMarkerPositions = value;
+			}
 		},
 		get turnMarkerHeights() {
 			return turnMarkerHeights;
 		},
 		set turnMarkerHeights(value: Record<number, number>) {
-			turnMarkerHeights = value;
+			if (!areNumberRecordsEqual(turnMarkerHeights, value)) {
+				turnMarkerHeights = value;
+			}
 		},
+		clearTurnMarkers,
 		get timelineScrollTop() {
 			return timelineScrollTop;
 		},

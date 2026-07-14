@@ -232,21 +232,23 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let createSessionError = $state("");
 	let forkingTurnId = $state<string | null>(null);
 
+	// Stable empty refs — fresh `{}` / `[]` each derived run re-triggers effects.
+	const EMPTY_DRAFT_SESSION_STATE: SessionViewState = {
+		session: undefined,
+		turns: [],
+		loading: false,
+		loaded: true,
+		error: null,
+		hasMore: false,
+		hasMoreNewer: false,
+		loadingOlder: false,
+		loadingNewer: false,
+		oldestCursor: undefined,
+	};
+	const EMPTY_TIMELINE: TimelineItem[] = [];
+
 	const draftSessionState = $derived<SessionViewState | null>(
-		isDraftNewSessionRoute
-			? {
-					session: undefined,
-					turns: [],
-					loading: false,
-					loaded: true,
-					error: null,
-					hasMore: false,
-					hasMoreNewer: false,
-					loadingOlder: false,
-					loadingNewer: false,
-					oldestCursor: undefined,
-				}
-			: null,
+		isDraftNewSessionRoute ? EMPTY_DRAFT_SESSION_STATE : null,
 	);
 	const activeSessionState = $derived(
 		isDraftNewSessionRoute
@@ -371,8 +373,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				}
 			: null,
 	);
+	const EMPTY_TURN_INDEX: SessionTurnIndexItem[] = [];
 	const activeTurnIndex = $derived.by(() =>
-		activeSessionId ? (turnIndexBySessionId[activeSessionId] ?? []) : [],
+		activeSessionId
+			? (turnIndexBySessionId[activeSessionId] ?? EMPTY_TURN_INDEX)
+			: EMPTY_TURN_INDEX,
 	);
 	const activeSessionLastTurnModel = $derived.by(() => {
 		const turns = [...(activeSessionState?.turns ?? []), ...activeTurnIndex]
@@ -433,8 +438,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		return activeTurnIndex.filter((t) => t.sequence > loadedMaxTurnSequence)
 			.length;
 	});
+	const EMPTY_INTERMEDIATE_MESSAGES: ReturnType<
+		typeof buildStreamingStoredIntermediateMessages
+	> = [];
 	const activeStreamingIntermediateMessages = $derived.by(() => {
-		if (!activeGenerationState || !activeSessionId) return [];
+		if (!activeGenerationState || !activeSessionId)
+			return EMPTY_INTERMEDIATE_MESSAGES;
 		return buildStreamingStoredIntermediateMessages({
 			spaceId,
 			sessionId: activeSessionId,
@@ -471,32 +480,34 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	);
 	const timeline = $derived.by<TimelineItem[]>(() => {
 		const state = activeSessionState;
-		if (!state) return [];
+		if (!state) return EMPTY_TIMELINE;
+		const streaming =
+			activeGenerationState &&
+			(activeGenerationState.status === "streaming" ||
+				activeGenerationState.status === "pending" ||
+				(activeGenerationState.status === "completed" &&
+					activeStreamingIntermediateMessages.length > 0) ||
+				!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status))
+				? {
+						sessionId: activeSessionId ?? "active",
+						turnId: activeGenerationState.turnId ?? null,
+						anchorUserMessageId:
+							activeGenerationState.anchorUserMessageId ?? null,
+						clientMessageId: activeGenerationClientMessageId,
+						intermediateMessages: activeStreamingIntermediateMessages,
+						contentBlocks: activeGenerationState.contentBlocks,
+						finalizedPreview: activeGenerationState.finalizedPreview,
+						status: activeGenerationState.status,
+						runtimePhase: activeGenerationState.runtimePhase,
+						runtimeProvider: activeGenerationState.runtimeProvider,
+						runtimeModel: activeGenerationState.runtimeModel,
+					}
+				: null;
+		if (state.turns.length === 0 && !streaming) return EMPTY_TIMELINE;
 		return buildTurnTimelineItems({
 			sessionId: activeSessionId,
 			turns: state.turns,
-			streaming:
-				activeGenerationState &&
-				(activeGenerationState.status === "streaming" ||
-					activeGenerationState.status === "pending" ||
-					(activeGenerationState.status === "completed" &&
-						activeStreamingIntermediateMessages.length > 0) ||
-					!TERMINAL_GENERATION_STATUSES.has(activeGenerationState.status))
-					? {
-							sessionId: activeSessionId ?? "active",
-							turnId: activeGenerationState.turnId ?? null,
-							anchorUserMessageId:
-								activeGenerationState.anchorUserMessageId ?? null,
-							clientMessageId: activeGenerationClientMessageId,
-							intermediateMessages: activeStreamingIntermediateMessages,
-							contentBlocks: activeGenerationState.contentBlocks,
-							finalizedPreview: activeGenerationState.finalizedPreview,
-							status: activeGenerationState.status,
-							runtimePhase: activeGenerationState.runtimePhase,
-							runtimeProvider: activeGenerationState.runtimeProvider,
-							runtimeModel: activeGenerationState.runtimeModel,
-						}
-					: null,
+			streaming,
 		});
 	});
 	const hasUnread = $derived.by(() => {
@@ -642,8 +653,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	$effect(() => {
 		if (!listEl || timeline.length === 0) {
-			scroll.turnMarkerPositions = {};
-			scroll.turnMarkerHeights = {};
+			scroll.clearTurnMarkers();
 			return;
 		}
 		void tick().then(() => {
@@ -833,11 +843,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	$effect(() => {
 		const el = composerHostEl;
 		if (!el) {
-			scroll.composerHeight = 0;
+			if (scroll.composerHeight !== 0) scroll.composerHeight = 0;
 			return;
 		}
 		const updateComposerHeight = () => {
-			scroll.composerHeight = el.offsetHeight;
+			const next = el.offsetHeight;
+			if (scroll.composerHeight !== next) scroll.composerHeight = next;
 		};
 		updateComposerHeight();
 		const ro = new ResizeObserver(() => updateComposerHeight());
@@ -909,8 +920,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	$effect(() => {
 		const sessionId = activeSessionId;
 		if (!sessionId) {
-			tasks.backgroundBashHydrateKey = "";
-			resetRecentSessionTaskPagination();
+			if (backgroundBashHydrateKey !== "") {
+				tasks.backgroundBashHydrateKey = "";
+				resetRecentSessionTaskPagination();
+			}
 			return;
 		}
 		const hydrateKey = `${spaceId}:${sessionId}`;
@@ -3146,7 +3159,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
 		);
 		if (nodes.length === 0) {
-			currentTurnSequence = null;
+			if (currentTurnSequence !== null) currentTurnSequence = null;
 			return;
 		}
 		const containerRect = listEl.getBoundingClientRect();
@@ -3161,7 +3174,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				rect.top <= probeY ? probeY - rect.top : rect.top - probeY + 1000;
 			if (!best || distance < best.distance) best = { sequence, distance };
 		}
-		currentTurnSequence = best?.sequence ?? null;
+		const next = best?.sequence ?? null;
+		if (currentTurnSequence !== next) currentTurnSequence = next;
 	}
 
 	function setProgrammaticScrollTop(scrollTop: number) {
@@ -3599,8 +3613,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			generationRealtime.syncActiveSubscription(false);
 			currentTurnSequence = null;
 			highlightedTurnSequence = null;
-			scroll.turnMarkerPositions = {};
-			scroll.turnMarkerHeights = {};
+			scroll.clearTurnMarkers();
 			lastTurnIndexRefreshKey = "";
 			showTurnBottomSheet = false;
 			appliedRouteTurnKey = null;
@@ -3633,8 +3646,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		generationRealtime.clearStreamSnapshotRecoveryCooldowns();
 		currentTurnSequence = null;
 		highlightedTurnSequence = null;
-		scroll.turnMarkerPositions = {};
-		scroll.turnMarkerHeights = {};
+		scroll.clearTurnMarkers();
 		lastTurnIndexRefreshKey = "";
 		showTurnBottomSheet = false;
 		appliedRouteTurnKey = null;
@@ -3649,12 +3661,36 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		route = { kind: "none" };
 	}
 
+	function isSameAccess(current: SessionChatAccess, next: SessionChatAccess) {
+		return (
+			current.spaceLoadError === next.spaceLoadError &&
+			current.spaceHasMinimalAccess === next.spaceHasMinimalAccess &&
+			current.canCreateSession === next.canCreateSession &&
+			current.bootstrapping === next.bootstrapping
+		);
+	}
+
+	function isSameRoute(current: SessionChatRoute, next: SessionChatRoute) {
+		if (current.kind !== next.kind) return false;
+		if (current.kind === "session" && next.kind === "session") {
+			return (
+				current.sessionId === next.sessionId &&
+				current.turnSequence === next.turnSequence
+			);
+		}
+		return true;
+	}
+
 	function syncContext(input: SessionChatContext) {
 		if (disposed) return;
 		if (input.spaceId !== spaceId) enterSpace(input.spaceId);
-		access = { ...input.access };
+		if (!isSameAccess(access, input.access)) {
+			access = { ...input.access };
+		}
 		const prev = route;
-		route = input.route;
+		if (!isSameRoute(route, input.route)) {
+			route = input.route;
+		}
 
 		if (route.kind === "session") {
 			if (activeSessionId !== route.sessionId) {

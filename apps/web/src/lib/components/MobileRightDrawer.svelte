@@ -31,24 +31,25 @@ const CLOSE_BACKDROP_TRANSITION_CSS = `opacity ${DURATION_DRAWER_OUT}ms ${EASE_I
 const TRANSITION_DURATION_MS = DURATION_DRAWER_OUT;
 
 const openRatio = $derived(getDrawerOpenRatio(dragOffsetPx));
+const interactive = $derived(isDragging || uiState.mobileRightDrawerOpen);
 
 const panelStyle = $derived.by(() => {
 	if (isDragging) {
 		const offset = MOBILE_DRAWER_WIDTH_PX - dragOffsetPx;
-		return `transform: translateX(${offset}px); transition: none;`;
+		return `transform: translateX(${offset}px); transition: none; pointer-events: auto;`;
 	}
 	if (uiState.mobileRightDrawerOpen) {
-		return `transform: translateX(0); transition: ${TRANSITION_CSS};`;
+		return `transform: translateX(0); transition: ${TRANSITION_CSS}; pointer-events: auto;`;
 	}
 	return `transform: translateX(${MOBILE_DRAWER_WIDTH_PX}px); transition: ${CLOSE_TRANSITION_CSS}; pointer-events: none;`;
 });
 
 const backdropStyle = $derived.by(() => {
 	if (isDragging) {
-		return `opacity: ${openRatio * 0.5}; transition: none;`;
+		return `opacity: ${openRatio * 0.5}; transition: none; pointer-events: auto;`;
 	}
 	if (uiState.mobileRightDrawerOpen) {
-		return `opacity: 0.5; transition: ${BACKDROP_TRANSITION_CSS};`;
+		return `opacity: 0.5; transition: ${BACKDROP_TRANSITION_CSS}; pointer-events: auto;`;
 	}
 	return `opacity: 0; transition: ${CLOSE_BACKDROP_TRANSITION_CSS}; pointer-events: none;`;
 });
@@ -81,7 +82,7 @@ $effect(() => {
   <!-- Backdrop -->
   <div
     class="absolute inset-0 bg-overlay-scrim"
-    style="pointer-events: auto; {backdropStyle}"
+    style={backdropStyle}
     aria-hidden="true"
     onclick={closeDrawer}
   ></div>
@@ -89,10 +90,10 @@ $effect(() => {
   <!-- Drawer panel -->
   <div
     class="absolute inset-y-0 right-0 mobile-drawer-gesture-surface"
-    style="pointer-events: auto; width: {MOBILE_DRAWER_WIDTH_PX}px; max-width: {MOBILE_DRAWER_MAX_WIDTH_VW}vw; {panelStyle}"
+    style="width: {MOBILE_DRAWER_WIDTH_PX}px; max-width: {MOBILE_DRAWER_MAX_WIDTH_VW}vw; {panelStyle}"
   >
     {#if renderContent}
-      <div class="h-full border-l border-border-subtle bg-bg-primary">
+      <div class="h-full border-l border-border-subtle bg-bg-primary" class:pointer-events-auto={interactive}>
         {@render children()}
       </div>
     {/if}
