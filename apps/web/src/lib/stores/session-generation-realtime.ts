@@ -1,9 +1,14 @@
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { MessageRecord } from "@cohub/protocol/model";
 import type {
 	GenerationStreamEvent,
 	GenerationStreamLifecycleEvent,
 	GenerationStreamStateEvent,
 } from "@neta-art/cohub";
+import {
+	isArchivedMessageIdentity,
+	isSameLiveMessage,
+} from "$lib/session-generation-stream-guards";
 import type { StreamingIntermediateMessage } from "./session-generation.svelte";
 import { sessionGenerationStore } from "./session-generation.svelte";
 import {
@@ -194,6 +199,41 @@ function mergeIntermediateMessages(
 	return compactIntermediateMessages([...current, ...incoming]);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function intermediateFromCommitMessage(
+	sessionId: string,
+	message: MessageRecord,
+): StreamingIntermediateMessage | null {
+	if (!Array.isArray(message.content) || message.content.length === 0) {
+		return null;
+	}
+	const meta = isRecord(message.meta) ? message.meta : {};
+	return {
+		id: message.id,
+		sessionId: message.sessionId ?? sessionId,
+		role: message.role,
+		messageId:
+			typeof meta.streamMessageId === "string"
+				? meta.streamMessageId
+				: (message.id ?? null),
+		messageOrdinal:
+			typeof meta.messageOrdinal === "number" ? meta.messageOrdinal : null,
+		content: message.content as ContentBlock[],
+		text: message.text,
+		provider: message.provider,
+		model: message.model,
+		stopReason: message.stopReason,
+		errorMessage: message.errorMessage,
+		usage: message.usage,
+		durationMs: message.durationMs,
+		meta: message.meta,
+		createdAt: message.createdAt,
+	};
+}
+
 function resolveIntermediateMessagesForState(
 	sessionId: string,
 	event: GenerationStreamStateEvent,
@@ -220,10 +260,27 @@ function applyGenerationState(
 			event.state.turnId &&
 			current.turnId === event.state.turnId,
 	);
-	// Drop out-of-order state patches (same turn, lower/equal patchSeq).
-	// Matches snapshot stale_snapshot guard; prevents flashback under reordering.
+	const eventIdentity = {
+		messageOrdinal: event.messageOrdinal,
+		messageId: event.messageId,
+	};
+	// Already archived into process history — never revive as live preview.
 	if (
 		sameTurn &&
+		isArchivedMessageIdentity(
+			current?.intermediateMessages ?? [],
+			eventIdentity,
+		)
+	) {
+		return;
+	}
+	// patchSeq restarts at 1 for each assistant message (baseSeq=0 keyframe).
+	// Only treat lower/equal patchSeq as stale within the same live message.
+	const sameLiveMessage =
+		current != null && isSameLiveMessage(current, eventIdentity);
+	if (
+		sameTurn &&
+		sameLiveMessage &&
 		typeof event.state.patchSeq === "number" &&
 		event.state.patchSeq > 0 &&
 		(current?.patchSeq ?? 0) >= event.state.patchSeq
@@ -279,12 +336,26 @@ export function applyGenerationStreamSnapshot(
 ) {
 	const current = sessionGenerationStore.get(sessionId);
 	const resolvedTurnId = input.turnId ?? current?.turnId ?? null;
+	const snapshotIdentity = {
+		messageOrdinal: input.current.messageOrdinal ?? null,
+		messageId: input.current.messageId ?? null,
+	};
+	const sameTurn = Boolean(
+		current?.turnId && resolvedTurnId && current.turnId === resolvedTurnId,
+	);
+	// Same rule as patch path: archived rounds must not revive as live preview.
 	if (
-		current?.turnId &&
-		resolvedTurnId &&
-		current.turnId === resolvedTurnId &&
-		current.patchSeq >= input.seq
+		sameTurn &&
+		isArchivedMessageIdentity(
+			current?.intermediateMessages ?? [],
+			snapshotIdentity,
+		)
 	) {
+		return { applied: false, reason: "stale_snapshot" as const };
+	}
+	const sameLiveMessage =
+		current != null && isSameLiveMessage(current, snapshotIdentity);
+	if (sameTurn && sameLiveMessage && current.patchSeq >= input.seq) {
 		return { applied: false, reason: "stale_snapshot" as const };
 	}
 	const hasSnapshotContent =
@@ -400,6 +471,39 @@ export function applyGenerationStreamEvent(
 	}
 
 	if (event.type === "commit") {
+		if (event.commit.kind === "intermediate") {
+			// Align with SDK: archive the finished round into intermediateMessages
+			// and clear live contentBlocks immediately. Without this, the previous
+			// round's tools linger in the streaming preview until the next patch.
+			const current = sessionGenerationStore.get(sessionId);
+			const archived = intermediateFromCommitMessage(
+				sessionId,
+				event.commit.message,
+			);
+			const intermediateMessages = archived
+				? mergeIntermediateMessages(current?.intermediateMessages ?? [], [
+						archived,
+					])
+				: (current?.intermediateMessages ?? []);
+			const meta = isRecord(event.commit.message.meta)
+				? event.commit.message.meta
+				: null;
+			const turnId =
+				(typeof meta?.turnId === "string" ? meta.turnId : null) ??
+				current?.turnId ??
+				null;
+			sessionGenerationStore.archiveIntermediateRound(sessionId, {
+				intermediateMessages,
+				archived,
+				turnId,
+			});
+			return handledEffect({
+				shouldScroll: true,
+				shouldReconcile: false,
+				shouldRestoreSnapshot: false,
+				shouldRefreshSessions: false,
+			});
+		}
 		if (event.commit.kind === "final" || event.commit.kind === "error") {
 			// Apply the full content blocks from the persisted message
 			// (session.message.persisted) which carries complete content

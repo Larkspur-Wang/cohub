@@ -1,5 +1,6 @@
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import { sessionGenerationSnapshotsRepo } from "$lib/cache/repositories/session-generation-snapshots-repo";
+import { shouldPreserveLivePreviewOnArchive } from "$lib/session-generation-stream-guards";
 
 export type SessionGenerationStatus =
 	| "idle"
@@ -444,6 +445,70 @@ class SessionGenerationStore {
 			runtimeProvider: null,
 			runtimeModel: null,
 			finalizedPreview: input.finalizedPreview ?? false,
+		});
+	}
+
+	/**
+	 * Archive a finished assistant round between tool loops.
+	 * Clears the live streaming preview so the next round doesn't keep
+	 * previous tools/text in contentBlocks while waiting/thinking.
+	 *
+	 * If the next round already started streaming, only fold the intermediate
+	 * message — never wipe the newer preview.
+	 */
+	archiveIntermediateRound(
+		sessionId: string,
+		input: {
+			intermediateMessages: StreamingIntermediateMessage[];
+			archived?: StreamingIntermediateMessage | null;
+			turnId?: string | null;
+		},
+	) {
+		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		const archived = input.archived ?? null;
+		// Next assistant identity already advanced (even before first token) —
+		// only fold history; never wipe the newer identity/patchSeq/preview.
+		const previewAlreadyMovedOn = shouldPreserveLivePreviewOnArchive(
+			{
+				messageOrdinal: current.messageOrdinal,
+				streamMessageId: current.streamMessageId,
+			},
+			archived,
+		);
+		const status =
+			current.status === "idle" || current.status === "pending"
+				? "streaming"
+				: current.status;
+
+		if (previewAlreadyMovedOn) {
+			this.setState(sessionId, {
+				...current,
+				status,
+				lastEventAt: Date.now(),
+				intermediateMessages: input.intermediateMessages,
+				turnId: input.turnId ?? current.turnId ?? null,
+			});
+			return;
+		}
+
+		this.setState(sessionId, {
+			...current,
+			status,
+			error: null,
+			errorCode: null,
+			startedAt: current.startedAt ?? Date.now(),
+			lastEventAt: Date.now(),
+			// Drop the previous round from the live preview immediately.
+			contentBlocks: [],
+			intermediateMessages: input.intermediateMessages,
+			streamMessageId: null,
+			messageOrdinal: null,
+			truncatedStart: false,
+			// Agent restarts patchSeq per assistant message (baseSeq=0, seq=1).
+			// Reset here so the next round's first patch isn't dropped as stale.
+			patchSeq: 0,
+			turnId: input.turnId ?? current.turnId ?? null,
+			finalizedPreview: false,
 		});
 	}
 
