@@ -127,13 +127,6 @@ export function createPreviewWorkspaceController(
 		return null;
 	}
 
-	function isStillActive(kind: PreviewTabKind, key: string) {
-		if (activeKind !== kind) return false;
-		if (kind === "file") return options.getActiveFilePath() === key;
-		if (kind === "canvas") return options.getActiveCanvasPath() === key;
-		return options.getActivePort() === key;
-	}
-
 	function enforceBudget() {
 		const candidates = [
 			...options.getFileTabs().map((tab) => ({
@@ -189,16 +182,26 @@ export function createPreviewWorkspaceController(
 		} = {},
 	) {
 		const syncUrl = opts.syncUrl ?? true;
+		// Capture before flipping activeKind so first open pushes history,
+		// subsequent tab switches replace.
 		const hadPreview = Boolean(currentRef());
 		activeKind = "file";
 		touch("file", path);
+		// Sync URL before awaiting domain I/O. Otherwise the route-hydration
+		// effect can observe a brief no-preview URL while UI already opened
+		// a file and tear the panel down (click → composer focus only).
+		if (syncUrl) {
+			options.syncUrl({ kind: "file", key: path }, hadPreview);
+		}
 		await options.openFile(path, {
 			preserveHistory: opts.preserveHistory,
 			position: opts.position,
 		});
 		enforceBudget();
-		if (syncUrl && isStillActive("file", path)) {
-			options.syncUrl({ kind: "file", key: path }, hadPreview);
+		// Re-assert URL if budget eviction / concurrent open changed active tab.
+		if (syncUrl) {
+			const ref = currentRef();
+			if (ref) options.syncUrl(ref, true);
 		}
 	}
 
@@ -207,10 +210,14 @@ export function createPreviewWorkspaceController(
 		const hadPreview = Boolean(currentRef());
 		activeKind = "canvas";
 		touch("canvas", path);
+		if (syncUrl) {
+			options.syncUrl({ kind: "canvas", key: path }, hadPreview);
+		}
 		await options.openCanvas(path);
 		enforceBudget();
-		if (syncUrl && isStillActive("canvas", path)) {
-			options.syncUrl({ kind: "canvas", key: path }, hadPreview);
+		if (syncUrl) {
+			const ref = currentRef();
+			if (ref) options.syncUrl(ref, true);
 		}
 	}
 
@@ -224,10 +231,14 @@ export function createPreviewWorkspaceController(
 		const hadPreview = Boolean(currentRef());
 		activeKind = "port";
 		touch("port", port);
+		if (syncUrl) {
+			options.syncUrl({ kind: "port", key: port }, hadPreview);
+		}
 		options.openPort(port, url, { autoOpened: opts.autoOpened });
 		enforceBudget();
-		if (syncUrl && isStillActive("port", port)) {
-			options.syncUrl({ kind: "port", key: port }, hadPreview);
+		if (syncUrl) {
+			const ref = currentRef();
+			if (ref) options.syncUrl(ref, true);
 		}
 	}
 

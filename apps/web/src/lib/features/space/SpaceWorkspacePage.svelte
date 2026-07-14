@@ -318,6 +318,7 @@ const portPreview = createPortPreviewController({
 	getPageMounted: () => pageMounted,
 	getHasMinimalAccess: () => spaceHasMinimalAccess,
 	onOpenPanel: () => {
+		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 		// Keep focus/immersive when switching port tabs.
 		ensurePreviewPanelFits();
 	},
@@ -399,6 +400,9 @@ const fileWorkspace = createFileWorkspaceController({
 		openInlinePort(port, url, optionsArg),
 	onCloseInlinePort: () => closeInlinePort(),
 	onActivateFilePreview: () => {
+		// Domain open paths (and re-activate) must reveal Files even when the
+		// page wrapper was skipped (e.g. route hydrate → controller openFile).
+		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 		previewWorkspace.setActiveKind("file");
 	},
 	onClosePreviewFocusMode: () => {
@@ -415,6 +419,7 @@ const canvasPreview = createCanvasPreviewController({
 	getReadonly: () => activeFsReadonly,
 	readFile: fileWorkspace.readActiveFsFile,
 	onOpenPanel: () => {
+		if (uiState.filesColumnHidden) uiState.setFilesColumnHidden(false);
 		// Keep focus/immersive when switching canvas tabs.
 		ensurePreviewPanelFits();
 	},
@@ -1898,6 +1903,14 @@ $effect(() => {
 
 		// 2) Preview route hydration / teardown
 		if (!preview) {
+			const uiRef = previewWorkspace.currentRef();
+			if (uiRef) {
+				// UI still has an open preview while URL briefly lost ?preview=
+				// (race during open/navigation). Restore URL instead of tearing down.
+				appliedRouteFileKey = "";
+				syncPreviewQuery(uiRef, true);
+				return;
+			}
 			if (!appliedRouteFileKey) return;
 			appliedRouteFileKey = "";
 			// URL lost preview (Back / cleared query): close all previews, keep Main.
