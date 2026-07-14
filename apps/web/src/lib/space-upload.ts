@@ -46,9 +46,21 @@ function putWithProgress(
 ) {
 	return new Promise<void>((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
-		xhr.open("PUT", uploadUrl);
-		for (const [key, value] of Object.entries(headers ?? {})) {
-			xhr.setRequestHeader(key, value);
+		try {
+			xhr.open("PUT", uploadUrl);
+			for (const [key, value] of Object.entries(headers ?? {})) {
+				// Skip empty / control-char values — Safari throws
+				// "The string did not match the expected pattern."
+				if (/[\r\n\0]/.test(value)) continue;
+				xhr.setRequestHeader(key, value);
+			}
+		} catch (error) {
+			reject(
+				error instanceof Error
+					? error
+					: new Error("Upload failed: invalid request headers"),
+			);
+			return;
 		}
 		xhr.upload.onprogress = (event) => {
 			if (!event.lengthComputable) return;

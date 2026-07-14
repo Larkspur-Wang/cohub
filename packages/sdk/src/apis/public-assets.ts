@@ -4,6 +4,13 @@ export type PublicAssetPurpose = "user_avatar" | "space_avatar" | "chat_attachme
 /** Avatar + preprocessed chat images. General chat files may use any mime string. */
 export type PublicAssetMimeType = "image/webp" | "image/jpeg";
 
+/** Strip characters Safari rejects in FormData file names. */
+function sanitizeFormDataFilename(filename: string | undefined): string | undefined {
+  if (typeof filename !== "string") return undefined;
+  const base = filename.split(/[/\\]/).pop()?.replace(/[\r\n\0]/g, "").trim() ?? "";
+  return base.length > 0 ? base : undefined;
+}
+
 export type CreatePublicAssetUploadInput = {
   purpose: PublicAssetPurpose;
   spaceId?: string;
@@ -77,12 +84,30 @@ export class PublicAssetsApi {
     for (const [key, value] of Object.entries(plan.asset.uploadFields)) {
       formData.append(key, value);
     }
-    if (input.filename) formData.append("file", input.file, input.filename);
+    // Safari rejects FormData filenames with CR/LF/control chars
+    // ("The string did not match the expected pattern.").
+    const safeFilename = sanitizeFormDataFilename(input.filename);
+    if (safeFilename) formData.append("file", input.file, safeFilename);
     else formData.append("file", input.file);
-    const response = await fetch(plan.asset.uploadUrl, {
-      method: plan.asset.uploadMethod,
-      body: formData,
-    });
+    let response: Response;
+    try {
+      response = await fetch(plan.asset.uploadUrl, {
+        method: plan.asset.uploadMethod,
+        body: formData,
+      });
+    } catch (error) {
+      if (
+        error instanceof TypeError &&
+        (error.message === "The string did not match the expected pattern." ||
+          /Failed to construct|invalid/i.test(error.message))
+      ) {
+        throw new Error(
+          `Public asset upload failed: invalid upload request${safeFilename ? ` (${safeFilename})` : ""}`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       throw new Error(`Public asset upload failed: HTTP ${response.status}${detail ? ` — ${detail}` : ""}`);

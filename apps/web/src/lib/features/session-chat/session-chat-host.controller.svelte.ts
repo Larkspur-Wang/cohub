@@ -3061,8 +3061,13 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			if ((hadFileUpload || hadImageUpload) && !uploadCompleted) {
 				composer.markAttachmentUploadsFailed();
 			}
-			const sendError =
+			const rawSendError =
 				error instanceof Error ? error.message : "Failed to send message";
+			// Safari often surfaces Headers/URL/FormData failures as this opaque TypeError.
+			const sendError =
+				rawSendError === "The string did not match the expected pattern."
+					? "Could not send request. Your session may be invalid — try refreshing or signing in again."
+					: rawSendError;
 			const sendErrorCode = getHttpErrorCode(error);
 			const displayError =
 				hadFileUpload || hadImageUpload

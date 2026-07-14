@@ -29,7 +29,7 @@ export {
   isFeatureNotEntitledError,
   isHttpErrorCode,
 } from "./http-error.js";
-export { HttpError } from "./transport.js";
+export { HttpError, joinApiUrl, sanitizeAccessToken } from "./transport.js";
 export {
   GenerationPolicyError,
   assertGenerationRequestAllowedByPolicy,

@@ -59,19 +59,25 @@ export const getAuthToken = async (
 	options?: GetAuthTokenOptions,
 ): Promise<string | null> => {
 	try {
-		if (options?.forceRefresh) {
-			return await getAccessTokenByRefreshToken();
-		}
-		return await logtoClient.getAccessToken(API_RESOURCE);
+		const token = options?.forceRefresh
+			? await getAccessTokenByRefreshToken()
+			: await logtoClient.getAccessToken(API_RESOURCE);
+		return sanitizeClientToken(token);
 	} catch {
 		try {
-			return await getAccessTokenByRefreshToken();
+			return sanitizeClientToken(await getAccessTokenByRefreshToken());
 		} catch (error) {
 			console.warn("[auth] Failed to resolve access token:", error);
 			return null;
 		}
 	}
 };
+
+function sanitizeClientToken(token: string | null | undefined): string | null {
+	if (typeof token !== "string") return null;
+	const cleaned = token.replace(/[\r\n\t\0]/g, "").trim();
+	return cleaned.length > 0 ? cleaned : null;
+}
 
 export const getCurrentIdTokenClaims =
 	async (): Promise<IdTokenClaims | null> => {
@@ -102,7 +108,11 @@ export const clearBrokenAuthSession = async () => {
 
 export const setAuthToken = (token: string) => {
 	if (typeof localStorage === "undefined") return;
-	localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token.trim());
+	// Keep stored token free of CR/LF so later Authorization headers stay valid
+	// (Safari: "The string did not match the expected pattern.").
+	const cleaned = token.replace(/[\r\n\t\0]/g, "").trim();
+	if (!cleaned) return;
+	localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, cleaned);
 };
 
 export const clearAuthToken = () => {

@@ -53,6 +53,42 @@ function errorCodeFromBody(body: unknown): string | null {
   return null;
 }
 
+/**
+ * Access tokens must be a single HTTP header token.
+ * Newlines / control chars (from corrupted storage or clipboard paste) make
+ * `Headers#set` throw TypeError — Safari: "The string did not match the expected pattern."
+ */
+export function sanitizeAccessToken(token: string | null | undefined): string | null {
+  if (typeof token !== "string") return null;
+  // Strip CR/LF/TAB/NUL and surrounding whitespace; keep the rest of the JWT/opaque token.
+  const cleaned = token.replace(/[\r\n\t\0]/g, "").trim();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+/** Join API base + path without double slashes; prefer URL when base is absolute. */
+export function joinApiUrl(baseUrl: string, path: string): string {
+  const base = baseUrl.trim().replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (!base) return normalizedPath;
+  if (/^https?:\/\//i.test(base)) {
+    try {
+      return new URL(normalizedPath, `${base}/`).href;
+    } catch {
+      // Fall through to string join for non-standard bases.
+    }
+  }
+  return `${base}${normalizedPath}`;
+}
+
+function isBrowserRequestConstructionError(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false;
+  const message = error.message || "";
+  return (
+    message === "The string did not match the expected pattern." ||
+    /invalid header value|Failed to construct|is an invalid header/i.test(message)
+  );
+}
+
 export class HttpError extends Error {
   readonly status: number;
   readonly body: unknown;
@@ -82,7 +118,13 @@ export class HttpTransport {
 
   private async withAuthorization(init?: RequestInit, tokenOverride?: string | null): Promise<RequestInit> {
     const headers = new Headers(init?.headers);
-    const token = tokenOverride ?? (this.getAccessToken ? await this.getAccessToken() : null);
+    const rawToken =
+      tokenOverride !== undefined
+        ? tokenOverride
+        : this.getAccessToken
+          ? await this.getAccessToken()
+          : null;
+    const token = sanitizeAccessToken(rawToken);
 
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
@@ -98,20 +140,43 @@ export class HttpTransport {
 
   private async send(path: string, init?: RequestInitWithFetch) {
     const fetcher = init?.fetch ?? this.fetcher;
-    const url = this.baseUrl ? `${this.baseUrl}${path}` : path;
-    const response = await fetcher(url, await this.withAuthorization(init));
+    const url = joinApiUrl(this.baseUrl, path);
+
+    let response: Response;
+    try {
+      response = await fetcher(url, await this.withAuthorization(init));
+    } catch (error) {
+      if (isBrowserRequestConstructionError(error)) {
+        throw new Error(
+          "Could not send request. Your session may be invalid — try refreshing or signing in again.",
+          { cause: error },
+        );
+      }
+      throw error;
+    }
 
     const getAccessToken = this.getAccessToken;
     if (response.status === 401 && getAccessToken) {
       const refreshedToken = await (async () => {
         try {
-          return await getAccessToken({ forceRefresh: true });
+          return sanitizeAccessToken(await getAccessToken({ forceRefresh: true }));
         } catch {
           return null;
         }
       })();
       if (refreshedToken) {
-        const retryResponse = await fetcher(url, await this.withAuthorization(init, refreshedToken));
+        let retryResponse: Response;
+        try {
+          retryResponse = await fetcher(url, await this.withAuthorization(init, refreshedToken));
+        } catch (error) {
+          if (isBrowserRequestConstructionError(error)) {
+            throw new Error(
+              "Could not send request. Your session may be invalid — try refreshing or signing in again.",
+              { cause: error },
+            );
+          }
+          throw error;
+        }
         if (retryResponse.status !== 401) {
           if (!retryResponse.ok) {
             const body = await responseBodyForError(retryResponse);
