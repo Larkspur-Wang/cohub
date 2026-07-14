@@ -11,6 +11,15 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -f "$SCRIPT_DIR/values.yaml" ]; then
+  if [ -f "$SCRIPT_DIR/values.example.yaml" ]; then
+    echo "Missing values.yaml. Copy values.example.yaml to values.yaml and edit it first."
+  else
+    echo "Missing values.yaml."
+  fi
+  exit 1
+fi
 MANIFESTS_DIR="$(dirname "$SCRIPT_DIR")/manifests"
 
 get_value() {

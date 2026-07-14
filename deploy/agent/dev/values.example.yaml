@@ -1,8 +1,11 @@
+# Example deploy values. Copy to values.yaml and fill in your environment.
+# Real environment values are not committed (see .gitignore).
+
 appName: cohub-agent-dev
 namespace: cohub-dev
 serviceName: cohub-agent-dev
 port: 8788
-image: git.talesofai.com/talesofai/cohub-agent:main-17f713a
+image: ghcr.io/example/cohub-agent:main-17f713a
 replicas: "1"
 maxUnavailable: "0"
 maxSurge: "1"
@@ -25,9 +28,9 @@ resourceRequestCpu: "0.1"
 resourceRequestMemory: "256Mi"
 resourceLimitCpu: "1"
 resourceLimitMemory: "1024Mi"
-TURN_OBJECT_S3_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"
-TURN_OBJECT_S3_REGION: "us-west-1"
+TURN_OBJECT_S3_ENDPOINT: "https://s3.example.com"
+TURN_OBJECT_S3_REGION: "us-east-1"
 TURN_OBJECT_S3_BUCKET: "cohub-sessions"
 TURN_OBJECT_S3_TIMEOUT_MS: "5000"
 TURN_OBJECT_S3_MAX_ATTEMPTS: "3"
-TURN_OBJECT_CDN_BASE_URL: "https://sessions.cohub.run"
+TURN_OBJECT_CDN_BASE_URL: "https://sessions.example.com"

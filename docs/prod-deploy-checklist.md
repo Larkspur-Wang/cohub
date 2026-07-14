@@ -7,11 +7,11 @@
 
 | 角色 | 示例域名 | 部署位置 | 说明 |
 | --- | --- | --- | --- |
-| Web | `https://cohub.run` | Cloudflare Workers | SvelteKit Web |
-| API | `https://api.cohub.run` | Alibaba Cloud ACK | Hono API（对接鉴权 + Gitea API） |
-| Gitea | `https://gitea.cohub.run` | Alibaba Cloud ACK | Git Server + 仓库托管 |
-| Git SSH | `git.cohub.run:22` | Alibaba Cloud ACK | 可选，仅 SSH clone/push 使用 |
-| Auth | `https://auth.talesofai.cn` | 现有服务 | 复用已有鉴权服务（示例） |
+| Web | `https://app.example.com` | Cloudflare Workers | SvelteKit Web |
+| API | `https://api.example.com` | Alibaba Cloud ACK | Hono API（对接鉴权 + Gitea API） |
+| Gitea | `https://gitea.example.com` | Alibaba Cloud ACK | Git Server + 仓库托管 |
+| Git SSH | `git.example.com:22` | Alibaba Cloud ACK | 可选，仅 SSH clone/push 使用 |
+| Auth | `https://auth.example.com` | 现有服务 | 复用已有鉴权服务（示例） |
 
 > 上述域名仅示例，请替换为你们真实域名。
 
@@ -21,7 +21,7 @@
 
 | 变量 | dev 示例 | prod 示例 | 说明 |
 | --- | --- | --- | --- |
-| `PUBLIC_API_ORIGIN` | `https://api-dev.cohub.run` | `https://api.cohub.run` | 前端构建时注入的 API 基础地址 |
+| `PUBLIC_API_ORIGIN` | `https://api-dev.example.com` | `https://api.example.com` | 前端构建时注入的 API 基础地址 |
 
 ### 关键配置
 
@@ -36,12 +36,12 @@
 
 | 变量 | 示例 | 说明 |
 | --- | --- | --- |
-| `LOGTO_ENDPOINT` | `https://auth.neta.art` | Logto issuer endpoint，用于本地校验 access token |
-| `GITEA_BASE_URL` | `https://gitea.cohub.run` | Gitea base URL |
+| `LOGTO_ENDPOINT` | `https://auth.example.com` | Logto issuer endpoint，用于本地校验 access token |
+| `GITEA_BASE_URL` | `https://gitea.example.com` | Gitea base URL |
 | `GITEA_TOKEN` | `xxx` | 可选：用于访问私有仓库或提高限额 |
-| `WEB_ORIGIN` | `https://cohub.run` | 用于 CORS 允许来源 |
+| `WEB_ORIGIN` | `https://app.example.com` | 用于 CORS 允许来源 |
 | `AGENT_WS_BASE_URL` | `http://cohub-agent.cohub.svc.cluster.local:8787` | 内部用，sandbox 回调 API 的基地址 |
-| `SANDBOX_IMAGE` | `git.talesofai.com/.../cohub-sandbox:latest` | sandbox 镜像 |
+| `SANDBOX_IMAGE` | `git.talesofai.com/talesofai/cohub-sandbox:latest` | sandbox 镜像 |
 | `TOKEN_COOKIE_NAME` | `x_token` | Cookie 名称（默认 `x_token`） |
 | `PORT` | `8787` | 服务端口 |
 
@@ -56,9 +56,9 @@
 
 ### 关键配置建议
 
-- `ROOT_URL`: `https://gitea.cohub.run`
+- `ROOT_URL`: `https://gitea.example.com`
 - `DOMAIN`: `gitea.cohub.run`
-- `SSH_DOMAIN`: `git.cohub.run`
+- `SSH_DOMAIN`: `git.example.com`
 - `START_SSH_SERVER: true`
 - 数据库、Redis、对象存储按实际资源配置
 

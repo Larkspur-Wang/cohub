@@ -4,6 +4,11 @@
 
 set -e
 
+if [ ! -f "./values.yaml" ]; then
+  echo "Missing values.yaml. Copy values.example.yaml or values.template.yaml to values.yaml and edit it first."
+  exit 1
+fi
+
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'

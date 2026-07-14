@@ -34,3 +34,10 @@ pnpm -C apps/web build && pnpm -C apps/web deploy:prod
 |---------|---------|
 | push 到 `main` 分支 | dev（自动） |
 | 手动触发 | 可选 dev 或 prod |
+
+## Deploy inputs
+
+Web deploy is driven by Cloudflare wrangler configs and CI env injection (see `.github/workflows/web-deploy-cloudflare.yml`). There is no Kubernetes `values.yaml` / `deploy.sh` for this component.
+
+Do not commit real secrets or production-only credentials.
+

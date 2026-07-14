@@ -35,3 +35,11 @@ deploy/worker/prod/rendered/
 deploy/worker/dev/rendered/
 deploy/agent/prod/rendered/
 deploy/agent/dev/rendered/
+
+# Local deploy values (copy from values.example.yaml)
+deploy/**/values.yaml
+!deploy/**/values.example.yaml
+!deploy/**/values.template.yaml
+
+# Optional private npm auth for hosted billing builds
+.npmrc.local

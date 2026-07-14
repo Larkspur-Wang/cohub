@@ -64,10 +64,11 @@ jobs:
       - name: Configure Talesofai npm auth
         run: |
           if [ -z "$GITEA_NPM_TOKEN" ]; then
-            echo "Missing required CI secret: GITEA_NPM_TOKEN"
-            exit 1
+            echo "GITEA_NPM_TOKEN not set; installing without private billing packages"
           fi
-          printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> ~/.npmrc
+          if [ -n "$GITEA_NPM_TOKEN" ]; then
+            printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> ~/.npmrc
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

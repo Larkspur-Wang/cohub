@@ -1,25 +1,28 @@
-# Dev 环境配置
+# Example deploy values. Copy to values.yaml and fill in your environment.
+# Real environment values are not committed (see .gitignore).
+
+# Prod 环境配置
 
 # ========== 基础 ==========
-NAMESPACE: "cohub-dev"
-APP_NAME: "cohub-gateway-dev"
+NAMESPACE: "cohub"
+APP_NAME: "cohub-gateway"
 
 # ========== 镜像 ==========
-IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-gateway"
-IMAGE_TAG: "main-17f713a"
-IMAGE_PULL_POLICY: "Always"
-IMAGE_PULL_SECRET: "gitea-registry"
+IMAGE_REPOSITORY: "ghcr.io/example/cohub-gateway"
+IMAGE_TAG: "v1.43.0"
+IMAGE_PULL_POLICY: "IfNotPresent"
+IMAGE_PULL_SECRET: "registry-pull-secret"
 
 # ========== 服务端口 ==========
 SERVICE_PORT: "8788"
 CONTAINER_PORT: "8788"
 
 # ========== 副本与资源 ==========
-REPLICAS: "1"
-REQUEST_CPU: "100m"
-REQUEST_MEMORY: "128Mi"
-LIMIT_CPU: "500m"
-LIMIT_MEMORY: "512Mi"
+REPLICAS: "2"
+REQUEST_CPU: "200m"
+REQUEST_MEMORY: "256Mi"
+LIMIT_CPU: "1000m"
+LIMIT_MEMORY: "1Gi"
 
 # ========== 健康检查 ==========
 LIVENESS_PATH: "/healthz"
@@ -34,14 +37,14 @@ READINESS_TIMEOUT: "2"
 READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== Gateway 配置 ==========
-API_BASE_URL: "http://cohub-api-dev.cohub-dev.svc.cluster.local:8787"
-LOGTO_ENDPOINT: "https://dev-auth.neta.art"
+API_BASE_URL: "http://cohub-api.cohub.svc.cluster.local:8787"
+LOGTO_ENDPOINT: "https://auth.example.com"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-GATEWAY_HOSTNAME: "gateway-dev.cohub.run"
+GATEWAY_HOSTNAME: "gateway.example.com"
 
 # ========== 环境标识 ==========
-ENV: "dev"
-LOG_LEVEL: "debug"
+ENV: "prod"
+LOG_LEVEL: "info"
 TERMINATION_GRACE_PERIOD_SECONDS: "120"

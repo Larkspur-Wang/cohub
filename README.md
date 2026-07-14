@@ -130,3 +130,15 @@ Recommended starting points:
 - `docs/works-guide.md`
 - `docs/agent-sandbox-runtime.md`
 - `docs/prod-deploy-checklist.md`
+
+## Open Source Notes
+
+- License: Apache License 2.0 (Viscept Limited)
+- Billing is disabled by default; configure `TALESOFAI_BILLING_*` to enable the hosted billing provider
+- Copy `deploy/**/values.example.yaml` to local `values.yaml` for deploys
+- Self-hosting guide: `docs/self-hosting.md`
+
+## License
+
+Apache License 2.0 © Viscept Limited
+

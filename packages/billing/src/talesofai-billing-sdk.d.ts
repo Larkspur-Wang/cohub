@@ -1,0 +1,10 @@
+declare module "@talesofai-billing/sdk/base";
+declare module "@talesofai-billing/sdk/admin/benefits";
+declare module "@talesofai-billing/sdk/admin/businesses";
+declare module "@talesofai-billing/sdk/admin/credits";
+declare module "@talesofai-billing/sdk/admin/customers";
+declare module "@talesofai-billing/sdk/admin/orders";
+declare module "@talesofai-billing/sdk/admin/products";
+declare module "@talesofai-billing/sdk/admin/providers";
+declare module "@talesofai-billing/sdk/admin/redemption-codes";
+declare module "@talesofai-billing/sdk/admin/subscriptions";

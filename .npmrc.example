@@ -1,0 +1,6 @@
+# Optional private registry auth for hosted billing builds.
+# Append these lines to a local .npmrc (or inject in CI). Not required for
+# open-source default installs with billing disabled.
+#
+# @talesofai-billing:registry=https://git.talesofai.com/api/packages/talesofai/npm/
+# //git.talesofai.com/api/packages/talesofai/npm/:_authToken=${GITEA_NPM_TOKEN}

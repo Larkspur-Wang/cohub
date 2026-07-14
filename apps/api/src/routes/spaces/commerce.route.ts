@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { ApiError } from "@talesofai-billing/sdk/base";
+import { ApiError, isBillingApiError } from "../../lib/billing-api-error.js";
 import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
 import {
   handleSpaceCommerceRouteError,
@@ -22,8 +22,7 @@ import {
   type SerializedCommerceBuyerProfile,
   type SerializedCommerceProductBenefitBinding,
 } from "../../lib/commerce-serialize.js";
-import type { Benefit, CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
-import type { Product, ProductBenefit } from "@talesofai-billing/sdk/admin/products";
+import type { Benefit, CommerceOrder, CreditsBenefit, Product, ProductBenefit } from "../../lib/commerce-types.js";
 import { createLogger } from "@cohub/infra/logging";
 import type { SpaceCommerceSdk } from "../../lib/space-commerce.js";
 import { fallbackPublicUserProfile, getProfilesByUuids } from "../../user-profiles.js";
@@ -181,7 +180,7 @@ async function listProductBenefitBindings(input: {
         }
         continue;
       } catch (error) {
-        if (error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 405)) {
+        if (isBillingApiError(error) && (error.status === 400 || error.status === 404 || error.status === 405)) {
           billingListSupported = false;
         } else {
           throw error;
@@ -212,7 +211,7 @@ async function collectCommerceKeys<T extends { key: string }>(
 }
 
 function isCommerceConflict(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409;
+  return isBillingApiError(error) && error.status === 409;
 }
 
 function mergeKeys(target: Set<string>, source: Iterable<string>): Set<string> {
@@ -246,7 +245,7 @@ async function loadProductCreditBenefits(input: {
   businessKey: string;
 }): Promise<Map<string, CreditsBenefit[]>> {
   const [creditBenefitsMap, bindings] = await Promise.all([
-    loadBusinessCreditBenefits({ sdk: input.sdk, businessKey: input.businessKey }),
+    await loadBusinessCreditBenefits({ sdk: input.sdk, businessKey: input.businessKey }),
     listProductBenefitBindings({ sdk: input.sdk, businessKey: input.businessKey }),
   ]);
   const byProduct = new Map<string, CreditsBenefit[]>();
@@ -286,7 +285,7 @@ router.get("/:id/commerce/products", async (c) => {
   if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const [result, creditBenefitsByProduct] = await Promise.all([
       sdk.admin.products.list({
         business_key: mapping.billingBusinessKey,
@@ -297,7 +296,7 @@ router.get("/:id/commerce/products", async (c) => {
       loadProductCreditBenefits({ sdk, businessKey: mapping.billingBusinessKey }),
     ]);
     return c.json({
-      products: result.items.map((product) => serializeProduct(product, creditBenefitsByProduct.get(product.key) ?? [])),
+      products: result.items.map((product: Product) => serializeProduct(product, creditBenefitsByProduct.get(product.key) ?? [])),
       businessKey: mapping.billingBusinessKey,
     });
   } catch (error) {
@@ -326,7 +325,7 @@ router.post("/:id/commerce/products", async (c) => {
   if (!Number.isFinite(amount) || amount < MIN_PRODUCT_AMOUNT_USD) return c.json({ message: "amountUsd must be at least 0.5" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const createProduct = (key: string) => sdk.admin.products.create({
       business_key: mapping.billingBusinessKey,
       key,
@@ -384,7 +383,7 @@ router.patch("/:id/commerce/products/:productKey", async (c) => {
   if (Object.keys(patch).length === 0) return c.json({ message: "nothing to update" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const product = await sdk.admin.products.update({
       product_key: productKey,
       patch: {
@@ -413,14 +412,14 @@ router.get("/:id/commerce/benefits", async (c) => {
   if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const result = await sdk.admin.benefits.list({
       business_key: mapping.billingBusinessKey,
       include_count: false,
       limit: 100,
       page: 1,
     });
-    return c.json({ benefits: result.items.map((item) => serializeBenefit(item)), businessKey: mapping.billingBusinessKey });
+    return c.json({ benefits: result.items.map((item: Benefit) => serializeBenefit(item)), businessKey: mapping.billingBusinessKey });
   } catch (error) {
     const response = handleSpaceCommerceRouteError(c, error);
     if (response) return response;
@@ -454,7 +453,7 @@ router.post("/:id/commerce/benefits", async (c) => {
     : undefined;
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const createBenefit = (key: string): Promise<Benefit> => {
       if (benefitType === "credits") {
         return sdk.admin.benefits.create({
@@ -523,7 +522,7 @@ router.patch("/:id/commerce/benefits/:benefitKey", async (c) => {
   if (Object.keys(patch).length === 0) return c.json({ message: "nothing to update" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     // Credits benefits have an immutable config (amount, token, scope).
     // Only feature benefits accept metadata updates.
     if (patch.config) {
@@ -558,7 +557,7 @@ router.get("/:id/commerce/product-benefits", async (c) => {
   if (!(await hasPermission(user, "space.commerce.view", { spaceId }))) return authzDenied(c);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const productBenefits = await listProductBenefitBindings({
       sdk,
       businessKey: mapping.billingBusinessKey,
@@ -586,7 +585,7 @@ router.post("/:id/commerce/product-benefits", async (c) => {
   if (!benefitKey) return c.json({ message: "benefitKey is required" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const productBenefit = await sdk.admin.products.bindBenefit({
       business_key: mapping.billingBusinessKey,
       product_key: productKey,
@@ -621,7 +620,7 @@ router.delete("/:id/commerce/product-benefits", async (c) => {
   if (!benefitKey) return c.json({ message: "benefitKey is required" }, 400);
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     await sdk.admin.products.unbindBenefit({
       business_key: mapping.billingBusinessKey,
       product_key: productKey,
@@ -652,7 +651,7 @@ router.get("/:id/commerce/orders", async (c) => {
   const limit = Math.min(50, Math.max(1, Number.parseInt(c.req.query("limit") ?? "20", 10) || 20));
   try {
     const mapping = await requireSpaceCommerceBusiness(spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const result = await sdk.admin.orders.list({
       business_key: mapping.billingBusinessKey,
       include_count: false,
@@ -662,7 +661,7 @@ router.get("/:id/commerce/orders", async (c) => {
     });
     const buyerProfiles = await buildOrderBuyerProfiles(result.items);
     return c.json({
-      orders: result.items.map((order) => {
+      orders: result.items.map((order: CommerceOrder) => {
         const userUuid = resolveOrderBuyerUserUuid(order);
         return serializeOrder(order, {
           buyerProfile: userUuid ? (buyerProfiles.get(userUuid) ?? null) : null,

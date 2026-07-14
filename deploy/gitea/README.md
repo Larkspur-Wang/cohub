@@ -121,3 +121,16 @@ kubectl exec -n cohub -l app.kubernetes.io/name=gitea -- /bin/sh
 # 检查配置生成
 kubectl exec -n cohub -l app.kubernetes.io/name=gitea -- cat /data/gitea/conf/app.ini
 ```
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

@@ -42,14 +42,14 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   --mount=type=secret,id=gitea_npm_token \
   GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
   export GITEA_NPM_TOKEN && \
-  if [ -z "$GITEA_NPM_TOKEN" ]; then \
-    echo "Missing required build secret: gitea_npm_token"; \
-    exit 1; \
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc; \
   fi && \
-  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
   pnpm config set store-dir /pnpm/store && \
   pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/worker... && \
-  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    if [ -n "$GITEA_NPM_TOKEN" ]; then sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc; fi; \
+  fi
 
 # Copy source and build
 COPY packages/protocol ./packages/protocol
@@ -66,13 +66,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   --mount=type=secret,id=gitea_npm_token \
   GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
   export GITEA_NPM_TOKEN && \
-  if [ -z "$GITEA_NPM_TOKEN" ]; then \
-    echo "Missing required build secret: gitea_npm_token"; \
-    exit 1; \
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc; \
   fi && \
-  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
   pnpm --filter @cohub/worker --prod deploy /prod/worker && \
-  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    if [ -n "$GITEA_NPM_TOKEN" ]; then sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc; fi; \
+  fi
 
 # ============================================
 # Stage 2: runtime

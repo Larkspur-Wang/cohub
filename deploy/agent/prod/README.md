@@ -27,3 +27,16 @@ vim secrets.yaml
   - `configmap.tmpl.yaml`
   - `service.tmpl.yaml`
   - `deployment.tmpl.yaml`
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

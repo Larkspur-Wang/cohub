@@ -3,23 +3,36 @@ import LogtoClient, { type IdTokenClaims } from "@logto/browser";
 const IS_DEV =
 	location.hostname.startsWith("dev") || process.env.NODE_ENV === "development";
 
-export const API_RESOURCE = "https://api.talesofai";
+/**
+ * Official hosted defaults. Self-hosted deployments should override via
+ * PUBLIC_LOGTO_ENDPOINT / PUBLIC_LOGTO_APP_ID / PUBLIC_LOGTO_API_RESOURCE.
+ */
+const OFFICIAL = IS_DEV
+	? {
+			endpoint: "https://dev-auth.neta.art/",
+			appId: "vpikk7sl9zwvefiptowtn",
+			resource: "https://api.talesofai",
+		}
+	: {
+			endpoint: "https://auth.neta.art/",
+			appId: "16ai0wao2mud3xqkbzqo0",
+			resource: "https://api.talesofai",
+		};
 
-export const logtoClient = new LogtoClient(
-	IS_DEV
-		? {
-				endpoint: "https://dev-auth.neta.art/",
-				appId: "vpikk7sl9zwvefiptowtn",
-				scopes: ["openid", "offline_access", "profile", "email"],
-				resources: [API_RESOURCE],
-			}
-		: {
-				endpoint: "https://auth.neta.art/",
-				appId: "16ai0wao2mud3xqkbzqo0",
-				scopes: ["openid", "offline_access", "profile", "email"],
-				resources: [API_RESOURCE],
-			},
-);
+export const API_RESOURCE =
+	process.env.PUBLIC_LOGTO_API_RESOURCE?.trim() || OFFICIAL.resource;
+
+const LOGTO_ENDPOINT =
+	process.env.PUBLIC_LOGTO_ENDPOINT?.trim() || OFFICIAL.endpoint;
+
+const LOGTO_APP_ID = process.env.PUBLIC_LOGTO_APP_ID?.trim() || OFFICIAL.appId;
+
+export const logtoClient = new LogtoClient({
+	endpoint: LOGTO_ENDPOINT,
+	appId: LOGTO_APP_ID,
+	scopes: ["openid", "offline_access", "profile", "email"],
+	resources: [API_RESOURCE],
+});
 
 export const AUTH_TOKEN_STORAGE_KEY = "cohub_token";
 

@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { ApiError } from "@talesofai-billing/sdk/base";
+import { ApiError, isBillingApiError } from "../lib/billing-api-error.js";
 import { billingOperations, COHUB_BILLING_FEATURES, COHUB_BILLING_TOKEN_TYPES, type CohubBillingFeatureKey } from "@cohub/billing";
 import { config } from "../config.js";
 import { jsonError } from "../lib/json-error.js";
@@ -59,7 +59,7 @@ function parseRedemptionCode(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function billingApiErrorResponse(c: Context, error: ApiError) {
+function billingApiErrorResponse(c: Context, error: { status: number; message: string; code?: string }) {
   return jsonError(c, {
     status: error.status,
     message: error.message,
@@ -107,7 +107,7 @@ router.get("/catalog", async (c) => {
     );
     return c.json({ catalog });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -124,7 +124,7 @@ router.get("/features/:featureKey", async (c) => {
     });
     return c.json({ enabled: Boolean(entitlement?.enabled) });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -140,7 +140,7 @@ router.get("/subscriptions", async (c) => {
     });
     return c.json({ subscriptions });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -162,7 +162,7 @@ router.post("/orders", async (c) => {
     });
     return c.json({ checkout });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -184,7 +184,7 @@ router.post("/subscriptions", async (c) => {
     });
     return c.json({ checkout });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -199,7 +199,7 @@ router.delete("/subscriptions/:subscriptionId/checkout", async (c) => {
     });
     return c.json({ subscription });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -218,7 +218,7 @@ router.patch("/subscriptions/:subscriptionId", async (c) => {
     });
     return c.json({ subscription });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });
@@ -236,7 +236,7 @@ router.post("/redemptions", async (c) => {
     });
     return c.json({ redemption });
   } catch (error) {
-    if (error instanceof ApiError) return billingApiErrorResponse(c, error);
+    if (isBillingApiError(error)) return billingApiErrorResponse(c, error);
     throw error;
   }
 });

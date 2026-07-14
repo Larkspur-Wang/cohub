@@ -130,3 +130,15 @@ pnpm build
 - `docs/works-guide.md`
 - `docs/agent-sandbox-runtime.md`
 - `docs/prod-deploy-checklist.md`
+
+## 开源说明
+
+- 许可证：Apache License 2.0（Viscept Limited）
+- Billing 默认关闭；配置 `TALESOFAI_BILLING_*` 后可启用官方托管计费 provider
+- 部署请复制 `deploy/**/values.example.yaml` 为本地 `values.yaml`
+- 自托管指南：`docs/self-hosting.md`
+
+## License
+
+Apache License 2.0 © Viscept Limited
+

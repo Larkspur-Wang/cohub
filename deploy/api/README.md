@@ -140,3 +140,16 @@ Cohub 当前使用的 credit type 是 `usd_micro_cent`，语义为美元的 micr
 - free plan 每月赠送 `$10` 时，billing grant amount 应为 `1_000_000_000`
 
 API 会把余额和透支状态按美元展示给前端，但写入 billing 的 usage amount 使用 `usd_micro_cent` 原始单位。
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

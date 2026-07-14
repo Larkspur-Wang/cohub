@@ -92,3 +92,16 @@ PVC 内推荐目录布局：
 - sandbox 只挂自己的 `/workspace`，不再承担 workspace clone / bootstrap 初始化职责
 - workspace 初始化统一由 worker 完成，再通过共享 PVC 暴露给 sandbox
 - sandbox 与 sessions 仍在同一个 PVC 中，但路径分区清晰，不混用
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

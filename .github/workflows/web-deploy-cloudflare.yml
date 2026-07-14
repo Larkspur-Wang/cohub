@@ -48,10 +48,11 @@ jobs:
       - name: Configure Talesofai npm auth
         run: |
           if [ -z "$GITEA_NPM_TOKEN" ]; then
-            echo "Missing required CI secret: GITEA_NPM_TOKEN"
-            exit 1
+            echo "GITEA_NPM_TOKEN not set; installing without private billing packages"
           fi
-          printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> ~/.npmrc
+          if [ -n "$GITEA_NPM_TOKEN" ]; then
+            printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> ~/.npmrc
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -87,10 +88,16 @@ jobs:
             echo "PUBLIC_API_ORIGIN=https://api.cohub.run" >> .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway.cohub.run" >> .env
             echo "PUBLIC_PREVIEW_ORIGIN=https://preview.cohub.run" >> .env
+            echo "PUBLIC_LOGTO_ENDPOINT=https://auth.neta.art/" >> .env
+            echo "PUBLIC_LOGTO_APP_ID=16ai0wao2mud3xqkbzqo0" >> .env
+            echo "PUBLIC_LOGTO_API_RESOURCE=https://api.talesofai" >> .env
           else
             echo "PUBLIC_API_ORIGIN=https://api-dev.cohub.run" >> .env
             echo "PUBLIC_GATEWAY_ORIGIN=https://gateway-dev.cohub.run" >> .env
             echo "PUBLIC_PREVIEW_ORIGIN=https://preview-dev.cohub.run" >> .env
+            echo "PUBLIC_LOGTO_ENDPOINT=https://dev-auth.neta.art/" >> .env
+            echo "PUBLIC_LOGTO_APP_ID=vpikk7sl9zwvefiptowtn" >> .env
+            echo "PUBLIC_LOGTO_API_RESOURCE=https://api.talesofai" >> .env
           fi
 
       - name: Lint

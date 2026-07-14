@@ -34,14 +34,14 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   --mount=type=secret,id=gitea_npm_token \
   GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
   export GITEA_NPM_TOKEN && \
-  if [ -z "$GITEA_NPM_TOKEN" ]; then \
-    echo "Missing required build secret: gitea_npm_token"; \
-    exit 1; \
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc; \
   fi && \
-  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
   pnpm config set store-dir /pnpm/store && \
   pnpm install --frozen-lockfile --ignore-scripts --filter @cohub/agent... && \
-  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    if [ -n "$GITEA_NPM_TOKEN" ]; then sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc; fi; \
+  fi
 
 COPY packages/protocol ./packages/protocol
 COPY packages/billing ./packages/billing
@@ -59,13 +59,13 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
   --mount=type=secret,id=gitea_npm_token \
   GITEA_NPM_TOKEN="$(cat /run/secrets/gitea_npm_token 2>/dev/null || true)" && \
   export GITEA_NPM_TOKEN && \
-  if [ -z "$GITEA_NPM_TOKEN" ]; then \
-    echo "Missing required build secret: gitea_npm_token"; \
-    exit 1; \
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc; \
   fi && \
-  printf '\n//git.talesofai.com/api/packages/talesofai/npm/:_authToken=%s\n' "$GITEA_NPM_TOKEN" >> /root/.npmrc && \
   pnpm --filter @cohub/agent --prod deploy /prod/agent && \
-  sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc
+  if [ -n "$GITEA_NPM_TOKEN" ]; then \
+    if [ -n "$GITEA_NPM_TOKEN" ]; then sed -i '/git.talesofai.com\/api\/packages\/talesofai\/npm\/:_authToken=/d' /root/.npmrc; fi; \
+  fi
 
 FROM node:24-slim AS runtime
 ENV NODE_ENV=production

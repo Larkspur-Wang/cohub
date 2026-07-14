@@ -35,8 +35,8 @@ gateway/
 
 ```bash
 cd apps/gateway
-docker build -t git.talesofai.com/talesofai/cohub-gateway:latest .
-docker push git.talesofai.com/talesofai/cohub-gateway:latest
+docker build -t ghcr.io/example/cohub-gateway:latest .
+docker push ghcr.io/example/cohub-gateway:latest
 ```
 
 ### 2. 配置 Secrets
@@ -72,3 +72,16 @@ chmod +x deploy.sh
 
 - `/healthz` - 存活探针
 - `/readyz` - 就绪探针
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

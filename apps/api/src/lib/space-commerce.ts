@@ -1,19 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { spaceCommerceBusinesses, spaces, works } from "@cohub/db";
 import { db } from "../db/index.js";
-import { config } from "../config.js";
-import { ApiError, createSdk } from "@talesofai-billing/sdk/base";
-import { benefitsFeature, type CreditsBenefit } from "@talesofai-billing/sdk/admin/benefits";
-import { businessesFeature } from "@talesofai-billing/sdk/admin/businesses";
-import { customersFeature } from "@talesofai-billing/sdk/admin/customers";
-import { ordersFeature } from "@talesofai-billing/sdk/admin/orders";
-import { productsFeature, type Product } from "@talesofai-billing/sdk/admin/products";
 import {
   billingOperations,
-  createBusinessBillingOperations,
   COHUB_BILLING_FEATURES,
 } from "@cohub/billing";
 import { createLogger } from "@cohub/infra/logging";
+import type { CreditsBenefit, Product } from "./commerce-types.js";
+import { ApiError, isBillingApiError } from "./billing-api-error.js";
 
 const BILLING_NAMESPACE = "cohub_space";
 
@@ -52,81 +46,52 @@ export class SpaceCommerceNotInitializedError extends Error {
   }
 }
 
-function requireBillingClientConfig() {
-  const baseURL = config.talesofaiBillingBaseUrl?.trim();
-  const adminApiKey = config.talesofaiBillingAdminApiKey?.trim();
-  if (!baseURL || !adminApiKey) {
-    throw new Error("Billing is not configured");
-  }
-  return { baseURL, adminApiKey };
+type SpaceCommerceProvider = {
+  ApiError: typeof ApiError;
+  createSpaceCommerceSdk: () => any;
+  createSpaceBusinessBillingOperations: (businessKey: string) => any;
+  loadBusinessCreditBenefits: (input: {
+    sdk: any;
+    businessKey: string;
+  }) => Promise<Map<string, CreditsBenefit>>;
+  readBoundBenefitKeys: (product: Product) => string[];
+  createBillingBusiness: (input: {
+    businessKey: string;
+    name: string;
+  }) => Promise<void>;
+};
+
+let providerPromise: Promise<SpaceCommerceProvider> | null = null;
+
+function loadProvider(): Promise<SpaceCommerceProvider> {
+  providerPromise ??= import("./space-commerce-provider.js").catch((error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Space commerce provider is unavailable. Install @talesofai-billing/sdk for hosted commerce. (${detail})`,
+    );
+  }) as Promise<SpaceCommerceProvider>;
+  return providerPromise;
 }
 
-export function createSpaceCommerceSdk() {
-  const client = requireBillingClientConfig();
-  return createSdk(client)
-    .useAdmin(businessesFeature())
-    .useAdmin(productsFeature())
-    .useAdmin(benefitsFeature())
-    .useAdmin(customersFeature())
-    .useAdmin(ordersFeature());
+export type SpaceCommerceSdk = any;
+
+export async function createSpaceCommerceSdk(): Promise<SpaceCommerceSdk> {
+  return (await loadProvider()).createSpaceCommerceSdk();
 }
 
-export type SpaceCommerceSdk = ReturnType<typeof createSpaceCommerceSdk>;
-
-/**
- * Creates business-scoped billing operations bound to a space's billing
- * business. Used by work commerce to query viewer entitlements and consume
- * credits without exposing admin credentials to the work surface.
- */
-export function createSpaceBusinessBillingOperations(businessKey: string) {
-  const client = requireBillingClientConfig();
-  return createBusinessBillingOperations({
-    clientConfig: {
-      baseUrl: client.baseURL,
-      adminApiKey: client.adminApiKey,
-      businessKey,
-    },
-    businessKey,
-  });
+export async function createSpaceBusinessBillingOperations(businessKey: string) {
+  return (await loadProvider()).createSpaceBusinessBillingOperations(businessKey);
 }
 
-const COHUB_BOUND_BENEFIT_KEYS_META_KEY = "cohub_bound_benefit_keys";
-
-/**
- * Loads all credit benefits for a business, keyed by benefit key. Used by both
- * space and work commerce routes to populate product `display.creditBenefits`.
- */
 export async function loadBusinessCreditBenefits(input: {
   sdk: SpaceCommerceSdk;
   businessKey: string;
 }): Promise<Map<string, CreditsBenefit>> {
-  const creditBenefits = new Map<string, CreditsBenefit>();
-  let page = 1;
-  while (true) {
-    const result = await input.sdk.admin.benefits.list({
-      business_key: input.businessKey,
-      include_count: false,
-      limit: 100,
-      page,
-    });
-    for (const benefit of result.items) {
-      if (benefit.type === "credits") creditBenefits.set(benefit.key, benefit);
-    }
-    if (!result.pagination.has_more) break;
-    page += 1;
-  }
-  return creditBenefits;
+  return (await loadProvider()).loadBusinessCreditBenefits(input);
 }
 
-/**
- * Reads bound benefit keys from a product's meta. Cohub stores the list of
- * bound benefit keys in `meta.cohub_bound_benefit_keys` so product-benefit
- * bindings can be resolved without extra API calls per product.
- */
-export function readBoundBenefitKeys(product: Product): string[] {
-  const value = product.meta?.[COHUB_BOUND_BENEFIT_KEYS_META_KEY];
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+export async function readBoundBenefitKeys(product: Product): Promise<string[]> {
+  return (await loadProvider()).readBoundBenefitKeys(product);
 }
 
 function normalizeBusinessKeyValue(value: string) {
@@ -171,15 +136,15 @@ export async function ensureSpaceCommerceBusiness(spaceId: string) {
   if (!space) throw new Error("Space not found");
 
   const businessKey = buildBillingBusinessKey(space.id);
-  const sdk = createSpaceCommerceSdk();
+  const provider = await loadProvider();
   try {
-    await sdk.admin.businesses.create({
-      key: businessKey,
+    await provider.createBillingBusiness({
+      businessKey,
       name: buildBillingBusinessName({ spaceName: space.name, spaceId: space.id }),
-      status: "active",
     });
   } catch (error) {
-    if (!(error instanceof ApiError) || error.status !== 409) throw error;
+    // Provider rethrows non-409; 409 is treated as already exists.
+    if (!isBillingApiError(error) || error.status !== 409) throw error;
   }
 
   const [mapping] = await db
@@ -260,3 +225,6 @@ export function buildWorkCheckoutReturnUrls(input: { workUrl: string; orderId?: 
     cancelRedirectUrl: appendCheckoutQuery(input.workUrl, { status: "cancel", orderId: input.orderId }),
   };
 }
+
+// Re-export ApiError for routes that catch commerce errors from provider.
+export { ApiError };

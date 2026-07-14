@@ -34,7 +34,7 @@ vim secrets.yaml
 - `LOGTO_M2M_APP_ID` / `LOGTO_M2M_APP_SECRET` - Logto M2M 应用凭证
 
 可选字段：
-- `TALESOFAI_BILLING_BASE_URL` / `TALESOFAI_BILLING_BUSINESS_KEY` / `TALESOFAI_BILLING_ADMIN_API_KEY` - Talesofai Billing 插件配置，三项全部非空时启用；任意一项留空时禁用。Dev billing 地址通常是 `https://dev-billing.neta.art/v1`。
+- `TALESOFAI_BILLING_BASE_URL` / `TALESOFAI_BILLING_BUSINESS_KEY` / `TALESOFAI_BILLING_ADMIN_API_KEY` - Talesofai Billing 插件配置，三项全部非空时启用；任意一项留空时禁用。Dev billing 地址通常是 `https://billing-dev.example.com/v1`。
 
 Billing 启用后，Cohub 使用 `usd_micro_cent` credit type：`1 usd_micro_cent = $0.00000001`，`100_000_000` 单位等于 `$1`。free plan 每月赠送 `$10` 时，billing grant amount 应为 `1_000_000_000`。
 
@@ -78,3 +78,16 @@ kubectl logs -n cohub-dev -l app.kubernetes.io/name=cohub-api-dev -f
 # 查看 Session Pods
 kubectl get pods -n cohub-sessions-dev
 ```
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

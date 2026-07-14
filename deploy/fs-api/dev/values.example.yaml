@@ -1,14 +1,19 @@
-# Dev 环境配置
+# Example deploy values. Copy to values.yaml and fill in your environment.
+# Real environment values are not committed (see .gitignore).
+
+# FS API Dev 环境配置
+# 仅服务于 /api/spaces/:id/fs/* 和 /api/spaces/:id/checkpoints/:checkpointId/fs/* 路由
 
 # ========== 基础 ==========
 NAMESPACE: "cohub-dev"
-APP_NAME: "cohub-api-dev"
+APP_NAME: "cohub-fs-api-dev"
+API_SECRET_NAME: "cohub-api-dev-secrets"
 
 # ========== 镜像 ==========
-IMAGE_REPOSITORY: "git.talesofai.com/talesofai/cohub-api"
-IMAGE_TAG: "main-93aeadc"
+IMAGE_REPOSITORY: "ghcr.io/example/cohub-api"
+IMAGE_TAG: "main-17dd201"
 IMAGE_PULL_POLICY: "Always"
-IMAGE_PULL_SECRET: "gitea-registry"
+IMAGE_PULL_SECRET: "registry-pull-secret"
 
 # ========== 服务端口 ==========
 SERVICE_PORT: "8787"
@@ -16,10 +21,10 @@ CONTAINER_PORT: "8787"
 
 # ========== 副本与资源 ==========
 REPLICAS: "1"
-REQUEST_CPU: "100m"
-REQUEST_MEMORY: "128Mi"
-LIMIT_CPU: "500m"
-LIMIT_MEMORY: "512Mi"
+REQUEST_CPU: "200m"
+REQUEST_MEMORY: "256Mi"
+LIMIT_CPU: "1000m"
+LIMIT_MEMORY: "1024Mi"
 
 # ========== 健康检查 ==========
 LIVENESS_PATH: "/healthz"
@@ -34,11 +39,11 @@ READINESS_TIMEOUT: "2"
 READINESS_FAILURE_THRESHOLD: "3"
 
 # ========== API 配置 ==========
-LOGTO_ENDPOINT: "https://dev-auth.neta.art"
+LOGTO_ENDPOINT: "https://auth-dev.example.com"
 LOGTO_MANAGEMENT_API_RESOURCE: "https://default.logto.app/api"
-GITEA_BASE_URL: "https://gitea.cohub.run/"
-GITEA_MANAGED_EMAIL_DOMAIN: "dev.cohub.run"
-WEB_ORIGIN: "https://dev.cohub.run"
+GITEA_BASE_URL: "https://gitea.example.com"
+GITEA_MANAGED_EMAIL_DOMAIN: "dev.example.com"
+WEB_ORIGIN: "https://dev.example.com"
 SANDBOX_IMAGE: "git.talesofai.com/talesofai/cohub-sandbox:latest"
 SPACE_STORAGE_ROOT: "/space-storage"
 SPACE_SYSTEM_ROOT: "/system-storage"
@@ -49,21 +54,22 @@ SPACE_STORAGE_SUBPATH: "workspaces/dev"
 SPACE_SYSTEM_SUBPATH: "dev"
 CHECKPOINT_CACHE_SUBPATH: "workspaces/dev/checkpoints"
 PLATFORM_CONFIG_ROOT: "/configs"
-TURN_OBJECT_S3_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"
-TURN_OBJECT_S3_REGION: "us-west-1"
+TURN_OBJECT_S3_ENDPOINT: "https://s3.example.com"
+TURN_OBJECT_S3_REGION: "us-east-1"
 TURN_OBJECT_S3_BUCKET: "cohub-sessions"
-TURN_OBJECT_CDN_BASE_URL: "https://sessions.cohub.run"
-PUBLIC_ASSET_OSS_ENDPOINT: "https://oss-us-west-1-internal.aliyuncs.com"
-PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT: "https://oss-us-west-1.aliyuncs.com"
-PUBLIC_ASSET_OSS_REGION: "us-west-1"
+TURN_OBJECT_CDN_BASE_URL: "https://sessions.example.com"
+PUBLIC_ASSET_OSS_ENDPOINT: "https://s3.example.com"
+PUBLIC_ASSET_OSS_PUBLIC_ENDPOINT: "https://s3.example.com"
+PUBLIC_ASSET_OSS_REGION: "us-east-1"
 PUBLIC_ASSET_OSS_BUCKET: "cohub-public"
-PUBLIC_ASSET_CDN_BASE_URL: "https://public.cohub.run"
-WORK_ASSET_CDN_BASE_URL: "https://works.cohub.run"
+PUBLIC_ASSET_CDN_BASE_URL: "https://public.example.com"
+WORK_ASSET_CDN_BASE_URL: "https://works.example.com"
 CONFIGS_SUBPATH: "configs/dev"
 
 # ========== 路由配置 ==========
 ROUTE_ENABLED: "true"
-API_HOSTNAME: "api-dev.cohub.run"
+API_HOSTNAME: "api-dev.example.com"
+PREVIEW_HOSTNAME: "preview-dev.example.com"
 
 # ========== 环境标识 ==========
 ENV: "dev"

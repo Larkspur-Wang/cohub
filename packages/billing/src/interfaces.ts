@@ -1,5 +1,35 @@
-import type { ConsumeCreditsResponse } from "@talesofai-billing/sdk/admin/credits";
-import type { ActiveBenefit, CreditSummary } from "@talesofai-billing/sdk/admin/customers";
+/** Opaque provider payload kept for hosted billing compatibility. */
+export type BillingCreditSummaryRaw = {
+  token_type: string;
+  available_balance: number;
+  open_overage_balance: number;
+  net_balance: number;
+  [key: string]: unknown;
+};
+
+/** Opaque provider benefit grant kept for hosted billing compatibility. */
+export type BillingActiveBenefitRaw = {
+  grant_id: string;
+  benefit_id: string;
+  benefit_key: string;
+  benefit_name: string;
+  benefit_type: "feature";
+  config: {
+    metadata: Record<string, string | number | boolean>;
+  };
+  source_type: string;
+  source_id: string;
+  granted_at: string;
+  effective_at: string;
+  expires_at: string | null;
+  [key: string]: unknown;
+};
+
+/** Opaque provider consume response kept for hosted billing compatibility. */
+export type BillingConsumeCreditsResponseRaw = {
+  overage?: unknown;
+  [key: string]: unknown;
+};
 
 export const COHUB_BILLING_TOKEN_TYPES = {
   usdMicroCent: "usd_micro_cent",
@@ -109,7 +139,7 @@ export type BillingCreditBalance = {
   availableBalance: number;
   openOverageBalance: number;
   netBalance: number;
-  raw: CreditSummary;
+  raw: BillingCreditSummaryRaw;
 };
 
 export type BillingCreditUnit = {
@@ -329,7 +359,7 @@ export type BillingFeatureEntitlement = {
   key: string;
   enabled: boolean;
   metadata: Record<string, string | number | boolean>;
-  grants: ActiveBenefit[];
+  grants: BillingActiveBenefitRaw[];
 };
 
 export type BillingAccountState = BillingUserRef & {
@@ -409,7 +439,7 @@ export type BillingUsageRecordResult = {
   tokenType: string;
   amountUsd: number;
   status: "disabled" | "skipped" | "recorded" | "overage";
-  response: ConsumeCreditsResponse | null;
+  response: BillingConsumeCreditsResponseRaw | null;
 };
 
 export type BillingFeatureEntitlementInput = BillingUserRef & {

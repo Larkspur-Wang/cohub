@@ -14,7 +14,7 @@ const SECRET_PREFIX_RE =
 // Real-shaped fixtures derived from a captured cohub-debug-*.har.
 const WS_AUTH_MESSAGE = `{"type":"auth","payload":{"token":"eyJhbGciOiJSUzI1NiIsInR5cCI6ImF0K2p3dCIsImtpZCI6Im1JeHRPZEYyWVk5b0N4dG43YU5aOXdJLVNSZzY5SDVfM2l0WDA1NHJMRWcifQ.eyJ1c2VybmFtZSI6bnVsbCwidGFsZXNvZmFpX2lkIjoyMzQsInN1YiI6InFnMzJlc2FpYmthMiIsImlhdCI6MTc4MjgwNzAwOSwiZXhwIjoxNzgyODkzNDA5fQ.mn8IqIq5rLt1ZwX7HQ8jbP8iSCU8AH5r6b_P5xdOH3iOWTFeozb0kqso1iqIbpxNc248CH-XKSqx1RIgGT7pRw_orgrdaSiQy94kX1kbUfmOqSGEYSyHwrMkhpK3mutoXpQ8Ysbp8yu84nHuI_3uyGfYN23apMBv1i2zjg6HIqwsS9rnts65ILCLoUs4BtJlcZ1JUapZUKwZHQxCSFLqOhZS"}}`;
 
-const SPACE_SECRETS_RESPONSE = `{"secrets":[{"name":"NETA_TOKEN","value":"eyJhbGciOiJSUzI1NiIsInR5cCI6ImF0K2p3dCIsImtpZCI6Im1JeHRPZEYyWVk5b0N4dG43YU5aOXdJLVNSZzY5SDVfM2l0WDA1NHJMRWcifQ.eyJzdWIiOiJxZzMyZXNhaWJrYTIifQ.abc123def456"},{"name":"NETA_ROUTER_API_KEY","value":"sk-Ib3tiV0ZWGSxRYUXYCeoD9MS8zpkPPMXI489IdtPvQ1jBEi9"},{"name":"GITHUB_PAT","value":"ghp_1234567890abcdefghij"},{"name":"GIT_TOKEN","value":"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"}],"gitToken":"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","repoUrl":"https://github.com/talesofai/talesofai-agent.git"}`;
+const SPACE_SECRETS_RESPONSE = `{"secrets":[{"name":"NETA_TOKEN","value":"eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0LXVzZXIifQ.fake-signature"},{"name":"NETA_ROUTER_API_KEY","value":"sk-test_fake_key_not_real_000000"},{"name":"GITHUB_PAT","value":"ghp_testfakefakefakefake00"},{"name":"GIT_TOKEN","value":"github_pat_test_fake_not_real_000000000000000000000000000000000000"}],"gitToken":"github_pat_test_fake_not_real_000000000000000000000000000000000000","repoUrl":"https://github.com/example/example-agent.git"}`;
 
 test("redactText scrubs the WebSocket auth token and leaves the message structure intact", () => {
 	const out = redactText(WS_AUTH_MESSAGE);
@@ -35,7 +35,7 @@ test("redactText scrubs JWTs, sk-/ghp_/github_pat_ prefixes and sensitive JSON k
 		"sensitive JSON key value must be redacted",
 	);
 	assert.ok(
-		out.includes('"repoUrl":"https://github.com/talesofai/talesofai-agent.git"'),
+		out.includes('"repoUrl":"https://github.com/example/example-agent.git"'),
 		"non-secret repoUrl must be preserved",
 	);
 });
@@ -56,7 +56,7 @@ test("redactValue redacts sensitive keys by name at any depth", () => {
 	const input: SerializedValue = {
 		token: "eyJhbGciOiJIUzI1NiJ9.eyJ4IjoxfQ.abc1234567890",
 		normal: "keep-me",
-		nested: { apiKey: "sk-livetest1234567890abcdef", count: 3 },
+		nested: { apiKey: "sk-test_fake_key_not_real_000000", count: 3 },
 		list: [{ password: "p@ss" }, { ok: true }],
 	};
 	const out = redactValue(input) as Record<string, unknown>;

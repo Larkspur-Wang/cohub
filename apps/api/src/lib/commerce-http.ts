@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { ApiError } from "@talesofai-billing/sdk/base";
+import { isBillingApiError } from "./billing-api-error.js";
 import { FEATURE_NOT_ENTITLED_ERROR_CODE } from "@cohub/billing";
 import { featureGateResponse } from "./feature-gate.js";
 import { jsonError } from "./json-error.js";
@@ -9,7 +9,7 @@ export const SPACE_COMMERCE_NOT_INITIALIZED_CODE = "space_commerce_not_initializ
 export const SPACE_COMMERCE_ENTITLEMENT_REQUIRED_CODE = FEATURE_NOT_ENTITLED_ERROR_CODE;
 export const SPACE_COMMERCE_ENTITLEMENT_UNAVAILABLE_CODE = "space_commerce_unavailable";
 
-function commerceApiErrorResponse(c: Context, error: ApiError, input: { conflictMessage: string }) {
+function commerceApiErrorResponse(c: Context, error: { status: number; message: string }, input: { conflictMessage: string }) {
   const status = error.status >= 500 ? 502 : error.status;
   const message =
     status === 400 ? "Invalid commerce request" :
@@ -22,7 +22,7 @@ function commerceApiErrorResponse(c: Context, error: ApiError, input: { conflict
 }
 
 export function handleSpaceCommerceRouteError(c: Context, error: unknown) {
-  if (error instanceof ApiError) {
+  if (isBillingApiError(error)) {
     return commerceApiErrorResponse(c, error, { conflictMessage: "Commerce request conflicted" });
   }
   if (error instanceof SpaceCommerceNotInitializedError) {
@@ -36,7 +36,7 @@ export function handleSpaceCommerceRouteError(c: Context, error: unknown) {
 }
 
 export function handleWorkCommerceRouteError(c: Context, error: unknown) {
-  if (error instanceof ApiError) {
+  if (isBillingApiError(error)) {
     return commerceApiErrorResponse(c, error, { conflictMessage: "Checkout is not available" });
   }
   if (error instanceof SpaceCommerceNotInitializedError) {

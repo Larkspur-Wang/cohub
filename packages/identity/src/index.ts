@@ -1,6 +1,10 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
-export const AUTH_RESOURCE = "https://api.talesofai";
+/** API resource / audience used when verifying access tokens. */
+export const AUTH_RESOURCE =
+  process.env.AUTH_RESOURCE?.trim() ||
+  process.env.LOGTO_API_RESOURCE?.trim() ||
+  "https://api.talesofai";
 
 const DEFAULT_LOGTO_ENDPOINT_BY_ENV = {
   dev: "https://dev-auth.neta.art",

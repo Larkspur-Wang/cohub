@@ -6,9 +6,9 @@ import type {
   Benefit,
   CreditsBenefit,
   CreditsBenefitConfig,
+  Product,
   PurchasedCreditsBenefitConfig,
-} from "@talesofai-billing/sdk/admin/benefits";
-import type { Product } from "@talesofai-billing/sdk/admin/products";
+} from "./commerce-types.js";
 
 export type SerializedCommerceBenefitConfig =
   | {
@@ -176,7 +176,7 @@ export function serializeProduct(
   product: Product,
   boundCreditBenefits: CreditsBenefit[] = [],
 ): SerializedCommerceProduct {
-  const amountMinor = product.amount ?? 0;
+  const amountMinor = Number(product.amount ?? product.unit_amount ?? 0);
   const amountUsd = amountMinor / 100;
   const creditBenefits = boundCreditBenefits.map((benefit) => ({
     key: benefit.key,
@@ -197,7 +197,7 @@ export function serializeProduct(
     visibility: product.visibility,
     billingType: product.billing_type ?? "one_time",
     billingPeriod: product.billing_period ?? "one_time",
-    billingIntervalCount: product.billing_interval_count ?? 1,
+    billingIntervalCount: Number(product.billing_interval_count ?? 1),
     currency: product.currency ?? "USD",
     kind: "addon",
     interval: "one_time",

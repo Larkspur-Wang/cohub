@@ -20,7 +20,7 @@ vim secrets.yaml
 如果需要覆盖镜像：
 
 ```bash
-OVERRIDE_IMAGE=git.talesofai.com/talesofai/cohub-agent:latest ./deploy.sh
+OVERRIDE_IMAGE=ghcr.io/example/cohub-agent:latest ./deploy.sh
 ```
 
 ## 说明
@@ -32,3 +32,16 @@ OVERRIDE_IMAGE=git.talesofai.com/talesofai/cohub-agent:latest ./deploy.sh
   - `configmap.tmpl.yaml`
   - `service.tmpl.yaml`
   - `deployment.tmpl.yaml`
+
+## Values files
+
+This repository ships `values.example.yaml` only.
+
+```bash
+cp values.example.yaml values.yaml
+# edit values.yaml for your environment
+./deploy.sh
+```
+
+Do not commit real `values.yaml` or `secrets.yaml`.
+

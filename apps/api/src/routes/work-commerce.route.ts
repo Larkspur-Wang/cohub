@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { ApiError } from "@talesofai-billing/sdk/base";
+import { ApiError, isBillingApiError } from "../lib/billing-api-error.js";
 import { authzDenied, getOptionalAuth, requireValidId, useAuth } from "../lib/middleware.js";
 import { handleWorkCommerceRouteError } from "../lib/commerce-http.js";
 import { hasPermission } from "../permissions.js";
@@ -56,7 +56,7 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
   if (requested.length === 0) return c.json({ message: "productKeys is required" }, 400);
   try {
     const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const [products, creditBenefitsMap] = await Promise.all([
       Promise.all(requested.map(async (productKey) => {
         try {
@@ -64,21 +64,25 @@ router.post("/works/:id/commerce/products/resolve", async (c) => {
           if (product.status !== "active" || product.visibility !== "public" || product.billing_type !== "one_time") return null;
           return product;
         } catch (error) {
-          if (error instanceof ApiError && error.status === 404) return null;
+          if (isBillingApiError(error) && error.status === 404) return null;
           throw error;
         }
       })),
-      loadBusinessCreditBenefits({ sdk, businessKey }),
+      await loadBusinessCreditBenefits({ sdk, businessKey }),
     ]);
+    const visibleProducts = products.filter(
+      (item): item is NonNullable<typeof item> => Boolean(item),
+    );
+    const serializedProducts = [];
+    for (const item of visibleProducts) {
+      const boundKeys = await readBoundBenefitKeys(item);
+      const boundCredits = boundKeys
+        .map((key) => creditBenefitsMap.get(key))
+        .filter((b): b is NonNullable<typeof b> => Boolean(b));
+      serializedProducts.push(serializeProduct(item, boundCredits));
+    }
     return c.json({
-      products: products
-        .filter((item): item is NonNullable<typeof item> => Boolean(item))
-        .map((item) => {
-          const boundCredits = readBoundBenefitKeys(item)
-            .map((key) => creditBenefitsMap.get(key))
-            .filter((b): b is NonNullable<typeof b> => Boolean(b));
-          return serializeProduct(item, boundCredits);
-        }),
+      products: serializedProducts,
     });
   } catch (error) {
     const response = handleWorkCommerceRouteError(c, error);
@@ -97,11 +101,11 @@ router.get("/works/:id/commerce/entitlements", async (c) => {
   if ((resolved.work.workVisibility ?? "public") === "space" && !(await hasPermission(user, "space.view", { spaceId: resolved.work.spaceId }))) return authzDenied(c);
   try {
     const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
-    const ops = createSpaceBusinessBillingOperations(businessKey);
+    const ops = await createSpaceBusinessBillingOperations(businessKey);
     const state = await ops.getEntitlements({ userId: user.uuid });
-    const creditBalance = state.credits.find((c) => c.tokenType === "cohub_credit");
+    const creditBalance = state.credits.find((c: { tokenType: string }) => c.tokenType === "cohub_credit");
     return c.json({
-      entitlements: state.entitlements.map((entitlement) => ({
+      entitlements: state.entitlements.map((entitlement: { key: string; enabled: boolean; metadata: Record<string, string | number | boolean> }) => ({
         benefitKey: entitlement.key,
         enabled: entitlement.enabled,
         metadata: entitlement.metadata,
@@ -150,7 +154,7 @@ router.post("/works/:id/commerce/credits/consume", async (c) => {
   }
   try {
     const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
-    const ops = createSpaceBusinessBillingOperations(businessKey);
+    const ops = await createSpaceBusinessBillingOperations(businessKey);
     const result = await ops.consume({
       userId: targetUserId,
       amount: rawAmount,
@@ -185,7 +189,7 @@ router.post("/works/:id/commerce/purchase", async (c) => {
   if (!productKey) return c.json({ message: "productKey is required" }, 400);
   try {
     const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const product = await sdk.admin.products.get({ business_key: businessKey, product_key: productKey });
     if (product.status !== "active" || product.visibility !== "public" || product.billing_type !== "one_time") {
       return c.json({ message: "product is not available" }, 400);
@@ -239,7 +243,7 @@ router.get("/works/:id/commerce/orders/:orderId", async (c) => {
   if ((resolved.work.workVisibility ?? "public") === "space" && !(await hasPermission(user, "space.view", { spaceId: resolved.work.spaceId }))) return authzDenied(c);
   try {
     const businessKey = await requireSpaceCommerceBusinessKey(resolved.work.spaceId);
-    const sdk = createSpaceCommerceSdk();
+    const sdk = await createSpaceCommerceSdk();
     const order = await sdk.admin.orders.get({
       business_key: businessKey,
       order_id: orderId,

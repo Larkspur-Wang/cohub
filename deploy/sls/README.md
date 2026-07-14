@@ -79,13 +79,13 @@ kubectl apply --dry-run=server -f deploy/sls/cohub-prod.yaml
 再先应用 dev：
 
 ```bash
-kubectl apply -f deploy/sls/cohub-dev.yaml
+kubectl apply -f deploy/sls/cohub-dev.example.yaml  # or your local cohub-dev.yaml
 ```
 
 确认 SLS `cohub / cohub-dev` 可查询到日志后，再应用 prod：
 
 ```bash
-kubectl apply -f deploy/sls/cohub-prod.yaml
+kubectl apply -f deploy/sls/cohub-prod.example.yaml  # or your local cohub-prod.yaml
 ```
 
 常用查询：
@@ -95,3 +95,16 @@ service: cohub-api AND env: dev AND level: error
 trace_id: "..."
 request_id: "..."
 ```
+
+## Config files
+
+This repository ships example SLS pipeline configs only:
+
+```bash
+cp cohub-dev.example.yaml cohub-dev.yaml
+cp cohub-prod.example.yaml cohub-prod.yaml
+# edit and apply with kubectl
+```
+
+Do not commit real environment configs with private cluster details.
+
