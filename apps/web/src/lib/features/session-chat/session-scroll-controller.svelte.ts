@@ -1,3 +1,5 @@
+import { measureTurnRailMarkers } from "./turn-rail-markers";
+
 export type ChatTimelineHandle = {
 	preparePrepend: () => void;
 	finalizePrepend: () => void;
@@ -30,6 +32,7 @@ export function createSessionScrollController() {
 	let listEl = $state<HTMLDivElement | null>(null);
 	let chatTimelineRef = $state<ChatTimelineHandle | null>(null);
 	let composerHeight = $state(0);
+	let chatChromeHeight = $state(0);
 	let shouldAutoFollow = $state(true);
 	let turnMarkerPositions = $state<Record<number, number>>({});
 	let turnMarkerHeights = $state<Record<number, number>>({});
@@ -150,53 +153,21 @@ export function createSessionScrollController() {
 		}
 		updateTimelineScrollMetrics();
 		const scrollContainer = listEl;
-		const maxScroll = Math.max(
-			1,
-			scrollContainer.scrollHeight - scrollContainer.clientHeight,
-		);
-		const railThumbHeightPercent = Math.min(
-			64,
-			Math.max(
-				6,
-				(scrollContainer.clientHeight / scrollContainer.scrollHeight) * 100,
-			),
-		);
-		const railUsablePercent = 100 - railThumbHeightPercent;
-		const toRailTopPercent = (scrollTop: number) =>
-			Math.min(
-				railUsablePercent,
-				Math.max(0, (scrollTop / maxScroll) * railUsablePercent),
-			);
 		const anchors = Array.from(
-			listEl.querySelectorAll<HTMLElement>('[data-turn-anchor="user"]'),
-		);
-		const turnRanges = anchors.map((anchor, index) => {
-			const sequence = Number(anchor.dataset.turnSequence);
-			const start = Math.max(
-				0,
-				getMessageElementAbsoluteTop(anchor) - turnScrollAnchorOffset,
-			);
-			const nextAnchor = anchors[index + 1];
-			const nextStart = nextAnchor
-				? Math.max(
-						0,
-						getMessageElementAbsoluteTop(nextAnchor) - turnScrollAnchorOffset,
-					)
-				: scrollContainer.scrollHeight;
-			return { anchor, sequence, start, end: Math.max(start, nextStart) };
+			scrollContainer.querySelectorAll<HTMLElement>(
+				'[data-turn-anchor="user"]',
+			),
+		).map((anchor) => ({
+			sequence: Number(anchor.dataset.turnSequence),
+			absoluteTop: getMessageElementAbsoluteTop(anchor),
+			offsetHeight: anchor.offsetHeight,
+		}));
+		const { positions, heights } = measureTurnRailMarkers({
+			scrollHeight: scrollContainer.scrollHeight,
+			clientHeight: scrollContainer.clientHeight,
+			anchors,
+			turnScrollAnchorOffset,
 		});
-		const positions: Record<number, number> = {};
-		const heights: Record<number, number> = {};
-		for (const range of turnRanges) {
-			if (!Number.isFinite(range.sequence)) continue;
-			const turnHeight = Math.max(
-				range.anchor.offsetHeight,
-				range.end - range.start,
-			);
-			positions[range.sequence] = toRailTopPercent(range.start);
-			const scrollRatio = Math.max(0.015, turnHeight / maxScroll);
-			heights[range.sequence] = Math.min(22, Math.max(8, scrollRatio * 100));
-		}
 		if (!areNumberRecordsEqual(turnMarkerPositions, positions)) {
 			turnMarkerPositions = positions;
 		}
@@ -304,6 +275,12 @@ export function createSessionScrollController() {
 		},
 		set composerHeight(value: number) {
 			composerHeight = value;
+		},
+		get chatChromeHeight() {
+			return chatChromeHeight;
+		},
+		set chatChromeHeight(value: number) {
+			chatChromeHeight = value;
 		},
 		get shouldAutoFollow() {
 			return shouldAutoFollow;

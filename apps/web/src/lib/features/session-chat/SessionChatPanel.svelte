@@ -49,6 +49,7 @@ const activeTurnRailItems = $derived(host.activeTurnRailItems);
 let listEl = $state<HTMLDivElement | null>(null);
 let chatTimelineRef = $state<unknown>(null);
 let composerHostEl = $state<HTMLDivElement | null>(null);
+let chatChromeEl = $state<HTMLDivElement | null>(null);
 let composerInput = $state("");
 let shouldAutoFollow = $state(true);
 let showTurnBottomSheet = $state(false);
@@ -82,6 +83,12 @@ $effect(() => {
 	const el = composerHostEl;
 	untrack(() => {
 		host.composerHostEl = el;
+	});
+});
+$effect(() => {
+	const el = chatChromeEl;
+	untrack(() => {
+		host.chatChromeEl = el;
 	});
 });
 $effect(() => {
@@ -213,55 +220,90 @@ $effect(() => {
 				/>
 			{/key}
 		{/if}
-		<SessionTaskTray
-			notices={host.sessionTaskNotices}
-			hasMore={host.sessionTaskHasMore}
-			loadingMore={host.sessionTaskRecentLoading}
-			onExpand={host.handleSessionTaskTrayExpand}
-			onLoadMore={host.handleSessionTaskTrayLoadMore}
-			onOpenGenerationMedia={host.handleOpenGenerationTaskMedia}
-		/>
-		{#if followupQueue.length > 0}
-			<div
-				class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6"
-			>
+		<div bind:this={chatChromeEl} class="shrink-0">
+			<SessionTaskTray
+				notices={host.sessionTaskNotices}
+				hasMore={host.sessionTaskHasMore}
+				loadingMore={host.sessionTaskRecentLoading}
+				onExpand={host.handleSessionTaskTrayExpand}
+				onLoadMore={host.handleSessionTaskTrayLoadMore}
+				onOpenGenerationMedia={host.handleOpenGenerationTaskMedia}
+			/>
+			{#if followupQueue.length > 0}
 				<div
-					class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder"
+					class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6"
 				>
-					<span class="font-medium text-text-secondary">Follow-up</span>
-					<span>{followupQueue.length} queued</span>
-				</div>
-				<div
-					class="max-h-[min(22dvh,9rem)] space-y-1 overflow-y-auto overscroll-contain pr-1 sm:max-h-[min(28vh,12rem)]"
-				>
-					{#each followupQueue as turn (turn.id)}
-						<div
-							class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60"
-						>
-							<div class="min-w-0 flex-1 truncate">
-								{host.turnPreviewText(turn)}
+					<div
+						class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder"
+					>
+						<span class="font-medium text-text-secondary">Follow-up</span>
+						<span>{followupQueue.length} queued</span>
+					</div>
+					<div
+						class="max-h-[min(22dvh,9rem)] space-y-1 overflow-y-auto overscroll-contain pr-1 sm:max-h-[min(28vh,12rem)]"
+					>
+						{#each followupQueue as turn (turn.id)}
+							<div
+								class="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover/60"
+							>
+								<div class="min-w-0 flex-1 truncate">
+									{host.turnPreviewText(turn)}
+								</div>
+								<button
+									type="button"
+									class="shrink-0 rounded px-1.5 py-1 text-text-secondary hover:bg-bg-surface hover:text-text-primary disabled:cursor-default disabled:opacity-50"
+									disabled={host.pendingFollowupActionIds.has(turn.id)}
+									onclick={() => {
+										void host.handleSteerFollowup(turn.id);
+									}}>Steer now</button
+								>
+								<button
+									type="button"
+									class="shrink-0 rounded px-1.5 py-1 text-text-placeholder hover:bg-bg-surface hover:text-text-secondary disabled:cursor-default disabled:opacity-50"
+									disabled={host.pendingFollowupActionIds.has(turn.id)}
+									onclick={() => {
+										void host.handleCancelFollowup(turn.id);
+									}}>Cancel</button
+								>
 							</div>
-							<button
-								type="button"
-								class="shrink-0 rounded px-1.5 py-1 text-text-secondary hover:bg-bg-surface hover:text-text-primary disabled:cursor-default disabled:opacity-50"
-								disabled={host.pendingFollowupActionIds.has(turn.id)}
-								onclick={() => {
-									void host.handleSteerFollowup(turn.id);
-								}}>Steer now</button
-							>
-							<button
-								type="button"
-								class="shrink-0 rounded px-1.5 py-1 text-text-placeholder hover:bg-bg-surface hover:text-text-secondary disabled:cursor-default disabled:opacity-50"
-								disabled={host.pendingFollowupActionIds.has(turn.id)}
-								onclick={() => {
-									void host.handleCancelFollowup(turn.id);
-								}}>Cancel</button
-							>
-						</div>
-					{/each}
+						{/each}
+					</div>
 				</div>
+			{/if}
+			<div
+				bind:this={composerHostEl}
+				class:relative={shouldShowNewChatBackground}
+				class:z-10={shouldShowNewChatBackground}
+			>
+				<SessionComposer
+					bind:value={composerInput}
+					disabled={!activeSessionState && !isNewSessionRoute}
+					sending={host.sending}
+					isRunning={host.activeSessionIsRunning}
+					aborting={host.aborting}
+					streamError={host.composerNotice}
+					showBillingAction={host.composerShowsBillingAction}
+					attachments={host.attachments}
+					viewportContexts={host.viewportContexts}
+					currentModel={host.activeSessionModel}
+					generationPolicyLabel={host.generationPolicyLabel}
+					currentSpaceId={host.spaceId}
+					mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
+					promptTemplates={host.promptTemplates}
+					promptTemplatesLoaded={host.promptTemplatesLoaded}
+					onpickattachment={host.handlePickAttachments}
+					onremoveattachment={host.handleRemoveAttachment}
+					onremoveviewport={host.handleRemoveViewportContext}
+					onsubmit={host.handleSend}
+					onabort={host.handleAbort}
+					onModelSelect={() => {
+						void host.loadModelsCatalog();
+						void host.loadGenerationModelsCatalog();
+						showModelSelector = true;
+					}}
+				/>
 			</div>
-		{/if}
+		</div>
 		<TurnRail
 			turns={activeTurnRailItems}
 			loadedTurns={activeSessionState.turns}
@@ -270,7 +312,7 @@ $effect(() => {
 			scrollTop={host.timelineScrollTop}
 			scrollHeight={host.timelineScrollHeight}
 			clientHeight={host.timelineClientHeight}
-			bottomOffset={host.composerHeight}
+			bottomOffset={host.chatChromeHeight}
 			olderCount={host.unloadedOlderTurnCount}
 			newerCount={host.unloadedNewerTurnCount}
 			hasMoreOlder={activeSessionState.hasMore}
@@ -303,7 +345,7 @@ $effect(() => {
 		{#if host.hasUnread || !shouldAutoFollow || activeTurnRailItems.length > 1}
 			<div
 				class={`pointer-events-none absolute left-1/2 z-20 -translate-x-1/2 ${!host.hasUnread && host.shouldAutoFollow ? "lg:hidden" : ""}`}
-				style:bottom={`${Math.max(host.composerHeight + 12, 96)}px`}
+				style:bottom={`${Math.max(host.chatChromeHeight + 12, 96)}px`}
 				style="animation: cohub-scroll-to-bottom-in 180ms cubic-bezier(0.22, 1, 0.36, 1);"
 			>
 				<div
@@ -362,39 +404,6 @@ $effect(() => {
 				void host.jumpToTurnAndUpdateUrl(sequence);
 			}}
 		/>
-		<div
-			bind:this={composerHostEl}
-			class:relative={shouldShowNewChatBackground}
-			class:z-10={shouldShowNewChatBackground}
-		>
-			<SessionComposer
-				bind:value={composerInput}
-				disabled={!activeSessionState && !isNewSessionRoute}
-				sending={host.sending}
-				isRunning={host.activeSessionIsRunning}
-				aborting={host.aborting}
-				streamError={host.composerNotice}
-				showBillingAction={host.composerShowsBillingAction}
-				attachments={host.attachments}
-				viewportContexts={host.viewportContexts}
-				currentModel={host.activeSessionModel}
-				generationPolicyLabel={host.generationPolicyLabel}
-				currentSpaceId={host.spaceId}
-				mobileAutoFocusOnMount={isNewSessionRoute && !activeSessionId}
-				promptTemplates={host.promptTemplates}
-				promptTemplatesLoaded={host.promptTemplatesLoaded}
-				onpickattachment={host.handlePickAttachments}
-				onremoveattachment={host.handleRemoveAttachment}
-				onremoveviewport={host.handleRemoveViewportContext}
-				onsubmit={host.handleSend}
-				onabort={host.handleAbort}
-				onModelSelect={() => {
-					void host.loadModelsCatalog();
-					void host.loadGenerationModelsCatalog();
-					showModelSelector = true;
-				}}
-			/>
-		</div>
 		<SessionModelSelectorDialog
 			open={showModelSelector}
 			onClose={() => {

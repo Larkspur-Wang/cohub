@@ -333,8 +333,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	let draftSessionModelManuallySelected = $state(false);
 
 	let composerHostEl = $state<HTMLDivElement | null>(null);
+	let chatChromeEl = $state<HTMLDivElement | null>(null);
 	const shouldAutoFollow = $derived(scroll.shouldAutoFollow);
 	const composerHeight = $derived(scroll.composerHeight);
+	const chatChromeHeight = $derived(scroll.chatChromeHeight);
 	const listEl = $derived(scroll.listEl);
 	const chatTimelineRef = $derived(scroll.chatTimelineRef);
 	const turnIndexBySessionId = $derived(turnLoading.turnIndexBySessionId);
@@ -862,18 +864,28 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	});
 
 	$effect(() => {
-		const el = composerHostEl;
-		if (!el) {
+		const chromeEl = chatChromeEl;
+		const composerEl = composerHostEl;
+		if (!chromeEl && !composerEl) {
+			if (scroll.chatChromeHeight !== 0) scroll.chatChromeHeight = 0;
 			if (scroll.composerHeight !== 0) scroll.composerHeight = 0;
 			return;
 		}
-		const updateComposerHeight = () => {
-			const next = el.offsetHeight;
-			if (scroll.composerHeight !== next) scroll.composerHeight = next;
+		const updateChromeHeights = () => {
+			const nextChrome =
+				chromeEl?.offsetHeight ?? composerEl?.offsetHeight ?? 0;
+			const nextComposer = composerEl?.offsetHeight ?? 0;
+			const chromeChanged = scroll.chatChromeHeight !== nextChrome;
+			const composerChanged = scroll.composerHeight !== nextComposer;
+			if (chromeChanged) scroll.chatChromeHeight = nextChrome;
+			if (composerChanged) scroll.composerHeight = nextComposer;
+			// Rail bottomOffset changes the track geometry; remeasure after layout.
+			if (chromeChanged || composerChanged) scheduleTurnMarkerMeasure();
 		};
-		updateComposerHeight();
-		const ro = new ResizeObserver(() => updateComposerHeight());
-		ro.observe(el);
+		updateChromeHeights();
+		const ro = new ResizeObserver(() => updateChromeHeights());
+		if (chromeEl) ro.observe(chromeEl);
+		if (composerEl && composerEl !== chromeEl) ro.observe(composerEl);
 		return () => ro.disconnect();
 	});
 
@@ -4019,6 +4031,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		set composerHostEl(v: HTMLDivElement | null) {
 			composerHostEl = v;
 		},
+		get chatChromeEl() {
+			return chatChromeEl;
+		},
+		set chatChromeEl(v: HTMLDivElement | null) {
+			chatChromeEl = v;
+		},
 		get viewportContexts() {
 			return viewportContexts;
 		},
@@ -4048,6 +4066,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		set composerHeight(v: number) {
 			scroll.composerHeight = v;
+		},
+		get chatChromeHeight() {
+			return chatChromeHeight;
+		},
+		set chatChromeHeight(v: number) {
+			scroll.chatChromeHeight = v;
 		},
 		get turnMarkerPositions() {
 			return turnMarkerPositions;
