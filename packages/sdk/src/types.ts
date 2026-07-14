@@ -928,6 +928,16 @@ export type PromptTemplateCatalogResponse = {
   prompts: PromptTemplateCatalogEntry[];
 };
 
+export type SkillCatalogEntry = {
+  name: string;
+  description: string;
+  scope: "platform" | "mod" | "user" | "project";
+};
+
+export type SkillCatalogResponse = {
+  skills: SkillCatalogEntry[];
+};
+
 export type Channel = {
   id: string;
   userUuid: string;

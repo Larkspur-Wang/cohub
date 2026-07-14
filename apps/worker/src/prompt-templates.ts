@@ -249,7 +249,7 @@ function substituteArgs(content: string, args: string[]): string {
 }
 
 export async function expandPromptTemplate(text: string, options: LoadPromptTemplatesOptions = {}): Promise<ExpandedPromptTemplate | null> {
-  if (!text.startsWith("/")) return null;
+  if (!text.startsWith("/") || text.startsWith("/skill:")) return null;
   const spaceIndex = text.indexOf(" ");
   const templateName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
   const argsString = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);

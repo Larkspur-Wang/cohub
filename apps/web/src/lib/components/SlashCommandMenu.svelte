@@ -1,8 +1,14 @@
 <script lang="ts">
-import type { PromptTemplateCatalogEntry } from "@neta-art/cohub";
+import type { SkillCatalogEntry } from "@neta-art/cohub";
 import { CornerDownLeft, Loader2, SearchSlash } from "lucide-svelte";
 
-export type SlashCommandMenuItem = PromptTemplateCatalogEntry & {
+export type SlashCommandMenuItem = {
+	kind: "prompt" | "skill";
+	name: string;
+	description: string;
+	scope: SkillCatalogEntry["scope"];
+	argumentHint?: string;
+	category?: string;
 	matchScore?: number;
 };
 
@@ -42,7 +48,10 @@ const groupedCommands = $derived.by<GroupedCommand[]>(() => {
 		Array<{ item: SlashCommandMenuItem; index: number }>
 	>();
 	items.forEach((item, index) => {
-		const label = item.category || item.scope || "Commands";
+		const label =
+			item.kind === "skill"
+				? item.category || `Skill · ${item.scope}`
+				: item.category || item.scope || "Commands";
 		const group = groups.get(label) ?? [];
 		group.push({ item, index });
 		groups.set(label, group);
@@ -69,8 +78,17 @@ function itemId(index: number) {
 	return `slash-command-option-${index}`;
 }
 
+function commandLabel(item: SlashCommandMenuItem) {
+	return item.kind === "skill" ? `skill:${item.name}` : item.name;
+}
+
 function commandScopeLabel(item: SlashCommandMenuItem) {
+	if (item.kind === "skill") return item.category ?? `Skill · ${item.scope}`;
 	return item.category ?? item.scope;
+}
+
+function itemKey(item: SlashCommandMenuItem) {
+	return `${item.kind}:${item.name}`;
 }
 
 function scrollSelectedIntoView(container: HTMLDivElement | null) {
@@ -143,8 +161,9 @@ $effect(() => {
 								{group.label}
 							</div>
 							<div class="space-y-0.5">
-								{#each group.items as entry (entry.item.name)}
+								{#each group.items as entry (itemKey(entry.item))}
 									{@const active = entry.index === selectedIndex}
+									{@const label = commandLabel(entry.item)}
 									<button
 										id={itemId(entry.index)}
 										type="button"
@@ -160,7 +179,7 @@ $effect(() => {
 										<span class="min-w-0 flex-1">
 											<span class="flex min-w-0 items-baseline gap-2">
 												<span class="truncate text-[13px] font-medium leading-5">
-													<span class="text-text-tertiary">/</span>{#each highlightParts(entry.item.name) as part}<span class={part.match ? 'text-brand' : ''}>{part.text}</span>{/each}
+													<span class="text-text-tertiary">/</span>{#each highlightParts(label) as part}<span class={part.match ? 'text-brand' : ''}>{part.text}</span>{/each}
 												</span>
 												{#if entry.item.argumentHint}
 													<span class="truncate text-[11px] leading-4 text-text-tertiary">{entry.item.argumentHint}</span>
@@ -213,8 +232,9 @@ $effect(() => {
 						<div class="mt-1 text-[11px] text-text-tertiary">Keep typing to send it as a message.</div>
 					</div>
 				{:else}
-					{#each items as item, index (item.name)}
+					{#each items as item, index (itemKey(item))}
 						{@const active = index === selectedIndex}
+						{@const label = commandLabel(item)}
 						<button
 							id={itemId(index)}
 							type="button"
@@ -225,7 +245,7 @@ $effect(() => {
 							<span class={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border text-[13px] font-semibold ${active ? 'border-brand/25 bg-brand/10 text-brand' : 'border-border-subtle bg-bg-primary text-text-tertiary'}`}>/</span>
 							<span class="min-w-0 flex-1">
 								<span class="flex min-w-0 items-baseline gap-2 text-[13px] text-text-primary">
-									<span class="shrink-0 font-medium"><span class="text-text-tertiary">/</span>{item.name}</span>
+									<span class="shrink-0 font-medium"><span class="text-text-tertiary">/</span>{label}</span>
 									{#if item.argumentHint}
 										<span class="truncate text-[12px] text-text-tertiary">{item.argumentHint}</span>
 									{/if}

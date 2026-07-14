@@ -2,6 +2,7 @@
 import type { ViewportContext } from "@cohub/protocol";
 import type {
 	PromptTemplateCatalogEntry,
+	SkillCatalogEntry,
 	VoiceInputClient,
 } from "@neta-art/cohub";
 import {
@@ -73,6 +74,8 @@ type Props = {
 	generationPolicyLabel?: string | null;
 	promptTemplates?: PromptTemplateCatalogEntry[];
 	promptTemplatesLoaded?: boolean;
+	skills?: SkillCatalogEntry[];
+	skillsLoaded?: boolean;
 	currentSpaceId?: string | null;
 	mobileAutoFocusOnMount?: boolean;
 	onsubmit: () => void;
@@ -100,6 +103,8 @@ let {
 	generationPolicyLabel = null,
 	promptTemplates = [],
 	promptTemplatesLoaded = true,
+	skills = [],
+	skillsLoaded = true,
 	currentSpaceId = null,
 	mobileAutoFocusOnMount = false,
 	onsubmit,
@@ -205,6 +210,7 @@ const filteredPromptTemplates = $derived.by<SlashCommandMenuItem[]>(() => {
 	const query = slashCommandToken?.query.toLowerCase();
 	if (query === undefined) return [];
 	const scored: SlashCommandMenuItem[] = [];
+
 	for (const item of promptTemplates) {
 		const name = item.name.toLowerCase();
 		const description = item.description.toLowerCase();
@@ -216,12 +222,44 @@ const filteredPromptTemplates = $derived.by<SlashCommandMenuItem[]>(() => {
 		else if (category.includes(query)) matchScore = 64;
 		else if (description.includes(query)) matchScore = 48;
 		else continue;
-		scored.push({ ...item, matchScore });
+		scored.push({
+			kind: "prompt",
+			name: item.name,
+			description: item.description,
+			scope: item.scope,
+			argumentHint: item.argumentHint,
+			category: item.category,
+			matchScore,
+		});
+	}
+
+	for (const item of skills) {
+		const label = `skill:${item.name}`;
+		const name = item.name.toLowerCase();
+		const labelLower = label.toLowerCase();
+		const description = item.description.toLowerCase();
+		let matchScore = 0;
+		if (!query) matchScore = 9;
+		else if (labelLower.startsWith(query) || name.startsWith(query))
+			matchScore = 100;
+		else if (labelLower.includes(query) || name.includes(query))
+			matchScore = 80;
+		else if (description.includes(query)) matchScore = 48;
+		else continue;
+		scored.push({
+			kind: "skill",
+			name: item.name,
+			description: item.description,
+			scope: item.scope,
+			matchScore,
+		});
 	}
 
 	return scored.sort((a, b) => {
 		const scoreDelta = (b.matchScore ?? 0) - (a.matchScore ?? 0);
 		if (scoreDelta !== 0) return scoreDelta;
+		const kindDelta = a.kind.localeCompare(b.kind);
+		if (kindDelta !== 0) return kindDelta;
 		const categoryDelta = (a.category ?? a.scope).localeCompare(
 			b.category ?? b.scope,
 		);
@@ -233,7 +271,7 @@ const filteredPromptTemplates = $derived.by<SlashCommandMenuItem[]>(() => {
 const slashCommandQuery = $derived(slashCommandToken?.query ?? "");
 const slashCommandActive = $derived(slashCommandToken !== null);
 const slashCommandLoading = $derived(
-	slashCommandActive && !promptTemplatesLoaded,
+	slashCommandActive && (!promptTemplatesLoaded || !skillsLoaded),
 );
 
 const spaceMentionItems = $derived(
@@ -444,7 +482,9 @@ function applyPromptTemplate(item: SlashCommandMenuItem) {
 	const leadingWhitespace = value.slice(0, value.length - trimmedStart.length);
 	const firstSpace = trimmedStart.indexOf(" ");
 	const suffix = firstSpace === -1 ? "" : trimmedStart.slice(firstSpace);
-	value = `${leadingWhitespace}/${item.name}${suffix || " "}`;
+	const command =
+		item.kind === "skill" ? `/skill:${item.name}` : `/${item.name}`;
+	value = `${leadingWhitespace}${command}${suffix || " "}`;
 	showPromptSuggestions = false;
 	selectedPromptIndex = 0;
 	requestAnimationFrame(() => {

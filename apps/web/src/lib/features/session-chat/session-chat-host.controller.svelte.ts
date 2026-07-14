@@ -37,6 +37,7 @@ import {
 } from "$lib/composer-attachments";
 import { createPromptTemplateController } from "$lib/features/space/modules/prompt-template-controller.svelte";
 import { createKeyedRouteRequestGuard } from "$lib/features/space/modules/route-request-guard";
+import { createSkillController } from "$lib/features/space/modules/skill-controller.svelte";
 import { mergeTaskRunRecord } from "$lib/features/space/modules/task-run-utils";
 import { asRecord } from "$lib/features/space/space-utils";
 import { formatGenerationPolicyLabel } from "$lib/generation-policy-label";
@@ -233,6 +234,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const promptTemplatesCtrl = createPromptTemplateController({
 		getSpaceId: () => spaceId,
 	});
+	const skillsCtrl = createSkillController({
+		getSpaceId: () => spaceId,
+	});
 	const share = createSessionShareController({
 		getSpaceId: () => spaceId,
 		canManageAccess: () => options.canManageSessionAccess?.() ?? false,
@@ -327,6 +331,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	);
 	const promptTemplates = $derived(promptTemplatesCtrl.items);
 	const promptTemplatesLoaded = $derived(promptTemplatesCtrl.loaded);
+	const skills = $derived(skillsCtrl.items);
+	const skillsLoaded = $derived(skillsCtrl.loaded);
 	let showModelSelector = $state(false);
 	let sessionModelById = $state<Record<string, SelectedModel | null>>({});
 	let draftSessionModel = $state<SelectedModel | null>(null);
@@ -1457,6 +1463,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 
 	async function loadPromptTemplates() {
 		await promptTemplatesCtrl.load();
+		await skillsCtrl.load();
 	}
 
 	function handleModelSelect(model: { provider: string; id: string }) {
@@ -3742,6 +3749,7 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		draftSessionModel = null;
 		draftSessionModelManuallySelected = false;
 		promptTemplatesCtrl.restore(nextSpaceId);
+		skillsCtrl.restore(nextSpaceId);
 		void loadPromptTemplates();
 		loadSessionScrollAnchors();
 		route = { kind: "none" };
@@ -4017,6 +4025,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		get promptTemplatesLoaded() {
 			return promptTemplatesLoaded;
+		},
+		get skills() {
+			return skills;
+		},
+		get skillsLoaded() {
+			return skillsLoaded;
 		},
 		get input() {
 			return composer.input;

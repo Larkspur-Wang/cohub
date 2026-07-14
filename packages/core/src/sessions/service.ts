@@ -7,10 +7,14 @@ import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { sessionTurnSegments, sessionTurns, spaceSessions, spaces } from "@cohub/db";
 import { sanitizePostgresJsonValue } from "../content/sanitize.js";
 import { addSessionParticipantMeta, initializeSessionParticipantsMeta } from "./session-meta.js";
-import { submitSessionPrompt, type ExpandedPromptTemplate, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
+import { submitSessionPrompt, type ExpandedPromptTemplate, type ExpandedSkillCommand, expandPromptContent, type SubmitSessionPromptHooks, type SubmitSessionPromptInput } from "./prompt.js";
 
 export type PromptTemplateService = {
   expand(text: string, options?: { userId?: string | null; spaceId?: string | null }): Promise<ExpandedPromptTemplate | null>;
+};
+
+export type SkillService = {
+  expand(text: string, options?: { userId?: string | null; spaceId?: string | null }): Promise<ExpandedSkillCommand | null>;
 };
 
 type DrizzleDb = PostgresJsDatabase<Record<string, unknown>>;
@@ -81,6 +85,7 @@ export function createSessionServices(input: {
   db: DrizzleDb;
   redis: RedisClient;
   promptTemplateService: PromptTemplateService;
+  skillService?: SkillService;
   billingUsageGate?: BillingUsageGate;
   sandboxRecovery?: {
     maybeRecoverForPrompt(input: {
@@ -295,6 +300,9 @@ export function createSessionServices(input: {
     return submitSessionPrompt({
       randomUUID,
       expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
+      expandSkillCommand: input.skillService
+        ? ({ text, userId, spaceId }) => input.skillService!.expand(text, { userId, spaceId })
+        : undefined,
       createSessionTurn,
       enqueueSpacePrompt,
       failSessionTurn,
@@ -309,6 +317,9 @@ export function createSessionServices(input: {
   }) {
     return expandPromptContent({
       expandPromptTemplate: ({ text, userId, spaceId }) => input.promptTemplateService.expand(text, { userId, spaceId }),
+      expandSkillCommand: input.skillService
+        ? ({ text, userId, spaceId }) => input.skillService!.expand(text, { userId, spaceId })
+        : undefined,
     }, promptInput);
   }
 

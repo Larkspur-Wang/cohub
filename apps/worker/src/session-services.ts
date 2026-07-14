@@ -7,6 +7,7 @@ import { db } from "./db.js";
 import { redisCommandClient } from "./redis.js";
 import { config } from "./config.js";
 import type { PromptTemplateService } from "./prompt-templates.js";
+import type { SkillService } from "./skills.js";
 import { dispatchLabelAssignmentsUpdated } from "./label-events.js";
 
 const AGENT_TURN_JOB_NAME = "agent_turns";
@@ -31,11 +32,13 @@ const agentTurnQueue = createBullmqQueue<{
 
 export function getSessionDomainServices(input: {
   promptTemplateService: PromptTemplateService;
+  skillService?: SkillService;
 }) {
   return createSessionServices({
     db,
     redis: redisCommandClient,
     promptTemplateService: input.promptTemplateService,
+    skillService: input.skillService,
     billingUsageGate,
     injectTrace,
     getRequestId: () => null,

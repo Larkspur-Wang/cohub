@@ -105,6 +105,16 @@ export type PromptTemplateUsageMeta = {
   args: string[];
 };
 
+export type SkillUsageMeta = {
+  name: string;
+  description: string;
+  scope: "platform" | "mod" | "user" | "project";
+  sandboxFilePath: string;
+  sandboxBaseDir: string;
+  rawInput: string;
+  argsText: string;
+};
+
 export type PromptAccessMode = "read_only" | "full_access";
 
 export type SubmitSessionPromptInput = {
@@ -150,6 +160,19 @@ export type ExpandedPromptTemplate = {
   rawInput: string;
 };
 
+export type ExpandedSkillCommand = {
+  renderedText: string;
+  skill: {
+    name: string;
+    description: string;
+    scope: "platform" | "mod" | "user" | "project";
+    sandboxFilePath: string;
+    sandboxBaseDir: string;
+  };
+  argsText: string;
+  rawInput: string;
+};
+
 export type SessionPromptDependencies = {
   randomUUID(): string;
   expandPromptTemplate(input: {
@@ -157,6 +180,11 @@ export type SessionPromptDependencies = {
     userId: string;
     spaceId: string;
   }): Promise<ExpandedPromptTemplate | null>;
+  expandSkillCommand?(input: {
+    text: string;
+    userId: string;
+    spaceId: string;
+  }): Promise<ExpandedSkillCommand | null>;
   sandboxRecovery?: {
     maybeRecoverForPrompt(input: {
       spaceId: string;
@@ -223,7 +251,7 @@ function normalizePromptModelProvider(input: Pick<SubmitSessionPromptInput, "mod
 }
 
 export const expandPromptContent = async (
-  deps: Pick<SessionPromptDependencies, "expandPromptTemplate">,
+  deps: Pick<SessionPromptDependencies, "expandPromptTemplate" | "expandSkillCommand">,
   input: {
     content: ContentBlock[];
     userId: string;
@@ -232,11 +260,30 @@ export const expandPromptContent = async (
 ) => {
   let content = input.content;
   let promptTemplate: PromptTemplateUsageMeta | null = null;
+  let skillUsage: SkillUsageMeta | null = null;
 
   if (content.length === 1 && content[0]?.type === "text") {
     const originalText = typeof content[0].text === "string" ? content[0].text : "";
     const rawText = originalText.trim();
-    if (rawText.startsWith("/")) {
+    if (rawText.startsWith("/skill:") && deps.expandSkillCommand) {
+      const expanded = await deps.expandSkillCommand({
+        text: rawText,
+        userId: input.userId,
+        spaceId: input.spaceId,
+      });
+      if (expanded) {
+        content = [{ type: "text", text: expanded.renderedText } satisfies ContentBlock];
+        skillUsage = {
+          name: expanded.skill.name,
+          description: expanded.skill.description,
+          scope: expanded.skill.scope,
+          sandboxFilePath: expanded.skill.sandboxFilePath,
+          sandboxBaseDir: expanded.skill.sandboxBaseDir,
+          rawInput: expanded.rawInput,
+          argsText: expanded.argsText,
+        };
+      }
+    } else if (rawText.startsWith("/")) {
       const expanded = await deps.expandPromptTemplate({
         text: rawText,
         userId: input.userId,
@@ -259,7 +306,7 @@ export const expandPromptContent = async (
     content = normalizeDirectShellCommandContent(content);
   }
 
-  return { content, promptTemplate };
+  return { content, promptTemplate, skillUsage };
 };
 
 export const submitSessionPrompt = async (
@@ -285,7 +332,7 @@ export const submitSessionPrompt = async (
     });
   }
 
-  const { content: expandedContent, promptTemplate } = await expandPromptContent(deps, {
+  const { content: expandedContent, promptTemplate, skillUsage } = await expandPromptContent(deps, {
     content: input.content,
     userId,
     spaceId: input.spaceId,
@@ -326,6 +373,7 @@ export const submitSessionPrompt = async (
     model: modelProvider.model,
     provider: modelProvider.provider,
     promptTemplate,
+    skillUsage,
     generationPolicy: input.generationPolicy ?? null,
     accessMode,
     env: input.env ?? null,

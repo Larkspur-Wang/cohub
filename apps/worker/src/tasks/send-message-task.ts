@@ -7,6 +7,7 @@ import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-sourc
 import { getPromptAuthScopes, parsePromptEnv, type PromptAccessMode, type PromptAuthContext, type PromptEnv, type SubmitSessionPromptContext } from "@cohub/core/sessions";
 import type { SessionTurnIntent } from "@cohub/protocol/model";
 import { getPromptTemplateService } from "../prompt-templates.js";
+import { getSkillService } from "../skills.js";
 import { getSessionDomainServices } from "../session-services.js";
 import { createLogger } from "@cohub/infra/logging";
 import { db } from "../db.js";
@@ -25,6 +26,7 @@ const logger = createLogger({ serviceName: "cohub-worker" });
 
 const sessionPromptService = getSessionDomainServices({
   promptTemplateService: getPromptTemplateService(),
+  skillService: getSkillService(),
 });
 
 function sanitizeTaskPromptAuth(auth: PromptAuthContext | null | undefined, input: { spaceId: string; userId: string }) {

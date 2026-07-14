@@ -40,6 +40,10 @@
       "types": "./dist/config-runtime/prompts.d.ts",
       "default": "./dist/config-runtime/prompts.js"
     },
+    "./config-runtime/skills": {
+      "types": "./dist/config-runtime/skills.d.ts",
+      "default": "./dist/config-runtime/skills.js"
+    },
     "./tracing": {
       "types": "./dist/tracing/index.d.ts",
       "default": "./dist/tracing/index.js"

@@ -3,6 +3,7 @@ import { CronJobsApi } from "./apis/cron-jobs.js";
 import { GenerationsApi } from "./apis/generations.js";
 import { ModelsApi } from "./apis/models.js";
 import { PromptsApi } from "./apis/prompts.js";
+import { SkillsApi } from "./apis/skills.js";
 import { PublicAssetsApi } from "./apis/public-assets.js";
 import { SearchApi } from "./apis/search.js";
 import { ReferencesApi } from "./apis/references.js";
@@ -26,6 +27,7 @@ export class CohubHttpClient {
   readonly generations: GenerationsApi;
   readonly models: ModelsApi;
   readonly prompts: PromptsApi;
+  readonly skills: SkillsApi;
   readonly publicAssets: PublicAssetsApi;
   readonly sessionAccess: SessionAccessApi;
   readonly search: SearchApi;
@@ -54,6 +56,7 @@ export class CohubHttpClient {
     this.generations = new GenerationsApi(this.transport);
     this.models = new ModelsApi(this.transport);
     this.prompts = new PromptsApi(this.transport);
+    this.skills = new SkillsApi(this.transport);
     this.publicAssets = new PublicAssetsApi(this.transport);
     this.sessionAccess = new SessionAccessApi(this.transport);
     this.search = new SearchApi(this.transport);

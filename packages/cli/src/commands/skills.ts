@@ -2,34 +2,32 @@ import type { Command } from "commander";
 import { createClient } from "../client.js";
 import { table, json as outJson, jsonRequested, handleHttp } from "../output.js";
 
-export function registerPrompts(program: Command): void {
-  const cmd = program.command("prompts").description("Prompt template management");
+export function registerSkills(program: Command): void {
+  const cmd = program.command("skills").description("Skill management");
 
   cmd
     .command("ls")
     .alias("list")
-    .description("List prompt templates")
+    .description("List skills available for slash commands")
     .option("--space <id>", "Filter by space")
     .option("--json", "Output as JSON")
     .action(async (opts: { space?: string; json?: boolean }) => {
       const client = createClient();
       try {
         const spaceId = opts.space ?? (program.opts() as { space?: string }).space;
-        const result = await client.prompts.list({ spaceId });
+        const result = await client.skills.list({ spaceId });
         if (jsonRequested(opts)) return outJson(result);
-        if (result.prompts.length === 0) return console.log("  (empty)");
+        if (result.skills.length === 0) return console.log("  (empty)");
         table(
-          result.prompts.map((prompt) => ({
-            command: `/${prompt.name}`,
-            name: prompt.name,
-            scope: prompt.scope,
-            category: prompt.category ?? "",
-            description: prompt.description,
+          result.skills.map((skill) => ({
+            command: `/skill:${skill.name}`,
+            name: skill.name,
+            scope: skill.scope,
+            description: skill.description,
           })),
           [
             { key: "command", label: "Command" },
             { key: "scope", label: "Scope" },
-            { key: "category", label: "Category" },
             { key: "description", label: "Description" },
           ],
         );

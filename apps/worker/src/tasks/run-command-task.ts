@@ -14,6 +14,7 @@ import { normalizePermissionScopes } from "@cohub/core/permissions";
 import { createDelegatedPromptAuth, parsePromptEnv } from "@cohub/core/sessions";
 import { config } from "../config.js";
 import { getPromptTemplateService } from "../prompt-templates.js";
+import { getSkillService } from "../skills.js";
 import { getSessionDomainServices } from "../session-services.js";
 import { registerTask } from "./registry.js";
 
@@ -22,6 +23,7 @@ const BACKGROUND_BASH_TASK_SOURCE = "background_bash_task";
 
 const sessionPromptService = getSessionDomainServices({
   promptTemplateService: getPromptTemplateService(),
+  skillService: getSkillService(),
 });
 
 function getJobId(job: Job) {

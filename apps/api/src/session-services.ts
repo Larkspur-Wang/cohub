@@ -9,6 +9,7 @@ import { db } from "./db/index.js";
 import { config } from "./config.js";
 import { redisCommandClient } from "./redis.js";
 import { expandPromptTemplate, type LoadPromptTemplatesOptions, type ExpandedPromptTemplate } from "./prompt-templates.js";
+import { expandSkillCommand, type ExpandedSkill } from "./skills.js";
 import { ensureSpaceSandbox, recoverSpaceSandbox } from "./space-sandboxes.js";
 import { getSpaceSessionById, getSpaceById } from "./space-sessions.js";
 import { touchSpaceActivity } from "./space-activity.js";
@@ -23,8 +24,16 @@ export type PromptTemplateService = {
   expand(text: string, options?: LoadPromptTemplatesOptions): Promise<ExpandedPromptTemplate | null>;
 };
 
+export type SkillService = {
+  expand(text: string, options?: LoadPromptTemplatesOptions): Promise<ExpandedSkill | null>;
+};
+
 const defaultPromptTemplateService: PromptTemplateService = {
   expand: expandPromptTemplate,
+};
+
+const defaultSkillService: SkillService = {
+  expand: expandSkillCommand,
 };
 
 const agentTurnQueue = createBullmqQueue<{
@@ -50,8 +59,9 @@ let defaultSessionDomainServices: ReturnType<typeof createSessionServices> | nul
 
 export function getSessionDomainServices(input?: {
   promptTemplateService?: PromptTemplateService;
+  skillService?: SkillService;
 }) {
-  if (!input?.promptTemplateService && defaultSessionDomainServices) {
+  if (!input?.promptTemplateService && !input?.skillService && defaultSessionDomainServices) {
     return defaultSessionDomainServices;
   }
 
@@ -59,6 +69,7 @@ export function getSessionDomainServices(input?: {
     db,
     redis: redisCommandClient,
     promptTemplateService: input?.promptTemplateService ?? defaultPromptTemplateService,
+    skillService: input?.skillService ?? defaultSkillService,
     billingUsageGate,
     sandboxRecovery: {
       maybeRecoverForPrompt: async ({ spaceId, userId, source }) => {
