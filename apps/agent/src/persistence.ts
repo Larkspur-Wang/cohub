@@ -16,6 +16,7 @@ import { env } from "./env.js";
 import { logger } from "./logger.js";
 import { redis, publishRealtimeEnvelope, clearPersistedSessionStreamSnapshot, getGatewayNodeOutboundStreamKey, xaddWithMaxlen } from "./redis.js";
 import { buildTurnObjectPrefix, writeTurnObjectJson } from "./turn-object-storage.js";
+import { pickRealtimeMessageMeta } from "./realtime-message-meta.js";
 
 
 const INTERNAL_API_BASE_URL =
@@ -172,14 +173,6 @@ async function hydrateTurnAuthorProfile(turn: SessionTurnRecord): Promise<Sessio
         },
   };
 }
-
-const pickRealtimeMessageMeta = (meta: Record<string, unknown> | null | undefined) => {
-  if (!meta) return null;
-  const keys = ["messageKind", "clientMessageId", "anchorUserMessageId", "userId", "contentDetail", "contentPlaceholder", "historySummary", "turnId", "messageId"];
-  const picked: Record<string, unknown> = {};
-  for (const key of keys) if (meta[key] !== undefined) picked[key] = meta[key];
-  return Object.keys(picked).length > 0 ? picked : null;
-};
 
 async function publishMessagePersisted(spaceId: string, message: MessageRecord) {
   await publishRealtimeEnvelope({
