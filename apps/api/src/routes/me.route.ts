@@ -11,6 +11,7 @@ import {
   filterSessionsByPermission,
   getSpaceMemberRole,
   hasPermission,
+  asAccountIdentity,
 } from "../permissions.js";
 import { pickSessionsPreservingOrder } from "../session-list.js";
 import {
@@ -178,14 +179,19 @@ router.get("/rules", async (c) => {
 });
 
 /**
- * Filter creator/participant sessions by current session.view access.
- * Members with space-level session.view keep all rows; others use per-session policy.
- * Over-fetches in batches so pagination still fills after filtering.
+ * Cross-space recent sessions for the account identity.
+ * Gate: `user.session.list`. Visibility: viewer's own membership / access policy
+ * (not work-scoped session.view). Over-fetches after filtering for pagination.
  */
 async function listVisibleUserSessions(
   user: { uuid: string },
   options: { limit: number; cursor: string | null },
 ) {
+  const identity = asAccountIdentity(user);
+  if (!identity) {
+    return { sessions: [], pageInfo: { hasMore: false, nextCursor: null } };
+  }
+
   const limit = options.limit;
   const visible: Awaited<ReturnType<typeof listUserSessions>>["sessions"] = [];
   let cursor = options.cursor;
@@ -198,9 +204,9 @@ async function listVisibleUserSessions(
   const canViewAllInSpace = async (spaceId: string) => {
     const cached = memberViewBySpace.get(spaceId);
     if (cached !== undefined) return cached;
-    const isMember = (await getSpaceMemberRole(spaceId, user.uuid)) !== null;
+    const isMember = (await getSpaceMemberRole(spaceId, identity.uuid)) !== null;
     const allowed = isMember
-      ? await hasPermission(user, "session.view", { spaceId })
+      ? await hasPermission(identity, "session.view", { spaceId })
       : false;
     memberViewBySpace.set(spaceId, allowed);
     return allowed;
@@ -209,7 +215,7 @@ async function listVisibleUserSessions(
   while (visible.length < limit && hasMore && guard < 8) {
     guard += 1;
     const batchLimit = Math.min(100, Math.max(limit * 2, limit - visible.length + 4));
-    const batch = await listUserSessions(user.uuid, { limit: batchLimit, cursor });
+    const batch = await listUserSessions(identity.uuid, { limit: batchLimit, cursor });
     hasMore = Boolean(batch.pageInfo.hasMore);
     cursor = batch.pageInfo.nextCursor;
 
@@ -231,7 +237,7 @@ async function listVisibleUserSessions(
         continue;
       }
       const filtered = await filterSessionsByPermission(
-        user,
+        identity,
         "session.view",
         spaceId,
         sessions,
@@ -288,6 +294,8 @@ router.get("/usage", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.usage.read", { spaceId: "" }))) return authzDenied(c);
+  const identity = asAccountIdentity(user);
+  if (!identity) return authzDenied(c);
 
   const days = resolveUsageDays(c.req.query("days"));
   const { startDate, now } = buildUsageDateRange(days);
@@ -301,7 +309,7 @@ router.get("/usage", async (c) => {
         .from(schema.tokenUsageStatsHourly)
         .where(
           and(
-            eq(schema.tokenUsageStatsHourly.userId, user.uuid),
+            eq(schema.tokenUsageStatsHourly.userId, identity.uuid),
             gte(schema.tokenUsageStatsHourly.bucketStartAt, startDate),
             lte(schema.tokenUsageStatsHourly.bucketStartAt, now),
           ),
@@ -312,7 +320,7 @@ router.get("/usage", async (c) => {
         .from(schema.generationUsageStatsHourly)
         .where(
           and(
-            eq(schema.generationUsageStatsHourly.userId, user.uuid),
+            eq(schema.generationUsageStatsHourly.userId, identity.uuid),
             gte(schema.generationUsageStatsHourly.bucketStartAt, startDate),
             lte(schema.generationUsageStatsHourly.bucketStartAt, now),
           ),

@@ -44,7 +44,7 @@ import { RUN_COMMAND_TASK_TYPE } from "@cohub/core/commands";
 import { sanitizePostgresJsonValue } from "@cohub/core/content/sanitize";
 import { assignLabelsToSession, parseLabelRefs, resolveLabelPaths, resolveOrCreateLabelPaths } from "@cohub/core/labels";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
-import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess } from "../../permissions.js";
+import { hasPermission, getSpaceMemberRole, filterSessionsByPermission, resolvePermissionAccess, asAccountIdentity } from "../../permissions.js";
 import { checkpoints } from "@cohub/db";
 import {
   CHECKPOINT_DIFF_CACHE_CONTROL,
@@ -320,15 +320,15 @@ const uniqueViolationConstraint = (error: unknown): string | null => {
 
 type SpaceRow = typeof spaces.$inferSelect;
 
-async function listAccessibleSpaceIds(user: AuthUser): Promise<string[]> {
+async function listAccessibleSpaceIds(userUuid: string): Promise<string[]> {
   const owned = await db
     .select({ id: spaces.id })
     .from(spaces)
-    .where(eq(spaces.userUuid, user.uuid));
+    .where(eq(spaces.userUuid, userUuid));
   const member = await db
     .select({ id: spaceMembers.spaceId })
     .from(spaceMembers)
-    .where(eq(spaceMembers.userId, user.uuid));
+    .where(eq(spaceMembers.userId, userUuid));
 
   return Array.from(new Set([...owned.map((item) => item.id), ...member.map((item) => item.id)]));
 }
@@ -571,8 +571,11 @@ router.get("/", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
+  const identity = asAccountIdentity(user);
+  if (!identity) return authzDenied(c);
 
-  const spaceIds = await listAccessibleSpaceIds(user);
+  // Account list: owned/member by viewer uuid, independent of work space scopes.
+  const spaceIds = await listAccessibleSpaceIds(identity.uuid);
   if (spaceIds.length === 0) return c.json([]);
 
   const spaceList = await db
@@ -590,18 +593,20 @@ router.get("/default", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
   if (!(await hasPermission(user, "user.space.list", { spaceId: "" }))) return authzDenied(c);
+  const identity = asAccountIdentity(user);
+  if (!identity) return authzDenied(c);
 
   const [[ownedHome], [memberHome]] = await Promise.all([
     db
       .select()
       .from(spaces)
-      .where(and(eq(spaces.userUuid, user.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+      .where(and(eq(spaces.userUuid, identity.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
       .limit(1),
     db
       .select({ space: spaces })
       .from(spaceMembers)
       .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
-      .where(and(eq(spaceMembers.userId, user.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+      .where(and(eq(spaceMembers.userId, identity.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
       .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
       .limit(1),
   ]);

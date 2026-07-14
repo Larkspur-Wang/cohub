@@ -43,6 +43,16 @@ const getUserPreviewSession = (user: AuthUserProfile | null): PreviewSessionPrin
   return session;
 };
 
+/**
+ * Strip work/preview/execution principal scopes for account-level handlers
+ * (`user.space.list` / `user.session.list` / `user.usage.read`).
+ * Gate with the original principal; load data with this identity.
+ */
+export function asAccountIdentity(user: { uuid?: string | null } | null | undefined): { uuid: string } | null {
+  const uuid = typeof user?.uuid === "string" ? user.uuid.trim() : "";
+  return uuid ? { uuid } : null;
+}
+
 const loadActiveViewerGrantScopes = async (workSession: CachedWorkSessionPrincipal) => {
   if (!workSession.workViewerGrantId) return [] as Permission[];
   const [grant] = await db
@@ -82,10 +92,10 @@ export async function hasPermission(
   permission: Permission,
   context: { spaceId: string; sessionId?: string },
 ): Promise<boolean> {
-  // User-level permissions are not bound to a space.
-  // Authenticated users (including execution principals acting as a user)
-  // access their own account data; work sessions require an explicit viewer
-  // grant. Publishers cannot pre-grant user-level scopes via workScopes.
+  // Account-level scopes are not bound to a space. Work sessions need an
+  // explicit viewer grant; publishers cannot pre-grant these via workScopes.
+  // Handlers then load rows with asAccountIdentity (user membership/policy),
+  // not work-scoped session.view / space.view.
   if (isUserLevelPermission(permission)) {
     const workSession = getUserWorkSession(user);
     if (workSession) return hasActiveViewerGrantPermission(workSession, permission);

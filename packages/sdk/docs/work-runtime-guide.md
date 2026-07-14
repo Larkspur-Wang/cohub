@@ -185,7 +185,7 @@ session.prompt.readonly   — send read-only prompts (no side effects)
 session.prompt.fullaccess — send prompts with full access (write, create sessions)
 generation.create         — create generation tasks (image/video/audio)
 user.space.list           — list the viewer's spaces (account-level)
-user.session.list         — list the viewer's sessions across all spaces
+user.session.list         — list recent sessions the viewer can view as themselves (across spaces)
 user.usage.read           — read the viewer's aggregated usage
 ```
 
@@ -966,5 +966,8 @@ await client.works.publishVersion(workId);
 ```
 
 Other SDK methods: `works.get(workId)`, `works.getBySlug(username, spaceSlug,
+workSlug)`, `works.listBySpace(spaceId)`, `works.update(workId, input)`,
+`works.delete(workId)`.
+`works.getBySlug(username, spaceSlug,
 workSlug)`, `works.listBySpace(spaceId)`, `works.update(workId, input)`,
 `works.delete(workId)`.
