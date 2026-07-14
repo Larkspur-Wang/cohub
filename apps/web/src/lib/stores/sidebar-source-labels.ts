@@ -85,13 +85,8 @@ export function findWebAppSourceLabel(labels: LabelListItem[]) {
 	);
 }
 
-export function findDefaultExpandedLabelId(labels: LabelListItem[]) {
-	const sourceLabels = getSourceLabels(labels);
-	return (
-		sourceLabels.find((label) => isWebAppSourceLabel(label))?.id ??
-		sourceLabels[0]?.id ??
-		ALL_CHATS_LABEL_ID
-	);
+export function findDefaultExpandedLabelId(_labels: LabelListItem[]) {
+	return ALL_CHATS_LABEL_ID;
 }
 
 export function isWebSessionSource(session: SessionRecord) {

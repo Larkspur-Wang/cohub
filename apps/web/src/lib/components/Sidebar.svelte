@@ -1603,7 +1603,7 @@ function applyDefaultExpandedLabelId(
 ) {
 	// Only honor a non-empty remembered preference. An empty cached set is a bad
 	// state for first paint (collapsed-all / pruned-away labels) and should not
-	// permanently block Web App / All from opening.
+	// permanently block All from opening.
 	const cached = getCachedExpandedLabelIdsSnapshot(spaceId);
 	if (cached && cached.size > 0) return;
 	if (expandedLabelIdsBySpace[spaceId]?.size) return;
