@@ -1,9 +1,8 @@
 <script lang="ts">
 import {
+	ChevronDown,
 	Download,
 	File as FileIcon,
-	Folder,
-	FolderOpen,
 	MoreHorizontal,
 	Pencil,
 	Rocket,
@@ -212,13 +211,9 @@ $effect(() => {
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
-  <span class="icon shrink-0">
+  <span class="icon shrink-0" class:twisty={isDir}>
     {#if isDir}
-      {#if node.isOpen}
-        <FolderOpen class="w-3.5 h-3.5" />
-      {:else}
-        <Folder class="w-3.5 h-3.5" />
-      {/if}
+      <ChevronDown class="h-3 w-3 transition-transform {node.isOpen ? '' : '-rotate-90'}" />
     {:else}
       <FileIcon class="w-3.5 h-3.5" />
     {/if}
@@ -356,7 +351,18 @@ $effect(() => {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    width: 14px;
+    height: 14px;
     color: var(--text-tertiary);
+  }
+
+  .icon.twisty {
+    color: var(--text-secondary);
+  }
+
+  .tree-item:hover .icon.twisty,
+  .tree-item.selected .icon.twisty {
+    color: var(--text-primary);
   }
 
   .name {
