@@ -7,9 +7,10 @@ import type {
 import { Loader2 } from "lucide-svelte";
 import ChatMessageBubble from "$lib/components/ChatMessageBubble.svelte";
 import CompactionDivider from "$lib/components/CompactionDivider.svelte";
+import GenerationRuntimeStatusRow from "$lib/components/GenerationRuntimeStatusRow.svelte";
 import ProcessCard from "$lib/components/ProcessCard.svelte";
 import ToolExecutionCard from "$lib/components/ToolExecutionCard.svelte";
-import type { ModelCatalogItem } from "$lib/model-catalog";
+import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
 import type { ChatMessage, TimelineItem } from "$lib/session-tree";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
@@ -175,7 +176,21 @@ $effect(() => {
 							forking={forkingTurnId === forkTurn?.id}
 					/>
 				{:else if item.kind === 'process' && item.turn}
-						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} runtimePhase={item.runtimePhase} runtimeProvider={item.runtimeProvider} runtimeModel={item.runtimeModel} {modelsCatalog} {onLoadIntermediate} {onRequestIntermediateSync} {onLoadToolCalls} {onOpenFile} />
+						<ProcessCard turn={item.turn} summary={item.summary} intermediateMessages={item.intermediateMessages} streaming={item.streaming} {modelsCatalog} {onLoadIntermediate} {onRequestIntermediateSync} {onLoadToolCalls} {onOpenFile} />
+				{:else if item.kind === 'turn_footer'}
+					{@const modelName = getModelDisplayName(modelsCatalog, {
+						provider: item.runtimeProvider,
+						model: item.runtimeModel,
+					})}
+					{@const footerLabel =
+						item.phase === 'waiting_model'
+							? modelName
+								? `waiting ${modelName}…`
+								: 'waiting model…'
+							: 'starting agent…'}
+					<div class="px-2 py-1">
+						<GenerationRuntimeStatusRow label={footerLabel} compact />
+					</div>
 				{:else if item.kind === 'tool'}
 					<ToolExecutionCard tool={item.tool} {onOpenFile} />
 				{:else if item.kind === 'compact'}

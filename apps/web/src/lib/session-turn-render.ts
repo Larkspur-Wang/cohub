@@ -5,7 +5,11 @@ import type {
 	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
 import { getStreamingRenderKey } from "./session-streaming";
-import type { ChatMessage, TimelineItem } from "./session-tree";
+import type {
+	ChatMessage,
+	TimelineItem,
+	TurnFooterPhase,
+} from "./session-tree";
 
 function getTurnContextWindow(turn: SessionTurnRecord) {
 	const raw = turn.meta?.contextWindow;
@@ -175,6 +179,34 @@ function isQueuedFollowupTurn(turn: SessionTurnRecord) {
 	return turn.status === "queued" && turn.intent === "followup";
 }
 
+function countToolUses(messages: StoredIntermediateMessage[]) {
+	return messages.reduce(
+		(count, message) =>
+			count +
+			message.content.filter((block) => block.type === "tool_use").length,
+		0,
+	);
+}
+
+function resolveTurnFooterPhase(streaming: {
+	status?: string;
+	contentBlocks: ContentBlock[];
+	intermediateMessages?: StoredIntermediateMessage[];
+	runtimePhase?: "llm_call_started" | null;
+}): TurnFooterPhase | null {
+	// Live content is the status itself — never show waiting/starting over it.
+	if (streaming.contentBlocks.length > 0) return null;
+	if (streaming.runtimePhase === "llm_call_started") return "waiting_model";
+	// Only show starting while the active turn has nothing to render yet.
+	if (
+		streaming.status === "pending" &&
+		(streaming.intermediateMessages?.length ?? 0) === 0
+	) {
+		return "starting";
+	}
+	return null;
+}
+
 export function buildTurnTimelineItems(input: {
 	sessionId: string | null;
 	turns: SessionTurnRecord[];
@@ -225,25 +257,12 @@ export function buildTurnTimelineItems(input: {
 		if (isStreamingActiveTurn) {
 			const processIntermediateMessages =
 				input.streaming?.intermediateMessages ?? [];
-			const liveToolCallCount = processIntermediateMessages.reduce(
-				(count, message) =>
-					count +
-					message.content.filter((block) => block.type === "tool_use").length,
-				0,
-			);
-			const showRuntimeStatus =
-				input.streaming?.runtimePhase === "llm_call_started";
-			const showStartingStatus =
-				input.streaming?.status === "pending" &&
-				(input.streaming?.contentBlocks.length ?? 0) === 0;
-			const shouldShowProcess = Boolean(
+			const liveToolCallCount = countToolUses(processIntermediateMessages);
+			const hasProcessContent =
 				processIntermediateMessages.length > 0 ||
-					(turn.intermediateSummary?.messageCount ?? 0) > 0 ||
-					showRuntimeStatus ||
-					showStartingStatus,
-			);
+				(turn.intermediateSummary?.messageCount ?? 0) > 0;
 			streamingProcessInserted = true;
-			if (shouldShowProcess) {
+			if (hasProcessContent) {
 				const summary = {
 					...(turn.intermediateSummary ?? {}),
 					messageCount: Math.max(
@@ -265,9 +284,6 @@ export function buildTurnTimelineItems(input: {
 							? processIntermediateMessages
 							: undefined,
 					streaming: true,
-					runtimePhase: input.streaming?.runtimePhase ?? null,
-					runtimeProvider: input.streaming?.runtimeProvider ?? null,
-					runtimeModel: input.streaming?.runtimeModel ?? null,
 				});
 			}
 		} else if (
@@ -280,44 +296,24 @@ export function buildTurnTimelineItems(input: {
 				turn,
 				summary: turn.intermediateSummary,
 			});
-			if (isStreamingActiveTurn) streamingProcessInserted = true;
 		} else if (
 			hasStreamingState &&
 			(!streamingTurnId || streamingTurnId === turn.id)
 		) {
 			const processIntermediateMessages =
 				input.streaming?.intermediateMessages ?? [];
-			const showRuntimeStatus =
-				input.streaming?.runtimePhase === "llm_call_started";
-			const showStartingStatus =
-				input.streaming?.status === "pending" &&
-				(input.streaming?.contentBlocks.length ?? 0) === 0;
 			streamingProcessInserted = true;
-			if (
-				processIntermediateMessages.length > 0 ||
-				showRuntimeStatus ||
-				showStartingStatus
-			) {
-				const summary = {
-					messageCount: processIntermediateMessages.length,
-					toolCallCount: processIntermediateMessages.reduce(
-						(count, message) =>
-							count +
-							message.content.filter((block) => block.type === "tool_use")
-								.length,
-						0,
-					),
-				} satisfies SessionTurnIntermediateSummary;
+			if (processIntermediateMessages.length > 0) {
 				items.push({
 					id: `${turnRenderKey}:process:streaming`,
 					kind: "process",
 					turn,
-					summary,
+					summary: {
+						messageCount: processIntermediateMessages.length,
+						toolCallCount: countToolUses(processIntermediateMessages),
+					},
 					intermediateMessages: processIntermediateMessages,
 					streaming: true,
-					runtimePhase: input.streaming?.runtimePhase ?? null,
-					runtimeProvider: input.streaming?.runtimeProvider ?? null,
-					runtimeModel: input.streaming?.runtimeModel ?? null,
 				});
 			}
 		}
@@ -373,35 +369,17 @@ export function buildTurnTimelineItems(input: {
 				} satisfies SessionTurnRecord);
 		const processIntermediateMessages =
 			input.streaming?.intermediateMessages ?? [];
-		const showRuntimeStatus =
-			input.streaming?.runtimePhase === "llm_call_started";
-		const showStartingStatus =
-			input.streaming?.status === "pending" &&
-			(input.streaming?.contentBlocks.length ?? 0) === 0;
-		if (
-			processIntermediateMessages.length > 0 ||
-			showRuntimeStatus ||
-			showStartingStatus
-		) {
+		if (processIntermediateMessages.length > 0) {
 			items.push({
 				id: `${getTurnRenderKey(turn)}:process:streaming`,
 				kind: "process",
 				turn,
 				summary: {
 					messageCount: processIntermediateMessages.length,
-					toolCallCount: processIntermediateMessages.reduce(
-						(count, message) =>
-							count +
-							message.content.filter((block) => block.type === "tool_use")
-								.length,
-						0,
-					),
+					toolCallCount: countToolUses(processIntermediateMessages),
 				},
 				intermediateMessages: processIntermediateMessages,
 				streaming: true,
-				runtimePhase: input.streaming?.runtimePhase ?? null,
-				runtimeProvider: input.streaming?.runtimeProvider ?? null,
-				runtimeModel: input.streaming?.runtimeModel ?? null,
 			});
 		}
 	}
@@ -441,6 +419,27 @@ export function buildTurnTimelineItems(input: {
 					createdAt: renderCreatedAt,
 					meta: { messageKind: "assistant_streaming_preview" },
 				},
+			});
+		}
+	}
+	// Turn footer sits at the very end of the active turn — a tail status for
+	// "still waiting / starting", not a mid-timeline process card.
+	if (hasStreamingState && input.streaming) {
+		const footerPhase = resolveTurnFooterPhase(input.streaming);
+		if (footerPhase) {
+			const footerTurn =
+				input.turns.find((turn) => turn.id === streamingTurnId) ??
+				input.turns.at(-1) ??
+				null;
+			const footerKey = footerTurn
+				? getTurnRenderKey(footerTurn)
+				: `streaming:${input.streaming.sessionId ?? input.sessionId ?? "active"}`;
+			items.push({
+				id: `${footerKey}:footer`,
+				kind: "turn_footer",
+				phase: footerPhase,
+				runtimeProvider: input.streaming.runtimeProvider ?? null,
+				runtimeModel: input.streaming.runtimeModel ?? null,
 			});
 		}
 	}

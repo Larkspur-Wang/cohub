@@ -46,6 +46,8 @@ export type ToolState = {
 	output: string;
 };
 
+export type TurnFooterPhase = "starting" | "waiting_model";
+
 export type TimelineItem =
 	| {
 			id: string;
@@ -64,7 +66,11 @@ export type TimelineItem =
 			summary?: SessionTurnIntermediateSummary;
 			intermediateMessages?: import("@cohub/protocol/model").StoredIntermediateMessage[];
 			streaming?: boolean;
-			runtimePhase?: "llm_call_started" | null;
+	  }
+	| {
+			id: string;
+			kind: "turn_footer";
+			phase: TurnFooterPhase;
 			runtimeProvider?: string | null;
 			runtimeModel?: string | null;
 	  }

@@ -6,14 +6,13 @@ import type {
 	StoredIntermediateMessage,
 } from "@cohub/protocol/model";
 import { ChevronDown, ChevronRight, Loader2, RotateCw } from "lucide-svelte";
-import GenerationRuntimeStatusRow from "$lib/components/GenerationRuntimeStatusRow.svelte";
 import IntermediateMessageBubble from "$lib/components/IntermediateMessageBubble.svelte";
 import {
 	formatDurationDetail,
 	formatDurationMs,
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
-import { getModelDisplayName, type ModelCatalogItem } from "$lib/model-catalog";
+import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
 type IntermediateLoadState =
@@ -28,9 +27,6 @@ type Props = {
 	summary?: SessionTurnIntermediateSummary;
 	intermediateMessages?: StoredIntermediateMessage[] | null;
 	streaming?: boolean;
-	runtimePhase?: "llm_call_started" | null;
-	runtimeProvider?: string | null;
-	runtimeModel?: string | null;
 	modelsCatalog?: ModelCatalogItem[];
 	onLoadIntermediate?: (
 		turn: SessionTurnRecord,
@@ -50,9 +46,6 @@ const {
 	summary,
 	intermediateMessages: liveIntermediateMessages = null,
 	streaming = false,
-	runtimePhase = null,
-	runtimeProvider = null,
-	runtimeModel = null,
 	modelsCatalog,
 	onLoadIntermediate,
 	onRequestIntermediateSync,
@@ -236,42 +229,16 @@ const usageTitle = $derived.by(() => {
 	if (durationTitle) parts.push(durationTitle);
 	return parts.join(" · ");
 });
-const runtimeModelDisplayName = $derived(
-	getModelDisplayName(modelsCatalog, {
-		provider: runtimeProvider ?? turn.provider,
-		model: runtimeModel,
-	}),
-);
-const waitingLabel = $derived(
-	runtimePhase === "llm_call_started"
-		? runtimeModelDisplayName
-			? `waiting ${runtimeModelDisplayName}`
-			: "waiting model"
-		: "",
-);
-const startingLabel = $derived(
-	streaming && !waitingLabel && effectiveMessages.length === 0
-		? "starting agent"
-		: "",
-);
-const runtimeLabel = $derived(waitingLabel || startingLabel);
-const runtimeDisplayLabel = $derived(runtimeLabel ? `${runtimeLabel}...` : "");
-const isRuntimeOnly = $derived(
-	Boolean(runtimeLabel && messageCount === 0 && toolCallCount === 0),
-);
 const labelParts = $derived(
 	[
 		messageCount > 0
 			? `${messageCount} step${messageCount > 1 ? "s" : ""}`
-			: runtimeLabel
-				? ""
-				: streaming
-					? "starting agent"
-					: "",
+			: streaming
+				? "Running…"
+				: "",
 		toolCallCount > 0
 			? `${toolCallCount} tool${toolCallCount > 1 ? "s" : ""}`
 			: "",
-		runtimeLabel,
 		usageBreakdownLabel ||
 			(usageTokens > 0 ? `${formatTokenCount(usageTokens)} tokens` : ""),
 		durationLabel,
@@ -283,16 +250,10 @@ const summaryLabel = $derived(
 </script>
 
 {#if !expanded}
-	{#if isRuntimeOnly}
-		<div class="px-2 py-1.5">
-			<GenerationRuntimeStatusRow label={runtimeDisplayLabel} compact />
-		</div>
-	{:else}
-		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={isLoading} onclick={() => void toggle()} title={usageTitle || undefined}>
-			{#if isLoading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
-			<span class="text-[13px] text-text-tertiary tabular-nums">{summaryLabel}</span>
-		</button>
-	{/if}
+	<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md disabled:cursor-wait disabled:opacity-75" disabled={isLoading} onclick={() => void toggle()} title={usageTitle || undefined}>
+		{#if isLoading}<Loader2 class="w-3.5 h-3.5 text-text-tertiary shrink-0 animate-spin" />{:else}<ChevronRight class="w-3.5 h-3.5 text-text-tertiary shrink-0" />{/if}
+		<span class="text-[13px] text-text-tertiary tabular-nums">{summaryLabel}</span>
+	</button>
 {:else}
 	<div class="flex flex-col gap-0">
 		<button type="button" class="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer rounded-md" onclick={() => void toggle()} title={usageTitle || undefined}>
@@ -313,11 +274,6 @@ const summaryLabel = $derived(
 			{#each expandedMessages as msg (msg.id)}
 				<IntermediateMessageBubble message={msg} streaming={streaming} {modelsCatalog} onLoadToolCalls={onLoadToolCalls ? () => onLoadToolCalls({ turn, message: msg }) : undefined} {onOpenFile} />
 			{/each}
-			{#if runtimeLabel}
-				<div class="pl-5">
-					<GenerationRuntimeStatusRow label={runtimeDisplayLabel} />
-				</div>
-			{/if}
 		</div>
 		<button type="button" class="flex items-center gap-1.5 px-2 py-1.5 text-left transition-colors hover:bg-bg-hover/50 cursor-pointer text-text-placeholder hover:text-text-tertiary rounded-md self-start" onclick={() => void toggle()}>
 			<ChevronRight class="w-3 h-3" />
