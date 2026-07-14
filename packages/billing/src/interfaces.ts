@@ -53,7 +53,6 @@ export const COHUB_BILLING_FEATURES = {
   spaceModsMax: "space.mods.max",
   spaceCommerce: "space.commerce",
   workPublishHideCohubBar: "work.publish.hide_cohub_bar",
-  spaceOwnedUnlimited: "space.owned.unlimited",
 } as const;
 
 export type CohubBillingTokenType =
