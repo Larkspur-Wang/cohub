@@ -7,12 +7,17 @@
 import { page } from "$app/state";
 import UserSessionsPage from "$lib/features/sessions/UserSessionsPage.svelte";
 
-// Child +page loads supply sessionId / isNew / spaceId; layout owns the UI.
+// Child +page loads supply sessionId / isNew / newChatSpaceId; layout owns the UI.
+// Prefer newChatSpaceId over spaceId so draft targets never collide with app-layout
+// workspace spaceId (which drives left-sidebar layout prefs).
 const data = $derived({
 	sessionId: (page.data.sessionId as string | null | undefined) ?? null,
 	turnSequence: (page.data.turnSequence as string | null | undefined) ?? null,
 	isNew: Boolean(page.data.isNew),
-	spaceId: (page.data.spaceId as string | null | undefined) ?? null,
+	spaceId:
+		(page.data.newChatSpaceId as string | null | undefined) ??
+		(page.data.spaceId as string | null | undefined) ??
+		null,
 });
 </script>
 

@@ -5,6 +5,7 @@ export const load: PageLoad = async ({ params, url }) => {
 		sessionId: params.sessionId,
 		turnSequence: url.searchParams.get("turn"),
 		isNew: false as const,
+		newChatSpaceId: null as string | null,
 		spaceId: null as string | null,
 	};
 };

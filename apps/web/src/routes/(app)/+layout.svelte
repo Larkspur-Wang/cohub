@@ -58,14 +58,17 @@ const currentPath = $derived(page.url.pathname);
 const sidebarMode = $derived(
 	currentPath.startsWith("/settings") ? "settings" : "space",
 );
+// Per-space layout prefs (sidebar width/collapsed). Only real /spaces/* workspaces.
+// Never take sessions new-chat draft space from page.data — that caused the left
+// rail to jump when switching New chat target spaces on /sessions.
 const currentLayoutSpaceId = $derived.by(() => {
+	if (!currentPath.startsWith("/spaces/")) return null;
 	const data = page.data as { spaceId?: unknown };
 	if (typeof data.spaceId === "string" && data.spaceId.length > 0) {
 		return data.spaceId;
 	}
-	if (!currentPath.startsWith("/spaces/")) return null;
 	const id = page.params.id;
-	return typeof id === "string" && id.length > 0 ? id : null;
+	return typeof id === "string" && id.length > 0 && id !== "new" ? id : null;
 });
 
 let showHelpPanel = $state(false);
