@@ -1,22 +1,49 @@
 <script lang="ts">
 import { ArrowRight } from "lucide-svelte";
 import { onMount } from "svelte";
+import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
-import { signInWithRedirectPath } from "$lib/auth";
-import CenteredLoading from "$lib/components/CenteredLoading.svelte";
+import { hasLocalSessionHint, signInWithRedirectPath } from "$lib/auth";
 import LandingDemo from "$lib/components/LandingDemo.svelte";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
 import { sdk } from "$lib/sdk";
+import { canonicalUrl as buildCanonical } from "$lib/seo";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
-import { setCachedSpaceList } from "$lib/stores/space-list-cache";
+import { getRecentSpace } from "$lib/stores/recent-space";
+import {
+	getCachedSpaceList,
+	setCachedSpaceList,
+} from "$lib/stores/space-list-cache";
+import { getResolvedTheme } from "$lib/theme.svelte";
 
-let isLoading = $state(true);
-let isAuthenticated = $state(false);
-let spaceCount = $state(0);
+// Home marketing is always dark (app.html also forces it for first paint).
+if (browser) {
+	document.documentElement.setAttribute("data-theme", "dark");
+}
 
-const canonicalUrl = $derived(`${page.url.origin}${page.url.pathname}`);
+/**
+ * SSR always emits marketing HTML (SEO / no-JS).
+ * Client: FOUC script may set data-home-redirect; we adopt that for UI state
+ * without changing SSR markup structure (overlay + visibility, not if/else).
+ */
+function initialRedirectIntent(): boolean {
+	if (!browser) return false;
+	if (document.documentElement.getAttribute("data-home-redirect") === "1") {
+		return true;
+	}
+	return hasLocalSessionHint();
+}
+
+let redirecting = $state(initialRedirectIntent());
+
+const canonical = $derived(buildCanonical(page.url.origin, "/"));
+
+function clearHomeRedirectAttr() {
+	if (!browser) return;
+	document.documentElement.removeAttribute("data-home-redirect");
+}
 
 async function handlePrimaryCta() {
 	try {
@@ -31,28 +58,62 @@ async function handlePrimaryCta() {
 	}
 }
 
-onMount(async () => {
-	await authStore.ensureLoaded(true);
-	isAuthenticated = authStore.isAuthenticated;
-	if (!authStore.isAuthenticated) {
-		isLoading = false;
-		return;
+async function resolveHomeDestination(): Promise<string> {
+	const userKey = authStore.userUuid;
+	if (userKey) {
+		const recent = getRecentSpace(userKey);
+		if (recent?.spaceId) return buildSpaceLandingRoute(recent.spaceId);
 	}
+
+	const cached = getCachedSpaceList();
+	if (cached?.[0]?.id) return buildSpaceLandingRoute(cached[0].id);
 
 	try {
 		const spaces = setCachedSpaceList(await sdk.spaces.list());
-		spaceCount = spaces.length;
 		const defaultResult = await sdk.spaces.getDefault().catch(() => null);
 		const targetSpace = defaultResult?.space ?? spaces[0] ?? null;
-		if (targetSpace) {
-			await goto(buildSpaceLandingRoute(targetSpace.id));
+		if (targetSpace) return buildSpaceLandingRoute(targetSpace.id);
+	} catch {
+		// Authenticated with no reachable space → create flow.
+	}
+
+	return "/spaces/new";
+}
+
+onMount(() => {
+	// Keep dark while on home; restore visitor theme when leaving.
+	document.documentElement.setAttribute("data-theme", "dark");
+
+	void (async () => {
+		const maybeSession = redirecting || hasLocalSessionHint();
+		if (!maybeSession) {
+			clearHomeRedirectAttr();
+			// Warm auth so Start is snappy; don't block marketing paint.
+			void authStore.ensureLoaded(true);
 			return;
 		}
-	} catch {
-		// Keep the landing page usable even if space loading fails.
-	} finally {
-		isLoading = false;
-	}
+
+		redirecting = true;
+		document.documentElement.setAttribute("data-home-redirect", "1");
+		try {
+			await authStore.ensureLoaded(true);
+			if (!authStore.isAuthenticated) {
+				redirecting = false;
+				clearHomeRedirectAttr();
+				return;
+			}
+			const dest = await resolveHomeDestination();
+			await goto(dest);
+		} catch (error) {
+			console.warn("[home] Session redirect failed:", error);
+			redirecting = false;
+			clearHomeRedirectAttr();
+		}
+	})();
+
+	return () => {
+		document.documentElement.setAttribute("data-theme", getResolvedTheme());
+	};
 });
 </script>
 
@@ -62,7 +123,7 @@ onMount(async () => {
 		name="description"
 		content="A living Space for people and agents to create, play, and build together. Start anywhere, make in any medium, share as Works."
 	/>
-	<link rel="canonical" href={canonicalUrl} />
+	<link rel="canonical" href={canonical} />
 	<meta property="og:type" content="website" />
 	<meta property="og:site_name" content="Cohub" />
 	<meta property="og:title" content="Cohub — create, play, and build with people and agents" />
@@ -70,7 +131,7 @@ onMount(async () => {
 		property="og:description"
 		content="A living Space for people and agents. Start anywhere, make in any medium, share as Works."
 	/>
-	<meta property="og:url" content={canonicalUrl} />
+	<meta property="og:url" content={canonical} />
 	<meta name="twitter:card" content="summary" />
 	<meta name="twitter:title" content="Cohub — create, play, and build with people and agents" />
 	<meta
@@ -79,16 +140,14 @@ onMount(async () => {
 	/>
 </svelte:head>
 
-{#if isLoading}
-	<div class="flex min-h-0 flex-1 items-center justify-center">
-		<CenteredLoading label="Loading..." size="compact" />
-	</div>
-{:else if spaceCount > 0}
-	<div class="flex min-h-0 flex-1 items-center justify-center">
-		<CenteredLoading label="Redirecting..." size="compact" />
-	</div>
-{:else}
-	<div class="flex min-h-0 flex-1 flex-col overflow-y-auto bg-bg-primary">
+<div class="relative min-h-screen">
+	<!-- Always in DOM for crawlers; FOUC + redirecting hide for returning users. -->
+	<div
+		class="home-marketing flex min-h-0 flex-1 flex-col overflow-y-auto bg-bg-primary {redirecting
+			? 'invisible pointer-events-none'
+			: ''}"
+		aria-hidden={redirecting ? "true" : undefined}
+	>
 		<!-- Ambient brand glow -->
 		<div
 			aria-hidden="true"
@@ -369,9 +428,36 @@ onMount(async () => {
 			</div>
 		</footer>
 	</div>
-{/if}
+
+	<!--
+	  Always mounted so FOUC (data-home-redirect) can show it before hydration.
+	  No crawlable copy — spinner only. Hidden unless redirecting / FOUC attr.
+	-->
+	<div
+		class="home-redirect-shell absolute inset-0 z-50 min-h-screen items-center justify-center bg-bg-primary {redirecting
+			? 'flex'
+			: 'hidden'}"
+		role="status"
+		aria-live="polite"
+		aria-busy={redirecting ? "true" : undefined}
+		aria-hidden={redirecting ? undefined : "true"}
+	>
+		<span
+			class="h-5 w-5 animate-spin rounded-full border-2 border-border-subtle border-t-brand"
+			aria-label="Loading"
+		></span>
+	</div>
+</div>
 
 <style>
+	/* Pre-hydration: app.html sets data-home-redirect when a session may exist. */
+	:global(html[data-home-redirect="1"] .home-marketing) {
+		visibility: hidden;
+		pointer-events: none;
+	}
+	:global(html[data-home-redirect="1"] .home-redirect-shell) {
+		display: flex !important;
+	}
 	@keyframes live-pulse {
 		0%,
 		100% {

@@ -1,7 +1,8 @@
 import LogtoClient, { type IdTokenClaims } from "@logto/browser";
 
 const IS_DEV =
-	location.hostname.startsWith("dev") || process.env.NODE_ENV === "development";
+	(typeof location !== "undefined" && location.hostname.startsWith("dev")) ||
+	process.env.NODE_ENV === "development";
 
 /**
  * Official hosted defaults. Self-hosted deployments should override via
@@ -27,24 +28,100 @@ const LOGTO_ENDPOINT =
 
 const LOGTO_APP_ID = process.env.PUBLIC_LOGTO_APP_ID?.trim() || OFFICIAL.appId;
 
-export const logtoClient = new LogtoClient({
-	endpoint: LOGTO_ENDPOINT,
-	appId: LOGTO_APP_ID,
-	scopes: ["openid", "offline_access", "profile", "email"],
-	resources: [API_RESOURCE],
+/**
+ * Lazy browser-only client. Safe to import on the server; construction and
+ * method access only happen in the browser.
+ */
+let logtoClientInstance: LogtoClient | null = null;
+
+function getLogtoClient(): LogtoClient {
+	if (typeof window === "undefined") {
+		throw new Error("Logto client is only available in the browser");
+	}
+	if (!logtoClientInstance) {
+		logtoClientInstance = new LogtoClient({
+			endpoint: LOGTO_ENDPOINT,
+			appId: LOGTO_APP_ID,
+			scopes: ["openid", "offline_access", "profile", "email"],
+			resources: [API_RESOURCE],
+		});
+	}
+	return logtoClientInstance;
+}
+
+export const logtoClient: LogtoClient = new Proxy({} as LogtoClient, {
+	get(_target, property, _receiver) {
+		const client = getLogtoClient();
+		const value = Reflect.get(client, property, client);
+		return typeof value === "function"
+			? (value as (...args: unknown[]) => unknown).bind(client)
+			: value;
+	},
+	set(_target, property, value) {
+		const client = getLogtoClient();
+		return Reflect.set(client, property, value, client);
+	},
 });
 
 export const AUTH_TOKEN_STORAGE_KEY = "cohub_token";
+/** Lightweight flag for first-paint home redirect (not an auth token). */
+export const SESSION_HINT_STORAGE_KEY = "cohub:session-hint";
+
+function hasLogtoSessionResidue(): boolean {
+	if (typeof localStorage === "undefined") return false;
+	// Logto BrowserStorage keys: logto:<appId>:<item>
+	const prefix = `logto:${LOGTO_APP_ID}:`;
+	return Boolean(
+		localStorage.getItem(`${prefix}refreshToken`) ||
+			localStorage.getItem(`${prefix}idToken`),
+	);
+}
+
+/**
+ * Sync, best-effort signal that a browser session may exist.
+ * Used to avoid marketing-page flash before auth finishes hydrating.
+ * Never treat this as authenticated — always confirm with ensureLoaded().
+ */
+export function hasLocalSessionHint(): boolean {
+	if (typeof window === "undefined" || typeof localStorage === "undefined") {
+		return false;
+	}
+	try {
+		if (localStorage.getItem(SESSION_HINT_STORAGE_KEY) === "1") return true;
+		const cached = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim();
+		if (cached) {
+			setSessionHint(true);
+			return true;
+		}
+		if (hasLogtoSessionResidue()) {
+			setSessionHint(true);
+			return true;
+		}
+		return false;
+	} catch {
+		return false;
+	}
+}
+
+export function setSessionHint(active: boolean) {
+	if (typeof localStorage === "undefined") return;
+	try {
+		if (active) localStorage.setItem(SESSION_HINT_STORAGE_KEY, "1");
+		else localStorage.removeItem(SESSION_HINT_STORAGE_KEY);
+	} catch {
+		// ignore quota / private mode
+	}
+}
 
 type LogtoClientWithRefreshFallback = {
 	getAccessTokenByRefreshToken?: (resource?: string) => Promise<string>;
 };
 
 const getAccessTokenByRefreshToken = async (): Promise<string | null> => {
-	const refreshToken = await logtoClient.getRefreshToken().catch(() => null);
-	const refreshWithToken = (
-		logtoClient as unknown as LogtoClientWithRefreshFallback
-	).getAccessTokenByRefreshToken;
+	const client = getLogtoClient();
+	const refreshToken = await client.getRefreshToken().catch(() => null);
+	const refreshWithToken = (client as unknown as LogtoClientWithRefreshFallback)
+		.getAccessTokenByRefreshToken;
 
 	if (!refreshToken) return null;
 
@@ -55,7 +132,7 @@ const getAccessTokenByRefreshToken = async (): Promise<string | null> => {
 		return null;
 	}
 
-	return await refreshWithToken.call(logtoClient, API_RESOURCE);
+	return await refreshWithToken.call(client, API_RESOURCE);
 };
 
 type GetAuthTokenOptions = { forceRefresh?: boolean };
@@ -71,10 +148,11 @@ type GetAuthTokenOptions = { forceRefresh?: boolean };
 export const getAuthToken = async (
 	options?: GetAuthTokenOptions,
 ): Promise<string | null> => {
+	if (typeof window === "undefined") return null;
 	try {
 		const token = options?.forceRefresh
 			? await getAccessTokenByRefreshToken()
-			: await logtoClient.getAccessToken(API_RESOURCE);
+			: await getLogtoClient().getAccessToken(API_RESOURCE);
 		return sanitizeClientToken(token);
 	} catch {
 		try {
@@ -94,17 +172,20 @@ function sanitizeClientToken(token: string | null | undefined): string | null {
 
 export const getCurrentIdTokenClaims =
 	async (): Promise<IdTokenClaims | null> => {
+		if (typeof window === "undefined") return null;
 		try {
-			return await logtoClient.getIdTokenClaims();
+			return await getLogtoClient().getIdTokenClaims();
 		} catch {
 			return null;
 		}
 	};
 
 export const hasRecoverableAuthSession = async (): Promise<boolean> => {
+	if (typeof window === "undefined") return false;
+	const client = getLogtoClient();
 	const [hasIdToken, refreshToken] = await Promise.all([
-		logtoClient.isAuthenticated().catch(() => false),
-		logtoClient.getRefreshToken().catch(() => null),
+		client.isAuthenticated().catch(() => false),
+		client.getRefreshToken().catch(() => null),
 	]);
 
 	return hasIdToken || Boolean(refreshToken);
@@ -112,8 +193,9 @@ export const hasRecoverableAuthSession = async (): Promise<boolean> => {
 
 export const clearBrokenAuthSession = async () => {
 	clearAuthToken();
+	if (typeof window === "undefined") return;
 	try {
-		await logtoClient.clearAllTokens();
+		await getLogtoClient().clearAllTokens();
 	} catch {
 		// Ignore cleanup failures.
 	}
@@ -126,11 +208,15 @@ export const setAuthToken = (token: string) => {
 	const cleaned = token.replace(/[\r\n\t\0]/g, "").trim();
 	if (!cleaned) return;
 	localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, cleaned);
+	setSessionHint(true);
 };
 
 export const clearAuthToken = () => {
 	if (typeof localStorage === "undefined") return;
 	localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+	// Single source of truth for hint teardown — covers clearBrokenAuthSession
+	// and redirectToSignIn({ clearSession }) via clearAuthToken().
+	setSessionHint(false);
 };
 
 const createRedirectState = (redirectPath?: string) => {
@@ -142,15 +228,16 @@ const createRedirectState = (redirectPath?: string) => {
 };
 
 export const signInWithRedirectPath = async (redirectPath?: string) => {
-	const originalGenerateState = logtoClient.adapter.generateState;
+	const client = getLogtoClient();
+	const originalGenerateState = client.adapter.generateState;
 
-	logtoClient.adapter.generateState = () => createRedirectState(redirectPath);
+	client.adapter.generateState = () => createRedirectState(redirectPath);
 	try {
-		await logtoClient.signIn({
+		await client.signIn({
 			redirectUri: `${window.location.origin}/callback`,
 		});
 	} finally {
-		logtoClient.adapter.generateState = originalGenerateState;
+		client.adapter.generateState = originalGenerateState;
 	}
 };
 

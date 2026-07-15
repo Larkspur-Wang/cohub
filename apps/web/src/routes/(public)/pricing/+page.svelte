@@ -7,8 +7,14 @@ import { page } from "$app/state";
 import { signInWithRedirectPath } from "$lib/auth";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
 import { sdk } from "$lib/sdk";
+import { canonicalUrl } from "$lib/seo";
 import { authStore } from "$lib/stores/auth.svelte";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
+
+const pricingTitle = "Pricing — Cohub";
+const pricingDescription =
+	"Simple, transparent pricing for Cohub agent work. Pay for the agent work you run.";
+const canonical = $derived(canonicalUrl(page.url.origin, "/pricing"));
 
 type PlanInterval = "monthly" | "yearly";
 
@@ -225,8 +231,17 @@ onMount(() => {
 </script>
 
 <svelte:head>
-	<title>Pricing — Cohub</title>
-	<meta name="description" content="Simple, transparent pricing for Cohub agent work." />
+	<title>{pricingTitle}</title>
+	<meta name="description" content={pricingDescription} />
+	<link rel="canonical" href={canonical} />
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="Cohub" />
+	<meta property="og:title" content={pricingTitle} />
+	<meta property="og:description" content={pricingDescription} />
+	<meta property="og:url" content={canonical} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pricingTitle} />
+	<meta name="twitter:description" content={pricingDescription} />
 </svelte:head>
 
 <div class="min-h-screen bg-bg-primary text-text-primary">

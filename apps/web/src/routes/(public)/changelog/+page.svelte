@@ -1,7 +1,37 @@
 <script lang="ts">
 import { onMount } from "svelte";
-import { type ChangelogEntry, entries } from "$lib/changelog";
+import { page } from "$app/state";
+import {
+	type ChangelogEntry,
+	changelogDescription,
+	entries,
+	latestEntry,
+} from "$lib/changelog";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
+import { canonicalUrl } from "$lib/seo";
+
+const description = changelogDescription();
+const pageTitle = latestEntry
+	? `Changelog · v${latestEntry.version} · Cohub`
+	: "Changelog · Cohub";
+const canonical = $derived(canonicalUrl(page.url.origin, "/changelog"));
+const jsonLd = $derived(
+	JSON.stringify({
+		"@context": "https://schema.org",
+		"@type": "ItemList",
+		name: "Cohub Changelog",
+		description,
+		url: canonical,
+		numberOfItems: Math.min(entries.length, 20),
+		itemListElement: entries.slice(0, 20).map((entry, index) => ({
+			"@type": "ListItem",
+			position: index + 1,
+			name: `v${entry.version}`,
+			url: `${canonical}#v${entry.version}`,
+			datePublished: entry.date,
+		})),
+	}),
+);
 
 /** Render trusted inline markdown (bold + code) from our own changelog data. */
 function renderInline(text: string): string {
@@ -218,8 +248,18 @@ onMount(() => {
 </script>
 
 <svelte:head>
-	<title>Changelog · Cohub</title>
-	<meta name="description" content="What's new in Cohub" />
+	<title>{pageTitle}</title>
+	<meta name="description" content={description} />
+	<link rel="canonical" href={canonical} />
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="Cohub" />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={description} />
+	<meta property="og:url" content={canonical} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={description} />
+	{@html `<script type="application/ld+json">${jsonLd.replace(/</g, "\\u003c")}</script>`}
 </svelte:head>
 
 <div class="min-h-screen bg-bg-primary text-text-primary">

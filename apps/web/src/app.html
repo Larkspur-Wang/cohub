@@ -31,7 +31,12 @@
         };
         var stored = localStorage.getItem('cohub-theme');
         var resolved;
-        if (Object.hasOwn(themeColors, stored)) {
+        var path = location.pathname;
+        // Marketing home is always dark; other public pages follow the visitor theme.
+        var isHome = path === '/' || path === '';
+        if (isHome) {
+          resolved = 'dark';
+        } else if (Object.hasOwn(themeColors, stored)) {
           resolved = stored;
         } else if (stored === 'system' || !stored) {
           resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -43,6 +48,32 @@
           'content',
           themeColors[resolved]
         );
+
+        // Home: if a session may exist, hide marketing before paint (SEO HTML still in DOM).
+        var homeHint = false;
+        var homeToken = '';
+        var homeLogto = false;
+        var logtoApps = ['vpikk7sl9zwvefiptowtn', '16ai0wao2mud3xqkbzqo0'];
+        var i = 0;
+        if (path === '/' || path === '') {
+          try {
+            homeHint = localStorage.getItem('cohub:session-hint') === '1';
+            homeToken = (localStorage.getItem('cohub_token') || '').trim();
+            // Official Logto app ids (dev + prod) — residue means a prior session.
+            for (i = 0; i < logtoApps.length; i++) {
+              if (
+                localStorage.getItem(`logto:${logtoApps[i]}:refreshToken`) ||
+                localStorage.getItem(`logto:${logtoApps[i]}:idToken`)
+              ) {
+                homeLogto = true;
+                break;
+              }
+            }
+            if (homeHint || homeToken || homeLogto) {
+              document.documentElement.setAttribute('data-home-redirect', '1');
+            }
+          } catch (_error) {}
+        }
       })();
     </script>
     %sveltekit.head%

@@ -2952,6 +2952,7 @@ async function handleLogout() {
 	const userUuid = authStore.userUuid;
 	if (userUuid) clearRecentSpace(userUuid);
 	if (userUuid) clearGrantedWorkScopes(userUuid);
+	authStore.reset();
 	try {
 		await logtoClient.signOut(`${window.location.origin}/`);
 	} catch (error) {

@@ -5,6 +5,7 @@ import {
 	getAuthToken,
 	getCurrentIdTokenClaims,
 	hasRecoverableAuthSession,
+	setSessionHint,
 } from "$lib/auth";
 import { sdk } from "$lib/sdk";
 import {
@@ -146,6 +147,7 @@ class AuthStore {
 					this.profile = restored.profile;
 					this.email = restored.email;
 					this.loaded = true;
+					setSessionHint(restored.isAuthenticated);
 				};
 				const restored = await restoreAuthSession(applySession, {
 					refreshInBackground: !force,
@@ -179,6 +181,7 @@ class AuthStore {
 
 	reset() {
 		clearCachedMeProfile(this.claims?.sub);
+		setSessionHint(false);
 		this.claims = null;
 		this.isAuthenticated = false;
 		this.loaded = false;
