@@ -313,7 +313,7 @@ $effect(() => {
   </span>
   <span class="name">{node.name}</span>
   {#if node.isLoading}
-    <Loader2 class="loading-spinner h-3 w-3 shrink-0 animate-spin" aria-label="Loading" />
+    <Loader2 class="h-3 w-3 shrink-0 animate-spin text-text-placeholder" aria-label="Loading" />
   {/if}
 
   {#if showItemActions && (canWrite || (!isDir && onDownload))}
@@ -476,10 +476,6 @@ $effect(() => {
     white-space: nowrap;
     font-size: 13px;
     line-height: 1.25;
-  }
-
-  .loading-spinner {
-    color: var(--text-placeholder);
   }
 
   .tree-item:hover:not(.menu-open) {
