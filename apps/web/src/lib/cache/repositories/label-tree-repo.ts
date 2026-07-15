@@ -89,10 +89,14 @@ async function writeRecord(
 		watermark: getLabelTreeWatermark(normalized),
 	};
 	memory.set(key, record);
-	// Keep label tree writes off the UI critical path.
-	void idbPut("label_trees", record).catch((error) => {
+	// Label trees are small and drive first-paint sidebar hydration. Await the put
+	// (with IDB timeout) so a quick refresh still hits warm cache. Large label
+	// item / session payloads stay fire-and-forget elsewhere.
+	try {
+		await idbPut("label_trees", record);
+	} catch (error) {
 		console.warn("[label-tree] Failed to persist", { spaceId, error });
-	});
+	}
 	if (options?.broadcast !== false) {
 		publishCacheMessage({
 			type: "cache-updated",

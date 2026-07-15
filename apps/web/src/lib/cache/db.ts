@@ -275,7 +275,8 @@ export const IDB_OP_TIMEOUT_MS = 2_500;
 export const IDB_OPEN_TIMEOUT_MS = 5_000;
 /** Extreme-path self-heal: repeated hard failures wipe only `cohub-web-cache`. */
 const IDB_FAILURE_WINDOW_MS = 30_000;
-const IDB_FAILURE_THRESHOLD = 3;
+/** Count only real store ops after open; concurrent first-open races must not wipe cache. */
+const IDB_FAILURE_THRESHOLD = 6;
 const IDB_RECOVERY_COOLDOWN_MS = 5 * 60_000;
 
 export class CacheTimeoutError extends Error {
@@ -320,11 +321,18 @@ function isSevereIdbFailure(error: unknown) {
 	);
 }
 
+function isStoreOpLabel(label: string) {
+	// Only count real store ops toward wipe recovery. openCacheDb races on cold
+	// start are expected under concurrency and must not clear warm cache.
+	return label.startsWith("idb:");
+}
+
 function noteIdbSuccess() {
 	recentIdbFailureAt = [];
 }
 
 function noteIdbFailure(error: unknown, label: string) {
+	if (!isStoreOpLabel(label)) return;
 	if (!isSevereIdbFailure(error)) return;
 	const now = Date.now();
 	recentIdbFailureAt = recentIdbFailureAt.filter(
@@ -661,11 +669,13 @@ async function withObjectStore<T>(
 	retry = true,
 ): Promise<T | null> {
 	const label = `idb:${mode}:${storeName}`;
+	// Open has its own budget. Do not fold it into the per-op timeout or first-paint
+	// concurrent reads race open and false-timeout, then recovery wipes warm cache.
+	const db = await openCacheDb();
+	if (!db) return null;
 	try {
 		const result = await withTimeout(
 			(async () => {
-				const db = await openCacheDb();
-				if (!db) return null;
 				try {
 					const tx = db.transaction(storeName, mode);
 					return await run(tx.objectStore(storeName), tx);
