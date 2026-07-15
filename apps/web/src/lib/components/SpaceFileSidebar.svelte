@@ -1,6 +1,13 @@
 <script lang="ts">
 import type { SpacePublicEndpoints } from "@cohub/protocol/ports";
-import { AlertCircle, Lock, Plus, RefreshCw, Upload } from "lucide-svelte";
+import {
+	AlertCircle,
+	Loader2,
+	Lock,
+	Plus,
+	RefreshCw,
+	Upload,
+} from "lucide-svelte";
 import { tick } from "svelte";
 import { floatNear } from "$lib/actions/portal";
 import ColumnHeader from "$lib/components/ColumnHeader.svelte";
@@ -393,14 +400,14 @@ $effect(() => {
   <SpacePreviewPorts endpoints={previewEndpoints} {activePort} onOpen={onOpenPort} />
 
   {#if error}
-    <div class="mx-3 mt-3 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[12px] text-error-soft">
-      <AlertCircle class="mt-0.5 h-4 w-4 shrink-0" />
+    <div class="mx-1.5 mt-2 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-2 text-[12px] text-error-soft">
+      <AlertCircle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <span>{error}</span>
     </div>
   {/if}
 
   <div
-    class="min-h-0 flex-1 overflow-auto px-2 py-2"
+    class="min-h-0 flex-1 overflow-auto px-1.5 pb-2 pt-1"
     class:root-drop-target={rootDragOver}
     class:root-move-target={rootMoveDragOver}
     bind:this={treeScrollContainer}
@@ -411,35 +418,37 @@ $effect(() => {
     ondrop={handleRootDrop}
   >
     {#if nodes.length === 0 && loading}
-      <div class="flex items-center gap-2 px-2 py-3 text-[12px] text-text-tertiary">
-        <RefreshCw class="h-3 w-3 animate-spin" />
+      <div class="flex min-h-8 items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder">
+        <Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
         <span>Loading files…</span>
       </div>
     {:else if nodes.length === 0}
-      <div class="px-2 py-3 text-[12px] text-text-tertiary">No files</div>
+      <div class="flex min-h-8 items-center rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder">No files</div>
     {:else}
-      {#each nodes as node (node.path)}
-        <FsTreeItem
-          {node}
-          depth={0}
-          {selectedPath}
-          {onToggle}
-          {onSelect}
-          {onCreateFile}
-          {onCreateCanvas}
-          {onCreateDir}
-          {onRename}
-          {onMove}
-          {onDelete}
-          {onDownload}
-          {onUpload}
-          {onInsertReference}
-          {onPublishDirectory}
-          {draggable}
-          {showItemActions}
-          {canWrite}
-        />
-      {/each}
+      <div class="space-y-[1px]">
+        {#each nodes as node (node.path)}
+          <FsTreeItem
+            {node}
+            depth={0}
+            {selectedPath}
+            {onToggle}
+            {onSelect}
+            {onCreateFile}
+            {onCreateCanvas}
+            {onCreateDir}
+            {onRename}
+            {onMove}
+            {onDelete}
+            {onDownload}
+            {onUpload}
+            {onInsertReference}
+            {onPublishDirectory}
+            {draggable}
+            {showItemActions}
+            {canWrite}
+          />
+        {/each}
+      </div>
     {/if}
   </div>
 </div>

@@ -3309,7 +3309,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet sidebarEmptyState(message: string, loading = false)}
-	<div class="flex min-h-8 items-center gap-2 rounded-[6px] px-2 py-2 text-[12px] text-text-placeholder">
+	<div class="flex min-h-8 items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder">
 		{#if loading}
 			<Loader2 class="h-3 w-3 animate-spin text-text-tertiary" />
 		{/if}
@@ -3330,9 +3330,9 @@ $effect(() => {
 		{@const itemIndentStyle = itemIndentPx > 0 ? `padding-left: ${itemIndentPx}px` : undefined}
 		{#if items.length === 0 && !hasChildLabels}
 			{#if currentLoadingLabelIds.has(label.id)}
-				<div class="flex items-center gap-2 py-1 pr-1.5 pl-2 text-[12px] text-text-tertiary" style={itemIndentStyle}><Loader2 class="h-3 w-3 animate-spin" /> Loading…</div>
+				<div class="flex min-h-8 items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder" style={itemIndentStyle}><Loader2 class="h-3 w-3 animate-spin text-text-tertiary" /> Loading…</div>
 			{:else}
-				<div class="py-1 pr-1.5 pl-2 text-[12px] text-text-tertiary" style={itemIndentStyle}>No items</div>
+				<div class="flex min-h-8 items-center rounded-[var(--sidebar-item-radius)] px-1.5 py-2 text-[12px] text-text-placeholder" style={itemIndentStyle}>No items</div>
 			{/if}
 		{:else if orderedItems.length > 0}
 			<div class="space-y-[1px]" style={itemIndentStyle}>
@@ -3752,7 +3752,7 @@ $effect(() => {
 		<div class="space-y-[2px]">
 			{#each cronjobs.slice(0, sidebarFlyoutPreviewLimit) as job (job.id)}
 				{@const isActive = activeCronjobId === job.id}
-				<a href={buildSpaceCronjobRoute(currentSpaceId!, job.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}>
+				<a href={buildSpaceCronjobRoute(currentSpaceId!, job.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}>
 					<div class="min-w-0 flex-1"><div class="truncate leading-tight">{job.title}</div></div>
 					<span class="h-1.5 w-1.5 shrink-0 rounded-full {job.enabled ? 'bg-status-running' : 'bg-text-placeholder'}"></span>
 				</a>
@@ -3771,7 +3771,7 @@ $effect(() => {
 			{#each works.slice(0, sidebarFlyoutPreviewLimit) as work (work.id)}
 				{@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, work.id) : "#"}
 				{@const isActive = activeWork?.id === work.id}
-				<a href={manageHref} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}>
+				<a href={manageHref} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}>
 					<div class="min-w-0 flex-1"><div class="truncate font-mono leading-tight">{work.slug}</div></div>
 				</a>
 			{/each}
@@ -3789,7 +3789,7 @@ $effect(() => {
 			{#each tasks.slice(0, sidebarFlyoutPreviewLimit) as run (run.id)}
 				{@const isActive = activeTaskId === run.id}
 				{@const badge = getTaskRunBadge(run.status)}
-				<a href={buildSpaceTaskRoute(currentSpaceId!, run.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[6px] px-2 py-1.5 text-[13px] {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}>
+				<a href={buildSpaceTaskRoute(currentSpaceId!, run.id)} class="sidebar-flyout-item flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}" onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}>
 					<div class="min-w-0 flex-1"><div class="truncate text-[12px] capitalize leading-tight {badge.color}">{run.status}</div><div class="mt-0.5 text-[10px] text-text-placeholder">{formatTaskRunTime(run)}</div></div>
 					<span class="h-1.5 w-1.5 shrink-0 rounded-full {badge.dot}"></span>
 				</a>
@@ -4149,10 +4149,7 @@ $effect(() => {
     {#if currentSpace}
       <div class="flex-1 overflow-y-auto px-1.5 pb-2 pt-1 min-h-0">
         {#if loadingSessions && sessions.length === 0 && loadingCheckpoints && checkpoints.length === 0}
-          <div class="px-1 py-4 text-[12px] text-text-tertiary text-center flex items-center justify-center gap-2">
-            <Loader2 class="w-3 h-3 animate-spin" />
-            Loading...
-          </div>
+          {@render sidebarEmptyState("Loading…", true)}
         {:else}
           {@render labelsSection()}
           {@render chatsSection()}
@@ -4173,12 +4170,9 @@ $effect(() => {
 
             {#if !worksCollapsed}
               {#if loadingWorks && works.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
-                  <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading works...
-                </div>
+                {@render sidebarEmptyState("Loading works…", true)}
               {:else if works.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No works</div>
+                {@render sidebarEmptyState("No works")}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each works as work (work.id)}
@@ -4186,7 +4180,7 @@ $effect(() => {
                     {@const isActive = activeWork?.id === work.id}
                     <a
                       href={manageHref}
-                      class="flex items-center gap-2 rounded-[6px] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+                      class="flex items-center gap-2 rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 text-[13px] transition-colors duration-100 {isActive ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}"
                       onclick={(e) => { e.preventDefault(); void handleNavigateToWork(work.id); }}
                     >
                       <div class="min-w-0 flex-1">
@@ -4200,7 +4194,7 @@ $effect(() => {
               {@const manageHref = currentSpaceId ? buildSpaceWorkRoute(currentSpaceId, activeWork.id) : "#"}
               <a
                 href={manageHref}
-                class="mt-1 flex items-center gap-2 rounded-[6px] bg-bg-active px-1.5 py-1.5 text-[13px] font-medium text-text-primary transition-colors duration-100"
+                class="mt-1 flex items-center gap-2 rounded-[var(--sidebar-item-radius)] bg-[var(--sidebar-item-active-bg)] px-1.5 py-1.5 text-[13px] font-medium text-[var(--sidebar-item-active-fg)] transition-colors duration-100"
                 onclick={(e) => { e.preventDefault(); void handleNavigateToWork(activeWork.id); }}
               >
                 <div class="min-w-0 flex-1">
@@ -4225,12 +4219,9 @@ $effect(() => {
 
             {#if !checkpointsCollapsed}
               {#if loadingCheckpoints && checkpoints.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
-                  <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading saves...
-                </div>
+                {@render sidebarEmptyState("Loading saves…", true)}
               {:else if checkpoints.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No saves</div>
+                {@render sidebarEmptyState("No saves")}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each checkpoints as checkpoint (checkpoint.id)}
@@ -4299,19 +4290,16 @@ $effect(() => {
 
             {#if !cronjobsCollapsed}
               {#if loadingCronjobs && cronjobs.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
-                  <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading scheduled...
-                </div>
+                {@render sidebarEmptyState("Loading scheduled…", true)}
               {:else if cronjobs.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No scheduled</div>
+                {@render sidebarEmptyState("No scheduled")}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each cronjobs as job (job.id)}
                     {@const isActive = activeCronjobId === job.id}
                     <a
                       href={buildSpaceCronjobRoute(currentSpaceId!, job.id)}
-                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[var(--sidebar-item-radius)] text-[13px] transition-colors duration-100 {isActive ? 'text-[var(--sidebar-item-active-fg)] bg-[var(--sidebar-item-active-bg)] font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-[var(--sidebar-item-hover-bg)]'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(job.id); }}
                     >
                       <div class="min-w-0 flex-1">
@@ -4325,7 +4313,7 @@ $effect(() => {
             {:else if activeCronjob}
               <a
                 href={buildSpaceCronjobRoute(currentSpaceId!, activeCronjob.id)}
-                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[var(--sidebar-item-radius)] text-[13px] transition-colors duration-100 text-[var(--sidebar-item-active-fg)] bg-[var(--sidebar-item-active-bg)] font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToCronjob(activeCronjob.id); }}
               >
                 <div class="min-w-0 flex-1">
@@ -4359,12 +4347,9 @@ $effect(() => {
 
             {#if !tasksCollapsed}
               {#if loadingTasks && tasks.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-tertiary flex items-center gap-2">
-                  <Loader2 class="w-3 h-3 animate-spin" />
-                  Loading tasks...
-                </div>
+                {@render sidebarEmptyState("Loading tasks…", true)}
               {:else if tasks.length === 0}
-                <div class="px-1.5 py-2 text-[12px] text-text-placeholder">No tasks</div>
+                {@render sidebarEmptyState("No tasks")}
               {:else}
                 <div class="space-y-[2px] mt-1">
                   {#each tasks as run (run.id)}
@@ -4372,7 +4357,7 @@ $effect(() => {
                     {@const badge = getTaskRunBadge(run.status)}
                     <a
                       href={buildSpaceTaskRoute(currentSpaceId!, run.id)}
-                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[6px] text-[13px] transition-colors duration-100 {isActive ? 'text-text-primary bg-bg-active font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-bg-hover'}"
+                      class="flex items-center gap-2 px-1.5 py-1.5 rounded-[var(--sidebar-item-radius)] text-[13px] transition-colors duration-100 {isActive ? 'text-[var(--sidebar-item-active-fg)] bg-[var(--sidebar-item-active-bg)] font-medium' : 'text-text-tertiary hover:text-text-secondary hover:bg-[var(--sidebar-item-hover-bg)]'}"
                       onclick={(e) => { e.preventDefault(); handleNavigateToTask(run.id); }}
                       title={getTaskRunMeta(run)}
                     >
@@ -4403,7 +4388,7 @@ $effect(() => {
             {:else if activeTaskId}
               <a
                 href={buildSpaceTaskRoute(currentSpaceId!, activeTaskId)}
-                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[6px] text-[13px] transition-colors duration-100 text-text-primary bg-bg-active font-medium"
+                class="flex items-center gap-2 px-1.5 py-1.5 mt-1 rounded-[var(--sidebar-item-radius)] text-[13px] transition-colors duration-100 text-[var(--sidebar-item-active-fg)] bg-[var(--sidebar-item-active-bg)] font-medium"
                 onclick={(e) => { e.preventDefault(); handleNavigateToTask(activeTaskId); }}
               >
                 <div class="min-w-0 flex-1">
@@ -4606,7 +4591,7 @@ $effect(() => {
 		width: 100%;
 		align-items: center;
 		gap: 6px;
-		border-radius: 6px;
+		border-radius: var(--sidebar-item-radius, 6px);
 		padding: 0 6px;
 		color: var(--text-tertiary);
 		font-size: 13px;
@@ -4616,7 +4601,7 @@ $effect(() => {
 
 	.label-tree-row:hover,
 	.label-tree-row.renaming {
-		background: var(--bg-hover);
+		background: var(--sidebar-item-hover-bg, var(--bg-hover));
 		color: var(--text-secondary);
 	}
 

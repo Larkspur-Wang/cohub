@@ -3,6 +3,7 @@ import {
 	ChevronDown,
 	Download,
 	File as FileIcon,
+	Loader2,
 	MoreHorizontal,
 	Pencil,
 	Rocket,
@@ -65,7 +66,7 @@ const {
 	canWrite?: boolean;
 } = $props();
 
-const indent = $derived(10 + depth * 14);
+const indent = $derived(6 + depth * 14);
 const isActive = $derived(selectedPath === node.path);
 const isDir = $derived(node.type === "dir");
 let isDragOver = $state(false);
@@ -312,7 +313,7 @@ $effect(() => {
   </span>
   <span class="name">{node.name}</span>
   {#if node.isLoading}
-    <span class="loading">...</span>
+    <Loader2 class="loading-spinner h-3 w-3 shrink-0 animate-spin" aria-label="Loading" />
   {/if}
 
   {#if showItemActions && (canWrite || (!isDir && onDownload))}
@@ -407,23 +408,28 @@ $effect(() => {
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 8px;
+    gap: 6px;
+    /* Horizontal right padding only; left indent is set inline for tree depth. */
+    padding: 6px 6px 6px 0;
     border: none;
     background: transparent;
-    color: var(--text-secondary);
-    border-radius: 6px;
+    color: var(--text-tertiary);
+    border-radius: var(--sidebar-item-radius, 6px);
     cursor: pointer;
+    transition:
+      background-color 100ms ease,
+      color 100ms ease;
   }
 
   .tree-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
+    background: var(--sidebar-item-hover-bg, var(--bg-hover));
+    color: var(--text-secondary);
   }
 
   .tree-item.selected {
-    background: var(--bg-active);
-    color: var(--text-primary);
+    background: var(--sidebar-item-active-bg, var(--bg-active));
+    color: var(--sidebar-item-active-fg, var(--text-primary));
+    font-weight: 500;
   }
 
   .tree-item.selected .icon {
@@ -468,12 +474,12 @@ $effect(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: 13px;
+    line-height: 1.25;
   }
 
-  .loading {
-    font-size: 11px;
-    color: var(--text-tertiary);
+  .loading-spinner {
+    color: var(--text-placeholder);
   }
 
   .tree-item:hover:not(.menu-open) {
@@ -483,7 +489,7 @@ $effect(() => {
   .tree-item:hover,
   .tree-item:focus-within,
   .tree-item.selected {
-    padding-right: 112px;
+    padding-right: 104px;
   }
 
   .actions {
@@ -496,7 +502,7 @@ $effect(() => {
     gap: 2px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 120ms ease;
+    transition: opacity 100ms ease;
   }
 
   .tree-item:hover .actions,
@@ -507,13 +513,13 @@ $effect(() => {
   }
 
   .action {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 5px;
+    border-radius: 4px;
     background: transparent;
     color: var(--text-tertiary);
     cursor: pointer;

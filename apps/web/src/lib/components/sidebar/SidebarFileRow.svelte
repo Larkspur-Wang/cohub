@@ -40,7 +40,7 @@ const hoverPaddingClass = $derived(
 
 <a
 	{href}
-	class="sidebar-flyout-item group/file relative flex items-center gap-2 overflow-hidden rounded-[6px] px-2 py-1.5 pr-4 text-[13px] transition-colors duration-100 {hoverPaddingClass} {active ? 'bg-bg-active font-medium text-text-primary' : 'text-text-tertiary hover:bg-bg-hover hover:text-text-secondary'}"
+	class="sidebar-flyout-item group/file relative flex items-center gap-2 overflow-hidden rounded-[var(--sidebar-item-radius)] px-1.5 py-1.5 pr-4 text-[13px] transition-colors duration-100 {hoverPaddingClass} {active ? 'bg-[var(--sidebar-item-active-bg)] font-medium text-[var(--sidebar-item-active-fg)]' : 'text-text-tertiary hover:bg-[var(--sidebar-item-hover-bg)] hover:text-text-secondary'}"
 	onclick={(event) => {
 		event.preventDefault();
 		onNavigate(path);

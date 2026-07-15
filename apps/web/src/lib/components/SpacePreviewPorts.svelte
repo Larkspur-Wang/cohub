@@ -26,7 +26,7 @@ function statusTooltip(status: string | undefined) {
 </script>
 
 {#if items.length > 0}
-	<div class="border-b border-border-subtle px-3 py-2">
+	<div class="border-b border-border-subtle px-1.5 py-2">
 		<div class="mb-1.5 flex items-center justify-between gap-2">
 			<div class="text-[11px] uppercase tracking-[0.14em] text-text-tertiary">Ports</div>
 		</div>
