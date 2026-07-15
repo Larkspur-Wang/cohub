@@ -9,3 +9,23 @@
 9. 注意多端同步体验，有优雅高效的实时事件设计
 10. 文案都使用英文，保持简洁
 11. 直接 push main，不用开新分支
+
+## Release Workflow
+
+发布新版本时执行以下步骤：
+
+```bash
+# 1. 发布 npm 包（changesets 管理）
+pnpm changeset version
+pnpm release
+
+# 2. 生成 changelog 并打项目 tag
+pnpm changelog:release v1.99.0
+
+# 3. 推送
+git push && git push origin v1.99.0
+```
+
+`changelog:release` 会调用 Cohub agent 分析真实 git diff 生成结构化 changelog entry，自动更新 `apps/web/src/lib/changelog/entries.json` 和 `CHANGELOG.md`，提交后打 annotated tag。需要本地安装 `@neta-art/cohub-cli`。
+
+详见 `scripts/changelog/README.md`。
