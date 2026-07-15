@@ -50,6 +50,117 @@
 		]
 	},
 	{
+		"version": "1.95",
+		"date": "2026-07-13",
+		"tags": ["v1.95.0"],
+		"highlights": [
+			"**Durable chat attachments**: Upload chat files once to public durable storage without a session, then materialize them into the sandbox on demand — with hardened gateway handling and a 1GB size limit aligned to space uploads.",
+			"**Generation model discounts**: Apply plan-based multipliers from entitlement metadata at request time, snapshot pricing for billing retries, support free (zero-multiplier) generations, and surface official vs effective cost in SDK/CLI results.",
+			"**Internal OSS materialize path**: When pulling durable public URLs into the sandbox, rewrite known CDN/OSS origins to the internal endpoint for faster in-cluster downloads.",
+			"**Composer draft control**: Keep large composer drafts editable and controllable instead of locking up the input."
+		],
+		"fixes": [
+			"Channel `/model` overrides no longer fail due to comparing platform sender IDs to Cohub user UUIDs.",
+			"Generation pricing and discount fields are redacted from collaborator task views so plan tier cannot leak."
+		]
+	},
+	{
+		"version": "1.94",
+		"date": "2026-07-13",
+		"tags": ["v1.94.0", "v1.94.1"],
+		"highlights": [
+			"**Sessions inbox**: cross-space `/sessions` list with split list+conversation on desktop and fast branch-query listing on the API",
+			"**Public profiles**: guest-facing `/:username` pages with discoverable spaces and works, plus identity links from presence, chat, and explore",
+			"**Viewport context**: active file, canvas, or port chips in the composer send structured view metadata with each agent prompt",
+			"**Referral rewards**: end-to-end referral program across API, billing, SDK/CLI, and settings UI",
+			"**System queue postprocess**: session message postprocessing moved to a dedicated system worker queue for more reliable redrive"
+		],
+		"fixes": [
+			"Recover sandboxes on unreachable endpoints, close idle_check loops on recover, and unify idle reaper scheduling",
+			"Preserve session inbox order and unblock message postprocess redrive"
+		]
+	},
+	{
+		"version": "1.93",
+		"date": "2026-07-10",
+		"tags": ["v1.93.0"],
+		"highlights": [
+			"**Raw space completions**: New `POST /spaces/:id/completions` API for full-control LLM calls (messages, system prompt file, thinking level) with JSON or SSE streaming, model catalog resolution, billing (`generation.llm.raw`), and S3 completion archives — exposed via SDK (`completion` / `streamCompletion`) and CLI (`cohub completion`).",
+			"**File Diff mode**: File workspace and inline panels gain a Source / Preview / Diff segmented control that loads pending changes since last save, with shared diff rendering reused by checkpoint diffs.",
+			"**Post-save checkpoint handoff**: Watching a `save_checkpoint` task complete now auto-opens the new checkpoint detail; opening an already-finished historical task stays on the task page."
+		],
+		"fixes": [
+			"Indent nested label items under child labels in the sidebar",
+			"Passthrough remote image URLs in raw completions so Cohub never downloads image bytes for the model"
+		]
+	},
+	{
+		"version": "1.92",
+		"date": "2026-07-10",
+		"tags": ["v1.92.0"],
+		"highlights": [
+			"**Multimodal generation billing**: Successful image, video, and music generations now charge the shared credit balance with idempotent `recordUsage`, post-success billing metadata, and a dedicated `generation.billing_retry` worker path for failed charges.",
+			"**Generation usage stats & trending**: Hourly `generation_usage_stats_hourly` rollups mirror LLM token stats and power separate Generation leaderboards (spaces, users, models) beside the existing token-ranked boards.",
+			"**User-scoped cache isolation**: IndexedDB partitions prefer stable user identity over guest, wait for auth hydration, and still network-fetch when cache identity is unavailable so cold starts never leak or permanently miss private data."
+		],
+		"fixes": [
+			"Command palette keeps Run Command / New Space local, reserved, and always visible instead of waiting on IndexedDB or remote search.",
+			"Sidebar channel labels resolve from space bindings with provider icons instead of falling back to short ids."
+		]
+	},
+	{
+		"version": "1.91",
+		"date": "2026-07-10",
+		"tags": ["v1.91.0"],
+		"highlights": [
+			"**Checkpoint diffs**: Parent and pending workspace diffs are precomputed on save and available across API, SDK, CLI, and Web—including a lazy pending preview that avoids hammering NFS.",
+			"**Session Channel labels**: Channel-origin sessions are auto-labeled under a system Channel tree (aligned with User labels) and shown in the sidebar Chats view, with a backfill script for existing data.",
+			"**Generation metadata**: Generation results now store provider `request_id` and usage cost end-to-end via the upgraded generation SDK."
+		],
+		"fixes": [
+			"Recover from IndexedDB version mismatches on stale clients with a one-shot reload and hard-refresh guidance",
+			"Prevent session timeline `each_key_duplicate` crashes after generation turn handoff",
+			"Make sidebar label “Load more” full-width clickable"
+		]
+	},
+	{
+		"version": "1.90",
+		"date": "2026-07-09",
+		"tags": ["v1.90.0"],
+		"highlights": [
+			"**Channel runtime health**: Gateway now writes structured ready/error/degraded status to Redis, exposes it on channel list APIs, and shows status pills with error summaries in Settings and Space Settings—new providers get baseline lifecycle health automatically.",
+			"**Unified billing 402s**: Billing-gated failures and soft debt warnings share a flat `{ code, message, billing }` payload across API, SDK, WebSocket, and CLI, with shared serializers and helpers for blocked-access detection.",
+			"**Label sidebar hydration**: Label items return fully hydrated sessions and forks in one response (with view filtering and shared fork redaction), eliminating N+1 avatar gaps on Load more and deferring All-chats network load until expanded.",
+			"**Context overflow recovery**: Agents force-compact and retry when providers report context overflow, scaling reserve tokens to the model window and aborting empty retries when compaction cannot free enough room.",
+			"**Theme semantic tokens**: Chat, sidebar, and app backgrounds gain semantic theme tokens, with Neta Studio chrome and slate canvas polish across light/dark variants."
+		],
+		"fixes": [
+			"Contain Mermaid syntax errors in-place so invalid diagrams no longer leak huge SVGs and break page layout",
+			"Preview text files served via CDN URLs with MIME-aware inline UTF-8 hydration",
+			"Handle TOCTOU races in space-fs inline reads with typed errors and richer telemetry",
+			"Tier checkpoint-fs blob cache TTLs by size so large fulltext blobs stop dominating Redis"
+		]
+	},
+	{
+		"version": "1.89",
+		"date": "2026-07-09",
+		"tags": ["v1.89.0"],
+		"highlights": [
+			"**QQ channel provider**: full gateway adapter and channel setup flow for QQ Open Platform bots, including streaming replies and media send/receive.",
+			"**Native channel media**: outbound replies on Feishu, WeChat, and QQ deliver images and files as native attachments; inbound media from QQ, Discord, Feishu, and WeChat is ingested into durable Cohub assets with shared SSRF-safe fetch.",
+			"**Mention triggers**: space channel settings can require @mentions in Discord guild channels and Feishu groups before the agent responds.",
+			"**Owned-space entitlement**: free plans are limited to one owned space via `space.owned.unlimited`, with unified `feature_not_entitled` 402 gates that open the shared upgrade UI.",
+			"**Space settings UX**: settings use continuous scroll with hash-linked sections, scroll-spy nav, and copyable mod space IDs."
+		],
+		"fixes": [
+			"Validate cross-space tool `space_id` values as UUIDs before query routing",
+			"Encode label item cursor comparisons correctly so pagination stays stable",
+			"Normalize QQ inbound attachment CDN URLs and map QQ/Telegram session label sources",
+			"Return API unauthorized responses without throwing through the global error path",
+			"Handle missing Logto user cleanly on profile update"
+		]
+	},
+	{
 		"version": "1.88",
 		"date": "2026-07-08",
 		"tags": ["v1.88.0"],
@@ -78,6 +189,1550 @@
 		],
 		"fixes": [
 			"Browser notification clicks now correctly focus an existing window or open the target session URL via the PWA service worker."
+		]
+	},
+	{
+		"version": "1.86",
+		"date": "2026-07-08",
+		"tags": ["v1.86.0"],
+		"highlights": [
+			"**Multi-preview tabs**: Open and switch between multiple file, canvas, and port previews in the space workspace, with a redesigned tab bar and unified panel chrome.",
+			"**Neta Studio theme**: New appearance theme aligned with the canvas skin, available in settings with matching editor and Mermaid styling.",
+			"**Preview chrome polish**: Consistent headers across file, canvas, and port panels, type icons in tabs, and cleaner close/focus controls."
+		],
+		"fixes": [
+			"Keep preview lazy imports stable so panel remounts do not reload modules unnecessarily.",
+			"Limit tool input detail height to avoid oversized overflow in chat tool views."
+		]
+	},
+	{
+		"version": "1.85",
+		"date": "2026-07-07",
+		"tags": ["v1.85.0", "v1.85.1", "v1.85.2"],
+		"highlights": [
+			"**Channel model selection**: Bind a preferred model per channel from space settings and creation flows, with catalog-aware validation across platform and user model configs.",
+			"**Private HTML previews**: Serve private HTML files from a dedicated preview origin using short-lived signed preview sessions, keeping previews isolated without leaking main-app credentials.",
+			"**Work bridge core in SDK**: Extract framework-agnostic `createWorkBridgeCore` (plus grant cache) into `@neta-art/cohub` so external hosts can reuse token minting, authorization, and purchase flows without reimplementing the bridge.",
+			"**Faster global search**: Optimize search queries with new indexes so Command Palette results stay snappy at scale."
+		],
+		"fixes": [
+			"Keep the sidebar usable when the label cache fails to load.",
+			"Re-authorize viewer scopes when work runtime tokens refresh.",
+			"Prevent the preview router from intercepting internal API routes."
+		]
+	},
+	{
+		"version": "1.84",
+		"date": "2026-07-07",
+		"tags": ["v1.84.0", "v1.84.1"],
+		"highlights": [
+			"**Standalone work auth broker**: Works running outside the Cohub iframe can authorize via a popup broker (`/work-auth`) with origin allowlisting, one-shot postMessage handshake, and restricted-token persistence across reloads.",
+			"**Work runtime transport layer**: SDK `WorkRuntime` is transport-agnostic — `ParentBridgeTransport` for iframe embeds and `PopupBrokerTransport` for standalone deploys, with auto-detection from `CohubClientOptions.work`.",
+			"**Bridge host extraction**: WorkSurface bridge logic, authorize, and purchase dialogs are split into reusable `createWorkBridgeHost` + dialog components shared by embed and broker flows.",
+			"**Authorize consent UX**: Work authorize dialog groups requested scopes into plain-language operations, shows work/author context, usage notes, and 14-day validity.",
+			"**YAML block scalars in skills**: Agent frontmatter parsing now supports folded (`>`) and literal (`|`) multi-line skill descriptions instead of truncating them."
+		],
+		"fixes": [
+			"Sidebar shows user labels after source labels.",
+			"Skill descriptions using multi-line YAML frontmatter no longer collapse to `>` or `|` in system prompts."
+		]
+	},
+	{
+		"version": "1.83",
+		"date": "2026-07-07",
+		"tags": ["v1.83.0"],
+		"highlights": [
+			"**Sidebar source labels**: Chats are organized under system Source labels (Web App, CLI, scheduled tasks, etc.) with user labels first, activity-ordered system lists, and an All Chats fallback—replacing the separate Chats section.",
+			"**Unified access states**: Space and session permission failures share one AccessState model and AccessStateView for not-found, forbidden, sign-in-required, limited, and generic errors—including route-level error pages.",
+			"**Per-round auto-compaction**: Context compaction now runs before each LLM round via transformContext, so long agent turns can compact mid-turn with correct sequence bookkeeping instead of only pre-turn.",
+			"**Streaming tool UX**: Tool partial results stream as append patches; live tool output and collapsed input panels auto-follow the tail while you scroll freely when needed.",
+			"**Background task steering**: Completed background bash tasks re-enter the agent loop with steer intent so the session continues from the task result."
+		],
+		"fixes": [
+			"Stabilize streaming markdown spacing so live-to-stable promotion no longer jumps paragraphs.",
+			"Keep label item caches and ordering fresh as sessions update."
+		]
+	},
+	{
+		"version": "1.82",
+		"date": "2026-07-06",
+		"tags": ["v1.82.0", "v1.82.1", "v1.82.2", "v1.82.3", "v1.82.4"],
+		"highlights": [
+			"**Local space filesystem over relay RPC**: Web FS for local spaces now goes through sandbox relay — new `fs.tree` capability, richer `fs.read`/`fs.stat`/`fs.write` metadata, exclusive create, and live `fs.changed` events without an attached agent.",
+			"**Dedicated FS API deployment**: Split space FS and checkpoint FS traffic onto `cohub-fs-api` with higher memory and dedicated routing, isolating file I/O from the core API.",
+			"**Sandbox node pool scheduling**: Sandbox pods can target dedicated node pools via configurable nodeSelector and tolerations.",
+			"**Realtime context compaction**: Agents publish the compacted system message over the WebSocket stream so clients see compaction notices immediately.",
+			"**Work asset CDN base URL**: Configurable CDN origin for work asset delivery."
+		],
+		"fixes": [
+			"Composer stays responsive with large drafts",
+			"Map virtual `/workspace` to the fenced root in local sandboxes so FS/process RPCs no longer ACCESS_DENIED",
+			"Route local cross-space queries through the sandbox",
+			"Serialize gateway inbound binding events to avoid races"
+		]
+	},
+	{
+		"version": "1.81",
+		"date": "2026-07-05",
+		"tags": ["v1.81.0"],
+		"highlights": [
+			"**Local sandbox**: run a space against a local dial-out `sandboxd` via gateway relay, with `cohub sandbox up`/`status`, path fencing, and managed cross-platform binary download.",
+			"**Resource references index**: rebuildable turn-granular graph of forks, mentions, tool calls, mods, and participants, with live double-writes plus query/aggregate APIs, SDK, and CLI.",
+			"**Sandbox architecture**: extract `@cohub/sandbox-client` and a reusable Go session layer; add immutable `cloud|local` provider on space sandboxes and short-circuit cloud lifecycle for local.",
+			"**Work home screen shortcuts**: public work URLs install as home screen shortcuts via a dedicated webmanifest."
+		],
+		"fixes": [
+			"Hydrate sidebar spaces from the local cache on mount so reopening the drawer does not flash an empty space selector."
+		]
+	},
+	{
+		"version": "1.80",
+		"date": "2026-07-03",
+		"tags": ["v1.80.0", "v1.80.1", "v1.80.2"],
+		"highlights": [
+			"**Home screen shortcuts**: Add installable web app shortcuts for Spaces and Works so they can be launched directly from the device home screen.",
+			"**Incremental label patching**: Introduce partial resource label updates across API, SDK, CLI, and web, avoiding full label rewrites for faster, safer edits.",
+			"**Async work asset publishing**: Move Work asset publishing off the API path onto a system worker queue for more reliable, scalable publish throughput.",
+			"**Generation stream runtime**: Refactor session generation realtime handling and improve streaming scroll-follow so live turns feel smoother and more stable.",
+			"**Agent image normalization**: Normalize and guard image inputs before LLM calls to reduce oversized payloads and prevent empty bash output from being treated as images."
+		],
+		"fixes": [
+			"Resolve each_key_duplicate crash in running-turn process cards",
+			"Show current user avatar correctly in shared session sidebar rows",
+			"Isolate turn execution auth and reset residual per-turn state on error paths to prevent cross-turn leakage",
+			"Show source badges in label sessions"
+		]
+	},
+	{
+		"version": "1.79",
+		"date": "2026-07-03",
+		"tags": ["v1.79.0"],
+		"highlights": [
+			"**Session auto-compaction**: Long agent sessions now compact automatically before a turn when context crosses the threshold — LLM summary, session-file archive/rewrite, agent-state rebuild, and a durable compact turn in the DB (with expandable UI divider).",
+			"**Compaction-aware session files**: SessionManager archives full pre-compaction history, rewrites a trimmed root, and can recover branch forks from the archive chain when entries were compacted away.",
+			"**Session append I/O**: Persistent WriteStream for session.jsonl appends, with the fd flushed and released between turns instead of held across idle periods.",
+			"**Streaming text animation**: Replaced per-word tokenization with a lightweight stable/tail split for smoother, cheaper stream rendering."
+		],
+		"fixes": [
+			"Bill LLM usage for every persisted assistant message (including intermediate tool rounds), not only the final reply.",
+			"Compaction edge cases: skip empty summarize, omit inaccurate tokensAfter in the UI, fix turnId/sequence resolution, and restore from archive if DB persistence fails."
+		]
+	},
+	{
+		"version": "1.78",
+		"date": "2026-07-02",
+		"tags": ["v1.78.0", "v1.78.1"],
+		"highlights": [
+			"**Session participant labels**: Sessions automatically get system `User/<id>` labels for participants, with protected system assignments, fork inheritance, and a backfill path.",
+			"**Streaming markdown split**: Chat streaming now renders stable and live tail regions separately, cutting re-parse/re-render CPU while the reply is still growing.",
+			"**User profile cache**: Web client caches user profiles in IndexedDB and stabilizes label/profile hydration so avatars and names stay consistent under realtime updates.",
+			"**Agent session reliability**: Session JSONL is streamed more efficiently, user-message indexes avoid redundant work, and handles settle (persist/flush/signature) before lock release."
+		],
+		"fixes": [
+			"Inherit parent session labels when forking",
+			"Hydrate turn author profiles on realtime `session.turn.created` events",
+			"Stabilize trending list keys to avoid row remount flicker",
+			"Allow non-dashed user ids in session participant labels"
+		]
+	},
+	{
+		"version": "1.77",
+		"date": "2026-07-01",
+		"tags": ["v1.77.0", "v1.77.1"],
+		"highlights": [
+			"**Work credit commerce**: Sell credit packs and consume balances with a closed loop — `cohub_credit` benefits, `GET entitlements` (features + balance), and idempotent `POST credits/consume` across billing, API, SDK, CLI, and the benefit editor.",
+			"**Space danmaku**: Other users' messages float across the workspace from realtime turn events; pills are clickable to open the source session, with throttle, concurrency caps, reduced-motion support, and a presence-popover toggle.",
+			"**Markdown line links**: File links can target specific lines and open the editor or preview at that location while preserving workspace paths.",
+			"**Draft session model memory**: Manually chosen models for new sessions persist in localStorage and restore only when still present in the live catalog."
+		],
+		"fixes": [
+			"SDK debug HAR/log export redacts tokens, JWTs, API keys, and secret-bearing query params in request bodies, WebSocket frames, and console output — not only headers."
+		]
+	},
+	{
+		"version": "1.76",
+		"date": "2026-06-30",
+		"tags": ["v1.76.0"],
+		"highlights": [
+			"**Work Commerce**: sell one-time products from published Works with feature unlocks, credit benefits, host-owned checkout, and runtime APIs across server, SDK, CLI, and web.",
+			"**Space commerce management**: redesign the commerce settings UI and CLI surface for products, benefits, bindings, and orders, gated by dedicated permissions and Max/Internal entitlement.",
+			"**Workspace file links**: open relative and workspace file links from markdown previews and chat content directly in the file workspace.",
+			"**Chat process reliability**: harden intermediate-step loading with explicit sync/retry states and graceful degradation when session-turns cache reads or writes fail."
+		],
+		"fixes": [
+			"Handle uninitialized space commerce state without hard failures in settings and API flows.",
+			"Polish presence popover behavior and keep agent user-context config paths out of prompts."
+		]
+	},
+	{
+		"version": "1.75",
+		"date": "2026-06-29",
+		"tags": ["v1.75.0"],
+		"highlights": [
+			"**Work visibility**: Works support `public` vs `space` access — space-scoped pages, sessions, and authorize flows require `space.view`, with matching publish/edit UI and API fields.",
+			"**Versioned publishing**: Publishing is split from metadata updates — `POST /works/:id/versions` snapshots content, status is only `published`/`disabled` (draft removed), and public content always serves the current version.",
+			"**Actor-aware agent runtime**: Sessions bind to the acting user for model registry, LiteLLM tracking, and system prompt context; user skills load only for the space owner, with live `configureRuntimeIdentity` swaps.",
+			"**Presence popover**: The space presence stack opens a polished online list (desktop popover / mobile sheet) with richer activity labels across chats, files, works, tasks, and more.",
+			"**Immutable asset caching**: Public OSS uploads (chat attachments, turn objects, work assets) set `Cache-Control: public, max-age=31536000, immutable` for long-lived CDN hits."
+		],
+		"fixes": [
+			"Keep work edit/publish action bars sticky and visible while scrolling the detail form.",
+			"CLI generation commands accept media role inputs for multimodal generation workflows."
+		]
+	},
+	{
+		"version": "1.74",
+		"date": "2026-06-28",
+		"tags": ["v1.74.0"],
+		"highlights": [
+			"**Space presence**: Live who-is-online indicator in the workspace header, backed by presence snapshots, `presence.update` websocket events, and SDK `space.presence` / `updatePresence` APIs with optional activity meta.",
+			"**Room-based realtime routing**: Gateway and SDK now subscribe to explicit `space:` / `user:` rooms instead of fan-out by audience lists, with retain/release room subscriptions and cleaner event delivery.",
+			"**Default space resolution**: New `GET /api/spaces/default` (and SDK `spaces.getDefault()`) returns the user's home space or most recently active accessible space.",
+			"**Gateway outbound reliability**: Per-node outbound streams with channel rebind migration, delivery retries, and safer websocket client error handling."
+		],
+		"fixes": [
+			"Mobile chat shell scrolling",
+			"Realtime task events incorrectly routed off user rooms"
+		]
+	},
+	{
+		"version": "1.73",
+		"date": "2026-06-27",
+		"tags": ["v1.73.0"],
+		"highlights": [
+			"**Mod prompt templates**: Enabled space mods contribute `.agents/prompts` into the shared prompt catalog (API + worker), with a new `mod` scope and revision-aware Redis caching.",
+			"**Cohub Ask UI**: `cohub-ask` / `ask-user-question` fenced blocks render as interactive question cards; option clicks (single or multi-select) insert into the composer without stealing focus.",
+			"**Enriched Works API**: `works.get` now returns `publicUrl`, `content`, `owner`, and `space` alongside the work record; SDK types and CLI surface public/content URLs.",
+			"**Hide Cohub bar**: Work detail settings let Pro/Max owners toggle public-page Cohub footer visibility via presentation meta.",
+			"**Streaming snapshot merge**: Intermediate stream recovery uses stable turn-scoped message IDs and a shared merge/dedupe path so live and persisted assistants stay consistent."
+		],
+		"fixes": [
+			"Deduped recovered streaming intermediate messages that could appear twice after reconnect or snapshot enrichment.",
+			"Running process details load correctly after refresh when live intermediate state is empty.",
+			"Background bash task user messages use distinct styling and labeling in chat."
+		]
+	},
+	{
+		"version": "1.72",
+		"date": "2026-06-27",
+		"tags": ["v1.72.0"],
+		"highlights": [
+			"**CLI profile & space slugs**: Update public usernames and Space slugs from the CLI (`profile update`, `spaces update`) for public Work URLs.",
+			"**CLI space context**: `spaces get` can use the configured target Space and surfaces slug in output."
+		],
+		"fixes": [
+			"Streaming process panel no longer collapses incorrectly after refresh during an active turn.",
+			"Prompt template loading tolerates a missing or empty platform templates directory."
+		]
+	},
+	{
+		"version": "1.71",
+		"date": "2026-06-25",
+		"tags": ["v1.71.0", "v1.71.1"],
+		"highlights": [
+			"**Immersive preview**: Expand workspace previews into a full immersive mode with tighter chrome and optional chat overlay visibility.",
+			"**CLI `run` command**: Execute one-off shell commands in a Space workspace (`cohub -s <id> run -- …`), with sync wait or async queue.",
+			"**Composer draft persistence**: Keep unsent chat drafts per session so reloads and session switches no longer drop in-progress input.",
+			"**Generation stream recovery**: Stronger snapshot merge and resume paths across agent, SDK, and web so reconnects restore intermediate turns cleanly.",
+			"**Mermaid interaction**: Pan/zoom diagrams more reliably, including pinch-to-zoom on touch devices."
+		],
+		"fixes": [
+			"Restore correct streaming turn rendering after generation recovery.",
+			"Fix mobile member role selection in space settings.",
+			"Keep the session task tray visible on compact shells; fall back failed image attachments to files."
+		]
+	},
+	{
+		"version": "1.70",
+		"date": "2026-06-24",
+		"tags": ["v1.70.0"],
+		"highlights": [
+			"**Activity-sorted spaces**: Spaces now track `lastActivityAt` (message and session activity) and list by recent use across API, sidebar, command palette, and mentions—backed by a dedicated index.",
+			"**Hide Cohub bar on Works**: Pro and Max can hide the public work footer bar via publish UI, CLI (`--hide-cohub-bar` / `--show-cohub-bar`), and a billing entitlement check.",
+			"**Silent work re-authorization**: Returning viewers reuse cached grants so consent prompts are skipped for previously approved scopes (local cache with periodic re-consent).",
+			"**Sidebar Works first**: Works sits above Saves in the space sidebar for faster access to published surfaces."
+		],
+		"fixes": [
+			"Pricing page only shows public plans, so private catalog entries stay hidden."
+		]
+	},
+	{
+		"version": "1.69",
+		"date": "2026-06-23",
+		"tags": ["v1.69.0", "v1.69.1"],
+		"highlights": [
+			"**Account-level Works scopes**: Works can request `user.space.list`, `user.session.list`, and `user.usage.read` so viewers grant access to their own spaces, sessions, and usage—not just the host space.",
+			"**Me sessions & usage APIs**: New `/api/me/sessions` and `/api/me/usage` endpoints, with SDK (`user.listSessions`, `user.getUsage`) and CLI (`cohub me sessions`, `cohub me usage`) for cross-space account data.",
+			"**User-level permission model**: Permissions can now be account-scoped rather than space-bound; Work runtimes strip sensitive space fields when listing a viewer's spaces.",
+			"**Shared usage aggregation**: Space and account usage endpoints share one aggregation path for hourly buckets and cost summaries."
+		],
+		"fixes": [
+			"Enforce a -$1 hard negative billing limit instead of -$1M.",
+			"Resolve user-level permission checks before space-scoped auth so account scopes are not incorrectly denied."
+		]
+	},
+	{
+		"version": "1.68",
+		"date": "2026-06-23",
+		"tags": ["v1.68.0"],
+		"highlights": [
+			"**Landing redesign**: Refined home visual identity, public pages locked to dark theme, and routes split into layout groups for faster first-screen loads.",
+			"**Prompt-scoped env**: `CreateSpacePromptInput` and scheduled send payloads accept per-turn `env`; CLI `prompt` / `spaces send` gain repeatable `--env KEY=value` with duplicate-key detection.",
+			"**WeChat channel login**: `ChannelsApi.startWeChatLogin()` and `waitWeChatLogin()` with QR data URL and optional verify-code flow (`alreadyConnected` / `needVerifyCode`).",
+			"**Checkpoint lineage**: `CheckpointRecord` adds optional `rootCheckpointId` and `saveVersion`, and makes `meta` optional for clearer fork tracing."
+		]
+	},
+	{
+		"version": "1.67",
+		"date": "2026-06-23",
+		"tags": ["v1.67.0"],
+		"highlights": [
+			"**Redesigned landing page**: New marketing home with product story, demo placeholders, and full SEO/Open Graph meta; public pages lock to dark theme before paint to avoid theme flash.",
+			"**Public vs app route groups**: Split SvelteKit routes into `(public)` and `(app)` layouts so the authenticated shell no longer wraps marketing pages, improving landing first paint and isolation.",
+			"**Prompt-scoped env vars**: Per-turn environment variables flow through API, SDK, agent sandbox bash, and scheduled tasks, with CLI `--env KEY=value` on `prompt` and `spaces send` (system keys reserved, validated limits)."
+		]
+	},
+	{
+		"version": "1.66",
+		"date": "2026-06-22",
+		"tags": ["v1.66.0"],
+		"highlights": [
+			"**WeChat channel media**: inbound images and files now flow through gateway attachment plan/complete APIs into public assets and space uploads, with outbound image delivery over WeChat CDN.",
+			"**WeChat login hardening**: QR connect supports verification codes, reuses existing bot tokens, and improves already-connected and session lifecycle handling.",
+			"**Checkpoint stats**: saves record richer file change metrics (added, modified, deleted, renamed, copied, size) and surface them in the checkpoint detail view.",
+			"**Gateway attachment pipeline**: new internal `/attachments/plan` and `/attachments/complete` routes with safe path checks, size limits, and sandbox upload completion."
+		],
+		"fixes": [
+			"Channel delete now returns clearer business errors and more reliable UI feedback.",
+			"WeChat inbound messages correctly include image references."
+		]
+	},
+	{
+		"version": "1.65",
+		"date": "2026-06-22",
+		"tags": ["v1.65.0", "v1.65.1"],
+		"highlights": [
+			"**WeChat channels**: Connect WeChat bots via QR login, with a full gateway provider for inbound/outbound messaging and polished binding UI.",
+			"**Session switch stability**: Key chat timelines by session, defer scroll restore until layout settles, and avoid empty frames when switching sessions.",
+			"**Generation snapshot cache**: Persist in-flight session generation state in IndexedDB so refresh and multi-tab recovery stay reliable.",
+			"**Theme & space switcher polish**: Smoother theme circle transitions and visible sync status in the space switcher."
+		],
+		"fixes": [
+			"Recover stale worker checkpoint git locks",
+			"Sanitize Postgres JSON content that could break message storage",
+			"Fix markdown first-frame fallback and session source label overlap",
+			"Harden gateway channel recovery and WeChat submit flow"
+		]
+	},
+	{
+		"version": "1.64",
+		"date": "2026-06-21",
+		"tags": ["v1.64.0"],
+		"highlights": [
+			"**Space workspace modularization**: Split the monolithic SpaceWorkspacePage into domain modules and controllers (session, files, cronjobs, task runs, works, checkpoints, canvas/port preview) with clearer state boundaries and route isolation.",
+			"**Theme switch animation**: Appearance settings now use the View Transitions API for a circular reveal when changing themes, with reduced-motion support.",
+			"**Space switcher freshness**: Command palette space ranking blends recent visits with session activity and can force-refresh the space list so the switcher stays current."
+		],
+		"fixes": [
+			"Preserve session scroll position before workspace navigation.",
+			"Harden workspace route/controller resets so detail views and realtime state stay consistent across route switches."
+		]
+	},
+	{
+		"version": "1.63",
+		"date": "2026-06-20",
+		"tags": ["v1.63.0"],
+		"highlights": [
+			"**CDN chat images**: Chat attachments now upload to public asset storage and travel as stable CDN URL references instead of inline base64, across web, CLI (`--image`), SDK, API, and agent.",
+			"**One-shot public asset uploads**: SDK and CLI gain `upload` / `uploadChatImageAttachment` helpers so clients no longer hand-roll presign + form POSTs for avatars and chat images.",
+			"**Faster space boot cache**: Workspace startup assets—space styles and prompt templates—are cached in localStorage and restored immediately while silent refresh keeps them current.",
+			"**Agent public-asset image loader**: The agent can resolve chat image URL blocks from object storage, so multimodal turns work with CDN-backed attachments end to end."
+		],
+		"fixes": [
+			"Keep chat attachment public URLs canonical (no cache-buster query) so agent and clients resolve the same object keys.",
+			"Harden usage cost aggregation so non-finite values cannot corrupt totals, and derive missing `cost.total` from component costs."
+		]
+	},
+	{
+		"version": "1.62",
+		"date": "2026-06-19",
+		"tags": ["v1.62.0"],
+		"highlights": [
+			"**Work version publishing**: Works now keep an immutable version history—republish creates a new snapshot, and the management UI, API, and SDK expose current/latest version plus version lists.",
+			"**Works CLI**: Manage Works from the terminal with `cohub works` (`ls`, `get`, `resolve`, `publish`, `update`, `versions`, `rm`), including force-publish and scope controls.",
+			"**Space-scoped layout prefs**: Sidebar width and collapse state are stored per space (with legacy global fallback) so each workspace keeps its own layout.",
+			"**Avatar pipeline**: Shared `UserAvatar` with OSS-resized delivery, plus upload encoding that falls back from WebP to JPEG when needed."
+		],
+		"fixes": [
+			"Stabilize session scroll position when reconciling chat tails and preserve unchanged turn object refs to reduce UI jump.",
+			"Harden Work runtime parent-origin detection and clone Work/viewer permission scopes at the context bridge."
+		]
+	},
+	{
+		"version": "1.61",
+		"date": "2026-06-19",
+		"tags": ["v1.61.0", "v1.61.1", "v1.61.2"],
+		"highlights": [
+			"**Mermaid diagrams**: Render Mermaid flowcharts in chat markdown with zoom controls and SVG export",
+			"**Checkpoint pagination**: Cursor-based listing across API, SDK, and CLI for large checkpoint histories",
+			"**Session cache rewrite**: Indexed session list/detail repositories with bounded memory without truncating lists",
+			"**Sidebar modularization**: Split resource rows into dedicated components with tighter label layout and file preview actions",
+			"**Work surfaces**: Extract WorkSurface and support native work backgrounds"
+		],
+		"fixes": [
+			"Stabilize session sidebar row updates and snapshot merge order",
+			"Restore space file download actions and fix dotfile previews",
+			"Make turn rail markers clickable; fix work runtime context race"
+		]
+	},
+	{
+		"version": "1.60",
+		"date": "2026-06-18",
+		"tags": ["v1.60.0", "v1.60.1"],
+		"highlights": [
+			"**Invite role upgrades**: accepting a space invite can promote an existing lower-role member (for example guest to builder) without demoting, with shared role-rank helpers in core permissions.",
+			"**Filesystem observability**: space and checkpoint FS APIs emit staged OpenTelemetry spans and timed stage logs for cache, git, CDN, and IO hotspots, with tunable detail via env flags.",
+			"**ESM OpenTelemetry bootstrap**: API process starts with an import hook so OTEL ESM instrumentation loads correctly, and span filtering now runs at the processor layer.",
+			"**Distributed tracing CORS**: allow and expose Tracestate, Baggage, and Sentry-Trace so browser clients can propagate full trace context."
+		],
+		"fixes": [
+			"Invite accept no longer returns 409 for existing members when the invite would upgrade their role."
+		]
+	},
+	{
+		"version": "1.59",
+		"date": "2026-06-17",
+		"tags": ["v1.59.0"],
+		"highlights": [
+			"**New chat space profile**: Fresh chats surface the space identity—name, description, creator, members, 7-day usage, and a live sandbox status pulse—with local cache for snappy loads and mobile expand/collapse.",
+			"**Delegated prompt auth**: Work-session and delegated prompt scopes now flow end-to-end through agent turns, execution grants, background bash, and scheduled tasks so tools run with least-privilege permissions.",
+			"**Permission scope normalization**: Shared helpers clean and compare scopes across API, work sessions, and execution grants, including scoped execution principals for agent-driven access checks.",
+			"**Trending polish**: Model rankings resolve human-readable catalog names, and costs render as proper USD."
+		],
+		"fixes": [
+			"Sidebar chat rename now cancels on outside click.",
+			"Usage cost display restores the currency prefix."
+		]
+	},
+	{
+		"version": "1.58",
+		"date": "2026-06-16",
+		"tags": ["v1.58.0"],
+		"highlights": [
+			"**Works lifecycle**: Manage Works end-to-end from the sidebar and space detail pages — get, update, disable, and delete with asset cleanup, plus matching SDK/API support.",
+			"**Space home is chat**: Opening a space lands on new chat; profile and usage live under Space Settings for a cleaner workspace entry.",
+			"**Billing catalog cache**: Static catalog data is cached in Redis (server) and a shared client store so pricing and plan UI load faster with fewer round-trips.",
+			"**Work viewer permissions**: Works can grant `generation.create`, `file.view`, and `taskrun.view` scopes so shared public surfaces can generate and inspect task output."
+		],
+		"fixes": [
+			"Work delete returns to the space landing route instead of a stale detail page."
+		]
+	},
+	{
+		"version": "1.57",
+		"date": "2026-06-16",
+		"tags": ["v1.57.0", "v1.57.1"],
+		"highlights": [
+			"**Custom new chat backgrounds**: Spaces can declare background payloads in `.cohub/space.json`, with web rendering, external sandbox support, faster loading, and a stable composer layout.",
+			"**Batch user profiles API**: New `/api/users/profiles/batch` endpoint and SDK client fetch up to 100 public profiles in one request, with cache-friendly responses.",
+			"**Session model continuity**: Accepted turns store provider/model, and the composer restores the draft or latest turn model so model choice survives session create and send.",
+			"**Partial agent search results**: Find and grep return partial matches when output limits are hit instead of failing the tool call."
+		],
+		"fixes": [
+			"Checkpoint config publish failures are recorded as structured `publishWarnings` on progress and checkpoint meta instead of only logging."
+		]
+	},
+	{
+		"version": "1.56",
+		"date": "2026-06-16",
+		"tags": ["v1.56.0"],
+		"highlights": [
+			"**Streaming find & grep**: Find and grep tools now stream throttled partial results while searches run, so long scans stay visible instead of blocking until completion.",
+			"**Process argv exec**: Sandbox `process.start` supports direct argv mode (no shell) via a new `processStartArgv` capability, with size limits, diagnostics, and tracing.",
+			"**Agent-owned remote search**: When argv exec is available, remote find/grep run through `fd`/`rg` with agent-owned argv, limits, abort, and formatting; legacy `fs.find`/`fs.grep` remains for older sandboxes."
+		]
+	},
+	{
+		"version": "1.55",
+		"date": "2026-06-16",
+		"tags": ["v1.55.0"],
+		"highlights": [
+			"**Reliable turn abort**: Agent aborts now cancel all active tool executions and in-flight sandbox processes for a turn, not just the top-level controller.",
+			"**Sandbox process abort plumbing**: Bash/grep register per-process abort handles, capture RPC context for `process.abort`, and honor turn-level AbortSignals end-to-end.",
+			"**Sandbox RPC reordering hardening**: WebSocket client resolves pending ops even when `rpc.event` / `rpc.completed` arrive before acceptance mapping, preventing lost results and stuck tools.",
+			"**Preserved aborted tool output**: Tool results keep full `rawOutput` so abort/timeout paths still surface real command output in sessions and run-command progress."
+		],
+		"fixes": [
+			"Billing user-menu spacing tightened for denser rail/menu layout.",
+			"Run-command jobs abort cleanly with a proper terminated result instead of failing as infrastructure errors."
+		]
+	},
+	{
+		"version": "1.54",
+		"date": "2026-06-15",
+		"tags": ["v1.54.0"],
+		"highlights": [
+			"**Pricing & conversion**: New global pricing page with monthly/yearly plans, sidebar plan entry, and a reusable billing usage gate that surfaces upgrade/conversion when limits are hit.",
+			"**Unified Activity ledger**: Billing settings merge usage records and open overages into a single Activity feed with net balance, covering grants, consumes, refunds, and adjustments.",
+			"**Billing package**: Extract `@cohub/billing` as a shared package with usage-gate, conversion helpers, and REST-aligned billing APIs used by API and worker.",
+			"**Sandbox lifecycle**: Hardened hibernation and teardown cleanup so public network and infra state are torn down more reliably.",
+			"**Trending & workspace polish**: Cache trending API responses, recommend the base mod in space settings, and speed up session task tray media previews."
+		],
+		"fixes": [
+			"Align trending table header and row columns across breakpoints.",
+			"Guard usage cost against non-finite values and fix pricing balance display."
+		]
+	},
+	{
+		"version": "1.53",
+		"date": "2026-06-12",
+		"tags": ["v1.53.0", "v1.53.1", "v1.53.2"],
+		"highlights": [
+			"**Agent-owned session persistence**: moved turn and message persistence into the agent service with clearer boundaries, assistant-message normalization, and intermediate turn object storage.",
+			"**Lazy new chat sessions**: draft chats open instantly via a dedicated new-session route, with quieter session creation and transitions that match the empty chat view.",
+			"**Scheduled job management**: SDK and CLI now support cron job detail, patch updates, and paginated run history, with more reliable rescheduling and richer task/cron detail UI.",
+			"**Faster workspace loads**: stale-while-revalidate space bootstrap, optimized session task loading, and finer Vite chunk splitting for markdown, Shiki, and CodeMirror to cut first-load weight and flicker.",
+			"**Task and generation UX**: clearer progress, generation output, checkpoint detail, and session task tray—especially on mobile."
+		],
+		"fixes": [
+			"Persist intermediate agent turn objects correctly and isolate retry turns after claim failures",
+			"Refresh cronjob sidebar after updates and keep open-sidebar working in new tabs",
+			"Unblock space page loads when IndexedDB cache hangs; always revalidate session list against remote",
+			"Restore mobile composer focus after send and allow read-only file downloads",
+			"Harden worker config publish permissions and tighten BullMQ job retention"
+		]
+	},
+	{
+		"version": "1.52",
+		"date": "2026-06-11",
+		"tags": ["v1.52.0"],
+		"highlights": [
+			"**Public Works**: publish HTML files, static directories, or sandbox ports from a space to shareable `/{username}/{space}/w/{slug}` pages, with asset storage, scoped work sessions, and viewer grants end-to-end (API, SDK, web).",
+			"**Work publishing UI**: sidebar Works list, publish dialog (including directory entry), and a dedicated share page with faster loading and hardened slug/path validation.",
+			"**Filtered workspace visibility**: agents honor `file.view` vs `file.view.filtered`, applying gitignore-aware path filtering across read, ls, find, and grep.",
+			"**Double-click session rename**: rename sessions inline from the sidebar with click/double-click disambiguation."
+		],
+		"fixes": [
+			"Correct agent file-view filtering so filtered actors cannot probe ignored or unauthorized paths.",
+			"Stabilize work share page loading when space metadata is incomplete."
+		]
+	},
+	{
+		"version": "1.51",
+		"date": "2026-06-10",
+		"tags": ["v1.51.0"],
+		"highlights": [
+			"**Model costs**: Selector shows per-million input, output, and cache pricing so you can pick models with cost in mind.",
+			"**Hidden models**: Models can be marked hidden for pickers while remaining available at runtime; exact-ID search still finds them.",
+			"**Faster space bootstrap**: Creating a space becomes ready after enqueueing the initial checkpoint instead of waiting on the full save, and blank workspaces tolerate existing files.",
+			"**Simpler workspace layout**: Removed the custom space-layout system in favor of a lighter preview focus mode with reliable panel resizing.",
+			"**Shared model catalog**: Web loads models through one store with indexed display-name resolution across chat, process cards, and session activity."
+		],
+		"fixes": [
+			"Checkpoint create returns 409 when a save is already in progress instead of enqueueing a duplicate.",
+			"Turn rail markers hover and jump correctly without fighting the scroll track.",
+			"Waiting status and sidebar activity show friendly model names instead of raw IDs."
+		]
+	},
+	{
+		"version": "1.50",
+		"date": "2026-06-09",
+		"tags": ["v1.50.0"],
+		"highlights": [
+			"**Checkpoint file browsing**: Inspect any checkpoint as a read-only file tree in the space sidebar, with matching API routes, SDK (`checkpoints(id).files`), and CLI (`ls-tree` / `show`). Backed by a git-based checkpoint FS layer with Redis caching and presigned asset delivery.",
+			"**Suno music generation**: Add `suno_music` for songs, lyrics, sound effects, and related tasks; generation payloads rename `metadata` → `meta` across protocol, API, worker, SDK, and CLI.",
+			"**Media markdown previews**: Standalone audio and video links/images in markdown render as native players with captions.",
+			"**Workspace polish**: Turn navigator hover/connector behavior is tighter and more stable; selecting a model returns focus to the composer."
+		],
+		"fixes": [
+			"Unknown binary MIME types (e.g. `.zip`) are no longer treated as UTF-8 text, preventing file corruption.",
+			"Billing credit grant lists filter non-displayable grants and surface `availableNow` / `unavailableReasons`.",
+			"Checkpoint storage mounts and cache path layout no longer double-prefix subpaths.",
+			"File tree loading no longer sticks in a stale loading state when switching sources."
+		]
+	},
+	{
+		"version": "1.49",
+		"date": "2026-06-08",
+		"tags": ["v1.49.0"],
+		"highlights": [
+			"**Realtime canvas sync**: Postgres-backed canvas documents with semantic op transactions over WebSocket, optimistic concurrency, undo/redo, and a durable client-side pending queue for resilient multiplayer editing.",
+			"**Space layout & style**: Per-space workspace layout customization and custom style injection so spaces can control chrome, preview panes, and visual identity.",
+			"**Label-scoped search**: Command palette, API, SDK, and CLI can filter by labels—including empty-query label browsing—for faster navigation across labeled resources.",
+			"**Session navigation refresh**: Replaces split-mode session chrome with a streamlined turn navigator panel and simplified workspace routing."
+		],
+		"fixes": [
+			"Block guest access to prompts that should require authentication.",
+			"Keep turn navigator hover and focus state in sync; stabilize preview layout menu state and loading feedback."
+		]
+	},
+	{
+		"version": "1.48",
+		"date": "2026-06-05",
+		"tags": ["v1.48.0", "v1.48.1"],
+		"highlights": [
+			"**Background bash tasks**: Agents can run long-lived shell work asynchronously, with a session task tray, realtime status, and IndexedDB-backed task-run caching across web, SDK, and CLI.",
+			"**Follow-up prompt queue**: Queue, reorder, and manage pending follow-ups while a turn is running, with hardened actions and stable composer UX across API, web, and CLI.",
+			"**LLM waiting lifecycle**: Expose generation waiting state end-to-end—agent runtime, realtime protocol, SDK stream helpers, and in-session runtime status UI.",
+			"**Billing account management**: Expand billing APIs and the settings UI for richer account, plan, and payment workflows.",
+			"**Agent turn dispatch rewrite**: Round-based batch claiming, session-level wakeups, and agent-issued execution grants replace turn-id jobs and shared signing keys."
+		],
+		"fixes": [
+			"Stop interrupting batched turns and skip locked wakeup retries so drain/follow-up dispatch stays reliable.",
+			"Handle async bash sandbox RPC errors without dropping background command runs.",
+			"Persist interrupted assistant snapshots and order follow-up actions by operation time.",
+			"Fix sidebar session navigation, active label highlighting, and composer Enter-to-submit behavior."
+		]
+	},
+	{
+		"version": "1.47",
+		"date": "2026-06-04",
+		"tags": ["v1.47.0"],
+		"highlights": [
+			"**Voice input**: Speak into the session composer with Volc ASR—tap the mic to toggle, get partial transcripts live, and auto language detection end to end (gateway `/asr/ws`, SDK `VoiceApi` / `VoiceInputClient`, web UI).",
+			"**SDK voice client**: New voice-input export with idle WebSocket reuse, audio buffering until ASR starts, and configurable connection timeouts for snappier repeated captures.",
+			"**Mobile workspace**: Split mode is disabled on mobile and forced into chat-only view for a cleaner small-screen layout.",
+			"**IndexedDB resilience**: Cache layer recovers from closed/reconnecting connections instead of failing mid-read/write."
+		],
+		"fixes": [
+			"Split-mode turn routing no longer follows stale turns or races new-session navigation; per-session turn-list scroll is preserved.",
+			"Session composer auto-expands when content needs more room.",
+			"Realtime protocol accepts the label domain for live label updates."
+		]
+	},
+	{
+		"version": "1.46",
+		"date": "2026-06-03",
+		"tags": ["v1.46.0"],
+		"highlights": [
+			"**Session split mode**: View a session side-by-side with a secondary panel, with view preferences persisted per session.",
+			"**Realtime label sync**: Resource label assign/unassign events propagate over websockets so sidebar and pickers stay in sync across clients.",
+			"**Resource label cache**: IndexedDB + in-memory LRU layer for resource labels enables cache-first sidebar hydration and fresher label pickers without blocking loads.",
+			"**Sidebar label actions**: Inline label controls, clearer drag affordances, and improved collapsed flyout alignment for faster labeling workflows."
+		],
+		"fixes": [
+			"Stabilize session split mode when switching sessions or view modes.",
+			"Keep label drag previews visible and avoid layout jumps on drag start.",
+			"Disable ligatures in code text for more reliable monospaced rendering."
+		]
+	},
+	{
+		"version": "1.45",
+		"date": "2026-06-03",
+		"tags": ["v1.45.0"],
+		"highlights": [
+			"**Path-based labels**: Labels are addressable by hierarchical refs (`Bug`, `Area/Frontend`) end-to-end—shared `@cohub/core/labels` resolution, ref-oriented API routes, SDK helpers, and full CLI `spaces labels` management.",
+			"**Label-aware prompts & sessions**: Attach labels when creating sessions or sending prompts (API, worker, CLI `--label`); new sessions also get automatic system source labels (channel, scheduled task, API, etc.).",
+			"**Drag-to-label workspace**: Drag sessions and files onto sidebar labels to assign or move them, with item remove actions and a polished label sidebar/picker UX.",
+			"**Label create-on-assign**: Attach flows can resolve missing label paths and create them when the caller has manage permission, reducing setup friction across clients."
+		],
+		"fixes": [
+			"Prevent iOS focus zoom on inputs by tightening the mobile font-size selector.",
+			"Relax composer image compression so larger uploads stay usable.",
+			"CLI multi-output generations fall back to a directory when `--output` is a single file path."
+		]
+	},
+	{
+		"version": "1.44",
+		"date": "2026-06-02",
+		"tags": ["v1.44.0"],
+		"highlights": [
+			"**Hierarchical labels**: Replaces space pins with nested labels, assignments for sessions/checkpoints/files, resource label pickers, and a full labels API across server, SDK, and web—existing pins migrate to a Pinned label.",
+			"**Billing plans & redemption**: Adds plan/addon catalog, checkout and subscribe flows, redemption codes, usage records, open overages, and a richer balance details experience.",
+			"**Faster sidebar labels**: Caches label trees and items in IndexedDB, persists expansion state, and keeps the chat sidebar denser with smoother fork-session sync.",
+			"**Workspace polish**: Drag generation task references into chats, refined port-ready toasts, softer unread indicators, and markdown code ligatures disabled for clearer diffs."
+		],
+		"fixes": [
+			"Validate checkpoint space id before use",
+			"Tighten label uniqueness and depth constraints",
+			"Declare native TypeScript preview in protocol package"
+		]
+	},
+	{
+		"version": "1.43",
+		"date": "2026-06-02",
+		"tags": ["v1.43.0"],
+		"highlights": [
+			"**Read-only prompts**: prompts can run with `accessMode: read_only`, limiting the agent to inspect-only tools (`read`, `ls`, `find`, `grep`); CLI exposes this via `--read-only`.",
+			"**Session owners and participants**: sessions now track an owner `userUuid` plus participant metadata, with hydrated profiles surfaced in the sidebar.",
+			"**Live session activity sidebar**: chat rows show participant avatars, compact activity times, and live phase previews (thinking, tools, streaming, failed, unread).",
+			"**Job failure diagnostics**: BullMQ jobs record structured, redacted failure progress/logs across agent, sandbox, and worker task paths for faster ops debugging."
+		],
+		"fixes": [
+			"Render cached file tree immediately, then refresh in the background",
+			"Preserve spaces in inline markdown code spans",
+			"Keep a shared/open session visible even without session-list access",
+			"Complete sandbox uploads with presigned download URLs instead of public object URLs",
+			"Refuse bootstrap/restore into a non-empty workspace instead of wiping it",
+			"Filter queue worker counts by Redis DB to avoid cross-env inflation"
+		]
+	},
+	{
+		"version": "1.42",
+		"date": "2026-06-01",
+		"tags": ["v1.42.0", "v1.42.1", "v1.42.2"],
+		"highlights": [
+			"**Checkpoint v2**: New save/restore pipeline with nested git repos, object storage for large assets, and space forking from any checkpoint (web + worker).",
+			"**Explore wall**: Native Explore view with a public-safe DTO (avatars, saves, pins, access labels) instead of leaking full space records.",
+			"**Structured observability**: Shared JSON logger with secret redaction and trace/request correlation, wired for SLS collection across services.",
+			"**Process termination**: Sandbox/agent now propagate bash exit reasons (`exited` / `timed_out` / `aborted`) through tool results and run-command progress.",
+			"**Optimistic chat turns**: Tighter clientMessageId reconciliation and dedupe so sent messages stay stable across HTTP, WebSocket, and local cache."
+		],
+		"fixes": [
+			"Preserve dirty workspace files and nested paths when restoring checkpoints; skip system dirs and respect storage subpath mounts.",
+			"Return 400 for invalid space config instead of failing later in provisioning.",
+			"Create task runs before enqueue so checkpoint saves and prompts cannot drop work on queue failures."
+		]
+	},
+	{
+		"version": "1.41",
+		"date": "2026-05-29",
+		"tags": ["v1.41.0", "v1.41.1"],
+		"highlights": [
+			"**Filtered file view**: new `file.view.filtered` permission exposes space files while honoring `.gitignore` (and hiding `.git`), and mod mounts only need this scoped access.",
+			"**Sandbox recovery**: agent workers subscribe to `sandbox.replacing` lifecycle events, proactively drop stale connections, and refresh WebSocket URLs when pods are replaced or the network flaps.",
+			"**Sandbox RPC errors**: clearer user-facing failure kinds (`Sandbox is not ready` / `Sandbox connection lost`) with better infrastructure vs. tool-error classification.",
+			"**Generation tray**: compact session generation tray with a video icon, status dots, lighter backdrop, and cleaner expand/collapse UX."
+		],
+		"fixes": [
+			"Strip NUL characters from message content and meta before Postgres JSON persist.",
+			"Allow mod mount setup with filtered file view instead of requiring full `file.view`."
+		]
+	},
+	{
+		"version": "1.40",
+		"date": "2026-05-28",
+		"tags": ["v1.40.0"],
+		"highlights": [
+			"**Per-turn generation policy**: Constrain which multimodal models and parameters a turn may use via a shared `GenerationPolicy` protocol—enforced through API, agent sandbox env, CLI, and a tabbed Model Selector (Chat / Generation) with auto/limited modes.",
+			"**Session & task realtime lifecycle**: Replace legacy turn progress/snapshot events with structured `session.*` and `task.*` lifecycle events, dedicated API/worker dispatch helpers, richer realtime records, and SDK subscription cleanup.",
+			"**Live task runs cache**: Event-driven task-run cache keeps sidebar and workspace in sync on `task.created`/`task.updated`, reconciles optimistic turn IDs on request accept, and slows polling to realtime-first updates.",
+			"**Collapsed sidebar flyouts**: Hover/focus flyout panels expose pinned items, sessions, checkpoints, cronjobs, and tasks from the compact rail without expanding the full sidebar.",
+			"**Session generation task tray**: In-session generation jobs surface as persistent media-aware task cards so image/video/music progress stays visible while you keep working."
+		],
+		"fixes": [
+			"Model selector correctly renders parameter constraints and minimum-one enum selection guards.",
+			"Generation tray collapse state stays stable across session updates.",
+			"CLI surfaces clearer diagnostics when network fetch calls fail."
+		]
+	},
+	{
+		"version": "1.39",
+		"date": "2026-05-27",
+		"tags": ["v1.39.0"],
+		"highlights": [
+			"**Covas canvas workspace**: Open and edit `.covas` documents in a PixiJS workspace with drag-to-canvas cards, renderer/theme registries, inspector, and manual save.",
+			"**Billing credits**: Integrate credit balance and usage across API, SDK, and sidebar so sessions and prompts can meter against account credits.",
+			"**Async generations via neta SDK**: Move multimodal generation onto worker tasks and the neta generation SDK, with Gemini image and Ark video adapters plus richer CLI task feedback.",
+			"**Workspace layout controls**: Add a collapsible left sidebar rail and preview focus mode so chat, files, and previews can expand without losing context."
+		],
+		"fixes": [
+			"Recover web auth from transient unauthorized responses instead of forcing a hard logout.",
+			"Improve canvas preview resizing and text clarity, and avoid duplicate toolbar icons.",
+			"Honor CLI JSON output and restore reliable space/auth defaults."
+		]
+	},
+	{
+		"version": "1.38",
+		"date": "2026-05-26",
+		"tags": ["v1.38.0"],
+		"highlights": [
+			"**Default space mods**: New spaces can ship with platform default mods pre-mounted, and the create-space flow now supports mounting extra mod spaces under `/mods/<slug>` with API/SDK/protocol support.",
+			"**Local cross-space reads**: Agent cross-space read/query tools run locally against workspace mounts instead of round-tripping through the sandbox, cutting latency for multi-space work.",
+			"**Extensible themes**: Theme registry plus Solarized Dark/Light, with CodeMirror and markdown styling wired through shared tokens for consistent editor and UI appearance.",
+			"**Markdown frontmatter preview**: YAML frontmatter is parsed and rendered as a structured key/value panel above document content.",
+			"**Faster first paint caches**: Profile and space record caches hydrate auth, sidebar, and workspace routes from local storage while remote data refreshes in the background."
+		],
+		"fixes": [
+			"Settle agent retry failures and fail stuck turns instead of leaving sessions hanging",
+			"Load the current sidebar space from the URL and refresh command-palette default-space cache",
+			"Allow underscores in mod mount slugs; polish dark-mode reading contrast"
+		]
+	},
+	{
+		"version": "1.37",
+		"date": "2026-05-24",
+		"tags": ["v1.37.0"],
+		"highlights": [
+			"**Space avatars**: Spaces get a public profile with avatar identity, surfaced consistently in the sidebar, command palette, mentions, search, explore, and trending.",
+			"**Inline space profile**: Edit description, upload a space avatar, and manage slug for pretty `/{username}/{slug}` URLs directly on the space workspace page; the separate settings profile route is removed.",
+			"**Space identity API**: Space list/detail/search responses expose a normalized `publicProfile` with validated avatar URLs, and public-asset deploy config supports avatar hosting."
+		],
+		"fixes": [
+			"Guard sidebar loads against space-switch races so sessions, pins, checkpoints, cron jobs, and tasks no longer flash stale data from the previous space.",
+			"Avoid clipping collapsed tool output height, and hide the ⌘K shortcut label on small mobile sidebars."
+		]
+	},
+	{
+		"version": "1.36",
+		"date": "2026-05-24",
+		"tags": ["v1.36.0", "v1.36.1"],
+		"highlights": [
+			"**Run Command**: Execute bash in space sandboxes from the command palette, with shared core/infra primitives, agent job processing, and live streaming output.",
+			"**Space slugs**: Assign per-owner URL slugs so spaces resolve at `/[username]/[spaceSlug]`, with create/settings/SDK support.",
+			"**Message & turn timing**: Persist `startedAt`, `completedAt`, and `durationMs` across protocol, DB, agent, API, and realtime, and surface durations in the UI.",
+			"**Public avatar uploads**: Upload profile and space avatars through a dedicated public-assets pipeline (presigned storage, SDK, CLI, and polished web editors).",
+			"**Streaming edit diffs**: Render optimistic partial diffs for edit tool input as each side streams in, removing the JSON→diff jump."
+		],
+		"fixes": [
+			"CLI clears the full auth session on 401 instead of only the device code",
+			"Preserve tool timing metadata when assistant content is persisted",
+			"Sync space env cache on space creation"
+		]
+	},
+	{
+		"version": "1.35",
+		"date": "2026-05-22",
+		"tags": ["v1.35.0"],
+		"highlights": [
+			"**Inline profile editing**: Display name, username, and avatar URL edit in place with per-field save/cancel, skeleton loading, and a cleaner identity header—no full-form Save pass.",
+			"**Env-aware sandbox idle TTL**: Default auto-destroy idle TTL is now 12h in prod and 10m in dev (was 48h everywhere), aligned across API, CLI, and sandbox-controller.",
+			"**Honest authz responses**: Permission denials return 401/403 via a shared `authzDenied` helper instead of masquerading as 404; invalid tokens reject with 401.",
+			"**Session fork tree polish**: Sidebar fork branches use clearer last-child connectors and brand-tinted guides; list refresh preserves fork cache so hierarchy does not drop."
+		],
+		"fixes": [
+			"Drain in-flight stream flushes before reset so assistant deltas are not lost; empty-delta flushes no longer pin the flush lock forever",
+			"Guard Enter/shortcut handlers during IME composition (composer, renames, command palette)",
+			"Clean stale `.git/index.lock` before worker git ops; prevent sandbox WS unhandledRejection crashes on Node 22+",
+			"Refresh directory contents on expand; grant worker SA delete-pods RBAC in the sessions namespace"
+		]
+	},
+	{
+		"version": "1.34",
+		"date": "2026-05-21",
+		"tags": ["v1.34.0"],
+		"highlights": [
+			"**Sandbox upload materialization**: Refactored space file uploads to support `workspace` and `sandbox_tmp` destinations, materializing files via agent `sandbox_bash` jobs instead of async worker import tasks",
+			"**Streaming turn finalization**: Apply full content blocks from the commit event and keep the finalized streaming preview stable until reconciliation, eliminating re-stream flicker on completed generations",
+			"**Sandbox readiness**: Warm sandbox connections asynchronously and refine tool failure handling for more reliable coding sessions"
+		],
+		"fixes": [
+			"Allow guest access to the prompts endpoint so anonymous space visitors are not redirected to login",
+			"Prevent completed generations from re-activating the typing animation after finalized or stale HTTP tail data"
+		]
+	},
+	{
+		"version": "1.33",
+		"date": "2026-05-20",
+		"tags": ["v1.33.0"],
+		"highlights": [
+			"**Structured tool call details**: Chat tool calls now render tool-specific input and output views—commands, paths, ranges, edit diffs, and collapsible long content—with clearer live/partial state and mobile-friendly layout.",
+			"**Typed sandbox RPC failures**: Sandbox WebSocket RPC errors are modeled as structured `SandboxRpcError`s (retryable, infrastructure, error code) and surfaced cleanly through bash tools and the agent session, so infrastructure failures no longer look like generic tool crashes."
+		],
+		"fixes": [
+			"Filewatch repair loop now runs every 5 minutes instead of every 10 seconds, cutting unnecessary repair churn."
+		]
+	},
+	{
+		"version": "1.32",
+		"date": "2026-05-20",
+		"tags": ["v1.32.0", "v1.32.1", "v1.32.2"],
+		"highlights": [
+			"**Sandbox lifecycle controller**: New `@cohub/sandbox-controller` package models lifecycle vs runtime health, auto-resumes stopped sandboxes on new prompts, and replaces batch reaping with per-space auto-destroy policies (idle TTL or never) exposed via API, SDK, CLI, and space settings.",
+			"**Usernames**: Unique `@username` profiles with validation, reserved-name blocking, and conflict handling—available in settings, Explore/search context, SDK, and CLI.",
+			"**Global space pins**: Pin spaces across the product from the command palette (`p:` filter, pin toggle, insert action) with user-scoped global pin refs.",
+			"**Sectioned Explore**: Curated Explore sections with richer space cards—owner identity, stats, latest save hints, and sandbox status—backed by a sectioned API and cache refresh."
+		],
+		"fixes": [
+			"Apply finalized stream content immediately so the UI does not stall waiting on slow turn hydrate",
+			"Recover session refresh correctly for in-flight turns and stop rejecting prompts when a sandbox is still recovering",
+			"Improve iOS input zoom / mobile form ergonomics and expand final tool-call results by default"
+		]
+	},
+	{
+		"version": "1.31",
+		"date": "2026-05-19",
+		"tags": ["v1.31.0"],
+		"highlights": [
+			"**Session link mentions**: Paste space or session URLs in the composer and they resolve into labeled `@[space/session]` mentions with cache-aware label lookup.",
+			"**Space access payload**: Space GET returns resolved `access` (role + permission list); session sharing is gated on `member.manage` instead of ad-hoc checks.",
+			"**Space settings polish**: Copy member UUIDs, auto-copy invite links on create, and set/edit mod mount slugs without leaving settings.",
+			"**Image MIME hardening**: Composer and agent only treat JPEG/PNG/GIF/WebP as images, with clear fallbacks for unsupported types.",
+			"**Cross-space query path policy**: Agent query tools reject paths that escape `/workspace` when reading another space."
+		],
+		"fixes": [
+			"Model selector keyboard navigation, shortcut propagation, and selected-row highlight aligned with hover.",
+			"API and CLI surface cleaner error messages; SDK extracts nested `message` fields; optional `COHUB_DEBUG_ERRORS` adds status/code/requestId detail."
+		]
+	},
+	{
+		"version": "1.30",
+		"date": "2026-05-18",
+		"tags": ["v1.30.0"],
+		"highlights": [
+			"**Space Mods**: Mount other spaces into a workspace under `/mods`, with API, SDK, CLI, and settings UI; sandbox restarts when mods change.",
+			"**Chat file references**: Attach arbitrary files and folders in the composer via drag-and-drop, paste, or picker; uploads go through a shared space-upload pipeline with progress.",
+			"**End-to-end request tracing**: Propagate `requestId`/trace context across API, queues, and agent turns, with stream telemetry and filtering of noisy realtime Redis spans.",
+			"**Session domain services**: Extract session prompt/turn orchestration into a shared service layer; turns start as `queued` with clearer lifecycle tracking.",
+			"**Stream snapshot throttling**: Coalesce agent stream snapshot writes to Redis to cut write pressure during high-frequency streaming."
+		],
+		"fixes": [
+			"Fail interrupted sandbox tool calls instead of leaving them hanging.",
+			"Collapse the expanded composer after send.",
+			"Harden prompt scheduling validation and error responses."
+		]
+	},
+	{
+		"version": "1.29",
+		"date": "2026-05-18",
+		"tags": ["v1.29.0"],
+		"highlights": [
+			"**In-browser debugger**: New `@neta-art/cohub/debugger` instruments console, fetch/XHR, EventSource, and WebSocket traffic with ring-buffered capture, redaction, and HAR export; the web app auto-starts it and can download a debug bundle from the user menu.",
+			"**ContentBlock normalizer**: Shared `@cohub/core/content/normalize` canonicalizes image aliases and nested tool_result content across prompt submit and the agent pipeline, with safe-mode invalid-block reporting.",
+			"**Multimodal image path**: Agent runtime now converts and preserves base64/URL image blocks end-to-end when building LLM user and tool-result messages.",
+			"**Turn recovery hardening**: Locked/busy turns requeue with exponential backoff; queued-turn drain runs after lock release so abort/steer and completed turns no longer stall the session queue.",
+			"**Command palette timestamps**: Results show compact local timestamps (time today, date otherwise) with full timezone tooltips."
+		],
+		"fixes": [
+			"Direct shell turns honor parent abort signals so cancellations stop in-flight commands.",
+			"Sandbox bash streaming skips non-string chunks and keeps execution-token redaction intact.",
+			"Removed the running tool-call side rail indicator to reduce visual noise."
+		]
+	},
+	{
+		"version": "1.28",
+		"date": "2026-05-17",
+		"tags": ["v1.28.0"],
+		"highlights": [
+			"**Sandbox connection pool**: Replaced acquire/release leases with `ensureSandboxConnection`, LRU pruning, pending-request-aware idle eviction, and deduplicated WS URL resolution for more reliable multi-space sandbox access.",
+			"**Cross-space tool routing**: Space-aware tools now always establish a sandbox connection for the target space and preserve full tool execution context when switching spaces.",
+			"**TypeScript builds via tsgo**: Switched package builds to the native TypeScript compiler preview for faster typechecking and builds."
+		],
+		"fixes": [
+			"Sandbox pool no longer disconnects spaces that still have in-flight RPC requests during capacity pruning or idle eviction."
+		]
+	},
+	{
+		"version": "1.27",
+		"date": "2026-05-17",
+		"tags": ["v1.27.0"],
+		"highlights": [
+			"**Core package consolidation**: Introduce `@cohub/core` and `@cohub/infra`, fold permissions, session prompts, FS CDN policy, tracing, and queue helpers into shared packages, and tighten protocol boundaries across realtime, gateway, and sandbox contracts.",
+			"**Direct shell commands**: Run `!command` turns without an LLM round-trip, with chunked bash output streaming and execution-auth injection into the sandbox environment.",
+			"**Streaming tool call UI**: Simplify and polish in-progress tool call rendering for clearer live feedback.",
+			"**Sidebar fork ordering**: Improve how forked sessions are ordered in the sidebar for more predictable navigation."
+		],
+		"fixes": [
+			"Restore the direct shell command execution path and stream bash output by chunks.",
+			"Inject execution auth into bash env and `ENV=dev` into dev sandbox pods.",
+			"Break session-content circular dependencies and avoid eager prompt dependency initialization."
+		]
+	},
+	{
+		"version": "1.26",
+		"date": "2026-05-16",
+		"tags": ["v1.26.0"],
+		"highlights": [
+			"**BullMQ agent runtime**: Replaced Redis list turn dispatch with a BullMQ-backed agent queue, batch turn claiming/merging, session locks, abort pub/sub, and sandbox connection pooling for more reliable concurrent execution.",
+			"**Space FS CDN cache**: Warm media and large workspace files to object storage with a dedicated system worker, so reads can return CDN URLs instead of proxying every byte through the API.",
+			"**Shared platform packages**: Extracted `@cohub/db-schema`, `@cohub/permissions`, and `@cohub/bullmq-ops`, unified package naming under `@cohub/*`, and split workers into user/system deployments with queue snapshots and Prometheus metrics.",
+			"**Space file APIs & CLI**: Added batch file read with preparing/CDN delivery states, plus a CLI space file upload command for multi-file and directory uploads.",
+			"**Session forks in sidebar**: Surface forked sessions in the web sidebar, with command palette polish and clearer token usage including cached input."
+		],
+		"fixes": [
+			"Recover stale active agent turns and detect stale session handles via file signature.",
+			"Avoid CDN CORS and disposition issues on space file downloads while keeping embedded asset URLs stable.",
+			"Fix model selector keyboard navigation."
+		]
+	},
+	{
+		"version": "1.25",
+		"date": "2026-05-13",
+		"tags": ["v1.25.0"],
+		"highlights": [
+			"**Space mentions**: Type `@` in the composer to reference other spaces with local-first search, owner avatars, interactive chips in chat, and automatic conversion of pasted space URLs.",
+			"**Command palette & search**: Typed resource filters, default recents, and server-side scoped search with membership ranking, public space visibility, and owner profile enrichment.",
+			"**CLI device login**: Logto device authorization flow for browser-based `cohub auth login` without pasting tokens by hand.",
+			"**Usage insights**: Space overview replaces the heatmap with cost and token breakdowns, daily trend charts, and 7 / 30 / 90 day ranges.",
+			"**Theme system**: Semantic tokens moved into dedicated light/dark theme modules for safer, theme-consistent UI styling."
+		],
+		"fixes": [
+			"Preserve file tree expansion state after saving files",
+			"Update the URL when jumping to a session turn",
+			"Normalize `!` shell commands in prompt templates with leading whitespace",
+			"Close slash menu after selecting a command; keep model selector search focus visible"
+		]
+	},
+	{
+		"version": "1.24",
+		"date": "2026-05-13",
+		"tags": ["v1.24.0"],
+		"highlights": [
+			"**Slash command menu**: Rebuilt as a dedicated `SlashCommandMenu` with ranked filtering, category groups, loading/empty states, and richer keyboard navigation on desktop and mobile.",
+			"**Model selector shortcuts**: Open the model picker with ⌘/Ctrl+Shift+M, navigate with arrows or Ctrl+N/P, and discover the flow from the help panel.",
+			"**CLI expansion**: Add `cohub search`, top-level `prompt`, turn inspection under sessions, multimodal listing via `models ls --model-type multimodal`, and sandbox self-update for `@neta-art/cohub-cli`.",
+			"**Prompt templates runtime**: Share prompt config through `@cohub/config-runtime/prompts`, load from `.agents/prompts`, and publish Redis caches on platform/user checkpoint saves."
+		],
+		"fixes": [
+			"Preserve nested code fences inside markdown/md/mdx blocks while rendering.",
+			"Hide code copy controls during live streaming to stop flicker.",
+			"Allow shifted letter shortcuts only outside editable fields so composer typing stays intact."
+		]
+	},
+	{
+		"version": "1.23",
+		"date": "2026-05-13",
+		"tags": ["v1.23.0"],
+		"highlights": [
+			"**Multimodal generations**: Declaration-driven generation API across protocol, API, SDK, CLI, and config runtime — YAML models, content blocks (text/image/video/audio), OpenAI images adapter, and `cohub generate` / `cohub generations ls`.",
+			"**Vim session navigation**: Session timeline keys for scroll (`j`/`k`), turn jump (`Shift+J`/`Shift+K`), top/bottom (`gg`/`G`), and composer focus (`i`), plus global new chat (`⌘O` / `Ctrl+O`).",
+			"**Help panel**: Global `?` cheat sheet for shortcuts across search, sessions, composer, and files, with sidebar entry.",
+			"**Command palette ranking**: Prefer spaces over sessions and turns in search and palette scoring, with clearer type marks and active-result scrolling.",
+			"**Mobile prompt templates**: Touch-friendly template picker and broader prompt suggestion support on small screens."
+		],
+		"fixes": [
+			"Keep file tree action menus above hovered siblings",
+			"Stop generation no longer triggers form submit in the composer",
+			"Reduce sidebar item action whitespace on hover"
+		]
+	},
+	{
+		"version": "1.22",
+		"date": "2026-05-12",
+		"tags": ["v1.22.0"],
+		"highlights": [
+			"**Command palette**: ⌘K / Ctrl+K multi-source search across spaces, sessions, and messages—local IndexedDB results merge with remote pg_trgm fuzzy search, ranked by text match, recency, and type priority",
+			"**Live streaming markdown**: incomplete assistant output is repaired with remend and rendered as a single cached surface for smoother, less jumpy stream UI",
+			"**Session generation stream client**: SDK `SessionGenerationStreamClient` normalizes generation events; web realtime path is simplified onto the shared client",
+			"**Agent async I/O**: session manager and system prompt builder move from sync fs to async I/O with serialized writes, parallel context loading, and safer disposal flushes",
+			"**Agent stream performance**: deferred content projection, leaner assistant stream state, and quieter tracing/logging cut runtime overhead"
+		],
+		"fixes": [
+			"Independent stream reducer state per `session.subscribeGeneration` subscription",
+			"Safer post-send recovery timing and streaming markdown surface caching"
+		]
+	},
+	{
+		"version": "1.21",
+		"date": "2026-05-12",
+		"tags": ["v1.21.0"],
+		"highlights": [
+			"**Cross-space query tools**: Agents can `read`, `ls`, `find`, and `grep` other spaces via optional `space_id`, with permission checks, workspace readiness gates, and path sandboxing backed by `fd`/`rg` in the agent image.",
+			"**Incremental streaming markdown**: Chat renders a stable HTML prefix plus a live word-by-word tail with caret animation, cutting reparse cost and reducing layout thrash during long replies.",
+			"**Stream-order content merge**: Final assistant messages are reordered to match the live stream (including `toolCall` → `tool_use` normalization), so persisted history matches what users saw.",
+			"**Hybrid query tool routing**: Sandbox tools and cross-space tools share one schema; requests without `space_id` stay local, while remote spaces go through cached access checks."
+		],
+		"fixes": [
+			"Keep the live streaming preview as the source of truth for the active turn instead of flashing committed content mid-stream",
+			"Dedupe session recovery requests on the workspace page",
+			"Respect prefers-reduced-motion for streaming word and caret animations"
+		]
+	},
+	{
+		"version": "1.20",
+		"date": "2026-05-11",
+		"tags": ["v1.20.0"],
+		"highlights": [
+			"**Segment-based session forks**: Redesign fork lineage around dedicated `session_forks` and `session_turn_segments` tables so branch trees, turn visibility, and anchor resolution stay efficient across deep forks (with async agent `fork_session` handling).",
+			"**Direct shell commands**: Prefix input with `!` to run shell turns that bypass the LLM, stream results in-session, and render as lightweight terminal-style blocks in the web UI.",
+			"**Normalized generation stream (SDK)**: Add `SessionGenerationStreamClient` / `session.subscribeGeneration()` to fold snapshots, patches, commits, and turn finalization into stable semantic events for product UIs.",
+			"**Generation state reconciliation**: Unify web generation recovery via `syncGenerationStateFromTail`, with stale-response guards and running-turn resume from session tail data."
+		],
+		"fixes": [
+			"Restore fork button by syncing `agentSessionEntryId` into `session_turns` meta on finalize",
+			"Prevent shell-command session-operation deadlocks and handle empty assistant responses",
+			"Fix `/api/prompts` always failing auth by routing PromptsApi through HttpTransport"
+		]
+	},
+	{
+		"version": "1.19",
+		"date": "2026-05-10",
+		"tags": ["v1.19.0", "v1.19.1", "v1.19.2"],
+		"highlights": [
+			"**Live tool output**: Stream partial tool execution results (e.g. bash stdout) to the UI in real time, with throttled updates and an execution-tail preview while tools run.",
+			"**Phase-aware tool calls**: Distinguish drafting vs executing phases with animated rail, breathing status, input preview, and tool-specific activity labels (respecting reduced motion).",
+			"**Realtime architecture**: Replace Redis stream consumers with pub/sub channels and internal HTTP APIs across agent, API, gateway, and worker—simpler topology, no consumer-group coordination.",
+			"**Drafting preview**: Smarter field scoring and change tracking for clearer in-progress tool input display.",
+			"**Sandbox file watch**: Broader ignore patterns for VCS, dependencies, build outputs, and nested cache dirs, with scoped path matching."
+		],
+		"fixes": [
+			"Restore and enrich running-turn stream snapshots with intermediate metadata and fallback tool-call parsing.",
+			"Stabilize block identity matching across patches and snapshots; force replace ops for partialResult string patches.",
+			"Stabilize streaming markdown fences; show last non-empty line in execution tail instead of full collapsed text."
+		]
+	},
+	{
+		"version": "1.18",
+		"date": "2026-05-09",
+		"tags": ["v1.18.0", "v1.18.1", "v1.18.2"],
+		"highlights": [
+			"**Unified space prompt scheduling**: One `POST /spaces/:id/prompt` path covers immediate send plus delay, at, and cron schedules (`CreateSpacePromptInput` / `clientMessageId`), with SDK `space.prompt()`, CLI spaces commands, and a shared `submitSessionPrompt` core for web, API, channels, and workers.",
+			"**Message-scoped patch streams**: `getSessionTurnPatchStreamKey()` isolates session turn patches by message identity (`sourceMessageId`, `messageOrdinal`), so concurrent and reconnecting streams no longer cross-apply compact frames.",
+			"**Text composer attachments**: Drop text and code files into the chat composer alongside images, with preview cards and consistent attachment baselines.",
+			"**Stop generation control**: Abort is separated from interrupt on session turns, with stop-generation UI and clearer agent abort feedback.",
+			"**Trending & jobs polish**: Trending shows user profiles with a tighter mobile layout; scheduled-job detail is redesigned and the legacy jobs page is removed."
+		],
+		"fixes": [
+			"Websocket compact stream buffering after reconnecting into an active turn from a snapshot",
+			"Hardened markdown rendering and dark-mode code theme",
+			"Space env validation returns sanitized 400 errors instead of opaque failures"
+		]
+	},
+	{
+		"version": "1.17",
+		"date": "2026-05-08",
+		"tags": ["v1.17.0"],
+		"highlights": [
+			"**Deep session stream patches**: Streaming now diffs full content blocks (including nested tool_use fields) instead of only text/thinking appends, with server-side delta extraction and a matching SDK reducer for arbitrary block subpaths.",
+			"**Space member profiles**: Members API joins user profiles so settings show display names and avatars instead of raw user IDs.",
+			"**Markdown list polish**: Nested lists, task checkboxes, and list-item paragraphs render with clearer hierarchy and spacing."
+		],
+		"fixes": [
+			"Turn rail now prefers freshly loaded turn status when merging index and session state."
+		]
+	},
+	{
+		"version": "1.16",
+		"date": "2026-05-08",
+		"tags": ["v1.16.0", "v1.16.1"],
+		"highlights": [
+			"**Streaming markdown pipeline**: Split rendering into MarkdownSurface + MarkdownView, replaced Tailwind prose with a custom theme-aware stylesheet, added render caching and throttled streaming updates for smoother chat output.",
+			"**Session turn rail**: Merged the session scroll rail with turn markers positioned by turn range so long chats are easier to scan and jump through.",
+			"**File sidebar actions**: Collapsed tree and header controls into dropdown menus with clearer pin/upload/create actions and improved pane resize UX.",
+			"**Space upload reliability**: Wired worker OSS config for presigned uploads, fixed virtual-hosted URLs and CORS, and preserved uploaded folder hierarchy including dotfiles.",
+			"**Profile & settings polish**: Improved settings navigation and profile layout, and fixed Logto Management API profile updates end to end."
+		],
+		"fixes": [
+			"Reduced sandbox recovery false positives",
+			"Fixed mobile drawer swipe-to-close",
+			"Aligned turn rail markers with the scroll thumb range",
+			"Switched markdown code highlighting with app light/dark theme"
+		]
+	},
+	{
+		"version": "1.15",
+		"date": "2026-05-08",
+		"tags": ["v1.15.0"],
+		"highlights": [
+			"**Presigned space uploads**: Two-phase S3 upload with async worker import, folder drag-drop, and live progress across API, worker, SDK, and web.",
+			"**User profiles**: Logto-synced profiles with editable display name and avatar, plus a unified `authorProfile` model across protocol, realtime, and UI.",
+			"**Inline port preview**: Preview running space ports directly in the workspace pane without leaving the session.",
+			"**Turn rail & context usage**: DOM-accurate turn markers with older/newer pagination, plus color-coded context usage in the composer and message footer.",
+			"**Code block copy**: One-click copy buttons on markdown code blocks for faster reuse of agent output."
+		],
+		"fixes": [
+			"Recover session stream snapshots after reconnects and load full session state on route switches",
+			"Stop API request storms on failures with backoff, single-flight sign-in, and offline-aware WebSocket reconnect",
+			"Fix sidebar session pagination and show workspace-relative tool file paths"
+		]
+	},
+	{
+		"version": "1.14",
+		"date": "2026-05-07",
+		"tags": ["v1.14.0"],
+		"highlights": [
+			"**Space invites restored**: create, copy, and revoke invite links with role, TTL, and max-use controls in space settings; add members by UUID and manage roles in place",
+			"**Clickable tool file paths**: read/write/edit tool calls surface file paths that open directly in the workspace",
+			"**Authenticated space file downloads**: SDK and web download private files via authenticated blob URLs instead of bare API links",
+			"**Ports panel polish**: rename Preview to Ports and collapse status into a status dot with hover tooltip",
+			"**Monorepo alias resolution**: move protocol/SDK subpath aliases into SvelteKit config with correct specificity order so bare package names no longer shadow subpaths"
+		],
+		"fixes": [
+			"Keep the member remove action visible in space settings",
+			"Download private space files through the SDK transport"
+		]
+	},
+	{
+		"version": "1.13",
+		"date": "2026-05-06",
+		"tags": ["v1.13.0", "v1.13.1", "v1.13.2", "v1.13.3", "v1.13.4", "v1.13.5"],
+		"highlights": [
+			"**Live sandbox previews**: Sandbox now watches public ports and streams `space.ports.changed` end-to-end so the workspace shows Live/Idle preview status with openable public URLs.",
+			"**User Rules**: New Settings → User Rules surface for publishing personal `AGENTS.md` from your config Space, with API read access and automatic inclusion in chat system context.",
+			"**Stream snapshot v2**: Reconnect recovery upgrades to full `session.turn.snapshot` payloads (current + intermediate messages), with SDK-side ordered patch buffering for out-of-order frames.",
+			"**Space navigation**: Recent Spaces become a multi-entry local history, the space picker splits Recent vs All, and New Chat is elevated as a primary action."
+		],
+		"fixes": [
+			"Empty git repo imports no longer fail when creating a space from a repository without HEAD",
+			"Unread badges track `lastMessageId` instead of turn id, fixing mismatched unread state",
+			"Avoid repeated empty turn-index fetches; hide the mobile turn list control on desktop"
+		]
+	},
+	{
+		"version": "1.12",
+		"date": "2026-05-05",
+		"tags": ["v1.12.0", "v1.12.1"],
+		"highlights": [
+			"**Live multi-message streaming**: track `messageId` / `messageOrdinal` across agent → API → gateway → web so intermediate assistant messages render live in the process card, with user-scoped generation persistence and safer turn/message boundary handling.",
+			"**Turn navigator**: paginated turn index API plus desktop `TurnRail` and mobile `TurnBottomSheet` for jump-to-turn browsing of long sessions.",
+			"**Sandbox self-healing**: detect stale/critical mount failures, recover via API with distributed lock and smoke checks (kubernetes Exec API), expose health + manual force-recover in Space settings, and add sandbox readiness/liveness probes.",
+			"**Faster space open**: `space_records` IndexedDB + memory LRU cache seeds workspace state immediately while refreshing in the background; session loading is decoupled from space load.",
+			"**Safer config publish**: worker replaces backup+rename with in-place directory sync to avoid cross-filesystem rename failures and reduce publish risk."
+		],
+		"fixes": [
+			"Multi-message streaming transitions, turn switches mid-stream, and duplicate final/process-card messages",
+			"IndexedDB DataCloneError from unsanitized cache writes; markdown render race during streaming",
+			"API pods/exec RBAC and clearer sandbox recovery error logging"
+		]
+	},
+	{
+		"version": "1.11",
+		"date": "2026-05-01",
+		"tags": ["v1.11.0"],
+		"highlights": [
+			"**Explore spaces**: platform-curated explore feed surfaces discoverable spaces with checkpoint previews, pin counts, and sandbox status, backed by Redis-cached config and a new SDK API.",
+			"**Pinned resources**: pin sessions, checkpoints, and files per space (rank-ordered, capped at 10) with sidebar actions, marks API, and space.pin permission.",
+			"**IndexedDB cache layer**: replace localStorage list caches with repository-backed IndexedDB stores (session lists, turns, space FS), memory LRU, cross-tab BroadcastChannel sync, and periodic cleanup for faster first paint and multi-tab consistency.",
+			"**Unified resource actions**: consolidate sidebar and workspace item actions into consistent dropdown menus, with improved pin flows and mobile long-press / insert gestures."
+		],
+		"fixes": [
+			"Normalize gateway channel commands and turns across Discord and Feishu providers",
+			"Default markdown files to preview mode",
+			"Remove PageHeader right-section overflow and width constraints"
+		]
+	},
+	{
+		"version": "1.10",
+		"date": "2026-04-30",
+		"tags": ["v1.10.0", "v1.10.1"],
+		"highlights": [
+			"**Turn-based session architecture**: Rebuilt chat rendering from message-centric to turn-level model, with `turn.updated` / `turn.finalized` realtime events, on-demand intermediate tool details, and a cleaner SDK turns client.",
+			"**Optimistic turn rendering**: Show a provisional running turn immediately on send, then swap in the real turn id on success for snappier session UX.",
+			"**Feishu channel commands**: Add session commands, reply to inbound Feishu messages, expand docs/images in the gateway, and normalize document URLs.",
+			"**Unified tool-call UI**: Extract shared tool-call formatting and block-ordered message content flow so process cards, intermediate bubbles, and assistant replies render consistently."
+		],
+		"fixes": [
+			"Stop markdown render callback loops that could thrash the chat timeline.",
+			"Avoid duplicate intermediate tool-call entries during streaming turns."
+		]
+	},
+	{
+		"version": "1.9",
+		"date": "2026-04-30",
+		"tags": ["v1.9.0", "v1.9.1", "v1.9.2"],
+		"highlights": [
+			"**Patch-based session streaming**: Replace full-content turn progress with sequenced `session.turn.patch` ops (append/replace/merge/remove), plus a client `SessionPatchReducer` for efficient incremental updates.",
+			"**Compact WebSocket frames**: Opt-in `session.compact_stream.v1` capability ships lightweight delta/patch frames over the wire, cutting realtime bandwidth for long streams.",
+			"**Stream resume after reconnect**: Redis-backed session stream snapshots restore in-flight assistant output on auth/reconnect and page refresh, so generation continues without a blank turn.",
+			"**Intermediate assistant messages**: Patch sequencing now tracks `assistant_intermediate` messages alongside finals for multi-step turns.",
+			"**Sandbox NFS self-heal**: Auto-recover stale mounts when NFS file-handle errors occur, improving sandbox filesystem reliability."
+		]
+	},
+	{
+		"version": "1.8",
+		"date": "2026-04-30",
+		"tags": ["v1.8.0"],
+		"highlights": [
+			"**Optional auth for RBAC routes**: introduce `getOptionalAuth` so session, space, file, task, and usage APIs can authorize via policies—including anonymous access—instead of requiring a signed-in user up front.",
+			"**Realtime final-turn consolidation**: remove `session.turn.final` and treat assistant finals through `session.message.persisted`, with a leaner `RealtimeMessageRecord` payload and SDK `turn.final` mapped from `assistant_final` messages.",
+			"**Readable-user ID caching**: short-TTL cache for space membership lookups cuts DB load on realtime fan-out.",
+			"**Config mount path alignment**: publish and sandbox mounts use `PLATFORM_CONFIG_ROOT` / `CONFIGS_SUBPATH` so platform and user agent configs resolve correctly."
+		],
+		"fixes": [
+			"Correct session turns pagination (exclusive older cursor, nextCursor, and page slice) and add a backfill script for missing turns.",
+			"Complete chat generation and auto-scroll only on terminal assistant messages (`assistant_final` / `assistant_error`), not every assistant persist."
+		]
+	},
+	{
+		"version": "1.7",
+		"date": "2026-04-29",
+		"tags": ["v1.7.0"],
+		"highlights": [
+			"**Session turns**: First-class turn tracking for space sessions—lifecycle status, intent, sequence, usage/tool summaries, and cursor-paginated turn APIs",
+			"**Turn object storage**: Persist intermediate messages and tool-call details in S3 with signed/CDN access for full turn inspection",
+			"**Turn interrupt**: Agents auto-interrupt a running turn when a new one arrives; internal interrupt endpoint for explicit cancellation",
+			"**Tool input summaries**: Smarter tool-input summarization with truncation tracking for leaner turn records"
+		],
+		"fixes": [
+			"Prefix cost displays with $ and drop duplicate cost under space usage",
+			"Accept short user IDs when publishing worker config"
+		]
+	},
+	{
+		"version": "1.6",
+		"date": "2026-04-29",
+		"tags": ["v1.6.0", "v1.6.1", "v1.6.2", "v1.6.3"],
+		"highlights": [
+			"**Realtime filesystem sync**: Sandbox fsnotify watcher streams debounced, batched changes through agent/API/worker into space WebSockets, so web file trees, open editors, and previews stay live across collaborative edits and bootstrap.",
+			"**Cursor-paginated sessions**: Space session lists use limit/cursor pagination (default 20) across API, SDK, and web sidebar Load more, avoiding unbounded first-load fetches.",
+			"**Environment-aware SDK & CLI**: Clients resolve prod/dev API and WebSocket endpoints by default (`ENV=dev` or `env: \"dev\"`), with per-environment CLI auth tokens.",
+			"**Usage cost breakdown**: Space usage and trending surfaces expose input/output/cache cost totals alongside token counts for clearer spend visibility.",
+			"**Generation-aware unread state**: Session generation tracking (`isGenerating`) and smarter viewed-message anchors keep unread badges accurate while turns stream."
+		],
+		"fixes": [
+			"Refresh space env before each agent turn so sandbox processes see latest variables",
+			"Route worker shared caches and space events through app Redis while keeping BullMQ on its queue Redis",
+			"Make dialog overlays cover the full viewport on mobile",
+			"Parse env import values that contain `=` correctly",
+			"Persist session-list pagination state across sidebar reloads",
+			"Sanitize sandbox child process env and stop large-scale sandbox rollout hangs"
+		]
+	},
+	{
+		"version": "1.5",
+		"date": "2026-04-28",
+		"tags": ["v1.5.0"],
+		"highlights": [
+			"**Local JWT auth**: new `@cohub/auth` package verifies Logto access tokens via JWKS in API and gateway, removing remote `/v1/user` and `/api/me` auth round-trips.",
+			"**Resilient web auth**: centralized auth store with refresh-token fallback, redirect-preserving 401 handling, and an auth-ready gate so UI no longer flashes unauthenticated state.",
+			"**Shared models runtime**: `@cohub/config-runtime` unifies models config parse/merge/cache across agent, API, and worker, with Redis-backed platform + per-user overlays.",
+			"**Space env import**: paste `.env` content in the space workspace to bulk-create or overwrite environment variables."
+		],
+		"fixes": [
+			"Unauthenticated `/api/models` requests now return 401 instead of 502."
+		]
+	},
+	{
+		"version": "1.4",
+		"date": "2026-04-28",
+		"tags": ["v1.4.0", "v1.4.1"],
+		"highlights": [
+			"**Space invite links**: Hosts can create shareable invitation links with role pre-binding, configurable TTL, and usage limits. Includes a dedicated accept page, revoke/copy controls in Members, and full SDK + API coverage backed by Redis tokens with optimistic locking.",
+			"**Space env management UI**: Manage space environment variables directly from the workspace settings surface via new SDK env APIs.",
+			"**Drizzle query tracing**: `@cohub/tracing` instruments Drizzle ORM so API and Worker DB queries emit spans with SQL, operation type, and duration.",
+			"**Agent reliability hardening**: Replace fire-and-forget async paths with error-safe schedulers, hook guards, Redis listener rejection handling, and process-level `unhandledRejection` / `uncaughtExceptionMonitor` handlers."
+		],
+		"fixes": [
+			"Feishu image pipeline now uploads outbound images and correctly extracts inbound image keys",
+			"Channel binding reuses alive gateway nodes and applies config/routing updates atomically via Redis MULTI"
+		]
+	},
+	{
+		"version": "1.3",
+		"date": "2026-04-28",
+		"tags": ["v1.3.0", "v1.3.1", "v1.3.2"],
+		"highlights": [
+			"**Cohub CLI**: new `@neta-art/cohub-cli` for spaces, channels, sessions, tasks, cron jobs, models, and auth from the terminal",
+			"**Sandbox public network**: publish sandbox ports 3000/5173 via Kubernetes Gateway API HTTPRoutes on cohub.run",
+			"**Hot-reload space env**: manage environment variables over a REST API without restarting the sandbox pod",
+			"**Space invitations**: host-issued invite links with role, TTL, and usage limits",
+			"**Chat & agent UX**: message summary/detail loading, intermediate states, drag sessions into input, and automatic retry on transient agent errors"
+		],
+		"fixes": [
+			"Feishu gateway: parse text JSON, download images, and split posts into multiple content blocks",
+			"Worker: fix config-publish EACCES on backup cleanup and unique-constraint conflicts on checkpoint save",
+			"Sandbox: redirect package-manager global installs to the node user home"
+		]
+	},
+	{
+		"version": "1.2",
+		"date": "2026-04-27",
+		"tags": ["v1.2.0", "v1.2.1"],
+		"highlights": [
+			"**Space file uploads**: drag-and-drop or toolbar uploads into the space filesystem, with a non-blocking progress pane, multipart API, and SDK `files.upload` support.",
+			"**Prompt-scoped execution auth**: short-lived grants bind agent bash tools to the initiating prompt, space, and actor, with hardened validation and session cleanup.",
+			"**Streaming steer queue**: steer inputs are batched while a session is streaming, then drained safely instead of racing the active turn.",
+			"**Session generation architecture**: web generation state, realtime adapter, and recovery coordinator are split into focused modules with more reliable bootstrap and reconnect sync.",
+			"**Agent OTEL redesign**: turn, LLM, and tool spans are restructured for clearer, lower-noise traces across agent runtime paths."
+		],
+		"fixes": [
+			"Stabilize session recovery across space switches and reconnect races",
+			"Render user messages as plain text to avoid accidental markdown parsing",
+			"Fallback signed_in_user permissions to anonymous_user when the role is not configured",
+			"Handle empty-repo checkpoint saves when HEAD does not exist"
+		]
+	},
+	{
+		"version": "1.1",
+		"date": "2026-04-27",
+		"tags": ["v1.1.0", "v1.1.1", "v1.1.2"],
+		"highlights": [
+			"**Prompt templates**: Layered plan/review/summarize templates with API, SDK, and composer UI support.",
+			"**Session rename**: Inline title editing from the header, desktop context menu, and mobile action sheet, with instant sidebar cache updates.",
+			"**File path drag-and-drop**: Drag file tree nodes into the chat composer to insert markdown path snippets at the cursor.",
+			"**Distributed tracing**: Shared `@cohub/tracing` OpenTelemetry package with end-to-end propagation across gateway, API, agent, and worker, including LLM, tool, and sandbox RPC spans (ARMS-ready).",
+			"**Owner-scoped user config**: Load and publish per-owner agent configuration into sessions and sandboxes."
+		],
+		"fixes": [
+			"Preserve assistant stream block order via stable `streamIndex` identity across progress, final, and persisted payloads.",
+			"Allow empty-diff checkpoint saves and push via a dedicated `cohub` remote instead of swapping origin.",
+			"Fix usage route 404 by reading parent route params; accept both standard and short UUIDs for agent userId validation."
+		]
+	},
+	{
+		"version": "0.10",
+		"date": "2026-04-26",
+		"tags": ["v0.10.0", "v0.10.1"],
+		"highlights": [
+			"**Space usage API**: New authenticated `GET /spaces/:id/usage` endpoint returns hourly token, cache, cost, and request stats with summary aggregation; exposed via SDK `space.usage` and rendered as a token heatmap on the space detail page.",
+			"**Immutable assistant stream state**: Agent streaming is extracted into a dedicated pure state machine that applies text/thinking/tool deltas immutably and projects content blocks, with unit and integration coverage.",
+			"**Session scroll reliability**: Scroll-to-bottom is always available with unread-aware state, multi-frame bottom restoration, and composer-height-aware positioning for stable timeline jumps.",
+			"**Agent & gateway resilience**: On startup, stale processing-queue messages are recovered into a bounded dead-letter queue; gateway heartbeats prune expired nodes with a shared TTL.",
+			"**API query efficiency**: Session permission checks, channel binding, space list sandbox status, and session forking move from N+1 patterns to batched queries; empty/new sessions skip unnecessary message fetches."
+		],
+		"fixes": [
+			"Correct user attribution for message persistence, token usage, and trending spaces; propagate actor user id through web session prompts",
+			"Close and ignore stale sandbox websocket connections so reconnects no longer leak or mis-fire disconnect hooks",
+			"Reset tool blocks when a new streaming preview starts; strip the correct sentinel row in message pagination"
+		]
+	},
+	{
+		"version": "0.9",
+		"date": "2026-04-24",
+		"tags": ["v0.9.0", "v0.9.1", "v0.9.2", "v0.9.3"],
+		"highlights": [
+			"**Cohub session runtime**: Replaced the pi-coding-agent stack with a first-party agent runtime—session manager, model registry, system prompt builder, and inlined tools—so agent execution is owned end-to-end.",
+			"**Layered protocol & public SDK**: Split `@cohub/protocol` into core/model/realtime/gateway/fs/task subpaths, introduced `gateway-contract`, and shipped a business-oriented `@cohub/sdk` client API for co-creation integrations.",
+			"**Local-first list & file caches**: Added a reusable localStorage list-cache factory with TTL, inflight dedupe, and cross-tab sync; session, space, and file-tree caches make sidebar and workspace loads feel instant while still reconciling in the background.",
+			"**Workspace & sharing UX**: Inline file panel with Source/Preview toggle, message meta bar (time/model/tokens/copy), image zoom with drag-to-pan, WebSocket reconnect status and tail reconcile, Maker role for signed-in collaborators, and a public Trending leaderboard.",
+			"**Sandbox process lifecycle**: tini as PID 1, process-group isolation, graceful SIGTERM→SIGKILL, and zombie self-heal with heartbeat process/health stats for more reliable long-running sandboxes."
+		],
+		"fixes": [
+			"Streaming tool calls and process expansion no longer drop mid-turn; preview collapse waits for the next progress event.",
+			"Mobile tables, code blocks, space switcher, and model selector layout/scroll issues.",
+			"Agent tool_result content no longer duplicates when structured arrays are handled.",
+			"Session cache update handler infinite loop under rapid reconnects."
+		]
+	},
+	{
+		"version": "0.8",
+		"date": "2026-04-23",
+		"tags": ["v0.8.0", "v0.8.1", "v0.8.2"],
+		"highlights": [
+			"**Role-based access control**: Replace flat read/write permissions with a host/maker/guest RBAC model, fine-grained permission checks, space members and public access policies across API, SDK, and web",
+			"**Shared session access**: Anonymous and limited users with session-level access get minimal space info and a stripped workspace UI instead of hard failures",
+			"**Token usage stats**: Aggregate token usage into hourly stats for usage analytics",
+			"**Sandbox capacity**: Raise sandbox CPU limit to 2 and restart failed pods with OnFailure policy"
+		],
+		"fixes": [
+			"WebSocket clients auto-reconnect on 4001 token expiry even while still connecting",
+			"Checkpoint saves set git user identity so commits succeed in containers",
+			"Skip Drizzle v2 migrate when the schema is already healthy to avoid relation-exists failures"
+		]
+	},
+	{
+		"version": "0.7",
+		"date": "2026-04-23",
+		"tags": [
+			"v0.7.0",
+			"v0.7.1",
+			"v0.7.2",
+			"v0.7.3",
+			"v0.7.4",
+			"v0.7.5",
+			"v0.7.6"
+		],
+		"highlights": [
+			"**@cohub/sdk**: New typed client package with modular APIs, transport, and realtime WebSocket — web fully migrated off local API helpers",
+			"**Realtime chat updates**: WebSocket-driven session events keep the UI in sync without polling",
+			"**Space rename**: PATCH rename API plus inline title editing on the workspace page",
+			"**Private git bootstrap**: Create spaces from authenticated repos via `X-Git-Token` (GitHub, GitLab, Gitea)",
+			"**Checkpoint spaces via Gitea fork**: Space creation from saves uses fork → rename instead of clone-and-push, preserving history and parent linkage"
+		],
+		"fixes": [
+			"Deduplicate streaming and tool_call/tool_result content so assistant turns persist and render once",
+			"Raise sandbox WebSocket ReadLimit to 50MB for large payloads",
+			"Align task run id with jobId so task lookup no longer 404s",
+			"Push full history on public repo import; set git safe.directory on all worker git commands"
+		]
+	},
+	{
+		"version": "0.6",
+		"date": "2026-04-22",
+		"tags": [
+			"v0.6.0",
+			"v0.6.1",
+			"v0.6.2",
+			"v0.6.3",
+			"v0.6.4",
+			"v0.6.5",
+			"v0.6.6",
+			"v0.6.7",
+			"v0.6.8",
+			"v0.6.9"
+		],
+		"highlights": [
+			"**Space domain model**: Replaces Runtime/Workspace with Space + Checkpoint as the core co-creation model, backed by a v2 schema, modular `/spaces` APIs, and full terminology migration across API, agent, worker, gateway, and web.",
+			"**Agent / sandbox split**: Introduces a Go sandbox executor with WebSocket RPC as the execution plane; the agent becomes a pure control plane that dials the sandbox, with reconcile-based provisioning and image tracking.",
+			"**Realtime WebSocket fabric**: Replaces per-space SSE with a global output stream, Redis Pub/Sub fan-out, and a typed realtime envelope protocol across gateway, API, and web.",
+			"**Optimistic chat & streaming**: Adds pending-message send/reconcile, server sequence ordering, and anchor-based stream tracking for snappier, race-resistant session timelines.",
+			"**Checkpoint bootstrap & workspace shell**: Create spaces from blank, git, or checkpoint; dedicated checkpoint/cronjob/task-run pages under a unified space shell with redesigned sidebar and settings."
+		],
+		"fixes": [
+			"Chat auto-scroll, composer overlap, and duplicate streaming renders during live turns",
+			"Model selection not applied over the WebSocket inbound path",
+			"Sandbox WebSocket reconnect loops and agent↔sandbox connectivity (POD_IP reporting)",
+			"Dark/light theme FOUC and right-sidebar file preview not opening"
+		]
+	},
+	{
+		"version": "0.5",
+		"date": "2026-04-16",
+		"tags": [
+			"v0.5.0",
+			"v0.5.1",
+			"v0.5.2",
+			"v0.5.3",
+			"v0.5.4",
+			"v0.5.5",
+			"v0.5.6",
+			"v0.5.7",
+			"v0.5.8",
+			"v0.5.9"
+		],
+		"highlights": [
+			"**Runtime filesystem**: browse, view, edit, create, delete, and move workspace files in-runtime with a CodeMirror editor, recursive file tree, and resizable collapsible sidebars.",
+			"**Collaborators & permissions**: invite collaborators with grantee-level access control, permission icons in settings, and multi-user sender attribution on chat messages.",
+			"**Jobs & scheduling**: new Jobs page for cron and one-time tasks, soft-deleted cron jobs, agent-guided task creation, and a worker `send_message` task for automated deliveries.",
+			"**Feishu channels**: first-class Feishu gateway provider with outbound rendering and a dedicated channel creation flow with per-provider setup guidance.",
+			"**Chat UX**: ProcessCard groups intermediate assistant steps during streaming; mobile right drawer with refined swipe gestures; resizable app sidebars and multi-stage Docker builds on Node 24."
+		],
+		"fixes": [
+			"Prevent IME Enter from sending mid-composition; fix wake-runtime race with terminating pods; preserve process-card grouping and streaming message order; correct runtime collaborator write permissions."
+		]
+	},
+	{
+		"version": "0.4",
+		"date": "2026-04-13",
+		"tags": [
+			"v0.4.0",
+			"v0.4.1",
+			"v0.4.2",
+			"v0.4.3",
+			"v0.4.4",
+			"v0.4.5",
+			"v0.4.6",
+			"v0.4.7",
+			"v0.4.8",
+			"v0.4.9",
+			"v0.4.10"
+		],
+		"highlights": [
+			"**Runtime & session sharing**: Resource-level permissions with a redesigned share modal, canRead auth, and anonymous access to public runtimes/sessions.",
+			"**Chat stack upgrade**: Paginated history with IndexedDB cache, image attachments, global media lightbox, Shiki code highlighting, and per-session model selection from a live catalog.",
+			"**Session-scoped realtime**: Independent SSE streams per session with heartbeats, client reconnection, ordered message persistence, and unthrottled agent streaming for smoother timelines.",
+			"**Task worker platform**: New BullMQ-backed worker service with task protocol, enqueue APIs, and deploy/CI pipelines for background and scheduled work.",
+			"**Mobile-first shell & PWA**: Responsive layouts, swipeable sidebar drawer, centralized auth/runtime stores, and installable PWA support; runtime status now lives in the DB as the single source of truth."
+		],
+		"fixes": [
+			"Preserve chat scroll position across session switches and avoid blank timelines on turn end",
+			"Correct streaming tool-call interleaving and harden message persistence reliability",
+			"Prevent sidebar/settings request storms and keep shared runtimes stable across list refreshes"
+		]
+	},
+	{
+		"version": "0.3",
+		"date": "2026-04-06",
+		"tags": ["v0.3.0", "v0.3.1"],
+		"highlights": [
+			"**Design system refresh**: Cohesive dark-first UI with OKLCH semantic tokens, dark/light/system themes, Instrument Sans + JetBrains Mono, denser list layouts, and a unified settings surface.",
+			"**Real-time session streaming**: Replace message polling with authenticated SSE; page-level reconnecting stream cuts chat update latency from ~1s to under 100ms and streams thinking/tool calls live.",
+			"**Protocol simplification**: Remove the OpenAI-style Responses API; unify on Anthropic-style ContentBlock (`tool_use`/`tool_result`, inline tools) and POST `/sessions/:id/messages` plus runtime event streams.",
+			"**SSH key management**: Settings UI and API for user SSH public keys so Gitea push access can be managed end-to-end.",
+			"**Faster workspace clone**: Agent git init uses shallow clone and parallel checkout, roughly halving NFS-backed workspace setup time."
+		],
+		"fixes": [
+			"Resolve Discord mention IDs to readable names in inbound messages",
+			"Keep runtime detail status in sync with live polling",
+			"Add gateway `/readyz` readiness probe and fix StatefulSet deploy via pod deletion",
+			"Separate Logto auth endpoints/resources for dev vs prod"
+		]
+	},
+	{
+		"version": "0.2",
+		"date": "2026-04-02",
+		"tags": ["v0.2.0"],
+		"highlights": [
+			"**Logto authentication**: Replaced local token auth with Logto SSO, async access tokens, and per-page auth guards instead of a global layout gate.",
+			"**Non-blocking agent runtime**: Reworked the supervisor to fire-and-forget Redis inputs with explicit ack/reject, so multiple sessions can run in parallel and mid-stream messages use steer instead of blocking prompt.",
+			"**Session source tracking**: Added a `source` field that records where a session came from (web, Discord DM, guild channel, or thread) and surfaces it in the session list.",
+			"**Chat UX polish**: Auto-title sessions from the first message, collapsible thinking blocks, scroll-to-bottom control, and Enter-to-send / Shift+Enter newline in the composer."
+		],
+		"fixes": [
+			"Persist multi-turn agent messages correctly across the full agent loop",
+			"Raise runtime provisioning wait timeout from 30s to 60s",
+			"Keep chat input visible with proper session tab flex layout",
+			"Hide thinking from final Discord replies while keeping a quieter collapsible view on web"
 		]
 	}
 ]

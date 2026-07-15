@@ -207,8 +207,7 @@ async function main() {
 	console.log(JSON.stringify(entry, null, 2));
 }
 
-const isDirectRun =
-	process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()!);
+const isDirectRun = process.argv[1]?.includes("generate.ts");
 if (isDirectRun) {
 	main().catch((error) => {
 		console.error(String(error));

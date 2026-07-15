@@ -32,15 +32,7 @@ Sends the tag range to a Cohub agent (via `cohub spaces prompt`), which:
 - Auto-retries up to 3 times on validation errors
 - Saves failed attempts to `.changelog-draft/` for manual recovery
 
-### Backfill historical entries
-
-```bash
-pnpm changelog:generate --from v1.85.2 --to v1.86.0
-pnpm changelog:generate --from v1.86.0 --to v1.87.0
-# ... etc
-```
-
-Each run appends to `entries.json`. If the same minor version already exists, the new entry **replaces** the existing highlights and fixes, and merges the tag list.
+If the same minor already exists in `entries.json`, generate **replaces** highlights/fixes and merges tags.
 
 ### Render CHANGELOG.md
 
@@ -102,7 +94,7 @@ The agent is prompted to:
 Check `.changelog-draft/<tag>.md` for the raw response, fix manually, and add to `entries.json`.
 
 **Tag already exists:**
-Use `generate.ts` directly to backfill, or delete the tag and re-run `release.ts`.
+Use `generate.ts` directly, or delete the tag and re-run `release.ts`.
 
 **No cohub CLI:**
 Install it: `npm install -g @neta-art/cohub-cli`
