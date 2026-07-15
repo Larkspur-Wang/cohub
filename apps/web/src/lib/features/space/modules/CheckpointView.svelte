@@ -78,7 +78,6 @@ let compareOptionsLoaded = $state(false);
 let pendingDiff = $state<SpacePendingDiffSummary | null>(null);
 let pendingDiffLoading = $state(false);
 let pendingDiffError = $state<string | null>(null);
-let headCheckpoint = $state<CheckpointRecord | null>(null);
 
 function formatCheckpointTimestamp(dateStr: string | null | undefined): string {
 	if (!dateStr) return "—";
@@ -236,25 +235,6 @@ function compareLabel(cp: CheckpointRecord): string {
 	return title.length > 48 ? `${title.slice(0, 48)}…` : title;
 }
 
-async function loadHeadCheckpointOnly() {
-	const guard = createKeyedRouteRequestGuard({
-		captureKey: () => `${spaceId}:${mode}:head`,
-	});
-	const headId = space?.headCheckpointId ?? null;
-	if (!headId) {
-		headCheckpoint = null;
-		return;
-	}
-	try {
-		const { checkpoint } = await sdk.space(spaceId).checkpoints.get(headId);
-		if (!guard.isCurrent()) return;
-		headCheckpoint = checkpoint;
-	} catch {
-		if (!guard.isCurrent()) return;
-		headCheckpoint = null;
-	}
-}
-
 /** Lazy: only runs when the user expands Review changes. */
 async function loadPendingDiff() {
 	if (pendingDiff || pendingDiffLoading) return;
@@ -351,15 +331,13 @@ $effect(() => {
 });
 
 $effect(() => {
-	if (mode === "create" && space && !spaceHasMinimalAccess && !spaceLoadError) {
-		// Head context only — pending scan waits for explicit expand (NFS-friendly).
-		void loadHeadCheckpointOnly();
-		return;
+	// Create mode: pending scan waits for explicit expand (NFS-friendly).
+	// Reset when leaving create so a later re-entry doesn't reuse stale summary.
+	if (mode !== "create" || !space || spaceHasMinimalAccess || spaceLoadError) {
+		pendingDiff = null;
+		pendingDiffError = null;
+		pendingDiffLoading = false;
 	}
-	pendingDiff = null;
-	pendingDiffError = null;
-	pendingDiffLoading = false;
-	headCheckpoint = null;
 });
 
 onDestroy(() => {
@@ -390,23 +368,6 @@ onDestroy(() => {
 						</p>
 					</header>
 
-					{#if headCheckpoint}
-						{@const lastSave = headCheckpoint}
-						<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[12px]">
-							<span class="text-text-placeholder">Last save</span>
-							<a
-								href="/spaces/{spaceId}/checkpoints/{lastSave.id}"
-								class="min-w-0 truncate font-medium text-brand transition-colors hover:text-brand-hover"
-								data-sveltekit-preload-data="hover"
-								onclick={(e) => {
-									e.preventDefault();
-									goto(`/spaces/${spaceId}/checkpoints/${lastSave.id}`);
-								}}
-							>{lastSave.description?.trim() || lastSave.commitHash.slice(0, 12)}</a>
-							<span class="font-mono text-[11px] text-text-placeholder">{formatCheckpointTimestamp(lastSave.createdAt)}</span>
-						</div>
-					{/if}
-
 					<div class="space-y-2">
 						<label
 							class="block text-[11px] font-medium text-text-secondary"
@@ -431,7 +392,7 @@ onDestroy(() => {
 							summary={pendingDiff}
 							loading={pendingDiffLoading}
 							error={pendingDiffError}
-							emptyLabel={headCheckpoint ? "No changes since last save" : "Workspace will be saved as-is"}
+							emptyLabel={space?.headCheckpointId ? "No changes since last save" : "Workspace will be saved as-is"}
 							collapsible={true}
 							defaultExpanded={false}
 							title="Review changes"
