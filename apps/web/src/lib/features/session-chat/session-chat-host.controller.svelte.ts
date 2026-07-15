@@ -104,6 +104,10 @@ import { turnRecordToIndexItem } from "$lib/turn-nav-preview";
 import type { LocalUploadEntry } from "$lib/upload-entries";
 import type { WorkspaceFileLinkTarget } from "$lib/workspace-file-links";
 import {
+	shouldClearActiveSessionForNewDraft,
+	shouldClearResolvedNewSessionOnRoute,
+} from "./new-chat-draft-isolation";
+import {
 	createSessionComposerController,
 	revokeComposerAttachmentPreview,
 } from "./session-composer-controller.svelte";
@@ -3676,6 +3680,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		void options.router
 			.toNewSession()
 			.then(() => {
+				// Defense in depth: route sync also clears these when entering /new.
+				resolvedNewSessionId = null;
 				workspace.activeSessionId = null;
 				scroll.pendingRestoreSessionId = null;
 				scroll.activeAnchorRestore = null;
@@ -3793,6 +3799,14 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 
 		if (route.kind === "session") {
+			if (
+				shouldClearResolvedNewSessionOnRoute({
+					nextKind: "session",
+					prevKind: prev.kind,
+				})
+			) {
+				resolvedNewSessionId = null;
+			}
 			if (activeSessionId !== route.sessionId) {
 				if (activeSessionId) captureCurrentScrollAnchor(activeSessionId);
 				prepareRouteSession(route.sessionId);
@@ -3820,8 +3834,27 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		}
 
 		if (route.kind === "new") {
-			if (!resolvedNewSessionId && activeSessionId) {
-				captureCurrentScrollAnchor(activeSessionId);
+			// Fresh draft entry (from another route): always clear the previous
+			// session so a still-streaming chat cannot paint into the empty draft.
+			// Keep resolvedNewSessionId only while we stay on /new after adopt
+			// (prompt created a session, URL has not switched to /:id yet).
+			if (
+				shouldClearResolvedNewSessionOnRoute({
+					nextKind: "new",
+					prevKind: prev.kind,
+				})
+			) {
+				resolvedNewSessionId = null;
+			}
+			const draftActiveSessionId = activeSessionId;
+			if (
+				shouldClearActiveSessionForNewDraft({
+					resolvedNewSessionId,
+					activeSessionId: draftActiveSessionId,
+				}) &&
+				draftActiveSessionId
+			) {
+				captureCurrentScrollAnchor(draftActiveSessionId);
 				workspace.activeSessionId = null;
 				scroll.pendingRestoreSessionId = null;
 				scroll.activeAnchorRestore = null;
@@ -3832,13 +3865,18 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				currentTurnSequence = null;
 				showTurnBottomSheet = false;
 			}
-			if (prev.kind === "new" && resolvedNewSessionId && !isNewSessionRoute) {
-				// no-op
-			}
 			appliedRouteTurnKey = null;
 			return;
 		}
 
+		if (
+			shouldClearResolvedNewSessionOnRoute({
+				nextKind: "none",
+				prevKind: prev.kind,
+			})
+		) {
+			resolvedNewSessionId = null;
+		}
 		if (activeSessionId) {
 			captureCurrentScrollAnchor(activeSessionId);
 			workspace.activeSessionId = null;
