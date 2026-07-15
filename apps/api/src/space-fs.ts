@@ -128,7 +128,7 @@ export function getMimeType(path: string) {
   return null;
 }
 
-export { isTextMime } from "./space-fs-mime.js";
+export { isTextMime, normalizeMime, resolveReadMimeType } from "./space-fs-mime.js";
 
 /**
  * Prefer inline UTF-8 for text-like files even when CDN policy would otherwise

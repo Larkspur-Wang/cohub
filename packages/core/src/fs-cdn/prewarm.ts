@@ -66,7 +66,8 @@ export function getFsMimeType(path: string) {
   const basename = path.split("/").pop()?.toLowerCase() ?? "";
   if (basename === "dockerfile") return "text/x-dockerfile";
   if (basename === "makefile") return "text/x-makefile";
-  if (basename.startsWith(".env")) return "text/plain";
+  // Dotfiles are text config by convention (.npmrc, .gitignore, .env…).
+  if (basename.startsWith(".")) return "text/plain";
   const dotIndex = basename.lastIndexOf(".");
   const ext = dotIndex >= 0 ? basename.slice(dotIndex) : "";
   return mimeByExt[ext] ?? null;

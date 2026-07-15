@@ -16,7 +16,7 @@ import {
 import { sdk } from "$lib/sdk";
 import {
 	isTextFileResponse,
-	resolveTextFileResponse,
+	tryResolveTextFileResponse,
 } from "$lib/space-file-text";
 import type { SpaceFsNode } from "$lib/space-fs";
 
@@ -538,16 +538,21 @@ export function createFileWorkspaceController(
 			options.onActivateFilePreview?.();
 		}
 		if (existingTab) {
+			// Re-fetch when forced, errored, or content was never loaded.
+			const needsReload =
+				optionsArg.forceReload ||
+				Boolean(existingTab.error) ||
+				!existingTab.response;
 			setInlineFileTab(path, (tab) => ({
 				...tab,
 				position: optionsArg.position ?? tab.position,
-				loading: !tab.response,
-				error: null,
+				loading: needsReload,
+				error: needsReload ? null : tab.error,
 				tooLarge: false,
 				requestToken,
 				backStack: nextBackStack,
 			}));
-			if (existingTab.response && !optionsArg.forceReload) {
+			if (!needsReload) {
 				if (shouldActivate && existingTab.viewMode === "diff") {
 					void ensureInlineFileDiff();
 				} else if (shouldActivate && inlineFileDiff.path !== path) {
@@ -576,17 +581,28 @@ export function createFileWorkspaceController(
 			)
 				return;
 			if (!("content" in rawFile)) {
+				// Preparing: keep meta so the panel can offer Download + Retry.
 				setInlineFileTab(path, (tab) => ({
 					...tab,
-					response: null,
+					response: {
+						path: rawFile.path,
+						name: rawFile.name,
+						size: rawFile.size,
+						mimeType: rawFile.mimeType,
+						mtimeMs: rawFile.mtimeMs,
+						kind: "binary",
+						encoding: "base64",
+						content: "",
+					},
 					draft: "",
 					loading: false,
-					error: "File is being prepared. Please retry shortly.",
+					error: "File is being prepared. Retry in a moment.",
 					tooLarge: false,
 				}));
 				return;
 			}
-			const file = await resolveTextFileResponse(rawFile);
+			const { file, error: hydrateError } =
+				await tryResolveTextFileResponse(rawFile);
 			const hydratedTab = inlineFileTabs.find((tab) => tab.path === path);
 			if (
 				!hydratedTab ||
@@ -594,14 +610,20 @@ export function createFileWorkspaceController(
 				sourceKey !== options.getActiveFsSourceKey()
 			)
 				return;
+			const isText = isTextFileResponse(file);
+			// Content ready when text and either inline body present or no hydrate error.
+			const textReady = isText && !hydrateError;
 			setInlineFileTab(path, (tab) => ({
 				...tab,
 				response: file,
-				draft: isTextFileResponse(file) ? file.content : "",
+				draft: textReady ? file.content : "",
 				loading: false,
-				error: null,
+				// Soft-fail: keep response so Download still works.
+				error: hydrateError,
 				tooLarge: false,
-				viewMode: defaultFileViewMode(hasRenderedFilePreview(file)),
+				viewMode: defaultFileViewMode(
+					textReady && hasRenderedFilePreview(file),
+				),
 			}));
 			if (activeInlineFilePath === path) clearFileDiff();
 		} catch (error) {
@@ -615,7 +637,17 @@ export function createFileWorkspaceController(
 			if (error instanceof HttpError && error.status === 413) {
 				setInlineFileTab(path, (tab) => ({
 					...tab,
-					response: null,
+					// Keep a minimal response so Download remains available.
+					response: tab.response ?? {
+						path,
+						name: path.split("/").pop() ?? path,
+						size: 0,
+						mimeType: null,
+						mtimeMs: Date.now(),
+						kind: "binary",
+						encoding: "base64",
+						content: "",
+					},
 					draft: "",
 					loading: false,
 					error: null,
@@ -624,8 +656,9 @@ export function createFileWorkspaceController(
 			} else {
 				setInlineFileTab(path, (tab) => ({
 					...tab,
-					response: null,
-					draft: "",
+					// Preserve prior response when reloading fails.
+					response: tab.response,
+					draft: tab.draft,
 					loading: false,
 					error: error instanceof Error ? error.message : "Failed to open file",
 					tooLarge: false,

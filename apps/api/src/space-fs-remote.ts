@@ -10,7 +10,7 @@ import type {
   SpaceFsWriteFileInput,
 } from "@cohub/protocol/fs";
 import type { RpcEventPayload } from "@cohub/protocol/sandbox";
-import { getMimeType, isTextMime, sanitizeFileName, SpaceFsError } from "./space-fs.js";
+import { getMimeType, isTextMime, resolveReadMimeType, sanitizeFileName, SpaceFsError } from "./space-fs.js";
 import type { SpaceFsVisibility } from "./space-fs-ignore.js";
 import { callSandboxRpc, SandboxOfflineError } from "./space-sandbox-rpc.js";
 
@@ -133,7 +133,8 @@ function buildFileResponse(relativePath: string, params: {
   size?: number;
   mtimeMs?: number;
 }): SpaceFsFileResponse {
-  const mimeType = params.mimeType ?? getMimeType(relativePath);
+  // Prefer filename text types over generic sandbox sniffs (e.g. .npmrc → octet-stream).
+  const mimeType = resolveReadMimeType(getMimeType(relativePath), params.mimeType);
   const kind = isTextMime(mimeType) ? "text" : "binary";
   const content = kind === "text"
     ? (params.contentBase64 ? Buffer.from(params.contentBase64, "base64").toString("utf8") : params.content)

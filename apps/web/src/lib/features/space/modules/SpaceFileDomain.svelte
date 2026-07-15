@@ -128,6 +128,7 @@ export type SpaceFileDomainProps = {
 	onCloseInlinePortTab: (port: string) => void;
 	onBackInlineFile: () => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
+	onRetryInlineFile?: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
 	onOpenInlinePort: (port: string, url: string) => void;
@@ -258,6 +259,7 @@ let {
 	onCloseInlinePortTab,
 	onBackInlineFile,
 	onDownloadInlineFile,
+	onRetryInlineFile,
 	onCopyInlineFileContent,
 	onSaveInlineFile,
 	onOpenInlinePort,
@@ -396,17 +398,19 @@ $effect.pre(() => {
 		onBackInlineFile={onBackInlineFile}
 		onOpenLinkedInlineFile={onOpenLinkedInlineFile}
 		onDownloadInlineFile={onDownloadInlineFile}
+		onRetryInlineFile={onRetryInlineFile}
 		onCopyInlineFileContent={onCopyInlineFileContent}
 		onSaveInlineFile={onSaveInlineFile}
 		onPublishInlineFile={publishInlineFile}
 		onPreviewResizeStart={onBeginPreviewPanelResize}
 		onTogglePreviewFocusMode={onTogglePreviewFocusMode}
 		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
-		onLabelFile={(path, anchorEl) => onEditResourceLabels("file", path, anchorEl)}
+		onLabelFile={(path: string, anchorEl?: HTMLElement | null) =>
+			onEditResourceLabels("file", path, anchorEl)}
 		onInsertFilePathReference={onInsertFilePathReference}
-		onDownloadFilePath={(path) => onDownloadNode(onGetFileActionNode(path))}
-		onRenameFilePath={(path) => onRenameNode(onGetFileActionNode(path))}
-		onDeleteFilePath={(path) => onDeleteNode(onGetFileActionNode(path))}
+		onDownloadFilePath={(path: string) => onDownloadNode(onGetFileActionNode(path))}
+		onRenameFilePath={(path: string) => onRenameNode(onGetFileActionNode(path))}
+		onDeleteFilePath={(path: string) => onDeleteNode(onGetFileActionNode(path))}
 		onVisibleLinesChange={onVisibleLinesChange}
 	/>
 {/if}

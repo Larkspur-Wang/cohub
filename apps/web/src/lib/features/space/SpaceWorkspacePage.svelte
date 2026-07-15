@@ -1479,6 +1479,11 @@ function closeInlinePortTab(port?: string) {
 async function downloadInlineFile() {
 	await fileWorkspace.downloadInlineFile();
 }
+async function retryInlineFile() {
+	const path = fileWorkspace.activeInlineFilePath;
+	if (!path) return;
+	await fileWorkspace.openInlineFile(path, { forceReload: true });
+}
 async function saveInlineFile() {
 	await fileWorkspace.saveInlineFile();
 }
@@ -2029,6 +2034,7 @@ const spaceFileDomainProps = $derived.by<
 	onCloseInlineFileTab: closeInlineFileTab,
 	onBackInlineFile: goBackInlineFile,
 	onDownloadInlineFile: downloadInlineFile,
+	onRetryInlineFile: retryInlineFile,
 	onCopyInlineFileContent: copyInlineFileContent,
 	onSaveInlineFile: saveInlineFile,
 	onOpenInlinePort: openInlinePort,

@@ -103,6 +103,7 @@ type Props = {
 		target: OpenWorkspaceFileTarget,
 	) => void | Promise<void>;
 	onDownloadInlineFile: () => void | Promise<void>;
+	onRetryInlineFile?: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
 	onPublishInlineFile: () => void;
@@ -166,6 +167,7 @@ let {
 	onBackInlineFile,
 	onOpenLinkedInlineFile,
 	onDownloadInlineFile,
+	onRetryInlineFile,
 	onCopyInlineFileContent,
 	onSaveInlineFile,
 	onPublishInlineFile,
@@ -229,6 +231,28 @@ const showHtmlMark = $derived(
 	inlineFileIsHtml &&
 		inlineFileViewMode === "preview" &&
 		inlineFileHasRenderedPreview,
+);
+
+// Soft-fail: keep content surface when we still have something usable.
+// Empty text files (content === "") are still editable when open succeeded.
+const hasUsableText = $derived(
+	inlineFileIsText &&
+		Boolean(inlineFile.response) &&
+		(!inlineFile.error ||
+			Boolean(inlineFile.response?.content) ||
+			Boolean(inlineFile.draft)),
+);
+const hasUsableMedia = $derived(
+	Boolean((inlineFileIsImage || inlineFileIsVideo) && inlineFileDataUrl),
+);
+const showExclusiveFallback = $derived(
+	Boolean(
+		inlineFile.error &&
+			!inlineFile.loading &&
+			!hasUsableText &&
+			!hasUsableMedia &&
+			!inlineFile.tooLarge,
+	),
 );
 
 $effect(() => {
@@ -296,6 +320,73 @@ $effect(() => {
 		<div class="text-[12px] text-error-soft">{label}</div>
 		<button type="button" class="action-btn" onclick={onRetry}>Retry</button>
 	</div>
+{/snippet}
+
+
+{#snippet FileOpenFallback(options: {
+	title: string;
+	detail: string;
+	variant?: "error" | "warning" | "neutral";
+	showRetry?: boolean;
+})}
+	{@const variant = options.variant ?? "neutral"}
+	{@const border =
+		variant === "error"
+			? "border-error-soft/30 bg-error-bg"
+			: variant === "warning"
+				? "border-warning-soft/30 bg-warning-bg"
+				: "border-border-subtle bg-bg-primary"}
+	{@const titleColor =
+		variant === "error"
+			? "text-error-soft"
+			: variant === "warning"
+				? "text-warning-soft"
+				: "text-text-primary"}
+	<div class="flex flex-1 items-center justify-center p-4">
+		<div class="w-full max-w-sm rounded-lg border {border} p-6 text-center">
+			<div class="mb-1 text-sm font-semibold {titleColor}">{options.title}</div>
+			<div class="mb-1 break-words text-xs text-text-secondary">{options.detail}</div>
+			{#if inlineFile.response}
+				<div class="mt-3 space-y-0.5 text-left text-[11px] text-text-tertiary">
+					<div><span class="text-text-secondary">Name</span> · {inlineFile.response.name}</div>
+					<div><span class="text-text-secondary">Type</span> · {inlineFile.response.mimeType ?? "application/octet-stream"}</div>
+					<div><span class="text-text-secondary">Size</span> · {formatFileSize(inlineFile.response.size)}</div>
+				</div>
+			{/if}
+			<div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+				{#if options.showRetry !== false && onRetryInlineFile}
+					<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>Retry</button>
+				{/if}
+				<a
+					href={inlineFileDownloadUrl}
+					download={inlineFileDownloadName}
+					class="action-btn primary"
+					onclick={(e) => {
+						e.preventDefault();
+						void onDownloadInlineFile();
+					}}
+				>
+					<Download class="w-3.5 h-3.5" />
+					Download
+				</a>
+			</div>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet SoftFailBanner()}
+	{#if inlineFile.error && (hasUsableText || hasUsableMedia)}
+		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
+			<span class="min-w-0 flex-1 truncate">{inlineFile.error}</span>
+			{#if onRetryInlineFile}
+				<button type="button" class="action-btn" onclick={() => void onRetryInlineFile()}>Retry</button>
+			{/if}
+			<button type="button" class="action-btn" onclick={() => void onDownloadInlineFile()}>
+				<Download class="w-3.5 h-3.5" />
+				Download
+			</button>
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet MarkdownFilePreview()}
@@ -418,24 +509,22 @@ $effect(() => {
       </div>
       {#if inlineFile.loading}
         <CenteredLoading label="Loading file…" size="panel" />
-      {:else if inlineFile.error}
-        <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-sm text-error-soft">
-          {inlineFile.error}
-        </div>
       {:else if inlineFile.tooLarge}
-        <div class="flex flex-1 items-center justify-center">
-          <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
-            <div class="text-4xl mb-3">📦</div>
-            <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
-            <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-            <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void onDownloadInlineFile(); }}>
-              <Download class="w-3.5 h-3.5" />
-              Download file
-            </a>
-          </div>
-        </div>
+        {@render FileOpenFallback({
+          title: "File too large to preview",
+          detail: "This file exceeds 10MB and cannot be opened in the web editor.",
+          variant: "warning",
+          showRetry: false,
+        })}
+      {:else if showExclusiveFallback}
+        {@render FileOpenFallback({
+          title: "Couldn't open file",
+          detail: inlineFile.error ?? "Failed to open file",
+          variant: "error",
+        })}
       {:else if inlineFile.response}
-        {#if inlineFileIsText}
+        {@render SoftFailBanner()}
+        {#if hasUsableText}
           <div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
             {#if inlineFileHasRenderedPreview || showDiffMode}
               <div class="flex items-center gap-0 rounded-md border border-border-subtle bg-bg-input p-[2px]">
@@ -488,18 +577,12 @@ $effect(() => {
             </video>
           </div>
         {:else}
-          <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-sm text-text-secondary">
-            <div><strong>Name:</strong> {inlineFile.response.name}</div>
-            <div><strong>Type:</strong> {inlineFile.response.mimeType ?? 'application/octet-stream'}</div>
-            <div><strong>Size:</strong> {formatFileSize(inlineFile.response.size)}</div>
-            <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
-            <div class="mt-3">
-              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void onDownloadInlineFile(); }}>
-                <Download class="w-3.5 h-3.5" />
-                Download file
-              </a>
-            </div>
-          </div>
+          {@render FileOpenFallback({
+            title: "Preview not available",
+            detail: "This file type cannot be previewed in the browser.",
+            variant: "neutral",
+            showRetry: false,
+          })}
         {/if}
       {:else}
         <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">No file selected</div>
@@ -711,12 +794,81 @@ $effect(() => {
                 <X class="w-4 h-4" />
               </button>
             </div>
-            <div class="m-4 rounded-md border border-border-subtle bg-bg-primary p-4 text-xs text-text-secondary">
-              <div><strong>Name:</strong> {inlineFile.response.name}</div>
-              <div><strong>Type:</strong> {inlineFile.response.mimeType ?? 'application/octet-stream'}</div>
-              <div><strong>Size:</strong> {inlineFile.response.size} bytes</div>
-              <div class="mt-3 text-text-tertiary">This file type cannot be previewed in the browser.</div>
+            {@render FileOpenFallback({
+              title: "Preview not available",
+              detail: "This file type cannot be previewed in the browser.",
+              variant: "neutral",
+              showRetry: false,
+            })}
+          {/if}
+        {:else}
+          <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
+        {/if}
+      </div>
+    </WorkspacePreviewPane>
+  {/if}
+
+<style>
+  /* Float mode: content fills stage; chrome becomes a compact floating pill. */
+  .inline-file-preview--immersive {
+    position: relative;
+  }
+
+  /* Hide tab strip — tabs are not useful full-bleed in float mode. */
+  .inline-file-preview--immersive > :global(:first-child) {
+    display: none;
+  }
+
+  .inline-file-preview--immersive :global(.preview-chrome) {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    left: auto;
+    z-index: 25;
+    width: auto;
+    max-width: min(520px, calc(100% - 24px));
+    height: auto;
+    min-height: 40px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    padding: 6px 8px;
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  /* Long path wastes space in the pill — keep actions only. */
+  .inline-file-preview--immersive :global(.preview-chrome-path) {
+    display: none;
+  }
+
+  /* Body fills the stage under the floating chrome. */
+  .inline-file-preview--immersive > :global(.preview-chrome + *) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+</style>
+der-subtle bg-bg-surface px-3">
+              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                {inlineFile.response.path}
+              </div>
+              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+              {@render FileHeaderCoreActions(inlineFile.response.path)}
+              {@render PreviewFocusButton()}
+              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+                <X class="w-4 h-4" />
+              </button>
             </div>
+            {@render FileOpenFallback({
+              title: "Preview not available",
+              detail: "This file type cannot be previewed in the browser.",
+              variant: "neutral",
+              showRetry: false,
+            })}
           {/if}
         {:else}
           <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>

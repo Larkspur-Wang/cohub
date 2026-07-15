@@ -55,7 +55,16 @@ func decodeBase64(value string) ([]byte, error) {
 }
 
 // detectMimeType uses file extension first, then content sniffing as fallback.
+// Dotfiles (e.g. .npmrc, .gitignore) are treated as text/plain so callers do not
+// misclassify empty or config files as application/octet-stream.
 func detectMimeType(path string, data []byte) string {
+	base := strings.ToLower(filepath.Base(path))
+	if base == "." || base == ".." {
+		// fall through
+	} else if strings.HasPrefix(base, ".") {
+		return "text/plain; charset=utf-8"
+	}
+
 	ext := strings.ToLower(filepath.Ext(path))
 	imageTypes := map[string]string{
 		".jpg":  "image/jpeg",
