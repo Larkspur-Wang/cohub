@@ -437,17 +437,30 @@ const imageCursor = $derived(
 
 		<!-- Media -->
 		{#if mediaLightbox.current.type === "image"}
-			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<div
 				bind:this={imageStageEl}
 				class="absolute inset-0 z-0 flex items-center justify-center overflow-hidden"
-				role="group"
+				role="button"
+				tabindex="0"
 				aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset"
 				style:cursor={imageCursor}
 				onclick={(e) => {
 					// Click empty stage (not while dragging / zoomed pan) closes.
 					if (e.target === e.currentTarget && zoom <= 1 && !dragging) {
 						mediaLightbox.close();
+					}
+				}}
+				onkeydown={(e) => {
+					if (e.key === "Escape") {
+						e.preventDefault();
+						mediaLightbox.close();
+					}
+					if (e.key === "Enter" || e.key === " ") {
+						// Space/Enter reset zoom when focused on the stage.
+						if (zoom !== 1 || panX !== 0 || panY !== 0) {
+							e.preventDefault();
+							resetView();
+						}
 					}
 				}}
 				onpointerdown={onImagePointerDown}
