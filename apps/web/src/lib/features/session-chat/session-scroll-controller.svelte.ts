@@ -107,7 +107,10 @@ export function createSessionScrollController() {
 		sessionId: string,
 		anchor: SessionScrollAnchor,
 	) {
-		scrollAnchorBySession.set(sessionId, anchor);
+		// Reassign so `$state.raw` consumers observe the write.
+		const next = new Map(scrollAnchorBySession);
+		next.set(sessionId, anchor);
+		scrollAnchorBySession = next;
 		persistSessionScrollAnchorsNow(storageKey);
 	}
 
@@ -116,7 +119,10 @@ export function createSessionScrollController() {
 	}
 
 	function clearSessionScrollAnchor(storageKey: string, sessionId: string) {
-		if (!scrollAnchorBySession.delete(sessionId)) return;
+		if (!scrollAnchorBySession.has(sessionId)) return;
+		const next = new Map(scrollAnchorBySession);
+		next.delete(sessionId);
+		scrollAnchorBySession = next;
 		persistSessionScrollAnchorsNow(storageKey);
 	}
 

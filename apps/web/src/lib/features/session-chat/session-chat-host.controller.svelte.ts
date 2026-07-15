@@ -778,26 +778,55 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		const hasCachedAnchor = anchor
 			? isSessionScrollAnchorInTurns(anchor.sequence, state.turns)
 			: false;
+		const isRestoreTargetCurrent = () =>
+			activeSessionId === targetId &&
+			(scroll.pendingRestoreSessionId === targetId ||
+				scroll.activeAnchorRestore?.sessionId === targetId);
 		const finishRestore = () => {
-			scroll.pendingRestoreSessionId = null;
+			// Only clear state owned by this target — a stale rAF from a previous
+			// session must not wipe the next session's pending restore.
+			if (scroll.pendingRestoreSessionId === targetId) {
+				scroll.pendingRestoreSessionId = null;
+			}
 			if (restoringBottomSessionId === targetId) {
 				restoringBottomSessionId = null;
 			}
-			updateAutoFollow();
+			if (scroll.activeAnchorRestore?.sessionId === targetId) {
+				scroll.activeAnchorRestore = null;
+				scroll.anchorRestoreWaitingForMarkdown = false;
+			}
+			if (activeSessionId === targetId) updateAutoFollow();
 		};
-		const finishAnchorRestore = () => {
-			scroll.pendingRestoreSessionId = null;
+		/** Apply leave position now; optionally keep waiting for markdown re-layout. */
+		const finishAnchorRestore = (options?: { waitForMarkdown?: boolean }) => {
+			if (scroll.pendingRestoreSessionId === targetId) {
+				scroll.pendingRestoreSessionId = null;
+			}
 			if (restoringBottomSessionId === targetId) {
 				restoringBottomSessionId = null;
 			}
+			if (activeSessionId !== targetId) return;
+			const waitForMarkdown = Boolean(options?.waitForMarkdown);
+			if (waitForMarkdown) {
+				scroll.anchorRestoreWaitingForMarkdown = true;
+				updateAutoFollow();
+				return;
+			}
+			if (scroll.activeAnchorRestore?.sessionId === targetId) {
+				scroll.activeAnchorRestore = null;
+			}
+			scroll.anchorRestoreWaitingForMarkdown = false;
 			updateAutoFollow();
-			scroll.anchorRestoreWaitingForMarkdown = true;
-			requestAnimationFrame(() => {
-				maybeCompleteAnchorRestore();
-			});
+			scheduleTurnMarkerMeasure();
 		};
 		const restoreToBottom = () => {
-			scroll.activeAnchorRestore = null;
+			if (activeSessionId !== targetId) {
+				finishRestore();
+				return;
+			}
+			if (scroll.activeAnchorRestore?.sessionId === targetId) {
+				scroll.activeAnchorRestore = null;
+			}
 			scroll.anchorRestoreWaitingForMarkdown = false;
 			restoringBottomSessionId = targetId;
 			scroll.shouldAutoFollow = true;
@@ -815,10 +844,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			void tick().then(restoreToBottom);
 			return;
 		}
-		const restoreByAnchor = (retries = 2) => {
+		const restoreByAnchor = (retries = 6) => {
 			requestAnimationFrame(() => {
+				// Session switched away — drop this attempt without touching the
+				// new session's pending restore flags.
+				if (activeSessionId !== targetId) return;
+				if (scroll.pendingRestoreSessionId !== targetId) return;
+				// `{#key}` remount briefly clears listEl. Keep pending restore so
+				// the effect can re-run once the new timeline binds.
 				if (!listEl) {
-					finishRestore();
+					if (retries > 0) restoreByAnchor(retries - 1);
 					return;
 				}
 				const node = listEl.querySelector<HTMLElement>(
@@ -829,34 +864,37 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						restoreByAnchor(retries - 1);
 						return;
 					}
-					clearSessionScrollAnchor(targetId);
-					restoreToBottom();
+					// Only clear this session's anchor when we still own restore.
+					if (isRestoreTargetCurrent()) {
+						clearSessionScrollAnchor(targetId);
+						restoreToBottom();
+					}
 					return;
 				}
-				scroll.activeAnchorRestore = {
+				const restore = {
 					sessionId: targetId,
 					sequence: anchor.sequence,
 					offset: anchor.offset,
 					updatedAt: anchor.updatedAt,
 				};
-				scroll.anchorRestoreWaitingForMarkdown =
-					pendingTimelineMarkdownRenders > 0;
-				if (pendingTimelineMarkdownRenders > 0) {
-					finishRestore();
-					return;
-				}
-				requestAnimationFrame(() => {
-					if (!listEl || activeSessionId !== targetId) {
-						finishAnchorRestore();
-						return;
-					}
-					if (!applyActiveAnchorRestore(activeAnchorRestore)) {
+				scroll.activeAnchorRestore = restore;
+				// Always apply the leave position as soon as the node exists.
+				// Markdown growth can re-apply later; never leave scrollTop at 0
+				// while waiting on pending render counters.
+				if (!applyActiveAnchorRestore(restore)) {
+					if (isRestoreTargetCurrent()) {
 						clearSessionScrollAnchor(targetId);
 						restoreToBottom();
-						return;
 					}
-					finishAnchorRestore();
-				});
+					return;
+				}
+				const waitForMarkdown = pendingTimelineMarkdownRenders > 0;
+				finishAnchorRestore({ waitForMarkdown });
+				if (waitForMarkdown && isRestoreTargetCurrent()) {
+					requestAnimationFrame(() => {
+						maybeCompleteAnchorRestore();
+					});
+				}
 			});
 		};
 		void tick().then(() => restoreByAnchor());
@@ -1719,8 +1757,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scroll.pendingRestoreSessionId = sessionId;
 		scroll.activeAnchorRestore = null;
 		scroll.anchorRestoreWaitingForMarkdown = false;
+		// Session switch remounts the timeline via `{#key}`. MarkdownViews that
+		// started rendering on the previous tree may never fire onRendered, so
+		// drop any leaked pending count — otherwise restore waits forever and
+		// the new list stays at scrollTop 0.
+		if (sessionChanged) {
+			scroll.pendingTimelineMarkdownRenders = 0;
+		}
 		userScrollActive = false;
 		programmaticScrollActive = false;
+		programmaticScrollTarget = null;
 		currentTurnSequence = null;
 		showTurnBottomSheet = false;
 		ensureSessionModelLoaded(sessionId);
@@ -3333,10 +3379,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scroll.activeAnchorRestore = null;
 		scroll.anchorRestoreWaitingForMarkdown = false;
 		if (!restore || activeSessionId !== restore.sessionId) return;
+		// Re-apply after markdown layout settles so leave offset stays accurate.
 		requestAnimationFrame(() => {
+			if (activeSessionId !== restore.sessionId) return;
 			if (applyActiveAnchorRestore(restore)) scheduleTurnMarkerMeasure();
+			updateAutoFollow();
 		});
-		updateAutoFollow();
 	}
 
 	function applyActiveAnchorRestore(restore = activeAnchorRestore) {
@@ -3371,12 +3419,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		if (!anchor) return;
 		const restore = { ...anchor, sessionId };
 		scroll.activeAnchorRestore = restore;
-		scroll.anchorRestoreWaitingForMarkdown = pendingTimelineMarkdownRenders > 0;
-		if (pendingTimelineMarkdownRenders > 0) return;
+		// Apply immediately; keep waiting only if markdown may still shift layout.
+		const waitForMarkdown = pendingTimelineMarkdownRenders > 0;
+		scroll.anchorRestoreWaitingForMarkdown = waitForMarkdown;
 		requestAnimationFrame(() => {
+			if (activeSessionId !== sessionId) return;
 			if (applyActiveAnchorRestore(restore)) scheduleTurnMarkerMeasure();
-			if (activeAnchorRestore?.sessionId === sessionId)
+			if (!waitForMarkdown && activeAnchorRestore?.sessionId === sessionId) {
 				scroll.activeAnchorRestore = null;
+				scroll.anchorRestoreWaitingForMarkdown = false;
+			}
 			updateAutoFollow();
 		});
 	}
@@ -3391,7 +3443,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		scheduleTurnMarkerMeasure();
 		const restore = activeAnchorRestore;
 		if (restore?.sessionId === activeSessionId) {
+			// Keep the leave position pinned while markdown height settles.
 			requestAnimationFrame(() => {
+				if (activeSessionId !== restore.sessionId) return;
+				applyActiveAnchorRestore(restore);
 				maybeCompleteAnchorRestore();
 			});
 			return;
