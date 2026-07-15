@@ -20,7 +20,6 @@ let {
 	readonly = false,
 	work = null,
 	markTarget = $bindable(null),
-	markSurface = $bindable(null),
 	onOpenFile,
 }: {
 	name: string;
@@ -33,15 +32,12 @@ let {
 	work?: WorkRecord | null;
 	/** Outbound mark capture target for parent chrome. */
 	markTarget?: PreviewCaptureTarget | null;
-	/** Outbound mark overlay surface for parent chrome. */
-	markSurface?: HTMLElement | null;
 	onOpenFile?: (target: WorkspaceFileLinkTarget) => void | Promise<void>;
 } = $props();
 
 const previewOrigin =
 	publicEnv.PUBLIC_PREVIEW_ORIGIN?.replace(/\/+$/, "") ?? "";
 let frame: HTMLIFrameElement | null = $state(null);
-let rootEl: HTMLElement | null = $state(null);
 let previewSrc = $state<string | null>(null);
 let previewError = $state<string | null>(null);
 let loadToken = 0;
@@ -138,10 +134,6 @@ $effect(() => {
 });
 
 $effect(() => {
-	markSurface = type === "html" ? rootEl : null;
-});
-
-$effect(() => {
 	// Track only the preview identity. loadPreview mutates previewSrc; if that
 	// state is tracked here it re-enters forever and spams preview-session.
 	previewKey;
@@ -173,14 +165,13 @@ $effect(() => {
 
 onDestroy(() => {
 	markTarget = null;
-	markSurface = null;
 });
 </script>
 
 {#if type === "markdown"}
 	<MarkdownView {source} variant="document" baseFilePath={path} {onOpenFile} />
 {:else if canUsePreviewOrigin}
-	<div class="relative flex h-full min-h-0 flex-col bg-white" bind:this={rootEl}>
+	<div class="relative flex h-full min-h-0 flex-col bg-white">
 		{#if previewError}
 			<div class="flex flex-1 items-center justify-center p-4 text-xs text-error-soft">{previewError}</div>
 		{:else if previewSrc}
@@ -216,7 +207,7 @@ onDestroy(() => {
 		/>
 	{/if}
 {:else}
-	<div class="relative h-full w-full" bind:this={rootEl}>
+	<div class="relative h-full w-full">
 		<iframe
 			bind:this={frame}
 			class="h-full w-full border-0 bg-white"

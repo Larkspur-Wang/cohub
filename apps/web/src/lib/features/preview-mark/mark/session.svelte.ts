@@ -7,6 +7,7 @@ import type {
 	Point,
 	Stroke,
 } from "../types";
+import { strokesAfterCrop } from "./transform";
 
 function uid() {
 	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -43,15 +44,20 @@ export function createMarkSession(initial: FrozenFrame) {
 		draft = null;
 		cropDraft = null;
 		strokeWidth = defaultStrokeWidth(next);
+		tool = "pen";
 	}
 
+	/** Switch tools without leaking unfinished drafts across modes. */
 	function setTool(next: MarkTool) {
-		tool = next;
+		if (next === tool) return;
 		draft = null;
-		cropDraft = null;
+		// Crop selection is mode-local; leaving or re-entering crop abandons it.
+		if (tool === "crop" || next === "crop") cropDraft = null;
+		tool = next;
 	}
 
 	function setColor(next: MarkColor) {
+		if (tool === "crop") return;
 		color = next;
 	}
 
@@ -76,7 +82,6 @@ export function createMarkSession(initial: FrozenFrame) {
 			draft = null;
 			return;
 		}
-		cropDraft = null;
 		const width = strokeWidth;
 		if (tool === "pen") {
 			draft = {
@@ -110,7 +115,8 @@ export function createMarkSession(initial: FrozenFrame) {
 	}
 
 	function moveStroke(point: Point) {
-		if (tool === "crop" && cropDraft) {
+		if (tool === "crop") {
+			if (!cropDraft) return;
 			cropDraft = { ...cropDraft, b: point };
 			return;
 		}
@@ -154,6 +160,11 @@ export function createMarkSession(initial: FrozenFrame) {
 		strokes = [...strokes, committed];
 	}
 
+	function cancelDraft() {
+		draft = null;
+		cropDraft = null;
+	}
+
 	function getCropRect(): CropRect | null {
 		if (!cropDraft) return null;
 		const rect = normalizeCropRect(
@@ -185,8 +196,9 @@ export function createMarkSession(initial: FrozenFrame) {
 		};
 		// Keep originalFrame so Reset can restore the capture.
 		if (frame.bitmap !== originalFrame.bitmap) safeClose(frame.bitmap);
+		// Rebase existing marks into the cropped frame instead of wiping them.
+		strokes = strokesAfterCrop(strokes, rect);
 		frame = next;
-		strokes = [];
 		draft = null;
 		cropDraft = null;
 		strokeWidth = defaultStrokeWidth(next);
@@ -201,10 +213,12 @@ export function createMarkSession(initial: FrozenFrame) {
 		}
 		safeClose(frame.bitmap);
 		frame = originalFrame;
+		// Cropped-space marks no longer map to the original frame.
 		strokes = [];
 		draft = null;
 		cropDraft = null;
 		strokeWidth = defaultStrokeWidth(frame);
+		tool = "pen";
 	}
 
 	function undo() {
@@ -220,6 +234,7 @@ export function createMarkSession(initial: FrozenFrame) {
 	function clear() {
 		strokes = [];
 		draft = null;
+		// Clear marks only — keep applied crop and abandon unfinished crop draft.
 		cropDraft = null;
 	}
 
@@ -253,6 +268,9 @@ export function createMarkSession(initial: FrozenFrame) {
 		get canUndo() {
 			return strokes.length > 0 || Boolean(draft) || Boolean(cropDraft);
 		},
+		get canClear() {
+			return strokes.length > 0 || Boolean(draft) || Boolean(cropDraft);
+		},
 		get isCropped() {
 			return frame.bitmap !== originalFrame.bitmap;
 		},
@@ -260,6 +278,7 @@ export function createMarkSession(initial: FrozenFrame) {
 			return (
 				strokes.length > 0 ||
 				Boolean(draft) ||
+				Boolean(cropDraft) ||
 				frame.bitmap !== originalFrame.bitmap
 			);
 		},
@@ -272,6 +291,7 @@ export function createMarkSession(initial: FrozenFrame) {
 		beginStroke,
 		moveStroke,
 		endStroke,
+		cancelDraft,
 		getCropRect,
 		applyCropDraft,
 		resetCrop,

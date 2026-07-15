@@ -48,7 +48,6 @@ let slowLoad = $state(false);
 // (or parent re-renders during panel resize) do not remount the iframe.
 let committedUrl = $state("");
 let iframeEl: HTMLIFrameElement | null = $state(null);
-let rootEl: HTMLElement | null = $state(null);
 let markOpen = $state(false);
 
 const markTarget = $derived.by((): PreviewCaptureTarget | null => {
@@ -133,7 +132,7 @@ onDestroy(() => {
 });
 </script>
 
-<div class="port-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive} bind:this={rootEl}>
+<div class="port-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive}>
 	<div class="preview-chrome flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 		<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-primary text-text-secondary">
 			<Globe class="h-3.5 w-3.5" />
@@ -173,7 +172,6 @@ onDestroy(() => {
 			<PreviewMarkHost
 				bind:open={markOpen}
 				target={markTarget}
-				surface={rootEl}
 				buttonClass="preview-icon-btn"
 			/>
 		{/if}

@@ -98,6 +98,7 @@ function drawRect(ctx: CanvasRenderingContext2D, a: Point, b: Point) {
 	ctx.strokeRect(x, y, w, h);
 }
 
+/** Dim outside the crop and outline the selection. */
 export function drawCropOverlay(
 	ctx: CanvasRenderingContext2D,
 	frameWidth: number,
@@ -111,9 +112,8 @@ export function drawCropOverlay(
 	ctx.rect(0, 0, frameWidth, frameHeight);
 	ctx.rect(crop.x, crop.y, crop.width, crop.height);
 	ctx.fill("evenodd");
-	ctx.strokeStyle = "#F8FAFC";
-	ctx.lineWidth = 2;
-	ctx.setLineDash([6, 4]);
-	ctx.strokeRect(crop.x, crop.y, crop.width, crop.height);
+	ctx.strokeStyle = "rgba(248,250,252,0.92)";
+	ctx.lineWidth = 1.5;
+	ctx.strokeRect(crop.x + 0.5, crop.y + 0.5, crop.width - 1, crop.height - 1);
 	ctx.restore();
 }

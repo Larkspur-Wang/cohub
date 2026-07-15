@@ -213,13 +213,9 @@ let imageMarkOpenMobile = $state(false);
 let imageMarkOpenDesktop = $state(false);
 let htmlMarkOpenMobile = $state(false);
 let htmlMarkOpenDesktop = $state(false);
-let mobileImageRootEl: HTMLElement | null = $state(null);
-let desktopImageRootEl: HTMLElement | null = $state(null);
 // Mobile + desktop panels both mount; keep mark context separate like images.
 let htmlMarkTargetMobile: PreviewCaptureTarget | null = $state(null);
-let htmlMarkSurfaceMobile: HTMLElement | null = $state(null);
 let htmlMarkTargetDesktop: PreviewCaptureTarget | null = $state(null);
-let htmlMarkSurfaceDesktop: HTMLElement | null = $state(null);
 
 const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 	if (!inlineFileIsImage || !inlineFileDataUrl || !inlineFile.path) return null;
@@ -329,7 +325,6 @@ $effect(() => {
 					readonly={activeFsReadonly}
 					work={hostWork}
 					bind:markTarget={htmlMarkTargetMobile}
-					bind:markSurface={htmlMarkSurfaceMobile}
 					onOpenFile={onOpenLinkedInlineFile}
 				/>
 			{:else}
@@ -342,7 +337,6 @@ $effect(() => {
 					readonly={activeFsReadonly}
 					work={hostWork}
 					bind:markTarget={htmlMarkTargetDesktop}
-					bind:markSurface={htmlMarkSurfaceDesktop}
 					onOpenFile={onOpenLinkedInlineFile}
 				/>
 			{/if}
@@ -459,7 +453,6 @@ $effect(() => {
               <PreviewMarkHost
                 bind:open={htmlMarkOpenMobile}
                 target={htmlMarkTargetMobile}
-                surface={htmlMarkSurfaceMobile}
                 buttonClass="icon-btn"
               />
             {/if}
@@ -478,11 +471,11 @@ $effect(() => {
             {@render TextFileBody("mobile")}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
-          <div class="relative flex flex-1 items-center justify-center overflow-hidden p-4" bind:this={mobileImageRootEl}>
+          <div class="relative flex flex-1 items-center justify-center overflow-hidden p-4">
             {#if imageMarkTarget}
               <div class="pointer-events-none absolute top-2 right-2 z-20">
                 <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
-                  <PreviewMarkHost bind:open={imageMarkOpenMobile} target={imageMarkTarget} surface={mobileImageRootEl} buttonClass="icon-btn" />
+                  <PreviewMarkHost bind:open={imageMarkOpenMobile} target={imageMarkTarget} buttonClass="icon-btn" />
                 </div>
               </div>
             {/if}
@@ -622,7 +615,6 @@ $effect(() => {
                 <PreviewMarkHost
                   bind:open={htmlMarkOpenDesktop}
                   target={htmlMarkTargetDesktop}
-                  surface={htmlMarkSurfaceDesktop}
                   buttonClass="icon-btn"
                 />
               {/if}
@@ -656,7 +648,7 @@ $effect(() => {
               {@render TextFileBody("desktop")}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
-            <div class="relative flex min-h-0 flex-1 flex-col" bind:this={desktopImageRootEl}>
+            <div class="relative flex min-h-0 flex-1 flex-col">
               <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
                 <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                   {inlineFile.response.path}
@@ -664,7 +656,7 @@ $effect(() => {
                 <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
                 {@render FileHeaderCoreActions(inlineFile.response.path)}
                 {#if imageMarkTarget}
-                  <PreviewMarkHost bind:open={imageMarkOpenDesktop} target={imageMarkTarget} surface={desktopImageRootEl} buttonClass="icon-btn" />
+                  <PreviewMarkHost bind:open={imageMarkOpenDesktop} target={imageMarkTarget} buttonClass="icon-btn" />
                 {/if}
                 <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

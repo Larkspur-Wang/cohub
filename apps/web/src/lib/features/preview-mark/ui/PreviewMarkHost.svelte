@@ -1,6 +1,14 @@
 <script lang="ts">
 import { Loader2, Scissors } from "lucide-svelte";
 import { onDestroy } from "svelte";
+import { fade, scale } from "svelte/transition";
+import { portal } from "$lib/actions/portal";
+import {
+	DURATION_MODAL_IN,
+	DURATION_MODAL_OUT,
+	svelteEaseIn,
+	svelteEaseOut,
+} from "$lib/motion.svelte";
 import { attachComposerFiles } from "../attach/to-composer";
 import {
 	detectCaptureCapabilities,
@@ -21,11 +29,6 @@ import MarkToolbar from "./MarkToolbar.svelte";
 type Props = {
 	open?: boolean;
 	target: PreviewCaptureTarget | null;
-	/**
-	 * Relative container for the mark overlay. When set, the host fills this
-	 * element via fixed positioning against its bounding rect — no DOM moves.
-	 */
-	surface?: HTMLElement | null;
 	buttonClass?: string;
 	onAttached?: () => void;
 };
@@ -33,7 +36,6 @@ type Props = {
 let {
 	open = $bindable(false),
 	target,
-	surface = null,
 	buttonClass = "preview-icon-btn",
 	onAttached,
 }: Props = $props();
@@ -45,12 +47,7 @@ let captureStep = $state<"share" | "grab">("share");
 let error = $state<string | null>(null);
 let captureGen = 0;
 let disposed = false;
-let surfaceBox = $state<{
-	top: number;
-	left: number;
-	width: number;
-	height: number;
-} | null>(null);
+let panelEl: HTMLDivElement | null = $state(null);
 
 const canRecapture = $derived(target?.kind === "iframe");
 /** Lightweight chip while capturing — must not cover the iframe. */
@@ -58,53 +55,44 @@ const showCaptureChip = $derived(phase === "capturing" && !open);
 const captureChipLabel = $derived(
 	captureStep === "grab" ? "Capturing preview…" : "Share this tab to capture…",
 );
+const canCropApply = $derived(
+	Boolean(session?.cropDraft && session.getCropRect()),
+);
 
 /** User can sit on the share picker; after this we surface an error instead of spinning forever. */
 const SHARE_PICKER_TIMEOUT_MS = 90_000;
 
-function measureSurface() {
-	if (!surface) {
-		surfaceBox = null;
-		return;
-	}
-	const rect = surface.getBoundingClientRect();
-	surfaceBox = {
-		top: rect.top,
-		left: rect.left,
-		width: rect.width,
-		height: rect.height,
-	};
-}
-
-$effect(() => {
-	if ((!open && !showCaptureChip) || !surface) {
-		if (!open) surfaceBox = null;
-		return;
-	}
-	measureSurface();
-	const onResize = () => measureSurface();
-	window.addEventListener("resize", onResize);
-	window.addEventListener("scroll", onResize, true);
-	window.visualViewport?.addEventListener("resize", onResize);
-	window.visualViewport?.addEventListener("scroll", onResize);
-	const ro =
-		typeof ResizeObserver !== "undefined" ? new ResizeObserver(onResize) : null;
-	ro?.observe(surface);
-	return () => {
-		window.removeEventListener("resize", onResize);
-		window.removeEventListener("scroll", onResize, true);
-		window.visualViewport?.removeEventListener("resize", onResize);
-		window.visualViewport?.removeEventListener("scroll", onResize);
-		ro?.disconnect();
-	};
-});
+const TRANSITION_IN = { duration: DURATION_MODAL_IN, easing: svelteEaseOut };
+const TRANSITION_OUT = { duration: DURATION_MODAL_OUT, easing: svelteEaseIn };
+const SCALE_IN = { ...TRANSITION_IN, start: 0.98 };
+const SCALE_OUT = { ...TRANSITION_OUT, start: 0.98 };
 
 $effect(() => {
 	if (!open) return;
+	// Focus the panel so keyboard shortcuts work without an extra click.
+	queueMicrotask(() => panelEl?.focus({ preventScroll: true }));
 	const onKey = (event: KeyboardEvent) => {
-		if (event.key === "Escape" && phase !== "attaching") {
+		if (phase === "attaching") return;
+		if (event.key === "Escape") {
 			event.preventDefault();
+			// Layered cancel: draft/crop selection first, then close the overlay.
+			if (session?.draft || session?.cropDraft) {
+				session.cancelDraft();
+				return;
+			}
 			close();
+			return;
+		}
+		if (
+			event.key === "Enter" &&
+			session?.tool === "crop" &&
+			canCropApply &&
+			!event.metaKey &&
+			!event.ctrlKey &&
+			!event.altKey
+		) {
+			event.preventDefault();
+			void handleApplyCrop();
 		}
 	};
 	window.addEventListener("keydown", onKey);
@@ -223,7 +211,6 @@ async function runCapture() {
 	captureStep = "share";
 	// Keep preview visible under the browser share UI and while grabbing frames.
 	open = false;
-	if (surface) measureSurface();
 
 	let stream: MediaStream;
 	try {
@@ -285,7 +272,10 @@ async function runCapture() {
 
 async function handleMarkClick() {
 	if (phase === "capturing" || phase === "attaching") return;
-	if (phase === "marking" && session) return;
+	if (phase === "marking" && session) {
+		open = true;
+		return;
+	}
 	await runCapture();
 }
 
@@ -301,7 +291,12 @@ async function handleAttach() {
 	try {
 		// Apply pending crop so Attach matches what the user outlined.
 		if (session.cropDraft) {
-			await session.applyCropDraft();
+			const ok = await session.applyCropDraft();
+			if (!ok) {
+				error = "Drag a larger area to crop, or switch tools to discard.";
+				phase = "marking";
+				return;
+			}
 		}
 		const file = await exportMarkedFrame({
 			frame: session.frame,
@@ -323,6 +318,12 @@ async function handleApplyCrop() {
 	const ok = await session.applyCropDraft();
 	if (!ok) error = "Drag a larger area to crop.";
 	else error = null;
+}
+
+function onBackdropPointer(event: MouseEvent) {
+	if (event.target !== event.currentTarget) return;
+	if (phase === "attaching") return;
+	close();
 }
 
 onDestroy(() => {
@@ -350,13 +351,12 @@ onDestroy(() => {
 
 {#if showCaptureChip}
 	<div
+		use:portal
 		class="mark-capture-chip"
-		class:mark-capture-chip--fixed={Boolean(surface && surfaceBox)}
-		style={surface && surfaceBox
-			? `top:${Math.max(8, surfaceBox.top + 8)}px;left:${surfaceBox.left + surfaceBox.width / 2}px;`
-			: undefined}
 		role="status"
 		aria-live="polite"
+		in:fade={TRANSITION_IN}
+		out:fade={TRANSITION_OUT}
 	>
 		<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin" />
 		<span>{captureChipLabel}</span>
@@ -372,97 +372,106 @@ onDestroy(() => {
 {/if}
 
 {#if open}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="mark-host"
-		class:mark-host--fixed={Boolean(surface && surfaceBox)}
-		style={surface && surfaceBox
-			? `top:${surfaceBox.top}px;left:${surfaceBox.left}px;width:${surfaceBox.width}px;height:${surfaceBox.height}px;`
-			: undefined}
-		role="dialog"
-		aria-modal="true"
-		aria-label="Mark preview"
+		use:portal
+		class="mark-overlay"
+		role="presentation"
+		in:fade={TRANSITION_IN}
+		out:fade={TRANSITION_OUT}
+		onmousedown={onBackdropPointer}
 	>
-		{#if (phase === "marking" || phase === "attaching") && session}
-			<MarkToolbar
-				tool={session.tool}
-				color={session.color}
-				canUndo={session.canUndo}
-				canCropApply={Boolean(session.cropDraft && session.getCropRect())}
-				canResetCrop={session.isCropped}
-				canRecapture={canRecapture}
-				attaching={phase === "attaching"}
-				onTool={(t) => session?.setTool(t)}
-				onColor={(c) => session?.setColor(c)}
-				onUndo={() => session?.undo()}
-				onClear={() => session?.clear()}
-				onApplyCrop={() => void handleApplyCrop()}
-				onResetCrop={() => session?.resetCrop()}
-				onRecapture={canRecapture ? () => void handleRecapture() : undefined}
-				onAttach={() => void handleAttach()}
-				onClose={close}
-			/>
-			<div class="mark-stage">
-				<ImageMarkSurface {session} />
-			</div>
-			{#if error}
-				<div class="mark-error">{error}</div>
-			{/if}
-		{:else}
-			<div class="mark-status">
+		<div
+			bind:this={panelEl}
+			class="mark-panel"
+			role="dialog"
+			aria-modal="true"
+			aria-label="Mark preview"
+			tabindex="-1"
+			in:scale|local={SCALE_IN}
+			out:scale|local={SCALE_OUT}
+		>
+			{#if (phase === "marking" || phase === "attaching") && session}
+				<MarkToolbar
+					tool={session.tool}
+					color={session.color}
+					canUndo={session.canUndo}
+					canClear={session.canClear}
+					canCropApply={canCropApply}
+					canResetCrop={session.isCropped}
+					canRecapture={canRecapture}
+					attaching={phase === "attaching"}
+					onTool={(t) => session?.setTool(t)}
+					onColor={(c) => session?.setColor(c)}
+					onUndo={() => session?.undo()}
+					onClear={() => session?.clear()}
+					onApplyCrop={() => void handleApplyCrop()}
+					onResetCrop={() => session?.resetCrop()}
+					onRecapture={canRecapture ? () => void handleRecapture() : undefined}
+					onAttach={() => void handleAttach()}
+					onClose={close}
+				/>
+				<div class="mark-stage">
+					<ImageMarkSurface
+						{session}
+						onApplyCrop={() => void handleApplyCrop()}
+					/>
+				</div>
 				{#if error}
-					<div class="mark-status-title">Couldn’t capture</div>
-					<div class="mark-status-hint">{error}</div>
-					<div class="mark-status-actions">
+					<div class="mark-error" role="alert">{error}</div>
+				{/if}
+			{:else}
+				<div class="mark-status">
+					{#if error}
+						<div class="mark-status-title">Couldn’t capture</div>
+						<div class="mark-status-hint">{error}</div>
+						<div class="mark-status-actions">
+							<button
+								type="button"
+								class="mark-status-btn"
+								onclick={() => void runCapture()}>Try again</button
+							>
+							<button type="button" class="mark-status-btn ghost" onclick={close}
+								>Close</button
+							>
+						</div>
+					{:else}
+						<div class="mark-status-title">Capture & mark</div>
+						<div class="mark-status-hint">
+							Share this Cohub tab when prompted, then annotate the snapshot.
+						</div>
 						<button
 							type="button"
 							class="mark-status-btn"
-							onclick={() => void runCapture()}>Try again</button
+							onclick={() => void runCapture()}>Capture</button
 						>
-						<button type="button" class="mark-status-btn ghost" onclick={close}
-							>Close</button
-						>
-					</div>
-				{:else}
-					<div class="mark-status-title">Capture & mark</div>
-					<div class="mark-status-hint">
-						Share this Cohub tab when prompted, then annotate the snapshot.
-					</div>
-					<button
-						type="button"
-						class="mark-status-btn"
-						onclick={() => void runCapture()}>Capture</button
-					>
-				{/if}
-			</div>
-		{/if}
+					{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
 {/if}
 
 <style>
 	.mark-capture-chip {
-		position: absolute;
-		top: 8px;
+		position: fixed;
+		top: max(12px, env(safe-area-inset-top, 0px));
 		left: 50%;
-		z-index: 50;
+		z-index: 110;
 		display: inline-flex;
 		transform: translateX(-50%);
 		align-items: center;
 		gap: 8px;
 		border: 1px solid var(--border-subtle);
 		border-radius: 999px;
-		background: color-mix(in srgb, var(--bg-content) 92%, transparent);
+		background: var(--bg-content);
 		padding: 6px 10px 6px 12px;
 		color: var(--text-secondary);
 		font-size: 12px;
 		font-weight: 500;
 		line-height: 1.2;
 		white-space: nowrap;
-		box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-primary) 35%, transparent);
-		backdrop-filter: blur(8px);
-	}
-	.mark-capture-chip--fixed {
-		position: fixed;
-		z-index: 90;
+		box-shadow: 0 8px 24px color-mix(in srgb, var(--overlay-scrim-strong) 20%, transparent);
 	}
 	.mark-capture-chip-cancel {
 		border: 0;
@@ -478,20 +487,49 @@ onDestroy(() => {
 	.mark-capture-chip-cancel:hover {
 		color: var(--text-secondary);
 	}
-	.mark-host {
-		position: absolute;
-		inset: 0;
-		z-index: 40;
-		display: flex;
-		flex-direction: column;
-		background: color-mix(in srgb, var(--bg-content) 96%, transparent);
-		backdrop-filter: blur(8px);
-	}
-	.mark-host--fixed {
+
+	.mark-overlay {
 		position: fixed;
-		inset: auto;
-		z-index: 80;
+		inset: 0;
+		z-index: 100;
+		display: flex;
+		align-items: stretch;
+		justify-content: center;
+		padding: 0;
+		background: var(--overlay-scrim);
 	}
+	@media (min-width: 720px) {
+		.mark-overlay {
+			align-items: center;
+			padding: max(16px, env(safe-area-inset-top, 0px))
+				max(16px, env(safe-area-inset-right, 0px))
+				max(16px, env(safe-area-inset-bottom, 0px))
+				max(16px, env(safe-area-inset-left, 0px));
+		}
+	}
+
+	.mark-panel {
+		display: flex;
+		width: 100%;
+		height: 100%;
+		max-height: 100%;
+		flex-direction: column;
+		overflow: hidden;
+		background: var(--bg-content);
+		outline: none;
+	}
+	@media (min-width: 720px) {
+		.mark-panel {
+			width: min(960px, 100%);
+			height: min(800px, 100%);
+			max-height: min(90dvh, 100%);
+			border: 1px solid var(--border-subtle);
+			border-radius: 10px;
+			box-shadow: 0 24px 64px
+				color-mix(in srgb, var(--overlay-scrim-strong) 32%, transparent);
+		}
+	}
+
 	.mark-stage {
 		display: flex;
 		min-height: 0;
@@ -500,14 +538,22 @@ onDestroy(() => {
 		justify-content: center;
 		container-type: size;
 		padding: 12px;
-		overflow: auto;
+		overflow: hidden;
+		background: var(--bg-primary);
 	}
+	@media (min-width: 720px) {
+		.mark-stage {
+			padding: 18px;
+		}
+	}
+
 	.mark-error {
 		padding: 8px 12px;
 		border-top: 1px solid var(--border-subtle);
 		color: var(--color-error-soft);
 		font-size: 12px;
 	}
+
 	.mark-status {
 		display: flex;
 		min-height: 0;
@@ -515,8 +561,8 @@ onDestroy(() => {
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 10px;
-		padding: 24px;
+		gap: 8px;
+		padding: 28px 24px;
 		text-align: center;
 	}
 	.mark-status-title {
@@ -525,7 +571,7 @@ onDestroy(() => {
 		font-weight: 600;
 	}
 	.mark-status-hint {
-		max-width: 320px;
+		max-width: 32ch;
 		color: var(--text-tertiary);
 		font-size: 12px;
 		line-height: 1.5;
@@ -533,14 +579,14 @@ onDestroy(() => {
 	.mark-status-actions {
 		display: flex;
 		gap: 8px;
-		margin-top: 4px;
+		margin-top: 6px;
 	}
 	.mark-status-btn {
 		display: inline-flex;
 		min-height: 32px;
 		align-items: center;
 		justify-content: center;
-		border: 1px solid var(--border-subtle);
+		border: 1px solid transparent;
 		border-radius: 7px;
 		background: var(--brand);
 		padding: 0 12px;
@@ -549,8 +595,13 @@ onDestroy(() => {
 		font-weight: 600;
 		cursor: pointer;
 	}
+	.mark-status-btn:hover {
+		filter: brightness(1.05);
+	}
 	.mark-status-btn.ghost {
+		border-color: var(--border-subtle);
 		background: var(--bg-hover);
 		color: var(--text-secondary);
+		filter: none;
 	}
 </style>

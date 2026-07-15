@@ -4,9 +4,10 @@ import type { MarkSession } from "../mark/session.svelte";
 
 type Props = {
 	session: MarkSession;
+	onApplyCrop?: () => void;
 };
 
-let { session }: Props = $props();
+let { session, onApplyCrop }: Props = $props();
 
 let shellEl: HTMLDivElement | null = $state(null);
 let canvasEl: HTMLCanvasElement | null = $state(null);
@@ -68,6 +69,12 @@ function onPointerUp(event: PointerEvent) {
 	}
 	session.endStroke();
 }
+
+function onDblClick(event: MouseEvent) {
+	if (session.tool !== "crop" || !session.getCropRect()) return;
+	event.preventDefault();
+	onApplyCrop?.();
+}
 </script>
 
 <div
@@ -82,6 +89,7 @@ function onPointerUp(event: PointerEvent) {
 		onpointermove={onPointerMove}
 		onpointerup={onPointerUp}
 		onpointercancel={onPointerUp}
+		ondblclick={onDblClick}
 		aria-label="Mark surface"
 	></canvas>
 </div>
@@ -89,13 +97,13 @@ function onPointerUp(event: PointerEvent) {
 <style>
 	.mark-frame {
 		position: relative;
-		width: min(100%, calc(min(70vh, 100%) * var(--fw) / var(--fh)));
-		max-height: min(70vh, 100%);
+		width: min(100%, calc(100cqh * var(--fw) / var(--fh)));
+		max-width: 100%;
+		max-height: 100%;
 		overflow: hidden;
-		border-radius: 8px;
+		border-radius: 6px;
 		background: var(--bg-primary);
-		box-shadow: 0 8px 28px
-			color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
+		box-shadow: 0 0 0 1px var(--border-subtle);
 		touch-action: none;
 		user-select: none;
 	}
