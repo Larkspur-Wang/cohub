@@ -609,18 +609,6 @@ $effect(() => {
             </button>
           </div>
           <CenteredLoading label="Loading file…" size="panel" />
-        {:else if inlineFile.error}
-          <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
-            {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
-            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
-              <X class="w-4 h-4" />
-            </button>
-          </div>
-          <div class="m-4 flex items-start gap-2 rounded-md border border-error-soft/30 bg-error-bg p-3 text-xs text-error-soft">
-            {inlineFile.error}
-          </div>
         {:else if inlineFile.tooLarge}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
@@ -630,19 +618,29 @@ $effect(() => {
               <X class="w-4 h-4" />
             </button>
           </div>
-          <div class="flex flex-1 items-center justify-center">
-            <div class="m-4 rounded-lg border border-warning-soft/30 bg-warning-bg p-6 text-center max-w-sm">
-              <div class="text-4xl mb-3">📦</div>
-              <div class="text-sm font-semibold text-text-primary mb-1">File too large to preview</div>
-              <div class="text-xs text-text-secondary mb-4">This file exceeds 10MB and cannot be opened in the web editor.</div>
-              <a href={inlineFileDownloadUrl} download={inlineFileDownloadName} class="action-btn primary" onclick={(e) => { e.preventDefault(); void onDownloadInlineFile(); }}>
-                <Download class="w-3.5 h-3.5" />
-                Download file
-              </a>
-            </div>
+          {@render FileOpenFallback({
+            title: "File too large to preview",
+            detail: "This file exceeds 10MB and cannot be opened in the web editor.",
+            variant: "warning",
+            showRetry: false,
+          })}
+        {:else if showExclusiveFallback}
+          <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+            <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
+            {@render FileHeaderCoreActions(inlineFile.path)}
+            {@render PreviewFocusButton()}
+            <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+              <X class="w-4 h-4" />
+            </button>
           </div>
+          {@render FileOpenFallback({
+            title: "Couldn't open file",
+            detail: inlineFile.error ?? "Failed to open file",
+            variant: "error",
+          })}
         {:else if inlineFile.response}
-          {#if inlineFileIsText}
+          {@render SoftFailBanner()}
+          {#if hasUsableText}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               {#if inlineFileCanGoBack}
                 <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back">
@@ -784,75 +782,6 @@ $effect(() => {
             </div>
           {:else}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
-              </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {@render PreviewFocusButton()}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            {@render FileOpenFallback({
-              title: "Preview not available",
-              detail: "This file type cannot be previewed in the browser.",
-              variant: "neutral",
-              showRetry: false,
-            })}
-          {/if}
-        {:else}
-          <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
-        {/if}
-      </div>
-    </WorkspacePreviewPane>
-  {/if}
-
-<style>
-  /* Float mode: content fills stage; chrome becomes a compact floating pill. */
-  .inline-file-preview--immersive {
-    position: relative;
-  }
-
-  /* Hide tab strip — tabs are not useful full-bleed in float mode. */
-  .inline-file-preview--immersive > :global(:first-child) {
-    display: none;
-  }
-
-  .inline-file-preview--immersive :global(.preview-chrome) {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    left: auto;
-    z-index: 25;
-    width: auto;
-    max-width: min(520px, calc(100% - 24px));
-    height: auto;
-    min-height: 40px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 6px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-    padding: 6px 8px;
-    box-shadow: 0 12px 28px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
-    backdrop-filter: blur(14px);
-  }
-
-  /* Long path wastes space in the pill — keep actions only. */
-  .inline-file-preview--immersive :global(.preview-chrome-path) {
-    display: none;
-  }
-
-  /* Body fills the stage under the floating chrome. */
-  .inline-file-preview--immersive > :global(.preview-chrome + *) {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-</style>
-der-subtle bg-bg-surface px-3">
               <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
                 {inlineFile.response.path}
               </div>
