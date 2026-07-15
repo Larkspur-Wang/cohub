@@ -1,8 +1,8 @@
 import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
-import { clampThinkingLevel, createAssistantMessageEventStream, streamSimple, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, createAssistantMessageEventStream, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions, isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { context, trace, type Span } from "@opentelemetry/api";
-import { isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
 import { logger } from "../logger.js";
 import { sendOutput } from "../redis.js";
 import type { SessionManager } from "./local-session-manager.js";
@@ -51,7 +51,7 @@ const COMPACTION_SUMMARY_PREFIX = "The conversation history before this point wa
 const COMPACTION_SUMMARY_SUFFIX = "\n</summary>";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function normalizeThinkingLevel(level: string | null | undefined): ThinkingLevel | undefined {
   return level && THINKING_LEVELS.has(level as ThinkingLevel) ? level as ThinkingLevel : undefined;

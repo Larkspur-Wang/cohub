@@ -8,16 +8,16 @@ import type {
 } from "@cohub/protocol";
 import {
   clampThinkingLevel,
-  streamSimple,
   type AssistantMessage,
   type ImageContent,
   type Message,
   type ThinkingLevel,
   type Usage as PiUsage,
 } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { CompletionModelRegistry, RuntimeLlmModel } from "./models.js";
 
-const THINKING_LEVELS = new Set<CompletionThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const THINKING_LEVELS = new Set<CompletionThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 /**
  * Marker mime used to smuggle remote image URLs through pi-ai's base64-only
  * ImageContent shape. Restored to real URLs in onPayload before the provider call.

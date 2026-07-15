@@ -8,7 +8,7 @@ export type CompletionMessage = {
   content: ContentBlock[];
 };
 
-export type CompletionThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type CompletionThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export type CreateSpaceCompletionInput = {
   /** Optional provider. Defaults to the first available model provider. */

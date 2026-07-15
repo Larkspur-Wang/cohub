@@ -5,7 +5,7 @@ import {
   estimateTokens,
   prepareCompaction,
   shouldCompact,
-} from "@earendil-works/pi-agent-core/base";
+} from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { logger } from "../logger.js";
 import type { SessionHandle } from "../session.js";
@@ -17,6 +17,7 @@ import { sessionTurns } from "@cohub/db";
 import { and, eq, sql } from "drizzle-orm";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { createModelsFromRegistry } from "./pi-models-adapter.js";
 
 export type CompactionOutcome =
   | { compacted: true; summary: string; tokensBefore: number; firstKeptEntryId: string; archivePath: string | undefined; compactSequence: number }
@@ -162,9 +163,15 @@ export async function maybeAutoCompact(
 
       const apiKey = handle.session.modelRegistry.getApiKey(model.provider);
       if (!apiKey) return { compacted: false, reason: "no_api_key" };
-      const headers = handle.session.modelRegistry.getHeaders(model.provider, model.id) ?? undefined;
 
-      const compactResult = await compact(preparation, model, apiKey, headers, undefined, input.abortSignal);
+      const models = createModelsFromRegistry(handle.session.modelRegistry, model);
+      const compactResult = await compact(
+        preparation,
+        models,
+        model,
+        undefined,
+        input.abortSignal,
+      );
       if (!compactResult.ok) {
         span.setAttribute("agent.compaction.error", compactResult.error.message);
         logger.warn(`[Compaction] summarization failed sessionId=${handle.sessionId}: ${compactResult.error.message}`);
