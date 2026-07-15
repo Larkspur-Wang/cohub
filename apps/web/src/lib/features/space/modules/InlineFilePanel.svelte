@@ -24,6 +24,8 @@ import type { FileViewMode } from "$lib/components/file-diff-view";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
+import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 import type {
 	OpenWorkspaceFileTarget,
@@ -207,6 +209,19 @@ const fileDiffModulePromise = $derived.by(() => {
 });
 // Always the button that opened the menu (avoids dual mobile/desktop bind:this races).
 let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
+let imageMarkOpenMobile = $state(false);
+let imageMarkOpenDesktop = $state(false);
+let mobileImageRootEl: HTMLElement | null = $state(null);
+let desktopImageRootEl: HTMLElement | null = $state(null);
+
+const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
+	if (!inlineFileIsImage || !inlineFileDataUrl || !inlineFile.path) return null;
+	return {
+		kind: "image",
+		src: inlineFileDataUrl,
+		path: inlineFile.path,
+	};
+});
 </script>
 
 {#snippet FileHeaderCoreActions(path: string)}
@@ -418,7 +433,14 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
             {@render TextFileBody()}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
-          <div class="flex flex-1 items-center justify-center overflow-hidden p-4">
+          <div class="relative flex flex-1 items-center justify-center overflow-hidden p-4" bind:this={mobileImageRootEl}>
+            {#if imageMarkTarget}
+              <div class="pointer-events-none absolute top-2 right-2 z-20">
+                <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
+                  <PreviewMarkHost bind:open={imageMarkOpenMobile} target={imageMarkTarget} surface={mobileImageRootEl} buttonClass="icon-btn" />
+                </div>
+              </div>
+            {/if}
             <img src={inlineFileDataUrl} alt={inlineFile.response.name} class="max-h-full max-w-full rounded-md" />
           </div>
         {:else if inlineFileIsVideo && inlineFileDataUrl}
@@ -581,34 +603,39 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
               {@render TextFileBody()}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
-            <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
-              <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
-                {inlineFile.response.path}
+            <div class="relative flex min-h-0 flex-1 flex-col" bind:this={desktopImageRootEl}>
+              <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
+                <div class="preview-chrome-path min-w-0 flex-1 truncate text-xs sm:text-sm text-text-secondary">
+                  {inlineFile.response.path}
+                </div>
+                <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
+                {@render FileHeaderCoreActions(inlineFile.response.path)}
+                {#if imageMarkTarget}
+                  <PreviewMarkHost bind:open={imageMarkOpenDesktop} target={imageMarkTarget} surface={desktopImageRootEl} buttonClass="icon-btn" />
+                {/if}
+                <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+                <span class="text-xs text-text-tertiary tabular-nums w-10 text-center">{Math.round(inlineFileZoom * 100)}%</span>
+                <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+                {@render PreviewFocusButton()}
+                <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
+                  <X class="w-4 h-4" />
+                </button>
               </div>
-              <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
-              {@render FileHeaderCoreActions(inlineFile.response.path)}
-              <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              <span class="text-xs text-text-tertiary tabular-nums w-10 text-center">{Math.round(inlineFileZoom * 100)}%</span>
-              <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
-              {@render PreviewFocusButton()}
-              <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
-                <X class="w-4 h-4" />
-              </button>
-            </div>
-            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
-              if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
-                inlineFilePanX = 0;
-                inlineFilePanY = 0;
-              }
-            }} ondblclick={() => { inlineFileZoom = 1; inlineFilePanX = 0; inlineFilePanY = 0; }} onmousedown={inlineFilePanHandlers.start} style={inlineFileDragging ? 'cursor: grabbing;' : (inlineFileZoom > 1 ? 'cursor: grab;' : '')}>
-              <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+              <div class="flex flex-1 items-center justify-center overflow-hidden p-4" tabindex="-1" role="group" aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset" onwheel={(e) => {
+                if (e.ctrlKey || e.metaKey) {
+                  e.preventDefault();
+                  inlineFileZoom = Math.max(0.25, Math.min(4, inlineFileZoom + (e.deltaY < 0 ? 0.1 : -0.1)));
+                  inlineFilePanX = 0;
+                  inlineFilePanY = 0;
+                }
+              }} ondblclick={() => { inlineFileZoom = 1; inlineFilePanX = 0; inlineFilePanY = 0; }} onmousedown={inlineFilePanHandlers.start} style={inlineFileDragging ? 'cursor: grabbing;' : (inlineFileZoom > 1 ? 'cursor: grab;' : '')}>
+                <img src={inlineFileDataUrl} alt={inlineFile.response.name} style={`transform: translate(${inlineFilePanX}px, ${inlineFilePanY}px) scale(${inlineFileZoom}); ${inlineFileDragging ? '' : 'transition: transform 150ms ease;'}`} class="max-h-full max-w-full rounded-md select-none" />
+              </div>
             </div>
           {:else if inlineFileIsVideo && inlineFileDataUrl}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">

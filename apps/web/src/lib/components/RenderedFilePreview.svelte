@@ -4,6 +4,8 @@ import { untrack } from "svelte";
 import * as publicEnv from "$env/static/public";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import { readWorkCheckoutState } from "$lib/components/work/work-checkout-state";
+import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
+import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { createWorkBridgeHost } from "$lib/features/work/bridge-host.svelte";
 import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
 import WorkPurchaseDialog from "$lib/features/work/WorkPurchaseDialog.svelte";
@@ -33,6 +35,8 @@ const {
 const previewOrigin =
 	publicEnv.PUBLIC_PREVIEW_ORIGIN?.replace(/\/+$/, "") ?? "";
 let frame: HTMLIFrameElement | null = $state(null);
+let rootEl: HTMLElement | null = $state(null);
+let markOpen = $state(false);
 let previewSrc = $state<string | null>(null);
 let previewError = $state<string | null>(null);
 let debugEnabled = $state(false);
@@ -40,6 +44,15 @@ let loadToken = 0;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSrcdocFrame: HTMLIFrameElement | null = null;
 let lastSrcdoc = "";
+
+const markTarget = $derived.by((): PreviewCaptureTarget | null => {
+	if (type !== "html" || !frame || !path) return null;
+	return {
+		kind: "iframe",
+		element: frame,
+		source: { kind: "html", path },
+	};
+});
 
 const canUsePreviewOrigin = $derived(
 	Boolean(type === "html" && !readonly && previewOrigin && spaceId && path),
@@ -156,13 +169,23 @@ $effect(() => {
 {#if type === "markdown"}
 	<MarkdownView {source} variant="document" baseFilePath={path} {onOpenFile} />
 {:else if canUsePreviewOrigin}
-	<div class="flex h-full min-h-0 flex-col bg-white">
+	<div class="relative flex h-full min-h-0 flex-col bg-white" bind:this={rootEl}>
 		{#if canDebugWork}
 			<div class="flex h-8 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-2 text-[11px] text-text-secondary">
 				<button type="button" class="segmented-btn" class:active={debugEnabled} onclick={() => debugEnabled = !debugEnabled} title="Debug work runtime APIs">
 					Work debug
 				</button>
 				<span class="min-w-0 truncate">{debugWork?.slug}</span>
+				<div class="flex-1"></div>
+				{#if markTarget}
+					<PreviewMarkHost bind:open={markOpen} target={markTarget} surface={rootEl} buttonClass="icon-btn" />
+				{/if}
+			</div>
+		{:else if markTarget}
+			<div class="pointer-events-none absolute top-2 right-2 z-20">
+				<div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
+					<PreviewMarkHost bind:open={markOpen} target={markTarget} surface={rootEl} buttonClass="icon-btn" />
+				</div>
 			</div>
 		{/if}
 		{#if previewError}
@@ -200,10 +223,19 @@ $effect(() => {
 		/>
 	{/if}
 {:else}
-	<iframe
-		bind:this={frame}
-		class="h-full w-full border-0 bg-white"
-		title={`HTML preview: ${name}`}
-		sandbox="allow-scripts"
-	></iframe>
+	<div class="relative h-full w-full" bind:this={rootEl}>
+		{#if markTarget}
+			<div class="pointer-events-none absolute top-2 right-2 z-20">
+				<div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
+					<PreviewMarkHost bind:open={markOpen} target={markTarget} surface={rootEl} buttonClass="icon-btn" />
+				</div>
+			</div>
+		{/if}
+		<iframe
+			bind:this={frame}
+			class="h-full w-full border-0 bg-white"
+			title={`HTML preview: ${name}`}
+			sandbox="allow-scripts"
+		></iframe>
+	</div>
 {/if}

@@ -11,6 +11,8 @@ import {
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
+import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
+import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 
 const {
 	port,
@@ -45,6 +47,18 @@ let slowLoad = $state(false);
 // Keep the last successfully embedded URL so status/observedAt-only updates
 // (or parent re-renders during panel resize) do not remount the iframe.
 let committedUrl = $state("");
+let iframeEl: HTMLIFrameElement | null = $state(null);
+let rootEl: HTMLElement | null = $state(null);
+let markOpen = $state(false);
+
+const markTarget = $derived.by((): PreviewCaptureTarget | null => {
+	if (!iframeEl || !url) return null;
+	return {
+		kind: "iframe",
+		element: iframeEl,
+		source: { kind: "port", port, url },
+	};
+});
 
 const canEmbed = $derived(status !== "closed" && Boolean(url));
 const iframeSrc = $derived.by(() => {
@@ -119,7 +133,7 @@ onDestroy(() => {
 });
 </script>
 
-<div class="port-preview flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive}>
+<div class="port-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive} bind:this={rootEl}>
 	<div class="preview-chrome flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
 		<div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-bg-primary text-text-secondary">
 			<Globe class="h-3.5 w-3.5" />
@@ -155,6 +169,14 @@ onDestroy(() => {
 		<a class="preview-icon-btn" href={url} target="_blank" rel="noreferrer" title="Open externally" aria-disabled={!url}>
 			<ExternalLink class="h-4 w-4" />
 		</a>
+		{#if canEmbed}
+			<PreviewMarkHost
+				bind:open={markOpen}
+				target={markTarget}
+				surface={rootEl}
+				buttonClass="preview-icon-btn"
+			/>
+		{/if}
 		{#if onToggleFocus && onToggleImmersive}
 			<PreviewExpandMenu
 				{focused}
@@ -193,6 +215,7 @@ onDestroy(() => {
 				</div>
 			{/if}
 			<iframe
+				bind:this={iframeEl}
 				class="h-full w-full border-0 bg-overlay-control-text"
 				src={iframeSrc}
 				title={`Port ${port} preview`}

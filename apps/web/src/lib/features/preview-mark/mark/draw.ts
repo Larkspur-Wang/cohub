@@ -1,0 +1,119 @@
+import { MARK_COLOR_HEX, type Point, type Stroke } from "../types";
+
+export function drawStroke(
+	ctx: CanvasRenderingContext2D,
+	stroke: Stroke,
+	options: { scale?: number } = {},
+) {
+	const scale = options.scale ?? 1;
+	const color = MARK_COLOR_HEX[stroke.color];
+	const width = Math.max(1, stroke.width * scale);
+	ctx.save();
+	ctx.lineCap = "round";
+	ctx.lineJoin = "round";
+	ctx.strokeStyle = color;
+	ctx.fillStyle = color;
+	ctx.lineWidth = width;
+
+	if (stroke.tool === "pen") {
+		drawPen(ctx, stroke.points, scale);
+	} else if (stroke.tool === "arrow") {
+		drawArrow(
+			ctx,
+			scalePoint(stroke.from, scale),
+			scalePoint(stroke.to, scale),
+			width,
+		);
+	} else {
+		drawRect(ctx, scalePoint(stroke.a, scale), scalePoint(stroke.b, scale));
+	}
+	ctx.restore();
+}
+
+function scalePoint(point: Point, scale: number): Point {
+	return { x: point.x * scale, y: point.y * scale };
+}
+
+function drawPen(
+	ctx: CanvasRenderingContext2D,
+	points: Point[],
+	scale: number,
+) {
+	if (points.length === 0) return;
+	if (points.length === 1) {
+		const p = scalePoint(points[0], scale);
+		ctx.beginPath();
+		ctx.arc(p.x, p.y, ctx.lineWidth / 2, 0, Math.PI * 2);
+		ctx.fill();
+		return;
+	}
+	ctx.beginPath();
+	const first = scalePoint(points[0], scale);
+	ctx.moveTo(first.x, first.y);
+	for (let i = 1; i < points.length; i++) {
+		const p = scalePoint(points[i], scale);
+		ctx.lineTo(p.x, p.y);
+	}
+	ctx.stroke();
+}
+
+function drawArrow(
+	ctx: CanvasRenderingContext2D,
+	from: Point,
+	to: Point,
+	width: number,
+) {
+	const dx = to.x - from.x;
+	const dy = to.y - from.y;
+	const len = Math.hypot(dx, dy);
+	if (len < 0.5) return;
+
+	ctx.beginPath();
+	ctx.moveTo(from.x, from.y);
+	ctx.lineTo(to.x, to.y);
+	ctx.stroke();
+
+	const head = Math.max(10, width * 3.2);
+	const angle = Math.atan2(dy, dx);
+	ctx.beginPath();
+	ctx.moveTo(to.x, to.y);
+	ctx.lineTo(
+		to.x - head * Math.cos(angle - Math.PI / 7),
+		to.y - head * Math.sin(angle - Math.PI / 7),
+	);
+	ctx.lineTo(
+		to.x - head * Math.cos(angle + Math.PI / 7),
+		to.y - head * Math.sin(angle + Math.PI / 7),
+	);
+	ctx.closePath();
+	ctx.fill();
+}
+
+function drawRect(ctx: CanvasRenderingContext2D, a: Point, b: Point) {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	const w = Math.abs(b.x - a.x);
+	const h = Math.abs(b.y - a.y);
+	if (w < 0.5 && h < 0.5) return;
+	ctx.strokeRect(x, y, w, h);
+}
+
+export function drawCropOverlay(
+	ctx: CanvasRenderingContext2D,
+	frameWidth: number,
+	frameHeight: number,
+	crop: { x: number; y: number; width: number; height: number } | null,
+) {
+	if (!crop) return;
+	ctx.save();
+	ctx.fillStyle = "rgba(0,0,0,0.45)";
+	ctx.beginPath();
+	ctx.rect(0, 0, frameWidth, frameHeight);
+	ctx.rect(crop.x, crop.y, crop.width, crop.height);
+	ctx.fill("evenodd");
+	ctx.strokeStyle = "#F8FAFC";
+	ctx.lineWidth = 2;
+	ctx.setLineDash([6, 4]);
+	ctx.strokeRect(crop.x, crop.y, crop.width, crop.height);
+	ctx.restore();
+}

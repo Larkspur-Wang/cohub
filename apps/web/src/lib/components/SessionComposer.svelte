@@ -1024,13 +1024,28 @@ onMount(() => {
 	};
 	const handleFocusComposer = () => focusComposer();
 	const handleViewportResize = () => scheduleResizeTextarea();
+	const handleComposerAttachFiles = (event: Event) => {
+		const custom = event as CustomEvent<{ files?: File[] }>;
+		const files = custom.detail?.files;
+		if (!files || files.length === 0) return;
+		onpickattachment?.(files);
+		focusComposer();
+	};
 	window.addEventListener("cohub:composer-focus", handleFocusComposer);
 	window.addEventListener("cohub:composer-insert", handleComposerInsert);
+	window.addEventListener(
+		"cohub:composer-attach-files",
+		handleComposerAttachFiles,
+	);
 	window.addEventListener("resize", handleViewportResize);
 	window.visualViewport?.addEventListener("resize", handleViewportResize);
 	return () => {
 		window.removeEventListener("cohub:composer-focus", handleFocusComposer);
 		window.removeEventListener("cohub:composer-insert", handleComposerInsert);
+		window.removeEventListener(
+			"cohub:composer-attach-files",
+			handleComposerAttachFiles,
+		);
 		window.removeEventListener("resize", handleViewportResize);
 		window.visualViewport?.removeEventListener("resize", handleViewportResize);
 		unbindSelectionChangeListener();
