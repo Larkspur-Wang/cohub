@@ -57,11 +57,11 @@ gitea:
       # 数据库类型：postgres | mysql | mssql
       DB_TYPE: postgres
       # <必填> RDS 内网连接地址
-      HOST: "pgm-rj9nf5ql6yn31ec1.pg.rds-aliyun-america.rds.aliyuncs.com"
+      HOST: "postgres.example.com"
       # 数据库名称
-      NAME: "cohub_gitea"
+      NAME: "gitea"
       # 数据库用户名
-      USER: "cohub_gitea"
+      USER: "gitea"
       # 密码通过 Secret 注入（见 secrets.yaml）
       # PASSWD 从环境变量 GITEA__DATABASE__PASSWD 读取
 

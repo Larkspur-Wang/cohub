@@ -8,7 +8,7 @@ spec:
     - name: traefik-gateway
       namespace: kube-system
   hostnames:
-    - "gitea.cohub.run"
+    - "gitea.example.com"
   rules:
     - matches:
         - path:

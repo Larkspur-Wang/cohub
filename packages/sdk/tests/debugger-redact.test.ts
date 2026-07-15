@@ -11,8 +11,8 @@ const JWT_RE = /eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/;
 const SECRET_PREFIX_RE =
 	/\b(?:sk-[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|pat_[A-Za-z0-9_]{16,})/;
 
-// Real-shaped fixtures derived from a captured cohub-debug-*.har.
-const WS_AUTH_MESSAGE = `{"type":"auth","payload":{"token":"eyJhbGciOiJSUzI1NiIsInR5cCI6ImF0K2p3dCIsImtpZCI6Im1JeHRPZEYyWVk5b0N4dG43YU5aOXdJLVNSZzY5SDVfM2l0WDA1NHJMRWcifQ.eyJ1c2VybmFtZSI6bnVsbCwidGFsZXNvZmFpX2lkIjoyMzQsInN1YiI6InFnMzJlc2FpYmthMiIsImlhdCI6MTc4MjgwNzAwOSwiZXhwIjoxNzgyODkzNDA5fQ.mn8IqIq5rLt1ZwX7HQ8jbP8iSCU8AH5r6b_P5xdOH3iOWTFeozb0kqso1iqIbpxNc248CH-XKSqx1RIgGT7pRw_orgrdaSiQy94kX1kbUfmOqSGEYSyHwrMkhpK3mutoXpQ8Ysbp8yu84nHuI_3uyGfYN23apMBv1i2zjg6HIqwsS9rnts65ILCLoUs4BtJlcZ1JUapZUKwZHQxCSFLqOhZS"}}`;
+// Synthetic fixtures shaped like production payloads for redaction tests.
+const WS_AUTH_MESSAGE = `{"type":"auth","payload":{"token":"eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJzY29wZSI6ImZha2UifQ.fake-signature-for-redact-tests"}}`;
 
 const SPACE_SECRETS_RESPONSE = `{"secrets":[{"name":"NETA_TOKEN","value":"eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0LXVzZXIifQ.fake-signature"},{"name":"NETA_ROUTER_API_KEY","value":"sk-test_fake_key_not_real_000000"},{"name":"GITHUB_PAT","value":"ghp_testfakefakefakefake00"},{"name":"GIT_TOKEN","value":"github_pat_test_fake_not_real_000000000000000000000000000000000000"}],"gitToken":"github_pat_test_fake_not_real_000000000000000000000000000000000000","repoUrl":"https://github.com/example/example-agent.git"}`;
 
