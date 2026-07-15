@@ -149,6 +149,18 @@ function isPersistable(state: SessionGenerationState) {
 	return !TERMINAL_STATUSES.has(state.status);
 }
 
+function isTerminalStatus(status: string | null | undefined) {
+	return Boolean(status && TERMINAL_STATUSES.has(status));
+}
+
+/** True when both ids are present and differ — a real turn handoff. */
+function isTurnSwitch(
+	currentTurnId: string | null | undefined,
+	nextTurnId: string | null | undefined,
+) {
+	return Boolean(currentTurnId && nextTurnId && currentTurnId !== nextTurnId);
+}
+
 function parseSnapshotState(
 	record: Awaited<ReturnType<typeof sessionGenerationSnapshotsRepo.get>>,
 ): SessionGenerationState | null {
@@ -375,6 +387,11 @@ class SessionGenerationStore {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
 		if (current.status === "streaming") return;
 		if (isPersistable(current)) return;
+		// Resume from a terminal generation state (e.g. previous turn completed
+		// and a queued follow-up became running). Always drop residual
+		// preview/process data so the handoff intermediate from the previous
+		// turn cannot paint onto the new turn.
+		const turnSwitched = isTurnSwitch(current.turnId, input?.turnId);
 		this.setState(sessionId, {
 			...current,
 			sessionId,
@@ -382,18 +399,24 @@ class SessionGenerationStore {
 			status: "pending",
 			error: null,
 			errorCode: null,
-			startedAt: current.startedAt ?? Date.now(),
+			startedAt: Date.now(),
 			lastEventAt: Date.now(),
-			anchorUserMessageId:
-				input?.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
+			contentBlocks: [],
+			intermediateMessages: [],
+			streamMessageId: null,
+			messageOrdinal: null,
+			truncatedStart: false,
+			patchSeq: 0,
+			anchorUserMessageId: turnSwitched
+				? (input?.anchorUserMessageId ?? null)
+				: (input?.anchorUserMessageId ?? current.anchorUserMessageId ?? null),
 			turnId: input?.turnId ?? current.turnId ?? null,
-			runtimePhase: current.runtimePhase ?? null,
-			runtimePhaseAt: current.runtimePhaseAt ?? null,
-			llmRound: current.llmRound ?? null,
-			runtimeProvider: current.runtimeProvider ?? null,
-			runtimeModel: current.runtimeModel ?? null,
-			finalizedPreview:
-				input?.finalizedPreview ?? current.finalizedPreview ?? false,
+			runtimePhase: null,
+			runtimePhaseAt: null,
+			llmRound: null,
+			runtimeProvider: null,
+			runtimeModel: null,
+			finalizedPreview: input?.finalizedPreview ?? false,
 		});
 	}
 
@@ -413,32 +436,50 @@ class SessionGenerationStore {
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		const nextTurnId = input.turnId ?? current.turnId ?? null;
+		// Cross-turn progress (queued follow-up auto-start, late final commit
+		// from the previous turn, etc.) must not inherit residual process
+		// history / stream identity from the prior turn. Without this the
+		// timeline briefly renders the previous turn's output under the new
+		// turn until the next real stream event arrives.
+		const turnSwitched = isTurnSwitch(current.turnId, input.turnId);
 		this.setState(sessionId, {
 			...current,
 			spaceId: input.spaceId ?? current.spaceId ?? null,
 			status: "streaming",
 			error: null,
 			errorCode: null,
-			startedAt: current.startedAt ?? Date.now(),
+			startedAt: turnSwitched ? Date.now() : (current.startedAt ?? Date.now()),
 			lastEventAt: Date.now(),
 			contentBlocks: input.contentBlocks,
 			intermediateMessages:
 				input.intermediateMessages !== undefined
 					? input.intermediateMessages
-					: (current.intermediateMessages ?? []),
+					: turnSwitched
+						? []
+						: (current.intermediateMessages ?? []),
 			streamMessageId:
 				input.streamMessageId !== undefined
 					? input.streamMessageId
-					: current.streamMessageId,
+					: turnSwitched
+						? null
+						: current.streamMessageId,
 			messageOrdinal:
 				input.messageOrdinal !== undefined
 					? input.messageOrdinal
-					: current.messageOrdinal,
-			anchorUserMessageId:
-				input.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
-			truncatedStart: input.truncatedStart ?? current.truncatedStart,
-			patchSeq: input.patchSeq ?? current.patchSeq,
-			turnId: input.turnId ?? current.turnId ?? null,
+					: turnSwitched
+						? null
+						: current.messageOrdinal,
+			anchorUserMessageId: turnSwitched
+				? (input.anchorUserMessageId ?? null)
+				: (input.anchorUserMessageId ?? current.anchorUserMessageId ?? null),
+			truncatedStart: turnSwitched
+				? (input.truncatedStart ?? false)
+				: (input.truncatedStart ?? current.truncatedStart),
+			patchSeq: turnSwitched
+				? (input.patchSeq ?? 0)
+				: (input.patchSeq ?? current.patchSeq),
+			turnId: nextTurnId,
 			runtimePhase: null,
 			runtimePhaseAt: null,
 			llmRound: null,
@@ -465,6 +506,11 @@ class SessionGenerationStore {
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
+		// Defense in depth: never fold an intermediate archive from turn A into
+		// generation state that has already advanced to turn B (queued follow-up).
+		if (isTurnSwitch(current.turnId, input.turnId)) {
+			return;
+		}
 		const archived = input.archived ?? null;
 		// Next assistant identity already advanced (even before first token) —
 		// only fold history; never wipe the newer identity/patchSeq/preview.
@@ -532,23 +578,50 @@ class SessionGenerationStore {
 				: typeof input.at === "string"
 					? Date.parse(input.at)
 					: Date.now();
+		const nextTurnId = input.turnId ?? current.turnId ?? null;
+		// Lifecycle events are often the first signal that a queued follow-up
+		// has started. Drop residual preview/process data from the previous
+		// turn so the new turn does not render the old output.
+		const turnSwitched = isTurnSwitch(current.turnId, input.turnId);
+		const resumeFromTerminal = isTerminalStatus(current.status);
+		const shouldResetResiduals = turnSwitched || resumeFromTerminal;
+		const nextStatus =
+			current.status === "idle" || resumeFromTerminal || turnSwitched
+				? "pending"
+				: current.status;
 		this.setState(sessionId, {
 			...current,
 			sessionId,
 			spaceId: input.spaceId ?? current.spaceId ?? null,
-			status: current.status === "idle" ? "pending" : current.status,
+			status: nextStatus,
 			error: null,
 			errorCode: null,
-			startedAt: current.startedAt ?? Date.now(),
+			startedAt: shouldResetResiduals
+				? Date.now()
+				: (current.startedAt ?? Date.now()),
 			lastEventAt: Date.now(),
-			turnId: input.turnId ?? current.turnId ?? null,
-			anchorUserMessageId:
-				input.anchorUserMessageId ?? current.anchorUserMessageId ?? null,
+			contentBlocks: shouldResetResiduals ? [] : current.contentBlocks,
+			intermediateMessages: shouldResetResiduals
+				? []
+				: current.intermediateMessages,
+			streamMessageId: shouldResetResiduals ? null : current.streamMessageId,
+			messageOrdinal: shouldResetResiduals ? null : current.messageOrdinal,
+			truncatedStart: shouldResetResiduals ? false : current.truncatedStart,
+			patchSeq: shouldResetResiduals ? 0 : current.patchSeq,
+			finalizedPreview: shouldResetResiduals ? false : current.finalizedPreview,
+			turnId: nextTurnId,
+			anchorUserMessageId: turnSwitched
+				? (input.anchorUserMessageId ?? null)
+				: (input.anchorUserMessageId ?? current.anchorUserMessageId ?? null),
 			runtimePhase: input.phase,
 			runtimePhaseAt: Number.isFinite(atMs) ? atMs : Date.now(),
-			llmRound: input.llmRound ?? current.llmRound ?? null,
-			runtimeProvider: input.provider ?? current.runtimeProvider ?? null,
-			runtimeModel: input.model ?? current.runtimeModel ?? null,
+			llmRound:
+				input.llmRound ?? (shouldResetResiduals ? null : current.llmRound),
+			runtimeProvider:
+				input.provider ??
+				(shouldResetResiduals ? null : current.runtimeProvider),
+			runtimeModel:
+				input.model ?? (shouldResetResiduals ? null : current.runtimeModel),
 		});
 	}
 

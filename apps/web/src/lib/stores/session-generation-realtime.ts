@@ -481,6 +481,21 @@ export function applyGenerationStreamEvent(
 			// and clear live contentBlocks immediately. Without this, the previous
 			// round's tools linger in the streaming preview until the next patch.
 			const current = sessionGenerationStore.get(sessionId);
+			const meta = isRecord(event.commit.message.meta)
+				? event.commit.message.meta
+				: null;
+			const commitTurnId =
+				typeof meta?.turnId === "string" ? meta.turnId : null;
+			// Drop late intermediate archives from a previous turn after a queued
+			// follow-up has already advanced generation state to a new turnId.
+			if (commitTurnId && current?.turnId && current.turnId !== commitTurnId) {
+				return handledEffect({
+					shouldScroll: false,
+					shouldReconcile: false,
+					shouldRestoreSnapshot: false,
+					shouldRefreshSessions: false,
+				});
+			}
 			const archived = intermediateFromCommitMessage(
 				sessionId,
 				event.commit.message,
@@ -490,13 +505,7 @@ export function applyGenerationStreamEvent(
 						archived,
 					])
 				: (current?.intermediateMessages ?? []);
-			const meta = isRecord(event.commit.message.meta)
-				? event.commit.message.meta
-				: null;
-			const turnId =
-				(typeof meta?.turnId === "string" ? meta.turnId : null) ??
-				current?.turnId ??
-				null;
+			const turnId = commitTurnId ?? current?.turnId ?? null;
 			sessionGenerationStore.archiveIntermediateRound(sessionId, {
 				intermediateMessages,
 				archived,
@@ -513,14 +522,29 @@ export function applyGenerationStreamEvent(
 			// Apply the full content blocks from the persisted message
 			// (session.message.persisted) which carries complete content
 			// including thinking, tool_use, tool_result, etc.
+			// Guard against late final commits from a previous turn after a
+			// queued follow-up has already started — those must not paint the
+			// previous answer onto the new turn's live preview.
 			const commitContent = event.commit.message.content;
-			if (Array.isArray(commitContent) && commitContent.length > 0) {
-				const current = sessionGenerationStore.get(sessionId);
+			const current = sessionGenerationStore.get(sessionId);
+			const meta = isRecord(event.commit.message.meta)
+				? event.commit.message.meta
+				: null;
+			const commitTurnId =
+				typeof meta?.turnId === "string" ? meta.turnId : null;
+			const sameTurn =
+				!commitTurnId || !current?.turnId || current.turnId === commitTurnId;
+			if (
+				sameTurn &&
+				Array.isArray(commitContent) &&
+				commitContent.length > 0
+			) {
 				const currentBlocks = current?.contentBlocks ?? [];
 				if (!isContentTextuallySame(currentBlocks, commitContent)) {
 					sessionGenerationStore.applyProgress(sessionId, {
 						contentBlocks: commitContent,
 						finalizedPreview: true,
+						turnId: commitTurnId ?? current?.turnId ?? null,
 					});
 				}
 			}
