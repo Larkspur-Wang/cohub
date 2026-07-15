@@ -322,10 +322,10 @@ onMount(async () => {
 								>
 							</li>
 							<li>
-								<span
-									class="text-text-placeholder"
-									title="Coming soon"
-									>Changelog</span
+								<a
+									href="/changelog"
+									class="text-text-secondary transition-colors hover:text-text-primary"
+									>Changelog</a
 								>
 							</li>
 						</ul>

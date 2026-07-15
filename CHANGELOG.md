@@ -1,116 +1,71 @@
 # Changelog
 
-## v1.14.0 (2026-05-07)
+All notable changes to Cohub are documented in this file.
 
-### Features
+<!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
-- **web**: add clickable file paths in tool call display
-- **web**: restore space member invites in settings
+## v1.98 — 2026-07-14
 
-### Bug Fixes
-
-- **sdk**: download private space files via sdk
-- **web**: keep member remove action visible
-- resolve typecheck and biome lint issues
-
-### Refactoring
-
-- **config**: fix alias resolution order for protocol and sdk subpaths
-- **web**: rename Preview to Ports, simplify status to dot with hover tooltip
-
-## v1.8.0 (2026-04-30)
+- **Cross-space New chat**: Starting a chat from `/sessions` now stays on the sessions inbox (`/sessions/new?space=…`) with a command-palette space picker, draft chrome, and in-place space switching instead of jumping into a space workspace.
+- **Sessions shell architecture**: Shared `sessions/+layout` keeps the inbox page mounted across list, draft, and detail routes so the left list no longer remounts or jumps; draft targets use `newChatSpaceId` so they never fight global sidebar layout prefs.
+- **Settings exit navigation**: Entering settings records the prior page, tab switches use `replaceState`, and leave uses `history.back()` (or the last space) so return is one step and no longer drops you on the public home.
 
 ### Bug Fixes
 
-- **api**: correct session turns pagination logic and add backfill script
-- fix user config publish path
-- remove `session.turn.final` event and consolidate final message handling into `session.message.persisted`
+- Long turn navigator previews truncate to ~180 chars with a full-text tooltip instead of overflowing the rail and bottom sheet.
+- Settings deep links (billing, referrals, channels) preserve the `from` return path across sub-routes.
 
-### Performance
+## v1.97 — 2026-07-14
 
-- **api**: cache readable user ids
-
-### Refactoring
-
-- **api**: introduce getOptionalAuth for RBAC-driven routes
-
-## v1.1.2 (2026-04-27)
-
-### Features
-
-- **tracing**: extract shared OTel tracing package and add full distributed trace propagation
+- **Skill slash commands**: Type `/skill:name` in the composer to expand platform, mod, user, and project skills on send — cataloged in the slash menu with Redis-backed discovery, plus `skills.list` in the SDK and CLI.
+- **Workspace motion shell**: Desktop left/right panels and preview columns clip open and closed with shared motion tokens; mobile `/sessions` opens chats with an IM-style view transition, while resize and reduced-motion stay instant.
+- **File tree drag-move**: Drag files and folders onto targets in the tree to `fs.move`, with hardened panel hide/collapse so previews stay mounted and interactions remain reliable.
+- **Sessions continuity**: Desktop `/sessions` restores the last chat (or newest fallback), re-entry keeps scroll position, and session bootstrap skips double-fetches and no-op turn/presence refreshes.
 
 ### Bug Fixes
 
-- **worker**: add missing @cohub/tracing paths to typecheck config
-- update Dockerfiles to include packages/tracing for multi-stage builds
+- Turn rail markers map by document position and chat chrome height so the minimap aligns with the timeline
+- Label as picker anchors near its trigger on desktop and uses a safe-area bottom sheet on mobile
+- Files column collapsed state persists across reloads; first-press header collapse is reliable
+- HTML preview no longer loops createPreviewSession; file preview opens before a URL race can close it
+- Sessions composer pins to the bottom; Focus my chats (⌘⇧U) works while typing
 
-## v1.1.1 (2026-04-26)
+## v1.96 — 2026-07-14
 
-### Bug Fixes
-
-- **observability**: ensure OTel instrumentation runs before modules are loaded
-- **agent**: set anchorUserMessageId in stream_update events
-
-### Refactoring
-
-- **web**: move mobile session rename action sheet to global layout
-
-## v1.1.0 (2026-04-26)
-
-### Features
-
-- **session**: add inline rename support
-- **api**: add space usage endpoint with auth and permission check
-- **api**: add layered prompt templates support
-- **web**: reconcile session state after websocket reconnect
+- **Main/Files workspace columns**: Space shell splits into independent Main and Files columns with deep-linkable `?preview=` state, unified file/canvas/port tabs, and bi-directional URL sync so chat switches keep the open preview.
+- **Shared session-chat module**: Full chat host, generation, scroll, and realtime lifecycle extracted into `features/session-chat` for Space and Sessions—refcounted space rooms, multi-host-safe generation leases, and a slimmer workspace page.
+- **Richer turn navigator**: Turn index exposes intent and author profiles; the rail and bottom sheet show compact labels, timestamps, image placeholders, and multi-author names without heavier payloads.
+- **Unlimited owned spaces**: Free-plan owned-space quota and entitlement gate removed so any account can create unlimited spaces.
+- **Account-scoped work viewers**: `user.space.list` / `user.session.list` / `user.usage.read` still gate on the work grant, but data loads via `asAccountIdentity` so cross-space lists no longer collapse to the Work space.
 
 ### Bug Fixes
 
-- **api**: change access routes from PUT to PATCH for partial updates
-- **packages**: correct GitHub repository URLs to talesofai/cohub
+- Sanitize auth tokens in SDK transport and web client so Safari no longer throws on Authorization headers with CR/LF from corrupted storage.
+- Hardened dual-host generation: lease under-release no-ops, stale stream `patchSeq` drops, mid-send draft persistence, and space-switch composer reset.
+- Stopped session-chat effect loops freezing mobile UI; drawer pointer-events only while open or dragging.
+- Portaled floating menus escape workspace stacking/overflow; preview Focus/Float menu no longer mis-dismisses or anchors at top-left.
 
-### Refactoring
+## v1.88 — 2026-07-08
 
-- **api**: remove unused space field from GET /sessions/:id/messages
-- **api**: optimize space sessions list endpoint with batch permission filtering
-- rename role 'maker' to 'builder' across the codebase
-
-## v0.10.1 (2026-04-26)
-
-### Bug Fixes
-
-- **api**: strip correct sentinel row in message pagination
-- mount usage route under /api/spaces/:id/usage
-
-## v0.10.0 (2026-04-25)
-
-### Features
-
-- **agent**: recover stale processing messages on startup; improve gateway node lifecycle
-- **api**: add space usage endpoint with auth, permission check, and error handling
-- always show scroll-to-bottom button, clean up dead scroll state
+- **Sandbox compute specs**: Choose Standard, Boost, or Ultra CPU/memory tiers per space, with plan-gated entitlements, live Kubernetes pod resize (no restart when possible), and full API/CLI/SDK support.
+- **Space settings redesign**: Two-pane section navigation, settings-row layout, skeleton loading, and a focused sandbox spec picker for clearer, faster configuration.
+- **Work PWA polish**: Dedicated Work icons, maskable assets, and richer web manifest metadata so published Works install more cleanly as progressive apps.
+- **Work runtime guide**: New agent-oriented SDK docs that make Work runtime capabilities easier to discover and integrate.
+- **Search & Discord reliability**: Faster global search via materialized CTEs and trigram operators; Discord outbound splits preserve fenced code blocks, suppress unintended mentions, and send typing indicators.
 
 ### Bug Fixes
 
-- **api**: propagate actor user id in web session prompts
-- restore scroll-to-bottom affordance off bottom
-- **api**: eliminate N+1 query risks across multiple endpoints
-- **agent**: prevent stale websocket connections from leaking in sandbox client
-- **web**: reset tool blocks when next preview starts
-- improve session scroll restoration stability and bottom CTA positioning
-- correct user attribution in message persistence and trending spaces
+- Correct Kubernetes pod resize subresource usage when applying sandbox specs
+- Gate higher sandbox specs by billing benefit keys and fall back cleanly when resize cannot apply immediately
+- Limit turn search to substring matching to avoid noisy similarity hits
 
-### Refactoring
+## v1.87 — 2026-07-08
 
-- **agent**: extract assistant stream state into dedicated immutable state machine
-- **api**: remove unused space field from GET /sessions/:id/messages
-- simplify scroll-to-bottom button with unread state
+- **Cross-space turn notifications**: When an agent turn finishes in any space, you get a compact in-app toast with space identity, status, duration, step count, and a preview of your prompt — open the turn in the current or a new tab, or dismiss it.
+- **Desktop & PWA alerts**: Optional browser notifications fire when the tab is in the background, with a gentle permission prompt and service-worker click handling that focuses or navigates to the finished turn reliably.
+- **User-scoped realtime notify channel**: Agent and API emit a new `session.turn.notify` event to the user's personal room on turn finalize, and the SDK exposes `onUserEvent` so clients can subscribe without binding to a single space.
+- **Smart suppress & multi-tab presence**: Notifications are suppressed when you are already focused on that session; BroadcastChannel + localStorage presence keeps other tabs quiet if one tab is actively viewing it.
 
-### Performance
+### Bug Fixes
 
-- **web**: skip unnecessary message fetch for new sessions
-
-### Chores
-
-- remove attachment-layout-analysis debug document
+- Browser notification clicks now correctly focus an existing window or open the target session URL via the PWA service worker.

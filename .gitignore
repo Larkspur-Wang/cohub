@@ -26,6 +26,9 @@ deploy/agent/dev/secrets.yaml
 # Whale Shrine runtime data
 docs/work-capability-lab/whale-shrine/data/
 
+# Changelog generation drafts
+.changelog-draft/
+
 # K8s rendered files (generated)
 deploy/api/prod/rendered/
 deploy/api/dev/rendered/
