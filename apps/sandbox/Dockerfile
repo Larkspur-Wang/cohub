@@ -68,7 +68,7 @@ ENV PATH="/home/node/.bun/bin:${NPM_CONFIG_PREFIX}/bin:/home/node/.local/bin:/ho
 
 RUN curl -fsSL https://bun.sh/install | bash
 RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
-RUN npm install -g typescript tsx @typescript/native-preview @neta-art/cohub-cli
+RUN npm install -g typescript tsx @neta-art/cohub-cli
 # Create directories and ensure node user owns them for runtime access
 RUN mkdir -p /home/node/.npm-global /home/node/.bun /home/node/.local /home/node/go/bin /home/node/.pnpm-global/bin \
     && chown -R node:node /home/node/.npm-global /home/node/.bun /home/node/.local /home/node/go /home/node/.pnpm-global

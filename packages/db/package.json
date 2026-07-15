@@ -22,14 +22,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
-    "typecheck": "tsgo -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@cohub/protocol": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

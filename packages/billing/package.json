@@ -27,8 +27,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
-    "typecheck": "tsgo -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "ioredis": "5.10.1"
@@ -38,6 +38,6 @@
   },
   "devDependencies": {
     "@types/node": "25.9.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

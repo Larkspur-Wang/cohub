@@ -1,7 +1,7 @@
 {
   "name": "@neta-art/cohub-cli",
   "version": "2.3.1",
-  "description": "CLI for Cohub \u2014 spaces, sessions, and agent collaboration.",
+  "description": "CLI for Cohub — spaces, sessions, and agent collaboration.",
   "type": "module",
   "license": "Apache-2.0",
   "bin": {
@@ -13,8 +13,8 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
-    "typecheck": "tsgo -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@neta-art/cohub": "workspace:*",
@@ -27,6 +27,6 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

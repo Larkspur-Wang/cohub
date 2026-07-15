@@ -72,15 +72,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsgo -p tsconfig.build.json",
-    "typecheck": "tsgo -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@neta-art/generation": "^0.1.13",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@typescript/native-preview": "7.0.0-dev.20260527.2",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }

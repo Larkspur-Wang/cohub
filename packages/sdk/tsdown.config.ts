@@ -11,6 +11,9 @@ const entry = {
 export default defineConfig({
   entry,
   format: "esm",
+  // Resolve @cohub/protocol via package exports (dist) so TS7 native dts emit stays inside rootDir.
+  // Dev typecheck still uses tsconfig.json path aliases to protocol source.
+  tsconfig: "tsconfig.build.json",
   dts: true,
   clean: true,
   target: "es2022",
