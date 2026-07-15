@@ -131,7 +131,7 @@ const shutdown = async (signal: string) => {
   stopReferralRewardRetry();
   await closeWorkerGracefully(systemWorker, {
     serviceName: "SystemWorker",
-    timeoutMs: Number(process.env.SYSTEM_WORKER_SHUTDOWN_TIMEOUT_MS ?? 30_000),
+    timeoutMs: Number(process.env.SYSTEM_WORKER_SHUTDOWN_TIMEOUT_MS ?? 300_000),
     pauseBeforeClose: true,
   });
   await systemQueue.close().catch(() => undefined);
