@@ -43,6 +43,42 @@ const API_STREAMS: Partial<Record<Api, ProviderStreams>> = {
   "pi-messages": piMessagesApi(),
 };
 
+type ModelsCacheEntry = {
+  signature: string;
+  models: Models;
+};
+
+/** Cache Models per registry instance; rebuild only when catalog shape changes. */
+const modelsCache = new WeakMap<PiModelAuthSource, ModelsCacheEntry>();
+
+function modelFingerprint(model: Model<Api>): string {
+  return [
+    model.provider,
+    model.id,
+    model.api,
+    model.baseUrl ?? "",
+    model.reasoning ? "1" : "0",
+    String(model.contextWindow ?? 0),
+    String(model.maxTokens ?? 0),
+    JSON.stringify(model.compat ?? null),
+    JSON.stringify(model.headers ?? null),
+  ].join("\0");
+}
+
+function catalogSignature(available: readonly Model<Api>[], focusModel?: Model<Api>): string {
+  const fingerprints = available.map(modelFingerprint);
+  if (
+    focusModel &&
+    !available.some(
+      (model) => model.provider === focusModel.provider && model.id === focusModel.id,
+    )
+  ) {
+    fingerprints.push(modelFingerprint(focusModel));
+  }
+  fingerprints.sort();
+  return fingerprints.join("\n");
+}
+
 function resolveApiStreams(catalog: readonly Model<Api>[]): Partial<Record<Api, ProviderStreams>> {
   const apiMap: Partial<Record<Api, ProviderStreams>> = {};
   for (const model of catalog) {
@@ -52,19 +88,12 @@ function resolveApiStreams(catalog: readonly Model<Api>[]): Partial<Record<Api, 
   return apiMap;
 }
 
-/**
- * Build a pi-ai Models collection around a Cohub registry.
- *
- * Providers are registered from the full catalog so mid-session model switches
- * keep working. Auth resolves through the registry (apiKey + headers).
- * Callers may still pass per-request apiKey/headers overrides.
- */
-export function createModelsFromRegistry(
+function buildModelsFromRegistry(
   registry: PiModelAuthSource,
+  available: readonly Model<Api>[],
   focusModel?: Model<Api>,
 ): Models {
   const models = createModels();
-  const available = registry.getAvailable();
   const byProvider = new Map<string, Model<Api>[]>();
 
   for (const model of available) {
@@ -96,6 +125,7 @@ export function createModelsFromRegistry(
         auth: {
           apiKey: {
             name: `${providerId} API key`,
+            // Live registry lookup — key/header changes do not require cache rebuild.
             resolve: async ({ model }) => {
               const apiKey = registry.getApiKey(model.provider);
               if (!apiKey) return undefined;
@@ -115,6 +145,27 @@ export function createModelsFromRegistry(
     );
   }
 
+  return models;
+}
+
+/**
+ * Build a pi-ai Models collection around a Cohub registry.
+ *
+ * Results are cached per registry instance and catalog signature so hot paths
+ * (every LLM round) avoid rebuilding provider maps. Auth still resolves live
+ * from the registry on each request.
+ */
+export function createModelsFromRegistry(
+  registry: PiModelAuthSource,
+  focusModel?: Model<Api>,
+): Models {
+  const available = registry.getAvailable();
+  const signature = catalogSignature(available, focusModel);
+  const cached = modelsCache.get(registry);
+  if (cached?.signature === signature) return cached.models;
+
+  const models = buildModelsFromRegistry(registry, available, focusModel);
+  modelsCache.set(registry, { signature, models });
   return models;
 }
 
