@@ -103,14 +103,48 @@ function onNavClick(
 	selectVersion(version, { closeJump: options?.closeJump });
 }
 
-function scrollDesktopNavIntoView(version: string) {
-	const desktopItem = desktopNavEl?.querySelector<HTMLElement>(
+/** Scroll only the given container so the item is visible — never the page. */
+function scrollContainerToItem(
+	container: HTMLElement,
+	item: HTMLElement,
+	options?: { align?: "nearest" | "center"; behavior?: ScrollBehavior },
+) {
+	const align = options?.align ?? "nearest";
+	const behavior =
+		options?.behavior ?? (prefersReducedMotion() ? "auto" : "smooth");
+	const containerRect = container.getBoundingClientRect();
+	const itemRect = item.getBoundingClientRect();
+
+	let delta = 0;
+	if (align === "center") {
+		delta =
+			itemRect.top +
+			itemRect.height / 2 -
+			(containerRect.top + containerRect.height / 2);
+	} else if (itemRect.top < containerRect.top) {
+		delta = itemRect.top - containerRect.top;
+	} else if (itemRect.bottom > containerRect.bottom) {
+		delta = itemRect.bottom - containerRect.bottom;
+	}
+
+	if (delta !== 0) {
+		container.scrollBy({ top: delta, behavior });
+	}
+}
+
+function scrollDesktopNavIntoView(
+	version: string,
+	options?: { behavior?: ScrollBehavior },
+) {
+	const nav = desktopNavEl;
+	if (!nav) return;
+	const desktopItem = nav.querySelector<HTMLElement>(
 		`[data-version="${version}"]`,
 	);
-	desktopItem?.scrollIntoView({
-		behavior: prefersReducedMotion() ? "auto" : "smooth",
-		block: "nearest",
-	});
+	if (!desktopItem) return;
+	// Must not use Element.scrollIntoView — browsers also scroll the document,
+	// which fights user wheel scrolling and causes the page to jump back up.
+	scrollContainerToItem(nav, desktopItem, { behavior: options?.behavior });
 }
 
 function scrollMobileJumpActiveIntoView() {
@@ -119,7 +153,8 @@ function scrollMobileJumpActiveIntoView() {
 	const item = list.querySelector<HTMLElement>(
 		`[data-version="${activeVersion}"]`,
 	);
-	item?.scrollIntoView({ block: "center" });
+	if (!item) return;
+	scrollContainerToItem(list, item, { align: "center", behavior: "auto" });
 }
 
 function toggleMobileJump() {
@@ -163,7 +198,8 @@ onMount(() => {
 			}
 			if (best && best !== activeVersion) {
 				activeVersion = best;
-				scrollDesktopNavIntoView(best);
+				// Instant follow while the user is scrolling the page.
+				scrollDesktopNavIntoView(best, { behavior: "auto" });
 			}
 		},
 		{
