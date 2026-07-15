@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { UserSessionListItem } from "@neta-art/cohub";
-import { Loader2 } from "lucide-svelte";
+import { Loader2, Search } from "lucide-svelte";
 import SessionSidebarRowContent from "$lib/components/SessionSidebarRowContent.svelte";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import { getSessionTitle } from "$lib/features/session-chat";
@@ -9,6 +9,11 @@ import {
 	buildSpaceSessionRoute,
 	buildUserSessionRoute,
 } from "$lib/space-routes";
+import { uiState } from "$lib/stores/ui.svelte";
+
+function openCommandPalette() {
+	window.dispatchEvent(new CustomEvent("cohub:open-command-palette"));
+}
 
 const {
 	sessions,
@@ -50,23 +55,49 @@ function spaceName(session: UserSessionListItem) {
 </script>
 
 <section class="flex h-full min-h-0 flex-col bg-[var(--sidebar-bg)]">
-	<header class="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2.5">
-		<div class="min-w-0 flex-1">
-			<div class="flex items-center gap-2">
+	<header class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle px-3">
+		<div class="flex min-w-0 flex-1 items-center gap-2">
+			{#if !isDesktop}
+				<button
+					type="button"
+					class="group flex min-w-0 items-center gap-2"
+					onclick={() => {
+						uiState.mobileDrawerOpen = !uiState.mobileDrawerOpen;
+					}}
+					aria-label="Open navigation"
+				>
+					<span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] bg-brand text-[11px] font-bold text-brand-contrast-fg transition-colors group-hover:bg-brand-hover">
+						C
+					</span>
+					<span class="truncate text-[13px] font-semibold tracking-tight text-text-primary">Cohub</span>
+				</button>
+			{:else}
 				<h1 class="text-[13px] font-semibold tracking-tight text-text-primary">Chats</h1>
-				{#if refreshing}
-					<Loader2 class="h-3 w-3 animate-spin text-text-placeholder" />
-				{/if}
-			</div>
-			<p class="mt-0.5 text-[11px] text-text-placeholder">Across all spaces</p>
+			{/if}
+			{#if refreshing}
+				<Loader2 class="h-3 w-3 shrink-0 animate-spin text-text-placeholder" />
+			{/if}
 		</div>
-		<button
-			type="button"
-			class="inline-flex h-7 items-center rounded-[6px] border border-[color:var(--sidebar-primary-action-border)] bg-[var(--sidebar-primary-action-bg)] px-2.5 text-[12px] font-medium text-[var(--sidebar-primary-action-fg)] transition-colors hover:bg-[var(--sidebar-primary-action-bg-hover)]"
-			onclick={onNewChat}
-		>
-			New
-		</button>
+		<div class="flex shrink-0 items-center gap-1">
+			{#if !isDesktop}
+				<button
+					type="button"
+					class="group/search flex h-7 shrink-0 items-center justify-center rounded-[6px] bg-bg-surface px-2 text-text-tertiary transition-colors duration-100 hover:bg-bg-hover hover:text-text-secondary"
+					onclick={openCommandPalette}
+					title="Search everywhere"
+					aria-label="Search everywhere"
+				>
+					<Search class="h-3.5 w-3.5 text-text-placeholder transition-colors group-hover/search:text-brand" />
+				</button>
+			{/if}
+			<button
+				type="button"
+				class="inline-flex h-7 items-center rounded-[6px] border border-[color:var(--sidebar-primary-action-border)] bg-[var(--sidebar-primary-action-bg)] px-2.5 text-[12px] font-medium text-[var(--sidebar-primary-action-fg)] transition-colors hover:bg-[var(--sidebar-primary-action-bg-hover)]"
+				onclick={onNewChat}
+			>
+				New
+			</button>
+		</div>
 	</header>
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
