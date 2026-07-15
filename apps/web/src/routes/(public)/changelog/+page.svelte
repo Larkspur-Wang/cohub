@@ -339,7 +339,12 @@ onMount(() => {
 				{/if}
 			</div>
 
-			<div class="lg:grid lg:grid-cols-[148px_minmax(0,1fr)] lg:items-start lg:gap-12 xl:grid-cols-[160px_minmax(0,1fr)] xl:gap-14">
+			<!--
+			  Do not use items-start on this grid: sticky nav needs the aside
+			  column to stretch to the full row height (timeline), otherwise
+			  the short aside scrolls away and the nav disappears.
+			-->
+			<div class="lg:grid lg:grid-cols-[148px_minmax(0,1fr)] lg:gap-12 xl:grid-cols-[160px_minmax(0,1fr)] xl:gap-14">
 				<!-- Desktop sticky version nav -->
 				<aside class="hidden lg:block" aria-label="Version navigation">
 					<nav
