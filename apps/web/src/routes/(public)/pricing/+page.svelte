@@ -1,10 +1,11 @@
 <script lang="ts">
 import type { BillingCatalogProduct } from "@neta-art/cohub";
-import { Check, ChevronRight, Loader2 } from "lucide-svelte";
+import { Check, Loader2 } from "lucide-svelte";
 import { onMount } from "svelte";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
 import { signInWithRedirectPath } from "$lib/auth";
+import PublicHeader from "$lib/components/PublicHeader.svelte";
 import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import { billingCatalogStore } from "$lib/stores/billing-catalog.svelte";
@@ -229,16 +230,7 @@ onMount(() => {
 </svelte:head>
 
 <div class="min-h-screen bg-bg-primary text-text-primary">
-	<header class="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-		<a href="/" class="flex items-center gap-2" aria-label="Cohub home">
-			<div class="flex h-7 w-7 items-center justify-center rounded-[6px] bg-brand text-[12px] font-semibold text-brand-contrast-fg">C</div>
-			<span class="text-[13px] font-semibold tracking-tight">Cohub</span>
-		</a>
-		<a href="/" class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">
-			Open app
-			<ChevronRight class="h-3.5 w-3.5" />
-		</a>
-	</header>
+	<PublicHeader cta="open-app" />
 
 	<main class="mx-auto w-full max-w-6xl px-5 pb-20 pt-8 sm:px-8 sm:pt-14">
 		<div class="mb-10 max-w-3xl sm:mb-12">

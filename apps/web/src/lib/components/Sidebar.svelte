@@ -3905,7 +3905,6 @@ $effect(() => {
             {/if}
             <a href="/explore?view=wall" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/explore?view=wall'); }}><Compass class="h-3.5 w-3.5" /><span>Explore</span></a>
             <a href="/trending" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/trending'); }}><BarChart3 class="h-3.5 w-3.5" /><span>Trending</span></a>
-            <a href="/changelog" class="rail-menu-item" onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/changelog'); }}><History class="h-3.5 w-3.5" /><span>Changelog</span></a>
             <button type="button" class="rail-menu-item w-full" onclick={openHelpPanel}><Keyboard class="h-3.5 w-3.5" /><span>Help</span></button>
             <button type="button" class="rail-menu-item w-full" onclick={saveDebugLog}><Download class="h-3.5 w-3.5" /><span>Save debug log</span></button>
             <button type="button" class="rail-menu-item w-full hover:text-error-soft" onclick={() => { showUserMenu = false; void handleLogout(); }}><LogOut class="h-3.5 w-3.5" /><span>Sign out</span></button>
@@ -4438,6 +4437,14 @@ $effect(() => {
 	          <span>Help</span>
 	          <span class="ml-auto rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-px font-mono text-[10px] leading-4 text-text-placeholder">?</span>
 	        </button>
+        <a
+          href="/changelog"
+          class="flex items-center gap-2 px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"
+          onclick={(e) => { e.preventDefault(); showUserMenu = false; handleNavigate('/changelog'); }}
+        >
+          <History class="w-3.5 h-3.5" />
+          <span>Changelog</span>
+        </a>
 	        <button
 	          type="button"
 	          class="flex items-center gap-2 w-full px-2.5 py-[7px] text-[12px] text-text-tertiary hover:text-text-secondary hover:bg-bg-hover transition-colors duration-100"

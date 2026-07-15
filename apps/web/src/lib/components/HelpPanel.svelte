@@ -1,4 +1,5 @@
 <script lang="ts">
+import { latestEntry } from "$lib/changelog";
 import Dialog from "$lib/components/Dialog.svelte";
 
 type ShortcutCombo = string[];
@@ -142,15 +143,24 @@ const sections: ShortcutSection[] = [
 
 			<section class="shortcut-section doc-section" aria-labelledby="help-section-docs">
 				<div class="section-meta">
-					<h3 id="help-section-docs">Documentation</h3>
-					<p>Guides and workflow docs.</p>
+					<h3 id="help-section-docs">Product</h3>
+					<p>Updates and resources.</p>
 				</div>
-				<div class="doc-card">
-					<div class="doc-copy-wrap">
-						<div class="doc-title">Project documentation</div>
-						<div class="doc-copy">Deeper guides will appear here.</div>
+				<div class="doc-stack">
+					<a href="/changelog" class="doc-card doc-card-link" onclick={onClose}>
+						<div class="doc-copy-wrap">
+							<div class="doc-title">Changelog</div>
+							<div class="doc-copy">What's new in Cohub.</div>
+						</div>
+						<span class="doc-status">{latestEntry ? `v${latestEntry.version}` : "Open"}</span>
+					</a>
+					<div class="doc-card">
+						<div class="doc-copy-wrap">
+							<div class="doc-title">Project documentation</div>
+							<div class="doc-copy">Deeper guides will appear here.</div>
+						</div>
+						<span class="doc-status">Soon</span>
 					</div>
-					<span class="doc-status">Soon</span>
 				</div>
 			</section>
 		</div>
@@ -268,16 +278,30 @@ const sections: ShortcutSection[] = [
 		line-height: 1;
 		color: color-mix(in oklab, var(--brand) 92%, var(--text-primary));
 	}
+	.doc-stack {
+		display: grid;
+		gap: 0.28rem;
+		max-width: 100%;
+	}
 	.doc-card {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.9rem;
 		max-width: 100%;
-		padding: 0.1rem 0.14rem;
+		padding: 0.28rem 0.42rem;
 		border-radius: 7px;
 		background: color-mix(in oklab, var(--bg-secondary) 58%, transparent);
 		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border-subtle) 52%, transparent);
+		text-decoration: none;
+		color: inherit;
+		transition:
+			background-color 120ms ease,
+			box-shadow 120ms ease;
+	}
+	.doc-card-link:hover {
+		background: color-mix(in oklab, var(--brand) 5%, var(--bg-secondary));
+		box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--brand) 18%, var(--border-subtle));
 	}
 	.doc-copy-wrap {
 		min-width: 0;

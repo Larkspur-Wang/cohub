@@ -44,6 +44,26 @@ const COMMANDS: CommandPaletteItem[] = [
 		updatedAt: null,
 		source: "default",
 	},
+	{
+		type: "command",
+		id: "open-changelog",
+		spaceId: "",
+		sessionId: null,
+		turnId: null,
+		sequence: null,
+		title: "Changelog",
+		excerpt: "What's new in Cohub",
+		spaceName: null,
+		sessionTitle: null,
+		matchedField: "command",
+		href: "/changelog",
+		score: 0.9,
+		textScore: 0.9,
+		recencyScore: 0.45,
+		typePriorityScore: 0.55,
+		updatedAt: null,
+		source: "default",
+	},
 ];
 
 function commandAliases(item: CommandPaletteItem) {
@@ -51,6 +71,15 @@ function commandAliases(item: CommandPaletteItem) {
 		return ["run command", "run bash", "shell", "terminal", "command"];
 	if (item.id === "new-space")
 		return ["new space", "create space", "space new"];
+	if (item.id === "open-changelog")
+		return [
+			"changelog",
+			"what's new",
+			"whats new",
+			"release notes",
+			"updates",
+			"version",
+		];
 	return [item.title];
 }
 
@@ -78,7 +107,10 @@ export function searchCommandItems(plan: CommandPaletteSearchPlan) {
 	if (!allowsResourceType(plan, "command")) return [];
 	const query = plan.query.trim();
 	if (!query) {
-		return COMMANDS.map((item) => ({ ...item, source: "default" as const }));
+		// Keep the empty palette lean: only primary actions, not browse links.
+		return COMMANDS.filter((item) => item.id !== "open-changelog").map(
+			(item) => ({ ...item, source: "default" as const }),
+		);
 	}
 	const items: CommandPaletteItem[] = [];
 	for (const item of COMMANDS) {

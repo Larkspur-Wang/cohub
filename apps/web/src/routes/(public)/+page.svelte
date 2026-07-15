@@ -6,6 +6,7 @@ import { page } from "$app/state";
 import { signInWithRedirectPath } from "$lib/auth";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import LandingDemo from "$lib/components/LandingDemo.svelte";
+import PublicHeader from "$lib/components/PublicHeader.svelte";
 import { sdk } from "$lib/sdk";
 import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
@@ -95,37 +96,7 @@ onMount(async () => {
 		></div>
 
 		<!-- Header -->
-		<header
-			class="sticky top-0 z-30 border-b border-border-subtle bg-bg-primary/80 backdrop-blur-md"
-		>
-			<div
-				class="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 py-3.5 sm:px-8"
-			>
-				<a href="/" class="inline-flex items-center gap-2.5 rounded-full">
-					<div
-						class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
-					>
-						C
-					</div>
-					<span class="text-[15px] font-semibold tracking-tight text-text-primary">Cohub</span>
-				</a>
-				<nav class="flex items-center gap-1 text-[13px] sm:gap-2">
-					<a
-						href="/pricing"
-						class="hidden rounded-full px-3 py-2 text-text-secondary transition-colors hover:text-text-primary sm:inline-block"
-					>
-						Pricing
-					</a>
-					<button
-						type="button"
-						onclick={handlePrimaryCta}
-						class="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
-					>
-						Start
-					</button>
-				</nav>
-			</div>
-		</header>
+		<PublicHeader sticky cta="start" onStart={handlePrimaryCta} />
 
 		<main class="relative flex-1">
 			<!-- Hero -->
