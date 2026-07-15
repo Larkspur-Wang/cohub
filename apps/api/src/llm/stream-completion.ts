@@ -14,8 +14,8 @@ import {
   type ThinkingLevel,
   type Usage as PiUsage,
 } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { CompletionModelRegistry, RuntimeLlmModel } from "./models.js";
+import { createModelsFromRegistry, streamSimpleWithModels } from "./pi-models-adapter.js";
 
 const THINKING_LEVELS = new Set<CompletionThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 /**
@@ -302,7 +302,8 @@ export async function* streamCompletionEvents(input: RunCompletionInput): AsyncG
 
   try {
     if (aborted) throw new Error("aborted");
-    const stream = streamSimple(input.model, {
+    const models = createModelsFromRegistry(input.registry, input.model);
+    const stream = streamSimpleWithModels(models, input.model, {
       systemPrompt: systemPrompt || undefined,
       messages: piMessages,
     }, {

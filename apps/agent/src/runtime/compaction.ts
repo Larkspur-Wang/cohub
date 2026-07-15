@@ -17,7 +17,7 @@ import { sessionTurns } from "@cohub/db";
 import { and, eq, sql } from "drizzle-orm";
 import { getCurrentToolExecutionContext } from "../tool-context.js";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { createModelsFromRegistry } from "./pi-models-adapter.js";
+import { createModelsFromCohubRegistry } from "./pi-models-adapter.js";
 
 export type CompactionOutcome =
   | { compacted: true; summary: string; tokensBefore: number; firstKeptEntryId: string; archivePath: string | undefined; compactSequence: number }
@@ -164,7 +164,7 @@ export async function maybeAutoCompact(
       const apiKey = handle.session.modelRegistry.getApiKey(model.provider);
       if (!apiKey) return { compacted: false, reason: "no_api_key" };
 
-      const models = createModelsFromRegistry(handle.session.modelRegistry, model);
+      const models = createModelsFromCohubRegistry(handle.session.modelRegistry, model);
       const compactResult = await compact(
         preparation,
         models,

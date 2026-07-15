@@ -17,19 +17,14 @@ import { openAICodexResponsesApi } from "@earendil-works/pi-ai/api/openai-codex-
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { piMessagesApi } from "@earendil-works/pi-ai/api/pi-messages.lazy";
-import type { CohubModelRegistry } from "./model-registry.js";
 
-/** Auth + catalog surface shared by agent and completion registries. */
+/** Auth + catalog surface shared by completion registries. */
 export type PiModelAuthSource = {
   getAvailable(): Array<Model<Api>>;
   getApiKey(provider: string): string | undefined;
   getHeaders(provider: string, modelId?: string): Record<string, string> | undefined;
 };
 
-/**
- * Lazy API stream implementations keyed by pi model.api.
- * Same set used by createModels() adapters for streaming and compaction.
- */
 const API_STREAMS: Partial<Record<Api, ProviderStreams>> = {
   "anthropic-messages": anthropicMessagesApi(),
   "azure-openai-responses": azureOpenAIResponsesApi(),
@@ -43,21 +38,9 @@ const API_STREAMS: Partial<Record<Api, ProviderStreams>> = {
   "pi-messages": piMessagesApi(),
 };
 
-function resolveApiStreams(catalog: readonly Model<Api>[]): Partial<Record<Api, ProviderStreams>> {
-  const apiMap: Partial<Record<Api, ProviderStreams>> = {};
-  for (const model of catalog) {
-    const streams = API_STREAMS[model.api];
-    if (streams) apiMap[model.api] = streams;
-  }
-  return apiMap;
-}
-
 /**
- * Build a pi-ai Models collection around a Cohub registry.
- *
- * Providers are registered from the full catalog so mid-session model switches
- * keep working. Auth resolves through the registry (apiKey + headers).
- * Callers may still pass per-request apiKey/headers overrides.
+ * Build a pi-ai Models collection around a Cohub completion registry.
+ * Auth resolves through the registry; request options may still override apiKey/headers.
  */
 export function createModelsFromRegistry(
   registry: PiModelAuthSource,
@@ -73,7 +56,6 @@ export function createModelsFromRegistry(
     byProvider.set(model.provider, list);
   }
 
-  // Ensure the focused model is present even if registry is empty/stale.
   if (focusModel && !byProvider.has(focusModel.provider)) {
     byProvider.set(focusModel.provider, [focusModel]);
   } else if (focusModel) {
@@ -85,7 +67,11 @@ export function createModelsFromRegistry(
   }
 
   for (const [providerId, catalog] of byProvider) {
-    const apiMap = resolveApiStreams(catalog);
+    const apiMap: Partial<Record<Api, ProviderStreams>> = {};
+    for (const model of catalog) {
+      const streams = API_STREAMS[model.api];
+      if (streams) apiMap[model.api] = streams;
+    }
     if (Object.keys(apiMap).length === 0) continue;
 
     models.setProvider(
@@ -118,18 +104,6 @@ export function createModelsFromRegistry(
   return models;
 }
 
-/** Convenience for agent registry type. */
-export function createModelsFromCohubRegistry(
-  registry: CohubModelRegistry,
-  focusModel?: Model<Api>,
-): Models {
-  return createModelsFromRegistry(registry, focusModel);
-}
-
-/**
- * Stream via Models while preserving request-level option overrides
- * (apiKey from agent-loop, headers, onPayload, reasoning, signal, ...).
- */
 export function streamSimpleWithModels(
   models: Models,
   model: Model<Api>,

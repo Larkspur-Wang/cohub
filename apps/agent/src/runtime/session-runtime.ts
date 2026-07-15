@@ -1,12 +1,12 @@
 import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel, createAssistantMessageEventStream, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions, isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/compat";
 import { context, trace, type Span } from "@opentelemetry/api";
 import { logger } from "../logger.js";
 import { sendOutput } from "../redis.js";
 import type { SessionManager } from "./local-session-manager.js";
 import type { CohubModel, CohubModelRegistry } from "./model-registry.js";
+import { createModelsFromRegistry, streamSimpleWithModels } from "./pi-models-adapter.js";
 import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolExecutionContext } from "../tool-context.js";
@@ -477,7 +477,8 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
             logger.warn(`[Agent] failed to publish llm_call_started lifecycle sessionId=${toolCtx.sessionId} turnId=${toolCtx.turnId ?? "unknown"}:`, error);
           });
         }
-        const stream = await streamSimple(model, ctx, {
+        const models = createModelsFromRegistry(runtime.modelRegistry, model);
+        const stream = streamSimpleWithModels(models, model, ctx, {
           ...options,
           headers: model.provider === "cohub"
             ? {
