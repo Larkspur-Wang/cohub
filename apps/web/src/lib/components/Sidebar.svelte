@@ -919,7 +919,7 @@ async function loadSessionsForSpace(
 		if (spaceId !== currentSpaceId) return;
 		if (cached && cached.sessions.length > 0) {
 			sessions = cached.sessions;
-			sessionForks = cached.forks ?? [];
+			applySessionForks(cached.forks);
 			sessionsPageInfo = cached.pageInfo;
 		}
 	}
@@ -958,15 +958,17 @@ async function loadSessionsForSpace(
 			nextCursor: null,
 		};
 		const nextForks = result.forks ?? [];
-		// Session list is the source of truth for All chats forks; replace rather
-		// than merge with label-page forks so cache stays consistent with list API.
-		sessionForks = nextForks;
+		// Merge, never replace: label pages and session list both contribute forks.
+		// Replacing caused fork indent/title to flicker when cache/list arrived after
+		// labels/items (or when a partial cache write broadcast empty forks).
+		applySessionForks(nextForks);
 		sessions = nextSessions;
 		void setCachedSessionList(
 			spaceId,
 			nextSessions,
 			nextPageInfo,
-			nextForks,
+			// Persist the merged in-memory set so later cache hydration is complete.
+			sessionForks,
 		).catch((error) =>
 			console.warn("[sidebar] Failed to cache sessions", { spaceId, error }),
 		);
@@ -1409,6 +1411,8 @@ function mergeSessionForks(
 	current: SessionForkSidebarRecord[],
 	incoming: SessionForkSidebarRecord[] | null | undefined,
 ) {
+	// Empty / missing incoming is "unknown", not "clear all". Partial cache and
+	// label-page pages must never wipe forks already absorbed from another source.
 	if (!incoming?.length) return current;
 	const byChild = new Map(
 		current.map((fork) => [fork.childSessionId, fork] as const),
@@ -1429,13 +1433,18 @@ function mergeSessionForks(
 	return changed ? Array.from(byChild.values()) : current;
 }
 
-function absorbLabelItemForks(
+function applySessionForks(
 	forks: SessionForkSidebarRecord[] | null | undefined,
 ) {
-	if (!forks?.length) return;
 	const next = mergeSessionForks(sessionForks, forks);
 	if (next === sessionForks) return;
 	sessionForks = next;
+}
+
+function absorbLabelItemForks(
+	forks: SessionForkSidebarRecord[] | null | undefined,
+) {
+	applySessionForks(forks);
 }
 
 function absorbLabelItemSessions(
@@ -3021,7 +3030,7 @@ onMount(() => {
 				}
 				if (shouldRefreshActivityLabels)
 					refreshExpandedSessionActivityLabels(spaceId);
-				sessionForks = forks ?? [];
+				applySessionForks(forks);
 				if (pageInfo && !shouldPreserveLoadedPageInfo)
 					sessionsPageInfo = pageInfo;
 				exhaustedFallbackSessionCursor = null;
