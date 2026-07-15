@@ -80,6 +80,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 WORKDIR /app
 
 COPY --from=builder /out/cohub-sandbox /opt/cohub/internal/cohub-sandbox
+COPY LICENSE NOTICE /opt/cohub/
 
 RUN mkdir -p "$WORKSPACE_DIR"
 # Ensure workspace is writable by the node user

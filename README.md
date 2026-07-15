@@ -135,8 +135,10 @@ Recommended starting points:
 
 - License: Apache License 2.0 (Viscept Limited)
 - Billing is disabled by default; configure `TALESOFAI_BILLING_*` to enable the hosted billing provider
+- OpenTelemetry remote export is opt-in via `OTEL_EXPORTER_OTLP_*`
 - Copy `deploy/**/values.example.yaml` to local `values.yaml` for deploys
 - Self-hosting guide: `docs/self-hosting.md`
+- Security reports: `SECURITY.md` or `dev@talesof.ai`
 
 ## License
 

@@ -81,6 +81,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 WORKDIR /app
 
 COPY --from=builder /prod/api ./
+COPY LICENSE NOTICE ./
 USER node
 EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \

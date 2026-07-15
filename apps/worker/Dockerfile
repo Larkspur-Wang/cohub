@@ -87,6 +87,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 WORKDIR /app
 
 COPY --from=builder /prod/worker ./
+COPY LICENSE NOTICE ./
 
 USER node
 

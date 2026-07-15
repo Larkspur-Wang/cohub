@@ -76,6 +76,31 @@ AUTH_RESOURCE=https://api.example.com
 
 `PUBLIC_LOGTO_API_RESOURCE` and `AUTH_RESOURCE` must match the OIDC API resource / audience used when minting access tokens.
 
+## Observability
+
+OpenTelemetry tracing is **disabled for remote export by default**.
+
+To export spans to your own collector:
+
+```bash
+# Prefer the traces-specific endpoint
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otel.example.com/v1/traces
+
+# Or set a base endpoint (Cohub appends /v1/traces)
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com
+
+# Optional tuning
+OTEL_TRACE_SAMPLE_RATIO=0.1
+OTEL_SDK_DISABLED=false
+OTEL_CONSOLE_EXPORTER=false
+```
+
+Without these variables, services keep local instrumentation wiring but do not send telemetry to any external system.
+
+## Security reports
+
+See `SECURITY.md`. Prefer GitHub Private Vulnerability Reporting or email `dev@talesof.ai`.
+
 ## Known limits
 
 - Full production still expects Kubernetes for sandboxes.

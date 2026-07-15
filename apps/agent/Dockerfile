@@ -83,6 +83,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
   && chmod +x /usr/local/bin/fd /usr/local/bin/rg
 
 COPY --from=builder --chown=node:node /prod/agent ./
+COPY --chown=node:node LICENSE NOTICE ./
 RUN mkdir -p "$WORKSPACE_ROOT" "$SESSIONS_DIR" && chown -R node:node "$WORKSPACE_ROOT" "$SESSIONS_DIR"
 
 USER node

@@ -1,4 +1,8 @@
-export { initTracing, type TracingOptions } from "./provider.js";
+export {
+  initTracing,
+  resolveOtlpTracesEndpoint,
+  type TracingOptions,
+} from "./provider.js";
 export { initDrizzleTracing } from "./db.js";
 export {
   injectTrace,

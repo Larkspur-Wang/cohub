@@ -84,8 +84,10 @@ jobs:
         run: |
           set -euo pipefail
           BASE="${BINARY_NAME}_${VERSION}_${GOOS}_${GOARCH}"
+          # Apache-2.0 redistribution requires license notices alongside binaries.
+          cp LICENSE NOTICE "dist/${BINARY_NAME}_${GOOS}_${GOARCH}/"
           cd dist
-          tar -czf "${BASE}.tar.gz" -C "${BINARY_NAME}_${GOOS}_${GOARCH}" "${BINARY_NAME}"
+          tar -czf "${BASE}.tar.gz" -C "${BINARY_NAME}_${GOOS}_${GOARCH}" "${BINARY_NAME}" LICENSE NOTICE
           sha256sum "${BASE}.tar.gz" > "${BASE}.tar.gz.sha256"
 
       - name: Upload artifact

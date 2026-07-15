@@ -135,8 +135,10 @@ pnpm build
 
 - 许可证：Apache License 2.0（Viscept Limited）
 - Billing 默认关闭；配置 `TALESOFAI_BILLING_*` 后可启用官方托管计费 provider
+- OpenTelemetry 远程导出默认关闭，需显式配置 `OTEL_EXPORTER_OTLP_*`
 - 部署请复制 `deploy/**/values.example.yaml` 为本地 `values.yaml`
 - 自托管指南：`docs/self-hosting.md`
+- 安全报告：`SECURITY.md` 或 `dev@talesof.ai`
 
 ## License
 

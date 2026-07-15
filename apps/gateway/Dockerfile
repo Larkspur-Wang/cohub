@@ -73,6 +73,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY --from=builder /prod/gateway ./
+COPY LICENSE NOTICE ./
 
 # Run as non-root
 USER node

@@ -13,9 +13,6 @@ import { IORedisInstrumentation } from "@opentelemetry/instrumentation-ioredis";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { FilteringSpanProcessor } from "./filtering.js";
 
-const ARMS_ENDPOINT =
-  "http://tracing-analysis-dc-usw-internal.aliyuncs.com/adapt_e4kueuvixa@b95f2fd373952c5_e4kueuvixa@53df7ad2afe8301/api/otlp/traces";
-
 export type TracingOptions = {
   serviceName: string;
   serviceVersion?: string;
@@ -40,10 +37,42 @@ function resolveServiceName(serviceName: string, environment: string) {
 }
 
 /**
+ * Resolve an OTLP traces endpoint from standard OpenTelemetry env vars.
+ *
+ * Remote export is opt-in: without an explicit endpoint, Cohub does not send
+ * spans to any hosted collector. This keeps self-hosted deployments private by
+ * default.
+ *
+ * Supported env vars (first match wins):
+ * - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`
+ * - `OTEL_EXPORTER_OTLP_ENDPOINT` (appended with `/v1/traces` when needed)
+ */
+export function resolveOtlpTracesEndpoint(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim();
+  if (tracesEndpoint) return tracesEndpoint.replace(/\/+$/, "");
+
+  const baseEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim();
+  if (!baseEndpoint) return undefined;
+
+  const normalized = baseEndpoint.replace(/\/+$/, "");
+  if (normalized.endsWith("/v1/traces")) return normalized;
+  return `${normalized}/v1/traces`;
+}
+
+/**
  * Initialize OpenTelemetry tracing for a service.
  * Call this as early as possible (before any other imports that make network calls).
+ *
+ * Default behavior:
+ * - no remote exporter unless `OTEL_EXPORTER_OTLP_*` is configured
+ * - console exporter is opt-in via `OTEL_CONSOLE_EXPORTER`
+ * - set `OTEL_SDK_DISABLED=true` to skip initialization entirely
  */
 export function initTracing(options: TracingOptions) {
+  if (envFlag("OTEL_SDK_DISABLED")) return;
+
   const ENV = options.environment ?? process.env.ENV ?? "dev";
   const serviceName = resolveServiceName(options.serviceName, ENV);
   const resource: Resource = resourceFromAttributes({
@@ -59,9 +88,13 @@ export function initTracing(options: TracingOptions) {
   const wrapSpanProcessor = (processor: import("@opentelemetry/sdk-trace-base").SpanProcessor) =>
     new FilteringSpanProcessor(processor, { dropRealtimeRedisSpans });
 
-  // Report to Alibaba Cloud ARMS. Batch exporting keeps tracing off the request hot path.
-  const exporter = new OTLPTraceExporter({ url: ARMS_ENDPOINT });
-  spanProcessors.push(wrapSpanProcessor(new BatchSpanProcessor(exporter)));
+  // Remote export is opt-in. Self-hosted installs stay silent until an OTLP
+  // endpoint is configured explicitly.
+  const otlpEndpoint = resolveOtlpTracesEndpoint();
+  if (otlpEndpoint) {
+    const exporter = new OTLPTraceExporter({ url: otlpEndpoint });
+    spanProcessors.push(wrapSpanProcessor(new BatchSpanProcessor(exporter)));
+  }
 
   // Console span export is intentionally opt-in. It is very expensive for streaming
   // agent workloads because every span is serialized and written to stdout.
