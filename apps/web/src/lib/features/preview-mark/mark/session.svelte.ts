@@ -14,7 +14,8 @@ function uid() {
 }
 
 function defaultStrokeWidth(frame: FrozenFrame) {
-	return Math.max(2.5, Math.min(frame.width, frame.height) * 0.0035);
+	// Slightly bold so marks stay readable on dense UI screenshots.
+	return Math.max(3.5, Math.min(frame.width, frame.height) * 0.005);
 }
 
 export function createMarkSession(initial: FrozenFrame) {

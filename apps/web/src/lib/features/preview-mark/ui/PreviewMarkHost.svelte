@@ -1,6 +1,6 @@
 <script lang="ts">
 import { Loader2, Scissors } from "lucide-svelte";
-import { onDestroy } from "svelte";
+import { onDestroy, tick } from "svelte";
 import { fade, scale } from "svelte/transition";
 import { portal } from "$lib/actions/portal";
 import {
@@ -50,11 +50,14 @@ let disposed = false;
 let panelEl: HTMLDivElement | null = $state(null);
 
 const canRecapture = $derived(target?.kind === "iframe");
-/** Lightweight chip while capturing — must not cover the iframe. */
-const showCaptureChip = $derived(phase === "capturing" && !open);
-const captureChipLabel = $derived(
-	captureStep === "grab" ? "Capturing preview…" : "Share this tab to capture…",
+/**
+ * Chip only during the share-picker wait. Hide before the grab so the floating
+ * toast is not baked into the captured tab frame.
+ */
+const showCaptureChip = $derived(
+	phase === "capturing" && !open && captureStep === "share",
 );
+const captureChipLabel = "Share this tab to capture…";
 const canCropApply = $derived(
 	Boolean(session?.cropDraft && session.getCropRect()),
 );
@@ -261,7 +264,17 @@ async function runCapture() {
 		return;
 	}
 
+	// Drop the share chip and wait a paint so it is not baked into the frame.
 	captureStep = "grab";
+	await tick();
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+	});
+	if (gen !== captureGen || disposed) {
+		for (const track of stream.getTracks()) track.stop();
+		return;
+	}
+
 	const result = await captureIframeElementFromStream({
 		stream,
 		element: target.element,

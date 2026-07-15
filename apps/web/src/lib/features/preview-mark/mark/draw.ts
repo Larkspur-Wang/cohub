@@ -68,22 +68,29 @@ function drawArrow(
 	const len = Math.hypot(dx, dy);
 	if (len < 0.5) return;
 
+	// Large filled head so the mark reads as an arrow, not a stick.
+	const head = Math.max(18, Math.min(len * 0.35, width * 6.5));
+	const half = Math.PI / 5.5; // ~33° each side — wide, assertive tip
+	const angle = Math.atan2(dy, dx);
+	const ux = dx / len;
+	const uy = dy / len;
+	// Stop the shaft short of the tip so it doesn't poke through the head.
+	const shaftEnd = Math.max(0, len - head * 0.62);
+
 	ctx.beginPath();
 	ctx.moveTo(from.x, from.y);
-	ctx.lineTo(to.x, to.y);
+	ctx.lineTo(from.x + ux * shaftEnd, from.y + uy * shaftEnd);
 	ctx.stroke();
 
-	const head = Math.max(10, width * 3.2);
-	const angle = Math.atan2(dy, dx);
 	ctx.beginPath();
 	ctx.moveTo(to.x, to.y);
 	ctx.lineTo(
-		to.x - head * Math.cos(angle - Math.PI / 7),
-		to.y - head * Math.sin(angle - Math.PI / 7),
+		to.x - head * Math.cos(angle - half),
+		to.y - head * Math.sin(angle - half),
 	);
 	ctx.lineTo(
-		to.x - head * Math.cos(angle + Math.PI / 7),
-		to.y - head * Math.sin(angle + Math.PI / 7),
+		to.x - head * Math.cos(angle + half),
+		to.y - head * Math.sin(angle + half),
 	);
 	ctx.closePath();
 	ctx.fill();
