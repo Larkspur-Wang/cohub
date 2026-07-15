@@ -1,26 +1,26 @@
-1. 数据是最重要的，注意数据安全不能有失
-2. 交互和 UI 相关分析和改动注意学习设计 skill
-3. 完成需求要同时考虑到服务端、sdk、cli、web 端（PC 和移动端）
-4. 首屏体验极其重要，注意数据的本地缓存
-5. 保持优雅简洁，保持整体一致性，宁愿累一点多做整理重构
-6. 性能很重要，无论是 db、服务端、前端
-7. IndexedDB 数据都来自服务端可靠数据
-8. 常用数据加载策略是，交互上优先使用本地数据，同时静默拉取相关服务端数据更新缓存并且静默更新展示，少做干扰布局的 loading 态，尽量避免渲染变更和跳动
-9. 注意多端同步体验，有优雅高效的实时事件设计
-10. 文案都使用英文，保持简洁
-11. 直接 push main，不用开新分支
+1. Data is paramount — never compromise data safety or integrity
+2. For interaction and UI analysis or changes, study and apply the design skills
+3. Deliver features end-to-end: server, SDK, CLI, and web (desktop and mobile)
+4. First-screen experience is critical — prioritize local data caching
+5. Stay elegant and concise, keep overall consistency; prefer extra refactoring over leaving things messy
+6. Performance matters everywhere: DB, server, and frontend
+7. IndexedDB data always comes from reliable server data
+8. Default data loading strategy: prefer local data for interaction, silently fetch related server data to refresh cache and UI, minimize layout-disrupting loading states, and avoid render thrashing or layout jumps
+9. Care about multi-client sync experience; design elegant and efficient real-time events
+10. All copy should be in English and stay concise
+11. Push directly to main; no feature branches
 
 ## Release Workflow
 
 ```bash
-# 1. 发布 npm 包
+# 1. Publish npm packages
 pnpm changeset version && pnpm release
 
-# 2. 生成 changelog 并打项目 tag
+# 2. Generate changelog and create project tag
 pnpm changelog:release v1.99.0
 
-# 3. 推送
+# 3. Push
 git push && git push origin v1.99.0
 ```
 
-详见 `scripts/changelog/README.md`。
+See `scripts/changelog/README.md` for details.
