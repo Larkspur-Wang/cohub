@@ -13,6 +13,25 @@ export type SessionScrollAnchor = {
 
 const AUTO_FOLLOW_THRESHOLD_PX = 60;
 
+/**
+ * Timeline `data-sequence` values:
+ * - process cards: turn.sequence (1, 2, 3…)
+ * - user messages: turn.sequence * 10
+ * - assistant messages: turn.sequence * 10 + 2
+ * - streaming previews: ephemeral higher bands
+ */
+export function isSessionScrollAnchorInTurns(
+	anchorSequence: number,
+	turns: Array<{ sequence: number }>,
+) {
+	if (!Number.isFinite(anchorSequence)) return false;
+	return turns.some((turn) => {
+		if (turn.sequence === anchorSequence) return true;
+		// Message-style sequences live in the turn*10 band (user / assistant / extras).
+		return Math.floor(anchorSequence / 10) === turn.sequence;
+	});
+}
+
 function areNumberRecordsEqual(
 	current: Record<number, number>,
 	next: Record<number, number>,

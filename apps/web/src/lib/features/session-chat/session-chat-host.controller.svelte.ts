@@ -109,7 +109,10 @@ import {
 } from "./session-composer-controller.svelte";
 import { createSessionGenerationPolicyController } from "./session-generation-policy-controller.svelte";
 import { createSessionGenerationRealtimeController } from "./session-generation-realtime-controller.svelte";
-import { createSessionScrollController } from "./session-scroll-controller.svelte";
+import {
+	createSessionScrollController,
+	isSessionScrollAnchorInTurns,
+} from "./session-scroll-controller.svelte";
 import { createSessionShareController } from "./session-share-controller.svelte";
 import {
 	createSessionTaskController,
@@ -767,13 +770,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		const state = sessionStateById[targetId];
 		if (!state?.loaded) return;
 		const anchor = getSessionScrollAnchor(targetId);
-		const hasCachedAnchor =
-			anchor &&
-			state.turns.some(
-				(turn) =>
-					turn.sequence === anchor.sequence ||
-					turn.sequence * 10 === anchor.sequence,
-			);
+		// Must accept assistant sequences (turn*10+2), not only user (turn*10).
+		const hasCachedAnchor = anchor
+			? isSessionScrollAnchorInTurns(anchor.sequence, state.turns)
+			: false;
 		const finishRestore = () => {
 			scroll.pendingRestoreSessionId = null;
 			if (restoringBottomSessionId === targetId) {
