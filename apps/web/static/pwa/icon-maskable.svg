@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>Cohub</title>
   <rect width="512" height="512" fill="#ff4500"/>
   <!-- Centered thicker C: original path scaled + stroke-like bulk via larger scale in safe area -->
   <g transform="translate(256 256) scale(1.72) translate(-96 -96)">

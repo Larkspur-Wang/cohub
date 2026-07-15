@@ -10,6 +10,12 @@ type MiniGenerationState = {
 	streamMessageId: string | null;
 };
 
+function textFromBlocks(blocks: ContentBlock[] | undefined) {
+	const block = blocks?.[0];
+	assert.ok(block && block.type === "text");
+	return block.text;
+}
+
 function resolveStreamMessageId(input: {
 	sessionId: string;
 	turnId?: string | null;
@@ -76,20 +82,9 @@ test("progress stream folds existing preview when first identified message arriv
 		content: [{ type: "text", text: "second" }],
 	});
 
-	assert.equal(
-		(state.contentBlocks[0] as Extract<ContentBlock, { type: "text" }>).text,
-		"second",
-	);
+	assert.equal(textFromBlocks(state.contentBlocks), "second");
 	assert.equal(state.intermediateMessages.length, 1);
-	assert.equal(
-		(
-			state.intermediateMessages[0]?.[0] as Extract<
-				ContentBlock,
-				{ type: "text" }
-			>
-		).text,
-		"first",
-	);
+	assert.equal(textFromBlocks(state.intermediateMessages[0]), "first");
 });
 
 test("progress stream folds existing preview when message id changes", () => {
@@ -114,18 +109,7 @@ test("progress stream folds existing preview when message id changes", () => {
 		content: [{ type: "text", text: "second" }],
 	});
 
-	assert.equal(
-		(state.contentBlocks[0] as Extract<ContentBlock, { type: "text" }>).text,
-		"second",
-	);
+	assert.equal(textFromBlocks(state.contentBlocks), "second");
 	assert.equal(state.intermediateMessages.length, 1);
-	assert.equal(
-		(
-			state.intermediateMessages[0]?.[0] as Extract<
-				ContentBlock,
-				{ type: "text" }
-			>
-		).text,
-		"first",
-	);
+	assert.equal(textFromBlocks(state.intermediateMessages[0]), "first");
 });
