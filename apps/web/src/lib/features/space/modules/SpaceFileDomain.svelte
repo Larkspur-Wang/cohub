@@ -85,7 +85,7 @@ export type SpaceFileDomainProps = {
 	inlineFileIsImage: boolean;
 	inlineFileIsVideo: boolean;
 	inlineFileDataUrl: string | null;
-	inlineFileDebugWork: WorkRecord | null;
+	inlineFileWork: WorkRecord | null;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
 	inlineFilePanX: number;
@@ -220,7 +220,7 @@ let {
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileDataUrl,
-	inlineFileDebugWork,
+	inlineFileWork,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
 	inlineFilePanX = $bindable(),
@@ -380,7 +380,7 @@ $effect.pre(() => {
 		{inlineFileIsVideo}
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
-		{inlineFileDebugWork}
+		{inlineFileWork}
 		previewPanelWidth={previewPanelWidth}
 		animateShell={animatePreviewShell}
 		previewFocusMode={previewFocusMode}

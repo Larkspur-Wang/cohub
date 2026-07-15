@@ -494,15 +494,15 @@ const inlineFileIsImage = $derived(fileWorkspace.inlineFileIsImage);
 const inlineFileIsVideo = $derived(fileWorkspace.inlineFileIsVideo);
 const inlineFileIsText = $derived(fileWorkspace.inlineFileIsText);
 const inlineFileDataUrl = $derived(fileWorkspace.inlineFileDataUrl);
-let previewDebugWorks = $state<WorkRecord[]>([]);
-let previewDebugWorksLoadedFor = $state<string | null>(null);
-let previewDebugWorksToken = 0;
-const inlineFileDebugWork = $derived.by(() => {
+let previewWorks = $state<WorkRecord[]>([]);
+let previewWorksLoadedFor = $state<string | null>(null);
+let previewWorksToken = 0;
+const inlineFileWork = $derived.by(() => {
 	const filePath = inlineFile?.response?.path ?? null;
 	if (!filePath || activeFsReadonly || authStore.userUuid !== space?.userUuid)
 		return null;
 	return (
-		previewDebugWorks.find(
+		previewWorks.find(
 			(work) =>
 				work.status === "published" &&
 				work.targetType === "file" &&
@@ -520,27 +520,27 @@ $effect(() => {
 		!currentSpaceId ||
 		!currentOwnerId ||
 		activeFsReadonly ||
-		previewDebugWorksLoadedFor === currentSpaceId
+		previewWorksLoadedFor === currentSpaceId
 	)
 		return;
-	const token = ++previewDebugWorksToken;
+	const token = ++previewWorksToken;
 	void (async () => {
 		try {
 			await authStore.ensureLoaded();
-			if (token !== previewDebugWorksToken) return;
+			if (token !== previewWorksToken) return;
 			if (!authStore.userUuid || authStore.userUuid !== currentOwnerId) {
-				previewDebugWorks = [];
-				previewDebugWorksLoadedFor = currentSpaceId;
+				previewWorks = [];
+				previewWorksLoadedFor = currentSpaceId;
 				return;
 			}
 			const { works } = await sdk.works.listBySpace(currentSpaceId);
-			if (token !== previewDebugWorksToken) return;
-			previewDebugWorks = works;
-			previewDebugWorksLoadedFor = currentSpaceId;
+			if (token !== previewWorksToken) return;
+			previewWorks = works;
+			previewWorksLoadedFor = currentSpaceId;
 		} catch {
-			if (token !== previewDebugWorksToken) return;
-			previewDebugWorks = [];
-			previewDebugWorksLoadedFor = currentSpaceId;
+			if (token !== previewWorksToken) return;
+			previewWorks = [];
+			previewWorksLoadedFor = currentSpaceId;
 		}
 	})();
 });
@@ -1990,7 +1990,7 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileIsImage,
 	inlineFileIsVideo,
 	inlineFileDataUrl,
-	inlineFileDebugWork,
+	inlineFileWork,
 	inlineFileDragging: fileWorkspace.inlineFileDragging,
 	inlineFilePanHandlers,
 	uploadPaneVisible: fileWorkspace.uploadPaneVisible,

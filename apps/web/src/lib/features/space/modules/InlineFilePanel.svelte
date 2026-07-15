@@ -81,7 +81,7 @@ type Props = {
 	inlineFileIsVideo: boolean;
 	inlineFileDataUrl: string | null;
 	inlineFileSpaceId: string;
-	inlineFileDebugWork: WorkRecord | null;
+	inlineFileWork: WorkRecord | null;
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
@@ -146,7 +146,7 @@ let {
 	inlineFileIsVideo,
 	inlineFileDataUrl,
 	inlineFileSpaceId,
-	inlineFileDebugWork,
+	inlineFileWork,
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
@@ -211,8 +211,15 @@ const fileDiffModulePromise = $derived.by(() => {
 let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 let imageMarkOpenMobile = $state(false);
 let imageMarkOpenDesktop = $state(false);
+let htmlMarkOpenMobile = $state(false);
+let htmlMarkOpenDesktop = $state(false);
 let mobileImageRootEl: HTMLElement | null = $state(null);
 let desktopImageRootEl: HTMLElement | null = $state(null);
+// Mobile + desktop panels both mount; keep mark context separate like images.
+let htmlMarkTargetMobile: PreviewCaptureTarget | null = $state(null);
+let htmlMarkSurfaceMobile: HTMLElement | null = $state(null);
+let htmlMarkTargetDesktop: PreviewCaptureTarget | null = $state(null);
+let htmlMarkSurfaceDesktop: HTMLElement | null = $state(null);
 
 const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 	if (!inlineFileIsImage || !inlineFileDataUrl || !inlineFile.path) return null;
@@ -221,6 +228,17 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 		src: inlineFileDataUrl,
 		path: inlineFile.path,
 	};
+});
+const showHtmlMark = $derived(
+	inlineFileIsHtml &&
+		inlineFileViewMode === "preview" &&
+		inlineFileHasRenderedPreview,
+);
+
+$effect(() => {
+	if (showHtmlMark) return;
+	htmlMarkOpenMobile = false;
+	htmlMarkOpenDesktop = false;
 });
 </script>
 
@@ -295,20 +313,39 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 	{/if}
 {/snippet}
 
-{#snippet HtmlFilePreview()}
+{#snippet HtmlFilePreview(layout: "mobile" | "desktop")}
 	{#if inlineFile.response}
 		{#await htmlPreviewModulePromise then previewModule}
 			{@const LazyRenderedFilePreview = previewModule.default}
-			<LazyRenderedFilePreview
-				name={inlineFile.response.name}
-				source={inlineFile.draft}
-				type="html"
-				path={inlineFile.response.path}
-				spaceId={inlineFileSpaceId}
-				readonly={activeFsReadonly}
-				debugWork={inlineFileDebugWork}
-				onOpenFile={onOpenLinkedInlineFile}
-			/>
+			{@const hostWork =
+				(layout === "mobile") === isMobile ? inlineFileWork : null}
+			{#if layout === "mobile"}
+				<LazyRenderedFilePreview
+					name={inlineFile.response.name}
+					source={inlineFile.draft}
+					type="html"
+					path={inlineFile.response.path}
+					spaceId={inlineFileSpaceId}
+					readonly={activeFsReadonly}
+					work={hostWork}
+					bind:markTarget={htmlMarkTargetMobile}
+					bind:markSurface={htmlMarkSurfaceMobile}
+					onOpenFile={onOpenLinkedInlineFile}
+				/>
+			{:else}
+				<LazyRenderedFilePreview
+					name={inlineFile.response.name}
+					source={inlineFile.draft}
+					type="html"
+					path={inlineFile.response.path}
+					spaceId={inlineFileSpaceId}
+					readonly={activeFsReadonly}
+					work={hostWork}
+					bind:markTarget={htmlMarkTargetDesktop}
+					bind:markSurface={htmlMarkSurfaceDesktop}
+					onOpenFile={onOpenLinkedInlineFile}
+				/>
+			{/if}
 		{:catch}
 			{@render LazyLoadError("Preview failed to load.", () => {
 				htmlPreviewLoadAttempt += 1;
@@ -317,7 +354,7 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 	{/if}
 {/snippet}
 
-{#snippet TextFileBody()}
+{#snippet TextFileBody(layout: "mobile" | "desktop")}
 	{#if inlineFileViewMode === "diff" && showDiffMode}
 		{#await fileDiffModulePromise then diffModule}
 			{@const LazyFileDiffView = diffModule.default}
@@ -335,7 +372,7 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 		{#if inlineFileIsMarkdown}
 			{@render MarkdownFilePreview()}
 		{:else}
-			{@render HtmlFilePreview()}
+			{@render HtmlFilePreview(layout)}
 		{/if}
 	{:else}
 		{#await codeEditorModulePromise then editorModule}
@@ -418,6 +455,14 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
               </div>
             {/if}
             <div class="flex-1"></div>
+            {#if showHtmlMark}
+              <PreviewMarkHost
+                bind:open={htmlMarkOpenMobile}
+                target={htmlMarkTargetMobile}
+                surface={htmlMarkSurfaceMobile}
+                buttonClass="icon-btn"
+              />
+            {/if}
             <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
               {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
             </button>
@@ -430,7 +475,7 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
             {/if}
           </div>
           <div class="flex-1 min-h-0">
-            {@render TextFileBody()}
+            {@render TextFileBody("mobile")}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
           <div class="relative flex flex-1 items-center justify-center overflow-hidden p-4" bind:this={mobileImageRootEl}>
@@ -573,6 +618,14 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
                   {/if}
                 </div>
               {/if}
+              {#if showHtmlMark}
+                <PreviewMarkHost
+                  bind:open={htmlMarkOpenDesktop}
+                  target={htmlMarkTargetDesktop}
+                  surface={htmlMarkSurfaceDesktop}
+                  buttonClass="icon-btn"
+                />
+              {/if}
               <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
                 {#if inlineFileCopied}
                   <Check class="w-4 h-4 text-success-soft" />
@@ -600,7 +653,7 @@ const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
               </button>
             </div>
             <div class="flex-1 min-h-0">
-              {@render TextFileBody()}
+              {@render TextFileBody("desktop")}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
             <div class="relative flex min-h-0 flex-1 flex-col" bind:this={desktopImageRootEl}>
