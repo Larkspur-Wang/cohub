@@ -4,9 +4,8 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-const MIN_CHUNK_SIZE = 32 * 1024;
-
-function getShikiPackageChunkName(id: string) {
+/** Keep each Shiki language/theme package as its own cacheable chunk. */
+function shikiPackageChunkName(id: string) {
 	const normalized = id.replaceAll("\\", "/");
 	const languageMatch = normalized.match(
 		/@shikijs\/langs\/dist\/([^/?]+)\.mjs/,
@@ -19,19 +18,13 @@ function getShikiPackageChunkName(id: string) {
 	return null;
 }
 
-function manualChunkName(id: string) {
-	const normalized = id.replaceAll("\\", "/");
-	const shikiChunkName = getShikiPackageChunkName(normalized);
-	if (shikiChunkName) return shikiChunkName;
-	return undefined;
-}
-
 const protocolDir = fileURLToPath(
 	new URL("../../packages/protocol/src", import.meta.url),
 );
 const sdkDir = fileURLToPath(
 	new URL("../../packages/sdk/src", import.meta.url),
 );
+
 export default defineConfig({
 	resolve: {
 		alias: [
@@ -120,11 +113,17 @@ export default defineConfig({
 	},
 	build: {
 		chunkSizeWarningLimit: 1200,
-		rollupOptions: {
+		rolldownOptions: {
 			output: {
-				experimentalMinChunkSize: MIN_CHUNK_SIZE,
-				manualChunks: manualChunkName,
-				onlyExplicitManualChunks: true,
+				codeSplitting: {
+					groups: [
+						{
+							// Dynamic name: each matched package becomes its own chunk;
+							// null means leave the module to automatic splitting.
+							name: shikiPackageChunkName,
+						},
+					],
+				},
 			},
 		},
 	},
