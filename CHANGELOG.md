@@ -11,8 +11,10 @@ All notable changes to Cohub are documented in this file.
 - **Zoomable media lightbox**: Open chat attachment images with pinch/trackpad zoom, pan, and keyboard shortcuts for smoother review.
 - **Public changelog**: New `/changelog` page with sticky version navigation, shared public header, and agent-powered entry generation from real git diffs—wired into Help, the command palette, and release scripts.
 - **SSR public pages & SEO**: Marketing routes render on the server with canonical meta, sitemap, and a session-aware home redirect that avoids marketing flash for returning users.
+- **Landing redesign**: Public homepage rebuilt around a CSS/SVG living-space demo, concept glossary, and idea art — no media placeholders.
 - **Work publish provenance**: Work versions store optional source space/session/turn metadata; CLI auto-fills from sandbox `COHUB_*` env on publish paths across API, SDK, and schema.
 - **Models API streaming**: Agent and completion LLM calls move from `pi-ai/compat` onto the official `createModels` path, with registry-catalog adapter caching across rounds while auth still resolves live per request.
+- **Sandbox connect wait**: Agent dial path waits for resume/report instead of failing tool RPC while a sandbox is recovering or missing an endpoint.
 - **Stack & open-source prep**: TypeScript 7 and Vite 8 with Rolldown; Apache-2.0 licensing, opt-in OTLP tracing (off by default), optional hosted billing, and hardened self-hosting/security docs.
 
 ### Bug Fixes
@@ -26,6 +28,10 @@ All notable changes to Cohub are documented in this file.
 - Harden sidebar cache so chats never stick on Loading after label items return
 - Stabilize Safari @ mention caret reactivity; make markdown file preview resilient to lazy import failures
 - Harden preview-mark capture against Chrome Element Capture hangs and gesture-gated start failures
+- Clear residual stream state so queued follow-up turns never paint the previous generation
+- Open empty/config dotfiles like `.npmrc` as text instead of binary octet-stream; soft-fail inline previews with Retry/Download
+- Remove the stray Last save row from the new checkpoint page
+- Align left/right sidebar item spacing and sessions header density, including mobile brand surface
 
 ## v1.98 — 2026-07-14
 
