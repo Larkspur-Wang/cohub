@@ -33,11 +33,11 @@ type VideoWithFrameCallback = HTMLVideoElement & {
 	requestVideoFrameCallback?: (callback: () => void) => number;
 };
 
-const GRAB_TIMEOUT_MS = 12_000;
-const PLAY_TIMEOUT_MS = 8_000;
-/** Short probe — hang quickly and fall back to the video path. */
-const IMAGE_CAPTURE_TIMEOUT_MS = 3_000;
-const TRACK_UNMUTE_TIMEOUT_MS = 2_000;
+/** Keep frame grabs snappy — prefer fail-fast + fallback over long waits. */
+const GRAB_TIMEOUT_MS = 6_000;
+const PLAY_TIMEOUT_MS = 4_000;
+const IMAGE_CAPTURE_TIMEOUT_MS = 1_500;
+const TRACK_UNMUTE_TIMEOUT_MS = 800;
 
 function waitFrame(): Promise<void> {
 	return new Promise((resolve) => {
@@ -70,6 +70,24 @@ function withTimeout<T>(
 function stopStream(stream: MediaStream | null) {
 	if (!stream) return;
 	for (const track of stream.getTracks()) track.stop();
+}
+
+/**
+ * Must be called in the same user-gesture turn as the click.
+ * Do not await anything (or write reactive state) before this.
+ */
+export function requestDisplayMedia(): Promise<MediaStream> {
+	return navigator.mediaDevices.getDisplayMedia({
+		video: {
+			frameRate: { ideal: 30 },
+		},
+		audio: false,
+		// Chromium hints — ignored by browsers that don't support them.
+		preferCurrentTab: true,
+		selfBrowserSurface: "include",
+		surfaceSwitching: "exclude",
+		systemAudio: "exclude",
+	} as DisplayMediaStreamOptions);
 }
 
 function mountHiddenVideo(): HTMLVideoElement {
@@ -141,7 +159,7 @@ function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
 				return;
 			}
 			attempts += 1;
-			if (attempts > 180) {
+			if (attempts > 120) {
 				reject(new Error("Capture stream has no video frames"));
 				return;
 			}
@@ -385,18 +403,52 @@ function captureFailureMessage(error: unknown): string {
 	return "Failed to capture preview.";
 }
 
-export async function captureIframeElement(input: {
+function mapCaptureError(error: unknown): CaptureResult {
+	const name =
+		error && typeof error === "object" && "name" in error
+			? String((error as { name?: string }).name)
+			: "";
+	if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+		return {
+			ok: false,
+			reason: "permission-denied",
+			message: "Capture cancelled or permission denied.",
+		};
+	}
+	if (name === "NotSupportedError" || name === "NotFoundError") {
+		return {
+			ok: false,
+			reason: "unsupported",
+			message: "Screen capture isn’t supported in this browser.",
+		};
+	}
+	if (name === "AbortError") {
+		return {
+			ok: false,
+			reason: "permission-denied",
+			message: "Capture cancelled.",
+		};
+	}
+	return {
+		ok: false,
+		reason: "capture-failed",
+		message: captureFailureMessage(error),
+	};
+}
+
+/**
+ * Capture an iframe preview from an already-granted display-media stream.
+ * Call {@link requestDisplayMedia} first in the click gesture turn.
+ */
+export async function captureIframeElementFromStream(input: {
+	stream: MediaStream;
 	element: HTMLIFrameElement;
 	source: Extract<FrameSource, { kind: "html" | "port" }>;
 }): Promise<CaptureResult> {
-	const caps = detectCaptureCapabilities();
-	const unsupported = iframeCaptureSupportedMessage(caps);
-	if (unsupported) {
-		return { ok: false, reason: "unsupported", message: unsupported };
-	}
-
+	let stream: MediaStream | null = input.stream;
 	const readyRect = input.element.getBoundingClientRect();
 	if (readyRect.width < 2 || readyRect.height < 2) {
+		stopStream(stream);
 		return {
 			ok: false,
 			reason: "iframe-not-ready",
@@ -404,26 +456,7 @@ export async function captureIframeElement(input: {
 		};
 	}
 
-	let stream: MediaStream | null = null;
 	try {
-		await waitFrame();
-		stream = await withTimeout(
-			navigator.mediaDevices.getDisplayMedia({
-				video: {
-					// Prefer a high-res track when the browser honors constraints.
-					frameRate: { ideal: 30 },
-				},
-				audio: false,
-				// Chromium hints — ignored by browsers that don't support them.
-				preferCurrentTab: true,
-				selfBrowserSurface: "include",
-				surfaceSwitching: "exclude",
-				systemAudio: "exclude",
-			} as DisplayMediaStreamOptions),
-			60_000,
-			"Screen capture",
-		);
-
 		const track = stream.getVideoTracks()[0] as ExtendedTrack | undefined;
 		if (!track) {
 			stopStream(stream);
@@ -453,7 +486,6 @@ export async function captureIframeElement(input: {
 
 		let grabbed: { bitmap: ImageBitmap; width: number; height: number };
 		try {
-			// Timeouts live inside grabVideoFrame (ImageCapture probe + video path).
 			grabbed = await grabVideoFrame(stream);
 		} catch (firstError) {
 			// Element Capture can succeed then stall; fall back to full tab + crop.
@@ -481,28 +513,44 @@ export async function captureIframeElement(input: {
 		return { ok: true, frame };
 	} catch (error) {
 		stopStream(stream);
-		const name =
-			error && typeof error === "object" && "name" in error
-				? String((error as { name?: string }).name)
-				: "";
-		if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-			return {
-				ok: false,
-				reason: "permission-denied",
-				message: "Capture permission denied. Try again when ready.",
-			};
-		}
-		if (name === "NotSupportedError" || name === "NotFoundError") {
-			return {
-				ok: false,
-				reason: "unsupported",
-				message: "Screen capture isn’t supported in this browser.",
-			};
-		}
+		return mapCaptureError(error);
+	}
+}
+
+export async function captureIframeElement(input: {
+	element: HTMLIFrameElement;
+	source: Extract<FrameSource, { kind: "html" | "port" }>;
+	/** Pre-started stream from {@link requestDisplayMedia} (preferred). */
+	stream?: MediaStream;
+}): Promise<CaptureResult> {
+	const caps = detectCaptureCapabilities();
+	const unsupported = iframeCaptureSupportedMessage(caps);
+	if (unsupported) {
+		return { ok: false, reason: "unsupported", message: unsupported };
+	}
+
+	const readyRect = input.element.getBoundingClientRect();
+	if (readyRect.width < 2 || readyRect.height < 2) {
 		return {
 			ok: false,
-			reason: "capture-failed",
-			message: captureFailureMessage(error),
+			reason: "iframe-not-ready",
+			message: "Preview isn’t ready to capture yet.",
 		};
+	}
+
+	let stream: MediaStream | null = input.stream ?? null;
+	try {
+		if (!stream) {
+			// Fallback path — may fail if not in a user-gesture turn.
+			stream = await requestDisplayMedia();
+		}
+		return await captureIframeElementFromStream({
+			stream,
+			element: input.element,
+			source: input.source,
+		});
+	} catch (error) {
+		stopStream(stream);
+		return mapCaptureError(error);
 	}
 }

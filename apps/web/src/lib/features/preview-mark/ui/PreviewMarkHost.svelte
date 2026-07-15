@@ -1,16 +1,19 @@
 <script lang="ts">
-import { Loader2, PenLine } from "lucide-svelte";
+import { Loader2, Scissors } from "lucide-svelte";
 import { onDestroy } from "svelte";
 import { attachComposerFiles } from "../attach/to-composer";
 import {
 	detectCaptureCapabilities,
 	iframeCaptureSupportedMessage,
 } from "../capture/capabilities";
-import { captureIframeElement } from "../capture/iframe-capture";
+import {
+	captureIframeElementFromStream,
+	requestDisplayMedia,
+} from "../capture/iframe-capture";
 import { captureImageSource } from "../capture/image-capture";
 import { exportMarkedFrame } from "../mark/export";
 import { createMarkSession, type MarkSession } from "../mark/session.svelte";
-import type { PreviewCaptureTarget } from "../types";
+import type { CaptureResult, PreviewCaptureTarget } from "../types";
 import { suggestedMarkedName } from "../types";
 import ImageMarkSurface from "./ImageMarkSurface.svelte";
 import MarkToolbar from "./MarkToolbar.svelte";
@@ -48,6 +51,11 @@ let surfaceBox = $state<{
 } | null>(null);
 
 const canRecapture = $derived(target?.kind === "iframe");
+/** Lightweight chip while sharing — must not cover the iframe. */
+const showCaptureChip = $derived(phase === "capturing" && !open);
+
+/** User can sit on the share picker; after this we surface an error instead of spinning forever. */
+const SHARE_PICKER_TIMEOUT_MS = 90_000;
 
 function measureSurface() {
 	if (!surface) {
@@ -64,8 +72,8 @@ function measureSurface() {
 }
 
 $effect(() => {
-	if (!open || !surface) {
-		surfaceBox = null;
+	if ((!open && !showCaptureChip) || !surface) {
+		if (!open) surfaceBox = null;
 		return;
 	}
 	measureSurface();
@@ -107,37 +115,21 @@ function close() {
 	open = false;
 }
 
-async function runCapture() {
-	if (!target || disposed) return;
-	const gen = ++captureGen;
-	error = null;
-	phase = "capturing";
+function cancelCapture() {
+	if (phase !== "capturing") return;
+	captureGen += 1;
 	const hadSession = Boolean(session);
-	// Never cover the preview while capturing. A full-surface overlay hides the
-	// iframe from tab share / Element Capture and stalls frame grab on Chrome.
-	// Progress is already visible on the mark button spinner.
-	open = false;
+	phase = hadSession ? "marking" : "idle";
+	error = hadSession ? null : "Capture cancelled.";
+	// Recapture cancel: reopen mark UI with previous frame. First capture: show error sheet.
+	open = hadSession || Boolean(error);
+}
 
-	if (target.kind === "iframe") {
-		const caps = detectCaptureCapabilities();
-		const blocked = iframeCaptureSupportedMessage(caps);
-		if (blocked) {
-			if (gen !== captureGen || disposed) return;
-			error = blocked;
-			phase = hadSession ? "marking" : "idle";
-			open = true;
-			return;
-		}
-	}
-
-	const result =
-		target.kind === "image"
-			? await captureImageSource({ src: target.src, path: target.path })
-			: await captureIframeElement({
-					element: target.element,
-					source: target.source,
-				});
-
+function applyCaptureResult(
+	result: CaptureResult,
+	gen: number,
+	hadSession: boolean,
+) {
 	if (gen !== captureGen || disposed) {
 		if (result.ok) {
 			try {
@@ -162,8 +154,121 @@ async function runCapture() {
 	} else {
 		session = createMarkSession(result.frame);
 	}
+	error = null;
 	phase = "marking";
 	open = true;
+}
+
+/**
+ * Capture must start getDisplayMedia in the click turn — before any await that
+ * yields past the user gesture (rAF, microtask-heavy state work, etc.).
+ */
+async function runCapture() {
+	if (!target || disposed) return;
+	if (phase === "capturing" || phase === "attaching") return;
+
+	const gen = ++captureGen;
+	const hadSession = Boolean(session);
+
+	if (target.kind === "image") {
+		error = null;
+		phase = "capturing";
+		// Image capture doesn't need the live preview uncovered.
+		const result = await captureImageSource({
+			src: target.src,
+			path: target.path,
+		});
+		applyCaptureResult(result, gen, hadSession);
+		return;
+	}
+
+	const caps = detectCaptureCapabilities();
+	const blocked = iframeCaptureSupportedMessage(caps);
+	if (blocked) {
+		if (gen !== captureGen || disposed) return;
+		error = blocked;
+		phase = hadSession ? "marking" : "idle";
+		open = true;
+		return;
+	}
+
+	// 1) Start the picker first, still inside the click call stack.
+	// 2) Only then flip reactive UI state. Writing $state / awaiting rAF before
+	// getDisplayMedia can drop the user gesture on Chrome and leave a silent hang.
+	let streamPromise: Promise<MediaStream>;
+	try {
+		streamPromise = requestDisplayMedia();
+	} catch (caught) {
+		if (gen !== captureGen || disposed) return;
+		error =
+			caught instanceof Error
+				? caught.message
+				: "Screen capture isn’t available.";
+		phase = hadSession ? "marking" : "idle";
+		open = true;
+		return;
+	}
+
+	error = null;
+	phase = "capturing";
+	// Keep preview visible under the browser share UI and while grabbing frames.
+	open = false;
+	if (surface) measureSurface();
+
+	let stream: MediaStream;
+	try {
+		stream = await new Promise<MediaStream>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				reject(
+					new Error(
+						"Share dialog timed out. Click the scissors icon and choose this tab.",
+					),
+				);
+			}, SHARE_PICKER_TIMEOUT_MS);
+			streamPromise.then(
+				(value) => {
+					clearTimeout(timer);
+					resolve(value);
+				},
+				(err) => {
+					clearTimeout(timer);
+					reject(err);
+				},
+			);
+		});
+	} catch (caught) {
+		if (gen !== captureGen || disposed) return;
+		const name =
+			caught && typeof caught === "object" && "name" in caught
+				? String((caught as { name?: string }).name)
+				: "";
+		if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+			error = "Capture cancelled or permission denied.";
+		} else if (name === "AbortError") {
+			error = "Capture cancelled.";
+		} else {
+			error =
+				caught instanceof Error
+					? caught.message
+					: "Failed to start screen capture.";
+		}
+		phase = hadSession ? "marking" : "idle";
+		// Only open error UI if user didn't cancel via close() meanwhile.
+		if (gen === captureGen && !disposed) open = true;
+		return;
+	}
+
+	if (gen !== captureGen || disposed) {
+		for (const track of stream.getTracks()) track.stop();
+		return;
+	}
+
+	const result = await captureIframeElementFromStream({
+		stream,
+		element: target.element,
+		source: target.source,
+	});
+	applyCaptureResult(result, gen, hadSession);
 }
 
 async function handleMarkClick() {
@@ -219,17 +324,40 @@ onDestroy(() => {
 <button
 	type="button"
 	class={buttonClass}
-	title="Mark preview"
-	aria-label="Mark preview"
-	disabled={!target || phase === "capturing"}
+	title="Capture & mark"
+	aria-label="Capture and mark preview"
+	disabled={!target || phase === "capturing" || phase === "attaching"}
 	onclick={() => void handleMarkClick()}
 >
 	{#if phase === "capturing"}
 		<Loader2 class="h-4 w-4 animate-spin" />
 	{:else}
-		<PenLine class="h-4 w-4" />
+		<Scissors class="h-4 w-4" />
 	{/if}
 </button>
+
+{#if showCaptureChip}
+	<div
+		class="mark-capture-chip"
+		class:mark-capture-chip--fixed={Boolean(surface && surfaceBox)}
+		style={surface && surfaceBox
+			? `top:${Math.max(8, surfaceBox.top + 8)}px;left:${surfaceBox.left + surfaceBox.width / 2}px;`
+			: undefined}
+		role="status"
+		aria-live="polite"
+	>
+		<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin" />
+		<span>Share this tab to capture…</span>
+		<button
+			type="button"
+			class="mark-capture-chip-cancel"
+			onclick={cancelCapture}
+			title="Cancel capture"
+			aria-label="Cancel capture"
+			>Cancel</button
+		>
+	</div>
+{/if}
 
 {#if open}
 	<div
@@ -269,13 +397,7 @@ onDestroy(() => {
 			{/if}
 		{:else}
 			<div class="mark-status">
-				{#if phase === "capturing"}
-					<Loader2 class="h-5 w-5 animate-spin text-text-tertiary" />
-					<div class="mark-status-title">Capturing…</div>
-					<div class="mark-status-hint">
-						Prefer this Cohub tab when prompted. Full screen also works — crop after.
-					</div>
-				{:else if error}
+				{#if error}
 					<div class="mark-status-title">Couldn’t capture</div>
 					<div class="mark-status-hint">{error}</div>
 					<div class="mark-status-actions">
@@ -289,7 +411,10 @@ onDestroy(() => {
 						>
 					</div>
 				{:else}
-					<div class="mark-status-title">Mark preview</div>
+					<div class="mark-status-title">Capture & mark</div>
+					<div class="mark-status-hint">
+						Share this Cohub tab when prompted, then annotate the snapshot.
+					</div>
 					<button
 						type="button"
 						class="mark-status-btn"
@@ -302,6 +427,45 @@ onDestroy(() => {
 {/if}
 
 <style>
+	.mark-capture-chip {
+		position: absolute;
+		top: 8px;
+		left: 50%;
+		z-index: 50;
+		display: inline-flex;
+		transform: translateX(-50%);
+		align-items: center;
+		gap: 8px;
+		border: 1px solid var(--border-subtle);
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--bg-content) 92%, transparent);
+		padding: 6px 10px 6px 12px;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1.2;
+		white-space: nowrap;
+		box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-primary) 35%, transparent);
+		backdrop-filter: blur(8px);
+	}
+	.mark-capture-chip--fixed {
+		position: fixed;
+		z-index: 90;
+	}
+	.mark-capture-chip-cancel {
+		border: 0;
+		border-radius: 999px;
+		background: var(--bg-hover);
+		padding: 3px 8px;
+		color: var(--text-tertiary);
+		font: inherit;
+		font-size: 11px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.mark-capture-chip-cancel:hover {
+		color: var(--text-secondary);
+	}
 	.mark-host {
 		position: absolute;
 		inset: 0;
