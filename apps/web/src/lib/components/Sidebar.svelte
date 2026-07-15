@@ -258,6 +258,14 @@ let labelItemsPageInfoBySpace = $state<
 >({});
 let expandedLabelIdsBySpace = $state<Record<string, Set<string>>>({});
 let loadingLabelIdsBySpace = $state<Record<string, Set<string>>>({});
+/** Per space+label load tokens so stale finally blocks cannot clear a newer load. */
+const labelItemsLoadTokens = new Map<string, number>();
+/** Hard stop so a hung await never leaves label rows on Loading… forever. */
+const LABEL_ITEMS_LOADING_WATCHDOG_MS = 8_000;
+const labelItemsLoadingWatchdogs = new Map<
+	string,
+	ReturnType<typeof setTimeout>
+>();
 let showNewLabelPopover = $state(false);
 let loadingSessions = $state(false);
 let loadingSessionsSpaceId = $state<string | null>(null);
@@ -1430,7 +1438,7 @@ function absorbLabelItemForks(
 	sessionForks = next;
 }
 
-async function absorbLabelItemSessions(
+function absorbLabelItemSessions(
 	spaceId: string,
 	sessions: SessionRecord[] | null | undefined,
 ) {
@@ -1450,9 +1458,95 @@ async function absorbLabelItemSessions(
 		...labelSessionDetailsBySpace,
 		[spaceId]: nextDetails,
 	};
-	// Keep sidebar paint off the IndexedDB critical path. Session detail cache is
-	// best-effort; in-memory rows already drive the list.
+	// Best-effort persistence only; in-memory rows already drive the list.
 	void setCachedSessionDetails(spaceId, accepted).catch(() => undefined);
+}
+
+function labelItemsLoadKey(spaceId: string, labelId: string) {
+	return `${spaceId}:${labelId}`;
+}
+
+function clearLabelItemsLoadingWatchdog(spaceId: string, labelId: string) {
+	const key = labelItemsLoadKey(spaceId, labelId);
+	const timer = labelItemsLoadingWatchdogs.get(key);
+	if (!timer) return;
+	clearTimeout(timer);
+	labelItemsLoadingWatchdogs.delete(key);
+}
+
+function markLabelItemsLoading(spaceId: string, labelId: string) {
+	const key = labelItemsLoadKey(spaceId, labelId);
+	const token = (labelItemsLoadTokens.get(key) ?? 0) + 1;
+	labelItemsLoadTokens.set(key, token);
+	loadingLabelIdsBySpace = {
+		...loadingLabelIdsBySpace,
+		[spaceId]: new Set([
+			...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
+			labelId,
+		]),
+	};
+	clearLabelItemsLoadingWatchdog(spaceId, labelId);
+	labelItemsLoadingWatchdogs.set(
+		key,
+		setTimeout(() => {
+			labelItemsLoadingWatchdogs.delete(key);
+			if (labelItemsLoadTokens.get(key) !== token) return;
+			if (spaceId !== currentSpaceId) return;
+			console.warn(
+				"[sidebar] Label items load timed out; clearing loading state",
+				{
+					spaceId,
+					labelId,
+				},
+			);
+			clearLabelItemsLoading(spaceId, labelId, token);
+		}, LABEL_ITEMS_LOADING_WATCHDOG_MS),
+	);
+	return token;
+}
+
+function clearLabelItemsLoading(
+	spaceId: string,
+	labelId: string,
+	token?: number,
+) {
+	const key = labelItemsLoadKey(spaceId, labelId);
+	if (token !== undefined && labelItemsLoadTokens.get(key) !== token) return;
+	clearLabelItemsLoadingWatchdog(spaceId, labelId);
+	if (spaceId !== currentSpaceId) return;
+	const current = loadingLabelIdsBySpace[spaceId];
+	if (!current?.has(labelId)) return;
+	loadingLabelIdsBySpace = {
+		...loadingLabelIdsBySpace,
+		[spaceId]: new Set([...current].filter((id) => id !== labelId)),
+	};
+}
+
+function applyLabelItemsPage(
+	spaceId: string,
+	labelId: string,
+	page: {
+		items?: LabelAssignmentListItem[] | null;
+		pageInfo: { hasMore: boolean; nextCursor: string | null };
+		sessions?: SessionRecord[] | null;
+		forks?: SessionForkSidebarRecord[] | null;
+	},
+	options?: { append?: boolean },
+) {
+	absorbLabelItemSessions(spaceId, page.sessions);
+	absorbLabelItemForks(page.forks);
+	const items = page.items ?? [];
+	if (options?.append) {
+		const latestItems = labelItemsBySpace[spaceId]?.[labelId] ?? [];
+		patchLabelItems(
+			spaceId,
+			labelId,
+			[...latestItems, ...items],
+			page.pageInfo,
+		);
+		return;
+	}
+	patchLabelItems(spaceId, labelId, items, page.pageInfo);
 }
 
 async function loadLabelItems(
@@ -1466,41 +1560,51 @@ async function loadLabelItems(
 	const append = options?.append ?? false;
 	const force = options?.force ?? false;
 	const spacePageInfo = labelItemsPageInfoBySpace[spaceId] ?? {};
+	const hasVisibleItems =
+		(labelItemsBySpace[spaceId]?.[labelId]?.length ?? 0) > 0;
+	// Empty rows show Loading…; already-populated rows refresh silently.
+	const loadToken =
+		append || !hasVisibleItems
+			? markLabelItemsLoading(spaceId, labelId)
+			: undefined;
 
-	if (!append && !force) {
-		const cached = await getCachedLabelItemsSnapshot(spaceId, labelId);
-		if (spaceId !== currentSpaceId) return;
-		if (cached) {
-			// Memory absorb is sync (IDB is fire-and-forget); await keeps rows + sessions aligned.
-			await absorbLabelItemSessions(spaceId, cached.sessions);
-			absorbLabelItemForks(cached.forks);
-			patchLabelItems(spaceId, labelId, cached.items, cached.pageInfo);
-			if (!cached.stale) return;
-		}
-	}
-
-	loadingLabelIdsBySpace = {
-		...loadingLabelIdsBySpace,
-		[spaceId]: new Set([
-			...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>()),
-			labelId,
-		]),
-	};
 	try {
-		const labelRef = await getLabelRefById(spaceId, labelId);
-		if (!labelRef) return;
+		// Cache is optional acceleration. Never let a stuck IDB read block network.
+		if (!append && !force) {
+			const cached = await getCachedLabelItemsSnapshot(spaceId, labelId).catch(
+				(error) => {
+					console.warn("[sidebar] Failed to read cached label items", {
+						spaceId,
+						labelId,
+						error,
+					});
+					return null;
+				},
+			);
+			if (spaceId !== currentSpaceId) return;
+			if (cached) {
+				applyLabelItemsPage(spaceId, labelId, cached);
+				if (!cached.stale) return;
+			}
+		}
+
+		// Prefer in-memory tree (already on screen) over cache/network label lookup.
+		const labelRef =
+			labelRefForId(labelId) ?? (await getLabelRefById(spaceId, labelId));
+		if (!labelRef) {
+			console.warn("[sidebar] Missing label ref for items load", {
+				spaceId,
+				labelId,
+			});
+			return;
+		}
 		if (append) {
 			const result = await sdk.space(spaceId).labels.listItems(labelRef, {
 				limit: LABEL_ITEMS_PAGE_SIZE,
 				cursor: spacePageInfo[labelId]?.nextCursor,
 			});
 			if (spaceId !== currentSpaceId) return;
-			// Memory absorb is sync (IDB is fire-and-forget); apply sessions before rows.
-			await absorbLabelItemSessions(spaceId, result.sessions);
-			absorbLabelItemForks(result.forks);
-			const latestItems = labelItemsBySpace[spaceId]?.[labelId] ?? [];
-			const nextItems = [...latestItems, ...(result.items ?? [])];
-			patchLabelItems(spaceId, labelId, nextItems, result.pageInfo);
+			applyLabelItemsPage(spaceId, labelId, result, { append: true });
 			return;
 		}
 
@@ -1510,21 +1614,16 @@ async function loadLabelItems(
 			labelRef,
 		);
 		if (spaceId !== currentSpaceId) return;
-		await absorbLabelItemSessions(spaceId, result.sessions);
-		absorbLabelItemForks(result.forks);
-		patchLabelItems(spaceId, labelId, result.items, result.pageInfo);
+		applyLabelItemsPage(spaceId, labelId, result);
 	} catch (error) {
-		console.warn("[sidebar] Failed to load label items", { labelId, error });
+		console.warn("[sidebar] Failed to load label items", {
+			spaceId,
+			labelId,
+			error,
+		});
 	} finally {
-		if (spaceId === currentSpaceId) {
-			loadingLabelIdsBySpace = {
-				...loadingLabelIdsBySpace,
-				[spaceId]: new Set(
-					[...(loadingLabelIdsBySpace[spaceId] ?? new Set<string>())].filter(
-						(id) => id !== labelId,
-					),
-				),
-			};
+		if (loadToken !== undefined) {
+			clearLabelItemsLoading(spaceId, labelId, loadToken);
 		}
 	}
 }

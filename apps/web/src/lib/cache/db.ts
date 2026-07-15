@@ -270,6 +270,91 @@ export class CacheVersionMismatchError extends Error {
 	}
 }
 
+/** Soft ceiling so a stuck IndexedDB never blocks UI data paths forever. */
+export const IDB_OP_TIMEOUT_MS = 2_500;
+export const IDB_OPEN_TIMEOUT_MS = 5_000;
+/** Extreme-path self-heal: repeated hard failures wipe only `cohub-web-cache`. */
+const IDB_FAILURE_WINDOW_MS = 30_000;
+const IDB_FAILURE_THRESHOLD = 3;
+const IDB_RECOVERY_COOLDOWN_MS = 5 * 60_000;
+
+export class CacheTimeoutError extends Error {
+	constructor(message = "IndexedDB operation timed out") {
+		super(message);
+		this.name = "CacheTimeoutError";
+	}
+}
+
+function withTimeout<T>(
+	promise: Promise<T>,
+	label: string,
+	ms: number = IDB_OP_TIMEOUT_MS,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			reject(new CacheTimeoutError(`${label} timed out after ${ms}ms`));
+		}, ms);
+	});
+	return Promise.race([promise, timeout]).finally(() => {
+		if (timer) clearTimeout(timer);
+	}) as Promise<T>;
+}
+
+let recentIdbFailureAt: number[] = [];
+let lastIdbRecoveryAt = 0;
+let idbRecoveryInFlight: Promise<void> | null = null;
+
+function isSevereIdbFailure(error: unknown) {
+	if (error instanceof CacheTimeoutError) return true;
+	if (!error || typeof error !== "object") return false;
+	const name = "name" in error ? String(error.name) : "";
+	const message = "message" in error ? String(error.message) : "";
+	return (
+		name === "QuotaExceededError" ||
+		name === "InvalidStateError" ||
+		name === "AbortError" ||
+		name === "UnknownError" ||
+		/transaction aborted/i.test(message) ||
+		/timed out/i.test(message)
+	);
+}
+
+function noteIdbSuccess() {
+	recentIdbFailureAt = [];
+}
+
+function noteIdbFailure(error: unknown, label: string) {
+	if (!isSevereIdbFailure(error)) return;
+	const now = Date.now();
+	recentIdbFailureAt = recentIdbFailureAt.filter(
+		(at) => now - at < IDB_FAILURE_WINDOW_MS,
+	);
+	recentIdbFailureAt.push(now);
+	if (recentIdbFailureAt.length < IDB_FAILURE_THRESHOLD) return;
+	if (idbRecoveryInFlight) return;
+	if (now - lastIdbRecoveryAt < IDB_RECOVERY_COOLDOWN_MS) return;
+
+	lastIdbRecoveryAt = now;
+	recentIdbFailureAt = [];
+	idbRecoveryInFlight = (async () => {
+		console.warn(
+			"[cache] Repeated IndexedDB failures; clearing cohub-web-cache",
+			{ label, error },
+		);
+		try {
+			// Auth/login lives in Logto + localStorage, not this DB.
+			await deleteCacheDatabase();
+		} catch (recoveryError) {
+			console.warn("[cache] Failed to clear IndexedDB during recovery", {
+				recoveryError,
+			});
+		} finally {
+			idbRecoveryInFlight = null;
+		}
+	})();
+}
+
 function isBrowser() {
 	return typeof indexedDB !== "undefined";
 }
@@ -370,8 +455,30 @@ function createStore(
 
 export async function openCacheDb(): Promise<IDBDatabase | null> {
 	if (!isBrowser()) return null;
-	if (dbPromise) return dbPromise;
-	dbPromise = new Promise((resolve, reject) => {
+	if (dbPromise) {
+		try {
+			const db = await withTimeout(
+				dbPromise,
+				"openCacheDb",
+				IDB_OPEN_TIMEOUT_MS,
+			);
+			noteIdbSuccess();
+			return db;
+		} catch (error) {
+			// Keep in-flight openPromise so a late success is still shared.
+			if (error instanceof CacheTimeoutError) {
+				console.warn(
+					"[cache] IndexedDB open timed out; continuing without persistence",
+					error,
+				);
+				noteIdbFailure(error, "openCacheDb");
+				return null;
+			}
+			noteIdbFailure(error, "openCacheDb");
+			throw error;
+		}
+	}
+	const openPromise = new Promise<IDBDatabase>((resolve, reject) => {
 		const request = indexedDB.open(DB_NAME, DB_VERSION);
 		request.onblocked = () => {
 			dbPromise = null;
@@ -508,7 +615,31 @@ export async function openCacheDb(): Promise<IDBDatabase | null> {
 			reject(error);
 		};
 	});
-	return dbPromise;
+	dbPromise = openPromise.catch((error) => {
+		dbPromise = null;
+		throw error;
+	});
+	try {
+		const db = await withTimeout(
+			openPromise,
+			"openCacheDb",
+			IDB_OPEN_TIMEOUT_MS,
+		);
+		noteIdbSuccess();
+		return db;
+	} catch (error) {
+		if (error instanceof CacheTimeoutError) {
+			console.warn(
+				"[cache] IndexedDB open timed out; continuing without persistence",
+				error,
+			);
+			// Do not clear dbPromise on timeout — a late open can still be reused.
+			noteIdbFailure(error, "openCacheDb");
+			return null;
+		}
+		noteIdbFailure(error, "openCacheDb");
+		throw error;
+	}
 }
 
 export async function deleteCacheDatabase() {
@@ -526,32 +657,39 @@ export async function deleteCacheDatabase() {
 async function withObjectStore<T>(
 	storeName: StoreName,
 	mode: IDBTransactionMode,
-	run: (store: IDBObjectStore, tx: IDBTransaction) => T,
+	run: (store: IDBObjectStore, tx: IDBTransaction) => Promise<T> | T,
 	retry = true,
 ): Promise<T | null> {
-	const db = await openCacheDb();
-	if (!db) return null;
+	const label = `idb:${mode}:${storeName}`;
 	try {
-		const tx = db.transaction(storeName, mode);
-		return run(tx.objectStore(storeName), tx);
+		const result = await withTimeout(
+			(async () => {
+				const db = await openCacheDb();
+				if (!db) return null;
+				try {
+					const tx = db.transaction(storeName, mode);
+					return await run(tx.objectStore(storeName), tx);
+				} catch (error) {
+					if (retry && isClosingConnectionError(error)) {
+						resetDbConnection(db);
+						return withObjectStore(storeName, mode, run, false);
+					}
+					throw error;
+				}
+			})(),
+			label,
+			IDB_OP_TIMEOUT_MS,
+		);
+		if (result !== null) noteIdbSuccess();
+		return result;
 	} catch (error) {
-		if (retry && isClosingConnectionError(error)) {
-			resetDbConnection(db);
-			return withObjectStore(storeName, mode, run, false);
+		noteIdbFailure(error, label);
+		if (error instanceof CacheTimeoutError) {
+			console.warn(`[cache] ${label}`, error);
+			return null;
 		}
 		throw error;
 	}
-}
-
-export async function idbGet<T>(storeName: StoreName, key: string) {
-	return withObjectStore(storeName, "readonly", (store) => {
-		return new Promise<T | null>((resolve, reject) => {
-			const request = store.get(key);
-			request.onsuccess = () =>
-				resolve((request.result as T | undefined) ?? null);
-			request.onerror = () => reject(request.error);
-		});
-	});
 }
 
 function sanitizeForIndexedDb<T>(value: T): T {
@@ -571,17 +709,30 @@ function awaitTransaction(tx: IDBTransaction) {
 	});
 }
 
+export async function idbGet<T>(storeName: StoreName, key: string) {
+	return withObjectStore(storeName, "readonly", (store) => {
+		return new Promise<T | null>((resolve, reject) => {
+			const request = store.get(key);
+			request.onsuccess = () =>
+				resolve((request.result as T | undefined) ?? null);
+			request.onerror = () => reject(request.error);
+		});
+	});
+}
+
 export async function idbPut<T>(storeName: StoreName, value: T) {
-	await withObjectStore(storeName, "readwrite", (store, tx) => {
+	await withObjectStore(storeName, "readwrite", async (store, tx) => {
 		store.put(sanitizeForIndexedDb(value));
-		return awaitTransaction(tx);
+		await awaitTransaction(tx);
+		return true;
 	});
 }
 
 export async function idbDelete(storeName: StoreName, key: string) {
-	await withObjectStore(storeName, "readwrite", (store, tx) => {
+	await withObjectStore(storeName, "readwrite", async (store, tx) => {
 		store.delete(key);
-		return awaitTransaction(tx);
+		await awaitTransaction(tx);
+		return true;
 	});
 }
 
@@ -652,17 +803,18 @@ export async function idbDeleteWhere<T extends { key: string }>(
 	storeName: StoreName,
 	predicate: (record: T) => boolean,
 ) {
-	await withObjectStore(storeName, "readwrite", (store, tx) => {
-		return new Promise<void>((resolve, reject) => {
-			const request = store.openCursor();
-			request.onsuccess = () => {
-				const cursor = request.result;
-				if (!cursor) return;
-				if (predicate(cursor.value as T)) cursor.delete();
-				cursor.continue();
-			};
-			tx.oncomplete = () => resolve();
-			tx.onerror = () => reject(tx.error);
-		});
+	await withObjectStore(storeName, "readwrite", async (store, tx) => {
+		const request = store.openCursor();
+		request.onsuccess = () => {
+			const cursor = request.result;
+			if (!cursor) return;
+			if (predicate(cursor.value as T)) cursor.delete();
+			cursor.continue();
+		};
+		request.onerror = () => {
+			// Surface via transaction error/abort handlers.
+		};
+		await awaitTransaction(tx);
+		return true;
 	});
 }

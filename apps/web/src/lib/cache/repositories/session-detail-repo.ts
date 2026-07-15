@@ -80,7 +80,15 @@ async function writeRecord(
 		watermark: getWatermark(session),
 	};
 	memory.set(key, record);
-	await idbPut("session_details", record);
+	// Memory is the live source for the current tab. Persist in the background so
+	// large label/session hydrations never block UI after network success.
+	void idbPut("session_details", record).catch((error) => {
+		console.warn("[session-detail] Failed to persist", {
+			spaceId,
+			sessionId: session.id,
+			error,
+		});
+	});
 	if (options?.broadcast !== false) {
 		publishCacheMessage({
 			type: "cache-updated",

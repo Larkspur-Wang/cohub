@@ -89,7 +89,10 @@ async function writeRecord(
 		watermark: getLabelTreeWatermark(normalized),
 	};
 	memory.set(key, record);
-	await idbPut("label_trees", record);
+	// Keep label tree writes off the UI critical path.
+	void idbPut("label_trees", record).catch((error) => {
+		console.warn("[label-tree] Failed to persist", { spaceId, error });
+	});
 	if (options?.broadcast !== false) {
 		publishCacheMessage({
 			type: "cache-updated",
