@@ -21,6 +21,7 @@ import {
 import { floatNear } from "$lib/actions/portal";
 import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
+import MarkdownView from "$lib/components/MarkdownView.svelte";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
@@ -188,6 +189,22 @@ const loadFileDiffViewModule = createLazyModuleLoader(
 );
 
 const showDiffMode = $derived(!activeFsReadonly && inlineFileIsText);
+// Bump to force #await to re-subscribe after a cleared lazy-import failure.
+let codeEditorLoadAttempt = $state(0);
+let htmlPreviewLoadAttempt = $state(0);
+let fileDiffLoadAttempt = $state(0);
+const codeEditorModulePromise = $derived.by(() => {
+	codeEditorLoadAttempt;
+	return loadCodeEditorModule();
+});
+const htmlPreviewModulePromise = $derived.by(() => {
+	htmlPreviewLoadAttempt;
+	return loadRenderedFilePreviewModule();
+});
+const fileDiffModulePromise = $derived.by(() => {
+	fileDiffLoadAttempt;
+	return loadFileDiffViewModule();
+});
 // Always the button that opened the menu (avoids dual mobile/desktop bind:this races).
 let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 </script>
@@ -242,6 +259,89 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
 			onToggleFocus={onTogglePreviewFocusMode}
 			onToggleImmersive={onTogglePreviewImmersiveMode}
 		/>
+	{/if}
+{/snippet}
+
+{#snippet LazyLoadError(label: string, onRetry: () => void)}
+	<div class="flex h-full flex-col items-center justify-center gap-2 px-4 text-center">
+		<div class="text-[12px] text-error-soft">{label}</div>
+		<button type="button" class="action-btn" onclick={onRetry}>Retry</button>
+	</div>
+{/snippet}
+
+{#snippet MarkdownFilePreview()}
+	{#if inlineFile.response}
+		<MarkdownView
+			source={inlineFile.draft}
+			variant="document"
+			baseFilePath={inlineFile.response.path}
+			onOpenFile={onOpenLinkedInlineFile}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet HtmlFilePreview()}
+	{#if inlineFile.response}
+		{#await htmlPreviewModulePromise then previewModule}
+			{@const LazyRenderedFilePreview = previewModule.default}
+			<LazyRenderedFilePreview
+				name={inlineFile.response.name}
+				source={inlineFile.draft}
+				type="html"
+				path={inlineFile.response.path}
+				spaceId={inlineFileSpaceId}
+				readonly={activeFsReadonly}
+				debugWork={inlineFileDebugWork}
+				onOpenFile={onOpenLinkedInlineFile}
+			/>
+		{:catch}
+			{@render LazyLoadError("Preview failed to load.", () => {
+				htmlPreviewLoadAttempt += 1;
+			})}
+		{/await}
+	{/if}
+{/snippet}
+
+{#snippet TextFileBody()}
+	{#if inlineFileViewMode === "diff" && showDiffMode}
+		{#await fileDiffModulePromise then diffModule}
+			{@const LazyFileDiffView = diffModule.default}
+			<LazyFileDiffView
+				patch={inlineFileDiff}
+				loading={inlineFileDiffLoading}
+				error={inlineFileDiffError}
+			/>
+		{:catch}
+			{@render LazyLoadError("Diff failed to load.", () => {
+				fileDiffLoadAttempt += 1;
+			})}
+		{/await}
+	{:else if inlineFileViewMode === "preview" && inlineFileHasRenderedPreview}
+		{#if inlineFileIsMarkdown}
+			{@render MarkdownFilePreview()}
+		{:else}
+			{@render HtmlFilePreview()}
+		{/if}
+	{:else}
+		{#await codeEditorModulePromise then editorModule}
+			{@const LazyCodeEditor = editorModule.default}
+			{@const editorPath = inlineFile.path}
+			<LazyCodeEditor
+				value={inlineFile.draft}
+				language={inlineFileExt}
+				initialPosition={inlineFile.position}
+				onInput={(v) => {
+					if (inlineFile) inlineFile.draft = v;
+				}}
+				onVisibleLinesChange={(range) =>
+					onVisibleLinesChange?.(editorPath, range)}
+				readonly={!canEditFiles || activeFsReadonly}
+			/>
+		{:catch}
+			{@render LazyLoadError("Editor failed to load.", () => {
+				codeEditorLoadAttempt += 1;
+			})}
+		{/await}
 	{/if}
 {/snippet}
 
@@ -315,38 +415,7 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
             {/if}
           </div>
           <div class="flex-1 min-h-0">
-            {#if inlineFileViewMode === "diff" && showDiffMode}
-              {#await loadFileDiffViewModule() then diffModule}
-                {@const LazyFileDiffView = diffModule.default}
-                <LazyFileDiffView patch={inlineFileDiff} loading={inlineFileDiffLoading} error={inlineFileDiffError} />
-              {:catch}
-                <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Diff failed to load.</div>
-              {/await}
-            {:else if inlineFileViewMode === "preview" && inlineFileHasRenderedPreview}
-              {#await loadRenderedFilePreviewModule() then previewModule}
-                {@const LazyRenderedFilePreview = previewModule.default}
-                <LazyRenderedFilePreview
-                  name={inlineFile.response.name}
-                  source={inlineFile.draft}
-                  type={inlineFileIsMarkdown ? "markdown" : "html"}
-                  path={inlineFile.response.path}
-                  spaceId={inlineFileSpaceId}
-                  readonly={activeFsReadonly}
-                  debugWork={inlineFileDebugWork}
-                  onOpenFile={onOpenLinkedInlineFile}
-                />
-              {:catch}
-                <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
-              {/await}
-            {:else}
-              {#await loadCodeEditorModule() then editorModule}
-                {@const LazyCodeEditor = editorModule.default}
-                {@const editorPath = inlineFile.path}
-                <LazyCodeEditor value={inlineFile.draft} language={inlineFileExt} initialPosition={inlineFile.position} onInput={(v) => { if (inlineFile) inlineFile.draft = v; }} onVisibleLinesChange={(range) => onVisibleLinesChange?.(editorPath, range)} readonly={!canEditFiles || activeFsReadonly} />
-              {:catch}
-                <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-              {/await}
-            {/if}
+            {@render TextFileBody()}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
           <div class="flex flex-1 items-center justify-center overflow-hidden p-4">
@@ -509,49 +578,7 @@ let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
               </button>
             </div>
             <div class="flex-1 min-h-0">
-              {#if inlineFileViewMode === "diff" && showDiffMode}
-                {#await loadFileDiffViewModule() then diffModule}
-                  {@const LazyFileDiffView = diffModule.default}
-                  <LazyFileDiffView
-                    patch={inlineFileDiff}
-                    loading={inlineFileDiffLoading}
-                    error={inlineFileDiffError}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Diff failed to load.</div>
-                {/await}
-              {:else if inlineFileViewMode === "preview" && inlineFileHasRenderedPreview}
-                {#await loadRenderedFilePreviewModule() then previewModule}
-                  {@const LazyRenderedFilePreview = previewModule.default}
-                  <LazyRenderedFilePreview
-                    name={inlineFile.response.name}
-                    source={inlineFile.draft}
-                    type={inlineFileIsMarkdown ? "markdown" : "html"}
-                    path={inlineFile.response.path}
-                    spaceId={inlineFileSpaceId}
-                    readonly={activeFsReadonly}
-                    debugWork={inlineFileDebugWork}
-                    onOpenFile={onOpenLinkedInlineFile}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Preview failed to load.</div>
-                {/await}
-              {:else}
-                {#await loadCodeEditorModule() then editorModule}
-                  {@const LazyCodeEditor = editorModule.default}
-                  {@const editorPath = inlineFile.path}
-                  <LazyCodeEditor
-                    value={inlineFile.draft}
-                    language={inlineFileExt}
-                    initialPosition={inlineFile.position}
-                    onInput={(v) => { if (inlineFile) inlineFile.draft = v; }}
-                    onVisibleLinesChange={(range) => onVisibleLinesChange?.(editorPath, range)}
-                    readonly={!canEditFiles || activeFsReadonly}
-                  />
-                {:catch}
-                  <div class="flex h-full items-center justify-center text-[12px] text-error-soft">Editor failed to load.</div>
-                {/await}
-              {/if}
+              {@render TextFileBody()}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
