@@ -395,8 +395,8 @@ onMount(() => {
 								<ul class="space-y-2.5 text-[14px] leading-relaxed">
 									{#each entry.highlights as highlight}
 										<li class="changelog-item flex gap-2.5">
-											<span class="mt-px select-none text-brand">•</span>
-											<span class="min-w-0 text-text-primary"
+											<span class="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-text-placeholder" aria-hidden="true"></span>
+											<span class="min-w-0 text-text-secondary"
 												>{@html renderInline(highlight)}</span
 											>
 										</li>
@@ -441,7 +441,8 @@ onMount(() => {
 
 <style>
 	.changelog-item :global(strong) {
-		font-weight: 600;
+		font-weight: 700;
+		color: var(--text-primary);
 	}
 	.changelog-item :global(code) {
 		border-radius: 4px;
@@ -449,5 +450,6 @@ onMount(() => {
 		padding: 0.1em 0.35em;
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.9em;
+		color: var(--text-primary);
 	}
 </style>
