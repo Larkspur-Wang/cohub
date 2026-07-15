@@ -10,34 +10,19 @@ import {
 } from "./capabilities";
 import { cssRectToPixelRect } from "./geometry";
 
-type RestrictionTargetLike = {
-	fromElement: (element: Element) => Promise<unknown>;
-};
-
-type CropTargetLike = {
-	fromElement: (element: Element) => Promise<unknown>;
-};
-
-type ExtendedTrack = MediaStreamTrack & {
-	restrictTo?: (target: unknown) => Promise<void>;
-	cropTo?: (target: unknown) => Promise<void>;
-};
-
-type ImageCaptureLike = {
-	grabFrame: () => Promise<ImageBitmap>;
-};
-
-type ImageCaptureCtor = new (track: MediaStreamTrack) => ImageCaptureLike;
-
 type VideoWithFrameCallback = HTMLVideoElement & {
 	requestVideoFrameCallback?: (callback: () => void) => number;
 };
 
-/** Keep frame grabs snappy — prefer fail-fast + fallback over long waits. */
-const GRAB_TIMEOUT_MS = 6_000;
-const PLAY_TIMEOUT_MS = 4_000;
-const IMAGE_CAPTURE_TIMEOUT_MS = 1_500;
-const TRACK_UNMUTE_TIMEOUT_MS = 800;
+/**
+ * Fail fast. Element Capture / ImageCapture are intentionally skipped — on
+ * macOS Chrome they commonly hang forever after a successful tab share.
+ * Full-tab grab + geometry crop is the reliable path.
+ */
+const METADATA_TIMEOUT_MS = 2_500;
+const PLAY_TIMEOUT_MS = 2_500;
+const FRAME_TIMEOUT_MS = 3_500;
+const TOTAL_GRAB_TIMEOUT_MS = 6_000;
 
 function waitFrame(): Promise<void> {
 	return new Promise((resolve) => {
@@ -78,9 +63,7 @@ function stopStream(stream: MediaStream | null) {
  */
 export function requestDisplayMedia(): Promise<MediaStream> {
 	return navigator.mediaDevices.getDisplayMedia({
-		video: {
-			frameRate: { ideal: 30 },
-		},
+		video: true,
 		audio: false,
 		// Chromium hints — ignored by browsers that don't support them.
 		preferCurrentTab: true,
@@ -98,15 +81,16 @@ function mountHiddenVideo(): HTMLVideoElement {
 	video.setAttribute("playsinline", "");
 	video.setAttribute("muted", "");
 	video.setAttribute("autoplay", "");
-	// Keep it in the document so Chromium reliably decodes display-media streams.
+	// Visible to the compositor (1×1 offscreen) so Chromium decodes frames.
 	Object.assign(video.style, {
 		position: "fixed",
-		left: "-99999px",
+		left: "0",
 		top: "0",
-		width: "2px",
-		height: "2px",
-		opacity: "0",
+		width: "1px",
+		height: "1px",
+		opacity: "0.01",
 		pointerEvents: "none",
+		zIndex: "-1",
 	});
 	document.documentElement.appendChild(video);
 	return video;
@@ -154,12 +138,13 @@ function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
 				if (rVFC) {
 					rVFC(() => resolve());
 				} else {
-					requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+					// One paint after dimensions appear is enough for createImageBitmap.
+					requestAnimationFrame(() => resolve());
 				}
 				return;
 			}
 			attempts += 1;
-			if (attempts > 120) {
+			if (attempts > 90) {
 				reject(new Error("Capture stream has no video frames"));
 				return;
 			}
@@ -169,102 +154,41 @@ function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
 	});
 }
 
-async function waitForTrackLive(
-	track: MediaStreamTrack,
-	ms: number,
-): Promise<void> {
-	if (track.readyState !== "live") {
-		throw new Error("Capture track ended");
-	}
-	// Display-media tracks often start muted until the first frame is painted.
-	if (!track.muted) return;
-	try {
-		await withTimeout(
-			new Promise<void>((resolve, reject) => {
-				const onUnmute = () => {
-					cleanup();
-					resolve();
-				};
-				const onEnded = () => {
-					cleanup();
-					reject(new Error("Capture track ended"));
-				};
-				const cleanup = () => {
-					track.removeEventListener("unmute", onUnmute);
-					track.removeEventListener("ended", onEnded);
-				};
-				track.addEventListener("unmute", onUnmute);
-				track.addEventListener("ended", onEnded);
-				// Race: unmute may have already flipped between the check and listener.
-				if (!track.muted) {
-					cleanup();
-					resolve();
-				}
-			}),
-			ms,
-			"Capture track",
-		);
-	} catch (error) {
-		if (error instanceof Error && /timed out/i.test(error.message)) {
-			// Still muted — try grab anyway; some browsers never unmute.
-			return;
-		}
-		throw error;
-	}
-}
-
-async function grabFrameViaImageCapture(
-	track: MediaStreamTrack,
-): Promise<{ bitmap: ImageBitmap; width: number; height: number } | null> {
-	const ImageCapture = (
-		window as unknown as { ImageCapture?: ImageCaptureCtor }
-	).ImageCapture;
-	if (!ImageCapture) return null;
-	try {
-		await waitForTrackLive(track, TRACK_UNMUTE_TIMEOUT_MS);
-		const capture = new ImageCapture(track);
-		const bitmap = await withTimeout(
-			capture.grabFrame(),
-			IMAGE_CAPTURE_TIMEOUT_MS,
-			"Capture frame",
-		);
-		if (bitmap.width <= 0 || bitmap.height <= 0) {
-			bitmap.close();
-			return null;
-		}
-		return { bitmap, width: bitmap.width, height: bitmap.height };
-	} catch {
-		return null;
-	}
-}
-
 async function grabFrameViaVideo(
 	stream: MediaStream,
 ): Promise<{ bitmap: ImageBitmap; width: number; height: number }> {
 	const video = mountHiddenVideo();
 	try {
 		video.srcObject = stream;
+
+		// Kick playback immediately alongside metadata wait.
+		void video.play().catch(() => {
+			// Autoplay may already be running; retry after metadata if still paused.
+		});
+
 		await withTimeout(
 			waitForMetadata(video),
-			PLAY_TIMEOUT_MS,
+			METADATA_TIMEOUT_MS,
 			"Capture metadata",
 		);
 
-		// autoplay often starts muted display-media streams; only call play() if needed.
 		if (video.paused) {
 			await withTimeout(video.play(), PLAY_TIMEOUT_MS, "Capture playback");
 		}
 
 		await withTimeout(
 			waitForVideoFrame(video),
-			GRAB_TIMEOUT_MS,
+			FRAME_TIMEOUT_MS,
 			"Capture frame",
 		);
+
 		if (video.videoWidth <= 0 || video.videoHeight <= 0) {
 			throw new Error("Capture stream has no video frames");
 		}
 
-		const bitmap = await createImageBitmap(video);
+		// Prefer VideoFrame when available — more reliable than createImageBitmap(video)
+		// for display-media on some Chromium builds.
+		const bitmap = await grabBitmapFromVideo(video);
 		return { bitmap, width: bitmap.width, height: bitmap.height };
 	} finally {
 		try {
@@ -277,15 +201,66 @@ async function grabFrameViaVideo(
 	}
 }
 
+async function grabBitmapFromVideo(
+	video: HTMLVideoElement,
+): Promise<ImageBitmap> {
+	const VideoFrameCtor = (
+		window as unknown as {
+			VideoFrame?: new (
+				source: CanvasImageSource,
+			) => {
+				displayWidth: number;
+				displayHeight: number;
+				close: () => void;
+			};
+		}
+	).VideoFrame;
+
+	if (typeof VideoFrameCtor === "function") {
+		let frame: {
+			displayWidth: number;
+			displayHeight: number;
+			close: () => void;
+		} | null = null;
+		try {
+			frame = new VideoFrameCtor(video);
+			const bitmap = await createImageBitmap(
+				frame as unknown as ImageBitmapSource,
+			);
+			return bitmap;
+		} catch {
+			// Fall through to createImageBitmap(video) / canvas.
+		} finally {
+			try {
+				frame?.close();
+			} catch {
+				// ignore
+			}
+		}
+	}
+
+	try {
+		return await createImageBitmap(video);
+	} catch {
+		// Last resort: paint into a canvas.
+		const canvas = document.createElement("canvas");
+		canvas.width = video.videoWidth;
+		canvas.height = video.videoHeight;
+		const ctx = canvas.getContext("2d");
+		if (!ctx) throw new Error("Failed to create capture canvas");
+		ctx.drawImage(video, 0, 0);
+		return createImageBitmap(canvas);
+	}
+}
+
 async function grabVideoFrame(
 	stream: MediaStream,
 ): Promise<{ bitmap: ImageBitmap; width: number; height: number }> {
-	const track = stream.getVideoTracks()[0];
-	if (track) {
-		const viaCapture = await grabFrameViaImageCapture(track);
-		if (viaCapture) return viaCapture;
-	}
-	return grabFrameViaVideo(stream);
+	return withTimeout(
+		grabFrameViaVideo(stream),
+		TOTAL_GRAB_TIMEOUT_MS,
+		"Capture frame",
+	);
 }
 
 async function cropBitmap(
@@ -293,56 +268,6 @@ async function cropBitmap(
 	rect: { x: number; y: number; width: number; height: number },
 ): Promise<ImageBitmap> {
 	return createImageBitmap(bitmap, rect.x, rect.y, rect.width, rect.height);
-}
-
-async function tryRestrictToElement(
-	track: ExtendedTrack,
-	element: Element,
-): Promise<boolean> {
-	const RestrictionTarget = (
-		window as unknown as { RestrictionTarget?: RestrictionTargetLike }
-	).RestrictionTarget;
-	if (!RestrictionTarget?.fromElement || !track.restrictTo) return false;
-	try {
-		const target = await RestrictionTarget.fromElement(element);
-		await track.restrictTo(target);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function tryCropToElement(
-	track: ExtendedTrack,
-	element: Element,
-): Promise<boolean> {
-	const CropTarget = (window as unknown as { CropTarget?: CropTargetLike })
-		.CropTarget;
-	if (!CropTarget?.fromElement || !track.cropTo) return false;
-	try {
-		const target = await CropTarget.fromElement(element);
-		await track.cropTo(target);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function clearTrackTarget(track: ExtendedTrack): Promise<void> {
-	if (track.restrictTo) {
-		try {
-			await track.restrictTo(null);
-		} catch {
-			// ignore — not all browsers accept null
-		}
-	}
-	if (track.cropTo) {
-		try {
-			await track.cropTo(null);
-		} catch {
-			// ignore
-		}
-	}
 }
 
 function maybeGeometryCrop(
@@ -364,9 +289,10 @@ function maybeGeometryCrop(
 	const dpr = window.devicePixelRatio || 1;
 	const viewportW = Math.round(window.innerWidth * dpr);
 	const viewportH = Math.round(window.innerHeight * dpr);
+	// Tab share may include Chrome's "Sharing this tab" banner, so allow a looser match.
 	const looksLikeCurrentTab =
-		Math.abs(width - viewportW) / Math.max(width, viewportW) < 0.12 &&
-		Math.abs(height - viewportH) / Math.max(height, viewportH) < 0.12;
+		Math.abs(width - viewportW) / Math.max(width, viewportW) < 0.2 &&
+		Math.abs(height - viewportH) / Math.max(height, viewportH) < 0.25;
 	if (!looksLikeCurrentTab) {
 		return Promise.resolve({ bitmap, width, height, quality });
 	}
@@ -457,7 +383,7 @@ export async function captureIframeElementFromStream(input: {
 	}
 
 	try {
-		const track = stream.getVideoTracks()[0] as ExtendedTrack | undefined;
+		const track = stream.getVideoTracks()[0];
 		if (!track) {
 			stopStream(stream);
 			stream = null;
@@ -468,39 +394,22 @@ export async function captureIframeElementFromStream(input: {
 			};
 		}
 
+		// Give the compositor one beat after the share picker closes.
+		await waitFrame();
+
 		// Re-measure after the picker closes — layout can shift while sharing.
 		const rect = input.element.getBoundingClientRect();
 
-		let quality: CaptureQuality = "full";
-		let usedElementTarget = false;
-		if (await tryRestrictToElement(track, input.element)) {
-			quality = "element";
-			usedElementTarget = true;
-		} else if (await tryCropToElement(track, input.element)) {
-			quality = "region";
-			usedElementTarget = true;
-		}
-
-		// Element / region capture needs a compositor beat before frames arrive.
-		if (usedElementTarget) await waitFrame();
-
-		let grabbed: { bitmap: ImageBitmap; width: number; height: number };
-		try {
-			grabbed = await grabVideoFrame(stream);
-		} catch (firstError) {
-			// Element Capture can succeed then stall; fall back to full tab + crop.
-			if (!usedElementTarget) throw firstError;
-			await clearTrackTarget(track);
-			quality = "full";
-			await waitFrame();
-			grabbed = await grabVideoFrame(stream);
-		}
+		// Skip Element Capture (restrictTo/cropTo) and ImageCapture entirely.
+		// On macOS Chrome those APIs often hang after a successful tab share.
+		// Full tab + geometry crop is fast and reliable.
+		const grabbed = await grabVideoFrame(stream);
 
 		stopStream(stream);
 		stream = null;
 
 		const cropRect = rect.width >= 2 && rect.height >= 2 ? rect : readyRect;
-		const cropped = await maybeGeometryCrop(grabbed.bitmap, cropRect, quality);
+		const cropped = await maybeGeometryCrop(grabbed.bitmap, cropRect, "full");
 		const frame: FrozenFrame = {
 			bitmap: cropped.bitmap,
 			width: cropped.width,

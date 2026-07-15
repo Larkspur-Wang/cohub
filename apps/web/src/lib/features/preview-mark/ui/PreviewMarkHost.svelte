@@ -40,6 +40,8 @@ let {
 
 let session = $state<MarkSession | null>(null);
 let phase = $state<"idle" | "capturing" | "marking" | "attaching">("idle");
+/** Sub-state while phase === capturing: waiting for share picker vs grabbing frames. */
+let captureStep = $state<"share" | "grab">("share");
 let error = $state<string | null>(null);
 let captureGen = 0;
 let disposed = false;
@@ -51,8 +53,11 @@ let surfaceBox = $state<{
 } | null>(null);
 
 const canRecapture = $derived(target?.kind === "iframe");
-/** Lightweight chip while sharing — must not cover the iframe. */
+/** Lightweight chip while capturing — must not cover the iframe. */
 const showCaptureChip = $derived(phase === "capturing" && !open);
+const captureChipLabel = $derived(
+	captureStep === "grab" ? "Capturing preview…" : "Share this tab to capture…",
+);
 
 /** User can sit on the share picker; after this we surface an error instead of spinning forever. */
 const SHARE_PICKER_TIMEOUT_MS = 90_000;
@@ -111,6 +116,7 @@ function close() {
 	session?.dispose();
 	session = null;
 	phase = "idle";
+	captureStep = "share";
 	error = null;
 	open = false;
 }
@@ -120,6 +126,7 @@ function cancelCapture() {
 	captureGen += 1;
 	const hadSession = Boolean(session);
 	phase = hadSession ? "marking" : "idle";
+	captureStep = "share";
 	error = hadSession ? null : "Capture cancelled.";
 	// Recapture cancel: reopen mark UI with previous frame. First capture: show error sheet.
 	open = hadSession || Boolean(error);
@@ -145,6 +152,7 @@ function applyCaptureResult(
 		error = result.message;
 		// Keep existing marks if recapture failed; otherwise show status UI.
 		phase = hadSession ? "marking" : "idle";
+		captureStep = "share";
 		open = true;
 		return;
 	}
@@ -156,6 +164,7 @@ function applyCaptureResult(
 	}
 	error = null;
 	phase = "marking";
+	captureStep = "share";
 	open = true;
 }
 
@@ -211,6 +220,7 @@ async function runCapture() {
 
 	error = null;
 	phase = "capturing";
+	captureStep = "share";
 	// Keep preview visible under the browser share UI and while grabbing frames.
 	open = false;
 	if (surface) measureSurface();
@@ -253,6 +263,7 @@ async function runCapture() {
 					: "Failed to start screen capture.";
 		}
 		phase = hadSession ? "marking" : "idle";
+		captureStep = "share";
 		// Only open error UI if user didn't cancel via close() meanwhile.
 		if (gen === captureGen && !disposed) open = true;
 		return;
@@ -263,6 +274,7 @@ async function runCapture() {
 		return;
 	}
 
+	captureStep = "grab";
 	const result = await captureIframeElementFromStream({
 		stream,
 		element: target.element,
@@ -347,7 +359,7 @@ onDestroy(() => {
 		aria-live="polite"
 	>
 		<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin" />
-		<span>Share this tab to capture…</span>
+		<span>{captureChipLabel}</span>
 		<button
 			type="button"
 			class="mark-capture-chip-cancel"
