@@ -1,7 +1,10 @@
 import { createLogger } from "@cohub/infra/logging";
 import { createHash } from "node:crypto";
 import type { SandboxHeartbeat } from "@cohub/protocol/sandbox";
-import { createSandboxLifecycleController } from "@cohub/sandbox-controller";
+import {
+  createSandboxLifecycleController,
+  getSandboxPromptRecoveryReason,
+} from "@cohub/sandbox-controller";
 import {
   disconnectSandboxWsClient,
   hasPendingSandboxRequests,
@@ -24,6 +27,7 @@ const LOCAL_SANDBOX_SPACE_ID = process.env.LOCAL_SANDBOX_SPACE_ID?.trim() || nul
 const LOCAL_SANDBOX_WS_URL = process.env.LOCAL_SANDBOX_WS_URL?.trim() || null;
 const IDLE_TTL_MS = Number(process.env.AGENT_SANDBOX_IDLE_TTL_MS ?? 30 * 60_000);
 const MAX_CONNECTIONS = Number(process.env.AGENT_SANDBOX_MAX_CONNECTIONS_PER_WORKER ?? 100);
+const DEFAULT_CONNECT_WAIT_MS = 60_000;
 const sandboxLifecycle = createSandboxLifecycleController({ db, infra: null });
 
 type NormalizedSandboxStatus = "provisioning" | "ready" | "degraded" | "error";
@@ -99,8 +103,8 @@ async function recoverSandboxOnce(spaceId: string, reason: string): Promise<Sand
 
   const promise = recoverSpaceSandbox({ spaceId, reason, source: "agent" })
     .then((result): SandboxRecoverOutcome => {
+      // recovering covers in-flight lock and post-recover endpoint report; caller waits.
       if (result?.recovering) {
-        // Lock held or report still pending — wait for dialable endpoint.
         return { ok: Boolean(result.ok), recovering: true, throttled: Boolean(result.throttled) };
       }
       if (result?.throttled) {
@@ -119,20 +123,36 @@ async function recoverSandboxOnce(spaceId: string, reason: string): Promise<Sand
   return promise;
 }
 
+function missingSandboxEndpointError(spaceId: string) {
+  return new Error(`sandbox is not ready for requests yet: missing endpoint for ${spaceId}`);
+}
+
+/**
+ * Resolve a dialable sandbox WS URL.
+ *
+ * Kick recover when the lifecycle gate says so (stopped / error / missing
+ * endpoint). API may already be recovering — that returns recovering:true and
+ * must not be treated as failure. Always re-read after recover; never dial
+ * pre-recover meta. Missing endpoint throws a connect-retryable error so
+ * ensureSandboxConnection can poll until report lands.
+ *
+ * Skip recover while status is still "stopping" so we do not race the idle
+ * reaper's delete; a later poll after status becomes stopped will resume.
+ */
 async function resolveSandboxWsUrl(spaceId: string): Promise<string> {
   if (LOCAL_SANDBOX_SPACE_ID && LOCAL_SANDBOX_WS_URL && spaceId === LOCAL_SANDBOX_SPACE_ID) {
     return LOCAL_SANDBOX_WS_URL;
   }
-  const response = await getSpaceSandbox({ spaceId });
-  const sandbox = response?.sandbox;
-  if (sandbox?.status === "stopped" || sandbox?.status === "error" || sandbox?.status === "terminated") {
-    await recoverSandboxOnce(spaceId, sandbox.status === "error" ? "auto_recover" : "auto_resume");
-    const resumed = (await getSpaceSandbox({ spaceId }))?.sandbox;
-    const resumedEndpoint = resolveSandboxWsEndpoint(resumed?.meta);
-    if (resumedEndpoint) return resumedEndpoint;
+
+  let sandbox = (await getSpaceSandbox({ spaceId }))?.sandbox ?? null;
+  const recoverReason = getSandboxPromptRecoveryReason(sandbox);
+  if (recoverReason && sandbox?.status !== "stopping") {
+    await recoverSandboxOnce(spaceId, recoverReason);
+    sandbox = (await getSpaceSandbox({ spaceId }))?.sandbox ?? null;
   }
+
   const endpoint = resolveSandboxWsEndpoint(sandbox?.meta);
-  if (!endpoint) throw new Error(`sandbox is not ready for requests yet: missing endpoint for ${spaceId}`);
+  if (!endpoint) throw missingSandboxEndpointError(spaceId);
   return endpoint;
 }
 
@@ -292,7 +312,7 @@ async function connectSandboxOnce(spaceId: string, options?: { timeoutMs?: numbe
   return connection;
 }
 
-async function waitForSandboxConnectionAfterRecover(spaceId: string, timeoutMs = 60_000): Promise<SandboxConnection> {
+async function waitForSandboxConnectionReady(spaceId: string, timeoutMs = DEFAULT_CONNECT_WAIT_MS): Promise<SandboxConnection> {
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
   let lastError: unknown = null;
@@ -319,22 +339,32 @@ async function waitForSandboxConnectionAfterRecover(spaceId: string, timeoutMs =
 }
 
 /**
- * Ensure a live sandbox WS connection. If the resolved endpoint is unreachable
- * (stale podIp / dead pod while DB still says running), recover once and retry.
- * Missing-endpoint-during-provisioning is left alone so we do not thrash.
+ * Ensure a live sandbox WS connection.
+ *
+ * - Dead coordinates (stale podIp while DB still says running): recover once, then wait.
+ * - Missing endpoint / resume-in-flight (API fire-and-forget or agent join): wait without
+ *   thrashing another recreate — resolveSandboxWsUrl already kicks recover when needed.
  */
 export async function ensureSandboxConnection(spaceId: string, options?: { timeoutMs?: number }): Promise<SandboxConnection> {
   try {
     return await connectSandboxOnce(spaceId, options);
   } catch (error) {
-    if (!isSandboxEndpointUnreachable(error)) throw error;
-
+    const waitMs = options?.timeoutMs ?? DEFAULT_CONNECT_WAIT_MS;
     const reason = error instanceof Error ? error.message : String(error);
-    logger.warn(`[SandboxPool] endpoint unreachable spaceId=${spaceId}; recovering once reason=${reason}`);
-    invalidateSandboxConnection(spaceId, "endpoint_unreachable");
-    // Throws when throttled without a dialable endpoint. recovering/ok paths wait.
-    await recoverSandboxOnce(spaceId, "endpoint_unreachable");
-    return waitForSandboxConnectionAfterRecover(spaceId, options?.timeoutMs ?? 60_000);
+
+    if (isSandboxEndpointUnreachable(error)) {
+      logger.warn(`[SandboxPool] endpoint unreachable spaceId=${spaceId}; recovering once reason=${reason}`);
+      invalidateSandboxConnection(spaceId, "endpoint_unreachable");
+      await recoverSandboxOnce(spaceId, "endpoint_unreachable");
+      return waitForSandboxConnectionReady(spaceId, waitMs);
+    }
+
+    if (isSandboxConnectRetryable(error)) {
+      logger.info(`[SandboxPool] waiting for sandbox readiness spaceId=${spaceId} reason=${reason}`);
+      return waitForSandboxConnectionReady(spaceId, waitMs);
+    }
+
+    throw error;
   }
 }
 
