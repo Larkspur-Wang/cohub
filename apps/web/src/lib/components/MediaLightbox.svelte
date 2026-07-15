@@ -145,7 +145,12 @@ function onTouchEnd(e: TouchEvent) {
 
 function onImagePointerDown(e: PointerEvent) {
 	if (mediaLightbox.current?.type !== "image") return;
-	if (e.button !== 0) return;
+	// Left button / touch only — keep right-click for browser image context menu.
+	if (e.pointerType === "mouse" && e.button !== 0) return;
+	// Ignore events that start on chrome (toolbar etc. sits above); stage/img only.
+	const target = e.target as HTMLElement | null;
+	if (target && target !== e.currentTarget && target.tagName !== "IMG") return;
+
 	(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 	pointers.set(e.pointerId, { clientX: e.clientX, clientY: e.clientY });
 
@@ -542,7 +547,7 @@ const imageCursor = $derived(
 					alt={mediaLightbox.current.alt ?? ""}
 					draggable="false"
 					style={`transform: translate(${panX}px, ${panY}px) scale(${zoom}); ${dragging || gestureZooming ? "" : "transition: transform 120ms ease-out;"}`}
-					class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none pointer-events-none"
+					class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none"
 				/>
 			</div>
 		{:else}
