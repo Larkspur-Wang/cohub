@@ -227,6 +227,32 @@ function sourceFromAuthUser(user: AuthUser): Record<string, unknown> {
   );
 }
 
+function emailFromSource(source: Record<string, unknown>): string | null {
+  return (
+    stringValue(source, "primaryEmail") ??
+    stringValue(source, "email") ??
+    nestedStringValue(source, ["profile", "email"])
+  );
+}
+
+function emailFromAuthUser(user: AuthUser): string | null {
+  return typeof user.email === "string" && user.email.trim() ? user.email.trim() : null;
+}
+
+/** Prefer JWT email; fall back to the synced profile source (Logto primaryEmail). */
+export async function resolveCurrentUserEmail(user: AuthUser): Promise<string | null> {
+  const fromAuth = emailFromAuthUser(user);
+  if (fromAuth) return fromAuth;
+
+  const [row] = await db
+    .select({ source: userProfiles.source })
+    .from(userProfiles)
+    .where(eq(userProfiles.userUuid, user.uuid))
+    .limit(1);
+  if (!row) return null;
+  return emailFromSource(asRecord(row.source));
+}
+
 export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProfile> {
   const logtoUserId = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
 

@@ -37,6 +37,7 @@ let userUuid = $state("");
 let displayName = $state("");
 let avatarUrl = $state("");
 let username = $state("");
+let email = $state("");
 let uuidCopied = $state(false);
 let loadError = $state("");
 let inlineError = $state("");
@@ -122,6 +123,7 @@ async function loadProfile() {
 		displayName = authStore.profile?.displayName ?? "";
 		avatarUrl = authStore.profile?.avatarUrl ?? "";
 		username = authStore.profile?.username ?? "";
+		email = authStore.email ?? "";
 	} catch (error) {
 		if (
 			await handleUnauthorizedError(error, `${currentPath}${currentSearch}`)
@@ -315,6 +317,13 @@ onMount(() => {
 										</button>
 									{/if}
 								</div>
+
+								{#if email}
+									<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
+										<span class="shrink-0 uppercase tracking-wider">Email</span>
+										<span class="min-w-0 truncate" title={email}>{email}</span>
+									</div>
+								{/if}
 
 								<div class="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-text-tertiary">
 									<span class="shrink-0 uppercase tracking-wider">ID</span>
