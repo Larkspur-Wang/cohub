@@ -112,7 +112,11 @@ async function runCapture() {
 	const gen = ++captureGen;
 	error = null;
 	phase = "capturing";
-	open = true;
+	const hadSession = Boolean(session);
+	// Never cover the preview while capturing. A full-surface overlay hides the
+	// iframe from tab share / Element Capture and stalls frame grab on Chrome.
+	// Progress is already visible on the mark button spinner.
+	open = false;
 
 	if (target.kind === "iframe") {
 		const caps = detectCaptureCapabilities();
@@ -120,7 +124,8 @@ async function runCapture() {
 		if (blocked) {
 			if (gen !== captureGen || disposed) return;
 			error = blocked;
-			phase = session ? "marking" : "idle";
+			phase = hadSession ? "marking" : "idle";
+			open = true;
 			return;
 		}
 	}
@@ -146,8 +151,8 @@ async function runCapture() {
 
 	if (!result.ok) {
 		error = result.message;
-		// Keep existing marks if recapture failed.
-		phase = session ? "marking" : "idle";
+		// Keep existing marks if recapture failed; otherwise show status UI.
+		phase = hadSession ? "marking" : "idle";
 		open = true;
 		return;
 	}
@@ -158,6 +163,7 @@ async function runCapture() {
 		session = createMarkSession(result.frame);
 	}
 	phase = "marking";
+	open = true;
 }
 
 async function handleMarkClick() {

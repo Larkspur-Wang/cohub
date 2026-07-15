@@ -23,6 +23,22 @@ type ExtendedTrack = MediaStreamTrack & {
 	cropTo?: (target: unknown) => Promise<void>;
 };
 
+type ImageCaptureLike = {
+	grabFrame: () => Promise<ImageBitmap>;
+};
+
+type ImageCaptureCtor = new (track: MediaStreamTrack) => ImageCaptureLike;
+
+type VideoWithFrameCallback = HTMLVideoElement & {
+	requestVideoFrameCallback?: (callback: () => void) => number;
+};
+
+const GRAB_TIMEOUT_MS = 12_000;
+const PLAY_TIMEOUT_MS = 8_000;
+/** Short probe — hang quickly and fall back to the video path. */
+const IMAGE_CAPTURE_TIMEOUT_MS = 3_000;
+const TRACK_UNMUTE_TIMEOUT_MS = 2_000;
+
 function waitFrame(): Promise<void> {
 	return new Promise((resolve) => {
 		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -56,27 +72,202 @@ function stopStream(stream: MediaStream | null) {
 	for (const track of stream.getTracks()) track.stop();
 }
 
-async function grabVideoFrame(
-	stream: MediaStream,
-): Promise<{ bitmap: ImageBitmap; width: number; height: number }> {
+function mountHiddenVideo(): HTMLVideoElement {
 	const video = document.createElement("video");
 	video.playsInline = true;
 	video.muted = true;
-	video.srcObject = stream;
-	await withTimeout(video.play(), 8_000, "Capture playback");
-	// Wait until dimensions are available.
-	for (let i = 0; i < 45; i++) {
-		if (video.videoWidth > 0 && video.videoHeight > 0) break;
-		await waitFrame();
+	video.autoplay = true;
+	video.setAttribute("playsinline", "");
+	video.setAttribute("muted", "");
+	video.setAttribute("autoplay", "");
+	// Keep it in the document so Chromium reliably decodes display-media streams.
+	Object.assign(video.style, {
+		position: "fixed",
+		left: "-99999px",
+		top: "0",
+		width: "2px",
+		height: "2px",
+		opacity: "0",
+		pointerEvents: "none",
+	});
+	document.documentElement.appendChild(video);
+	return video;
+}
+
+function waitForMetadata(video: HTMLVideoElement): Promise<void> {
+	if (
+		video.readyState >= HTMLMediaElement.HAVE_METADATA &&
+		video.videoWidth > 0
+	) {
+		return Promise.resolve();
 	}
-	if (video.videoWidth <= 0 || video.videoHeight <= 0) {
-		throw new Error("Capture stream has no video frames");
+	return new Promise((resolve, reject) => {
+		const onMeta = () => {
+			cleanup();
+			resolve();
+		};
+		const onError = () => {
+			cleanup();
+			reject(new Error("Capture video failed to load"));
+		};
+		const cleanup = () => {
+			video.removeEventListener("loadedmetadata", onMeta);
+			video.removeEventListener("error", onError);
+		};
+		video.addEventListener("loadedmetadata", onMeta);
+		video.addEventListener("error", onError);
+	});
+}
+
+function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+	const withCallback = video as VideoWithFrameCallback;
+	const rVFC = withCallback.requestVideoFrameCallback?.bind(withCallback);
+
+	if (video.videoWidth > 0 && video.videoHeight > 0 && rVFC) {
+		return new Promise((resolve) => {
+			rVFC(() => resolve());
+		});
 	}
-	await waitFrame();
-	const bitmap = await createImageBitmap(video);
-	video.pause();
-	video.srcObject = null;
-	return { bitmap, width: bitmap.width, height: bitmap.height };
+
+	return new Promise((resolve, reject) => {
+		let attempts = 0;
+		const tick = () => {
+			if (video.videoWidth > 0 && video.videoHeight > 0) {
+				if (rVFC) {
+					rVFC(() => resolve());
+				} else {
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+				}
+				return;
+			}
+			attempts += 1;
+			if (attempts > 180) {
+				reject(new Error("Capture stream has no video frames"));
+				return;
+			}
+			requestAnimationFrame(tick);
+		};
+		tick();
+	});
+}
+
+async function waitForTrackLive(
+	track: MediaStreamTrack,
+	ms: number,
+): Promise<void> {
+	if (track.readyState !== "live") {
+		throw new Error("Capture track ended");
+	}
+	// Display-media tracks often start muted until the first frame is painted.
+	if (!track.muted) return;
+	try {
+		await withTimeout(
+			new Promise<void>((resolve, reject) => {
+				const onUnmute = () => {
+					cleanup();
+					resolve();
+				};
+				const onEnded = () => {
+					cleanup();
+					reject(new Error("Capture track ended"));
+				};
+				const cleanup = () => {
+					track.removeEventListener("unmute", onUnmute);
+					track.removeEventListener("ended", onEnded);
+				};
+				track.addEventListener("unmute", onUnmute);
+				track.addEventListener("ended", onEnded);
+				// Race: unmute may have already flipped between the check and listener.
+				if (!track.muted) {
+					cleanup();
+					resolve();
+				}
+			}),
+			ms,
+			"Capture track",
+		);
+	} catch (error) {
+		if (error instanceof Error && /timed out/i.test(error.message)) {
+			// Still muted — try grab anyway; some browsers never unmute.
+			return;
+		}
+		throw error;
+	}
+}
+
+async function grabFrameViaImageCapture(
+	track: MediaStreamTrack,
+): Promise<{ bitmap: ImageBitmap; width: number; height: number } | null> {
+	const ImageCapture = (
+		window as unknown as { ImageCapture?: ImageCaptureCtor }
+	).ImageCapture;
+	if (!ImageCapture) return null;
+	try {
+		await waitForTrackLive(track, TRACK_UNMUTE_TIMEOUT_MS);
+		const capture = new ImageCapture(track);
+		const bitmap = await withTimeout(
+			capture.grabFrame(),
+			IMAGE_CAPTURE_TIMEOUT_MS,
+			"Capture frame",
+		);
+		if (bitmap.width <= 0 || bitmap.height <= 0) {
+			bitmap.close();
+			return null;
+		}
+		return { bitmap, width: bitmap.width, height: bitmap.height };
+	} catch {
+		return null;
+	}
+}
+
+async function grabFrameViaVideo(
+	stream: MediaStream,
+): Promise<{ bitmap: ImageBitmap; width: number; height: number }> {
+	const video = mountHiddenVideo();
+	try {
+		video.srcObject = stream;
+		await withTimeout(
+			waitForMetadata(video),
+			PLAY_TIMEOUT_MS,
+			"Capture metadata",
+		);
+
+		// autoplay often starts muted display-media streams; only call play() if needed.
+		if (video.paused) {
+			await withTimeout(video.play(), PLAY_TIMEOUT_MS, "Capture playback");
+		}
+
+		await withTimeout(
+			waitForVideoFrame(video),
+			GRAB_TIMEOUT_MS,
+			"Capture frame",
+		);
+		if (video.videoWidth <= 0 || video.videoHeight <= 0) {
+			throw new Error("Capture stream has no video frames");
+		}
+
+		const bitmap = await createImageBitmap(video);
+		return { bitmap, width: bitmap.width, height: bitmap.height };
+	} finally {
+		try {
+			video.pause();
+		} catch {
+			// ignore
+		}
+		video.srcObject = null;
+		video.remove();
+	}
+}
+
+async function grabVideoFrame(
+	stream: MediaStream,
+): Promise<{ bitmap: ImageBitmap; width: number; height: number }> {
+	const track = stream.getVideoTracks()[0];
+	if (track) {
+		const viaCapture = await grabFrameViaImageCapture(track);
+		if (viaCapture) return viaCapture;
+	}
+	return grabFrameViaVideo(stream);
 }
 
 async function cropBitmap(
@@ -119,6 +310,81 @@ async function tryCropToElement(
 	}
 }
 
+async function clearTrackTarget(track: ExtendedTrack): Promise<void> {
+	if (track.restrictTo) {
+		try {
+			await track.restrictTo(null);
+		} catch {
+			// ignore — not all browsers accept null
+		}
+	}
+	if (track.cropTo) {
+		try {
+			await track.cropTo(null);
+		} catch {
+			// ignore
+		}
+	}
+}
+
+function maybeGeometryCrop(
+	bitmap: ImageBitmap,
+	rect: DOMRect,
+	quality: CaptureQuality,
+): Promise<{
+	bitmap: ImageBitmap;
+	width: number;
+	height: number;
+	quality: CaptureQuality;
+}> {
+	const width = bitmap.width;
+	const height = bitmap.height;
+	if (quality !== "full") {
+		return Promise.resolve({ bitmap, width, height, quality });
+	}
+
+	const dpr = window.devicePixelRatio || 1;
+	const viewportW = Math.round(window.innerWidth * dpr);
+	const viewportH = Math.round(window.innerHeight * dpr);
+	const looksLikeCurrentTab =
+		Math.abs(width - viewportW) / Math.max(width, viewportW) < 0.12 &&
+		Math.abs(height - viewportH) / Math.max(height, viewportH) < 0.12;
+	if (!looksLikeCurrentTab) {
+		return Promise.resolve({ bitmap, width, height, quality });
+	}
+
+	const pixelRect = cssRectToPixelRect(rect, {
+		dpr,
+		frameWidth: width,
+		frameHeight: height,
+	});
+	const areaRatio =
+		(pixelRect.width * pixelRect.height) / Math.max(1, width * height);
+	if (areaRatio >= 0.98 || pixelRect.width <= 8 || pixelRect.height <= 8) {
+		return Promise.resolve({ bitmap, width, height, quality });
+	}
+
+	return cropBitmap(bitmap, pixelRect)
+		.then((cropped) => {
+			bitmap.close();
+			return {
+				bitmap: cropped,
+				width: cropped.width,
+				height: cropped.height,
+				quality: "cropped-window" as const,
+			};
+		})
+		.catch(() => ({ bitmap, width, height, quality }));
+}
+
+function captureFailureMessage(error: unknown): string {
+	if (error instanceof Error && /timed out/i.test(error.message)) {
+		return "Capture stalled after sharing. Prefer this tab, then try again.";
+	}
+	if (error instanceof Error && error.message) return error.message;
+	return "Failed to capture preview.";
+}
+
 export async function captureIframeElement(input: {
 	element: HTMLIFrameElement;
 	source: Extract<FrameSource, { kind: "html" | "port" }>;
@@ -129,8 +395,8 @@ export async function captureIframeElement(input: {
 		return { ok: false, reason: "unsupported", message: unsupported };
 	}
 
-	const rect = input.element.getBoundingClientRect();
-	if (rect.width < 2 || rect.height < 2) {
+	const readyRect = input.element.getBoundingClientRect();
+	if (readyRect.width < 2 || readyRect.height < 2) {
 		return {
 			ok: false,
 			reason: "iframe-not-ready",
@@ -143,7 +409,10 @@ export async function captureIframeElement(input: {
 		await waitFrame();
 		stream = await withTimeout(
 			navigator.mediaDevices.getDisplayMedia({
-				video: true,
+				video: {
+					// Prefer a high-res track when the browser honors constraints.
+					frameRate: { ideal: 30 },
+				},
 				audio: false,
 				// Chromium hints — ignored by browsers that don't support them.
 				preferCurrentTab: true,
@@ -166,64 +435,47 @@ export async function captureIframeElement(input: {
 			};
 		}
 
+		// Re-measure after the picker closes — layout can shift while sharing.
+		const rect = input.element.getBoundingClientRect();
+
 		let quality: CaptureQuality = "full";
+		let usedElementTarget = false;
 		if (await tryRestrictToElement(track, input.element)) {
 			quality = "element";
+			usedElementTarget = true;
 		} else if (await tryCropToElement(track, input.element)) {
 			quality = "region";
+			usedElementTarget = true;
 		}
 
-		const grabbed = await withTimeout(
-			grabVideoFrame(stream),
-			10_000,
-			"Capture frame",
-		);
+		// Element / region capture needs a compositor beat before frames arrive.
+		if (usedElementTarget) await waitFrame();
+
+		let grabbed: { bitmap: ImageBitmap; width: number; height: number };
+		try {
+			// Timeouts live inside grabVideoFrame (ImageCapture probe + video path).
+			grabbed = await grabVideoFrame(stream);
+		} catch (firstError) {
+			// Element Capture can succeed then stall; fall back to full tab + crop.
+			if (!usedElementTarget) throw firstError;
+			await clearTrackTarget(track);
+			quality = "full";
+			await waitFrame();
+			grabbed = await grabVideoFrame(stream);
+		}
+
 		stopStream(stream);
 		stream = null;
 
-		let bitmap = grabbed.bitmap;
-		let width = grabbed.width;
-		let height = grabbed.height;
-
-		// Geometry crop only when the frame looks like the current tab viewport.
-		// If the user shared another window/screen, keep the full frame for manual crop.
-		if (quality === "full") {
-			const dpr = window.devicePixelRatio || 1;
-			const viewportW = Math.round(window.innerWidth * dpr);
-			const viewportH = Math.round(window.innerHeight * dpr);
-			const looksLikeCurrentTab =
-				Math.abs(width - viewportW) / Math.max(width, viewportW) < 0.12 &&
-				Math.abs(height - viewportH) / Math.max(height, viewportH) < 0.12;
-			if (looksLikeCurrentTab) {
-				const pixelRect = cssRectToPixelRect(rect, {
-					dpr,
-					frameWidth: width,
-					frameHeight: height,
-				});
-				const areaRatio =
-					(pixelRect.width * pixelRect.height) / Math.max(1, width * height);
-				if (areaRatio < 0.98 && pixelRect.width > 8 && pixelRect.height > 8) {
-					try {
-						const cropped = await cropBitmap(bitmap, pixelRect);
-						bitmap.close();
-						bitmap = cropped;
-						width = cropped.width;
-						height = cropped.height;
-						quality = "cropped-window";
-					} catch {
-						// Keep full frame — user can crop in the mark UI.
-					}
-				}
-			}
-		}
-
+		const cropRect = rect.width >= 2 && rect.height >= 2 ? rect : readyRect;
+		const cropped = await maybeGeometryCrop(grabbed.bitmap, cropRect, quality);
 		const frame: FrozenFrame = {
-			bitmap,
-			width,
-			height,
+			bitmap: cropped.bitmap,
+			width: cropped.width,
+			height: cropped.height,
 			dpr: window.devicePixelRatio || 1,
 			capturedAt: Date.now(),
-			quality,
+			quality: cropped.quality,
 			source: input.source,
 		};
 		return { ok: true, frame };
@@ -240,7 +492,7 @@ export async function captureIframeElement(input: {
 				message: "Capture permission denied. Try again when ready.",
 			};
 		}
-		if (name === "NotSupportedError") {
+		if (name === "NotSupportedError" || name === "NotFoundError") {
 			return {
 				ok: false,
 				reason: "unsupported",
@@ -250,8 +502,7 @@ export async function captureIframeElement(input: {
 		return {
 			ok: false,
 			reason: "capture-failed",
-			message:
-				error instanceof Error ? error.message : "Failed to capture preview.",
+			message: captureFailureMessage(error),
 		};
 	}
 }
