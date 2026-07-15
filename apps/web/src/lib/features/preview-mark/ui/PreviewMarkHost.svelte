@@ -55,8 +55,6 @@ let session = $state<MarkSession | null>(null);
 let phase = $state<"idle" | "capturing" | "marking" | "copying" | "attaching">(
 	"idle",
 );
-/** Sub-state while phase === capturing: waiting for share picker vs grabbing frames. */
-let captureStep = $state<"share" | "grab">("share");
 let error = $state<string | null>(null);
 /** Lightweight toast for dismissals (cancel / permission deny) — not the full panel. */
 let softNotice = $state<string | null>(null);
@@ -87,14 +85,6 @@ const usesDisplayMedia = $derived(
 );
 const canRecapture = $derived(usesDisplayMedia);
 const canStart = $derived(Boolean(target) || allowViewport);
-/**
- * Chip only during the share-picker wait. Hide before the grab so the floating
- * toast is not baked into the captured tab frame.
- */
-const showCaptureChip = $derived(
-	phase === "capturing" && !open && captureStep === "share",
-);
-const captureChipLabel = "Share this tab to capture…";
 const canCropApply = $derived(
 	Boolean(session?.cropDraft && session.getCropRect()),
 );
@@ -162,7 +152,6 @@ function close() {
 	session?.dispose();
 	session = null;
 	phase = "idle";
-	captureStep = "share";
 	error = null;
 	copied = false;
 	clearSoftNotice();
@@ -171,19 +160,6 @@ function close() {
 		copiedTimer = null;
 	}
 	open = false;
-}
-
-function cancelCapture() {
-	if (phase !== "capturing") return;
-	captureGen += 1;
-	const hadSession = Boolean(session);
-	phase = hadSession ? "marking" : "idle";
-	captureStep = "share";
-	error = null;
-	// Recapture cancel: reopen mark UI with previous frame.
-	// First capture cancel: soft toast only — no full error panel.
-	if (hadSession) open = true;
-	else showSoftNotice("Capture cancelled");
 }
 
 /** User dismissed share UI or denied permission — keep feedback light. */
@@ -215,7 +191,6 @@ function applyCaptureResult(
 		error = result.message;
 		// Keep existing marks if recapture failed; otherwise show status UI.
 		phase = hadSession ? "marking" : "idle";
-		captureStep = "share";
 		open = true;
 		return;
 	}
@@ -227,7 +202,6 @@ function applyCaptureResult(
 	}
 	error = null;
 	phase = "marking";
-	captureStep = "share";
 	open = true;
 }
 
@@ -289,8 +263,8 @@ async function runCapture() {
 	error = null;
 	clearSoftNotice();
 	phase = "capturing";
-	captureStep = "share";
-	// Keep the page visible under the browser share UI and while grabbing frames.
+	// Keep the page free of our overlays under the share UI and while grabbing.
+	// No in-page capture toast — it paints into the tab and ends up in the frame.
 	open = false;
 
 	let stream: MediaStream;
@@ -321,7 +295,6 @@ async function runCapture() {
 				? String((caught as { name?: string }).name)
 				: "";
 		phase = hadSession ? "marking" : "idle";
-		captureStep = "share";
 		if (gen !== captureGen || disposed) return;
 
 		// Soft dismissals: cancel / deny should not open the heavy mark panel.
@@ -350,8 +323,7 @@ async function runCapture() {
 		return;
 	}
 
-	// Drop the share chip and wait a paint so it is not baked into the frame.
-	captureStep = "grab";
+	// One paint after the share picker closes so the page is clean of chrome.
 	await tick();
 	await new Promise<void>((resolve) => {
 		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -494,36 +466,13 @@ onDestroy(() => {
 	</button>
 {/if}
 
-{#if showCaptureChip}
-	<div
-		use:portal
-		class="mark-capture-chip"
-		role="status"
-		aria-live="polite"
-		in:fade={TRANSITION_IN}
-		out:fade={TRANSITION_OUT}
-	>
-		<Loader2 class="h-3.5 w-3.5 shrink-0 animate-spin" />
-		<span>{captureChipLabel}</span>
-		<button
-			type="button"
-			class="mark-capture-chip-cancel"
-			onclick={cancelCapture}
-			title="Cancel capture"
-			aria-label="Cancel capture"
-			>Cancel</button
-		>
-	</div>
-{/if}
-
-{#if softNotice && !open}
+{#if softNotice && !open && phase !== "capturing"}
 	<div
 		use:portal
 		class="mark-soft-notice"
 		role="status"
 		aria-live="polite"
 		in:fade={TRANSITION_IN}
-		out:fade={TRANSITION_OUT}
 	>
 		{softNotice}
 	</div>
@@ -615,41 +564,6 @@ onDestroy(() => {
 {/if}
 
 <style>
-	.mark-capture-chip {
-		position: fixed;
-		top: max(12px, env(safe-area-inset-top, 0px));
-		left: 50%;
-		z-index: 110;
-		display: inline-flex;
-		transform: translateX(-50%);
-		align-items: center;
-		gap: 8px;
-		border: 1px solid var(--border-subtle);
-		border-radius: 999px;
-		background: var(--bg-content);
-		padding: 6px 10px 6px 12px;
-		color: var(--text-secondary);
-		font-size: 12px;
-		font-weight: 500;
-		line-height: 1.2;
-		white-space: nowrap;
-		box-shadow: 0 8px 24px color-mix(in srgb, var(--overlay-scrim-strong) 20%, transparent);
-	}
-	.mark-capture-chip-cancel {
-		border: 0;
-		border-radius: 999px;
-		background: var(--bg-hover);
-		padding: 3px 8px;
-		color: var(--text-tertiary);
-		font: inherit;
-		font-size: 11px;
-		font-weight: 600;
-		cursor: pointer;
-	}
-	.mark-capture-chip-cancel:hover {
-		color: var(--text-secondary);
-	}
-
 	.mark-soft-notice {
 		position: fixed;
 		bottom: max(20px, env(safe-area-inset-bottom, 0px));
