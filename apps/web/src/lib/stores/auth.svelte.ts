@@ -50,6 +50,11 @@ const restoreAuthSession = async (
 	let profile: UserProfile | null = null;
 	let email: string | null = null;
 
+	// Session restore must not trigger global sign-in redirects — callers
+	// decide whether to prompt login. skipUnauthorizedHandler keeps transport
+	// from racing with clearBrokenAuthSession via onUnauthorized.
+	const meOptions = { skipUnauthorizedHandler: true as const };
+
 	const cached = getCachedMeProfile(subject);
 	if (cached) {
 		userUuid = cached.uuid ?? null;
@@ -65,7 +70,7 @@ const restoreAuthSession = async (
 		onProfileUpdate?.(cachedSession);
 		if (options?.refreshInBackground) {
 			void sdk.user
-				.getMe()
+				.getMe(meOptions)
 				.then((me) => {
 					setCachedMeProfile(subject, me);
 					onProfileUpdate?.({
@@ -91,7 +96,7 @@ const restoreAuthSession = async (
 	}
 
 	try {
-		const me = await sdk.user.getMe();
+		const me = await sdk.user.getMe(meOptions);
 		userUuid = me.uuid ?? null;
 		profile = me.profile ?? null;
 		email = me.email ?? null;

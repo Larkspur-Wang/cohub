@@ -9,9 +9,10 @@ import { getCurrentRedirectPath, redirectToSignIn } from "$lib/auth-redirect";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
 
 const handleUnauthorized = async () => {
-	if (typeof window !== "undefined") {
-		await redirectToSignIn(getCurrentRedirectPath());
-	}
+	if (typeof window === "undefined") return;
+	// Refresh already failed in transport — drop local Logto residue so the
+	// next sign-in is a clean round-trip instead of a silent SSO bounce.
+	await redirectToSignIn(getCurrentRedirectPath(), { clearSession: true });
 };
 
 function shouldInspectBillingResponse(

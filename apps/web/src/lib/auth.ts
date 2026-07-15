@@ -66,6 +66,9 @@ export const logtoClient: LogtoClient = new Proxy({} as LogtoClient, {
 export const AUTH_TOKEN_STORAGE_KEY = "cohub_token";
 /** Lightweight flag for first-paint home redirect (not an auth token). */
 export const SESSION_HINT_STORAGE_KEY = "cohub:session-hint";
+/** Set after OAuth callback succeeds; used to break silent SSO redirect loops. */
+export const AUTH_JUST_COMPLETED_KEY = "cohub:auth-just-completed";
+const AUTH_JUST_COMPLETED_TTL_MS = 30_000;
 
 function hasLogtoSessionResidue(): boolean {
 	if (typeof localStorage === "undefined") return false;
@@ -110,6 +113,74 @@ export function setSessionHint(active: boolean) {
 		else localStorage.removeItem(SESSION_HINT_STORAGE_KEY);
 	} catch {
 		// ignore quota / private mode
+	}
+}
+
+export function markAuthJustCompleted() {
+	if (typeof sessionStorage === "undefined") return;
+	try {
+		sessionStorage.setItem(AUTH_JUST_COMPLETED_KEY, String(Date.now()));
+	} catch {
+		// ignore quota / private mode
+	}
+}
+
+export function hasRecentAuthCompletion(
+	ttlMs = AUTH_JUST_COMPLETED_TTL_MS,
+): boolean {
+	if (typeof sessionStorage === "undefined") return false;
+	try {
+		const raw = sessionStorage.getItem(AUTH_JUST_COMPLETED_KEY);
+		if (!raw) return false;
+		const ts = Number(raw);
+		return Number.isFinite(ts) && Date.now() - ts < ttlMs;
+	} catch {
+		return false;
+	}
+}
+
+export function clearAuthJustCompleted() {
+	if (typeof sessionStorage === "undefined") return;
+	try {
+		sessionStorage.removeItem(AUTH_JUST_COMPLETED_KEY);
+	} catch {
+		// ignore
+	}
+}
+
+const isAuthEndpointPath = (pathname: string) =>
+	pathname === "/callback" ||
+	pathname.startsWith("/callback/") ||
+	pathname === "/work-auth" ||
+	pathname.startsWith("/work-auth/");
+
+/**
+ * Keep post-login destinations same-app and off auth endpoints.
+ * Accepts relative paths (`/foo?x=1#h`) or same-origin absolute URLs.
+ * Rejects protocol-relative (`//…`), backslashes, and open redirects.
+ */
+export function sanitizeRedirectPath(path?: string | null): string {
+	if (!path) return "/";
+	const trimmed = path.trim();
+	if (!trimmed) return "/";
+
+	try {
+		// Relative app path: "/spaces/new?x=1#section"
+		if (trimmed.startsWith("/") && !trimmed.startsWith("//")) {
+			if (trimmed.includes("\\")) return "/";
+			const url = new URL(trimmed, "http://local.invalid");
+			if (isAuthEndpointPath(url.pathname)) return "/";
+			return `${url.pathname}${url.search}${url.hash}` || "/";
+		}
+
+		// Absolute URL — only same-origin when running in the browser.
+		if (typeof window === "undefined") return "/";
+		const url = new URL(trimmed, window.location.origin);
+		if (url.origin !== window.location.origin) return "/";
+		if (isAuthEndpointPath(url.pathname)) return "/";
+		return `${url.pathname}${url.search}${url.hash}` || "/";
+	} catch {
+		return "/";
 	}
 }
 
@@ -222,16 +293,25 @@ export const clearAuthToken = () => {
 const createRedirectState = (redirectPath?: string) => {
 	const searchParams = new URLSearchParams();
 	if (redirectPath) {
-		searchParams.set("redirect_path", redirectPath);
+		searchParams.set("redirect_path", sanitizeRedirectPath(redirectPath));
 	}
 	return searchParams.toString();
 };
 
+/**
+ * Low-level Logto sign-in for **user-initiated** flows (CTA, ensureAuth, etc.).
+ *
+ * For automatic 401 recovery always use `redirectToSignIn` — that path owns
+ * the post-callback silent-SSO loop breaker. Calling this after a failed API
+ * auth check can re-enter Logto with a still-valid SSO cookie and loop.
+ */
 export const signInWithRedirectPath = async (redirectPath?: string) => {
 	const client = getLogtoClient();
 	const originalGenerateState = client.adapter.generateState;
+	const safePath =
+		redirectPath === undefined ? undefined : sanitizeRedirectPath(redirectPath);
 
-	client.adapter.generateState = () => createRedirectState(redirectPath);
+	client.adapter.generateState = () => createRedirectState(safePath);
 	try {
 		await client.signIn({
 			redirectUri: `${window.location.origin}/callback`,

@@ -9,8 +9,12 @@ export class UserApi {
     private readonly clearStoredAuthToken?: () => void,
   ) {}
 
-  getMe(customFetch?: Fetch) {
-    return this.transport.request<MeResponse>("/api/me", { fetch: customFetch });
+  getMe(
+    options?: Fetch | { fetch?: Fetch; skipUnauthorizedHandler?: boolean },
+  ) {
+    const init =
+      typeof options === "function" ? { fetch: options } : options;
+    return this.transport.request<MeResponse>("/api/me", init);
   }
 
   updateProfile(input: { displayName?: string; avatarUrl?: string | null; username?: string | null }) {

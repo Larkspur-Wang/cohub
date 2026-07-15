@@ -58,3 +58,31 @@ test("HttpTransport Authorization header uses sanitized tokens", async () => {
 	assert.equal(calls[0]?.url, "https://api.example.com/api/spaces");
 	assert.ok(HttpError);
 });
+
+test("HttpTransport can skip onUnauthorized for bootstrap 401s", async () => {
+	let unauthorizedCalls = 0;
+	const client = createCohubClient({
+		baseUrl: "https://api.example.com",
+		getAccessToken: async () => "token",
+		onUnauthorized: () => {
+			unauthorizedCalls += 1;
+		},
+		fetch: async () =>
+			new Response(JSON.stringify({ message: "unauthorized" }), {
+				status: 401,
+				headers: { "Content-Type": "application/json" },
+			}),
+	});
+
+	await assert.rejects(
+		() => client.user.getMe({ skipUnauthorizedHandler: true }),
+		(error: unknown) => error instanceof HttpError && error.status === 401,
+	);
+	assert.equal(unauthorizedCalls, 0);
+
+	await assert.rejects(
+		() => client.user.getMe(),
+		(error: unknown) => error instanceof HttpError && error.status === 401,
+	);
+	assert.equal(unauthorizedCalls, 1);
+});

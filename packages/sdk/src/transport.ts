@@ -6,7 +6,11 @@ import type { WorkRuntimeModeConfig } from "./work-runtime.js";
 
 export type Fetch = typeof globalThis.fetch;
 
-type RequestInitWithFetch = RequestInit & { fetch?: Fetch };
+type RequestInitWithFetch = RequestInit & {
+  fetch?: Fetch;
+  /** When true, 401 responses throw without invoking onUnauthorized (e.g. session bootstrap). */
+  skipUnauthorizedHandler?: boolean;
+};
 
 const responseBodyForError = async (response: Response) => {
   const contentType = response.headers.get("content-type") ?? "";
@@ -116,8 +120,12 @@ export class HttpTransport {
     this.onUnauthorized = options.onUnauthorized;
   }
 
-  private async withAuthorization(init?: RequestInit, tokenOverride?: string | null): Promise<RequestInit> {
-    const headers = new Headers(init?.headers);
+  private async withAuthorization(
+    init?: RequestInitWithFetch,
+    tokenOverride?: string | null,
+  ): Promise<RequestInit> {
+    const { fetch: _fetch, skipUnauthorizedHandler: _skip, ...requestInit } = init ?? {};
+    const headers = new Headers(requestInit.headers);
     const rawToken =
       tokenOverride !== undefined
         ? tokenOverride
@@ -133,7 +141,7 @@ export class HttpTransport {
     }
 
     return {
-      ...init,
+      ...requestInit,
       headers,
     };
   }
@@ -141,6 +149,7 @@ export class HttpTransport {
   private async send(path: string, init?: RequestInitWithFetch) {
     const fetcher = init?.fetch ?? this.fetcher;
     const url = joinApiUrl(this.baseUrl, path);
+    const skipUnauthorizedHandler = Boolean(init?.skipUnauthorizedHandler);
 
     let response: Response;
     try {
@@ -192,7 +201,9 @@ export class HttpTransport {
     }
 
     if (response.status === 401) {
-      await this.onUnauthorized?.();
+      if (!skipUnauthorizedHandler) {
+        await this.onUnauthorized?.();
+      }
       throw new HttpError("unauthorized", 401, null);
     }
 
