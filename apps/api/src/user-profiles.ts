@@ -262,7 +262,11 @@ export async function ensureCurrentUserProfile(user: AuthUser): Promise<UserProf
 }
 
 export async function updateCurrentUserProfile(user: AuthUser, input: { displayName?: string; avatarUrl?: string | null; username?: string | null }) {
-  const logtoUserId = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
+  // Logto access tokens carry `sub`; execution / work / preview principals only have
+  // actor uuid, so fall back to the stored profile's logtoUserId for those cases.
+  const logtoUserIdFromToken = typeof user.sub === "string" && user.sub.trim() ? user.sub.trim() : null;
+  const storedProfile = await getStoredUserProfile(user.uuid);
+  const logtoUserId = logtoUserIdFromToken ?? storedProfile?.logtoUserId ?? null;
   if (!logtoUserId) throw new LogtoUserRequiredError("profile updates require user sign-in");
 
   const username = input.username === undefined ? undefined : normalizeUsername(input.username);
@@ -272,7 +276,6 @@ export async function updateCurrentUserProfile(user: AuthUser, input: { displayN
 
   const previousLogtoUser = await getLogtoUser(logtoUserId);
   const previousFields = normalizeUserProfile({ userUuid: user.uuid, source: previousLogtoUser });
-  const storedProfile = await getStoredUserProfile(user.uuid);
   const previousUsername = storedProfile?.username ?? previousFields.username;
   if (input.username !== undefined && !username && previousUsername) {
     throw new UsernameClearError("username cannot be cleared once set");
