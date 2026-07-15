@@ -100,7 +100,8 @@ export const defaultCriticalJobOptions = {
   ...defaultJobRetention,
 } satisfies JobsOptions;
 
-export const createQueueTelemetry = (serviceName: string) => new BullMQOtel(serviceName);
+export const createQueueTelemetry = (serviceName: string) =>
+  new BullMQOtel({ tracerName: serviceName });
 
 export const createBullmqConnectionOptions = (url: string) => ({ url });
 

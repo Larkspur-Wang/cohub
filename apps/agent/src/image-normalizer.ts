@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import sharp from "sharp";
+import sharp, { type OutputInfo } from "sharp";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { logger } from "./logger.js";
@@ -82,7 +82,7 @@ export async function normalizeAgentImage(input: NormalizeImageInput): Promise<N
 
   try {
     const metadata = await sharp(input.data, { animated: false, limitInputPixels: AGENT_IMAGE_MAX_INPUT_PIXELS }).metadata();
-    let bestOutput: { data: Buffer; info: sharp.OutputInfo; edge: number; quality: number } | null = null;
+    let bestOutput: { data: Buffer; info: OutputInfo; edge: number; quality: number } | null = null;
     for (const attempt of IMAGE_NORMALIZE_ATTEMPTS) {
       const output = await sharp(input.data, { animated: false, limitInputPixels: AGENT_IMAGE_MAX_INPUT_PIXELS })
         .rotate()

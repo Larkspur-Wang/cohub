@@ -45,6 +45,9 @@
       "allowedVersions": {
         "typescript": "7"
       }
+    },
+    "overrides": {
+      "ioredis": "5.11.1"
     }
   }
 }
