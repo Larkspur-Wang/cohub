@@ -558,23 +558,30 @@ function sanitizeForIndexedDb<T>(value: T): T {
 	return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function awaitTransaction(tx: IDBTransaction) {
+	return new Promise<void>((resolve, reject) => {
+		// Aborted transactions only fire `onabort` (not always `onerror`). Without
+		// this handler, callers can hang forever after a successful network fetch
+		// while waiting to persist into IndexedDB.
+		tx.oncomplete = () => resolve();
+		tx.onerror = () =>
+			reject(tx.error ?? new Error("IndexedDB transaction failed"));
+		tx.onabort = () =>
+			reject(tx.error ?? new Error("IndexedDB transaction aborted"));
+	});
+}
+
 export async function idbPut<T>(storeName: StoreName, value: T) {
 	await withObjectStore(storeName, "readwrite", (store, tx) => {
-		return new Promise<void>((resolve, reject) => {
-			store.put(sanitizeForIndexedDb(value));
-			tx.oncomplete = () => resolve();
-			tx.onerror = () => reject(tx.error);
-		});
+		store.put(sanitizeForIndexedDb(value));
+		return awaitTransaction(tx);
 	});
 }
 
 export async function idbDelete(storeName: StoreName, key: string) {
 	await withObjectStore(storeName, "readwrite", (store, tx) => {
-		return new Promise<void>((resolve, reject) => {
-			store.delete(key);
-			tx.oncomplete = () => resolve();
-			tx.onerror = () => reject(tx.error);
-		});
+		store.delete(key);
+		return awaitTransaction(tx);
 	});
 }
 

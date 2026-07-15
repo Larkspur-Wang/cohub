@@ -412,33 +412,30 @@ export async function fetchLabelItemsFirstPageFresh(
 			sessions: [] as SessionRecord[],
 			forks: [] as NonNullable<LabelItemsResponse["forks"]>,
 		};
-	const fetchPage = async () => {
-		const result = await sdk.space(spaceId).labels.listItems(ref, {
-			limit: LABEL_ITEMS_PAGE_SIZE,
-			cursor: null,
-		});
-		return {
-			items: result.items ?? [],
-			pageInfo: result.pageInfo,
-			sessions: result.sessions ?? [],
-			forks: result.forks ?? [],
-		};
+	const result = await sdk.space(spaceId).labels.listItems(ref, {
+		limit: LABEL_ITEMS_PAGE_SIZE,
+		cursor: null,
+	});
+	const page = {
+		items: result.items ?? [],
+		pageInfo: result.pageInfo,
+		sessions: result.sessions ?? [],
+		forks: result.forks ?? [],
 	};
-	if (!(await resolveCacheUserKey())) {
-		const page = await fetchPage();
-		return page;
+	// Always return network data first. Cache is best-effort and must not keep the
+	// sidebar on Loading… after labels/items already returned 200.
+	if (await resolveCacheUserKey()) {
+		void labelItemsRepo
+			.setFirstPage(spaceId, labelId, page, { source: "network" })
+			.catch((error) => {
+				console.warn("[space-labels] Failed to cache label items", {
+					spaceId,
+					labelId,
+					error,
+				});
+			});
 	}
-	const snapshot = await labelItemsRepo.refreshFirstPage(
-		spaceId,
-		labelId,
-		fetchPage,
-	);
-	return {
-		items: snapshot.items,
-		pageInfo: snapshot.pageInfo,
-		sessions: snapshot.sessions,
-		forks: snapshot.forks,
-	};
+	return page;
 }
 
 export async function setCachedLabelItemsFirstPage(

@@ -116,7 +116,16 @@ async function writeRecord(
 		completeness: "partial",
 	};
 	memory.set(key, record);
-	await idbPut("label_items", record);
+	// Memory is enough for the current tab. Persist IndexedDB in the background
+	// so large label item pages (hydrated sessions + previews) never block the
+	// sidebar from leaving the loading state after a successful network fetch.
+	void idbPut("label_items", record).catch((error) => {
+		console.warn("[label-items] Failed to persist first page", {
+			spaceId,
+			labelId,
+			error,
+		});
+	});
 	if (options?.broadcast !== false) {
 		publishCacheMessage({
 			type: "cache-updated",

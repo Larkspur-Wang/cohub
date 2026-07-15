@@ -1450,7 +1450,9 @@ async function absorbLabelItemSessions(
 		...labelSessionDetailsBySpace,
 		[spaceId]: nextDetails,
 	};
-	await setCachedSessionDetails(spaceId, accepted).catch(() => undefined);
+	// Keep sidebar paint off the IndexedDB critical path. Session detail cache is
+	// best-effort; in-memory rows already drive the list.
+	void setCachedSessionDetails(spaceId, accepted).catch(() => undefined);
 }
 
 async function loadLabelItems(
@@ -1469,6 +1471,7 @@ async function loadLabelItems(
 		const cached = await getCachedLabelItemsSnapshot(spaceId, labelId);
 		if (spaceId !== currentSpaceId) return;
 		if (cached) {
+			// Memory absorb is sync (IDB is fire-and-forget); await keeps rows + sessions aligned.
 			await absorbLabelItemSessions(spaceId, cached.sessions);
 			absorbLabelItemForks(cached.forks);
 			patchLabelItems(spaceId, labelId, cached.items, cached.pageInfo);
@@ -1492,6 +1495,7 @@ async function loadLabelItems(
 				cursor: spacePageInfo[labelId]?.nextCursor,
 			});
 			if (spaceId !== currentSpaceId) return;
+			// Memory absorb is sync (IDB is fire-and-forget); apply sessions before rows.
 			await absorbLabelItemSessions(spaceId, result.sessions);
 			absorbLabelItemForks(result.forks);
 			const latestItems = labelItemsBySpace[spaceId]?.[labelId] ?? [];
