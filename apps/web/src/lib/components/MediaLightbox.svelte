@@ -12,17 +12,37 @@ import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
-const WHEEL_STEP = 0.1;
+/** Discrete mouse-wheel notch (non-pinch). */
+const WHEEL_STEP = 0.12;
+/**
+ * Trackpad pinch (ctrl/meta + wheel) exponential intensity.
+ * Higher = more zoom per pixel of deltaY. ~0.01–0.02 feels natural on macOS.
+ */
+const PINCH_INTENSITY = 0.018;
+/** Trackpad two-finger scroll zoom (no modifier) — gentler than pinch. */
+const SCROLL_INTENSITY = 0.0035;
 
 // ─── Zoom / pan (image only) ───
 let zoom = $state(1);
 let panX = $state(0);
 let panY = $state(0);
 let dragging = $state(false);
+/** True while a continuous gesture (pinch / fine scroll) is active — skip CSS transition. */
+let gestureZooming = $state(false);
+let gestureZoomEndTimer: ReturnType<typeof setTimeout> | null = null;
 let dragStartX = 0;
 let dragStartY = 0;
 let dragOriginX = 0;
 let dragOriginY = 0;
+
+function markGestureZoom() {
+	gestureZooming = true;
+	if (gestureZoomEndTimer) clearTimeout(gestureZoomEndTimer);
+	gestureZoomEndTimer = setTimeout(() => {
+		gestureZooming = false;
+		gestureZoomEndTimer = null;
+	}, 80);
+}
 
 function clampZoom(value: number) {
 	return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
@@ -167,6 +187,7 @@ function onImagePointerMove(e: PointerEvent) {
 		const [a, b] = [...pointers.values()];
 		if (!a || !b || pinchStart.distance <= 0) return;
 		e.preventDefault();
+		markGestureZoom();
 		const next = clampZoom(
 			pinchStart.zoom * (pointerDistance(a, b) / pinchStart.distance),
 		);
@@ -242,16 +263,66 @@ function onImageMouseUp() {
 	document.removeEventListener("mouseup", onImageMouseUp);
 }
 
+function normalizeWheelDelta(e: WheelEvent) {
+	let delta = e.deltaY;
+	// 0 = pixels, 1 = lines, 2 = pages
+	if (e.deltaMode === 1) delta *= 16;
+	if (e.deltaMode === 2) delta *= 80;
+	return delta;
+}
+
 function onImageWheel(e: WheelEvent) {
 	if (mediaLightbox.current?.type !== "image") return;
 	e.preventDefault();
 	e.stopPropagation();
-	// Plain wheel zooms in lightbox (no modifier required).
-	const direction = e.deltaY < 0 ? 1 : -1;
-	setZoom(zoom + direction * WHEEL_STEP, { resetPan: true });
+
+	const delta = normalizeWheelDelta(e);
+	if (delta === 0) return;
+
+	// Trackpad pinch-to-zoom is reported as wheel + ctrlKey (Chrome/Safari/Firefox).
+	// Use continuous exponential scaling so small deltas accumulate smoothly.
+	const isPinch = e.ctrlKey || e.metaKey;
+	if (isPinch) {
+		markGestureZoom();
+		setZoom(zoom * Math.exp(-delta * PINCH_INTENSITY), { resetPan: false });
+		return;
+	}
+
+	// Large discrete notches (classic mouse wheel) → stepped zoom + re-center.
+	if (Math.abs(delta) >= 40) {
+		setZoom(zoom + (delta < 0 ? WHEEL_STEP : -WHEEL_STEP), {
+			resetPan: true,
+		});
+		return;
+	}
+
+	// Fine trackpad scroll without pinch → continuous, keep pan.
+	markGestureZoom();
+	setZoom(zoom * Math.exp(-delta * SCROLL_INTENSITY), { resetPan: false });
 }
 
 let imageStageEl = $state<HTMLDivElement | null>(null);
+let imageEl = $state<HTMLImageElement | null>(null);
+
+function isPointInsideImage(clientX: number, clientY: number) {
+	const img = imageEl;
+	if (!img) return false;
+	const rect = img.getBoundingClientRect();
+	return (
+		clientX >= rect.left &&
+		clientX <= rect.right &&
+		clientY >= rect.top &&
+		clientY <= rect.bottom
+	);
+}
+
+/** Close only when clicking the dimmed area outside the media bounds. */
+function onStageClick(e: MouseEvent) {
+	if (dragging) return;
+	// Ignore clicks that land on the image itself (including while zoomed).
+	if (isPointInsideImage(e.clientX, e.clientY)) return;
+	mediaLightbox.close();
+}
 
 // Non-passive wheel listener so trackpad pinch / scroll zoom can preventDefault.
 $effect(() => {
@@ -442,14 +513,9 @@ const imageCursor = $derived(
 				class="absolute inset-0 z-0 flex items-center justify-center overflow-hidden"
 				role="button"
 				tabindex="0"
-				aria-label="Image preview — scroll to zoom, drag to pan, double-click to reset"
+				aria-label="Image preview — scroll or pinch to zoom, drag to pan, double-click to reset"
 				style:cursor={imageCursor}
-				onclick={(e) => {
-					// Click empty stage (not while dragging / zoomed pan) closes.
-					if (e.target === e.currentTarget && zoom <= 1 && !dragging) {
-						mediaLightbox.close();
-					}
-				}}
+				onclick={onStageClick}
 				onkeydown={(e) => {
 					if (e.key === "Escape") {
 						e.preventDefault();
@@ -471,10 +537,11 @@ const imageCursor = $derived(
 				ondblclick={resetView}
 			>
 				<img
+					bind:this={imageEl}
 					src={mediaLightbox.current.src}
 					alt={mediaLightbox.current.alt ?? ""}
 					draggable="false"
-					style={`transform: translate(${panX}px, ${panY}px) scale(${zoom}); ${dragging ? "" : "transition: transform 150ms ease;"}`}
+					style={`transform: translate(${panX}px, ${panY}px) scale(${zoom}); ${dragging || gestureZooming ? "" : "transition: transform 120ms ease-out;"}`}
 					class="max-w-[90vw] max-h-[85vh] object-contain rounded-lg select-none pointer-events-none"
 				/>
 			</div>
