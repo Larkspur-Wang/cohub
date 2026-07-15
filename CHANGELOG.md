@@ -4,6 +4,22 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.99 — 2026-07-15
+
+- **Preview mark**: Capture port/HTML iframes or image previews into a frozen frame, then crop, annotate, and attach the result to chat through the existing image pipeline.
+- **Public changelog**: New `/changelog` page with sticky version navigation, shared public header, and agent-powered entry generation from real git diffs—wired into Help, the command palette, and release scripts.
+- **Work publish provenance**: Work versions store optional source space/session/turn metadata; CLI auto-fills from sandbox `COHUB_*` env on publish paths across API, SDK, and schema.
+- **Models API streaming**: Agent and completion LLM calls move from `pi-ai/compat` onto the official `createModels` path, with registry-catalog adapter caching across rounds while auth still resolves live per request.
+- **Stack & open-source prep**: TypeScript 7 and Vite 8 with Rolldown code splitting; Apache-2.0 licensing, optional hosted billing by default, and templated deploy values for self-hosting.
+
+### Bug Fixes
+
+- Stop still-streaming sessions from painting into empty `/new` chat drafts while preserving mid-send adopt handoff
+- Archive intermediate rounds without stale tool previews; restore waiting footer between rounds and session scroll when the leave anchor is the assistant
+- Harden sidebar cache so chats never stick on Loading after label items return
+- Stabilize Safari @ mention caret reactivity; make markdown file preview resilient to lazy import failures
+- Harden preview-mark capture against Chrome Element Capture hangs and gesture-gated start failures
+
 ## v1.98 — 2026-07-14
 
 - **Cross-space New chat**: Starting a chat from `/sessions` now stays on the sessions inbox (`/sessions/new?space=…`) with a command-palette space picker, draft chrome, and in-place space switching instead of jumping into a space workspace.
