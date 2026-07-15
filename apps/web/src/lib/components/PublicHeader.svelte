@@ -73,7 +73,7 @@ function navClass(active: boolean): string {
 				<button
 					type="button"
 					onclick={() => void onStart?.()}
-					class="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
+					class="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-brand px-4 py-2 font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
 				>
 					Start
 				</button>

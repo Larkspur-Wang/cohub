@@ -250,7 +250,7 @@ const ideas = [
 							<button
 								type="button"
 								onclick={handlePrimaryCta}
-								class="cta-btn group inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand px-5 py-3 text-[13px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
+								class="cta-btn group inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand px-5 py-3 text-[13px] font-medium text-brand-contrast-fg transition-colors hover:bg-brand-hover"
 							>
 								Start a Space
 								<ArrowRight class="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -382,7 +382,7 @@ const ideas = [
 							<button
 								type="button"
 								onclick={handlePrimaryCta}
-								class="cta-btn cta-btn-invert group inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-brand-contrast-fg px-5 py-3 text-[13px] font-medium text-brand transition hover:brightness-95"
+								class="cta-btn cta-btn-invert group inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-brand-contrast-fg px-5 py-3 text-[13px] font-medium text-brand transition hover:brightness-95"
 							>
 								Start a Space
 								<ArrowRight class="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -396,74 +396,79 @@ const ideas = [
 		<!-- Footer -->
 		<footer class="border-t border-border-subtle">
 			<div class="mx-auto w-full max-w-6xl px-5 py-12 sm:px-8">
-				<div class="grid gap-10 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr]">
-					<div>
-						<a href="/" class="inline-flex items-center gap-2.5">
+				<div class="flex flex-col gap-10 sm:flex-row sm:items-start sm:justify-between">
+					<a href="/" class="inline-flex items-center gap-2.5" aria-label="Cohub home">
+						<div
+							class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
+						>
+							C
+						</div>
+						<span class="text-[15px] font-semibold tracking-tight text-text-primary">Cohub</span>
+					</a>
+
+					<div class="grid grid-cols-2 gap-10 sm:gap-16">
+						<div>
 							<div
-								class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
+								class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder"
 							>
-								C
+								Product
 							</div>
-							<span class="text-[15px] font-semibold tracking-tight text-text-primary"
-								>Cohub</span
+							<ul class="mt-4 space-y-2.5 text-[13px]">
+								<li>
+									<a
+										href="/pricing"
+										class="text-text-secondary transition-colors hover:text-text-primary"
+										>Pricing</a
+									>
+								</li>
+								<li>
+									<a
+										href="/changelog"
+										class="text-text-secondary transition-colors hover:text-text-primary"
+										>Changelog</a
+									>
+								</li>
+								<li>
+									<a
+										href="/trending"
+										class="text-text-secondary transition-colors hover:text-text-primary"
+										>Trending</a
+									>
+								</li>
+							</ul>
+						</div>
+
+						<div>
+							<div
+								class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder"
 							>
-						</a>
-						<p class="mt-4 max-w-xs text-[13px] leading-6 text-text-tertiary">
-							A shared creative space for people and agents to create, save, share, and build from
-							real context.
-						</p>
-					</div>
-
-					<div>
-						<div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder">
-							Product
+								Connect
+							</div>
+							<ul class="mt-4 space-y-2.5 text-[13px]">
+								<li>
+									<a
+										href="https://x.com/NetaArt_AI"
+										target="_blank"
+										rel="noopener noreferrer"
+										class="text-text-secondary transition-colors hover:text-text-primary"
+										>X / Twitter</a
+									>
+								</li>
+								<li>
+									<a
+										href="mailto:dev@talesof.ai"
+										class="text-text-secondary transition-colors hover:text-text-primary"
+										>dev@talesof.ai</a
+									>
+								</li>
+							</ul>
 						</div>
-						<ul class="mt-4 space-y-2.5 text-[13px]">
-							<li>
-								<a href="/explore" class="text-text-secondary transition-colors hover:text-text-primary">Explore</a>
-							</li>
-							<li>
-								<a href="/pricing" class="text-text-secondary transition-colors hover:text-text-primary">Pricing</a>
-							</li>
-							<li>
-								<a href="/changelog" class="text-text-secondary transition-colors hover:text-text-primary">Changelog</a>
-							</li>
-						</ul>
-					</div>
-
-					<div>
-						<div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder">
-							Discover
-						</div>
-						<ul class="mt-4 space-y-2.5 text-[13px]">
-							<li>
-								<a href="/trending" class="text-text-secondary transition-colors hover:text-text-primary">Trending</a>
-							</li>
-							<li>
-								<a href="/explore?view=wall" class="text-text-secondary transition-colors hover:text-text-primary">Spaces wall</a>
-							</li>
-						</ul>
-					</div>
-
-					<div>
-						<div class="text-[11px] font-medium uppercase tracking-[0.14em] text-text-placeholder">
-							Contact
-						</div>
-						<ul class="mt-4 space-y-2.5 text-[13px]">
-							<li>
-								<a
-									href="mailto:dev@talesof.ai"
-									class="text-text-secondary transition-colors hover:text-text-primary"
-									>dev@talesof.ai</a
-								>
-							</li>
-						</ul>
 					</div>
 				</div>
 				<div
 					class="mt-12 flex flex-col items-start justify-between gap-3 border-t border-border-subtle pt-6 text-[12px] text-text-tertiary sm:flex-row sm:items-center"
 				>
-					<span>© 2026 Cohub. All rights reserved.</span>
+					<span>Copyright 2026 Viscept Limited</span>
 				</div>
 			</div>
 		</footer>
@@ -591,6 +596,9 @@ const ideas = [
 	}
 
 	/* Keyboard focus rings on primary CTAs. */
+	.cta-btn {
+		cursor: pointer;
+	}
 	.cta-btn:focus-visible {
 		outline: none;
 		box-shadow:
