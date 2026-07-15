@@ -17,6 +17,7 @@ import {
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
+import { mediaLightbox } from "$lib/components/media-lightbox.svelte";
 import SlashCommandMenu, {
 	type SlashCommandMenuItem,
 } from "$lib/components/SlashCommandMenu.svelte";
@@ -25,6 +26,7 @@ import ViewportContextBlocks from "$lib/components/ViewportContextBlocks.svelte"
 import {
 	COMPOSER_ATTACHMENT_ACCEPT,
 	type ComposerAttachment,
+	type ComposerImageAttachment,
 } from "$lib/composer-attachments";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
 import type { SpaceMentionSuggestion } from "$lib/mentions/space";
@@ -193,6 +195,25 @@ const modelControlAriaLabel = $derived(
 		? `Model ${modelControlLabel}, generation ${generationPolicyLabel}`
 		: `Model ${modelControlLabel}`,
 );
+
+function isComposerImageAttachment(
+	attachment: ComposerAttachment,
+): attachment is ComposerImageAttachment {
+	return attachment.kind === "image";
+}
+
+function openComposerImagePreview(attachment: ComposerImageAttachment) {
+	const imageAttachments = attachments.filter(isComposerImageAttachment);
+	const index = Math.max(0, imageAttachments.indexOf(attachment));
+	mediaLightbox.show(
+		imageAttachments.map((item) => ({
+			src: item.previewUrl,
+			type: "image" as const,
+			alt: item.name,
+		})),
+		index,
+	);
+}
 
 function hasVisibleDraftText(text: string) {
 	return /\S/.test(text);
@@ -1170,7 +1191,15 @@ $effect(() => {
 					{#each attachments as attachment (attachment.id)}
 						<div class={`group relative shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-content transition-colors hover:border-border-strong ${attachment.kind === 'image' ? 'h-20 w-20 bg-bg-hover/45' : 'flex h-20 w-40 items-center px-3 py-2'}`}>
 							{#if attachment.kind === 'image'}
-								<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-contain" />
+								<button
+									type="button"
+									class="h-full w-full cursor-zoom-in p-0"
+									onclick={() => openComposerImagePreview(attachment)}
+									title="Preview image"
+									aria-label={`Preview ${attachment.name}`}
+								>
+									<img src={attachment.previewUrl} alt={attachment.name} class="h-full w-full object-contain transition-transform duration-200 group-hover:scale-[1.02]" />
+								</button>
 							{:else}
 								<div class="min-w-0 flex-1 pr-4">
 									<div class="truncate text-[12px] font-medium leading-4 text-text-primary" title={attachment.kind === 'file' ? attachment.relativePath : attachment.name}>{attachment.kind === 'file' ? attachment.relativePath : attachment.name}</div>
@@ -1187,7 +1216,7 @@ $effect(() => {
 							{/if}
 							<button
 								type="button"
-								class="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-bg-elevated/90 text-text-tertiary opacity-0 shadow-sm ring-1 ring-border-subtle transition-all hover:text-text-primary group-hover:opacity-100"
+								class="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-bg-elevated/90 text-text-tertiary opacity-0 shadow-sm ring-1 ring-border-subtle transition-all hover:text-text-primary group-hover:opacity-100"
 								onclick={() => onremoveattachment?.(attachment.id)}
 								title="Remove attachment"
 							>

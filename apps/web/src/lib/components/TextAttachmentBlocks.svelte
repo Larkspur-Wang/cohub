@@ -98,7 +98,7 @@ function openImagePreview(block: ImageBlock) {
 			{:else if isImageAttachment(block)}
 				<button
 					type="button"
-					class="group h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-border-subtle bg-bg-hover/45 p-0 transition-colors hover:border-border-strong"
+					class="group h-20 w-20 shrink-0 cursor-zoom-in overflow-hidden rounded-2xl border border-border-subtle bg-bg-hover/45 p-0 transition-colors hover:border-border-strong"
 					onclick={() => openImagePreview(block)}
 					title="Preview image"
 					aria-label={`Preview ${getFilename(block, index)}`}
