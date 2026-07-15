@@ -2,6 +2,7 @@
 import {
 	ArrowUpRight,
 	Check,
+	Copy,
 	Crop,
 	Loader2,
 	Pencil,
@@ -23,6 +24,9 @@ type Props = {
 	canCropApply: boolean;
 	canResetCrop: boolean;
 	canRecapture: boolean;
+	busy: boolean;
+	copying: boolean;
+	copied: boolean;
 	attaching: boolean;
 	onTool: (tool: MarkTool) => void;
 	onColor: (color: MarkColor) => void;
@@ -31,6 +35,7 @@ type Props = {
 	onApplyCrop: () => void;
 	onResetCrop: () => void;
 	onRecapture?: () => void;
+	onCopy: () => void;
 	onAttach: () => void;
 	onClose: () => void;
 };
@@ -43,6 +48,9 @@ let {
 	canCropApply,
 	canResetCrop,
 	canRecapture,
+	busy,
+	copying,
+	copied,
 	attaching,
 	onTool,
 	onColor,
@@ -51,6 +59,7 @@ let {
 	onApplyCrop,
 	onResetCrop,
 	onRecapture,
+	onCopy,
 	onAttach,
 	onClose,
 }: Props = $props();
@@ -178,8 +187,25 @@ const cropMode = $derived(tool === "crop");
 	<div class="mark-toolbar-end">
 		<button
 			type="button"
+			class="mark-chip"
+			disabled={busy}
+			onclick={onCopy}
+			title={copied ? "Copied" : "Copy image"}
+			aria-label={copied ? "Copied" : "Copy image"}
+		>
+			{#if copying}
+				<Loader2 class="h-3.5 w-3.5 animate-spin" />
+			{:else if copied}
+				<Check class="h-3.5 w-3.5" />
+			{:else}
+				<Copy class="h-3.5 w-3.5" />
+			{/if}
+			<span class="mark-chip-label">{copied ? "Copied" : "Copy"}</span>
+		</button>
+		<button
+			type="button"
 			class="mark-attach"
-			disabled={attaching}
+			disabled={busy}
 			onclick={onAttach}
 			title="Attach to chat"
 		>
@@ -195,6 +221,7 @@ const cropMode = $derived(tool === "crop");
 			class="mark-icon"
 			title="Close"
 			aria-label="Close mark"
+			disabled={busy}
 			onclick={onClose}
 		>
 			<X class="h-3.5 w-3.5" />
@@ -307,6 +334,15 @@ const cropMode = $derived(tool === "crop");
 	.mark-attach:disabled {
 		opacity: 0.35;
 		pointer-events: none;
+	}
+	.mark-toolbar-end .mark-chip {
+		border: 1px solid var(--border-subtle);
+		background: var(--bg-primary);
+		color: var(--text-secondary);
+	}
+	.mark-toolbar-end .mark-chip:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 	.mark-chip {
 		padding: 0 8px;

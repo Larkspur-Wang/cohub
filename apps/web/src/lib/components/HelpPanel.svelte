@@ -48,6 +48,13 @@ const sections: ShortcutSection[] = [
 					["Ctrl", "Shift", "U"],
 				],
 			},
+			{
+				label: "Capture & mark",
+				keys: [
+					["⌘", "⇧", "S"],
+					["Ctrl", "Shift", "S"],
+				],
+			},
 			{ label: "Open help", keys: [["?"]] },
 		],
 	},

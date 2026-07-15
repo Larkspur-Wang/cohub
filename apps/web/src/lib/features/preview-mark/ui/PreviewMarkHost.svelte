@@ -16,10 +16,11 @@ import {
 } from "../capture/capabilities";
 import {
 	captureIframeElementFromStream,
+	captureViewportFromStream,
 	requestDisplayMedia,
 } from "../capture/iframe-capture";
 import { captureImageSource } from "../capture/image-capture";
-import { exportMarkedFrame } from "../mark/export";
+import { copyMarkedFrameToClipboard, exportMarkedFrame } from "../mark/export";
 import { createMarkSession, type MarkSession } from "../mark/session.svelte";
 import type { CaptureResult, PreviewCaptureTarget } from "../types";
 import { suggestedMarkedName } from "../types";
@@ -28,28 +29,64 @@ import MarkToolbar from "./MarkToolbar.svelte";
 
 type Props = {
 	open?: boolean;
-	target: PreviewCaptureTarget | null;
+	/**
+	 * Preview capture target. When null/undefined and `allowViewport` is true,
+	 * capture falls back to the full shared tab (global hotkey path).
+	 */
+	target?: PreviewCaptureTarget | null;
+	/** Allow full-tab capture without a preview target (global shortcut). */
+	allowViewport?: boolean;
+	/** When false, only the overlay UI is rendered (no scissors chrome button). */
+	showTrigger?: boolean;
 	buttonClass?: string;
 	onAttached?: () => void;
 };
 
 let {
 	open = $bindable(false),
-	target,
+	target = null,
+	allowViewport = false,
+	showTrigger = true,
 	buttonClass = "preview-icon-btn",
 	onAttached,
 }: Props = $props();
 
 let session = $state<MarkSession | null>(null);
-let phase = $state<"idle" | "capturing" | "marking" | "attaching">("idle");
+let phase = $state<"idle" | "capturing" | "marking" | "copying" | "attaching">(
+	"idle",
+);
 /** Sub-state while phase === capturing: waiting for share picker vs grabbing frames. */
 let captureStep = $state<"share" | "grab">("share");
 let error = $state<string | null>(null);
+/** Lightweight toast for dismissals (cancel / permission deny) — not the full panel. */
+let softNotice = $state<string | null>(null);
+let copied = $state(false);
 let captureGen = 0;
 let disposed = false;
 let panelEl: HTMLDivElement | null = $state(null);
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+let softNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 
-const canRecapture = $derived(target?.kind === "iframe");
+const isApplePlatform = $derived.by(() => {
+	if (typeof navigator === "undefined") return false;
+	const platform = navigator.platform ?? "";
+	const ua = navigator.userAgent ?? "";
+	return /Mac|iPhone|iPad|iPod/.test(platform) || /Mac OS X/.test(ua);
+});
+const triggerTitle = $derived(
+	isApplePlatform ? "Capture & mark (⌘⇧S)" : "Capture & mark (Ctrl+Shift+S)",
+);
+const triggerAriaLabel = $derived(
+	isApplePlatform
+		? "Capture and mark preview (Command Shift S)"
+		: "Capture and mark preview (Control Shift S)",
+);
+
+const usesDisplayMedia = $derived(
+	Boolean(target?.kind === "iframe" || (!target && allowViewport)),
+);
+const canRecapture = $derived(usesDisplayMedia);
+const canStart = $derived(Boolean(target) || allowViewport);
 /**
  * Chip only during the share-picker wait. Hide before the grab so the floating
  * toast is not baked into the captured tab frame.
@@ -61,6 +98,7 @@ const captureChipLabel = "Share this tab to capture…";
 const canCropApply = $derived(
 	Boolean(session?.cropDraft && session.getCropRect()),
 );
+const busy = $derived(phase === "copying" || phase === "attaching");
 
 /** User can sit on the share picker; after this we surface an error instead of spinning forever. */
 const SHARE_PICKER_TIMEOUT_MS = 90_000;
@@ -75,7 +113,7 @@ $effect(() => {
 	// Focus the panel so keyboard shortcuts work without an extra click.
 	queueMicrotask(() => panelEl?.focus({ preventScroll: true }));
 	const onKey = (event: KeyboardEvent) => {
-		if (phase === "attaching") return;
+		if (busy) return;
 		if (event.key === "Escape") {
 			event.preventDefault();
 			// Layered cancel: draft/crop selection first, then close the overlay.
@@ -102,6 +140,23 @@ $effect(() => {
 	return () => window.removeEventListener("keydown", onKey);
 });
 
+function clearSoftNotice() {
+	softNotice = null;
+	if (softNoticeTimer) {
+		clearTimeout(softNoticeTimer);
+		softNoticeTimer = null;
+	}
+}
+
+function showSoftNotice(message: string, ms = 2200) {
+	softNotice = message;
+	if (softNoticeTimer) clearTimeout(softNoticeTimer);
+	softNoticeTimer = setTimeout(() => {
+		softNotice = null;
+		softNoticeTimer = null;
+	}, ms);
+}
+
 function close() {
 	captureGen += 1;
 	session?.dispose();
@@ -109,6 +164,12 @@ function close() {
 	phase = "idle";
 	captureStep = "share";
 	error = null;
+	copied = false;
+	clearSoftNotice();
+	if (copiedTimer) {
+		clearTimeout(copiedTimer);
+		copiedTimer = null;
+	}
 	open = false;
 }
 
@@ -118,9 +179,20 @@ function cancelCapture() {
 	const hadSession = Boolean(session);
 	phase = hadSession ? "marking" : "idle";
 	captureStep = "share";
-	error = hadSession ? null : "Capture cancelled.";
-	// Recapture cancel: reopen mark UI with previous frame. First capture: show error sheet.
-	open = hadSession || Boolean(error);
+	error = null;
+	// Recapture cancel: reopen mark UI with previous frame.
+	// First capture cancel: soft toast only — no full error panel.
+	if (hadSession) open = true;
+	else showSoftNotice("Capture cancelled");
+}
+
+/** User dismissed share UI or denied permission — keep feedback light. */
+function isSoftCaptureDismissal(name: string): boolean {
+	return (
+		name === "NotAllowedError" ||
+		name === "PermissionDeniedError" ||
+		name === "AbortError"
+	);
 }
 
 function applyCaptureResult(
@@ -160,23 +232,24 @@ function applyCaptureResult(
 }
 
 /**
- * Capture must start getDisplayMedia in the click turn — before any await that
- * yields past the user gesture (rAF, microtask-heavy state work, etc.).
+ * Capture must start getDisplayMedia in the same user-gesture turn as the
+ * keydown/click — before any await that yields past the gesture.
  */
 async function runCapture() {
-	if (!target || disposed) return;
-	if (phase === "capturing" || phase === "attaching") return;
+	if (!canStart || disposed) return;
+	if (phase === "capturing" || busy) return;
 
 	const gen = ++captureGen;
 	const hadSession = Boolean(session);
+	const captureTarget = target;
+	clearSoftNotice();
 
-	if (target.kind === "image") {
+	if (captureTarget?.kind === "image") {
 		error = null;
 		phase = "capturing";
-		// Image capture doesn't need the live preview uncovered.
 		const result = await captureImageSource({
-			src: target.src,
-			path: target.path,
+			src: captureTarget.src,
+			path: captureTarget.path,
 		});
 		applyCaptureResult(result, gen, hadSession);
 		return;
@@ -192,27 +265,32 @@ async function runCapture() {
 		return;
 	}
 
-	// 1) Start the picker first, still inside the click call stack.
-	// 2) Only then flip reactive UI state. Writing $state / awaiting rAF before
-	// getDisplayMedia can drop the user gesture on Chrome and leave a silent hang.
+	// 1) Start the picker first, still inside the gesture call stack.
+	// 2) Only then flip reactive UI state.
 	let streamPromise: Promise<MediaStream>;
 	try {
 		streamPromise = requestDisplayMedia();
 	} catch (caught) {
 		if (gen !== captureGen || disposed) return;
-		error =
+		const message =
 			caught instanceof Error
 				? caught.message
 				: "Screen capture isn’t available.";
 		phase = hadSession ? "marking" : "idle";
-		open = true;
+		if (hadSession) {
+			error = message;
+			open = true;
+		} else {
+			showSoftNotice(message);
+		}
 		return;
 	}
 
 	error = null;
+	clearSoftNotice();
 	phase = "capturing";
 	captureStep = "share";
-	// Keep preview visible under the browser share UI and while grabbing frames.
+	// Keep the page visible under the browser share UI and while grabbing frames.
 	open = false;
 
 	let stream: MediaStream;
@@ -221,7 +299,7 @@ async function runCapture() {
 			const timer = setTimeout(() => {
 				reject(
 					new Error(
-						"Share dialog timed out. Click the scissors icon and choose this tab.",
+						"Share dialog timed out. Press the shortcut again and choose this tab.",
 					),
 				);
 			}, SHARE_PICKER_TIMEOUT_MS);
@@ -242,20 +320,28 @@ async function runCapture() {
 			caught && typeof caught === "object" && "name" in caught
 				? String((caught as { name?: string }).name)
 				: "";
-		if (name === "NotAllowedError" || name === "PermissionDeniedError") {
-			error = "Capture cancelled or permission denied.";
-		} else if (name === "AbortError") {
-			error = "Capture cancelled.";
-		} else {
-			error =
-				caught instanceof Error
-					? caught.message
-					: "Failed to start screen capture.";
-		}
 		phase = hadSession ? "marking" : "idle";
 		captureStep = "share";
-		// Only open error UI if user didn't cancel via close() meanwhile.
-		if (gen === captureGen && !disposed) open = true;
+		if (gen !== captureGen || disposed) return;
+
+		// Soft dismissals: cancel / deny should not open the heavy mark panel.
+		if (isSoftCaptureDismissal(name)) {
+			error = null;
+			if (hadSession) open = true;
+			else showSoftNotice("Capture cancelled");
+			return;
+		}
+
+		const message =
+			caught instanceof Error
+				? caught.message
+				: "Failed to start screen capture.";
+		if (hadSession) {
+			error = message;
+			open = true;
+		} else {
+			showSoftNotice(message, 3200);
+		}
 		return;
 	}
 
@@ -275,21 +361,29 @@ async function runCapture() {
 		return;
 	}
 
-	const result = await captureIframeElementFromStream({
-		stream,
-		element: target.element,
-		source: target.source,
-	});
+	const result =
+		captureTarget?.kind === "iframe"
+			? await captureIframeElementFromStream({
+					stream,
+					element: captureTarget.element,
+					source: captureTarget.source,
+				})
+			: await captureViewportFromStream({ stream });
 	applyCaptureResult(result, gen, hadSession);
 }
 
-async function handleMarkClick() {
-	if (phase === "capturing" || phase === "attaching") return;
-	if (phase === "marking" && session) {
+/** Start capture from a trusted user gesture (click or global hotkey). */
+export function triggerCapture() {
+	if (phase === "capturing" || busy) return;
+	if ((phase === "marking" || phase === "copying") && session) {
 		open = true;
 		return;
 	}
-	await runCapture();
+	void runCapture();
+}
+
+async function handleMarkClick() {
+	triggerCapture();
 }
 
 async function handleRecapture() {
@@ -297,19 +391,53 @@ async function handleRecapture() {
 	await runCapture();
 }
 
+async function ensureCropApplied(): Promise<boolean> {
+	if (!session?.cropDraft) return true;
+	const ok = await session.applyCropDraft();
+	if (!ok) {
+		error = "Drag a larger area to crop, or switch tools to discard.";
+		return false;
+	}
+	error = null;
+	return true;
+}
+
+async function handleCopy() {
+	if (!session || busy) return;
+	phase = "copying";
+	error = null;
+	copied = false;
+	try {
+		if (!(await ensureCropApplied())) {
+			phase = "marking";
+			return;
+		}
+		await copyMarkedFrameToClipboard({
+			frame: session.frame,
+			strokes: session.strokes,
+		});
+		copied = true;
+		phase = "marking";
+		if (copiedTimer) clearTimeout(copiedTimer);
+		copiedTimer = setTimeout(() => {
+			copied = false;
+			copiedTimer = null;
+		}, 1600);
+	} catch (err) {
+		error =
+			err instanceof Error ? err.message : "Failed to copy image to clipboard.";
+		phase = "marking";
+	}
+}
+
 async function handleAttach() {
-	if (!session || phase === "attaching") return;
+	if (!session || busy) return;
 	phase = "attaching";
 	error = null;
 	try {
-		// Apply pending crop so Attach matches what the user outlined.
-		if (session.cropDraft) {
-			const ok = await session.applyCropDraft();
-			if (!ok) {
-				error = "Drag a larger area to crop, or switch tools to discard.";
-				phase = "marking";
-				return;
-			}
+		if (!(await ensureCropApplied())) {
+			phase = "marking";
+			return;
 		}
 		const file = await exportMarkedFrame({
 			frame: session.frame,
@@ -335,32 +463,36 @@ async function handleApplyCrop() {
 
 function onBackdropPointer(event: MouseEvent) {
 	if (event.target !== event.currentTarget) return;
-	if (phase === "attaching") return;
+	if (busy) return;
 	close();
 }
 
 onDestroy(() => {
 	disposed = true;
 	captureGen += 1;
+	if (copiedTimer) clearTimeout(copiedTimer);
+	if (softNoticeTimer) clearTimeout(softNoticeTimer);
 	session?.dispose();
 	session = null;
 });
 </script>
 
-<button
-	type="button"
-	class={buttonClass}
-	title="Capture & mark"
-	aria-label="Capture and mark preview"
-	disabled={!target || phase === "capturing" || phase === "attaching"}
-	onclick={() => void handleMarkClick()}
->
-	{#if phase === "capturing"}
-		<Loader2 class="h-4 w-4 animate-spin" />
-	{:else}
-		<Scissors class="h-4 w-4" />
-	{/if}
-</button>
+{#if showTrigger}
+	<button
+		type="button"
+		class={buttonClass}
+		title={triggerTitle}
+		aria-label={triggerAriaLabel}
+		disabled={!canStart || phase === "capturing" || busy}
+		onclick={() => void handleMarkClick()}
+	>
+		{#if phase === "capturing"}
+			<Loader2 class="h-4 w-4 animate-spin" />
+		{:else}
+			<Scissors class="h-4 w-4" />
+		{/if}
+	</button>
+{/if}
 
 {#if showCaptureChip}
 	<div
@@ -384,6 +516,19 @@ onDestroy(() => {
 	</div>
 {/if}
 
+{#if softNotice && !open}
+	<div
+		use:portal
+		class="mark-soft-notice"
+		role="status"
+		aria-live="polite"
+		in:fade={TRANSITION_IN}
+		out:fade={TRANSITION_OUT}
+	>
+		{softNotice}
+	</div>
+{/if}
+
 {#if open}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -404,7 +549,7 @@ onDestroy(() => {
 			in:scale|local={SCALE_IN}
 			out:scale|local={SCALE_OUT}
 		>
-			{#if (phase === "marking" || phase === "attaching") && session}
+			{#if (phase === "marking" || phase === "copying" || phase === "attaching") && session}
 				<MarkToolbar
 					tool={session.tool}
 					color={session.color}
@@ -413,6 +558,9 @@ onDestroy(() => {
 					canCropApply={canCropApply}
 					canResetCrop={session.isCropped}
 					canRecapture={canRecapture}
+					{busy}
+					copying={phase === "copying"}
+					{copied}
 					attaching={phase === "attaching"}
 					onTool={(t) => session?.setTool(t)}
 					onColor={(c) => session?.setColor(c)}
@@ -421,6 +569,7 @@ onDestroy(() => {
 					onApplyCrop={() => void handleApplyCrop()}
 					onResetCrop={() => session?.resetCrop()}
 					onRecapture={canRecapture ? () => void handleRecapture() : undefined}
+					onCopy={() => void handleCopy()}
 					onAttach={() => void handleAttach()}
 					onClose={close}
 				/>
@@ -499,6 +648,26 @@ onDestroy(() => {
 	}
 	.mark-capture-chip-cancel:hover {
 		color: var(--text-secondary);
+	}
+
+	.mark-soft-notice {
+		position: fixed;
+		bottom: max(20px, env(safe-area-inset-bottom, 0px));
+		left: 50%;
+		z-index: 110;
+		transform: translateX(-50%);
+		max-width: min(360px, calc(100vw - 32px));
+		border: 1px solid var(--border-subtle);
+		border-radius: 8px;
+		background: var(--bg-content);
+		padding: 8px 12px;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 500;
+		line-height: 1.35;
+		text-align: center;
+		box-shadow: 0 8px 24px
+			color-mix(in srgb, var(--overlay-scrim-strong) 18%, transparent);
 	}
 
 	.mark-overlay {

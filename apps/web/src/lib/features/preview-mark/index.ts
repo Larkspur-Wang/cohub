@@ -6,10 +6,15 @@ export {
 export {
 	captureIframeElement,
 	captureIframeElementFromStream,
+	captureViewportFromStream,
 	requestDisplayMedia,
 } from "./capture/iframe-capture";
 export { captureImageSource } from "./capture/image-capture";
-export { exportMarkedFrame } from "./mark/export";
+export {
+	copyMarkedFrameToClipboard,
+	exportMarkedFrame,
+	exportMarkedPngBlob,
+} from "./mark/export";
 export { createMarkSession, type MarkSession } from "./mark/session.svelte";
 export { strokesAfterCrop } from "./mark/transform";
 export {

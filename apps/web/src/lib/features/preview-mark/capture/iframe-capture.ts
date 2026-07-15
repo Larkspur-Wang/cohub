@@ -426,6 +426,47 @@ export async function captureIframeElementFromStream(input: {
 	}
 }
 
+/**
+ * Capture the full shared tab / window (no iframe crop).
+ * Used by the global mark hotkey when no preview target is active.
+ */
+export async function captureViewportFromStream(input: {
+	stream: MediaStream;
+}): Promise<CaptureResult> {
+	let stream: MediaStream | null = input.stream;
+	try {
+		const track = stream.getVideoTracks()[0];
+		if (!track) {
+			stopStream(stream);
+			stream = null;
+			return {
+				ok: false,
+				reason: "capture-failed",
+				message: "No video track from screen capture.",
+			};
+		}
+
+		await waitFrame();
+		const grabbed = await grabVideoFrame(stream);
+		stopStream(stream);
+		stream = null;
+
+		const frame: FrozenFrame = {
+			bitmap: grabbed.bitmap,
+			width: grabbed.width,
+			height: grabbed.height,
+			dpr: window.devicePixelRatio || 1,
+			capturedAt: Date.now(),
+			quality: "full",
+			source: { kind: "viewport" },
+		};
+		return { ok: true, frame };
+	} catch (error) {
+		stopStream(stream);
+		return mapCaptureError(error);
+	}
+}
+
 export async function captureIframeElement(input: {
 	element: HTMLIFrameElement;
 	source: Extract<FrameSource, { kind: "html" | "port" }>;

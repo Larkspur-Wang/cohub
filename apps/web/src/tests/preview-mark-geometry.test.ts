@@ -50,4 +50,5 @@ test("suggestedMarkedName uses source kind", () => {
 		suggestedMarkedName({ kind: "image", path: "shot.png" }),
 		"shot-marked.webp",
 	);
+	assert.equal(suggestedMarkedName({ kind: "viewport" }), "screen-marked.webp");
 });

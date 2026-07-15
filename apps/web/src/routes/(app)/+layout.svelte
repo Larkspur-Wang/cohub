@@ -13,6 +13,7 @@ import MobileSidebarDrawer from "$lib/components/MobileSidebarDrawer.svelte";
 import Sidebar from "$lib/components/Sidebar.svelte";
 import TurnNotificationStack from "$lib/components/TurnNotificationStack.svelte";
 import { createDeferredMount } from "$lib/deferred-mount.svelte";
+import GlobalMarkCapture from "$lib/features/preview-mark/ui/GlobalMarkCapture.svelte";
 import {
 	type DrawerGestureDirection,
 	type DrawerGesturePhase,
@@ -584,6 +585,7 @@ onMount(() => {
   <HelpPanel open={showHelpPanel} onClose={() => { showHelpPanel = false; }} />
   <BillingConversionCenter />
   <TurnNotificationStack />
+  <GlobalMarkCapture />
 
 {/if}
 

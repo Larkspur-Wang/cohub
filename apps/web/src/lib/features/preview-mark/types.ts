@@ -15,6 +15,7 @@ export type FrameSource =
 	| { kind: "image"; path: string }
 	| { kind: "html"; path: string }
 	| { kind: "port"; port: string; url: string }
+	| { kind: "viewport" }
 	| { kind: "unknown" };
 
 export type CaptureQuality =
@@ -99,5 +100,6 @@ export function suggestedMarkedName(source: FrameSource): string {
 				?.replace(/\.[^.]+$/, "") || "preview";
 		return `${base}-marked.webp`;
 	}
+	if (source.kind === "viewport") return "screen-marked.webp";
 	return "preview-marked.webp";
 }
