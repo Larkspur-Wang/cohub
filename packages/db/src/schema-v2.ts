@@ -37,7 +37,6 @@ export type ReferenceResourceType =
   | "session"
   | "space"
   | "checkpoint"
-  | "user"
   | "file";
 
 /** The nature of a reference between two resources. */
@@ -48,7 +47,6 @@ export type ReferenceKind =
   | "mod"
   | "mention"
   | "tool_call"
-  | "participant"
   | "agent_tool_file_read"
   | "agent_tool_file_write"
   | "agent_tool_file_edit"

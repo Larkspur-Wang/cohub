@@ -21,7 +21,6 @@ const REFERENCE_KINDS = new Set<ReferenceKind>([
   "mod",
   "mention",
   "tool_call",
-  "participant",
   "agent_tool_file_read",
   "agent_tool_file_write",
   "agent_tool_file_edit",
@@ -76,7 +75,7 @@ function clampNumber(value: string | undefined, fallback: number, min: number, m
 export function registerReferences(program: Command): void {
   const references = program
     .command("references")
-    .description("Inspect resource references (forks, mentions, tool calls, mods, participants, file access)");
+    .description("Inspect resource references (forks, mentions, tool calls, mods, file access)");
 
   references
     .command("query")

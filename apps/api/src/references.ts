@@ -31,7 +31,6 @@ const REFERENCE_KINDS: readonly ReferenceKind[] = [
   "mod",
   "mention",
   "tool_call",
-  "participant",
   "agent_tool_file_read",
   "agent_tool_file_write",
   "agent_tool_file_edit",

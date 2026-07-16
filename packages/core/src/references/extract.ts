@@ -8,8 +8,6 @@ export type TurnReferenceSource = {
   spaceId: string;
   sessionId: string;
   turnId: string;
-  /** The user who authored the turn, for participant references. */
-  userUuid?: string | null;
   /** User-authored content (carries @mentions). */
   userContent?: ContentBlock[] | null;
   /** Plain text fallback when structured content is unavailable. */
@@ -70,14 +68,14 @@ const DIR_TOOL_KINDS = new Set<ReferenceKind>([
 ]);
 
 /**
- * Extract every reference edge carried by a single turn: the participant
- * (turn -> author), any @mentions in user content, cross-resource tool calls,
- * and filesystem access from path-bearing tools. All edges are sourced at the
- * turn for maximum precision; session/space rollups come from the denormalized
- * ancestry columns.
+ * Extract every reference edge carried by a single turn: @mentions in user
+ * content, cross-resource tool calls, and filesystem access from path-bearing
+ * tools. All edges are sourced at the turn for maximum precision; session/space
+ * rollups come from the denormalized ancestry columns.
  *
  * Pure and deterministic: identical input always yields identical output, so it
- * powers both the live double-write and the backfill scan.
+ * powers both the live double-write and the backfill scan. Turn authorship is
+ * not indexed here — that lives on `session_turns.user_uuid`.
  */
 export const extractTurnReferences = (turn: TurnReferenceSource): ReferenceInput[] => {
   const references: ReferenceInput[] = [];
@@ -89,18 +87,6 @@ export const extractTurnReferences = (turn: TurnReferenceSource): ReferenceInput
     sourceSpaceId: spaceId,
     sourceSessionId: sessionId,
   };
-
-  // Participant: this turn was authored by a user (turn -> user). Aggregating by
-  // target user within a session yields per-user turn activity.
-  const userUuid = turn.userUuid?.trim();
-  if (userUuid) {
-    references.push({
-      ...source,
-      kind: "participant",
-      targetType: "user",
-      targetId: userUuid,
-    });
-  }
 
   // Mentions: @space / @session links authored in the user's message. Recorded
   // in full, including self-references; consumers filter self-loops if needed.

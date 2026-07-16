@@ -201,7 +201,7 @@ async function main() {
     }
   }
 
-  // --- Turn-derived: participants, mentions, tool calls ---
+  // --- Turn-derived: mentions, tool calls, agent file access ---
   {
     let cursor: string | null = null;
     for (;;) {
@@ -209,7 +209,6 @@ async function main() {
         .select({
           id: schema.sessionTurns.id,
           sessionId: schema.sessionTurns.sessionId,
-          userUuid: schema.sessionTurns.userUuid,
           userContent: schema.sessionTurns.userContent,
           userText: schema.sessionTurns.userText,
           assistantContent: schema.sessionTurns.assistantContent,
@@ -253,7 +252,6 @@ async function main() {
             spaceId: row.spaceId,
             sessionId: row.sessionId,
             turnId: row.id,
-            userUuid: row.userUuid,
             userContent: asContentBlocks(row.userContent),
             userText: row.userText,
             assistantContent:

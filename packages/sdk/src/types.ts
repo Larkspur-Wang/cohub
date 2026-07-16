@@ -1604,13 +1604,12 @@ export type ReferenceResourceType =
   | "session"
   | "space"
   | "checkpoint"
-  | "user"
   | "file";
 
 /**
  * Resource types usable as a query `source`: they resolve to an owning space to
  * authorize against. `turn` gives the finest precision; session/space roll up.
- * file/user appear only as edge targets, never as a queryable source.
+ * `file` appears only as an edge target, never as a queryable source.
  */
 export type ReferenceQueryableType = "turn" | "session" | "space" | "checkpoint";
 
@@ -1621,7 +1620,6 @@ export type ReferenceKind =
   | "mod"
   | "mention"
   | "tool_call"
-  | "participant"
   | "agent_tool_file_read"
   | "agent_tool_file_write"
   | "agent_tool_file_edit"

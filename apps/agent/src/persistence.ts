@@ -662,7 +662,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
     if (turnId) {
       const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}) } });
       if (finalized) {
-        indexTurnReferences({ spaceId: input.spaceId, sessionId: finalized.sessionId, turnId: finalized.id, userUuid: finalized.userUuid, messages: turnMessages });
+        indexTurnReferences({ spaceId: input.spaceId, sessionId: finalized.sessionId, turnId: finalized.id, messages: turnMessages });
         await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));
       }
     }
@@ -689,7 +689,7 @@ async function finalizeInterruptedTurn(input: { spaceId: string; sessionId: stri
 export async function interruptSessionTurn(input: { spaceId: string; sessionId: string; turnId: string; continuedByTurnId: string }) {
   const { turn, messages } = await finalizeInterruptedTurn({ ...input, stopReason: "interrupted", summary: { finishReason: "interrupted", reason: "steer", continuedByTurnId: input.continuedByTurnId } });
   if (turn) {
-    indexTurnReferences({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, userUuid: turn.userUuid, messages });
+    indexTurnReferences({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, messages });
     await publishTurnFinalized(input.spaceId, turn);
   }
   return turn;
@@ -698,7 +698,7 @@ export async function interruptSessionTurn(input: { spaceId: string; sessionId: 
 export async function abortSessionTurn(input: { spaceId: string; sessionId: string; turnId: string; actorUserId?: string | null }) {
   const { turn, messages } = await finalizeInterruptedTurn({ ...input, stopReason: "aborted", summary: { finishReason: "interrupted", reason: "abort" } });
   if (turn) {
-    indexTurnReferences({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, userUuid: turn.userUuid, messages });
+    indexTurnReferences({ spaceId: input.spaceId, sessionId: turn.sessionId, turnId: turn.id, messages });
     await publishTurnFinalized(input.spaceId, turn);
   }
   return turn;

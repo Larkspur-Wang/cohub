@@ -10,8 +10,6 @@ const SESSION = "22222222-2222-2222-2222-222222222222";
 const TURN = "33333333-3333-3333-3333-333333333333";
 const OTHER_SPACE = "44444444-4444-4444-4444-444444444444";
 const OTHER_SESSION = "55555555-5555-5555-5555-555555555555";
-const USER = "user-abc";
-
 const spaceMentionUri = (spaceId: string, sessionId?: string) =>
   sessionId
     ? `cohub://spaces/${spaceId}/sessions/${sessionId}`
@@ -43,25 +41,6 @@ test("fileTargetId round-trips through parseFileTargetId", () => {
   const id = fileTargetId(SPACE, "/workspace/a.ts");
   assert.equal(id, `${SPACE}:/workspace/a.ts`);
   assert.deepEqual(parseFileTargetId(id), { spaceId: SPACE, path: "/workspace/a.ts" });
-});
-
-test("participant reference is a turn -> user edge", () => {
-  const refs = extractTurnReferences({
-    spaceId: SPACE,
-    sessionId: SESSION,
-    turnId: TURN,
-    userUuid: USER,
-  });
-  assert.equal(refs.length, 1);
-  assert.deepEqual(refs[0], {
-    kind: "participant",
-    sourceType: "turn",
-    sourceId: TURN,
-    sourceSpaceId: SPACE,
-    sourceSessionId: SESSION,
-    targetType: "user",
-    targetId: USER,
-  });
 });
 
 test("mentions in user content become turn-sourced edges, self-mention kept", () => {
@@ -183,7 +162,6 @@ test("extraction is deterministic and combines all signals", () => {
     spaceId: SPACE,
     sessionId: SESSION,
     turnId: TURN,
-    userUuid: USER,
     userContent: [
       { type: "text", text: `@[Core](${spaceMentionUri(OTHER_SPACE)})` },
     ] as ContentBlock[],
@@ -196,5 +174,5 @@ test("extraction is deterministic and combines all signals", () => {
   const b = extractTurnReferences(source);
   assert.deepEqual(a, b);
   const kinds = a.map((r) => r.kind).sort();
-  assert.deepEqual(kinds, ["agent_tool_file_read", "mention", "participant", "tool_call"].sort());
+  assert.deepEqual(kinds, ["agent_tool_file_read", "mention", "tool_call"].sort());
 });
