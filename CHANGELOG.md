@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.100 — 2026-07-16
+
+- **Default usernames via Logto**: New accounts get a username from the email local part (slugified, with wide random suffixes and a UUID fallback), written to Logto first so identity never diverges from the source of truth.
+- **Account email on profile**: `/api/me` resolves and returns the signed-in user’s email; Settings → Profile surfaces it next to the account ID.
+- **Session scroll restore**: Re-entering a chat re-applies the leave anchor immediately, survives `{#key}` remounts and markdown reflow, and keeps restore state isolated per session so scroll no longer lands at the top.
+- **Profile updates for execution tokens**: Profile writes fall back to the stored Logto user id when the token has no `sub`, so non-browser principals can still update profile.
+
+### Bug Fixes
+
+- Media lightbox: right-click on images opens the browser context menu again (copy image / save), instead of being captured by pan/zoom.
+- Scroll anchor Map writes reassign under `$state.raw` so persisted leave positions actually notify consumers.
+
 ## v1.99 — 2026-07-15
 
 - **Preview mark**: Capture port/HTML iframes or image previews into a frozen frame, then crop, annotate, and attach the result to chat through the existing image pipeline.
