@@ -1,6 +1,16 @@
 # Landing Page 演示录屏脚本
 
-Landing 页面上有 6 个 16:10 的占位视频位（hero + 5 个 idea）。本文档给出每个视频的录制脚本，全部基于产品真实 UI（已对照 `apps/web/src` 核实）。
+Landing 页面上有 6 个 16:10 的视觉位（hero + 5 个 idea）。当前实现用 **CSS/SVG micro-demo** 填洞；真视频到位后可替换。本文档给出每个位的录制脚本与叙事对齐。
+
+**Hero 主句（体验起点）：**
+
+> Your own space to create, play, and build with people and agents.
+
+**差异化能力（非起点，页面中后段讲清）：**
+
+1. **Cross-space `@space`**：Session 内 `@` 引用另一个 Space（≠ Fork）。
+2. **Publish Live Work**：Cohub-hosted 活表面（scopes + viewer auth → 回写 Space）。
+3. **CLI local sandbox**：`cohub sandbox up <dir>` 把本机目录连成 Space sandbox。
 
 ## 通用录制要求
 
@@ -14,16 +24,22 @@ Landing 页面上有 6 个 16:10 的占位视频位（hero + 5 个 idea）。本
 
 ## 1. demo · hero（首屏主视觉）
 
-**目标：** 用约 15 秒的流畅蒙太奇传达「create, play, and build with people and agents」。
+**目标：** 约 12–15 秒传达「人在 Space 里和 agent 一起做事」——真实协作，而不是 `@space` 作为起点。
 
-**前置：** 一个活跃 Space，聊天会话进行中，时间线里已有一张生成图。
+**Hero 主句保持：** *Your own space to create, play, and build with people and agents.*
+
+**前置：** 一个活跃 Space，会话中有协作；可编辑的小 web app + port 预览。
 
 **镜头**
-1. Landing 首屏文案短暂可见（0.5 秒）→ 切入产品。
-2. Space 工作区：左侧轨道可见（Labels / Chats / Saves / Works / Scheduled / Tasks flyout），一个聊天会话打开，agent 回复正在流式输出。
-3. 输入框：输入「make a cover image」→ 回车。Agent 流式输出 thinking block，随后 SessionTaskTray 出现生成任务行（Running 1），时间线渲染出 image block。
-4. 快速切换（每拍 0.4 秒）：点 **Saves** flyout → 一个 checkpoint；点 **Works** flyout → 一个已发布 Work；切到 **Port 预览** 标签展示一个运行中的 app。
-5. 收尾停在聊天时间线：生成图 + agent 回复稳定下来。
+1. Landing 首屏旧主句短暂可见 → 切入产品 Space。
+2. 队友消息：「can we darken the start screen?」
+3. 你在 composer 用**自然语言**发：「update the start screen to dark mode」（不要写 `@agent make one, ~30s loop` 这类怪 prompt）。
+4. Agent tool call `edit index.html` → Port 预览更新。
+5. 浮层/收尾暗示：checkpoint saved；可选一闪 CLI `cohub sandbox up`（local ↔ Space）。
+
+**`@space` / Live Work 不放 hero 主节拍**——放在页面下方 differentials / idea 04–05。
+
+**当前占位：** `LandingSpaceDemo.svelte`（peer → plain prompt → edit + port preview；chips: checkpoint / CLI local）。
 
 ---
 
@@ -32,112 +48,104 @@ Landing 页面上有 6 个 16:10 的占位视频位（hero + 5 个 idea）。本
 **理念：** Open a Space and play with ideas, prompts, files, and agents.
 
 **镜头**
-1. Spaces 列表 / 首页：点 **Start a Space**（橙色 CTA）。
-2. `/spaces/new` 表单：输入名称（如「sketch lab」），slug 自动填充，bootstrap 选 **blank**，点 Create。
-3. 进入新 Space——空的聊天会话。展示左侧轨道是全新的（尚无 saves/works）。
-4. 输入框输入一个随意的 prompt：「draw a tiny robot watering a plant」。发送。
-5. Agent 流式回复 + 触发一个图像生成任务；图出现在时间线。
-6. 拖入文件：把一张图拖到输入框（出现 attachment chip），输入「remix this style」，发送 → agent 参考它生成新图。
-7. 收尾停在时间线：2–3 张生成图叠在一起——「玩」的感觉。
+1. 点 **Start a Space** → `/spaces/new` → blank → Create。
+2. 空会话输入随意 prompt → 生成图出现。
+3. 拖入文件 → remix → 时间线 2–3 张图。
 
-**节奏：** 这一条要快，从「空白」到「做出东西」约 10 秒。
+**节奏：** 从空白到做出东西约 10 秒。
+
+**当前占位：** `LandingIdeaArt` kind=`spark`。
 
 ---
 
 ## 3. demo · build together（协作共创）
 
-**理念：** People and agents in one context. Co-create, save, and share.
-
-**前置：** 一个 Space 有 2 个成员 + 1 个 agent，会话里有来回对话。
+**理念：** People and agents in one live context. Co-create, save, keep the thread.
 
 **镜头**
-1. Space 头部：展示成员头像（人 + 一个「AI」agent chip）——hover 体现在场感。
-2. 聊天会话：一个人发「let's add a settings page」。Agent 回复一张 **tool call** 卡片（如编辑文件），展示 tool result，再给一段总结消息。
-3. 第二个人的消息实时进来（realtime）——如「make it dark mode」——agent 立刻再发一个 tool call 响应。
-4. 点 **New save**（头部的 Save 图标）→ checkpoint 创建表单 → 输入「settings page + dark mode」→ 保存。Saves 出现条目；展示 task run 完成。
-5. 点 **Share**（SessionShareDialog）：切到 public，复制链接。
-6. 收尾停在会话时间线：人 → agent（tool call）→ 人 → agent（tool call）→ save 标记。
+1. 成员头像（人 + agent）。
+2. 人 → agent tool call → 第二人 realtime 消息 → 再 tool call。
+3. New save → checkpoint。
+4. （可选）Share public session link。
 
-**关键节拍：** 多个角色在场、tool call 实时发生、从对话中生成一个 save。
+**当前占位：** `LandingIdeaArt` kind=`build`。
 
 ---
 
 ## 4. demo · open everywhere（随时随地）
 
-**理念：** Web, mobile, CLI, Discord, WeChat. The Space follows you.
+**理念：** Web / CLI（含 **local sandbox**）/ API / Scheduled 是主力；Discord/WeChat 等 channel 是可选边缘。
 
-**镜头（多屏切换）**
-1. **Web（桌面）：** Space 里一个会话，agent 正在回复。
-2. **移动端：** 在手机上打开同一个 Space（MobileSidebarDrawer + 移动端输入框）。展示同一会话在继续，从手机发一条消息。
-3. **CLI：** 终端——`cohub -s <space-id> prompt "summarize where we left off"` → 终端流式输出文本。接着 `cohub -s <space-id> spaces files ls` 展示 Space 的文件。
-4. **Discord：** 绑定到该 Space 的 Discord 频道；在那里发一条消息 → 它作为一条 session turn 出现在 web 端（channel provider 色为 Discord）。Agent 回复流回 Discord。
-5. **WeChat：**（如可用）一个 WeChat 频道消息 → 同样的往返。若 WeChat 未配置，用 Feishu 替代。
-6. 收尾回到 web：时间线上现在能看到来自 mobile / CLI / Discord 的 turn，各自可按来源辨识。
+**镜头**
+1. **Web：** Space 会话中 agent 回复。
+2. **CLI local：** `cohub sandbox up ./my-project` → 本机目录成为 Space sandbox → 打开 web Space。
+3. **CLI prompt：** `cohub -s <id> spaces prompt "..."`。
+4. **API / Scheduled：** 简短示意即可。
+5. （可选）channel 不占主叙事。
 
-**提示：** 若录制真实 Discord/WeChat 成本高，可只录 web + mobile + CLI（这三个容易），最后用 2 秒 Discord/WeChat 截图平移收尾。「同一个 Space，多个入口」的点照样成立。
+**当前占位：** `LandingIdeaArt` kind=`open`（Web / CLI / API / Scheduled + `sandbox up` 命令行）。
 
 ---
 
-## 5. demo · powerful for real work（专业自由）
+## 5. demo · publish live works（专业 / 活表面）
 
-**理念：** Games, apps, media, automations — from playful to production.
+**理念：** Live Work = Cohub-hosted surface，非静态页。scopes + viewer auth + 回写 Space。
 
 **镜头**
-1. 一个 Space 里 agent 已搭好一个小 web app：打开 **Files** 视图，展示文件树里的 `index.html` / `app.js`。
-2. 切到 **Port 预览**（PortPreviewPanel）——运行中的 app 在工作区内实时渲染（如一个小游戏或交互 demo）。
-3. 输入框：「add a start screen」→ agent 编辑文件（tool call 卡片）→ port 预览热重载出新界面。
-4. **发布 Work：** 在 port（或文件）上点发布 → WorkPublishDialog：target type = **port**，选端口，设 slug → Publish。展示公开 URL `/{user}/{space}/w/{slug}`。
-5. 新标签打开该公开 Work URL——WorkSurface 无需登录即可渲染 app。
-6. 快切到 **Scheduled**（cron）flyout 条目 → 一个按计划运行 prompt 的 cronjob（「自动化」节拍）。
+1. Files / Port 预览中的真实 app。
+2. Publish Work → target port/file → 设 `workScopes` + `allowedViewerScopes` → public URL。
+3. 访客打开 Work → authorize → `createCohubClient()` 动作 → Space 内出现 prompt/generation side effect。
+4. （可选）Scheduled 一条自动化收尾。
 
-**关键节拍：** 真实代码 → 实时预览 → 发布到公开 URL → 自动化。这是「production」的证明。
+**当前占位：** `LandingIdeaArt` kind=`work`（browser + viewer authorized + live work badge）。
 
 ---
 
 ## 6. demo · never start blank（不从空白开始）
 
-**理念：** Fork a checkpoint into a new Space, or reference any Space with `@space` as context.
+**理念：** `@space`（轻）vs Fork（重）对照。
 
-**两条路径，先后展示：**
+**路径 A — `@space`（轻量）：**
+1. Composer 输入 `@` → 选 Space → chip → prompt → agent 使用外部上下文。
 
-**路径 A — Fork（重量级）：**
-1. 从 **Explore**（wall 视图）打开一个公开 Space。浏览它的 Saves flyout → 打开一个 checkpoint。
-2. CheckpointView：展示 commit hash、fork 数、文件列表。
-3. 点 **Fork** → 跳转 `/spaces/new?checkpointId=...` → Create。
-4. 新 Space 打开，预装了该 checkpoint 的文件/状态。发一个基于它的 prompt 继续。
+**路径 B — Fork（重量）：**
+2. Explore / CheckpointView → Fork → 新 Space 预装状态 → 继续 build。
 
-**路径 B — @space 引用（轻量级）：**
-5. 在另一个 Space 的会话输入框输入 `@` → SpaceMentionMenu 弹出，搜索并选中另一个 Space → 插入为 `@spacename` chip（mono/brand）。
-6. 继续写 prompt：「...based on @spacename, build a variant」→ 发送。
-7. Agent 回复时已把被引用的 Space 作为上下文拉入——展示该 Space 已成为这一 turn 的一部分。
+**收尾：** 一秒对照字幕：`@space` = attach to this turn · Fork = new writable Space。
 
-**收尾：** 一秒回顾——fork（新 Space）对比 `@space`（会话内上下文）。两种从不空白开始的方式。
+**当前占位：** `LandingIdeaArt` kind=`fork`（split: @space chip vs fork graph）。
 
 ---
 
+## 页面结构对照（代码）
+
+| Section | 组件 / 文件 | 叙事角色 |
+| --- | --- | --- |
+| Hero | `+page.svelte` + `LandingSpaceDemo` | 主句 + 旗舰节拍 |
+| How it works | `LandingHowItWorks` | `@space` → Build & Save → Live Work |
+| Differentials | `LandingDifferentials` | Live Work scopes/auth · `@space` vs Fork |
+| 5 ideas | `LandingIdeaArt` | 保留骨架，04/05 服务两卖点；03 Open everywhere 重写 |
+| Concepts | `LandingConcepts` | Space / Checkpoint / @space / Fork / Live Work / Agent |
+| Footer | `+page.svelte` | Pricing, Changelog, Trending, X/Twitter, email |
+
 ## 录制前准备清单
 
-依据代码库需要预置的内容：
-
-- **Demo 账号**，含 3–4 个 Space：一个「sketch lab」（fun）、一个协作型（build together）、一个含已发布 port Work（powerful）、一个公开带 checkpoint 的 Space（never start blank）。
-- **绑定 Channel：**「open everywhere」的 Space 上至少绑 Discord + WeChat/Feishu 之一，加上 web channel。
-- **开启生成模型**（至少图像；如有视频/音频更好），确保时间线能渲染 image block。
-- **一个已发布 Work**，target type 为 `port`（跑一个小 app），以及一个 target 为 `file`（如 HTML 文件），用于「powerful」和「never start blank」。
-- **CLI 已登录**（`cohub auth login`），用于「open everywhere」的终端镜头。
-- **移动端**用同一账号登录，用于移动端镜头。
+- Demo 账号 + 3–4 Spaces：sketch、协作、含 Live Work、可 `@` 的公开 Space。
+- 至少一个已发布 **port/file Work**，`workScopes` + 至少一个 `allowedViewerScopes`。
+- CLI 已登录；Scheduled 至少一条 cron。
+- （可选）Channel 绑定仅作 edge 镜头。
 
 ## 需要避免的
 
-- 不要展示 pricing / billing 界面。
-- 不要展示空态或错误 toast；预置好数据，让每个 flyout 和视图都有内容。
-- 不要在 loading spinner 上停留——流式拖沓处裁掉，但保留一拍「live」流式以传达活的 Space 感。
+- 不要把 Work 拍成「能打开的静态页」而不展示 scopes / auth / 回写。
+- 不要把 `@space` 挤成附赠；Fork 与 `@space` 必须对照。
+- 不要主打 Discord/WeChat；不要把 Proposal 当主卖点。
+- 不要展示 pricing/billing、空态、错误 toast。
 
 ## 关键功能依据（代码出处）
 
-- **`@space` 触发：** `SessionComposer.svelte` 检测 `@` → `SpaceMentionMenu` → `applySpaceMention` 插入 `@[name](cohub://spaces/<id>)`。
-- **Fork：** `CheckpointView.svelte` 的 `handleForkCheckpoint` → `goto('/spaces/new?checkpointId=...')`。
-- **Works 发布目标：** file / directory / port（`WorkView.svelte` 的 select 选项），公开路由 `[username]/[spaceSlug]/w/[workSlug]`。
-- **生成内容块类型：** text / image / video / audio（`GenerationContentBlock`），任务在 `SessionTaskTray` 显示 running/completed。
-- **CLI 常用命令：** 取自 `packages/cli/src/index.ts` 的 help 文本。
-- **Space 左侧轨道：** Labels / Chats / Saves / Works / Scheduled / Tasks flyout，加 Space settings 和 New save 按钮（`Sidebar.svelte`）。
-- **Space 视图：** session / file / checkpoint / cronjob / work / task（`SpaceWorkspacePage.svelte`）。
+- **`@space` 触发：** `SessionComposer.svelte` → `SpaceMentionMenu` → `applySpaceMention` 插入 `@[name](cohub://spaces/<id>)`。
+- **Fork：** `CheckpointView.svelte` → `/spaces/new?checkpointId=...`。
+- **Works：** file / directory / port；`workScopes` / `allowedViewerScopes`；公开路由 `[username]/[spaceSlug]/w/[workSlug]`。
+- **Work SDK：** `createCohubClient()` + `auth.request()`（见 `docs/works-guide.md`、`docs/work-capability-lab/`）。
+- **CLI / Scheduled：** `packages/cli`；Space 左侧 Scheduled flyout。
