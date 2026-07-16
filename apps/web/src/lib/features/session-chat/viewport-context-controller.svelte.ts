@@ -151,6 +151,30 @@ function isSameActiveSource(
 	return false;
 }
 
+/** Stable id for dismiss / auto-attach; matches `viewportContextId` for live contexts. */
+export function activeViewportSourceId(
+	source: ActiveViewportSource,
+): string | null {
+	if (!source) return null;
+	if (source.kind === "port") return `port:${source.port}`;
+	return `${source.kind}:${source.path}`;
+}
+
+/**
+ * Dismiss sticks until the active source actually changes to another one.
+ * Closing the preview (→ null) keeps dismiss so reopening the same source stays quiet.
+ * Switching A → B drops A's dismiss so returning later can auto-attach again.
+ */
+export function nextDismissedIdsAfterSourceChange(
+	dismissedIds: readonly string[],
+	prevId: string | null,
+	nextId: string | null,
+): readonly string[] {
+	if (!prevId || !nextId || prevId === nextId) return dismissedIds;
+	if (!dismissedIds.includes(prevId)) return dismissedIds;
+	return dismissedIds.filter((id) => id !== prevId);
+}
+
 export function createViewportContextController() {
 	let activeSource = $state.raw<ActiveViewportSource>(null);
 	let fileObservation = $state.raw<FileViewportObservation | null>(null);
@@ -219,6 +243,14 @@ export function createViewportContextController() {
 
 	function setActiveSource(next: ActiveViewportSource) {
 		if (isSameActiveSource(activeSource, next)) return;
+		const prevId = activeViewportSourceId(activeSource);
+		const nextId = activeViewportSourceId(next);
+		const pruned = nextDismissedIdsAfterSourceChange(
+			dismissedIds,
+			prevId,
+			nextId,
+		);
+		if (pruned !== dismissedIds) dismissedIds = [...pruned];
 		activeSource = next;
 		if (!next) {
 			fileObservation = null;
@@ -348,14 +380,13 @@ export function createViewportContextController() {
 	}
 
 	function restoreAfterFailedSend() {
-		// Return to live derivation; keep dismissed ids for this draft.
+		// Return to live derivation; keep dismissed ids.
 		snapshot = null;
 	}
 
 	function markSendSucceeded() {
+		// Unfreeze composer chips; dismissed sources stay dismissed until source changes.
 		snapshot = null;
-		// New draft may auto-include the active viewport again.
-		dismissedIds = [];
 	}
 
 	function dispose() {
