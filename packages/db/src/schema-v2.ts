@@ -33,22 +33,28 @@ export type ReferralStatus = "pending" | "qualified" | "rewarded";
 
 /** Endpoints of a reference: the kinds of resources that can point or be pointed at. */
 export type ReferenceResourceType =
-  | "space"
+  | "turn"
   | "session"
+  | "space"
   | "checkpoint"
   | "user"
-  | "file"
-  | "tool";
+  | "file";
 
 /** The nature of a reference between two resources. */
 export type ReferenceKind =
   | "session_fork"
   | "space_fork"
   | "checkpoint_fork"
+  | "mod"
   | "mention"
   | "tool_call"
-  | "mod"
-  | "participant";
+  | "participant"
+  | "agent_tool_file_read"
+  | "agent_tool_file_write"
+  | "agent_tool_file_edit"
+  | "agent_tool_file_ls"
+  | "agent_tool_file_find"
+  | "agent_tool_file_grep";
 
 export const v2 = pgSchema("v2");
 
@@ -1125,61 +1131,63 @@ export const taskRuns = v2.table(
 
 /**
  * Unified index of references between resources — the raw material behind
- * relationship stats (collaboration networks, lineage, influence rankings).
+ * relationship stats (collaboration networks, lineage, influence, file heat).
  *
- * Each row is a distinct reference observed within a single turn (or a
- * structural event without a turn, e.g. a fork or mod mount). `count` records
- * how many times the reference appeared within that turn; cross-turn totals are
- * derived at query time via SUM/COUNT.
+ * The table is a directed graph of edges. Each row is a distinct reference
+ * observed from a source resource to a target resource. Content references
+ * (mention / tool_call / file_*) are sourced at `turn` granularity for maximum
+ * precision; structural references (fork / mod) are sourced at the resource
+ * that owns the event. `count` records how many times the edge appeared within
+ * its source; cross-source totals are derived at query time via SUM/COUNT.
+ *
+ * `sourceSpaceId` / `sourceSessionId` denormalize the source's ancestry so a
+ * single edge can be rolled up at turn, session, or space granularity without
+ * extra joins. Targets carry their space inline (file targets encode it in
+ * `targetId` as `{spaceId}:{path}`), so no target ancestry columns are needed.
  *
  * Source tables (session_turns, session_forks, checkpoints, space_mods, ...)
- * remain the sole source of truth. This table is a rebuildable index: it is
- * written by non-blocking double-writes at each behavior point and can be fully
- * reconstructed by a backfill scan at any time.
+ * remain the sole source of truth. This table is a rebuildable index: written
+ * by non-blocking async double-writes at each behavior point and fully
+ * reconstructable by a backfill scan at any time.
  */
 export const resourceReferences = v2.table(
   "resource_references",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     kind: varchar("kind", { length: 30 }).$type<ReferenceKind>().notNull(),
+    /** Source endpoint. `turn` for content refs; the owning resource for structural refs. */
     sourceType: varchar("source_type", { length: 20 }).$type<ReferenceResourceType>().notNull(),
     sourceId: text("source_id").notNull(),
-    /** Turn where the reference occurred; null for structural references (fork/mod). */
-    sourceTurnId: uuid("source_turn_id"),
     targetType: varchar("target_type", { length: 20 }).$type<ReferenceResourceType>().notNull(),
+    /** Target endpoint. File targets encode their space as `{spaceId}:{absPath}`. */
     targetId: text("target_id").notNull(),
-    /** Owning space, for authorization and space-level aggregation. */
-    spaceId: uuid("space_id").notNull(),
-    /** Session the reference belongs to, when applicable. */
-    sessionId: uuid("session_id"),
-    /** Times this reference appeared within the source turn (usually 1). */
+    /** Source's owning space, for authorization and space-level rollups. */
+    sourceSpaceId: uuid("source_space_id").notNull(),
+    /** Source's owning session, for session-level rollups; null for space/checkpoint sources. */
+    sourceSessionId: uuid("source_session_id"),
+    /** Times this edge appeared within its source (usually 1). */
     count: integer("count").notNull().default(1),
-    /** Denormalized context: mention label, tool name, fork anchor, etc. */
+    /** Denormalized context: mention label, tool name, fork anchor, raw path, etc. */
     meta: jsonb("meta").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    // Identity of a reference. `nullsNotDistinct` makes null turn ids compare
-    // equal so structural references (fork/mod, turn-less) also get a stable
-    // uniqueness key, while a plain-column target keeps upserts simple.
-    uniqueReference: unique("v2_uq_resource_references_identity")
-      .on(
-        table.kind,
-        table.sourceType,
-        table.sourceId,
-        table.sourceTurnId,
-        table.targetType,
-        table.targetId,
-      )
-      .nullsNotDistinct(),
-    // "Who references me" reverse lookup (influence / dependents).
+    // Edge identity. Every column is non-null, so no nullsNotDistinct is needed.
+    uniqueReference: unique("v2_uq_resource_references_identity").on(
+      table.kind,
+      table.sourceType,
+      table.sourceId,
+      table.targetType,
+      table.targetId,
+    ),
+    // "Who references me" reverse lookup (influence / dependents / file heat).
     targetIdx: index("v2_idx_resource_references_target").on(
       table.targetType,
       table.targetId,
       table.kind,
     ),
-    // "What do I reference" forward lookup.
+    // "What does this source reference" forward lookup (turn/session/space precision).
     sourceIdx: index("v2_idx_resource_references_source").on(
       table.sourceType,
       table.sourceId,
@@ -1187,16 +1195,14 @@ export const resourceReferences = v2.table(
     ),
     // Space-level aggregation and time trends.
     spaceKindIdx: index("v2_idx_resource_references_space_kind").on(
-      table.spaceId,
+      table.sourceSpaceId,
       table.kind,
       table.updatedAt,
     ),
-    // Session-level relationships.
+    // Session-level rollups.
     sessionKindIdx: index("v2_idx_resource_references_session_kind").on(
-      table.sessionId,
+      table.sourceSessionId,
       table.kind,
     ),
-    // Backfill / turn-level rebuild.
-    turnIdx: index("v2_idx_resource_references_turn").on(table.sourceTurnId),
   }),
 );

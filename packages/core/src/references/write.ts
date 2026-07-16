@@ -32,7 +32,6 @@ export const writeReferences = async (
       ref.kind,
       ref.sourceType,
       ref.sourceId,
-      ref.sourceTurnId ?? "",
       ref.targetType,
       ref.targetId,
     ].join("\u0000");
@@ -49,11 +48,10 @@ export const writeReferences = async (
     kind: ref.kind,
     sourceType: ref.sourceType,
     sourceId: ref.sourceId,
-    sourceTurnId: ref.sourceTurnId ?? null,
     targetType: ref.targetType,
     targetId: ref.targetId,
-    spaceId: ref.spaceId,
-    sessionId: ref.sessionId ?? null,
+    sourceSpaceId: ref.sourceSpaceId,
+    sourceSessionId: ref.sourceSessionId ?? null,
     count: ref.count ?? 1,
     meta: ref.meta ?? null,
   }));
@@ -66,11 +64,14 @@ export const writeReferences = async (
         resourceReferences.kind,
         resourceReferences.sourceType,
         resourceReferences.sourceId,
-        resourceReferences.sourceTurnId,
         resourceReferences.targetType,
         resourceReferences.targetId,
       ],
       set: {
+        // Ancestry is fully determined by the identity, so these are normally
+        // no-ops; refreshing from excluded.* self-heals any prior bad write.
+        sourceSpaceId: sql`excluded.source_space_id`,
+        sourceSessionId: sql`excluded.source_session_id`,
         count: sql`excluded.count`,
         meta: sql`excluded.meta`,
         updatedAt: now,

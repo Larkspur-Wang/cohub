@@ -22,6 +22,7 @@ export const ALL_PERMISSIONS = [
   "checkpoint.edit",
   "member.view",
   "member.manage",
+  "references.view",
   "channel.view",
   "channel.manage",
   "cronjob.view",
@@ -107,6 +108,7 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "checkpoint.edit",
     "member.view",
     "member.manage",
+    "references.view",
     "channel.view",
     "channel.manage",
     "cronjob.view",
@@ -134,6 +136,7 @@ export const ROLE_PERMISSIONS: Record<SpaceRole, ReadonlySet<Permission>> = {
     "checkpoint.view",
     "checkpoint.edit",
     "member.view",
+    "references.view",
     "channel.view",
     "cronjob.view",
     "taskrun.view",
@@ -322,6 +325,16 @@ export function createDrizzlePermissionStore(db: DrizzlePermissionDb): Permissio
 
 export function createBatchDrizzlePermissionStore(db: DrizzlePermissionDb): PermissionStore & {
   filterSessionsByPermission<TSession extends SpaceSessionLike>(input: Omit<Parameters<typeof filterSessionsByPermission<TSession>>[0], "store">): Promise<TSession[]>;
+  /**
+   * Decide `permission` for many spaces in at most two queries: one membership
+   * lookup, one space-level access-policy lookup for the non-member remainder.
+   * Use this instead of N× `hasPermission` to avoid connection-pool storms.
+   */
+  filterSpaceIdsByPermission(input: {
+    user: PermissionSubject | null;
+    permission: Permission;
+    spaceIds: readonly string[];
+  }): Promise<string[]>;
 } {
   const store = createDrizzlePermissionStore(db);
   const queryDb = db;
@@ -358,6 +371,55 @@ export function createBatchDrizzlePermissionStore(db: DrizzlePermissionDb): Perm
           : (effective.anonymousUserRole ?? null);
         return role !== null && roleHasPermission(role, input.permission);
       });
+    },
+    async filterSpaceIdsByPermission(input) {
+      if (input.spaceIds.length === 0) return [];
+      const unique = [...new Set(input.spaceIds)];
+      const allowed = new Set<string>();
+      const memberSpaceIds = new Set<string>();
+
+      if (input.user?.uuid) {
+        const members = await queryDb
+          .select({ spaceId: spaceMembers.spaceId, role: spaceMembers.role })
+          .from(spaceMembers)
+          .where(
+            and(eq(spaceMembers.userId, input.user.uuid), inArray(spaceMembers.spaceId, unique)),
+          );
+        for (const member of members) {
+          memberSpaceIds.add(member.spaceId);
+          if (roleHasPermission(member.role, input.permission)) allowed.add(member.spaceId);
+        }
+      }
+
+      // Non-members fall back to space-level access policies only (no session
+      // override). Space visibility is the right grain for “can I see this
+      // source space?” checks such as incoming reference filtering.
+      const remaining = unique.filter((spaceId) => !memberSpaceIds.has(spaceId));
+      if (remaining.length > 0) {
+        const audience = resolveAudience(input.user);
+        const policies = await queryDb
+          .select({
+            resourceId: accessPolicies.resourceId,
+            signedInUserRole: accessPolicies.signedInUserRole,
+            anonymousUserRole: accessPolicies.anonymousUserRole,
+          })
+          .from(accessPolicies)
+          .where(
+            and(
+              eq(accessPolicies.resourceType, "space"),
+              inArray(accessPolicies.resourceId, remaining),
+            ),
+          );
+        for (const policy of policies) {
+          const role =
+            audience === "signed_in_user"
+              ? (policy.signedInUserRole ?? policy.anonymousUserRole ?? null)
+              : (policy.anonymousUserRole ?? null);
+          if (role && roleHasPermission(role, input.permission)) allowed.add(policy.resourceId);
+        }
+      }
+
+      return unique.filter((spaceId) => allowed.has(spaceId));
     },
   };
 }

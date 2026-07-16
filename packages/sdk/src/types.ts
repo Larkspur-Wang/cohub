@@ -1427,6 +1427,7 @@ export type Permission =
   | "checkpoint.edit"
   | "member.view"
   | "member.manage"
+  | "references.view"
   | "channel.view"
   | "channel.manage"
   | "cronjob.view"
@@ -1599,27 +1600,34 @@ export type AcceptInvitationResponse = {
 // ─── Reference types ───
 
 export type ReferenceResourceType =
-  | "space"
+  | "turn"
   | "session"
+  | "space"
   | "checkpoint"
   | "user"
-  | "file"
-  | "tool";
+  | "file";
 
 /**
- * Resource types usable as a query `source`. Only these have an owning space to
- * authorize against; user/file/tool appear only as reference targets.
+ * Resource types usable as a query `source`: they resolve to an owning space to
+ * authorize against. `turn` gives the finest precision; session/space roll up.
+ * file/user appear only as edge targets, never as a queryable source.
  */
-export type ReferenceQueryableType = "space" | "session" | "checkpoint";
+export type ReferenceQueryableType = "turn" | "session" | "space" | "checkpoint";
 
 export type ReferenceKind =
   | "session_fork"
   | "space_fork"
   | "checkpoint_fork"
+  | "mod"
   | "mention"
   | "tool_call"
-  | "mod"
-  | "participant";
+  | "participant"
+  | "agent_tool_file_read"
+  | "agent_tool_file_write"
+  | "agent_tool_file_edit"
+  | "agent_tool_file_ls"
+  | "agent_tool_file_find"
+  | "agent_tool_file_grep";
 
 export type ReferenceDirection = "out" | "in" | "both";
 
@@ -1627,11 +1635,10 @@ export type ReferenceRecord = {
   kind: ReferenceKind;
   sourceType: ReferenceResourceType;
   sourceId: string;
-  sourceTurnId: string | null;
   targetType: ReferenceResourceType;
   targetId: string;
-  spaceId: string;
-  sessionId: string | null;
+  sourceSpaceId: string;
+  sourceSessionId: string | null;
   count: number;
   createdAt: string;
   updatedAt: string;
@@ -1644,7 +1651,7 @@ export type ReferenceQueryResponse = {
   references: ReferenceRecord[];
 };
 
-export type ReferenceAggregateGroupBy = "kind" | "targetType" | "sourceType" | "day";
+export type ReferenceAggregateGroupBy = "kind" | "targetType" | "target" | "sourceType" | "day";
 
 export type ReferenceAggregateGroup = {
   group: string;

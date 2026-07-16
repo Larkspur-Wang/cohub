@@ -3,20 +3,25 @@ import type { ReferenceKind, ReferenceResourceType } from "@cohub/db";
 export type { ReferenceKind, ReferenceResourceType };
 
 /**
- * A single reference observed from a source resource to a target resource.
+ * A single reference edge observed from a source resource to a target resource.
  * Produced by the pure extractors and consumed by the idempotent writer.
+ *
+ * Content edges (mention / tool_call / file_*) are sourced at `turn`
+ * granularity; structural edges (fork / mod) at the resource that owns the
+ * event. `sourceSpaceId` / `sourceSessionId` denormalize the source ancestry so
+ * one edge rolls up cleanly at turn, session, or space level.
  */
 export type ReferenceInput = {
   kind: ReferenceKind;
   sourceType: ReferenceResourceType;
   sourceId: string;
-  /** Turn where the reference occurred; omit for structural references. */
-  sourceTurnId?: string | null;
   targetType: ReferenceResourceType;
   targetId: string;
-  spaceId: string;
-  sessionId?: string | null;
-  /** Occurrences within the source turn. Defaults to 1. */
+  /** Source's owning space, for authorization and space-level rollups. */
+  sourceSpaceId: string;
+  /** Source's owning session; omit for space/checkpoint sources. */
+  sourceSessionId?: string | null;
+  /** Occurrences within the source. Defaults to 1. */
   count?: number;
   meta?: Record<string, unknown> | null;
 };
