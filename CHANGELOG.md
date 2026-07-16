@@ -4,6 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.101 — 2026-07-16
+
+- **Resource references graph**: Rebuild `resource_references` as a directed graph — turn-level content edges, structural edges with denormalized `sourceSpaceId`/`sourceSessionId`, agent file-access kinds (`read`/`write`/`edit`/`ls`/`find`/`grep`), batch space authz, and `groupBy=target` aggregates for file-heat rankings.
+- **Home space bootstrap**: Empty accounts now get a blank Home space (`slug=home`) via `GET /spaces/default`, so first entry lands in a real space instead of `/spaces/new`; POST and ensure share one create/provision path.
+- **Landing narrative**: Refresh the public site around @space and Live Work — How it works, differentiators, a more realistic hero demo, and Web/CLI/API/Scheduled as primary surfaces.
+- **References surface cleanup**: Drop redundant participant edges (authorship already lives on turns), query by `turn:<uuid>`, and expose the graph model through SDK and CLI.
+
+### Bug Fixes
+
+- Keep dismissed composer viewport-context chips sticky until the active preview source actually changes, so they no longer reappear after every send.
+
 ## v1.100 — 2026-07-16
 
 - **Default usernames via Logto**: New accounts get a username from the email local part (slugified, with wide random suffixes and a UUID fallback), written to Logto first so identity never diverges from the source of truth.
