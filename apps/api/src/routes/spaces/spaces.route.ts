@@ -10,7 +10,6 @@ import { db } from "../../db/index.js";
 import {
   userChannels,
   spaceChannels,
-  spaceMods,
   spaces,
   taskRuns,
   spaceSessions,
@@ -19,11 +18,19 @@ import {
   sessionTurns,
 } from "@cohub/db";
 import { eq, and, inArray, desc, lt, or, sql } from "drizzle-orm";
-import { useAuth, getOptionalAuth, getWorkSessionPrincipal, requireValidId, buildSpaceListItems, buildStorageRepoName, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
+import { useAuth, getOptionalAuth, getWorkSessionPrincipal, getPreviewSessionPrincipal, getExecutionPrincipal, requireValidId, buildSpaceListItems, authzDenied, getSpacePublicProfile, normalizePublicAvatarUrl } from "../../lib/middleware.js";
 import { config } from "../../config.js";
 import { scheduleSandboxAutoDestroy } from "../../sandbox-idle-scheduler.js";
 import { attachSandboxPublicEndpoints } from "../../sandbox-public-network.js";
-import { ensureSpaceSandbox, getSpaceSandboxBySpaceId, markSandboxSpecPendingRestart, recoverSpaceSandbox, reconcileSpaceSandbox, resizeSpaceSandboxToSpec } from "../../space-sandboxes.js";
+import {
+  createOwnedSpaceRecord,
+  provisionCreatedSpace,
+  type ProvisionCreatedSpaceResult,
+  type SpaceBootstrapSource,
+  type SpaceSandboxAutoDestroyPolicy,
+  type SpaceSandboxProvider,
+} from "../../space-create.js";
+import { getSpaceSandboxBySpaceId, markSandboxSpecPendingRestart, recoverSpaceSandbox, resizeSpaceSandboxToSpec } from "../../space-sandboxes.js";
 import {
   createInitialSpaceSession,
   getSpaceById,
@@ -270,12 +277,6 @@ type SpacePromptInput = {
   env?: unknown;
 };
 
-type SpaceSandboxAutoDestroyPolicy =
-  | { mode: "idle"; ttlSeconds: number }
-  | { mode: "never" };
-
-type SpaceSandboxProvider = "cloud" | "local";
-
 type SpaceConfigInput = {
   sandbox?: {
     provider?: SpaceSandboxProvider;
@@ -293,6 +294,7 @@ const MIN_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 60;
 const MAX_SPACE_SANDBOX_AUTO_DESTROY_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_SPACE_DESCRIPTION_LENGTH = 10_000;
 const HOME_SPACE_SLUG = "home";
+const HOME_SPACE_NAME = "Home";
 const SPACE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9_-]{0,78}[a-z0-9])?$/;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -535,6 +537,177 @@ function getSpaceProvisionParams(
   };
 }
 
+async function findOwnedHomeSpace(userUuid: string): Promise<SpaceRow | null> {
+  const [ownedHome] = await db
+    .select()
+    .from(spaces)
+    .where(and(eq(spaces.userUuid, userUuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+    .limit(1);
+  return ownedHome ?? null;
+}
+
+async function findOwnedRecentSpace(userUuid: string): Promise<SpaceRow | null> {
+  const [ownedRecent] = await db
+    .select()
+    .from(spaces)
+    .where(eq(spaces.userUuid, userUuid))
+    .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+    .limit(1);
+  return ownedRecent ?? null;
+}
+
+/** After a unique conflict, prefer the real home slug, then any owned space. */
+async function resolveHomeEnsureConflict(userUuid: string, reason: string): Promise<SpaceRow | null> {
+  const home = await findOwnedHomeSpace(userUuid);
+  if (home) return home;
+  const recent = await findOwnedRecentSpace(userUuid);
+  if (recent) {
+    logger.warn("[DefaultSpace] home ensure conflict without slug=home", {
+      userUuid,
+      reason,
+      spaceId: recent.id,
+      name: recent.name,
+      slug: recent.slug,
+    });
+  }
+  return recent;
+}
+
+async function findDefaultSpaceCandidate(userUuid: string): Promise<SpaceRow | null> {
+  // Hot path: most accounts already have a home space.
+  const [[ownedHome], [memberHome]] = await Promise.all([
+    db
+      .select()
+      .from(spaces)
+      .where(and(eq(spaces.userUuid, userUuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+      .limit(1),
+    db
+      .select({ space: spaces })
+      .from(spaceMembers)
+      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
+      .where(and(eq(spaceMembers.userId, userUuid), eq(spaces.slug, HOME_SPACE_SLUG)))
+      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+      .limit(1),
+  ]);
+  const homeSpace = selectMostRecentSpace([ownedHome, memberHome?.space]);
+  if (homeSpace) return homeSpace;
+
+  const [[ownedRecent], [memberRecent]] = await Promise.all([
+    db
+      .select()
+      .from(spaces)
+      .where(eq(spaces.userUuid, userUuid))
+      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+      .limit(1),
+    db
+      .select({ space: spaces })
+      .from(spaceMembers)
+      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
+      .where(eq(spaceMembers.userId, userUuid))
+      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
+      .limit(1),
+  ]);
+  return selectMostRecentSpace([ownedRecent, memberRecent?.space]);
+}
+
+type PreparedHomeMods = Awaited<ReturnType<typeof prepareSpaceModInserts>>;
+
+const HOME_BOOTSTRAP: SpaceBootstrapSource = { type: "blank" };
+
+async function insertHomeSpaceRecord(
+  user: AuthUser,
+  preparedModValues: PreparedHomeMods,
+): Promise<SpaceRow> {
+  const { space } = await createOwnedSpaceRecord({
+    user,
+    name: HOME_SPACE_NAME,
+    slug: HOME_SPACE_SLUG,
+    bootstrapSource: HOME_BOOTSTRAP,
+    sandbox: {
+      provider: "cloud",
+      autoDestroy: DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+      spec: DEFAULT_SANDBOX_SPEC_ID,
+    },
+    extraEnv: [],
+    mods: preparedModValues,
+    meta: { createdSource: "default_ensure" },
+  });
+  return space;
+}
+
+/**
+ * Create a blank Home space for first-time users. Idempotent under concurrency:
+ * unique conflicts re-select the winner instead of failing the entry path.
+ * Only call from normal account sessions (never work/preview/execution).
+ */
+async function ensureHomeSpace(user: AuthUser): Promise<SpaceRow | null> {
+  // Caller only invokes this when no accessible space was found. Concurrent
+  // ensures rely on (userUuid, slug|name) unique indexes + re-select.
+  const createMods = getDefaultSpaceModsForEnv(config.env);
+  // spaceId is remapped at insert; placeholder only for prepare validation.
+  const preparedModValues = await prepareSpaceModInserts({
+    actor: user,
+    spaceId: crypto.randomUUID(),
+    mods: createMods,
+    existing: [],
+  }).catch((error) => {
+    const response = spaceModErrorResponse(error);
+    logger.warn("[DefaultSpace] failed to prepare home mods; creating without mods", {
+      userUuid: user.uuid,
+      message: response?.message ?? (error instanceof Error ? error.message : String(error)),
+      status: response?.status,
+    });
+    return [] as PreparedHomeMods;
+  });
+
+  let space: SpaceRow | undefined;
+  try {
+    space = await insertHomeSpaceRecord(user, preparedModValues);
+  } catch (error) {
+    const constraint = uniqueViolationConstraint(error);
+    if (constraint?.includes("user_slug") || constraint?.includes("user_name")) {
+      return resolveHomeEnsureConflict(
+        user.uuid,
+        constraint.includes("user_slug") ? "slug_conflict" : "name_conflict",
+      );
+    }
+    const modResponse = spaceModErrorResponse(error);
+    if (modResponse) {
+      // First attempt rolled back. Retry once without mods so first-time users
+      // still get an entry target.
+      logger.warn("[DefaultSpace] home mod insert failed; retrying without mods", {
+        userUuid: user.uuid,
+        message: modResponse.message,
+      });
+      try {
+        space = await insertHomeSpaceRecord(user, []);
+      } catch (retryError) {
+        const retryConstraint = uniqueViolationConstraint(retryError);
+        if (retryConstraint?.includes("user_slug") || retryConstraint?.includes("user_name")) {
+          return resolveHomeEnsureConflict(user.uuid, "retry_unique_conflict");
+        }
+        throw retryError;
+      }
+    } else {
+      throw error;
+    }
+  }
+
+  if (!space) return resolveHomeEnsureConflict(user.uuid, "missing_space");
+  const provisioned = await provisionCreatedSpace({
+    user,
+    space,
+    bootstrapSource: HOME_BOOTSTRAP,
+    extraEnv: [],
+    sandbox: {
+      provider: "cloud",
+      autoDestroy: DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
+    },
+    onBootstrapFailure: "soft",
+  });
+  return provisioned.space;
+}
+
 router.get("/", async (c) => {
   const user = useAuth(c);
   if (user instanceof Response) return user;
@@ -564,39 +737,17 @@ router.get("/default", async (c) => {
   const identity = asAccountIdentity(user);
   if (!identity) return authzDenied(c);
 
-  const [[ownedHome], [memberHome]] = await Promise.all([
-    db
-      .select()
-      .from(spaces)
-      .where(and(eq(spaces.userUuid, identity.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
-      .limit(1),
-    db
-      .select({ space: spaces })
-      .from(spaceMembers)
-      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
-      .where(and(eq(spaceMembers.userId, identity.uuid), eq(spaces.slug, HOME_SPACE_SLUG)))
-      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
-      .limit(1),
-  ]);
-  const homeSpace = selectMostRecentSpace([ownedHome, memberHome?.space]);
-  if (homeSpace) return c.json({ space: await buildDefaultSpaceResponse(c, homeSpace, user) });
-
-  const [[ownedRecent], [memberRecent]] = await Promise.all([
-    db
-      .select()
-      .from(spaces)
-      .where(eq(spaces.userUuid, user.uuid))
-      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
-      .limit(1),
-    db
-      .select({ space: spaces })
-      .from(spaceMembers)
-      .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
-      .where(eq(spaceMembers.userId, user.uuid))
-      .orderBy(sql`${spaces.lastActivityAt} desc nulls last`, desc(spaces.createdAt))
-      .limit(1),
-  ]);
-  const space = selectMostRecentSpace([ownedRecent, memberRecent?.space]);
+  // Prefer existing home / recent space.
+  let space = await findDefaultSpaceCandidate(identity.uuid);
+  // Ensure only for normal account sessions. Work / preview / execution
+  // principals may list via viewer grants but must not mint spaces.
+  const canEnsureHome =
+    !getWorkSessionPrincipal(c) &&
+    !getPreviewSessionPrincipal(c) &&
+    !getExecutionPrincipal(c);
+  if (!space && canEnsureHome) {
+    space = await ensureHomeSpace(user);
+  }
 
   return c.json({ space: space ? await buildDefaultSpaceResponse(c, space, user) : null });
 });
@@ -734,13 +885,11 @@ router.post("/", async (c) => {
     if (!(await hasPermission(user, "checkpoint.view", { spaceId: checkpoint.spaceId }))) return authzDenied(c);
   }
 
-  const spaceId = crypto.randomUUID();
-  const storageRepoName = buildStorageRepoName(spaceId);
-
   const createMods = Array.isArray(body.mods) ? body.mods : getDefaultSpaceModsForEnv(config.env);
+  // spaceId is remapped inside createOwnedSpaceRecord; placeholder for prepare only.
   const preparedModValues = await prepareSpaceModInserts({
     actor: user,
-    spaceId,
+    spaceId: crypto.randomUUID(),
     mods: createMods,
     existing: [],
   }).catch((error) => {
@@ -750,79 +899,30 @@ router.post("/", async (c) => {
   });
   if (!Array.isArray(preparedModValues)) return c.json({ message: preparedModValues.message }, preparedModValues.status);
 
+  const sandboxProvider = normalizedConfig.sandbox?.provider ?? "cloud";
+  const sandboxAutoDestroy = normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY;
+
   let space: typeof spaces.$inferSelect | undefined;
   let insertedChannels: Array<typeof spaceChannels.$inferSelect> = [];
   try {
-    const result = await db.transaction(async (tx) => {
-      const [createdSpace] = await tx
-        .insert(spaces)
-        .values({
-          id: spaceId,
-          userUuid: user.uuid,
-          name,
-          slug,
-          description: body.description ?? null,
-          storageRepoName,
-          baseCheckpointId: normalizedBootstrapSource.type === "checkpoint" ? normalizedBootstrapSource.checkpointId : null,
-          headCheckpointId: null,
-          lastActivityAt: new Date(),
-          meta: {
-            ...(body.meta ?? {}),
-            config: {
-              ...(isRecord(body.meta?.config) ? body.meta.config : {}),
-              sandbox: {
-                provider: normalizedConfig.sandbox?.provider ?? "cloud",
-                autoDestroy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
-                spec: requestedSpec,
-              },
-            },
-            extraEnv: normalizedExtraEnv,
-            bootstrap: {
-              status: "pending",
-              stage: null,
-              taskRunId: null,
-              errorMessage: null,
-              source: normalizedBootstrapSource,
-              startedAt: null,
-              finishedAt: null,
-            },
-          },
-        })
-        .returning();
-      if (!createdSpace) throw new Error("failed to create space");
-
-      await tx.insert(spaceMembers).values({
-        spaceId: createdSpace.id,
-        userId: user.uuid,
-        role: "host",
-        createdBy: user.uuid,
-        updatedBy: user.uuid,
-      });
-
-      if (preparedModValues.length > 0) {
-        await tx.insert(spaceMods).values(preparedModValues);
-      }
-
-      for (const binding of normalizedChannelBindings) {
-        if (!(await validateChannelModelConfig(tx as unknown as typeof db, createdSpace.id, binding.config?.model ?? null))) {
-          throw new Error("model not found");
-        }
-      }
-
-      const createdChannels = normalizedChannelBindings.length > 0
-        ? await tx
-            .insert(spaceChannels)
-            .values(
-              normalizedChannelBindings.map((binding) => ({
-                spaceId: createdSpace.id,
-                channelId: binding.channelId,
-                config: binding.config,
-              })),
-            )
-            .returning()
-        : [];
-
-      return { space: createdSpace, insertedChannels: createdChannels };
+    const result = await createOwnedSpaceRecord({
+      user,
+      name,
+      slug,
+      description: body.description ?? null,
+      bootstrapSource: normalizedBootstrapSource,
+      sandbox: {
+        provider: sandboxProvider,
+        autoDestroy: sandboxAutoDestroy,
+        spec: requestedSpec,
+      },
+      extraEnv: normalizedExtraEnv,
+      mods: preparedModValues,
+      meta: body.meta ?? {},
+      channelBindings: normalizedChannelBindings.map((binding) => ({
+        channelId: binding.channelId,
+        config: (binding.config as Record<string, unknown> | null) ?? null,
+      })),
     });
     space = result.space;
     insertedChannels = result.insertedChannels;
@@ -837,13 +937,6 @@ router.post("/", async (c) => {
 
   if (!space) return c.json({ message: "failed to create space" }, 500);
 
-  // Keep the runtime env cache in sync at creation time. The agent reads
-  // user-provided space env from Redis (not directly from DB meta), so spaces
-  // created with extraEnv must populate Redis before the sandbox/session starts.
-  // Later env panel writes already go through persistSpaceEnv(), which does the
-  // same cache update.
-  await setSpaceEnv(space.id, normalizedExtraEnv);
-
   if (insertedChannels.length > 0) {
     await Promise.all(
       insertedChannels.map((channel) =>
@@ -857,114 +950,38 @@ router.post("/", async (c) => {
     void bindSpaceChannelsToGateway(space.id).catch((error) => logger.error("[SpaceChannels] failed to bind channels after space creation", { spaceId: space.id, error }));
   }
 
-  if ((normalizedConfig.sandbox?.provider ?? "cloud") === "local") {
-    // Local sandboxes are provided by the user's machine via the gateway relay.
-    // Skip cloud pod provisioning and idle auto-destroy; register the row before
-    // enqueuing bootstrap so the worker never races ahead of a missing sandbox.
-    try {
-      await ensureSpaceSandbox({
-        spaceId: space.id,
-        provider: "local",
-        status: "stopped",
-        runtimeStatus: "unknown",
-        stopReason: "disconnected",
-        stoppedAt: new Date(),
-      });
-    } catch (error) {
-      logger.error("[LocalSandbox] failed to register local sandbox after space creation", { spaceId: space.id, error });
+  let provisioned: ProvisionCreatedSpaceResult;
+  try {
+    provisioned = await provisionCreatedSpace({
+      user,
+      space,
+      bootstrapSource: normalizedBootstrapSource,
+      extraEnv: normalizedExtraEnv,
+      sandbox: {
+        provider: sandboxProvider,
+        autoDestroy: sandboxAutoDestroy,
+      },
+      gitToken,
+      onBootstrapFailure: "throw",
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "failed to register local sandbox") {
       return c.json({ message: "failed to register local sandbox" }, 500);
     }
-  } else {
-    void scheduleSandboxAutoDestroy({
-      spaceId: space.id,
-      policy: normalizedConfig.sandbox?.autoDestroy ?? DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
-      baseAt: space.createdAt ? new Date(space.createdAt) : new Date(),
-    }).catch((error) => logger.error("[SandboxAutoDestroy] failed to schedule policy after space creation", { spaceId: space.id, error }));
-    void reconcileSpaceSandbox(
-      {
-        ...getSpaceProvisionParams(user, space),
-        mode: "ensure",
-        reason: "space_created",
-      },
-    ).catch((error) => logger.error("[SandboxPublicNetwork] failed to reconcile after space creation", { spaceId: space.id, error }));
+    if (error instanceof Error && error.message === "failed to allocate create_space task id") {
+      return c.json({ message: "failed to create bootstrap job" }, 500);
+    }
+    throw error;
   }
 
-  const taskData: Record<string, unknown> = { source: normalizedBootstrapSource };
-  // TODO: gitToken is stored in taskData (BullMQ Redis + DB task_runs).
-  // For long-term security, encrypt it or use a temporary token reference.
-  if (gitToken) taskData.gitToken = gitToken;
-
-  const job = await enqueueTask({
-    type: "create_space",
-    spaceId: space.id,
-    userId: user.uuid,
-    data: taskData,
-  }).catch(async (error) => {
-    const nextMeta = {
-      ...((space.meta as Record<string, unknown> | null) ?? {}),
-      bootstrap: {
-        status: "failed",
-        stage: null,
-        taskRunId: null,
-        errorMessage: error instanceof Error ? error.message : String(error),
-        source: normalizedBootstrapSource,
-        startedAt: null,
-        finishedAt: new Date().toISOString(),
-      },
-    };
-    await db
-      .update(spaces)
-      .set({ meta: nextMeta, updatedAt: new Date(), lastActivityAt: new Date() })
-      .where(eq(spaces.id, space.id));
-    throw error;
-  });
-  const taskRunId = job.taskRunId;
-  if (!taskRunId) {
-    await db
-      .update(spaces)
-      .set({
-        meta: {
-          ...((space.meta as Record<string, unknown> | null) ?? {}),
-          bootstrap: {
-            status: "failed",
-            stage: null,
-            taskRunId: null,
-            errorMessage: "failed to allocate create_space task id",
-            source: normalizedBootstrapSource,
-            startedAt: null,
-            finishedAt: new Date().toISOString(),
-          },
-        },
-        updatedAt: new Date(),
-        lastActivityAt: new Date(),
-      })
-      .where(eq(spaces.id, space.id));
+  if (!provisioned.taskRunId) {
     return c.json({ message: "failed to create bootstrap job" }, 500);
   }
 
-  const [spaceWithJob] = await db
-    .update(spaces)
-    .set({
-      meta: {
-        ...((space.meta as Record<string, unknown> | null) ?? {}),
-        bootstrap: {
-          status: "pending",
-          stage: null,
-          taskRunId,
-          errorMessage: null,
-          source: normalizedBootstrapSource,
-          startedAt: null,
-          finishedAt: null,
-        },
-      },
-      updatedAt: new Date(),
-      lastActivityAt: new Date(),
-    })
-    .where(eq(spaces.id, space.id))
-    .returning();
-
-  const createdSpace = spaceWithJob ?? space;
-  return c.json({ space: await serializeSpaceForResponse(createdSpace, user), taskRunId });
+  return c.json({
+    space: await serializeSpaceForResponse(provisioned.space, user),
+    taskRunId: provisioned.taskRunId,
+  });
 });
 
 /**

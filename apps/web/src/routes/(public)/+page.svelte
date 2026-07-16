@@ -4,6 +4,7 @@ import { onMount } from "svelte";
 import { browser } from "$app/environment";
 import { goto } from "$app/navigation";
 import { page } from "$app/state";
+import { resolveAppEntryRoute } from "$lib/app-entry";
 import { hasLocalSessionHint, signInWithRedirectPath } from "$lib/auth";
 import LandingConcepts from "$lib/components/landing/LandingConcepts.svelte";
 import LandingDifferentials from "$lib/components/landing/LandingDifferentials.svelte";
@@ -11,15 +12,8 @@ import LandingHowItWorks from "$lib/components/landing/LandingHowItWorks.svelte"
 import LandingIdeaArt from "$lib/components/landing/LandingIdeaArt.svelte";
 import LandingSpaceDemo from "$lib/components/landing/LandingSpaceDemo.svelte";
 import PublicHeader from "$lib/components/PublicHeader.svelte";
-import { sdk } from "$lib/sdk";
 import { canonicalUrl as buildCanonical } from "$lib/seo";
-import { buildSpaceLandingRoute } from "$lib/space-routes";
 import { authStore } from "$lib/stores/auth.svelte";
-import { getRecentSpace } from "$lib/stores/recent-space";
-import {
-	getCachedSpaceList,
-	setCachedSpaceList,
-} from "$lib/stores/space-list-cache";
 import { getResolvedTheme } from "$lib/theme.svelte";
 
 // Home marketing is always dark (app.html also forces it for first paint).
@@ -53,35 +47,26 @@ async function handlePrimaryCta() {
 	try {
 		await authStore.ensureLoaded(true);
 		if (authStore.isAuthenticated) {
-			await goto("/spaces/new");
+			redirecting = true;
+			if (browser)
+				document.documentElement.setAttribute("data-home-redirect", "1");
+			const dest = await resolveAppEntryRoute();
+			if (dest) {
+				await goto(dest);
+				return;
+			}
+			redirecting = false;
+			clearHomeRedirectAttr();
+			console.error("[home] Authenticated but no default space available");
 			return;
 		}
-		await signInWithRedirectPath("/spaces/new");
+		// After login, / resolves default (and ensures Home if needed).
+		await signInWithRedirectPath("/");
 	} catch (error) {
+		redirecting = false;
+		clearHomeRedirectAttr();
 		console.error("[home] Failed to start Cohub:", error);
 	}
-}
-
-async function resolveHomeDestination(): Promise<string> {
-	const userKey = authStore.userUuid;
-	if (userKey) {
-		const recent = getRecentSpace(userKey);
-		if (recent?.spaceId) return buildSpaceLandingRoute(recent.spaceId);
-	}
-
-	const cached = getCachedSpaceList();
-	if (cached?.[0]?.id) return buildSpaceLandingRoute(cached[0].id);
-
-	try {
-		const spaces = setCachedSpaceList(await sdk.spaces.list());
-		const defaultResult = await sdk.spaces.getDefault().catch(() => null);
-		const targetSpace = defaultResult?.space ?? spaces[0] ?? null;
-		if (targetSpace) return buildSpaceLandingRoute(targetSpace.id);
-	} catch {
-		// Authenticated with no reachable space → create flow.
-	}
-
-	return "/spaces/new";
 }
 
 onMount(() => {
@@ -106,7 +91,13 @@ onMount(() => {
 				clearHomeRedirectAttr();
 				return;
 			}
-			const dest = await resolveHomeDestination();
+			const dest = await resolveAppEntryRoute();
+			if (!dest) {
+				redirecting = false;
+				clearHomeRedirectAttr();
+				console.warn("[home] No default space after ensure");
+				return;
+			}
 			await goto(dest);
 		} catch (error) {
 			console.warn("[home] Session redirect failed:", error);

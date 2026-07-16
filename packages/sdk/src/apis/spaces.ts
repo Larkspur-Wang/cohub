@@ -175,6 +175,11 @@ export class SpacesApi {
     });
   }
 
+  /**
+   * Resolve the user's default space (owned/member home, else most recent).
+   * When the account has no accessible space, the API creates a blank Home
+   * space (`slug=home`) and returns it.
+   */
   getDefault(customFetch?: Fetch) {
     return this.transport.request<SpaceDefaultResponse>("/api/spaces/default", {
       method: "GET",
