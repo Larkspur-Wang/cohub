@@ -74,6 +74,10 @@ export default defineConfig({
 				replacement: `${protocolDir}/generation/index.ts`,
 			},
 			{
+				find: /^@cohub\/protocol\/provenance$/,
+				replacement: `${protocolDir}/provenance.ts`,
+			},
+			{
 				find: /^@cohub\/protocol\/platform\/default-space-mods$/,
 				replacement: `${protocolDir}/platform/default-space-mods.ts`,
 			},

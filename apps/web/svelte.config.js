@@ -31,6 +31,7 @@ const config = {
 			"@cohub/protocol/realtime": `${protocolDir}/realtime/index.ts`,
 			"@cohub/protocol/task": `${protocolDir}/task/index.ts`,
 			"@cohub/protocol/generation": `${protocolDir}/generation/index.ts`,
+			"@cohub/protocol/provenance": `${protocolDir}/provenance.ts`,
 			"@cohub/protocol": `${protocolDir}/index.ts`,
 			// sdk subpaths
 			"@neta-art/cohub/debugger": `${sdkDir}/debugger.ts`,
