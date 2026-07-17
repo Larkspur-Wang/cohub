@@ -65,6 +65,10 @@
     "./realtime/schema": {
       "types": "./dist/realtime/schema.d.ts",
       "default": "./dist/realtime/schema.js"
+    },
+    "./provenance": {
+      "types": "./dist/provenance.d.ts",
+      "default": "./dist/provenance.js"
     }
   },
   "types": "./dist/index.d.ts",

@@ -14,7 +14,8 @@
       "@cohub/protocol/task": ["../protocol/src/task/index.ts"],
       "@cohub/protocol/fs": ["../protocol/src/fs/index.ts"],
       "@cohub/protocol/generation": ["../protocol/src/generation/index.ts"],
-      "@cohub/protocol/ports": ["../protocol/src/ports/index.ts"]
+      "@cohub/protocol/ports": ["../protocol/src/ports/index.ts"],
+      "@cohub/protocol/provenance": ["../protocol/src/provenance.ts"]
     }
   },
   "include": ["src"]

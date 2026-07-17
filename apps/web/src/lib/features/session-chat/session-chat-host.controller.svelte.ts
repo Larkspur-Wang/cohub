@@ -3073,7 +3073,6 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				clientMessageId,
 				generationPolicy: buildTurnGenerationPolicy(),
 				accessMode: "full_access",
-				source: "web",
 				intent: "followup",
 				schedule: { mode: "immediate" },
 			});

@@ -27,7 +27,6 @@ type SpaceUpdateOptions = {
 type PromptOptions = {
   session?: string;
   title?: string;
-  source?: string;
   model?: string;
   provider?: string;
   readOnly?: boolean;
@@ -285,7 +284,6 @@ async function sendPrompt(command: Command, words: string[], opts: PromptOptions
     const result = await client.space(spaceId).prompt({
       sessionId,
       title: sessionId === opts.session ? opts.title : undefined,
-      source: opts.source?.trim() || "cli",
       content: promptContent,
       model: opts.model,
       provider: opts.provider,
@@ -390,7 +388,6 @@ export function registerPrompt(program: Command): void {
     .description("Send or schedule a prompt in a space")
     .option("--session <id>", "Target session ID")
     .option("--title <title>", "Title for a newly created session or schedule")
-    .option("--source <source>", "Prompt source for newly created sessions", "cli")
     .option("-m, --model <model>", "Model name")
     .option("-p, --provider <provider>", "Provider name")
     .option("--read-only", "Use read-only tools")
@@ -1301,7 +1298,6 @@ function registerSessions(spacesCmd: Command): void {
       try {
         const result = await client.space(spaceId).sessions.create({
           title,
-          source: "cli",
           labelRefs: opts.label?.length ? opts.label : undefined,
         });
         if (jsonRequested(opts)) return outJson(result);

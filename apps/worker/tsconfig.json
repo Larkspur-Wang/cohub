@@ -58,6 +58,9 @@
       "@cohub/protocol/generation": [
         "../../packages/protocol/src/generation/index.ts"
       ],
+      "@cohub/protocol/provenance": [
+        "../../packages/protocol/src/provenance.ts"
+      ],
       "@cohub/infra/config-runtime/prompts": [
         "../../packages/infra/src/config-runtime/prompts.ts"
       ],

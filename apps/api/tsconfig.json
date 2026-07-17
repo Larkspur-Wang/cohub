@@ -43,6 +43,9 @@
       "@cohub/protocol/ports": [
         "../../packages/protocol/src/ports/index.ts"
       ],
+      "@cohub/protocol/provenance": [
+        "../../packages/protocol/src/provenance.ts"
+      ],
       "@cohub/identity": [
         "../../packages/identity/src/index.ts"
       ],

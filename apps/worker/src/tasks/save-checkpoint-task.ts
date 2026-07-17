@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import type { Job } from "bullmq";
 import type { TaskPayload } from "@cohub/protocol/task";
+import { normalizeRequestSource } from "@cohub/protocol/provenance";
 import { checkpoints, spaces } from "@cohub/db";
 import { checkpointForkReference } from "@cohub/core/references";
 import { enqueueReferences } from "../reference-index-queue.js";
@@ -260,6 +261,7 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
       source: input.reason ?? "save_checkpoint",
       sourceTaskRunId: input.sourceTaskRunId ?? null,
       savedBy: input.userId ?? null,
+      ...(input.requestSource ? { requestSource: input.requestSource } : {}),
       mirror: { status: "queued" },
     },
     createdAt,
@@ -337,7 +339,16 @@ const saveCheckpointHandler = async (job: Job, context?: { taskRunId: string }) 
   if (!spaceId) throw new Error("spaceId is required for save_checkpoint task");
   const description = (payload.data?.description as string | undefined) ?? null;
   const reason = (payload.data?.reason as string | undefined) ?? "save_checkpoint";
-  return saveCheckpointWithLock({ spaceId, userId: payload.userId, description, reason, sourceTaskRunId: context?.taskRunId ?? null, onProgress: (progress) => job.updateProgress(progress) }, saveCheckpointForSpace);
+  const requestSource = normalizeRequestSource(payload.data?.requestSource);
+  return saveCheckpointWithLock({
+    spaceId,
+    userId: payload.userId,
+    description,
+    reason,
+    sourceTaskRunId: context?.taskRunId ?? null,
+    requestSource,
+    onProgress: (progress) => job.updateProgress(progress),
+  }, saveCheckpointForSpace);
 };
 
 registerTask("save_checkpoint", saveCheckpointHandler);

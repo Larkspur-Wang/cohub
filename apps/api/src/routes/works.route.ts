@@ -14,6 +14,7 @@ import { createLogger } from "@cohub/infra/logging";
 import { billingOperations, COHUB_BILLING_FEATURES } from "@cohub/billing";
 import { featureGateResponse } from "../lib/feature-gate.js";
 import { createWorkPublicUrl } from "../lib/work-public-url.js";
+import { applyRequestSourceToMeta } from "../lib/request-source.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 const router = new Hono();
@@ -363,7 +364,7 @@ router.post("/", async (c) => {
   const identityError = await ensureWorkPublicIdentity(c, spaceId);
   if (identityError) return identityError;
   const meta = getWorkMeta(body?.meta);
-  const versionMeta = getWorkMeta(body?.versionMeta);
+  const versionMeta = applyRequestSourceToMeta(c, null);
   const presentationError = await ensureWorkPresentationAllowed(c, { userId: user.uuid, meta });
   if (presentationError) return presentationError;
   const now = new Date();
@@ -585,8 +586,7 @@ router.post("/:id/versions", async (c) => {
   const work = await getWorkById(id);
   if (!work) return c.json({ message: "work not found" }, 404);
   if (!(await hasPermission(user, "space.edit", { spaceId: work.spaceId }))) return authzDenied(c);
-  const body = await c.req.json().catch(() => null) as Record<string, unknown> | null;
-  const meta = body && "meta" in body ? getWorkMeta(body.meta) : null;
+  const meta = applyRequestSourceToMeta(c, null);
   return publishWorkVersion(c, work, { meta });
 });
 

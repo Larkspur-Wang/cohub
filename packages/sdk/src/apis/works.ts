@@ -1,4 +1,5 @@
 import type { HttpTransport } from "../transport.js";
+import type { RequestSource } from "@cohub/protocol/provenance";
 import type { Permission, SpacePublicProfile } from "../types.js";
 
 export type WorkTargetType = "file" | "directory" | "port";
@@ -11,6 +12,7 @@ export type WorkPresentationMeta = {
 
 export type WorkMeta = Record<string, unknown> & {
   presentation?: WorkPresentationMeta;
+  source?: RequestSource;
 };
 
 export type WorkRecord = {
@@ -44,8 +46,6 @@ export type WorkCreateInput = {
   workScopes?: Permission[];
   allowedViewerScopes?: Permission[];
   meta?: WorkMeta | null;
-  /** Optional provenance/notes stored on the initial published version. */
-  versionMeta?: WorkMeta | null;
 };
 
 export type WorkUpdateInput = Partial<{
@@ -66,7 +66,6 @@ export type WorkVersionRecord = {
   targetType: WorkTargetType;
   targetRef: string;
   assetKey: string | null;
-  /** Optional provenance/notes for this version (e.g. source session/turn). */
   meta: WorkMeta | null;
   createdAt: string | null;
 };

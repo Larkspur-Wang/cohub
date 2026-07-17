@@ -31,6 +31,21 @@ export {
 } from "./http-error.js";
 export { HttpError, joinApiUrl, sanitizeAccessToken } from "./transport.js";
 export {
+  COHUB_SOURCE_HEADER,
+  COHUB_SOURCE_HEADER_NAMES,
+  hasRequestSourceIdentity,
+  isRequestSourceEmpty,
+  isRequestSourceUuid,
+  mergeRequestSourceIntoMeta,
+  normalizeRequestSource,
+  parseRequestSourceFromHeaders,
+  readRequestSourceFromEnv,
+  REQUEST_SOURCE_VIA_MAX_LENGTH,
+  requestSourceToHeaders,
+  resolveRequestSourceChannel,
+} from "@cohub/protocol/provenance";
+export type { RequestSource, RequestSourceVia } from "@cohub/protocol/provenance";
+export {
   GenerationPolicyError,
   assertGenerationRequestAllowedByPolicy,
   decodeGenerationPolicy,

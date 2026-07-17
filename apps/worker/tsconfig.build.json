@@ -13,6 +13,9 @@
       "@cohub/protocol": [
         "../../packages/protocol/dist/index.d.ts"
       ],
+      "@cohub/protocol/provenance": [
+        "../../packages/protocol/dist/provenance.d.ts"
+      ],
       "@cohub/infra/bullmq": [
         "../../packages/infra/dist/bullmq/index.d.ts"
       ],

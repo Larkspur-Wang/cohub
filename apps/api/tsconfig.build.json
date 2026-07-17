@@ -25,6 +25,9 @@
       "@cohub/protocol/generation": [
         "../../packages/protocol/dist/generation/index.d.ts"
       ],
+      "@cohub/protocol/provenance": [
+        "../../packages/protocol/dist/provenance.d.ts"
+      ],
       "@cohub/infra/tracing": [
         "../../packages/infra/dist/tracing/index.d.ts"
       ],

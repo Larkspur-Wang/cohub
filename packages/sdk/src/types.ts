@@ -1003,6 +1003,7 @@ export type GlobalSearchResponse = {
 
 export type CreateSpaceSessionInput = {
   title?: string | null;
+  /** Optional channel; falls back to X-Cohub-Source-Via. */
   source?: string | null;
   labelRefs?: string[];
 };
@@ -1044,6 +1045,7 @@ export type PromptAccessMode = "read_only" | "full_access";
 export type CreateSpacePromptInput = {
   sessionId?: string | null;
   title?: string | null;
+  /** Optional channel; falls back to X-Cohub-Source-Via. */
   source?: string | null;
   content: ContentBlock[];
   model?: string | null;

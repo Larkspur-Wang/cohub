@@ -77,6 +77,7 @@ import { parseChannelConfigPatch, mergeChannelConfig, validateChannelModelConfig
 import { redisCommandClient } from "../../redis.js";
 import { featureGateResponse } from "../../lib/feature-gate.js";
 import { billingBlockedResponse } from "../../lib/billing-blocked.js";
+import { applyRequestSourceToMeta, getRequestSource, resolveSessionSourceFromRequest } from "../../lib/request-source.js";
 
 
 const logger = createLogger({ serviceName: "cohub-api" });
@@ -111,16 +112,6 @@ type PromptAccessMode = "read_only" | "full_access";
 const normalizePromptAccessMode = (value: unknown): PromptAccessMode | null => {
   if (value === undefined || value === null) return "full_access";
   return value === "read_only" || value === "full_access" ? value : null;
-};
-
-const MAX_PROMPT_SOURCE_LENGTH = 255;
-
-const normalizePromptSource = (value: unknown): { source: string; error?: string } => {
-  if (value === undefined || value === null) return { source: "public_api" };
-  if (typeof value !== "string") return { source: "public_api", error: "source must be a string" };
-  const source = value.trim() || "public_api";
-  if (source.length > MAX_PROMPT_SOURCE_LENGTH) return { source, error: "source must be at most 255 characters" };
-  return { source };
 };
 
 type SpacePromptIntent = "followup" | "steer";
@@ -918,7 +909,7 @@ router.post("/", async (c) => {
       },
       extraEnv: normalizedExtraEnv,
       mods: preparedModValues,
-      meta: body.meta ?? {},
+      meta: applyRequestSourceToMeta(c, body.meta ?? {}) ?? {},
       channelBindings: normalizedChannelBindings.map((binding) => ({
         channelId: binding.channelId,
         config: (binding.config as Record<string, unknown> | null) ?? null,
@@ -1297,7 +1288,11 @@ router.post("/:id/checkpoints", async (c) => {
     type: "save_checkpoint",
     spaceId,
     userId: user.uuid,
-    data: { spaceId, description },
+    data: {
+      spaceId,
+      description,
+      requestSource: getRequestSource(c),
+    },
   });
 
   return c.json({ ok: true, taskRunId });
@@ -1844,9 +1839,7 @@ router.post("/:id/prompt", async (c) => {
 
   const content = body.content;
   const clientMessageId = body.clientMessageId?.trim() || crypto.randomUUID();
-  const sourceResult = normalizePromptSource(body.source);
-  if (sourceResult.error) return c.json({ message: sourceResult.error }, 400);
-  const source = sourceResult.source;
+  const source = resolveSessionSourceFromRequest(c, typeof body.source === "string" ? body.source : null);
 
   const scheduledAuth = getScheduledPromptAuthContext(c, spaceId, user.uuid);
   const taskData = {
@@ -2077,7 +2070,7 @@ router.post("/:id/sessions", async (c) => {
     return c.json({ message: error instanceof Error ? error.message : String(error) }, 400);
   }
 
-  const source = body.source?.trim() || "public_api";
+  const source = resolveSessionSourceFromRequest(c, body.source);
   const session = await createInitialSpaceSession({
     spaceId: space.id,
     sessionId: crypto.randomUUID(),
