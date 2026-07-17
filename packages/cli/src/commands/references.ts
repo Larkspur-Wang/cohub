@@ -72,25 +72,38 @@ function clampNumber(value: string | undefined, fallback: number, min: number, m
   return Math.min(Math.max(Math.floor(parsed), min), max);
 }
 
+const KINDS_HELP = `Kinds:
+  structural:  session_fork, space_fork, checkpoint_fork, mod
+  content:     mention, tool_call
+  file access: agent_tool_file_read, agent_tool_file_write, agent_tool_file_edit,
+               agent_tool_file_ls, agent_tool_file_find, agent_tool_file_grep`;
+
 export function registerReferences(program: Command): void {
   const references = program
     .command("references")
-    .description("Inspect resource references (forks, mentions, tool calls, mods, file access)");
+    .description("Inspect resource references (forks, mentions, tool calls, mods, file access)")
+    .addHelpText(
+      "after",
+      "\nAnalysis index for collaboration edges and file heat.\n",
+    );
 
   references
     .command("query")
     .description("List references touching a resource")
-    .argument("<source>", "Resource selector, e.g. turn:<uuid>, session:<uuid>, space:<uuid>")
+    .argument("<source>", "turn:<uuid> | session:<uuid> | space:<uuid> | checkpoint:<uuid>")
     .option("--direction <dir>", "out | in | both", "both")
-    .option("--kinds <kinds>", "Comma-separated kinds to include")
+    .option("--kinds <kinds>", "Comma-separated kinds (see list below)")
     .option("--days <n>", "Only references seen within the last N days")
     .option("--limit <n>", "Maximum rows, 1-500", "200")
     .option("--json", "Output as JSON")
     .addHelpText("after", `
 
+${KINDS_HELP}
+
 Examples:
   cohub references query turn:<uuid> --kinds agent_tool_file_read,agent_tool_file_write
   cohub references query session:<uuid> --json
+  cohub references query checkpoint:<uuid> --direction out
   cohub references query space:<uuid> --direction in --kinds mention,tool_call
   cohub references query space:<uuid> --kinds agent_tool_file_read --days 30
 `)
@@ -138,11 +151,16 @@ Examples:
     .description("Grouped reference counts for a space")
     .argument("<spaceId>", "Space id")
     .option("--group-by <field>", "kind | targetType | target | sourceType | day", "kind")
-    .option("--kinds <kinds>", "Comma-separated kinds to include")
+    .option("--kinds <kinds>", "Comma-separated kinds (see list below)")
     .option("--days <n>", "Only references seen within the last N days")
     .option("--limit <n>", "Maximum groups, 1-500", "200")
     .option("--json", "Output as JSON")
     .addHelpText("after", `
+
+${KINDS_HELP}
+
+Notes:
+  --group-by target: file targets look like {spaceId}:{path}
 
 Examples:
   cohub references aggregate <spaceId> --json
