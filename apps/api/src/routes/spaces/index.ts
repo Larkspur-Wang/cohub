@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { maybeEnqueueCrossSpaceReference } from "../../lib/cross-space-reference.js";
 import spacesRouter from "./spaces.route.js";
 import fsRouter from "./fs.route.js";
 import membersRouter from "./members.route.js";
@@ -15,8 +16,20 @@ import completionsRouter from "./completions.route.js";
 
 const router = new Hono();
 
+// Record cross-space tool_call when X-Cohub-Source-* points at another space.
+// Exact /:id and /:id/* both need a matcher; Hono does not treat them as one.
+const afterSpaceRequest: Parameters<typeof router.use>[1] = async (c, next) => {
+  try {
+    await next();
+  } finally {
+    maybeEnqueueCrossSpaceReference(c, c.req.param("id"));
+  }
+};
+router.use("/:id/*", afterSpaceRequest);
+router.use("/:id", afterSpaceRequest);
+
 router.route("/", spacesRouter);
-// In production, /:id/fs/* is routed to fs-api by the gateway.
+// In production, /:id/fs/* is routed to fs-api by the gateway (same codebase).
 // This remains a local/non-split fallback.
 router.route("/:id/fs", fsRouter);
 router.route("/:id/completions", completionsRouter);
