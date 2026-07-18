@@ -4,6 +4,17 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.102 — 2026-07-18
+
+- **Request provenance headers**: Introduce `X-Cohub-Source-*` (space, session, turn, tool call, via) across protocol, SDK, CLI, and API so HTTP calls carry caller identity into session channels and work/space/generation/checkpoint meta without touching authz.
+- **Cross-space reference indexing**: Successful `/api/spaces/:id` requests from another space (e.g. `cohub -s` in a sandbox) now record `tool_call` edges with route method/path/pattern, requiring `turnId` and incrementing per hit within a turn.
+- **Reference write modes**: `writeReferences` supports `set` (idempotent retries/backfill) and `increment` (live cross-space accumulation), written in separate statements so modes never corrupt each other.
+- **Backfill performance**: Resource-references backfill queries by indexed `session_id` plus batched turn ids, with write batching, resume, and progress logging for large DBs.
+
+### Bug Fixes
+
+- Alias `@cohub/protocol/provenance` in the web Vite build so provenance imports resolve correctly.
+
 ## v1.101 — 2026-07-16
 
 - **Resource references graph**: Rebuild `resource_references` as a directed graph — turn-level content edges, structural edges with denormalized `sourceSpaceId`/`sourceSessionId`, agent file-access kinds (`read`/`write`/`edit`/`ls`/`find`/`grep`), batch space authz, and `groupBy=target` aggregates for file-heat rankings.
