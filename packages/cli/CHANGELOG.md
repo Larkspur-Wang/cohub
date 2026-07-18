@@ -1,5 +1,20 @@
 # @neta-art/cohub-cli
 
+## 2.5.0
+
+### Minor Changes
+
+- Carry request provenance via `X-Cohub-Source-*` headers for cross-space traceability.
+
+  - **SDK**: `requestSource` on client options (static or per-request getter); transport stamps `X-Cohub-Source-*` automatically; re-export provenance helpers (`readRequestSourceFromEnv`, `requestSourceToHeaders`, `mergeRequestSourceIntoMeta`, …).
+  - **CLI**: every request sends `via: cli` and sandbox `COHUB_*` identity when present; drop ad-hoc `meta.source` / `versionMeta` / `meta.cohub` merge on works and generations.
+  - **Breaking note**: `WorkCreateInput.versionMeta` removed — publish provenance is taken from request headers instead.
+
+### Patch Changes
+
+- Updated dependencies
+  - @neta-art/cohub@2.13.0
+
 ## 2.4.0
 
 ### Minor Changes
