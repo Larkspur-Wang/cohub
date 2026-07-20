@@ -175,4 +175,4 @@ Keep the Work responsible for displaying products and balances, initiating purch
 
 See:
 
-- `docs/work-capability-lab/commerce-demo.md`
+- `docs/examples/work-capability-lab/commerce-demo.md`

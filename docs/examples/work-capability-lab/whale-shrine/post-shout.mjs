@@ -3,7 +3,7 @@
  * post-shout.mjs — Append one shout to data/shouts.jsonl
  *
  * Called via Cohub prompt as a direct shell command:
- *   !node data/post-shout.mjs <base64-json>
+ *   !node docs/examples/work-capability-lab/whale-shrine/post-shout.mjs <base64-json>
  *
  * The `!` prefix makes Cohub run this as a deterministic shell command
  * (no LLM involved), so the write is stable and repeatable.
@@ -16,7 +16,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_FILE = resolve(HERE, "shouts.jsonl");
+const DATA_FILE = resolve(HERE, "data", "shouts.jsonl");
 
 const MAX_NAME = 32;
 const MAX_MESSAGE = 280;

@@ -11,11 +11,11 @@
 const CONFIG = {
   SDK_URL: "https://esm.sh/@neta-art/cohub@latest?bundle&target=es2022",
   /** Space-root-relative path for files.read() and shell commands. */
-  DATA_PATH: "docs/work-capability-lab/whale-shrine/data/shouts.jsonl",
+  DATA_PATH: "docs/examples/work-capability-lab/whale-shrine/data/shouts.jsonl",
   /** Work-root-relative path for standalone preview fetch(). */
   PREVIEW_DATA_PATH: "data/shouts.jsonl",
   /** Space-root-relative path for the shell script (!-command). */
-  SCRIPT_PATH: "docs/work-capability-lab/whale-shrine/post-shout.mjs",
+  SCRIPT_PATH: "docs/examples/work-capability-lab/whale-shrine/post-shout.mjs",
   PRODUCT_KEY: "burn_one_offering",
   POST_PRICE_USD: 5,
   POLL_INTERVAL_MS: 700,

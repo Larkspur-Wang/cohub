@@ -30,7 +30,7 @@ Viewer clicks "Burn $5 to Summon"
   ├─ consumeCredits(1)          burn 1 credit (idempotent via shout id)
   ├─ auth.request(fullaccess)   viewer consents to shell execution
   ├─ space.prompt("!node …")    direct shell command — no LLM, deterministic
-  │     └─ data/post-shout.mjs  validates + appends to shouts.jsonl (idempotent)
+  │     └─ post-shout.mjs       validates + appends to shouts.jsonl (idempotent)
   ├─ poll files.read()          wait until the new echo appears
   └─ summon animation           gacha card flip + rarity reveal
 ```
@@ -42,12 +42,12 @@ shout IDs are silently skipped), so retries are safe.
 ## File structure
 
 ```
-work-capability-lab/whale-shrine/
+docs/examples/work-capability-lab/whale-shrine/
 ├─ index.html              Work entry point (no-build)
 ├─ styles.css              Shrine gacha theme
 ├─ app.js                  Commerce + prompt + polling + animations
+├─ post-shout.mjs          Shell script (!-called) — committed
 ├─ data/
-│  ├─ post-shout.mjs       Shell script (!-called) — committed
 │  └─ shouts.jsonl         Append-only shout data — gitignored
 ├─ README.md
 └─ commerce-setup.sh
@@ -56,7 +56,7 @@ work-capability-lab/whale-shrine/
 ## Local preview
 
 ```bash
-cd docs/work-capability-lab/whale-shrine
+cd docs/examples/work-capability-lab/whale-shrine
 python3 -m http.server 8080
 # open http://localhost:8080
 ```
@@ -69,7 +69,7 @@ calls only function inside a published Cohub Work iframe.
 
 1. Upload these files to your Space (root or a subdirectory).
 2. If using a subdirectory, update `CONFIG.DATA_PATH` and `CONFIG.SCRIPT_PATH`
-   in `app.js` to match (e.g. `work-capability-lab/whale-shrine/data/shouts.jsonl`).
+   in `app.js` to match (e.g. `docs/examples/work-capability-lab/whale-shrine/data/shouts.jsonl`).
 3. Open the directory preview and click **Publish**.
 4. Set Work scopes and viewer scopes:
 

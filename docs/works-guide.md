@@ -180,13 +180,13 @@ if (checkoutState.orderId) {
 }
 ```
 
-The example app in `docs/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, account-level data access, and a minimal commerce flow from inside a published Work.
+The example app in `docs/examples/work-capability-lab/` demonstrates runtime context, token inspection, file reads, session reads, viewer authorization, prompt calls, account-level data access, and a minimal commerce flow from inside a published Work.
 
 For a focused commerce example, see:
 
 - `docs/work-commerce-guide.md`
-- `docs/work-capability-lab/commerce-demo.md`
-- `docs/work-capability-lab/commerce-demo.html`
+- `docs/examples/work-capability-lab/commerce-demo.md`
+- `docs/examples/work-capability-lab/commerce-demo.html`
 
 ## Publish Through the API or SDK
 
