@@ -249,19 +249,19 @@ async function runCommandHook(input: {
     executionUserId: input.userId,
   });
   const timeout = input.hook.timeoutSecs ?? DEFAULT_TIMEOUT_SECS;
-  const childTaskRunId = `${input.taskRunId}:${input.hook.path.replace(/[^a-zA-Z0-9._-]+/g, "_")}`;
-
-  const agentJob = await enqueueAgentRunCommandJob(agentQueue, {
-    spaceId: input.spaceId,
-    sessionId: input.event.sessionId ?? null,
-    taskRunId: childTaskRunId,
-    command,
-    cwd: "/workspace",
-    timeout,
-    userId: input.userId,
-  });
+  // BullMQ custom jobIds reject ":"; keep a stable, path-derived suffix instead.
+  const childTaskRunId = `${input.taskRunId}__${input.hook.path.replace(/[^a-zA-Z0-9._-]+/g, "_")}`;
 
   try {
+    const agentJob = await enqueueAgentRunCommandJob(agentQueue, {
+      spaceId: input.spaceId,
+      sessionId: input.event.sessionId ?? null,
+      taskRunId: childTaskRunId,
+      command,
+      cwd: "/workspace",
+      timeout,
+      userId: input.userId,
+    });
     const queueEvents = await getAgentQueueEvents();
     const result = await agentJob.waitUntilFinished(
       queueEvents,
@@ -361,22 +361,26 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
     redis: redisCommandClient,
   });
 
-  const matched = definitions
-    .map((definition) => ({ definition, match: spaceHookMatchesEvent(definition, event) }))
-    .filter(({ match }) => match.matched);
-
-  const skipped: SpaceHookRunResult[] = definitions
-    .map((definition) => ({ definition, match: spaceHookMatchesEvent(definition, event) }))
-    .filter(({ match }) => !match.matched)
-    .map(({ definition, match }) => ({
+  const matched: SpaceHookDefinition[] = [];
+  const skipped: SpaceHookRunResult[] = [];
+  for (const definition of definitions) {
+    const match = spaceHookMatchesEvent(definition, event);
+    if (match.matched) {
+      matched.push(definition);
+      continue;
+    }
+    skipped.push({
       path: definition.path,
       action: definition.action,
-      status: "skipped" as const,
+      status: "skipped",
       reason: match.reason ?? "not_matched",
-    }));
+    });
+  }
 
+  // Per-hook try/catch already isolates failures; never throw here so BullMQ
+  // does not retry and re-execute successful sibling hooks.
   const executed = await Promise.all(
-    matched.map(({ definition }) =>
+    matched.map((definition) =>
       definition.action === "prompt"
         ? runPromptHook({ spaceId, userId: ownerUserId, taskRunId, hook: definition, event, eventActorUserId })
         : runCommandHook({ spaceId, userId: ownerUserId, taskRunId, hook: definition, event, eventActorUserId }),
@@ -384,13 +388,14 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
   );
 
   const hooks = [...skipped, ...executed];
-
-  const hardFailures = hooks.filter((item) => item.status === "failed");
-  if (hardFailures.length > 0) {
-    const message = hardFailures
-      .map((item) => `${item.path}: ${item.error ?? "failed"}`)
-      .join("; ");
-    throw new Error(`space hook failures: ${message}`);
+  const failed = hooks.filter((item) => item.status === "failed");
+  if (failed.length > 0) {
+    logger.warn("[SpaceHooks] hook failures recorded in result", {
+      spaceId,
+      eventId: event.id,
+      eventType: event.type,
+      failures: failed.map((item) => ({ path: item.path, error: item.error })),
+    });
   }
 
   return {

@@ -130,9 +130,5 @@ COHUB_EXECUTION_TOKEN
 - No hook-level concurrency control
 - Local sandbox workspaces are not mounted on Worker; hook discovery currently assumes cloud PVC access
 - History is stored in existing `task_runs` rows of type `space_hook`
-odel
-- No hook-level concurrency control
-- Local sandbox workspaces are not mounted on Worker; hook discovery currently assumes cloud PVC access
-- History is stored in existing `task_runs` rows of type `space_hook`
 - Hook failures are recorded in the task result but do not trigger BullMQ retry (avoids duplicate execution storms)
 - `.cohub/**` paths are always ignored in fs hook matching to prevent self-trigger loops
