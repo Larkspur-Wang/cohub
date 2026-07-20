@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isReentrantSpaceHookEvent, parseSpaceHookDefinition, spaceHookMatchesEvent } from "./index.js";
+import { parseSpaceHookDefinition, spaceHookMatchesEvent } from "./index.js";
 
 test("parseSpaceHookDefinition accepts inline run hooks", () => {
   const hook = parseSpaceHookDefinition(
@@ -49,31 +49,6 @@ prompt: hello
 `,
     ".cohub/hooks/bad.yml",
   ));
-});
-
-test("isReentrantSpaceHookEvent blocks hook-generated turns", () => {
-  assert.equal(
-    isReentrantSpaceHookEvent({
-      type: "session.turn.finalized",
-      payload: {
-        turn: {
-          meta: { source: "space_hook", context: { kind: "space_hook" } },
-        },
-      },
-    }),
-    true,
-  );
-  assert.equal(
-    isReentrantSpaceHookEvent({
-      type: "session.turn.finalized",
-      payload: {
-        turn: {
-          meta: { source: "web_app" },
-        },
-      },
-    }),
-    false,
-  );
 });
 
 test("spaceHookMatchesEvent filters fs paths", () => {

@@ -2,16 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   isSpaceHookableEvent,
   SPACE_HOOK_TASK_TYPE,
+  type SpaceHookEventEnvelope,
 } from "@cohub/protocol";
 
-export type SpaceHookEventEnvelope = {
-  id: string;
-  type: string;
-  timestamp: number;
-  spaceId: string;
-  sessionId?: string | null;
-  payload: Record<string, unknown>;
-};
+export type { SpaceHookEventEnvelope };
 
 type TaskPayloadLike = {
   type: string;
@@ -20,7 +14,12 @@ type TaskPayloadLike = {
   data?: Record<string, unknown>;
 };
 
-type TaskEnqueueOptions = { [key: string]: unknown; jobId?: string; delay?: number; scheduledAt?: Date | null };
+type TaskEnqueueOptions = {
+  [key: string]: unknown;
+  jobId?: string;
+  delay?: number;
+  scheduledAt?: Date | null;
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);

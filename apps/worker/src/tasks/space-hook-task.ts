@@ -15,10 +15,9 @@ import {
   shouldInvalidateSpaceHooksCache,
   spaceHookMatchesEvent,
   type SpaceHookDefinition,
-  type SpaceHookEventEnvelope,
   type SpaceHookRunResult,
 } from "@cohub/core/hooks";
-import { SPACE_HOOK_TASK_TYPE } from "@cohub/protocol";
+import { SPACE_HOOK_TASK_TYPE, type SpaceHookEventEnvelope } from "@cohub/protocol";
 import type { TaskPayload } from "@cohub/protocol/task";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";

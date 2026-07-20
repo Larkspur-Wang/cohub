@@ -5,7 +5,6 @@ import {
   SPACE_HOOKS_DIR,
   getSpaceHooksRedisKey,
 } from "@cohub/protocol";
-import { buildSpaceHookTaskId } from "@cohub/infra/space-hooks";
 import {
   isSpaceHookFileName,
   parseSpaceHookDefinition,

@@ -12,6 +12,16 @@ export const SPACE_HOOKABLE_EVENTS = [
 
 export type SpaceHookableEvent = (typeof SPACE_HOOKABLE_EVENTS)[number];
 
+/** Lightweight event envelope carried by space_hook tasks. */
+export type SpaceHookEventEnvelope = {
+  id: string;
+  type: string;
+  timestamp: number;
+  spaceId: string;
+  sessionId?: string | null;
+  payload: Record<string, unknown>;
+};
+
 export const isSpaceHookableEvent = (type: string): type is SpaceHookableEvent =>
   (SPACE_HOOKABLE_EVENTS as readonly string[]).includes(type);
 

@@ -1,6 +1,6 @@
+import type { SpaceHookEventEnvelope } from "@cohub/protocol";
 import { picomatch } from "./picomatch-shim.js";
 import type { SpaceHookDefinition } from "./types.js";
-import type { SpaceHookEventEnvelope } from "@cohub/infra/space-hooks";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);

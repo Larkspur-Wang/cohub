@@ -12,7 +12,6 @@
       "@cohub/protocol": ["../protocol/dist/index.d.ts"],
       "@cohub/protocol/core": ["../protocol/dist/core/index.d.ts"],
       "@cohub/protocol/provenance": ["../protocol/dist/provenance.d.ts"],
-      "@cohub/infra/space-hooks": ["../infra/dist/space-hooks/index.d.ts"],
       "@cohub/sandbox-controller": ["../sandbox-controller/dist/index.d.ts"]
     },
     "declaration": true,

@@ -13,7 +13,6 @@
       "@cohub/protocol/core": ["../protocol/src/core/index.ts"],
       "@cohub/protocol/provenance": ["../protocol/src/provenance.ts"],
       "@cohub/protocol/generation": ["../protocol/src/generation/index.ts"],
-      "@cohub/infra/space-hooks": ["../infra/src/space-hooks/index.ts"],
       "@cohub/sandbox-controller": ["../sandbox-controller/src/index.ts"]
     }
   },
