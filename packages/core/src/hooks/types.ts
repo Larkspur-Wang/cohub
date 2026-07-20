@@ -15,9 +15,17 @@ export type SpaceHookDefinition = {
   schema: "cohub.space-hook.v1";
   path: string;
   event: SpaceHookableEvent;
+  /** FS path globs for `space.fs.changed`. */
   paths?: string[];
+  /** FS path ignore globs for `space.fs.changed`. */
   ignore?: string[];
   kinds?: Array<"create" | "modify" | "delete" | "rename">;
+  /** Session id allowlist for `session.turn.finalized`. Omit = all sessions. */
+  sessionIds?: string[];
+  /** Session id denylist for `session.turn.finalized`. */
+  ignoreSessionIds?: string[];
+  /** Turn `meta.source` allowlist for `session.turn.finalized`. Omit = all sources. */
+  sources?: string[];
   action: "run" | "prompt";
   run?: string;
   prompt?: SpaceHookPromptDefinition;

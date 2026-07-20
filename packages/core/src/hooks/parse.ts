@@ -101,6 +101,15 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
     ?? DEFAULT_TIMEOUT_SECS;
   const topLevelEnv = parseHookUserEnv(document.env, normalizedPath);
 
+  const triggerFilters = {
+    paths: normalizeStringList(on?.paths),
+    ignore: normalizeStringList(on?.ignore),
+    kinds: normalizeKinds(on?.kinds),
+    sessionIds: normalizeStringList(on?.sessionIds),
+    ignoreSessionIds: normalizeStringList(on?.ignoreSessionIds),
+    sources: normalizeStringList(on?.sources),
+  };
+
   if (hasRun) {
     const run = typeof document.run === "string" ? document.run.trim() : "";
     if (!run) throw new Error(`missing run in ${normalizedPath}`);
@@ -109,9 +118,7 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
       schema: SPACE_HOOK_SCHEMA,
       path: normalizedPath,
       event: eventValue as SpaceHookableEvent,
-      paths: normalizeStringList(on?.paths),
-      ignore: normalizeStringList(on?.ignore),
-      kinds: normalizeKinds(on?.kinds),
+      ...triggerFilters,
       action: "run",
       run,
       ...(topLevelEnv ? { env: topLevelEnv } : {}),
@@ -130,9 +137,7 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
     schema: SPACE_HOOK_SCHEMA,
     path: normalizedPath,
     event: eventValue as SpaceHookableEvent,
-    paths: normalizeStringList(on?.paths),
-    ignore: normalizeStringList(on?.ignore),
-    kinds: normalizeKinds(on?.kinds),
+    ...triggerFilters,
     action: "prompt",
     prompt,
     ...(env ? { env } : {}),

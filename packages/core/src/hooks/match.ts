@@ -53,18 +53,41 @@ function collectFsPaths(payload: Record<string, unknown>) {
   };
 }
 
-export function spaceHookMatchesEvent(
+function resolveTurnSource(payload: Record<string, unknown>): string | null {
+  const turn = isRecord(payload.turn) ? payload.turn : null;
+  const meta = isRecord(turn?.meta) ? turn.meta : null;
+  return typeof meta?.source === "string" && meta.source.trim() ? meta.source.trim() : null;
+}
+
+function matchSessionTurnFinalized(
   hook: SpaceHookDefinition,
   event: SpaceHookEventEnvelope,
 ): { matched: boolean; reason?: string } {
-  if (hook.event !== event.type) {
-    return { matched: false, reason: "event_mismatch" };
+  const sessionId = typeof event.sessionId === "string" ? event.sessionId.trim() : "";
+  if (!sessionId) {
+    return { matched: false, reason: "no_session" };
+  }
+  if (hook.ignoreSessionIds?.includes(sessionId)) {
+    return { matched: false, reason: "session_ignored" };
+  }
+  if (hook.sessionIds && hook.sessionIds.length > 0 && !hook.sessionIds.includes(sessionId)) {
+    return { matched: false, reason: "session_filter" };
   }
 
-  if (event.type !== "space.fs.changed") {
-    return { matched: true };
+  if (hook.sources && hook.sources.length > 0) {
+    const source = resolveTurnSource(event.payload);
+    if (!source || !hook.sources.includes(source)) {
+      return { matched: false, reason: "source_filter" };
+    }
   }
 
+  return { matched: true };
+}
+
+function matchFsChanged(
+  hook: SpaceHookDefinition,
+  event: SpaceHookEventEnvelope,
+): { matched: boolean; reason?: string } {
   const { paths, kinds, resync } = collectFsPaths(event.payload);
   if (resync && paths.length === 0) {
     // Resync with no concrete paths is a "refresh your tree" signal, not a change.
@@ -89,5 +112,23 @@ export function spaceHookMatchesEvent(
       return { matched: false, reason: "kind_filter" };
     }
   }
+  return { matched: true };
+}
+
+export function spaceHookMatchesEvent(
+  hook: SpaceHookDefinition,
+  event: SpaceHookEventEnvelope,
+): { matched: boolean; reason?: string } {
+  if (hook.event !== event.type) {
+    return { matched: false, reason: "event_mismatch" };
+  }
+
+  if (event.type === "space.fs.changed") {
+    return matchFsChanged(hook, event);
+  }
+  if (event.type === "session.turn.finalized") {
+    return matchSessionTurnFinalized(hook, event);
+  }
+
   return { matched: true };
 }

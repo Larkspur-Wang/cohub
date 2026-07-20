@@ -47,15 +47,50 @@ prompt:
   intent: followup
 ```
 
+Turn finalize with session / source filters:
+
+```yaml
+schema: cohub.space-hook.v1
+
+on:
+  event: session.turn.finalized
+  # Optional allowlist. Omit = all sessions in the space.
+  sessionIds:
+    - 01JQxxxxxxxx
+  # Optional denylist (wins over sessionIds).
+  ignoreSessionIds:
+    - 01JRyyyyyyyy
+  # Optional turn meta.source allowlist (e.g. web_app, cli, channel:qq).
+  sources:
+    - web_app
+    - cli
+
+run: |
+  echo "session=$COHUB_HOOK_SESSION_ID turn=$COHUB_HOOK_TURN_ID"
+```
+
+`prompt.sessionId` is the **action target** (where to send a follow-up), not a trigger filter.
+Trigger filters live under `on` and stay orthogonal to the prompt target:
+
+```yaml
+on:
+  event: session.turn.finalized
+  sessionIds: [chat-a]
+
+prompt:
+  sessionId: reviewer-bot
+  text: review the last turn
+```
+
 Top-level `env` is shared by both `run` and `prompt`.
 Legacy `prompt.env` is still accepted as a fallback.
 User env cannot override system keys (`COHUB_*`, etc.).
 
 Supported events:
 
-- `space.fs.changed`
+- `space.fs.changed` — optional `paths` / `ignore` / `kinds`
 - `space.workspace.ready`
-- `session.turn.finalized`
+- `session.turn.finalized` — optional `sessionIds` / `ignoreSessionIds` / `sources`
 - `checkpoint.created`
 
 ## Trigger

@@ -192,6 +192,128 @@ run: echo ok
   );
 });
 
+test("parseSpaceHookDefinition accepts session turn filters", () => {
+  const hook = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: session.turn.finalized
+  sessionIds:
+    - session-a
+    - session-b
+  ignoreSessionIds:
+    - session-skip
+  sources:
+    - web_app
+    - cli
+run: echo ok
+`,
+    ".cohub/hooks/on-turn.yml",
+  );
+  assert.equal(hook.event, "session.turn.finalized");
+  assert.deepEqual(hook.sessionIds, ["session-a", "session-b"]);
+  assert.deepEqual(hook.ignoreSessionIds, ["session-skip"]);
+  assert.deepEqual(hook.sources, ["web_app", "cli"]);
+});
+
+test("spaceHookMatchesEvent filters session turn finalized events", () => {
+  const hook = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: session.turn.finalized
+  sessionIds:
+    - session-a
+    - session-b
+  ignoreSessionIds:
+    - session-b
+  sources:
+    - web_app
+    - cli
+run: echo ok
+`,
+    ".cohub/hooks/on-turn.yml",
+  );
+
+  const base = {
+    id: "evt-1",
+    type: "session.turn.finalized" as const,
+    timestamp: Date.now(),
+    spaceId: "space-1",
+  };
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, {
+      ...base,
+      sessionId: "session-a",
+      payload: { turn: { id: "turn-1", meta: { source: "web_app" } } },
+    }),
+    { matched: true },
+  );
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, {
+      ...base,
+      sessionId: "session-c",
+      payload: { turn: { id: "turn-1", meta: { source: "web_app" } } },
+    }),
+    { matched: false, reason: "session_filter" },
+  );
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, {
+      ...base,
+      sessionId: "session-b",
+      payload: { turn: { id: "turn-1", meta: { source: "web_app" } } },
+    }),
+    { matched: false, reason: "session_ignored" },
+  );
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, {
+      ...base,
+      sessionId: "session-a",
+      payload: { turn: { id: "turn-1", meta: { source: "space_hook" } } },
+    }),
+    { matched: false, reason: "source_filter" },
+  );
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, {
+      ...base,
+      sessionId: "session-a",
+      payload: { turn: { id: "turn-1" } },
+    }),
+    { matched: false, reason: "source_filter" },
+  );
+
+  assert.deepEqual(
+    spaceHookMatchesEvent(hook, {
+      ...base,
+      payload: { turn: { id: "turn-1", meta: { source: "web_app" } } },
+    }),
+    { matched: false, reason: "no_session" },
+  );
+
+  const openHook = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: session.turn.finalized
+run: echo ok
+`,
+    ".cohub/hooks/on-turn-open.yml",
+  );
+  assert.equal(
+    spaceHookMatchesEvent(openHook, {
+      ...base,
+      sessionId: "any-session",
+      payload: { turn: { id: "turn-2", meta: { source: "anything" } } },
+    }).matched,
+    true,
+  );
+});
+
 test("buildHookRunCommand only wraps the user script", () => {
   assert.equal(buildHookRunCommand("npm test"), "set -euo pipefail\nnpm test");
   assert.equal(buildHookRunCommand("npm test").includes("COHUB_HOOK_EVENT_FILE"), false);
