@@ -12,6 +12,14 @@ import {
 	formatDurationMs,
 	isDisplayableDurationMs,
 } from "$lib/format-duration";
+import {
+	formatTokenCount,
+	formatUsageCost,
+	getDisplayInputTokens,
+	getUsageCostTotal,
+	getUsageTotalTokens,
+	sumUsages,
+} from "$lib/format-usage";
 import type { ModelCatalogItem } from "$lib/model-catalog";
 import type { OpenWorkspaceFileTarget } from "$lib/workspace-file-links";
 
@@ -168,26 +176,25 @@ async function toggle() {
 	expanded = !expanded;
 }
 
-function formatTokenCount(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-	return `${n}`;
-}
-
 const toolCallCount = $derived(summary?.toolCallCount ?? 0);
 const messageCount = $derived(
 	Math.max(summary?.messageCount ?? 0, effectiveMessages.length),
 );
-const usageInputTokens = $derived.by(() => {
-	const usage = summary?.usage;
-	if (!usage) return 0;
-	return (usage.input ?? 0) + (usage.cacheRead ?? 0);
+// Intermediate-only usage: prefer persisted intermediate summary, fall back to
+// summing live intermediate messages while streaming. Never use turn.totalUsage
+// / finalUsage here — those include the final assistant message.
+const intermediateUsage = $derived.by(() => {
+	if (summary?.usage) return summary.usage;
+	if (effectiveMessages.length === 0) return null;
+	return sumUsages(effectiveMessages.map((message) => message.usage));
 });
-const usageCachedTokens = $derived.by(() => summary?.usage?.cacheRead ?? 0);
-const usageOutputTokens = $derived.by(() => summary?.usage?.output ?? 0);
-const usageTokens = $derived(
-	summary?.usage?.totalTokens ??
-		((summary?.usage?.input ?? 0) + (summary?.usage?.output ?? 0) || 0),
+const usageInputTokens = $derived(getDisplayInputTokens(intermediateUsage));
+const usageCachedTokens = $derived(intermediateUsage?.cacheRead ?? 0);
+const usageOutputTokens = $derived(intermediateUsage?.output ?? 0);
+const usageTokens = $derived(getUsageTotalTokens(intermediateUsage));
+const usageCostTotal = $derived(getUsageCostTotal(intermediateUsage));
+const usageCostLabel = $derived(
+	usageCostTotal == null ? "" : formatUsageCost(usageCostTotal),
 );
 const usageBreakdownLabel = $derived.by(() => {
 	if (usageInputTokens <= 0 && usageOutputTokens <= 0) return "";
@@ -212,8 +219,8 @@ const durationTitle = $derived(
 		: "",
 );
 const usageTitle = $derived.by(() => {
-	if (!summary?.usage && !durationTitle) return "";
-	const parts = [];
+	if (!intermediateUsage && !durationTitle) return "";
+	const parts: string[] = [];
 	if (usageInputTokens > 0) {
 		parts.push(
 			usageCachedTokens > 0
@@ -223,9 +230,12 @@ const usageTitle = $derived.by(() => {
 	}
 	if (usageOutputTokens > 0)
 		parts.push(`Output: ${formatTokenCount(usageOutputTokens)}`);
-	if (summary?.usage?.cacheWrite)
-		parts.push(`Cache write: ${formatTokenCount(summary.usage.cacheWrite)}`);
+	if (intermediateUsage?.cacheWrite)
+		parts.push(
+			`Cache write: ${formatTokenCount(intermediateUsage.cacheWrite)}`,
+		);
 	if (usageTokens > 0) parts.push(`Total: ${formatTokenCount(usageTokens)}`);
+	if (usageCostLabel) parts.push(`Cost: ${usageCostLabel}`);
 	if (durationTitle) parts.push(durationTitle);
 	return parts.join(" · ");
 });
@@ -241,6 +251,7 @@ const labelParts = $derived(
 			: "",
 		usageBreakdownLabel ||
 			(usageTokens > 0 ? `${formatTokenCount(usageTokens)} tokens` : ""),
+		usageCostLabel,
 		durationLabel,
 	].filter(Boolean),
 );
