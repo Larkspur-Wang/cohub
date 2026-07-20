@@ -1,4 +1,8 @@
-import type { CanvasSemanticOp } from "@neta-art/cohub";
+import type {
+	CanvasSemanticOp,
+	SpaceFsFileResponse,
+	SpaceFsPreparingFile,
+} from "@neta-art/cohub";
 import {
 	deleteCanvasPendingTransaction,
 	listCanvasPendingTransactions,
@@ -9,10 +13,12 @@ import {
 	canvasBootstrapToDocument,
 	parseCovasManifest,
 } from "$lib/canvas/canvas-document";
+import { resolveCanvasManifestText } from "$lib/canvas/canvas-manifest-text";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import { sdk } from "$lib/sdk";
+import { tryResolveTextFileResponse } from "$lib/space-file-text";
 
-type CanvasFileResponse = unknown;
+type CanvasFileResponse = SpaceFsFileResponse | SpaceFsPreparingFile;
 
 export type InlineCanvasPanelState = {
 	path: string;
@@ -73,21 +79,24 @@ export function createCanvasPreviewController(
 			? canvases.map((item) => (item.path === path ? loadingCanvas : item))
 			: [...canvases, loadingCanvas];
 		try {
-			const file = await options.readFile(path);
+			const rawFile = await options.readFile(path);
 			if (!isCurrent(token, path, sourceKey)) return;
-			if (
-				!file ||
-				typeof file !== "object" ||
-				!("content" in file) ||
-				(file as { kind?: unknown }).kind !== "text"
-			) {
+			if (!rawFile || typeof rawFile !== "object" || !("content" in rawFile)) {
+				throw new Error(
+					"Canvas manifest is being prepared. Retry in a moment.",
+				);
+			}
+			const { file, error: hydrateError } =
+				await tryResolveTextFileResponse(rawFile);
+			if (!isCurrent(token, path, sourceKey)) return;
+			if (hydrateError) throw new Error(hydrateError);
+			// .covas is JSON text; tolerate legacy misclassified binary responses
+			// (e.g. unknown MIME before the extension was registered).
+			const content = resolveCanvasManifestText(file);
+			if (content == null) {
 				throw new Error("Canvas manifest must be a text file.");
 			}
-			const manifest = parseCovasManifest(
-				typeof (file as { content?: unknown }).content === "string"
-					? (file as { content: string }).content
-					: "",
-			);
+			const manifest = parseCovasManifest(content);
 			if (!manifest) throw new Error("Canvas manifest is invalid.");
 			const bootstrap = await sdk
 				.space(options.getSpaceId())

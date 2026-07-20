@@ -31,10 +31,7 @@ describe("space-fs-mime", () => {
 	});
 
 	it("keeps real media sniffs when the filename has no text type", () => {
-		assert.equal(
-			resolveReadMimeType(null, "image/png"),
-			"image/png",
-		);
+		assert.equal(resolveReadMimeType(null, "image/png"), "image/png");
 		assert.equal(
 			resolveReadMimeType(null, "application/pdf"),
 			"application/pdf",
@@ -42,6 +39,15 @@ describe("space-fs-mime", () => {
 		assert.equal(
 			resolveReadMimeType(null, "application/octet-stream"),
 			"application/octet-stream",
+		);
+	});
+
+	it("treats canvas manifest mime (application/json) as text", () => {
+		// .covas is registered as application/json in space-fs getMimeType.
+		assert.equal(isTextMime("application/json"), true);
+		assert.equal(
+			resolveReadMimeType("application/json", "application/octet-stream"),
+			"application/json",
 		);
 	});
 });

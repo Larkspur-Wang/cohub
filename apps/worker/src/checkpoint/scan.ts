@@ -38,6 +38,8 @@ const mimeByExt: Record<string, string> = {
   ".txt": "text/plain",
   ".md": "text/markdown",
   ".json": "application/json",
+  // Canvas manifest (JSON pointer to document id)
+  ".covas": "application/json",
   ".js": "text/javascript",
   ".ts": "text/typescript",
   ".tsx": "text/tsx",

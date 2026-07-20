@@ -17,6 +17,8 @@ export const mimeByExt: Record<string, string> = {
   ".markdown": "text/markdown",
   ".json": "application/json",
   ".jsonl": "application/x-ndjson",
+  // Canvas manifest (JSON pointer to document id)
+  ".covas": "application/json",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
   ".cjs": "text/javascript",

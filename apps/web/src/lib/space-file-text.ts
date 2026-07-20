@@ -51,6 +51,11 @@ export function isDotfilePath(path: string) {
 	return name.startsWith(".") && name !== "." && name !== "..";
 }
 
+/** Canvas manifests (.covas) are JSON text by convention. */
+export function isCovasPath(path: string) {
+	return basenameOf(path).toLowerCase().endsWith(".covas");
+}
+
 function looksLikeUtf8Text(bytes: Uint8Array) {
 	if (bytes.length === 0) return true;
 	// Reject obvious binary (NUL) and high control-char density.
@@ -77,7 +82,12 @@ export function coerceInlineTextFile(
 	}
 	if (file.delivery === "url") return file;
 	if (file.encoding !== "base64" || !file.content) return file;
-	if (!isDotfilePath(file.path) && !isDotfilePath(file.name)) return file;
+	const recoverable =
+		isDotfilePath(file.path) ||
+		isDotfilePath(file.name) ||
+		isCovasPath(file.path) ||
+		isCovasPath(file.name);
+	if (!recoverable) return file;
 
 	try {
 		const binary = atob(file.content);
@@ -87,11 +97,15 @@ export function coerceInlineTextFile(
 		}
 		if (!looksLikeUtf8Text(bytes)) return file;
 		const content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+		const defaultMime =
+			isCovasPath(file.path) || isCovasPath(file.name)
+				? "application/json"
+				: "text/plain";
 		return {
 			...file,
 			kind: "text",
 			encoding: "utf-8",
-			mimeType: file.mimeType ?? "text/plain",
+			mimeType: file.mimeType ?? defaultMime,
 			content,
 		};
 	} catch {
