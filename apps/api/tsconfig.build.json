@@ -34,6 +34,9 @@
       "@cohub/infra/bullmq": [
         "../../packages/infra/dist/bullmq/index.d.ts"
       ],
+      "@cohub/infra/space-hooks": [
+        "../../packages/infra/dist/space-hooks/index.d.ts"
+      ],
       "@cohub/infra/config-runtime/models": [
         "../../packages/infra/dist/config-runtime/models.d.ts"
       ],

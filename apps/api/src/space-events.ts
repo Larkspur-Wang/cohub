@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
-import { maybeEnqueueSpaceHookTask } from "@cohub/core/hooks";
+import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
 import { COHUB_TASKS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import { enqueueFsCdnWarmForChanges } from "./space-fs-cdn-prewarm.js";

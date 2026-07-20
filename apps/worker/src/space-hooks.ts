@@ -1,4 +1,4 @@
-import { maybeEnqueueSpaceHookTask } from "@cohub/core/hooks";
+import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
 import { COHUB_TASKS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { createLogger } from "@cohub/infra/logging";
 import { config } from "./config.js";

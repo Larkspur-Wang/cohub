@@ -25,15 +25,6 @@ export type SpaceHookDefinition = {
   timeoutSecs?: number;
 };
 
-export type SpaceHookEventEnvelope = {
-  id: string;
-  type: string;
-  timestamp: number;
-  spaceId: string;
-  sessionId?: string | null;
-  payload: Record<string, unknown>;
-};
-
 export type SpaceHookRunResult = {
   path: string;
   status: "completed" | "failed" | "skipped";

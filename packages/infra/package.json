@@ -44,6 +44,10 @@
       "types": "./dist/config-runtime/skills.d.ts",
       "default": "./dist/config-runtime/skills.js"
     },
+    "./space-hooks": {
+      "types": "./dist/space-hooks/index.d.ts",
+      "default": "./dist/space-hooks/index.js"
+    },
     "./tracing": {
       "types": "./dist/tracing/index.d.ts",
       "default": "./dist/tracing/index.js"

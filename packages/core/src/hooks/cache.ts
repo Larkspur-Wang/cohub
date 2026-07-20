@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -6,6 +5,7 @@ import {
   SPACE_HOOKS_DIR,
   getSpaceHooksRedisKey,
 } from "@cohub/protocol";
+import { buildSpaceHookTaskId } from "@cohub/infra/space-hooks";
 import {
   isSpaceHookFileName,
   parseSpaceHookDefinition,
@@ -169,16 +169,4 @@ export function buildHookRunCommand(input: {
     "trap 'rm -f \"$COHUB_HOOK_EVENT_FILE\"' EXIT",
     input.run,
   ].join("\n");
-}
-
-export function buildSpaceHookTaskId(input: {
-  spaceId: string;
-  eventId: string;
-  eventType: string;
-}) {
-  const digest = createHash("sha1")
-    .update(`${input.spaceId}:${input.eventType}:${input.eventId}`)
-    .digest("hex")
-    .slice(0, 24);
-  return `space-hook-${digest}`;
 }
