@@ -13,10 +13,16 @@ const {
 	<meta name="description" content={meta.description} />
 	<meta name="robots" content={meta.robots} />
 	<link rel="canonical" href={meta.canonical} />
-	{#if meta.iconUrl}
-		<link rel="icon" href={meta.iconUrl} />
-		<link rel="apple-touch-icon" href={meta.iconUrl} />
-	{/if}
+	<!-- Always emit icons on Work routes so app.html/public defaults never win. -->
+	<link
+		rel="icon"
+		href={meta.iconUrl ?? "/favicon.svg"}
+		type={meta.iconUrl ? undefined : "image/svg+xml"}
+	/>
+	<link
+		rel="apple-touch-icon"
+		href={meta.iconUrl ?? "/pwa/icon-192x192.png"}
+	/>
 	<meta name="application-name" content={meta.shortName} />
 	<meta name="apple-mobile-web-app-title" content={meta.shortName} />
 	<meta property="og:type" content="website" />

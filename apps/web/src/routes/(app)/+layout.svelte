@@ -530,6 +530,11 @@ onMount(() => {
 // on hover for desktop sidebars and in the session/file headers for mobile.
 </script>
 
+<svelte:head>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+	<link rel="apple-touch-icon" href="/pwa/icon-192x192.png" />
+</svelte:head>
+
 {#if !authReady}
   <main class="app-shell min-h-screen text-text-primary">
     <CenteredLoading label="Loading…" size="page" />
