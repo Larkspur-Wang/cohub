@@ -56,6 +56,16 @@ const spaceCountLabel = $derived(
 const workCountLabel = $derived(
 	`${works.length} ${works.length === 1 ? "work" : "works"}`,
 );
+const pageTitle = $derived(
+	profile
+		? `${profile.displayName} (@${username}) — Cohub`
+		: `@${username} — Cohub`,
+);
+const pageDescription = $derived(
+	profile
+		? `${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`
+		: `${username} on Cohub`,
+);
 
 function accessLabel(item: PublicUserSpaceItem) {
 	return item.accessLabel === "public" ? "Public" : "Sign-in required";
@@ -113,39 +123,20 @@ $effect(() => {
 });
 </script>
 
-{#if profile}
-	<svelte:head>
-		<title>{profile.displayName} (@{username}) — Cohub</title>
-		<meta
-			name="description"
-			content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
-		/>
-		<meta property="og:type" content="profile" />
-		<meta property="og:site_name" content="Cohub" />
-		<meta
-			property="og:title"
-			content={`${profile.displayName} (@${username}) — Cohub`}
-		/>
-		<meta
-			property="og:description"
-			content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
-		/>
-		<meta name="twitter:card" content="summary" />
-		<meta
-			name="twitter:title"
-			content={`${profile.displayName} (@${username}) — Cohub`}
-		/>
-		<meta
-			name="twitter:description"
-			content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
-		/>
-	</svelte:head>
-{:else}
-	<svelte:head>
-		<title>@{username} — Cohub</title>
+<svelte:head>
+	<title>{pageTitle}</title>
+	<meta name="description" content={pageDescription} />
+	{#if !profile}
 		<meta name="robots" content="noindex,nofollow" />
-	</svelte:head>
-{/if}
+	{/if}
+	<meta property="og:type" content="profile" />
+	<meta property="og:site_name" content="Cohub" />
+	<meta property="og:title" content={pageTitle} />
+	<meta property="og:description" content={pageDescription} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={pageTitle} />
+	<meta name="twitter:description" content={pageDescription} />
+</svelte:head>
 
 <div class="min-h-screen bg-bg-primary">
 	<div class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
