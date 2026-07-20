@@ -1,9 +1,6 @@
 import { error } from "@sveltejs/kit";
 import { loadPublicWorkDetail } from "$lib/server/public-api";
-import {
-	publicPageErrorStatus,
-	setPublicPageCache,
-} from "$lib/server/public-cache";
+import { setPublicPageCache } from "$lib/server/public-cache";
 import type { PageServerLoad } from "./$types";
 
 export const load: PageServerLoad = async ({
@@ -38,21 +35,20 @@ export const load: PageServerLoad = async ({
 		};
 	}
 
-	// Auth-gated space works: render a shell and finish on the client with credentials.
-	if (result.needsClientAuth) {
-		setPublicPageCache(setHeaders, { private: true });
-		return {
-			mode: "client" as const,
-			pathname: url.pathname,
-			origin: url.origin,
-			username: params.username,
-			spaceSlug: params.spaceSlug,
-			workSlug: params.workSlug,
-		};
+	// Only a definitive miss should 404 the document.
+	// Auth failures, API outages, and shape issues fall back to client load so
+	// already-published Works keep working (same as pre-SSR behavior).
+	if (result.status === 404) {
+		error(404, "Work not found");
 	}
 
-	// Do not setHeaders() before error() — SvelteKit may drop them on the error path.
-	// Public 404 cache is applied in hooks.server.ts instead.
-	const status = publicPageErrorStatus(result.status);
-	error(status, status === 404 ? "Work not found" : "Failed to load work");
+	setPublicPageCache(setHeaders, { private: true });
+	return {
+		mode: "client" as const,
+		pathname: url.pathname,
+		origin: url.origin,
+		username: params.username,
+		spaceSlug: params.spaceSlug,
+		workSlug: params.workSlug,
+	};
 };

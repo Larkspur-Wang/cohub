@@ -17,23 +17,36 @@ import { sdk } from "$lib/sdk";
 import { authStore } from "$lib/stores/auth.svelte";
 import { formatCompactAbsoluteTime } from "$lib/time-format";
 
+type ReadyData = { mode: "ready"; page: PublicUserPageResponse };
+type ClientData = { mode: "client"; username: string };
+
 const props = $props<{
-	data: { page: PublicUserPageResponse };
+	data: ReadyData | ClientData;
 	params: { username: string };
 }>();
 
 /** Local revalidated snapshot; falls back to loader data. */
 let refreshedPage = $state<PublicUserPageResponse | null>(null);
-const pageData = $derived(refreshedPage ?? props.data.page);
+let clientError = $state("");
+let clientLoading = $state(false);
 
-const profile = $derived(pageData.profile);
-const spaces = $derived(pageData.spaces);
-const works = $derived(pageData.works);
-const username = $derived(profile.username ?? props.params.username);
+const pageData = $derived(
+	refreshedPage ?? (props.data.mode === "ready" ? props.data.page : null),
+);
+
+const profile = $derived(pageData?.profile ?? null);
+const spaces = $derived(pageData?.spaces ?? []);
+const works = $derived(pageData?.works ?? []);
+const username = $derived(
+	profile?.username ??
+		(props.data.mode === "client"
+			? props.data.username
+			: props.params.username),
+);
 const isOwner = $derived(
 	Boolean(
 		authStore.userUuid &&
-			profile.userUuid &&
+			profile?.userUuid &&
 			authStore.userUuid === profile.userUuid,
 	),
 );
@@ -65,18 +78,34 @@ function workMeta(item: PublicUserWorkItem) {
 }
 
 $effect(() => {
-	const routeUsername = props.params.username;
-	const loaderPage = props.data.page;
+	const routeUsername =
+		props.data.mode === "client" ? props.data.username : props.params.username;
+	const loaderPage = props.data.mode === "ready" ? props.data.page : null;
 	refreshedPage = null;
+	clientError = "";
+	clientLoading = props.data.mode === "client";
 	void authStore.ensureLoaded();
-	// Silent revalidate after paint / username change.
+	// Silent revalidate after paint / username change. Also used as primary load
+	// when SSR could not reach the public API.
 	let cancelled = false;
 	void sdk.users
 		.getByUsername(routeUsername)
 		.then((next) => {
-			if (!cancelled) refreshedPage = next;
+			if (cancelled) return;
+			refreshedPage = next;
+			clientLoading = false;
 		})
-		.catch(() => undefined);
+		.catch((err: unknown) => {
+			if (cancelled) return;
+			clientLoading = false;
+			if (loaderPage) return;
+			const status =
+				err && typeof err === "object" && "status" in err
+					? Number((err as { status?: unknown }).status)
+					: 0;
+			clientError =
+				status === 404 ? "User not found." : "Failed to load profile.";
+		});
 	return () => {
 		cancelled = true;
 		void loaderPage;
@@ -84,26 +113,39 @@ $effect(() => {
 });
 </script>
 
-<svelte:head>
-	<title>{profile.displayName} (@{username}) — Cohub</title>
-	<meta
-		name="description"
-		content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
-	/>
-	<meta property="og:type" content="profile" />
-	<meta property="og:site_name" content="Cohub" />
-	<meta property="og:title" content={`${profile.displayName} (@${username}) — Cohub`} />
-	<meta
-		property="og:description"
-		content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
-	/>
-	<meta name="twitter:card" content="summary" />
-	<meta name="twitter:title" content={`${profile.displayName} (@${username}) — Cohub`} />
-	<meta
-		name="twitter:description"
-		content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
-	/>
-</svelte:head>
+{#if profile}
+	<svelte:head>
+		<title>{profile.displayName} (@{username}) — Cohub</title>
+		<meta
+			name="description"
+			content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
+		/>
+		<meta property="og:type" content="profile" />
+		<meta property="og:site_name" content="Cohub" />
+		<meta
+			property="og:title"
+			content={`${profile.displayName} (@${username}) — Cohub`}
+		/>
+		<meta
+			property="og:description"
+			content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
+		/>
+		<meta name="twitter:card" content="summary" />
+		<meta
+			name="twitter:title"
+			content={`${profile.displayName} (@${username}) — Cohub`}
+		/>
+		<meta
+			name="twitter:description"
+			content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
+		/>
+	</svelte:head>
+{:else}
+	<svelte:head>
+		<title>@{username} — Cohub</title>
+		<meta name="robots" content="noindex,nofollow" />
+	</svelte:head>
+{/if}
 
 <div class="min-h-screen bg-bg-primary">
 	<div class="mx-auto w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-14">
@@ -115,6 +157,15 @@ $effect(() => {
 			C
 		</a>
 
+		{#if !profile}
+			<div class="rounded-[12px] border border-border-subtle bg-bg-surface px-4 py-8 text-center text-[13px] text-text-secondary">
+				{#if clientLoading}
+					Loading profile…
+				{:else}
+					{clientError || "Profile is unavailable."}
+				{/if}
+			</div>
+		{:else}
 		<header class="border-b border-border-subtle pb-8">
 			<div class="flex items-start gap-4 sm:gap-5">
 				<UserAvatar
@@ -281,5 +332,6 @@ $effect(() => {
 				</ul>
 			{/if}
 		</section>
+		{/if}
 	</div>
 </div>
