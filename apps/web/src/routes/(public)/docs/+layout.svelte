@@ -71,7 +71,7 @@ onMount(() => {
 			class="sticky top-[57px] hidden h-[calc(100vh-57px)] w-56 shrink-0 overflow-y-auto py-8 lg:block"
 			aria-label={ui.docsLabel}
 		>
-			<div class="mb-5 flex items-start justify-between gap-2 px-2">
+			<div class="mb-4 flex items-start justify-between gap-2 px-2">
 				<div class="min-w-0">
 					<div class="text-[12px] font-semibold tracking-tight text-text-primary">
 						{ui.docsLabel}
@@ -81,6 +81,22 @@ onMount(() => {
 					</p>
 				</div>
 				<DocsLangSwitch {locale} {alternateHref} />
+			</div>
+			<div class="mb-5 px-2">
+				<button
+					type="button"
+					class="inline-flex h-8 w-full items-center gap-2 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-left text-[12px] text-text-tertiary transition-colors hover:border-border-strong hover:text-text-secondary"
+					onclick={() => {
+						searchOpen = true;
+					}}
+				>
+					<Search class="h-3.5 w-3.5 shrink-0" />
+					<span class="min-w-0 flex-1 truncate">{ui.searchButton}</span>
+					<kbd
+						class="rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-placeholder"
+						>⌘K</kbd
+					>
+				</button>
 			</div>
 			<DocsSidebar sections={data.sections} {currentSlug} />
 		</aside>
@@ -135,22 +151,6 @@ onMount(() => {
 			{/if}
 
 			<main class="px-4 py-8 sm:px-6 lg:px-0 lg:py-10">
-				<div class="mb-6 hidden items-center justify-end gap-3 lg:flex">
-					<button
-						type="button"
-						class="inline-flex h-8 w-full max-w-[220px] items-center gap-2 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-left text-[12px] text-text-tertiary transition-colors hover:border-border-strong hover:text-text-secondary"
-						onclick={() => {
-							searchOpen = true;
-						}}
-					>
-						<Search class="h-3.5 w-3.5 shrink-0" />
-						<span class="min-w-0 flex-1 truncate">{ui.searchButton}</span>
-						<kbd
-							class="rounded-[4px] border border-border-subtle bg-bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-placeholder"
-							>⌘K</kbd
-						>
-					</button>
-				</div>
 				{@render children()}
 			</main>
 		</div>

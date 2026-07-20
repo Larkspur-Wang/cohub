@@ -23,6 +23,11 @@ let {
 
 const ui = $derived(getDocsUi(locale));
 
+/** Quick-access pages shown when search is empty. */
+const popularPages = $derived(
+	entries.slice(0, 4).map((e) => ({ title: e.title, href: e.href })),
+);
+
 let query = $state("");
 let inputEl = $state<HTMLInputElement | null>(null);
 let activeIndex = $state(0);
@@ -185,9 +190,27 @@ onMount(() => {
 
 			<div class="max-h-[50vh] overflow-y-auto p-2">
 				{#if !query.trim()}
-					<p class="px-2 py-6 text-center text-[12px] text-text-tertiary">
-						{ui.searchEmpty}
-					</p>
+					<div class="px-2 py-3">
+						<p class="mb-2 text-[11px] font-medium tracking-wide text-text-placeholder uppercase">
+							{ui.searchPopular}
+						</p>
+						<ul class="space-y-0.5">
+							{#each popularPages as entry (entry.href)}
+								<li>
+									<a
+										href={entry.href}
+										class="block rounded-[6px] px-3 py-2 text-[13px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+										onclick={(event) => {
+											event.preventDefault();
+											void navigateTo(entry.href);
+										}}
+									>
+										{entry.title}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					</div>
 				{:else if results.length === 0}
 					<p class="px-2 py-6 text-center text-[12px] text-text-tertiary">
 						{ui.searchNoResults(query.trim())}

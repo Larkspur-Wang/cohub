@@ -1085,8 +1085,9 @@ body.drawer-open {
 .markdown-content td {
 	min-width: min(9rem, 52vw);
 	max-width: 24rem;
-	border: 1px solid var(--border-subtle);
-	padding: 0.5rem 0.75rem;
+	border: none;
+	border-bottom: 1px solid var(--border-subtle);
+	padding: 0.6rem 0.75rem;
 	text-align: left;
 	vertical-align: top;
 	white-space: normal;
@@ -1105,17 +1106,24 @@ body.drawer-open {
 }
 
 .markdown-content th {
-	background: var(--bg-hover);
-	color: var(--text-primary);
-	font-weight: 600;
+	background: transparent;
+	color: var(--text-tertiary);
+	font-size: 0.85em;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
 }
 
 .markdown-content td {
 	color: var(--text-secondary);
 }
 
-.markdown-content tr:nth-child(even) td {
-	background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+.markdown-content tbody tr {
+	transition: background-color 120ms ease;
+}
+
+.markdown-content tbody tr:hover td {
+	background: color-mix(in srgb, var(--bg-hover) 50%, transparent);
 }
 
 @media (max-width: 640px) {
@@ -1127,6 +1135,7 @@ body.drawer-open {
 	.markdown-content table td {
 		min-width: min(7.5rem, 62vw);
 		max-width: 16rem;
+		padding: 0.5rem 0.6rem;
 	}
 
 	.markdown-content .markdown-mermaid-canvas {
@@ -1154,6 +1163,7 @@ body.drawer-open {
 .markdown-content pre {
 	border: 1px solid var(--border-subtle);
 	border-radius: 0.75rem;
+	background: var(--bg-code, var(--bg-surface));
 	overflow-x: auto;
 	touch-action: pan-x pan-y;
 }

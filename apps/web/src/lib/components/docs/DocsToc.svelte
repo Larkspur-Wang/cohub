@@ -56,7 +56,7 @@ $effect(() => {
 				<li>
 					<a
 						href={`#${item.id}`}
-						class="block border-l -ml-px py-1 text-[12px] transition-colors {item.level ===
+						class="block border-l -ml-px py-1 text-[12px] transition-colors duration-200 {item.level ===
 						3
 							? 'pl-4'
 							: 'pl-3'} {activeId === item.id

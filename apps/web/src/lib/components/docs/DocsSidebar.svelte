@@ -26,9 +26,9 @@ const {
 					<li>
 						<a
 							href={item.href}
-							class="block rounded-[6px] px-2 py-1.5 text-[13px] transition-colors {active
-								? 'bg-brand/10 font-medium text-brand'
-								: 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
+							class="block rounded-[6px] border-l-2 px-2 py-1.5 text-[13px] transition-colors {active
+								? 'border-brand bg-brand/10 font-medium text-brand'
+								: 'border-transparent text-text-secondary hover:bg-bg-hover hover:text-text-primary'}"
 							aria-current={active ? "page" : undefined}
 							onclick={() => onNavigate?.()}
 						>

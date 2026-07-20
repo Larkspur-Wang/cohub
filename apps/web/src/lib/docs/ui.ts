@@ -8,6 +8,7 @@ export type DocsUiCopy = {
 	searchPlaceholder: string;
 	searchEmpty: string;
 	searchNoResults: (query: string) => string;
+	searchPopular: string;
 	searchAria: string;
 	closeSearch: string;
 	onThisPage: string;
@@ -18,6 +19,8 @@ export type DocsUiCopy = {
 	english: string;
 	chinese: string;
 	pageOutline: string;
+	copyMarkdown: string;
+	copied: string;
 };
 
 const UI: Record<DocsLocale, DocsUiCopy> = {
@@ -29,6 +32,7 @@ const UI: Record<DocsLocale, DocsUiCopy> = {
 		searchPlaceholder: "Search documentation",
 		searchEmpty: "Search by concept, page title, or product term.",
 		searchNoResults: (query) => `No matches for “${query}”.`,
+		searchPopular: "Popular",
 		searchAria: "Search documentation",
 		closeSearch: "Close search",
 		onThisPage: "On this page",
@@ -39,6 +43,8 @@ const UI: Record<DocsLocale, DocsUiCopy> = {
 		english: "EN",
 		chinese: "中文",
 		pageOutline: "Page outline",
+		copyMarkdown: "Copy markdown",
+		copied: "Copied",
 	},
 	zh: {
 		docsLabel: "文档",
@@ -48,6 +54,7 @@ const UI: Record<DocsLocale, DocsUiCopy> = {
 		searchPlaceholder: "搜索文档",
 		searchEmpty: "可按概念、页面标题或产品术语搜索。",
 		searchNoResults: (query) => `没有找到与「${query}」相关的内容。`,
+		searchPopular: "热门页面",
 		searchAria: "搜索文档",
 		closeSearch: "关闭搜索",
 		onThisPage: "本页目录",
@@ -58,6 +65,8 @@ const UI: Record<DocsLocale, DocsUiCopy> = {
 		english: "EN",
 		chinese: "中文",
 		pageOutline: "页面大纲",
+		copyMarkdown: "复制 Markdown",
+		copied: "已复制",
 	},
 };
 

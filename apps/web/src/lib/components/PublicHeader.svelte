@@ -82,7 +82,7 @@ function navClass(active: boolean): string {
 			{:else if cta === "open-app"}
 				<a
 					href="/"
-					class="inline-flex items-center gap-1.5 rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+					class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[5px] border border-border-subtle bg-bg-input px-2.5 py-1.5 text-[12px] font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
 				>
 					Open app
 					<ChevronRight class="h-3.5 w-3.5" />
