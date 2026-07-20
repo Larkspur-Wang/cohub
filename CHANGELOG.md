@@ -4,6 +4,16 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.104 — 2026-07-20
+
+- **Turn-finalize hook filters**: `session.turn.finalized` hooks can match with `sessionIds`, `ignoreSessionIds`, and turn `sources` (e.g. `web_app`, `cli`), keeping trigger filters orthogonal to `prompt.sessionId`.
+- **Stable hook env for shell scripts**: Optional `COHUB_HOOK_*` keys are always exported (empty string when absent), so `run` scripts under `set -u` stay safe.
+- **Smarter hook definition cache**: Empty hook sets use a 30s negative cache TTL to cut readdir IO while recovering quickly from transient PVC misses; task results expose `definitionsCount` and `cache` hit/miss for easier debugging.
+
+### Bug Fixes
+
+- Optional hook context env vars no longer disappear when unbound, avoiding `set -u` failures in hook scripts.
+
 ## v1.103 — 2026-07-20
 
 - **Space Hooks**: File-declared automation under `.cohub/hooks/*` — trigger `run` (sandbox shell) or `prompt` (session) actions on domain events (`space.fs.changed`, `space.workspace.ready`, `session.turn.finalized`, `checkpoint.created`).
