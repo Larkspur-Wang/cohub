@@ -41,15 +41,26 @@ function collectFsSummary(payload: Record<string, unknown>) {
   };
 }
 
-function setEnv(env: Record<string, string>, key: string, value: string | null | undefined) {
-  const normalized = typeof value === "string" ? value.trim() : "";
-  if (!normalized) return;
-  env[key] = normalized;
+function normalizeEnvValue(value: string | null | undefined) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-/** Build the shared hook env for both run and prompt executions. Empty values are omitted. */
+/** Always assign so run scripts under `set -u` can safely expand optional keys. */
+function setEnv(env: Record<string, string>, key: string, value: string | null | undefined) {
+  env[key] = normalizeEnvValue(value);
+}
+
+/**
+ * Build the shared hook env for both run and prompt executions.
+ * Optional COHUB_HOOK_* keys are always exported; absent values are "".
+ * Prompt appendix still skips empty values for readability.
+ */
 export function buildSpaceHookEnv(input: SpaceHookContextInput): Record<string, string> {
   const { event, hookPath, taskRunId, eventActorUserId, executionUserId } = input;
+  const turn = event.type === "session.turn.finalized" && isRecord(event.payload.turn)
+    ? event.payload.turn
+    : null;
+
   const env: Record<string, string> = {
     COHUB_HOOK_PATH: hookPath,
     COHUB_HOOK_TASK_RUN_ID: taskRunId,
@@ -60,23 +71,21 @@ export function buildSpaceHookEnv(input: SpaceHookContextInput): Record<string, 
     COHUB_HOOK_EXECUTION_USER_ID: executionUserId,
   };
 
+  // Stable optional keys — always present for set -u safe shell scripts.
   setEnv(env, "COHUB_HOOK_ACTOR_USER_ID", eventActorUserId);
   setEnv(env, "COHUB_HOOK_SESSION_ID", event.sessionId);
-
-  if (event.type === "session.turn.finalized") {
-    const turn = isRecord(event.payload.turn) ? event.payload.turn : null;
-    setEnv(env, "COHUB_HOOK_TURN_ID", turn ? asString(turn.id) : null);
-  }
-
-  if (event.type === "checkpoint.created") {
-    setEnv(env, "COHUB_HOOK_CHECKPOINT_ID", asString(event.payload.checkpointId));
-  }
+  setEnv(env, "COHUB_HOOK_TURN_ID", turn ? asString(turn.id) : null);
+  setEnv(
+    env,
+    "COHUB_HOOK_CHECKPOINT_ID",
+    event.type === "checkpoint.created" ? asString(event.payload.checkpointId) : null,
+  );
 
   if (event.type === "space.fs.changed") {
     const summary = collectFsSummary(event.payload);
     env.COHUB_HOOK_FS_CHANGE_COUNT = String(summary.changeCount);
-    if (summary.paths.length > 0) env.COHUB_HOOK_FS_PATHS = summary.paths.join("\n");
-    if (summary.kinds.length > 0) env.COHUB_HOOK_FS_KINDS = summary.kinds.join(",");
+    env.COHUB_HOOK_FS_PATHS = summary.paths.join("\n");
+    env.COHUB_HOOK_FS_KINDS = summary.kinds.join(",");
   }
 
   return env;

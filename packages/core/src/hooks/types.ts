@@ -46,6 +46,12 @@ export type SpaceHookTaskResult = {
   eventId: string;
   eventType: string;
   hooks: SpaceHookRunResult[];
+  /** Number of parsed hook definitions considered for this event (cache or disk). */
+  definitionsCount?: number;
+  /** Whether hook definitions came from Redis cache or a disk load. */
+  cache?: "hit" | "miss";
+  /** Present when the task exits before matching hooks. */
+  skipped?: string;
 };
 
 export type CachedSpaceHooksConfig = {

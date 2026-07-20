@@ -110,14 +110,21 @@ Parsed definitions are cached in Redis:
 
 ```text
 key: cohub:space-hooks:v1:<spaceId>
-ttl: 5 minutes
+ttl: 5 minutes when definitions are non-empty
+     30 seconds when definitions are empty (negative cache)
 ```
 
+Empty results are still cached to avoid readdir on every event for spaces without hooks.
+The short negative TTL limits how long a transient PVC miss can hide newly written hook files.
+
 If an `space.fs.changed` event touches `.cohub/hooks/**`, the cache is invalidated before the next match.
+Matching still ignores `.cohub/**` so hook files themselves do not re-trigger `run` / `prompt` actions.
 
 ## Hook context env
 
-`run` and `prompt` share the same curated env. Empty values are omitted.
+`run` and `prompt` share the same curated env.
+Optional `COHUB_HOOK_*` keys are always exported; absent values are empty strings so scripts under `set -u` stay safe.
+The prompt appendix still skips empty values for readability.
 
 Always present:
 
@@ -129,23 +136,18 @@ COHUB_HOOK_EVENT_TYPE
 COHUB_HOOK_SPACE_ID
 COHUB_HOOK_OCCURRED_AT
 COHUB_HOOK_EXECUTION_USER_ID
+COHUB_HOOK_ACTOR_USER_ID      # "" when unknown
+COHUB_HOOK_SESSION_ID         # "" when unbound
+COHUB_HOOK_TURN_ID            # "" unless session.turn.finalized
+COHUB_HOOK_CHECKPOINT_ID      # "" unless checkpoint.created
 ```
 
-Present only when available:
-
-```text
-COHUB_HOOK_ACTOR_USER_ID
-COHUB_HOOK_SESSION_ID      # mainly session.turn.finalized
-COHUB_HOOK_TURN_ID         # session.turn.finalized
-COHUB_HOOK_CHECKPOINT_ID   # checkpoint.created
-```
-
-`space.fs.changed` extras (no single business id):
+`space.fs.changed` extras (always present for that event; empty string when none):
 
 ```text
 COHUB_HOOK_FS_CHANGE_COUNT
-COHUB_HOOK_FS_PATHS          # newline-separated, hard-capped
-COHUB_HOOK_FS_KINDS          # comma-separated, when present
+COHUB_HOOK_FS_PATHS          # newline-separated, hard-capped at 100
+COHUB_HOOK_FS_KINDS          # comma-separated
 ```
 
 How it is delivered:
@@ -183,4 +185,5 @@ task_runs.payload.data.event
 - Local sandbox workspaces are not mounted on Worker; hook discovery currently assumes cloud PVC access
 - History is stored in existing `task_runs` rows of type `space_hook`
 - Hook failures are recorded in the task result but do not trigger BullMQ retry (avoids duplicate execution storms)
+- Task results include `definitionsCount` and `cache` (`hit` | `miss`) so empty `hooks: []` can be distinguished from "definitions loaded but all skipped"
 - `.cohub/**` paths are always ignored in fs hook matching to prevent self-trigger loops

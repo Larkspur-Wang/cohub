@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   SPACE_HOOKS_CACHE_TTL_SEC,
+  SPACE_HOOKS_EMPTY_CACHE_TTL_SEC,
   SPACE_HOOKS_DIR,
   getSpaceHooksRedisKey,
 } from "@cohub/protocol";
@@ -10,6 +11,11 @@ import {
   parseSpaceHookDefinition,
 } from "./parse.js";
 import type { CachedSpaceHooksConfig, SpaceHookDefinition } from "./types.js";
+
+export type LoadSpaceHookDefinitionsResult = {
+  definitions: SpaceHookDefinition[];
+  cache: "hit" | "miss";
+};
 
 type RedisLike = {
   get(key: string): Promise<string | null>;
@@ -69,18 +75,24 @@ export async function loadSpaceHookDefinitionsFromDir(dir: string): Promise<Spac
   return definitions;
 }
 
+export function resolveSpaceHooksCacheTtlSec(definitionsCount: number): number {
+  return definitionsCount > 0 ? SPACE_HOOKS_CACHE_TTL_SEC : SPACE_HOOKS_EMPTY_CACHE_TTL_SEC;
+}
+
 export async function loadSpaceHookDefinitions(input: {
   spaceId: string;
   workspaceDir: string;
   redis?: RedisLike | null;
   allowCache?: boolean;
-}): Promise<SpaceHookDefinition[]> {
+}): Promise<LoadSpaceHookDefinitionsResult> {
   const redisKey = getSpaceHooksRedisKey(input.spaceId);
   if (input.allowCache !== false && input.redis) {
     const cached = await input.redis.get(redisKey).catch(() => null);
     if (cached) {
       const parsed = parseCachedSpaceHooksConfig(cached);
-      if (parsed) return parsed.definitions;
+      if (parsed) {
+        return { definitions: parsed.definitions, cache: "hit" };
+      }
     }
   }
 
@@ -91,10 +103,10 @@ export async function loadSpaceHookDefinitions(input: {
       definitions,
     });
     await input.redis
-      .set(redisKey, JSON.stringify(payload), "EX", SPACE_HOOKS_CACHE_TTL_SEC)
+      .set(redisKey, JSON.stringify(payload), "EX", resolveSpaceHooksCacheTtlSec(definitions.length))
       .catch(() => undefined);
   }
-  return definitions;
+  return { definitions, cache: "miss" };
 }
 
 export async function invalidateSpaceHooksCache(input: {

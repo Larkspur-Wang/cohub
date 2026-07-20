@@ -348,17 +348,19 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
       eventId: event.id,
       eventType: event.type,
       hooks: [] as SpaceHookRunResult[],
+      definitionsCount: 0,
       skipped: "missing_space_owner",
     };
   }
 
   await updateTaskRunOwner(jobId, ownerUserId);
 
-  const definitions = await loadSpaceHookDefinitions({
+  const loaded = await loadSpaceHookDefinitions({
     spaceId,
     workspaceDir: getSpaceWorkspaceDir(spaceId),
     redis: redisCommandClient,
   });
+  const definitions = loaded.definitions;
 
   const matched: SpaceHookDefinition[] = [];
   const skipped: SpaceHookRunResult[] = [];
@@ -423,5 +425,7 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     eventId: event.id,
     eventType: event.type,
     hooks,
+    definitionsCount: definitions.length,
+    cache: loaded.cache,
   };
 });

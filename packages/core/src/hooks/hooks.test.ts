@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  SPACE_HOOKS_CACHE_TTL_SEC,
+  SPACE_HOOKS_EMPTY_CACHE_TTL_SEC,
+} from "@cohub/protocol";
+import {
   buildHookRunCommand,
   buildSpaceHookEnv,
   buildSpaceHookPromptText,
   mergeSpaceHookExecutionEnv,
   parseSpaceHookDefinition,
+  resolveSpaceHooksCacheTtlSec,
   spaceHookMatchesEvent,
 } from "./index.js";
 
@@ -192,7 +197,7 @@ test("buildHookRunCommand only wraps the user script", () => {
   assert.equal(buildHookRunCommand("npm test").includes("COHUB_HOOK_EVENT_FILE"), false);
 });
 
-test("buildSpaceHookEnv keeps only shared + relevant ids", () => {
+test("buildSpaceHookEnv always exports optional ids as empty strings when absent", () => {
   const turnEnv = buildSpaceHookEnv({
     event: {
       id: "evt-turn",
@@ -218,6 +223,7 @@ test("buildSpaceHookEnv keeps only shared + relevant ids", () => {
     COHUB_HOOK_ACTOR_USER_ID: "actor-1",
     COHUB_HOOK_SESSION_ID: "session-1",
     COHUB_HOOK_TURN_ID: "turn-1",
+    COHUB_HOOK_CHECKPOINT_ID: "",
   });
   assert.equal("COHUB_HOOK_TURN_STATUS" in turnEnv, false);
 
@@ -234,8 +240,10 @@ test("buildSpaceHookEnv keeps only shared + relevant ids", () => {
     executionUserId: "owner-1",
   });
   assert.equal(checkpointEnv.COHUB_HOOK_CHECKPOINT_ID, "cp-1");
+  assert.equal(checkpointEnv.COHUB_HOOK_ACTOR_USER_ID, "");
+  assert.equal(checkpointEnv.COHUB_HOOK_SESSION_ID, "");
+  assert.equal(checkpointEnv.COHUB_HOOK_TURN_ID, "");
   assert.equal("COHUB_HOOK_COMMIT_HASH" in checkpointEnv, false);
-  assert.equal("COHUB_HOOK_SESSION_ID" in checkpointEnv, false);
 
   const readyEnv = buildSpaceHookEnv({
     event: {
@@ -251,6 +259,10 @@ test("buildSpaceHookEnv keeps only shared + relevant ids", () => {
   });
   assert.equal("COHUB_HOOK_WORKSPACE_STAGE" in readyEnv, false);
   assert.equal(readyEnv.COHUB_HOOK_EVENT_TYPE, "space.workspace.ready");
+  assert.equal(readyEnv.COHUB_HOOK_ACTOR_USER_ID, "");
+  assert.equal(readyEnv.COHUB_HOOK_SESSION_ID, "");
+  assert.equal(readyEnv.COHUB_HOOK_TURN_ID, "");
+  assert.equal(readyEnv.COHUB_HOOK_CHECKPOINT_ID, "");
 });
 
 test("buildSpaceHookEnv summarizes fs changes without resync/truncated flags", () => {
@@ -276,8 +288,34 @@ test("buildSpaceHookEnv summarizes fs changes without resync/truncated flags", (
   assert.equal(env.COHUB_HOOK_FS_CHANGE_COUNT, "2");
   assert.equal(env.COHUB_HOOK_FS_PATHS, "src/a.ts\nsrc/b.ts");
   assert.equal(env.COHUB_HOOK_FS_KINDS, "modify,create");
+  assert.equal(env.COHUB_HOOK_ACTOR_USER_ID, "");
+  assert.equal(env.COHUB_HOOK_SESSION_ID, "");
+  assert.equal(env.COHUB_HOOK_TURN_ID, "");
+  assert.equal(env.COHUB_HOOK_CHECKPOINT_ID, "");
   assert.equal("COHUB_HOOK_FS_RESYNC" in env, false);
   assert.equal("COHUB_HOOK_FS_TRUNCATED" in env, false);
+
+  const emptyFsEnv = buildSpaceHookEnv({
+    event: {
+      id: "evt-fs-empty",
+      type: "space.fs.changed",
+      timestamp: Date.parse("2026-07-20T00:00:00.000Z"),
+      spaceId: "space-1",
+      payload: { changes: [] },
+    },
+    hookPath: ".cohub/hooks/on-fs.yml",
+    taskRunId: "task-run-fs-empty",
+    executionUserId: "owner-1",
+  });
+  assert.equal(emptyFsEnv.COHUB_HOOK_FS_CHANGE_COUNT, "0");
+  assert.equal(emptyFsEnv.COHUB_HOOK_FS_PATHS, "");
+  assert.equal(emptyFsEnv.COHUB_HOOK_FS_KINDS, "");
+});
+
+test("resolveSpaceHooksCacheTtlSec keeps positive cache long and empty cache short", () => {
+  assert.equal(resolveSpaceHooksCacheTtlSec(3), SPACE_HOOKS_CACHE_TTL_SEC);
+  assert.equal(resolveSpaceHooksCacheTtlSec(0), SPACE_HOOKS_EMPTY_CACHE_TTL_SEC);
+  assert.equal(SPACE_HOOKS_EMPTY_CACHE_TTL_SEC < SPACE_HOOKS_CACHE_TTL_SEC, true);
 });
 
 test("buildSpaceHookPromptText only mirrors present context fields", () => {
