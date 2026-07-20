@@ -111,61 +111,7 @@ export function shouldInvalidateSpaceHooksCache(paths: string[]): boolean {
   });
 }
 
-export function buildHookEventFileContent(input: {
-  event: {
-    id: string;
-    type: string;
-    timestamp: number;
-    spaceId: string;
-    sessionId?: string | null;
-    payload: Record<string, unknown>;
-  };
-  hookPath: string;
-  taskRunId: string;
-  eventActorUserId?: string | null;
-  executionUserId: string;
-}) {
-  return JSON.stringify({
-    schema: "cohub.space-event.v1",
-    id: input.event.id,
-    type: input.event.type,
-    spaceId: input.event.spaceId,
-    sessionId: input.event.sessionId ?? null,
-    occurredAt: new Date(input.event.timestamp).toISOString(),
-    actor: input.eventActorUserId ? { type: "user", id: input.eventActorUserId } : null,
-    execution: { userId: input.executionUserId },
-    hookPath: input.hookPath,
-    taskRunId: input.taskRunId,
-    payload: input.event.payload,
-  }, null, 2);
-}
-
-export function buildHookRunCommand(input: {
-  run: string;
-  event: {
-    id: string;
-    type: string;
-    timestamp: number;
-    spaceId: string;
-    sessionId?: string | null;
-    payload: Record<string, unknown>;
-  };
-  hookPath: string;
-  taskRunId: string;
-  eventActorUserId?: string | null;
-  executionUserId: string;
-}) {
-  const eventJson = buildHookEventFileContent(input);
-  const shellSingleQuote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`;
-  return [
-    "set -euo pipefail",
-    `export COHUB_HOOK_PATH=${shellSingleQuote(input.hookPath)}`,
-    `export COHUB_HOOK_TASK_RUN_ID=${shellSingleQuote(input.taskRunId)}`,
-    `export COHUB_HOOK_EVENT_ID=${shellSingleQuote(input.event.id)}`,
-    `export COHUB_HOOK_EVENT_TYPE=${shellSingleQuote(input.event.type)}`,
-    "export COHUB_HOOK_EVENT_FILE=\"$(mktemp /tmp/cohub-hook-event.XXXXXX.json)\"",
-    `printf '%s' ${shellSingleQuote(eventJson)} > "$COHUB_HOOK_EVENT_FILE"`,
-    "trap 'rm -f \"$COHUB_HOOK_EVENT_FILE\"' EXIT",
-    input.run,
-  ].join("\n");
+/** Wrap a hook run script. Trigger context is injected via process env, not files. */
+export function buildHookRunCommand(run: string) {
+  return ["set -euo pipefail", run].join("\n");
 }

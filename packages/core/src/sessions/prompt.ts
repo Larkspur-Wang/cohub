@@ -84,6 +84,8 @@ export type SpaceHookPromptContext = {
   eventId: string;
   eventType: string;
   eventActorUserId?: string | null;
+  /** Shared curated hook env (COHUB_HOOK_*), also used for tool injection. */
+  env?: Record<string, string> | null;
 };
 
 export type ChannelPromptContext = {

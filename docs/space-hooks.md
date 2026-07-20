@@ -23,7 +23,11 @@ on:
   ignore:
     - src/generated/**
 
+env:
+  REVIEW_SCOPE: public
+
 run: |
+  echo "$REVIEW_SCOPE"
   npm test
 ```
 
@@ -35,10 +39,17 @@ schema: cohub.space-hook.v1
 on:
   event: checkpoint.created
 
+env:
+  REVIEW_SCOPE: public
+
 prompt:
   text: summarize the new checkpoint and suggest next steps
   intent: followup
 ```
+
+Top-level `env` is shared by both `run` and `prompt`.
+Legacy `prompt.env` is still accepted as a fallback.
+User env cannot override system keys (`COHUB_*`, etc.).
 
 Supported events:
 
@@ -104,25 +115,66 @@ ttl: 5 minutes
 
 If an `space.fs.changed` event touches `.cohub/hooks/**`, the cache is invalidated before the next match.
 
-## Environment for run hooks
+## Hook context env
 
-Set by `buildHookRunCommand`:
+`run` and `prompt` share the same curated env. Empty values are omitted.
+
+Always present:
 
 ```text
 COHUB_HOOK_PATH
 COHUB_HOOK_TASK_RUN_ID
 COHUB_HOOK_EVENT_ID
 COHUB_HOOK_EVENT_TYPE
-COHUB_HOOK_EVENT_FILE
+COHUB_HOOK_SPACE_ID
+COHUB_HOOK_OCCURRED_AT
+COHUB_HOOK_EXECUTION_USER_ID
 ```
 
-Injected by the agent execution context (same as bash tool calls):
+Present only when available:
+
+```text
+COHUB_HOOK_ACTOR_USER_ID
+COHUB_HOOK_SESSION_ID      # mainly session.turn.finalized
+COHUB_HOOK_TURN_ID         # session.turn.finalized
+COHUB_HOOK_CHECKPOINT_ID   # checkpoint.created
+```
+
+`space.fs.changed` extras (no single business id):
+
+```text
+COHUB_HOOK_FS_CHANGE_COUNT
+COHUB_HOOK_FS_PATHS          # newline-separated, hard-capped
+COHUB_HOOK_FS_KINDS          # comma-separated, when present
+```
+
+How it is delivered:
+
+- `run`: process env on the `run_command` job (user `env` + system hook env; no temp event file)
+- `prompt`: user `env` on the turn; system hook keys on `meta.context.env` for tool execution, plus a short prompt appendix mirrored from system fields
+
+Merge order for process/tool env:
+
+```text
+space user env < hook file env < COHUB_HOOK_* / other system keys
+```
+
+Also injected by the agent execution context (same as bash tool calls):
 
 ```text
 COHUB_SPACE_ID
 COHUB_USER_UUID
 COHUB_EXECUTION_TOKEN
+COHUB_SESSION_ID             # when a session is bound
 ```
+
+Full original event payload remains on the `space_hook` task run:
+
+```text
+task_runs.payload.data.event
+```
+
+`COHUB_HOOK_TASK_RUN_ID` is the DB `task_runs.id` (UUID) so `GET /api/tasks/:id` can resolve it.
 
 ## MVP limits
 

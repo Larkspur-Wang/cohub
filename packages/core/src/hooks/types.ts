@@ -8,7 +8,6 @@ export type SpaceHookPromptDefinition = {
   accessMode?: "read_only" | "full_access" | null;
   model?: string | null;
   provider?: string | null;
-  env?: Record<string, string> | null;
   labelRefs?: string[] | null;
 };
 
@@ -22,6 +21,8 @@ export type SpaceHookDefinition = {
   action: "run" | "prompt";
   run?: string;
   prompt?: SpaceHookPromptDefinition;
+  /** User-declared env for both run and prompt. Cannot override system COHUB_* keys. */
+  env?: Record<string, string> | null;
   timeoutSecs?: number;
 };
 

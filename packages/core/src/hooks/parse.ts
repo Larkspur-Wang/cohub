@@ -5,6 +5,7 @@ import {
   isSpaceHookableEvent,
   type SpaceHookableEvent,
 } from "@cohub/protocol";
+import { parsePromptEnv } from "../sessions/prompt-env.js";
 import type { SpaceHookDefinition } from "./types.js";
 
 const HOOK_FILE_EXTENSIONS = new Set([".yml", ".yaml", ".json"]);
@@ -98,6 +99,7 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
 
   const timeoutSecs = normalizeTimeoutSecs(document.timeoutSecs ?? document.timeout)
     ?? DEFAULT_TIMEOUT_SECS;
+  const topLevelEnv = parseHookUserEnv(document.env, normalizedPath);
 
   if (hasRun) {
     const run = typeof document.run === "string" ? document.run.trim() : "";
@@ -112,9 +114,17 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
       kinds: normalizeKinds(on?.kinds),
       action: "run",
       run,
+      ...(topLevelEnv ? { env: topLevelEnv } : {}),
       timeoutSecs,
     };
   }
+
+  const prompt = parsePromptDefinition(document.prompt, normalizedPath);
+  // Prefer top-level env; keep legacy prompt.env as fallback only when top-level is absent.
+  const env = topLevelEnv ?? parseHookUserEnv(
+    isRecord(document.prompt) ? document.prompt.env : undefined,
+    normalizedPath,
+  );
 
   return {
     schema: SPACE_HOOK_SCHEMA,
@@ -124,9 +134,19 @@ export function parseSpaceHookDefinition(raw: string, path: string): SpaceHookDe
     ignore: normalizeStringList(on?.ignore),
     kinds: normalizeKinds(on?.kinds),
     action: "prompt",
-    prompt: parsePromptDefinition(document.prompt, normalizedPath),
+    prompt,
+    ...(env ? { env } : {}),
     timeoutSecs,
   };
+}
+
+function parseHookUserEnv(value: unknown, path: string): Record<string, string> | null {
+  if (value === undefined || value === null) return null;
+  try {
+    return parsePromptEnv(value);
+  } catch (error) {
+    throw new Error(`invalid env in ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 function parsePromptDefinition(value: unknown, path: string): SpaceHookDefinition["prompt"] {
@@ -151,9 +171,6 @@ function parsePromptDefinition(value: unknown, path: string): SpaceHookDefinitio
     ? value.accessMode
     : null;
 
-  const env = isRecord(value.env)
-    ? Object.fromEntries(Object.entries(value.env).filter(([, v]) => typeof v === "string")) as Record<string, string>
-    : null;
   const labelRefs = Array.isArray(value.labelRefs)
     ? value.labelRefs.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
     : null;
@@ -166,7 +183,6 @@ function parsePromptDefinition(value: unknown, path: string): SpaceHookDefinitio
     accessMode,
     model: typeof value.model === "string" && value.model.trim() ? value.model.trim() : null,
     provider: typeof value.provider === "string" && value.provider.trim() ? value.provider.trim() : null,
-    ...(env && Object.keys(env).length > 0 ? { env } : {}),
     ...(labelRefs && labelRefs.length > 0 ? { labelRefs } : {}),
   };
 }

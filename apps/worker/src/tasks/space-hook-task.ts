@@ -10,8 +10,11 @@ import {
 } from "@cohub/infra/agent-queue";
 import {
   buildHookRunCommand,
+  buildSpaceHookEnv,
+  buildSpaceHookPromptText,
   invalidateSpaceHooksCache,
   loadSpaceHookDefinitions,
+  mergeSpaceHookExecutionEnv,
   shouldInvalidateSpaceHooksCache,
   spaceHookMatchesEvent,
   type SpaceHookDefinition,
@@ -94,29 +97,6 @@ function parseEvent(data: Record<string, unknown>): SpaceHookEventEnvelope {
   };
 }
 
-function buildPromptText(input: {
-  hook: SpaceHookDefinition;
-  event: SpaceHookEventEnvelope;
-  eventActorUserId: string | null;
-}) {
-  const base = input.hook.prompt?.text?.trim() ?? "";
-  return [
-    base,
-    "",
-    "---",
-    `Event: ${input.event.type}`,
-    `Event ID: ${input.event.id}`,
-    `Hook: ${input.hook.path}`,
-    input.eventActorUserId ? `Actor: ${input.eventActorUserId}` : null,
-    input.event.sessionId ? `Session: ${input.event.sessionId}` : null,
-    "",
-    "Event payload:",
-    "```json",
-    JSON.stringify(input.event.payload, null, 2),
-    "```",
-  ].filter((line): line is string => line !== null).join("\n");
-}
-
 async function runPromptHook(input: {
   spaceId: string;
   userId: string;
@@ -124,6 +104,7 @@ async function runPromptHook(input: {
   hook: SpaceHookDefinition;
   event: SpaceHookEventEnvelope;
   eventActorUserId: string | null;
+  hookEnv: Record<string, string>;
 }): Promise<SpaceHookRunResult> {
   if (input.hook.action !== "prompt" || !input.hook.prompt) {
     return {
@@ -180,20 +161,28 @@ async function runPromptHook(input: {
       sessionId,
       userId: input.userId,
       clientMessageId: `space-hook:${input.taskRunId}:${input.hook.path}`,
-      content: [{ type: "text", text: buildPromptText(input) }],
+      content: [{
+        type: "text",
+        text: buildSpaceHookPromptText({
+          promptText: prompt.text,
+          env: input.hookEnv,
+        }),
+      }],
       source: "space_hook",
       model: prompt.model ?? null,
       provider: prompt.provider ?? null,
       accessMode: prompt.accessMode ?? "full_access",
       intent: prompt.intent ?? "followup",
-      env: prompt.env ?? null,
+      // User-declared hook env only — system COHUB_HOOK_* rides on context.env.
+      env: input.hook.env ?? null,
       context: {
         kind: "space_hook",
         taskRunId: input.taskRunId,
         hookPath: input.hook.path,
         eventId: input.event.id,
         eventType: input.event.type,
-        eventActorUserId: input.eventActorUserId,
+        ...(input.eventActorUserId ? { eventActorUserId: input.eventActorUserId } : {}),
+        env: input.hookEnv,
       },
     });
 
@@ -228,7 +217,7 @@ async function runCommandHook(input: {
   taskRunId: string;
   hook: SpaceHookDefinition;
   event: SpaceHookEventEnvelope;
-  eventActorUserId: string | null;
+  hookEnv: Record<string, string>;
 }): Promise<SpaceHookRunResult> {
   if (input.hook.action !== "run" || !input.hook.run) {
     return {
@@ -240,14 +229,7 @@ async function runCommandHook(input: {
   }
 
   const startedAt = Date.now();
-  const command = buildHookRunCommand({
-    run: input.hook.run,
-    event: input.event,
-    hookPath: input.hook.path,
-    taskRunId: input.taskRunId,
-    eventActorUserId: input.eventActorUserId,
-    executionUserId: input.userId,
-  });
+  const command = buildHookRunCommand(input.hook.run);
   const timeout = input.hook.timeoutSecs ?? DEFAULT_TIMEOUT_SECS;
   // BullMQ custom jobIds reject ":"; keep a stable, path-derived suffix instead.
   const childTaskRunId = `${input.taskRunId}__${input.hook.path.replace(/[^a-zA-Z0-9._-]+/g, "_")}`;
@@ -261,6 +243,10 @@ async function runCommandHook(input: {
       cwd: "/workspace",
       timeout,
       userId: input.userId,
+      env: mergeSpaceHookExecutionEnv({
+        userEnv: input.hook.env,
+        hookEnv: input.hookEnv,
+      }),
     });
     const queueEvents = await getAgentQueueEvents();
     const result = await agentJob.waitUntilFinished(
@@ -319,14 +305,23 @@ async function resolveSpaceOwnerUserId(spaceId: string) {
   return space?.userUuid?.trim() || null;
 }
 
-async function updateTaskRunOwner(taskRunId: string, userId: string) {
+async function resolveTaskRunRecordId(jobId: string) {
+  const [run] = await db
+    .select({ id: taskRuns.id })
+    .from(taskRuns)
+    .where(eq(taskRuns.jobId, jobId))
+    .limit(1);
+  return run?.id ?? null;
+}
+
+async function updateTaskRunOwner(jobId: string, userId: string) {
   await db.update(taskRuns).set({
     userUuid: userId,
     updatedAt: new Date(),
-  }).where(eq(taskRuns.jobId, taskRunId)).catch(() => undefined);
+  }).where(eq(taskRuns.jobId, jobId)).catch(() => undefined);
 }
 
-registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
+registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
   if (!spaceId) throw new Error("spaceId is required for space_hook task");
@@ -334,7 +329,11 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
   const data = isRecord(payload.data) ? payload.data : {};
   const event = parseEvent(data);
   const eventActorUserId = asString(data.eventActorUserId);
-  const taskRunId = getJobId(job);
+  const jobId = getJobId(job);
+  // Prefer the DB task_runs.id so clients can resolve via GET /api/tasks/:id.
+  const taskRunId = context?.taskRunId
+    ?? await resolveTaskRunRecordId(jobId)
+    ?? jobId;
 
   if (event.type === "space.fs.changed") {
     const paths = collectChangedPaths(event.payload);
@@ -353,7 +352,7 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
     };
   }
 
-  await updateTaskRunOwner(taskRunId, ownerUserId);
+  await updateTaskRunOwner(jobId, ownerUserId);
 
   const definitions = await loadSpaceHookDefinitions({
     spaceId,
@@ -380,11 +379,33 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
   // Per-hook try/catch already isolates failures; never throw here so BullMQ
   // does not retry and re-execute successful sibling hooks.
   const executed = await Promise.all(
-    matched.map((definition) =>
-      definition.action === "prompt"
-        ? runPromptHook({ spaceId, userId: ownerUserId, taskRunId, hook: definition, event, eventActorUserId })
-        : runCommandHook({ spaceId, userId: ownerUserId, taskRunId, hook: definition, event, eventActorUserId }),
-    ),
+    matched.map((definition) => {
+      const hookEnv = buildSpaceHookEnv({
+        event,
+        hookPath: definition.path,
+        taskRunId,
+        eventActorUserId,
+        executionUserId: ownerUserId,
+      });
+      return definition.action === "prompt"
+        ? runPromptHook({
+            spaceId,
+            userId: ownerUserId,
+            taskRunId,
+            hook: definition,
+            event,
+            eventActorUserId,
+            hookEnv,
+          })
+        : runCommandHook({
+            spaceId,
+            userId: ownerUserId,
+            taskRunId,
+            hook: definition,
+            event,
+            hookEnv,
+          });
+    }),
   );
 
   const hooks = [...skipped, ...executed];

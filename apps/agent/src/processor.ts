@@ -648,13 +648,33 @@ function resolvePromptAccessMode(ownerMeta: Record<string, unknown>): PromptAcce
   return ownerMeta.accessMode === "read_only" ? "read_only" : "full_access";
 }
 
+function resolveContextHookEnv(ownerMeta: Record<string, unknown>) {
+  const context = ownerMeta.context && typeof ownerMeta.context === "object" && !Array.isArray(ownerMeta.context)
+    ? ownerMeta.context as Record<string, unknown>
+    : null;
+  if (!context || context.kind !== "space_hook") return null;
+  const env = context.env;
+  if (!env || typeof env !== "object" || Array.isArray(env)) return null;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!key.startsWith("COHUB_HOOK_")) continue;
+    if (typeof value !== "string" || !value.trim()) continue;
+    out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function resolvePromptEnv(ownerMeta: Record<string, unknown>) {
+  let userEnv: Record<string, string> | null = null;
   try {
-    return parsePromptEnv(ownerMeta.env);
+    userEnv = parsePromptEnv(ownerMeta.env);
   } catch (error) {
     logger.warn(`[Agent] ignoring invalid prompt env: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
   }
+  const hookEnv = resolveContextHookEnv(ownerMeta);
+  if (!userEnv && !hookEnv) return null;
+  // System hook keys win over user prompt.env.
+  return { ...(userEnv ?? {}), ...(hookEnv ?? {}) };
 }
 
 function resolveBatchAccessMode(batch: { turns: Array<{ meta: unknown }> }): PromptAccessMode {
