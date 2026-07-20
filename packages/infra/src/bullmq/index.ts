@@ -21,7 +21,7 @@ export const queueDefinitions = [
     criticality: "critical",
     concurrencyEnv: "TASK_WORKER_CONCURRENCY",
     defaultConcurrencyPerWorker: DEFAULT_TASK_WORKER_CONCURRENCY,
-    registeredJobs: ["send_message", "save_checkpoint", "create_space", "run_command"],
+    registeredJobs: ["send_message", "save_checkpoint", "create_space", "run_command", "space_hook"],
   },
   {
     name: COHUB_AGENT_TURNS_QUEUE,

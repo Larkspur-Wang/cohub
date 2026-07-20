@@ -18,8 +18,11 @@ export type EnqueueTaskRunInput<Job = unknown> = {
 };
 
 export async function enqueueTaskRun<Job = unknown>(input: EnqueueTaskRunInput<Job>) {
-  const taskRunId = crypto.randomUUID();
-  const { scheduledAt, ...jobOptions } = input.options ?? {};
+  const requestedJobId = typeof input.options?.jobId === "string" && input.options.jobId.trim()
+    ? input.options.jobId.trim()
+    : null;
+  const taskRunId = requestedJobId ?? crypto.randomUUID();
+  const { scheduledAt, jobId: _ignoredJobId, ...jobOptions } = input.options ?? {};
   const delay = typeof jobOptions.delay === "number" ? jobOptions.delay : 0;
   const scheduledAtValue = scheduledAt ?? (delay > 0 ? new Date(Date.now() + delay) : null);
 

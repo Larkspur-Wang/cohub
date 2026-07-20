@@ -14,5 +14,6 @@ export * from "./generation/index.js";
 export * from "./platform/default-space-mods.js";
 export * from "./space-style.js";
 export * from "./space-config.js";
+export * from "./space-hooks.js";
 export * from "./system-jobs.js";
 export * from "./provenance.js";

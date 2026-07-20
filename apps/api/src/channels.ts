@@ -3,7 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 import type { ContentBlock } from "@cohub/protocol/core";
 import type { ChannelConfig, ChannelProvider, GatewayChannelCommandEvent, GatewayInboundEvent, GatewayOutboundCommand } from "@cohub/protocol/gateway";
-import type { RealtimeRoom, RealtimeServerEvent } from "@cohub/protocol/realtime";
+import type { RealtimeEnvelope, RealtimeRoom, RealtimeServerEvent } from "@cohub/protocol/realtime";
 import { getRealtimeSpaceRoom, getRealtimeUserRoom, normalizeRealtimeRooms } from "@cohub/protocol/realtime";
 import { executeChannelCommand } from "./channel-commands.js";
 import { db } from "./db/index.js";
@@ -377,7 +377,7 @@ const resolveRealtimeEventRooms = (input: {
   return input.spaceId ? [getRealtimeSpaceRoom(input.spaceId)] : [];
 };
 
-export async function dispatchRealtimeEvent(input: RealtimeServerEvent & { rooms?: RealtimeRoom[] }) {
+export async function dispatchRealtimeEvent(input: (RealtimeServerEvent | RealtimeEnvelope) & { rooms?: RealtimeRoom[] }) {
   const payload = input.payload as Record<string, unknown>;
   const task = payload.task && typeof payload.task === "object" ? payload.task as { userId?: unknown } : null;
   const userId = typeof payload.userId === "string"

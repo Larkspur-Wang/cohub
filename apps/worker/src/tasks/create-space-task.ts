@@ -9,7 +9,7 @@ import { checkpoints, spaces } from "@cohub/db";
 import { checkpointForkReference, spaceForkReference } from "@cohub/core/references";
 import { enqueueReferences } from "../reference-index-queue.js";
 import { assertDirectoryEmpty, ensureSpaceWorkspaceReady, getSpaceWorkspaceDir, runGit } from "../git.js";
-import { publishSpaceFsChanged } from "../space-events.js";
+import { publishSpaceEvent, publishSpaceFsChanged } from "../space-events.js";
 import { enqueueTask } from "./enqueue.js";
 import { restoreCanvasCheckpointSnapshots } from "../checkpoint/canvas.js";
 import { restoreWorkspaceFromCheckpoint, restoreSystemRepoFromCheckpoint } from "../checkpoint/restore.js";
@@ -275,6 +275,15 @@ const createSpaceHandler = async (job: Job) => {
       await progress("bootstrap_ready", { checkpointAliasId: aliasResult.alias.id });
       currentSpace = await updateBootstrap({ space: currentSpace, taskRunId, source, status: "ready", stage: "finalize", finishedAt: new Date().toISOString(), stageTimings });
       await publishSpaceFsChanged(currentSpace.id, { source: "bootstrap", resync: true, changes: [] }).catch((error) => logger.warn(`[CreateSpace] Failed to publish bootstrap fs resync for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`));
+      await publishSpaceEvent({
+        type: "space.workspace.ready",
+        spaceId: currentSpace.id,
+        payload: {
+          source,
+          stage: "finalize",
+          checkpointAliasId: aliasResult.alias.id,
+        },
+      }).catch((error) => logger.warn(`[CreateSpace] Failed to publish workspace ready for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`));
       await progress("post_materialization");
       const postStages = await postCheckpointRestore({ targetSpace: currentSpace, sourceCheckpoint: restoreResult.checkpoint, sourceSpaceId: restoreResult.sourceSpace.id });
       result = { ok: true, spaceId: currentSpace.id, checkpointAliasId: aliasResult.alias.id, commitHash: restoreResult.checkpoint.commitHash, source, stages: { workspaceRestore: { status: "ready", durationMs: restoreDuration }, checkpointAlias: { status: "ready", durationMs: aliasDuration }, canvasRestore: { status: "ready", durationMs: canvasRestoreDuration, count: canvasRestoreResult.count }, ...postStages } };
@@ -294,6 +303,15 @@ const createSpaceHandler = async (job: Job) => {
       await progress("bootstrap_ready", { initialCheckpointTaskRunId });
       currentSpace = await updateBootstrap({ space: currentSpace, taskRunId, source, status: "ready", stage: "finalize", finishedAt: new Date().toISOString(), stageTimings, initialCheckpointTaskRunId });
       await publishSpaceFsChanged(currentSpace.id, { source: "bootstrap", resync: true, changes: [] }).catch((error) => logger.warn(`[CreateSpace] Failed to publish bootstrap fs resync for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`));
+      await publishSpaceEvent({
+        type: "space.workspace.ready",
+        spaceId: currentSpace.id,
+        payload: {
+          source,
+          stage: "finalize",
+          initialCheckpointTaskRunId,
+        },
+      }).catch((error) => logger.warn(`[CreateSpace] Failed to publish workspace ready for ${currentSpace.id}: ${error instanceof Error ? error.message : String(error)}`));
       result = { ok: true, spaceId: currentSpace.id, source, initialCheckpointTaskRunId };
     }
 

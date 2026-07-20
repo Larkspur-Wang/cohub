@@ -77,6 +77,15 @@ export type BackgroundBashTaskPromptContext = {
   } | null;
 };
 
+export type SpaceHookPromptContext = {
+  kind: "space_hook";
+  taskRunId: string;
+  hookPath: string;
+  eventId: string;
+  eventType: string;
+  eventActorUserId?: string | null;
+};
+
 export type ChannelPromptContext = {
   kind: "channel";
   provider: string;
@@ -93,6 +102,7 @@ export type SubmitSessionPromptContext =
   | PublicApiPromptContext
   | ScheduledTaskPromptContext
   | BackgroundBashTaskPromptContext
+  | SpaceHookPromptContext
   | ChannelPromptContext;
 
 export type PromptTemplateUsageMeta = {

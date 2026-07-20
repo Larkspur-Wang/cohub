@@ -54,6 +54,10 @@
       "types": "./dist/space-style.d.ts",
       "default": "./dist/space-style.js"
     },
+    "./space-hooks": {
+      "types": "./dist/space-hooks.d.ts",
+      "default": "./dist/space-hooks.js"
+    },
     "./gateway/types": {
       "types": "./dist/gateway/types.d.ts",
       "default": "./dist/gateway/types.js"

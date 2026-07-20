@@ -258,6 +258,9 @@ importers:
 
   apps/gateway:
     dependencies:
+      '@cohub/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@cohub/identity':
         specifier: workspace:*
         version: link:../../packages/identity
@@ -303,6 +306,9 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: ^1.43.0
         version: 1.43.0
+      bullmq:
+        specifier: ^5.80.2
+        version: 5.80.2
       discord.js:
         specifier: ^14.26.5
         version: 14.26.5
@@ -639,6 +645,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260529.1)(@opentelemetry/api@1.9.1)(postgres@3.4.9)
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: 26.1.1

@@ -80,6 +80,10 @@
       "types": "./src/commands/index.ts",
       "default": "./dist/commands/index.js"
     },
+    "./hooks": {
+      "types": "./src/hooks/index.ts",
+      "default": "./dist/hooks/index.js"
+    },
     "./fs-cdn": {
       "types": "./dist/fs-cdn/index.d.ts",
       "default": "./dist/fs-cdn/index.js"
@@ -114,7 +118,8 @@
     "@cohub/db": "workspace:*",
     "@cohub/protocol": "workspace:*",
     "@cohub/sandbox-controller": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "26.1.1",

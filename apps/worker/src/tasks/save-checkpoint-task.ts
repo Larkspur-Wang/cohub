@@ -14,6 +14,7 @@ import { getGenerationsDir, publishGenerationsCacheFromDir } from "../generation
 import { publishModelsCacheFromFile } from "../models-cache.js";
 import { getPromptsDir, publishPromptsCacheFromDir } from "../prompts-cache.js";
 import { getSkillsDir, publishSkillsCacheFromDir } from "../skills-cache.js";
+import { publishSpaceEvent } from "../space-events.js";
 import { uploadAssetIfMissing } from "../checkpoint/assets.js";
 import {
   buildStagedDiffSummary,
@@ -330,6 +331,18 @@ export const saveCheckpointForSpace = async (input: SaveCheckpointInput): Promis
   }
 
   await progress("completed", { checkpointId: checkpoint.id, commitHash, ...(publishWarnings.length > 0 ? { publishWarnings } : {}) });
+  await publishSpaceEvent({
+    type: "checkpoint.created",
+    spaceId,
+    payload: {
+      checkpointId: checkpoint.id,
+      commitHash,
+      parentCheckpointId,
+      rootCheckpointId,
+      description: checkpoint.description,
+      savedBy: input.userId ?? null,
+    },
+  }).catch((error) => console.warn(`[save_checkpoint] failed to publish checkpoint.created for space=${spaceId}:`, error));
   return { checkpointId: checkpoint.id, commitHash, branch, commitMessage, changedFiles: diffStats.changedFileCount, stats, assetCount, detectedGitRepoCount, timings, spaceId, latestSubPath: getCheckpointLatestSubPath(spaceId), ...(publishedUserConfig ? { publishedUserConfig } : {}), ...(publishedPlatformConfig ? { publishedPlatformConfig } : {}), ...(publishWarnings.length > 0 ? { publishWarnings } : {}) };
 };
 

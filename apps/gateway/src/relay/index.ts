@@ -4,6 +4,7 @@ import type { WebSocket } from "ws";
 import { createLogger } from "@cohub/infra/logging";
 import { gatewayConfig } from "../config.js";
 import { redisCommandClient, REALTIME_OUTBOUND_CHANNEL } from "../redis.js";
+import { enqueueSpaceHookFromEvent } from "../space-hooks.js";
 import { authorizeLocalSandbox, reportLocalSandboxStatus } from "../api-client.js";
 
 const logger = createLogger({ serviceName: "cohub-gateway" });
@@ -95,16 +96,28 @@ async function publishRelayWatcherEvent(spaceId: string, frameType: string, payl
     return;
   }
 
+  // Publish realtime for UI and enqueue hooks concurrently.
+  const id = randomUUID();
+  const timestamp = Date.now();
   const message = JSON.stringify({
-    id: randomUUID(),
-    timestamp: Date.now(),
+    id,
+    timestamp,
     domain: "space",
     type,
     spaceId,
     sessionId: null,
     payload: eventPayload,
   });
-  await redisCommandClient.publish(REALTIME_OUTBOUND_CHANNEL, message);
+  await Promise.all([
+    redisCommandClient.publish(REALTIME_OUTBOUND_CHANNEL, message),
+    enqueueSpaceHookFromEvent({
+      id,
+      type,
+      timestamp,
+      spaceId,
+      payload: eventPayload,
+    }),
+  ]);
 }
 
 // ── Control channel (local runner ⇒ gateway) ───────────────────────────────

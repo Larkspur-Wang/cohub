@@ -82,6 +82,9 @@
       "@cohub/core/sessions": [
         "../../packages/core/dist/sessions/index.d.ts"
       ],
+      "@cohub/core/hooks": [
+        "../../packages/core/dist/hooks/index.d.ts"
+      ],
       "@cohub/core/sessions/prompt": [
         "../../packages/core/dist/sessions/prompt.d.ts"
       ],
