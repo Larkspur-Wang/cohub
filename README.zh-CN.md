@@ -125,7 +125,15 @@ pnpm build
 
 ## 文档
 
-推荐优先阅读：
+产品文档（Web）：
+- 中文：[cohub.run/docs/zh](https://cohub.run/docs/zh)
+- English：[cohub.run/docs](https://cohub.run/docs)
+
+产品文档内容源：
+- `docs/product/zh/`
+- `docs/product/en/`
+
+仓库内工程说明仍保留：
 - `docs/self-hosting.md`
 - `docs/agent-sandbox-runtime.md`
 - `docs/works-guide.md`

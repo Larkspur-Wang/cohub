@@ -125,7 +125,15 @@ pnpm build
 
 ## Docs
 
-Recommended starting points:
+Product docs (web):
+- English: [cohub.run/docs](https://cohub.run/docs)
+- 中文: [cohub.run/docs/zh](https://cohub.run/docs/zh)
+
+Source of truth for product docs content:
+- `docs/product/en/`
+- `docs/product/zh/`
+
+Engineering notes still in the repo:
 - `docs/self-hosting.md`
 - `docs/agent-sandbox-runtime.md`
 - `docs/works-guide.md`

@@ -24,10 +24,17 @@ const protocolDir = fileURLToPath(
 const sdkDir = fileURLToPath(
 	new URL("../../packages/sdk/src", import.meta.url),
 );
+const docsProductDir = fileURLToPath(
+	new URL("../../docs/product", import.meta.url),
+);
 
 export default defineConfig({
 	resolve: {
 		alias: [
+			{
+				find: /^\$docs-product\/(.*)$/,
+				replacement: `${docsProductDir}/$1`,
+			},
 			// protocol subpaths — more specific patterns MUST come before bare package name
 			{
 				find: /^@cohub\/protocol\/core$/,
@@ -114,6 +121,10 @@ export default defineConfig({
 	},
 	server: {
 		allowedHosts: true,
+		// Product docs live outside apps/web; allow Vite to read them in dev.
+		fs: {
+			allow: [docsProductDir],
+		},
 	},
 	build: {
 		chunkSizeWarningLimit: 1200,

@@ -6,6 +6,7 @@ const RESERVED_USERNAMES = new Set([
 	"admin",
 	"assets",
 	"callback",
+	"docs",
 	"explore",
 	"favicon.ico",
 	"invite",

@@ -453,6 +453,13 @@ const ideas = [
 							<ul class="mt-4 space-y-2.5 text-[13px]">
 								<li>
 									<a
+										href="/docs"
+										class="text-text-secondary transition-colors hover:text-text-primary"
+										>Docs</a
+									>
+								</li>
+								<li>
+									<a
 										href="/pricing"
 										class="text-text-secondary transition-colors hover:text-text-primary"
 										>Pricing</a

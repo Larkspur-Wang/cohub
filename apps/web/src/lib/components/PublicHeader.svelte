@@ -15,6 +15,7 @@ const {
 } = $props();
 
 const path = $derived(page.url.pathname);
+const isDocs = $derived(path === "/docs" || path.startsWith("/docs/"));
 const isPricing = $derived(path === "/pricing" || path.startsWith("/pricing/"));
 const isChangelog = $derived(
 	path === "/changelog" || path.startsWith("/changelog/"),
@@ -60,6 +61,7 @@ function navClass(active: boolean): string {
 		</a>
 
 		<nav class="flex items-center gap-1 text-[13px] sm:gap-2">
+			<a href="/docs" class={navClass(isDocs)} aria-current={isDocs ? "page" : undefined}>Docs</a>
 			<a href="/pricing" class={navClass(isPricing)} aria-current={isPricing ? "page" : undefined}
 				>Pricing</a
 			>
