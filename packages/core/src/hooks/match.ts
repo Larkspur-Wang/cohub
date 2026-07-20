@@ -1,3 +1,4 @@
+import { picomatch } from "./picomatch-shim.js";
 import type { SpaceHookDefinition, SpaceHookEventEnvelope } from "./types.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -8,23 +9,20 @@ function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
 }
 
-function matchGlob(pattern: string, value: string): boolean {
-  const normalizedPattern = normalizePath(pattern);
-  const normalizedValue = normalizePath(value);
-  if (!normalizedPattern.includes("*") && !normalizedPattern.includes("?")) {
-    return normalizedPattern === normalizedValue
-      || normalizedValue.startsWith(`${normalizedPattern}/`);
-  }
+const matcherCache = new Map<string, (path: string) => boolean>();
 
-  const escaped = normalizedPattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, "\u0000")
-    .replace(/\*/g, "[^/]*")
-    .replace(/\?/g, "[^/]")
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: sentinel for ** glob
-    .replace(/\u0000/g, ".*");
-  return new RegExp(`^${escaped}$`).test(normalizedValue)
-    || new RegExp(`^${escaped}/`).test(`${normalizedValue}/`);
+function getMatcher(pattern: string): (path: string) => boolean {
+  const normalized = normalizePath(pattern);
+  let matcher = matcherCache.get(normalized);
+  if (!matcher) {
+    matcher = picomatch(normalized, { dot: true });
+    matcherCache.set(normalized, matcher);
+  }
+  return matcher;
+}
+
+function matchGlob(pattern: string, value: string): boolean {
+  return getMatcher(pattern)(normalizePath(value));
 }
 
 function matchesAny(patterns: string[] | undefined, values: string[]): boolean {
