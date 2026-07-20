@@ -10,8 +10,29 @@ export type WorkPresentationMeta = {
   hideCohubBar?: boolean;
 };
 
+/** Snapshot of fields extracted from the published page head. */
+export type WorkExtractedPageMeta = {
+  title?: string | null;
+  description?: string | null;
+  icon?: string | null;
+  image?: string | null;
+  sourcePath?: string | null;
+  extractedAt?: string | null;
+};
+
+/**
+ * Work presentation metadata.
+ * `title` / `description` / `icon` / `image` power public page head, share cards, and lists.
+ */
 export type WorkMeta = Record<string, unknown> & {
+  title?: string;
+  /** @deprecated Prefer `title`. Kept for older clients. */
+  name?: string;
+  description?: string;
+  icon?: string;
+  image?: string;
   presentation?: WorkPresentationMeta;
+  extracted?: WorkExtractedPageMeta;
   source?: RequestSource;
 };
 

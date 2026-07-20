@@ -3,17 +3,42 @@ import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { basename, extname, isAbsolute, relative, resolve } from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  collectLocalPageAssetRefs,
+  extractHtmlPageMeta,
+  fillIconFromSiteFiles,
+  normalizeLocalPageAssetRef,
+} from "@cohub/core/works";
 import type { Job } from "bullmq";
 import { config } from "../../../config.js";
 import { registerSystemJob } from "../../registry.js";
-import { WORK_PUBLISH_ASSET_JOB, type WorkPublishAssetJobData, type WorkPublishAssetJobResult } from "./types.js";
+import {
+  WORK_PUBLISH_ASSET_JOB,
+  type WorkPublishAssetJobData,
+  type WorkPublishAssetJobResult,
+  type WorkPublishExtractedPageMeta,
+} from "./types.js";
 
 const MAX_WORK_ASSET_BYTES = 5 * 1024 * 1024;
 const MAX_WORK_SITE_BYTES = 100 * 1024 * 1024;
 const MAX_WORK_SITE_FILES = 1000;
+/** Companion icon/image files packed next to a single-file HTML publish. */
+const MAX_WORK_PAGE_ASSET_BYTES = 2 * 1024 * 1024;
+const MAX_WORK_PAGE_ASSET_FILES = 8;
 const WORK_SITE_UPLOAD_CONCURRENCY = 8;
 const IMMUTABLE_PUBLIC_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const OPEN_READ_NOFOLLOW = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0);
+const PAGE_ASSET_EXT = new Set([
+  ".ico",
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".bmp",
+]);
 
 class WorkPublishAssetError extends Error {
   constructor(
@@ -137,7 +162,6 @@ function getS3Client() {
 const cacheBuster = () => randomUUID().replaceAll("-", "").slice(0, 12);
 const envPrefix = () => (config.env === "prod" ? "" : `${config.env}/`);
 const buildWorkAssetPrefix = (input: { spaceId: string; workSlug: string }) => `${envPrefix()}w/${input.spaceId}/${input.workSlug}/${cacheBuster()}`;
-const buildWorkAssetObjectKey = (input: { spaceId: string; workSlug: string }) => `${buildWorkAssetPrefix(input)}/index.html`;
 
 function getMimeType(path: string) {
   const lower = basename(path).toLowerCase();
@@ -199,10 +223,97 @@ async function readWorkHtmlFile(spaceId: string, path: string) {
     const stats = await handle.stat();
     if (!stats.isFile()) throw new WorkPublishAssetError(400, "The selected path is not a file.", "not_a_file");
     if (stats.size <= 0 || stats.size > MAX_WORK_ASSET_BYTES) throw new WorkPublishAssetError(400, "work asset must be 1 byte to 5MB");
-    return (await handle.readFile()).toString("utf8");
+    const html = (await handle.readFile()).toString("utf8");
+    const htmlDir = await realpath(resolve(target, "..")).catch(() => null);
+    if (!htmlDir) return { html, companions: [] as WorkSiteFile[] };
+    assertInsideRoot(htmlDir, root);
+    const companions = await readWorkPageCompanionAssets({
+      root,
+      htmlDir,
+      html,
+    });
+    return { html, companions };
   } finally {
     await handle.close();
   }
+}
+
+async function readOptionalWorkspaceFile(input: {
+  root: string;
+  absPath: string;
+  maxBytes: number;
+}): Promise<Buffer | null> {
+  const pathStats = await lstat(input.absPath).catch(() => null);
+  if (!pathStats || pathStats.isSymbolicLink() || !pathStats.isFile()) return null;
+  if (pathStats.size <= 0 || pathStats.size > input.maxBytes) return null;
+  const handle = await openVerifiedFile(input.absPath, input.root).catch(() => null);
+  if (!handle) return null;
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile() || stats.size <= 0 || stats.size > input.maxBytes) return null;
+    return handle.readFile();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Pack local icon/image refs next to a single HTML file so shell/OG URLs resolve on CDN.
+ * Missing companions are skipped; publish still succeeds with title/description.
+ */
+async function readWorkPageCompanionAssets(input: {
+  root: string;
+  htmlDir: string;
+  html: string;
+}): Promise<WorkSiteFile[]> {
+  const page = extractHtmlPageMeta(input.html);
+  const candidates = collectLocalPageAssetRefs(page);
+  const files: WorkSiteFile[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (files.length >= MAX_WORK_PAGE_ASSET_FILES) break;
+    const relativePath = normalizeLocalPageAssetRef(candidate);
+    if (!relativePath) continue;
+    const key = relativePath.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const ext = extname(relativePath).toLowerCase();
+    if (!PAGE_ASSET_EXT.has(ext)) continue;
+
+    const absPath = resolve(input.htmlDir, relativePath);
+    // Keep companions next to the HTML entry (same publish prefix layout).
+    const relToHtmlDir = relative(input.htmlDir, absPath).replace(/\\/g, "/");
+    if (
+      !relToHtmlDir ||
+      relToHtmlDir.startsWith("../") ||
+      isAbsolute(relToHtmlDir) ||
+      relToHtmlDir.includes("\0")
+    ) {
+      continue;
+    }
+    try {
+      assertInsideRoot(absPath, input.root);
+      assertInsideRoot(absPath, input.htmlDir);
+    } catch {
+      continue;
+    }
+
+    const content = await readOptionalWorkspaceFile({
+      root: input.root,
+      absPath,
+      maxBytes: MAX_WORK_PAGE_ASSET_BYTES,
+    });
+    if (!content) continue;
+    files.push({
+      relativePath: relToHtmlDir,
+      content,
+      mimeType: getMimeType(relToHtmlDir),
+    });
+  }
+
+  return files;
 }
 
 async function readWorkDirectoryFiles(spaceId: string, path: string) {
@@ -284,17 +395,81 @@ async function putWorkAssetObject(input: { objectKey: string; body: Buffer | str
   }));
 }
 
-async function writeWorkHtmlAsset(input: { spaceId: string; workSlug: string; html: string }) {
-  const sizeBytes = Buffer.byteLength(input.html, "utf8");
-  if (sizeBytes <= 0 || sizeBytes > MAX_WORK_ASSET_BYTES) throw new WorkPublishAssetError(400, "work asset must be 1 byte to 5MB");
-  const objectKey = buildWorkAssetObjectKey({ spaceId: input.spaceId, workSlug: input.workSlug });
+function isAbsoluteHttpUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function normalizeSitePath(value: string) {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").toLowerCase();
+}
+
+function keepSiteAssetRef(ref: string | null, available: Set<string>): string | null {
+  if (!ref) return null;
+  // Absolute URLs are fine for any target type.
+  if (isAbsoluteHttpUrl(ref) || ref.startsWith("//")) return ref;
+  const cleaned = ref.replace(/^\.\//, "").replace(/^\/+/, "");
+  // Relative assets only survive when the publish uploaded that file
+  // (directory sites). Single-file HTML publishes only the entry document,
+  // so inventing a CDN URL for a missing sibling would 404 in <head>.
+  return available.has(normalizeSitePath(cleaned)) ? cleaned : null;
+}
+
+function extractPageMetaFromHtml(
+  html: string,
+  sourcePath: string,
+  relativePaths: Iterable<string> = [],
+): WorkPublishExtractedPageMeta {
+  const paths = Array.from(relativePaths);
+  const available = new Set(paths.map((path) => normalizeSitePath(path)));
+  const page = fillIconFromSiteFiles(extractHtmlPageMeta(html), paths);
+  return {
+    title: page.title,
+    description: page.description,
+    icon: keepSiteAssetRef(page.icon, available),
+    image: keepSiteAssetRef(page.image, available),
+    sourcePath,
+  };
+}
+
+async function writeWorkHtmlAsset(input: {
+  spaceId: string;
+  workSlug: string;
+  html: string;
+  companions?: WorkSiteFile[];
+}) {
+  const htmlBytes = Buffer.byteLength(input.html, "utf8");
+  if (htmlBytes <= 0 || htmlBytes > MAX_WORK_ASSET_BYTES) throw new WorkPublishAssetError(400, "work asset must be 1 byte to 5MB");
+  const companions = input.companions ?? [];
+  const companionBytes = companions.reduce((sum, file) => sum + file.content.byteLength, 0);
+  const sizeBytes = htmlBytes + companionBytes;
+  if (sizeBytes > MAX_WORK_ASSET_BYTES + MAX_WORK_PAGE_ASSET_BYTES * MAX_WORK_PAGE_ASSET_FILES) {
+    throw new WorkPublishAssetError(400, "work asset is too large");
+  }
+
+  const prefix = buildWorkAssetPrefix({ spaceId: input.spaceId, workSlug: input.workSlug });
+  const objectKey = `${prefix}/index.html`;
   await putWorkAssetObject({
     objectKey,
     body: input.html,
     contentType: "text/html; charset=utf-8",
     sha256: createHash("sha256").update(input.html).digest("hex"),
   });
-  return { assetKey: objectKey, sizeBytes };
+  await mapWithConcurrency(companions, WORK_SITE_UPLOAD_CONCURRENCY, async (file) => {
+    await putWorkAssetObject({
+      objectKey: `${prefix}/${file.relativePath}`,
+      body: file.content,
+      contentType: file.mimeType ?? "application/octet-stream",
+      sha256: createHash("sha256").update(file.content).digest("hex"),
+    });
+  });
+
+  const uploadedPaths = ["index.html", ...companions.map((file) => file.relativePath)];
+  return {
+    assetKey: objectKey,
+    sizeBytes,
+    fileCount: uploadedPaths.length,
+    extracted: extractPageMetaFromHtml(input.html, "index.html", uploadedPaths),
+  };
 }
 
 async function writeWorkSiteAssets(input: { spaceId: string; workSlug: string; files: WorkSiteFile[] }) {
@@ -318,18 +493,28 @@ async function writeWorkSiteAssets(input: { spaceId: string; workSlug: string; f
     });
   });
 
+  const entry = input.files.find((file) => file.relativePath === "index.html");
+  const extracted = entry
+    ? extractPageMetaFromHtml(
+        entry.content.toString("utf8"),
+        "index.html",
+        input.files.map((file) => file.relativePath),
+      )
+    : null;
+
   return {
     assetKey: `${prefix}/index.html`,
     sizeBytes: totalBytes,
     fileCount: input.files.length,
+    extracted,
   };
 }
 
 async function processWorkPublishAsset(job: Job<WorkPublishAssetJobData>): Promise<WorkPublishAssetJobResult> {
   const { spaceId, slug, targetType, targetRef } = job.data;
   if (targetType === "file") {
-    const html = await readWorkHtmlFile(spaceId, targetRef);
-    const written = await writeWorkHtmlAsset({ spaceId, workSlug: slug, html });
+    const { html, companions } = await readWorkHtmlFile(spaceId, targetRef);
+    const written = await writeWorkHtmlAsset({ spaceId, workSlug: slug, html, companions });
     return { ok: true, ...written };
   }
   if (targetType === "directory") {

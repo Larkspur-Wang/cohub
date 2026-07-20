@@ -76,6 +76,8 @@ export type PublicUserWorkItem = {
   id: string;
   slug: string;
   title: string;
+  description?: string | null;
+  icon?: string | null;
   spaceSlug: string;
   spaceName: string;
   publicUrl: string;

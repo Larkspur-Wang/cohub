@@ -88,6 +88,10 @@
       "types": "./dist/fs-cdn/index.d.ts",
       "default": "./dist/fs-cdn/index.js"
     },
+    "./works": {
+      "types": "./dist/works/index.d.ts",
+      "default": "./dist/works/index.js"
+    },
     "./sandbox-lifecycle": {
       "types": "./dist/sandbox-lifecycle/index.d.ts",
       "default": "./dist/sandbox-lifecycle/index.js"

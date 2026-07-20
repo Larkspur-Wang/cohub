@@ -10,6 +10,7 @@ import WorkAuthorizeDialog from "$lib/features/work/WorkAuthorizeDialog.svelte";
 import WorkPurchaseDialog from "$lib/features/work/WorkPurchaseDialog.svelte";
 import { parseNewChatBackgroundAction } from "$lib/new-chat-background-bridge";
 import { emitSpaceConfigBackgroundAction } from "$lib/space-config";
+import { workDisplayTitle } from "$lib/work-page-meta";
 
 type WorkSurfaceMode = "page" | "background";
 type WorkContent =
@@ -63,6 +64,7 @@ let bridgeReady = $state(false);
 
 const isBackground = $derived(mode === "background");
 const spaceName = $derived(space?.name || space?.slug || "Space");
+const workTitle = $derived(workDisplayTitle(work.meta, work.slug));
 const publisherName = $derived(owner?.displayName ?? "Cohub");
 const publisherAvatarUrl = $derived(owner?.avatarUrl?.trim() || null);
 const hideCohubBar = $derived(work.meta?.presentation?.hideCohubBar === true);
@@ -141,9 +143,6 @@ onDestroy(() => window.removeEventListener("message", onFrameMessage));
 </script>
 
 <svelte:head>
-	{#if mode === "page"}
-		<title>{work.slug} · Cohub</title>
-	{/if}
 	{#if framePreconnectOrigin}
 		<link rel="preconnect" href={framePreconnectOrigin} crossorigin="anonymous" />
 	{/if}
@@ -154,7 +153,7 @@ onDestroy(() => window.removeEventListener("message", onFrameMessage));
 		<iframe
 			bind:this={frame}
 			class="work-frame"
-			title={work.slug}
+			title={workTitle}
 			sandbox={frameSandbox}
 			src={iframeSrc}
 		></iframe>
@@ -172,7 +171,7 @@ onDestroy(() => window.removeEventListener("message", onFrameMessage));
 						<SpaceAvatar name={spaceName} profile={space?.publicProfile} size="xs" class="translate-y-0" />
 						<span class="min-w-0 truncate font-medium leading-none text-text-secondary">{spaceName}</span>
 						<span class="hidden shrink-0 leading-none text-text-tertiary sm:inline">/</span>
-						<span class="hidden min-w-0 truncate font-medium leading-none text-text-primary sm:inline">{work.slug}</span>
+						<span class="hidden min-w-0 truncate font-medium leading-none text-text-primary sm:inline">{workTitle}</span>
 					</div>
 				</div>
 				<div class="flex shrink-0 items-center gap-2">
@@ -211,7 +210,7 @@ onDestroy(() => window.removeEventListener("message", onFrameMessage));
 	pending={host.pendingAuth}
 	error={host.authError}
 	saving={host.authSaving}
-	workName={work.slug}
+	workName={workTitle}
 	authorName={owner?.displayName}
 	onConfirm={() => void host.confirmAuth()}
 	onCancel={host.cancelAuth}

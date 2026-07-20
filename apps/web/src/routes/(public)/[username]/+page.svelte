@@ -85,9 +85,22 @@ $effect(() => {
 </script>
 
 <svelte:head>
-	<title>@{username} — Cohub</title>
+	<title>{profile.displayName} (@{username}) — Cohub</title>
 	<meta
 		name="description"
+		content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
+	/>
+	<meta property="og:type" content="profile" />
+	<meta property="og:site_name" content="Cohub" />
+	<meta property="og:title" content={`${profile.displayName} (@${username}) — Cohub`} />
+	<meta
+		property="og:description"
+		content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
+	/>
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={`${profile.displayName} (@${username}) — Cohub`} />
+	<meta
+		name="twitter:description"
 		content={`${profile.displayName} on Cohub · ${spaceCountLabel} · ${workCountLabel}`}
 	/>
 </svelte:head>
@@ -236,13 +249,27 @@ $effect(() => {
 								class="group flex items-start gap-3 py-3.5 transition-colors hover:bg-bg-hover/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-primary"
 								data-sveltekit-preload-data="hover"
 							>
-								<span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border-subtle bg-bg-surface text-text-tertiary">
-									<Sparkles class="h-4 w-4" />
-								</span>
+								{#if work.icon}
+									<img
+										src={work.icon}
+										alt=""
+										class="mt-0.5 h-9 w-9 shrink-0 rounded-[10px] border border-border-subtle bg-bg-surface object-cover"
+										loading="lazy"
+									/>
+								{:else}
+									<span class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border-subtle bg-bg-surface text-text-tertiary">
+										<Sparkles class="h-4 w-4" />
+									</span>
+								{/if}
 								<div class="min-w-0 flex-1">
 									<div class="truncate text-[14px] font-medium text-text-primary group-hover:text-brand">
 										{work.title}
 									</div>
+									{#if work.description}
+										<div class="mt-1 line-clamp-2 text-[12px] leading-5 text-text-secondary">
+											{work.description}
+										</div>
+									{/if}
 									<div class="mt-1 text-[11px] text-text-tertiary">
 										{workMeta(work)}
 									</div>

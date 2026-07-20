@@ -4,6 +4,8 @@ import { getCurrentRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { config } from "./config.js";
 
+import type { WorkPublishExtractedPageMeta } from "@cohub/core/works";
+
 export const WORK_PUBLISH_ASSET_JOB = "work.publish_asset";
 
 export type WorkPublishAssetJobData = {
@@ -15,11 +17,14 @@ export type WorkPublishAssetJobData = {
   trace?: Record<string, unknown>;
 };
 
+export type { WorkPublishExtractedPageMeta };
+
 export type WorkPublishAssetJobResult = {
   ok: true;
   assetKey: string;
   sizeBytes: number;
   fileCount?: number;
+  extracted?: WorkPublishExtractedPageMeta | null;
 } | {
   ok: false;
   status: number;

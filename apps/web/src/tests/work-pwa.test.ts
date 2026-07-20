@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { WorkDetailResponse } from "@neta-art/cohub";
+import { buildWorkPageMeta } from "../lib/work-page-meta";
 import { buildWorkPwaMeta, resolvePublicWorkStartUrl } from "../lib/work-pwa";
 
 function detail(
 	overrides: Partial<WorkDetailResponse["work"]> = {},
 	space: Partial<WorkDetailResponse["space"]> = {},
+	owner: Partial<WorkDetailResponse["owner"]> = {},
 ): WorkDetailResponse {
 	return {
 		work: {
@@ -41,6 +43,7 @@ function detail(
 			username: "ada",
 			displayName: "Ada",
 			avatarUrl: null,
+			...owner,
 		},
 		publicUrl: null,
 		content: null,
@@ -59,6 +62,25 @@ test("buildWorkPwaMeta prefers work meta title", () => {
 	assert.equal(meta.description, "Open Launch Board from Space Lab");
 });
 
+test("buildWorkPwaMeta uses page description and assets", () => {
+	const meta = buildWorkPwaMeta(
+		detail(
+			{
+				meta: {
+					title: "Launch Board",
+					description: "Ship demos from Spaces.",
+					icon: "https://cdn.example/icon.png",
+					image: "https://cdn.example/cover.png",
+				},
+			},
+			{ name: "Space Lab" },
+		),
+	);
+	assert.equal(meta.description, "Ship demos from Spaces.");
+	assert.equal(meta.iconUrl, "https://cdn.example/icon.png");
+	assert.equal(meta.imageUrl, "https://cdn.example/cover.png");
+});
+
 test("buildWorkPwaMeta falls back to space name then slug", () => {
 	assert.equal(
 		buildWorkPwaMeta(detail({}, { name: "Space Lab" })).shortName,
@@ -68,6 +90,19 @@ test("buildWorkPwaMeta falls back to space name then slug", () => {
 		buildWorkPwaMeta(detail({ slug: "demo_work" })).shortName,
 		"Demo Work",
 	);
+});
+
+test("buildWorkPageMeta marks space-visibility works noindex", () => {
+	const page = buildWorkPageMeta(
+		detail({ visibility: "space", meta: { title: "Private Board" } }),
+		{ origin: "https://cohub.run", path: "/ada/lab/w/demo" },
+	);
+	assert.equal(page.robots, "noindex,nofollow");
+	assert.equal(page.indexable, false);
+	assert.equal(page.canonical, "https://cohub.run/ada/lab/w/demo");
+	assert.equal(page.name, "Private Board");
+	assert.equal(page.documentTitle, "Private Board — Cohub Work");
+	assert.match(page.jsonLd, /Private Board/);
 });
 
 test("resolvePublicWorkStartUrl accepts only same-origin public work paths", () => {

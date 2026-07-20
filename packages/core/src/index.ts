@@ -8,3 +8,4 @@ export * from "./commands/index.js";
 export * from "./hooks/index.js";
 export * from "./fs-cdn/index.js";
 export * from "./labels/index.js";
+export * from "./works/index.js";
