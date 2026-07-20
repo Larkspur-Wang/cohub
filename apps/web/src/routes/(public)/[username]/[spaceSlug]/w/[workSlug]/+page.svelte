@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { WorkDetailResponse } from "@neta-art/cohub";
+import { onMount } from "svelte";
 import WorkPageHead from "$lib/components/work/WorkPageHead.svelte";
 import WorkSurface from "$lib/components/work/WorkSurface.svelte";
 import { sdk } from "$lib/sdk";
@@ -30,6 +31,8 @@ const props = $props<{ data: ReadyData | ClientData }>();
 let clientDetail = $state<WorkDetailResponse | null>(null);
 let clientError = $state("");
 let clientLoading = $state(false);
+/** WorkSurface uses window/postMessage; mount only after hydration. */
+let surfaceReady = $state(false);
 
 const ready = $derived(
 	props.data.mode === "ready"
@@ -66,6 +69,10 @@ const pageMeta = $derived(
 				indexable: false,
 			}),
 );
+
+onMount(() => {
+	surfaceReady = true;
+});
 
 $effect(() => {
 	if (props.data.mode !== "client") {
@@ -109,19 +116,26 @@ $effect(() => {
 
 <WorkPageHead meta={pageMeta} />
 
-{#if ready}
+{#if ready && surfaceReady}
 	<WorkSurface
 		work={ready.work}
 		space={ready.space}
 		owner={ready.owner}
 		content={ready.content}
 	/>
+{:else if ready}
+	<!-- SSR / first paint: head already has share meta; surface hydrates client-side. -->
+	<div class="min-h-screen bg-bg-primary" aria-hidden="true"></div>
 {:else if clientLoading}
-	<div class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-tertiary">
+	<div
+		class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-tertiary"
+	>
 		Loading Work…
 	</div>
 {:else}
-	<div class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-secondary">
+	<div
+		class="flex min-h-screen items-center justify-center bg-bg-primary px-4 text-[13px] text-text-secondary"
+	>
 		{clientError || "Work is unavailable."}
 	</div>
 {/if}

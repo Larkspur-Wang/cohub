@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { WorkRecord, WorkTargetType } from "@neta-art/cohub";
-import { onDestroy, onMount, untrack } from "svelte";
+import { onMount, untrack } from "svelte";
 import { page } from "$app/state";
 import SpaceAvatar from "$lib/components/SpaceAvatar.svelte";
 import UserIdentity from "$lib/components/UserIdentity.svelte";
@@ -138,8 +138,8 @@ async function onFrameMessage(event: MessageEvent) {
 onMount(() => {
 	window.addEventListener("message", onFrameMessage);
 	bridgeReady = true;
+	return () => window.removeEventListener("message", onFrameMessage);
 });
-onDestroy(() => window.removeEventListener("message", onFrameMessage));
 </script>
 
 <svelte:head>
