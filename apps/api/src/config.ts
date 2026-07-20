@@ -10,6 +10,8 @@ export type AppConfig = {
   talesofaiBillingAdminApiKey?: string;
   env: "dev" | "prod";
   appEncryptionKey: string;
+  /** Optional checkpoint to bootstrap first-time Home spaces from; blank when unset. */
+  homeBootstrapCheckpointId?: string;
   sandboxImage: string;
   sandboxNodeSelector: Record<string, string>;
   sandboxTolerations: SandboxToleration[];
@@ -128,6 +130,7 @@ export const config: AppConfig = {
   talesofaiBillingAdminApiKey: process.env.TALESOFAI_BILLING_ADMIN_API_KEY,
   env,
   appEncryptionKey: process.env.APP_ENCRYPTION_KEY ?? "",
+  homeBootstrapCheckpointId: process.env.HOME_BOOTSTRAP_CHECKPOINT_ID?.trim() || undefined,
   sandboxImage:
     process.env.SANDBOX_IMAGE ?? getDefaultSandboxImage(env),
   sandboxNodeSelector: parseSandboxNodeSelector(process.env.SANDBOX_NODE_SELECTOR),

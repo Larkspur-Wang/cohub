@@ -605,15 +605,25 @@ type PreparedHomeMods = Awaited<ReturnType<typeof prepareSpaceModInserts>>;
 
 const HOME_BOOTSTRAP: SpaceBootstrapSource = { type: "blank" };
 
+/**
+ * Home bootstrap source: fork from `HOME_BOOTSTRAP_CHECKPOINT_ID` when set,
+ * otherwise create a blank workspace.
+ */
+function resolveHomeBootstrap(): SpaceBootstrapSource {
+  const checkpointId = config.homeBootstrapCheckpointId;
+  return checkpointId ? { type: "checkpoint", checkpointId } : HOME_BOOTSTRAP;
+}
+
 async function insertHomeSpaceRecord(
   user: AuthUser,
   preparedModValues: PreparedHomeMods,
+  bootstrapSource: SpaceBootstrapSource,
 ): Promise<SpaceRow> {
   const { space } = await createOwnedSpaceRecord({
     user,
     name: HOME_SPACE_NAME,
     slug: HOME_SPACE_SLUG,
-    bootstrapSource: HOME_BOOTSTRAP,
+    bootstrapSource,
     sandbox: {
       provider: "cloud",
       autoDestroy: DEFAULT_SPACE_SANDBOX_AUTO_DESTROY,
@@ -627,11 +637,13 @@ async function insertHomeSpaceRecord(
 }
 
 /**
- * Create a blank Home space for first-time users. Idempotent under concurrency:
+ * Create the first-time Home space for a user. Idempotent under concurrency:
  * unique conflicts re-select the winner instead of failing the entry path.
+ * Bootstraps from `HOME_BOOTSTRAP_CHECKPOINT_ID` when set, else blank.
  * Only call from normal account sessions (never work/preview/execution).
  */
 async function ensureHomeSpace(user: AuthUser): Promise<SpaceRow | null> {
+  const bootstrapSource = resolveHomeBootstrap();
   // Caller only invokes this when no accessible space was found. Concurrent
   // ensures rely on (userUuid, slug|name) unique indexes + re-select.
   const createMods = getDefaultSpaceModsForEnv(config.env);
@@ -653,7 +665,7 @@ async function ensureHomeSpace(user: AuthUser): Promise<SpaceRow | null> {
 
   let space: SpaceRow | undefined;
   try {
-    space = await insertHomeSpaceRecord(user, preparedModValues);
+    space = await insertHomeSpaceRecord(user, preparedModValues, bootstrapSource);
   } catch (error) {
     const constraint = uniqueViolationConstraint(error);
     if (constraint?.includes("user_slug") || constraint?.includes("user_name")) {
@@ -671,7 +683,7 @@ async function ensureHomeSpace(user: AuthUser): Promise<SpaceRow | null> {
         message: modResponse.message,
       });
       try {
-        space = await insertHomeSpaceRecord(user, []);
+        space = await insertHomeSpaceRecord(user, [], bootstrapSource);
       } catch (retryError) {
         const retryConstraint = uniqueViolationConstraint(retryError);
         if (retryConstraint?.includes("user_slug") || retryConstraint?.includes("user_name")) {
@@ -688,7 +700,7 @@ async function ensureHomeSpace(user: AuthUser): Promise<SpaceRow | null> {
   const provisioned = await provisionCreatedSpace({
     user,
     space,
-    bootstrapSource: HOME_BOOTSTRAP,
+    bootstrapSource,
     extraEnv: [],
     sandbox: {
       provider: "cloud",
