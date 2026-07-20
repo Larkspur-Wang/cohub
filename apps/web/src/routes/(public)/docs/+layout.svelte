@@ -62,7 +62,7 @@ onMount(() => {
 </script>
 
 <div class="min-h-screen bg-bg-primary text-text-primary">
-	<PublicHeader sticky cta="open-app" />
+	<PublicHeader cta="open-app" />
 
 	<div
 		class="mx-auto flex w-full max-w-7xl gap-0 px-0 lg:gap-10 lg:px-8 lg:pb-16 lg:pt-2"
@@ -103,23 +103,23 @@ onMount(() => {
 
 		<div class="min-w-0 flex-1">
 			<div
-				class="sticky top-[57px] z-20 flex items-center gap-2 border-b border-border-subtle bg-bg-primary/90 px-4 py-2.5 backdrop-blur-md lg:hidden"
+				class="sticky top-[57px] z-20 flex items-center gap-2 border-b border-border-subtle bg-bg-primary/90 px-4 py-2 backdrop-blur-md lg:hidden"
 			>
 				<button
 					type="button"
-					class="inline-flex h-8 items-center gap-1.5 rounded-[6px] border border-border-subtle bg-bg-input px-2.5 text-[12px] font-medium text-text-secondary"
+					class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] border border-border-subtle bg-bg-input text-text-secondary"
 					onclick={() => {
 						mobileNavOpen = !mobileNavOpen;
 					}}
 					aria-expanded={mobileNavOpen}
 					aria-controls="docs-mobile-nav"
+					aria-label={mobileNavOpen ? ui.closeMenu : ui.menu}
 				>
 					{#if mobileNavOpen}
 						<X class="h-3.5 w-3.5" />
 					{:else}
 						<Menu class="h-3.5 w-3.5" />
 					{/if}
-					{ui.menu}
 				</button>
 				<button
 					type="button"

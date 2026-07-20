@@ -214,7 +214,7 @@ const ideas = [
 		></div>
 
 		<!-- Header -->
-		<PublicHeader sticky cta="start" onStart={handlePrimaryCta} />
+		<PublicHeader cta="start" onStart={handlePrimaryCta} />
 
 		<main class="relative flex-1">
 			<!-- Hero -->

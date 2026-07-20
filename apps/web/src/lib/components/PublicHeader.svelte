@@ -5,7 +5,7 @@ import { page } from "$app/state";
 type Cta = "start" | "open-app" | "none";
 
 const {
-	sticky = false,
+	sticky = true,
 	cta = "open-app",
 	onStart,
 }: {
@@ -31,43 +31,30 @@ function navClass(active: boolean): string {
 <header
 	class={sticky
 		? "sticky top-0 z-30 border-b border-border-subtle bg-bg-primary/80 backdrop-blur-md"
-		: ""}
+		: "border-b border-border-subtle"}
 >
 	<div
-		class="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 sm:px-8 {sticky
-			? 'py-3.5'
-			: 'py-5'}"
+		class="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3.5 sm:px-8"
 	>
-		<a href="/" class="inline-flex items-center gap-2.5" aria-label="Cohub home">
-			{#if sticky}
-				<div
-					class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
-				>
-					C
-				</div>
-				<span class="text-[15px] font-semibold tracking-tight text-text-primary"
-					>Cohub</span
-				>
-			{:else}
-				<div
-					class="flex h-7 w-7 items-center justify-center rounded-[6px] bg-brand text-[12px] font-semibold text-brand-contrast-fg"
-				>
-					C
-				</div>
-				<span class="text-[13px] font-semibold tracking-tight text-text-primary"
-					>Cohub</span
-				>
-			{/if}
+		<a href="/" class="inline-flex shrink-0 items-center gap-2.5" aria-label="Cohub home">
+			<div
+				class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-bg-surface text-[14px] font-semibold text-brand"
+			>
+				C
+			</div>
+			<span class="text-[15px] font-semibold tracking-tight text-text-primary"
+				>Cohub</span
+			>
 		</a>
 
-		<nav class="flex items-center gap-1 text-[13px] sm:gap-2">
-			<a href="/docs" class={navClass(isDocs)} aria-current={isDocs ? "page" : undefined}>Docs</a>
-			<a href="/pricing" class={navClass(isPricing)} aria-current={isPricing ? "page" : undefined}
+		<nav class="flex items-center gap-0.5 text-[13px] sm:gap-2">
+			<a href="/docs" class="hidden sm:inline {navClass(isDocs)}" aria-current={isDocs ? "page" : undefined}>Docs</a>
+			<a href="/pricing" class="hidden sm:inline {navClass(isPricing)}" aria-current={isPricing ? "page" : undefined}
 				>Pricing</a
 			>
 			<a
 				href="/changelog"
-				class={navClass(isChangelog)}
+				class="hidden sm:inline {navClass(isChangelog)}"
 				aria-current={isChangelog ? "page" : undefined}>Changelog</a
 			>
 

@@ -4,6 +4,7 @@ export type DocsUiCopy = {
 	docsLabel: string;
 	docsTagline: string;
 	menu: string;
+	closeMenu: string;
 	searchButton: string;
 	searchPlaceholder: string;
 	searchEmpty: string;
@@ -28,6 +29,7 @@ const UI: Record<DocsLocale, DocsUiCopy> = {
 		docsLabel: "Docs",
 		docsTagline: "How to use Cohub.",
 		menu: "Menu",
+		closeMenu: "Close menu",
 		searchButton: "Search docs",
 		searchPlaceholder: "Search documentation",
 		searchEmpty: "Search by concept, page title, or product term.",
@@ -50,6 +52,7 @@ const UI: Record<DocsLocale, DocsUiCopy> = {
 		docsLabel: "文档",
 		docsTagline: "了解如何使用 Cohub。",
 		menu: "目录",
+		closeMenu: "关闭目录",
 		searchButton: "搜索文档",
 		searchPlaceholder: "搜索文档",
 		searchEmpty: "可按概念、页面标题或产品术语搜索。",
