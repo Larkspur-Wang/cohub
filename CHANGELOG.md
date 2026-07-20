@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.105 — 2026-07-20
+
+- **Product docs site**: Self-hosted `/docs` surface with English and Chinese guides, client search, language switch, TOC, copy-markdown, and SEO (canonical, hreflang, JSON-LD, sitemap alternates).
+- **Work page meta on publish + public SSR**: Publish extracts title/description/icon/image from HTML head, packs companion assets for single-file Works, and materializes them into work/version meta; public Work and profile pages SSR share/OG tags, Work favicons, short Cache-Control, and soft-fail to client load when the API is unreachable.
+- **Share branding with `hideCohubBar`**: Public preview meta follows presentation entitlement — default keeps a light Cohub host signal; `hideCohubBar` switches title/site_name to minimal Work branding and resolves root-relative media against the published content URL.
+- **Home bootstrap checkpoint**: First-time Home spaces fork from `HOME_BOOTSTRAP_CHECKPOINT_ID` when set, otherwise still create a blank workspace.
+- **Process cost in chat**: Collapsed ProcessCard shows intermediate-only usage cost (not full turn totals), with shared token/cost format helpers.
+
+### Bug Fixes
+
+- WorkSurface no longer SSR-crashes on public Work pages; mount surface only on the client.
+- Public header is sticky/unified across pages with a mobile hamburger menu and overflow fixes.
+- Open `.covas` canvas manifests as text (`application/json`) and recover legacy base64 binary previews.
+- Billing catalog scoped to Cohub products.
+
 ## v1.104 — 2026-07-20
 
 - **Turn-finalize hook filters**: `session.turn.finalized` hooks can match with `sessionIds`, `ignoreSessionIds`, and turn `sources` (e.g. `web_app`, `cli`), keeping trigger filters orthogonal to `prompt.sessionId`.
