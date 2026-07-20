@@ -4,6 +4,18 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.103 — 2026-07-20
+
+- **Space Hooks**: File-declared automation under `.cohub/hooks/*` — trigger `run` (sandbox shell) or `prompt` (session) actions on domain events (`space.fs.changed`, `space.workspace.ready`, `session.turn.finalized`, `checkpoint.created`).
+- **Local event fan-out**: API, Worker, Agent, and Gateway enqueue hook tasks directly via BullMQ alongside realtime publish — no HTTP hop or second PubSub consumer.
+- **Hook execution pipeline**: Worker resolves Space owner, caches definitions in Redis (5 min TTL with invalidation on hook file changes), matches with picomatch globs, and reuses existing `run_command` / session prompt chains with curated `COHUB_HOOK_*` env.
+- **Architecture cleanup**: Hook envelope lives in `@cohub/protocol`; enqueue helper in `@cohub/infra/space-hooks` to keep package boundaries clean and drop core→infra coupling.
+
+### Bug Fixes
+
+- BullMQ-safe run jobIds; hook failures no longer fail or retry-storm the parent task
+- FS matching always ignores `.cohub/**` to prevent self-trigger loops; skip hook enqueue on workspace resync
+
 ## v1.102 — 2026-07-18
 
 - **Request provenance headers**: Introduce `X-Cohub-Source-*` (space, session, turn, tool call, via) across protocol, SDK, CLI, and API so HTTP calls carry caller identity into session channels and work/space/generation/checkpoint meta without touching authz.
