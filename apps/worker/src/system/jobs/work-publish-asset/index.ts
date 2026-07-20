@@ -405,12 +405,12 @@ function normalizeSitePath(value: string) {
 
 function keepSiteAssetRef(ref: string | null, available: Set<string>): string | null {
   if (!ref) return null;
-  // Absolute URLs are fine for any target type.
+  // Inline icons and absolute URLs are fine for any target type.
+  if (/^data:image\//i.test(ref)) return ref;
   if (isAbsoluteHttpUrl(ref) || ref.startsWith("//")) return ref;
   const cleaned = ref.replace(/^\.\//, "").replace(/^\/+/, "");
   // Relative assets only survive when the publish uploaded that file
-  // (directory sites). Single-file HTML publishes only the entry document,
-  // so inventing a CDN URL for a missing sibling would 404 in <head>.
+  // (directory sites / companions). Missing siblings stay null — do not invent URLs.
   return available.has(normalizeSitePath(cleaned)) ? cleaned : null;
 }
 

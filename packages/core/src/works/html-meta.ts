@@ -10,9 +10,16 @@ export type HtmlPageMeta = {
 
 const MAX_HTML_SCAN = 200_000;
 const MAX_FIELD = 500;
+/** Inline icons (data:image/svg+xml,...) need more room than plain titles. */
+const MAX_HREF_FIELD = 8_192;
 
-const cleanText = (value: string | null | undefined): string | null => {
+const cleanText = (value: string | null | undefined, max = MAX_FIELD): string | null => {
   if (!value) return null;
+  // Keep data URLs intact (no entity decode / whitespace collapse that would break them).
+  if (/^data:/i.test(value.trim())) {
+    const data = value.trim();
+    return data.length > MAX_HREF_FIELD ? null : data;
+  }
   const text = value
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
@@ -31,7 +38,7 @@ const cleanText = (value: string | null | undefined): string | null => {
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return null;
-  return text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1).trimEnd()}…` : text;
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 };
 
 const headSection = (html: string): string => {
@@ -81,7 +88,7 @@ const iconHref = (head: string): string | null => {
       relTokens.has("apple-touch-icon-precomposed") ||
       relTokens.has("mask-icon");
     if (!isIcon) continue;
-    const href = cleanText(attr(tag, "href"));
+    const href = cleanText(attr(tag, "href"), MAX_HREF_FIELD);
     if (!href) continue;
     let rank = 50;
     if (relTokens.has("apple-touch-icon") || relTokens.has("apple-touch-icon-precomposed")) rank = 10;

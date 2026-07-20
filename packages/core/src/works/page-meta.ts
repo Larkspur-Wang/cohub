@@ -97,13 +97,27 @@ function isBlockedAbsoluteHost(hostname: string): boolean {
  * Relative paths are joined under the published asset directory.
  * Absolute https URLs are kept when host looks public.
  */
+/** True for inline image data URLs that are safe to expose as icon/image. */
+export function isSafeImageDataUrl(value: string): boolean {
+  return /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml|x-icon|vnd\.microsoft\.icon)[;,]/i.test(
+    value,
+  );
+}
+
+/**
+ * Resolve a page asset reference to a public URL.
+ * - https / safe data:image URLs are kept
+ * - relative / root-relative paths join under the published asset directory
+ */
 export function resolveWorkPageAssetRef(
   ref: string | null | undefined,
   assetKey: string | null | undefined,
   toPublicUrl: (objectKey: string) => string,
 ): string | null {
-  const value = cleanWorkMetaText(ref, 2048);
+  const value = cleanWorkMetaText(ref, 8192);
   if (!value) return null;
+  if (isSafeImageDataUrl(value)) return value;
+  if (/^data:/i.test(value)) return null;
   if (/^https:\/\//i.test(value) || value.startsWith("//")) {
     try {
       const url = new URL(value.startsWith("//") ? `https:${value}` : value);
@@ -131,6 +145,58 @@ export function resolveWorkPageAssetRef(
   return toPublicUrl(`${baseDir}/${parts.join("/")}`);
 }
 
+/**
+ * Resolve media for display when only the published content URL is known
+ * (read path / SSR — no need to re-publish old relative meta).
+ */
+export function resolveWorkPageMediaAgainstContentUrl(
+  ref: string | null | undefined,
+  contentUrl: string | null | undefined,
+): string | null {
+  const value = cleanWorkMetaText(ref, 8192);
+  if (!value) return null;
+  if (isSafeImageDataUrl(value)) return value;
+  if (/^data:/i.test(value)) return null;
+  if (/^https:\/\//i.test(value) || value.startsWith("//")) {
+    try {
+      const url = new URL(value.startsWith("//") ? `https:${value}` : value);
+      if (url.protocol !== "https:") return null;
+      if (isBlockedAbsoluteHost(url.hostname)) return null;
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+  if (/^http:\/\//i.test(value)) return null;
+  if (!contentUrl) return null;
+  try {
+    const base = new URL(contentUrl);
+    // Treat root-relative paths as siblings of the published entry (…/index.html),
+    // not as host-root paths. HTML `/favicon.svg` means site root of the Work package.
+    const relative = value.replace(/^\.\//, "").replace(/^\/+/, "");
+    if (!relative || relative.includes("\0")) return null;
+    const parts = relative.split("/");
+    if (parts.some((part) => !part || part === "." || part === "..")) return null;
+    const dir = base.pathname.replace(/\/[^/]*$/, "/");
+    const resolved = new URL(parts.join("/"), `${base.origin}${dir}`);
+    if (resolved.protocol !== "https:") return null;
+    if (isBlockedAbsoluteHost(resolved.hostname)) return null;
+    return resolved.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** Prefer absolute CDN / data icons over bare site-root paths that leak host branding. */
+export function isWeakWorkPageMediaRef(ref: string | null | undefined): boolean {
+  const value = cleanWorkMetaText(ref, 2048);
+  if (!value) return true;
+  if (isSafeImageDataUrl(value)) return false;
+  if (/^https:\/\//i.test(value)) return false;
+  // Root-relative or relative without host — not usable in shell OG until resolved.
+  return true;
+}
+
 export function materializeHtmlPageMeta(
   page: HtmlPageMeta & { sourcePath?: string },
   assetKey: string | null | undefined,
@@ -152,7 +218,18 @@ function preferExistingOrExtracted(
   extracted: unknown,
   max = 500,
 ): string | null {
-  // Keep manual / previous effective values; only fill blanks from the page.
+  const prev = cleanWorkMetaText(existing, max);
+  const next = cleanWorkMetaText(extracted, max);
+  // Keep solid absolute/data values; upgrade weak relative leftovers from older publishes.
+  if (prev && !isWeakWorkPageMediaRef(prev)) return prev;
+  return next ?? prev;
+}
+
+function preferExistingOrExtractedText(
+  existing: unknown,
+  extracted: unknown,
+  max = 500,
+): string | null {
   return cleanWorkMetaText(existing, max) ?? cleanWorkMetaText(extracted, max);
 }
 
@@ -179,9 +256,13 @@ export function mergeWorkPageMeta(
     // Legacy `name` counts as an existing title so republish does not clobber it.
     const existingTitle = cleanWorkMetaText(meta.title) ?? cleanWorkMetaText(meta.name);
     const nextTitle = existingTitle ?? cleanWorkMetaText(extracted.title);
-    const nextDescription = preferExistingOrExtracted(meta.description, extracted.description, 300);
-    const nextIcon = preferExistingOrExtracted(meta.icon, extracted.icon, 2048);
-    const nextImage = preferExistingOrExtracted(meta.image, extracted.image, 2048);
+    const nextDescription = preferExistingOrExtractedText(
+      meta.description,
+      extracted.description,
+      300,
+    );
+    const nextIcon = preferExistingOrExtracted(meta.icon, extracted.icon, 8192);
+    const nextImage = preferExistingOrExtracted(meta.image, extracted.image, 8192);
 
     if (nextTitle) meta.title = nextTitle;
     else delete meta.title;

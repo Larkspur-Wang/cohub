@@ -58,7 +58,7 @@ test("buildWorkPwaMeta prefers work meta title", () => {
 		),
 	);
 	assert.equal(meta.shortName, "Launch Board");
-	assert.equal(meta.name, "Launch Board — Cohub Work");
+	assert.equal(meta.name, "Launch Board");
 	assert.equal(meta.description, "Open Launch Board from Space Lab");
 });
 
@@ -101,8 +101,34 @@ test("buildWorkPageMeta marks space-visibility works noindex", () => {
 	assert.equal(page.indexable, false);
 	assert.equal(page.canonical, "https://cohub.run/ada/lab/w/demo");
 	assert.equal(page.name, "Private Board");
-	assert.equal(page.documentTitle, "Private Board — Cohub Work");
+	assert.equal(page.documentTitle, "Private Board");
 	assert.match(page.jsonLd, /Private Board/);
+});
+
+test("buildWorkPageMeta resolves root-relative icons against content URL", () => {
+	const page = buildWorkPageMeta(
+		{
+			...detail({
+				meta: {
+					title: "时光笔记 — 记录灵感，管理待办",
+					description: "简洁优雅的待办",
+					icon: "/favicon.svg",
+					image: "/favicon.svg",
+				},
+			}),
+			contentUrl: "https://works.cohub.run/dev/w/space/demo/abc/index.html",
+		},
+		{ origin: "https://dev.cohub.run", path: "/tzwm/20/w/h" },
+	);
+	assert.equal(page.documentTitle, "时光笔记 — 记录灵感，管理待办");
+	assert.equal(
+		page.iconUrl,
+		"https://works.cohub.run/dev/w/space/demo/abc/favicon.svg",
+	);
+	assert.equal(
+		page.imageUrl,
+		"https://works.cohub.run/dev/w/space/demo/abc/favicon.svg",
+	);
 });
 
 test("resolvePublicWorkStartUrl accepts only same-origin public work paths", () => {

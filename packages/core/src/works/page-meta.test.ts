@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  isWeakWorkPageMediaRef,
   materializeHtmlPageMeta,
   mergeWorkPageMeta,
   resolveWorkPageAssetRef,
+  resolveWorkPageMediaAgainstContentUrl,
   workTitleFromMeta,
 } from "./page-meta.js";
 
@@ -40,6 +42,23 @@ assert.equal(
   resolveWorkPageAssetRef("../secret.png", "w/space/demo/abc/index.html", toPublicUrl),
   null,
 );
+assert.equal(
+  resolveWorkPageAssetRef(
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E",
+    "w/space/demo/abc/index.html",
+    toPublicUrl,
+  ),
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E",
+);
+assert.equal(
+  resolveWorkPageMediaAgainstContentUrl(
+    "/favicon.svg",
+    "https://works.example/dev/w/space/demo/abc/index.html",
+  ),
+  "https://works.example/dev/w/space/demo/abc/favicon.svg",
+);
+assert.equal(isWeakWorkPageMediaRef("/favicon.svg"), true);
+assert.equal(isWeakWorkPageMediaRef("https://cdn.example/a.png"), false);
 
 const extracted = materializeHtmlPageMeta(
   {
@@ -73,6 +92,10 @@ assert.equal(filled?.title, "Board");
 const promoted = mergeWorkPageMeta({ name: "Legacy Name" }, extracted);
 assert.equal(promoted?.title, "Legacy Name");
 assert.equal(promoted?.name, undefined);
+
+// Weak relative leftovers are upgraded by a solid extracted absolute URL.
+const upgraded = mergeWorkPageMeta({ icon: "/favicon.svg" }, extracted);
+assert.equal(upgraded?.icon, "https://cdn.example/w/space/demo/abc/favicon.ico");
 
 assert.equal(workTitleFromMeta({ title: "A", name: "B" }, "fallback"), "A");
 assert.equal(workTitleFromMeta({ name: "B" }, "fallback"), "B");

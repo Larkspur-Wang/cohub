@@ -9,7 +9,6 @@ import {
 
 const MAX_NAME_LENGTH = 72;
 const MAX_SHORT_NAME_LENGTH = 24;
-const WORK_SUFFIX = "Cohub Work";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -17,6 +16,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cleanText(value: unknown, max = 500) {
 	if (typeof value !== "string") return null;
+	// Keep data:image URLs intact for icons.
+	if (/^data:image\//i.test(value.trim())) {
+		const data = value.trim();
+		return data.length > 8192 ? null : data;
+	}
 	// Strip lightweight markdown used in some meta sources, then normalize spaces.
 	const text = plainText(value).replace(/\s+/g, " ").trim();
 	if (!text) return null;
@@ -67,6 +71,43 @@ function workPrimaryName(input: {
 	return "Work";
 }
 
+/**
+ * Resolve icon/image for the public shell.
+ * Root-relative paths like `/favicon.svg` must join the Work content URL,
+ * not the Cohub host origin.
+ */
+function resolveMediaRef(
+	ref: string | null | undefined,
+	contentUrl: string | null | undefined,
+): string | null {
+	const value = cleanText(ref, 8192);
+	if (!value) return null;
+	if (/^data:image\//i.test(value)) return value;
+	if (/^https:\/\//i.test(value)) return value;
+	if (value.startsWith("//")) {
+		try {
+			return new URL(`https:${value}`).toString();
+		} catch {
+			return null;
+		}
+	}
+	if (/^https?:/i.test(value) || /^data:/i.test(value)) return null;
+	if (!contentUrl) return null;
+	try {
+		// Root-relative `/favicon.svg` is the Work package root, not cohub.run/.
+		const base = new URL(contentUrl);
+		const relative = value.replace(/^\.\//, "").replace(/^\/+/, "");
+		if (!relative || relative.includes("\0")) return null;
+		const parts = relative.split("/");
+		if (parts.some((part) => !part || part === "." || part === ".."))
+			return null;
+		const dir = base.pathname.replace(/\/[^/]*$/, "/");
+		return new URL(parts.join("/"), `${base.origin}${dir}`).toString();
+	} catch {
+		return null;
+	}
+}
+
 export type WorkPageDetail = {
 	work: Pick<WorkDetailResponse["work"], "meta" | "slug"> &
 		Partial<
@@ -78,12 +119,14 @@ export type WorkPageDetail = {
 	space?: Pick<WorkDetailResponse["space"], "name"> | null;
 	owner?: Pick<WorkDetailResponse["owner"], "displayName" | "username"> | null;
 	publicUrl?: string | null;
+	/** Published content URL (…/index.html) used to resolve relative media. */
+	contentUrl?: string | null;
 };
 
 export type WorkPageMeta = {
 	/** Primary work name (no site suffix). */
 	name: string;
-	/** Document / tab / OG title, usually `name — Cohub Work`. */
+	/** Document / tab / OG title — prefer the Work's own title. */
 	documentTitle: string;
 	shortName: string;
 	description: string;
@@ -115,8 +158,12 @@ export function buildWorkPageMeta(
 		spaceName: space?.name ?? null,
 	});
 	const shortName = truncateText(primaryName, MAX_SHORT_NAME_LENGTH);
+	const hasExplicitTitle = Boolean(
+		isRecord(meta) && (cleanText(meta.title) || cleanText(meta.name)),
+	);
+	// Prefer the Work's own title in previews; only brand generic fallbacks.
 	const documentTitle = truncateText(
-		`${primaryName} — ${WORK_SUFFIX}`,
+		hasExplicitTitle ? primaryName : `${primaryName} · Cohub`,
 		MAX_NAME_LENGTH,
 	);
 	const explicitDescription = isRecord(meta)
@@ -126,12 +173,16 @@ export function buildWorkPageMeta(
 		explicitDescription ??
 			(space?.name
 				? `Open ${primaryName} from ${space.name}`
-				: "Open a Cohub Work directly"),
+				: `Open ${primaryName}`),
 		160,
 	);
-	const iconUrl = isRecord(meta) ? cleanText(meta.icon, 2048) : null;
+	const contentUrl = detail?.contentUrl ?? null;
+	const iconUrl = resolveMediaRef(
+		isRecord(meta) ? meta.icon : null,
+		contentUrl,
+	);
 	const imageUrl =
-		(isRecord(meta) ? cleanText(meta.image, 2048) : null) ??
+		resolveMediaRef(isRecord(meta) ? meta.image : null, contentUrl) ??
 		iconUrl ??
 		defaultOgImage(options?.origin);
 	const path =
@@ -171,7 +222,7 @@ export function buildWorkPageMeta(
 			},
 			isPartOf: {
 				"@type": "WebSite",
-				name: "Cohub",
+				name: hasExplicitTitle ? primaryName : "Cohub",
 				url: origin,
 			},
 			datePublished: work?.publishedAt ?? undefined,

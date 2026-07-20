@@ -59,6 +59,7 @@ const pageMeta = $derived(
 					space: ready.space,
 					owner: ready.owner,
 					publicUrl: ready.publicUrl,
+					contentUrl: ready.content?.url ?? null,
 				},
 				{ origin: ready.origin, path: ready.pathname },
 			)
