@@ -9,6 +9,7 @@ import {
 
 const MAX_NAME_LENGTH = 72;
 const MAX_SHORT_NAME_LENGTH = 24;
+const HOST_LABEL = "Cohub";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -37,6 +38,18 @@ export function workDisplayTitle(
 		if (titled) return titled;
 	}
 	return fallback;
+}
+
+/**
+ * Aligns with `presentation.hideCohubBar` (Pro+):
+ * minimal host branding on public share meta as well as the on-page bar.
+ */
+export function isMinimalWorkBranding(meta: WorkMeta | null | undefined) {
+	return (
+		isRecord(meta) &&
+		isRecord(meta.presentation) &&
+		meta.presentation.hideCohubBar === true
+	);
 }
 
 function truncateText(value: string, maxLength: number) {
@@ -124,10 +137,12 @@ export type WorkPageDetail = {
 };
 
 export type WorkPageMeta = {
-	/** Primary work name (no site suffix). */
+	/** Primary work name (no host suffix). */
 	name: string;
-	/** Document / tab / OG title — prefer the Work's own title. */
+	/** Document / tab / OG title. */
 	documentTitle: string;
+	/** Light host label for og:site_name — Work name when branding is minimal. */
+	siteName: string;
 	shortName: string;
 	description: string;
 	iconUrl: string | null;
@@ -135,6 +150,8 @@ export type WorkPageMeta = {
 	canonical: string;
 	robots: string;
 	indexable: boolean;
+	/** True when hideCohubBar (minimal host branding). */
+	minimalBranding: boolean;
 	twitterCard: "summary" | "summary_large_image";
 	jsonLd: string;
 };
@@ -152,6 +169,7 @@ export function buildWorkPageMeta(
 	const space = detail?.space ?? null;
 	const owner = detail?.owner ?? null;
 	const meta = work?.meta ?? null;
+	const minimalBranding = isMinimalWorkBranding(meta);
 	const primaryName = workPrimaryName({
 		meta,
 		slug: work?.slug ?? null,
@@ -161,11 +179,18 @@ export function buildWorkPageMeta(
 	const hasExplicitTitle = Boolean(
 		isRecord(meta) && (cleanText(meta.title) || cleanText(meta.name)),
 	);
-	// Prefer the Work's own title in previews; only brand generic fallbacks.
+
+	// Default: Work title as-is; only brand generic fallbacks with a light host mark.
+	// Minimal (hideCohubBar): never append host branding.
 	const documentTitle = truncateText(
-		hasExplicitTitle ? primaryName : `${primaryName} · Cohub`,
+		hasExplicitTitle || minimalBranding
+			? primaryName
+			: `${primaryName} · ${HOST_LABEL}`,
 		MAX_NAME_LENGTH,
 	);
+	// Default keeps a soft host signal; minimal uses the Work name as site.
+	const siteName = minimalBranding ? primaryName : HOST_LABEL;
+
 	const explicitDescription = isRecord(meta)
 		? cleanText(meta.description, 300)
 		: null;
@@ -205,7 +230,7 @@ export function buildWorkPageMeta(
 	const robots = indexable ? "index,follow" : "noindex,nofollow";
 	const origin = siteOrigin(options?.origin);
 	const authorName =
-		cleanText(owner?.displayName) ?? cleanText(owner?.username) ?? "Cohub";
+		cleanText(owner?.displayName) ?? cleanText(owner?.username) ?? HOST_LABEL;
 	const graph = [
 		{
 			"@type": "WebApplication",
@@ -222,7 +247,7 @@ export function buildWorkPageMeta(
 			},
 			isPartOf: {
 				"@type": "WebSite",
-				name: hasExplicitTitle ? primaryName : "Cohub",
+				name: siteName,
 				url: origin,
 			},
 			datePublished: work?.publishedAt ?? undefined,
@@ -237,6 +262,7 @@ export function buildWorkPageMeta(
 	return {
 		name: primaryName,
 		documentTitle,
+		siteName,
 		shortName,
 		description,
 		iconUrl,
@@ -244,6 +270,7 @@ export function buildWorkPageMeta(
 		canonical,
 		robots,
 		indexable,
+		minimalBranding,
 		twitterCard:
 			imageUrl && imageUrl !== defaultOgImage(options?.origin)
 				? "summary_large_image"

@@ -121,6 +121,8 @@ test("buildWorkPageMeta resolves root-relative icons against content URL", () =>
 		{ origin: "https://dev.cohub.run", path: "/tzwm/20/w/h" },
 	);
 	assert.equal(page.documentTitle, "时光笔记 — 记录灵感，管理待办");
+	assert.equal(page.siteName, "Cohub");
+	assert.equal(page.minimalBranding, false);
 	assert.equal(
 		page.iconUrl,
 		"https://works.cohub.run/dev/w/space/demo/abc/favicon.svg",
@@ -129,6 +131,49 @@ test("buildWorkPageMeta resolves root-relative icons against content URL", () =>
 		page.imageUrl,
 		"https://works.cohub.run/dev/w/space/demo/abc/favicon.svg",
 	);
+});
+
+test("buildWorkPageMeta default branding is light host; hideCohubBar is minimal", () => {
+	const withTitle = buildWorkPageMeta(
+		detail({ meta: { title: "Launch Board" } }),
+		{ origin: "https://cohub.run", path: "/ada/lab/w/demo" },
+	);
+	assert.equal(withTitle.documentTitle, "Launch Board");
+	assert.equal(withTitle.siteName, "Cohub");
+	assert.equal(withTitle.minimalBranding, false);
+
+	const generic = buildWorkPageMeta(detail({ slug: "demo_work", meta: null }), {
+		origin: "https://cohub.run",
+		path: "/ada/lab/w/demo",
+	});
+	assert.equal(generic.documentTitle, "Demo Work · Cohub");
+	assert.equal(generic.siteName, "Cohub");
+
+	const minimal = buildWorkPageMeta(
+		detail({
+			slug: "demo_work",
+			meta: {
+				title: "Launch Board",
+				presentation: { hideCohubBar: true },
+			},
+		}),
+		{ origin: "https://cohub.run", path: "/ada/lab/w/demo" },
+	);
+	assert.equal(minimal.documentTitle, "Launch Board");
+	assert.equal(minimal.siteName, "Launch Board");
+	assert.equal(minimal.minimalBranding, true);
+	assert.match(minimal.jsonLd, /"name":"Launch Board"/);
+
+	const minimalGeneric = buildWorkPageMeta(
+		detail({
+			slug: "demo_work",
+			meta: { presentation: { hideCohubBar: true } },
+		}),
+		{ origin: "https://cohub.run", path: "/ada/lab/w/demo" },
+	);
+	// Minimal never appends host, even without an explicit title.
+	assert.equal(minimalGeneric.documentTitle, "Demo Work");
+	assert.equal(minimalGeneric.siteName, "Demo Work");
 });
 
 test("resolvePublicWorkStartUrl accepts only same-origin public work paths", () => {

@@ -20,7 +20,7 @@ const {
 	<meta name="application-name" content={meta.shortName} />
 	<meta name="apple-mobile-web-app-title" content={meta.shortName} />
 	<meta property="og:type" content="website" />
-	<meta property="og:site_name" content={meta.name} />
+	<meta property="og:site_name" content={meta.siteName} />
 	<meta property="og:title" content={meta.documentTitle} />
 	<meta property="og:description" content={meta.description} />
 	<meta property="og:url" content={meta.canonical} />
