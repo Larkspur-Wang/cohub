@@ -320,47 +320,11 @@ async function resolveSpaceOwnerUserId(spaceId: string) {
   return space?.userUuid?.trim() || null;
 }
 
-async function ensureTaskRunRecord(input: {
-  taskRunId: string;
-  payload: TaskPayload;
-  userId: string;
-}) {
-  const existing = await db
-    .select({ id: taskRuns.id })
-    .from(taskRuns)
-    .where(eq(taskRuns.jobId, input.taskRunId))
-    .limit(1);
-  if (existing[0]?.id) {
-    if (input.userId) {
-      await db.update(taskRuns).set({
-        userUuid: input.userId,
-        updatedAt: new Date(),
-      }).where(eq(taskRuns.jobId, input.taskRunId)).catch(() => undefined);
-    }
-    return;
-  }
-
-  await db.insert(taskRuns).values({
-    id: input.taskRunId,
-    jobId: input.taskRunId,
-    taskType: SPACE_HOOK_TASK_TYPE,
-    spaceId: input.payload.spaceId ?? null,
-    sessionId: input.payload.sessionId ?? null,
-    turnId: input.payload.turnId ?? null,
-    userUuid: input.userId,
-    status: "running",
-    payload: {
-      ...input.payload,
-      userId: input.userId,
-      data: {
-        ...(isRecord(input.payload.data) ? input.payload.data : {}),
-        executionUserId: input.userId,
-        billingUserId: input.userId,
-      },
-    },
-    startedAt: new Date(),
-    attemptCount: 0,
-  }).onConflictDoNothing();
+async function updateTaskRunOwner(taskRunId: string, userId: string) {
+  await db.update(taskRuns).set({
+    userUuid: userId,
+    updatedAt: new Date(),
+  }).where(eq(taskRuns.jobId, taskRunId)).catch(() => undefined);
 }
 
 registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
@@ -390,11 +354,7 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job) => {
     };
   }
 
-  await ensureTaskRunRecord({
-    taskRunId,
-    payload,
-    userId: ownerUserId,
-  });
+  await updateTaskRunOwner(taskRunId, ownerUserId);
 
   const definitions = await loadSpaceHookDefinitions({
     spaceId,

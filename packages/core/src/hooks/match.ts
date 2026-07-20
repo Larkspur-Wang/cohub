@@ -68,13 +68,16 @@ export function spaceHookMatchesEvent(
 
   const { paths, kinds, resync } = collectFsPaths(event.payload);
   if (resync && paths.length === 0) {
-    return { matched: true, reason: "fs_resync" };
+    // Resync with no concrete paths is a "refresh your tree" signal, not a change.
+    return { matched: false, reason: "fs_resync_no_paths" };
   }
   if (paths.length === 0) {
     return { matched: false, reason: "no_paths" };
   }
 
-  const activePaths = paths.filter((path) => !isIgnored(hook.ignore, [path]));
+  // Always ignore .cohub/** to prevent hook self-trigger loops.
+  const activePaths = paths.filter((path) =>
+    !path.startsWith(".cohub/") && !isIgnored(hook.ignore, [path]));
   if (activePaths.length === 0) {
     return { matched: false, reason: "ignored" };
   }

@@ -106,13 +106,20 @@ If an `space.fs.changed` event touches `.cohub/hooks/**`, the cache is invalidat
 
 ## Environment for run hooks
 
+Set by `buildHookRunCommand`:
+
 ```text
-COHUB_SPACE_ID
 COHUB_HOOK_PATH
 COHUB_HOOK_TASK_RUN_ID
 COHUB_HOOK_EVENT_ID
 COHUB_HOOK_EVENT_TYPE
 COHUB_HOOK_EVENT_FILE
+```
+
+Injected by the agent execution context (same as bash tool calls):
+
+```text
+COHUB_SPACE_ID
 COHUB_USER_UUID
 COHUB_EXECUTION_TOKEN
 ```
@@ -123,3 +130,9 @@ COHUB_EXECUTION_TOKEN
 - No hook-level concurrency control
 - Local sandbox workspaces are not mounted on Worker; hook discovery currently assumes cloud PVC access
 - History is stored in existing `task_runs` rows of type `space_hook`
+odel
+- No hook-level concurrency control
+- Local sandbox workspaces are not mounted on Worker; hook discovery currently assumes cloud PVC access
+- History is stored in existing `task_runs` rows of type `space_hook`
+- Hook failures are recorded in the task result but do not trigger BullMQ retry (avoids duplicate execution storms)
+- `.cohub/**` paths are always ignored in fs hook matching to prevent self-trigger loops

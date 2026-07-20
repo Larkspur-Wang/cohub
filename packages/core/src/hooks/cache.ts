@@ -61,9 +61,10 @@ export async function loadSpaceHookDefinitionsFromDir(dir: string): Promise<Spac
     try {
       const raw = await readFile(path, "utf8");
       definitions.push(parseSpaceHookDefinition(raw, relativePath));
-    } catch {
+    } catch (error) {
       // Invalid declarations are skipped for matching, but kept out of cache
       // so the next successful read can refresh after a fix.
+      console.warn(`[SpaceHooks] skipping invalid hook file ${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   return definitions;

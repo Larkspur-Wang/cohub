@@ -23,7 +23,7 @@ function enqueueSpaceHookFromEvent(input: {
   sessionId?: string | null;
   payload?: Record<string, unknown> | null;
 }) {
-  void maybeEnqueueSpaceHookTask({
+  return maybeEnqueueSpaceHookTask({
     event: input,
     enqueue: (name, payload, options) => taskQueue.add(name, payload, {
       ...defaultJobRetention,
@@ -35,6 +35,7 @@ function enqueueSpaceHookFromEvent(input: {
       spaceId: input.spaceId,
       error: error instanceof Error ? error.message : String(error),
     });
+    return null;
   });
 }
 
