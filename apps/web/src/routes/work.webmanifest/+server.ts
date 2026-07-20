@@ -46,7 +46,18 @@ function buildIcons() {
 export const GET: RequestHandler = async ({ fetch, url }) => {
 	const { startUrl, path } = resolvePublicWorkStartUrl(url);
 	const result = await loadPublicWorkDetail(path, fetch);
-	const meta = buildWorkPwaMeta(result.ok ? result.detail : null);
+	// Same presentation path as link previews: resolve relative icons against content URL.
+	const meta = buildWorkPwaMeta(
+		result.ok
+			? {
+					work: result.detail.work,
+					space: result.detail.space,
+					owner: result.detail.owner,
+					publicUrl: result.detail.publicUrl,
+					contentUrl: result.detail.content?.url ?? null,
+				}
+			: null,
+	);
 	const icons = meta.iconUrl
 		? [
 				{
