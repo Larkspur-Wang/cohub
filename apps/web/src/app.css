@@ -81,9 +81,9 @@ body.sidebar-resizing iframe {
 	pointer-events: none;
 }
 
-.panel-shell--collapsed {
+.panel-shell.panel-shell--collapsed {
 	pointer-events: none;
-	border-color: transparent !important;
+	border-color: transparent;
 }
 
 /* Fixed content width so text/layout never reflow mid-animation. */
@@ -117,18 +117,16 @@ body.sidebar-resizing iframe {
 	transition-delay: 100ms;
 }
 
-body.sidebar-resizing .panel-shell,
-body.sidebar-resizing .panel-shell-fade,
-body.sidebar-resizing .workspace-preview-pane {
-	transition: none !important;
-}
-
 @media (prefers-reduced-motion: reduce) {
 	.panel-shell,
-	.panel-shell-fade,
-	.workspace-preview-pane {
-		transition: none !important;
+	.panel-shell-fade {
+		transition: none;
 	}
+}
+
+body.sidebar-resizing .panel-shell,
+body.sidebar-resizing .panel-shell-fade {
+	transition: none;
 }
 
 *::-webkit-scrollbar {

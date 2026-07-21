@@ -108,6 +108,16 @@ const clipParams = $derived(
 		}
 	}
 
+	@media (prefers-reduced-motion: reduce) {
+		.workspace-preview-pane {
+			transition: none;
+		}
+	}
+
+	:global(body.sidebar-resizing) .workspace-preview-pane {
+		transition: none;
+	}
+
 	.preview-resize-handle {
 		position: absolute;
 		top: 0;

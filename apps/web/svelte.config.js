@@ -7,10 +7,6 @@ const protocolDir = fileURLToPath(
 const sdkDir = fileURLToPath(
 	new URL("../../packages/sdk/src", import.meta.url),
 );
-const docsProductDir = fileURLToPath(
-	new URL("../../docs/product", import.meta.url),
-);
-
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	compilerOptions: {

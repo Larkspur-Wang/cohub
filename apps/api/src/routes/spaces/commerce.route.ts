@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { ApiError, isBillingApiError } from "../../lib/billing-api-error.js";
+import { isBillingApiError } from "../../lib/billing-api-error.js";
 import { authzDenied, requireValidId, useAuth } from "../../lib/middleware.js";
 import {
   handleSpaceCommerceRouteError,

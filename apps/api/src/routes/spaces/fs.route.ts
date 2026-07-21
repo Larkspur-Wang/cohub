@@ -41,7 +41,6 @@ import {
   type SpaceUploadManifestEntry,
 } from "../../space-upload-storage.js";
 import { enqueueSandboxUploadFilesJob } from "../../sandbox-bash-queue.js";
-import { config } from "../../config.js";
 import {
   isAllowedPublicAssetDownloadUrl,
   resolvePublicAssetDownloadUrlForInternal,
