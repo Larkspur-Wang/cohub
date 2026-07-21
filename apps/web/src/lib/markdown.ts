@@ -578,6 +578,12 @@ function normalizeNestedMarkdownCodeFences(source: string) {
 	return output.join("");
 }
 
+function escapeSourceHtmlTokens(tokens: Token[]) {
+	marked.walkTokens(tokens, (token) => {
+		if (token.type === "html") token.text = escapeHtml(token.text);
+	});
+}
+
 async function renderMarkdownHtml(
 	source: string,
 	options?: { highlight?: boolean; streamingSafe?: boolean },
@@ -585,6 +591,9 @@ async function renderMarkdownHtml(
 	const tokens = marked.lexer(normalizeNestedMarkdownCodeFences(source), {
 		gfm: true,
 	});
+	// Treat all source HTML as text. Renderer-generated HTML is added only after
+	// this pass and is still sanitized before reaching Svelte's `{@html}` sink.
+	escapeSourceHtmlTokens(tokens);
 	if (!options?.streamingSafe) {
 		enhanceMediaPreviewTokens(tokens);
 		enhanceCohubAskTokens(tokens);
