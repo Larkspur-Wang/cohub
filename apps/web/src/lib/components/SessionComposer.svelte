@@ -13,7 +13,6 @@ import {
 	Minimize2,
 	Plus,
 	Square,
-	Upload,
 	X,
 } from "lucide-svelte";
 import { onMount } from "svelte";
@@ -55,11 +54,7 @@ import {
 } from "$lib/mentions/space-trigger";
 import { sdk } from "$lib/sdk";
 import { billingConversion } from "$lib/stores/billing-conversion.svelte";
-import {
-	entriesFromDataTransfer,
-	entriesFromFiles,
-	type LocalUploadEntry,
-} from "$lib/upload-entries";
+import { entriesFromFiles, type LocalUploadEntry } from "$lib/upload-entries";
 
 type SelectedModel = {
 	provider: string;
@@ -127,9 +122,6 @@ let {
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
 let mentionMirrorEl = $state<HTMLDivElement | null>(null);
 let fileInputEl = $state<HTMLInputElement | null>(null);
-let isDragOver = $state(false);
-let dragCounter = 0;
-let isPathDragOver = $state(false);
 let showPromptSuggestions = $state(false);
 let selectedPromptIndex = $state(0);
 let showSpaceMentions = $state(false);
@@ -873,55 +865,6 @@ function applySpaceMention(item: SpaceMentionSuggestion) {
 	});
 }
 
-function hasAttachmentFiles(dataTransfer: DataTransfer | null) {
-	if (!dataTransfer) return false;
-	return Array.from(dataTransfer.items ?? []).some(
-		(item) => item.kind === "file",
-	);
-}
-
-function handleDragEnter(event: DragEvent) {
-	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
-	event.preventDefault();
-	dragCounter += 1;
-	isDragOver = true;
-}
-
-function handleDragOver(event: DragEvent) {
-	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
-	event.preventDefault();
-	isDragOver = true;
-}
-
-function handleDragLeave(event: DragEvent) {
-	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
-	event.preventDefault();
-	dragCounter = Math.max(0, dragCounter - 1);
-	if (dragCounter === 0) {
-		isDragOver = false;
-	}
-}
-
-async function handleDrop(event: DragEvent) {
-	if (!onpickattachment || !hasAttachmentFiles(event.dataTransfer)) return;
-	event.preventDefault();
-	isDragOver = false;
-	dragCounter = 0;
-	if (!event.dataTransfer) return;
-	onpickattachment(await entriesFromDataTransfer(event.dataTransfer));
-}
-
-function handlePathDragOver(event: DragEvent) {
-	if (!event.dataTransfer?.types.includes("text/cohub-path")) return;
-	event.preventDefault();
-	event.dataTransfer.dropEffect = "copy";
-	isPathDragOver = true;
-}
-
-function handlePathDragLeave() {
-	isPathDragOver = false;
-}
-
 function insertSnippet(
 	snippet: string,
 	options: { focus?: boolean; replacementKey?: string } = {},
@@ -958,14 +901,6 @@ function focusComposer() {
 	requestAnimationFrame(() => {
 		textareaEl?.focus();
 	});
-}
-
-function handlePathDrop(event: DragEvent) {
-	isPathDragOver = false;
-	const path = event.dataTransfer?.getData("text/cohub-path");
-	if (!path || !textareaEl) return;
-	event.preventDefault();
-	insertSnippet(` \`${path}\` `);
 }
 
 function handlePaste(event: ClipboardEvent) {
@@ -1154,25 +1089,12 @@ $effect(() => {
 		{/if}
 
 		<form
-			class={`relative rounded-[var(--chat-composer-radius)] border p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors ${(isDragOver || isPathDragOver) ? 'border-brand/50 bg-brand/5' : 'border-[color:var(--chat-composer-border)] bg-[var(--chat-composer-bg)] focus-within:border-[color:var(--chat-composer-border-focus)] focus-within:bg-[var(--chat-composer-bg-focus)]'}`}
+			class="relative rounded-[var(--chat-composer-radius)] border border-[color:var(--chat-composer-border)] bg-[var(--chat-composer-bg)] p-2 shadow-[0_12px_36px_rgba(15,23,42,0.08)] backdrop-blur-md transition-colors focus-within:border-[color:var(--chat-composer-border-focus)] focus-within:bg-[var(--chat-composer-bg-focus)]"
 			onsubmit={(event) => {
 				event.preventDefault();
 				submitDraft();
 			}}
-			ondragenter={handleDragEnter}
-			ondragover={handleDragOver}
-			ondragleave={handleDragLeave}
-			ondrop={handleDrop}
 		>
-			{#if isDragOver}
-				<div class="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-[24px] border border-dashed border-brand/40 bg-bg-primary/82 backdrop-blur-sm">
-					<div class="flex items-center gap-2 rounded-full border border-border-subtle bg-bg-elevated px-4 py-2 text-[12px] text-text-secondary">
-						<Upload class="h-4 w-4 text-brand" />
-						<span>Drop files to attach</span>
-					</div>
-				</div>
-			{/if}
-
 			{#if viewportContexts.length > 0}
 				<div class="mb-1.5 px-3 pt-1" data-drawer-swipe-ignore>
 					<ViewportContextBlocks
@@ -1273,12 +1195,9 @@ $effect(() => {
 							onclick={handleComposerClick}
 							onkeyup={handleComposerKeyup}
 							oncompositionend={handleComposerCompositionEnd}
-							ondragover={handlePathDragOver}
-						ondragleave={handlePathDragLeave}
-						ondrop={handlePathDrop}
-						onpaste={handlePaste}
+							onpaste={handlePaste}
 							onblur={handleComposerBlur}
-						onfocus={handleComposerFocus}
+							onfocus={handleComposerFocus}
 						onkeydown={(event) => {
 							if (event.key === 'Escape' && showSpaceMentions) {
 								event.preventDefault();

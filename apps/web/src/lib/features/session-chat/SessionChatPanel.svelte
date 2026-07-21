@@ -3,7 +3,7 @@
  * Full-capability session chat panel.
  * Reads a SessionChatHost view-model — no 80-field prop bag.
  */
-import { ArrowDown, ListTree, Plus } from "lucide-svelte";
+import { ArrowDown, FileCode2, ListTree, Plus, Upload } from "lucide-svelte";
 import type { Snippet } from "svelte";
 import { untrack } from "svelte";
 import AccessStateView from "$lib/components/AccessStateView.svelte";
@@ -14,9 +14,16 @@ import SessionComposer from "$lib/components/SessionComposer.svelte";
 import SessionTaskTray from "$lib/components/SessionTaskTray.svelte";
 import TurnBottomSheet from "$lib/components/TurnBottomSheet.svelte";
 import TurnRail from "$lib/components/TurnRail.svelte";
+import {
+	type ChatDraftDropKind,
+	classifyChatDraftDrop,
+	readCohubPathFromDataTransfer,
+} from "$lib/drag/chat-draft-drop";
 import SessionModelSelectorDialog from "$lib/features/space/modules/SessionModelSelectorDialog.svelte";
 import type { NewChatBackgroundConfig } from "$lib/space-config";
+import { insertComposerSnippet } from "$lib/stores/composer-insert";
 import { modelsCatalogStore } from "$lib/stores/models-catalog.svelte";
+import { entriesFromDataTransfer } from "$lib/upload-entries";
 import type { SessionChatHost } from "./session-chat-host.controller.svelte";
 
 let {
@@ -54,6 +61,8 @@ let composerInput = $state("");
 let shouldAutoFollow = $state(true);
 let showTurnBottomSheet = $state(false);
 let showModelSelector = $state(false);
+let draftDropKind = $state<ChatDraftDropKind | null>(null);
+let draftDropCounter = 0;
 const modelsCatalog = $derived(modelsCatalogStore.items);
 const generationModelsCatalog = $derived(host.generationModelsCatalog);
 const generationPolicyMode = $derived(host.generationPolicyMode);
@@ -139,6 +148,61 @@ $effect(() => {
 		if (host.showModelSelector !== next) host.showModelSelector = next;
 	});
 });
+
+const canAcceptDraftDrop = $derived(
+	Boolean(activeSessionState || isNewSessionRoute),
+);
+
+function resetDraftDropState() {
+	draftDropKind = null;
+	draftDropCounter = 0;
+}
+
+function acceptDraftDrop(event: DragEvent) {
+	if (!canAcceptDraftDrop) return null;
+	const kind = classifyChatDraftDrop(event.dataTransfer);
+	if (!kind) return null;
+	event.preventDefault();
+	if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+	return kind;
+}
+
+function handleDraftDragEnter(event: DragEvent) {
+	const kind = acceptDraftDrop(event);
+	if (!kind) return;
+	draftDropCounter += 1;
+	draftDropKind = kind;
+}
+
+function handleDraftDragOver(event: DragEvent) {
+	const kind = acceptDraftDrop(event);
+	if (!kind) return;
+	draftDropKind = kind;
+}
+
+function handleDraftDragLeave(event: DragEvent) {
+	if (!classifyChatDraftDrop(event.dataTransfer)) return;
+	event.preventDefault();
+	draftDropCounter = Math.max(0, draftDropCounter - 1);
+	if (draftDropCounter === 0) draftDropKind = null;
+}
+
+async function handleDraftDrop(event: DragEvent) {
+	const kind = acceptDraftDrop(event);
+	resetDraftDropState();
+	if (!kind || !event.dataTransfer) return;
+
+	if (kind === "files") {
+		await host.handlePickAttachments(
+			await entriesFromDataTransfer(event.dataTransfer),
+		);
+		return;
+	}
+
+	const path = readCohubPathFromDataTransfer(event.dataTransfer);
+	if (!path) return;
+	insertComposerSnippet(` \`${path}\` `);
+}
 </script>
 
 {#if access.spaceLoadError && !access.spaceHasMinimalAccess}
@@ -184,7 +248,33 @@ $effect(() => {
 			<AccessStateView state={activeSessionState.error} size="compact" />
 		</div>
 	{/if}
-	<div class="relative flex-1 min-h-0 flex flex-col overflow-hidden">
+	<div
+		class="relative flex-1 min-h-0 flex flex-col overflow-hidden"
+		role="region"
+		aria-label="Chat panel"
+		ondragenter={handleDraftDragEnter}
+		ondragover={handleDraftDragOver}
+		ondragleave={handleDraftDragLeave}
+		ondrop={handleDraftDrop}
+	>
+		{#if draftDropKind}
+			<div
+				class="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded-[28px] border border-dashed border-brand/40 bg-bg-primary/72 backdrop-blur-[2px]"
+				aria-hidden="true"
+			>
+				<div
+					class="flex items-center gap-2 rounded-full border border-border-subtle bg-bg-elevated px-4 py-2 text-[12px] text-text-secondary shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
+				>
+					{#if draftDropKind === "files"}
+						<Upload class="h-4 w-4 text-brand" />
+						<span>Drop files to attach</span>
+					{:else}
+						<FileCode2 class="h-4 w-4 text-brand" />
+						<span>Drop to insert path</span>
+					{/if}
+				</div>
+			</div>
+		{/if}
 		{#if shouldShowNewChatBackground && newChatBackground}
 			<NewChatBackground background={newChatBackground} />
 			<div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
