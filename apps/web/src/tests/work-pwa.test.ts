@@ -127,10 +127,34 @@ test("buildWorkPageMeta resolves root-relative icons against content URL", () =>
 		page.iconUrl,
 		"https://works.cohub.run/dev/w/space/demo/abc/favicon.svg",
 	);
+	// SVG is fine for tab icons but not used as og:image — fall back to host default.
+	assert.equal(page.imageUrl, "https://dev.cohub.run/pwa/icon-512x512.png");
+	assert.equal(page.twitterCard, "summary");
+});
+
+test("buildWorkPageMeta keeps raster og:image and skips svg share images", () => {
+	const withPng = buildWorkPageMeta(
+		{
+			...detail({
+				meta: {
+					title: "Lab",
+					icon: "/favicon.svg",
+					image: "/cover.png",
+				},
+			}),
+			contentUrl: "https://works.cohub.run/dev/w/space/demo/abc/index.html",
+		},
+		{ origin: "https://dev.cohub.run", path: "/tzwm/20/w/lab" },
+	);
 	assert.equal(
-		page.imageUrl,
+		withPng.iconUrl,
 		"https://works.cohub.run/dev/w/space/demo/abc/favicon.svg",
 	);
+	assert.equal(
+		withPng.imageUrl,
+		"https://works.cohub.run/dev/w/space/demo/abc/cover.png",
+	);
+	assert.equal(withPng.twitterCard, "summary_large_image");
 });
 
 test("buildWorkPageMeta default branding is light host; hideCohubBar is minimal", () => {

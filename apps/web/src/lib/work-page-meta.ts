@@ -121,6 +121,22 @@ function resolveMediaRef(
 	}
 }
 
+/**
+ * Link-preview crawlers often ignore SVG / svg+xml for og:image.
+ * Keep those for tab/PWA icons; only treat raster (and non-svg data images) as share images.
+ */
+function isSharePreviewImage(url: string | null | undefined): url is string {
+	if (!url) return false;
+	if (/^data:image\/svg\+xml/i.test(url)) return false;
+	if (/^data:image\//i.test(url)) return true;
+	try {
+		const path = new URL(url).pathname.toLowerCase();
+		return /\.(png|jpe?g|gif|webp|avif)$/i.test(path);
+	} catch {
+		return /\.(png|jpe?g|gif|webp|avif)(?:$|[?#])/i.test(url);
+	}
+}
+
 export type WorkPageDetail = {
 	work: Pick<WorkDetailResponse["work"], "meta" | "slug"> &
 		Partial<
@@ -202,13 +218,18 @@ export function buildWorkPageMeta(
 		160,
 	);
 	const contentUrl = detail?.contentUrl ?? null;
+	// Tab / PWA icon may be SVG; share cards need a raster-friendly image.
 	const iconUrl = resolveMediaRef(
 		isRecord(meta) ? meta.icon : null,
 		contentUrl,
 	);
+	const resolvedImage = resolveMediaRef(
+		isRecord(meta) ? meta.image : null,
+		contentUrl,
+	);
 	const imageUrl =
-		resolveMediaRef(isRecord(meta) ? meta.image : null, contentUrl) ??
-		iconUrl ??
+		(isSharePreviewImage(resolvedImage) ? resolvedImage : null) ??
+		(isSharePreviewImage(iconUrl) ? iconUrl : null) ??
 		defaultOgImage(options?.origin);
 	const path =
 		options?.path ??
