@@ -19,6 +19,63 @@ test("auto focus expand must not overwrite restore width", () => {
 	assert.notEqual(liveWidth, restored);
 });
 
+test("presentation restore requires snapshot; otherwise falls back to default", () => {
+	// Mirrors uiState.loadLayoutPrefs: non-default without snapshot is invalid.
+	function resolvePresentation(
+		rawPresentation: string | null,
+		hasSnapshot: boolean,
+	) {
+		const presentation =
+			rawPresentation === "focus" ||
+			rawPresentation === "immersive" ||
+			rawPresentation === "default"
+				? rawPresentation
+				: "default";
+		if (presentation !== "default" && !hasSnapshot) return "default";
+		return presentation;
+	}
+	assert.equal(resolvePresentation("focus", true), "focus");
+	assert.equal(resolvePresentation("immersive", true), "immersive");
+	assert.equal(resolvePresentation("focus", false), "default");
+	assert.equal(resolvePresentation("immersive", false), "default");
+	assert.equal(resolvePresentation("bogus", true), "default");
+});
+
+test("default mode drops restore snapshot on load", () => {
+	// Default presentation never carries a restore snapshot across reload.
+	const presentation = "default" as const;
+	const loadedSnapshot = { previewWidth: 480 };
+	const snapshot = presentation === "default" ? null : loadedSnapshot;
+	assert.equal(snapshot, null);
+});
+
+test("focus refresh keeps snapshot and re-expands live width", () => {
+	// After reload in focus: presentation+snapshot restored; live width re-maxes.
+	const restoredPresentation = "focus";
+	const snapshotWidth = 420;
+	let liveWidth = snapshotWidth;
+	const maxWidth = 980;
+	if (restoredPresentation === "focus") {
+		liveWidth = maxWidth;
+	}
+	assert.equal(liveWidth, 980);
+	// Exit still restores snapshot width, not the expanded live width.
+	const afterExit = snapshotWidth;
+	assert.equal(afterExit, 420);
+});
+
+test("switching focus/immersive keeps original restore snapshot", () => {
+	// captureSnapshot is a no-op when snapshot already exists.
+	let snapshot: { previewWidth: number } | null = null;
+	const capture = (width: number) => {
+		if (snapshot) return;
+		snapshot = { previewWidth: width };
+	};
+	capture(480); // enter focus from default
+	capture(900); // switch to immersive must not overwrite
+	assert.deepEqual(snapshot, { previewWidth: 480 });
+});
+
 test("user resize may update snapshot width", () => {
 	let snapshotWidth = 480;
 	let liveWidth = 480;

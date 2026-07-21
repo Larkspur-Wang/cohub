@@ -648,6 +648,14 @@ $effect(() => {
 	previewLayout.handleCompactChange(isMobile);
 });
 
+// Restore focus/immersive geometry after space-scoped layout prefs load.
+// Depend on presentation (not snapshot) so in-mode snapshot width edits don't re-expand.
+$effect(() => {
+	const currentSpaceId = spaceId;
+	void uiState.workspacePresentation;
+	void previewLayout.syncFromPrefs(currentSpaceId);
+});
+
 let appliedRouteFileKey = "";
 let appliedFsSourceKey: string | null = null;
 const spacePresence = createSpacePresenceController(() => spaceId);
