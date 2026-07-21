@@ -1,11 +1,12 @@
 import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
-import { COHUB_TASKS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { createLogger } from "@cohub/infra/logging";
 import { config } from "./config.js";
+import { redisCommandClient } from "./redis.js";
 
 const logger = createLogger({ serviceName: "cohub-worker" });
 
-const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
+const systemQueue = createBullmqQueue(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-worker-space-hooks",
 });
@@ -20,12 +21,13 @@ export function enqueueSpaceHookFromEvent(input: {
 }) {
   return maybeEnqueueSpaceHookTask({
     event: input,
-    enqueue: (name, payload, options) => taskQueue.add(name, payload, {
+    redis: redisCommandClient,
+    enqueue: (name, payload, options) => systemQueue.add(name, payload, {
       ...defaultJobRetention,
       ...options,
     }),
   }).catch((error) => {
-    logger.warn("[SpaceHooks] failed to enqueue space_hook task", {
+    logger.warn("[SpaceHooks] failed to enqueue space_hook.dispatch", {
       type: input.type,
       spaceId: input.spaceId,
       error: error instanceof Error ? error.message : String(error),

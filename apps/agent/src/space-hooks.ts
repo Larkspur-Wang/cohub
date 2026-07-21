@@ -1,29 +1,39 @@
 import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
-import { COHUB_TASKS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 
-const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
+const systemQueue = createBullmqQueue(COHUB_SYSTEM_QUEUE, {
   redisUrl: env.BULLMQ_REDIS_URL,
   telemetryServiceName: "cohub-agent-space-hooks",
 });
 
-export function enqueueSpaceHookFromEvent(input: {
-  id?: string | null;
-  type: string;
-  timestamp?: number;
-  spaceId?: string | null;
-  sessionId?: string | null;
-  payload?: Record<string, unknown> | null;
-}) {
+type RedisLike = {
+  get(key: string): Promise<string | null>;
+  del(...keys: string[]): Promise<unknown>;
+};
+
+export function enqueueSpaceHookFromEvent(
+  input: {
+    id?: string | null;
+    type: string;
+    timestamp?: number;
+    spaceId?: string | null;
+    sessionId?: string | null;
+    payload?: Record<string, unknown> | null;
+  },
+  /** App Redis for empty-hook gate. Passed by caller to avoid circular imports. */
+  redis?: RedisLike | null,
+) {
   return maybeEnqueueSpaceHookTask({
     event: input,
-    enqueue: (name, payload, options) => taskQueue.add(name, payload, {
+    redis: redis ?? null,
+    enqueue: (name, payload, options) => systemQueue.add(name, payload, {
       ...defaultJobRetention,
       ...options,
     }),
   }).catch((error) => {
-    logger.warn("[SpaceHooks] failed to enqueue space_hook task", {
+    logger.warn("[SpaceHooks] failed to enqueue space_hook.dispatch", {
       type: input.type,
       spaceId: input.spaceId,
       error: error instanceof Error ? error.message : String(error),

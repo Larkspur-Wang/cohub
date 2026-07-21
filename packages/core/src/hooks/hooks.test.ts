@@ -10,6 +10,7 @@ import {
   buildSpaceHookPromptText,
   mergeSpaceHookExecutionEnv,
   parseSpaceHookDefinition,
+  partitionSpaceHooksForEvent,
   resolveSpaceHooksCacheTtlSec,
   spaceHookMatchesEvent,
 } from "./index.js";
@@ -314,6 +315,43 @@ run: echo ok
   );
 });
 
+test("partitionSpaceHooksForEvent splits matched and skipped", () => {
+  const fsHook = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: space.fs.changed
+  paths:
+    - src/**
+run: echo fs
+`,
+    ".cohub/hooks/fs.yml",
+  );
+  const checkpointHook = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: checkpoint.created
+run: echo cp
+`,
+    ".cohub/hooks/cp.yml",
+  );
+  const { matched, skipped } = partitionSpaceHooksForEvent(
+    [fsHook, checkpointHook],
+    {
+      id: "evt-1",
+      type: "checkpoint.created",
+      timestamp: Date.now(),
+      spaceId: "space-1",
+      payload: {},
+    },
+  );
+  assert.deepEqual(matched.map((item) => item.path), [".cohub/hooks/cp.yml"]);
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0]?.path, ".cohub/hooks/fs.yml");
+  assert.equal(skipped[0]?.reason, "event_mismatch");
+});
+
 test("buildHookRunCommand only wraps the user script", () => {
   assert.equal(buildHookRunCommand("npm test"), "set -euo pipefail\nnpm test");
   assert.equal(buildHookRunCommand("npm test").includes("COHUB_HOOK_EVENT_FILE"), false);
@@ -434,10 +472,10 @@ test("buildSpaceHookEnv summarizes fs changes without resync/truncated flags", (
   assert.equal(emptyFsEnv.COHUB_HOOK_FS_KINDS, "");
 });
 
-test("resolveSpaceHooksCacheTtlSec keeps positive cache long and empty cache short", () => {
+test("resolveSpaceHooksCacheTtlSec uses the same TTL for positive and empty caches", () => {
   assert.equal(resolveSpaceHooksCacheTtlSec(3), SPACE_HOOKS_CACHE_TTL_SEC);
   assert.equal(resolveSpaceHooksCacheTtlSec(0), SPACE_HOOKS_EMPTY_CACHE_TTL_SEC);
-  assert.equal(SPACE_HOOKS_EMPTY_CACHE_TTL_SEC < SPACE_HOOKS_CACHE_TTL_SEC, true);
+  assert.equal(SPACE_HOOKS_EMPTY_CACHE_TTL_SEC, SPACE_HOOKS_CACHE_TTL_SEC);
 });
 
 test("buildSpaceHookPromptText only mirrors present context fields", () => {

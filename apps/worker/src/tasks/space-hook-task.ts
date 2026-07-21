@@ -12,11 +12,8 @@ import {
   buildHookRunCommand,
   buildSpaceHookEnv,
   buildSpaceHookPromptText,
-  invalidateSpaceHooksCache,
   loadSpaceHookDefinitions,
   mergeSpaceHookExecutionEnv,
-  shouldInvalidateSpaceHooksCache,
-  spaceHookMatchesEvent,
   type SpaceHookDefinition,
   type SpaceHookRunResult,
 } from "@cohub/core/hooks";
@@ -24,7 +21,7 @@ import { SPACE_HOOK_TASK_TYPE, type SpaceHookEventEnvelope } from "@cohub/protoc
 import type { TaskPayload } from "@cohub/protocol/task";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
-import { spaceSessions, spaces, taskRuns } from "@cohub/db";
+import { spaceSessions, taskRuns } from "@cohub/db";
 import { assignLabelsToSession, assignSessionSourceSystemLabel } from "@cohub/core/labels";
 import { createLogger } from "@cohub/infra/logging";
 import { config } from "../config.js";
@@ -285,26 +282,6 @@ async function runCommandHook(input: {
   }
 }
 
-function collectChangedPaths(payload: Record<string, unknown>) {
-  const changes = Array.isArray(payload.changes) ? payload.changes : [];
-  const paths: string[] = [];
-  for (const change of changes) {
-    if (!isRecord(change)) continue;
-    if (typeof change.path === "string" && change.path.trim()) paths.push(change.path);
-    if (typeof change.oldPath === "string" && change.oldPath.trim()) paths.push(change.oldPath);
-  }
-  return paths;
-}
-
-async function resolveSpaceOwnerUserId(spaceId: string) {
-  const [space] = await db
-    .select({ userUuid: spaces.userUuid })
-    .from(spaces)
-    .where(eq(spaces.id, spaceId))
-    .limit(1);
-  return space?.userUuid?.trim() || null;
-}
-
 async function resolveTaskRunRecordId(jobId: string) {
   const [run] = await db
     .select({ id: taskRuns.id })
@@ -314,13 +291,19 @@ async function resolveTaskRunRecordId(jobId: string) {
   return run?.id ?? null;
 }
 
-async function updateTaskRunOwner(jobId: string, userId: string) {
-  await db.update(taskRuns).set({
-    userUuid: userId,
-    updatedAt: new Date(),
-  }).where(eq(taskRuns.jobId, jobId)).catch(() => undefined);
+function parseMatchedPaths(data: Record<string, unknown>): string[] | null {
+  if (!Array.isArray(data.matchedPaths)) return null;
+  const paths = data.matchedPaths
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .map((value) => value.trim());
+  return paths.length > 0 ? paths : [];
 }
 
+/**
+ * User-visible execution task.
+ * Only enqueued by space_hook.dispatch after at least one hook matched.
+ * Does not re-match the whole event set — runs the matched paths from dispatch.
+ */
 registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
@@ -329,59 +312,62 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
   const data = isRecord(payload.data) ? payload.data : {};
   const event = parseEvent(data);
   const eventActorUserId = asString(data.eventActorUserId);
+  const ownerUserId = asString(payload.userId);
   const jobId = getJobId(job);
   // Prefer the DB task_runs.id so clients can resolve via GET /api/tasks/:id.
   const taskRunId = context?.taskRunId
     ?? await resolveTaskRunRecordId(jobId)
     ?? jobId;
 
-  if (event.type === "space.fs.changed") {
-    const paths = collectChangedPaths(event.payload);
-    if (shouldInvalidateSpaceHooksCache(paths)) {
-      await invalidateSpaceHooksCache({ spaceId, redis: redisCommandClient });
-    }
-  }
-
-  const ownerUserId = await resolveSpaceOwnerUserId(spaceId);
   if (!ownerUserId) {
     return {
       eventId: event.id,
       eventType: event.type,
       hooks: [] as SpaceHookRunResult[],
       definitionsCount: 0,
+      matchedCount: 0,
       skipped: "missing_space_owner",
     };
   }
 
-  await updateTaskRunOwner(jobId, ownerUserId);
+  const matchedPaths = parseMatchedPaths(data);
+  if (!matchedPaths || matchedPaths.length === 0) {
+    return {
+      eventId: event.id,
+      eventType: event.type,
+      hooks: [] as SpaceHookRunResult[],
+      definitionsCount: 0,
+      matchedCount: 0,
+      skipped: "no_matched_paths",
+    };
+  }
 
   const loaded = await loadSpaceHookDefinitions({
     spaceId,
     workspaceDir: getSpaceWorkspaceDir(spaceId),
     redis: redisCommandClient,
   });
-  const definitions = loaded.definitions;
+  const byPath = new Map(loaded.definitions.map((definition) => [definition.path, definition]));
 
-  const matched: SpaceHookDefinition[] = [];
-  const skipped: SpaceHookRunResult[] = [];
-  for (const definition of definitions) {
-    const match = spaceHookMatchesEvent(definition, event);
-    if (match.matched) {
-      matched.push(definition);
+  const toRun: SpaceHookDefinition[] = [];
+  const missing: SpaceHookRunResult[] = [];
+  for (const path of matchedPaths) {
+    const definition = byPath.get(path);
+    if (!definition) {
+      missing.push({
+        path,
+        status: "failed",
+        error: "hook definition no longer available",
+      });
       continue;
     }
-    skipped.push({
-      path: definition.path,
-      action: definition.action,
-      status: "skipped",
-      reason: match.reason ?? "not_matched",
-    });
+    toRun.push(definition);
   }
 
   // Per-hook try/catch already isolates failures; never throw here so BullMQ
   // does not retry and re-execute successful sibling hooks.
   const executed = await Promise.all(
-    matched.map((definition) => {
+    toRun.map((definition) => {
       const hookEnv = buildSpaceHookEnv({
         event,
         hookPath: definition.path,
@@ -410,7 +396,7 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     }),
   );
 
-  const hooks = [...skipped, ...executed];
+  const hooks = [...missing, ...executed];
   const failed = hooks.filter((item) => item.status === "failed");
   if (failed.length > 0) {
     logger.warn("[SpaceHooks] hook failures recorded in result", {
@@ -425,7 +411,8 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     eventId: event.id,
     eventType: event.type,
     hooks,
-    definitionsCount: definitions.length,
+    definitionsCount: loaded.definitions.length,
+    matchedCount: matchedPaths.length,
     cache: loaded.cache,
   };
 });

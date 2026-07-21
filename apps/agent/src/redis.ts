@@ -585,7 +585,7 @@ export async function publishRealtimeEnvelope(input: {
         spaceId: input.spaceId,
         sessionId: input.sessionId ?? null,
         payload: input.payload,
-      })
+      }, redis)
     : Promise.resolve(null);
 
   await Promise.all([

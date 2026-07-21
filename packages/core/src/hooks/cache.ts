@@ -17,11 +17,18 @@ export type LoadSpaceHookDefinitionsResult = {
   cache: "hit" | "miss";
 };
 
+export type PeekSpaceHookDefinitionsResult =
+  | { status: "hit"; definitions: SpaceHookDefinition[] }
+  | { status: "miss" };
+
 type RedisLike = {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, mode: "EX", ttl: number): Promise<unknown>;
   del(...keys: string[]): Promise<unknown>;
 };
+
+export type SpaceHooksCacheReader = Pick<RedisLike, "get">;
+export type SpaceHooksCacheWriter = Pick<RedisLike, "del">;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -79,6 +86,21 @@ export function resolveSpaceHooksCacheTtlSec(definitionsCount: number): number {
   return definitionsCount > 0 ? SPACE_HOOKS_CACHE_TTL_SEC : SPACE_HOOKS_EMPTY_CACHE_TTL_SEC;
 }
 
+/**
+ * Read-only cache peek for publishers. Never loads from disk.
+ * Used to skip dispatch enqueue when a space is known to have zero hooks.
+ */
+export async function peekSpaceHookDefinitions(input: {
+  spaceId: string;
+  redis: SpaceHooksCacheReader;
+}): Promise<PeekSpaceHookDefinitionsResult> {
+  const cached = await input.redis.get(getSpaceHooksRedisKey(input.spaceId)).catch(() => null);
+  if (!cached) return { status: "miss" };
+  const parsed = parseCachedSpaceHooksConfig(cached);
+  if (!parsed) return { status: "miss" };
+  return { status: "hit", definitions: parsed.definitions };
+}
+
 export async function loadSpaceHookDefinitions(input: {
   spaceId: string;
   workspaceDir: string;
@@ -111,7 +133,7 @@ export async function loadSpaceHookDefinitions(input: {
 
 export async function invalidateSpaceHooksCache(input: {
   spaceId: string;
-  redis: Pick<RedisLike, "del">;
+  redis: SpaceHooksCacheWriter;
 }) {
   await input.redis.del(getSpaceHooksRedisKey(input.spaceId)).catch(() => undefined);
 }

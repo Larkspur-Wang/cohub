@@ -1,10 +1,17 @@
 export const SPACE_HOOKS_DIR = ".cohub/hooks";
 export const SPACE_HOOK_SCHEMA = "cohub.space-hook.v1";
+/** User-visible execution task (only created when at least one hook matches). */
 export const SPACE_HOOK_TASK_TYPE = "space_hook";
+/** Internal system job: load/match definitions; no task_runs row. */
+export const SPACE_HOOK_DISPATCH_JOB = "space_hook.dispatch";
 /** Positive cache TTL when at least one hook definition was loaded. */
 export const SPACE_HOOKS_CACHE_TTL_SEC = 5 * 60;
-/** Negative cache TTL for empty definitions — still cuts readdir IO, heals PVC lag quickly. */
-export const SPACE_HOOKS_EMPTY_CACHE_TTL_SEC = 30;
+/**
+ * Negative cache TTL for empty definitions.
+ * Keep equal to the positive TTL: empty spaces skip dispatch entirely,
+ * and recovery is driven by invalidate on `.cohub/hooks/**` changes.
+ */
+export const SPACE_HOOKS_EMPTY_CACHE_TTL_SEC = SPACE_HOOKS_CACHE_TTL_SEC;
 
 export const SPACE_HOOKABLE_EVENTS = [
   "space.fs.changed",

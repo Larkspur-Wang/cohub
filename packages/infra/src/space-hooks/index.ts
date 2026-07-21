@@ -1,24 +1,38 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  getSpaceHooksRedisKey,
   isSpaceHookableEvent,
+  SPACE_HOOK_DISPATCH_JOB,
   SPACE_HOOK_TASK_TYPE,
+  SPACE_HOOKS_DIR,
   type SpaceHookEventEnvelope,
 } from "@cohub/protocol";
 
 export type { SpaceHookEventEnvelope };
 
+type DispatchPayload = {
+  event: SpaceHookEventEnvelope;
+  eventActorUserId: string | null;
+};
+
 type TaskPayloadLike = {
   type: string;
   spaceId?: string;
   sessionId?: string;
+  userId?: string;
   data?: Record<string, unknown>;
 };
 
-type TaskEnqueueOptions = {
+type EnqueueOptions = {
   [key: string]: unknown;
   jobId?: string;
   delay?: number;
   scheduledAt?: Date | null;
+};
+
+type RedisLike = {
+  get(key: string): Promise<string | null>;
+  del(...keys: string[]): Promise<unknown>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -38,6 +52,64 @@ function resolveEventActorUserId(payload: Record<string, unknown>) {
     ?? null;
 }
 
+function collectChangedPaths(payload: Record<string, unknown>) {
+  const changes = Array.isArray(payload.changes) ? payload.changes : [];
+  const paths: string[] = [];
+  for (const change of changes) {
+    if (!isRecord(change)) continue;
+    if (typeof change.path === "string" && change.path.trim()) paths.push(change.path);
+    if (typeof change.oldPath === "string" && change.oldPath.trim()) paths.push(change.oldPath);
+  }
+  return paths;
+}
+
+function touchesSpaceHooksDir(paths: string[]): boolean {
+  return paths.some((path) => {
+    const normalized = path.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/^\/+/, "");
+    return normalized === SPACE_HOOKS_DIR || normalized.startsWith(`${SPACE_HOOKS_DIR}/`);
+  });
+}
+
+/**
+ * Lightweight cache gate for publishers (no core dependency).
+ * - `empty`: cached and definitions.length === 0 → skip dispatch
+ * - `present` | `unknown`: proceed to enqueue dispatch
+ */
+async function resolveHooksCacheGate(
+  redis: RedisLike,
+  spaceId: string,
+): Promise<"empty" | "present" | "unknown"> {
+  const raw = await redis.get(getSpaceHooksRedisKey(spaceId)).catch(() => null);
+  if (!raw) return "unknown";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.definitions)) {
+      return "unknown";
+    }
+    return parsed.definitions.length === 0 ? "empty" : "present";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function invalidateSpaceHooksCache(redis: RedisLike, spaceId: string) {
+  await redis.del(getSpaceHooksRedisKey(spaceId)).catch(() => undefined);
+}
+
+/** Stable id for the internal dispatch job (system queue, no task_runs). */
+export function buildSpaceHookDispatchJobId(input: {
+  spaceId: string;
+  eventId: string;
+  eventType: string;
+}) {
+  const digest = createHash("sha1")
+    .update(`${input.spaceId}:${input.eventType}:${input.eventId}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `space-hook-dispatch-${digest}`;
+}
+
+/** Stable id for the user-visible execution task (task_runs / cohub-tasks). */
 export function buildSpaceHookTaskId(input: {
   spaceId: string;
   eventId: string;
@@ -68,9 +140,18 @@ export function isReentrantSpaceHookEvent(input: {
   return asString(context?.kind) === "space_hook";
 }
 
+function isDuplicateJobError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /already exists|duplicat|JobId/i.test(message);
+}
+
 /**
- * Lightweight fan-out helper used by event publishers.
- * Only filters by hookable event type; all rigorous work happens in the job.
+ * Fan-out helper for event publishers.
+ *
+ * - Filters non-hookable / re-entrant events
+ * - Invalidates definition cache when `.cohub/hooks/**` changes
+ * - Skips enqueue when Redis cache confirms the space has zero hooks
+ * - Enqueues an internal `space_hook.dispatch` system job (never writes task_runs)
  */
 export async function maybeEnqueueSpaceHookTask(input: {
   event: {
@@ -81,7 +162,10 @@ export async function maybeEnqueueSpaceHookTask(input: {
     sessionId?: string | null;
     payload?: Record<string, unknown> | null;
   };
-  enqueue: (name: string, payload: TaskPayloadLike, options: TaskEnqueueOptions) => Promise<unknown>;
+  /** Enqueue onto the system queue (`space_hook.dispatch`). */
+  enqueue: (name: string, payload: DispatchPayload, options: EnqueueOptions) => Promise<unknown>;
+  /** App Redis — optional; without it the empty-cache gate is skipped. */
+  redis?: RedisLike | null;
 }) {
   const spaceId = asString(input.event.spaceId);
   const type = asString(input.event.type);
@@ -99,19 +183,26 @@ export async function maybeEnqueueSpaceHookTask(input: {
     payload,
   };
 
-  const taskPayload: TaskPayloadLike = {
-    type: SPACE_HOOK_TASK_TYPE,
-    spaceId,
-    sessionId: event.sessionId ?? undefined,
-    data: {
-      event,
-      eventActorUserId: resolveEventActorUserId(payload),
-    },
+  if (input.redis && type === "space.fs.changed") {
+    const paths = collectChangedPaths(payload);
+    if (touchesSpaceHooksDir(paths)) {
+      await invalidateSpaceHooksCache(input.redis, spaceId);
+    }
+  }
+
+  if (input.redis) {
+    const gate = await resolveHooksCacheGate(input.redis, spaceId);
+    if (gate === "empty") return null;
+  }
+
+  const dispatchPayload: DispatchPayload = {
+    event,
+    eventActorUserId: resolveEventActorUserId(payload),
   };
 
   try {
-    const job = await input.enqueue(SPACE_HOOK_TASK_TYPE, taskPayload, {
-      jobId: buildSpaceHookTaskId({
+    const job = await input.enqueue(SPACE_HOOK_DISPATCH_JOB, dispatchPayload, {
+      jobId: buildSpaceHookDispatchJobId({
         spaceId,
         eventId: event.id,
         eventType: event.type,
@@ -120,8 +211,27 @@ export async function maybeEnqueueSpaceHookTask(input: {
     return { job, event };
   } catch (error) {
     // Duplicate jobId is expected for retries/replays of the same event.
-    const message = error instanceof Error ? error.message : String(error);
-    if (/already exists|duplicat|JobId/i.test(message)) return null;
+    if (isDuplicateJobError(error)) return null;
     throw error;
   }
+}
+
+/** Build the user-visible execution task payload after dispatch match. */
+export function buildSpaceHookExecutePayload(input: {
+  event: SpaceHookEventEnvelope;
+  eventActorUserId: string | null;
+  ownerUserId: string;
+  matchedPaths: string[];
+}): TaskPayloadLike {
+  return {
+    type: SPACE_HOOK_TASK_TYPE,
+    spaceId: input.event.spaceId,
+    sessionId: input.event.sessionId ?? undefined,
+    userId: input.ownerUserId,
+    data: {
+      event: input.event,
+      eventActorUserId: input.eventActorUserId,
+      matchedPaths: input.matchedPaths,
+    },
+  };
 }

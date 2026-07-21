@@ -56,10 +56,27 @@ export type SpaceHookTaskResult = {
   hooks: SpaceHookRunResult[];
   /** Number of parsed hook definitions considered for this event (cache or disk). */
   definitionsCount?: number;
+  /** Number of definitions that matched the event (execution task only). */
+  matchedCount?: number;
   /** Whether hook definitions came from Redis cache or a disk load. */
   cache?: "hit" | "miss";
   /** Present when the task exits before matching hooks. */
   skipped?: string;
+};
+
+/** Internal dispatch job result — never written to task_runs. */
+export type SpaceHookDispatchResult = {
+  eventId: string;
+  eventType: string;
+  spaceId: string;
+  definitionsCount: number;
+  matchedCount: number;
+  cache: "hit" | "miss";
+  skipped?:
+    | "empty_definitions"
+    | "no_match"
+    | "missing_space_owner";
+  taskRunId?: string;
 };
 
 export type CachedSpaceHooksConfig = {

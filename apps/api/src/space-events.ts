@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
-import { COHUB_TASKS_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import { enqueueFsCdnWarmForChanges } from "./space-fs-cdn-prewarm.js";
 import { dispatchRealtimeEvent } from "./channels.js";
 import type { RealtimeRoom, RealtimeServerEvent } from "@cohub/protocol/realtime";
 import { createLogger } from "@cohub/infra/logging";
+import { redisCommandClient } from "./redis.js";
 
 const logger = createLogger({ serviceName: "cohub-api" });
 
-const taskQueue = createBullmqQueue(COHUB_TASKS_QUEUE, {
+const systemQueue = createBullmqQueue(COHUB_SYSTEM_QUEUE, {
   redisUrl: config.bullmqRedisUrl,
   telemetryServiceName: "cohub-api-space-hooks",
 });
@@ -25,12 +26,13 @@ function enqueueSpaceHookFromEvent(input: {
 }) {
   return maybeEnqueueSpaceHookTask({
     event: input,
-    enqueue: (name, payload, options) => taskQueue.add(name, payload, {
+    redis: redisCommandClient,
+    enqueue: (name, payload, options) => systemQueue.add(name, payload, {
       ...defaultJobRetention,
       ...options,
     }),
   }).catch((error) => {
-    logger.warn("[SpaceHooks] failed to enqueue space_hook task", {
+    logger.warn("[SpaceHooks] failed to enqueue space_hook.dispatch", {
       type: input.type,
       spaceId: input.spaceId,
       error: error instanceof Error ? error.message : String(error),

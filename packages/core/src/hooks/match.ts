@@ -132,3 +132,28 @@ export function spaceHookMatchesEvent(
 
   return { matched: true };
 }
+
+/** Partition definitions into matched vs skipped for a single event. */
+export function partitionSpaceHooksForEvent(
+  definitions: SpaceHookDefinition[],
+  event: SpaceHookEventEnvelope,
+): {
+  matched: SpaceHookDefinition[];
+  skipped: Array<{ path: string; action: SpaceHookDefinition["action"]; reason: string }>;
+} {
+  const matched: SpaceHookDefinition[] = [];
+  const skipped: Array<{ path: string; action: SpaceHookDefinition["action"]; reason: string }> = [];
+  for (const definition of definitions) {
+    const match = spaceHookMatchesEvent(definition, event);
+    if (match.matched) {
+      matched.push(definition);
+      continue;
+    }
+    skipped.push({
+      path: definition.path,
+      action: definition.action,
+      reason: match.reason ?? "not_matched",
+    });
+  }
+  return { matched, skipped };
+}
