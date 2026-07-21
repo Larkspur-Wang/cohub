@@ -537,6 +537,8 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 						runtimePhase: activeGenerationState.runtimePhase,
 						runtimeProvider: activeGenerationState.runtimeProvider,
 						runtimeModel: activeGenerationState.runtimeModel,
+						lastPatchAt: activeGenerationState.lastPatchAt ?? null,
+						startedAt: activeGenerationState.startedAt ?? null,
 					}
 				: null;
 		if (state.turns.length === 0 && !streaming) return EMPTY_TIMELINE;

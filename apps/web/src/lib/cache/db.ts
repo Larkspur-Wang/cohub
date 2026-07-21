@@ -127,6 +127,7 @@ export type SessionGenerationSnapshotCacheRecord = {
 	runtimeModel: string | null;
 	startedAt: number | null;
 	lastEventAt: number | null;
+	lastPatchAt: number | null;
 	createdAt: number;
 	updatedAt: number;
 	expiresAt: number;

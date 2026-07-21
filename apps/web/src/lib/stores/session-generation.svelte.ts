@@ -54,6 +54,13 @@ export type SessionGenerationState = {
 	runtimeProvider: string | null;
 	runtimeModel: string | null;
 	finalizedPreview: boolean;
+	/**
+	 * Server-side emit time (epoch ms) of the latest content chunk, taken from
+	 * the realtime event envelope. Used to stamp the live streaming preview with
+	 * a real time that advances with the stream yet freezes between chunks,
+	 * instead of the client's ever-advancing render clock.
+	 */
+	lastPatchAt: number | null;
 };
 
 const PERSIST_WRITE_DEBOUNCE_MS = 250;
@@ -88,6 +95,7 @@ const createIdleState = (sessionId: string): SessionGenerationState => ({
 	runtimeProvider: null,
 	runtimeModel: null,
 	finalizedPreview: false,
+	lastPatchAt: null,
 });
 
 function sanitizeError(error: string | null | undefined) {
@@ -161,6 +169,20 @@ function isTurnSwitch(
 	return Boolean(currentTurnId && nextTurnId && currentTurnId !== nextTurnId);
 }
 
+function isValidTimestamp(value: number | null | undefined): value is number {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Latest of two chunk emit times; out-of-order safe. */
+function latestPatchAt(
+	current: number | null | undefined,
+	incoming: number | null | undefined,
+): number | null {
+	if (!isValidTimestamp(incoming)) return current ?? null;
+	if (!isValidTimestamp(current)) return incoming;
+	return Math.max(current, incoming);
+}
+
 function parseSnapshotState(
 	record: Awaited<ReturnType<typeof sessionGenerationSnapshotsRepo.get>>,
 ): SessionGenerationState | null {
@@ -202,6 +224,7 @@ function parseSnapshotState(
 		runtimeProvider: record.runtimeProvider,
 		runtimeModel: record.runtimeModel,
 		finalizedPreview: record.finalizedPreview,
+		lastPatchAt: record.lastPatchAt ?? null,
 	};
 }
 
@@ -228,6 +251,7 @@ function toSnapshotInput(state: SessionGenerationState) {
 		runtimeModel: state.runtimeModel,
 		startedAt: state.startedAt ?? null,
 		lastEventAt: state.lastEventAt ?? null,
+		lastPatchAt: state.lastPatchAt ?? null,
 		updatedAt: now,
 	};
 }
@@ -372,6 +396,7 @@ class SessionGenerationStore {
 			runtimeProvider: null,
 			runtimeModel: null,
 			finalizedPreview: false,
+			lastPatchAt: null,
 		});
 	}
 
@@ -417,6 +442,7 @@ class SessionGenerationStore {
 			runtimeProvider: null,
 			runtimeModel: null,
 			finalizedPreview: input?.finalizedPreview ?? false,
+			lastPatchAt: null,
 		});
 	}
 
@@ -433,6 +459,7 @@ class SessionGenerationStore {
 			patchSeq?: number;
 			turnId?: string | null;
 			finalizedPreview?: boolean;
+			patchAt?: number | null;
 		},
 	) {
 		const current = this.get(sessionId) ?? createIdleState(sessionId);
@@ -486,6 +513,10 @@ class SessionGenerationStore {
 			runtimeProvider: null,
 			runtimeModel: null,
 			finalizedPreview: input.finalizedPreview ?? false,
+			lastPatchAt: latestPatchAt(
+				turnSwitched ? null : current.lastPatchAt,
+				input.patchAt,
+			),
 		});
 	}
 
@@ -622,6 +653,7 @@ class SessionGenerationStore {
 				(shouldResetResiduals ? null : current.runtimeProvider),
 			runtimeModel:
 				input.model ?? (shouldResetResiduals ? null : current.runtimeModel),
+			lastPatchAt: shouldResetResiduals ? null : (current.lastPatchAt ?? null),
 		});
 	}
 

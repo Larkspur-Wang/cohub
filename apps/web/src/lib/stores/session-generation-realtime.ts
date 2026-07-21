@@ -297,6 +297,7 @@ function applyGenerationState(
 		truncatedStart: shouldMarkTruncatedStart(sessionId, event),
 		patchSeq: event.state.patchSeq,
 		turnId: event.state.turnId,
+		patchAt: event.rawEvent?.timestamp ?? null,
 	});
 }
 
@@ -332,6 +333,7 @@ export function applyGenerationStreamSnapshot(
 			model: string | null;
 			at: string;
 		} | null;
+		updatedAt?: number | null;
 	},
 ) {
 	const current = sessionGenerationStore.get(sessionId);
@@ -419,6 +421,7 @@ export function applyGenerationStreamSnapshot(
 		truncatedStart: false,
 		patchSeq: input.seq,
 		turnId: resolvedTurnId,
+		patchAt: input.updatedAt ?? null,
 	});
 	if (shouldArmWaiting && input.lifecycle) {
 		sessionGenerationStore.markRuntimePhase(sessionId, {
