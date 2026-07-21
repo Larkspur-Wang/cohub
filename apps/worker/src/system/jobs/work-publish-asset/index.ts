@@ -427,6 +427,8 @@ function extractPageMetaFromHtml(
     description: page.description,
     icon: keepSiteAssetRef(page.icon, available),
     image: keepSiteAssetRef(page.image, available),
+    lang: page.lang,
+    themeColor: page.themeColor,
     sourcePath,
   };
 }

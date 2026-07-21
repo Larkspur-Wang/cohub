@@ -66,6 +66,8 @@ const extracted = materializeHtmlPageMeta(
     description: "Hello",
     icon: "favicon.ico",
     image: "https://img.example/cover.png",
+    lang: "zh-CN",
+    themeColor: "#c76b3a",
     sourcePath: "index.html",
   },
   "w/space/demo/abc/index.html",
@@ -74,6 +76,8 @@ const extracted = materializeHtmlPageMeta(
 );
 assert.equal(extracted.icon, "https://cdn.example/w/space/demo/abc/favicon.ico");
 assert.equal(extracted.image, "https://img.example/cover.png");
+assert.equal(extracted.lang, "zh-CN");
+assert.equal(extracted.themeColor, "#c76b3a");
 
 // Existing effective fields win; extract only fills blanks and always refreshes snapshot.
 const merged = mergeWorkPageMeta(

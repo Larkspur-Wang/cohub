@@ -76,7 +76,7 @@ export const GET: RequestHandler = async ({ fetch, url }) => {
 		id: startUrl,
 		start_url: startUrl,
 		scope: "/",
-		theme_color: THEME_COLOR,
+		theme_color: meta.themeColor || THEME_COLOR,
 		background_color: BACKGROUND_COLOR,
 		display: "standalone",
 		icons,

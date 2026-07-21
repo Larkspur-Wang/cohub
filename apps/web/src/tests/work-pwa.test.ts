@@ -132,6 +132,23 @@ test("buildWorkPageMeta resolves root-relative icons against content URL", () =>
 	assert.equal(page.twitterCard, "summary");
 });
 
+test("buildWorkPageMeta surfaces lang and theme-color from work meta", () => {
+	const page = buildWorkPageMeta(
+		detail({
+			meta: {
+				title: "时光笔记",
+				lang: "zh-CN",
+				themeColor: "#c76b3a",
+			},
+		}),
+		{ origin: "https://dev.cohub.run", path: "/tzwm/20/w/h" },
+	);
+	assert.equal(page.lang, "zh-CN");
+	assert.equal(page.ogLocale, "zh_CN");
+	assert.equal(page.themeColor, "#c76b3a");
+	assert.match(page.jsonLd, /"inLanguage":"zh-CN"/);
+});
+
 test("buildWorkPageMeta keeps raster og:image and skips svg share images", () => {
 	const withPng = buildWorkPageMeta(
 		{

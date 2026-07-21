@@ -208,6 +208,8 @@ async function writeWorkAsset(input: {
           description: result.extracted.description,
           icon: result.extracted.icon,
           image: result.extracted.image,
+          lang: result.extracted.lang ?? null,
+          themeColor: result.extracted.themeColor ?? null,
           sourcePath: result.extracted.sourcePath,
         },
         result.assetKey,

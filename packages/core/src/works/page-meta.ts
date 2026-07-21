@@ -11,6 +11,8 @@ export type WorkPublishExtractedPageMeta = {
   description: string | null;
   icon: string | null;
   image: string | null;
+  lang: string | null;
+  themeColor: string | null;
   sourcePath: string;
 };
 
@@ -20,6 +22,8 @@ export type WorkPageFields = {
   description?: string;
   icon?: string;
   image?: string;
+  lang?: string;
+  themeColor?: string;
 };
 
 export type WorkPageMetaInput = Record<string, unknown> | null | undefined;
@@ -48,15 +52,26 @@ export function readWorkPageFields(meta: WorkPageMetaInput): {
   description: string | null;
   icon: string | null;
   image: string | null;
+  lang: string | null;
+  themeColor: string | null;
 } {
   if (!isRecord(meta)) {
-    return { title: null, description: null, icon: null, image: null };
+    return {
+      title: null,
+      description: null,
+      icon: null,
+      image: null,
+      lang: null,
+      themeColor: null,
+    };
   }
   return {
     title: cleanWorkMetaText(meta.title) ?? cleanWorkMetaText(meta.name),
     description: cleanWorkMetaText(meta.description, 300),
     icon: cleanWorkMetaText(meta.icon, 2048),
     image: cleanWorkMetaText(meta.image, 2048),
+    lang: cleanWorkMetaText(meta.lang, 32),
+    themeColor: cleanWorkMetaText(meta.themeColor, 64),
   };
 }
 
@@ -208,6 +223,8 @@ export function materializeHtmlPageMeta(
     description: cleanWorkMetaText(page.description, 300),
     icon: resolveWorkPageAssetRef(page.icon, assetKey, toPublicUrl),
     image: resolveWorkPageAssetRef(page.image, assetKey, toPublicUrl),
+    lang: cleanWorkMetaText(page.lang, 32),
+    themeColor: cleanWorkMetaText(page.themeColor, 64),
     sourcePath: page.sourcePath,
     extractedAt,
   };
@@ -249,6 +266,8 @@ export function mergeWorkPageMeta(
       description: extracted.description,
       icon: extracted.icon,
       image: extracted.image,
+      lang: extracted.lang ?? null,
+      themeColor: extracted.themeColor ?? null,
       sourcePath: extracted.sourcePath ?? null,
       extractedAt: extracted.extractedAt ?? new Date().toISOString(),
     };
@@ -263,6 +282,12 @@ export function mergeWorkPageMeta(
     );
     const nextIcon = preferExistingOrExtracted(meta.icon, extracted.icon, 8192);
     const nextImage = preferExistingOrExtracted(meta.image, extracted.image, 8192);
+    const nextLang = preferExistingOrExtractedText(meta.lang, extracted.lang, 32);
+    const nextThemeColor = preferExistingOrExtractedText(
+      meta.themeColor,
+      extracted.themeColor,
+      64,
+    );
 
     if (nextTitle) meta.title = nextTitle;
     else delete meta.title;
@@ -277,6 +302,12 @@ export function mergeWorkPageMeta(
 
     if (nextImage) meta.image = nextImage;
     else delete meta.image;
+
+    if (nextLang) meta.lang = nextLang;
+    else delete meta.lang;
+
+    if (nextThemeColor) meta.themeColor = nextThemeColor;
+    else delete meta.themeColor;
   }
   return Object.keys(meta).length ? meta : null;
 }

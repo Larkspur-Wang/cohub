@@ -6,6 +6,10 @@ export type HtmlPageMeta = {
   /** Site-relative path, root-absolute path, or absolute URL. */
   icon: string | null;
   image: string | null;
+  /** BCP 47 language tag from <html lang> or og:locale. */
+  lang: string | null;
+  /** CSS color from meta theme-color. */
+  themeColor: string | null;
 };
 
 const MAX_HTML_SCAN = 200_000;
@@ -103,12 +107,56 @@ const iconHref = (head: string): string | null => {
   return ranked[0]?.href ?? null;
 };
 
+/** Normalize free-form lang / og:locale into a short BCP 47-ish tag (e.g. zh-CN). */
+export function normalizeHtmlLang(value: string | null | undefined): string | null {
+  const raw = cleanText(value, 32);
+  if (!raw) return null;
+  // og:locale uses underscore; HTML lang uses hyphen.
+  const tag = raw.replace(/_/g, "-").replace(/\s+/g, "");
+  if (!/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(tag)) return null;
+  const parts = tag.split("-");
+  const normalized = parts
+    .map((part, index) => {
+      if (index === 0) return part.toLowerCase();
+      if (part.length === 4) return `${part[0]?.toUpperCase() ?? ""}${part.slice(1).toLowerCase()}`;
+      if (part.length === 2 || part.length === 3) return part.toUpperCase();
+      return part;
+    })
+    .join("-");
+  return normalized;
+}
+
+/** Convert HTML lang (zh-CN) to Open Graph locale (zh_CN). */
+export function htmlLangToOgLocale(lang: string | null | undefined): string | null {
+  const normalized = normalizeHtmlLang(lang);
+  if (!normalized) return null;
+  return normalized.replace(/-/g, "_");
+}
+
+const documentLang = (html: string): string | null => {
+  const slice = html.length > MAX_HTML_SCAN ? html.slice(0, MAX_HTML_SCAN) : html;
+  const match = slice.match(/<html\b[^>]*\blang\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i);
+  return normalizeHtmlLang(match?.[1] ?? match?.[2] ?? match?.[3] ?? null);
+};
+
+const themeColorValue = (head: string): string | null => {
+  const content = metaContent(head, ["theme-color"]);
+  if (!content) return null;
+  // Keep common CSS color tokens only (hex / rgb / named-ish).
+  if (content.length > 64) return null;
+  if (/[<>"']/.test(content)) return null;
+  return content;
+};
+
 /**
- * Extract title / description / icon / image from HTML without executing it.
+ * Extract title / description / icon / image / lang / theme-color from HTML without executing it.
  * Prefers document title and standard meta / link tags.
  */
 export function extractHtmlPageMeta(html: string): HtmlPageMeta {
   const head = headSection(html);
+  const lang =
+    documentLang(html) ??
+    normalizeHtmlLang(metaContent(head, ["og:locale", "language"]));
   return {
     title: firstTitle(head) ?? metaContent(head, ["og:title", "twitter:title"]),
     description: metaContent(head, [
@@ -118,6 +166,8 @@ export function extractHtmlPageMeta(html: string): HtmlPageMeta {
     ]),
     icon: iconHref(head),
     image: metaContent(head, ["og:image", "twitter:image", "og:image:url"]),
+    lang,
+    themeColor: themeColorValue(head),
   };
 }
 
@@ -175,4 +225,15 @@ export function fillIconFromSiteFiles(
     }
   }
   return meta;
+}
+
+export function emptyHtmlPageMeta(): HtmlPageMeta {
+  return {
+    title: null,
+    description: null,
+    icon: null,
+    image: null,
+    lang: null,
+    themeColor: null,
+  };
 }

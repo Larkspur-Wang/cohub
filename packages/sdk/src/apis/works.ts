@@ -16,13 +16,16 @@ export type WorkExtractedPageMeta = {
   description?: string | null;
   icon?: string | null;
   image?: string | null;
+  lang?: string | null;
+  themeColor?: string | null;
   sourcePath?: string | null;
   extractedAt?: string | null;
 };
 
 /**
  * Work presentation metadata.
- * `title` / `description` / `icon` / `image` power public page head, share cards, and lists.
+ * `title` / `description` / `icon` / `image` / `lang` / `themeColor`
+ * power public page head, share cards, and lists.
  */
 export type WorkMeta = Record<string, unknown> & {
   title?: string;
@@ -31,6 +34,10 @@ export type WorkMeta = Record<string, unknown> & {
   description?: string;
   icon?: string;
   image?: string;
+  /** BCP 47 language tag from the published page (e.g. zh-CN). */
+  lang?: string;
+  /** CSS color from meta theme-color. */
+  themeColor?: string;
   presentation?: WorkPresentationMeta;
   extracted?: WorkExtractedPageMeta;
   source?: RequestSource;

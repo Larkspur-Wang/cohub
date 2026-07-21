@@ -11,6 +11,26 @@ const MAX_NAME_LENGTH = 72;
 const MAX_SHORT_NAME_LENGTH = 24;
 const HOST_LABEL = "Cohub";
 
+function normalizeWorkLang(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	const tag = value.trim().replace(/_/g, "-").replace(/\s+/g, "");
+	if (!tag || !/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(tag)) return null;
+	const parts = tag.split("-");
+	return parts
+		.map((part, index) => {
+			if (index === 0) return part.toLowerCase();
+			if (part.length === 4)
+				return `${part[0]?.toUpperCase() ?? ""}${part.slice(1).toLowerCase()}`;
+			if (part.length === 2 || part.length === 3) return part.toUpperCase();
+			return part;
+		})
+		.join("-");
+}
+
+function workLangToOgLocale(lang: string | null): string | null {
+	return lang ? lang.replace(/-/g, "_") : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -169,6 +189,10 @@ export type WorkPageMeta = {
 	/** True when hideCohubBar (minimal host branding). */
 	minimalBranding: boolean;
 	twitterCard: "summary" | "summary_large_image";
+	/** BCP 47 language for <html lang> / inLanguage when known. */
+	lang: string | null;
+	ogLocale: string | null;
+	themeColor: string | null;
 	jsonLd: string;
 };
 
@@ -252,6 +276,15 @@ export function buildWorkPageMeta(
 	const origin = siteOrigin(options?.origin);
 	const authorName =
 		cleanText(owner?.displayName) ?? cleanText(owner?.username) ?? HOST_LABEL;
+	const lang =
+		(isRecord(meta) ? normalizeWorkLang(meta.lang) : null) ??
+		(isRecord(meta?.extracted) ? normalizeWorkLang(meta.extracted.lang) : null);
+	const ogLocale = workLangToOgLocale(lang);
+	const themeColor =
+		(isRecord(meta) ? cleanText(meta.themeColor, 64) : null) ??
+		(isRecord(meta?.extracted)
+			? cleanText(meta.extracted.themeColor, 64)
+			: null);
 	const graph = [
 		{
 			"@type": "WebApplication",
@@ -260,6 +293,7 @@ export function buildWorkPageMeta(
 			url: canonical,
 			applicationCategory: "WebApplication",
 			operatingSystem: "Any",
+			inLanguage: lang ?? undefined,
 			image: imageUrl,
 			author: {
 				"@type": "Person",
@@ -296,6 +330,9 @@ export function buildWorkPageMeta(
 			imageUrl && imageUrl !== defaultOgImage(options?.origin)
 				? "summary_large_image"
 				: "summary",
+		lang,
+		ogLocale,
+		themeColor,
 		jsonLd,
 	};
 }
@@ -309,5 +346,6 @@ export function buildWorkPwaMeta(detail: WorkPageDetail | null) {
 		description: page.description,
 		iconUrl: page.iconUrl,
 		imageUrl: page.imageUrl,
+		themeColor: page.themeColor,
 	};
 }

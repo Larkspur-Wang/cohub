@@ -9,6 +9,10 @@ const {
 </script>
 
 <svelte:head>
+	<!-- hooks.server.ts reads this to set <html lang> for Work public pages. -->
+	{#if meta.lang}
+		<meta name="cohub-work-lang" content={meta.lang} />
+	{/if}
 	<title>{meta.documentTitle}</title>
 	<meta name="description" content={meta.description} />
 	<meta name="robots" content={meta.robots} />
@@ -25,13 +29,20 @@ const {
 	/>
 	<meta name="application-name" content={meta.shortName} />
 	<meta name="apple-mobile-web-app-title" content={meta.shortName} />
+	{#if meta.themeColor}
+		<meta name="theme-color" content={meta.themeColor} />
+	{/if}
 	<meta property="og:type" content="website" />
 	<meta property="og:site_name" content={meta.siteName} />
 	<meta property="og:title" content={meta.documentTitle} />
 	<meta property="og:description" content={meta.description} />
 	<meta property="og:url" content={meta.canonical} />
+	{#if meta.ogLocale}
+		<meta property="og:locale" content={meta.ogLocale} />
+	{/if}
 	{#if meta.imageUrl}
 		<meta property="og:image" content={meta.imageUrl} />
+		<meta property="og:image:alt" content={meta.documentTitle} />
 	{/if}
 	<meta name="twitter:card" content={meta.twitterCard} />
 	<meta name="twitter:title" content={meta.documentTitle} />
