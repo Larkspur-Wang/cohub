@@ -46,6 +46,10 @@ let overlay: Graphics | null = null;
 let scene: ReturnType<typeof createCanvasScene> | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let resizeFrame = 0;
+// Render-on-demand: Pixi's ticker is disabled (autoStart: false) so an idle
+// canvas draws nothing. Each scene sync schedules exactly one render for the
+// next animation frame, coalescing bursts of updates into a single draw.
+let renderFrame = 0;
 let dropActive = $state(false);
 let surface = $state<{ width: number; height: number }>({
 	width: 0,
@@ -159,6 +163,14 @@ function syncBackground(palette: CanvasRenderPalette) {
 	themeRenderer.updateBackground?.(background, context);
 }
 
+function scheduleRender() {
+	if (renderFrame || !app) return;
+	renderFrame = requestAnimationFrame(() => {
+		renderFrame = 0;
+		app?.render();
+	});
+}
+
 function syncStage() {
 	if (!app || !world || !scene) return;
 	const palette = getPalette();
@@ -204,6 +216,8 @@ function syncStage() {
 		},
 		palette,
 	);
+
+	scheduleRender();
 }
 
 function reportSurfaceSize() {
@@ -330,6 +344,10 @@ onMount(async () => {
 			backgroundAlpha: 0,
 			resizeTo: host,
 			resolution: getCanvasResolution(),
+			// Render on demand (see scheduleRender) instead of every tick, so an
+			// idle canvas does not keep the GPU/CPU busy redrawing an unchanged
+			// scene ~60 times a second.
+			autoStart: false,
 		});
 	} catch (error) {
 		console.error("Canvas failed to initialize", error);
@@ -381,6 +399,7 @@ onDestroy(() => {
 	disposed = true;
 	resizeObserver?.disconnect();
 	cancelAnimationFrame(resizeFrame);
+	cancelAnimationFrame(renderFrame);
 	unsubscribeAssets();
 	if (host) {
 		host.removeEventListener("pointerdown", handlePointerDown);
