@@ -1,7 +1,12 @@
 import type { Container, Texture } from "pixi.js";
 import type { CanvasItem, CovasDocument } from "$lib/canvas/canvas-schema";
+import { arrowCardRenderer } from "$lib/canvas/renderers/arrow-card-renderer";
+import { drawCardRenderer } from "$lib/canvas/renderers/draw-card-renderer";
+import { geoCardRenderer } from "$lib/canvas/renderers/geo-card-renderer";
+import { noteCardRenderer } from "$lib/canvas/renderers/note-card-renderer";
 import { resourceCardRenderer } from "$lib/canvas/renderers/resource-card-renderer";
 import { textCardRenderer } from "$lib/canvas/renderers/text-card-renderer";
+import { unknownCardRenderer } from "$lib/canvas/renderers/unknown-card-renderer";
 
 export type CanvasRenderPalette = {
 	bg: number;
@@ -21,6 +26,8 @@ export type CanvasRenderContext = {
 	selectedIds: Set<string>;
 	hoveredId: string | null;
 	palette: CanvasRenderPalette;
+	/** Resolved color mode, for mapping palette color ids to concrete values. */
+	colorMode: "dark" | "light";
 	/** Stable image cache key for an item, or null if it is not an image. */
 	imageKey: (item: CanvasItem) => string | null;
 	/** Currently loaded texture for a key (null while loading). */
@@ -47,7 +54,12 @@ export type CanvasCardRenderer = {
 
 const canvasCardRenderers: CanvasCardRenderer[] = [
 	textCardRenderer,
+	noteCardRenderer,
+	geoCardRenderer,
+	drawCardRenderer,
+	arrowCardRenderer,
 	resourceCardRenderer,
+	unknownCardRenderer,
 ];
 
 export function getCanvasCardRenderer(
@@ -56,7 +68,7 @@ export function getCanvasCardRenderer(
 ) {
 	return (
 		canvasCardRenderers.find((renderer) => renderer.canRender(item, context)) ??
-		resourceCardRenderer
+		unknownCardRenderer
 	);
 }
 

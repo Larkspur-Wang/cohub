@@ -188,7 +188,7 @@ export const submitCanvasTransaction = async (input: {
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Internal canvas transaction failed ${response.status}: ${text}`);
+    throw new CanvasTransactionError(response.status, text || `Internal canvas transaction failed ${response.status}`);
   }
   const data = await parseJson<{ document?: { version?: number }; nodes?: unknown[] }>(response);
   if (!data?.document || typeof data.document.version !== "number" || !Array.isArray(data.nodes)) {
@@ -196,6 +196,26 @@ export const submitCanvasTransaction = async (input: {
   }
   return { document: { version: data.document.version }, nodes: data.nodes };
 };
+
+/**
+ * A canvas transaction rejected by the API. Carries the HTTP status so callers
+ * (the WS handler, and ultimately the client) can distinguish a recoverable
+ * version conflict (409) from other failures without parsing message strings.
+ */
+export class CanvasTransactionError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "CanvasTransactionError";
+  }
+
+  /** Stable code for a version conflict, used to trigger client-side rebase. */
+  get code(): string {
+    return this.status === 409 ? "VERSION_CONFLICT" : "CANVAS_TX_FAILED";
+  }
+}
 
 /** Carries a standard billing error body from the internal prompt API. */
 export class InternalPromptError extends Error {

@@ -11,7 +11,6 @@ import {
 	angleFromCenter,
 	clampZoom,
 	fitToContent,
-	frameContainsPoint,
 	frameHandlePosition,
 	HANDLE_HIT_RADIUS,
 	itemBounds,
@@ -34,6 +33,10 @@ import {
 	zoomAround,
 } from "$lib/canvas/canvas-geometry";
 import {
+	createArrowCanvasItem,
+	createDrawCanvasItem,
+	createGeoCanvasItem,
+	createNoteCanvasItem,
 	createRemoteUrlCanvasItem,
 	createSpaceFileCanvasItem,
 	createTextCanvasItem,
@@ -42,7 +45,22 @@ import {
 	removeCanvasItems,
 	titleForCanvasItem,
 } from "$lib/canvas/canvas-items";
+import type { ArrowEndpoint, DrawPoint } from "$lib/canvas/canvas-schema";
+import {
+	bindEndpointAt,
+	type FrameLookup,
+	translateArrow,
+} from "$lib/canvas/core/bindings";
+import {
+	shapeBounds,
+	shapeCapabilities,
+	shapeHitTest,
+} from "$lib/canvas/core/shape-definition";
+import { arrowBoundsFor, arrowHitTest } from "$lib/canvas/core/shapes";
+import { computeSnap, type SnapGuide } from "$lib/canvas/core/snapping";
+import "$lib/canvas/core/shapes";
 import type {
+	CanvasArrowItem,
 	CanvasFrame,
 	CanvasItem,
 	CanvasItemStyle,
@@ -54,7 +72,15 @@ import {
 	type SpatialEntry,
 } from "$lib/canvas/canvas-spatial";
 
-export type CanvasToolId = "select" | "hand";
+export type CanvasToolId =
+	| "select"
+	| "hand"
+	| "text"
+	| "note"
+	| "geo"
+	| "draw"
+	| "arrow"
+	| "eraser";
 export type CanvasEmphasis = CanvasItemStyle["emphasis"];
 
 /**
@@ -76,6 +102,9 @@ export type CanvasInteraction =
 			type: "translating";
 			start: WorldPoint;
 			origin: Map<string, CanvasFrame>;
+			/** Origin arrow items, so free endpoints translate from their gesture-start
+			 * positions (an arrow's geometry lives in its endpoints, not its frame). */
+			arrowOrigin: Map<string, CanvasArrowItem>;
 			moved: boolean;
 	  }
 	| {
@@ -100,7 +129,23 @@ export type CanvasInteraction =
 			additive: boolean;
 			/** Selection at brush start, so an additive marquee can add and remove. */
 			baseSelection: string[];
-	  };
+	  }
+	| {
+			type: "drawing";
+			/** Raw world-space samples collected so far. */
+			points: DrawPoint[];
+			color: string;
+			size: number;
+	  }
+	| {
+			type: "creatingArrow";
+			start: WorldPoint;
+			current: WorldPoint;
+			color: string;
+			/** Binding captured at the start point, if it landed on a shape. */
+			startBinding: ArrowEndpoint | null;
+	  }
+	| { type: "erasing"; erased: Set<string> };
 
 /**
  * A pointer sample carrying both coordinate spaces. The stage performs the
@@ -118,6 +163,8 @@ export type CanvasPointerEvent = {
 	altKey: boolean;
 	button: number;
 	pointerType: string;
+	/** Pen pressure 0..1; 0.5 for mouse/touch without pressure support. */
+	pressure: number;
 };
 
 export type CanvasViewState = {
@@ -143,6 +190,8 @@ const ZOOM_STEP = 1.2;
 const CAMERA_ANIMATION_MS = 240;
 /** Pointer travel (screen px) before a press becomes a drag. */
 const DRAG_THRESHOLD = 3;
+/** Snap attraction radius in screen px (scaled to world by zoom). */
+const SNAP_THRESHOLD = 8;
 const CORNER_HANDLES: ResizeHandle[] = ["nw", "ne", "se", "sw"];
 
 function easeOutCubic(t: number) {
@@ -180,6 +229,17 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	let localRev = $state(0);
 	let committedRev = $state(0);
 	let draftId = $state<string | null>(null);
+	/** Bumped on item membership/order changes (not per-frame drags); the stage
+	 * keys its cull cache on it. Reactive so a structural change re-culls. */
+	let structureVersion = $state(0);
+
+	// Active creation style for the shape tools (color palette id, geo kind, draw
+	// stroke size). Held locally — like the camera, this is UI state, never synced.
+	let activeColor = $state("brand");
+	let activeGeo = $state("rectangle");
+	let drawSize = $state(4);
+	/** Alignment guides for the in-progress drag, in world space (for rendering). */
+	let snapGuides = $state<SnapGuide[]>([]);
 
 	let cameraAnimation = 0;
 	let pinch: { distance: number; midpoint: ScreenPoint; zoom: number } | null =
@@ -228,6 +288,10 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		spatialVersion += 1;
 	}
 
+	function bumpStructure() {
+		structureVersion += 1;
+	}
+
 	function ensureSpatial() {
 		if (indexedVersion === spatialVersion) return;
 		indexedVersion = spatialVersion;
@@ -267,9 +331,10 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	});
 
 	// ─── Mutation + persistence ─────────────────────────────────────
-	function setItems(next: CanvasItem[]) {
+	function setItems(next: CanvasItem[], structural = true) {
 		synced = { ...synced, items: next };
 		bumpSpatial();
+		if (structural) bumpStructure();
 		localRev += 1;
 	}
 
@@ -430,6 +495,40 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		addItemAt(createTextCanvasItem(text, at.x, at.y));
 	}
 
+	function addNote(at: WorldPoint) {
+		addItemAt(createNoteCanvasItem(at.x, at.y, activeColor));
+	}
+
+	function addGeo(at: WorldPoint) {
+		addItemAt(createGeoCanvasItem(activeGeo, at.x, at.y, activeColor));
+	}
+
+	/** Commit a finished freehand stroke as a draw item (drops empty strokes). */
+	function commitDraw(points: DrawPoint[], color: string, size: number) {
+		if (points.length === 0) return;
+		addItemAt(createDrawCanvasItem(points, color, size));
+	}
+
+	/** Commit a finished arrow (drops degenerate zero-length arrows). */
+	function commitArrow(
+		start: WorldPoint,
+		end: WorldPoint,
+		color: string,
+		startBinding: ArrowEndpoint | null,
+		endBinding: ArrowEndpoint | null,
+	) {
+		if (Math.hypot(end.x - start.x, end.y - start.y) < 2) return;
+		addItemAt(
+			createArrowCanvasItem(
+				start,
+				end,
+				color,
+				startBinding ?? undefined,
+				endBinding ?? undefined,
+			),
+		);
+	}
+
 	/**
 	 * Start an inline text note as a local-only draft (double-click on empty
 	 * canvas). It is not marked dirty, recorded in undo, or synced until the
@@ -439,6 +538,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		const item = createTextCanvasItem("", at.x, at.y);
 		synced = { ...synced, items: [...synced.items, item] };
 		bumpSpatial();
+		bumpStructure();
 		draftId = item.id;
 		selection = [item.id];
 		editingId = item.id;
@@ -447,7 +547,12 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	/** Finish an inline text edit, handling drafts and empty results. */
 	function commitTextEdit(id: string, text: string) {
 		const isDraft = id === draftId;
-		if (text.trim() === "") {
+		const target = synced.items.find((item) => item.id === id);
+		// An emptied *text* item (or an abandoned draft) is removed; a note/geo
+		// keeps its shape and simply loses its label.
+		const shouldDelete =
+			text.trim() === "" && (isDraft || target?.type === "text");
+		if (shouldDelete) {
 			if (isDraft) {
 				// Never synced — drop it without an op.
 				synced = {
@@ -455,6 +560,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 					items: removeCanvasItems(synced.items, new Set([id])),
 				};
 				bumpSpatial();
+				bumpStructure();
 			} else {
 				deleteItem(id);
 			}
@@ -467,18 +573,36 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		flushPendingRemote();
 	}
 
+	/** Ids of arrows bound to any of the given shapes (for cascade delete). */
+	function boundArrowIds(ids: Set<string>): Set<string> {
+		const arrows = new Set<string>();
+		for (const item of synced.items) {
+			if (item.type !== "arrow") continue;
+			if (
+				(item.start.kind === "binding" && ids.has(item.start.target)) ||
+				(item.end.kind === "binding" && ids.has(item.end.target))
+			)
+				arrows.add(item.id);
+		}
+		return arrows;
+	}
+
 	function deleteSelection() {
 		if (selection.length === 0) return;
-		setItems(removeCanvasItems(synced.items, new Set(selection)));
+		const ids = new Set(selection);
+		for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
+		setItems(removeCanvasItems(synced.items, ids));
 		selection = [];
 		editingId = null;
 		commitAction();
 	}
 
 	function deleteItem(id: string) {
-		setItems(removeCanvasItems(synced.items, new Set([id])));
-		selection = selection.filter((selectedId) => selectedId !== id);
-		if (editingId === id) editingId = null;
+		const ids = new Set([id]);
+		for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
+		setItems(removeCanvasItems(synced.items, ids));
+		selection = selection.filter((selectedId) => !ids.has(selectedId));
+		if (editingId && ids.has(editingId)) editingId = null;
 		commitAction();
 	}
 
@@ -489,8 +613,16 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			.filter((item) => ids.has(item.id))
 			.map(duplicateCanvasItem);
 		if (copies.length === 0) return;
-		setItems([...synced.items, ...copies]);
-		selection = copies.map((copy) => copy.id);
+		// Recompute exact frames for arrow copies (their geometry is defined by
+		// endpoints/bindings, not the naively offset frame from duplication).
+		const lookup = frameLookup();
+		const fixed = copies.map((copy) => {
+			if (copy.type !== "arrow") return copy;
+			const bounds = arrowBoundsFor(copy, lookup);
+			return bounds ? { ...copy, frame: { ...bounds, rotation: 0 } } : copy;
+		});
+		setItems([...synced.items, ...fixed]);
+		selection = fixed.map((copy) => copy.id);
 		commitAction();
 	}
 
@@ -508,6 +640,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			});
 		}
 		setItems(patchItemFrames(synced.items, frames));
+		refreshBoundArrowFrames(ids);
 		commitAction();
 	}
 
@@ -532,6 +665,32 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		commitAction();
 	}
 
+	/**
+	 * Set the palette color on the selected color-bearing shapes (note, geo, draw,
+	 * arrow). Shapes without a color field are left untouched.
+	 */
+	function setSelectionColor(color: string) {
+		if (selection.length === 0) return;
+		const ids = new Set(selection);
+		let changed = false;
+		const next = synced.items.map((item) => {
+			if (!ids.has(item.id)) return item;
+			if (
+				item.type === "note" ||
+				item.type === "geo" ||
+				item.type === "draw" ||
+				item.type === "arrow"
+			) {
+				changed = true;
+				return { ...item, color };
+			}
+			return item;
+		});
+		if (!changed) return;
+		setItems(next);
+		commitAction();
+	}
+
 	function bringToFront() {
 		if (selection.length === 0) return;
 		const ids = new Set(selection);
@@ -552,10 +711,20 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 
 	function updateText(id: string, text: string) {
 		const target = synced.items.find((item) => item.id === id);
-		if (target?.type !== "text" || target.text === text) return;
+		if (
+			!target ||
+			(target.type !== "text" &&
+				target.type !== "note" &&
+				target.type !== "geo")
+		)
+			return;
+		if (target.text === text) return;
 		setItems(
 			synced.items.map((item) =>
-				item.id === id && item.type === "text" ? { ...item, text } : item,
+				item.id === id &&
+				(item.type === "text" || item.type === "note" || item.type === "geo")
+					? { ...item, text }
+					: item,
 			),
 		);
 		commitAction();
@@ -563,14 +732,27 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 
 	// ─── Hit testing (world space) ──────────────────────────────────
 	function topItemAt(point: WorldPoint): CanvasItem | null {
-		// The index yields AABB candidates topmost-first; refine with an exact
-		// rotation-aware test and take the first match.
+		// The index yields AABB candidates topmost-first; refine with a shape-aware
+		// exact test (rotated boxes, geo outlines, strokes, arrow curves) and take
+		// the first match.
 		ensureSpatial();
+		const lookup = frameLookup();
 		for (const id of spatial.idsAtPoint(point)) {
 			const item = itemsById.get(id);
-			if (item && frameContainsPoint(item.frame, point)) return item;
+			if (!item) continue;
+			const hit =
+				item.type === "arrow"
+					? arrowHitTest(item, lookup, point)
+					: shapeHitTest(item, point);
+			if (hit) return item;
 		}
 		return null;
+	}
+
+	/** Frame lookup over the current items, for resolving arrow bindings. */
+	function frameLookup(): FrameLookup {
+		ensureSpatial();
+		return (id) => itemsById.get(id)?.frame;
 	}
 
 	/** Ids of items whose bounds intersect a world-space rect (viewport culling). */
@@ -616,6 +798,68 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		return frames;
 	}
 
+	/** Origin snapshot of the selected arrow items (geometry lives in endpoints). */
+	function arrowsFor(ids: string[]): Map<string, CanvasArrowItem> {
+		const arrows = new Map<string, CanvasArrowItem>();
+		for (const item of synced.items) {
+			if (item.type === "arrow" && ids.includes(item.id))
+				arrows.set(item.id, item);
+		}
+		return arrows;
+	}
+
+	/**
+	 * Snap a set of frames being translated against the other items on the canvas
+	 * (and the grid when visible). Returns the corrective delta and the guide
+	 * lines to render. Threshold scales with zoom so it feels constant on screen.
+	 */
+	function computeTranslationSnap(moved: Map<string, CanvasFrame>) {
+		const movingBounds = selectionBounds([...moved.values()]);
+		if (!movingBounds) return { dx: 0, dy: 0, guides: [] as SnapGuide[] };
+		const targets: Rect[] = [];
+		for (const item of synced.items) {
+			if (moved.has(item.id)) continue;
+			if (!shapeCapabilities(item).canSnap) continue;
+			targets.push(shapeBounds(item));
+		}
+		const grid = gridSnapSize();
+		return computeSnap(movingBounds, targets, {
+			threshold: SNAP_THRESHOLD / Math.max(camera.zoom, 0.0001),
+			gridSize: grid,
+		});
+	}
+
+	/** Grid size for snapping when the background grid is visible, else 0. */
+	function gridSnapSize(): number {
+		const grid = document.appearance.grid;
+		return grid?.visible === false ? 0 : (grid?.size ?? 0);
+	}
+
+	/**
+	 * Recompute the bounding frames of arrows bound to any of the given shapes.
+	 * Arrow endpoints resolve live in the renderer, but the persisted frame (used
+	 * for culling and hit testing) must be refreshed when a bound target moves or
+	 * resizes, or the arrow would be culled/tested against a stale box.
+	 */
+	function refreshBoundArrowFrames(changedIds: Set<string>) {
+		if (changedIds.size === 0) return;
+		const lookup = frameLookup();
+		const patches = new Map<string, CanvasFrame>();
+		for (const item of synced.items) {
+			if (item.type !== "arrow") continue;
+			const start = item.start;
+			const end = item.end;
+			const affected =
+				(start.kind === "binding" && changedIds.has(start.target)) ||
+				(end.kind === "binding" && changedIds.has(end.target));
+			if (!affected) continue;
+			const bounds = arrowBoundsFor(item, lookup);
+			if (bounds) patches.set(item.id, { ...bounds, rotation: 0 });
+		}
+		if (patches.size > 0)
+			setItems(patchItemFrames(synced.items, patches), false);
+	}
+
 	// ─── Pointer interaction state machine ─────────────────────────
 	function beginPinch() {
 		const points = [...activePointers.values()];
@@ -646,6 +890,60 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				start: event.screen,
 				origin: { ...camera },
 			};
+			return;
+		}
+
+		// Creation and erase tools take over the primary pointer before any of the
+		// select-tool handle/hit logic below.
+		if (tool === "draw") {
+			interaction = {
+				type: "drawing",
+				points: [{ x: event.world.x, y: event.world.y, p: event.pressure }],
+				color: activeColor,
+				size: drawSize,
+			};
+			return;
+		}
+		if (tool === "arrow") {
+			const target = topItemAt(event.world);
+			const startBinding =
+				target && shapeCapabilities(target).canBind
+					? bindEndpointAt(event.world, { id: target.id, frame: target.frame })
+					: null;
+			interaction = {
+				type: "creatingArrow",
+				start: event.world,
+				current: event.world,
+				color: activeColor,
+				startBinding,
+			};
+			return;
+		}
+		if (tool === "eraser") {
+			const erased = new Set<string>();
+			const item = topItemAt(event.world);
+			if (item) {
+				// Erase the pressed shape (and any arrows bound to it) immediately, so
+				// a single click erases; recording it in `erased` keeps the drag path
+				// from re-processing it.
+				erased.add(item.id);
+				for (const arrowId of boundArrowIds(new Set([item.id])))
+					erased.add(arrowId);
+				setItems(removeCanvasItems(synced.items, erased));
+			}
+			interaction = { type: "erasing", erased };
+			return;
+		}
+		if (tool === "note") {
+			addNote(event.world);
+			return;
+		}
+		if (tool === "geo") {
+			addGeo(event.world);
+			return;
+		}
+		if (tool === "text") {
+			beginTextDraft(event.world);
 			return;
 		}
 
@@ -690,6 +988,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				type: "translating",
 				start: event.world,
 				origin: framesFor(selection),
+				arrowOrigin: arrowsFor(selection),
 				moved: false,
 			};
 			return;
@@ -753,11 +1052,51 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				if (Math.hypot(dx, dy) <= DRAG_THRESHOLD / camera.zoom) return;
 				interaction.moved = true;
 			}
+			const lookup = frameLookup();
+			// Pre-snap moved frames: boxes offset directly; arrows recomputed from
+			// their translated endpoints (an arrow's geometry is its endpoints).
+			const preview = new Map<string, CanvasFrame>();
+			for (const [id, frame] of interaction.origin) {
+				const arrow = interaction.arrowOrigin.get(id);
+				preview.set(
+					id,
+					arrow
+						? translateArrow(arrow, dx, dy, lookup).frame
+						: { ...frame, x: frame.x + dx, y: frame.y + dy },
+				);
+			}
+			// Align to nearby edges/centers (and the grid when visible) unless the
+			// user holds the modifier to opt out of snapping.
+			let sx = 0;
+			let sy = 0;
+			if (!event.altKey) {
+				const snap = computeTranslationSnap(preview);
+				sx = snap.dx;
+				sy = snap.dy;
+				snapGuides = snap.guides;
+			} else {
+				snapGuides = [];
+			}
+			const tx = dx + sx;
+			const ty = dy + sy;
+			const arrowPatches = new Map<string, CanvasArrowItem>();
 			const frames = new Map<string, CanvasFrame>();
 			for (const [id, frame] of interaction.origin) {
-				frames.set(id, { ...frame, x: frame.x + dx, y: frame.y + dy });
+				const arrow = interaction.arrowOrigin.get(id);
+				if (arrow) arrowPatches.set(id, translateArrow(arrow, tx, ty, lookup));
+				else frames.set(id, { ...frame, x: frame.x + tx, y: frame.y + ty });
 			}
-			setItems(patchItemFrames(synced.items, frames));
+			setItems(
+				synced.items.map((item) => {
+					const patchedArrow = arrowPatches.get(item.id);
+					if (patchedArrow) return patchedArrow;
+					const frame = frames.get(item.id);
+					return frame ? { ...item, frame } : item;
+				}),
+				false,
+			);
+			// Keep arrows bound to the dragged shapes tracking them live.
+			refreshBoundArrowFrames(new Set(interaction.origin.keys()));
 			return;
 		}
 
@@ -785,7 +1124,8 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 					index += 1;
 				}
 			}
-			setItems(patchItemFrames(synced.items, frames));
+			setItems(patchItemFrames(synced.items, frames), false);
+			refreshBoundArrowFrames(new Set(interaction.origin.keys()));
 			return;
 		}
 
@@ -806,7 +1146,8 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				if (frame) frames.set(id, frame);
 				index += 1;
 			}
-			setItems(patchItemFrames(synced.items, frames));
+			setItems(patchItemFrames(synced.items, frames), false);
+			refreshBoundArrowFrames(new Set(interaction.origin.keys()));
 			return;
 		}
 
@@ -823,6 +1164,43 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			selection = interaction.additive
 				? [...new Set([...interaction.baseSelection, ...hits])]
 				: hits;
+			return;
+		}
+
+		if (interaction.type === "drawing") {
+			// Append the sample; skip near-duplicate points to keep the path light.
+			const last = interaction.points.at(-1);
+			if (
+				last &&
+				Math.hypot(event.world.x - last.x, event.world.y - last.y) <
+					0.5 / Math.max(camera.zoom, 0.0001)
+			)
+				return;
+			interaction = {
+				...interaction,
+				points: [
+					...interaction.points,
+					{ x: event.world.x, y: event.world.y, p: event.pressure },
+				],
+			};
+			return;
+		}
+
+		if (interaction.type === "creatingArrow") {
+			interaction = { ...interaction, current: event.world };
+			return;
+		}
+
+		if (interaction.type === "erasing") {
+			const item = topItemAt(event.world);
+			if (item && !interaction.erased.has(item.id)) {
+				// Erase the shape and any arrows bound to it (no ghost arrows).
+				const ids = new Set([item.id]);
+				for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
+				for (const id of ids) interaction.erased.add(id);
+				setItems(removeCanvasItems(synced.items, ids));
+			}
+			return;
 		}
 	}
 
@@ -832,18 +1210,45 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		if (activePointers.size > 0) return;
 
 		if (interaction.type === "translating" && interaction.moved) {
+			refreshBoundArrowFrames(new Set(selection));
+			bumpStructure();
 			commitAction();
 		} else if (interaction.type === "resizing" && interaction.moved) {
+			refreshBoundArrowFrames(new Set(selection));
+			bumpStructure();
 			commitAction();
 		} else if (interaction.type === "rotating" && interaction.moved) {
 			normalizeRotations();
+			refreshBoundArrowFrames(new Set(selection));
+			bumpStructure();
 			commitAction();
 		} else if (interaction.type === "brushing" && !interaction.additive) {
 			// A click on empty space (no real drag) clears the selection.
 			const dx = interaction.current.x - interaction.start.x;
 			const dy = interaction.current.y - interaction.start.y;
 			if (Math.hypot(dx, dy) <= 1 / camera.zoom) selection = [];
+		} else if (interaction.type === "drawing") {
+			commitDraw(interaction.points, interaction.color, interaction.size);
+		} else if (interaction.type === "creatingArrow") {
+			const target = topItemAt(interaction.current);
+			const endBinding =
+				target && shapeCapabilities(target).canBind
+					? bindEndpointAt(interaction.current, {
+							id: target.id,
+							frame: target.frame,
+						})
+					: null;
+			commitArrow(
+				interaction.start,
+				interaction.current,
+				interaction.color,
+				interaction.startBinding,
+				endBinding,
+			);
+		} else if (interaction.type === "erasing") {
+			if (interaction.erased.size > 0) commitAction();
 		}
+		snapGuides = [];
 		interaction = { type: "idle" };
 		// Apply any remote refresh deferred for the duration of this gesture.
 		flushPendingRemote();
@@ -946,6 +1351,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		);
 		synced = toContent(merged);
 		bumpSpatial();
+		bumpStructure();
 		// A document switch resets the camera; a same-document refresh keeps it.
 		if (!sameDocument) camera = next.viewport;
 		// The remote document is the server truth we rebased onto; the commit
@@ -1042,6 +1448,21 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		get hasContent() {
 			return synced.items.length > 0;
 		},
+		get snapGuides() {
+			return snapGuides;
+		},
+		get structureVersion() {
+			return structureVersion;
+		},
+		get activeColor() {
+			return activeColor;
+		},
+		get activeGeo() {
+			return activeGeo;
+		},
+		get drawSize() {
+			return drawSize;
+		},
 		set tool(value: CanvasToolId) {
 			tool = value;
 		},
@@ -1050,6 +1471,15 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		},
 		set surfaceSize(value: { width: number; height: number }) {
 			surfaceSize = value;
+		},
+		set activeColor(value: string) {
+			activeColor = value;
+		},
+		set activeGeo(value: string) {
+			activeGeo = value;
+		},
+		set drawSize(value: number) {
+			drawSize = value;
 		},
 		zoomIn,
 		zoomOut,
@@ -1066,6 +1496,8 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		addFile,
 		addUrl,
 		addText,
+		addNote,
+		addGeo,
 		beginTextDraft,
 		commitTextEdit,
 		deleteSelection,
@@ -1073,6 +1505,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		duplicateSelection,
 		nudgeSelection,
 		setSelectionEmphasis,
+		setSelectionColor,
 		bringToFront,
 		sendToBack,
 		updateText,

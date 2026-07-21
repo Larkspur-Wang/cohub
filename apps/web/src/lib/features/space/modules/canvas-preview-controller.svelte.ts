@@ -3,6 +3,7 @@ import type {
 	SpaceFsFileResponse,
 	SpaceFsPreparingFile,
 } from "@neta-art/cohub";
+import { CanvasTransactionError, HttpError } from "@neta-art/cohub";
 import {
 	deleteCanvasPendingTransaction,
 	listCanvasPendingTransactions,
@@ -19,6 +20,9 @@ import { sdk } from "$lib/sdk";
 import { tryResolveTextFileResponse } from "$lib/space-file-text";
 
 type CanvasFileResponse = SpaceFsFileResponse | SpaceFsPreparingFile;
+
+/** Cap on automatic conflict-rebase retries before surfacing an error. */
+const MAX_CONFLICT_RECOVERY = 5;
 
 export type InlineCanvasPanelState = {
 	path: string;
@@ -50,6 +54,37 @@ export function createCanvasPreviewController(
 	let syncVersionByDocumentId = $state<Record<string, number | null>>({});
 	let pendingFlush = false;
 	let pendingFlushRequested = false;
+	/** Conflict-recovery attempts per document, to bound rebase retries. */
+	let conflictAttemptsByDocumentId: Record<string, number> = {};
+	/**
+	 * Remote refreshes deferred because a save was in flight. Realtime events are
+	 * never dropped — they are queued here and applied once the commit settles, so
+	 * concurrent edits are always reconciled instead of silently ignored.
+	 */
+	let pendingRemoteRefresh = new Set<string>();
+	/**
+	 * txIds this client has successfully committed. Used to recognise our own
+	 * transactions echoed back over realtime (which the editor already reflects),
+	 * so they are skipped — while the *same user's other tabs/devices* (which send
+	 * different txIds) are still reconciled. Keying on txId, not actorId, is what
+	 * makes multi-tab editing work.
+	 */
+	const ownTxIds = new Set<string>();
+	/**
+	 * Documents with a conflict recovery in flight. While set, stale pending txs
+	 * are NOT deleted up front — they are removed only once the editor's rebase
+	 * re-commit durably writes a fresh transaction (see commitCanvas). This closes
+	 * the loss window where a crash or canvas-close between "delete stale" and
+	 * "re-commit" would otherwise discard uncommitted local changes.
+	 */
+	const pendingRecoveryCleanup = new Set<string>();
+
+	/** A transaction was rejected as a version conflict (409) and can be rebased. */
+	function isVersionConflict(error: unknown): boolean {
+		if (error instanceof CanvasTransactionError) return error.isVersionConflict;
+		if (error instanceof HttpError) return error.status === 409;
+		return false;
+	}
 
 	function isCurrent(token: number, path: string, sourceKey: string) {
 		const canvas = canvases.find((item) => item.path === path);
@@ -189,26 +224,107 @@ export function createCanvasPreviewController(
 					const tx = pending[0];
 					if (!tx) break;
 					await markCanvasPendingTransactionAttempt(tx);
-					const result = await sdk
-						.space(options.getSpaceId())
-						.sendCanvasTransactionRealtime(documentId, {
+					try {
+						const result = await sdk
+							.space(options.getSpaceId())
+							.sendCanvasTransactionRealtime(documentId, {
+								txId: tx.txId,
+								baseVersion: tx.baseVersion,
+								ops: tx.ops,
+							});
+						syncVersionByDocumentId = {
+							...syncVersionByDocumentId,
+							[documentId]: result.document.version,
+						};
+						// A successful commit resets the conflict-recovery budget.
+						delete conflictAttemptsByDocumentId[documentId];
+						// Remember our own txId so the echoed realtime event is skipped.
+						ownTxIds.add(tx.txId);
+						if (ownTxIds.size > 256) {
+							const oldest = ownTxIds.values().next().value;
+							if (oldest) ownTxIds.delete(oldest);
+						}
+						await deleteCanvasPendingTransaction({
+							spaceId: options.getSpaceId(),
+							documentId,
 							txId: tx.txId,
-							baseVersion: tx.baseVersion,
-							ops: tx.ops,
 						});
-					syncVersionByDocumentId = {
-						...syncVersionByDocumentId,
-						[documentId]: result.document.version,
-					};
-					await deleteCanvasPendingTransaction({
-						spaceId: options.getSpaceId(),
-						documentId,
-						txId: tx.txId,
-					});
+					} catch (error) {
+						const attempts = conflictAttemptsByDocumentId[documentId] ?? 0;
+						if (isVersionConflict(error) && attempts < MAX_CONFLICT_RECOVERY) {
+							// A recovery is already in flight: this stale tx will be superseded
+							// by the rebase re-commit, so stop rather than re-recovering.
+							if (pendingRecoveryCleanup.has(documentId)) break;
+							conflictAttemptsByDocumentId[documentId] = attempts + 1;
+							// Rebase onto the server truth and restart the loop; the editor
+							// re-commits a fresh transaction with the correct base version.
+							await recoverFromConflict(documentId);
+							break;
+						}
+						throw error;
+					}
 				}
 			} while (pendingFlushRequested);
 		} finally {
 			pendingFlush = false;
+		}
+	}
+
+	/**
+	 * Recover from a version conflict: fetch the server truth and hand it to the
+	 * editor, which rebases its optimistic local changes onto it (reconcileExternal)
+	 * and re-commits a single correct transaction. The now-stale pending txs are
+	 * NOT deleted here — they are removed in commitCanvas only after the fresh
+	 * rebase transaction is durably written, so local changes survive a crash or
+	 * canvas-close mid-recovery (the stale txs simply replay and re-recover).
+	 */
+	async function recoverFromConflict(documentId: string) {
+		const bootstrap = await sdk
+			.space(options.getSpaceId())
+			.canvas.bootstrap(documentId);
+		syncVersionByDocumentId = {
+			...syncVersionByDocumentId,
+			[documentId]: bootstrap.document.version,
+		};
+		// Mark recovery in flight; commitCanvas performs the stale-tx cleanup once
+		// the fresh rebase transaction is persisted.
+		pendingRecoveryCleanup.add(documentId);
+		// Push the remote document to the editor (clearing `saving` so it is
+		// accepted); the rebase + re-commit happens inside the editor.
+		canvases = canvases.map((item) =>
+			item.documentId === documentId
+				? {
+						...item,
+						document: canvasBootstrapToDocument(bootstrap),
+						saving: false,
+						error: null,
+					}
+				: item,
+		);
+	}
+
+	/**
+	 * Remove every pending transaction for a document except `keepTxId` (the fresh
+	 * rebase transaction just persisted). Called once a recovery's re-commit is
+	 * durable, so the stale pre-conflict txs are dropped only after their changes
+	 * are safely re-recorded — never before.
+	 */
+	async function cleanupStaleTransactions(
+		documentId: string,
+		keepTxId: string,
+	) {
+		pendingRecoveryCleanup.delete(documentId);
+		const remaining = await listCanvasPendingTransactions(
+			options.getSpaceId(),
+			documentId,
+		);
+		for (const other of remaining) {
+			if (other.txId === keepTxId) continue;
+			await deleteCanvasPendingTransaction({
+				spaceId: options.getSpaceId(),
+				documentId,
+				txId: other.txId,
+			});
 		}
 	}
 
@@ -217,11 +333,17 @@ export function createCanvasPreviewController(
 		ops: CanvasSemanticOp[],
 	) {
 		const canvas = canvases.find((item) => item.path === activeCanvasPath);
-		if (options.getReadonly?.() || !canvas?.documentId || ops.length === 0)
-			return;
+		if (options.getReadonly?.() || !canvas?.documentId) return;
 		const documentId = canvas.documentId;
 		const savingPath = canvas.path;
 		const txId = crypto.randomUUID();
+		// A recovery re-commit with no resulting ops still must clear the stale
+		// pending txs (their changes are already reflected server-side).
+		if (ops.length === 0) {
+			if (pendingRecoveryCleanup.has(documentId))
+				await cleanupStaleTransactions(documentId, txId);
+			return;
+		}
 		options.onMarkSavePending?.(savingPath);
 		canvases = canvases.map((item) =>
 			item.path === savingPath ? { ...item, saving: true, error: null } : item,
@@ -233,6 +355,10 @@ export function createCanvasPreviewController(
 			baseVersion: syncVersionByDocumentId[documentId] ?? null,
 			ops,
 		});
+		// The fresh (rebase) transaction is now durable; it supersedes any stale
+		// pending txs from an in-flight recovery, so they can be safely removed.
+		if (pendingRecoveryCleanup.has(documentId))
+			await cleanupStaleTransactions(documentId, txId);
 		canvases = canvases.map((item) =>
 			item.path === savingPath ? { ...item, document } : item,
 		);
@@ -258,6 +384,50 @@ export function createCanvasPreviewController(
 			);
 		} finally {
 			options.onClearSavePendingSoon?.(savingPath);
+			// Apply any remote refresh that arrived while this save was in flight.
+			void drainRemoteRefresh(documentId);
+		}
+	}
+
+	/**
+	 * Handle an incoming remote change for a document. If a save is in flight the
+	 * refresh is queued (never dropped) and applied once the commit settles;
+	 * otherwise it is applied immediately via a bootstrap reconcile.
+	 */
+	/** True if this txId was committed by this client (an echo to skip). */
+	function isOwnTransaction(txId: unknown): boolean {
+		return typeof txId === "string" && ownTxIds.has(txId);
+	}
+
+	function requestRemoteRefresh(documentId: string) {
+		// Always register the refresh first so it is never lost; drain applies it
+		// immediately unless a save is in flight, in which case it stays queued and
+		// is applied once the commit settles (see commitCanvas' finally block).
+		pendingRemoteRefresh.add(documentId);
+		const canvas = canvases.find((item) => item.documentId === documentId);
+		if (canvas?.saving || pendingFlush) return;
+		void drainRemoteRefresh(documentId);
+	}
+
+	async function drainRemoteRefresh(documentId: string) {
+		if (!pendingRemoteRefresh.has(documentId)) return;
+		pendingRemoteRefresh.delete(documentId);
+		// Still saving (a new commit started): re-queue and wait for its settle.
+		const canvas = canvases.find((item) => item.documentId === documentId);
+		if (canvas?.saving || pendingFlush) {
+			pendingRemoteRefresh.add(documentId);
+			return;
+		}
+		try {
+			const bootstrap = await sdk
+				.space(options.getSpaceId())
+				.canvas.bootstrap(documentId);
+			applyBootstrap(documentId, bootstrap);
+		} catch (error) {
+			setError(
+				documentId,
+				error instanceof Error ? error.message : "Failed to sync canvas",
+			);
 		}
 	}
 
@@ -324,6 +494,8 @@ export function createCanvasPreviewController(
 		activateCanvas,
 		commitCanvas,
 		flushPendingTransactions,
+		requestRemoteRefresh,
+		isOwnTransaction,
 		renamePath,
 		setError,
 		applyBootstrap,

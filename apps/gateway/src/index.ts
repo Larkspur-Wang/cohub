@@ -31,7 +31,7 @@ import {
   wsClientEventSchema,
 } from "@cohub/protocol/realtime";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
-import { authenticateRealtimeToken, authorizeRealtimeRooms, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
+import { authenticateRealtimeToken, authorizeRealtimeRooms, CanvasTransactionError, notifySpacePresenceUpdated, requestGatewayChannelReconcile, submitCanvasTransaction, submitInternalSessionPrompt, InternalPromptError, type RealtimeAuthResult } from "./api-client.js";
 import { listenOutboundCommands, initOutboundConsumerGroup } from "./bus.js";
 import { summarizeRedisUrl } from "./logging.js";
 import { gatewayConfig } from "./config.js";
@@ -954,6 +954,8 @@ async function main() {
           } catch (error) {
             if (error instanceof WsClientInputError) throw error;
             const payload = message.payload ?? {};
+            const status = error instanceof CanvasTransactionError ? error.status : undefined;
+            const code = error instanceof CanvasTransactionError ? error.code : undefined;
             sendWsEnvelope(socket, buildRealtimeEnvelope({
               domain: "space",
               type: "canvas.tx.error",
@@ -964,6 +966,8 @@ async function main() {
                 documentId: typeof payload.documentId === "string" ? payload.documentId : null,
                 txId: typeof payload.txId === "string" ? payload.txId : null,
                 message: error instanceof Error ? error.message : String(error),
+                ...(status !== undefined ? { status } : {}),
+                ...(code !== undefined ? { code } : {}),
               },
             }));
           }

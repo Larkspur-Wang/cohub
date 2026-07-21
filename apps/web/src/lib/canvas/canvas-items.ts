@@ -1,11 +1,14 @@
 import { createCanvasItemId } from "$lib/canvas/canvas-id";
 import { getResourceTitle, inferMediaKind } from "$lib/canvas/canvas-media";
 import type {
+	CanvasArrowItem,
 	CanvasFrame,
 	CanvasItem,
 	CanvasItemStyle,
 	CanvasResourceSnapshot,
 } from "$lib/canvas/canvas-schema";
+import { unknownRealType } from "$lib/canvas/canvas-schema";
+import { computeDrawBounds } from "$lib/canvas/core/draw-geometry";
 
 const DEFAULT_RESOURCE_SIZE = { width: 280, height: 180 };
 const DEFAULT_TEXT_SIZE = { width: 260, height: 140 };
@@ -81,6 +84,118 @@ export function createTextCanvasItem(
 	};
 }
 
+const DEFAULT_NOTE_SIZE = { width: 200, height: 200 };
+const DEFAULT_GEO_SIZE = { width: 200, height: 140 };
+
+export function createNoteCanvasItem(
+	x: number,
+	y: number,
+	color = "brand",
+	text = "",
+): CanvasItem {
+	return {
+		id: createCanvasItemId(),
+		type: "note",
+		text,
+		color,
+		frame: createFrame(x, y, DEFAULT_NOTE_SIZE),
+	};
+}
+
+export function createGeoCanvasItem(
+	geo: string,
+	x: number,
+	y: number,
+	color = "brand",
+): CanvasItem {
+	return {
+		id: createCanvasItemId(),
+		type: "geo",
+		geo,
+		text: "",
+		color,
+		fillOpacity: 0.12,
+		frame: createFrame(x, y, DEFAULT_GEO_SIZE),
+	};
+}
+
+/**
+ * Create a freehand draw item from raw world-space samples. The frame is the
+ * stroke's padded bounds; points are stored relative to the frame origin so a
+ * translate moves the whole stroke by patching the frame alone.
+ */
+export function createDrawCanvasItem(
+	worldPoints: Array<{ x: number; y: number; p: number }>,
+	color: string,
+	size: number,
+): CanvasItem {
+	const bounds = computeDrawBounds(worldPoints, size);
+	const points = worldPoints.map((point) => ({
+		x: point.x - bounds.x,
+		y: point.y - bounds.y,
+		p: point.p,
+	}));
+	return {
+		id: createCanvasItemId(),
+		type: "draw",
+		points,
+		color,
+		size,
+		frame: {
+			x: bounds.x,
+			y: bounds.y,
+			width: bounds.width,
+			height: bounds.height,
+			rotation: 0,
+		},
+	};
+}
+
+/**
+ * Create an arrow between two world points. `startBinding`/`endBinding` upgrade
+ * an endpoint to a binding when the arrow was drawn from/onto a shape.
+ */
+export function createArrowCanvasItem(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+	color: string,
+	startBinding?: CanvasArrowItem["start"],
+	endBinding?: CanvasArrowItem["end"],
+): CanvasItem {
+	const startX = startBinding ?? { kind: "point", x: start.x, y: start.y };
+	const endX = endBinding ?? { kind: "point", x: end.x, y: end.y };
+	const frame = arrowFrameFromPoints(start, end);
+	return {
+		id: createCanvasItemId(),
+		type: "arrow",
+		start: startX,
+		end: endX,
+		bend: 0,
+		color,
+		size: 3,
+		arrowStart: false,
+		arrowEnd: true,
+		label: "",
+		frame,
+	};
+}
+
+function arrowFrameFromPoints(
+	start: { x: number; y: number },
+	end: { x: number; y: number },
+): CanvasFrame {
+	const pad = 12;
+	const x = Math.min(start.x, end.x) - pad;
+	const y = Math.min(start.y, end.y) - pad;
+	return {
+		x,
+		y,
+		width: Math.max(1, Math.abs(end.x - start.x) + pad * 2),
+		height: Math.max(1, Math.abs(end.y - start.y) + pad * 2),
+		rotation: 0,
+	};
+}
+
 /** Create a copy of an item with a fresh id and a small positional offset. */
 export function duplicateCanvasItem(item: CanvasItem): CanvasItem {
 	const frame: CanvasFrame = {
@@ -88,6 +203,27 @@ export function duplicateCanvasItem(item: CanvasItem): CanvasItem {
 		x: item.frame.x + DUPLICATE_OFFSET,
 		y: item.frame.y + DUPLICATE_OFFSET,
 	};
+	// An arrow's geometry lives in its endpoints, so offset its free endpoints
+	// too (bindings stay attached); the editor recomputes an exact frame afterwards.
+	if (item.type === "arrow") {
+		const move = (
+			endpoint: CanvasArrowItem["start"],
+		): CanvasArrowItem["start"] =>
+			endpoint.kind === "point"
+				? {
+						kind: "point",
+						x: endpoint.x + DUPLICATE_OFFSET,
+						y: endpoint.y + DUPLICATE_OFFSET,
+					}
+				: endpoint;
+		return {
+			...structuredClone(item),
+			id: createCanvasItemId(),
+			start: move(item.start),
+			end: move(item.end),
+			frame,
+		};
+	}
 	return {
 		...structuredClone(item),
 		id: createCanvasItemId(),
@@ -127,20 +263,50 @@ export function removeCanvasItems(items: CanvasItem[], ids: Set<string>) {
 // ─── Labels ─────────────────────────────────────────────────────────
 
 export function titleForCanvasItem(item: CanvasItem): string {
-	if (item.type === "text") return item.text.split("\n")[0] || "Text note";
-	return (
-		item.snapshot?.title ??
-		(item.ref.kind === "space-file"
-			? getResourceTitle(item.ref.path)
-			: getResourceTitle(item.ref.url))
-	);
+	switch (item.type) {
+		case "text":
+			return item.text.split("\n")[0] || "Text note";
+		case "note":
+			return item.text.split("\n")[0] || "Note";
+		case "geo":
+			return item.text.split("\n")[0] || item.geo;
+		case "draw":
+			return "Drawing";
+		case "arrow":
+			return item.label || "Arrow";
+		case "resource":
+			return (
+				item.snapshot?.title ??
+				(item.ref.kind === "space-file"
+					? getResourceTitle(item.ref.path)
+					: getResourceTitle(item.ref.url))
+			);
+		default:
+			return unknownRealType(item);
+	}
 }
 
 export function subtitleForCanvasItem(item: CanvasItem): string {
-	if (item.type === "text") return "Text";
-	const value = item.ref.kind === "space-file" ? item.ref.path : item.ref.url;
-	const kind = inferMediaKind(value, item.snapshot?.mimeType);
-	return item.ref.kind === "space-file"
-		? `${kind} · Space file`
-		: `${kind} · Remote URL`;
+	switch (item.type) {
+		case "text":
+			return "Text";
+		case "note":
+			return "Note";
+		case "geo":
+			return item.geo;
+		case "draw":
+			return "Drawing";
+		case "arrow":
+			return "Arrow";
+		case "resource": {
+			const value =
+				item.ref.kind === "space-file" ? item.ref.path : item.ref.url;
+			const kind = inferMediaKind(value, item.snapshot?.mimeType);
+			return item.ref.kind === "space-file"
+				? `${kind} · Space file`
+				: `${kind} · Remote URL`;
+		}
+		default:
+			return unknownRealType(item);
+	}
 }

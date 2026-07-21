@@ -96,6 +96,26 @@ const getFilenameFromContentDisposition = (value: string | null) => {
   return plainMatch?.[1] ?? null;
 };
 
+/**
+ * A canvas transaction rejected by the server. `status`/`code` let callers
+ * distinguish a recoverable version conflict (409 / "VERSION_CONFLICT") from
+ * transient failures, so they can rebase and retry instead of surfacing an error.
+ */
+export class CanvasTransactionError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "CanvasTransactionError";
+  }
+
+  get isVersionConflict(): boolean {
+    return this.status === 409 || this.code === "VERSION_CONFLICT";
+  }
+}
+
 export type SessionSubscriptionHandlers = {
   patch?: (event: WebsocketEventPayload) => void;
   /** @deprecated Use `session.subscribeGeneration({ state })`. */
@@ -1843,7 +1863,15 @@ export class SpaceClient {
       });
       const cleanupError = this.websocketClient?.on("event", (event) => {
         if (event.type !== "canvas.tx.error" || event.requestId !== requestId) return;
-        settle(() => reject(new Error(typeof event.payload.message === "string" ? event.payload.message : "Canvas sync failed")));
+        settle(() =>
+          reject(
+            new CanvasTransactionError(
+              typeof event.payload.message === "string" ? event.payload.message : "Canvas sync failed",
+              typeof event.payload.status === "number" ? event.payload.status : undefined,
+              typeof event.payload.code === "string" ? event.payload.code : undefined,
+            ),
+          ),
+        );
       });
       timeout = setTimeout(() => settle(() => reject(new Error("Canvas sync timed out"))), 15_000);
     });

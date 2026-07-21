@@ -18,6 +18,9 @@ import {
 } from "$lib/canvas/canvas-geometry";
 import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
 import { createCanvasScene } from "$lib/canvas/canvas-scene";
+import { buildStrokeOutline } from "$lib/canvas/core/draw-geometry";
+import { resolveCanvasColor } from "$lib/canvas/core/palette";
+import { shapeCapabilities } from "$lib/canvas/core/shape-definition";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 import {
 	type CanvasRenderContext,
@@ -50,6 +53,16 @@ let resizeFrame = 0;
 // canvas draws nothing. Each scene sync schedules exactly one render for the
 // next animation frame, coalescing bursts of updates into a single draw.
 let renderFrame = 0;
+// Culling cache: the visible-id set is recomputed only when the camera or the
+// item structure (ids/order) actually changes. During a drag the camera is
+// static and only the (pinned, always-rendered) selection moves, so this cache
+// removes the per-frame spatial-index query + rebuild that a drag otherwise
+// triggered — the single biggest interaction cost on large canvases.
+let cullCache: {
+	cameraKey: string;
+	structureKey: number;
+	visibleIds: Set<string>;
+} | null = null;
 let dropActive = $state(false);
 let surface = $state<{ width: number; height: number }>({
 	width: 0,
@@ -124,6 +137,7 @@ function buildContext(palette: CanvasRenderPalette): CanvasRenderContext {
 		selectedIds: new Set(editor.selection),
 		hoveredId: editor.hoverId,
 		palette,
+		colorMode: getResolvedTheme() === "light" ? "light" : "dark",
 		imageKey: imageAssetKey,
 		getTexture: (key) => assets.getTexture(key),
 		hasError: (key) => assets.hasError(key),
@@ -136,12 +150,25 @@ function computeVisibleIds(): Set<string> | null {
 	const width = surface.width;
 	const height = surface.height;
 	if (width === 0 || height === 0) return null;
-	const visible = visibleWorldRect(editor.camera, width, height);
+	const camera = editor.camera;
+	const cameraKey = `${camera.x}|${camera.y}|${camera.zoom}|${width}x${height}`;
+	// structureVersion bumps only on membership/order changes (not per-frame
+	// drags), so this is an O(1) key — no per-frame O(n) id join.
+	const structureKey = editor.structureVersion;
+	if (
+		cullCache &&
+		cullCache.cameraKey === cameraKey &&
+		cullCache.structureKey === structureKey
+	)
+		return cullCache.visibleIds;
+	const visible = visibleWorldRect(camera, width, height);
 	const culled = expandRect(
 		visible,
 		Math.max(visible.width, visible.height) * VIEWPORT_MARGIN_RATIO,
 	);
-	return new Set(editor.idsInRect(culled));
+	const visibleIds = new Set(editor.idsInRect(culled));
+	cullCache = { cameraKey, structureKey, visibleIds };
+	return visibleIds;
 }
 
 function syncBackground(palette: CanvasRenderPalette) {
@@ -185,22 +212,17 @@ function syncStage() {
 	const pinnedIds = new Set(editor.selection);
 	if (editor.editingId) pinnedIds.add(editor.editingId);
 
-	// Global render signals not carried by an item's identity. When this is
-	// stable across frames (a pure drag or pan), unchanged cards skip their
-	// renderer update.
-	const frameSig = [
-		assetVersion,
-		editor.hoverId,
-		editor.selection.join(","),
-		getResolvedTheme(),
-	].join("|");
+	// Global render signals that affect every card equally (asset readiness and
+	// theme). Selection and hover are tracked per card by the scene, so they no
+	// longer force a whole-viewport redraw when they change.
+	const globalSig = [assetVersion, getResolvedTheme()].join("|");
 
 	scene.sync({
 		items: editor.items,
 		context,
 		visibleIds,
 		pinnedIds,
-		frameSig,
+		globalSig,
 	});
 
 	scene.drawOverlay(
@@ -217,7 +239,71 @@ function syncStage() {
 		palette,
 	);
 
+	drawTransient(palette);
+
 	scheduleRender();
+}
+
+/**
+ * Draw in-progress gesture previews (freehand stroke, arrow being drawn) and
+ * alignment guides onto the overlay, in world space. These are ephemeral — they
+ * exist only while a gesture is active and never touch the document.
+ */
+function drawTransient(palette: CanvasRenderPalette) {
+	if (!overlay) return;
+	const zoom = editor.camera.zoom;
+	const inv = 1 / Math.max(zoom, 0.0001);
+	const mode = getResolvedTheme() === "light" ? "light" : "dark";
+	const interaction = editor.interaction;
+
+	// Alignment guides.
+	for (const guide of editor.snapGuides) {
+		overlay
+			.moveTo(
+				guide.axis === "x" ? guide.at : guide.from,
+				guide.axis === "x" ? guide.from : guide.at,
+			)
+			.lineTo(
+				guide.axis === "x" ? guide.at : guide.to,
+				guide.axis === "x" ? guide.to : guide.at,
+			)
+			.stroke({ color: palette.brand, width: inv, alpha: 0.9 });
+	}
+
+	if (interaction.type === "drawing" && interaction.points.length > 0) {
+		const color = resolveCanvasColor(interaction.color, mode);
+		const outline = buildStrokeOutline(interaction.points, interaction.size);
+		if (outline.length >= 3) {
+			overlay.moveTo(outline[0].x, outline[0].y);
+			for (let i = 1; i < outline.length; i += 1)
+				overlay.lineTo(outline[i].x, outline[i].y);
+			overlay.closePath().fill({ color: color.stroke, alpha: 0.92 });
+		}
+	}
+
+	if (interaction.type === "creatingArrow") {
+		const color = resolveCanvasColor(interaction.color, mode);
+		const { start, current } = interaction;
+		overlay
+			.moveTo(start.x, start.y)
+			.lineTo(current.x, current.y)
+			.stroke({ color: color.stroke, width: 3 * inv, alpha: 0.9 });
+		const angle = Math.atan2(current.y - start.y, current.x - start.x);
+		const head = Math.max(8, 10 * inv);
+		const spread = Math.PI / 7;
+		overlay
+			.moveTo(current.x, current.y)
+			.lineTo(
+				current.x - head * Math.cos(angle - spread),
+				current.y - head * Math.sin(angle - spread),
+			)
+			.lineTo(
+				current.x - head * Math.cos(angle + spread),
+				current.y - head * Math.sin(angle + spread),
+			)
+			.closePath()
+			.fill({ color: color.stroke, alpha: 0.9 });
+	}
 }
 
 function reportSurfaceSize() {
@@ -263,6 +349,10 @@ function toPointerEvent(event: PointerEvent) {
 		altKey: event.altKey,
 		button: event.button,
 		pointerType: event.pointerType,
+		// Pens report real pressure; mouse/touch default to a mid value so strokes
+		// have a sensible, consistent width.
+		pressure:
+			event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5,
 	};
 }
 
@@ -299,7 +389,7 @@ function handleDoubleClick(event: MouseEvent) {
 		editor.camera,
 	);
 	const item = editor.itemAt(worldPointAtCursor);
-	if (item?.type === "text") {
+	if (item && shapeCapabilities(item).canEdit) {
 		editor.editingId = item.id;
 	} else if (!item) {
 		editor.beginTextDraft(worldPointAtCursor);
@@ -329,7 +419,18 @@ const cursor = $derived.by(() => {
 	if (editor.interaction.type === "panning") return "grabbing";
 	if (editor.interaction.type === "translating") return "grabbing";
 	if (editor.interaction.type === "brushing") return "crosshair";
-	return "default";
+	switch (editor.tool) {
+		case "draw":
+		case "arrow":
+		case "note":
+		case "geo":
+		case "text":
+			return "crosshair";
+		case "eraser":
+			return "cell";
+		default:
+			return "default";
+	}
 });
 
 let disposed = false;
@@ -389,6 +490,9 @@ $effect(() => {
 	editor.hoverId;
 	editor.marquee;
 	editor.bounds;
+	editor.interaction;
+	editor.snapGuides;
+	editor.structureVersion;
 	assetVersion;
 	// Re-render when the theme changes so Pixi picks up new CSS colors.
 	getResolvedTheme();

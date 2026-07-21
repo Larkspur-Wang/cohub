@@ -1,9 +1,9 @@
 <script lang="ts">
-import { Check, FilePlus2, Link as LinkIcon, Type } from "lucide-svelte";
+import { Check, FilePlus2, Link as LinkIcon } from "lucide-svelte";
 import { floatNear } from "$lib/actions/portal";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 
-type AddMode = "file" | "url" | "text";
+type AddMode = "file" | "url";
 
 const {
 	editor,
@@ -26,7 +26,6 @@ const MODES: Array<{ id: AddMode; label: string; placeholder: string }> = [
 		placeholder: "Space file path, e.g. assets/logo.png",
 	},
 	{ id: "url", label: "URL", placeholder: "https://example.com/image.png" },
-	{ id: "text", label: "Text", placeholder: "Write a note…" },
 ];
 
 const active = $derived(MODES.find((m) => m.id === mode) ?? MODES[0]);
@@ -47,8 +46,7 @@ function submit() {
 	}
 	const at = editor.viewCenter();
 	if (mode === "file") editor.addFile(trimmed, at);
-	else if (mode === "url") editor.addUrl(trimmed, at);
-	else editor.addText(trimmed, at);
+	else editor.addUrl(trimmed, at);
 	value = "";
 	error = null;
 	onClose();
@@ -81,29 +79,19 @@ function handleKeydown(event: KeyboardEvent) {
 				class:add-mode--active={mode === m.id}
 				onclick={() => { mode = m.id; error = null; }}
 			>
-				{#if m.id === "file"}<FilePlus2 class="h-3.5 w-3.5" />{:else if m.id === "url"}<LinkIcon class="h-3.5 w-3.5" />{:else}<Type class="h-3.5 w-3.5" />{/if}
+				{#if m.id === "file"}<FilePlus2 class="h-3.5 w-3.5" />{:else}<LinkIcon class="h-3.5 w-3.5" />{/if}
 				{m.label}
 			</button>
 		{/each}
 	</div>
 	<div class="px-2 pb-2">
-		{#if mode === "text"}
-			<textarea
-				bind:value
-				rows="3"
-				class="add-input add-input--area"
-				placeholder={active.placeholder}
-				onkeydown={handleKeydown}
-			></textarea>
-		{:else}
-			<input
-				bind:value
-				type="text"
-				class="add-input"
-				placeholder={active.placeholder}
-				onkeydown={handleKeydown}
-			/>
-		{/if}
+		<input
+			bind:value
+			type="text"
+			class="add-input"
+			placeholder={active.placeholder}
+			onkeydown={handleKeydown}
+		/>
 		{#if error}
 			<div class="mt-1.5 text-[11px] text-error-soft">{error}</div>
 		{/if}
@@ -156,7 +144,6 @@ function handleKeydown(event: KeyboardEvent) {
 		outline: none;
 	}
 	.add-input:focus { border-color: var(--brand-border); }
-	.add-input--area { resize: vertical; min-height: 64px; font-family: var(--font-sans); line-height: 1.45; }
 
 	.add-submit {
 		display: flex;

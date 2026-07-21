@@ -150,6 +150,30 @@ function handleKeydown(event: KeyboardEvent) {
 		case "H":
 			editor.tool = "hand";
 			return;
+		case "t":
+		case "T":
+			editor.tool = "text";
+			return;
+		case "n":
+		case "N":
+			editor.tool = "note";
+			return;
+		case "g":
+		case "G":
+			editor.tool = "geo";
+			return;
+		case "d":
+		case "D":
+			editor.tool = "draw";
+			return;
+		case "a":
+		case "A":
+			editor.tool = "arrow";
+			return;
+		case "e":
+		case "E":
+			editor.tool = "eraser";
+			return;
 		case "f":
 		case "F":
 			editor.fitView();

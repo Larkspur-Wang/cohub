@@ -11,7 +11,10 @@ const editingItem = $derived.by(() => {
 	const id = editor.editingId;
 	if (!id) return null;
 	const item = editor.items.find((candidate) => candidate.id === id);
-	return item?.type === "text" ? item : null;
+	if (!item) return null;
+	return item.type === "text" || item.type === "note" || item.type === "geo"
+		? item
+		: null;
 });
 
 // Position the textarea exactly over the card. The card rotates about its

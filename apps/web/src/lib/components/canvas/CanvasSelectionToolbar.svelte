@@ -1,19 +1,9 @@
 <script lang="ts">
 import { ArrowDownToLine, ArrowUpToLine, Copy, Trash2 } from "lucide-svelte";
-import type { CanvasEditor, CanvasEmphasis } from "$lib/canvas/editor.svelte";
+import { CANVAS_COLORS } from "$lib/canvas/core/palette";
+import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 
 const { editor }: { editor: CanvasEditor } = $props();
-
-const EMPHASIS_OPTIONS: Array<{
-	id: CanvasEmphasis;
-	color: string;
-	label: string;
-}> = [
-	{ id: "normal", color: "#8c8c8c", label: "Normal" },
-	{ id: "rare", color: "#38bdf8", label: "Rare" },
-	{ id: "epic", color: "#a78bfa", label: "Epic" },
-	{ id: "legendary", color: "#f59e0b", label: "Legendary" },
-];
 
 const visible = $derived(
 	editor.selection.length > 0 &&
@@ -31,13 +21,26 @@ const position = $derived.by(() => {
 	};
 });
 
-const currentEmphasis = $derived.by<CanvasEmphasis>(() => {
-	const items = editor.selectedItems;
-	if (items.length === 0) return "normal";
-	const first = items[0]?.style?.emphasis ?? "normal";
-	return items.every((item) => (item.style?.emphasis ?? "normal") === first)
-		? first
-		: "normal";
+/**
+ * The selection's color state for the palette:
+ * - `undefined` — no color-bearing shape selected (hide the palette);
+ * - a color id — every color-bearing shape shares it (highlight that swatch);
+ * - `null` — mixed colors (no highlight).
+ */
+const currentColor = $derived.by<string | null | undefined>(() => {
+	const colors = editor.selectedItems
+		.filter(
+			(item) =>
+				item.type === "note" ||
+				item.type === "geo" ||
+				item.type === "draw" ||
+				item.type === "arrow",
+		)
+		.map((item) => item.color);
+	if (colors.length === 0) return undefined;
+	return colors.every((color) => color === colors[0])
+		? (colors[0] ?? null)
+		: null;
 });
 </script>
 
@@ -49,21 +52,22 @@ const currentEmphasis = $derived.by<CanvasEmphasis>(() => {
 		role="toolbar"
 		aria-label="Selection actions"
 	>
-		<div class="flex items-center gap-1 px-1">
-			{#each EMPHASIS_OPTIONS as option (option.id)}
-				<button
-					type="button"
-					class="swatch"
-					class:swatch--active={currentEmphasis === option.id}
-					title={option.label}
-					aria-label="Set {option.label} emphasis"
-					style:--swatch-color={option.color}
-					onclick={() => editor.setSelectionEmphasis(option.id)}
-				></button>
-			{/each}
-		</div>
-
-		<div class="divider"></div>
+		{#if currentColor !== undefined}
+			<div class="flex items-center gap-1 px-1">
+				{#each CANVAS_COLORS as color (color.id)}
+					<button
+						type="button"
+						class="swatch"
+						class:swatch--active={currentColor === color.id}
+						title={color.label}
+						aria-label="Set {color.label} color"
+						style:--swatch-color={`#${color.dark.stroke.toString(16).padStart(6, "0")}`}
+						onclick={() => editor.setSelectionColor(color.id)}
+					></button>
+				{/each}
+			</div>
+			<div class="divider"></div>
+		{/if}
 
 		<button type="button" class="sel-btn" title="Bring to front" aria-label="Bring to front" onclick={() => editor.bringToFront()}>
 			<ArrowUpToLine class="h-3.5 w-3.5" />

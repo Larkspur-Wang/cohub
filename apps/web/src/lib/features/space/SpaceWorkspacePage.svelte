@@ -1688,25 +1688,18 @@ onMount(() => {
 				documentId?: unknown;
 				version?: unknown;
 				actorId?: unknown;
+				txId?: unknown;
 			};
 			if (
 				typeof payload.documentId !== "string" ||
 				payload.documentId !== inlineCanvas?.documentId
 			)
 				return;
-			if (inlineCanvas?.saving) return;
-			void sdk
-				.space(spaceId)
-				.canvas.bootstrap(payload.documentId)
-				.then((bootstrap) => {
-					canvasPreview.applyBootstrap(payload.documentId as string, bootstrap);
-				})
-				.catch((error) => {
-					canvasPreview.setError(
-						payload.documentId as string,
-						error instanceof Error ? error.message : "Failed to sync canvas",
-					);
-				});
+			// Skip only this client's own committed transactions (already reflected
+			// locally). Keying on txId — not actorId — means the same user's other
+			// tabs/devices still reconcile, so multi-tab editing stays in sync.
+			if (canvasPreview.isOwnTransaction(payload.txId)) return;
+			canvasPreview.requestRemoteRefresh(payload.documentId);
 		});
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
 		spaceConfig = config;

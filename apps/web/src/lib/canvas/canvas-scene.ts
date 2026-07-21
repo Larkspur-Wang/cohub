@@ -20,8 +20,12 @@ type CardEntry = {
 	renderer: CanvasCardRenderer;
 	/** Last visibility applied; a change forces a renderer update. */
 	visible: boolean;
-	/** Last global frame signature seen by this card (selection/hover/theme/…). */
-	frameSig: string;
+	/** Last per-card selection state seen by this card. */
+	selected: boolean;
+	/** Last per-card hover state seen by this card. */
+	hovered: boolean;
+	/** Last global signal (asset readiness / theme) seen by this card. */
+	globalSig: string;
 };
 
 export type SceneSyncInput = {
@@ -35,12 +39,12 @@ export type SceneSyncInput = {
 	/** Ids always rendered regardless of culling (selected, editing). */
 	pinnedIds: Set<string>;
 	/**
-	 * A signature of the global render signals that are not carried by an item's
-	 * identity (selection, hover, texture availability, theme). When it is stable
-	 * and an item is unchanged, that card's renderer update is skipped — so a drag
-	 * refreshes only the dragged cards and a pan refreshes none.
+	 * A signature of the *global* render signals that affect every card equally
+	 * (asset readiness, theme). Selection and hover are tracked per card, so a
+	 * hover change refreshes only the two affected cards rather than the whole
+	 * viewport — the previous global signature redraw every visible card.
 	 */
-	frameSig: string;
+	globalSig: string;
 };
 
 export type SceneOverlayInput = {
@@ -100,7 +104,7 @@ export function createCanvasScene(options: {
 	}
 
 	function sync(input: SceneSyncInput) {
-		const { items, context, visibleIds, pinnedIds, frameSig } = input;
+		const { items, context, visibleIds, pinnedIds, globalSig } = input;
 		let structureChanged = false;
 
 		const nextIds = new Set(items.map((item) => item.id));
@@ -130,7 +134,9 @@ export function createCanvasScene(options: {
 				container,
 				renderer,
 				visible: false,
-				frameSig: "",
+				selected: false,
+				hovered: false,
+				globalSig: "",
 			});
 			world.addChild(container);
 			justCreated.add(item.id);
@@ -154,9 +160,10 @@ export function createCanvasScene(options: {
 
 		// Appearance pass: cull to the viewport and refresh only the cards that
 		// actually changed. A card needs an update when its item identity changed
-		// (e.g. it is being dragged), its visibility flipped, or a global signal
-		// shifted (frameSig). Otherwise its existing display is still correct and
-		// we skip the renderer call entirely.
+		// (it is being dragged), its visibility flipped, its own selection/hover
+		// state flipped, or a global signal shifted. A hover therefore touches two
+		// cards, a selection change touches the affected few, and a pure pan/drag
+		// touches none beyond the dragged card.
 		for (const item of items) {
 			const entry = cards.get(item.id);
 			if (!entry) continue;
@@ -169,13 +176,19 @@ export function createCanvasScene(options: {
 			// cards release it into the cooling pool.
 			const desiredKey = visible ? context.imageKey(item) : null;
 			setHeldKey(context, item.id, desiredKey);
+			const selected = context.selectedIds.has(item.id);
+			const hovered = context.hoveredId === item.id;
 			const changed =
 				visible !== entry.visible ||
 				item !== entry.item ||
-				frameSig !== entry.frameSig;
+				selected !== entry.selected ||
+				hovered !== entry.hovered ||
+				globalSig !== entry.globalSig;
 			entry.visible = visible;
 			entry.item = item;
-			entry.frameSig = frameSig;
+			entry.selected = selected;
+			entry.hovered = hovered;
+			entry.globalSig = globalSig;
 			// A freshly created container is already synced by create(); skip a
 			// redundant immediate update.
 			if (visible && changed && !justCreated.has(item.id))

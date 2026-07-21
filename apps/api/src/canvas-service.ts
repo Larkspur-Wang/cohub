@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { canvasDocuments, canvasNodes, canvasUpdates } from "@cohub/db";
 import { db } from "./db/index.js";
 import { dispatchCanvasTransactionApplied } from "./canvas-events.js";
@@ -176,6 +176,22 @@ export async function applyCanvasTransaction(input: {
       .for("update")
       .limit(1);
     if (!document) throw new CanvasServiceError(404, "canvas not found");
+
+    // Idempotency: if this exact txId was already applied to this document, return
+    // the current state without re-applying. This makes timeout retries and
+    // duplicate sends safe — a transaction is applied at most once. Checked before
+    // the version guard so a retried tx (whose baseVersion is now stale) still
+    // resolves as success rather than a spurious 409 conflict.
+    const [existing] = await tx
+      .select({ version: canvasUpdates.version })
+      .from(canvasUpdates)
+      .where(and(eq(canvasUpdates.documentId, input.documentId), sql`${canvasUpdates.payload}->>'txId' = ${input.txId}`))
+      .limit(1);
+    if (existing) {
+      const nodes = await tx.select().from(canvasNodes).where(and(eq(canvasNodes.documentId, input.documentId), isNull(canvasNodes.deletedAt))).orderBy(canvasNodes.orderKey);
+      return { document, nodes, version: document.version, ops: normalizedOps, idempotent: true };
+    }
+
     if (input.baseVersion != null && input.baseVersion !== document.version) {
       throw new CanvasServiceError(409, "canvas version conflict");
     }
@@ -260,10 +276,12 @@ export async function applyCanvasTransaction(input: {
     });
     const [updated] = await tx.update(canvasDocuments).set({ version: nextVersion, updatedAt: now }).where(eq(canvasDocuments.id, input.documentId)).returning();
     const nodes = await tx.select().from(canvasNodes).where(and(eq(canvasNodes.documentId, input.documentId), isNull(canvasNodes.deletedAt))).orderBy(canvasNodes.orderKey);
-    return { document: updated ?? { ...document, version: nextVersion, updatedAt: now }, nodes, version: nextVersion, ops: normalizedOps };
+    return { document: updated ?? { ...document, version: nextVersion, updatedAt: now }, nodes, version: nextVersion, ops: normalizedOps, idempotent: false };
   });
 
-  if (input.broadcast !== false) {
+  // Only broadcast when a new version was actually written; an idempotent replay
+  // must not re-emit an event for a change that was already announced.
+  if (input.broadcast !== false && !result.idempotent) {
     await dispatchCanvasTransactionApplied({
       spaceId: input.spaceId,
       documentId: input.documentId,
