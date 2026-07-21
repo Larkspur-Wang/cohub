@@ -4,6 +4,21 @@ All notable changes to Cohub are documented in this file.
 
 <!-- Generated from apps/web/src/lib/changelog/entries.json. Do not edit. -->
 
+## v1.106 — 2026-07-22
+
+- **tldraw-inspired infinite canvas**: Rebuild `.covas` around a renderer-independent shape core and editor model (select/hand/text/note/geo/draw/arrow/eraser/frame) with branded coordinates, serial commit queue, multi-tab realtime sync, txId idempotency, and 409 rebase recovery that never drops local work.
+- **Canvas rendering scale-up**: Quadtree spatial index, viewport culling, dirty per-item updates, texture LRU, and on-demand Pixi draws so idle canvases stop burning CPU and large boards stay responsive under pan/zoom/drag.
+- **Urgency-layered agent streaming**: Flush text/thinking near frame time (~24ms) while tool progress stays coarser (250ms), with urgent events preempting coarser timers for smoother live replies.
+- **Reliable Space Hook dispatch**: Match definitions in an internal `space_hook.dispatch` job and only create user-visible tasks when something matches; skip enqueue entirely when a space has no hooks.
+- **Public Work SEO + SDK canvas conflicts**: Publish extracts `lang` / `theme-color` into Work meta for SSR `og:locale`, theme-color, and JSON-LD; SDK/CLI export `CanvasTransactionError` for structured canvas conflict recovery.
+
+### Bug Fixes
+
+- Retry transient LLM failures in the agent session runtime.
+- Persist preview focus/float layout across reloads; pin session task tray with better turn-rail clearance.
+- Stop IndexedDB open-timeout warn storms; escape raw HTML in markdown; clip mobile chat selection to the timeline.
+- Stamp streaming previews with server chunk time; resolve Work PWA icons against content URL and skip SVG for og:image.
+
 ## v1.105 — 2026-07-20
 
 - **Product docs site**: Self-hosted `/docs` surface with English and Chinese guides, client search, language switch, TOC, copy-markdown, and SEO (canonical, hreflang, JSON-LD, sitemap alternates).
