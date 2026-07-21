@@ -37,6 +37,11 @@ import {
   projectAssistantStreamState,
   type AssistantStreamState,
 } from "./stream/assistant-stream-state.js";
+import {
+  resolveStreamFlushDelayMs,
+  shouldReplaceStreamFlushTimer,
+  type StreamFlushUrgency,
+} from "./stream/flush-policy.js";
 
 
 export type PendingUserMessage = {
@@ -135,6 +140,8 @@ export type SessionHandle = {
     pendingBoundary?: boolean;
     flushPromise?: Promise<void> | null;
     flushTimer?: ReturnType<typeof setTimeout> | null;
+    /** Delay used by the currently armed flushTimer; used to escalate text over tool. */
+    flushDelayMs?: number | null;
     assistantContext?: AssistantMessageContext | null;
   };
   interruptedSnapshotTurnIds: Set<string>;
@@ -224,8 +231,6 @@ function addLifecycleEvent(name: string, attributes?: Record<string, string | nu
   span.addEvent(name, cleanAttributes);
 }
 
-const STREAM_UPDATE_DEBOUNCE_MS = Number(process.env.AGENT_STREAM_UPDATE_DEBOUNCE_MS ?? 100);
-
 async function emitProviderRenderUpdate(handle: SessionHandle) {
   const assistantContext = handle.streamState.assistantContext ?? handle.activeAssistantContext;
   if (!assistantContext) return;
@@ -309,7 +314,7 @@ async function emitProviderRenderUpdate(handle: SessionHandle) {
   // Only re-schedule against the same state. If reset replaced it, the
   // pending data should already have been drained by drainStreamStateBeforeReset().
   if (handle.streamState === stateAtStart && stateAtStart.pendingFlush) {
-    scheduleProviderRenderUpdate(handle, "flush_pending", { immediate: true });
+    scheduleProviderRenderUpdate(handle, "flush_pending", { urgency: "immediate" });
   }
 }
 
@@ -333,6 +338,7 @@ export async function drainStreamStateBeforeReset(handle: SessionHandle) {
     if (handle.streamState.flushTimer) {
       clearTimeout(handle.streamState.flushTimer);
       handle.streamState.flushTimer = null;
+      handle.streamState.flushDelayMs = null;
     }
     try {
       await emitProviderRenderUpdate(handle);
@@ -356,15 +362,33 @@ export async function drainStreamStateBeforeReset(handle: SessionHandle) {
 function scheduleProviderRenderUpdate(
   handle: SessionHandle,
   reason: string,
-  options?: { immediate?: boolean },
+  options?: { urgency?: StreamFlushUrgency },
 ) {
   handle.streamState.pendingFlush = true;
 
-  if (handle.streamState.flushTimer || handle.streamState.flushPromise) return;
+  // Inflight send already owns the next pass via pendingFlush.
+  if (handle.streamState.flushPromise) return;
 
-  const delayMs = options?.immediate ? 0 : STREAM_UPDATE_DEBOUNCE_MS;
+  const urgency = options?.urgency ?? "text";
+  const delayMs = resolveStreamFlushDelayMs(urgency);
+
+  // Keep a coarser timer unless a more urgent request arrives (text over tool).
+  if (
+    handle.streamState.flushTimer
+    && !shouldReplaceStreamFlushTimer(handle.streamState.flushDelayMs, delayMs)
+  ) {
+    return;
+  }
+
+  if (handle.streamState.flushTimer) {
+    clearTimeout(handle.streamState.flushTimer);
+    handle.streamState.flushTimer = null;
+  }
+
+  handle.streamState.flushDelayMs = delayMs;
   handle.streamState.flushTimer = setTimeout(() => {
     handle.streamState.flushTimer = null;
+    handle.streamState.flushDelayMs = null;
     void emitProviderRenderUpdate(handle).catch((error) => {
       logger.error(`[Agent] Provider render update failed (${reason}) for session ${handle.sessionId}:`, error);
     });
@@ -372,11 +396,7 @@ function scheduleProviderRenderUpdate(
 }
 
 function flushProviderRenderUpdate(handle: SessionHandle, reason: string) {
-  if (handle.streamState.flushTimer) {
-    clearTimeout(handle.streamState.flushTimer);
-    handle.streamState.flushTimer = null;
-  }
-  scheduleProviderRenderUpdate(handle, reason, { immediate: true });
+  scheduleProviderRenderUpdate(handle, reason, { urgency: "immediate" });
 }
 
 function schedulePersistence(handle: SessionHandle, label: string, task: () => Promise<void>) {
@@ -413,6 +433,7 @@ export function resetStreamState(handle: SessionHandle) {
     dirty: false,
     flushPromise: null,
     flushTimer: null,
+    flushDelayMs: null,
     assistantContext: null,
   };
 }
@@ -816,7 +837,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
         event.assistantMessageEvent as Parameters<typeof applyAssistantMessageEvent>[1],
       );
       handle.streamState.dirty = true;
-      scheduleProviderRenderUpdate(handle, "message_update");
+      scheduleProviderRenderUpdate(handle, "message_update", { urgency: "text" });
     }
 
     if (event.type === "message_end") {
@@ -889,7 +910,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
           content: resultContent,
         });
         handle.streamState.dirty = true;
-        scheduleProviderRenderUpdate(handle, "tool_execution_update");
+        scheduleProviderRenderUpdate(handle, "tool_execution_update", { urgency: "tool" });
       }
     }
 
@@ -1153,6 +1174,7 @@ export async function loadOrCreateSessionHandle(input: {
       dirty: false,
       flushPromise: null,
       flushTimer: null,
+      flushDelayMs: null,
       assistantContext: null,
     },
     interruptedSnapshotTurnIds: new Set(),
