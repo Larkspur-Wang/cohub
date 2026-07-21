@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { canvasDocuments, canvasNodes, canvasUpdates } from "@cohub/db";
 import { db } from "./db/index.js";
 import { dispatchCanvasTransactionApplied } from "./canvas-events.js";
@@ -177,15 +177,14 @@ export async function applyCanvasTransaction(input: {
       .limit(1);
     if (!document) throw new CanvasServiceError(404, "canvas not found");
 
-    // Idempotency: if this exact txId was already applied to this document, return
-    // the current state without re-applying. This makes timeout retries and
-    // duplicate sends safe — a transaction is applied at most once. Checked before
-    // the version guard so a retried tx (whose baseVersion is now stale) still
-    // resolves as success rather than a spurious 409 conflict.
+    // Idempotency via the partial unique index on (document_id, tx_id). Checked
+    // before the version guard so a retried tx (stale baseVersion) still resolves
+    // as success rather than a spurious 409. After migration, tx_id is always set
+    // for new rows and the index is used directly — no JSON fallback.
     const [existing] = await tx
       .select({ version: canvasUpdates.version })
       .from(canvasUpdates)
-      .where(and(eq(canvasUpdates.documentId, input.documentId), sql`${canvasUpdates.payload}->>'txId' = ${input.txId}`))
+      .where(and(eq(canvasUpdates.documentId, input.documentId), eq(canvasUpdates.txId, input.txId)))
       .limit(1);
     if (existing) {
       const nodes = await tx.select().from(canvasNodes).where(and(eq(canvasNodes.documentId, input.documentId), isNull(canvasNodes.deletedAt))).orderBy(canvasNodes.orderKey);
@@ -264,11 +263,16 @@ export async function applyCanvasTransaction(input: {
       if (deleted.length === 0) throw new CanvasServiceError(404, "canvas node not found");
     }
 
+    // Document row is locked FOR UPDATE above, so same-document requests are
+    // serialised; the pre-insert txId lookup is sufficient for idempotency.
+    // Do not catch unique violations here — after 23505 the transaction is
+    // aborted and further SELECTs would fail with 25P02.
     await tx.insert(canvasUpdates).values({
       documentId: input.documentId,
       version: nextVersion,
       actorId: input.actorId,
       clientId: input.clientId ?? null,
+      txId: input.txId,
       type: "canvas.tx",
       payload: { txId: input.txId, baseVersion: input.baseVersion ?? null, ops: normalizedOps },
       undoGroupId: input.undoGroupId ?? null,

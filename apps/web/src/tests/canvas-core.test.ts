@@ -188,6 +188,29 @@ test("unknown item round-trips through node mapping without losing fields", () =
 	}
 });
 
+test("unknown locked survives node mapping round-trip", () => {
+	const item = parseCanvasItemLoose({
+		id: "x1",
+		type: "hologram",
+		frame,
+		intensity: 0.7,
+		locked: true,
+	});
+	assert.equal(item.locked, true);
+	const node = canvasItemToNode(item, 0);
+	assert.equal((node.data as Record<string, unknown>).locked, true);
+	const back = canvasNodeToItem({
+		documentId: "d",
+		version: 0,
+		createdAt: null,
+		updatedAt: null,
+		deletedAt: null,
+		...node,
+	});
+	assert.equal(isUnknownItem(back), true);
+	assert.equal(back.locked, true);
+});
+
 // ─── Draw geometry ──────────────────────────────────────────────────
 
 test("computeDrawBounds pads by stroke width", () => {

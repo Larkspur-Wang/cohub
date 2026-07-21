@@ -1,4 +1,5 @@
 import type { Container } from "pixi.js";
+import { textResolutionForZoom } from "$lib/canvas/canvas-rendering";
 import type { CanvasItem } from "$lib/canvas/canvas-schema";
 import {
 	type CardShell,
@@ -15,6 +16,8 @@ import type {
 type TextCardParts = {
 	shell: CardShell;
 	body: ReturnType<typeof createLabel>;
+	/** Last zoom-bucket resolution applied to the body text. */
+	resolution: number;
 };
 
 const partsByContainer = new WeakMap<Container, TextCardParts>();
@@ -49,6 +52,13 @@ function sync(
 	parts.body.style.fill = context.palette.text;
 	parts.body.x = area.x + 2;
 	parts.body.y = area.y + 2;
+
+	// Re-rasterise when the camera crosses a zoom bucket so text stays crisp.
+	const nextRes = textResolutionForZoom(context.zoom);
+	if (nextRes !== parts.resolution) {
+		parts.body.resolution = nextRes;
+		parts.resolution = nextRes;
+	}
 }
 
 export const textCardRenderer: CanvasCardRenderer = {
@@ -56,6 +66,7 @@ export const textCardRenderer: CanvasCardRenderer = {
 	canRender: (item) => item.type === "text",
 	create: (item, context) => {
 		const shell = createCardShell();
+		const resolution = textResolutionForZoom(context.zoom);
 		const body = createLabel("", {
 			fill: context.palette.text,
 			fontFamily: "Geist",
@@ -63,8 +74,9 @@ export const textCardRenderer: CanvasCardRenderer = {
 			wordWrap: true,
 			lineHeight: 19,
 		});
+		body.resolution = resolution;
 		shell.content.addChild(body);
-		partsByContainer.set(shell.root, { shell, body });
+		partsByContainer.set(shell.root, { shell, body, resolution });
 		sync(shell.root, item, context);
 		return shell.root;
 	},

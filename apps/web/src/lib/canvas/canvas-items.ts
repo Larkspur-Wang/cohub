@@ -180,6 +180,23 @@ export function createArrowCanvasItem(
 	};
 }
 
+const DEFAULT_FRAME_SIZE = { width: 480, height: 320 };
+
+export function createFrameCanvasItem(
+	x: number,
+	y: number,
+	color = "neutral",
+	label = "Frame",
+): CanvasItem {
+	return {
+		id: createCanvasItemId(),
+		type: "frame",
+		label,
+		color,
+		frame: createFrame(x, y, DEFAULT_FRAME_SIZE),
+	};
+}
+
 function arrowFrameFromPoints(
 	start: { x: number; y: number },
 	end: { x: number; y: number },
@@ -196,12 +213,19 @@ function arrowFrameFromPoints(
 	};
 }
 
-/** Create a copy of an item with a fresh id and a small positional offset. */
-export function duplicateCanvasItem(item: CanvasItem): CanvasItem {
+/**
+ * Create a copy of an item with a fresh id. Pass `offset` (defaults to
+ * DUPLICATE_OFFSET) to displace the copy; pass 0 for an in-place clone used by
+ * Alt-drag (the subsequent drag provides the visual offset).
+ */
+export function duplicateCanvasItem(
+	item: CanvasItem,
+	offset = DUPLICATE_OFFSET,
+): CanvasItem {
 	const frame: CanvasFrame = {
 		...item.frame,
-		x: item.frame.x + DUPLICATE_OFFSET,
-		y: item.frame.y + DUPLICATE_OFFSET,
+		x: item.frame.x + offset,
+		y: item.frame.y + offset,
 	};
 	// An arrow's geometry lives in its endpoints, so offset its free endpoints
 	// too (bindings stay attached); the editor recomputes an exact frame afterwards.
@@ -212,13 +236,14 @@ export function duplicateCanvasItem(item: CanvasItem): CanvasItem {
 			endpoint.kind === "point"
 				? {
 						kind: "point",
-						x: endpoint.x + DUPLICATE_OFFSET,
-						y: endpoint.y + DUPLICATE_OFFSET,
+						x: endpoint.x + offset,
+						y: endpoint.y + offset,
 					}
 				: endpoint;
 		return {
 			...structuredClone(item),
 			id: createCanvasItemId(),
+			locked: false,
 			start: move(item.start),
 			end: move(item.end),
 			frame,
@@ -227,6 +252,7 @@ export function duplicateCanvasItem(item: CanvasItem): CanvasItem {
 	return {
 		...structuredClone(item),
 		id: createCanvasItemId(),
+		locked: false,
 		frame,
 	};
 }
@@ -274,6 +300,8 @@ export function titleForCanvasItem(item: CanvasItem): string {
 			return "Drawing";
 		case "arrow":
 			return item.label || "Arrow";
+		case "frame":
+			return item.label || "Frame";
 		case "resource":
 			return (
 				item.snapshot?.title ??
@@ -298,6 +326,8 @@ export function subtitleForCanvasItem(item: CanvasItem): string {
 			return "Drawing";
 		case "arrow":
 			return "Arrow";
+		case "frame":
+			return "Frame";
 		case "resource": {
 			const value =
 				item.ref.kind === "space-file" ? item.ref.path : item.ref.url;

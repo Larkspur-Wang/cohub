@@ -69,6 +69,7 @@ export const unknownShapeDefinition: ShapeDefinition = {
 		canEdit: false,
 		canBind: true,
 		canSnap: true,
+		canLock: true,
 	},
 };
 

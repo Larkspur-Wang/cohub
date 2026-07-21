@@ -2,6 +2,7 @@ import type { Container, Texture } from "pixi.js";
 import type { CanvasItem, CovasDocument } from "$lib/canvas/canvas-schema";
 import { arrowCardRenderer } from "$lib/canvas/renderers/arrow-card-renderer";
 import { drawCardRenderer } from "$lib/canvas/renderers/draw-card-renderer";
+import { frameCardRenderer } from "$lib/canvas/renderers/frame-card-renderer";
 import { geoCardRenderer } from "$lib/canvas/renderers/geo-card-renderer";
 import { noteCardRenderer } from "$lib/canvas/renderers/note-card-renderer";
 import { resourceCardRenderer } from "$lib/canvas/renderers/resource-card-renderer";
@@ -28,6 +29,8 @@ export type CanvasRenderContext = {
 	palette: CanvasRenderPalette;
 	/** Resolved color mode, for mapping palette color ids to concrete values. */
 	colorMode: "dark" | "light";
+	/** Current camera zoom — used for text re-rasterisation buckets. */
+	zoom: number;
 	/** Stable image cache key for an item, or null if it is not an image. */
 	imageKey: (item: CanvasItem) => string | null;
 	/** Currently loaded texture for a key (null while loading). */
@@ -58,6 +61,7 @@ const canvasCardRenderers: CanvasCardRenderer[] = [
 	geoCardRenderer,
 	drawCardRenderer,
 	arrowCardRenderer,
+	frameCardRenderer,
 	resourceCardRenderer,
 	unknownCardRenderer,
 ];

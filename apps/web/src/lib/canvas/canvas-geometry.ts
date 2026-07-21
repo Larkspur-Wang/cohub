@@ -246,11 +246,14 @@ export function resizeFrame(
 	handle: ResizeHandle,
 	pointer: WorldPoint,
 	minSize = MIN_ITEM_SIZE,
+	/** Keep the original aspect ratio (Shift). */
+	keepAspect = false,
 ): CanvasFrame {
 	const direction = HANDLE_DIRECTION[handle];
 	const rect = frameRect(frame);
 	const center = rectCenter(rect);
 	const rad = degToRad(frame.rotation || 0);
+	const aspect = rect.width / Math.max(rect.height, 0.0001);
 
 	// Anchor = opposite edge/corner, held fixed during the resize.
 	const anchorLocal = {
@@ -267,14 +270,28 @@ export function resizeFrame(
 	const toLocal = rotatePointAround(pointer, anchor, -rad);
 	const local = { x: toLocal.x - anchor.x, y: toLocal.y - anchor.y };
 
-	const width =
+	let width =
 		direction.x !== 0
 			? clamp(direction.x * local.x, minSize, Number.POSITIVE_INFINITY)
 			: rect.width;
-	const height =
+	let height =
 		direction.y !== 0
 			? clamp(direction.y * local.y, minSize, Number.POSITIVE_INFINITY)
 			: rect.height;
+
+	if (keepAspect) {
+		if (direction.x !== 0 && direction.y !== 0) {
+			// Corner: pick the dominant axis and derive the other.
+			if (Math.abs(width / aspect) > height) height = width / aspect;
+			else width = height * aspect;
+		} else if (direction.x !== 0) {
+			height = width / aspect;
+		} else if (direction.y !== 0) {
+			width = height * aspect;
+		}
+		width = Math.max(minSize, width);
+		height = Math.max(minSize, height);
+	}
 
 	// New center in local space, then back to world space.
 	const centerLocal = {

@@ -65,6 +65,8 @@ export type ShapeCapabilities = {
 	canBind: boolean;
 	/** Participates in snapping as a target. */
 	canSnap: boolean;
+	/** Can be locked against accidental edits. */
+	canLock: boolean;
 };
 
 export const FULL_CAPABILITIES: ShapeCapabilities = {
@@ -74,6 +76,7 @@ export const FULL_CAPABILITIES: ShapeCapabilities = {
 	canEdit: false,
 	canBind: true,
 	canSnap: true,
+	canLock: true,
 };
 
 // ─── Draw shape ─────────────────────────────────────────────────────

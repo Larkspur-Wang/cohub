@@ -54,6 +54,10 @@ export type SceneOverlayInput = {
 	selection: string[];
 	/** Frame of the single selected item (drives resize handles), or null. */
 	singleFrame: CanvasFrame | null;
+	/** When true, hide box resize/rotation handles (e.g. arrows, locked). */
+	hideBoxHandles?: boolean;
+	/** World-space arrow endpoint handles to draw as circles. */
+	arrowEndpoints?: Array<{ x: number; y: number }>;
 };
 
 export type CanvasScene = {
@@ -198,7 +202,15 @@ export function createCanvasScene(options: {
 
 	function drawOverlay(input: SceneOverlayInput, palette: CanvasRenderPalette) {
 		overlay.clear();
-		const { zoom, marquee, bounds, selection, singleFrame } = input;
+		const {
+			zoom,
+			marquee,
+			bounds,
+			selection,
+			singleFrame,
+			hideBoxHandles,
+			arrowEndpoints,
+		} = input;
 		const inv = 1 / zoom;
 		const brand = palette.brand;
 
@@ -216,6 +228,20 @@ export function createCanvasScene(options: {
 		overlay
 			.rect(bounds.x, bounds.y, bounds.width, bounds.height)
 			.stroke({ color: brand, width: 1.5 * inv, alpha: 0.95 });
+
+		// Arrow endpoints (or other custom handles) take priority over box chrome.
+		if (arrowEndpoints && arrowEndpoints.length > 0) {
+			const r = 5 * inv;
+			for (const point of arrowEndpoints) {
+				overlay
+					.circle(point.x, point.y, r)
+					.fill({ color: palette.surface, alpha: 1 })
+					.stroke({ color: brand, width: 1.5 * inv });
+			}
+			return;
+		}
+
+		if (hideBoxHandles) return;
 
 		const source: CanvasFrame = singleFrame ?? { ...bounds, rotation: 0 };
 		const handles = singleFrame

@@ -108,7 +108,14 @@ export function parseCovasManifest(content: string): CovasManifest | null {
  * the way back — so an unrecognised shape round-trips through the server without
  * losing its custom fields.
  */
-const ITEM_BASE_KEYS = ["id", "type", "frame", "style", "metadata"] as const;
+const ITEM_BASE_KEYS = [
+	"id",
+	"type",
+	"frame",
+	"locked",
+	"style",
+	"metadata",
+] as const;
 
 function frameFromNode(node: CanvasNodeRecord): CanvasItem["frame"] {
 	return {
@@ -118,6 +125,10 @@ function frameFromNode(node: CanvasNodeRecord): CanvasItem["frame"] {
 		height: node.height,
 		rotation: node.rotation,
 	};
+}
+
+function lockedFromData(data: Record<string, unknown>): boolean | undefined {
+	return data.locked === true ? true : undefined;
 }
 
 function styleFromNode(node: CanvasNodeRecord): CanvasItem["style"] {
@@ -138,6 +149,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 	const frame = frameFromNode(node);
 	const style = styleFromNode(node);
 	const data = (node.data ?? {}) as Record<string, unknown>;
+	const locked = lockedFromData(data);
 	switch (node.type) {
 		case "text":
 			return {
@@ -145,6 +157,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				type: "text",
 				text: typeof data.text === "string" ? data.text : "Text",
 				frame,
+				...(locked ? { locked } : {}),
 				style,
 			};
 		case "note":
@@ -154,6 +167,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				text: typeof data.text === "string" ? data.text : "",
 				color: typeof data.color === "string" ? data.color : "brand",
 				frame,
+				...(locked ? { locked } : {}),
 				style,
 			};
 		case "geo":
@@ -166,6 +180,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				fillOpacity:
 					typeof data.fillOpacity === "number" ? data.fillOpacity : 0.12,
 				frame,
+				...(locked ? { locked } : {}),
 				style,
 			};
 		case "draw":
@@ -178,6 +193,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				color: typeof data.color === "string" ? data.color : "brand",
 				size: typeof data.size === "number" ? data.size : 4,
 				frame,
+				...(locked ? { locked } : {}),
 				style,
 			};
 		case "arrow":
@@ -201,6 +217,17 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				arrowEnd: data.arrowEnd === undefined ? true : Boolean(data.arrowEnd),
 				label: typeof data.label === "string" ? data.label : "",
 				frame,
+				...(locked ? { locked } : {}),
+				style,
+			};
+		case "frame":
+			return {
+				id: node.nodeId,
+				type: "frame",
+				label: typeof data.label === "string" ? data.label : "Frame",
+				color: typeof data.color === "string" ? data.color : "neutral",
+				frame,
+				...(locked ? { locked } : {}),
 				style,
 			};
 		case "resource":
@@ -213,6 +240,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				ref: ref ?? { kind: "space-file", path: node.refPath || "missing" },
 				snapshot: node.view as CanvasResourceSnapshot,
 				frame,
+				...(locked ? { locked } : {}),
 				style,
 			};
 		}
@@ -228,10 +256,12 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				frame,
 			};
 			if (style) raw.style = style;
+			if (locked) raw.locked = true;
 			return {
 				id: node.nodeId,
 				type: UNKNOWN_CANVAS_ITEM_TYPE,
 				frame,
+				...(locked ? { locked } : {}),
 				style,
 				raw,
 			};
@@ -271,9 +301,13 @@ export function canvasItemToNode(
 			if (!(ITEM_BASE_KEYS as readonly string[]).includes(key))
 				data[key] = value;
 		}
+		// `locked` is a base field (not in raw after ITEM_BASE_KEYS strip); write
+		// it explicitly so a lock survives node round-trip.
+		if (item.locked) data.locked = true;
 		return { ...base, ...noRef, type: unknownRealType(item), view: {}, data };
 	}
 
+	const lockedData = item.locked ? { locked: true as const } : {};
 	switch (item.type) {
 		case "text":
 			return {
@@ -281,7 +315,7 @@ export function canvasItemToNode(
 				...noRef,
 				type: "text",
 				view: {},
-				data: { text: item.text },
+				data: { text: item.text, ...lockedData },
 			};
 		case "note":
 			return {
@@ -289,7 +323,7 @@ export function canvasItemToNode(
 				...noRef,
 				type: "note",
 				view: {},
-				data: { text: item.text, color: item.color },
+				data: { text: item.text, color: item.color, ...lockedData },
 			};
 		case "geo":
 			return {
@@ -302,6 +336,7 @@ export function canvasItemToNode(
 					text: item.text,
 					color: item.color,
 					fillOpacity: item.fillOpacity,
+					...lockedData,
 				},
 			};
 		case "draw":
@@ -310,7 +345,12 @@ export function canvasItemToNode(
 				...noRef,
 				type: "draw",
 				view: {},
-				data: { points: item.points, color: item.color, size: item.size },
+				data: {
+					points: item.points,
+					color: item.color,
+					size: item.size,
+					...lockedData,
+				},
 			};
 		case "arrow":
 			return {
@@ -327,6 +367,19 @@ export function canvasItemToNode(
 					arrowStart: item.arrowStart,
 					arrowEnd: item.arrowEnd,
 					label: item.label,
+					...lockedData,
+				},
+			};
+		case "frame":
+			return {
+				...base,
+				...noRef,
+				type: "frame",
+				view: {},
+				data: {
+					label: item.label,
+					color: item.color,
+					...lockedData,
 				},
 			};
 		case "resource": {
@@ -339,7 +392,7 @@ export function canvasItemToNode(
 				refPath: ref.kind === "space-file" ? ref.path : null,
 				refUrl: ref.kind === "remote-url" ? ref.url : null,
 				view: item.snapshot ?? {},
-				data: {},
+				data: { ...lockedData },
 			};
 		}
 		default: {

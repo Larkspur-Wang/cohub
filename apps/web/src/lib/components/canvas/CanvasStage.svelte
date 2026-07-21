@@ -16,8 +16,12 @@ import {
 	VIEWPORT_MARGIN_RATIO,
 	visibleWorldRect,
 } from "$lib/canvas/canvas-geometry";
-import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
+import {
+	getCanvasResolution,
+	textZoomBucket,
+} from "$lib/canvas/canvas-rendering";
 import { createCanvasScene } from "$lib/canvas/canvas-scene";
+import { resolveEndpoint } from "$lib/canvas/core/bindings";
 import { buildStrokeOutline } from "$lib/canvas/core/draw-geometry";
 import { resolveCanvasColor } from "$lib/canvas/core/palette";
 import { shapeCapabilities } from "$lib/canvas/core/shape-definition";
@@ -61,6 +65,7 @@ let renderFrame = 0;
 let cullCache: {
 	cameraKey: string;
 	structureKey: number;
+	geometryKey: number;
 	visibleIds: Set<string>;
 } | null = null;
 let dropActive = $state(false);
@@ -138,6 +143,7 @@ function buildContext(palette: CanvasRenderPalette): CanvasRenderContext {
 		hoveredId: editor.hoverId,
 		palette,
 		colorMode: getResolvedTheme() === "light" ? "light" : "dark",
+		zoom: editor.camera.zoom,
 		imageKey: imageAssetKey,
 		getTexture: (key) => assets.getTexture(key),
 		hasError: (key) => assets.hasError(key),
@@ -152,13 +158,15 @@ function computeVisibleIds(): Set<string> | null {
 	if (width === 0 || height === 0) return null;
 	const camera = editor.camera;
 	const cameraKey = `${camera.x}|${camera.y}|${camera.zoom}|${width}x${height}`;
-	// structureVersion bumps only on membership/order changes (not per-frame
-	// drags), so this is an O(1) key — no per-frame O(n) id join.
+	// structureVersion: membership/order. geometryVersion: moves/resizes (nudge,
+	// align, drag commit). Both are O(1) keys — no per-frame O(n) id join.
 	const structureKey = editor.structureVersion;
+	const geometryKey = editor.geometryVersion;
 	if (
 		cullCache &&
 		cullCache.cameraKey === cameraKey &&
-		cullCache.structureKey === structureKey
+		cullCache.structureKey === structureKey &&
+		cullCache.geometryKey === geometryKey
 	)
 		return cullCache.visibleIds;
 	const visible = visibleWorldRect(camera, width, height);
@@ -167,7 +175,7 @@ function computeVisibleIds(): Set<string> | null {
 		Math.max(visible.width, visible.height) * VIEWPORT_MARGIN_RATIO,
 	);
 	const visibleIds = new Set(editor.idsInRect(culled));
-	cullCache = { cameraKey, structureKey, visibleIds };
+	cullCache = { cameraKey, structureKey, geometryKey, visibleIds };
 	return visibleIds;
 }
 
@@ -212,10 +220,15 @@ function syncStage() {
 	const pinnedIds = new Set(editor.selection);
 	if (editor.editingId) pinnedIds.add(editor.editingId);
 
-	// Global render signals that affect every card equally (asset readiness and
-	// theme). Selection and hover are tracked per card by the scene, so they no
-	// longer force a whole-viewport redraw when they change.
-	const globalSig = [assetVersion, getResolvedTheme()].join("|");
+	// Global render signals that affect every card equally (asset readiness,
+	// theme, text zoom-bucket). Selection and hover are tracked per card by the
+	// scene. Use the quantised zoom bucket — not raw zoom — so tiny zooms do not
+	// thrash text re-rasterisation.
+	const globalSig = [
+		assetVersion,
+		getResolvedTheme(),
+		textZoomBucket(editor.camera.zoom),
+	].join("|");
 
 	scene.sync({
 		items: editor.items,
@@ -225,16 +238,30 @@ function syncStage() {
 		globalSig,
 	});
 
+	const single = editor.selection.length === 1 ? editor.selectedItems[0] : null;
+	const hideBoxHandles = Boolean(
+		single &&
+			(single.locked ||
+				single.type === "arrow" ||
+				!shapeCapabilities(single).canResize),
+	);
+	let arrowEndpoints: Array<{ x: number; y: number }> | undefined;
+	if (single?.type === "arrow" && !single.locked) {
+		const lookup = (id: string) =>
+			editor.items.find((item) => item.id === id)?.frame;
+		const start = resolveEndpoint(single.start, lookup);
+		const end = resolveEndpoint(single.end, lookup);
+		if (start && end) arrowEndpoints = [start, end];
+	}
 	scene.drawOverlay(
 		{
 			zoom: editor.camera.zoom,
 			marquee: editor.marquee,
 			bounds: editor.bounds,
 			selection: editor.selection,
-			singleFrame:
-				editor.selection.length === 1
-					? (editor.selectedItems[0]?.frame ?? null)
-					: null,
+			singleFrame: single?.frame ?? null,
+			hideBoxHandles,
+			arrowEndpoints,
 		},
 		palette,
 	);
@@ -389,7 +416,7 @@ function handleDoubleClick(event: MouseEvent) {
 		editor.camera,
 	);
 	const item = editor.itemAt(worldPointAtCursor);
-	if (item && shapeCapabilities(item).canEdit) {
+	if (item && !item.locked && shapeCapabilities(item).canEdit) {
 		editor.editingId = item.id;
 	} else if (!item) {
 		editor.beginTextDraft(worldPointAtCursor);
@@ -415,15 +442,17 @@ function handleDrop(event: DragEvent) {
 }
 
 const cursor = $derived.by(() => {
-	if (editor.tool === "hand") return "grab";
+	if (editor.spaceHeld || editor.tool === "hand") return "grab";
 	if (editor.interaction.type === "panning") return "grabbing";
 	if (editor.interaction.type === "translating") return "grabbing";
+	if (editor.interaction.type === "draggingArrowHandle") return "crosshair";
 	if (editor.interaction.type === "brushing") return "crosshair";
 	switch (editor.tool) {
 		case "draw":
 		case "arrow":
 		case "note":
 		case "geo":
+		case "frame":
 		case "text":
 			return "crosshair";
 		case "eraser":

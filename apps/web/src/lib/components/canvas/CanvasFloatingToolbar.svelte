@@ -2,9 +2,11 @@
 import {
 	ArrowUpRight,
 	Eraser,
+	Frame,
 	Hand,
 	MousePointer2,
 	Pencil,
+	Pin,
 	Plus,
 	Redo2,
 	Square,
@@ -21,6 +23,7 @@ const { editor }: { editor: CanvasEditor } = $props();
 
 let addMenuOpen = $state(false);
 let addButton: HTMLButtonElement | null = $state(null);
+let lockTimer: ReturnType<typeof setTimeout> | null = null;
 
 type ToolDef = {
 	id: CanvasToolId;
@@ -58,6 +61,13 @@ const TOOLS: ToolDef[] = [
 		usesColor: true,
 	},
 	{
+		id: "frame",
+		label: "Frame",
+		shortcut: "F",
+		icon: Frame,
+		usesColor: true,
+	},
+	{
 		id: "eraser",
 		label: "Eraser",
 		shortcut: "E",
@@ -79,7 +89,28 @@ const GEO_LABELS: Record<string, string> = {
 
 function selectTool(id: CanvasToolId) {
 	editor.tool = id;
+	// Selecting a non-creation tool clears tool lock.
+	if (id === "select" || id === "hand" || id === "eraser")
+		editor.toolLocked = false;
 	addMenuOpen = false;
+}
+
+function onToolPointerDown(id: CanvasToolId) {
+	if (lockTimer) clearTimeout(lockTimer);
+	// Long-press (~450ms) locks a creation tool for continuous placement.
+	if (id === "select" || id === "hand" || id === "eraser") return;
+	lockTimer = setTimeout(() => {
+		editor.tool = id;
+		editor.toolLocked = true;
+		lockTimer = null;
+	}, 450);
+}
+
+function onToolPointerUp() {
+	if (lockTimer) {
+		clearTimeout(lockTimer);
+		lockTimer = null;
+	}
 }
 
 function toggleAddMenu() {
@@ -88,6 +119,10 @@ function toggleAddMenu() {
 
 function closeAddMenu() {
 	addMenuOpen = false;
+}
+
+function toggleToolLock() {
+	editor.toolLocked = !editor.toolLocked;
 }
 </script>
 
@@ -130,16 +165,33 @@ function closeAddMenu() {
 				type="button"
 				class="tool-btn"
 				class:tool-btn--active={editor.tool === tool.id}
-				title="{tool.label} ({tool.shortcut})"
+				class:tool-btn--locked={editor.tool === tool.id && editor.toolLocked}
+				title="{tool.label} ({tool.shortcut}){editor.tool === tool.id && editor.toolLocked ? ' · locked' : ''}"
 				aria-label="{tool.label} tool"
 				aria-pressed={editor.tool === tool.id}
 				onclick={() => selectTool(tool.id)}
+				onpointerdown={() => onToolPointerDown(tool.id)}
+				onpointerup={onToolPointerUp}
+				onpointerleave={onToolPointerUp}
+				onpointercancel={onToolPointerUp}
 			>
 				<tool.icon class="h-4 w-4" />
 			</button>
 		{/each}
 
 		<div class="divider"></div>
+
+		<button
+			type="button"
+			class="tool-btn"
+			class:tool-btn--active={editor.toolLocked}
+			title={editor.toolLocked ? "Unlock tool" : "Lock tool (or long-press a tool)"}
+			aria-label={editor.toolLocked ? "Unlock tool" : "Lock tool"}
+			aria-pressed={editor.toolLocked}
+			onclick={toggleToolLock}
+		>
+			<Pin class="h-4 w-4" />
+		</button>
 
 		<button
 			type="button"
@@ -281,6 +333,9 @@ function closeAddMenu() {
 		border-color: var(--brand-border);
 		color: var(--brand-muted-fg);
 	}
+	.tool-btn--locked {
+		box-shadow: inset 0 0 0 1px var(--brand-border);
+	}
 	.tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 	.divider {
@@ -290,9 +345,15 @@ function closeAddMenu() {
 		background: var(--border-subtle);
 	}
 
-	/* Mobile: larger touch targets. */
+	/* Mobile: larger touch targets + horizontal scroll when tools overflow. */
 	@media (pointer: coarse) {
-		.tool-btn { width: 40px; height: 40px; }
+		.canvas-floating-toolbar {
+			max-width: calc(100vw - 24px);
+			overflow-x: auto;
+			scrollbar-width: none;
+		}
+		.canvas-floating-toolbar::-webkit-scrollbar { display: none; }
+		.tool-btn { width: 40px; height: 40px; flex-shrink: 0; }
 		.color-swatch { width: 26px; height: 26px; }
 		.geo-btn { width: 30px; height: 30px; }
 	}

@@ -30,6 +30,12 @@ const NODE_CAPACITY = 8;
 const MAX_DEPTH = 10;
 /** Subdivision stops once a cell is smaller than this (degenerate bounds). */
 const MIN_CELL_SIZE = 1;
+/**
+ * When dirty entries exceed this fraction of the tree (or this absolute count),
+ * a full rebuild is cheaper and more compact than many surgical removes.
+ */
+const REBUILD_DIRTY_RATIO = 0.25;
+const REBUILD_DIRTY_MIN = 32;
 
 function rectContainsRect(outer: Rect, inner: Rect): boolean {
 	return (
@@ -100,6 +106,20 @@ function insertEntry(node: QuadNode, entry: SpatialEntry) {
 	node.entries = kept;
 }
 
+/** Remove an entry by id. Returns true if found. */
+function removeEntry(node: QuadNode, id: string): boolean {
+	const index = node.entries.findIndex((entry) => entry.id === id);
+	if (index >= 0) {
+		node.entries.splice(index, 1);
+		return true;
+	}
+	if (!node.children) return false;
+	for (const child of node.children) {
+		if (removeEntry(child, id)) return true;
+	}
+	return false;
+}
+
 function queryRect(node: QuadNode, range: Rect, out: SpatialEntry[]) {
 	if (!rectsIntersect(node.bounds, range)) return;
 	for (const entry of node.entries) {
@@ -119,8 +139,14 @@ function queryPoint(node: QuadNode, point: Point, out: SpatialEntry[]) {
 }
 
 export type SpatialIndex = {
-	/** Rebuild the tree from scratch (cheap for the canvas node ceiling). */
+	/** Rebuild the tree from scratch. */
 	rebuild: (entries: SpatialEntry[]) => void;
+	/**
+	 * Apply a set of dirty entries: remove-then-insert each (or remove if
+	 * absent from the map). Falls back to a full rebuild when the dirty set is
+	 * large or when new entries fall outside the current root bounds.
+	 */
+	upsert: (entries: Map<string, SpatialEntry | null>) => void;
 	/** Ids whose AABB intersects the range, in no particular order. */
 	idsInRect: (range: Rect) => string[];
 	/**
@@ -133,18 +159,17 @@ export type SpatialIndex = {
 };
 
 /**
- * A point quadtree over item bounding boxes, giving sub-linear range and point
- * queries for viewport culling, marquee selection, and hit testing. The tree
- * is rebuilt wholesale when items change rather than maintained incrementally:
- * at the canvas ceiling (~2000 nodes) a rebuild is a fraction of a millisecond,
- * which keeps the implementation simple and the queries allocation-light.
+ * A point quadtree over item bounding boxes. Supports both wholesale rebuild
+ * (document load / large batch changes) and dirty-entry upsert (gesture frames)
+ * so a drag never pays a full O(n) rebuild every frame.
  */
 export function createSpatialIndex(): SpatialIndex {
 	let root: QuadNode | null = null;
-	let size = 0;
+	/** Authoritative entry map — source of truth for rebuilds. */
+	const byId = new Map<string, SpatialEntry>();
 
-	function rebuild(entries: SpatialEntry[]) {
-		size = entries.length;
+	function rebuildFromMap() {
+		const entries = [...byId.values()];
 		if (entries.length === 0) {
 			root = null;
 			return;
@@ -159,12 +184,60 @@ export function createSpatialIndex(): SpatialIndex {
 			maxX = Math.max(maxX, entry.rect.x + entry.rect.width);
 			maxY = Math.max(maxY, entry.rect.y + entry.rect.height);
 		}
-		// Pad degenerate bounds (a single point / line of items) so the root
-		// has positive area and subdivision terminates cleanly.
 		const width = Math.max(maxX - minX, MIN_CELL_SIZE);
 		const height = Math.max(maxY - minY, MIN_CELL_SIZE);
-		root = createNode({ x: minX, y: minY, width, height }, 0);
+		// Pad the root slightly so small drifts during a gesture still fit.
+		const pad = Math.max(width, height) * 0.05;
+		root = createNode(
+			{
+				x: minX - pad,
+				y: minY - pad,
+				width: width + pad * 2,
+				height: height + pad * 2,
+			},
+			0,
+		);
 		for (const entry of entries) insertEntry(root, entry);
+	}
+
+	function rebuild(entries: SpatialEntry[]) {
+		byId.clear();
+		for (const entry of entries) byId.set(entry.id, entry);
+		rebuildFromMap();
+	}
+
+	function upsert(entries: Map<string, SpatialEntry | null>) {
+		if (entries.size === 0) return;
+
+		// Cheap dirty threshold: large batches just rebuild.
+		const dirtyCount = entries.size;
+		const total = Math.max(byId.size, 1);
+		const shouldRebuild =
+			dirtyCount >= REBUILD_DIRTY_MIN &&
+			dirtyCount / total >= REBUILD_DIRTY_RATIO;
+
+		// Apply to the authoritative map first.
+		let expandsRoot = false;
+		for (const [id, entry] of entries) {
+			if (entry) {
+				byId.set(id, entry);
+				if (root && !rectContainsRect(root.bounds, entry.rect))
+					expandsRoot = true;
+			} else {
+				byId.delete(id);
+			}
+		}
+
+		if (!root || shouldRebuild || expandsRoot) {
+			rebuildFromMap();
+			return;
+		}
+
+		// Surgical update: remove old placement, insert new.
+		for (const [id, entry] of entries) {
+			removeEntry(root, id);
+			if (entry) insertEntry(root, entry);
+		}
 	}
 
 	function idsInRect(range: Rect): string[] {
@@ -184,10 +257,11 @@ export function createSpatialIndex(): SpatialIndex {
 
 	return {
 		rebuild,
+		upsert,
 		idsInRect,
 		idsAtPoint,
 		get size() {
-			return size;
+			return byId.size;
 		},
 	};
 }

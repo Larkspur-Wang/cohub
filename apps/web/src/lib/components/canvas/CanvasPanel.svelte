@@ -84,35 +84,97 @@ function isEditableTarget(target: EventTarget | null): boolean {
 	);
 }
 
+async function writeClipboard(payload: unknown) {
+	const text = JSON.stringify(payload);
+	try {
+		if (navigator.clipboard?.writeText)
+			await navigator.clipboard.writeText(text);
+	} catch {
+		// Internal clipboard on the editor is enough as a fallback.
+	}
+}
+
+async function readClipboardText(): Promise<string | null> {
+	try {
+		if (navigator.clipboard?.readText)
+			return await navigator.clipboard.readText();
+	} catch {
+		/* permission denied / insecure context */
+	}
+	return null;
+}
+
 function handleKeydown(event: KeyboardEvent) {
 	if (editor.editingId) return;
 	if (isEditableTarget(event.target)) return;
 	const mod = event.metaKey || event.ctrlKey;
+	const key = event.key.toLowerCase();
 
-	if (mod && event.key.toLowerCase() === "z") {
+	// Space temporary hand — ignore auto-repeat.
+	if (event.code === "Space" && !event.repeat) {
+		event.preventDefault();
+		editor.spaceHeld = true;
+		return;
+	}
+
+	if (mod && key === "z") {
 		event.preventDefault();
 		if (event.shiftKey) editor.redo();
 		else editor.undo();
 		return;
 	}
-	if (mod && event.key.toLowerCase() === "y") {
+	if (mod && key === "y") {
 		event.preventDefault();
 		editor.redo();
 		return;
 	}
-	if (mod && event.key.toLowerCase() === "d") {
+	if (mod && key === "d") {
 		event.preventDefault();
 		editor.duplicateSelection();
 		return;
 	}
-	if (mod && event.key.toLowerCase() === "a") {
+	if (mod && key === "a") {
 		event.preventDefault();
 		editor.selectAll();
+		return;
+	}
+	if (mod && key === "c") {
+		const payload = editor.copySelection();
+		if (payload) {
+			event.preventDefault();
+			void writeClipboard(payload);
+		}
+		return;
+	}
+	if (mod && key === "x") {
+		const payload = editor.cutSelection();
+		if (payload) {
+			event.preventDefault();
+			void writeClipboard(payload);
+		}
+		return;
+	}
+	if (mod && key === "v") {
+		event.preventDefault();
+		void (async () => {
+			const text = await readClipboardText();
+			if (text) {
+				// pasteClipboard re-validates; invalid JSON / payload is ignored.
+				editor.pasteClipboard(text);
+				return;
+			}
+			editor.pasteClipboard();
+		})();
 		return;
 	}
 	if (mod && event.key === "0") {
 		event.preventDefault();
 		editor.fitView();
+		return;
+	}
+	if (mod && key === "l") {
+		event.preventDefault();
+		editor.toggleSelectionLock();
 		return;
 	}
 
@@ -124,7 +186,10 @@ function handleKeydown(event: KeyboardEvent) {
 			return;
 		case "Escape":
 			if (contextMenu) contextMenu = null;
-			else editor.clearSelection();
+			else {
+				editor.toolLocked = false;
+				editor.clearSelection();
+			}
 			return;
 		case "ArrowUp":
 			event.preventDefault();
@@ -145,10 +210,12 @@ function handleKeydown(event: KeyboardEvent) {
 		case "v":
 		case "V":
 			editor.tool = "select";
+			editor.toolLocked = false;
 			return;
 		case "h":
 		case "H":
 			editor.tool = "hand";
+			editor.toolLocked = false;
 			return;
 		case "t":
 		case "T":
@@ -170,15 +237,30 @@ function handleKeydown(event: KeyboardEvent) {
 		case "A":
 			editor.tool = "arrow";
 			return;
+		case "f":
+		case "F":
+			editor.tool = "frame";
+			return;
 		case "e":
 		case "E":
 			editor.tool = "eraser";
+			editor.toolLocked = false;
 			return;
-		case "f":
-		case "F":
+		case "/":
+			event.preventDefault();
 			editor.fitView();
 			return;
 	}
+}
+
+function handleKeyup(event: KeyboardEvent) {
+	if (event.code === "Space") {
+		editor.spaceHeld = false;
+	}
+}
+
+function clearSpaceHeld() {
+	editor.spaceHeld = false;
 }
 
 function handleContextMenu(event: MouseEvent) {
@@ -200,11 +282,24 @@ function handleContextMenu(event: MouseEvent) {
 
 onMount(() => {
 	window.addEventListener("keydown", handleKeydown);
-	return () => window.removeEventListener("keydown", handleKeydown);
+	window.addEventListener("keyup", handleKeyup);
+	// Space hand can stick if the window blurs mid-hold (tab switch / alt-tab).
+	window.addEventListener("blur", clearSpaceHeld);
+	document.addEventListener("visibilitychange", clearSpaceHeld);
+	return () => {
+		window.removeEventListener("keydown", handleKeydown);
+		window.removeEventListener("keyup", handleKeyup);
+		window.removeEventListener("blur", clearSpaceHeld);
+		document.removeEventListener("visibilitychange", clearSpaceHeld);
+	};
 });
 
 onDestroy(() => {
 	window.removeEventListener("keydown", handleKeydown);
+	window.removeEventListener("keyup", handleKeyup);
+	window.removeEventListener("blur", clearSpaceHeld);
+	document.removeEventListener("visibilitychange", clearSpaceHeld);
+	editor.spaceHeld = false;
 	editor.destroy();
 });
 </script>

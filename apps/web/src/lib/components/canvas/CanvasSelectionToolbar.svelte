@@ -1,5 +1,20 @@
 <script lang="ts">
-import { ArrowDownToLine, ArrowUpToLine, Copy, Trash2 } from "lucide-svelte";
+import {
+	AlignCenterHorizontal,
+	AlignCenterVertical,
+	AlignEndHorizontal,
+	AlignEndVertical,
+	AlignHorizontalDistributeCenter,
+	AlignStartHorizontal,
+	AlignStartVertical,
+	AlignVerticalDistributeCenter,
+	ArrowDownToLine,
+	ArrowUpToLine,
+	Copy,
+	Lock,
+	LockOpen,
+	Trash2,
+} from "lucide-svelte";
 import { CANVAS_COLORS } from "$lib/canvas/core/palette";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 
@@ -11,14 +26,17 @@ const visible = $derived(
 		!editor.editingId,
 );
 
+const canAlign = $derived(editor.selection.length >= 2);
+const canDistribute = $derived(editor.selection.length >= 3);
+
 const position = $derived.by(() => {
 	const bounds = editor.bounds;
 	if (!bounds) return null;
 	const camera = editor.camera;
-	return {
-		left: (bounds.x + bounds.width / 2) * camera.zoom + camera.x,
-		top: bounds.y * camera.zoom + camera.y,
-	};
+	// Keep the toolbar near the selection, clamped away from the top edge.
+	const left = (bounds.x + bounds.width / 2) * camera.zoom + camera.x;
+	const top = Math.max(36, bounds.y * camera.zoom + camera.y);
+	return { left, top };
 });
 
 /**
@@ -34,7 +52,8 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 				item.type === "note" ||
 				item.type === "geo" ||
 				item.type === "draw" ||
-				item.type === "arrow",
+				item.type === "arrow" ||
+				item.type === "frame",
 		)
 		.map((item) => item.color);
 	if (colors.length === 0) return undefined;
@@ -69,6 +88,36 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 			<div class="divider"></div>
 		{/if}
 
+		{#if canAlign}
+			<button type="button" class="sel-btn" title="Align left" aria-label="Align left" onclick={() => editor.alignSelection("left")}>
+				<AlignStartVertical class="h-3.5 w-3.5" />
+			</button>
+			<button type="button" class="sel-btn" title="Align center" aria-label="Align horizontal center" onclick={() => editor.alignSelection("center-x")}>
+				<AlignCenterVertical class="h-3.5 w-3.5" />
+			</button>
+			<button type="button" class="sel-btn" title="Align right" aria-label="Align right" onclick={() => editor.alignSelection("right")}>
+				<AlignEndVertical class="h-3.5 w-3.5" />
+			</button>
+			<button type="button" class="sel-btn" title="Align top" aria-label="Align top" onclick={() => editor.alignSelection("top")}>
+				<AlignStartHorizontal class="h-3.5 w-3.5" />
+			</button>
+			<button type="button" class="sel-btn" title="Align middle" aria-label="Align vertical center" onclick={() => editor.alignSelection("center-y")}>
+				<AlignCenterHorizontal class="h-3.5 w-3.5" />
+			</button>
+			<button type="button" class="sel-btn" title="Align bottom" aria-label="Align bottom" onclick={() => editor.alignSelection("bottom")}>
+				<AlignEndHorizontal class="h-3.5 w-3.5" />
+			</button>
+			{#if canDistribute}
+				<button type="button" class="sel-btn" title="Distribute horizontally" aria-label="Distribute horizontally" onclick={() => editor.distributeSelection("horizontal")}>
+					<AlignHorizontalDistributeCenter class="h-3.5 w-3.5" />
+				</button>
+				<button type="button" class="sel-btn" title="Distribute vertically" aria-label="Distribute vertically" onclick={() => editor.distributeSelection("vertical")}>
+					<AlignVerticalDistributeCenter class="h-3.5 w-3.5" />
+				</button>
+			{/if}
+			<div class="divider"></div>
+		{/if}
+
 		<button type="button" class="sel-btn" title="Bring to front" aria-label="Bring to front" onclick={() => editor.bringToFront()}>
 			<ArrowUpToLine class="h-3.5 w-3.5" />
 		</button>
@@ -78,6 +127,19 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 
 		<div class="divider"></div>
 
+		<button
+			type="button"
+			class="sel-btn"
+			title={editor.selectionLocked ? "Unlock" : "Lock"}
+			aria-label={editor.selectionLocked ? "Unlock selection" : "Lock selection"}
+			onclick={() => editor.toggleSelectionLock()}
+		>
+			{#if editor.selectionLocked}
+				<Lock class="h-3.5 w-3.5" />
+			{:else}
+				<LockOpen class="h-3.5 w-3.5" />
+			{/if}
+		</button>
 		<button type="button" class="sel-btn" title="Duplicate" aria-label="Duplicate" onclick={() => editor.duplicateSelection()}>
 			<Copy class="h-3.5 w-3.5" />
 		</button>
@@ -94,6 +156,8 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		display: flex;
 		align-items: center;
 		gap: 2px;
+		max-width: calc(100% - 16px);
+		overflow-x: auto;
 		transform: translate(-50%, calc(-100% - 12px));
 		border-radius: 9px;
 		border: 1px solid var(--border-subtle);
@@ -102,7 +166,9 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		box-shadow: 0 8px 20px color-mix(in srgb, var(--overlay-scrim-strong) 14%, transparent);
 		backdrop-filter: blur(12px);
 		white-space: nowrap;
+		scrollbar-width: none;
 	}
+	.canvas-selection-toolbar::-webkit-scrollbar { display: none; }
 
 	.swatch {
 		width: 16px;
@@ -112,6 +178,7 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		background: var(--swatch-color);
 		cursor: pointer;
 		transition: transform 100ms ease, border-color 100ms ease;
+		flex-shrink: 0;
 	}
 	.swatch:hover { transform: scale(1.15); }
 	.swatch--active {
@@ -129,6 +196,7 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		color: var(--text-secondary);
 		cursor: pointer;
 		transition: background-color 100ms ease, color 100ms ease;
+		flex-shrink: 0;
 	}
 	.sel-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 	.sel-btn--danger:hover { background: var(--error-bg); color: var(--error-700); }
@@ -138,5 +206,11 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 		height: 16px;
 		margin: 0 3px;
 		background: var(--border-subtle);
+		flex-shrink: 0;
+	}
+
+	@media (pointer: coarse) {
+		.sel-btn { width: 36px; height: 36px; }
+		.swatch { width: 22px; height: 22px; }
 	}
 </style>

@@ -151,10 +151,24 @@ const arrowDefinition: ShapeDefinition = {
 		canSnap: false,
 	},
 	// Coarse frame fallback; the editor uses the precise arrowHitTest (curve
-	// distance) for arrows. Arrows declare no local resize handles — their
-	// endpoints are edited directly, not via the box handles.
+	// distance) for arrows. Endpoint handles are resolved in world space by the
+	// editor (via resolveArrow), not as local box handles.
 	hitTest: (item, point) =>
 		item.type === "arrow" ? frameContainsPoint(item.frame, point) : false,
+	getHandles: () => [
+		{ id: "start", x: 0, y: 0 },
+		{ id: "end", x: 1, y: 1 },
+	],
+};
+
+const frameDefinition: ShapeDefinition = {
+	type: "frame",
+	capabilities: {
+		...FULL_CAPABILITIES,
+		canEdit: true,
+		canRotate: false,
+		canBind: false,
+	},
 };
 
 /** Precise arrow hit test given a frame lookup (used by the editor). */
@@ -190,6 +204,7 @@ export function registerBuiltinShapes() {
 		geoDefinition,
 		drawDefinition,
 		arrowDefinition,
+		frameDefinition,
 	])
 		registerShapeDefinition(definition);
 }

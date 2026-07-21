@@ -11,6 +11,7 @@ import {
 	writeCanvasPendingTransaction,
 } from "$lib/cache/repositories/canvas-pending-tx-repo";
 import {
+	applyCanvasOps,
 	canvasBootstrapToDocument,
 	parseCovasManifest,
 } from "$lib/canvas/canvas-document";
@@ -57,11 +58,22 @@ export function createCanvasPreviewController(
 	/** Conflict-recovery attempts per document, to bound rebase retries. */
 	let conflictAttemptsByDocumentId: Record<string, number> = {};
 	/**
-	 * Remote refreshes deferred because a save was in flight. Realtime events are
-	 * never dropped — they are queued here and applied once the commit settles, so
-	 * concurrent edits are always reconciled instead of silently ignored.
+	 * Remote events deferred while a save is in flight. Never dropped: drained in
+	 * version order after the commit settles. When the queued sequence is
+	 * contiguous with the local baseline we apply ops incrementally; any gap
+	 * falls back to a full bootstrap.
 	 */
-	let pendingRemoteRefresh = new Set<string>();
+	type PendingRemoteEvent = {
+		documentId: string;
+		version: number;
+		txId: string;
+		ops: CanvasSemanticOp[];
+	};
+	let pendingRemoteEvents: PendingRemoteEvent[] = [];
+	/** Documents that need a full bootstrap (version gap / missing ops). */
+	let pendingRemoteBootstrap = new Set<string>();
+	/** Documents currently inside drainRemoteRefresh — serialise per document. */
+	const drainingDocuments = new Set<string>();
 	/**
 	 * txIds this client has successfully committed. Used to recognise our own
 	 * transactions echoed back over realtime (which the editor already reflects),
@@ -389,45 +401,161 @@ export function createCanvasPreviewController(
 		}
 	}
 
-	/**
-	 * Handle an incoming remote change for a document. If a save is in flight the
-	 * refresh is queued (never dropped) and applied once the commit settles;
-	 * otherwise it is applied immediately via a bootstrap reconcile.
-	 */
 	/** True if this txId was committed by this client (an echo to skip). */
 	function isOwnTransaction(txId: unknown): boolean {
 		return typeof txId === "string" && ownTxIds.has(txId);
 	}
 
-	function requestRemoteRefresh(documentId: string) {
-		// Always register the refresh first so it is never lost; drain applies it
-		// immediately unless a save is in flight, in which case it stays queued and
-		// is applied once the commit settles (see commitCanvas' finally block).
-		pendingRemoteRefresh.add(documentId);
+	function isBusy(documentId: string): boolean {
 		const canvas = canvases.find((item) => item.documentId === documentId);
-		if (canvas?.saving || pendingFlush) return;
+		return Boolean(canvas?.saving || pendingFlush);
+	}
+
+	/**
+	 * Full-document remote refresh (bootstrap). Used as a fallback when ops are
+	 * missing or the version sequence has a gap.
+	 */
+	function requestRemoteRefresh(documentId: string) {
+		pendingRemoteBootstrap.add(documentId);
+		if (isBusy(documentId)) return;
 		void drainRemoteRefresh(documentId);
 	}
 
-	async function drainRemoteRefresh(documentId: string) {
-		if (!pendingRemoteRefresh.has(documentId)) return;
-		pendingRemoteRefresh.delete(documentId);
-		// Still saving (a new commit started): re-queue and wait for its settle.
+	/**
+	 * Prefer incremental ops application. Falls back to bootstrap on gaps.
+	 */
+	function requestRemoteOps(
+		documentId: string,
+		event: { version: number; txId: string; ops: CanvasSemanticOp[] },
+	) {
+		pendingRemoteEvents.push({
+			documentId,
+			version: event.version,
+			txId: event.txId,
+			ops: event.ops,
+		});
+		if (isBusy(documentId)) return;
+		void drainRemoteRefresh(documentId);
+	}
+
+	function applyRemoteOpsLocally(
+		documentId: string,
+		version: number,
+		ops: CanvasSemanticOp[],
+	): boolean {
 		const canvas = canvases.find((item) => item.documentId === documentId);
-		if (canvas?.saving || pendingFlush) {
-			pendingRemoteRefresh.add(documentId);
-			return;
-		}
+		if (!canvas || canvas.saving || !canvas.document) return false;
+		const localVersion = syncVersionByDocumentId[documentId] ?? null;
+		if (localVersion == null) return false;
+		if (version <= localVersion) return true; // already applied / stale
+		if (version !== localVersion + 1) return false; // gap → bootstrap
+		const nextDoc = applyCanvasOps(canvas.document, ops);
+		syncVersionByDocumentId = {
+			...syncVersionByDocumentId,
+			[documentId]: version,
+		};
+		canvases = canvases.map((item) =>
+			item.documentId === documentId
+				? { ...item, document: nextDoc, error: null }
+				: item,
+		);
+		return true;
+	}
+
+	async function drainRemoteRefresh(documentId: string) {
+		// Still saving: leave queue intact for the commit's finally block.
+		if (isBusy(documentId)) return;
+		// One drain at a time per document. Concurrent callers just queue; the
+		// active drain re-checks the queue before exiting.
+		if (drainingDocuments.has(documentId)) return;
+		drainingDocuments.add(documentId);
 		try {
-			const bootstrap = await sdk
-				.space(options.getSpaceId())
-				.canvas.bootstrap(documentId);
-			applyBootstrap(documentId, bootstrap);
-		} catch (error) {
-			setError(
-				documentId,
-				error instanceof Error ? error.message : "Failed to sync canvas",
-			);
+			let guard = 0;
+			while (guard < 8) {
+				guard += 1;
+				if (isBusy(documentId)) return;
+
+				// Snapshot and remove this document's queued events for this pass.
+				const events = pendingRemoteEvents
+					.filter((event) => event.documentId === documentId)
+					.sort((a, b) => a.version - b.version);
+				pendingRemoteEvents = pendingRemoteEvents.filter(
+					(event) => event.documentId !== documentId,
+				);
+
+				let needsBootstrap = pendingRemoteBootstrap.has(documentId);
+				pendingRemoteBootstrap.delete(documentId);
+
+				// Events that failed contiguous apply are put back after bootstrap.
+				let remainder: PendingRemoteEvent[] = [];
+				if (!needsBootstrap) {
+					for (let i = 0; i < events.length; i += 1) {
+						const event = events[i];
+						if (!event) continue;
+						const ok = applyRemoteOpsLocally(
+							documentId,
+							event.version,
+							event.ops,
+						);
+						if (!ok) {
+							needsBootstrap = true;
+							remainder = events.slice(i);
+							break;
+						}
+					}
+				} else {
+					remainder = events;
+				}
+
+				if (!needsBootstrap) {
+					// Fresh events may have arrived while we applied ops.
+					if (
+						pendingRemoteEvents.some((e) => e.documentId === documentId) ||
+						pendingRemoteBootstrap.has(documentId)
+					) {
+						continue;
+					}
+					return;
+				}
+
+				try {
+					const bootstrap = await sdk
+						.space(options.getSpaceId())
+						.canvas.bootstrap(documentId);
+					applyBootstrap(documentId, bootstrap);
+					const bootVersion = bootstrap.document.version;
+					// Re-queue only events newer than the bootstrap; drop the rest.
+					const newer = remainder.filter(
+						(event) => event.version > bootVersion,
+					);
+					if (newer.length > 0) pendingRemoteEvents.push(...newer);
+					pendingRemoteEvents = pendingRemoteEvents.filter(
+						(event) =>
+							event.documentId !== documentId || event.version > bootVersion,
+					);
+				} catch (error) {
+					// Put unapplied events back so a later drain can retry.
+					if (remainder.length > 0) pendingRemoteEvents.push(...remainder);
+					setError(
+						documentId,
+						error instanceof Error ? error.message : "Failed to sync canvas",
+					);
+					return;
+				}
+			}
+		} finally {
+			drainingDocuments.delete(documentId);
+			// If the guard capped us (or events arrived as we exited), schedule
+			// another pass. Concurrent callers that bounced on the draining set
+			// will not retry themselves.
+			const stillPending =
+				pendingRemoteBootstrap.has(documentId) ||
+				pendingRemoteEvents.some((event) => event.documentId === documentId);
+			if (stillPending && !isBusy(documentId)) {
+				queueMicrotask(() => {
+					void drainRemoteRefresh(documentId);
+				});
+			}
 		}
 	}
 
@@ -495,6 +623,7 @@ export function createCanvasPreviewController(
 		commitCanvas,
 		flushPendingTransactions,
 		requestRemoteRefresh,
+		requestRemoteOps,
 		isOwnTransaction,
 		renamePath,
 		setError,

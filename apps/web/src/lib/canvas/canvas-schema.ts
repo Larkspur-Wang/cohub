@@ -80,6 +80,8 @@ export const CanvasResourceSnapshotSchema = z.object({
 const CanvasItemBaseSchema = z.object({
 	id: z.string().min(1),
 	frame: CanvasFrameSchema,
+	/** When true the shape cannot be moved, resized, or deleted. */
+	locked: z.boolean().optional(),
 	style: CanvasItemStyleSchema.optional(),
 	metadata: z.record(z.string(), z.unknown()).optional(),
 });
@@ -155,6 +157,14 @@ export const CanvasArrowItemSchema = CanvasItemBaseSchema.extend({
 	label: z.string().default(""),
 });
 
+/** A frame container for organising shapes. Children are not nested in data —
+ * membership is spatial (items whose center lies inside the frame). */
+export const CanvasFrameItemSchema = CanvasItemBaseSchema.extend({
+	type: z.literal("frame"),
+	label: z.string().default("Frame"),
+	color: z.string().min(1).default("neutral"),
+});
+
 /**
  * The set of shape types this client understands natively. Anything else is
  * preserved verbatim as an unknown item (see CanvasUnknownItem) so documents
@@ -168,6 +178,7 @@ export const KNOWN_CANVAS_ITEM_TYPES = [
 	"geo",
 	"draw",
 	"arrow",
+	"frame",
 ] as const;
 
 export type KnownCanvasItemType = (typeof KNOWN_CANVAS_ITEM_TYPES)[number];
@@ -186,6 +197,8 @@ export type CanvasUnknownItem = {
 	id: string;
 	type: typeof UNKNOWN_CANVAS_ITEM_TYPE;
 	frame: z.infer<typeof CanvasFrameSchema>;
+	/** When true the shape cannot be moved, resized, or deleted. */
+	locked?: boolean;
 	style?: z.infer<typeof CanvasItemStyleSchema>;
 	metadata?: Record<string, unknown>;
 	/** Verbatim original item record (carries the real `type`), for lossless round-trip. */
@@ -243,6 +256,10 @@ export function parseCanvasItemLoose(raw: unknown): CanvasItem {
 			const parsed = CanvasArrowItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
 		}
+		case "frame": {
+			const parsed = CanvasFrameItemSchema.safeParse(raw);
+			return parsed.success ? parsed.data : makeUnknownItem(raw);
+		}
 		default:
 			return makeUnknownItem(raw);
 	}
@@ -259,6 +276,7 @@ function makeUnknownItem(raw: unknown): CanvasUnknownItem {
 		frame: frameParsed.success
 			? frameParsed.data
 			: { x: 0, y: 0, width: 120, height: 80, rotation: 0 },
+		...(record.locked === true ? { locked: true } : {}),
 		...(styleParsed.success && record.style ? { style: styleParsed.data } : {}),
 		...(record.metadata && typeof record.metadata === "object"
 			? { metadata: record.metadata as Record<string, unknown> }
@@ -297,6 +315,7 @@ export type DrawPoint = z.infer<typeof DrawPointSchema>;
 export type CanvasDrawItem = z.infer<typeof CanvasDrawItemSchema>;
 export type ArrowEndpoint = z.infer<typeof ArrowEndpointSchema>;
 export type CanvasArrowItem = z.infer<typeof CanvasArrowItemSchema>;
+export type CanvasFrameItem = z.infer<typeof CanvasFrameItemSchema>;
 /** Known (natively handled) item variants. */
 export type CanvasKnownItem =
 	| CanvasResourceItem
@@ -304,7 +323,8 @@ export type CanvasKnownItem =
 	| CanvasNoteItem
 	| CanvasGeoItem
 	| CanvasDrawItem
-	| CanvasArrowItem;
+	| CanvasArrowItem
+	| CanvasFrameItem;
 /** Any item, including forward-compatible unknown types. */
 export type CanvasItem = CanvasKnownItem | CanvasUnknownItem;
 export type CovasDocument = z.infer<typeof CovasDocumentSchema>;

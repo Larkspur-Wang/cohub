@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from "pixi.js";
-import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
+import { textResolutionForZoom } from "$lib/canvas/canvas-rendering";
 import type { CanvasNoteItem } from "$lib/canvas/canvas-schema";
 import { resolveCanvasColor } from "$lib/canvas/core/palette";
 import { positionShell } from "$lib/canvas/renderers/base-card-renderer";
@@ -16,6 +16,7 @@ type NoteParts = {
 	background: Graphics;
 	body: Text;
 	sig: string;
+	resolution: number;
 };
 
 const partsByContainer = new WeakMap<Container, NoteParts>();
@@ -33,6 +34,12 @@ function sync(
 	const hovered = context.hoveredId === item.id;
 	const color = resolveCanvasColor(item.color, context.colorMode);
 
+	const nextRes = textResolutionForZoom(context.zoom);
+	if (nextRes !== parts.resolution) {
+		parts.body.resolution = nextRes;
+		parts.resolution = nextRes;
+	}
+
 	// Skip the redraw when nothing relevant changed.
 	const sig = [
 		width,
@@ -42,6 +49,7 @@ function sync(
 		item.text,
 		item.color,
 		context.colorMode,
+		nextRes,
 	].join("|");
 	if (sig === parts.sig) return;
 	parts.sig = sig;
@@ -78,6 +86,7 @@ export const noteCardRenderer: CanvasCardRenderer = {
 	create: (item, context) => {
 		const root = new Container();
 		const background = new Graphics();
+		const resolution = textResolutionForZoom(context.zoom);
 		const body = new Text({
 			text: "",
 			style: {
@@ -88,11 +97,17 @@ export const noteCardRenderer: CanvasCardRenderer = {
 				wordWrap: true,
 				lineHeight: 20,
 			},
-			resolution: getCanvasResolution(),
+			resolution,
 			roundPixels: true,
 		});
 		root.addChild(background, body);
-		partsByContainer.set(root, { root, background, body, sig: "" });
+		partsByContainer.set(root, {
+			root,
+			background,
+			body,
+			sig: "",
+			resolution,
+		});
 		if (item.type === "note") sync(root, item, context);
 		return root;
 	},

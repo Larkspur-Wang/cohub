@@ -403,6 +403,8 @@ export const canvasUpdates = v2.table(
     version: integer("version").notNull(),
     actorId: varchar("actor_id", { length: 255 }).notNull(),
     clientId: text("client_id"),
+    /** Client-supplied transaction id for idempotent apply. */
+    txId: text("tx_id"),
     type: varchar("type", { length: 80 }).notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
     undoGroupId: text("undo_group_id"),
@@ -411,6 +413,9 @@ export const canvasUpdates = v2.table(
   (table) => ({
     documentVersionUniqueIdx: uniqueIndex("v2_uq_canvas_updates_document_version").on(table.documentId, table.version),
     documentIdx: index("v2_idx_canvas_updates_document_id").on(table.documentId),
+    documentTxUniqueIdx: uniqueIndex("v2_uq_canvas_updates_document_tx")
+      .on(table.documentId, table.txId)
+      .where(sql`${table.txId} is not null`),
   }),
 );
 

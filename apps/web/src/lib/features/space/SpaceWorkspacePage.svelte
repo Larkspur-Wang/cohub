@@ -1697,6 +1697,7 @@ onMount(() => {
 				version?: unknown;
 				actorId?: unknown;
 				txId?: unknown;
+				ops?: unknown;
 			};
 			if (
 				typeof payload.documentId !== "string" ||
@@ -1707,6 +1708,21 @@ onMount(() => {
 			// locally). Keying on txId — not actorId — means the same user's other
 			// tabs/devices still reconcile, so multi-tab editing stays in sync.
 			if (canvasPreview.isOwnTransaction(payload.txId)) return;
+			const version =
+				typeof payload.version === "number" ? payload.version : null;
+			const txId = typeof payload.txId === "string" ? payload.txId : null;
+			const ops = Array.isArray(payload.ops)
+				? (payload.ops as import("@neta-art/cohub").CanvasSemanticOp[])
+				: null;
+			if (version != null && txId && ops && ops.length > 0) {
+				canvasPreview.requestRemoteOps(payload.documentId, {
+					version,
+					txId,
+					ops,
+				});
+				return;
+			}
+			// Missing/empty ops or version → full bootstrap fallback.
 			canvasPreview.requestRemoteRefresh(payload.documentId);
 		});
 	const offSpaceConfigUpdated = subscribeSpaceConfig((config) => {
