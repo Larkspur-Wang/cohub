@@ -1,44 +1,51 @@
 <script lang="ts">
-import { Application, Container } from "pixi.js";
-import { onDestroy, onMount } from "svelte";
+import { Application, Container, Graphics } from "pixi.js";
+import { onDestroy, onMount, untrack } from "svelte";
 import {
-	addCanvasItem,
-	moveCanvasItem,
-	setCanvasViewport,
-} from "$lib/canvas/actions/canvas-document-actions";
-import { clampZoom, screenToWorld } from "$lib/canvas/canvas-geometry";
-import { createSpaceFileCanvasItem } from "$lib/canvas/canvas-items";
+	createCanvasAssetManager,
+	imageAssetKey,
+} from "$lib/canvas/canvas-asset-manager";
+import {
+	expandRect,
+	frameHandlePosition,
+	itemBounds,
+	type Point,
+	pointToWorld,
+	RESIZE_HANDLES,
+	type Rect,
+	rectsIntersect,
+	rotationHandlePosition,
+	type ScreenPoint,
+	screenPoint,
+	screenToWorld,
+	visibleWorldRect,
+} from "$lib/canvas/canvas-geometry";
 import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
-import type {
-	CanvasFrame,
-	CanvasItem,
-	CovasDocument,
-} from "$lib/canvas/canvas-schema";
+import type { CanvasFrame, CanvasItem } from "$lib/canvas/canvas-schema";
+import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 import {
+	type CanvasCardRenderer,
+	type CanvasRenderContext,
 	type CanvasRenderPalette,
 	getCanvasCardRenderer,
 } from "$lib/canvas/renderers/canvas-renderer-registry";
 import { getCanvasThemeRenderer } from "$lib/canvas/themes/canvas-theme-registry";
+import { getResolvedTheme } from "$lib/theme.svelte";
 
 const {
-	document: canvasDocument,
-	selectedItemIds,
-	onChange,
-	onSelect,
+	editor,
+	spaceId,
 	onSurfaceChange,
 }: {
-	document: CovasDocument;
-	selectedItemIds: string[];
-	onChange: (document: CovasDocument, options?: { commit?: boolean }) => void;
-	onSelect: (ids: string[]) => void;
+	editor: CanvasEditor;
+	spaceId: string;
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
 } = $props();
 
-type CardDisplayEntry = {
+type CardEntry = {
 	item: CanvasItem;
-	selected: boolean;
-	rendererId: string;
-	display: Container;
+	container: Container;
+	renderer: CanvasCardRenderer;
 };
 
 let host: HTMLDivElement | null = $state(null);
@@ -46,41 +53,37 @@ let app: Application | null = null;
 let world: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
+let overlay: Graphics | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let resizeFrame = 0;
-let drag: {
-	id: string;
-	pointerId: number;
-	startX: number;
-	startY: number;
-	frame: CanvasFrame;
-} | null = null;
-let panning: {
-	pointerId: number;
-	startX: number;
-	startY: number;
-	viewportX: number;
-	viewportY: number;
-} | null = null;
 let dropActive = $state(false);
-const cardDisplays = new Map<string, CardDisplayEntry>();
+let surface = $state<{ width: number; height: number }>({
+	width: 0,
+	height: 0,
+});
+// Bumped whenever the asset manager resolves a new thumbnail URL, so cards
+// re-sync and images pop in.
+let assetVersion = $state(0);
+const cardDisplays = new Map<string, CardEntry>();
 
-const viewport = $derived(canvasDocument.viewport);
+// One manager per mounted canvas; the space id is fixed for the mount.
+const assets = createCanvasAssetManager({ spaceId: untrack(() => spaceId) });
+const unsubscribeAssets = assets.subscribe(() => {
+	assetVersion += 1;
+});
 
 let colorCanvas: HTMLCanvasElement | null = null;
 if (typeof globalThis.document !== "undefined") {
 	colorCanvas = globalThis.document.createElement("canvas");
 }
-const documentColorProbe = colorCanvas?.getContext("2d") ?? null;
+const colorProbe = colorCanvas?.getContext("2d") ?? null;
 
-function cssNumber(name: string, fallback: number) {
+function cssNumber(name: string, fallback: number): number {
 	if (!host) return fallback;
 	const value = getComputedStyle(host).getPropertyValue(name).trim();
-	const probe = documentColorProbe;
-	if (!value || !probe) return fallback;
-	probe.fillStyle = value;
-	const normalized = probe.fillStyle;
-	const match = /^#([0-9a-f]{6})$/i.exec(normalized);
+	if (!value || !colorProbe) return fallback;
+	colorProbe.fillStyle = value;
+	const match = /^#([0-9a-f]{6})$/i.exec(colorProbe.fillStyle);
 	return match ? Number.parseInt(match[1], 16) : fallback;
 }
 
@@ -99,150 +102,174 @@ function getPalette(): CanvasRenderPalette {
 	};
 }
 
-function patchFrame(
-	id: string,
-	frame: CanvasFrame,
-	options?: { commit?: boolean },
-) {
-	onChange(moveCanvasItem(canvasDocument, id, frame), options);
-}
-
-function updateViewport(next: CovasDocument["viewport"]) {
-	onChange(setCanvasViewport(canvasDocument, next));
-}
-
-function toggleSelection(id: string) {
-	if (selectedItemIds.includes(id)) {
-		onSelect(selectedItemIds.filter((selectedId) => selectedId !== id));
-	} else {
-		onSelect([...selectedItemIds, id]);
-	}
-}
-
-function handleItemPointerDown(
-	item: CanvasItem,
-	event: {
-		stopPropagation: () => void;
-		pointerId: number;
-		global: { x: number; y: number };
-		originalEvent?: MouseEvent | PointerEvent | TouchEvent;
-	},
-) {
-	event.stopPropagation();
-	const additive = Boolean(
-		event.originalEvent &&
-			("shiftKey" in event.originalEvent ||
-				"metaKey" in event.originalEvent ||
-				"ctrlKey" in event.originalEvent) &&
-			(event.originalEvent.shiftKey ||
-				event.originalEvent.metaKey ||
-				event.originalEvent.ctrlKey),
+// Request thumbnails only for image cards near the viewport (space-file and
+// remote alike). The margin preloads a band just off-screen so panning feels
+// instant. Tracks only items/camera/surface: loaded textures notify via
+// `assetVersion`, which the render effect (not this one) consumes.
+$effect(() => {
+	const items = editor.items;
+	const camera = editor.camera;
+	const width = surface.width;
+	const height = surface.height;
+	if (width === 0 || height === 0) return;
+	const visible = visibleWorldRect(camera, width, height);
+	const preload = expandRect(
+		visible,
+		Math.max(visible.width, visible.height) * 0.5,
 	);
-	if (additive) toggleSelection(item.id);
-	else if (!selectedItemIds.includes(item.id)) onSelect([item.id]);
-	drag = {
-		id: item.id,
-		pointerId: event.pointerId,
-		startX: event.global.x,
-		startY: event.global.y,
-		frame: item.frame,
+	for (const item of items) {
+		if (!imageAssetKey(item)) continue;
+		if (rectsIntersect(itemBounds(item.frame), preload))
+			assets.requestItem(item);
+	}
+});
+
+function buildContext(palette: CanvasRenderPalette): CanvasRenderContext {
+	return {
+		document: editor.document,
+		selectedIds: new Set(editor.selection),
+		hoveredId: editor.hoverId,
+		palette,
+		imageKey: imageAssetKey,
+		getTexture: (key) => assets.getTexture(key),
+		hasError: (key) => assets.hasError(key),
+		acquireTexture: (key) => assets.acquire(key),
+		releaseTexture: (key) => assets.release(key),
 	};
 }
 
 function syncBackground(palette: CanvasRenderPalette) {
 	if (!app) return;
-	const themeRenderer = getCanvasThemeRenderer(canvasDocument);
+	const themeRenderer = getCanvasThemeRenderer(editor.document);
+	const context = {
+		app,
+		document: editor.document,
+		viewport: editor.camera,
+		palette,
+	};
 	if (!background || backgroundThemeId !== themeRenderer.id) {
 		background?.destroy({ children: true });
-		background = themeRenderer.createBackground({
-			app,
-			document: canvasDocument,
-			viewport,
-			palette,
-		});
+		background = themeRenderer.createBackground(context);
 		backgroundThemeId = themeRenderer.id;
 		app.stage.addChildAt(background, 0);
 		return;
 	}
-	themeRenderer.updateBackground?.(background, {
-		app,
-		document: canvasDocument,
-		viewport,
-		palette,
-	});
+	themeRenderer.updateBackground?.(background, context);
 }
 
-function syncCards(palette: CanvasRenderPalette) {
+function syncCards(context: CanvasRenderContext) {
 	const currentWorld = world;
 	if (!currentWorld) return;
-	const selectedSet = new Set(selectedItemIds);
-	const itemIds = new Set(canvasDocument.items.map((item) => item.id));
-	const renderContext = {
-		document: canvasDocument,
-		selectedItemIds,
-		palette,
-		onItemPointerDown: handleItemPointerDown,
-	};
+	const items = editor.items;
+	const itemIds = new Set(items.map((item) => item.id));
 
 	for (const [id, entry] of cardDisplays) {
 		if (!itemIds.has(id)) {
-			currentWorld.removeChild(entry.display);
-			entry.display.destroy({ children: true });
+			currentWorld.removeChild(entry.container);
+			entry.renderer.destroy?.(entry.container, context);
 			cardDisplays.delete(id);
 		}
 	}
 
-	canvasDocument.items.forEach((item, index) => {
-		const renderer = getCanvasCardRenderer(item, renderContext);
-		const selected = selectedSet.has(item.id);
+	items.forEach((item, index) => {
+		const renderer = getCanvasCardRenderer(item, context);
 		const existing = cardDisplays.get(item.id);
-		const needsReplace =
-			!existing ||
-			existing.item !== item ||
-			existing.selected !== selected ||
-			existing.rendererId !== renderer.id;
-
-		let display = existing?.display;
-		if (needsReplace) {
+		let container: Container;
+		if (existing && existing.renderer.id === renderer.id) {
+			container = existing.container;
+			renderer.update(container, item, context);
+		} else {
 			if (existing) {
-				currentWorld.removeChild(existing.display);
-				existing.display.destroy({ children: true });
+				currentWorld.removeChild(existing.container);
+				existing.renderer.destroy?.(existing.container, context);
 			}
-			display = renderer.create(item, renderContext);
-			cardDisplays.set(item.id, {
-				item,
-				selected,
-				rendererId: renderer.id,
-				display,
-			});
+			container = renderer.create(item, context);
+			cardDisplays.set(item.id, { item, container, renderer });
+			currentWorld.addChild(container);
 		}
-
-		if (display && display.parent !== currentWorld)
-			currentWorld.addChild(display);
-		if (display) currentWorld.setChildIndex(display, index);
+		if (container.parent !== currentWorld) currentWorld.addChild(container);
+		currentWorld.setChildIndex(container, index);
 	});
+
+	if (overlay && overlay.parent === currentWorld)
+		currentWorld.setChildIndex(overlay, currentWorld.children.length - 1);
+}
+
+function drawOverlay(palette: CanvasRenderPalette) {
+	if (!overlay) return;
+	overlay.clear();
+	const zoom = editor.camera.zoom;
+	const inv = 1 / zoom;
+	const brand = palette.brand;
+
+	const marquee = editor.marquee;
+	if (marquee) {
+		overlay
+			.rect(marquee.x, marquee.y, marquee.width, marquee.height)
+			.fill({ color: brand, alpha: 0.08 });
+		overlay
+			.rect(marquee.x, marquee.y, marquee.width, marquee.height)
+			.stroke({ color: brand, width: inv, alpha: 0.7 });
+	}
+
+	const bounds = editor.bounds;
+	const selection = editor.selection;
+	if (!bounds || selection.length === 0) return;
+
+	overlay
+		.rect(bounds.x, bounds.y, bounds.width, bounds.height)
+		.stroke({ color: brand, width: 1.5 * inv, alpha: 0.95 });
+
+	const single =
+		selection.length === 1 ? (editor.selectedItems[0]?.frame ?? null) : null;
+	const source: CanvasFrame = single ?? { ...bounds, rotation: 0 };
+	const handles = single ? RESIZE_HANDLES : (["nw", "ne", "se", "sw"] as const);
+	const handleSize = 8 * inv;
+	for (const handle of handles) {
+		const position = frameHandlePosition(source, handle);
+		overlay
+			.rect(
+				position.x - handleSize / 2,
+				position.y - handleSize / 2,
+				handleSize,
+				handleSize,
+			)
+			.fill({ color: palette.surface, alpha: 1 })
+			.stroke({ color: brand, width: 1.5 * inv });
+	}
+
+	const rotation = rotationHandlePosition(bounds, zoom);
+	const topCenter: Point = { x: bounds.x + bounds.width / 2, y: bounds.y };
+	overlay
+		.moveTo(topCenter.x, topCenter.y)
+		.lineTo(rotation.x, rotation.y)
+		.stroke({ color: brand, width: inv, alpha: 0.8 });
+	overlay
+		.circle(rotation.x, rotation.y, 5 * inv)
+		.fill({ color: palette.surface })
+		.stroke({ color: brand, width: 1.5 * inv });
 }
 
 function syncStage() {
 	if (!app || !world) return;
 	const palette = getPalette();
 	syncBackground(palette);
-	world.x = viewport.x;
-	world.y = viewport.y;
-	world.scale.set(viewport.zoom);
+	world.x = editor.camera.x;
+	world.y = editor.camera.y;
+	world.scale.set(editor.camera.zoom);
 	if (world.parent !== app.stage) app.stage.addChild(world);
-	syncCards(palette);
+	syncCards(buildContext(palette));
+	drawOverlay(palette);
 }
 
 function reportSurfaceSize() {
 	if (!app) {
+		surface = { width: 0, height: 0 };
 		onSurfaceChange?.({ width: 0, height: 0 });
 		return;
 	}
-	onSurfaceChange?.({
-		width: app.screen.width,
-		height: app.screen.height,
-	});
+	surface = { width: app.screen.width, height: app.screen.height };
+	onSurfaceChange?.({ width: app.screen.width, height: app.screen.height });
 }
 
 function resizeStage() {
@@ -251,23 +278,74 @@ function resizeStage() {
 	resizeFrame = requestAnimationFrame(() => {
 		if (!app) return;
 		app.resize();
-		app.stage.hitArea = app.screen;
 		syncStage();
 		reportSurfaceSize();
 	});
 }
 
+// Convert a DOM event to a surface-relative screen point (the single place
+// screen coordinates enter the editor).
+function toScreenPoint(
+	event: PointerEvent | WheelEvent | MouseEvent,
+): ScreenPoint {
+	if (!host) return screenPoint(0, 0);
+	const rect = host.getBoundingClientRect();
+	return screenPoint(event.clientX - rect.left, event.clientY - rect.top);
+}
+
+function toPointerEvent(event: PointerEvent) {
+	const screen = toScreenPoint(event);
+	return {
+		pointerId: event.pointerId,
+		screen,
+		world: pointToWorld(screen, editor.camera),
+		shiftKey: event.shiftKey,
+		metaKey: event.metaKey,
+		ctrlKey: event.ctrlKey,
+		altKey: event.altKey,
+		button: event.button,
+		pointerType: event.pointerType,
+	};
+}
+
+function handlePointerDown(event: PointerEvent) {
+	if (!host) return;
+	host.setPointerCapture(event.pointerId);
+	editor.pointerDown(toPointerEvent(event));
+}
+
+function handlePointerMove(event: PointerEvent) {
+	editor.pointerMove(toPointerEvent(event));
+}
+
+function handlePointerUp(event: PointerEvent) {
+	editor.pointerUp(toPointerEvent(event));
+}
+
 function handleWheel(event: WheelEvent) {
 	event.preventDefault();
-	if (!host) return;
-	const rect = host.getBoundingClientRect();
-	const before = screenToWorld(event.clientX, event.clientY, rect, viewport);
-	const nextZoom = clampZoom(viewport.zoom * (event.deltaY < 0 ? 1.08 : 0.92));
-	updateViewport({
-		x: event.clientX - rect.left - before.x * nextZoom,
-		y: event.clientY - rect.top - before.y * nextZoom,
-		zoom: nextZoom,
-	});
+	editor.wheel(
+		toScreenPoint(event),
+		event.deltaX,
+		event.deltaY,
+		event.ctrlKey || event.metaKey,
+	);
+}
+
+function handleDoubleClick(event: MouseEvent) {
+	const rect = host?.getBoundingClientRect() ?? new DOMRect();
+	const worldPointAtCursor = screenToWorld(
+		event.clientX,
+		event.clientY,
+		rect,
+		editor.camera,
+	);
+	const item = editor.itemAt(worldPointAtCursor);
+	if (item?.type === "text") {
+		editor.editingId = item.id;
+	} else if (!item) {
+		editor.beginTextDraft(worldPointAtCursor);
+	}
 }
 
 function handleDrop(event: DragEvent) {
@@ -279,94 +357,96 @@ function handleDrop(event: DragEvent) {
 		?.replace(/\/$/, "");
 	if (!path) return;
 	const rect = host.getBoundingClientRect();
-	const point = screenToWorld(event.clientX, event.clientY, rect, viewport);
-	onChange(
-		addCanvasItem(
-			canvasDocument,
-			createSpaceFileCanvasItem(path, point.x, point.y),
-		),
-		{ commit: true },
+	const point = screenToWorld(
+		event.clientX,
+		event.clientY,
+		rect,
+		editor.camera,
 	);
+	editor.addFile(path, point);
 }
+
+const cursor = $derived.by(() => {
+	if (editor.tool === "hand") return "grab";
+	if (editor.interaction.type === "panning") return "grabbing";
+	if (editor.interaction.type === "translating") return "grabbing";
+	if (editor.interaction.type === "brushing") return "crosshair";
+	return "default";
+});
+
+let disposed = false;
 
 onMount(async () => {
 	if (!host) return;
-	app = new Application();
-	await app.init({
-		antialias: true,
-		autoDensity: true,
-		backgroundAlpha: 0,
-		resizeTo: host,
-		resolution: getCanvasResolution(),
-	});
-	host.appendChild(app.canvas);
+	const instance = new Application();
+	try {
+		await instance.init({
+			antialias: true,
+			autoDensity: true,
+			backgroundAlpha: 0,
+			resizeTo: host,
+			resolution: getCanvasResolution(),
+		});
+	} catch (error) {
+		console.error("Canvas failed to initialize", error);
+		instance.destroy(true);
+		return;
+	}
+	// The component may have been torn down while init was awaiting.
+	if (disposed) {
+		instance.destroy(true);
+		return;
+	}
+	app = instance;
+	host.appendChild(instance.canvas);
 	world = new Container();
-	app.stage.eventMode = "static";
-	app.stage.hitArea = app.screen;
-	app.stage.on("pointerdown", (event) => {
-		onSelect([]);
-		panning = {
-			pointerId: event.pointerId,
-			startX: event.global.x,
-			startY: event.global.y,
-			viewportX: viewport.x,
-			viewportY: viewport.y,
-		};
-	});
-	app.stage.on("globalpointermove", (event) => {
-		if (drag) {
-			const dx = (event.global.x - drag.startX) / viewport.zoom;
-			const dy = (event.global.y - drag.startY) / viewport.zoom;
-			patchFrame(
-				drag.id,
-				{
-					...drag.frame,
-					x: drag.frame.x + dx,
-					y: drag.frame.y + dy,
-				},
-				{ commit: false },
-			);
-		} else if (panning) {
-			updateViewport({
-				...viewport,
-				x: panning.viewportX + event.global.x - panning.startX,
-				y: panning.viewportY + event.global.y - panning.startY,
-			});
-		}
-	});
-	app.stage.on("pointerup", () => {
-		if (drag) {
-			const current = canvasDocument.items.find((item) => item.id === drag?.id);
-			if (current) patchFrame(current.id, current.frame, { commit: true });
-		}
-		drag = null;
-		panning = null;
-	});
-	app.stage.on("pointerupoutside", () => {
-		if (drag) {
-			const current = canvasDocument.items.find((item) => item.id === drag?.id);
-			if (current) patchFrame(current.id, current.frame, { commit: true });
-		}
-		drag = null;
-		panning = null;
-	});
+	overlay = new Graphics();
+	world.addChild(overlay);
+
+	host.addEventListener("pointerdown", handlePointerDown);
+	host.addEventListener("pointermove", handlePointerMove);
+	host.addEventListener("pointerup", handlePointerUp);
+	host.addEventListener("pointercancel", handlePointerUp);
+	host.addEventListener("wheel", handleWheel, { passive: false });
+	host.addEventListener("dblclick", handleDoubleClick);
+
 	resizeObserver = new ResizeObserver(resizeStage);
 	resizeObserver.observe(host);
 	resizeStage();
 });
 
 $effect(() => {
-	canvasDocument;
-	selectedItemIds;
+	editor.items;
+	editor.camera;
+	editor.selection;
+	editor.hoverId;
+	editor.marquee;
+	editor.bounds;
+	assetVersion;
+	// Re-render when the theme changes so Pixi picks up new CSS colors.
+	getResolvedTheme();
 	syncStage();
 });
 
 onDestroy(() => {
+	disposed = true;
 	resizeObserver?.disconnect();
 	cancelAnimationFrame(resizeFrame);
+	unsubscribeAssets();
+	if (host) {
+		host.removeEventListener("pointerdown", handlePointerDown);
+		host.removeEventListener("pointermove", handlePointerMove);
+		host.removeEventListener("pointerup", handlePointerUp);
+		host.removeEventListener("pointercancel", handlePointerUp);
+		host.removeEventListener("wheel", handleWheel);
+		host.removeEventListener("dblclick", handleDoubleClick);
+	}
+	// Destroy cards first (releasing their texture refs), then the manager.
+	const context = buildContext(getPalette());
 	for (const entry of cardDisplays.values())
-		entry.display.destroy({ children: true });
+		entry.renderer.destroy?.(entry.container, context);
 	cardDisplays.clear();
+	assets.destroy();
 	background?.destroy({ children: true });
 	background = null;
 	app?.destroy(true);
@@ -375,24 +455,25 @@ onDestroy(() => {
 </script>
 
 <div
-  bind:this={host}
-  class="relative h-full w-full overflow-hidden {dropActive ? 'canvas-drop-active' : ''}"
-  role="application"
-  aria-label="Canvas stage"
-  onwheel={handleWheel}
-  ondragover={(event) => { if (event.dataTransfer?.types.includes("text/cohub-path")) { event.preventDefault(); dropActive = true; } }}
-  ondragleave={() => { dropActive = false; }}
-  ondrop={handleDrop}
+	bind:this={host}
+	class="relative h-full w-full overflow-hidden {dropActive ? 'canvas-drop-active' : ''}"
+	role="application"
+	aria-label="Canvas stage"
+	style:cursor={cursor}
+	style:touch-action="none"
+	ondragover={(event) => { if (event.dataTransfer?.types.includes("text/cohub-path")) { event.preventDefault(); dropActive = true; } }}
+	ondragleave={() => { dropActive = false; }}
+	ondrop={handleDrop}
 ></div>
 
 <style>
-  .canvas-drop-active::after {
-    content: "";
-    position: absolute;
-    inset: 0.75rem;
-    pointer-events: none;
-    border: 1px solid var(--brand-border);
-    border-radius: 0.75rem;
-    background: color-mix(in srgb, var(--brand-bg) 40%, transparent);
-  }
+	.canvas-drop-active::after {
+		content: "";
+		position: absolute;
+		inset: 0.75rem;
+		pointer-events: none;
+		border: 1px solid var(--brand-border);
+		border-radius: 0.75rem;
+		background: color-mix(in srgb, var(--brand-bg) 40%, transparent);
+	}
 </style>

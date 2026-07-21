@@ -297,3 +297,37 @@ export function applyCanvasOps(
 	}
 	return { ...document, items };
 }
+
+/**
+ * Rebase local changes onto a remote document. `baseline` is the last document
+ * the server is known to have; local changes are diffed against it and re-applied
+ * on top of `remote`. Conflict policy follows applyCanvasOps: for a given node a
+ * delete beats a concurrent patch, and local changes are applied last (so local
+ * wins on same-field edits).
+ */
+export function rebaseOnRemote(
+	baseline: CovasDocument,
+	local: CovasDocument,
+	remote: CovasDocument,
+): { merged: CovasDocument; hadLocalChanges: boolean } {
+	const localOps = diffCanvasDocuments(baseline, local);
+	if (localOps.length === 0) return { merged: remote, hadLocalChanges: false };
+	return { merged: applyCanvasOps(remote, localOps), hadLocalChanges: true };
+}
+
+/**
+ * Reconcile an incoming external document with local state.
+ * - Same-document refresh: rebase uncommitted local changes onto the remote
+ *   document (see rebaseOnRemote).
+ * - Document switch: adopt the new document as-is. The previous document's
+ *   local changes belong to that document and must never leak into the new one.
+ */
+export function reconcileExternal(
+	baseline: CovasDocument,
+	local: CovasDocument,
+	remote: CovasDocument,
+	sameDocument: boolean,
+): { merged: CovasDocument; hadLocalChanges: boolean } {
+	if (!sameDocument) return { merged: remote, hadLocalChanges: false };
+	return rebaseOnRemote(baseline, local, remote);
+}

@@ -1,29 +1,23 @@
 <script lang="ts">
 import type { CanvasSemanticOp } from "@neta-art/cohub";
-import { onMount } from "svelte";
-import { deleteCanvasItem } from "$lib/canvas/actions/canvas-document-actions";
-import {
-	applyCanvasOps,
-	diffCanvasDocuments,
-	invertCanvasOps,
-} from "$lib/canvas/canvas-document";
+import { onDestroy, onMount, untrack } from "svelte";
 import { getCanvasTitle } from "$lib/canvas/canvas-file";
-import { clampZoom, visibleWorldRect } from "$lib/canvas/canvas-geometry";
-import {
-	createRemoteUrlCanvasItem,
-	createSpaceFileCanvasItem,
-	createTextCanvasItem,
-} from "$lib/canvas/canvas-items";
-import type { CanvasItem, CovasDocument } from "$lib/canvas/canvas-schema";
-import { titleForCanvasItem } from "$lib/canvas/renderers/base-card-renderer";
-import CanvasCardInspector from "$lib/components/canvas/CanvasCardInspector.svelte";
+import { screenToWorld } from "$lib/canvas/canvas-geometry";
+import type { CovasDocument } from "$lib/canvas/canvas-schema";
+import { createCanvasEditor } from "$lib/canvas/editor.svelte";
+import CanvasContextMenu from "$lib/components/canvas/CanvasContextMenu.svelte";
 import CanvasEmptyState from "$lib/components/canvas/CanvasEmptyState.svelte";
+import CanvasFloatingToolbar from "$lib/components/canvas/CanvasFloatingToolbar.svelte";
+import CanvasSelectionToolbar from "$lib/components/canvas/CanvasSelectionToolbar.svelte";
 import CanvasStage from "$lib/components/canvas/CanvasStage.svelte";
+import CanvasTextEditor from "$lib/components/canvas/CanvasTextEditor.svelte";
 import CanvasToolbar from "$lib/components/canvas/CanvasToolbar.svelte";
+import CanvasZoomMenu from "$lib/components/canvas/CanvasZoomMenu.svelte";
 
 const {
 	path,
 	document: initialDocument,
+	spaceId,
 	saving = false,
 	focused = false,
 	immersive = false,
@@ -35,6 +29,7 @@ const {
 }: {
 	path: string;
 	document: CovasDocument;
+	spaceId: string;
 	saving?: boolean;
 	focused?: boolean;
 	immersive?: boolean;
@@ -58,284 +53,192 @@ const {
 	}) => void;
 } = $props();
 
-let documentState = $state<CovasDocument | null>(null);
-let baselineDocument = $state<CovasDocument | null>(null);
-let selectedItemIds = $state<string[]>([]);
-let dirty = $state(false);
-let saveError = $state<string | null>(null);
-let undoStack = $state<CanvasSemanticOp[][]>([]);
-let redoStack = $state<CanvasSemanticOp[][]>([]);
-let surfaceSize = $state<{ width: number; height: number } | null>(null);
+let stageWrap: HTMLDivElement | null = $state(null);
+let contextMenu = $state<{ x: number; y: number } | null>(null);
 
-const selectedItem = $derived.by<CanvasItem | null>(() => {
-	if (!documentState || selectedItemIds.length !== 1) return null;
+const editor = createCanvasEditor({
+	document: untrack(() => initialDocument),
+	key: untrack(() => path),
+	onCommit: (document, ops) => onCommit(document, ops),
+	onViewStateChange: (state) => {
+		onViewStateChange?.({ path, ...state });
+	},
+});
+
+$effect(() => {
+	const doc = initialDocument;
+	const k = path;
+	// untrack: only re-run when the document/path prop changes, not when
+	// loadDocument reads interaction/editing state for its deferral decision.
+	untrack(() => editor.loadDocument(doc, k));
+});
+
+function isEditableTarget(target: EventTarget | null): boolean {
+	if (!(target instanceof HTMLElement)) return false;
+	const tag = target.tagName;
 	return (
-		documentState.items.find((item) => item.id === selectedItemIds[0]) ?? null
+		tag === "INPUT" ||
+		tag === "TEXTAREA" ||
+		tag === "SELECT" ||
+		target.isContentEditable
 	);
-});
-
-const selectedNodes = $derived.by(() => {
-	if (!documentState || selectedItemIds.length === 0) return [];
-	const byId = new Map(documentState.items.map((item) => [item.id, item]));
-	return selectedItemIds.flatMap((id) => {
-		const item = byId.get(id);
-		if (!item) return [];
-		const title = titleForCanvasItem(item).trim();
-		return [
-			{
-				id: item.id,
-				type: item.type,
-				...(title ? { title } : {}),
-			},
-		];
-	});
-});
-
-function emitViewState() {
-	if (!documentState || !onViewStateChange) return;
-	const camera = documentState.viewport;
-	const visibleRect =
-		surfaceSize && surfaceSize.width > 0 && surfaceSize.height > 0
-			? visibleWorldRect(camera, surfaceSize.width, surfaceSize.height)
-			: null;
-	onViewStateChange({
-		path,
-		camera,
-		visibleRect,
-		selectedNodes,
-	});
 }
 
-$effect(() => {
-	documentState?.viewport;
-	surfaceSize;
-	selectedNodes;
-	path;
-	emitViewState();
-});
+function handleKeydown(event: KeyboardEvent) {
+	if (editor.editingId) return;
+	if (isEditableTarget(event.target)) return;
+	const mod = event.metaKey || event.ctrlKey;
 
-function loadDocument(nextDocument: CovasDocument) {
-	documentState = nextDocument;
-	baselineDocument = nextDocument;
-	dirty = false;
-	selectedItemIds = [];
-}
-
-function updateDocument(next: CovasDocument, options?: { commit?: boolean }) {
-	documentState = next;
-	dirty = true;
-	saveError = null;
-	if (options?.commit) void commit(next);
-}
-
-async function commit(
-	next = documentState,
-	options?: { recordUndo?: boolean },
-) {
-	if (!next || !baselineDocument) return;
-	const ops = diffCanvasDocuments(baselineDocument, next);
-	if (ops.length === 0) {
-		dirty = false;
+	if (mod && event.key.toLowerCase() === "z") {
+		event.preventDefault();
+		if (event.shiftKey) editor.redo();
+		else editor.undo();
 		return;
 	}
-	saveError = null;
-	try {
-		await onCommit(next, ops);
-		baselineDocument = next;
-		dirty = false;
-		if (options?.recordUndo !== false) {
-			undoStack = [...undoStack, ops];
-			redoStack = [];
-		}
-	} catch (error) {
-		saveError =
-			error instanceof Error ? error.message : "Failed to sync canvas";
-	}
-}
-
-function applyLocalOps(
-	ops: CanvasSemanticOp[],
-	options?: { recordUndo?: boolean },
-) {
-	if (!documentState) return;
-	const next = applyCanvasOps(documentState, ops);
-	documentState = next;
-	dirty = true;
-	void commit(next, options);
-}
-
-function undo() {
-	const ops = undoStack.at(-1);
-	if (!ops) return;
-	undoStack = undoStack.slice(0, -1);
-	redoStack = [...redoStack, ops];
-	applyLocalOps(invertCanvasOps(ops), { recordUndo: false });
-}
-
-function redo() {
-	const ops = redoStack.at(-1);
-	if (!ops) return;
-	redoStack = redoStack.slice(0, -1);
-	undoStack = [...undoStack, ops];
-	applyLocalOps(ops, { recordUndo: false });
-}
-
-function currentCenter() {
-	if (!documentState) return { x: 96, y: 96 };
-	return {
-		x: (-documentState.viewport.x + 160) / documentState.viewport.zoom,
-		y: (-documentState.viewport.y + 96) / documentState.viewport.zoom,
-	};
-}
-
-function addFile() {
-	if (!documentState) return;
-	const path = prompt("Space file path");
-	if (!path?.trim()) return;
-	const point = currentCenter();
-	updateDocument(
-		{
-			...documentState,
-			items: [
-				...documentState.items,
-				createSpaceFileCanvasItem(path.trim(), point.x, point.y),
-			],
-		},
-		{ commit: true },
-	);
-}
-
-function addUrl() {
-	if (!documentState) return;
-	const url = prompt("Remote resource URL");
-	if (!url?.trim()) return;
-	try {
-		new URL(url.trim());
-	} catch {
-		alert("Please enter a valid URL.");
+	if (mod && event.key.toLowerCase() === "y") {
+		event.preventDefault();
+		editor.redo();
 		return;
 	}
-	const point = currentCenter();
-	updateDocument(
-		{
-			...documentState,
-			items: [
-				...documentState.items,
-				createRemoteUrlCanvasItem(url.trim(), point.x, point.y),
-			],
-		},
-		{ commit: true },
+	if (mod && event.key.toLowerCase() === "d") {
+		event.preventDefault();
+		editor.duplicateSelection();
+		return;
+	}
+	if (mod && event.key.toLowerCase() === "a") {
+		event.preventDefault();
+		editor.selectAll();
+		return;
+	}
+	if (mod && event.key === "0") {
+		event.preventDefault();
+		editor.fitView();
+		return;
+	}
+
+	switch (event.key) {
+		case "Delete":
+		case "Backspace":
+			event.preventDefault();
+			editor.deleteSelection();
+			return;
+		case "Escape":
+			if (contextMenu) contextMenu = null;
+			else editor.clearSelection();
+			return;
+		case "ArrowUp":
+			event.preventDefault();
+			editor.nudgeSelection(0, -1, event.shiftKey);
+			return;
+		case "ArrowDown":
+			event.preventDefault();
+			editor.nudgeSelection(0, 1, event.shiftKey);
+			return;
+		case "ArrowLeft":
+			event.preventDefault();
+			editor.nudgeSelection(-1, 0, event.shiftKey);
+			return;
+		case "ArrowRight":
+			event.preventDefault();
+			editor.nudgeSelection(1, 0, event.shiftKey);
+			return;
+		case "v":
+		case "V":
+			editor.tool = "select";
+			return;
+		case "h":
+		case "H":
+			editor.tool = "hand";
+			return;
+		case "f":
+		case "F":
+			editor.fitView();
+			return;
+	}
+}
+
+function handleContextMenu(event: MouseEvent) {
+	event.preventDefault();
+	if (!stageWrap) return;
+	const rect = stageWrap.getBoundingClientRect();
+	const worldPoint = screenToWorld(
+		event.clientX,
+		event.clientY,
+		rect,
+		editor.camera,
 	);
+	const item = editor.itemAt(worldPoint);
+	if (item && !editor.selection.includes(item.id))
+		editor.setSelection([item.id]);
+	if (!item && editor.selection.length > 0) editor.clearSelection();
+	contextMenu = { x: event.clientX, y: event.clientY };
 }
 
-function addText() {
-	if (!documentState) return;
-	const text = prompt("Text note");
-	if (!text?.trim()) return;
-	const point = currentCenter();
-	const item = createTextCanvasItem(text.trim(), point.x, point.y);
-	updateDocument(
-		{ ...documentState, items: [...documentState.items, item] },
-		{ commit: true },
-	);
-	selectedItemIds = [item.id];
-}
+onMount(() => {
+	window.addEventListener("keydown", handleKeydown);
+	return () => window.removeEventListener("keydown", handleKeydown);
+});
 
-function editText(id: string) {
-	if (!documentState) return;
-	const item = documentState.items.find((candidate) => candidate.id === id);
-	if (item?.type !== "text") return;
-	const next = prompt("Edit text", item.text);
-	if (next == null) return;
-	updateDocument(
-		{
-			...documentState,
-			items: documentState.items.map((candidate) =>
-				candidate.id === id ? { ...candidate, text: next } : candidate,
-			),
-		},
-		{ commit: true },
-	);
-}
-
-function deleteItem(id: string) {
-	if (!documentState) return;
-	updateDocument(deleteCanvasItem(documentState, id), { commit: true });
-	selectedItemIds = selectedItemIds.filter((selectedId) => selectedId !== id);
-}
-
-function zoomBy(factor: number) {
-	if (!documentState) return;
-	updateDocument({
-		...documentState,
-		viewport: {
-			...documentState.viewport,
-			zoom: clampZoom(documentState.viewport.zoom * factor),
-		},
-	});
-}
-
-function fit() {
-	if (!documentState) return;
-	updateDocument({ ...documentState, viewport: { x: 0, y: 0, zoom: 1 } });
-}
-
-function close() {
-	onClose();
-}
-
-onMount(() => loadDocument(initialDocument));
-
-$effect(() => {
-	loadDocument(initialDocument);
+onDestroy(() => {
+	window.removeEventListener("keydown", handleKeydown);
+	editor.destroy();
 });
 </script>
 
-<div class="canvas-panel flex h-full min-w-0 flex-col bg-bg-content" class:canvas-panel--immersive={immersive}>
-  <CanvasToolbar
-    title={getCanvasTitle(path)}
-    {dirty}
-    {saving}
-    zoom={documentState?.viewport.zoom ?? 1}
-    onAddFile={addFile}
-    onAddUrl={addUrl}
-    onAddText={addText}
-    onZoomIn={() => zoomBy(1.15)}
-    onZoomOut={() => zoomBy(0.85)}
-    onFit={fit}
-    canUndo={undoStack.length > 0}
-    canRedo={redoStack.length > 0}
-    onUndo={undo}
-    onRedo={redo}
-    {focused}
-    {immersive}
-    {onToggleFocus}
-    {onToggleImmersive}
-    onClose={close}
-  />
+<div
+	class="canvas-panel flex h-full min-w-0 flex-col bg-bg-content"
+	class:canvas-panel--immersive={immersive}
+>
+	<CanvasToolbar
+		title={getCanvasTitle(path)}
+		dirty={editor.dirty}
+		{saving}
+		{focused}
+		{immersive}
+		{onToggleFocus}
+		{onToggleImmersive}
+		onClose={onClose}
+	/>
 
-  {#if documentState}
-    {#if saveError}
-      <div class="border-b border-error-soft/30 bg-error-bg px-3 py-2 text-xs text-error-soft">{saveError}</div>
-    {/if}
-    <div class="relative min-h-0 flex-1 bg-bg-content">
-      <CanvasStage
-        document={documentState}
-        {selectedItemIds}
-        onChange={updateDocument}
-        onSelect={(ids) => selectedItemIds = ids}
-        onSurfaceChange={(size) => { surfaceSize = size; }}
-      />
-      {#if documentState.items.length === 0}
-        <CanvasEmptyState onAddFile={addFile} onAddUrl={addUrl} onAddText={addText} />
-      {/if}
-      <CanvasCardInspector item={selectedItem} onDelete={deleteItem} onEditText={editText} />
-    </div>
-  {/if}
+	{#if editor.saveError}
+		<div class="border-b border-error-soft/30 bg-error-bg px-3 py-2 text-xs text-error-soft">
+			{editor.saveError}
+		</div>
+	{/if}
+
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		bind:this={stageWrap}
+		class="relative min-h-0 flex-1 bg-bg-content"
+		oncontextmenu={handleContextMenu}
+	>
+		<CanvasStage
+			{editor}
+			{spaceId}
+			onSurfaceChange={(size) => { editor.surfaceSize = size; }}
+		/>
+
+		{#if !editor.hasContent}
+			<CanvasEmptyState />
+		{/if}
+
+		<CanvasTextEditor {editor} />
+		<CanvasSelectionToolbar {editor} />
+		<CanvasFloatingToolbar {editor} />
+		<CanvasZoomMenu {editor} />
+
+		{#if contextMenu}
+			<CanvasContextMenu
+				{editor}
+				position={contextMenu}
+				onClose={() => { contextMenu = null; }}
+			/>
+		{/if}
+	</div>
 </div>
 
 <style>
-  .canvas-panel--immersive {
-    position: relative;
-  }
+	.canvas-panel--immersive {
+		position: relative;
+	}
 </style>

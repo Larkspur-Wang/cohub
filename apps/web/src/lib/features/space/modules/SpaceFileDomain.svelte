@@ -419,6 +419,7 @@ $effect.pre(() => {
 	<CanvasPreviewPanel
 		canvas={inlineCanvas}
 		previewTabs={previewTabs}
+		spaceId={spaceId}
 		{treeVisible}
 		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}

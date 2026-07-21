@@ -28,6 +28,7 @@ type Props = {
 	canvas: InlineCanvasPanelState;
 	previewTabs: PreviewTab[];
 	width: number;
+	spaceId: string;
 	focused: boolean;
 	immersive: boolean;
 	isMobile: boolean;
@@ -61,6 +62,7 @@ let {
 	canvas,
 	previewTabs,
 	width,
+	spaceId,
 	focused,
 	immersive,
 	isMobile,
@@ -124,6 +126,7 @@ const canvasPanelModulePromise = $derived.by(() => {
 					<LazyCanvasPanel
 						path={canvas.path}
 						document={canvas.document}
+						spaceId={spaceId}
 						saving={canvas.saving}
 						focused={focused}
 						{immersive}

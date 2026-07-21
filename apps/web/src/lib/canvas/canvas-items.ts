@@ -9,6 +9,8 @@ import type {
 
 const DEFAULT_RESOURCE_SIZE = { width: 280, height: 180 };
 const DEFAULT_TEXT_SIZE = { width: 260, height: 140 };
+/** Offset applied when duplicating so the copy is visibly displaced. */
+export const DUPLICATE_OFFSET = 24;
 
 export const DEFAULT_CANVAS_ITEM_STYLE: CanvasItemStyle = {
 	variant: "default",
@@ -79,6 +81,20 @@ export function createTextCanvasItem(
 	};
 }
 
+/** Create a copy of an item with a fresh id and a small positional offset. */
+export function duplicateCanvasItem(item: CanvasItem): CanvasItem {
+	const frame: CanvasFrame = {
+		...item.frame,
+		x: item.frame.x + DUPLICATE_OFFSET,
+		y: item.frame.y + DUPLICATE_OFFSET,
+	};
+	return {
+		...structuredClone(item),
+		id: createCanvasItemId(),
+		frame,
+	};
+}
+
 export function patchItemFrame(
 	items: CanvasItem[],
 	id: string,
@@ -87,6 +103,44 @@ export function patchItemFrame(
 	return items.map((item) => (item.id === id ? { ...item, frame } : item));
 }
 
+/** Apply a frame patch to many items at once, keyed by id. */
+export function patchItemFrames(
+	items: CanvasItem[],
+	frames: Map<string, CanvasFrame>,
+) {
+	if (frames.size === 0) return items;
+	return items.map((item) => {
+		const frame = frames.get(item.id);
+		return frame ? { ...item, frame } : item;
+	});
+}
+
 export function removeCanvasItem(items: CanvasItem[], id: string) {
 	return items.filter((item) => item.id !== id);
+}
+
+export function removeCanvasItems(items: CanvasItem[], ids: Set<string>) {
+	if (ids.size === 0) return items;
+	return items.filter((item) => !ids.has(item.id));
+}
+
+// ─── Labels ─────────────────────────────────────────────────────────
+
+export function titleForCanvasItem(item: CanvasItem): string {
+	if (item.type === "text") return item.text.split("\n")[0] || "Text note";
+	return (
+		item.snapshot?.title ??
+		(item.ref.kind === "space-file"
+			? getResourceTitle(item.ref.path)
+			: getResourceTitle(item.ref.url))
+	);
+}
+
+export function subtitleForCanvasItem(item: CanvasItem): string {
+	if (item.type === "text") return "Text";
+	const value = item.ref.kind === "space-file" ? item.ref.path : item.ref.url;
+	const kind = inferMediaKind(value, item.snapshot?.mimeType);
+	return item.ref.kind === "space-file"
+		? `${kind} · Space file`
+		: `${kind} · Remote URL`;
 }

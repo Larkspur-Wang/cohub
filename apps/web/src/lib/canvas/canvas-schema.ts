@@ -11,10 +11,16 @@ export const CanvasFrameSchema = z.object({
 	rotation: z.number().finite().default(0),
 });
 
+/**
+ * The canvas camera. This is local UI state, not synced content: semantic ops
+ * (see diffCanvasDocuments) never describe the viewport, and the editor holds
+ * the live camera separately from the persisted document. Here it only serves
+ * as an initial camera hint when a document is first loaded.
+ */
 export const CanvasViewportSchema = z.object({
 	x: z.number().finite(),
 	y: z.number().finite(),
-	zoom: z.number().finite().min(0.25).max(3),
+	zoom: z.number().finite().min(0.1).max(4),
 });
 
 export const CanvasAppearanceSchema = z.object({

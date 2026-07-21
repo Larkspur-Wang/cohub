@@ -1,4 +1,4 @@
-import type { Container } from "pixi.js";
+import type { Container, Texture } from "pixi.js";
 import type { CanvasItem, CovasDocument } from "$lib/canvas/canvas-schema";
 import { resourceCardRenderer } from "$lib/canvas/renderers/resource-card-renderer";
 import { textCardRenderer } from "$lib/canvas/renderers/text-card-renderer";
@@ -16,30 +16,33 @@ export type CanvasRenderPalette = {
 	legendary: number;
 };
 
-export type CanvasItemPointerEvent = {
-	stopPropagation: () => void;
-	pointerId: number;
-	global: { x: number; y: number };
-	originalEvent?: MouseEvent | PointerEvent | TouchEvent;
-};
-
 export type CanvasRenderContext = {
 	document: CovasDocument;
-	selectedItemIds: string[];
+	selectedIds: Set<string>;
+	hoveredId: string | null;
 	palette: CanvasRenderPalette;
-	onItemPointerDown: (item: CanvasItem, event: CanvasItemPointerEvent) => void;
+	/** Stable image cache key for an item, or null if it is not an image. */
+	imageKey: (item: CanvasItem) => string | null;
+	/** Currently loaded texture for a key (null while loading). */
+	getTexture: (key: string) => Texture | null;
+	/** Whether the image for a key failed to load (for a failure placeholder). */
+	hasError: (key: string) => boolean;
+	/** Reference-counted texture acquisition / release keyed by image key. */
+	acquireTexture: (key: string) => void;
+	releaseTexture: (key: string) => void;
 };
 
 export type CanvasCardRenderer = {
 	id: string;
 	canRender: (item: CanvasItem, context: CanvasRenderContext) => boolean;
 	create: (item: CanvasItem, context: CanvasRenderContext) => Container;
-	update?: (
-		display: Container,
+	/** Efficiently sync an existing container to a (possibly changed) item. */
+	update: (
+		container: Container,
 		item: CanvasItem,
 		context: CanvasRenderContext,
 	) => void;
-	destroy?: (display: Container) => void;
+	destroy?: (container: Container, context: CanvasRenderContext) => void;
 };
 
 const canvasCardRenderers: CanvasCardRenderer[] = [
