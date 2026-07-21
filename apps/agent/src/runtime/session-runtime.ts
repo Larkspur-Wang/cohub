@@ -1,6 +1,6 @@
 import type { Agent, AgentEvent, AgentMessage, AgentTool, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { Agent as PiAgent } from "@earendil-works/pi-agent-core";
-import { clampThinkingLevel, createAssistantMessageEventStream, type Api, type Context, type ImageContent, type Model, type SimpleStreamOptions, isContextOverflow, type AssistantMessage } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, createAssistantMessageEventStream, type Api, type AssistantMessageEvent, type AssistantMessageEventStream, type Context, type ImageContent, type Model, type SimpleStreamOptions, isContextOverflow, isRetryableAssistantError, type AssistantMessage } from "@earendil-works/pi-ai";
 import { context, trace, type Span } from "@opentelemetry/api";
 import { logger } from "../logger.js";
 import { sendOutput } from "../redis.js";
@@ -41,7 +41,6 @@ export type CohubAgentSession = {
 
 type ToolLike = AgentTool;
 
-const AGENT_RETRY_ENABLED = true;
 const AGENT_RETRY_MAX_RETRIES = 2;
 const AGENT_RETRY_BASE_DELAY_MS = 1000;
 const LLM_REQUEST_MAX_BYTES = 30 * 1024 * 1024;
@@ -64,11 +63,26 @@ function resolveThinkingLevelForModel(model: CohubModel, requested?: string | nu
   return clampThinkingLevel(model, level) as ThinkingLevel;
 }
 
-function isRetryableAssistantError(message: AssistantMessage | undefined): boolean {
+const COHUB_RETRYABLE_ERROR_OVERRIDE_PATTERN = /\b400\b.*upstream(?:_error)?:?\s*upstream request failed/i;
+const COHUB_NON_RETRYABLE_ERROR_PATTERN = /insufficient[_ ](?:user[_ ])?quota|quota exceeded|out of budget|billing|余额不足|额度不足|invalid (?:request|url)|content[_ ]filter|request (?:is )?too large|payload too large/i;
+const COHUB_MODEL_UNAVAILABLE_PATTERN = /model (?:is )?(?:(?:not )?available|unavailable)|requested model is not available/i;
+const COHUB_RETRYABLE_ERROR_PATTERN = /responses_missing_terminal|anthropic_missing_message_stop|upstream_temporarily_unavailable|stream_read_error|stream ended before a terminal response event|upstream service temporarily unavailable|upstream request failed/i;
+
+function getHttpErrorStatus(errorMessage: string): number | null {
+  const status = errorMessage.match(/\b([45]\d{2})\b/)?.[1];
+  return status ? Number(status) : null;
+}
+
+function isRetryableProviderError(message: AssistantMessage | undefined): boolean {
   if (message?.stopReason !== "error" || !message.errorMessage) return false;
-  return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i.test(
-    message.errorMessage,
-  );
+  if (COHUB_RETRYABLE_ERROR_OVERRIDE_PATTERN.test(message.errorMessage)) return true;
+  if (COHUB_NON_RETRYABLE_ERROR_PATTERN.test(message.errorMessage)) return false;
+
+  const status = getHttpErrorStatus(message.errorMessage);
+  if (status != null) return status === 408 || status === 429 || status >= 500;
+  if (COHUB_MODEL_UNAVAILABLE_PATTERN.test(message.errorMessage)) return false;
+
+  return isRetryableAssistantError(message) || COHUB_RETRYABLE_ERROR_PATTERN.test(message.errorMessage);
 }
 
 function hasAssistantContent(message: AssistantMessage): boolean {
@@ -92,7 +106,7 @@ export function isContextOverflowFailure(message: AssistantMessage | undefined):
 }
 
 export function isRetryableAssistantFailure(message: AssistantMessage | undefined): boolean {
-  return isRetryableAssistantError(message)
+  return isRetryableProviderError(message)
     || isEmptySuccessfulAssistantMessage(message)
     || isContextOverflowFailure(message);
 }
@@ -106,8 +120,11 @@ type AssistantRetryOutcome = {
 };
 
 function getAssistantRetryOutcome(message: AssistantMessage | undefined, retryAttempt: number): AssistantRetryOutcome {
-  if (!AGENT_RETRY_ENABLED || !isRetryableAssistantFailure(message) || retryAttempt >= AGENT_RETRY_MAX_RETRIES) {
-    return { shouldRetry: false, retryAttempt };
+  if (!isRetryableAssistantFailure(message)) {
+    return { shouldRetry: false, retryAttempt, retryReason: "not_retryable" };
+  }
+  if (retryAttempt >= AGENT_RETRY_MAX_RETRIES) {
+    return { shouldRetry: false, retryAttempt, retryReason: "retry_exhausted" };
   }
 
   const overflow = isContextOverflowFailure(message);
@@ -141,6 +158,8 @@ function logAssistantRetry(sessionId: string, turnId: string | undefined, outcom
     logger.info(
       `[Agent] assistant retry scheduled ${contextInfo} attempt=${outcome.retryAttempt} delayMs=${outcome.retryDelayMs} reason=${reason}`,
     );
+  } else if (outcome.retryReason === "retry_exhausted") {
+    logger.warn(`[Agent] assistant retry exhausted ${contextInfo} attempt=${outcome.retryAttempt}`);
   } else {
     logger.debug(`[Agent] assistant retry not scheduled ${contextInfo} attempt=${outcome.retryAttempt} reason=${reason}`);
   }
@@ -425,6 +444,64 @@ function shouldIncludeUserSkills(userId: string | null, spaceOwnerUserId: string
   return Boolean(userId && spaceOwnerUserId && userId === spaceOwnerUserId);
 }
 
+type WrapAssistantMessageStreamOptions = {
+  model: Model<Api>;
+  signal?: AbortSignal;
+  onEvent?: (event: AssistantMessageEvent) => void;
+  onFailure?: (error: unknown) => void;
+};
+
+export function wrapAssistantMessageStream(
+  stream: AsyncIterable<AssistantMessageEvent>,
+  options: WrapAssistantMessageStreamOptions,
+): AssistantMessageEventStream {
+  const wrapped = createAssistantMessageEventStream();
+  let latestPartial: AssistantMessage | undefined;
+
+  const pushFailure = (error: unknown) => {
+    options.onFailure?.(error);
+    const reason: "aborted" | "error" = options.signal?.aborted ? "aborted" : "error";
+    const fallback: AssistantMessage = {
+      role: "assistant",
+      content: [],
+      api: options.model.api,
+      provider: options.model.provider,
+      model: options.model.id,
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: reason,
+      timestamp: Date.now(),
+    };
+    const failure: AssistantMessage = {
+      ...(latestPartial ?? fallback),
+      stopReason: reason,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      timestamp: Date.now(),
+    };
+    wrapped.push({ type: "error", reason, error: failure });
+  };
+
+  void (async () => {
+    try {
+      for await (const event of stream) {
+        if ("partial" in event) latestPartial = event.partial;
+        options.onEvent?.(event);
+        wrapped.push(event);
+      }
+    } catch (error) {
+      pushFailure(error);
+    }
+  })().catch(pushFailure);
+
+  return wrapped;
+}
+
 function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; userId: string | null }): StreamFn {
   const tracer = getAgentTracer();
 
@@ -492,52 +569,37 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
             : streamHeaders,
         });
 
-        const wrapped = createAssistantMessageEventStream();
-        void context.with(llmRound.context, async () => {
-          try {
-            for await (const event of stream) {
-              if (event.type !== "start") {
-                llmRound.markFirstToken();
-              }
-
-              wrapped.push(event);
-
-              if (event.type === "done") {
-                recordLlmUsage(llmRound.span, {
-                  inputTokens: event.message.usage?.input,
-                  outputTokens: event.message.usage?.output,
-                  totalTokens: event.message.usage?.totalTokens,
-                  cacheReadTokens: event.message.usage?.cacheRead,
-                  cacheWriteTokens: event.message.usage?.cacheWrite,
-                  cost: event.message.usage?.cost?.total,
-                });
-                llmRound.finish({ finishReason: event.reason, outcome: "ok" });
-              } else if (event.type === "error") {
-                recordLlmUsage(llmRound.span, {
-                  inputTokens: event.error.usage?.input,
-                  outputTokens: event.error.usage?.output,
-                  totalTokens: event.error.usage?.totalTokens,
-                  cacheReadTokens: event.error.usage?.cacheRead,
-                  cacheWriteTokens: event.error.usage?.cacheWrite,
-                  cost: event.error.usage?.cost?.total,
-                });
-                llmRound.finish({ finishReason: event.reason, outcome: event.reason === "aborted" ? "aborted" : "error" });
-              }
+        return wrapAssistantMessageStream(stream, {
+          model,
+          signal: options?.signal,
+          onFailure: (error) => llmRound.fail(error),
+          onEvent: (event) => {
+            if (event.type !== "start") {
+              llmRound.markFirstToken();
             }
-          } catch (error) {
-            llmRound.fail(error);
-            wrapped.end();
-          } finally {
-            if (toolCtx) {
-              toolCtx.llmRound = round - 1;
+            if (event.type === "done") {
+              recordLlmUsage(llmRound.span, {
+                inputTokens: event.message.usage?.input,
+                outputTokens: event.message.usage?.output,
+                totalTokens: event.message.usage?.totalTokens,
+                cacheReadTokens: event.message.usage?.cacheRead,
+                cacheWriteTokens: event.message.usage?.cacheWrite,
+                cost: event.message.usage?.cost?.total,
+              });
+              llmRound.finish({ finishReason: event.reason, outcome: "ok" });
+            } else if (event.type === "error") {
+              recordLlmUsage(llmRound.span, {
+                inputTokens: event.error.usage?.input,
+                outputTokens: event.error.usage?.output,
+                totalTokens: event.error.usage?.totalTokens,
+                cacheReadTokens: event.error.usage?.cacheRead,
+                cacheWriteTokens: event.error.usage?.cacheWrite,
+                cost: event.error.usage?.cost?.total,
+              });
+              llmRound.finish({ finishReason: event.reason, outcome: event.reason === "aborted" ? "aborted" : "error" });
             }
-          }
-        }).catch((error) => {
-          llmRound.fail(error);
-          wrapped.end();
+          },
         });
-
-        return wrapped;
       } catch (error) {
         llmRound.fail(error);
         throw error;
@@ -786,8 +848,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
     },
     shouldDeferErrorPersistence(message) {
       const assistantMessage = message as unknown as AssistantMessage;
-      return AGENT_RETRY_ENABLED
-        && isRetryableAssistantFailure(assistantMessage)
+      return isRetryableAssistantFailure(assistantMessage)
         && retryAttempt < AGENT_RETRY_MAX_RETRIES;
     },
     consumePendingForcedCompaction() {

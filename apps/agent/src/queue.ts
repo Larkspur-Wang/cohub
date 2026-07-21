@@ -54,6 +54,7 @@ export async function enqueueAgentTurnJob(data: AgentTurnJobData, options: JobsO
     trace: Object.keys(trace).length > 0 ? trace : data.trace,
   }, {
     ...(jobId ? { jobId } : {}),
+    // Covers queue/DB failures before claim; claimed LLM turns retry in session-runtime.
     attempts: 2,
     backoff: { type: "fixed", delay: 1000 },
     removeOnComplete: true,

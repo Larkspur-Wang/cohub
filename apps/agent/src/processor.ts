@@ -652,7 +652,7 @@ function resolveContextHookEnv(ownerMeta: Record<string, unknown>) {
   const context = ownerMeta.context && typeof ownerMeta.context === "object" && !Array.isArray(ownerMeta.context)
     ? ownerMeta.context as Record<string, unknown>
     : null;
-  if (!context || context.kind !== "space_hook") return null;
+  if (context?.kind !== "space_hook") return null;
   const env = context.env;
   if (!env || typeof env !== "object" || Array.isArray(env)) return null;
   const out: Record<string, string> = {};
