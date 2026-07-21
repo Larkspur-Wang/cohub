@@ -542,7 +542,6 @@ $effect(() => {
               <PreviewMarkHost
                 bind:open={htmlMarkOpenMobile}
                 target={htmlMarkTargetMobile}
-                buttonClass="icon-btn"
               />
             {/if}
             <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
@@ -564,7 +563,7 @@ $effect(() => {
             {#if imageMarkTarget}
               <div class="pointer-events-none absolute top-2 right-2 z-20">
                 <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
-                  <PreviewMarkHost bind:open={imageMarkOpenMobile} target={imageMarkTarget} buttonClass="icon-btn" />
+                  <PreviewMarkHost bind:open={imageMarkOpenMobile} target={imageMarkTarget} />
                 </div>
               </div>
             {/if}
@@ -696,7 +695,6 @@ $effect(() => {
                 <PreviewMarkHost
                   bind:open={htmlMarkOpenDesktop}
                   target={htmlMarkTargetDesktop}
-                  buttonClass="icon-btn"
                 />
               {/if}
               <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
@@ -737,7 +735,7 @@ $effect(() => {
                 <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
                 {@render FileHeaderCoreActions(inlineFile.response.path)}
                 {#if imageMarkTarget}
-                  <PreviewMarkHost bind:open={imageMarkOpenDesktop} target={imageMarkTarget} buttonClass="icon-btn" />
+                  <PreviewMarkHost bind:open={imageMarkOpenDesktop} target={imageMarkTarget} />
                 {/if}
                 <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

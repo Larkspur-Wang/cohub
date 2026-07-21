@@ -172,15 +172,12 @@ onDestroy(() => {
 			<PreviewMarkHost
 				bind:open={markOpen}
 				target={markTarget}
-				buttonClass="preview-icon-btn"
 			/>
 		{/if}
 		{#if onToggleFocus && onToggleImmersive}
 			<PreviewExpandMenu
 				{focused}
 				{immersive}
-				buttonClass="preview-icon-btn"
-				iconClass="h-4 w-4"
 				{onToggleFocus}
 				{onToggleImmersive}
 			/>

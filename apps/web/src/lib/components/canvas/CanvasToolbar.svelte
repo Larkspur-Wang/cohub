@@ -44,8 +44,7 @@ const status = $derived(saving ? "Syncing" : dirty ? "Pending" : "Synced");
 			<PreviewExpandMenu
 				{focused}
 				{immersive}
-				buttonClass="canvas-icon"
-				iconClass="h-3.5 w-3.5"
+				size="sm"
 				{onToggleFocus}
 				{onToggleImmersive}
 			/>
@@ -90,7 +89,8 @@ const status = $derived(saving ? "Syncing" : dirty ? "Pending" : "Synced");
 		border-radius: 0.375rem;
 		border: 1px solid transparent;
 		color: var(--text-secondary);
-		transition: background-color 100ms ease, color 100ms ease;
+		transition: background-color 100ms ease, color 100ms ease, transform 100ms ease;
 	}
 	.canvas-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+	.canvas-icon:active { transform: scale(0.96); }
 </style>
