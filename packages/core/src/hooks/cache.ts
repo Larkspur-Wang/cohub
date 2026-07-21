@@ -135,7 +135,10 @@ export async function invalidateSpaceHooksCache(input: {
   spaceId: string;
   redis: SpaceHooksCacheWriter;
 }) {
-  await input.redis.del(getSpaceHooksRedisKey(input.spaceId)).catch(() => undefined);
+  return input.redis
+    .del(getSpaceHooksRedisKey(input.spaceId))
+    .then(() => true)
+    .catch(() => false);
 }
 
 export function shouldInvalidateSpaceHooksCache(paths: string[]): boolean {

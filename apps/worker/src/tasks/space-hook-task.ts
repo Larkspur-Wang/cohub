@@ -10,10 +10,13 @@ import {
 } from "@cohub/infra/agent-queue";
 import {
   buildHookRunCommand,
+  buildSpaceHookDefinitionFingerprint,
   buildSpaceHookEnv,
   buildSpaceHookPromptText,
   loadSpaceHookDefinitions,
   mergeSpaceHookExecutionEnv,
+  partitionSpaceHooksForEvent,
+  spaceHookMatchesEvent,
   type SpaceHookDefinition,
   type SpaceHookRunResult,
 } from "@cohub/core/hooks";
@@ -291,6 +294,24 @@ async function resolveTaskRunRecordId(jobId: string) {
   return run?.id ?? null;
 }
 
+type MatchedHookReference = {
+  path: string;
+  fingerprint: string | null;
+};
+
+function parseMatchedHooks(data: Record<string, unknown>): MatchedHookReference[] | null {
+  if (!Array.isArray(data.matchedHooks)) return null;
+  const matched: MatchedHookReference[] = [];
+  for (const value of data.matchedHooks) {
+    if (!isRecord(value)) return [];
+    const path = asString(value.path);
+    const fingerprint = asString(value.fingerprint);
+    if (!path || !fingerprint || !/^[0-9a-f]{64}$/.test(fingerprint)) return [];
+    matched.push({ path, fingerprint });
+  }
+  return matched;
+}
+
 function parseMatchedPaths(data: Record<string, unknown>): string[] | null {
   if (!Array.isArray(data.matchedPaths)) return null;
   const paths = data.matchedPaths
@@ -299,11 +320,7 @@ function parseMatchedPaths(data: Record<string, unknown>): string[] | null {
   return paths.length > 0 ? paths : [];
 }
 
-/**
- * User-visible execution task.
- * Only enqueued by space_hook.dispatch after at least one hook matched.
- * Does not re-match the whole event set — runs the matched paths from dispatch.
- */
+/** User-visible execution task, enqueued after dispatch matches at least one hook. */
 registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
@@ -330,8 +347,9 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     };
   }
 
-  const matchedPaths = parseMatchedPaths(data);
-  if (!matchedPaths || matchedPaths.length === 0) {
+  const matchedHooks = parseMatchedHooks(data);
+  const matchedPaths = matchedHooks === null ? parseMatchedPaths(data) : null;
+  if ((matchedHooks && matchedHooks.length === 0) || (matchedPaths && matchedPaths.length === 0)) {
     return {
       eventId: event.id,
       eventType: event.type,
@@ -348,16 +366,48 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     redis: redisCommandClient,
   });
   const byPath = new Map(loaded.definitions.map((definition) => [definition.path, definition]));
+  const legacyPartition = matchedHooks === null && matchedPaths === null
+    ? partitionSpaceHooksForEvent(loaded.definitions, event)
+    : null;
+  const references: MatchedHookReference[] = matchedHooks
+    ?? matchedPaths?.map((path) => ({ path, fingerprint: null }))
+    ?? legacyPartition?.matched.map((definition) => ({ path: definition.path, fingerprint: null }))
+    ?? [];
 
   const toRun: SpaceHookDefinition[] = [];
-  const missing: SpaceHookRunResult[] = [];
-  for (const path of matchedPaths) {
-    const definition = byPath.get(path);
+  const preflight: SpaceHookRunResult[] = legacyPartition?.skipped.map((item) => ({
+    ...item,
+    status: "skipped",
+  })) ?? [];
+  for (const reference of references) {
+    const definition = byPath.get(reference.path);
     if (!definition) {
-      missing.push({
-        path,
+      preflight.push({
+        path: reference.path,
         status: "failed",
         error: "hook definition no longer available",
+      });
+      continue;
+    }
+    if (
+      reference.fingerprint
+      && buildSpaceHookDefinitionFingerprint(definition) !== reference.fingerprint
+    ) {
+      preflight.push({
+        path: reference.path,
+        action: definition.action,
+        status: "failed",
+        error: "hook definition changed after dispatch",
+      });
+      continue;
+    }
+    const match = spaceHookMatchesEvent(definition, event);
+    if (!match.matched) {
+      preflight.push({
+        path: reference.path,
+        action: definition.action,
+        status: "skipped",
+        reason: match.reason ?? "not_matched",
       });
       continue;
     }
@@ -396,7 +446,7 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     }),
   );
 
-  const hooks = [...missing, ...executed];
+  const hooks = [...preflight, ...executed];
   const failed = hooks.filter((item) => item.status === "failed");
   if (failed.length > 0) {
     logger.warn("[SpaceHooks] hook failures recorded in result", {
@@ -412,7 +462,7 @@ registerTask(SPACE_HOOK_TASK_TYPE, async (job, context) => {
     eventType: event.type,
     hooks,
     definitionsCount: loaded.definitions.length,
-    matchedCount: matchedPaths.length,
+    matchedCount: references.length,
     cache: loaded.cache,
   };
 });

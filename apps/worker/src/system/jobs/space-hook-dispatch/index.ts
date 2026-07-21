@@ -1,6 +1,7 @@
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import {
+  buildSpaceHookDefinitionFingerprint,
   invalidateSpaceHooksCache,
   loadSpaceHookDefinitions,
   partitionSpaceHooksForEvent,
@@ -11,7 +12,6 @@ import {
   buildSpaceHookExecutePayload,
   buildSpaceHookTaskId,
 } from "@cohub/infra/space-hooks";
-import { defaultJobRetention } from "@cohub/infra/bullmq";
 import { SPACE_HOOK_DISPATCH_JOB, type SpaceHookEventEnvelope } from "@cohub/protocol";
 import { spaces } from "@cohub/db";
 import { createLogger } from "@cohub/infra/logging";
@@ -77,19 +77,19 @@ async function resolveSpaceOwnerUserId(spaceId: string) {
   return space?.userUuid?.trim() || null;
 }
 
-function isDuplicateJobError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /already exists|duplicat|JobId|unique/i.test(message);
-}
-
 registerSystemJob(SPACE_HOOK_DISPATCH_JOB, async (job: Job): Promise<SpaceHookDispatchResult> => {
   const { event, eventActorUserId } = parseDispatchEvent(job.data);
   const spaceId = event.spaceId;
 
-  if (event.type === "space.fs.changed") {
-    const paths = collectChangedPaths(event.payload);
-    if (shouldInvalidateSpaceHooksCache(paths)) {
-      await invalidateSpaceHooksCache({ spaceId, redis: redisCommandClient });
+  const hookDefinitionsChanged = event.type === "space.fs.changed"
+    && shouldInvalidateSpaceHooksCache(collectChangedPaths(event.payload));
+  if (hookDefinitionsChanged) {
+    const invalidated = await invalidateSpaceHooksCache({ spaceId, redis: redisCommandClient });
+    if (!invalidated) {
+      logger.warn("[SpaceHooks] failed to invalidate definitions cache; forcing disk load", {
+        spaceId,
+        eventId: event.id,
+      });
     }
   }
 
@@ -110,6 +110,7 @@ registerSystemJob(SPACE_HOOK_DISPATCH_JOB, async (job: Job): Promise<SpaceHookDi
     spaceId,
     workspaceDir: getSpaceWorkspaceDir(spaceId),
     redis: redisCommandClient,
+    allowCache: !hookDefinitionsChanged,
   });
 
   if (loaded.definitions.length === 0) {
@@ -137,12 +138,15 @@ registerSystemJob(SPACE_HOOK_DISPATCH_JOB, async (job: Job): Promise<SpaceHookDi
     };
   }
 
-  const matchedPaths = matched.map((item) => item.path);
+  const matchedHooks = matched.map((definition) => ({
+    path: definition.path,
+    fingerprint: buildSpaceHookDefinitionFingerprint(definition),
+  }));
   const taskPayload = buildSpaceHookExecutePayload({
     event,
     eventActorUserId,
     ownerUserId,
-    matchedPaths,
+    matchedHooks,
   });
   const taskRunId = buildSpaceHookTaskId({
     spaceId,
@@ -162,18 +166,6 @@ registerSystemJob(SPACE_HOOK_DISPATCH_JOB, async (job: Job): Promise<SpaceHookDi
       taskRunId: enqueued.taskRunId,
     };
   } catch (error) {
-    if (isDuplicateJobError(error)) {
-      // Same event already produced an execute task — treat as success.
-      return {
-        eventId: event.id,
-        eventType: event.type,
-        spaceId,
-        definitionsCount: loaded.definitions.length,
-        matchedCount: matched.length,
-        cache: loaded.cache,
-        taskRunId,
-      };
-    }
     logger.warn("[SpaceHooks] failed to enqueue execute task", {
       spaceId,
       eventId: event.id,

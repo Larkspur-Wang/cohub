@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SpaceHookEventEnvelope } from "@cohub/protocol";
 import { picomatch } from "./picomatch-shim.js";
 import type { SpaceHookDefinition } from "./types.js";
@@ -113,6 +114,10 @@ function matchFsChanged(
     }
   }
   return { matched: true };
+}
+
+export function buildSpaceHookDefinitionFingerprint(definition: SpaceHookDefinition): string {
+  return createHash("sha256").update(JSON.stringify(definition)).digest("hex");
 }
 
 export function spaceHookMatchesEvent(

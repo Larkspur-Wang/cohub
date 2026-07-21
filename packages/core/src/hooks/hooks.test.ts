@@ -6,6 +6,7 @@ import {
 } from "@cohub/protocol";
 import {
   buildHookRunCommand,
+  buildSpaceHookDefinitionFingerprint,
   buildSpaceHookEnv,
   buildSpaceHookPromptText,
   mergeSpaceHookExecutionEnv,
@@ -312,6 +313,32 @@ run: echo ok
       payload: { turn: { id: "turn-2", meta: { source: "anything" } } },
     }).matched,
     true,
+  );
+});
+
+test("space hook fingerprints change with executable content", () => {
+  const first = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: checkpoint.created
+run: echo first
+`,
+    ".cohub/hooks/checkpoint.yml",
+  );
+  const second = parseSpaceHookDefinition(
+    `
+schema: cohub.space-hook.v1
+on:
+  event: checkpoint.created
+run: echo second
+`,
+    ".cohub/hooks/checkpoint.yml",
+  );
+  assert.match(buildSpaceHookDefinitionFingerprint(first), /^[0-9a-f]{64}$/);
+  assert.notEqual(
+    buildSpaceHookDefinitionFingerprint(first),
+    buildSpaceHookDefinitionFingerprint(second),
   );
 });
 

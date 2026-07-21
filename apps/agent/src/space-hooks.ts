@@ -1,5 +1,5 @@
 import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
-import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultCriticalJobOptions } from "@cohub/infra/bullmq";
 import { env } from "./env.js";
 import { logger } from "./logger.js";
 
@@ -29,7 +29,7 @@ export function enqueueSpaceHookFromEvent(
     event: input,
     redis: redis ?? null,
     enqueue: (name, payload, options) => systemQueue.add(name, payload, {
-      ...defaultJobRetention,
+      ...defaultCriticalJobOptions,
       ...options,
     }),
   }).catch((error) => {

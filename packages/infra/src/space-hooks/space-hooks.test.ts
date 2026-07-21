@@ -215,6 +215,44 @@ test("maybeEnqueueSpaceHookTask invalidates empty cache when hooks path changes"
   );
 });
 
+test("maybeEnqueueSpaceHookTask bypasses an empty cache when invalidation fails", async () => {
+  const calls: unknown[] = [];
+  const cached = JSON.stringify({
+    version: 1,
+    spaceId: "space-1",
+    updatedAt: new Date().toISOString(),
+    definitions: [],
+  });
+  const redis = {
+    async get() {
+      return cached;
+    },
+    async del() {
+      throw new Error("redis unavailable");
+    },
+  };
+
+  const result = await maybeEnqueueSpaceHookTask({
+    event: {
+      id: "event-hooks-failed-invalidation",
+      type: "space.fs.changed",
+      spaceId: "space-1",
+      payload: {
+        changes: [{ path: ".cohub/hooks/on-fs.yml", kind: "create" }],
+      },
+    },
+    enqueue: async (name, payload, options) => {
+      calls.push({ name, payload, options });
+      return { id: "job-1" };
+    },
+    redis,
+  });
+
+  assert.ok(result);
+  assert.equal(calls.length, 1);
+  assert.equal((calls[0] as { name: string }).name, SPACE_HOOK_DISPATCH_JOB);
+});
+
 test("maybeEnqueueSpaceHookTask enqueues on cache miss", async () => {
   const calls: unknown[] = [];
   const redis = {

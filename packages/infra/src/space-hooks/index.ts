@@ -93,7 +93,10 @@ async function resolveHooksCacheGate(
 }
 
 async function invalidateSpaceHooksCache(redis: RedisLike, spaceId: string) {
-  await redis.del(getSpaceHooksRedisKey(spaceId)).catch(() => undefined);
+  return redis
+    .del(getSpaceHooksRedisKey(spaceId))
+    .then(() => true)
+    .catch(() => false);
 }
 
 /** Stable id for the internal dispatch job (system queue, no task_runs). */
@@ -183,14 +186,13 @@ export async function maybeEnqueueSpaceHookTask(input: {
     payload,
   };
 
-  if (input.redis && type === "space.fs.changed") {
-    const paths = collectChangedPaths(payload);
-    if (touchesSpaceHooksDir(paths)) {
-      await invalidateSpaceHooksCache(input.redis, spaceId);
-    }
+  const hooksConfigChanged = type === "space.fs.changed"
+    && touchesSpaceHooksDir(collectChangedPaths(payload));
+  if (input.redis && hooksConfigChanged) {
+    await invalidateSpaceHooksCache(input.redis, spaceId);
   }
 
-  if (input.redis) {
+  if (input.redis && !hooksConfigChanged) {
     const gate = await resolveHooksCacheGate(input.redis, spaceId);
     if (gate === "empty") return null;
   }
@@ -221,7 +223,7 @@ export function buildSpaceHookExecutePayload(input: {
   event: SpaceHookEventEnvelope;
   eventActorUserId: string | null;
   ownerUserId: string;
-  matchedPaths: string[];
+  matchedHooks: Array<{ path: string; fingerprint: string }>;
 }): TaskPayloadLike {
   return {
     type: SPACE_HOOK_TASK_TYPE,
@@ -231,7 +233,7 @@ export function buildSpaceHookExecutePayload(input: {
     data: {
       event: input.event,
       eventActorUserId: input.eventActorUserId,
-      matchedPaths: input.matchedPaths,
+      matchedHooks: input.matchedHooks,
     },
   };
 }

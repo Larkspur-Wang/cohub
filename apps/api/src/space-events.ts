@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { SpaceFsChangedPayload } from "@cohub/protocol/fs";
 import { maybeEnqueueSpaceHookTask } from "@cohub/infra/space-hooks";
-import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultJobRetention } from "@cohub/infra/bullmq";
+import { COHUB_SYSTEM_QUEUE, createBullmqQueue, defaultCriticalJobOptions } from "@cohub/infra/bullmq";
 import { config } from "./config.js";
 import { enqueueFsCdnWarmForChanges } from "./space-fs-cdn-prewarm.js";
 import { dispatchRealtimeEvent } from "./channels.js";
@@ -28,7 +28,7 @@ function enqueueSpaceHookFromEvent(input: {
     event: input,
     redis: redisCommandClient,
     enqueue: (name, payload, options) => systemQueue.add(name, payload, {
-      ...defaultJobRetention,
+      ...defaultCriticalJobOptions,
       ...options,
     }),
   }).catch((error) => {
