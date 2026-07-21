@@ -310,7 +310,10 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	const queue = createCommitQueue(async (document, ops) => {
 		await options.onCommit(document, ops);
 	});
-	queue.reset({ ...synced, viewport: camera });
+	queue.reset({
+		...toContent(options.document),
+		viewport: options.document.viewport,
+	});
 
 	// Spatial index over item bounding boxes. Full rebuilds for membership
 	// changes; dirty-entry upserts during gestures so a drag never pays O(n).
