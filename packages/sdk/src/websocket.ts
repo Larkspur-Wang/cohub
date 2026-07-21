@@ -39,7 +39,7 @@ export type WebsocketClientOptions = {
   pingIntervalMs?: number;
   pongTimeoutMs?: number;
   debug?: boolean;
-  getAccessToken?: () => Promise<string | null> | string | null;
+  getAccessToken?: (options?: { forceRefresh?: boolean }) => Promise<string | null> | string | null;
   WebSocketImpl?: WebSocketConstructor;
 };
 
@@ -115,13 +115,14 @@ const normalizeOptions = (options: WebsocketClientOptions = {}) => ({
 const formatCloseMessage = (code?: number, reason?: string) =>
   `WebSocket closed: ${code ?? 0} ${reason || ""}`.trim();
 
+const AUTH_CLOSE_CODE = 4003;
+const AUTH_CLOSE_REASON = "authentication failed";
+
 const isRetryableCloseCode = (code: number) => {
   if (code === 1000) return false;
-  if (code === 4003) return false;
+  if (code === AUTH_CLOSE_CODE) return false;
   return true;
 };
-
-const AUTH_CLOSE_REASON = "authentication failed";
 const PATCH_STREAM_BUFFER_MAX_PENDING = 128;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -211,7 +212,7 @@ export class WebsocketClient {
   private readonly pingIntervalMs: number;
   private readonly pongTimeoutMs: number;
   private readonly debug: boolean;
-  private readonly getAccessToken?: () => Promise<string | null> | string | null;
+  private readonly getAccessToken?: WebsocketClientOptions["getAccessToken"];
   private readonly WebSocketImpl: WebSocketConstructor;
 
   private ws: WebSocketLike | null = null;
@@ -219,6 +220,9 @@ export class WebsocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimerResolver: (() => void) | null = null;
   private reconnectAttempt = 0;
+  private authReconnectAttempted = false;
+  private forceRefreshOnNextAuth = false;
+  private retryAuthClose = false;
   private manuallyClosed = false;
   private connectPromise: Promise<void> | null = null;
   private authWaiter: {
@@ -319,9 +323,20 @@ export class WebsocketClient {
         } catch (error) {
           const authError =
             error instanceof Error ? error : new Error("authentication failed");
-          this.emit("error", { error: authError, recoverable: false });
+          const recoverable = Boolean(
+            this.getAccessToken &&
+            this.autoReconnect &&
+            !this.manuallyClosed &&
+            !this.authReconnectAttempted
+          );
+          this.retryAuthClose = recoverable;
+          if (recoverable) {
+            this.authReconnectAttempted = true;
+            this.forceRefreshOnNextAuth = true;
+          }
+          this.emit("error", { error: authError, recoverable });
           rejectOnce(authError);
-          ws.close(4003, AUTH_CLOSE_REASON);
+          ws.close(AUTH_CLOSE_CODE, AUTH_CLOSE_REASON);
         }
       };
 
@@ -342,7 +357,11 @@ export class WebsocketClient {
         this.patchStreamBuffers.clear();
         const closeError = new Error(formatCloseMessage(event.code, event.reason));
         this.rejectAuthWaiter(closeError);
-        const willReconnect = !this.manuallyClosed && this.autoReconnect && isRetryableCloseCode(event.code);
+        const retryAuthClose = event.code === AUTH_CLOSE_CODE && this.retryAuthClose;
+        this.retryAuthClose = false;
+        const willReconnect = !this.manuallyClosed && this.autoReconnect && (
+          retryAuthClose || isRetryableCloseCode(event.code)
+        );
         this.log("closed", { code: event.code, reason: event.reason, willReconnect, wasConnecting });
         this.emit("close", {
           code: event.code,
@@ -370,6 +389,9 @@ export class WebsocketClient {
     this.ws?.close(code, reason);
     this.ws = null;
     this.connectPromise = null;
+    this.authReconnectAttempted = false;
+    this.forceRefreshOnNextAuth = false;
+    this.retryAuthClose = false;
     this.compactStreamContexts.clear();
     this.patchStreamBuffers.clear();
     for (const state of this.roomSubscriptions.values()) {
@@ -520,7 +542,11 @@ export class WebsocketClient {
   }
 
   private async authenticate() {
-    const token = this.getAccessToken ? await this.getAccessToken() : null;
+    const forceRefresh = this.forceRefreshOnNextAuth;
+    this.forceRefreshOnNextAuth = false;
+    const token = this.getAccessToken
+      ? await this.getAccessToken(forceRefresh ? { forceRefresh: true } : undefined)
+      : null;
     if (!token) throw new WebsocketAuthError("missing access token");
 
     const waiter = this.createAuthWaiter();
@@ -530,6 +556,7 @@ export class WebsocketClient {
     });
     await waiter.promise;
     await this.restoreRoomSubscriptions();
+    this.authReconnectAttempted = false;
   }
 
   private flushRoomSubscriptions() {
@@ -973,7 +1000,7 @@ export class WebsocketClient {
       if (this.manuallyClosed) return;
     }
     await this.connect().catch((error) => {
-      this.emit("error", { error, recoverable: true });
+      this.emit("error", { error, recoverable: this.state === "reconnecting" });
     });
   }
 }
