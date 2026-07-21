@@ -275,6 +275,14 @@ async function handleDraftDrop(event: DragEvent) {
 				</div>
 			</div>
 		{/if}
+		<SessionTaskTray
+			notices={host.sessionTaskNotices}
+			hasMore={host.sessionTaskHasMore}
+			loadingMore={host.sessionTaskRecentLoading}
+			onExpand={host.handleSessionTaskTrayExpand}
+			onLoadMore={host.handleSessionTaskTrayLoadMore}
+			onOpenGenerationMedia={host.handleOpenGenerationTaskMedia}
+		/>
 		{#if shouldShowNewChatBackground && newChatBackground}
 			<NewChatBackground background={newChatBackground} />
 			<div class="relative z-10 flex-1 min-h-0 pointer-events-none"></div>
@@ -314,14 +322,6 @@ async function handleDraftDrop(event: DragEvent) {
 			bind:this={chatChromeEl}
 			class="chat-chrome relative z-10 shrink-0 bg-bg-content"
 		>
-			<SessionTaskTray
-				notices={host.sessionTaskNotices}
-				hasMore={host.sessionTaskHasMore}
-				loadingMore={host.sessionTaskRecentLoading}
-				onExpand={host.handleSessionTaskTrayExpand}
-				onLoadMore={host.handleSessionTaskTrayLoadMore}
-				onOpenGenerationMedia={host.handleOpenGenerationTaskMedia}
-			/>
 			{#if followupQueue.length > 0}
 				<div
 					class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6"
