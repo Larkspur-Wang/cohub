@@ -220,7 +220,10 @@ $effect(() => {
 				/>
 			{/key}
 		{/if}
-		<div bind:this={chatChromeEl} class="shrink-0">
+		<div
+			bind:this={chatChromeEl}
+			class="chat-chrome relative z-10 shrink-0 bg-bg-content"
+		>
 			<SessionTaskTray
 				notices={host.sessionTaskNotices}
 				hasMore={host.sessionTaskHasMore}

@@ -79,7 +79,7 @@ const showDraftHint = $derived(
 		</div>
 	{:else}
 		<header
-			class="flex shrink-0 items-center gap-2 border-b border-border-subtle px-3 py-2.5 sm:px-4"
+			class="relative z-10 flex shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-content px-3 py-2.5 sm:px-4"
 		>
 			{#if isDraft}
 				<a

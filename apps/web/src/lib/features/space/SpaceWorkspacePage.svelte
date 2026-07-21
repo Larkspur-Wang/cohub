@@ -2279,7 +2279,7 @@ const headerActions = {
     class:workspace-main--immersive-hidden={!immersiveChatVisible}
   >
     {#if !previewImmersiveMode}
-      <div class="workspace-main-header relative z-20 shrink-0 overflow-visible">
+      <div class="workspace-main-header relative z-20 shrink-0 overflow-visible bg-bg-primary">
         <SpaceWorkspaceHeader
           context={headerContext}
           sessionRename={sessionRenameState}
