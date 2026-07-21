@@ -49,6 +49,10 @@ import type {
 	CanvasViewport,
 	CovasDocument,
 } from "$lib/canvas/canvas-schema";
+import {
+	createSpatialIndex,
+	type SpatialEntry,
+} from "$lib/canvas/canvas-spatial";
 
 export type CanvasToolId = "select" | "hand";
 export type CanvasEmphasis = CanvasItemStyle["emphasis"];
@@ -210,6 +214,33 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	});
 	queue.reset({ ...synced, viewport: camera });
 
+	// Spatial index over item bounding boxes, rebuilt lazily on demand. A plain
+	// generation counter (not reactive state) tracks freshness: every place that
+	// reassigns the item list bumps it, and queries rebuild only when stale. This
+	// keeps hit testing, marquee selection, and viewport culling sub-linear
+	// without paying for an incremental tree on every drag frame.
+	const spatial = createSpatialIndex();
+	let spatialVersion = 0;
+	let indexedVersion = -1;
+	let itemsById = new Map<string, CanvasItem>();
+
+	function bumpSpatial() {
+		spatialVersion += 1;
+	}
+
+	function ensureSpatial() {
+		if (indexedVersion === spatialVersion) return;
+		indexedVersion = spatialVersion;
+		const entries: SpatialEntry[] = [];
+		itemsById = new Map();
+		const current = synced.items;
+		current.forEach((item, index) => {
+			itemsById.set(item.id, item);
+			entries.push({ id: item.id, order: index, rect: itemBounds(item.frame) });
+		});
+		spatial.rebuild(entries);
+	}
+
 	// ─── Derived ────────────────────────────────────────────────────
 	const document = $derived<CovasDocument>({ ...synced, viewport: camera });
 	const items = $derived(synced.items);
@@ -238,6 +269,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	// ─── Mutation + persistence ─────────────────────────────────────
 	function setItems(next: CanvasItem[]) {
 		synced = { ...synced, items: next };
+		bumpSpatial();
 		localRev += 1;
 	}
 
@@ -406,6 +438,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	function beginTextDraft(at: WorldPoint) {
 		const item = createTextCanvasItem("", at.x, at.y);
 		synced = { ...synced, items: [...synced.items, item] };
+		bumpSpatial();
 		draftId = item.id;
 		selection = [item.id];
 		editingId = item.id;
@@ -421,6 +454,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 					...synced,
 					items: removeCanvasItems(synced.items, new Set([id])),
 				};
+				bumpSpatial();
 			} else {
 				deleteItem(id);
 			}
@@ -529,11 +563,20 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 
 	// ─── Hit testing (world space) ──────────────────────────────────
 	function topItemAt(point: WorldPoint): CanvasItem | null {
-		for (let index = synced.items.length - 1; index >= 0; index--) {
-			const item = synced.items[index];
+		// The index yields AABB candidates topmost-first; refine with an exact
+		// rotation-aware test and take the first match.
+		ensureSpatial();
+		for (const id of spatial.idsAtPoint(point)) {
+			const item = itemsById.get(id);
 			if (item && frameContainsPoint(item.frame, point)) return item;
 		}
 		return null;
+	}
+
+	/** Ids of items whose bounds intersect a world-space rect (viewport culling). */
+	function idsInRect(rect: Rect): string[] {
+		ensureSpatial();
+		return spatial.idsInRect(rect);
 	}
 
 	function handleAt(point: WorldPoint): ResizeHandle | null {
@@ -771,9 +814,12 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			interaction = { ...interaction, current: event.world };
 			const rect = marquee;
 			if (!rect) return;
-			const hits = synced.items
-				.filter((item) => rectsIntersect(itemBounds(item.frame), rect))
-				.map((item) => item.id);
+			ensureSpatial();
+			const hits: string[] = [];
+			for (const id of spatial.idsInRect(rect)) {
+				const item = itemsById.get(id);
+				if (item && rectsIntersect(itemBounds(item.frame), rect)) hits.push(id);
+			}
 			selection = interaction.additive
 				? [...new Set([...interaction.baseSelection, ...hits])]
 				: hits;
@@ -899,6 +945,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			sameDocument,
 		);
 		synced = toContent(merged);
+		bumpSpatial();
 		// A document switch resets the camera; a same-document refresh keeps it.
 		if (!sameDocument) camera = next.viewport;
 		// The remote document is the server truth we rebased onto; the commit
@@ -1012,6 +1059,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		setCamera,
 		viewCenter,
 		itemAt: topItemAt,
+		idsInRect,
 		setSelection,
 		clearSelection,
 		selectAll,

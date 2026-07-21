@@ -23,7 +23,6 @@ const KIND_LABEL: Record<string, string> = {
 type ResourceCardParts = {
 	shell: CardShell;
 	image: Sprite | null;
-	imageKey: string | null;
 	placeholder: Graphics;
 	placeholderSig: string;
 	badge: Container;
@@ -95,21 +94,15 @@ function syncContent(
 	parts.badge.x = area.x + 6;
 	parts.badge.y = area.y + 6;
 
-	// Track the image by cache key, acquiring/releasing reference counts so the
-	// asset manager can free textures no card displays.
+	// Create or destroy the sprite based on whether this is an image resource.
+	// Texture reference counting is owned by the scene (which tracks visibility);
+	// the renderer only manages the sprite lifecycle and displays the texture.
 	if (key) {
-		if (key !== parts.imageKey) {
-			if (parts.imageKey) context.releaseTexture(parts.imageKey);
-			context.acquireTexture(key);
-			parts.imageKey = key;
-		}
 		if (!parts.image) {
 			parts.image = new Sprite(Texture.EMPTY);
 			parts.shell.content.addChildAt(parts.image, 0);
 		}
 	} else if (parts.image) {
-		if (parts.imageKey) context.releaseTexture(parts.imageKey);
-		parts.imageKey = null;
 		parts.image.destroy();
 		parts.image = null;
 	}
@@ -194,7 +187,6 @@ export const resourceCardRenderer: CanvasCardRenderer = {
 		const parts: ResourceCardParts = {
 			shell,
 			image: null,
-			imageKey: null,
 			placeholder: new Graphics(),
 			placeholderSig: "",
 			badge: new Container(),
@@ -210,10 +202,8 @@ export const resourceCardRenderer: CanvasCardRenderer = {
 	update: (container, item, context) => {
 		sync(container, item, context);
 	},
-	destroy: (container, context) => {
-		const parts = partsByContainer.get(container);
-		if (parts?.imageKey) context.releaseTexture(parts.imageKey);
-		parts?.shell.destroy();
+	destroy: (container) => {
+		partsByContainer.get(container)?.shell.destroy();
 		partsByContainer.delete(container);
 	},
 };

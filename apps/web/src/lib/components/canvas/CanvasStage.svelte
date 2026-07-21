@@ -7,24 +7,19 @@ import {
 } from "$lib/canvas/canvas-asset-manager";
 import {
 	expandRect,
-	frameHandlePosition,
 	itemBounds,
-	type Point,
 	pointToWorld,
-	RESIZE_HANDLES,
-	type Rect,
 	rectsIntersect,
-	rotationHandlePosition,
 	type ScreenPoint,
 	screenPoint,
 	screenToWorld,
+	VIEWPORT_MARGIN_RATIO,
 	visibleWorldRect,
 } from "$lib/canvas/canvas-geometry";
 import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
-import type { CanvasFrame, CanvasItem } from "$lib/canvas/canvas-schema";
+import { createCanvasScene } from "$lib/canvas/canvas-scene";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 import {
-	type CanvasCardRenderer,
 	type CanvasRenderContext,
 	type CanvasRenderPalette,
 	getCanvasCardRenderer,
@@ -42,18 +37,13 @@ const {
 	onSurfaceChange?: (size: { width: number; height: number }) => void;
 } = $props();
 
-type CardEntry = {
-	item: CanvasItem;
-	container: Container;
-	renderer: CanvasCardRenderer;
-};
-
 let host: HTMLDivElement | null = $state(null);
 let app: Application | null = null;
 let world: Container | null = null;
 let background: Container | null = null;
 let backgroundThemeId: string | null = null;
 let overlay: Graphics | null = null;
+let scene: ReturnType<typeof createCanvasScene> | null = null;
 let resizeObserver: ResizeObserver | null = null;
 let resizeFrame = 0;
 let dropActive = $state(false);
@@ -64,7 +54,6 @@ let surface = $state<{ width: number; height: number }>({
 // Bumped whenever the asset manager resolves a new thumbnail URL, so cards
 // re-sync and images pop in.
 let assetVersion = $state(0);
-const cardDisplays = new Map<string, CardEntry>();
 
 // One manager per mounted canvas; the space id is fixed for the mount.
 const assets = createCanvasAssetManager({ spaceId: untrack(() => spaceId) });
@@ -104,8 +93,9 @@ function getPalette(): CanvasRenderPalette {
 
 // Request thumbnails only for image cards near the viewport (space-file and
 // remote alike). The margin preloads a band just off-screen so panning feels
-// instant. Tracks only items/camera/surface: loaded textures notify via
-// `assetVersion`, which the render effect (not this one) consumes.
+// instant, and matches the culling margin so a texture is requested before its
+// card scrolls into view. Tracks only items/camera/surface: loaded textures
+// notify via `assetVersion`, which the render effect (not this one) consumes.
 $effect(() => {
 	const items = editor.items;
 	const camera = editor.camera;
@@ -115,7 +105,7 @@ $effect(() => {
 	const visible = visibleWorldRect(camera, width, height);
 	const preload = expandRect(
 		visible,
-		Math.max(visible.width, visible.height) * 0.5,
+		Math.max(visible.width, visible.height) * VIEWPORT_MARGIN_RATIO,
 	);
 	for (const item of items) {
 		if (!imageAssetKey(item)) continue;
@@ -138,6 +128,18 @@ function buildContext(palette: CanvasRenderPalette): CanvasRenderContext {
 	};
 }
 
+function computeVisibleIds(): Set<string> | null {
+	const width = surface.width;
+	const height = surface.height;
+	if (width === 0 || height === 0) return null;
+	const visible = visibleWorldRect(editor.camera, width, height);
+	const culled = expandRect(
+		visible,
+		Math.max(visible.width, visible.height) * VIEWPORT_MARGIN_RATIO,
+	);
+	return new Set(editor.idsInRect(culled));
+}
+
 function syncBackground(palette: CanvasRenderPalette) {
 	if (!app) return;
 	const themeRenderer = getCanvasThemeRenderer(editor.document);
@@ -157,109 +159,51 @@ function syncBackground(palette: CanvasRenderPalette) {
 	themeRenderer.updateBackground?.(background, context);
 }
 
-function syncCards(context: CanvasRenderContext) {
-	const currentWorld = world;
-	if (!currentWorld) return;
-	const items = editor.items;
-	const itemIds = new Set(items.map((item) => item.id));
-
-	for (const [id, entry] of cardDisplays) {
-		if (!itemIds.has(id)) {
-			currentWorld.removeChild(entry.container);
-			entry.renderer.destroy?.(entry.container, context);
-			cardDisplays.delete(id);
-		}
-	}
-
-	items.forEach((item, index) => {
-		const renderer = getCanvasCardRenderer(item, context);
-		const existing = cardDisplays.get(item.id);
-		let container: Container;
-		if (existing && existing.renderer.id === renderer.id) {
-			container = existing.container;
-			renderer.update(container, item, context);
-		} else {
-			if (existing) {
-				currentWorld.removeChild(existing.container);
-				existing.renderer.destroy?.(existing.container, context);
-			}
-			container = renderer.create(item, context);
-			cardDisplays.set(item.id, { item, container, renderer });
-			currentWorld.addChild(container);
-		}
-		if (container.parent !== currentWorld) currentWorld.addChild(container);
-		currentWorld.setChildIndex(container, index);
-	});
-
-	if (overlay && overlay.parent === currentWorld)
-		currentWorld.setChildIndex(overlay, currentWorld.children.length - 1);
-}
-
-function drawOverlay(palette: CanvasRenderPalette) {
-	if (!overlay) return;
-	overlay.clear();
-	const zoom = editor.camera.zoom;
-	const inv = 1 / zoom;
-	const brand = palette.brand;
-
-	const marquee = editor.marquee;
-	if (marquee) {
-		overlay
-			.rect(marquee.x, marquee.y, marquee.width, marquee.height)
-			.fill({ color: brand, alpha: 0.08 });
-		overlay
-			.rect(marquee.x, marquee.y, marquee.width, marquee.height)
-			.stroke({ color: brand, width: inv, alpha: 0.7 });
-	}
-
-	const bounds = editor.bounds;
-	const selection = editor.selection;
-	if (!bounds || selection.length === 0) return;
-
-	overlay
-		.rect(bounds.x, bounds.y, bounds.width, bounds.height)
-		.stroke({ color: brand, width: 1.5 * inv, alpha: 0.95 });
-
-	const single =
-		selection.length === 1 ? (editor.selectedItems[0]?.frame ?? null) : null;
-	const source: CanvasFrame = single ?? { ...bounds, rotation: 0 };
-	const handles = single ? RESIZE_HANDLES : (["nw", "ne", "se", "sw"] as const);
-	const handleSize = 8 * inv;
-	for (const handle of handles) {
-		const position = frameHandlePosition(source, handle);
-		overlay
-			.rect(
-				position.x - handleSize / 2,
-				position.y - handleSize / 2,
-				handleSize,
-				handleSize,
-			)
-			.fill({ color: palette.surface, alpha: 1 })
-			.stroke({ color: brand, width: 1.5 * inv });
-	}
-
-	const rotation = rotationHandlePosition(bounds, zoom);
-	const topCenter: Point = { x: bounds.x + bounds.width / 2, y: bounds.y };
-	overlay
-		.moveTo(topCenter.x, topCenter.y)
-		.lineTo(rotation.x, rotation.y)
-		.stroke({ color: brand, width: inv, alpha: 0.8 });
-	overlay
-		.circle(rotation.x, rotation.y, 5 * inv)
-		.fill({ color: palette.surface })
-		.stroke({ color: brand, width: 1.5 * inv });
-}
-
 function syncStage() {
-	if (!app || !world) return;
+	if (!app || !world || !scene) return;
 	const palette = getPalette();
 	syncBackground(palette);
 	world.x = editor.camera.x;
 	world.y = editor.camera.y;
 	world.scale.set(editor.camera.zoom);
 	if (world.parent !== app.stage) app.stage.addChild(world);
-	syncCards(buildContext(palette));
-	drawOverlay(palette);
+
+	const context = buildContext(palette);
+	const visibleIds = computeVisibleIds();
+	const pinnedIds = new Set(editor.selection);
+	if (editor.editingId) pinnedIds.add(editor.editingId);
+
+	// Global render signals not carried by an item's identity. When this is
+	// stable across frames (a pure drag or pan), unchanged cards skip their
+	// renderer update.
+	const frameSig = [
+		assetVersion,
+		editor.hoverId,
+		editor.selection.join(","),
+		getResolvedTheme(),
+	].join("|");
+
+	scene.sync({
+		items: editor.items,
+		context,
+		visibleIds,
+		pinnedIds,
+		frameSig,
+	});
+
+	scene.drawOverlay(
+		{
+			zoom: editor.camera.zoom,
+			marquee: editor.marquee,
+			bounds: editor.bounds,
+			selection: editor.selection,
+			singleFrame:
+				editor.selection.length === 1
+					? (editor.selectedItems[0]?.frame ?? null)
+					: null,
+		},
+		palette,
+	);
 }
 
 function reportSurfaceSize() {
@@ -402,6 +346,11 @@ onMount(async () => {
 	world = new Container();
 	overlay = new Graphics();
 	world.addChild(overlay);
+	scene = createCanvasScene({
+		world,
+		overlay,
+		getRenderer: getCanvasCardRenderer,
+	});
 
 	host.addEventListener("pointerdown", handlePointerDown);
 	host.addEventListener("pointermove", handlePointerMove);
@@ -443,9 +392,8 @@ onDestroy(() => {
 	}
 	// Destroy cards first (releasing their texture refs), then the manager.
 	const context = buildContext(getPalette());
-	for (const entry of cardDisplays.values())
-		entry.renderer.destroy?.(entry.container, context);
-	cardDisplays.clear();
+	scene?.destroy(context);
+	scene = null;
 	assets.destroy();
 	background?.destroy({ children: true });
 	background = null;

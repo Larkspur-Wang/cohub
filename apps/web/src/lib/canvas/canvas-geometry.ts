@@ -35,6 +35,12 @@ export const MAX_CANVAS_ZOOM = 4;
 export const MIN_ITEM_SIZE = 24;
 /** Extra world-space padding applied when fitting content into view. */
 export const FIT_PADDING = 64;
+/**
+ * Fraction of the viewport's larger dimension used as an off-screen margin for
+ * both card culling and texture preloading. Keeping them equal means a card's
+ * texture is already requested before the card scrolls into view.
+ */
+export const VIEWPORT_MARGIN_RATIO = 0.5;
 
 export function clampZoom(zoom: number) {
 	return Math.min(MAX_CANVAS_ZOOM, Math.max(MIN_CANVAS_ZOOM, zoom));
