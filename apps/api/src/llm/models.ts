@@ -8,7 +8,6 @@ import {
   parseCachedModelsConfig,
   parseModelsConfig,
   PLATFORM_MODELS_REDIS_KEY,
-  resolveModelRequestHeaders,
   type CachedModelsConfig,
   type ModelsConfig,
   type ModelDef,
@@ -189,10 +188,7 @@ export class CompletionModelRegistry {
 
   getHeaders(provider: string, modelId?: string) {
     const model = modelId ? this.find(provider, modelId) : undefined;
-    return resolveModelRequestHeaders(
-      model,
-      model?.headers ?? this.providerHeaders.get(provider),
-    );
+    return model?.headers ?? this.providerHeaders.get(provider);
   }
 }
 

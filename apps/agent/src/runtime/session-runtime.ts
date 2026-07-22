@@ -11,7 +11,6 @@ import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolExecutionContext } from "../tool-context.js";
 import { isToolFailureDetails } from "./tools/index.js";
-import { withCodexSessionAffinity } from "./codex-request.js";
 
 import type { SpaceModListItem } from "@cohub/core/space-mods";
 
@@ -566,7 +565,7 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
           });
         }
         const models = createModelsFromRegistry(runtime.modelRegistry, model);
-        const requestOptions: SimpleStreamOptions = {
+        const stream = streamSimpleWithModels(models, model, ctx, {
           ...options,
           headers: model.provider === "cohub"
             ? {
@@ -580,13 +579,7 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
                 }),
               }
             : streamHeaders,
-        };
-        const stream = streamSimpleWithModels(
-          models,
-          model,
-          ctx,
-          withCodexSessionAffinity(model, requestOptions, toolCtx?.sessionId),
-        );
+        });
 
         return wrapAssistantMessageStream(stream, {
           model,

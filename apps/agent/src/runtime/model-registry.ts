@@ -1,11 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
-import {
-  mergeModelsConfigs,
-  resolveModelRequestHeaders,
-  type ModelDef,
-  type ModelsConfig,
-  type ModelThinkingLevel,
-} from "@cohub/infra/config-runtime/models";
+import { mergeModelsConfigs, type ModelDef, type ModelsConfig, type ModelThinkingLevel } from "@cohub/infra/config-runtime/models";
 
 export type CohubModel<TApi extends Api = Api> = Model<TApi> & {
   defaultThinkingLevel?: ModelThinkingLevel;
@@ -104,9 +98,6 @@ export class CohubModelRegistry {
 
   getHeaders(provider: string, modelId?: string): Record<string, string> | undefined {
     const model = modelId ? this.find(provider, modelId) : undefined;
-    return resolveModelRequestHeaders(
-      model,
-      model?.headers ?? this.providerHeaders.get(provider),
-    );
+    return model?.headers ?? this.providerHeaders.get(provider);
   }
 }
