@@ -5,18 +5,13 @@ const {
 	width = 480,
 	ariaLabel = "Workspace preview",
 	onResizeStart,
-	desktopOnly = false,
 	immersive = false,
-	/** When false, skip mount/unmount clip (e.g. file↔canvas tab switch). */
-	animate = true,
 	children,
 }: {
 	width?: number;
 	ariaLabel?: string;
 	onResizeStart?: (event: PointerEvent) => void;
-	desktopOnly?: boolean;
 	immersive?: boolean;
-	animate?: boolean;
 	children: import("svelte").Snippet;
 } = $props();
 
@@ -31,18 +26,13 @@ $effect(() => {
 	el.style.setProperty("--workspace-preview-inner-width", `${width}px`);
 });
 
-// Svelte transition params: duration 0 disables animation.
 // Pass targetWidth so intro does not race CSS-var $effect.
-const clipParams = $derived(
-	animate ? { targetWidth: width } : { duration: 0, targetWidth: width },
-);
+const clipParams = $derived({ targetWidth: width });
 </script>
 
 <section
 	bind:this={paneEl}
-	class="workspace-preview-pane min-w-0 flex-col border-border-subtle bg-bg-content {desktopOnly
-		? 'hidden lg:flex'
-		: 'flex'}"
+	class="workspace-preview-pane flex min-w-0 flex-col border-border-subtle bg-bg-content"
 	class:workspace-preview-pane--immersive={immersive}
 	aria-label={ariaLabel}
 	in:previewPanelClip={clipParams}

@@ -23,7 +23,6 @@ import CenteredLoading from "$lib/components/CenteredLoading.svelte";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import MarkdownView from "$lib/components/MarkdownView.svelte";
 import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
-import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
@@ -32,6 +31,7 @@ import type {
 	WorkspaceFilePosition,
 } from "$lib/workspace-file-links";
 import { formatFileSize } from "../space-utils";
+import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
 
 type InlineFilePanelState = {
@@ -82,13 +82,11 @@ type Props = {
 	inlineFileDataUrl: string | null;
 	inlineFileSpaceId: string;
 	inlineFileWork: WorkRecord | null;
-	previewPanelWidth: number;
 	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
 	isMobile: boolean;
-	animateShell?: boolean;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
 	inlineFilePanX: number;
@@ -107,7 +105,6 @@ type Props = {
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
 	onPublishInlineFile: () => void;
-	onPreviewResizeStart: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
 	onLabelFile: (
@@ -148,13 +145,11 @@ let {
 	inlineFileDataUrl,
 	inlineFileSpaceId,
 	inlineFileWork,
-	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
 	treeVisible = true,
 	onToggleTree,
 	isMobile,
-	animateShell = true,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
 	inlineFilePanX = $bindable(),
@@ -171,7 +166,6 @@ let {
 	onCopyInlineFileContent,
 	onSaveInlineFile,
 	onPublishInlineFile,
-	onPreviewResizeStart,
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
 	onLabelFile,
@@ -209,15 +203,10 @@ const fileDiffModulePromise = $derived.by(() => {
 	fileDiffLoadAttempt;
 	return loadFileDiffViewModule();
 });
-// Always the button that opened the menu (avoids dual mobile/desktop bind:this races).
 let fileActionMenuAnchorEl: HTMLElement | null = $state(null);
-let imageMarkOpenMobile = $state(false);
-let imageMarkOpenDesktop = $state(false);
-let htmlMarkOpenMobile = $state(false);
-let htmlMarkOpenDesktop = $state(false);
-// Mobile + desktop panels both mount; keep mark context separate like images.
-let htmlMarkTargetMobile: PreviewCaptureTarget | null = $state(null);
-let htmlMarkTargetDesktop: PreviewCaptureTarget | null = $state(null);
+let imageMarkOpen = $state(false);
+let htmlMarkOpen = $state(false);
+let htmlMarkTarget: PreviewCaptureTarget | null = $state(null);
 
 const imageMarkTarget = $derived.by((): PreviewCaptureTarget | null => {
 	if (!inlineFileIsImage || !inlineFileDataUrl || !inlineFile.path) return null;
@@ -256,9 +245,7 @@ const showExclusiveFallback = $derived(
 );
 
 $effect(() => {
-	if (showHtmlMark) return;
-	htmlMarkOpenMobile = false;
-	htmlMarkOpenDesktop = false;
+	if (!showHtmlMark) htmlMarkOpen = false;
 });
 </script>
 
@@ -400,37 +387,21 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-{#snippet HtmlFilePreview(layout: "mobile" | "desktop")}
+{#snippet HtmlFilePreview()}
 	{#if inlineFile.response}
 		{#await htmlPreviewModulePromise then previewModule}
 			{@const LazyRenderedFilePreview = previewModule.default}
-			{@const hostWork =
-				(layout === "mobile") === isMobile ? inlineFileWork : null}
-			{#if layout === "mobile"}
-				<LazyRenderedFilePreview
-					name={inlineFile.response.name}
-					source={inlineFile.draft}
-					type="html"
-					path={inlineFile.response.path}
-					spaceId={inlineFileSpaceId}
-					readonly={activeFsReadonly}
-					work={hostWork}
-					bind:markTarget={htmlMarkTargetMobile}
-					onOpenFile={onOpenLinkedInlineFile}
-				/>
-			{:else}
-				<LazyRenderedFilePreview
-					name={inlineFile.response.name}
-					source={inlineFile.draft}
-					type="html"
-					path={inlineFile.response.path}
-					spaceId={inlineFileSpaceId}
-					readonly={activeFsReadonly}
-					work={hostWork}
-					bind:markTarget={htmlMarkTargetDesktop}
-					onOpenFile={onOpenLinkedInlineFile}
-				/>
-			{/if}
+			<LazyRenderedFilePreview
+				name={inlineFile.response.name}
+				source={inlineFile.draft}
+				type="html"
+				path={inlineFile.response.path}
+				spaceId={inlineFileSpaceId}
+				readonly={activeFsReadonly}
+				work={inlineFileWork}
+				bind:markTarget={htmlMarkTarget}
+				onOpenFile={onOpenLinkedInlineFile}
+			/>
 		{:catch}
 			{@render LazyLoadError("Preview failed to load.", () => {
 				htmlPreviewLoadAttempt += 1;
@@ -439,7 +410,7 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-{#snippet TextFileBody(layout: "mobile" | "desktop")}
+{#snippet TextFileBody()}
 	{#if inlineFileViewMode === "diff" && showDiffMode}
 		{#await fileDiffModulePromise then diffModule}
 			{@const LazyFileDiffView = diffModule.default}
@@ -457,7 +428,7 @@ $effect(() => {
 		{#if inlineFileIsMarkdown}
 			{@render MarkdownFilePreview()}
 		{:else}
-			{@render HtmlFilePreview(layout)}
+			{@render HtmlFilePreview()}
 		{/if}
 	{:else}
 		{#await codeEditorModulePromise then editorModule}
@@ -482,31 +453,28 @@ $effect(() => {
 	{/if}
 {/snippet}
 
-  <!-- Inline file panel — desktop: side panel, mobile: full-screen overlay -->
-  {#if inlineFile}
-    <!-- Mobile full-screen overlay -->
-    <div class="lg:hidden fixed inset-0 z-50 flex flex-col bg-bg-content">
-      <!-- Single mobile chrome row: close + tabs/title + more -->
-      <div class="flex h-11 shrink-0 items-center gap-1 border-b border-border-subtle bg-bg-surface px-2">
-        <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file" aria-label="Close file">
-          <X class="w-5 h-5" />
-        </button>
-        {#if inlineFileCanGoBack}
-          <button type="button" class="icon-btn" onclick={() => void onBackInlineFile()} title="Back" aria-label="Back">
-            <ArrowLeft class="w-5 h-5" />
-          </button>
-        {/if}
-        {#if previewTabs.length > 1}
-          <div class="min-w-0 flex-1 overflow-hidden">
-            <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} embedded treeVisible={treeVisible} onToggleTree={onToggleTree} />
-          </div>
-        {:else}
-          <div class="min-w-0 flex-1 truncate px-1 text-[13px] text-text-secondary" title={inlineFile.response?.path ?? inlineFile.path}>
-            {inlineFile.response?.name ?? inlineFile.path.split("/").pop() ?? inlineFile.path}
-          </div>
-        {/if}
-        {@render FileHeaderCoreActions(inlineFile.path)}
-      </div>
+{#if isMobile}
+	<div class="flex h-full min-w-0 flex-col bg-bg-content">
+			<MobilePreviewTabsChrome
+				tabs={previewTabs}
+				onActivate={onActivatePreviewTab}
+				onClose={onClosePreviewTab}
+			>
+				{#snippet trailing()}
+					{#if inlineFileCanGoBack}
+						<button
+							type="button"
+							class="icon-btn"
+							onclick={() => void onBackInlineFile()}
+							title="Back"
+							aria-label="Back"
+						>
+							<ArrowLeft class="h-4 w-4" />
+						</button>
+					{/if}
+					{@render FileHeaderCoreActions(inlineFile.path)}
+				{/snippet}
+			</MobilePreviewTabsChrome>
       {#if inlineFile.loading}
         <CenteredLoading label="Loading file…" size="panel" />
       {:else if inlineFile.tooLarge}
@@ -540,8 +508,8 @@ $effect(() => {
             <div class="flex-1"></div>
             {#if showHtmlMark}
               <PreviewMarkHost
-                bind:open={htmlMarkOpenMobile}
-                target={htmlMarkTargetMobile}
+                bind:open={htmlMarkOpen}
+                target={htmlMarkTarget}
               />
             {/if}
             <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
@@ -556,14 +524,14 @@ $effect(() => {
             {/if}
           </div>
           <div class="flex-1 min-h-0">
-            {@render TextFileBody("mobile")}
+            {@render TextFileBody()}
           </div>
         {:else if inlineFileIsImage && inlineFileDataUrl}
           <div class="relative flex flex-1 items-center justify-center overflow-hidden p-4">
             {#if imageMarkTarget}
               <div class="pointer-events-none absolute top-2 right-2 z-20">
                 <div class="pointer-events-auto rounded-md border border-border-subtle bg-bg-surface/95 shadow-sm backdrop-blur-sm">
-                  <PreviewMarkHost bind:open={imageMarkOpenMobile} target={imageMarkTarget} />
+                  <PreviewMarkHost bind:open={imageMarkOpen} target={imageMarkTarget} />
                 </div>
               </div>
             {/if}
@@ -586,16 +554,8 @@ $effect(() => {
       {:else}
         <div class="flex-1 flex items-center justify-center text-sm text-text-tertiary">No file selected</div>
       {/if}
-    </div>
-    <!-- Desktop side panel -->
-    <WorkspacePreviewPane
-      desktopOnly={true}
-      width={previewPanelWidth}
-      ariaLabel="File preview"
-      onResizeStart={onPreviewResizeStart}
-      immersive={previewImmersiveMode}
-      animate={animateShell}
-    >
+		</div>
+	{:else}
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
         <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={onToggleTree}>
           {#snippet trailing()}
@@ -694,8 +654,8 @@ $effect(() => {
               {/if}
               {#if showHtmlMark}
                 <PreviewMarkHost
-                  bind:open={htmlMarkOpenDesktop}
-                  target={htmlMarkTargetDesktop}
+                  bind:open={htmlMarkOpen}
+                  target={htmlMarkTarget}
                 />
               {/if}
               <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
@@ -724,7 +684,7 @@ $effect(() => {
               </button>
             </div>
             <div class="flex-1 min-h-0">
-              {@render TextFileBody("desktop")}
+              {@render TextFileBody()}
             </div>
           {:else if inlineFileIsImage && inlineFileDataUrl}
             <div class="relative flex min-h-0 flex-1 flex-col">
@@ -735,7 +695,7 @@ $effect(() => {
                 <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
                 {@render FileHeaderCoreActions(inlineFile.response.path)}
                 {#if imageMarkTarget}
-                  <PreviewMarkHost bind:open={imageMarkOpenDesktop} target={imageMarkTarget} />
+                  <PreviewMarkHost bind:open={imageMarkOpen} target={imageMarkTarget} />
                 {/if}
                 <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.max(0.25, inlineFileZoom - 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom out">
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -798,8 +758,7 @@ $effect(() => {
           <div class="flex-1 flex items-center justify-center text-xs text-text-tertiary">No file selected</div>
         {/if}
       </div>
-    </WorkspacePreviewPane>
-  {/if}
+{/if}
 
 <style>
   /* Float mode: content fills stage; chrome becomes a compact floating pill. */

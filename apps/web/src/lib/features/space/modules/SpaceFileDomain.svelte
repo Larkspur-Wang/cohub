@@ -13,6 +13,7 @@ import { isCovasFile } from "$lib/canvas/canvas-file";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
+import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
 import { isTextFileResponse } from "$lib/space-file-text";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
@@ -132,12 +133,10 @@ export type SpaceFileDomainProps = {
 	onCopyInlineFileContent: () => void | Promise<void>;
 	onSaveInlineFile: () => void | Promise<void>;
 	onOpenInlinePort: (port: string, url: string) => void;
-	onCloseInlinePort: () => void;
 	onCommitInlineCanvas: (
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
-	onCloseInlineCanvas: () => void;
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
@@ -263,9 +262,7 @@ let {
 	onCopyInlineFileContent,
 	onSaveInlineFile,
 	onOpenInlinePort,
-	onCloseInlinePort,
 	onCommitInlineCanvas,
-	onCloseInlineCanvas,
 	onBeginPreviewPanelResize,
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
@@ -340,26 +337,16 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 	else if (kind === "canvas") onCloseInlineCanvasTab(key);
 	else onCloseInlinePortTab(key);
 }
-
-/**
- * Open/close clip only when the preview column appears or disappears.
- * Tab switches (file ↔ canvas ↔ port) keep the shell still.
- */
-let previewShellWasOpen = false;
-let animatePreviewShell = $state(true);
-$effect.pre(() => {
-	const open = Boolean(activePreviewKind);
-	animatePreviewShell = open ? !previewShellWasOpen : true;
-	previewShellWasOpen = open;
-});
 </script>
 
-<div
-	class="preview-surface-stack"
-	data-active-preview-kind={activePreviewKind ?? undefined}
->
+{#if activePreviewKind}
+	<WorkspacePreviewPane
+		width={previewPanelWidth}
+		ariaLabel="Workspace preview"
+		onResizeStart={onBeginPreviewPanelResize}
+		immersive={previewImmersiveMode}
+	>
 {#if activePreviewKind === "file" && inlineFile}
-	<div class="preview-surface preview-surface--file">
 		<InlineFilePanel
 		{inlineFile}
 		{previewTabs}
@@ -388,8 +375,6 @@ $effect.pre(() => {
 		{inlineFileDataUrl}
 		inlineFileSpaceId={spaceId}
 		{inlineFileWork}
-		previewPanelWidth={previewPanelWidth}
-		animateShell={animatePreviewShell}
 		previewFocusMode={previewFocusMode}
 		previewImmersiveMode={previewImmersiveMode}
 		{isMobile}
@@ -407,7 +392,6 @@ $effect.pre(() => {
 		onCopyInlineFileContent={onCopyInlineFileContent}
 		onSaveInlineFile={onSaveInlineFile}
 		onPublishInlineFile={publishInlineFile}
-		onPreviewResizeStart={onBeginPreviewPanelResize}
 		onTogglePreviewFocusMode={onTogglePreviewFocusMode}
 		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
 		onLabelFile={(path: string, anchorEl?: HTMLElement | null) =>
@@ -418,11 +402,9 @@ $effect.pre(() => {
 		onDeleteFilePath={(path: string) => onDeleteNode(onGetFileActionNode(path))}
 		onVisibleLinesChange={onVisibleLinesChange}
 		/>
-	</div>
 {/if}
 
 {#if activePreviewKind === "canvas" && inlineCanvas}
-	<div class="preview-surface preview-surface--canvas">
 		<CanvasPreviewPanel
 		canvas={inlineCanvas}
 		previewTabs={previewTabs}
@@ -431,23 +413,17 @@ $effect.pre(() => {
 		{onToggleTree}
 		onActivatePreviewTab={activatePreviewTab}
 		onClosePreviewTab={closePreviewTab}
-		width={previewPanelWidth}
 		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
 		{isMobile}
-		animateShell={animatePreviewShell}
-		onResizeStart={onBeginPreviewPanelResize}
 		onToggleFocus={onTogglePreviewFocusMode}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineCanvas}
-		onClose={onCloseInlineCanvas}
 		onViewStateChange={onCanvasViewStateChange}
 		/>
-	</div>
 {/if}
 
 {#if activePreviewKind === "port" && inlinePortPreview}
-	<div class="preview-surface preview-surface--port">
 		<PortPreviewPanel
 		previewTabs={previewTabs}
 		{treeVisible}
@@ -458,20 +434,16 @@ $effect.pre(() => {
 		url={inlinePortEndpoint?.url ?? inlinePortPreview.url}
 		status={inlinePortEndpoint?.status ?? "unknown"}
 		observedAt={inlinePortEndpoint?.observedAt}
-		width={previewPanelWidth}
 		focused={previewFocusMode}
 		immersive={previewImmersiveMode}
 		{isMobile}
-		animateShell={animatePreviewShell}
-		onResizeStart={onBeginPreviewPanelResize}
 		onToggleFocus={onTogglePreviewFocusMode}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
-		onClose={onCloseInlinePort}
 		/>
-	</div>
 {/if}
-</div>
+	</WorkspacePreviewPane>
+{/if}
 
 <FilesSidebarPanel
 	{spaceId}
@@ -537,24 +509,3 @@ $effect.pre(() => {
 	onSpaceUpdated={handleSpaceUpdated}
 	onClose={onCloseWorkPublish}
 />
-
-<style>
-	.preview-surface-stack,
-	.preview-surface {
-		display: contents;
-	}
-
-	/*
-	 * Svelte keeps an outgoing preview pane mounted until its outro settles.
-	 * During an internal tab switch, hide that stale surface immediately so a
-	 * fixed mobile canvas/port pane cannot paint through the incoming file tab.
-	 */
-	.preview-surface-stack[data-active-preview-kind="file"]
-		> .preview-surface:not(.preview-surface--file),
-	.preview-surface-stack[data-active-preview-kind="canvas"]
-		> .preview-surface:not(.preview-surface--canvas),
-	.preview-surface-stack[data-active-preview-kind="port"]
-		> .preview-surface:not(.preview-surface--port) {
-		display: none;
-	}
-</style>
