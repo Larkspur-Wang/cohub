@@ -596,6 +596,7 @@ async function runDirectShellCommandTurn(input: {
       turnId: user.turnId,
       startedAt: toolStartedAt,
       completedAt,
+      thinkingLevel: handle.session.agent.state.thinkingLevel,
     });
 
     input.turnMetrics.toolCallCount += 1;
@@ -612,6 +613,7 @@ async function prepareHandle(input: {
   sessionId: string;
   actorUserId: string;
   requestedModel?: { provider: string; id: string };
+  requestedThinkingLevel?: string | null;
 }) {
   const modelRegistry = await getModelRegistryForUser(input.actorUserId);
   const handle = await loadOrCreateSessionHandle({
@@ -629,6 +631,7 @@ async function prepareHandle(input: {
     spaceOwnerUserId: handle.spaceOwnerUserId,
     modelRegistry,
     requestedModel: input.requestedModel,
+    requestedThinkingLevel: input.requestedThinkingLevel,
   });
 
   return handle;
@@ -638,6 +641,12 @@ function resolveRequestedModel(ownerMeta: Record<string, unknown>) {
   const provider = typeof ownerMeta.provider === "string" && ownerMeta.provider.trim() ? ownerMeta.provider.trim() : null;
   const model = typeof ownerMeta.model === "string" && ownerMeta.model.trim() ? ownerMeta.model.trim() : null;
   return provider && model ? { provider, id: model } : undefined;
+}
+
+function resolveRequestedThinkingLevel(ownerMeta: Record<string, unknown>): string | null | undefined {
+  if (typeof ownerMeta.requestedThinkingLevel !== "string") return undefined;
+  const trimmed = ownerMeta.requestedThinkingLevel.trim();
+  return trimmed || null;
 }
 
 function resolveActorUserId(ownerMeta: Record<string, unknown>) {
@@ -861,6 +870,7 @@ export async function processAgentTurnJob(job: Job<AgentTurnJobData>) {
         sessionId: data.sessionId,
         actorUserId,
         requestedModel: resolveRequestedModel(ownerMeta),
+        requestedThinkingLevel: resolveRequestedThinkingLevel(ownerMeta),
       });
       const activeHandle = handle;
       try {

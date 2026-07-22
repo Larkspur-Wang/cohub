@@ -54,6 +54,7 @@ export type SessionPromptInput = {
     intent?: "auto" | "continue" | "new_session" | "fork" | "steer" | "followup";
     model?: string;
     provider?: string;
+    thinkingLevel?: string;
     turnId?: string;
   } | null;
 };

@@ -1,5 +1,6 @@
 import type { ContentBlock } from "../core/content.js";
 import type { Usage } from "../core/usage.js";
+import type { ModelThinkingLevel } from "./completion.js";
 
 export type SessionTurnStatus =
   | "queued"
@@ -139,6 +140,8 @@ export type SessionTurnRecord = {
   intermediateIndex: SessionTurnIntermediateIndex | null;
   intermediateSummary: SessionTurnIntermediateSummary | null;
   meta: Record<string, unknown> | null;
+  /** Effective thinking level used for this turn (derived from meta.effectiveThinkingLevel). */
+  thinkingLevel?: ModelThinkingLevel | null;
   authorProfile?: SessionTurnAuthorProfile | null;
   startedAt: string | null;
   completedAt: string | null;

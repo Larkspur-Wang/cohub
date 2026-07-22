@@ -1,6 +1,7 @@
 import type { ContentBlock } from "../core/content.js";
 import type { BillingPayload } from "../billing.js";
 import type { MessageRecord, SessionRecord, SessionTurnRecord } from "../model/session.js";
+import type { ModelThinkingLevel } from "../model/completion.js";
 import type { SessionTurnSummary } from "../model/turn.js";
 import type { TaskRunStatus } from "../task/index.js";
 import type { SpaceFsChangedPayload } from "../fs/index.js";
@@ -41,7 +42,7 @@ export type WsClientEvent =
   | { type: "auth"; requestId?: string; payload: { token: string; capabilities?: string[] } }
   | { type: "subscribe"; requestId?: string; payload: { rooms: string[] } }
   | { type: "unsubscribe"; requestId?: string; payload: { rooms: string[] } }
-  | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string } }
+  | { type: "session.message.create"; requestId?: string; payload: { spaceId: string; sessionId: string; clientMessageId?: string; content: ContentBlock[]; model?: string; provider?: string; thinkingLevel?: ModelThinkingLevel } }
   | { type: "canvas.tx"; requestId?: string; payload: { spaceId: string; documentId: string; txId: string; baseVersion?: number | null; clientId?: string | null; undoGroupId?: string | null; ops: Array<Record<string, unknown>> } }
   | { type: "presence.update"; requestId?: string; payload: { spaceId: string; meta?: Record<string, unknown> | null } }
   | { type: "ping"; requestId?: string; payload?: Record<string, unknown> }
@@ -318,6 +319,7 @@ export type RealtimeTurnRecord = Partial<Pick<
   | "intermediateIndex"
   | "intermediateSummary"
   | "meta"
+  | "thinkingLevel"
   | "startedAt"
   | "completedAt"
   | "durationMs"

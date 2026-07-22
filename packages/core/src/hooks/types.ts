@@ -8,6 +8,7 @@ export type SpaceHookPromptDefinition = {
   accessMode?: "read_only" | "full_access" | null;
   model?: string | null;
   provider?: string | null;
+  thinkingLevel?: string | null;
   labelRefs?: string[] | null;
 };
 

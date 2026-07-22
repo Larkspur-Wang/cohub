@@ -11,6 +11,7 @@ import {
   type WsClientEvent,
 } from "@cohub/protocol/realtime/types";
 import type { ContentBlock } from "@cohub/protocol/core";
+import type { ModelThinkingLevel } from "@cohub/protocol";
 import type { CohubEnvironment } from "./environment.js";
 import { extractBillingPayload } from "./http-error.js";
 import type { BillingResponsePayload } from "./types.js";
@@ -450,6 +451,7 @@ export class WebsocketClient {
     requestId?: string;
     model?: string;
     provider?: string;
+    thinkingLevel?: ModelThinkingLevel;
   }) {
     await this.ensureOpen();
     this.send({
@@ -462,6 +464,7 @@ export class WebsocketClient {
         clientMessageId: input.clientMessageId,
         model: input.model,
         provider: input.provider,
+        thinkingLevel: input.thinkingLevel,
       },
     });
   }

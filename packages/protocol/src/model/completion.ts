@@ -8,7 +8,15 @@ export type CompletionMessage = {
   content: ContentBlock[];
 };
 
-export type CompletionThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+/**
+ * Unified thinking level across completions, session prompts, and model config.
+ * `off` disables reasoning; `minimal`–`high` use provider defaults;
+ * `xhigh`/`max` are opt-in and require an explicit `thinkingLevelMap` entry.
+ */
+export type ModelThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/** @deprecated Use {@link ModelThinkingLevel} — kept for SDK compatibility. */
+export type CompletionThinkingLevel = ModelThinkingLevel;
 
 export type CreateSpaceCompletionInput = {
   /** Optional provider. Defaults to the first available model provider. */

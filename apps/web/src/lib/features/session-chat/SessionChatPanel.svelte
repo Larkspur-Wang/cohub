@@ -507,6 +507,7 @@ async function handleDraftDrop(event: DragEvent) {
 			onSelect={host.handleModelSelect}
 			models={modelsCatalog ?? []}
 			currentModel={activeSessionModel}
+			currentThinkingLevel={host.activeSessionThinkingLevel}
 			generationModels={generationModelsCatalog ?? []}
 			{generationPolicyMode}
 			{selectedGenerationModels}

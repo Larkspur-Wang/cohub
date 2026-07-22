@@ -1,7 +1,7 @@
 <script lang="ts">
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
 import ModelSelector from "$lib/components/ModelSelector.svelte";
-import type { ModelCatalogItem } from "$lib/model-catalog";
+import type { ModelCatalogItem, ModelThinkingLevel } from "$lib/model-catalog";
 
 type SelectedModel = {
 	provider: string;
@@ -22,6 +22,7 @@ type Props = {
 	open: boolean;
 	models: ModelCatalogItem[];
 	currentModel: SelectedModel | null;
+	currentThinkingLevel?: ModelThinkingLevel | null;
 	generationModels: PublicGenerationDeclaration[];
 	generationPolicyMode: "auto" | "limited";
 	selectedGenerationModels: Set<string>;
@@ -35,7 +36,11 @@ type Props = {
 		Record<string, BooleanGenerationConstraint>
 	>;
 	onClose: () => void;
-	onSelect: (model: { provider: string; id: string }) => void;
+	onSelect: (model: {
+		provider: string;
+		id: string;
+		thinkingLevel?: ModelThinkingLevel;
+	}) => void;
 	onGenerationTabOpen: () => void | Promise<void>;
 	onGenerationPolicyModeChange: (mode: "auto" | "limited") => void;
 	onGenerationModelToggle: (modelId: string, selected: boolean) => void;
@@ -61,6 +66,7 @@ let {
 	open,
 	models,
 	currentModel,
+	currentThinkingLevel = null,
 	generationModels,
 	generationPolicyMode,
 	selectedGenerationModels,
@@ -84,6 +90,7 @@ let {
 	{onSelect}
 	{models}
 	{currentModel}
+	{currentThinkingLevel}
 	{generationModels}
 	{generationPolicyMode}
 	{selectedGenerationModels}

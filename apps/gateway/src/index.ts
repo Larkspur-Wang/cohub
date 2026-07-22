@@ -534,6 +534,13 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
   const provider = typeof payload.provider === "string" && payload.provider.trim()
     ? payload.provider.trim()
     : null;
+  const thinkingLevel = typeof payload.thinkingLevel === "string" && payload.thinkingLevel.trim()
+    ? payload.thinkingLevel.trim()
+    : null;
+  // WS schema already validates enum; reject if non-empty but invalid
+  if (thinkingLevel && !new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).has(thinkingLevel)) {
+    throw new WsClientInputError("thinkingLevel must be one of: off, minimal, low, medium, high, xhigh, max");
+  }
 
   if (!ctx.userId) throw new WsClientInputError("authentication required");
   if (!spaceId || !sessionId) throw new WsClientInputError("spaceId and sessionId are required");
@@ -550,6 +557,7 @@ const submitWebsocketSessionMessage = async (ctx: WsConnectionContext, requestId
     source: "websocket",
     model,
     provider,
+    thinkingLevel,
     context: {
       kind: "websocket",
       requestId: effectiveRequestId,

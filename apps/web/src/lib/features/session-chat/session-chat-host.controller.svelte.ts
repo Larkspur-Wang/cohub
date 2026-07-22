@@ -47,6 +47,7 @@ import {
 	isInlineMediaUrl,
 } from "$lib/generation-task-media";
 import { extractSpaceMentionsFromText } from "$lib/mentions/space";
+import type { ModelThinkingLevel } from "$lib/model-catalog";
 import {
 	uploadChatAttachmentFile,
 	uploadChatAttachmentImage,
@@ -342,8 +343,12 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 	const skillsLoaded = $derived(skillsCtrl.loaded);
 	let showModelSelector = $state(false);
 	let sessionModelById = $state<Record<string, SelectedModel | null>>({});
+	let sessionThinkingLevelById = $state<
+		Record<string, ModelThinkingLevel | null>
+	>({});
 	let draftSessionModel = $state<SelectedModel | null>(null);
 	let draftSessionModelManuallySelected = $state(false);
+	let draftThinkingLevel = $state<ModelThinkingLevel | null>(null);
 
 	let composerHostEl = $state<HTMLDivElement | null>(null);
 	let chatChromeEl = $state<HTMLDivElement | null>(null);
@@ -431,6 +436,17 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			name: catalogItem?.model.name as string | undefined,
 		} satisfies SelectedModel;
 	});
+	const activeSessionLastTurnThinkingLevel =
+		$derived.by<ModelThinkingLevel | null>(() => {
+			// Only full turn records carry thinkingLevel (index items don't include meta).
+			const turns = [...(activeSessionState?.turns ?? [])]
+				.filter(
+					(turn) =>
+						typeof turn.thinkingLevel === "string" && turn.thinkingLevel.trim(),
+				)
+				.sort((a, b) => a.sequence - b.sequence);
+			return (turns.at(-1)?.thinkingLevel as ModelThinkingLevel | null) ?? null;
+		});
 	const activeSessionModel = $derived.by(() => {
 		if (!activeSessionId) return draftSessionModel ?? firstCatalogModel;
 		return (
@@ -439,6 +455,18 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			firstCatalogModel
 		);
 	});
+	const activeSessionThinkingLevel = $derived.by<ModelThinkingLevel | null>(
+		() => {
+			if (!activeSessionId) return draftThinkingLevel;
+			// Pending override takes priority (one-shot, cleared after send),
+			// otherwise recover from the latest server turn.
+			return (
+				sessionThinkingLevelById[activeSessionId] ??
+				activeSessionLastTurnThinkingLevel ??
+				null
+			);
+		},
+	);
 	const activeGenerationState = $derived.by(() =>
 		sessionGenerationStore.get(activeSessionId),
 	);
@@ -1510,7 +1538,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		await skillsCtrl.load();
 	}
 
-	function handleModelSelect(model: { provider: string; id: string }) {
+	function handleModelSelect(model: {
+		provider: string;
+		id: string;
+		thinkingLevel?: ModelThinkingLevel;
+	}) {
 		const catalogItem = modelsCatalog?.find(
 			(item) => item.provider === model.provider && item.id === model.id,
 		);
@@ -1519,9 +1551,11 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			id: model.id,
 			name: catalogItem?.model.name as string | undefined,
 		} satisfies SelectedModel;
+		const thinkingLevel = model.thinkingLevel ?? null;
 		if (!activeSessionId) {
 			draftSessionModel = selected;
 			draftSessionModelManuallySelected = true;
+			draftThinkingLevel = thinkingLevel;
 			showModelSelector = false;
 			focusComposerSoon();
 			return;
@@ -1529,6 +1563,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		sessionModelById = {
 			...sessionModelById,
 			[activeSessionId]: selected,
+		};
+		sessionThinkingLevelById = {
+			...sessionThinkingLevelById,
+			[activeSessionId]: thinkingLevel,
 		};
 		showModelSelector = false;
 		focusComposerSoon();
@@ -3072,6 +3110,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 				content,
 				model: model?.id,
 				provider: model?.provider,
+				...(activeSessionThinkingLevel
+					? { thinkingLevel: activeSessionThinkingLevel }
+					: {}),
 				clientMessageId,
 				generationPolicy: buildTurnGenerationPolicy(),
 				accessMode: "full_access",
@@ -3080,6 +3121,16 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 			});
 			if (sendResult.mode !== "immediate") {
 				throw new Error("Expected immediate prompt response");
+			}
+			// Clear the one-shot pending thinking level override —
+			// subsequent sends should recover from the latest server turn.
+			if (sessionId) {
+				sessionThinkingLevelById = {
+					...sessionThinkingLevelById,
+					[sessionId]: null,
+				};
+			} else {
+				draftThinkingLevel = null;
 			}
 			// Prompt already accepted server-side. If we left the space, skip local
 			// adopt; other hosts / re-enter will load via WS or session fetch.
@@ -4098,6 +4149,9 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		},
 		get activeSessionModel() {
 			return activeSessionModel;
+		},
+		get activeSessionThinkingLevel() {
+			return activeSessionThinkingLevel;
 		},
 		get generationPolicyLabel() {
 			return generationPolicyLabel;

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { ContentBlock, Usage } from "@cohub/protocol/core";
 import type { MessageRecord, MessageToolCallsFile, PersistMessageInput, SessionTurnRecord, SessionTurnStatus, StoredIntermediateMessage, StoredToolCall, TurnIntermediateMessagesFile } from "@cohub/protocol/model";
+import type { ModelThinkingLevel } from "@cohub/protocol";
 import type { ChannelProvider, GatewayOutboundCommand } from "@cohub/protocol/gateway";
 import { getRealtimeUserRoom } from "@cohub/protocol/realtime";
 import { sessionMessages, sessionTurns, spaceChannels, spaceSessionBindings, spaceSessions, providerMessageRefs, userChannels, userProfiles } from "@cohub/db";
@@ -94,6 +95,15 @@ const normalizeUsage = (usage: PersistMessageInput["message"]["usage"]): Usage |
 
 const normalizeRecord = (value: unknown): Record<string, unknown> | null => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 
+const THINKING_LEVEL_SET = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+function extractThinkingLevel(meta: unknown): ModelThinkingLevel | null {
+  const record = normalizeRecord(meta);
+  if (!record) return null;
+  const level = record.effectiveThinkingLevel;
+  return typeof level === "string" && THINKING_LEVEL_SET.has(level) ? level as ModelThinkingLevel : null;
+}
+
 const getNextSessionSequence = async (sessionId: string) => {
   const [row] = await db.select({ max: sql<number>`coalesce(max(${sessionMessages.sequence}), 0)::int` }).from(sessionMessages).where(eq(sessionMessages.sessionId, sessionId));
   return (row?.max ?? 0) + 1;
@@ -142,6 +152,7 @@ const toTurnRecord = (row: typeof sessionTurns.$inferSelect): SessionTurnRecord 
   intermediateIndex: row.intermediateIndex ?? null,
   intermediateSummary: row.intermediateSummary ?? null,
   meta: normalizeRecord(row.meta),
+  thinkingLevel: extractThinkingLevel(row.meta),
   startedAt: toIsoOrNull(row.startedAt),
   completedAt: toIsoOrNull(row.completedAt),
   durationMs: row.durationMs ?? null,
@@ -614,7 +625,7 @@ export async function persistUserMessage(input: { spaceId: string; sessionId: st
 
 const EMPTY_ASSISTANT_MESSAGE_ERROR = "LLM returned an empty assistant message after streaming completed.";
 
-export async function persistAssistantMessage(input: { spaceId: string; spaceSessionId: string; userMessageId: string; event: Record<string, unknown>; userId?: string | null; turnId?: string | null; startedAt?: string | null; completedAt?: string | null; messageOrdinal?: number | null }) {
+export async function persistAssistantMessage(input: { spaceId: string; spaceSessionId: string; userMessageId: string; event: Record<string, unknown>; userId?: string | null; turnId?: string | null; startedAt?: string | null; completedAt?: string | null; messageOrdinal?: number | null; thinkingLevel?: string | null }) {
   const assistantMessage = input.event.message;
   const toolResultsRaw = Array.isArray(input.event.toolResults) ? input.event.toolResults as Array<Record<string, unknown>> : [];
   if (!assistantMessage || typeof assistantMessage !== "object") {
@@ -660,7 +671,7 @@ export async function persistAssistantMessage(input: { spaceId: string; spaceSes
   if (record.meta?.messageKind === "assistant_final" || record.meta?.messageKind === "assistant_error") {
     const turnId = typeof record.meta.turnId === "string" ? record.meta.turnId : null;
     if (turnId) {
-      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}) } });
+      const { turn: finalized, messages: turnMessages } = await finalizeSessionTurnFromMessage({ spaceId: input.spaceId, sessionId: input.spaceSessionId, turnId, status: effectiveStopReason === "aborted" ? "interrupted" : record.meta.messageKind === "assistant_error" ? "failed" : "completed", assistantContent: record.content, assistantText: record.text, provider: record.provider, model: record.model, stopReason: record.stopReason, errorMessage: record.errorMessage, usage: record.usage, metaPatch: { ...(typeof record.meta.agentSessionEntryId === "string" ? { agentSessionEntryId: record.meta.agentSessionEntryId } : {}), ...(typeof record.durationMs === "number" ? { finalMessageDurationMs: record.durationMs } : {}), ...(typeof input.thinkingLevel === "string" && input.thinkingLevel.trim() ? { effectiveThinkingLevel: input.thinkingLevel } : {}) } });
       if (finalized) {
         indexTurnReferences({ spaceId: input.spaceId, sessionId: finalized.sessionId, turnId: finalized.id, messages: turnMessages });
         await publishTurnFinalized(input.spaceId, finalized).catch((error) => logger.warn("[Realtime] failed to publish finalized turn", error));

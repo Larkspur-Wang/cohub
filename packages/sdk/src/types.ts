@@ -26,6 +26,7 @@ import type {
   PublicGenerationDeclaration,
 } from "@cohub/protocol/generation";
 import type { MessageRecord } from "@cohub/protocol/model";
+import type { ModelThinkingLevel } from "@cohub/protocol";
 
 export type {
   ChannelConfig,
@@ -1057,6 +1058,8 @@ export type CreateSpacePromptInput = {
   content: ContentBlock[];
   model?: string | null;
   provider?: string | null;
+  /** Optional thinking level override for this turn. Omit to inherit session default. */
+  thinkingLevel?: ModelThinkingLevel | null;
   clientMessageId?: string | null;
   generationPolicy?: GenerationPolicy | null;
   intent?: "followup" | "steer" | "compact" | null;
@@ -1093,6 +1096,7 @@ export type {
   CompletionThinkingLevel,
   CompletionUsage,
   CreateSpaceCompletionInput,
+  ModelThinkingLevel,
   SpaceCompletionResult,
   SpaceCompletionStreamEvent,
 } from "@cohub/protocol";
@@ -1111,6 +1115,7 @@ export type SendMessageCronJobPayload = CronJobPayload & {
   title?: string;
   model?: string;
   provider?: string;
+  thinkingLevel?: ModelThinkingLevel | null;
   labelIds?: string[];
 };
 

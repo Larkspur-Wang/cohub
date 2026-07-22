@@ -32,7 +32,7 @@ export type CohubAgentSession = {
   enqueueSteer(text: string, images?: ImageContent[]): void;
   waitForIdle(): Promise<void>;
   setModel(model: Model<Api>): Promise<void>;
-  configureRuntimeIdentity(input: { userId?: string | null; spaceOwnerUserId?: string | null; modelRegistry: CohubModelRegistry; requestedModel?: { provider: string; id: string } }): Promise<void>;
+  configureRuntimeIdentity(input: { userId?: string | null; spaceOwnerUserId?: string | null; modelRegistry: CohubModelRegistry; requestedModel?: { provider: string; id: string }; requestedThinkingLevel?: string | null }): Promise<void>;
   configureTools(tools: ToolLike[]): Promise<void>;
   reload(): Promise<void>;
   abort(): Promise<void>;
@@ -916,19 +916,25 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
         ? agent.state.systemPrompt
         : await buildSystemPromptForTools(runtimeTools, { userId: nextUserId, spaceOwnerUserId: nextSpaceOwnerUserId });
       const shouldChangeModel = target.provider !== currentModel.provider || target.id !== currentModel.id;
-      const nextThinkingLevel = shouldChangeModel
-        ? resolveThinkingLevelForModel(target as CohubModel, agent.state.thinkingLevel)
-        : agent.state.thinkingLevel;
+      const hasRequestedThinkingLevel = input.requestedThinkingLevel !== undefined && input.requestedThinkingLevel !== null;
+      const nextThinkingLevel = hasRequestedThinkingLevel
+        ? resolveThinkingLevelForModel(target as CohubModel, input.requestedThinkingLevel)
+        : shouldChangeModel
+          ? resolveThinkingLevelForModel(target as CohubModel, agent.state.thinkingLevel)
+          : agent.state.thinkingLevel;
 
       runtimeUserId = nextUserId;
       runtimeSpaceOwnerUserId = nextSpaceOwnerUserId;
       runtimeModelRegistry = input.modelRegistry;
       agent.state.systemPrompt = nextSystemPrompt;
       systemPromptStateKey = nextKey;
+      const shouldChangeThinkingLevel = nextThinkingLevel !== agent.state.thinkingLevel;
       if (shouldChangeModel) {
         agent.state.model = target;
-        agent.state.thinkingLevel = nextThinkingLevel;
         options.sessionManager.appendModelChange(target.provider, target.id);
+      }
+      if (shouldChangeModel || shouldChangeThinkingLevel) {
+        agent.state.thinkingLevel = nextThinkingLevel;
         options.sessionManager.appendThinkingLevelChange(nextThinkingLevel);
       }
       agent.state.tools = runtimeTools as never;

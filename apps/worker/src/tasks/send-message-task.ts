@@ -39,13 +39,14 @@ function sanitizeTaskPromptAuth(auth: PromptAuthContext | null | undefined, inpu
 const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRunId: string }) => {
   const payload = job.data as TaskPayload;
   const spaceId = payload.spaceId;
-  const { content, sessionId, title, source: payloadSource, model, provider, clientMessageId, generationPolicy, accessMode, intent, labelIds, auth, env } = (payload.data ?? {}) as {
+  const { content, sessionId, title, source: payloadSource, model, provider, thinkingLevel, clientMessageId, generationPolicy, accessMode, intent, labelIds, auth, env } = (payload.data ?? {}) as {
     content?: ContentBlock[];
     sessionId?: string;
     title?: string;
     source?: unknown;
     model?: string;
     provider?: string;
+    thinkingLevel?: string | null;
     clientMessageId?: string;
     generationPolicy?: GenerationPolicy | null;
     accessMode?: PromptAccessMode | null;
@@ -94,6 +95,7 @@ const sendMessageHandler = async (job: import("bullmq").Job, context?: { taskRun
     source,
     model: model ?? null,
     provider: provider ?? null,
+    thinkingLevel: thinkingLevel ?? null,
     generationPolicy: generationPolicy ?? null,
     accessMode: accessMode ?? "full_access",
     env: promptEnv,

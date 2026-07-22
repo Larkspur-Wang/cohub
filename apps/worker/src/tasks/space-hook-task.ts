@@ -171,6 +171,7 @@ async function runPromptHook(input: {
       source: "space_hook",
       model: prompt.model ?? null,
       provider: prompt.provider ?? null,
+      thinkingLevel: prompt.thinkingLevel ?? null,
       accessMode: prompt.accessMode ?? "full_access",
       intent: prompt.intent ?? "followup",
       // User-declared hook env only — system COHUB_HOOK_* rides on context.env.

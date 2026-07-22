@@ -2,6 +2,7 @@ import { createLogger } from "@cohub/infra/logging";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { Usage } from "@cohub/protocol/core";
 import type { PersistMessageInput, RegisterSessionInput, SessionTurnRecord, UpdateSessionInfoInput } from "@cohub/protocol/model";
+import type { ModelThinkingLevel } from "@cohub/protocol";
 import { getOrCreateRequestId } from "@cohub/infra/tracing";
 import { injectTrace } from "@cohub/infra/tracing/propagator";
 import { SPACE_ENV_REDIS_KEY } from "@cohub/protocol/sandbox";
@@ -60,6 +61,15 @@ export class SpaceEnvValidationError extends Error {
 
 const normalizeRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+
+const THINKING_LEVEL_SET = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+function extractThinkingLevel(meta: unknown): ModelThinkingLevel | null {
+  const record = normalizeRecord(meta);
+  if (!record) return null;
+  const level = record.effectiveThinkingLevel;
+  return typeof level === "string" && THINKING_LEVEL_SET.has(level) ? level as ModelThinkingLevel : null;
+}
 
 const finiteNumberOrUndefined = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -563,6 +573,7 @@ export const persistMessageNode = async (input: PersistMessageInput & { message:
           intermediateIndex: turnRow.intermediateIndex ?? null,
           intermediateSummary: turnRow.intermediateSummary ?? null,
           meta: normalizeRecord(turnRow.meta),
+          thinkingLevel: extractThinkingLevel(turnRow.meta),
           startedAt: turnRow.startedAt instanceof Date ? turnRow.startedAt.toISOString() : null,
           completedAt: turnRow.completedAt instanceof Date ? turnRow.completedAt.toISOString() : null,
           durationMs: turnRow.durationMs ?? null,

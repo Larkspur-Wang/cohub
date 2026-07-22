@@ -16,7 +16,7 @@ import {
   extractInboundText,
 } from "./session-interactions.js";
 import { hasPermission } from "./permissions.js";
-import { getRecord, normalizeChannelModelConfig } from "./lib/channel-model-config.js";
+import { getRecord, normalizeChannelModelConfig, type ChannelModelSelection } from "./lib/channel-model-config.js";
 import { buildSessionSourceChannel } from "./lib/session-source-channel.js";
 import { assignSessionChannelSystemLabel } from "@cohub/core/labels/session-channel";
 import { assignSessionSourceSystemLabel } from "@cohub/core/labels/session-source";
@@ -72,7 +72,7 @@ type ResolvedChannelInbound = {
   binding: typeof spaceSessionBindings.$inferSelect;
   conversationId: string;
   bindingKey: string;
-  model: { provider: string; id: string } | null;
+  model: ChannelModelSelection | null;
 };
 
 function resolveChannelInboundModel(input: {
@@ -722,6 +722,7 @@ async function handleMessageCreateInboundEvent(event: GatewayInboundEvent) {
     clientMessageId: event.externalMessageId,
     model: resolved.model?.id,
     provider: resolved.model?.provider,
+    thinkingLevel: resolved.model?.thinkingLevel,
     inboundRef: {
       provider: event.provider,
       spaceChannelId: resolved.spaceChannelId,

@@ -555,6 +555,7 @@ export async function persistInterruptedAssistantSnapshot(
       startedAt: handle.activeAssistantContext?.startedAt ?? null,
       completedAt: now,
       messageOrdinal: handle.activeAssistantContext?.assistantOrdinal ?? null,
+      thinkingLevel: handle.session.agent.state.thinkingLevel,
     });
   });
 
@@ -1008,6 +1009,7 @@ export function subscribeSessionEvents(handle: SessionHandle) {
             startedAt: assistantContext.startedAt,
             completedAt,
             messageOrdinal: assistantContext.assistantOrdinal,
+            thinkingLevel: handle.session.agent.state.thinkingLevel,
           });
         } catch (error) {
           if (error instanceof Error) span.recordException(error);

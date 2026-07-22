@@ -121,6 +121,16 @@ const normalizeSpacePromptIntent = (value: unknown): SpacePromptIntent | null =>
   return value === "followup" || value === "steer" ? value : null;
 };
 
+const VALID_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+const normalizePromptThinkingLevel = (value: unknown): string | null | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return VALID_THINKING_LEVELS.has(trimmed) ? trimmed : null;
+};
+
 const readMetaRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
@@ -259,6 +269,7 @@ type SpacePromptInput = {
   content?: ContentBlock[];
   model?: string | null;
   provider?: string | null;
+  thinkingLevel?: string | null;
   clientMessageId?: string | null;
   generationPolicy?: unknown;
   intent?: SpacePromptIntent | null;
@@ -1794,6 +1805,8 @@ router.post("/:id/prompt", async (c) => {
   if (!accessMode) return c.json({ message: "accessMode must be one of: read_only, full_access" }, 400);
   const promptIntent = normalizeSpacePromptIntent(body.intent);
   if (!promptIntent) return c.json({ message: "intent must be one of: followup, steer" }, 400);
+  const promptThinkingLevel = normalizePromptThinkingLevel(body.thinkingLevel);
+  if (promptThinkingLevel === null) return c.json({ message: "thinkingLevel must be one of: off, minimal, low, medium, high, xhigh, max" }, 400);
   const promptPermission = accessMode === "read_only" ? "session.prompt.readonly" : "session.prompt.fullaccess";
   if (!(await hasPermission(user, promptPermission, { spaceId }))) return authzDenied(c);
 
@@ -1866,6 +1879,7 @@ router.post("/:id/prompt", async (c) => {
     ...(body.title ? { title: body.title } : {}),
     ...(body.model ? { model: body.model } : {}),
     ...(body.provider ? { provider: body.provider } : {}),
+    ...(promptThinkingLevel ? { thinkingLevel: promptThinkingLevel } : {}),
     ...(promptLabelIds.length > 0 ? { labelIds: promptLabelIds } : {}),
     ...(scheduledAuth ? { auth: scheduledAuth } : {}),
   };
@@ -1906,6 +1920,7 @@ router.post("/:id/prompt", async (c) => {
         source,
         model: body.model ?? null,
         provider: body.provider ?? null,
+        thinkingLevel: promptThinkingLevel ?? null,
         generationPolicy,
         intent: promptIntent,
         accessMode,

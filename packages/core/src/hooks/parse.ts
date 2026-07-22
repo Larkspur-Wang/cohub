@@ -188,6 +188,7 @@ function parsePromptDefinition(value: unknown, path: string): SpaceHookDefinitio
     accessMode,
     model: typeof value.model === "string" && value.model.trim() ? value.model.trim() : null,
     provider: typeof value.provider === "string" && value.provider.trim() ? value.provider.trim() : null,
+    thinkingLevel: typeof value.thinkingLevel === "string" && value.thinkingLevel.trim() ? value.thinkingLevel.trim() : null,
     ...(labelRefs && labelRefs.length > 0 ? { labelRefs } : {}),
   };
 }

@@ -1,8 +1,14 @@
 <script lang="ts">
 import type { PublicGenerationDeclaration } from "@cohub/protocol/generation";
-import { ChevronDown, Image } from "lucide-svelte";
+import { Brain, ChevronDown, Image } from "lucide-svelte";
 import Dialog from "$lib/components/Dialog.svelte";
 import { isComposingKeyboardEvent } from "$lib/keyboard";
+import {
+	clampThinkingLevel,
+	getModelDefaultThinkingLevel,
+	getSupportedThinkingLevels,
+	type ModelThinkingLevel,
+} from "$lib/model-catalog";
 
 type ModelItem = {
 	provider: string;
@@ -22,9 +28,14 @@ type BooleanGenerationConstraint = {
 type Props = {
 	open: boolean;
 	onClose: () => void;
-	onSelect: (item: { provider: string; id: string }) => void;
+	onSelect: (item: {
+		provider: string;
+		id: string;
+		thinkingLevel?: ModelThinkingLevel;
+	}) => void;
 	models: ModelItem[];
 	currentModel?: { provider: string; id: string } | null;
+	currentThinkingLevel?: ModelThinkingLevel | null;
 	generationModels?: PublicGenerationDeclaration[];
 	generationPolicyMode?: "auto" | "limited";
 	selectedGenerationModels?: Set<string>;
@@ -64,6 +75,7 @@ const {
 	onSelect,
 	models,
 	currentModel = null,
+	currentThinkingLevel = null,
 	generationModels = [],
 	generationPolicyMode = "auto",
 	selectedGenerationModels = new Set<string>(),
@@ -86,6 +98,7 @@ let expandedGenerationModels = $state<Set<string>>(new Set());
 let expandedGenerationParameters = $state<Set<string>>(new Set());
 let containerEl = $state<HTMLElement | null>(null);
 let searchInputEl = $state<HTMLInputElement | null>(null);
+let thinkingMenuOpenFor = $state<string | null>(null);
 
 function getVisibleSearchInput() {
 	if (searchInputEl && searchInputEl.getClientRects().length > 0) {
@@ -114,6 +127,49 @@ function getDisplayName(item: ModelItem): string {
 function hasVision(item: ModelItem): boolean {
 	const input = item.model.input as string[] | undefined;
 	return input?.includes("image") ?? false;
+}
+
+function thinkingLevels(item: ModelItem): ModelThinkingLevel[] {
+	return getSupportedThinkingLevels(item as never);
+}
+
+function shouldShowThinkingControl(item: ModelItem): boolean {
+	return thinkingLevels(item).length > 1;
+}
+
+function candidateThinkingLevel(item: ModelItem): ModelThinkingLevel {
+	return clampThinkingLevel(
+		item as never,
+		currentThinkingLevel ?? getModelDefaultThinkingLevel(item as never),
+	);
+}
+
+function isDefaultLevel(item: ModelItem, level: ModelThinkingLevel): boolean {
+	return level === getModelDefaultThinkingLevel(item as never);
+}
+
+function formatLevel(level: ModelThinkingLevel): string {
+	return level.charAt(0).toUpperCase() + level.slice(1);
+}
+
+function thinkingMenuKey(item: ModelItem): string {
+	return `${item.provider}/${item.id}`;
+}
+
+function toggleThinkingMenu(item: ModelItem, e: MouseEvent) {
+	e.stopPropagation();
+	e.preventDefault();
+	const key = thinkingMenuKey(item);
+	thinkingMenuOpenFor = thinkingMenuOpenFor === key ? null : key;
+}
+
+function selectThinkingLevel(item: ModelItem, level: ModelThinkingLevel) {
+	thinkingMenuOpenFor = null;
+	onSelect({ provider: item.provider, id: item.id, thinkingLevel: level });
+}
+
+function handleModelClick(item: ModelItem) {
+	onSelect({ provider: item.provider, id: item.id });
 }
 
 function isHiddenModel(item: ModelItem): boolean {
@@ -443,6 +499,7 @@ $effect(() => {
 		searchQuery = "";
 		selectedIndex = 0;
 		navigationMode = "mouse";
+		thinkingMenuOpenFor = null;
 		// Focus search input after render — skip on mobile to avoid keyboard popup
 		const isMobile =
 			typeof window !== "undefined" &&
@@ -603,46 +660,81 @@ const selectedGenerationCount = $derived(selectedGenerationModels.size);
 			{:else}
 				{#each filteredModels as item, index (item.provider + "/" + item.id)}
 					{@const costText = formatModelCost(item)}
-					<button
-						type="button"
-						class={`group relative w-full cursor-pointer px-4 py-2 text-left transition-colors duration-100 ${
+					{@const tLevels = thinkingLevels(item)}
+					{@const showThinking = tLevels.length > 1}
+					{@const tMenuKey = thinkingMenuKey(item)}
+					<div
+						role="presentation"
+						class={`group relative px-4 py-2 transition-colors duration-100 ${
 							navigationMode === "mouse" ? "hover:bg-bg-hover" : ""
 						} ${index === selectedIndex ? "bg-bg-hover" : ""}`}
 						data-model-item
-						onclick={() => onSelect({ provider: item.provider, id: item.id })}
 						onmouseenter={() => {
 							if (navigationMode === "mouse") {
 								selectedIndex = index;
 							}
 						}}
-						aria-pressed={isCurrentModel(item)}
 						data-selected={index === selectedIndex}
 					>
 						{#if isCurrentModel(item)}
 							<span class="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r bg-brand"></span>
 						{/if}
-						<div class="flex items-start justify-between gap-3">
-							<div class="min-w-0 flex-1">
-								<div class="flex min-w-0 items-center gap-1.5">
-									<span class="truncate text-[13px] font-medium text-text-primary">
-										{getDisplayName(item)}
+						<button
+							type="button"
+							class="block w-full cursor-pointer text-left"
+							aria-pressed={isCurrentModel(item)}
+							onclick={() => handleModelClick(item)}
+						>
+							<div class="flex min-w-0 items-center gap-1.5">
+								<span class="truncate text-[13px] font-medium text-text-primary">
+									{getDisplayName(item)}
+								</span>
+								{#if hasVision(item)}
+									<Image class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
+								{/if}
+								{#if showThinking}
+									<span class="flex items-center gap-0.5 text-[10px] text-text-tertiary/80">
+										<Brain class="h-3 w-3" />
+										{formatLevel(candidateThinkingLevel(item))}
 									</span>
-									{#if hasVision(item)}
-										<Image class="h-3.5 w-3.5 shrink-0 text-text-tertiary" />
-									{/if}
+								{/if}
+							</div>
+							{#if costText}
+								<div class="mt-0.5 truncate text-[11px] tabular-nums text-text-tertiary/75">
+									{costText}
 								</div>
-								{#if costText}
-									<div class="mt-0.5 truncate text-[11px] tabular-nums text-text-tertiary/75">
-										{costText}
+							{/if}
+						</button>
+						{#if showThinking}
+							<div class="relative mt-1">
+								<button
+									type="button"
+									class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-text-tertiary transition-colors hover:bg-bg-surface hover:text-text-secondary"
+									onclick={(e) => toggleThinkingMenu(item, e)}
+								>
+									<Brain class="h-3 w-3" />
+									<span>{formatLevel(candidateThinkingLevel(item))}</span>
+									<ChevronDown class="h-2.5 w-2.5 opacity-50" />
+								</button>
+								{#if thinkingMenuOpenFor === tMenuKey}
+									<div class="absolute left-0 top-full z-10 mt-0.5 min-w-[120px] rounded-md border border-border-subtle bg-bg-surface py-0.5 shadow-lg">
+										{#each tLevels as level (level)}
+											<button
+												type="button"
+												class="flex w-full items-center justify-between gap-2 px-2.5 py-1 text-left text-[11px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"
+												onclick={(e) => { e.stopPropagation(); selectThinkingLevel(item, level); }}
+											>
+												<span>{formatLevel(level)}</span>
+												{#if isDefaultLevel(item, level)}
+													<span class="text-[9px] uppercase tracking-wide text-text-placeholder">Default</span>
+												{/if}
+											</button>
+										{/each}
 									</div>
 								{/if}
 							</div>
-
-							<span class="shrink-0 pt-0.5 text-[11px] text-text-tertiary/70">
-								{item.provider}
-							</span>
-						</div>
-					</button>
+						{/if}
+					</div>
 				{/each}
 			{/if}
 		</div>

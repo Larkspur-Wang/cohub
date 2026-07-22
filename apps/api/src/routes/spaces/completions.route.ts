@@ -66,7 +66,7 @@ const createCompletionSchema = z.object({
   messages: z.array(completionMessageSchema).min(1),
   temperature: z.number().finite().nullish(),
   maxTokens: z.number().finite().positive().nullish(),
-  thinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]).nullish(),
+  thinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).nullish(),
   stream: z.boolean().nullish(),
 });
 
