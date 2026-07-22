@@ -21,11 +21,9 @@ type Props = {
 	previewTabs: PreviewTab[];
 	spaceId: string;
 	immersive: boolean;
-	immersiveChatVisible: boolean;
 	isMobile: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
-	onToggleImmersiveChat: () => void;
 	onToggleImmersive: () => void | Promise<void>;
 	onCommit: (
 		document: CovasDocument,
@@ -52,11 +50,9 @@ let {
 	previewTabs,
 	spaceId,
 	immersive,
-	immersiveChatVisible,
 	isMobile,
 	treeVisible = true,
 	onToggleTree,
-	onToggleImmersiveChat,
 	onToggleImmersive,
 	onCommit,
 	onRetrySave,
@@ -85,11 +81,9 @@ const canvasPanelModulePromise = $derived.by(() => {
 	{:else if immersive}
 		<PreviewFloatChrome
 			tabs={previewTabs}
-			chatVisible={immersiveChatVisible}
 			filesVisible={treeVisible}
 			onActivate={onActivatePreviewTab}
 			onClose={onClosePreviewTab}
-			onToggleChat={onToggleImmersiveChat}
 			onToggleFiles={onToggleTree}
 			onExit={onToggleImmersive}
 		/>

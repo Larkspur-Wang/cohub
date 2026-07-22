@@ -12,11 +12,9 @@ type Props = {
 	status: SpacePortStatus | "unknown";
 	observedAt?: number;
 	immersive: boolean;
-	immersiveChatVisible: boolean;
 	isMobile: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
-	onToggleImmersiveChat: () => void;
 	onToggleImmersive: () => void | Promise<void>;
 	onPublish: () => void;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
@@ -30,11 +28,9 @@ let {
 	status,
 	observedAt,
 	immersive,
-	immersiveChatVisible,
 	isMobile,
 	treeVisible = true,
 	onToggleTree,
-	onToggleImmersiveChat,
 	onToggleImmersive,
 	onPublish,
 	onActivatePreviewTab,
@@ -58,11 +54,9 @@ let {
 			{observedAt}
 			{immersive}
 			previewTabs={previewTabs}
-			chatVisible={immersiveChatVisible}
 			filesVisible={treeVisible}
 			onActivatePreview={onActivatePreviewTab}
 			onClosePreview={onClosePreviewTab}
-			onToggleChat={onToggleImmersiveChat}
 			onToggleFiles={onToggleTree}
 			onExitFloat={onToggleImmersive}
 			onPublish={onPublish}

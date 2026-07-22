@@ -37,6 +37,8 @@ type Props = {
 	}) => void;
 	models: ModelItem[];
 	currentModel?: { provider: string; id: string } | null;
+	/** Model the session thinking level is bound to. Defaults to currentModel. */
+	thinkingLevelModel?: { provider: string; id: string } | null;
 	currentThinkingLevel?: ModelThinkingLevel | null;
 	generationModels?: PublicGenerationDeclaration[];
 	generationPolicyMode?: "auto" | "limited";
@@ -77,6 +79,7 @@ const {
 	onSelect,
 	models,
 	currentModel = null,
+	thinkingLevelModel = null,
 	currentThinkingLevel = null,
 	generationModels = [],
 	generationPolicyMode = "auto",
@@ -199,9 +202,16 @@ function thinkingLevels(item: ModelItem): ModelThinkingLevel[] {
 }
 
 function candidateThinkingLevel(item: ModelItem): ModelThinkingLevel {
+	// Thinking level follows the model: only the session's recorded model
+	// shows the session level; all others show their own default.
+	const bound = thinkingLevelModel ?? currentModel;
+	const isBound =
+		bound !== null && item.provider === bound.provider && item.id === bound.id;
 	return clampThinkingLevel(
 		item as never,
-		currentThinkingLevel ?? getModelDefaultThinkingLevel(item as never),
+		isBound
+			? (currentThinkingLevel ?? getModelDefaultThinkingLevel(item as never))
+			: getModelDefaultThinkingLevel(item as never),
 	);
 }
 

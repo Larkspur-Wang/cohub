@@ -21,11 +21,9 @@ const {
 	observedAt,
 	immersive = false,
 	previewTabs = [],
-	chatVisible = true,
 	filesVisible = false,
 	onActivatePreview,
 	onClosePreview,
-	onToggleChat,
 	onToggleFiles,
 	onExitFloat,
 	onPublish,
@@ -36,11 +34,9 @@ const {
 	observedAt?: number;
 	immersive?: boolean;
 	previewTabs?: PreviewTab[];
-	chatVisible?: boolean;
 	filesVisible?: boolean;
 	onActivatePreview?: (kind: PreviewTab["kind"], key: string) => void;
 	onClosePreview?: (kind: PreviewTab["kind"], key: string) => void;
-	onToggleChat?: () => void;
 	onToggleFiles?: () => void | Promise<void>;
 	onExitFloat?: () => void | Promise<void>;
 	onPublish?: () => void;
@@ -200,14 +196,12 @@ onDestroy(() => {
 {/snippet}
 
 <div class="port-preview relative flex h-full min-w-0 flex-col bg-bg-content" class:port-preview--immersive={immersive}>
-	{#if immersive && onActivatePreview && onClosePreview && onToggleChat && onExitFloat}
+	{#if immersive && onActivatePreview && onClosePreview && onExitFloat}
 		<PreviewFloatChrome
 			tabs={previewTabs}
-			{chatVisible}
 			{filesVisible}
 			onActivate={onActivatePreview}
 			onClose={onClosePreview}
-			onToggleChat={onToggleChat}
 			onToggleFiles={onToggleFiles}
 			onExit={onExitFloat}
 		>

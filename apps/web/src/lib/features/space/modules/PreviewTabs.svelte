@@ -149,7 +149,7 @@ const showChrome = $derived(
 		display: inline-flex;
 		flex: 0 0 auto;
 		align-items: center;
-		align-self: center;
+		align-self: stretch;
 		gap: 2px;
 		margin-left: 2px;
 	}

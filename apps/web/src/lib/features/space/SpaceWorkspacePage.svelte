@@ -1467,25 +1467,6 @@ async function toggleRightSidebar() {
 	// Handles empty-rail (tree collapsed, no preview) so the first click always paints.
 	await previewLayout.toggleFilesChrome();
 }
-function toggleImmersiveChat() {
-	const nextVisible = !immersiveChatVisible;
-	if (
-		nextVisible &&
-		previewImmersiveMode &&
-		!effectiveRightSidebarCollapsed &&
-		!floatPanelsFit(
-			workspaceBodyEl?.clientWidth ?? window.innerWidth,
-			uiState.rightSidebarWidth,
-			IMMERSIVE_CHAT_MIN,
-		)
-	) {
-		void previewLayout.toggleTree(false).then(() => {
-			previewLayout.setImmersiveMainVisible(true);
-		});
-		return;
-	}
-	previewLayout.setImmersiveMainVisible(nextVisible);
-}
 
 async function toggleFilesTree() {
 	const openingFiles = effectiveRightSidebarCollapsed;
@@ -1938,6 +1919,12 @@ onMount(() => {
 		if (document.visibilityState === "hidden") flushInlineFiles();
 	};
 	window.addEventListener("resize", handlePreviewWindowResize);
+	// Re-expand preview when the workspace body width changes (e.g. sidebar
+	// collapse transition settling) so Focus mode reaches its true max width.
+	const workspaceResizeObserver = new ResizeObserver(() => {
+		if (previewFocusMode) previewLayout.handleWindowResize();
+	});
+	if (workspaceBodyEl) workspaceResizeObserver.observe(workspaceBodyEl);
 	window.addEventListener("cohub:open-inline-file", handleOpenInlineFileEvent);
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	window.addEventListener("keydown", handleResourceActionMenuKeydown);
@@ -1965,6 +1952,7 @@ onMount(() => {
 		spacePresence.dispose();
 		spaceRealtime.dispose();
 		window.removeEventListener("resize", handlePreviewWindowResize);
+		workspaceResizeObserver.disconnect();
 		window.removeEventListener(
 			"cohub:open-inline-file",
 			handleOpenInlineFileEvent,
@@ -2203,7 +2191,6 @@ const spaceFileDomainProps = $derived.by<
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
-	immersiveChatVisible,
 	rightSidebarCollapsed: effectiveRightSidebarCollapsed,
 	rightSidebarWidth: uiState.rightSidebarWidth,
 	rightDragOffsetPx: uiState.rightDragOffsetPx,
@@ -2290,7 +2277,6 @@ const spaceFileDomainProps = $derived.by<
 	onBeginPreviewPanelResize: beginPreviewPanelResize,
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
 	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,
-	onToggleImmersiveChat: toggleImmersiveChat,
 	onBeginRightSidebarResize: beginRightSidebarResize,
 	treeVisible: !effectiveRightSidebarCollapsed,
 	onToggleTree: rightSidebarAvailable

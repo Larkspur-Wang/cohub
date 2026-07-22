@@ -77,10 +77,8 @@ type Props = {
 	inlineFileSpaceId: string;
 	inlineFileWork: WorkRecord | null;
 	previewImmersiveMode: boolean;
-	immersiveChatVisible: boolean;
 	treeVisible?: boolean;
 	onToggleTree?: () => void | Promise<void>;
-	onToggleImmersiveChat: () => void;
 	isMobile: boolean;
 	fileActionMenuOpenPath: string | null;
 	inlineFileZoom: number;
@@ -142,10 +140,8 @@ let {
 	inlineFileSpaceId,
 	inlineFileWork,
 	previewImmersiveMode,
-	immersiveChatVisible,
 	treeVisible = true,
 	onToggleTree,
-	onToggleImmersiveChat,
 	isMobile,
 	fileActionMenuOpenPath = $bindable(),
 	inlineFileZoom = $bindable(),
@@ -677,11 +673,9 @@ $effect(() => {
         {#if previewImmersiveMode}
           <PreviewFloatChrome
             tabs={previewTabs}
-            chatVisible={immersiveChatVisible}
             filesVisible={treeVisible}
             onActivate={onActivatePreviewTab}
             onClose={onClosePreviewTab}
-            onToggleChat={onToggleImmersiveChat}
             onToggleFiles={onToggleTree}
             onExit={onTogglePreviewImmersiveMode}
           >

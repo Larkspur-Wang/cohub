@@ -101,22 +101,11 @@ const leftSidebarContentCollapsed = $derived(!leftSidebarExpandedMount.mounted);
 const leftSidebarCollapsing = $derived(
 	uiState.leftSidebarCollapsed && !leftSidebarContentCollapsed,
 );
-const desktopNavigationHidden = $derived(
-	uiState.workspacePresentation === "immersive",
-);
 const leftSidebarShellWidth = $derived(
-	desktopNavigationHidden
-		? 0
-		: uiState.leftSidebarCollapsed
-			? LEFT_SIDEBAR_RAIL
-			: uiState.leftSidebarWidth,
+	uiState.leftSidebarCollapsed ? LEFT_SIDEBAR_RAIL : uiState.leftSidebarWidth,
 );
 const leftSidebarInnerWidth = $derived(
-	desktopNavigationHidden
-		? 0
-		: leftSidebarContentCollapsed
-			? LEFT_SIDEBAR_RAIL
-			: uiState.leftSidebarWidth,
+	leftSidebarContentCollapsed ? LEFT_SIDEBAR_RAIL : uiState.leftSidebarWidth,
 );
 
 function isEditableShortcutTarget(target: EventTarget | null) {
@@ -556,12 +545,12 @@ onMount(() => {
     <!-- z-30 keeps collapsed rail flyouts above main workspace stacking contexts.
          Width-only panel-shell: the icon rail stays interactive (no --collapsed). -->
     <div
-      class="panel-shell hidden lg:flex relative z-30 {!desktopNavigationHidden && leftSidebarContentCollapsed ? 'panel-shell--overflow-visible' : ''} {leftSidebarCollapsing || desktopNavigationHidden ? 'panel-shell--inert' : ''}"
+      class="panel-shell hidden lg:flex relative z-30 {leftSidebarContentCollapsed ? 'panel-shell--overflow-visible' : ''} {leftSidebarCollapsing ? 'panel-shell--inert' : ''}"
       style={`width: ${leftSidebarShellWidth}px`}
-      inert={leftSidebarCollapsing || desktopNavigationHidden ? true : undefined}
+      inert={leftSidebarCollapsing ? true : undefined}
     >
       <div
-        class="panel-shell-inner relative {leftSidebarContentCollapsed && !desktopNavigationHidden ? 'overflow-visible' : 'overflow-hidden'} {!desktopNavigationHidden && !leftSidebarContentCollapsed ? 'border-r border-[color:var(--sidebar-border)]' : ''}"
+        class="panel-shell-inner relative {leftSidebarContentCollapsed ? 'overflow-visible' : 'overflow-hidden'} {!leftSidebarContentCollapsed ? 'border-r border-[color:var(--sidebar-border)]' : ''}"
         style={`width: ${leftSidebarInnerWidth}px`}
       >
         <Sidebar mode={sidebarMode} collapsed={leftSidebarContentCollapsed} />

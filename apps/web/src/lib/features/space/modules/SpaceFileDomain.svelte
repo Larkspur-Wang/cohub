@@ -50,7 +50,6 @@ export type SpaceFileDomainProps = {
 	previewPanelWidth: number;
 	previewFocusMode: boolean;
 	previewImmersiveMode: boolean;
-	immersiveChatVisible: boolean;
 	rightSidebarCollapsed: boolean;
 	rightSidebarWidth: number;
 	rightDragOffsetPx: number;
@@ -145,7 +144,6 @@ export type SpaceFileDomainProps = {
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
-	onToggleImmersiveChat: () => void;
 	onBeginRightSidebarResize: (event: PointerEvent) => void;
 	treeVisible?: boolean;
 	onToggleTree?: () => void;
@@ -189,7 +187,6 @@ let {
 	previewPanelWidth,
 	previewFocusMode,
 	previewImmersiveMode,
-	immersiveChatVisible,
 	rightSidebarCollapsed,
 	rightSidebarWidth,
 	rightDragOffsetPx,
@@ -276,7 +273,6 @@ let {
 	onBeginPreviewPanelResize,
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
-	onToggleImmersiveChat,
 	onBeginRightSidebarResize,
 	treeVisible = true,
 	onToggleTree,
@@ -407,8 +403,6 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		inlineFileSpaceId={spaceId}
 		{inlineFileWork}
 		previewImmersiveMode={previewImmersiveMode}
-		{immersiveChatVisible}
-		onToggleImmersiveChat={onToggleImmersiveChat}
 		{isMobile}
 		bind:fileActionMenuOpenPath
 		bind:inlineFileZoom
@@ -448,9 +442,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onActivatePreviewTab={activatePreviewTab}
 		onClosePreviewTab={closePreviewTab}
 		immersive={previewImmersiveMode}
-		{immersiveChatVisible}
 		{isMobile}
-		onToggleImmersiveChat={onToggleImmersiveChat}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineCanvas}
 		onRetrySave={onRetryInlineCanvasSave}
@@ -470,9 +462,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		status={inlinePortEndpoint?.status ?? "unknown"}
 		observedAt={inlinePortEndpoint?.observedAt}
 		immersive={previewImmersiveMode}
-		{immersiveChatVisible}
 		{isMobile}
-		onToggleImmersiveChat={onToggleImmersiveChat}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
 		/>

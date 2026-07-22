@@ -22,6 +22,8 @@ type Props = {
 	open: boolean;
 	models: ModelCatalogItem[];
 	currentModel: SelectedModel | null;
+	/** Model the session thinking level is bound to. Defaults to currentModel. */
+	thinkingLevelModel?: SelectedModel | null;
 	currentThinkingLevel?: ModelThinkingLevel | null;
 	generationModels: PublicGenerationDeclaration[];
 	generationPolicyMode: "auto" | "limited";
@@ -66,6 +68,7 @@ let {
 	open,
 	models,
 	currentModel,
+	thinkingLevelModel = null,
 	currentThinkingLevel = null,
 	generationModels,
 	generationPolicyMode,
@@ -90,6 +93,7 @@ let {
 	{onSelect}
 	{models}
 	{currentModel}
+	{thinkingLevelModel}
 	{currentThinkingLevel}
 	{generationModels}
 	{generationPolicyMode}

@@ -4153,6 +4153,10 @@ export function createSessionChatHost(options: SessionChatHostOptions) {
 		get activeSessionModel() {
 			return activeSessionModel;
 		},
+		/** Model recorded on the session from server turns (no draft/override). */
+		get activeSessionTurnModel() {
+			return activeSessionLastTurnModel;
+		},
 		get activeSessionThinkingLevel() {
 			return activeSessionThinkingLevel;
 		},

@@ -4,7 +4,6 @@ import {
 	ChevronDown,
 	File as FileIcon,
 	Globe,
-	MessageSquare,
 	Minimize2,
 	MousePointer2,
 	PanelRight,
@@ -16,21 +15,17 @@ import type { PreviewTab } from "./preview-tabs";
 
 const {
 	tabs,
-	chatVisible,
 	filesVisible,
 	onActivate,
 	onClose,
-	onToggleChat,
 	onToggleFiles,
 	onExit,
 	context,
 }: {
 	tabs: PreviewTab[];
-	chatVisible: boolean;
 	filesVisible: boolean;
 	onActivate: (kind: PreviewTab["kind"], key: string) => void;
 	onClose: (kind: PreviewTab["kind"], key: string) => void;
-	onToggleChat: () => void;
 	onToggleFiles?: () => void | Promise<void>;
 	onExit: () => void | Promise<void>;
 	context?: Snippet;
@@ -143,17 +138,6 @@ $effect(() => {
 		{/if}
 
 		<div class="preview-float-divider"></div>
-		<button
-			type="button"
-			class="preview-float-control"
-			class:active={chatVisible}
-			title={chatVisible ? "Hide chat" : "Show chat"}
-			aria-label={chatVisible ? "Hide chat" : "Show chat"}
-			aria-pressed={chatVisible}
-			onclick={onToggleChat}
-		>
-			<MessageSquare class="h-4 w-4" />
-		</button>
 		{#if onToggleFiles}
 			<button
 				type="button"
@@ -210,6 +194,7 @@ $effect(() => {
 	}
 
 	.preview-switcher {
+		position: relative;
 		min-width: 0;
 	}
 
@@ -248,7 +233,7 @@ $effect(() => {
 	.preview-switcher-menu {
 		position: absolute;
 		top: calc(100% + 7px);
-		right: 0;
+		left: 0;
 		width: min(280px, calc(100vw - 24px));
 		max-height: min(52dvh, 360px);
 		overflow-y: auto;
