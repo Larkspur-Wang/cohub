@@ -1,6 +1,13 @@
 import { SPACE_CONFIG_PATH } from "@cohub/protocol";
 import { HttpError } from "@neta-art/cohub";
+import {
+	parseWorkspaceDefaultLayout,
+	type WorkspaceDefaultLayout,
+	type WorkspaceLayoutPresentation,
+} from "$lib/features/space/modules/workspace-default-layout";
 import { sdk } from "$lib/sdk";
+
+export type { WorkspaceDefaultLayout, WorkspaceLayoutPresentation };
 
 export type NewChatBackgroundConfig = {
 	type: "html" | "image" | "video";
@@ -26,6 +33,9 @@ export type SpaceConfig = {
 	ui?: {
 		newChat?: {
 			background?: NewChatBackgroundConfig;
+		};
+		workspace?: {
+			defaultLayout?: WorkspaceDefaultLayout;
 		};
 	};
 };
@@ -151,8 +161,19 @@ function parseSpaceConfig(raw: string): SpaceConfig | null {
 		ui?.newChat && typeof ui.newChat === "object"
 			? (ui.newChat as Record<string, unknown>)
 			: undefined;
+	const workspace =
+		ui?.workspace && typeof ui.workspace === "object"
+			? (ui.workspace as Record<string, unknown>)
+			: undefined;
 	const background = parseBackground(newChat?.background);
-	return background ? { ui: { newChat: { background } } } : {};
+	const defaultLayout = parseWorkspaceDefaultLayout(workspace?.defaultLayout);
+	const next: SpaceConfig = {};
+	if (background || defaultLayout) {
+		next.ui = {};
+		if (background) next.ui.newChat = { background };
+		if (defaultLayout) next.ui.workspace = { defaultLayout };
+	}
+	return next;
 }
 
 function scheduleRetry(

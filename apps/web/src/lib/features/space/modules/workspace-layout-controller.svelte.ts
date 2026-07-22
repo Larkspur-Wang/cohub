@@ -2,13 +2,14 @@ import { tick } from "svelte";
 import { DESKTOP_SHELL_MIN_WIDTH_PX } from "$lib/layout/breakpoints";
 import {
 	uiState,
+	WORKSPACE_PREVIEW_DEFAULT_WIDTH,
 	type WorkspaceLayoutSnapshot,
 	type WorkspacePresentation,
 } from "$lib/stores/ui.svelte";
 
 const MAIN_PANEL_MIN_WIDTH = 320;
 const PREVIEW_PANEL_MIN_WIDTH = 280;
-const PREVIEW_PANEL_DEFAULT_WIDTH = 480;
+const PREVIEW_PANEL_DEFAULT_WIDTH = WORKSPACE_PREVIEW_DEFAULT_WIDTH;
 
 export type { WorkspacePresentation };
 export type MobileSurface = "main" | "files" | "preview";

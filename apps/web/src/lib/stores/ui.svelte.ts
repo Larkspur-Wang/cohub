@@ -1,6 +1,11 @@
 // UI state shared across layout and pages
 // Using a class to wrap $state so it can be mutated from imports
 
+import {
+	resolveDefaultLayoutGeometry,
+	type WorkspaceDefaultLayout,
+} from "$lib/features/space/modules/workspace-default-layout";
+
 const LEGACY_STORAGE_KEYS = {
 	leftSidebarWidth: "cohub:layout:left-sidebar-width",
 	rightSidebarWidth: "cohub:layout:right-sidebar-width",
@@ -48,6 +53,8 @@ const RIGHT_SIDEBAR_DEFAULT = 320;
 const IMMERSIVE_CHAT_MIN = 320;
 const IMMERSIVE_CHAT_MAX = 760;
 const IMMERSIVE_CHAT_DEFAULT = 640;
+/** Default preview panel width; shared with the workspace layout controller. */
+const WORKSPACE_PREVIEW_DEFAULT_WIDTH = 480;
 
 function clamp(value: number, min: number, max: number) {
 	return Math.min(max, Math.max(min, value));
@@ -93,6 +100,8 @@ class UIState {
 	/** Layout captured before entering focus/immersive. Space-scoped. */
 	workspaceLayoutSnapshot = $state<WorkspaceLayoutSnapshot | null>(null);
 	private layoutScope: string | null = null;
+	/** Scope for which a space default layout has been evaluated already. */
+	private defaultLayoutAppliedScope: string | null = null;
 
 	private readLayoutPref(key: LayoutPrefKey) {
 		return (
@@ -106,6 +115,24 @@ class UIState {
 		writeStorage(
 			layoutStorageKey(this.layoutScope ?? GLOBAL_LAYOUT_SCOPE, key),
 			value,
+		);
+	}
+
+	/**
+	 * Whether the given scope has any scoped layout pref stored (ignores legacy).
+	 * A stored key means the layout was settled here before — either by a prior
+	 * default-layout application or by an explicit user change — so a space
+	 * default must no longer override it.
+	 */
+	private hasStoredLayoutPrefs(scope: string) {
+		const keys: LayoutPrefKey[] = [
+			"leftSidebarCollapsed",
+			"rightSidebarCollapsed",
+			"filesColumnHidden",
+			"workspacePresentation",
+		];
+		return keys.some(
+			(key) => readStorage(layoutStorageKey(scope, key)) !== null,
 		);
 	}
 
@@ -149,28 +176,6 @@ class UIState {
 		} catch {
 			return null;
 		}
-	}
-
-	private persistLayoutPrefs() {
-		this.writeLayoutPref("leftSidebarWidth", String(this.leftSidebarWidth));
-		this.writeLayoutPref("rightSidebarWidth", String(this.rightSidebarWidth));
-		this.writeLayoutPref("immersiveChatWidth", String(this.immersiveChatWidth));
-		this.writeLayoutPref(
-			"leftSidebarCollapsed",
-			String(this.leftSidebarCollapsed),
-		);
-		this.writeLayoutPref(
-			"rightSidebarCollapsed",
-			String(this.rightSidebarCollapsed),
-		);
-		this.writeLayoutPref("filesColumnHidden", String(this.filesColumnHidden));
-		this.writeLayoutPref("workspacePresentation", this.workspacePresentation);
-		this.writeLayoutPref(
-			"workspaceLayoutSnapshot",
-			this.workspaceLayoutSnapshot
-				? JSON.stringify(this.workspaceLayoutSnapshot)
-				: "",
-		);
 	}
 
 	loadLayoutPrefs(spaceId?: string | null) {
@@ -218,7 +223,10 @@ class UIState {
 		// Default mode never carries a restore snapshot.
 		this.workspaceLayoutSnapshot = presentation === "default" ? null : snapshot;
 		this.workspacePresentation = presentation;
-		this.persistLayoutPrefs();
+		// Intentionally not persisting here: writing on load would settle the scope
+		// with built-in defaults and block a space default layout from ever applying
+		// (e.g. first mobile visit poisoning a later desktop entry). Legacy prefs
+		// migrate lazily on the next real setter write.
 	}
 
 	setLeftSidebarWidth(width: number) {
@@ -274,6 +282,68 @@ class UIState {
 	toggleRightSidebarCollapsed() {
 		this.setRightSidebarCollapsed(!this.rightSidebarCollapsed);
 	}
+
+	/**
+	 * Apply a space's default layout as a fallback on a fresh entry (no stored
+	 * layout prefs for this scope yet). Idempotent per scope per session.
+	 *
+	 * On mobile: skips desktop geometry but still signals whether the configured
+	 * preview should be opened so the caller can push the `?preview=` query.
+	 *
+	 * Freshness is re-evaluated at call time (not cached at load time) so async
+	 * config arriving after the user already touched the layout won't clobber it.
+	 *
+	 * Returns true when the configured preview should be opened.
+	 */
+	applySpaceDefaultLayoutIfFresh(
+		spaceId: string,
+		layout: WorkspaceDefaultLayout,
+		options: { hasRoutePreview: boolean; isMobile: boolean },
+	): boolean {
+		if (typeof window === "undefined") return false;
+		this.loadLayoutPrefs(spaceId);
+		const scope = layoutScopeKey(spaceId);
+		if (this.defaultLayoutAppliedScope === scope) return false;
+		this.defaultLayoutAppliedScope = scope;
+
+		// Re-check at apply time: a user action after page load (e.g. collapsing
+		// sidebar while config was still loading) writes a scoped key, which means
+		// we should no longer override their layout.
+		if (this.hasStoredLayoutPrefs(scope)) return false;
+
+		const { presentation, ...geo } = resolveDefaultLayoutGeometry(
+			layout,
+			options.hasRoutePreview,
+		);
+
+		// On mobile skip desktop geometry entirely; the caller may still open the
+		// configured preview as a full-screen surface.
+		if (options.isMobile) return geo.openPreview;
+
+		if (presentation === "default") {
+			this.setLeftSidebarCollapsed(geo.leftSidebarCollapsed);
+			this.setRightSidebarCollapsed(geo.rightSidebarCollapsed);
+			this.setFilesColumnHidden(geo.filesColumnHidden);
+			this.setWorkspacePresentation("default");
+			this.setWorkspaceLayoutSnapshot(null);
+			return geo.openPreview;
+		}
+
+		// Focus / fullscreen: snapshot the base layout so exit restores it, then
+		// force the collapsed presentation chrome (mirrors enterFocus/enterImmersive).
+		this.setWorkspaceLayoutSnapshot({
+			leftSidebarCollapsed: geo.leftSidebarCollapsed,
+			rightSidebarCollapsed: geo.rightSidebarCollapsed,
+			filesColumnHidden: false,
+			previewWidth: WORKSPACE_PREVIEW_DEFAULT_WIDTH,
+			treeVisible: !geo.rightSidebarCollapsed,
+		});
+		this.setFilesColumnHidden(false);
+		this.setLeftSidebarCollapsed(true);
+		this.setRightSidebarCollapsed(true);
+		this.setWorkspacePresentation(presentation);
+		return geo.openPreview;
+	}
 }
 
 export const uiState = new UIState();
@@ -288,4 +358,5 @@ export {
 	RIGHT_SIDEBAR_DEFAULT,
 	RIGHT_SIDEBAR_MAX,
 	RIGHT_SIDEBAR_MIN,
+	WORKSPACE_PREVIEW_DEFAULT_WIDTH,
 };

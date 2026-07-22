@@ -654,6 +654,30 @@ $effect(() => {
 	void previewLayout.syncFromPrefs(currentSpaceId);
 });
 
+// Apply the space's configured default layout as a fallback — only on a fresh
+// entry (no local layout prefs for this space yet) and never overriding an
+// explicit `?preview=` in the URL. Runs once per space via uiState guard.
+$effect(() => {
+	const currentSpaceId = spaceId;
+	const layout = spaceConfig?.ui?.workspace?.defaultLayout;
+	if (!layout) return;
+	untrack(() => {
+		const hasRoutePreview = Boolean(
+			readPreviewFromSearch(
+				typeof window !== "undefined" ? window.location.search : null,
+			),
+		);
+		const openPreview = uiState.applySpaceDefaultLayoutIfFresh(
+			currentSpaceId,
+			layout,
+			{ hasRoutePreview, isMobile },
+		);
+		if (!openPreview || !layout.preview) return;
+		if (hasRoutePreview) return;
+		syncPreviewQuery(layout.preview, true);
+	});
+});
+
 let appliedRouteFileKey = "";
 let appliedFsSourceKey: string | null = null;
 const spacePresence = createSpacePresenceController(() => spaceId);
