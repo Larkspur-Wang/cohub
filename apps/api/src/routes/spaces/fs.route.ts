@@ -201,16 +201,34 @@ router.put("/file", async (c) => {
   if (!(await hasPermission(user, "file.edit", { spaceId }))) return authzDenied(c);
 
   const body = await c.req
-    .json<{ path: string; content: string; encoding: "utf-8" | "base64" }>()
+    .json<{
+      path: string;
+      content: string;
+      encoding: "utf-8" | "base64";
+      expected?: { mtimeMs: number; size: number };
+      mutationId?: string;
+    }>()
     .catch(() => null);
   if (!body?.path || typeof body.content !== "string" || !body.encoding) {
     return c.json({ message: "path, content and encoding are required" }, 400);
+  }
+  if (
+    body.expected &&
+    (!Number.isFinite(body.expected.mtimeMs) ||
+      !Number.isFinite(body.expected.size) ||
+      body.expected.size < 0)
+  ) {
+    return c.json({ message: "expected file version is invalid" }, 400);
+  }
+  if (body.mutationId !== undefined && (typeof body.mutationId !== "string" || body.mutationId.length > 128)) {
+    return c.json({ message: "mutationId is invalid" }, 400);
   }
   try {
     const result = await writeSpaceFile(spaceId, body);
     const changes = [{ path: result.path, kind: "modify" as const, nodeType: "file" as const, size: result.size, mtimeMs: result.mtimeMs }];
     await dispatchSpaceFsChanged(spaceId, {
       source: "api-fs",
+      mutationId: body.mutationId,
       changes,
     }).catch((error) => logger.error("[SpaceFS] failed to publish file-system change", error));
     return c.json(result);

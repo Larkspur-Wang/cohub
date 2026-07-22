@@ -14,7 +14,6 @@ import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import type { FileViewMode } from "$lib/components/file-diff-view";
 import WorkPublishDialog from "$lib/components/WorkPublishDialog.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
-import { isTextFileResponse } from "$lib/space-file-text";
 import type { SpaceFsNode } from "$lib/space-fs";
 import { patchCachedSpaceList } from "$lib/stores/space-list-cache";
 import { cacheSpaceRecordSoon } from "$lib/stores/space-record-cache";
@@ -80,7 +79,6 @@ export type SpaceFileDomainProps = {
 	inlineFileDiffError: string | null;
 	inlineFileIsMarkdown: boolean;
 	inlineFileIsHtml: boolean;
-	inlineFileDirty: boolean;
 	inlineFileCopied: boolean;
 	inlineFileExt: string;
 	inlineFileIsImage: boolean;
@@ -131,12 +129,16 @@ export type SpaceFileDomainProps = {
 	onDownloadInlineFile: () => void | Promise<void>;
 	onRetryInlineFile?: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
-	onSaveInlineFile: () => void | Promise<void>;
+	onUpdateInlineFileDraft: (path: string, draft: string) => void;
+	onRetryInlineFileSave: () => void | Promise<void>;
+	onOverwriteInlineFile: () => void | Promise<void>;
+	onReloadInlineFile: () => void | Promise<void>;
 	onOpenInlinePort: (port: string, url: string) => void;
 	onCommitInlineCanvas: (
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
+	onRetryInlineCanvasSave: () => void | Promise<void>;
 	onBeginPreviewPanelResize: (event: PointerEvent) => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
@@ -214,7 +216,6 @@ let {
 	inlineFileDiffError,
 	inlineFileIsMarkdown,
 	inlineFileIsHtml,
-	inlineFileDirty,
 	inlineFileCopied,
 	inlineFileExt,
 	inlineFileIsImage,
@@ -260,9 +261,13 @@ let {
 	onDownloadInlineFile,
 	onRetryInlineFile,
 	onCopyInlineFileContent,
-	onSaveInlineFile,
+	onUpdateInlineFileDraft,
+	onRetryInlineFileSave,
+	onOverwriteInlineFile,
+	onReloadInlineFile,
 	onOpenInlinePort,
 	onCommitInlineCanvas,
+	onRetryInlineCanvasSave,
 	onBeginPreviewPanelResize,
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
@@ -300,11 +305,7 @@ const previewTabs = $derived([
 		key: tab.path,
 		label: tab.response?.name ?? tab.path.split("/").pop() ?? tab.path,
 		title: tab.path,
-		dirty: Boolean(
-			tab.response &&
-				isTextFileResponse(tab.response) &&
-				tab.draft !== tab.response.content,
-		),
+		syncStatus: tab.syncStatus,
 		active: activePreviewKind === "file" && tab.path === activeInlineFilePath,
 	})),
 	...inlineCanvasTabs.map((tab) => ({
@@ -312,7 +313,11 @@ const previewTabs = $derived([
 		key: tab.path,
 		label: tab.path.split("/").pop() ?? tab.path,
 		title: tab.path,
-		dirty: tab.saving,
+		syncStatus: tab.saveError
+			? ("error" as const)
+			: tab.saving
+				? ("saving" as const)
+				: ("idle" as const),
 		active:
 			activePreviewKind === "canvas" && tab.path === activeInlineCanvasPath,
 	})),
@@ -321,7 +326,7 @@ const previewTabs = $derived([
 		key: tab.port,
 		label: `:${tab.port}`,
 		title: tab.url,
-		dirty: false,
+		syncStatus: "idle" as const,
 		active: activePreviewKind === "port" && tab.port === activeInlinePort,
 	})),
 ]);
@@ -365,7 +370,6 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		{inlineFileDiffError}
 		{inlineFileIsMarkdown}
 		{inlineFileIsHtml}
-		{inlineFileDirty}
 		{activeFsReadonly}
 		{canEditFiles}
 		{inlineFileCopied}
@@ -390,7 +394,10 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onDownloadInlineFile={onDownloadInlineFile}
 		onRetryInlineFile={onRetryInlineFile}
 		onCopyInlineFileContent={onCopyInlineFileContent}
-		onSaveInlineFile={onSaveInlineFile}
+		onUpdateInlineFileDraft={onUpdateInlineFileDraft}
+		onRetryInlineFileSave={onRetryInlineFileSave}
+		onOverwriteInlineFile={onOverwriteInlineFile}
+		onReloadInlineFile={onReloadInlineFile}
 		onPublishInlineFile={publishInlineFile}
 		onTogglePreviewFocusMode={onTogglePreviewFocusMode}
 		onTogglePreviewImmersiveMode={onTogglePreviewImmersiveMode}
@@ -419,6 +426,7 @@ function closePreviewTab(kind: "file" | "canvas" | "port", key: string) {
 		onToggleFocus={onTogglePreviewFocusMode}
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onCommit={onCommitInlineCanvas}
+		onRetrySave={onRetryInlineCanvasSave}
 		onViewStateChange={onCanvasViewStateChange}
 		/>
 {/if}

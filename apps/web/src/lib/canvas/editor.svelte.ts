@@ -483,6 +483,11 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		});
 	}
 
+	function retrySave() {
+		saveError = null;
+		requestCommit();
+	}
+
 	/** A user action: record an undo step, then sync. */
 	function commitAction() {
 		recordUndoStep();
@@ -2188,6 +2193,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		bringToFront,
 		sendToBack,
 		updateText,
+		retrySave,
 		undo,
 		redo,
 		pointerDown,

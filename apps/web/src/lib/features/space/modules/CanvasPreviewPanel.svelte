@@ -5,6 +5,7 @@ import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import { createLazyModuleLoader } from "$lib/lazy-module";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
+import type { PreviewTab } from "./preview-tabs";
 
 type InlineCanvasPanelState = {
 	path: string;
@@ -13,15 +14,7 @@ type InlineCanvasPanelState = {
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
-};
-
-type PreviewTab = {
-	kind: "file" | "canvas" | "port";
-	key: string;
-	label: string;
-	title: string;
-	dirty?: boolean;
-	active: boolean;
+	saveError: string | null;
 };
 
 type Props = {
@@ -39,6 +32,7 @@ type Props = {
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
+	onRetrySave: () => void | Promise<void>;
 	onActivatePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onClosePreviewTab: (kind: PreviewTab["kind"], key: string) => void;
 	onViewStateChange?: (state: {
@@ -66,6 +60,7 @@ let {
 	onToggleFocus,
 	onToggleImmersive,
 	onCommit,
+	onRetrySave,
 	onActivatePreviewTab,
 	onClosePreviewTab,
 	onViewStateChange,
@@ -136,7 +131,9 @@ const canvasPanelModulePromise = $derived.by(() => {
 					document={canvas.document}
 					spaceId={spaceId}
 					{immersive}
+					syncError={canvas.saveError}
 					onCommit={(document, ops) => onCommit(document, ops)}
+					onRetrySync={onRetrySave}
 					{onViewStateChange}
 				/>
 			</div>

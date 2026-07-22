@@ -3,15 +3,7 @@ import { FolderOpen, Menu } from "lucide-svelte";
 import type { Snippet } from "svelte";
 import { uiState } from "$lib/stores/ui.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
-
-type PreviewTab = {
-	kind: "file" | "canvas" | "port";
-	key: string;
-	label: string;
-	title: string;
-	dirty?: boolean;
-	active: boolean;
-};
+import type { PreviewTab } from "./preview-tabs";
 
 const {
 	tabs,

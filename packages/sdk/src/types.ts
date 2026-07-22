@@ -545,6 +545,11 @@ export type SpaceFsWriteFileInput = {
   path: string;
   content: string;
   encoding: SpaceFsEncoding;
+  expected?: {
+    mtimeMs: number;
+    size: number;
+  };
+  mutationId?: string;
 };
 export type SpaceFsMoveInput = { fromPath: string; toPath: string };
 export type SpaceFsUploadEntry = {

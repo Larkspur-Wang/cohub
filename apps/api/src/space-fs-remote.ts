@@ -12,6 +12,7 @@ import type {
 import type { RpcEventPayload } from "@cohub/protocol/sandbox";
 import { getMimeType, isTextMime, resolveReadMimeType, sanitizeFileName, SpaceFsError } from "./space-fs.js";
 import type { SpaceFsVisibility } from "./space-fs-ignore.js";
+import { matchesSpaceFsVersion } from "./space-fs-version.js";
 import { callSandboxRpc, SandboxOfflineError } from "./space-sandbox-rpc.js";
 
 // Local-sandbox filesystem backend. Mirrors the direct (PVC) backend's public
@@ -265,6 +266,16 @@ export async function readSpaceFiles(
 export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInput) {
   const path = assertSafeSubpath(input.path);
   try {
+    if (input.expected) {
+      const current = await callSandboxRpc(spaceId, "fs.stat", { path });
+      if (
+        !current.exists ||
+        current.isDirectory ||
+        !matchesSpaceFsVersion(current, input.expected)
+      ) {
+        throw new SpaceFsError(409, "file_conflict", "File changed since it was opened.");
+      }
+    }
     const result = await callSandboxRpc(spaceId, "fs.write", {
       path,
       content: input.content,

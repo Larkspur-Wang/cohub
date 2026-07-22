@@ -15,13 +15,12 @@ import {
 	ListTree,
 	MoreHorizontal,
 	Pencil,
-	Save,
 	TextCursorInput,
 	Trash2,
 	X,
 } from "lucide-svelte";
 import { onDestroy, onMount, tick, untrack } from "svelte";
-import { beforeNavigate, goto } from "$app/navigation";
+import { beforeNavigate, goto, onNavigate } from "$app/navigation";
 import {
 	type AccessState,
 	isBlockingAccessState,
@@ -476,7 +475,6 @@ const previewWorkspace = createPreviewWorkspaceController({
 		}, 3000);
 	},
 });
-const inlineFileDirty = $derived(fileWorkspace.inlineFileDirty);
 const inlineFileCopied = $derived(fileWorkspace.inlineFileCopied);
 const openWorkPublish = (
 	targetType: "file" | "directory" | "port",
@@ -663,6 +661,7 @@ const danmakuController = createSpaceDanmakuController();
 const spaceRealtime = createSpaceRealtimeController({
 	onTransportOpen: () => sessionChat.onTransportOpen(),
 	onConnectionOpened: () => {
+		fileWorkspace.retryFailedInlineFiles();
 		if (inlineCanvas?.documentId) {
 			void flushInlineCanvasPendingTransactions(inlineCanvas.documentId).catch(
 				() => undefined,
@@ -680,6 +679,7 @@ const spaceRealtime = createSpaceRealtimeController({
 		sessionChat.onVisibilityChanged(true);
 	},
 	onOnline: () => {
+		fileWorkspace.retryFailedInlineFiles();
 		if (wsConnectionState === "open") {
 			void sessionChat.refreshSessions(false);
 		}
@@ -1057,6 +1057,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 		activeFsSource.kind === "live" && activeFsSourceKey === sourceKey;
 	const eventPayload = payload.payload as {
 		source?: string;
+		mutationId?: string;
 		resync?: boolean;
 		changes?: Array<{
 			path?: string;
@@ -1098,6 +1099,7 @@ async function handleSpaceFsChanged(payload: ChannelEnvelope) {
 			change.path,
 			eventPayload.source,
 			change.kind,
+			eventPayload.mutationId,
 		);
 		for (const tab of inlineFileTabs) {
 			if (change.path !== tab.path && change.oldPath !== tab.path) continue;
@@ -1225,7 +1227,13 @@ onDestroy(() => {
 beforeNavigate((navigation) => {
 	if (activeSessionId) sessionChat.captureCurrentScrollAnchor(activeSessionId);
 	sessionChat.flushComposerDraft();
+	void fileWorkspace.persistInlineFileDrafts();
+	void fileWorkspace.flushInlineFiles();
 	if (!fileWorkspace.hasDirtyInlineFiles()) return;
+	if (navigation.willUnload) {
+		navigation.cancel();
+		return;
+	}
 	const fromUrl = navigation.from?.url;
 	const toUrl = navigation.to?.url;
 	if (!fromUrl || !toUrl) return;
@@ -1239,8 +1247,13 @@ beforeNavigate((navigation) => {
 	const sameSpace = Boolean(spaceId) && toPath.startsWith(`/spaces/${spaceId}`);
 	// Only prompt when drafts cannot survive the transition.
 	if (!fsSourceChanging && sameSpace) return;
-	const ok = confirm("Discard unsaved file changes?");
+	const ok = confirm("File changes are still syncing. Leave anyway?");
 	if (!ok) navigation.cancel();
+});
+
+onNavigate(() => {
+	if (fileWorkspace.hasDirtyInlineFiles())
+		return fileWorkspace.persistInlineFileDrafts();
 });
 
 function beginRightSidebarResize(event: PointerEvent) {
@@ -1453,6 +1466,9 @@ async function commitInlineCanvas(
 ) {
 	await canvasPreview.commitCanvas(document, ops);
 }
+async function retryInlineCanvasSave() {
+	await canvasPreview.retryCanvasSave();
+}
 function openInlinePort(
 	port: string,
 	url: string,
@@ -1494,6 +1510,18 @@ async function retryInlineFile() {
 }
 async function saveInlineFile() {
 	await fileWorkspace.saveInlineFile();
+}
+function updateInlineFileDraft(path: string, draft: string) {
+	fileWorkspace.updateInlineFileDraft(path, draft);
+}
+async function retryInlineFileSave() {
+	await fileWorkspace.retryInlineFileSave();
+}
+async function overwriteInlineFile() {
+	await fileWorkspace.overwriteInlineFile();
+}
+async function reloadInlineFile() {
+	await fileWorkspace.reloadInlineFile();
 }
 function handleUploadFiles(
 	files: File[] | LocalUploadEntry[],
@@ -1759,10 +1787,18 @@ onMount(() => {
 			fileWorkspace.fileActionMenuOpenPath = null;
 		}
 	};
+	const flushInlineFiles = () => {
+		void fileWorkspace.flushInlineFiles();
+	};
+	const handleVisibilityChange = () => {
+		if (document.visibilityState === "hidden") flushInlineFiles();
+	};
 	window.addEventListener("resize", handlePreviewWindowResize);
 	window.addEventListener("cohub:open-inline-file", handleOpenInlineFileEvent);
 	window.addEventListener("keydown", handleFileKeyboardSave);
 	window.addEventListener("keydown", handleResourceActionMenuKeydown);
+	window.addEventListener("blur", flushInlineFiles);
+	document.addEventListener("visibilitychange", handleVisibilityChange);
 	document.addEventListener("click", handleResourceActionMenuClickOutside);
 	scheduleStatusRefresh();
 	return () => {
@@ -1791,6 +1827,8 @@ onMount(() => {
 		);
 		window.removeEventListener("keydown", handleFileKeyboardSave);
 		window.removeEventListener("keydown", handleResourceActionMenuKeydown);
+		window.removeEventListener("blur", flushInlineFiles);
+		document.removeEventListener("visibilitychange", handleVisibilityChange);
 		document.removeEventListener("click", handleResourceActionMenuClickOutside);
 		rightSidebarResizeCleanup?.();
 		immersiveChatResizeCleanup?.();
@@ -1815,7 +1853,7 @@ function resetSpaceScopedState(currentSpaceId: string) {
 	newChatProfileBodyEl = null;
 	spaceRealtime.resetRecoveredConnection();
 	// Chat-owned UI (turn rail / route turn) is reset by sessionChat.enterSpace.
-	fileWorkspace.resetForSpace({ force: true });
+	fileWorkspace.resetForSpace(currentSpaceId, { force: true });
 	canvasPreview.closeCanvas();
 	portPreview.setEndpoints({});
 	portPreview.closePort();
@@ -2006,7 +2044,6 @@ const spaceFileDomainProps = $derived.by<
 	inlineFileDiffError: fileWorkspace.inlineFileDiffError,
 	inlineFileIsMarkdown,
 	inlineFileIsHtml,
-	inlineFileDirty,
 	inlineFileCopied,
 	inlineFileExt,
 	inlineFileIsImage,
@@ -2053,9 +2090,13 @@ const spaceFileDomainProps = $derived.by<
 	onDownloadInlineFile: downloadInlineFile,
 	onRetryInlineFile: retryInlineFile,
 	onCopyInlineFileContent: copyInlineFileContent,
-	onSaveInlineFile: saveInlineFile,
+	onUpdateInlineFileDraft: updateInlineFileDraft,
+	onRetryInlineFileSave: retryInlineFileSave,
+	onOverwriteInlineFile: overwriteInlineFile,
+	onReloadInlineFile: reloadInlineFile,
 	onOpenInlinePort: openInlinePort,
 	onCommitInlineCanvas: commitInlineCanvas,
+	onRetryInlineCanvasSave: retryInlineCanvasSave,
 	onBeginPreviewPanelResize: beginPreviewPanelResize,
 	onTogglePreviewFocusMode: togglePreviewFocusMode,
 	onTogglePreviewImmersiveMode: togglePreviewImmersiveMode,

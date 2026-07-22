@@ -94,6 +94,14 @@ export function userProfileKey(userKey: string, userUuid: string) {
 	return [userKey, "user-profile", userUuid].map(encodeKeyPart).join(":");
 }
 
+export function filePendingDraftKey(
+	userKey: string,
+	spaceId: string,
+	path: string,
+) {
+	return [userKey, spaceId, path, "file-draft"].map(encodeKeyPart).join(":");
+}
+
 export function canvasPendingTransactionKey(
 	userKey: string,
 	spaceId: string,

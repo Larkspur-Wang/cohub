@@ -8,15 +8,8 @@ import {
 	X,
 } from "lucide-svelte";
 import type { Snippet } from "svelte";
-
-type PreviewTab = {
-	kind: "file" | "canvas" | "port";
-	key: string;
-	label: string;
-	title: string;
-	dirty?: boolean;
-	active: boolean;
-};
+import PreviewSyncStatus from "./PreviewSyncStatus.svelte";
+import type { PreviewTab } from "./preview-tabs";
 
 type Props = {
 	tabs: PreviewTab[];
@@ -79,7 +72,9 @@ const showChrome = $derived(
 							<Icon class="h-3 w-3" />
 						</span>
 						<span class="truncate">{tab.label}</span>
-						{#if tab.dirty}<span class="preview-tab-dot" aria-label="Unsaved changes"></span>{/if}
+						{#if tab.syncStatus}
+							<PreviewSyncStatus status={tab.syncStatus} />
+						{/if}
 					</button>
 					<button
 						type="button"
@@ -212,14 +207,6 @@ const showChrome = $derived(
 
 	.preview-tab-shell.active .preview-tab-icon {
 		opacity: 1;
-	}
-
-	.preview-tab-dot {
-		height: 0.375rem;
-		width: 0.375rem;
-		flex: 0 0 auto;
-		border-radius: 9999px;
-		background: var(--warning-soft);
 	}
 
 	.preview-tab-close {

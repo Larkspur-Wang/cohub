@@ -5,14 +5,7 @@ import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
 
-type PreviewTab = {
-	kind: "file" | "canvas" | "port";
-	key: string;
-	label: string;
-	title: string;
-	dirty?: boolean;
-	active: boolean;
-};
+import type { PreviewTab } from "./preview-tabs";
 
 type Props = {
 	previewTabs: PreviewTab[];

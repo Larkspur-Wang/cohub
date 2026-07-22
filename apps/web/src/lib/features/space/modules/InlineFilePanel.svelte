@@ -13,7 +13,6 @@ import {
 	MoreHorizontal,
 	Pencil,
 	Rocket,
-	Save,
 	TextCursorInput,
 	Trash2,
 	X,
@@ -33,6 +32,8 @@ import type {
 import { formatFileSize } from "../space-utils";
 import MobilePreviewTabsChrome from "./MobilePreviewTabsChrome.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
+import type { PreviewSyncStatus } from "./preview-sync-status";
+import type { PreviewTab } from "./preview-tabs";
 
 type InlineFilePanelState = {
 	response: SpaceFsFileResponse | null;
@@ -41,21 +42,14 @@ type InlineFilePanelState = {
 	position: WorkspaceFilePosition | null;
 	loading: boolean;
 	saving: boolean;
+	syncStatus: PreviewSyncStatus;
+	saveError: string | null;
 	error: string | null;
 	tooLarge: boolean;
 };
 
 type PanHandlers = {
 	start: (event: MouseEvent) => void;
-};
-
-type PreviewTab = {
-	kind: "file" | "canvas" | "port";
-	key: string;
-	label: string;
-	title: string;
-	dirty?: boolean;
-	active: boolean;
 };
 
 type Props = {
@@ -72,7 +66,6 @@ type Props = {
 	inlineFileDiffError: string | null;
 	inlineFileIsMarkdown: boolean;
 	inlineFileIsHtml: boolean;
-	inlineFileDirty: boolean;
 	activeFsReadonly: boolean;
 	canEditFiles: boolean;
 	inlineFileCopied: boolean;
@@ -103,7 +96,10 @@ type Props = {
 	onDownloadInlineFile: () => void | Promise<void>;
 	onRetryInlineFile?: () => void | Promise<void>;
 	onCopyInlineFileContent: () => void | Promise<void>;
-	onSaveInlineFile: () => void | Promise<void>;
+	onUpdateInlineFileDraft: (path: string, draft: string) => void;
+	onRetryInlineFileSave: () => void | Promise<void>;
+	onOverwriteInlineFile: () => void | Promise<void>;
+	onReloadInlineFile: () => void | Promise<void>;
 	onPublishInlineFile: () => void;
 	onTogglePreviewFocusMode: () => void | Promise<void>;
 	onTogglePreviewImmersiveMode: () => void | Promise<void>;
@@ -135,7 +131,6 @@ let {
 	inlineFileDiffError,
 	inlineFileIsMarkdown,
 	inlineFileIsHtml,
-	inlineFileDirty,
 	activeFsReadonly,
 	canEditFiles,
 	inlineFileCopied,
@@ -164,7 +159,10 @@ let {
 	onDownloadInlineFile,
 	onRetryInlineFile,
 	onCopyInlineFileContent,
-	onSaveInlineFile,
+	onUpdateInlineFileDraft,
+	onRetryInlineFileSave,
+	onOverwriteInlineFile,
+	onReloadInlineFile,
 	onPublishInlineFile,
 	onTogglePreviewFocusMode,
 	onTogglePreviewImmersiveMode,
@@ -376,6 +374,20 @@ $effect(() => {
 	{/if}
 {/snippet}
 
+{#snippet SyncIssueBanner()}
+	{#if inlineFile.saveError}
+		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
+			<span class="min-w-0 flex-1 truncate">{inlineFile.saveError}</span>
+			{#if inlineFile.syncStatus === "conflict"}
+				<button type="button" class="action-btn" onclick={() => void onReloadInlineFile()}>Reload</button>
+				<button type="button" class="action-btn" onclick={() => void onOverwriteInlineFile()}>Keep mine</button>
+			{:else}
+				<button type="button" class="action-btn" onclick={() => void onRetryInlineFileSave()}>Retry</button>
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet MarkdownFilePreview()}
 	{#if inlineFile.response}
 		<MarkdownView
@@ -438,9 +450,7 @@ $effect(() => {
 				value={inlineFile.draft}
 				language={inlineFileExt}
 				initialPosition={inlineFile.position}
-				onInput={(v) => {
-					if (inlineFile) inlineFile.draft = v;
-				}}
+				onInput={(v) => onUpdateInlineFileDraft(editorPath, v)}
 				onVisibleLinesChange={(range) =>
 					onVisibleLinesChange?.(editorPath, range)}
 				readonly={!canEditFiles || activeFsReadonly}
@@ -492,6 +502,7 @@ $effect(() => {
         })}
       {:else if inlineFile.response}
         {@render SoftFailBanner()}
+        {@render SyncIssueBanner()}
         {#if hasUsableText}
           <div class="flex h-11 shrink-0 items-center gap-2 border-b border-border-subtle bg-bg-surface px-3">
             {#if inlineFileHasRenderedPreview || showDiffMode}
@@ -515,11 +526,7 @@ $effect(() => {
             <button type="button" class="icon-btn" onclick={() => void onCopyInlineFileContent()} title="Copy content">
               {#if inlineFileCopied}<Check class="w-4 h-4 text-success-soft" />{:else}<Copy class="w-4 h-4" />{/if}
             </button>
-            {#if !activeFsReadonly}
-              <button type="button" class="action-btn" onclick={() => void onSaveInlineFile()} disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles} title="Save">
-                <Save class="w-4 h-4 shrink-0" />
-              </button>
-            {:else}
+            {#if activeFsReadonly}
               <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
             {/if}
           </div>
@@ -600,6 +607,7 @@ $effect(() => {
           })}
         {:else if inlineFile.response}
           {@render SoftFailBanner()}
+          {@render SyncIssueBanner()}
           {#if hasUsableText}
             <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
               {#if inlineFileCanGoBack}
@@ -667,17 +675,6 @@ $effect(() => {
               </button>
               {#if activeFsReadonly}
                 <span class="rounded-md border border-border-subtle px-2 py-1 text-[11px] text-text-tertiary">Read-only snapshot</span>
-              {:else}
-                <button
-                  type="button"
-                  class="action-btn"
-                  onclick={() => void onSaveInlineFile()}
-                  disabled={inlineFile.saving || !inlineFileDirty || !canEditFiles}
-                  title="Save (Ctrl+S)"
-                >
-                  <Save class="w-3.5 h-3.5 shrink-0" />
-                  <span class="hidden sm:inline">Save</span>
-                </button>
               {/if}
               <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />

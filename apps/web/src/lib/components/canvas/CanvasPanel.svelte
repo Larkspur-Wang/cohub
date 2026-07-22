@@ -18,17 +18,21 @@ const {
 	document: initialDocument,
 	spaceId,
 	immersive = false,
+	syncError = null,
 	onCommit,
+	onRetrySync,
 	onViewStateChange,
 }: {
 	path: string;
 	document: CovasDocument;
 	spaceId: string;
 	immersive?: boolean;
+	syncError?: string | null;
 	onCommit: (
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
+	onRetrySync?: () => void | Promise<void>;
 	onViewStateChange?: (state: {
 		path: string;
 		camera: CovasDocument["viewport"];
@@ -250,6 +254,14 @@ function clearSpaceHeld() {
 	editor.spaceHeld = false;
 }
 
+function retrySync() {
+	if (editor.saveError) {
+		editor.retrySave();
+		return;
+	}
+	void onRetrySync?.();
+}
+
 function handleContextMenu(event: MouseEvent) {
 	event.preventDefault();
 	if (!stageWrap) return;
@@ -296,9 +308,10 @@ onDestroy(() => {
 	class:canvas-panel--immersive={immersive}
 	data-drawer-swipe-ignore
 >
-	{#if editor.saveError}
-		<div class="border-b border-error-soft/30 bg-error-bg px-3 py-2 text-xs text-error-soft">
-			{editor.saveError}
+	{#if syncError || editor.saveError}
+		<div class="flex shrink-0 items-center gap-2 border-b border-error-soft/20 bg-error-bg px-3 py-1.5 text-[11px] text-error-soft">
+			<span class="min-w-0 flex-1 truncate">Sync paused</span>
+			<button type="button" class="action-btn" onclick={retrySync}>Retry</button>
 		</div>
 	{/if}
 

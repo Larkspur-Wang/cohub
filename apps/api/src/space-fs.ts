@@ -31,6 +31,7 @@ import type {
   SpaceFsWriteFileInput,
 } from "@cohub/protocol/fs";
 import { isTextMime } from "./space-fs-mime.js";
+import { matchesSpaceFsVersion } from "./space-fs-version.js";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_BATCH_READ_FILES = 50;
@@ -1267,6 +1268,17 @@ export async function streamSpaceFile(
 export async function writeSpaceFile(spaceId: string, input: SpaceFsWriteFileInput) {
   const { target, relativePath } = await resolveTarget(spaceId, input.path);
   await mkdir(dirname(target), { recursive: true });
+  if (input.expected) {
+    let current: Stats;
+    try {
+      current = await stat(target);
+    } catch {
+      throw new SpaceFsError(409, "file_conflict", "File changed since it was opened.");
+    }
+    if (!matchesSpaceFsVersion(current, input.expected)) {
+      throw new SpaceFsError(409, "file_conflict", "File changed since it was opened.");
+    }
+  }
   const data = input.encoding === "base64" ? Buffer.from(input.content, "base64") : Buffer.from(input.content, "utf8");
   await writeFile(target, data);
   const file = await stat(target);

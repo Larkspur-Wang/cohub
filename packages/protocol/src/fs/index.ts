@@ -9,6 +9,8 @@ export type SpaceFsChange = {
 
 export type SpaceFsChangedPayload = {
   source: "sandbox-inotify" | "api-fs" | "bootstrap" | "sandbox-watch-started";
+  /** Client-generated id used to identify an API write echoed over realtime. */
+  mutationId?: string;
   seq?: number;
   resync?: boolean;
   changes: SpaceFsChange[];
@@ -74,6 +76,13 @@ export type SpaceFsWriteFileInput = {
   path: string;
   content: string;
   encoding: SpaceFsEncoding;
+  /** Reject the write when the file no longer matches this server baseline. */
+  expected?: {
+    mtimeMs: number;
+    size: number;
+  };
+  /** Optional client-generated id echoed in the resulting fs event. */
+  mutationId?: string;
 };
 
 export type SpaceFsMoveInput = {

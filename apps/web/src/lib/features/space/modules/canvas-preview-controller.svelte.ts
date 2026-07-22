@@ -32,6 +32,7 @@ export type InlineCanvasPanelState = {
 	loading: boolean;
 	saving: boolean;
 	error: string | null;
+	saveError: string | null;
 };
 
 type CanvasPreviewControllerOptions = {
@@ -53,8 +54,8 @@ export function createCanvasPreviewController(
 	let activeCanvasPath = $state<string | null>(null);
 	let requestTokenByPath = $state<Record<string, number>>({});
 	let syncVersionByDocumentId = $state<Record<string, number | null>>({});
-	let pendingFlush = false;
-	let pendingFlushRequested = false;
+	const pendingFlushByDocumentId = new Map<string, Promise<void>>();
+	const pendingFlushRequested = new Set<string>();
 	/** Conflict-recovery attempts per document, to bound rebase retries. */
 	let conflictAttemptsByDocumentId: Record<string, number> = {};
 	/**
@@ -121,6 +122,7 @@ export function createCanvasPreviewController(
 			loading: true,
 			saving: false,
 			error: null,
+			saveError: null,
 		};
 		canvases = canvases.some((item) => item.path === path)
 			? canvases.map((item) => (item.path === path ? loadingCanvas : item))
@@ -162,6 +164,7 @@ export function createCanvasPreviewController(
 							loading: false,
 							saving: false,
 							error: null,
+							saveError: null,
 						}
 					: item,
 			);
@@ -189,6 +192,7 @@ export function createCanvasPreviewController(
 								error instanceof Error
 									? error.message
 									: "Failed to open canvas",
+							saveError: null,
 						}
 					: item,
 			);
@@ -218,68 +222,75 @@ export function createCanvasPreviewController(
 		options.onOpenPanel?.();
 	}
 
-	async function flushPendingTransactions(documentId: string) {
-		if (pendingFlush) {
-			pendingFlushRequested = true;
-			return;
+	function flushPendingTransactions(documentId: string): Promise<void> {
+		const activeFlush = pendingFlushByDocumentId.get(documentId);
+		if (activeFlush) {
+			pendingFlushRequested.add(documentId);
+			return activeFlush;
 		}
-		pendingFlush = true;
-		try {
-			do {
-				pendingFlushRequested = false;
-				while (true) {
-					const pending = await listCanvasPendingTransactions(
-						options.getSpaceId(),
-						documentId,
-					);
-					if (pending.length === 0) break;
-					const tx = pending[0];
-					if (!tx) break;
-					await markCanvasPendingTransactionAttempt(tx);
-					try {
-						const result = await sdk
-							.space(options.getSpaceId())
-							.sendCanvasTransactionRealtime(documentId, {
-								txId: tx.txId,
-								baseVersion: tx.baseVersion,
-								ops: tx.ops,
-							});
-						syncVersionByDocumentId = {
-							...syncVersionByDocumentId,
-							[documentId]: result.document.version,
-						};
-						// A successful commit resets the conflict-recovery budget.
-						delete conflictAttemptsByDocumentId[documentId];
-						// Remember our own txId so the echoed realtime event is skipped.
-						ownTxIds.add(tx.txId);
-						if (ownTxIds.size > 256) {
-							const oldest = ownTxIds.values().next().value;
-							if (oldest) ownTxIds.delete(oldest);
-						}
-						await deleteCanvasPendingTransaction({
-							spaceId: options.getSpaceId(),
+		const flush = (async () => {
+			try {
+				do {
+					pendingFlushRequested.delete(documentId);
+					while (true) {
+						const pending = await listCanvasPendingTransactions(
+							options.getSpaceId(),
 							documentId,
-							txId: tx.txId,
-						});
-					} catch (error) {
-						const attempts = conflictAttemptsByDocumentId[documentId] ?? 0;
-						if (isVersionConflict(error) && attempts < MAX_CONFLICT_RECOVERY) {
-							// A recovery is already in flight: this stale tx will be superseded
-							// by the rebase re-commit, so stop rather than re-recovering.
-							if (pendingRecoveryCleanup.has(documentId)) break;
-							conflictAttemptsByDocumentId[documentId] = attempts + 1;
-							// Rebase onto the server truth and restart the loop; the editor
-							// re-commits a fresh transaction with the correct base version.
-							await recoverFromConflict(documentId);
-							break;
+						);
+						if (pending.length === 0) break;
+						const tx = pending[0];
+						if (!tx) break;
+						await markCanvasPendingTransactionAttempt(tx);
+						try {
+							const result = await sdk
+								.space(options.getSpaceId())
+								.sendCanvasTransactionRealtime(documentId, {
+									txId: tx.txId,
+									baseVersion: tx.baseVersion,
+									ops: tx.ops,
+								});
+							syncVersionByDocumentId = {
+								...syncVersionByDocumentId,
+								[documentId]: result.document.version,
+							};
+							// A successful commit resets the conflict-recovery budget.
+							delete conflictAttemptsByDocumentId[documentId];
+							// Remember our own txId so the echoed realtime event is skipped.
+							ownTxIds.add(tx.txId);
+							if (ownTxIds.size > 256) {
+								const oldest = ownTxIds.values().next().value;
+								if (oldest) ownTxIds.delete(oldest);
+							}
+							await deleteCanvasPendingTransaction({
+								spaceId: options.getSpaceId(),
+								documentId,
+								txId: tx.txId,
+							});
+						} catch (error) {
+							const attempts = conflictAttemptsByDocumentId[documentId] ?? 0;
+							if (
+								isVersionConflict(error) &&
+								attempts < MAX_CONFLICT_RECOVERY
+							) {
+								// A recovery is already in flight: this stale tx will be superseded
+								// by the rebase re-commit, so stop rather than re-recovering.
+								if (pendingRecoveryCleanup.has(documentId)) break;
+								conflictAttemptsByDocumentId[documentId] = attempts + 1;
+								// Rebase onto the server truth and restart the loop; the editor
+								// re-commits a fresh transaction with the correct base version.
+								await recoverFromConflict(documentId);
+								break;
+							}
+							throw error;
 						}
-						throw error;
 					}
-				}
-			} while (pendingFlushRequested);
-		} finally {
-			pendingFlush = false;
-		}
+				} while (pendingFlushRequested.delete(documentId));
+			} finally {
+				pendingFlushByDocumentId.delete(documentId);
+			}
+		})();
+		pendingFlushByDocumentId.set(documentId, flush);
+		return flush;
 	}
 
 	/**
@@ -309,7 +320,7 @@ export function createCanvasPreviewController(
 						...item,
 						document: canvasBootstrapToDocument(bootstrap),
 						saving: false,
-						error: null,
+						saveError: null,
 					}
 				: item,
 		);
@@ -358,15 +369,32 @@ export function createCanvasPreviewController(
 		}
 		options.onMarkSavePending?.(savingPath);
 		canvases = canvases.map((item) =>
-			item.path === savingPath ? { ...item, saving: true, error: null } : item,
+			item.path === savingPath
+				? { ...item, saving: true, saveError: null }
+				: item,
 		);
-		await writeCanvasPendingTransaction({
-			spaceId: options.getSpaceId(),
-			documentId,
-			txId,
-			baseVersion: syncVersionByDocumentId[documentId] ?? null,
-			ops,
-		});
+		try {
+			await writeCanvasPendingTransaction({
+				spaceId: options.getSpaceId(),
+				documentId,
+				txId,
+				baseVersion: syncVersionByDocumentId[documentId] ?? null,
+				ops,
+			});
+		} catch (error) {
+			canvases = canvases.map((item) =>
+				item.path === savingPath
+					? {
+							...item,
+							saving: false,
+							saveError: error instanceof Error ? error.message : "Sync failed",
+						}
+					: item,
+			);
+			options.onClearSavePendingSoon?.(savingPath);
+			void drainRemoteRefresh(documentId);
+			throw error;
+		}
 		// The fresh (rebase) transaction is now durable; it supersedes any stale
 		// pending txs from an in-flight recovery, so they can be safely removed.
 		if (pendingRecoveryCleanup.has(documentId))
@@ -378,7 +406,7 @@ export function createCanvasPreviewController(
 			await flushPendingTransactions(documentId);
 			canvases = canvases.map((item) =>
 				item.path === savingPath
-					? { ...item, saving: false, error: null }
+					? { ...item, saving: false, saveError: null }
 					: item,
 			);
 		} catch (error) {
@@ -387,7 +415,7 @@ export function createCanvasPreviewController(
 					? {
 							...item,
 							saving: false,
-							error:
+							saveError:
 								error instanceof Error
 									? error.message
 									: "Canvas changes are saved locally and will retry.",
@@ -408,7 +436,7 @@ export function createCanvasPreviewController(
 
 	function isBusy(documentId: string): boolean {
 		const canvas = canvases.find((item) => item.documentId === documentId);
-		return Boolean(canvas?.saving || pendingFlush);
+		return Boolean(canvas?.saving || pendingFlushByDocumentId.has(documentId));
 	}
 
 	/**
@@ -578,12 +606,38 @@ export function createCanvasPreviewController(
 
 	function setCanvasError(documentId: string, error: string) {
 		canvases = canvases.map((canvas) =>
-			canvas.documentId === documentId ? { ...canvas, error } : canvas,
+			canvas.documentId === documentId
+				? { ...canvas, saveError: error }
+				: canvas,
 		);
 	}
 
 	function setError(documentId: string, error: string) {
 		setCanvasError(documentId, error);
+	}
+
+	async function retryCanvasSave(path = activeCanvasPath) {
+		const canvas = canvases.find((item) => item.path === path);
+		if (!canvas?.documentId || options.getReadonly?.()) return;
+		canvases = canvases.map((item) =>
+			item.path === path ? { ...item, saving: true, saveError: null } : item,
+		);
+		try {
+			await flushPendingTransactions(canvas.documentId);
+			canvases = canvases.map((item) =>
+				item.path === path ? { ...item, saving: false, saveError: null } : item,
+			);
+		} catch (error) {
+			canvases = canvases.map((item) =>
+				item.path === path
+					? {
+							...item,
+							saving: false,
+							saveError: error instanceof Error ? error.message : "Sync failed",
+						}
+					: item,
+			);
+		}
 	}
 
 	function applyBootstrap(
@@ -601,7 +655,7 @@ export function createCanvasPreviewController(
 				? {
 						...item,
 						document: canvasBootstrapToDocument(bootstrap),
-						error: null,
+						saveError: null,
 					}
 				: item,
 		);
@@ -621,6 +675,7 @@ export function createCanvasPreviewController(
 		closeCanvas,
 		activateCanvas,
 		commitCanvas,
+		retryCanvasSave,
 		flushPendingTransactions,
 		requestRemoteRefresh,
 		requestRemoteOps,
