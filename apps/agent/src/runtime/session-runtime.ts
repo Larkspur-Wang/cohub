@@ -11,6 +11,8 @@ import { buildCohubSystemPrompt } from "./system-prompt-builder.js";
 import { recordLlmUsage, startLlmRoundSpan, getAgentTracer } from "@cohub/infra/tracing/agent";
 import { getCurrentToolExecutionContext, runWithToolExecutionContext, type ToolExecutionContext } from "../tool-context.js";
 import { isToolFailureDetails } from "./tools/index.js";
+import { applyRequestProfile } from "./request-profile.js";
+import { mergeHeaders } from "@cohub/infra/config-runtime/models";
 
 import type { SpaceModListItem } from "@cohub/core/space-mods";
 
@@ -544,8 +546,10 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
         if (toolCtx?.assistantMessageTiming && !toolCtx.assistantMessageTiming.startedAt) {
           toolCtx.assistantMessageTiming.startedAt = new Date().toISOString();
         }
-        const headers = runtime.modelRegistry.getHeaders(model.provider, model.id);
-        const streamHeaders = headers ? { ...headers, ...(options?.headers ?? {}) } : options?.headers;
+        const streamHeaders = mergeHeaders(
+          runtime.modelRegistry.getHeaders(model.provider, model.id),
+          options?.headers as Record<string, string> | undefined,
+        );
         if (toolCtx?.spaceId && toolCtx.sessionId) {
           const at = new Date().toISOString();
           await sendOutput({
@@ -565,11 +569,10 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
           });
         }
         const models = createModelsFromRegistry(runtime.modelRegistry, model);
-        const stream = streamSimpleWithModels(models, model, ctx, {
+        const requestOptions = applyRequestProfile(model as CohubModel, {
           ...options,
           headers: model.provider === "cohub"
-            ? {
-                ...streamHeaders,
+            ? mergeHeaders(streamHeaders, {
                 "x-litellm-track-extra": JSON.stringify({
                   user_uuid: runtime.userId,
                   cohub_space_uuid: toolCtx?.spaceId ?? null,
@@ -577,9 +580,10 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
                   cohub_turn_uuid: toolCtx?.turnId ?? null,
                   cohub_llm_round: round,
                 }),
-              }
+              })
             : streamHeaders,
         });
+        const stream = streamSimpleWithModels(models, model, ctx, requestOptions);
 
         return wrapAssistantMessageStream(stream, {
           model,
@@ -691,6 +695,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       messages: sessionContext.messages,
     },
     steeringMode: "all",
+    sessionId: options.sessionManager.getSessionId(),
     convertToLlm: toLlmMessages,
     streamFn: createStreamFn(getRuntime),
     getApiKey: (provider: string) => runtimeModelRegistry.getApiKey(provider),

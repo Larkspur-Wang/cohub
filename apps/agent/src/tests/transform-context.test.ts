@@ -97,9 +97,9 @@ await withSession(async (sessionManager) => {
     tools: [] as AgentTool[],
   });
 
-  // Replace the streamFn with a mock that records message counts.
+  // Replace the stream function with a mock that records message counts.
   const recorded = { messageCounts: [] as number[] };
-  (session.agent as unknown as { streamFn: unknown }).streamFn = createMockStreamFn(recorded);
+  session.agent.streamFunction = createMockStreamFn(recorded);
 
   let transformCalls = 0;
   const originalTransform = session.agent.transformContext;

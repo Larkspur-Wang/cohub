@@ -58,11 +58,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sandbox-controller
       '@earendil-works/pi-agent-core':
-        specifier: 0.80.7
-        version: 0.80.7(ws@8.21.1)(zod@4.4.3)
+        specifier: 0.81.1
+        version: 0.81.1(ws@8.21.1)(zod@4.4.3)
       '@earendil-works/pi-ai':
-        specifier: 0.80.7
-        version: 0.80.7(ws@8.21.1)(zod@4.4.3)
+        specifier: 0.81.1
+        version: 0.81.1(ws@8.21.1)(zod@4.4.3)
       '@opentelemetry/api':
         specifier: ^1.9.1
         version: 1.9.1
@@ -161,8 +161,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/sandbox-controller
       '@earendil-works/pi-ai':
-        specifier: 0.80.7
-        version: 0.80.7(ws@8.21.0)(zod@4.4.3)
+        specifier: 0.81.1
+        version: 0.81.1(ws@8.21.0)(zod@4.4.3)
       '@hono/node-server':
         specifier: 2.0.9
         version: 2.0.9(hono@4.12.30)
@@ -1738,12 +1738,12 @@ packages:
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
 
-  '@earendil-works/pi-agent-core@0.80.7':
-    resolution: {integrity: sha512-EFjyAuoz2kn24sR9Q5A86sZCG6mD+nz58DCsA2I2wxgmS50cF1tSLCBOZaHKI5U9Y3pJs4BefeK3LRkB5TdJag==}
+  '@earendil-works/pi-agent-core@0.81.1':
+    resolution: {integrity: sha512-yqbh68CyhqxMov/jUogFJfMqlu2Gd37GAki+tr59YCmAPHfomiCA5ESzusXtpGzABeiZFC/OrRdQ4GwCCOMIHA==}
     engines: {node: '>=22.19.0'}
 
-  '@earendil-works/pi-ai@0.80.7':
-    resolution: {integrity: sha512-8RLKLwe5TFM9kKFMNu/lTzveduq4GxZbnlG6ba8FAhLeb5wJP4zbj1eBumKBRvggpFQnW5R/Vo2a8zTlHsV9SQ==}
+  '@earendil-works/pi-ai@0.81.1':
+    resolution: {integrity: sha512-hzHE7Z8l5mgJk+ke67Lge0rwS2+wbKJrFKl9o5M1R1rh33+cCT7D1AHz1OAtX5wFs90E1/BTGhyJRTUHaMxGvQ==}
     engines: {node: '>=22.19.0'}
     hasBin: true
 
@@ -8262,9 +8262,9 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
-  '@earendil-works/pi-agent-core@0.80.7(ws@8.21.1)(zod@4.4.3)':
+  '@earendil-works/pi-agent-core@0.81.1(ws@8.21.1)(zod@4.4.3)':
     dependencies:
-      '@earendil-works/pi-ai': 0.80.7(ws@8.21.1)(zod@4.4.3)
+      '@earendil-works/pi-ai': 0.81.1(ws@8.21.1)(zod@4.4.3)
       ignore: 7.0.5
       typebox: 1.1.38
       yaml: 2.9.0
@@ -8276,7 +8276,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.80.7(ws@8.21.0)(zod@4.4.3)':
+  '@earendil-works/pi-ai@0.81.1(ws@8.21.0)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0
@@ -8297,7 +8297,7 @@ snapshots:
       - ws
       - zod
 
-  '@earendil-works/pi-ai@0.80.7(ws@8.21.1)(zod@4.4.3)':
+  '@earendil-works/pi-ai@0.81.1(ws@8.21.1)(zod@4.4.3)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.4.3)
       '@aws-sdk/client-bedrock-runtime': 3.1048.0

@@ -178,6 +178,11 @@ export async function maybeAutoCompact(
         return { compacted: false, reason: `compact_failed: ${compactResult.error.message}` };
       }
       const result = compactResult.value;
+      if (!result.firstKeptEntryId) {
+        span.setAttribute("agent.compaction.error", "missing_first_kept_entry_id");
+        logger.warn(`[Compaction] missing firstKeptEntryId sessionId=${handle.sessionId}`);
+        return { compacted: false, reason: "missing_first_kept_entry_id" };
+      }
 
       // ── Adjust cut point to turn boundary ──
       // Pi's findCutPoint may split a turn (firstKeptEntryId = mid-turn message).

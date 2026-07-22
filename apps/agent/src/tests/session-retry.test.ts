@@ -100,7 +100,7 @@ async function withSession(
     tools: [] as AgentTool[],
   });
   const calls = { count: 0 };
-  (session.agent as unknown as { streamFn: StreamFn }).streamFn = createMockStream(outcomes, calls);
+  session.agent.streamFunction = createMockStream(outcomes, calls);
 
   try {
     await run({ session, sessionManager, calls });

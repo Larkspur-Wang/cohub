@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   createCachedModelsConfig,
   getUserModelsRedisKey,
+  mergeHeaders,
   mergeModelsConfigs,
   MODELS_CACHE_TTL_SEC,
   parseCachedModelsConfig,
@@ -24,6 +25,7 @@ const inflightByKey = new Map<string, Promise<ModelsConfig | null>>();
 
 export type RuntimeLlmModel = Model<Api> & {
   defaultThinkingLevel?: ModelDef["defaultThinkingLevel"];
+  requestProfile?: ModelDef["requestProfile"];
 };
 
 function resolveApiKey(value: string | undefined): string | undefined {
@@ -132,7 +134,6 @@ export async function loadRuntimeModelsConfigs(userId?: string | null): Promise<
 export class CompletionModelRegistry {
   private models: RuntimeLlmModel[] = [];
   private providerApiKeys = new Map<string, string>();
-  private providerHeaders = new Map<string, Record<string, string>>();
 
   constructor(configs: Array<ModelsConfig | null | undefined>) {
     const merged = mergeModelsConfigs(...configs.filter((item): item is ModelsConfig => Boolean(item)));
@@ -141,7 +142,6 @@ export class CompletionModelRegistry {
     for (const [provider, providerConfig] of Object.entries(merged.providers ?? {})) {
       const apiKey = resolveApiKey((providerConfig as ProviderConfig).apiKey);
       if (apiKey) this.providerApiKeys.set(provider, apiKey);
-      if (providerConfig.headers) this.providerHeaders.set(provider, providerConfig.headers);
 
       for (const modelDef of providerConfig.models ?? []) {
         const api = modelDef.api ?? providerConfig.api;
@@ -161,7 +161,8 @@ export class CompletionModelRegistry {
           cost: normalizeModelCost(modelDef.cost),
           contextWindow: modelDef.contextWindow ?? 128000,
           maxTokens: modelDef.maxTokens ?? 16384,
-          headers: modelDef.headers,
+          requestProfile: modelDef.requestProfile ?? providerConfig.requestProfile,
+          headers: mergeHeaders(providerConfig.headers, modelDef.headers),
           compat: (modelDef.compat ?? providerConfig.compat) as Model<Api>["compat"],
         } as RuntimeLlmModel);
       }
@@ -187,8 +188,7 @@ export class CompletionModelRegistry {
   }
 
   getHeaders(provider: string, modelId?: string) {
-    const model = modelId ? this.find(provider, modelId) : undefined;
-    return model?.headers ?? this.providerHeaders.get(provider);
+    return modelId ? this.find(provider, modelId)?.headers : undefined;
   }
 }
 

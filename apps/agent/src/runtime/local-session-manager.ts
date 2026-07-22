@@ -269,6 +269,11 @@ export class SessionManager {
     return null;
   }
 
+  getSessionId(): string {
+    if (!this.header) throw new Error("Session has not been initialized");
+    return this.header.id;
+  }
+
   newSession(options: { id?: string; parentSession?: string }) {
     this.header = {
       type: "session",
