@@ -80,7 +80,7 @@ function isRetryableProviderError(message: AssistantMessage | undefined): boolea
   if (COHUB_NON_RETRYABLE_ERROR_PATTERN.test(message.errorMessage)) return false;
 
   const status = getHttpErrorStatus(message.errorMessage);
-  if (status != null) return status === 408 || status === 429 || status >= 500;
+  if (status != null) return status === 408 || status === 413 || status === 429 || status >= 500;
   if (COHUB_MODEL_UNAVAILABLE_PATTERN.test(message.errorMessage)) return false;
 
   return isRetryableAssistantError(message) || COHUB_RETRYABLE_ERROR_PATTERN.test(message.errorMessage);
@@ -98,12 +98,22 @@ function isEmptySuccessfulAssistantMessage(message: AssistantMessage | undefined
 }
 
 /**
+ * Supplementary overflow patterns not yet covered by upstream pi-ai.
+ * The cohub provider proxy returns Chinese error messages on context overflow.
+ */
+const LOCAL_OVERFLOW_PATTERNS = [
+  /超过系统限制/, // Cohub proxy: "输入Tokens数量(N)超过系统限制(M)"
+];
+
+/**
  * Explicit context-window overflow (provider error). Silent / length-stop overflow
  * is intentionally excluded so we never discard a successful-looking response.
  */
 export function isContextOverflowFailure(message: AssistantMessage | undefined): boolean {
   if (message?.stopReason !== "error" || !message.errorMessage) return false;
-  return isContextOverflow(message);
+  if (isContextOverflow(message)) return true;
+  const errorMessage = message.errorMessage;
+  return LOCAL_OVERFLOW_PATTERNS.some((p) => p.test(errorMessage));
 }
 
 export function isRetryableAssistantFailure(message: AssistantMessage | undefined): boolean {
