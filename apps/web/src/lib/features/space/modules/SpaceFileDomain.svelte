@@ -354,8 +354,13 @@ $effect.pre(() => {
 });
 </script>
 
+<div
+	class="preview-surface-stack"
+	data-active-preview-kind={activePreviewKind ?? undefined}
+>
 {#if activePreviewKind === "file" && inlineFile}
-	<InlineFilePanel
+	<div class="preview-surface preview-surface--file">
+		<InlineFilePanel
 		{inlineFile}
 		{previewTabs}
 		{treeVisible}
@@ -412,11 +417,13 @@ $effect.pre(() => {
 		onRenameFilePath={(path: string) => onRenameNode(onGetFileActionNode(path))}
 		onDeleteFilePath={(path: string) => onDeleteNode(onGetFileActionNode(path))}
 		onVisibleLinesChange={onVisibleLinesChange}
-	/>
+		/>
+	</div>
 {/if}
 
 {#if activePreviewKind === "canvas" && inlineCanvas}
-	<CanvasPreviewPanel
+	<div class="preview-surface preview-surface--canvas">
+		<CanvasPreviewPanel
 		canvas={inlineCanvas}
 		previewTabs={previewTabs}
 		spaceId={spaceId}
@@ -435,11 +442,13 @@ $effect.pre(() => {
 		onCommit={onCommitInlineCanvas}
 		onClose={onCloseInlineCanvas}
 		onViewStateChange={onCanvasViewStateChange}
-	/>
+		/>
+	</div>
 {/if}
 
 {#if activePreviewKind === "port" && inlinePortPreview}
-	<PortPreviewPanel
+	<div class="preview-surface preview-surface--port">
+		<PortPreviewPanel
 		previewTabs={previewTabs}
 		{treeVisible}
 		{onToggleTree}
@@ -459,8 +468,10 @@ $effect.pre(() => {
 		onToggleImmersive={onTogglePreviewImmersiveMode}
 		onPublish={() => onOpenWorkPublish("port", inlinePortPreview!.port)}
 		onClose={onCloseInlinePort}
-	/>
+		/>
+	</div>
 {/if}
+</div>
 
 <FilesSidebarPanel
 	{spaceId}
@@ -526,3 +537,24 @@ $effect.pre(() => {
 	onSpaceUpdated={handleSpaceUpdated}
 	onClose={onCloseWorkPublish}
 />
+
+<style>
+	.preview-surface-stack,
+	.preview-surface {
+		display: contents;
+	}
+
+	/*
+	 * Svelte keeps an outgoing preview pane mounted until its outro settles.
+	 * During an internal tab switch, hide that stale surface immediately so a
+	 * fixed mobile canvas/port pane cannot paint through the incoming file tab.
+	 */
+	.preview-surface-stack[data-active-preview-kind="file"]
+		> .preview-surface:not(.preview-surface--file),
+	.preview-surface-stack[data-active-preview-kind="canvas"]
+		> .preview-surface:not(.preview-surface--canvas),
+	.preview-surface-stack[data-active-preview-kind="port"]
+		> .preview-surface:not(.preview-surface--port) {
+		display: none;
+	}
+</style>
