@@ -6,10 +6,15 @@ All notable changes to Cohub are documented in this file.
 
 ## v1.107 — 2026-07-22
 
-- **Canvas Media Renderer**: Native image and video node types with aspect-preserving frames, natural sizing, optimized asset caching, and media-first geometry for seamless multi-device collaboration.
-- **Schema Refactor**: Forward-compatible canvas schema with media snapshots, lossless unknown item handling, refined zoom viewport (0.05-8x), and updated geometry utilities.
-- **Color Engine & SVG Export**: Production-ready CSS color resolver supporting oklch/HEX/RGB with theme vars, plus enhanced SVG export for all shapes including transparent media.
-- **Editor Performance & Interaction**: Svelte canvas editor polish with continuous creation tools, snapping, drag/resize refinements, and zero layout thrashing for buttery UX.
+- **Unified preview workspace**: File, port, and canvas previews now share one responsive shell with consistent tabs, mobile chrome, and pinned Focus / Float controls.
+- **Canvas media and editing**: Native image and video renderers preserve aspect ratio and natural sizing, while continuous creation tools, snapping, resize behavior, and text auto-size make editing more predictable.
+- **Theme-aware canvas**: Shape colors resolve from CSS theme tokens, including per-Space `theme.css`, with an expanded color parser and SVG export that preserve custom appearance.
+- **Stable Mermaid interaction**: Rendered SVG survives DOM cleanup, and touch gestures stay isolated from the surrounding message timeline.
+
+### Bug Fixes
+
+- Prevent file, port, and canvas preview surfaces from overlapping during navigation.
+- Retry upstream response failures in the Agent runtime.
 
 ## v1.106 — 2026-07-22
 
