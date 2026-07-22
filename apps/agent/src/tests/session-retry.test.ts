@@ -133,6 +133,7 @@ const retryableMessages = [
   "stream_read_error",
   "upstream_error: Upstream request failed",
   "400 upstream_error: Upstream request failed",
+  '400: {"message":"upstream response failed: status=400, method=POST, model=grok-4.5, input=media","type":"bad_response_status_code","code":"bad_response_status_code","metadata":{"origin":"upstream","stage":"upstream_response","upstream_status_code":400}}',
   "You can retry your request",
   "ResourceExhausted",
 ];
@@ -144,6 +145,8 @@ for (const errorMessage of [
   "403 insufficient_user_quota: remaining quota 500 credits",
   "429 billing quota exceeded",
   "400 Invalid URL containing value 500",
+  "400 Bad Request",
+  '400: {"message":"invalid request","type":"invalid_request_error"}',
   "insufficient quota: remaining 500 credits",
   "invalid request: max_tokens must be <= 500",
   "当前可用额度不足，请充值，最低充值金额为 500 元",

@@ -63,7 +63,7 @@ function resolveThinkingLevelForModel(model: CohubModel, requested?: string | nu
   return clampThinkingLevel(model, level) as ThinkingLevel;
 }
 
-const COHUB_RETRYABLE_ERROR_OVERRIDE_PATTERN = /\b400\b.*upstream(?:_error)?:?\s*upstream request failed/i;
+const COHUB_RETRYABLE_ERROR_OVERRIDE_PATTERN = /\b400\b.*(?:upstream(?:_error)?:?\s*upstream request failed|upstream response failed.*(?:bad_response_status_code|stage["']?\s*[:=]\s*["']?upstream_response))/i;
 const COHUB_NON_RETRYABLE_ERROR_PATTERN = /insufficient[_ ](?:user[_ ])?quota|quota exceeded|out of budget|billing|余额不足|额度不足|invalid (?:request|url)|content[_ ]filter|request (?:is )?too large|payload too large/i;
 const COHUB_MODEL_UNAVAILABLE_PATTERN = /model (?:is )?(?:(?:not )?available|unavailable)|requested model is not available/i;
 const COHUB_RETRYABLE_ERROR_PATTERN = /responses_missing_terminal|anthropic_missing_message_stop|upstream_temporarily_unavailable|stream_read_error|stream ended before a terminal response event|upstream service temporarily unavailable|upstream request failed/i;
