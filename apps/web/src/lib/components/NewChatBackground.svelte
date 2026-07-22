@@ -107,11 +107,11 @@ $effect(() => {
     right: 0;
     bottom: 0;
     left: 0;
-    height: min(34dvh, 260px);
+    height: min(22dvh, 160px);
     background: linear-gradient(
       to top,
-      var(--bg-content) 0%,
-      color-mix(in srgb, var(--bg-content) 76%, transparent) 42%,
+      color-mix(in srgb, var(--bg-content) 82%, transparent) 0%,
+      color-mix(in srgb, var(--bg-content) 40%, transparent) 50%,
       transparent 100%
     );
     pointer-events: none;

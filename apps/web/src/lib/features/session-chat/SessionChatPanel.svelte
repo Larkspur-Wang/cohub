@@ -75,6 +75,9 @@ const generationBooleanConstraints = $derived(
 	host.generationBooleanConstraints,
 );
 const activeSessionModel = $derived(host.activeSessionModel);
+const hasCustomPage = $derived(
+	shouldShowNewChatProfile || shouldShowNewChatBackground,
+);
 
 $effect(() => {
 	const el = listEl;
@@ -320,11 +323,14 @@ async function handleDraftDrop(event: DragEvent) {
 		{/if}
 		<div
 			bind:this={chatChromeEl}
-			class="chat-chrome relative z-10 shrink-0 bg-bg-content"
+			class="chat-chrome relative z-10 shrink-0"
+			class:bg-bg-content={!hasCustomPage}
+			class:chat-chrome--overlay={hasCustomPage}
 		>
 			{#if followupQueue.length > 0}
 				<div
-					class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 bg-bg-content px-4 py-2 sm:px-6"
+					class="mx-auto w-full max-w-4xl border-t border-border-subtle/70 px-4 py-2 sm:px-6"
+					class:bg-bg-content={!hasCustomPage}
 				>
 					<div
 						class="mb-1 flex items-center gap-2 text-[11px] text-text-placeholder"
@@ -508,6 +514,7 @@ async function handleDraftDrop(event: DragEvent) {
 			onSelect={host.handleModelSelect}
 			models={modelsCatalog ?? []}
 			currentModel={activeSessionModel}
+			thinkingLevelModel={host.activeSessionTurnModel ?? activeSessionModel}
 			currentThinkingLevel={host.activeSessionThinkingLevel}
 			generationModels={generationModelsCatalog ?? []}
 			{generationPolicyMode}
@@ -526,3 +533,15 @@ async function handleDraftDrop(event: DragEvent) {
 		/>
 	</div>
 {/if}
+
+<style>
+	.chat-chrome--overlay {
+		background: linear-gradient(
+			to bottom,
+			transparent 0%,
+			color-mix(in srgb, var(--bg-content) 48%, transparent) 30%,
+			color-mix(in srgb, var(--bg-content) 82%, transparent) 65%,
+			var(--bg-content) 100%
+		);
+	}
+</style>
