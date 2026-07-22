@@ -141,6 +141,7 @@ import {
 	getSourceLabels,
 	getSystemChannelLabels,
 	getSystemUserLabels,
+	isSystemLabel,
 	isWebSessionSource,
 	SESSION_SOURCE_LABEL_SYSTEM_KEY_PREFIX,
 } from "$lib/stores/sidebar-source-labels";
@@ -1943,7 +1944,7 @@ function getDropResource(event: DragEvent): {
 }
 
 function canAssignResourceToLabel(label: LabelListItem) {
-	return canAssignLabels && label.source === "user";
+	return canAssignLabels && !isSystemLabel(label, labels);
 }
 
 function handleLabelDragOver(event: DragEvent, label: LabelListItem) {
@@ -3339,6 +3340,7 @@ $effect(() => {
 				{#each orderedItems as item (item.id)}
 					{@const isActive = isLabelAssignmentActive(item)}
 					{@const itemDraggable = isDraggableLabelItem(item)}
+					{@const canRemoveItem = canEditLabelItems && item.source !== "system"}
 					{@const labelRemoveTitle = `Remove from “${getReactiveLabelDisplayName(label)}”`}
 					{#if item.resourceType === "session" && labelSessionsById.get(item.resourceRef)}
 						{@const session = labelSessionsById.get(item.resourceRef)!}
@@ -3363,7 +3365,7 @@ $effect(() => {
 									}
 								: undefined}
 							draggable={itemDraggable}
-							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
+							removeLabelTitle={canRemoveItem ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={(target) => void handleNavigateToSession(target.id)}
 							onDoubleClick={handleSessionRowDoubleClick}
@@ -3372,7 +3374,7 @@ $effect(() => {
 							onRenameValueChange={(value) => { renameTitleValue = value; }}
 							onSubmitRename={(target) => void submitRenameSession(target)}
 							onCancelRename={cancelRenameSession}
-							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
+							onRemoveLabel={canRemoveItem ? () => void removeLabelAssignment(label, item) : undefined}
 							onDragStart={(event) => handleLabelItemDragStart(event, label, item)}
 							onDragEnd={handleResourceDragEnd}
 						/>
@@ -3382,10 +3384,10 @@ $effect(() => {
 							{checkpoint}
 							href={buildSpaceCheckpointRoute(currentSpaceId!, checkpoint.id)}
 							active={isActive}
-							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
+							removeLabelTitle={canRemoveItem ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={(target) => void handleNavigateToCheckpoint(target.id)}
-							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
+							onRemoveLabel={canRemoveItem ? () => void removeLabelAssignment(label, item) : undefined}
 						/>
 					{:else if item.resourceType === "file"}
 						<SidebarFileRow
@@ -3395,20 +3397,20 @@ $effect(() => {
 							href={labelAssignmentHref(item)}
 							active={isActive}
 							{isMobile}
-							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
+							removeLabelTitle={canRemoveItem ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={() => void handleNavigate(labelAssignmentHref(item))}
 							onInsert={insertPathReference}
-							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
+							onRemoveLabel={canRemoveItem ? () => void removeLabelAssignment(label, item) : undefined}
 						/>
 					{:else}
 						<SidebarFallbackResourceRow
 							{item}
 							active={isActive}
-							removeLabelTitle={canEditLabelItems ? labelRemoveTitle : undefined}
+							removeLabelTitle={canRemoveItem ? labelRemoveTitle : undefined}
 							removeLabelDisabled={labelDropBusyId === label.id}
 							onNavigate={(href) => void handleNavigate(href)}
-							onRemoveLabel={canEditLabelItems ? () => void removeLabelAssignment(label, item) : undefined}
+							onRemoveLabel={canRemoveItem ? () => void removeLabelAssignment(label, item) : undefined}
 						/>
 					{/if}
 				{/each}

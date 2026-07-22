@@ -96,7 +96,20 @@ export function getSystemChannelLabels(labels: LabelListItem[]) {
 }
 
 export function getDisplayLabels(labels: LabelListItem[]) {
-	return labels.filter((label) => label.source === "user");
+	return labels.filter((label) => !isSystemLabel(label, labels));
+}
+
+export function isSystemLabel(
+	label: LabelListItem,
+	allLabels: LabelListItem[] = [],
+): boolean {
+	if (label.source === "system" || label.systemKey != null) return true;
+	if (label.source !== "user") return true;
+	if (label.parentId && allLabels.length > 0) {
+		const parent = allLabels.find((l) => l.id === label.parentId);
+		if (parent && isSystemLabel(parent, allLabels)) return true;
+	}
+	return false;
 }
 
 export function findWebAppSourceLabel(labels: LabelListItem[]) {
