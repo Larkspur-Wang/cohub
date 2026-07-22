@@ -41,6 +41,14 @@ test("preview kinds share one workspace pane", () => {
 		new URL("../lib/components/PortPreview.svelte", import.meta.url),
 		"utf8",
 	);
+	const codeEditor = readFileSync(
+		new URL("../lib/components/CodeEditor.svelte", import.meta.url),
+		"utf8",
+	);
+	const sharedMobileChrome = readFileSync(
+		new URL("MobilePreviewTabsChrome.svelte", modules),
+		"utf8",
+	);
 
 	assert.equal(domain.match(/<WorkspacePreviewPane\b/g)?.length, 1);
 	assert.equal(domain.match(/<PreviewTabs\b/g)?.length, 1);
@@ -62,4 +70,16 @@ test("preview kinds share one workspace pane", () => {
 	);
 	assert.match(mobileChrome, /inlineFileCanGoBack/);
 	assert.match(mobileChrome, /onBackInlineFile/);
+	assert.match(panels[0], /allowDrawerSwipe=\{isMobile\}/);
+	assert.match(
+		codeEditor,
+		/data-drawer-swipe-ignore=\{allowDrawerSwipe \? undefined : ""\}/,
+	);
+	assert.match(
+		codeEditor,
+		/class:cm-wrapper--drawer-swipe=\{allowDrawerSwipe\}/,
+	);
+	assert.match(portPreview, /data-drawer-swipe-ignore/);
+	assert.match(sharedMobileChrome, /PanelRightOpen/);
+	assert.doesNotMatch(sharedMobileChrome, /FolderOpen/);
 });

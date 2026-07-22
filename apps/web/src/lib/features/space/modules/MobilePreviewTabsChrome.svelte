@@ -1,5 +1,5 @@
 <script lang="ts">
-import { FolderOpen, Menu } from "lucide-svelte";
+import { Menu, PanelRightOpen } from "lucide-svelte";
 import type { Snippet } from "svelte";
 import { uiState } from "$lib/stores/ui.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
@@ -45,7 +45,7 @@ const {
 			uiState.mobileRightDrawerOpen = true;
 		}}
 	>
-		<FolderOpen class="h-5 w-5" />
+		<PanelRightOpen class="h-5 w-5" />
 	</button>
 </div>
 

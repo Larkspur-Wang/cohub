@@ -558,6 +558,7 @@ $effect(() => {
 			<LazyCodeEditor
 				value={inlineFile.draft}
 				language={inlineFileExt}
+				allowDrawerSwipe={isMobile}
 				initialPosition={inlineFile.position}
 				onInput={(v) => onUpdateInlineFileDraft(editorPath, v)}
 				onVisibleLinesChange={(range) =>
