@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import type { ModelsConfig } from "@cohub/infra/config-runtime/models";
 import { CohubModelRegistry } from "../runtime/model-registry.js";
 import { applyRequestProfile, type ProfiledModel } from "../runtime/request-profile.js";
@@ -36,10 +36,11 @@ assert.deepEqual(model.headers, {
 const sessionId = "x".repeat(67);
 const options = applyRequestProfile(model, {
   sessionId,
+  threadId: "thread-branch",
   headers: { "Session-Id": "override", "X-Request": "request" },
-} satisfies SimpleStreamOptions);
+});
 assert.deepEqual(options.headers, {
-  "thread-id": "x".repeat(64),
+  "thread-id": "thread-branch",
   "Session-Id": "override",
   "X-Request": "request",
 });

@@ -8,6 +8,11 @@ import { createLogger } from "@cohub/infra/logging";
 
 
 const logger = createLogger({ serviceName: "cohub-agent" });
+export type SessionAffinity = {
+  sessionId: string;
+  threadId: string;
+};
+
 export type SessionHeader = {
   type: "session";
   version?: number;
@@ -15,6 +20,7 @@ export type SessionHeader = {
   timestamp: string;
   cwd: string;
   parentSession?: string;
+  affinity?: SessionAffinity;
   /** Relative path to the pre-compaction archive, set when the file is rewritten after compaction. */
   compactionArchive?: string;
 };
@@ -274,14 +280,21 @@ export class SessionManager {
     return this.header.id;
   }
 
+  getSessionAffinity(): SessionAffinity {
+    if (!this.header) throw new Error("Session has not been initialized");
+    return this.header.affinity ?? { sessionId: this.header.id, threadId: this.header.id };
+  }
+
   newSession(options: { id?: string; parentSession?: string }) {
+    const sessionId = options.id ?? createSessionId();
     this.header = {
       type: "session",
       version: 3,
-      id: options.id ?? createSessionId(),
+      id: sessionId,
       timestamp: nowIso(),
       cwd: this.cwd,
       parentSession: options.parentSession,
+      affinity: { sessionId, threadId: sessionId },
     };
     this.entries = [];
     this.byId.clear();
@@ -626,6 +639,7 @@ export class SessionManager {
       timestamp: nowIso(),
       cwd: this.cwd,
       parentSession: options?.parentSession ?? this.sessionFile,
+      affinity: { sessionId: this.getSessionAffinity().sessionId, threadId: newSessionId },
     };
     await this.ensureSessionDir();
     const lines = `${[JSON.stringify(header), ...pathEntries.map((entry) => JSON.stringify(entry))].join("\n")}\n`;

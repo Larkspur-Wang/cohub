@@ -28,6 +28,23 @@ try {
   const reopened = await SessionManager.open(sessionFile, sessionsDir);
   assert.equal(reopened.hasUserMessage("user-message-1"), true);
   assert.equal(reopened.buildSessionContext().messages.length, 1);
+  assert.deepEqual(reopened.getSessionAffinity(), { sessionId: "session", threadId: "session" });
+
+  const childSessionFile = join(sessionsDir, "child.jsonl");
+  await reopened.createBranchedSession(reopened.getBranchEntries().at(-1)?.id ?? "", {
+    id: "child",
+    filePath: childSessionFile,
+  });
+  const child = await SessionManager.open(childSessionFile, sessionsDir);
+  assert.deepEqual(child.getSessionAffinity(), { sessionId: "session", threadId: "child" });
+
+  const grandchildSessionFile = join(sessionsDir, "grandchild.jsonl");
+  await child.createBranchedSession(child.getBranchEntries().at(-1)?.id ?? "", {
+    id: "grandchild",
+    filePath: grandchildSessionFile,
+  });
+  const grandchild = await SessionManager.open(grandchildSessionFile, sessionsDir);
+  assert.deepEqual(grandchild.getSessionAffinity(), { sessionId: "session", threadId: "grandchild" });
 
   const branchedSessionFile = join(sessionsDir, "branched.jsonl");
   await writeFile(branchedSessionFile, [
@@ -39,6 +56,7 @@ try {
   ].join("\n"));
 
   const branched = await SessionManager.open(branchedSessionFile, sessionsDir);
+  assert.deepEqual(branched.getSessionAffinity(), { sessionId: "branched", threadId: "branched" });
   assert.equal(branched.hasUserMessage("root-message"), true);
   assert.equal(branched.hasUserMessage("side-message"), false);
 } finally {

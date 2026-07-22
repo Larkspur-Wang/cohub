@@ -514,7 +514,7 @@ export function wrapAssistantMessageStream(
   return wrapped;
 }
 
-function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; userId: string | null }): StreamFn {
+function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; userId: string | null; threadId: string }): StreamFn {
   const tracer = getAgentTracer();
 
   return async (model: Model<Api>, ctx: Context, options?: SimpleStreamOptions) => {
@@ -571,6 +571,7 @@ function createStreamFn(getRuntime: () => { modelRegistry: CohubModelRegistry; u
         const models = createModelsFromRegistry(runtime.modelRegistry, model);
         const requestOptions = applyRequestProfile(model as CohubModel, {
           ...options,
+          threadId: runtime.threadId,
           headers: model.provider === "cohub"
             ? mergeHeaders(streamHeaders, {
                 "x-litellm-track-extra": JSON.stringify({
@@ -652,7 +653,12 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
   let runtimeModelRegistry = options.modelRegistry;
   let runtimeTools = options.tools;
   let systemPromptStateKey: string | null = null;
-  const getRuntime = () => ({ modelRegistry: runtimeModelRegistry, userId: runtimeUserId });
+  const sessionAffinity = options.sessionManager.getSessionAffinity();
+  const getRuntime = () => ({
+    modelRegistry: runtimeModelRegistry,
+    userId: runtimeUserId,
+    threadId: sessionAffinity.threadId,
+  });
   const model = options.model ?? (sessionContext.model ? runtimeModelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId) : undefined) ?? runtimeModelRegistry.getDefault();
   if (!model) {
     throw new Error("No model available. Check platform models.json");
@@ -695,7 +701,7 @@ export async function createCohubAgentSession(options: CreateCohubAgentSessionOp
       messages: sessionContext.messages,
     },
     steeringMode: "all",
-    sessionId: options.sessionManager.getSessionId(),
+    sessionId: sessionAffinity.sessionId,
     convertToLlm: toLlmMessages,
     streamFn: createStreamFn(getRuntime),
     getApiKey: (provider: string) => runtimeModelRegistry.getApiKey(provider),

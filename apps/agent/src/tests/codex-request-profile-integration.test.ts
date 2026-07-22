@@ -16,6 +16,7 @@ process.env.SESSIONS_NAMESPACE ??= "test";
 process.env.TEST_CODEX_API_KEY = "test-key";
 
 const sessionId = "cohub-session-id";
+const threadId = "cohub-child-session-id";
 const config: ModelsConfig = {
   providers: {
     test: {
@@ -61,14 +62,14 @@ try {
     models,
     model,
     context,
-    applyRequestProfile(model, { sessionId }),
+    applyRequestProfile(model, { sessionId, threadId }),
   );
   for await (const event of stream) {
     if (event.type === "done" || event.type === "error") break;
   }
 
   assert.equal(capturedHeaders?.get("session-id"), sessionId);
-  assert.equal(capturedHeaders?.get("thread-id"), sessionId);
+  assert.equal(capturedHeaders?.get("thread-id"), threadId);
   assert.equal(capturedHeaders?.get("x-client-request-id"), sessionId);
   assert.equal(capturedHeaders?.get("session_id"), null);
   assert.equal(capturedHeaders?.get("originator"), "codex_cli_rs");
@@ -83,15 +84,15 @@ try {
   const sessionManager = SessionManager.create(root, join(root, "sessions"));
   sessionManager.newSession({ id: sessionId });
 
-  const stableSessionId = sessionManager.getSessionId();
+  const affinity = sessionManager.getSessionAffinity();
   const agent = new Agent({
-    sessionId: stableSessionId,
+    sessionId: affinity.sessionId,
     streamFn: () => {
       throw new Error("stream should not be called");
     },
   });
 
-  assert.equal(stableSessionId, sessionId);
+  assert.deepEqual(affinity, { sessionId, threadId: sessionId });
   assert.equal(agent.sessionId, sessionId);
 } finally {
   await rm(root, { recursive: true, force: true });
