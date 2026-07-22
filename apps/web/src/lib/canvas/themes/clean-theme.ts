@@ -25,14 +25,20 @@ function buildGridTexture(
 	size: number,
 	color: number,
 	opacity: number,
+	kind: "dots" | "grid" = "dots",
 ): RenderTexture {
 	const graphics = new Graphics();
-	graphics
-		.moveTo(0, 0.5)
-		.lineTo(size, 0.5)
-		.moveTo(0.5, 0)
-		.lineTo(0.5, size)
-		.stroke({ color, width: 1, alpha: opacity });
+	if (kind === "grid") {
+		graphics
+			.moveTo(0, 0.5)
+			.lineTo(size, 0.5)
+			.moveTo(0.5, 0)
+			.lineTo(0.5, size)
+			.stroke({ color, width: 1, alpha: opacity });
+	} else {
+		// Soft paper dots — lighter than a full grid, still spatial.
+		graphics.circle(0.5, 0.5, 0.9).fill({ color, alpha: opacity });
+	}
 	const target = RenderTexture.create({ width: size, height: size });
 	context.app.renderer.render({ container: graphics, target });
 	graphics.destroy();
@@ -57,10 +63,15 @@ function sync(parts: GridParts, context: CanvasThemeContext) {
 	}
 
 	const appearance = document.appearance;
-	const visible = appearance.grid?.visible !== false;
-	const size = Math.max(4, appearance.grid?.size ?? 32);
-	const opacity = appearance.grid?.opacity ?? 0.22;
-	const key = `${size}|${palette.border}|${opacity}`;
+	// Clean default: solid paper. Pattern only when grid is explicitly visible.
+	const visible = appearance.grid?.visible === true;
+	const size = Math.max(4, appearance.grid?.size ?? 24);
+	const opacity = appearance.grid?.opacity ?? 0.12;
+	const kind =
+		appearance.background?.kind === "grid"
+			? ("grid" as const)
+			: ("dots" as const);
+	const key = `${kind}|${size}|${palette.border}|${opacity}`;
 
 	if (!visible) {
 		if (parts.sprite) parts.sprite.visible = false;
@@ -75,7 +86,13 @@ function sync(parts: GridParts, context: CanvasThemeContext) {
 			parts.sprite.destroy();
 			previousTexture.destroy(true);
 		}
-		const texture = buildGridTexture(context, size, palette.border, opacity);
+		const texture = buildGridTexture(
+			context,
+			size,
+			palette.border,
+			opacity,
+			kind,
+		);
 		parts.sprite = new TilingSprite({ texture, width, height });
 		parts.textureKey = key;
 		parts.fill.parent?.addChild(parts.sprite);

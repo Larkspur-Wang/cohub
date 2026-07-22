@@ -15,15 +15,23 @@ import {
 	screenToWorld,
 	VIEWPORT_MARGIN_RATIO,
 	visibleWorldRect,
+	worldPoint,
 } from "$lib/canvas/canvas-geometry";
 import {
 	getCanvasResolution,
 	textZoomBucket,
 } from "$lib/canvas/canvas-rendering";
 import { createCanvasScene } from "$lib/canvas/canvas-scene";
-import { resolveEndpoint } from "$lib/canvas/core/bindings";
+import { resolveArrow, resolveEndpoint } from "$lib/canvas/core/bindings";
+import { readCssColorNumber } from "$lib/canvas/core/css-color";
 import { buildStrokeOutline } from "$lib/canvas/core/draw-geometry";
-import { resolveCanvasColor } from "$lib/canvas/core/palette";
+import {
+	buildFallbackShapeColors,
+	CANVAS_COLORS,
+	type CanvasShapeColors,
+	canvasColorCssVar,
+	pickCanvasColor,
+} from "$lib/canvas/core/palette";
 import { shapeCapabilities } from "$lib/canvas/core/shape-definition";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 import {
@@ -83,34 +91,40 @@ const unsubscribeAssets = assets.subscribe(() => {
 	assetVersion += 1;
 });
 
-let colorCanvas: HTMLCanvasElement | null = null;
-if (typeof globalThis.document !== "undefined") {
-	colorCanvas = globalThis.document.createElement("canvas");
-}
-const colorProbe = colorCanvas?.getContext("2d") ?? null;
-
 function cssNumber(name: string, fallback: number): number {
-	if (!host) return fallback;
-	const value = getComputedStyle(host).getPropertyValue(name).trim();
-	if (!value || !colorProbe) return fallback;
-	colorProbe.fillStyle = value;
-	const match = /^#([0-9a-f]{6})$/i.exec(colorProbe.fillStyle);
-	return match ? Number.parseInt(match[1], 16) : fallback;
+	return readCssColorNumber(host, name, fallback);
 }
 
 function getPalette(): CanvasRenderPalette {
+	// Paper follows theme neutrals: primary for the open field, surface for cards.
+	// Shape labels use palette colors (not pure black/white) so contrast stays intentional.
 	return {
-		bg: cssNumber("--bg-content", 0x161616),
+		bg: cssNumber("--bg-primary", 0x141414),
 		surface: cssNumber("--bg-surface", 0x202020),
 		hover: cssNumber("--bg-hover", 0x2a2a2a),
 		border: cssNumber("--border-subtle", 0x3a3a3a),
 		brand: cssNumber("--brand", 0xff3e00),
 		text: cssNumber("--text-primary", 0xf4f4f4),
 		muted: cssNumber("--text-tertiary", 0x8c8c8c),
-		rare: 0x38bdf8,
-		epic: 0xa78bfa,
-		legendary: 0xf59e0b,
+		rare: cssNumber("--info-400", 0x38bdf8),
+		epic: cssNumber("--info-500", 0xa78bfa),
+		legendary: cssNumber("--warning-400", 0xf59e0b),
 	};
+}
+
+/** Shape colors from CSS tokens; space theme.css can remap them fully. */
+function getShapeColors(mode: "dark" | "light"): CanvasShapeColors {
+	const fallback = buildFallbackShapeColors(mode);
+	const out = {} as CanvasShapeColors;
+	for (const entry of CANVAS_COLORS) {
+		const base = fallback[entry.id];
+		out[entry.id] = {
+			stroke: cssNumber(canvasColorCssVar(entry.id, "stroke"), base.stroke),
+			fill: cssNumber(canvasColorCssVar(entry.id, "fill"), base.fill),
+			label: cssNumber(canvasColorCssVar(entry.id, "label"), base.label),
+		};
+	}
+	return out;
 }
 
 // Request thumbnails only for image cards near the viewport (space-file and
@@ -137,12 +151,14 @@ $effect(() => {
 });
 
 function buildContext(palette: CanvasRenderPalette): CanvasRenderContext {
+	const colorMode = getResolvedTheme() === "light" ? "light" : "dark";
 	return {
 		document: editor.document,
 		selectedIds: new Set(editor.selection),
 		hoveredId: editor.hoverId,
 		palette,
-		colorMode: getResolvedTheme() === "light" ? "light" : "dark",
+		colors: getShapeColors(colorMode),
+		colorMode,
 		zoom: editor.camera.zoom,
 		imageKey: imageAssetKey,
 		getTexture: (key) => assets.getTexture(key),
@@ -249,9 +265,9 @@ function syncStage() {
 	if (single?.type === "arrow" && !single.locked) {
 		const lookup = (id: string) =>
 			editor.items.find((item) => item.id === id)?.frame;
-		const start = resolveEndpoint(single.start, lookup);
-		const end = resolveEndpoint(single.end, lookup);
-		if (start && end) arrowEndpoints = [start, end];
+		const resolved = resolveArrow(single, lookup);
+		if (resolved)
+			arrowEndpoints = [resolved.start, resolved.control, resolved.end];
 	}
 	scene.drawOverlay(
 		{
@@ -266,7 +282,7 @@ function syncStage() {
 		palette,
 	);
 
-	drawTransient(palette);
+	drawTransient(palette, context.colors, context.colorMode);
 
 	scheduleRender();
 }
@@ -276,11 +292,14 @@ function syncStage() {
  * alignment guides onto the overlay, in world space. These are ephemeral — they
  * exist only while a gesture is active and never touch the document.
  */
-function drawTransient(palette: CanvasRenderPalette) {
+function drawTransient(
+	palette: CanvasRenderPalette,
+	colors: CanvasShapeColors,
+	mode: "dark" | "light",
+) {
 	if (!overlay) return;
 	const zoom = editor.camera.zoom;
 	const inv = 1 / Math.max(zoom, 0.0001);
-	const mode = getResolvedTheme() === "light" ? "light" : "dark";
 	const interaction = editor.interaction;
 
 	// Alignment guides.
@@ -298,7 +317,7 @@ function drawTransient(palette: CanvasRenderPalette) {
 	}
 
 	if (interaction.type === "drawing" && interaction.points.length > 0) {
-		const color = resolveCanvasColor(interaction.color, mode);
+		const color = pickCanvasColor(colors, interaction.color, mode);
 		const outline = buildStrokeOutline(interaction.points, interaction.size);
 		if (outline.length >= 3) {
 			overlay.moveTo(outline[0].x, outline[0].y);
@@ -309,27 +328,54 @@ function drawTransient(palette: CanvasRenderPalette) {
 	}
 
 	if (interaction.type === "creatingArrow") {
-		const color = resolveCanvasColor(interaction.color, mode);
+		const color = pickCanvasColor(colors, interaction.color, mode);
 		const { start, current } = interaction;
 		overlay
 			.moveTo(start.x, start.y)
 			.lineTo(current.x, current.y)
 			.stroke({ color: color.stroke, width: 3 * inv, alpha: 0.9 });
 		const angle = Math.atan2(current.y - start.y, current.x - start.x);
-		const head = Math.max(8, 10 * inv);
-		const spread = Math.PI / 7;
+		const head = Math.max(14, 16 * inv);
+		const spread = Math.PI / 6;
 		overlay
-			.moveTo(current.x, current.y)
-			.lineTo(
+			.moveTo(
 				current.x - head * Math.cos(angle - spread),
 				current.y - head * Math.sin(angle - spread),
 			)
+			.lineTo(current.x, current.y)
 			.lineTo(
 				current.x - head * Math.cos(angle + spread),
 				current.y - head * Math.sin(angle + spread),
 			)
-			.closePath()
-			.fill({ color: color.stroke, alpha: 0.9 });
+			.stroke({
+				color: color.stroke,
+				width: 3 * inv,
+				alpha: 0.95,
+				cap: "round",
+				join: "round",
+			});
+	}
+
+	if (interaction.type === "creatingBox") {
+		const color = pickCanvasColor(colors, interaction.color, mode);
+		const { start, current } = interaction;
+		const x = Math.min(start.x, current.x);
+		const y = Math.min(start.y, current.y);
+		const w = Math.abs(current.x - start.x);
+		const h = Math.abs(current.y - start.y);
+		if (w > 1 || h > 1) {
+			overlay
+				.roundRect(x, y, Math.max(w, 1), Math.max(h, 1), 4)
+				.fill({
+					color: color.fill,
+					alpha: interaction.kind === "note" ? 0.14 : 0.04,
+				})
+				.stroke({
+					color: color.stroke,
+					width: 1.5 * inv,
+					alpha: 0.85,
+				});
+		}
 	}
 }
 
@@ -427,18 +473,75 @@ function handleDrop(event: DragEvent) {
 	event.preventDefault();
 	dropActive = false;
 	if (!host) return;
-	const path = event.dataTransfer
-		?.getData("text/cohub-path")
-		?.replace(/\/$/, "");
-	if (!path) return;
 	const rect = host.getBoundingClientRect();
-	const point = screenToWorld(
+	const origin = screenToWorld(
 		event.clientX,
 		event.clientY,
 		rect,
 		editor.camera,
 	);
-	editor.addFile(path, point);
+
+	type DropMedia = {
+		path: string;
+		snapshot?: {
+			title?: string;
+			mimeType?: string;
+			size?: number;
+			mtimeMs?: number;
+		};
+	};
+	const items: DropMedia[] = [];
+
+	const raw = event.dataTransfer?.getData("application/x-cohub-resource");
+	if (raw) {
+		try {
+			const payload = JSON.parse(raw) as {
+				resources?: Array<{
+					type?: string;
+					title?: string;
+					path?: string;
+					ref?: string;
+					mimeType?: string;
+					size?: number;
+					mtimeMs?: number;
+				}>;
+			};
+			for (const resource of payload.resources ?? []) {
+				if (resource.type && resource.type !== "file") continue;
+				const path = (resource.path ?? resource.ref ?? "").replace(/\/$/, "");
+				if (!path) continue;
+				items.push({
+					path,
+					snapshot: {
+						title: resource.title,
+						mimeType: resource.mimeType,
+						size: resource.size,
+						mtimeMs: resource.mtimeMs,
+					},
+				});
+			}
+		} catch {
+			/* ignore malformed payload */
+		}
+	}
+
+	if (items.length === 0) {
+		const path = event.dataTransfer
+			?.getData("text/cohub-path")
+			?.replace(/\/$/, "");
+		if (path) items.push({ path });
+	}
+
+	// Tile accepted media to the right so multi-drop stays readable.
+	let offsetX = 0;
+	for (const entry of items) {
+		const ok = editor.addFile(
+			entry.path,
+			worldPoint(origin.x + offsetX, origin.y),
+			entry.snapshot,
+		);
+		if (ok) offsetX += 36;
+	}
 }
 
 const cursor = $derived.by(() => {
@@ -455,8 +558,6 @@ const cursor = $derived.by(() => {
 		case "frame":
 		case "text":
 			return "crosshair";
-		case "eraser":
-			return "cell";
 		default:
 			return "default";
 	}
@@ -559,6 +660,7 @@ onDestroy(() => {
 	class="relative h-full w-full overflow-hidden {dropActive ? 'canvas-drop-active' : ''}"
 	role="application"
 	aria-label="Canvas stage"
+	data-drawer-swipe-ignore
 	style:cursor={cursor}
 	style:touch-action="none"
 	ondragover={(event) => { if (event.dataTransfer?.types.includes("text/cohub-path")) { event.preventDefault(); dropActive = true; } }}

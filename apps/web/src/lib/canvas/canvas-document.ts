@@ -11,8 +11,7 @@ import {
 	type CanvasArrowItem,
 	type CanvasDrawItem,
 	type CanvasItem,
-	type CanvasResourceItem,
-	type CanvasResourceSnapshot,
+	type CanvasMediaSnapshot,
 	type CovasDocument,
 	CovasDocumentSchema,
 	isUnknownItem,
@@ -23,8 +22,8 @@ import {
 export const DEFAULT_CANVAS_APPEARANCE: CanvasAppearance =
 	CanvasAppearanceSchema.parse({
 		theme: "clean",
-		background: { kind: "grid" },
-		grid: { visible: true, size: 32, opacity: 0.22 },
+		background: { kind: "solid" },
+		grid: { visible: false, size: 24, opacity: 0.12 },
 		mood: "clean",
 	});
 
@@ -137,11 +136,9 @@ function styleFromNode(node: CanvasNodeRecord): CanvasItem["style"] {
 		: undefined;
 }
 
-function refFromNode(node: CanvasNodeRecord): CanvasResourceItem["ref"] | null {
-	if (node.refKind === "remote_url" && node.refUrl)
-		return { kind: "remote-url", url: node.refUrl };
-	if (node.refKind === "space_file" && node.refPath)
-		return { kind: "space-file", path: node.refPath };
+function spaceFilePathFromNode(node: CanvasNodeRecord): string | null {
+	if (node.refKind === "space_file" && node.refPath) return node.refPath;
+	if (typeof node.refPath === "string" && node.refPath) return node.refPath;
 	return null;
 }
 
@@ -155,7 +152,9 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 			return {
 				id: node.nodeId,
 				type: "text",
-				text: typeof data.text === "string" ? data.text : "Text",
+				text: typeof data.text === "string" ? data.text : "",
+				color: typeof data.color === "string" ? data.color : "neutral",
+				autoSize: data.autoSize !== false,
 				frame,
 				...(locked ? { locked } : {}),
 				style,
@@ -165,7 +164,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				id: node.nodeId,
 				type: "note",
 				text: typeof data.text === "string" ? data.text : "",
-				color: typeof data.color === "string" ? data.color : "brand",
+				color: typeof data.color === "string" ? data.color : "amber",
 				frame,
 				...(locked ? { locked } : {}),
 				style,
@@ -178,7 +177,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				text: typeof data.text === "string" ? data.text : "",
 				color: typeof data.color === "string" ? data.color : "brand",
 				fillOpacity:
-					typeof data.fillOpacity === "number" ? data.fillOpacity : 0.12,
+					typeof data.fillOpacity === "number" ? data.fillOpacity : 0,
 				frame,
 				...(locked ? { locked } : {}),
 				style,
@@ -212,7 +211,7 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				}) as CanvasArrowItem["end"],
 				bend: typeof data.bend === "number" ? data.bend : 0,
 				color: typeof data.color === "string" ? data.color : "brand",
-				size: typeof data.size === "number" ? data.size : 3,
+				size: typeof data.size === "number" ? data.size : 2.5,
 				arrowStart: Boolean(data.arrowStart),
 				arrowEnd: data.arrowEnd === undefined ? true : Boolean(data.arrowEnd),
 				label: typeof data.label === "string" ? data.label : "",
@@ -230,15 +229,35 @@ export function canvasNodeToItem(node: CanvasNodeRecord): CanvasItem {
 				...(locked ? { locked } : {}),
 				style,
 			};
-		case "resource":
-		case "file":
-		case "url": {
-			const ref = refFromNode(node);
+		case "image": {
+			const path = spaceFilePathFromNode(node) ?? "missing";
 			return {
 				id: node.nodeId,
-				type: "resource",
-				ref: ref ?? { kind: "space-file", path: node.refPath || "missing" },
-				snapshot: node.view as CanvasResourceSnapshot,
+				type: "image",
+				ref: { kind: "space-file", path },
+				snapshot: node.view as CanvasMediaSnapshot,
+				...(data.crop && typeof data.crop === "object"
+					? {
+							crop: data.crop as {
+								x: number;
+								y: number;
+								w: number;
+								h: number;
+							},
+						}
+					: {}),
+				frame,
+				...(locked ? { locked } : {}),
+				style,
+			};
+		}
+		case "video": {
+			const path = spaceFilePathFromNode(node) ?? "missing";
+			return {
+				id: node.nodeId,
+				type: "video",
+				ref: { kind: "space-file", path },
+				snapshot: node.view as CanvasMediaSnapshot,
 				frame,
 				...(locked ? { locked } : {}),
 				style,
@@ -315,7 +334,12 @@ export function canvasItemToNode(
 				...noRef,
 				type: "text",
 				view: {},
-				data: { text: item.text, ...lockedData },
+				data: {
+					text: item.text,
+					color: item.color,
+					autoSize: item.autoSize,
+					...lockedData,
+				},
 			};
 		case "note":
 			return {
@@ -382,19 +406,29 @@ export function canvasItemToNode(
 					...lockedData,
 				},
 			};
-		case "resource": {
-			const ref = item.ref;
-			const isSpaceFile = ref.kind === "space-file";
+		case "image":
 			return {
 				...base,
-				type: isSpaceFile ? "file" : "url",
-				refKind: isSpaceFile ? "space_file" : "remote_url",
-				refPath: ref.kind === "space-file" ? ref.path : null,
-				refUrl: ref.kind === "remote-url" ? ref.url : null,
+				type: "image",
+				refKind: "space_file",
+				refPath: item.ref.path,
+				refUrl: null,
+				view: item.snapshot ?? {},
+				data: {
+					...(item.crop ? { crop: item.crop } : {}),
+					...lockedData,
+				},
+			};
+		case "video":
+			return {
+				...base,
+				type: "video",
+				refKind: "space_file",
+				refPath: item.ref.path,
+				refUrl: null,
 				view: item.snapshot ?? {},
 				data: { ...lockedData },
 			};
-		}
 		default: {
 			// Unreachable for validated items (unknowns are handled above); kept as a
 			// defensive fallback that still preserves the item's opaque data.

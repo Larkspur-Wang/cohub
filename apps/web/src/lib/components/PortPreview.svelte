@@ -7,10 +7,8 @@ import {
 	Loader2,
 	RefreshCw,
 	Rocket,
-	X,
 } from "lucide-svelte";
 import { onDestroy } from "svelte";
-import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import type { PreviewCaptureTarget } from "$lib/features/preview-mark";
 import PreviewMarkHost from "$lib/features/preview-mark/ui/PreviewMarkHost.svelte";
 
@@ -19,23 +17,16 @@ const {
 	url,
 	status = "unknown",
 	observedAt,
-	focused = false,
 	immersive = false,
-	onToggleFocus,
-	onToggleImmersive,
 	onPublish,
-	onClose,
 }: {
 	port: string;
 	url: string;
 	status?: SpacePortStatus | "unknown";
 	observedAt?: number;
-	focused?: boolean;
+	/** Kept for layout class (tabs chrome owns expand controls). */
 	immersive?: boolean;
-	onToggleFocus?: () => void;
-	onToggleImmersive?: () => void;
 	onPublish?: () => void;
-	onClose: () => void;
 } = $props();
 
 let frameVersion = $state(0);
@@ -174,17 +165,6 @@ onDestroy(() => {
 				target={markTarget}
 			/>
 		{/if}
-		{#if onToggleFocus && onToggleImmersive}
-			<PreviewExpandMenu
-				{focused}
-				{immersive}
-				{onToggleFocus}
-				{onToggleImmersive}
-			/>
-		{/if}
-		<button type="button" class="preview-icon-btn" onclick={onClose} title="Close preview">
-			<X class="h-4 w-4" />
-		</button>
 	</div>
 
 	{#if status === "closed"}
@@ -202,25 +182,27 @@ onDestroy(() => {
 			</div>
 		</div>
 	{:else if url && iframeSrc}
-		<div class="relative min-h-0 flex-1 bg-bg-primary">
+		<div class="relative min-h-0 flex-1 bg-bg-primary" data-drawer-swipe-ignore>
 			{#if loading}
 				<div class="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-2 border-b border-border-subtle bg-bg-content/95 px-3 py-2 text-[11px] text-text-tertiary">
 					<Loader2 class="h-3.5 w-3.5 animate-spin" />
 					<span>{slowLoad ? "Still loading. If the app blocks embedding, open it externally." : "Loading preview…"}</span>
 				</div>
 			{/if}
-			<iframe
-				bind:this={iframeEl}
-				class="h-full w-full border-0 bg-overlay-control-text"
-				src={iframeSrc}
-				title={`Port ${port} preview`}
-				sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
-				referrerpolicy="no-referrer"
-				onload={() => {
-					loading = false;
-					slowLoad = false;
-				}}
-			></iframe>
+			<div class="h-full w-full" data-drawer-swipe-ignore>
+				<iframe
+					bind:this={iframeEl}
+					class="h-full w-full border-0 bg-overlay-control-text"
+					src={iframeSrc}
+					title={`Port ${port} preview`}
+					sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-modals"
+					referrerpolicy="no-referrer"
+					onload={() => {
+						loading = false;
+						slowLoad = false;
+					}}
+				></iframe>
+			</div>
 		</div>
 	{:else}
 		<div class="flex min-h-0 flex-1 items-center justify-center p-6 text-xs text-text-tertiary">No public URL for this port.</div>

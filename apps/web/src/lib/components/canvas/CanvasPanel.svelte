@@ -1,7 +1,6 @@
 <script lang="ts">
 import type { CanvasSemanticOp } from "@neta-art/cohub";
 import { onDestroy, onMount, untrack } from "svelte";
-import { getCanvasTitle } from "$lib/canvas/canvas-file";
 import { screenToWorld } from "$lib/canvas/canvas-geometry";
 import type { CovasDocument } from "$lib/canvas/canvas-schema";
 import { createCanvasEditor } from "$lib/canvas/editor.svelte";
@@ -11,35 +10,25 @@ import CanvasFloatingToolbar from "$lib/components/canvas/CanvasFloatingToolbar.
 import CanvasSelectionToolbar from "$lib/components/canvas/CanvasSelectionToolbar.svelte";
 import CanvasStage from "$lib/components/canvas/CanvasStage.svelte";
 import CanvasTextEditor from "$lib/components/canvas/CanvasTextEditor.svelte";
-import CanvasToolbar from "$lib/components/canvas/CanvasToolbar.svelte";
+import CanvasVideoPlayer from "$lib/components/canvas/CanvasVideoPlayer.svelte";
 import CanvasZoomMenu from "$lib/components/canvas/CanvasZoomMenu.svelte";
 
 const {
 	path,
 	document: initialDocument,
 	spaceId,
-	saving = false,
-	focused = false,
 	immersive = false,
-	onToggleFocus,
-	onToggleImmersive,
 	onCommit,
-	onClose,
 	onViewStateChange,
 }: {
 	path: string;
 	document: CovasDocument;
 	spaceId: string;
-	saving?: boolean;
-	focused?: boolean;
 	immersive?: boolean;
-	onToggleFocus?: () => void;
-	onToggleImmersive?: () => void;
 	onCommit: (
 		document: CovasDocument,
 		ops: CanvasSemanticOp[],
 	) => void | Promise<void>;
-	onClose: () => void;
 	onViewStateChange?: (state: {
 		path: string;
 		camera: CovasDocument["viewport"];
@@ -189,6 +178,9 @@ function handleKeydown(event: KeyboardEvent) {
 			else {
 				editor.toolLocked = false;
 				editor.clearSelection();
+				// Leave creation tools the way tldraw does: Escape returns to Select.
+				if (editor.tool !== "select" && editor.tool !== "hand")
+					editor.tool = "select";
 			}
 			return;
 		case "ArrowUp":
@@ -240,11 +232,6 @@ function handleKeydown(event: KeyboardEvent) {
 		case "f":
 		case "F":
 			editor.tool = "frame";
-			return;
-		case "e":
-		case "E":
-			editor.tool = "eraser";
-			editor.toolLocked = false;
 			return;
 		case "/":
 			event.preventDefault();
@@ -305,20 +292,10 @@ onDestroy(() => {
 </script>
 
 <div
-	class="canvas-panel flex h-full min-w-0 flex-col bg-bg-content"
+	class="canvas-panel flex h-full min-w-0 flex-col bg-bg-primary"
 	class:canvas-panel--immersive={immersive}
+	data-drawer-swipe-ignore
 >
-	<CanvasToolbar
-		title={getCanvasTitle(path)}
-		dirty={editor.dirty}
-		{saving}
-		{focused}
-		{immersive}
-		{onToggleFocus}
-		{onToggleImmersive}
-		onClose={onClose}
-	/>
-
 	{#if editor.saveError}
 		<div class="border-b border-error-soft/30 bg-error-bg px-3 py-2 text-xs text-error-soft">
 			{editor.saveError}
@@ -328,7 +305,7 @@ onDestroy(() => {
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		bind:this={stageWrap}
-		class="relative min-h-0 flex-1 bg-bg-content"
+		class="relative min-h-0 flex-1 bg-bg-primary"
 		oncontextmenu={handleContextMenu}
 	>
 		<CanvasStage
@@ -342,6 +319,7 @@ onDestroy(() => {
 		{/if}
 
 		<CanvasTextEditor {editor} />
+		<CanvasVideoPlayer {editor} {spaceId} />
 		<CanvasSelectionToolbar {editor} />
 		<CanvasFloatingToolbar {editor} />
 		<CanvasZoomMenu {editor} />

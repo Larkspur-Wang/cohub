@@ -107,12 +107,17 @@ export function buildStrokeOutline(
 	if (n === 1) {
 		const r = sampleRadius(size, points[0].p);
 		const p = points[0];
-		// Approximate a dot with a small diamond.
+		// Soft round dot (octagon) — less "diamond stamp" than a 4-point cross.
+		const k = r * Math.SQRT1_2;
 		return [
 			{ x: p.x, y: p.y - r },
+			{ x: p.x + k, y: p.y - k },
 			{ x: p.x + r, y: p.y },
+			{ x: p.x + k, y: p.y + k },
 			{ x: p.x, y: p.y + r },
+			{ x: p.x - k, y: p.y + k },
 			{ x: p.x - r, y: p.y },
+			{ x: p.x - k, y: p.y - k },
 		];
 	}
 	const left: Array<{ x: number; y: number }> = [];

@@ -15,14 +15,18 @@ import {
 	LockOpen,
 	Trash2,
 } from "lucide-svelte";
-import { CANVAS_COLORS } from "$lib/canvas/core/palette";
+import { CANVAS_COLORS, canvasColorCssVar } from "$lib/canvas/core/palette";
 import type { CanvasEditor } from "$lib/canvas/editor.svelte";
 
 const { editor }: { editor: CanvasEditor } = $props();
 
 const visible = $derived(
 	editor.selection.length > 0 &&
+		// Hide while a creation tool is hot — tldraw keeps the canvas free while drawing.
+		editor.tool === "select" &&
 		editor.interaction.type !== "brushing" &&
+		editor.interaction.type !== "drawing" &&
+		editor.interaction.type !== "creatingArrow" &&
 		!editor.editingId,
 );
 
@@ -49,13 +53,14 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 	const colors = editor.selectedItems
 		.filter(
 			(item) =>
+				item.type === "text" ||
 				item.type === "note" ||
 				item.type === "geo" ||
 				item.type === "draw" ||
 				item.type === "arrow" ||
 				item.type === "frame",
 		)
-		.map((item) => item.color);
+		.map((item) => ("color" in item ? item.color : null));
 	if (colors.length === 0) return undefined;
 	return colors.every((color) => color === colors[0])
 		? (colors[0] ?? null)
@@ -80,7 +85,7 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 						class:swatch--active={currentColor === color.id}
 						title={color.label}
 						aria-label="Set {color.label} color"
-						style:--swatch-color={`#${color.dark.stroke.toString(16).padStart(6, "0")}`}
+						style:--swatch-color="var({canvasColorCssVar(color.id, 'stroke')})"
 						onclick={() => editor.setSelectionColor(color.id)}
 					></button>
 				{/each}
@@ -210,6 +215,11 @@ const currentColor = $derived.by<string | null | undefined>(() => {
 	}
 
 	@media (pointer: coarse) {
+		.canvas-selection-toolbar {
+			/* Leave room for the bottom tool dock + home indicator. */
+			max-width: calc(100% - 20px);
+			/* Prefer above selection; if near bottom the stage already clamps top. */
+		}
 		.sel-btn { width: 36px; height: 36px; }
 		.swatch { width: 22px; height: 22px; }
 	}

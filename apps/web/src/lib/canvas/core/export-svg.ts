@@ -49,14 +49,16 @@ function transformAttr(frame: CanvasFrame): string {
 
 function exportText(item: CanvasTextItem): string {
 	const { frame, text } = item;
-	const lines = escapeXml(text).split("\n");
+	const stroke = colorHex(item.color || "neutral");
+	const lines = escapeXml(text || "").split("\n");
 	const tspans = lines
 		.map(
 			(line, index) =>
-				`<tspan x="${frame.x + 8}" dy="${index === 0 ? 0 : 16}">${line || " "}</tspan>`,
+				`<tspan x="${frame.x}" dy="${index === 0 ? 0 : 24}">${line || " "}</tspan>`,
 		)
 		.join("");
-	return `<g${transformAttr(frame)}><rect x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}" rx="8" fill="#202020" stroke="#3a3a3a" stroke-width="1"/><text x="${frame.x + 8}" y="${frame.y + 22}" fill="#f4f4f4" font-family="Geist, system-ui, sans-serif" font-size="13">${tspans}</text></g>`;
+	// Transparent freestanding text — no card chrome.
+	return `<g${transformAttr(frame)}><text x="${frame.x}" y="${frame.y + 18}" fill="${stroke}" font-family="Geist, system-ui, sans-serif" font-size="18" font-weight="500">${tspans}</text></g>`;
 }
 
 function exportNote(item: CanvasNoteItem): string {
@@ -106,9 +108,13 @@ function arrowHead(
 	stroke: string,
 ): string {
 	const angle = Math.atan2(tip.y - from.y, tip.x - from.x);
-	const head = Math.max(10, size * 3);
-	const spread = Math.PI / 7;
-	return `<path d="M${tip.x} ${tip.y} L${tip.x - head * Math.cos(angle - spread)} ${tip.y - head * Math.sin(angle - spread)} L${tip.x - head * Math.cos(angle + spread)} ${tip.y - head * Math.sin(angle + spread)} Z" fill="${stroke}"/>`;
+	const head = Math.max(14, size * 5.5);
+	const spread = Math.PI / 6;
+	const leftX = tip.x - head * Math.cos(angle - spread);
+	const leftY = tip.y - head * Math.sin(angle - spread);
+	const rightX = tip.x - head * Math.cos(angle + spread);
+	const rightY = tip.y - head * Math.sin(angle + spread);
+	return `<path d="M${leftX} ${leftY} L${tip.x} ${tip.y} L${rightX} ${rightY}" fill="none" stroke="${stroke}" stroke-width="${Math.max(1.5, size)}" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 function exportDraw(item: CanvasDrawItem): string {
@@ -164,6 +170,9 @@ export function itemToSvg(item: CanvasItem, getFrame: FrameLookup): string {
 			return exportArrow(item, getFrame);
 		case "frame":
 			return exportFrame(item);
+		case "image":
+		case "video":
+			return exportGeneric(item);
 		default:
 			return exportGeneric(item);
 	}

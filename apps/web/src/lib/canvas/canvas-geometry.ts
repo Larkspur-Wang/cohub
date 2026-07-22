@@ -29,8 +29,8 @@ export function worldPoint(x: number, y: number): WorldPoint {
 	return { x, y } as WorldPoint;
 }
 
-export const MIN_CANVAS_ZOOM = 0.1;
-export const MAX_CANVAS_ZOOM = 4;
+export const MIN_CANVAS_ZOOM = 0.05;
+export const MAX_CANVAS_ZOOM = 8;
 /** Smallest an item can be resized to, in world units. */
 export const MIN_ITEM_SIZE = 24;
 /** Extra world-space padding applied when fitting content into view. */

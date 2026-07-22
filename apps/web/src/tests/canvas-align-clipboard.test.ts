@@ -60,8 +60,9 @@ test("clipboard round-trip remaps ids and offsets", () => {
 	const b = createNoteCanvasItem(50, 60, "blue", "world");
 	const payload = encodeClipboard([a, b]);
 	assert.ok(payload);
-	assert.equal(payload?.origin.x, 10);
-	assert.equal(payload?.origin.y, 20);
+	// Origin is the top-left of the selection AABB (notes are centered on creation).
+	assert.equal(payload?.origin.x, a.frame.x);
+	assert.equal(payload?.origin.y, a.frame.y);
 
 	const parsed = parseClipboard(payload);
 	assert.ok(parsed);
@@ -70,7 +71,8 @@ test("clipboard round-trip remaps ids and offsets", () => {
 	assert.equal(items.length, 2);
 	assert.notEqual(items[0]?.id, a.id);
 	assert.equal(items[0]?.frame.x, 100); // relative 0 + 100
-	assert.equal(items[1]?.frame.x, 140); // relative 40 + 100
+	const dx = b.frame.x - a.frame.x;
+	assert.equal(items[1]?.frame.x, 100 + dx);
 });
 
 test("parseClipboard rejects duplicate ids and malformed entries", () => {
@@ -98,7 +100,7 @@ test("parseClipboard rejects duplicate ids and malformed entries", () => {
 			kind: "cohub.canvas.clipboard",
 			version: 1,
 			origin: { x: 0, y: 0 },
-			items: [{ id: "r1", type: "resource" }], // malformed known type
+			items: [{ id: "r1", type: "image" }], // malformed known type
 		}),
 		null,
 	);

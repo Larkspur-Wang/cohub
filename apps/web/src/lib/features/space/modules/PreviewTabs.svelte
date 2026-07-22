@@ -7,6 +7,7 @@ import {
 	PanelRightOpen,
 	X,
 } from "lucide-svelte";
+import type { Snippet } from "svelte";
 
 type PreviewTab = {
 	kind: "file" | "canvas" | "port";
@@ -27,6 +28,11 @@ type Props = {
 	treeVisible?: boolean;
 	/** Collapse/expand file tree without closing preview. */
 	onToggleTree?: () => void;
+	/**
+	 * High-priority trailing controls (e.g. Focus/Float). Always visible to the
+	 * left of the tree toggle; tab overflow scrolls instead of covering these.
+	 */
+	trailing?: Snippet;
 };
 
 let {
@@ -36,6 +42,7 @@ let {
 	embedded = false,
 	treeVisible = true,
 	onToggleTree,
+	trailing,
 }: Props = $props();
 
 const kindIcon = {
@@ -43,9 +50,13 @@ const kindIcon = {
 	canvas: MousePointer2,
 	port: Globe,
 } as const;
+
+const showChrome = $derived(
+	tabs.length > 0 || Boolean(onToggleTree) || Boolean(trailing),
+);
 </script>
 
-{#if tabs.length > 0 || onToggleTree}
+{#if showChrome}
 	<div
 		class="preview-tabs"
 		class:preview-tabs--embedded={embedded}
@@ -81,22 +92,28 @@ const kindIcon = {
 				</div>
 			{/each}
 		</div>
-		{#if onToggleTree}
-			<button
-				type="button"
-				class="preview-tree-toggle"
-				title={treeVisible ? "Collapse file tree" : "Show file tree"}
-				aria-label={treeVisible ? "Collapse file tree" : "Show file tree"}
-				aria-pressed={treeVisible}
-				onclick={onToggleTree}
-			>
-				{#if treeVisible}
-					<PanelRightClose class="h-3.5 w-3.5" />
-				{:else}
-					<PanelRightOpen class="h-3.5 w-3.5" />
-				{/if}
-			</button>
-		{/if}
+
+		<div class="preview-tabs-trailing">
+			{#if trailing}
+				{@render trailing()}
+			{/if}
+			{#if onToggleTree}
+				<button
+					type="button"
+					class="preview-tree-toggle"
+					title={treeVisible ? "Collapse file tree" : "Show file tree"}
+					aria-label={treeVisible ? "Collapse file tree" : "Show file tree"}
+					aria-pressed={treeVisible}
+					onclick={onToggleTree}
+				>
+					{#if treeVisible}
+						<PanelRightClose class="h-3.5 w-3.5" />
+					{:else}
+						<PanelRightOpen class="h-3.5 w-3.5" />
+					{/if}
+				</button>
+			{/if}
+		</div>
 	</div>
 {/if}
 
@@ -111,7 +128,7 @@ const kindIcon = {
 		overflow: hidden;
 		border-bottom: 1px solid var(--border-subtle);
 		background: var(--bg-surface);
-		padding: 0 0.25rem 0 0.25rem;
+		padding: 0 0.25rem;
 	}
 
 	.preview-tabs--embedded {
@@ -122,6 +139,7 @@ const kindIcon = {
 		padding: 0;
 	}
 
+	/* Tabs scroll first; trailing actions stay pinned. */
 	.preview-tabs-scroll {
 		display: flex;
 		min-width: 0;
@@ -130,6 +148,15 @@ const kindIcon = {
 		gap: 1px;
 		overflow-x: auto;
 		scrollbar-width: thin;
+	}
+
+	.preview-tabs-trailing {
+		display: inline-flex;
+		flex: 0 0 auto;
+		align-items: center;
+		align-self: center;
+		gap: 2px;
+		margin-left: 2px;
 	}
 
 	.preview-tab-shell {
@@ -229,10 +256,8 @@ const kindIcon = {
 		height: 1.75rem;
 		width: 1.75rem;
 		flex: 0 0 auto;
-		align-self: center;
 		align-items: center;
 		justify-content: center;
-		margin-left: 2px;
 		border: 0;
 		border-radius: 6px;
 		background: transparent;
@@ -244,5 +269,15 @@ const kindIcon = {
 	.preview-tree-toggle:hover {
 		background: var(--bg-hover);
 		color: var(--text-secondary);
+	}
+
+	@media (pointer: coarse) {
+		.preview-tree-toggle {
+			height: 2rem;
+			width: 2rem;
+		}
+		.preview-tab-close {
+			opacity: 0.55;
+		}
 	}
 </style>

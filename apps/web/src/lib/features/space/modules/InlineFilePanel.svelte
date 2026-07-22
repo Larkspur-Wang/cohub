@@ -597,12 +597,15 @@ $effect(() => {
       animate={animateShell}
     >
       <div class="inline-file-preview flex h-full min-w-0 flex-col bg-bg-content" class:inline-file-preview--immersive={previewImmersiveMode}>
-        <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={onToggleTree} />
+        <PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={onToggleTree}>
+          {#snippet trailing()}
+            {@render PreviewFocusButton()}
+          {/snippet}
+        </PreviewTabs>
         {#if inlineFile.loading}
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -612,7 +615,6 @@ $effect(() => {
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -627,7 +629,6 @@ $effect(() => {
           <div class="preview-chrome flex h-11 shrink-0 items-center gap-1.5 border-b border-border-subtle bg-bg-surface px-3">
             <span class="preview-chrome-path flex-1 truncate text-xs text-text-secondary">{inlineFile.path}</span>
             {@render FileHeaderCoreActions(inlineFile.path)}
-            {@render PreviewFocusButton()}
             <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
               <X class="w-4 h-4" />
             </button>
@@ -718,7 +719,6 @@ $effect(() => {
                   <span class="hidden sm:inline">Save</span>
                 </button>
               {/if}
-              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -744,7 +744,6 @@ $effect(() => {
                 <button type="button" class="zoom-btn" onclick={() => { inlineFileZoom = Math.min(4, inlineFileZoom + 0.25); inlineFilePanX = 0; inlineFilePanY = 0; }} title="Zoom in">
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="11" y1="7" x2="11" y2="15"/><line x1="7" y1="11" x2="15" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 </button>
-                {@render PreviewFocusButton()}
                 <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                   <X class="w-4 h-4" />
                 </button>
@@ -768,7 +767,6 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>
@@ -785,7 +783,6 @@ $effect(() => {
               </div>
               <div class="text-xs text-text-tertiary hidden sm:inline">{formatFileSize(inlineFile.response.size)}</div>
               {@render FileHeaderCoreActions(inlineFile.response.path)}
-              {@render PreviewFocusButton()}
               <button type="button" class="icon-btn" onclick={onCloseInlineFile} title="Close file">
                 <X class="w-4 h-4" />
               </button>

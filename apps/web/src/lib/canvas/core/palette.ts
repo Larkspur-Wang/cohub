@@ -1,13 +1,12 @@
 /**
  * Canvas color palette — a small, named set of shape colors shared by note,
- * geo, draw and arrow shapes. Inspired by tldraw's color palette but mapped to
- * Cohub's restrained, precise visual language: one brand accent plus a calm set
- * of semantic hues. Colors are stored by id in shape props (never raw hex), so
- * themes can remap them and persisted data stays compact and forward-compatible.
+ * geo, draw and arrow shapes. Colors are stored by id in shape props (never
+ * raw hex), so themes and space `.cohub/theme.css` can remap them via CSS
+ * tokens while persisted data stays compact and forward-compatible.
  *
- * Each entry carries a light + dark value; the renderer picks one based on the
- * resolved theme. Keeping both here (rather than only CSS vars) lets the Pixi
- * layer use exact values without probing the DOM, while the ids stay themeable.
+ * Concrete values are resolved from CSS variables at render time:
+ *   --canvas-color-{id}-stroke | -fill | -label
+ * with hard-coded light/dark tables as offline / export fallbacks.
  */
 
 export type CanvasColorId =
@@ -90,6 +89,13 @@ export function isCanvasColorId(value: unknown): value is CanvasColorId {
 	return typeof value === "string" && COLOR_INDEX.has(value as CanvasColorId);
 }
 
+export function canvasColorCssVar(
+	id: CanvasColorId,
+	part: keyof CanvasColorValue,
+): string {
+	return `--canvas-color-${id}-${part}`;
+}
+
 /** Resolve a color id to concrete values for a color mode. Unknown → brand. */
 export function resolveCanvasColor(
 	id: unknown,
@@ -100,4 +106,31 @@ export function resolveCanvasColor(
 		COLOR_INDEX.get(DEFAULT_CANVAS_COLOR);
 	// COLOR_INDEX always has the default, so this is non-null.
 	return (entry as CanvasColorEntry)[mode];
+}
+
+export type CanvasShapeColors = Record<CanvasColorId, CanvasColorValue>;
+
+/** Build a full shape-color table from hard-coded fallbacks (export / SSR). */
+export function buildFallbackShapeColors(
+	mode: "dark" | "light",
+): CanvasShapeColors {
+	const out = {} as CanvasShapeColors;
+	for (const entry of CANVAS_COLORS) {
+		out[entry.id] = entry[mode];
+	}
+	return out;
+}
+
+/**
+ * Pick a concrete color from a live shape-color table, falling back to the
+ * default brand entry when the id is unknown.
+ */
+export function pickCanvasColor(
+	colors: CanvasShapeColors | null | undefined,
+	id: unknown,
+	mode: "dark" | "light" = "dark",
+): CanvasColorValue {
+	if (colors && isCanvasColorId(id) && colors[id]) return colors[id];
+	if (colors) return colors[DEFAULT_CANVAS_COLOR];
+	return resolveCanvasColor(id, mode);
 }

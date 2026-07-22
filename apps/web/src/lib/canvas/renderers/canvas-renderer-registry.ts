@@ -1,13 +1,15 @@
 import type { Container, Texture } from "pixi.js";
 import type { CanvasItem, CovasDocument } from "$lib/canvas/canvas-schema";
+import type { CanvasShapeColors } from "$lib/canvas/core/palette";
 import { arrowCardRenderer } from "$lib/canvas/renderers/arrow-card-renderer";
 import { drawCardRenderer } from "$lib/canvas/renderers/draw-card-renderer";
 import { frameCardRenderer } from "$lib/canvas/renderers/frame-card-renderer";
 import { geoCardRenderer } from "$lib/canvas/renderers/geo-card-renderer";
+import { imageCardRenderer } from "$lib/canvas/renderers/image-card-renderer";
 import { noteCardRenderer } from "$lib/canvas/renderers/note-card-renderer";
-import { resourceCardRenderer } from "$lib/canvas/renderers/resource-card-renderer";
 import { textCardRenderer } from "$lib/canvas/renderers/text-card-renderer";
 import { unknownCardRenderer } from "$lib/canvas/renderers/unknown-card-renderer";
+import { videoCardRenderer } from "$lib/canvas/renderers/video-card-renderer";
 
 export type CanvasRenderPalette = {
 	bg: number;
@@ -27,7 +29,12 @@ export type CanvasRenderContext = {
 	selectedIds: Set<string>;
 	hoveredId: string | null;
 	palette: CanvasRenderPalette;
-	/** Resolved color mode, for mapping palette color ids to concrete values. */
+	/**
+	 * Live shape colors resolved from CSS tokens (theme + space theme.css).
+	 * Prefer this over hard-coded light/dark tables at render time.
+	 */
+	colors: CanvasShapeColors;
+	/** Resolved color mode, for fallback mapping when colors are unavailable. */
 	colorMode: "dark" | "light";
 	/** Current camera zoom — used for text re-rasterisation buckets. */
 	zoom: number;
@@ -58,11 +65,12 @@ export type CanvasCardRenderer = {
 const canvasCardRenderers: CanvasCardRenderer[] = [
 	textCardRenderer,
 	noteCardRenderer,
+	imageCardRenderer,
+	videoCardRenderer,
 	geoCardRenderer,
 	drawCardRenderer,
 	arrowCardRenderer,
 	frameCardRenderer,
-	resourceCardRenderer,
 	unknownCardRenderer,
 ];
 

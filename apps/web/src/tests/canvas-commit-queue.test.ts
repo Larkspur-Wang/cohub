@@ -23,6 +23,8 @@ function textItem(id: string, text: string): CanvasItem {
 		id,
 		type: "text",
 		text,
+		color: "neutral",
+		autoSize: true,
 		frame: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
 	};
 }

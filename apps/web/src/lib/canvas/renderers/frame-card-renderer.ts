@@ -1,6 +1,6 @@
 import { Container, Graphics, type Text } from "pixi.js";
 import type { CanvasItem } from "$lib/canvas/canvas-schema";
-import { resolveCanvasColor } from "$lib/canvas/core/palette";
+import { pickCanvasColor } from "$lib/canvas/core/palette";
 import { createLabel } from "$lib/canvas/renderers/base-card-renderer";
 import type {
 	CanvasCardRenderer,
@@ -29,7 +29,7 @@ function sync(
 
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const palette = resolveCanvasColor(color, context.colorMode);
+	const palette = pickCanvasColor(context.colors, color, context.colorMode);
 	const stroke = selected ? context.palette.brand : palette.stroke;
 	const alpha = selected ? 1 : hovered ? 0.85 : 0.55;
 

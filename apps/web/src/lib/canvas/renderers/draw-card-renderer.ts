@@ -1,7 +1,7 @@
 import { Container, Graphics } from "pixi.js";
 import type { CanvasDrawItem } from "$lib/canvas/canvas-schema";
 import { buildStrokeOutline } from "$lib/canvas/core/draw-geometry";
-import { resolveCanvasColor } from "$lib/canvas/core/palette";
+import { pickCanvasColor } from "$lib/canvas/core/palette";
 import { positionShell } from "$lib/canvas/renderers/base-card-renderer";
 import type {
 	CanvasCardRenderer,
@@ -28,7 +28,7 @@ function sync(
 	positionShell(parts.root, item);
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const color = resolveCanvasColor(item.color, context.colorMode);
+	const color = pickCanvasColor(context.colors, item.color, context.colorMode);
 
 	// Rebuild the ribbon only when the stroke or its styling changes. Position is
 	// handled by positionShell, so a pure drag does not re-tessellate the path.
@@ -41,6 +41,7 @@ function sync(
 		selected,
 		hovered,
 		context.colorMode,
+		context.colors.brand.stroke,
 	].join("|");
 	if (sig === parts.sig && item.points === parts.points) return;
 	parts.sig = sig;

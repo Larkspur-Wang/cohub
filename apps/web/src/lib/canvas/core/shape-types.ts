@@ -179,4 +179,17 @@ export type NoteShapeProps = {
 export type TextShapeProps = {
 	text: string;
 	color: string;
+	autoSize: boolean;
+};
+
+// ─── Media shapes ───────────────────────────────────────────────────
+
+export type ImageShapeProps = {
+	path: string;
+	mimeType?: string;
+};
+
+export type VideoShapeProps = {
+	path: string;
+	mimeType?: string;
 };

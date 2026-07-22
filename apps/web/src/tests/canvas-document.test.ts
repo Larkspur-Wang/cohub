@@ -26,6 +26,8 @@ function textItem(id: string, text: string, x = 0): CanvasItem {
 		id,
 		type: "text",
 		text,
+		color: "neutral",
+		autoSize: true,
 		frame: { x, y: 0, width: 100, height: 100, rotation: 0 },
 	};
 }

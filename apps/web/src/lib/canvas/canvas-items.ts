@@ -3,15 +3,18 @@ import { getResourceTitle, inferMediaKind } from "$lib/canvas/canvas-media";
 import type {
 	CanvasArrowItem,
 	CanvasFrame,
+	CanvasImageItem,
 	CanvasItem,
 	CanvasItemStyle,
-	CanvasResourceSnapshot,
+	CanvasMediaSnapshot,
+	CanvasVideoItem,
 } from "$lib/canvas/canvas-schema";
 import { unknownRealType } from "$lib/canvas/canvas-schema";
 import { computeDrawBounds } from "$lib/canvas/core/draw-geometry";
 
-const DEFAULT_RESOURCE_SIZE = { width: 280, height: 180 };
-const DEFAULT_TEXT_SIZE = { width: 260, height: 140 };
+const DEFAULT_MEDIA_SIZE = { width: 320, height: 200 };
+/** Empty autosize text starts as a single-line caret box. */
+const DEFAULT_TEXT_SIZE = { width: 24, height: 28 };
 /** Offset applied when duplicating so the copy is visibly displaced. */
 export const DUPLICATE_OFFSET = 24;
 
@@ -25,62 +28,116 @@ export const DEFAULT_CANVAS_ITEM_STYLE: CanvasItemStyle = {
 function createFrame(
 	x: number,
 	y: number,
-	size = DEFAULT_RESOURCE_SIZE,
+	size = DEFAULT_MEDIA_SIZE,
 ): CanvasFrame {
 	return { x, y, width: size.width, height: size.height, rotation: 0 };
 }
 
-export function createSpaceFileCanvasItem(
-	path: string,
-	x: number,
-	y: number,
-	snapshot?: CanvasResourceSnapshot,
-): CanvasItem {
+/**
+ * Fit media into a max edge while preserving aspect. Falls back to the default
+ * media size when intrinsic dimensions are unknown.
+ */
+export function mediaFrameSize(
+	naturalWidth?: number | null,
+	naturalHeight?: number | null,
+	maxEdge = 480,
+): { width: number; height: number } {
+	if (
+		!naturalWidth ||
+		!naturalHeight ||
+		!Number.isFinite(naturalWidth) ||
+		!Number.isFinite(naturalHeight) ||
+		naturalWidth <= 0 ||
+		naturalHeight <= 0
+	) {
+		return { ...DEFAULT_MEDIA_SIZE };
+	}
+	const scale = Math.min(1, maxEdge / Math.max(naturalWidth, naturalHeight));
 	return {
-		id: createCanvasItemId(),
-		type: "resource",
-		ref: { kind: "space-file", path },
-		snapshot: {
-			title: snapshot?.title ?? getResourceTitle(path),
-			mimeType: snapshot?.mimeType,
-			size: snapshot?.size,
-			mtimeMs: snapshot?.mtimeMs,
-		},
-		frame: createFrame(x, y),
-		style: { ...DEFAULT_CANVAS_ITEM_STYLE },
+		width: Math.max(24, naturalWidth * scale),
+		height: Math.max(24, naturalHeight * scale),
 	};
 }
 
-export function createRemoteUrlCanvasItem(
-	url: string,
+function mediaSnapshot(
+	path: string,
+	snapshot?: CanvasMediaSnapshot,
+): CanvasMediaSnapshot {
+	return {
+		title: snapshot?.title ?? getResourceTitle(path),
+		mimeType: snapshot?.mimeType,
+		size: snapshot?.size,
+		mtimeMs: snapshot?.mtimeMs,
+		naturalWidth: snapshot?.naturalWidth,
+		naturalHeight: snapshot?.naturalHeight,
+	};
+}
+
+export function createImageCanvasItem(
+	path: string,
 	x: number,
 	y: number,
-): CanvasItem {
-	const title = getResourceTitle(url);
+	snapshot?: CanvasMediaSnapshot,
+): CanvasImageItem {
+	const size = mediaFrameSize(snapshot?.naturalWidth, snapshot?.naturalHeight);
 	return {
 		id: createCanvasItemId(),
-		type: "resource",
-		ref: { kind: "remote-url", url },
-		snapshot: {
-			title,
-			mimeType: inferMediaKind(url) === "image" ? "image/*" : undefined,
-		},
-		frame: createFrame(x, y),
-		style: { ...DEFAULT_CANVAS_ITEM_STYLE },
+		type: "image",
+		ref: { kind: "space-file", path },
+		snapshot: mediaSnapshot(path, snapshot),
+		frame: createFrame(x - size.width / 2, y - size.height / 2, size),
 	};
+}
+
+export function createVideoCanvasItem(
+	path: string,
+	x: number,
+	y: number,
+	snapshot?: CanvasMediaSnapshot,
+): CanvasVideoItem {
+	const size = mediaFrameSize(snapshot?.naturalWidth, snapshot?.naturalHeight);
+	return {
+		id: createCanvasItemId(),
+		type: "video",
+		ref: { kind: "space-file", path },
+		snapshot: mediaSnapshot(path, {
+			...snapshot,
+			mimeType: snapshot?.mimeType ?? "video/*",
+		}),
+		frame: createFrame(x - size.width / 2, y - size.height / 2, size),
+	};
+}
+
+/**
+ * Create an image or video node from a space file path. Non-media files return
+ * null so callers can refuse rather than create a broken node.
+ */
+export function createMediaCanvasItem(
+	path: string,
+	x: number,
+	y: number,
+	snapshot?: CanvasMediaSnapshot,
+): CanvasImageItem | CanvasVideoItem | null {
+	const kind = inferMediaKind(path, snapshot?.mimeType);
+	if (kind === "image") return createImageCanvasItem(path, x, y, snapshot);
+	if (kind === "video") return createVideoCanvasItem(path, x, y, snapshot);
+	return null;
 }
 
 export function createTextCanvasItem(
 	text: string,
 	x: number,
 	y: number,
+	color = "neutral",
 ): CanvasItem {
+	// Anchor at the caret point (top-left of the first line).
 	return {
 		id: createCanvasItemId(),
 		type: "text",
 		text,
+		color,
+		autoSize: true,
 		frame: createFrame(x, y, DEFAULT_TEXT_SIZE),
-		style: { ...DEFAULT_CANVAS_ITEM_STYLE },
 	};
 }
 
@@ -90,7 +147,7 @@ const DEFAULT_GEO_SIZE = { width: 200, height: 140 };
 export function createNoteCanvasItem(
 	x: number,
 	y: number,
-	color = "brand",
+	color = "amber",
 	text = "",
 ): CanvasItem {
 	return {
@@ -98,7 +155,11 @@ export function createNoteCanvasItem(
 		type: "note",
 		text,
 		color,
-		frame: createFrame(x, y, DEFAULT_NOTE_SIZE),
+		frame: createFrame(
+			x - DEFAULT_NOTE_SIZE.width / 2,
+			y - DEFAULT_NOTE_SIZE.height / 2,
+			DEFAULT_NOTE_SIZE,
+		),
 	};
 }
 
@@ -114,8 +175,12 @@ export function createGeoCanvasItem(
 		geo,
 		text: "",
 		color,
-		fillOpacity: 0.12,
-		frame: createFrame(x, y, DEFAULT_GEO_SIZE),
+		fillOpacity: 0,
+		frame: createFrame(
+			x - DEFAULT_GEO_SIZE.width / 2,
+			y - DEFAULT_GEO_SIZE.height / 2,
+			DEFAULT_GEO_SIZE,
+		),
 	};
 }
 
@@ -172,7 +237,7 @@ export function createArrowCanvasItem(
 		end: endX,
 		bend: 0,
 		color,
-		size: 3,
+		size: 2.5,
 		arrowStart: false,
 		arrowEnd: true,
 		label: "",
@@ -193,7 +258,11 @@ export function createFrameCanvasItem(
 		type: "frame",
 		label,
 		color,
-		frame: createFrame(x, y, DEFAULT_FRAME_SIZE),
+		frame: createFrame(
+			x - DEFAULT_FRAME_SIZE.width / 2,
+			y - DEFAULT_FRAME_SIZE.height / 2,
+			DEFAULT_FRAME_SIZE,
+		),
 	};
 }
 
@@ -201,7 +270,7 @@ function arrowFrameFromPoints(
 	start: { x: number; y: number },
 	end: { x: number; y: number },
 ): CanvasFrame {
-	const pad = 12;
+	const pad = 16;
 	const x = Math.min(start.x, end.x) - pad;
 	const y = Math.min(start.y, end.y) - pad;
 	return {
@@ -291,7 +360,7 @@ export function removeCanvasItems(items: CanvasItem[], ids: Set<string>) {
 export function titleForCanvasItem(item: CanvasItem): string {
 	switch (item.type) {
 		case "text":
-			return item.text.split("\n")[0] || "Text note";
+			return item.text.split("\n")[0] || "Text";
 		case "note":
 			return item.text.split("\n")[0] || "Note";
 		case "geo":
@@ -302,13 +371,9 @@ export function titleForCanvasItem(item: CanvasItem): string {
 			return item.label || "Arrow";
 		case "frame":
 			return item.label || "Frame";
-		case "resource":
-			return (
-				item.snapshot?.title ??
-				(item.ref.kind === "space-file"
-					? getResourceTitle(item.ref.path)
-					: getResourceTitle(item.ref.url))
-			);
+		case "image":
+		case "video":
+			return item.snapshot?.title ?? getResourceTitle(item.ref.path);
 		default:
 			return unknownRealType(item);
 	}
@@ -328,14 +393,10 @@ export function subtitleForCanvasItem(item: CanvasItem): string {
 			return "Arrow";
 		case "frame":
 			return "Frame";
-		case "resource": {
-			const value =
-				item.ref.kind === "space-file" ? item.ref.path : item.ref.url;
-			const kind = inferMediaKind(value, item.snapshot?.mimeType);
-			return item.ref.kind === "space-file"
-				? `${kind} · Space file`
-				: `${kind} · Remote URL`;
-		}
+		case "image":
+			return "Image";
+		case "video":
+			return "Video";
 		default:
 			return unknownRealType(item);
 	}

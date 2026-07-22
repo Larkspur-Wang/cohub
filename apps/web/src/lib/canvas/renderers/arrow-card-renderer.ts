@@ -2,7 +2,7 @@ import { Container, Graphics, Text } from "pixi.js";
 import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
 import type { CanvasArrowItem, CanvasFrame } from "$lib/canvas/canvas-schema";
 import { resolveArrow, sampleQuadratic } from "$lib/canvas/core/bindings";
-import { resolveCanvasColor } from "$lib/canvas/core/palette";
+import { pickCanvasColor } from "$lib/canvas/core/palette";
 import type {
 	CanvasCardRenderer,
 	CanvasRenderContext,
@@ -24,14 +24,16 @@ function frameLookup(context: CanvasRenderContext) {
 	return (id: string) => byId.get(id);
 }
 
+/** Open chevron arrowhead — clearly directional, not a tiny filled nub. */
 function drawArrowhead(
 	graphics: Graphics,
 	tip: { x: number; y: number },
 	angle: number,
 	size: number,
 	color: number,
+	strokeWidth: number,
 ) {
-	const spread = Math.PI / 7;
+	const spread = Math.PI / 6;
 	const left = {
 		x: tip.x - size * Math.cos(angle - spread),
 		y: tip.y - size * Math.sin(angle - spread),
@@ -41,11 +43,16 @@ function drawArrowhead(
 		y: tip.y - size * Math.sin(angle + spread),
 	};
 	graphics
-		.moveTo(tip.x, tip.y)
-		.lineTo(left.x, left.y)
+		.moveTo(left.x, left.y)
+		.lineTo(tip.x, tip.y)
 		.lineTo(right.x, right.y)
-		.closePath()
-		.fill({ color, alpha: 1 });
+		.stroke({
+			color,
+			width: Math.max(1.5, strokeWidth),
+			alpha: 1,
+			cap: "round",
+			join: "round",
+		});
 }
 
 function sync(
@@ -61,7 +68,7 @@ function sync(
 	parts.root.rotation = 0;
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const color = resolveCanvasColor(item.color, context.colorMode);
+	const color = pickCanvasColor(context.colors, item.color, context.colorMode);
 
 	const getFrame = frameLookup(context);
 	const resolved = resolveArrow(item, getFrame);
@@ -83,6 +90,7 @@ function sync(
 				item.arrowEnd,
 				item.label,
 				context.colorMode,
+				context.colors.brand.stroke,
 			].join("|")
 		: `empty|${item.id}`;
 	if (sig === parts.sig) return;
@@ -100,10 +108,20 @@ function sync(
 	parts.line.stroke({
 		color: strokeColor,
 		width,
-		alpha: selected || hovered ? 1 : 0.9,
+		alpha: selected || hovered ? 1 : 0.92,
+		cap: "round",
+		join: "round",
 	});
 
-	const headSize = Math.max(8, item.size * 3);
+	// Head scales with stroke and arrow length so short arrows still read clearly.
+	const span = Math.hypot(
+		samples[samples.length - 1].x - samples[0].x,
+		samples[samples.length - 1].y - samples[0].y,
+	);
+	const headSize = Math.min(
+		Math.max(14, item.size * 5.5),
+		Math.max(10, span * 0.28),
+	);
 	if (item.arrowEnd) {
 		const prev = samples[samples.length - 2];
 		const tip = samples[samples.length - 1];
@@ -114,6 +132,7 @@ function sync(
 				Math.atan2(tip.y - prev.y, tip.x - prev.x),
 				headSize,
 				strokeColor,
+				width,
 			);
 	}
 	if (item.arrowStart) {
@@ -126,6 +145,7 @@ function sync(
 				Math.atan2(tip.y - next.y, tip.x - next.x),
 				headSize,
 				strokeColor,
+				width,
 			);
 	}
 

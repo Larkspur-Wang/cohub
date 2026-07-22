@@ -20,7 +20,7 @@ export const CanvasFrameSchema = z.object({
 export const CanvasViewportSchema = z.object({
 	x: z.number().finite(),
 	y: z.number().finite(),
-	zoom: z.number().finite().min(0.1).max(4),
+	zoom: z.number().finite().min(0.05).max(8),
 });
 
 export const CanvasAppearanceSchema = z.object({
@@ -28,29 +28,25 @@ export const CanvasAppearanceSchema = z.object({
 	background: z
 		.object({
 			kind: z
-				.enum(["solid", "grid", "image", "shader", "custom"])
-				.default("grid"),
+				.enum(["solid", "dots", "grid", "image", "shader", "custom"])
+				.default("dots"),
 			color: z.string().optional(),
 			imageUrl: z.string().url().optional(),
 		})
-		.default({ kind: "grid" }),
+		.default({ kind: "solid" }),
 	grid: z
 		.object({
-			visible: z.boolean().default(true),
-			size: z.number().finite().min(4).default(32),
-			opacity: z.number().finite().min(0).max(1).default(0.22),
+			visible: z.boolean().default(false),
+			size: z.number().finite().min(4).default(24),
+			opacity: z.number().finite().min(0).max(1).default(0.12),
 		})
-		.default({ visible: true, size: 32, opacity: 0.22 }),
+		.default({ visible: false, size: 24, opacity: 0.12 }),
 	mood: z
 		.enum(["clean", "playful", "arcane", "cyber", "natural"])
 		.default("clean"),
 });
 
-/**
- * Legacy visual style carried by resource/text items. Newer shapes (note, geo,
- * draw, arrow) carry a palette `color` id in their own props instead; this stays
- * for backward compatibility with existing documents and is never required.
- */
+/** Optional visual chrome still carried by a few older shapes. */
 export const CanvasItemStyleSchema = z.object({
 	variant: z.string().min(1).default("default"),
 	theme: z.string().min(1).optional(),
@@ -65,16 +61,14 @@ export const SpaceFileRefSchema = z.object({
 	path: z.string().min(1),
 });
 
-export const RemoteUrlRefSchema = z.object({
-	kind: z.literal("remote-url"),
-	url: z.string().url(),
-});
-
-export const CanvasResourceSnapshotSchema = z.object({
+export const CanvasMediaSnapshotSchema = z.object({
 	title: z.string().optional(),
 	mimeType: z.string().optional(),
 	size: z.number().finite().nonnegative().optional(),
 	mtimeMs: z.number().finite().nonnegative().optional(),
+	/** Intrinsic pixel size once known. */
+	naturalWidth: z.number().finite().positive().optional(),
+	naturalHeight: z.number().finite().positive().optional(),
 });
 
 const CanvasItemBaseSchema = z.object({
@@ -86,25 +80,19 @@ const CanvasItemBaseSchema = z.object({
 	metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const CanvasResourceItemSchema = CanvasItemBaseSchema.extend({
-	type: z.literal("resource"),
-	ref: z.discriminatedUnion("kind", [SpaceFileRefSchema, RemoteUrlRefSchema]),
-	snapshot: CanvasResourceSnapshotSchema.optional(),
-});
-
+/** Freestanding text — no card chrome; bounds follow content when autoSize. */
 export const CanvasTextItemSchema = CanvasItemBaseSchema.extend({
 	type: z.literal("text"),
-	text: z.string(),
+	text: z.string().default(""),
+	color: z.string().min(1).default("neutral"),
+	/** When true, width/height track measured text. Left/right resize turns this off. */
+	autoSize: z.boolean().default(true),
 });
-
-// ─── New shape types ────────────────────────────────────────────────
-// Colors are stored as palette ids (strings) rather than raw hex so themes can
-// remap them and unknown future colors degrade gracefully at render time.
 
 export const CanvasNoteItemSchema = CanvasItemBaseSchema.extend({
 	type: z.literal("note"),
 	text: z.string().default(""),
-	color: z.string().min(1).default("brand"),
+	color: z.string().min(1).default("amber"),
 });
 
 export const CanvasGeoItemSchema = CanvasItemBaseSchema.extend({
@@ -112,7 +100,7 @@ export const CanvasGeoItemSchema = CanvasItemBaseSchema.extend({
 	geo: z.string().min(1).default("rectangle"),
 	text: z.string().default(""),
 	color: z.string().min(1).default("brand"),
-	fillOpacity: z.number().finite().min(0).max(1).default(0.12),
+	fillOpacity: z.number().finite().min(0).max(1).default(0),
 });
 
 /** A raw freehand sample. Pressure defaults to 0.5 (mouse) when absent. */
@@ -151,18 +139,40 @@ export const CanvasArrowItemSchema = CanvasItemBaseSchema.extend({
 	end: ArrowEndpointSchema,
 	bend: z.number().finite().default(0),
 	color: z.string().min(1).default("brand"),
-	size: z.number().finite().positive().default(3),
+	size: z.number().finite().positive().default(2.5),
 	arrowStart: z.boolean().default(false),
 	arrowEnd: z.boolean().default(true),
 	label: z.string().default(""),
 });
 
-/** A frame container for organising shapes. Children are not nested in data —
- * membership is spatial (items whose center lies inside the frame). */
+/** A frame container for organising shapes. */
 export const CanvasFrameItemSchema = CanvasItemBaseSchema.extend({
 	type: z.literal("frame"),
 	label: z.string().default("Frame"),
 	color: z.string().min(1).default("neutral"),
+});
+
+/** Image node — space file only, natural aspect, no chrome. */
+export const CanvasImageItemSchema = CanvasItemBaseSchema.extend({
+	type: z.literal("image"),
+	ref: SpaceFileRefSchema,
+	snapshot: CanvasMediaSnapshotSchema.optional(),
+	/** Optional normalized crop in source image space (0..1). */
+	crop: z
+		.object({
+			x: z.number().finite().min(0).max(1).default(0),
+			y: z.number().finite().min(0).max(1).default(0),
+			w: z.number().finite().min(0).max(1).default(1),
+			h: z.number().finite().min(0).max(1).default(1),
+		})
+		.optional(),
+});
+
+/** Video node — space file only. Playback state is local UI, never synced. */
+export const CanvasVideoItemSchema = CanvasItemBaseSchema.extend({
+	type: z.literal("video"),
+	ref: SpaceFileRefSchema,
+	snapshot: CanvasMediaSnapshotSchema.optional(),
 });
 
 /**
@@ -172,7 +182,8 @@ export const CanvasFrameItemSchema = CanvasItemBaseSchema.extend({
  * silently downgraded just because this client predates a shape type.
  */
 export const KNOWN_CANVAS_ITEM_TYPES = [
-	"resource",
+	"image",
+	"video",
 	"text",
 	"note",
 	"geo",
@@ -186,10 +197,8 @@ export type KnownCanvasItemType = (typeof KNOWN_CANVAS_ITEM_TYPES)[number];
 /**
  * A forward-compatible carrier for shape types this client does not recognise.
  * Its discriminant is the literal `"unknown"` so the item union still narrows
- * cleanly on `type` (a catch-all with an open `type: string` would break
- * discriminated-union narrowing everywhere). The *real* type string and every
- * original field are preserved verbatim in `raw`, so serialisation and node
- * mapping reproduce the source exactly — data is never dropped or downgraded.
+ * cleanly on `type`. The real type string and every original field are preserved
+ * verbatim in `raw`.
  */
 export const UNKNOWN_CANVAS_ITEM_TYPE = "unknown" as const;
 
@@ -197,11 +206,10 @@ export type CanvasUnknownItem = {
 	id: string;
 	type: typeof UNKNOWN_CANVAS_ITEM_TYPE;
 	frame: z.infer<typeof CanvasFrameSchema>;
-	/** When true the shape cannot be moved, resized, or deleted. */
 	locked?: boolean;
 	style?: z.infer<typeof CanvasItemStyleSchema>;
 	metadata?: Record<string, unknown>;
-	/** Verbatim original item record (carries the real `type`), for lossless round-trip. */
+	/** Verbatim original item record (carries the real `type`). */
 	raw: Record<string, unknown>;
 };
 
@@ -211,11 +219,6 @@ export function unknownRealType(item: CanvasUnknownItem): string {
 	return typeof real === "string" && real ? real : "unknown";
 }
 
-/**
- * Lenient item schema: known types are validated and normalised, anything else
- * becomes a lossless unknown item (see parseCanvasItemLoose). Parsing a document
- * therefore never drops or rejects an item because of an unrecognised shape type.
- */
 export const CanvasItemSchema = z
 	.any()
 	.transform((raw): CanvasItem => parseCanvasItemLoose(raw));
@@ -232,8 +235,12 @@ export function parseCanvasItemLoose(raw: unknown): CanvasItem {
 	const record = raw as Record<string, unknown>;
 	const type = record.type;
 	switch (type) {
-		case "resource": {
-			const parsed = CanvasResourceItemSchema.safeParse(raw);
+		case "image": {
+			const parsed = CanvasImageItemSchema.safeParse(raw);
+			return parsed.success ? parsed.data : makeUnknownItem(raw);
+		}
+		case "video": {
+			const parsed = CanvasVideoItemSchema.safeParse(raw);
 			return parsed.success ? parsed.data : makeUnknownItem(raw);
 		}
 		case "text": {
@@ -290,8 +297,8 @@ export const CovasDocumentSchema = z.object({
 	version: z.literal(1),
 	appearance: CanvasAppearanceSchema.default({
 		theme: "clean",
-		background: { kind: "grid" },
-		grid: { visible: true, size: 32, opacity: 0.22 },
+		background: { kind: "solid" },
+		grid: { visible: false, size: 24, opacity: 0.12 },
 		mood: "clean",
 	}),
 	viewport: CanvasViewportSchema,
@@ -303,11 +310,7 @@ export type CanvasViewport = z.infer<typeof CanvasViewportSchema>;
 export type CanvasAppearance = z.infer<typeof CanvasAppearanceSchema>;
 export type CanvasItemStyle = z.infer<typeof CanvasItemStyleSchema>;
 export type SpaceFileRef = z.infer<typeof SpaceFileRefSchema>;
-export type RemoteUrlRef = z.infer<typeof RemoteUrlRefSchema>;
-export type CanvasResourceSnapshot = z.infer<
-	typeof CanvasResourceSnapshotSchema
->;
-export type CanvasResourceItem = z.infer<typeof CanvasResourceItemSchema>;
+export type CanvasMediaSnapshot = z.infer<typeof CanvasMediaSnapshotSchema>;
 export type CanvasTextItem = z.infer<typeof CanvasTextItemSchema>;
 export type CanvasNoteItem = z.infer<typeof CanvasNoteItemSchema>;
 export type CanvasGeoItem = z.infer<typeof CanvasGeoItemSchema>;
@@ -316,9 +319,12 @@ export type CanvasDrawItem = z.infer<typeof CanvasDrawItemSchema>;
 export type ArrowEndpoint = z.infer<typeof ArrowEndpointSchema>;
 export type CanvasArrowItem = z.infer<typeof CanvasArrowItemSchema>;
 export type CanvasFrameItem = z.infer<typeof CanvasFrameItemSchema>;
+export type CanvasImageItem = z.infer<typeof CanvasImageItemSchema>;
+export type CanvasVideoItem = z.infer<typeof CanvasVideoItemSchema>;
 /** Known (natively handled) item variants. */
 export type CanvasKnownItem =
-	| CanvasResourceItem
+	| CanvasImageItem
+	| CanvasVideoItem
 	| CanvasTextItem
 	| CanvasNoteItem
 	| CanvasGeoItem
@@ -329,11 +335,12 @@ export type CanvasKnownItem =
 export type CanvasItem = CanvasKnownItem | CanvasUnknownItem;
 export type CovasDocument = z.infer<typeof CovasDocumentSchema>;
 
-/**
- * An item is "unknown" when its discriminant is the reserved `"unknown"` literal
- * (equivalently, it carries a preserved `raw` record). Either test works; the
- * literal keeps discriminated-union narrowing on `type` intact for known shapes.
- */
 export function isUnknownItem(item: CanvasItem): item is CanvasUnknownItem {
 	return item.type === UNKNOWN_CANVAS_ITEM_TYPE;
+}
+
+export function isMediaItem(
+	item: CanvasItem,
+): item is CanvasImageItem | CanvasVideoItem {
+	return item.type === "image" || item.type === "video";
 }

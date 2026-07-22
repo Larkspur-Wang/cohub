@@ -38,9 +38,8 @@ import {
 	createDrawCanvasItem,
 	createFrameCanvasItem,
 	createGeoCanvasItem,
+	createMediaCanvasItem,
 	createNoteCanvasItem,
-	createRemoteUrlCanvasItem,
-	createSpaceFileCanvasItem,
 	createTextCanvasItem,
 	duplicateCanvasItem,
 	patchItemFrames,
@@ -73,7 +72,11 @@ import {
 	shapeCapabilities,
 	shapeHitTest,
 } from "$lib/canvas/core/shape-definition";
-import { arrowBoundsFor, arrowHitTest } from "$lib/canvas/core/shapes";
+import {
+	arrowBoundsFor,
+	arrowHitTest,
+	resolveArrowFor,
+} from "$lib/canvas/core/shapes";
 import { computeSnap, type SnapGuide } from "$lib/canvas/core/snapping";
 import "$lib/canvas/core/shapes";
 import type {
@@ -88,6 +91,7 @@ import {
 	createSpatialIndex,
 	type SpatialEntry,
 } from "$lib/canvas/canvas-spatial";
+import { measureCanvasText } from "$lib/canvas/renderers/text-card-renderer";
 
 export type CanvasToolId =
 	| "select"
@@ -97,8 +101,7 @@ export type CanvasToolId =
 	| "geo"
 	| "draw"
 	| "arrow"
-	| "frame"
-	| "eraser";
+	| "frame";
 export type CanvasEmphasis = CanvasItemStyle["emphasis"];
 export type { AlignMode, DistributeAxis };
 
@@ -167,13 +170,20 @@ export type CanvasInteraction =
 			startBinding: ArrowEndpoint | null;
 	  }
 	| {
+			type: "creatingBox";
+			kind: "note" | "geo" | "frame";
+			start: WorldPoint;
+			current: WorldPoint;
+			color: string;
+			geo: string;
+	  }
+	| {
 			type: "draggingArrowHandle";
 			arrowId: string;
-			which: "start" | "end";
+			which: "start" | "end" | "mid";
 			origin: CanvasArrowItem;
 			moved: boolean;
-	  }
-	| { type: "erasing"; erased: Set<string> };
+	  };
 
 /**
  * A pointer sample carrying both coordinate spaces. The stage performs the
@@ -214,7 +224,7 @@ export type CanvasEditorOptions = {
 
 const NUDGE_STEP = 1;
 const NUDGE_STEP_LARGE = 10;
-const ZOOM_STEP = 1.2;
+const ZOOM_STEP = 1.28;
 const CAMERA_ANIMATION_MS = 240;
 /** Pointer travel (screen px) before a press becomes a drag. */
 const DRAG_THRESHOLD = 3;
@@ -577,32 +587,54 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	}
 
 	// ─── Commands ───────────────────────────────────────────────────
+	/**
+	 * After placing a shape, decide whether to leave the creation tool.
+	 * Matches tldraw's feel: drawing tools stay hot so you can keep going;
+	 * stamp tools (note/geo/frame) also stay unless the user explicitly
+	 * switches to Select. Tool-lock is still honoured as a hard stay.
+	 * Text is handled separately (enters edit, then may return on commit).
+	 */
 	function maybeReturnToSelect() {
 		if (toolLocked) return;
+		// Continuous / stamp tools stay on themselves — never bounce to Select.
 		if (
-			tool === "text" ||
-			tool === "note" ||
-			tool === "geo" ||
 			tool === "draw" ||
 			tool === "arrow" ||
-			tool === "frame"
+			tool === "note" ||
+			tool === "geo" ||
+			tool === "frame" ||
+			tool === "text"
 		)
-			tool = "select";
+			return;
+		tool = "select";
 	}
 
-	function addItemAt(item: CanvasItem) {
+	function addItemAt(item: CanvasItem, opts?: { select?: boolean }) {
 		setItems([...synced.items, item]);
-		selection = [item.id];
+		// Keep continuous drawing free of a sticky selection chrome; stamp tools
+		// still select the new shape so the user can immediately restyle it.
+		const shouldSelect = opts?.select ?? (tool !== "draw" && tool !== "arrow");
+		selection = shouldSelect ? [item.id] : [];
 		commitAction();
 		maybeReturnToSelect();
 	}
 
-	function addFile(path: string, at: WorldPoint) {
-		addItemAt(createSpaceFileCanvasItem(path, at.x, at.y));
-	}
-
-	function addUrl(url: string, at: WorldPoint) {
-		addItemAt(createRemoteUrlCanvasItem(url, at.x, at.y));
+	function addFile(
+		path: string,
+		at: WorldPoint,
+		snapshot?: {
+			title?: string;
+			mimeType?: string;
+			size?: number;
+			mtimeMs?: number;
+			naturalWidth?: number;
+			naturalHeight?: number;
+		},
+	) {
+		const item = createMediaCanvasItem(path, at.x, at.y, snapshot);
+		if (!item) return false;
+		addItemAt(item);
+		return true;
 	}
 
 	function addText(text: string, at: WorldPoint) {
@@ -619,6 +651,63 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 
 	function addFrame(at: WorldPoint) {
 		addItemAt(createFrameCanvasItem(at.x, at.y, activeColor));
+	}
+
+	/**
+	 * Finish a note/geo/frame drag-create. A short click places the default-sized
+	 * shape; a drag creates a sized box from the press corner.
+	 */
+	function commitBoxCreate(state: {
+		kind: "note" | "geo" | "frame";
+		start: WorldPoint;
+		current: WorldPoint;
+		color: string;
+		geo: string;
+	}) {
+		const dx = state.current.x - state.start.x;
+		const dy = state.current.y - state.start.y;
+		const dist = Math.hypot(dx, dy);
+		const threshold = 6 / Math.max(camera.zoom, 0.0001);
+		if (dist <= threshold) {
+			if (state.kind === "note") addNote(state.start);
+			else if (state.kind === "geo") {
+				addItemAt(
+					createGeoCanvasItem(
+						state.geo,
+						state.start.x,
+						state.start.y,
+						state.color,
+					),
+				);
+			} else addFrame(state.start);
+			return;
+		}
+		const x = Math.min(state.start.x, state.current.x);
+		const y = Math.min(state.start.y, state.current.y);
+		const width = Math.max(24, Math.abs(dx));
+		const height = Math.max(24, Math.abs(dy));
+		const frame = { x, y, width, height, rotation: 0 };
+		if (state.kind === "note") {
+			const item = createNoteCanvasItem(x, y, state.color);
+			if (item.type === "note") item.frame = frame;
+			addItemAt(item);
+			return;
+		}
+		if (state.kind === "geo") {
+			const item = createGeoCanvasItem(state.geo, x, y, state.color);
+			if (item.type === "geo") item.frame = frame;
+			addItemAt(item);
+			return;
+		}
+		const item = createFrameCanvasItem(x, y, state.color);
+		if (item.type === "frame") {
+			item.frame = {
+				...frame,
+				width: Math.max(48, width),
+				height: Math.max(48, height),
+			};
+		}
+		addItemAt(item);
 	}
 
 	/** Commit a finished freehand stroke as a draw item (drops empty strokes). */
@@ -687,6 +776,9 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		}
 		editingId = null;
 		draftId = null;
+		// Text is the one creation tool that feels "done" after commit — return to
+		// Select so the next tap moves things, unless the user locked the tool.
+		if (tool === "text" && !toolLocked) tool = "select";
 		// Apply any remote refresh deferred for the duration of this edit.
 		flushPendingRemote();
 	}
@@ -956,6 +1048,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		const next = synced.items.map((item) => {
 			if (!ids.has(item.id) || isLocked(item)) return item;
 			if (
+				item.type === "text" ||
 				item.type === "note" ||
 				item.type === "geo" ||
 				item.type === "draw" ||
@@ -1001,12 +1094,23 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			return;
 		if (target.text === text) return;
 		setItems(
-			synced.items.map((item) =>
-				item.id === id &&
-				(item.type === "text" || item.type === "note" || item.type === "geo")
-					? { ...item, text }
-					: item,
-			),
+			synced.items.map((item) => {
+				if (item.id !== id) return item;
+				if (item.type === "note" || item.type === "geo")
+					return { ...item, text };
+				if (item.type !== "text") return item;
+				if (!item.autoSize) return { ...item, text };
+				const size = measureCanvasText(text);
+				return {
+					...item,
+					text,
+					frame: {
+						...item.frame,
+						width: size.width,
+						height: size.height,
+					},
+				};
+			}),
 		);
 		commitAction();
 	}
@@ -1088,20 +1192,32 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 	 * Hit-test arrow endpoint handles for a single selected arrow. Returns which
 	 * endpoint is under the pointer, or null.
 	 */
-	function arrowHandleAt(point: WorldPoint): "start" | "end" | null {
+	function arrowHandleAt(point: WorldPoint): "start" | "end" | "mid" | null {
 		if (selection.length !== 1) return null;
 		const item = selectedItems[0];
 		if (item?.type !== "arrow") return null;
 		if (isLocked(item)) return null;
 		const lookup = frameLookup();
-		const start = resolveEndpoint(item.start, lookup);
-		const end = resolveEndpoint(item.end, lookup);
-		if (!start || !end) return null;
+		const resolved = resolveArrowFor(item, lookup);
+		if (!resolved) return null;
 		const radius = (HANDLE_HIT_RADIUS + 2) / camera.zoom;
-		const distStart = Math.hypot(start.x - point.x, start.y - point.y);
-		const distEnd = Math.hypot(end.x - point.x, end.y - point.y);
-		if (distStart <= radius && distStart <= distEnd) return "start";
-		if (distEnd <= radius) return "end";
+		const distStart = Math.hypot(
+			resolved.start.x - point.x,
+			resolved.start.y - point.y,
+		);
+		const distEnd = Math.hypot(
+			resolved.end.x - point.x,
+			resolved.end.y - point.y,
+		);
+		const distMid = Math.hypot(
+			resolved.control.x - point.x,
+			resolved.control.y - point.y,
+		);
+		// Prefer endpoints over mid when they overlap.
+		if (distStart <= radius && distStart <= distEnd && distStart <= distMid)
+			return "start";
+		if (distEnd <= radius && distEnd <= distMid) return "end";
+		if (distMid <= radius) return "mid";
 		return null;
 	}
 
@@ -1114,6 +1230,39 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		if (!item || item.id === excludeId) return null;
 		if (!shapeCapabilities(item).canBind) return null;
 		return { id: item.id, frame: item.frame };
+	}
+
+	/**
+	 * When moving frames, also move unlocked items whose center currently lies
+	 * inside a selected frame. Membership is spatial (no parentId).
+	 */
+	function expandFrameChildren(ids: string[]): string[] {
+		const selected = new Set(ids);
+		const frames = synced.items.filter(
+			(item) =>
+				item.type === "frame" && selected.has(item.id) && !isLocked(item),
+		);
+		if (frames.length === 0) return ids;
+		const extra: string[] = [];
+		for (const item of synced.items) {
+			if (selected.has(item.id) || isLocked(item)) continue;
+			if (item.type === "frame") continue;
+			const cx = item.frame.x + item.frame.width / 2;
+			const cy = item.frame.y + item.frame.height / 2;
+			for (const frame of frames) {
+				const f = frame.frame;
+				if (
+					cx >= f.x &&
+					cx <= f.x + f.width &&
+					cy >= f.y &&
+					cy <= f.y + f.height
+				) {
+					extra.push(item.id);
+					break;
+				}
+			}
+		}
+		return extra.length ? [...ids, ...extra] : ids;
 	}
 
 	function framesFor(ids: string[]): Map<string, CanvasFrame> {
@@ -1155,10 +1304,10 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		});
 	}
 
-	/** Grid size for snapping when the background grid is visible, else 0. */
+	/** Grid size for snapping only when a visible grid is enabled. */
 	function gridSnapSize(): number {
 		const grid = document.appearance.grid;
-		return grid?.visible === false ? 0 : (grid?.size ?? 0);
+		return grid?.visible === true ? (grid.size ?? 0) : 0;
 	}
 
 	/**
@@ -1184,6 +1333,23 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		}
 		if (patches.size > 0)
 			setItems(patchItemFrames(synced.items, patches), false, patches.keys());
+	}
+
+	/** Patch arrow bend and recompute its frame from live geometry. */
+	function applyArrowBend(arrowId: string, bend: number) {
+		const lookup = frameLookup();
+		setItems(
+			synced.items.map((item) => {
+				if (item.id !== arrowId || item.type !== "arrow") return item;
+				const next: CanvasArrowItem = { ...item, bend };
+				const nextBounds = arrowBoundsFor(next, lookup);
+				return nextBounds
+					? { ...next, frame: { ...nextBounds, rotation: 0 } }
+					: next;
+			}),
+			false,
+			[arrowId],
+		);
 	}
 
 	/** Patch one arrow endpoint and recompute its frame from live geometry. */
@@ -1244,7 +1410,7 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			return;
 		}
 
-		// Creation and erase tools take over the primary pointer before any of the
+		// Creation tools take over the primary pointer before any of the
 		// select-tool handle/hit logic below.
 		if (tool === "draw") {
 			interaction = {
@@ -1270,28 +1436,15 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			};
 			return;
 		}
-		if (tool === "eraser") {
-			const erased = new Set<string>();
-			const item = topItemAt(event.world);
-			if (item && !isLocked(item)) {
-				erased.add(item.id);
-				for (const arrowId of boundArrowIds(new Set([item.id])))
-					erased.add(arrowId);
-				setItems(removeCanvasItems(synced.items, erased));
-			}
-			interaction = { type: "erasing", erased };
-			return;
-		}
-		if (tool === "note") {
-			addNote(event.world);
-			return;
-		}
-		if (tool === "geo") {
-			addGeo(event.world);
-			return;
-		}
-		if (tool === "frame") {
-			addFrame(event.world);
+		if (tool === "note" || tool === "geo" || tool === "frame") {
+			interaction = {
+				type: "creatingBox",
+				kind: tool,
+				start: event.world,
+				current: event.world,
+				color: activeColor,
+				geo: activeGeo,
+			};
 			return;
 		}
 		if (tool === "text") {
@@ -1365,11 +1518,12 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				interaction = { type: "idle" };
 				return;
 			}
+			const withChildren = expandFrameChildren(movable);
 			interaction = {
 				type: "translating",
 				start: event.world,
-				origin: framesFor(movable),
-				arrowOrigin: arrowsFor(movable),
+				origin: framesFor(withChildren),
+				arrowOrigin: arrowsFor(withChildren),
 				moved: false,
 				duplicate: event.altKey,
 			};
@@ -1538,7 +1692,17 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 					index += 1;
 				}
 			}
-			setItems(patchItemFrames(synced.items, frames), false, frames.keys());
+			// Manual resize freezes freestanding text width/height (schema: autoSize off).
+			setItems(
+				synced.items.map((item) => {
+					const frame = frames.get(item.id);
+					if (!frame) return item;
+					if (item.type === "text") return { ...item, frame, autoSize: false };
+					return { ...item, frame };
+				}),
+				false,
+				frames.keys(),
+			);
 			refreshBoundArrowFrames(new Set(interaction.origin.keys()));
 			return;
 		}
@@ -1569,9 +1733,32 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 
 		if (interaction.type === "draggingArrowHandle") {
 			interaction.moved = true;
-			// Capture fields before nested callbacks so TypeScript keeps the narrow.
 			const arrowId = interaction.arrowId;
 			const which = interaction.which;
+
+			// Mid handle bends the quadratic control point.
+			if (which === "mid") {
+				const origin = interaction.origin;
+				const lookup = frameLookup();
+				const start = resolveEndpoint(origin.start, lookup);
+				const end = resolveEndpoint(origin.end, lookup);
+				if (!start || !end) return;
+				const dx = end.x - start.x;
+				const dy = end.y - start.y;
+				const length = Math.hypot(dx, dy) || 1;
+				// Signed distance from chord to pointer along the perpendicular.
+				const mid = worldPoint((start.x + end.x) / 2, (start.y + end.y) / 2);
+				const nx = -dy / length;
+				const ny = dx / length;
+				const bend =
+					((event.world.x - mid.x) * nx + (event.world.y - mid.y) * ny) /
+					length;
+				const clamped = Math.max(-0.85, Math.min(0.85, bend));
+				applyArrowBend(arrowId, clamped);
+				snapGuides = [];
+				return;
+			}
+
 			const target = bindTargetAt(event.world, arrowId);
 			const endpoint = bindEndpointAt(event.world, target);
 			// Optional snap of free endpoints to nearby shape edges.
@@ -1592,7 +1779,6 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				point = worldPoint(point.x + snap.dx, point.y + snap.dy);
 				snapGuides = snap.guides;
 				if (!target) {
-					// Re-bind after snap in case we landed on a shape.
 					const snappedTarget = bindTargetAt(point, arrowId);
 					const snapped = bindEndpointAt(point, snappedTarget);
 					applyArrowEndpoint(arrowId, which, snapped);
@@ -1649,15 +1835,8 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 			return;
 		}
 
-		if (interaction.type === "erasing") {
-			const item = topItemAt(event.world);
-			if (item && !isLocked(item) && !interaction.erased.has(item.id)) {
-				// Erase the shape and any unlocked arrows bound to it.
-				const ids = new Set([item.id]);
-				for (const arrowId of boundArrowIds(ids)) ids.add(arrowId);
-				for (const id of ids) interaction.erased.add(id);
-				setItems(removeCanvasItems(synced.items, ids));
-			}
+		if (interaction.type === "creatingBox") {
+			interaction = { ...interaction, current: event.world };
 			return;
 		}
 	}
@@ -1709,8 +1888,8 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 				interaction.startBinding,
 				endBinding,
 			);
-		} else if (interaction.type === "erasing") {
-			if (interaction.erased.size > 0) commitAction();
+		} else if (interaction.type === "creatingBox") {
+			commitBoxCreate(interaction);
 		}
 		snapGuides = [];
 		interaction = { type: "idle" };
@@ -1738,11 +1917,14 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		zoomKey: boolean,
 	) {
 		if (zoomKey) {
-			setCamera(
-				zoomAround(camera, point, camera.zoom * Math.exp(-deltaY * 0.002)),
-			);
+			// Trackpad pinch / ctrl-wheel: denser steps so small gestures feel snappy.
+			// Clamp the per-event factor so a single huge tick never jumps the camera.
+			const factor = Math.exp(-deltaY * 0.0045);
+			const clamped = Math.min(1.35, Math.max(1 / 1.35, factor));
+			setCamera(zoomAround(camera, point, camera.zoom * clamped));
 		} else {
-			setCamera(panBy(camera, -deltaX, -deltaY));
+			// Slightly faster pan so two-finger scroll keeps up with zoom.
+			setCamera(panBy(camera, -deltaX * 1.15, -deltaY * 1.15));
 		}
 	}
 
@@ -1943,6 +2125,12 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		},
 		set tool(value: CanvasToolId) {
 			tool = value;
+			// Entering a freehand tool should clear sticky selection chrome
+			// so the next stroke isn't fighting handles (tldraw does the same).
+			if (value === "draw" || value === "arrow") {
+				selection = [];
+				editingId = null;
+			}
 		},
 		set editingId(value: string | null) {
 			editingId = value;
@@ -1978,7 +2166,6 @@ export function createCanvasEditor(options: CanvasEditorOptions) {
 		clearSelection,
 		selectAll,
 		addFile,
-		addUrl,
 		addText,
 		addNote,
 		addGeo,

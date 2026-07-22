@@ -1,7 +1,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import { getCanvasResolution } from "$lib/canvas/canvas-rendering";
 import type { CanvasGeoItem } from "$lib/canvas/canvas-schema";
-import { resolveCanvasColor } from "$lib/canvas/core/palette";
+import { pickCanvasColor } from "$lib/canvas/core/palette";
 import { positionShell } from "$lib/canvas/renderers/base-card-renderer";
 import type {
 	CanvasCardRenderer,
@@ -64,7 +64,7 @@ function sync(
 	const { width, height } = item.frame;
 	const selected = context.selectedIds.has(item.id);
 	const hovered = context.hoveredId === item.id;
-	const color = resolveCanvasColor(item.color, context.colorMode);
+	const color = pickCanvasColor(context.colors, item.color, context.colorMode);
 
 	const sig = [
 		width,
@@ -76,6 +76,7 @@ function sync(
 		item.color,
 		item.fillOpacity,
 		context.colorMode,
+		context.colors.brand.stroke,
 	].join("|");
 	if (sig === parts.sig) return;
 	parts.sig = sig;

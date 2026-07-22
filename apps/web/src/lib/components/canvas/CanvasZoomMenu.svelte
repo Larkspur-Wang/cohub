@@ -46,6 +46,25 @@ const zoomPercent = $derived(Math.round(editor.camera.zoom * 100));
 		backdrop-filter: blur(12px);
 	}
 
+	/* Touch: park zoom top-right so it never collides with the tool dock. */
+	@media (pointer: coarse) {
+		.canvas-zoom-menu {
+			top: calc(12px + env(safe-area-inset-top, 0px));
+			right: 10px;
+			bottom: auto;
+			padding: 5px;
+		}
+		.zoom-btn { width: 34px; height: 34px; }
+		.zoom-value { min-width: 48px; height: 34px; font-size: 12px; }
+	}
+
+	@media (pointer: coarse) and (max-width: 480px) {
+		.canvas-zoom-menu {
+			/* Compact: hide "fit" on the narrowest phones via order if needed later */
+			max-width: calc(100vw - 20px);
+		}
+	}
+
 	.zoom-btn {
 		display: inline-flex;
 		align-items: center;

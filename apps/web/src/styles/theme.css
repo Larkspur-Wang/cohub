@@ -5,6 +5,43 @@
 @import "./themes/neta-studio.css";
 
 /* ============================================================
+   Canvas shape palette
+   Driven by current data-theme tokens. Space `.cohub/theme.css`
+   can override any of these to recolor canvas shapes end-to-end.
+   ============================================================ */
+:root,
+[data-theme] {
+	--canvas-color-brand-stroke: var(--brand);
+	--canvas-color-brand-fill: var(--brand);
+	--canvas-color-brand-label: var(--text-primary);
+
+	--canvas-color-neutral-stroke: var(--text-tertiary);
+	--canvas-color-neutral-fill: var(--text-tertiary);
+	--canvas-color-neutral-label: var(--text-primary);
+
+	--canvas-color-blue-stroke: var(--info-400);
+	--canvas-color-blue-fill: var(--info-400);
+	--canvas-color-blue-label: var(--text-primary);
+
+	--canvas-color-green-stroke: var(--success-400);
+	--canvas-color-green-fill: var(--success-400);
+	--canvas-color-green-label: var(--text-primary);
+
+	--canvas-color-amber-stroke: var(--warning-400);
+	--canvas-color-amber-fill: var(--warning-400);
+	--canvas-color-amber-label: var(--text-primary);
+
+	/* Violet has no dedicated semantic scale — soft brand-adjacent hue. */
+	--canvas-color-violet-stroke: var(--info-500);
+	--canvas-color-violet-fill: var(--info-500);
+	--canvas-color-violet-label: var(--text-primary);
+
+	--canvas-color-rose-stroke: var(--error-400);
+	--canvas-color-rose-fill: var(--error-400);
+	--canvas-color-rose-label: var(--text-primary);
+}
+
+/* ============================================================
    Tailwind v4 @theme — semantic design tokens
    ============================================================ */
 @theme {

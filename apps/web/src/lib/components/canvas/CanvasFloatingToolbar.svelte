@@ -1,29 +1,26 @@
 <script lang="ts">
 import {
 	ArrowUpRight,
-	Eraser,
+	ChevronUp,
 	Frame,
 	Hand,
 	MousePointer2,
 	Pencil,
 	Pin,
-	Plus,
 	Redo2,
 	Square,
 	StickyNote,
 	Type,
 	Undo2,
 } from "lucide-svelte";
-import { CANVAS_COLORS } from "$lib/canvas/core/palette";
+import { CANVAS_COLORS, canvasColorCssVar } from "$lib/canvas/core/palette";
 import { GEO_KINDS } from "$lib/canvas/core/shape-types";
 import type { CanvasEditor, CanvasToolId } from "$lib/canvas/editor.svelte";
-import CanvasAddMenu from "$lib/components/canvas/CanvasAddMenu.svelte";
 
 const { editor }: { editor: CanvasEditor } = $props();
 
-let addMenuOpen = $state(false);
-let addButton: HTMLButtonElement | null = $state(null);
 let lockTimer: ReturnType<typeof setTimeout> | null = null;
+let moreOpen = $state(false);
 
 type ToolDef = {
 	id: CanvasToolId;
@@ -32,6 +29,8 @@ type ToolDef = {
 	icon: typeof MousePointer2;
 	/** Tools that consume the active color (show the palette while active). */
 	usesColor: boolean;
+	/** Shown behind "More" on narrow touch layouts. */
+	secondary?: boolean;
 };
 
 const TOOLS: ToolDef[] = [
@@ -43,15 +42,6 @@ const TOOLS: ToolDef[] = [
 		usesColor: false,
 	},
 	{ id: "hand", label: "Hand", shortcut: "H", icon: Hand, usesColor: false },
-	{ id: "text", label: "Text", shortcut: "T", icon: Type, usesColor: false },
-	{
-		id: "note",
-		label: "Note",
-		shortcut: "N",
-		icon: StickyNote,
-		usesColor: true,
-	},
-	{ id: "geo", label: "Shape", shortcut: "G", icon: Square, usesColor: true },
 	{ id: "draw", label: "Draw", shortcut: "D", icon: Pencil, usesColor: true },
 	{
 		id: "arrow",
@@ -60,24 +50,32 @@ const TOOLS: ToolDef[] = [
 		icon: ArrowUpRight,
 		usesColor: true,
 	},
+	{ id: "text", label: "Text", shortcut: "T", icon: Type, usesColor: true },
+	{
+		id: "note",
+		label: "Note",
+		shortcut: "N",
+		icon: StickyNote,
+		usesColor: true,
+	},
+	{ id: "geo", label: "Shape", shortcut: "G", icon: Square, usesColor: true },
 	{
 		id: "frame",
 		label: "Frame",
 		shortcut: "F",
 		icon: Frame,
 		usesColor: true,
-	},
-	{
-		id: "eraser",
-		label: "Eraser",
-		shortcut: "E",
-		icon: Eraser,
-		usesColor: false,
+		secondary: true,
 	},
 ];
 
+const primaryTools = $derived(TOOLS.filter((tool) => !tool.secondary));
+const secondaryTools = $derived(TOOLS.filter((tool) => tool.secondary));
 const activeTool = $derived(TOOLS.find((t) => t.id === editor.tool));
 const showPalette = $derived(Boolean(activeTool?.usesColor));
+const secondaryActive = $derived(
+	secondaryTools.some((tool) => tool.id === editor.tool),
+);
 
 const GEO_LABELS: Record<string, string> = {
 	rectangle: "Rectangle",
@@ -89,16 +87,16 @@ const GEO_LABELS: Record<string, string> = {
 
 function selectTool(id: CanvasToolId) {
 	editor.tool = id;
-	// Selecting a non-creation tool clears tool lock.
-	if (id === "select" || id === "hand" || id === "eraser")
-		editor.toolLocked = false;
-	addMenuOpen = false;
+	// Select / Hand are navigation modes — clear any leftover lock.
+	// Creation tools stay hot after each stroke (tldraw-style continuous draw).
+	if (id === "select" || id === "hand") editor.toolLocked = false;
+	moreOpen = false;
 }
 
 function onToolPointerDown(id: CanvasToolId) {
 	if (lockTimer) clearTimeout(lockTimer);
-	// Long-press (~450ms) locks a creation tool for continuous placement.
-	if (id === "select" || id === "hand" || id === "eraser") return;
+	// Long-press still force-locks (e.g. keep Text after commit).
+	if (id === "select" || id === "hand") return;
 	lockTimer = setTimeout(() => {
 		editor.tool = id;
 		editor.toolLocked = true;
@@ -113,21 +111,20 @@ function onToolPointerUp() {
 	}
 }
 
-function toggleAddMenu() {
-	addMenuOpen = !addMenuOpen;
-}
-
-function closeAddMenu() {
-	addMenuOpen = false;
-}
-
 function toggleToolLock() {
 	editor.toolLocked = !editor.toolLocked;
+}
+
+function toolTitle(tool: ToolDef) {
+	const locked =
+		editor.tool === tool.id && editor.toolLocked ? " · locked" : "";
+	const stay =
+		tool.id === "draw" || tool.id === "arrow" ? " · stay active" : "";
+	return `${tool.label} (${tool.shortcut})${locked || stay}`;
 }
 </script>
 
 <div class="canvas-toolbar-wrap">
-	<!-- Style row: color palette + shape picker, shown for color-using tools. -->
 	{#if showPalette}
 		<div class="canvas-style-row" role="toolbar" aria-label="Shape style">
 			{#each CANVAS_COLORS as color (color.id)}
@@ -137,7 +134,7 @@ function toggleToolLock() {
 					class:color-swatch--active={editor.activeColor === color.id}
 					title={color.label}
 					aria-label="Use {color.label}"
-					style:--swatch={color.dark.stroke ? `#${color.dark.stroke.toString(16).padStart(6, "0")}` : "#888"}
+					style:--swatch="var({canvasColorCssVar(color.id, 'stroke')})"
 					onclick={() => { editor.activeColor = color.id; }}
 				></button>
 			{/each}
@@ -159,14 +156,32 @@ function toggleToolLock() {
 		</div>
 	{/if}
 
+	{#if moreOpen}
+		<div class="canvas-more-menu" role="menu" aria-label="More tools">
+			{#each secondaryTools as tool (tool.id)}
+				<button
+					type="button"
+					class="more-item"
+					class:more-item--active={editor.tool === tool.id}
+					role="menuitem"
+					onclick={() => selectTool(tool.id)}
+				>
+					<tool.icon class="h-4 w-4" />
+					<span>{tool.label}</span>
+					<span class="more-shortcut">{tool.shortcut}</span>
+				</button>
+			{/each}
+		</div>
+	{/if}
+
 	<div class="canvas-floating-toolbar" role="toolbar" aria-label="Canvas tools">
-		{#each TOOLS as tool (tool.id)}
+		{#each primaryTools as tool (tool.id)}
 			<button
 				type="button"
 				class="tool-btn"
 				class:tool-btn--active={editor.tool === tool.id}
 				class:tool-btn--locked={editor.tool === tool.id && editor.toolLocked}
-				title="{tool.label} ({tool.shortcut}){editor.tool === tool.id && editor.toolLocked ? ' · locked' : ''}"
+				title={toolTitle(tool)}
 				aria-label="{tool.label} tool"
 				aria-pressed={editor.tool === tool.id}
 				onclick={() => selectTool(tool.id)}
@@ -179,13 +194,47 @@ function toggleToolLock() {
 			</button>
 		{/each}
 
+		<!-- Secondary tools: inline on desktop, "More" on coarse/narrow. -->
+		<div class="secondary-inline">
+			{#each secondaryTools as tool (tool.id)}
+				<button
+					type="button"
+					class="tool-btn"
+					class:tool-btn--active={editor.tool === tool.id}
+					class:tool-btn--locked={editor.tool === tool.id && editor.toolLocked}
+					title={toolTitle(tool)}
+					aria-label="{tool.label} tool"
+					aria-pressed={editor.tool === tool.id}
+					onclick={() => selectTool(tool.id)}
+					onpointerdown={() => onToolPointerDown(tool.id)}
+					onpointerup={onToolPointerUp}
+					onpointerleave={onToolPointerUp}
+					onpointercancel={onToolPointerUp}
+				>
+					<tool.icon class="h-4 w-4" />
+				</button>
+			{/each}
+		</div>
+
+		<button
+			type="button"
+			class="tool-btn more-btn"
+			class:tool-btn--active={moreOpen || secondaryActive}
+			title="More tools"
+			aria-label="More tools"
+			aria-expanded={moreOpen}
+			onclick={() => { moreOpen = !moreOpen; }}
+		>
+			<ChevronUp class="h-4 w-4" />
+		</button>
+
 		<div class="divider"></div>
 
 		<button
 			type="button"
 			class="tool-btn"
 			class:tool-btn--active={editor.toolLocked}
-			title={editor.toolLocked ? "Unlock tool" : "Lock tool (or long-press a tool)"}
+			title={editor.toolLocked ? "Unlock tool" : "Keep tool after placing (or long-press)"}
 			aria-label={editor.toolLocked ? "Unlock tool" : "Lock tool"}
 			aria-pressed={editor.toolLocked}
 			onclick={toggleToolLock}
@@ -193,24 +242,11 @@ function toggleToolLock() {
 			<Pin class="h-4 w-4" />
 		</button>
 
-		<button
-			type="button"
-			bind:this={addButton}
-			class="tool-btn"
-			class:tool-btn--active={addMenuOpen}
-			title="Add file or URL"
-			aria-label="Add to canvas"
-			aria-expanded={addMenuOpen}
-			onclick={toggleAddMenu}
-		>
-			<Plus class="h-4 w-4" />
-		</button>
-
-		<div class="divider"></div>
+		<div class="divider history-divider"></div>
 
 		<button
 			type="button"
-			class="tool-btn"
+			class="tool-btn history-btn"
 			title="Undo"
 			aria-label="Undo"
 			disabled={!editor.canUndo}
@@ -220,7 +256,7 @@ function toggleToolLock() {
 		</button>
 		<button
 			type="button"
-			class="tool-btn"
+			class="tool-btn history-btn"
 			title="Redo"
 			aria-label="Redo"
 			disabled={!editor.canRedo}
@@ -230,10 +266,6 @@ function toggleToolLock() {
 		</button>
 	</div>
 </div>
-
-{#if addMenuOpen}
-	<CanvasAddMenu {editor} getAnchor={() => addButton} onClose={closeAddMenu} />
-{/if}
 
 <style>
 	.canvas-toolbar-wrap {
@@ -303,6 +335,45 @@ function toggleToolLock() {
 		background: var(--border-subtle);
 	}
 
+	.canvas-more-menu {
+		display: none;
+		min-width: 160px;
+		flex-direction: column;
+		gap: 2px;
+		border-radius: 10px;
+		border: 1px solid var(--border-subtle);
+		background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+		padding: 4px;
+		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
+		backdrop-filter: blur(12px);
+	}
+
+	.more-item {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		border: 0;
+		border-radius: 7px;
+		background: transparent;
+		padding: 8px 10px;
+		color: var(--text-secondary);
+		font-size: 12px;
+		font-weight: 500;
+		text-align: left;
+		cursor: pointer;
+	}
+	.more-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+	.more-item--active {
+		background: var(--brand-bg);
+		color: var(--brand-muted-fg);
+	}
+	.more-shortcut {
+		margin-left: auto;
+		color: var(--text-placeholder);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+	}
+
 	.canvas-floating-toolbar {
 		display: flex;
 		align-items: center;
@@ -314,6 +385,9 @@ function toggleToolLock() {
 		box-shadow: 0 10px 24px color-mix(in srgb, var(--overlay-scrim-strong) 16%, transparent);
 		backdrop-filter: blur(12px);
 	}
+
+	.secondary-inline { display: contents; }
+	.more-btn { display: none; }
 
 	.tool-btn {
 		display: inline-flex;
@@ -345,16 +419,44 @@ function toggleToolLock() {
 		background: var(--border-subtle);
 	}
 
-	/* Mobile: larger touch targets + horizontal scroll when tools overflow. */
+	/* Mobile: larger targets, More menu, safe-area, room for top zoom. */
 	@media (pointer: coarse) {
+		.canvas-toolbar-wrap {
+			bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+			width: min(100% - 16px, 100%);
+			max-width: calc(100vw - 16px);
+		}
 		.canvas-floating-toolbar {
-			max-width: calc(100vw - 24px);
+			max-width: 100%;
+			overflow-x: auto;
+			scrollbar-width: none;
+			-webkit-overflow-scrolling: touch;
+			padding: 5px;
+			gap: 3px;
+		}
+		.canvas-floating-toolbar::-webkit-scrollbar { display: none; }
+		.canvas-style-row {
+			max-width: 100%;
 			overflow-x: auto;
 			scrollbar-width: none;
 		}
-		.canvas-floating-toolbar::-webkit-scrollbar { display: none; }
+		.canvas-style-row::-webkit-scrollbar { display: none; }
 		.tool-btn { width: 40px; height: 40px; flex-shrink: 0; }
-		.color-swatch { width: 26px; height: 26px; }
-		.geo-btn { width: 30px; height: 30px; }
+		.color-swatch { width: 26px; height: 26px; flex-shrink: 0; }
+		.geo-btn { width: 30px; height: 30px; flex-shrink: 0; }
+
+		.secondary-inline { display: none; }
+		.more-btn { display: inline-flex; }
+		.canvas-more-menu { display: flex; }
+	}
+
+	@media (pointer: coarse) and (max-width: 480px) {
+		.canvas-toolbar-wrap {
+			bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+		}
+		.tool-btn { width: 38px; height: 38px; }
+		/* History is available via keyboard / selection actions on the tiniest screens. */
+		.history-btn,
+		.history-divider { display: none; }
 	}
 </style>

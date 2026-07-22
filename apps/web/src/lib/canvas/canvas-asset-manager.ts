@@ -5,7 +5,6 @@ import {
 	type LruEntry,
 	selectLruEvictions,
 } from "$lib/canvas/canvas-asset-lru";
-import { inferMediaKind } from "$lib/canvas/canvas-media";
 import type { CanvasItem } from "$lib/canvas/canvas-schema";
 
 /**
@@ -13,15 +12,8 @@ import type { CanvasItem } from "$lib/canvas/canvas-schema";
  * Space files and remote URLs are namespaced so they can never collide.
  */
 export function imageAssetKey(item: CanvasItem): string | null {
-	if (item.type !== "resource") return null;
-	const value = item.ref.kind === "space-file" ? item.ref.path : item.ref.url;
-	const isImage =
-		item.snapshot?.mimeType?.startsWith("image/") ||
-		inferMediaKind(value, item.snapshot?.mimeType) === "image";
-	if (!isImage) return null;
-	return item.ref.kind === "space-file"
-		? `file:${item.ref.path}`
-		: `url:${value}`;
+	if (item.type === "image") return `file:${item.ref.path}`;
+	return null;
 }
 
 type Entry = {
@@ -314,7 +306,7 @@ export function createCanvasAssetManager(
 		requestItem(item) {
 			if (disposed) return;
 			const key = imageAssetKey(item);
-			if (!key || item.type !== "resource") return;
+			if (!key || item.type !== "image") return;
 			const entry = ensureEntry(key);
 			entry.lastUsedAt = now();
 			if (entry.texture || entry.loading) return;
@@ -323,11 +315,8 @@ export function createCanvasAssetManager(
 			entry.error = false;
 			clearRetry(entry);
 			if (queue.some((queued) => queued.key === key)) return;
-			const ref = item.ref;
-			const getUrl =
-				ref.kind === "space-file"
-					? () => resolveSpaceFileUrl(options.spaceId, ref.path)
-					: () => Promise.resolve(ref.url);
+			const path = item.ref.path;
+			const getUrl = () => resolveSpaceFileUrl(options.spaceId, path);
 			resolvers.set(key, getUrl);
 			queue.push({ key, getUrl });
 			pump();

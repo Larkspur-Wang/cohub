@@ -85,8 +85,8 @@ test("parseCanvasItemLoose preserves an unknown shape type losslessly", () => {
 });
 
 test("a malformed known item degrades to unknown instead of throwing", () => {
-	// resource without a valid ref should not throw the whole document.
-	const item = parseCanvasItemLoose({ id: "r1", type: "resource", frame });
+	// image without a valid ref should not throw the whole document.
+	const item = parseCanvasItemLoose({ id: "r1", type: "image", frame });
 	assert.equal(isUnknownItem(item), true);
 });
 
@@ -481,13 +481,14 @@ test("createEmptyCovasDocument yields an empty document", () => {
 
 // ─── Item creation helpers ───────────────────────────────────────
 
-test("createNoteCanvasItem defaults to the brand color", () => {
+test("createNoteCanvasItem defaults to amber and centers on the point", () => {
 	const item = createNoteCanvasItem(10, 20);
 	assert.equal(item.type, "note");
 	if (item.type === "note") {
-		assert.equal(item.color, "brand");
-		assert.equal(item.frame.x, 10);
-		assert.equal(item.frame.y, 20);
+		assert.equal(item.color, "amber");
+		// Frame is centered on the creation point.
+		assert.ok(item.frame.x < 10);
+		assert.ok(item.frame.y < 20);
 	}
 });
 
@@ -529,6 +530,7 @@ test("createArrowCanvasItem builds a frame spanning both endpoints", () => {
 		assert.ok(item.frame.width >= 100);
 		assert.ok(item.frame.height >= 50);
 		assert.equal(item.arrowEnd, true);
+		assert.equal(item.size, 2.5);
 	}
 });
 

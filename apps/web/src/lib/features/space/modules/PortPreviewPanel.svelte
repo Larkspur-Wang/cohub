@@ -1,7 +1,10 @@
 <script lang="ts">
 import type { SpacePortStatus } from "@cohub/protocol/ports";
+import { FolderOpen, Menu } from "lucide-svelte";
 import PortPreview from "$lib/components/PortPreview.svelte";
+import PreviewExpandMenu from "$lib/components/PreviewExpandMenu.svelte";
 import WorkspacePreviewPane from "$lib/components/WorkspacePreviewPane.svelte";
+import { uiState } from "$lib/stores/ui.svelte";
 import PreviewTabs from "./PreviewTabs.svelte";
 
 type PreviewTab = {
@@ -66,8 +69,36 @@ let {
 	animate={animateShell}
 >
 	<div class="flex h-full min-w-0 flex-col bg-bg-content" class:preview-stage--immersive={immersive}>
-		{#if !immersive}
-			<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} treeVisible={treeVisible} onToggleTree={immersive ? undefined : onToggleTree} />
+		{#if isMobile}
+			<div class="flex h-11 shrink-0 items-center gap-0.5 border-b border-border-subtle bg-bg-surface px-1">
+				<button type="button" class="icon-btn" title="Open sidebar" aria-label="Open sidebar" onclick={() => { uiState.mobileDrawerOpen = true; }}>
+					<Menu class="h-5 w-5" />
+				</button>
+				<div class="min-w-0 flex-1 overflow-hidden">
+					<PreviewTabs tabs={previewTabs} onActivate={onActivatePreviewTab} onClose={onClosePreviewTab} embedded />
+				</div>
+				<button type="button" class="icon-btn" title="Open files" aria-label="Open files" onclick={() => { uiState.mobileRightDrawerOpen = true; }}>
+					<FolderOpen class="h-5 w-5" />
+				</button>
+			</div>
+		{:else}
+			<PreviewTabs
+				tabs={previewTabs}
+				onActivate={onActivatePreviewTab}
+				onClose={onClosePreviewTab}
+				treeVisible={treeVisible}
+				onToggleTree={immersive ? undefined : onToggleTree}
+			>
+				{#snippet trailing()}
+					<PreviewExpandMenu
+						{focused}
+						{immersive}
+						size="sm"
+						{onToggleFocus}
+						{onToggleImmersive}
+					/>
+				{/snippet}
+			</PreviewTabs>
 		{/if}
 		<div class="min-h-0 flex-1">
 			<PortPreview
@@ -75,12 +106,8 @@ let {
 				{url}
 				{status}
 				{observedAt}
-				{focused}
 				{immersive}
-				onToggleFocus={isMobile ? undefined : onToggleFocus}
-				onToggleImmersive={isMobile ? undefined : onToggleImmersive}
 				onPublish={onPublish}
-				onClose={onClose}
 			/>
 		</div>
 	</div>
