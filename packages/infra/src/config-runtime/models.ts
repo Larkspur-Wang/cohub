@@ -2,6 +2,8 @@ export const MODELS_REDIS_KEY_VERSION = "v2";
 export const PLATFORM_MODELS_REDIS_KEY = `configs:models:${MODELS_REDIS_KEY_VERSION}:platform`;
 export const USER_MODELS_REDIS_KEY_PREFIX = `configs:models:${MODELS_REDIS_KEY_VERSION}:user`;
 export const MODELS_CACHE_TTL_SEC = 24 * 60 * 60;
+export const CODEX_ORIGINATOR = "codex_cli_rs";
+export const GPT_RESPONSES_USER_AGENT = "codex_cli_rs/0.144.0";
 
 const SAFE_REDIS_KEY_SEGMENT_REGEX = /^[0-9a-zA-Z_-]+$/;
 
@@ -54,6 +56,39 @@ export type CachedModelsConfig = {
   sourceCheckpointId?: string | null;
   content: ModelsConfig | null;
 };
+
+export function isGptResponsesModel(
+  model: Pick<ModelDef, "api" | "id"> | undefined,
+): boolean {
+  return model?.api === "openai-responses" && model.id.toLowerCase().startsWith("gpt-");
+}
+
+function hasConfiguredHeader(
+  headers: Record<string, string> | undefined,
+  expectedName: string,
+): boolean {
+  const expected = expectedName.toLowerCase();
+  return Object.keys(headers ?? {}).some((name) => name.toLowerCase() === expected);
+}
+
+export function resolveModelRequestHeaders(
+  model: Pick<ModelDef, "api" | "id"> | undefined,
+  configuredHeaders: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  if (!isGptResponsesModel(model)) {
+    return configuredHeaders;
+  }
+
+  let headers = configuredHeaders;
+  if (!hasConfiguredHeader(headers, "User-Agent")) {
+    headers = { ...(headers ?? {}), "User-Agent": GPT_RESPONSES_USER_AGENT };
+  }
+  if (!hasConfiguredHeader(headers, "Originator")) {
+    headers = { ...(headers ?? {}), Originator: CODEX_ORIGINATOR };
+  }
+
+  return headers;
+}
 
 export type ModelCatalogEntry = {
   provider: string;
