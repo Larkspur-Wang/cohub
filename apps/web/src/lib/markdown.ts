@@ -492,7 +492,7 @@ function renderMermaidPreviewHtml(source: string) {
 	const loadingText = isMermaidSourceTooLarge(source)
 		? "Preview disabled"
 		: "Rendering diagram…";
-	return `<figure class="markdown-mermaid-figure"><div class="markdown-mermaid" data-mermaid-source="${encodedSource}" role="img" aria-label="Mermaid diagram"><div class="markdown-mermaid-loading">${loadingText}</div></div><details class="markdown-mermaid-source"><summary>Source</summary><pre><code class="language-mermaid">${escapeHtml(source)}</code></pre></details></figure>`;
+	return `<figure class="markdown-mermaid-figure"><div class="markdown-mermaid" data-mermaid-source="${encodedSource}" data-drawer-swipe-ignore role="img" aria-label="Mermaid diagram"><div class="markdown-mermaid-loading">${loadingText}</div></div><details class="markdown-mermaid-source"><summary>Source</summary><pre><code class="language-mermaid">${escapeHtml(source)}</code></pre></details></figure>`;
 }
 
 function enhanceMermaidTokens(tokens: Token[]) {
